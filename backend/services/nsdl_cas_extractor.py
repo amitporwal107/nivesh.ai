@@ -204,6 +204,131 @@ def _parse_folio_row(nums: list[float], name: str, isin: str) -> Optional[Holdin
     return None
 
 
+# ── Multi-line rows ────────────────────────────────────────────────────
+# A holding is one table row, but its cells are stacked (ISIN above the stock
+# symbol, UCC under the folio ISIN, a "of which Pledged" sub-line under the
+# quantity, long names wrapped) and the figures are vertically centred, so the
+# text layer often delivers one row as two to five lines. Layouts seen in real
+# statements (<n> = a number; the ISIN line is the one marked ►):
+#
+#   Equity / Preference  — columns: face value, quantity, price, value
+#     ► INE666D01022                               ISIN alone
+#       BOROSIL RENEWABLES LIMITED <f> <qty> <p> <v>
+#       BORORENEW.NSE
+#
+#     ► INE14LE01019 ADITYA BIRLA ... <qty>        quantity on the ISIN line
+#       <f> <p> <v>
+#       ABLBL.NSE of which Pledged / Unconfirmed Pledge <n>
+#
+#       CROMPTON GREAVES CONSUMER ELECTRICALS      name wrapped around the ISIN
+#     ► INE299U01018 <qty>
+#       LIMITED <f> <p> <v>
+#
+#   Demat mutual fund — columns: units, NAV, value
+#       ICICI PRUDENTIAL ... ETF-- <units>         name + units above the ISIN
+#     ► INF109KC19U5 <nav> <v>
+#
+#   Mutual fund folio — columns: folio, units, ..., value, P/L
+#     ► INF846K01QE4 Axis Arbitrage Fund - Regular Monthly
+#       <folio> <units> <avg> <cost> <nav> <v> <pnl>
+#       MFAXIS0100 IDCW                            UCC + rest of the name
+#
+#       Franklin India Flexi Cap Fund - Direct Plan
+#     ► INF090I01FK3
+#       - Growth (erstwhile ... <folio> <units> <avg> <cost> <nav> <v> <pnl>
+#
+# _parse_holding_line needs the single-line form "ISIN name <columns>".
+# _assemble_row rebuilds it from the ISIN line and its neighbours; a row that
+# is already on one line is returned unchanged.
+_PLEDGE_PHRASE = re.compile(r"of which Pledged\s*/\s*Unconfirmed Pledge", re.IGNORECASE)
+_TRAILING_NUMS = re.compile(r"((?:\s+-?\d[\d,]*(?:\.\d+)?)+)\s*$")
+_NOT_A_ROW_PART = re.compile(r"^(Sub Total|Total|ISIN|Stock Symbol)\b")
+# The UCC cell that starts a folio row's continuation line ("MFAXIS0100 IDCW").
+_UCC_PREFIX = re.compile(r"^(?:NOT AVAILABLE|[A-Z0-9&]{5,})\b\s*")
+
+
+def _clean_line(raw: str) -> str:
+    """Strip the line and drop the pledge label, keeping any figures that the
+    text layer put on the same line as it."""
+    return re.sub(r"\s{2,}", " ", _PLEDGE_PHRASE.sub(" ", raw)).strip()
+
+
+def _split_trailing_nums(s: str) -> tuple[str, list[str]]:
+    """("NAME 30 ETF-- 453") -> ("NAME 30 ETF--", ["453"]): the run of numbers
+    that ends the line, as printed, and the text before it."""
+    s = _DATE.sub(" ", s).strip()
+    m = _TRAILING_NUMS.search(" " + s)
+    if not m:
+        return s, []
+    return (" " + s)[:m.start()].strip(), m.group(1).split()
+
+
+def _row_part(lines: list[str], idx: int) -> str:
+    """Line ``idx`` if it can belong to a neighbouring row: not another row, a
+    table header, a total, or a section header."""
+    if not 0 <= idx < len(lines):
+        return ""
+    ln = lines[idx]
+    if not ln or _ISIN.match(ln) or _NOT_A_ROW_PART.match(ln) or _SECTION.match(ln):
+        return ""
+    return ln
+
+
+def _assemble_row(lines: list[str], i: int, klass: str) -> str:
+    line = lines[i]
+    m = _ISIN.match(line)
+    if not m:
+        return line
+    isin, rest = m.group(1), line[m.end():].strip()
+    body, tail = _split_trailing_nums(rest)
+    nxt, prv = _row_part(lines, i + 1), _row_part(lines, i - 1)
+    note = "See Note" if "See Note" in nxt else ""
+    n_body, n_tail = _split_trailing_nums(nxt.replace("See Note", " "))
+    _p_body, p_tail = _split_trailing_nums(prv)
+    name_above = prv if not p_tail else ""      # a text-only line above the ISIN
+
+    def join(*parts: str) -> str:
+        return " ".join(p for p in parts if p)
+
+    if klass in ("E", "P"):
+        if len(tail) >= 3 or "See Note" in rest:
+            return line
+        if not tail and len(n_tail) >= (2 if note else 3):
+            # every column is on the next line (preference rows also carry the
+            # issuer on the line above the ISIN)
+            return join(isin, name_above if klass == "P" else "", rest, nxt)
+        if len(tail) == 1 and len(n_tail) >= 2:
+            # quantity on the ISIN line; face value, price and value below it
+            name = join("" if body else name_above, body, n_body)
+            return join(isin, name, n_tail[0], tail[0], note, *n_tail[1:])
+        return line
+
+    if klass == "M":
+        if len(tail) >= 3:
+            return line
+        if not body and len(tail) == 2 and p_tail and _p_body:
+            return join(isin, prv, *tail)          # name + units above the ISIN
+        if not tail and len(n_tail) >= 3:
+            return join(isin, rest, nxt)
+        if body and len(tail) == 1 and not n_body and len(n_tail) == 2:
+            return join(isin, rest, *n_tail)       # units on the ISIN line
+        return line
+
+    if klass == "F":
+        if len(tail) >= 4:
+            return line
+        if rest and not n_body and len(n_tail) >= 4:
+            cont = _UCC_PREFIX.sub("", _row_part(lines, i + 2))
+            if _split_trailing_nums(cont)[1]:
+                cont = ""                          # that line is another row's figures
+            return join(isin, rest, cont, *n_tail)
+        if not rest and len(n_tail) >= 4:
+            return join(isin, name_above, n_body, *n_tail)
+        return line
+
+    return line
+
+
 def _parse_holding_line(line: str, klass: str) -> Optional[Holding]:
     """Parse one ISIN-anchored holding row for the given NSDL class.
 
@@ -281,8 +406,8 @@ def extract_nsdl_cas(pdf_bytes: bytes, password: str = "") -> ExtractResult:
             if stop:
                 break
             text = page.extract_text() or ""
-            for raw in text.split("\n"):
-                line = raw.strip()
+            lines = [_clean_line(raw) for raw in text.split("\n")]
+            for i, line in enumerate(lines):
                 if not line:
                     continue
                 if in_holdings and _is_txn_start(line):
@@ -335,7 +460,7 @@ def extract_nsdl_cas(pdf_bytes: bytes, password: str = "") -> ExtractResult:
 
                 # Holding row
                 if current_class and _ISIN.match(line):
-                    h = _parse_holding_line(line, current_class)
+                    h = _parse_holding_line(_assemble_row(lines, i, current_class), current_class)
                     if h:
                         h.account = current_account
                         res.holdings.append(h)
