@@ -220,9 +220,9 @@ async def _portfolio_snapshot_job():
 
 
 async def _nidp_gcs_export_job():
-    """Daily NIDP GCS export — runs 22:50 IST. Refreshes holdings,
-    transactions and goals in the GCS landing zone so NIDP's nightly
-    portfolio_*_sync jobs (23:00 onward) see today's state for every
+    """Daily portfolio sync to NIDP — runs 22:50 IST. Sends holdings,
+    transactions and goals (HTTP push to the NIDP Query API; GCS export only
+    where that API is not configured) so NIDP sees today's state for every
     user — not just users who happened to upload a CAS that day.
 
     The CAS-import hook in cas_snapshot_engine.py already triggers an
@@ -230,18 +230,13 @@ async def _nidp_gcs_export_job():
     and idle days.
     """
     try:
-        from services.portfolio_gcs_export import (
-            export_portfolio_to_gcs,
-            export_cas_transactions_to_gcs,
-            export_user_goals_to_gcs,
-        )
+        from services.portfolio_direct_push import sync_portfolio_to_nidp
         from server import db  # avoid circular import at module load
-        h = await export_portfolio_to_gcs(db)
-        t = await export_cas_transactions_to_gcs(db)
-        g = await export_user_goals_to_gcs(db)
+        res = await sync_portfolio_to_nidp(db)
         logger.info(
-            "nidp_gcs_export: holdings=%s txns=%s goals=%s",
-            h.get("exported"), t.get("exported"), g.get("exported"),
+            "nidp portfolio sync (%s): holdings=%s txns=%s goals=%s",
+            res.get("via"),
+            *(res.get(k, {}).get("exported", res.get(k, {}).get("error")) for k in ("holdings", "transactions", "goals")),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("nidp_gcs_export error: %s", e)

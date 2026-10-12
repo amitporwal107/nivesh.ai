@@ -554,16 +554,16 @@ async def _enrich_after_upload(user_id: str, holdings_added: list) -> None:
         except Exception as e:  # noqa: BLE001
             logger.warning("post-upload persona refresh failed: %s", e, extra={"user_id": user_id})
 
-        # NIDP GCS export — ships the refreshed holdings to GCS so the
-        # portfolio_holdings_sync service on the NIDP VM can ingest them.
+        # Ship the refreshed holdings to NIDP (HTTP push to the Query API; GCS
+        # export only where that API is not configured).
         # Previously this was only triggered from cas_snapshot_engine.py
         # (now deprecated); adding it here covers the CAS Connect SDK path.
         try:
-            from services.portfolio_gcs_export import export_portfolio_to_gcs
-            await export_portfolio_to_gcs(db)
-            logger.info("post-upload GCS export: complete", extra={"user_id": user_id})
+            from services.portfolio_direct_push import sync_portfolio_to_nidp
+            res = await sync_portfolio_to_nidp(db, include=("holdings",))
+            logger.info("post-upload portfolio sync to NIDP: %s", res, extra={"user_id": user_id})
         except Exception as e:  # noqa: BLE001
-            logger.warning("post-upload GCS export failed: %s", e, extra={"user_id": user_id})
+            logger.warning("post-upload portfolio sync to NIDP failed: %s", e, extra={"user_id": user_id})
 
     except Exception as e:  # noqa: BLE001
         logger.warning("_enrich_after_upload crashed: %s", e, extra={"user_id": user_id})

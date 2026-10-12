@@ -114,11 +114,11 @@ NIDP_HOME=/opt/nidp-staging
 30 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh quality_gate
 
 # ── Intelligence layer + per-user portfolio sync ──────────────────
-# HELD (reads a GCS export; no GCP credentials here):
+# HELD (not needed here: the app pushes this data to the Query API /portfolio/ingest-* endpoints; this job only reads the old GCS export):
 # 0  23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_holdings_sync
-# HELD (reads a GCS export; no GCP credentials here):
+# HELD (not needed here: the app pushes this data to the Query API /portfolio/ingest-* endpoints; this job only reads the old GCS export):
 # 10 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_transactions_sync
-# HELD (reads a GCS export; no GCP credentials here):
+# HELD (not needed here: the app pushes this data to the Query API /portfolio/ingest-* endpoints; this job only reads the old GCS export):
 # 15 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_goals_sync
 20 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh intelligence_layer
 30 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_intelligence_sync

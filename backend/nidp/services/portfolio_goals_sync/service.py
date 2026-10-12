@@ -186,6 +186,19 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
         logger.info("portfolio_goals_sync: empty file")
         return {**stats, "sync_run_id": str(sync_run_id)}
 
+    result = await ingest_records(records, target_date=target_date, sync_run_id=sync_run_id)
+    return {**result, "gcs_path": blob_path}
+
+
+async def ingest_records(records: list[dict[str, Any]],
+                         target_date: Optional[date] = None,
+                         sync_run_id: Optional[uuid.UUID] = None) -> dict[str, Any]:
+    """Upsert goal records into NIDP. Shared by the GCS-file path (``run``) and
+    the Query API ingest endpoint."""
+    sync_run_id = sync_run_id or uuid.uuid4()
+    nidp = await _get_nidp_pool()
+    stats = {"users": 0, "goals_seen": 0, "goals_upserted": 0, "errors": 0}
+
     by_user: dict[str, list[dict[str, Any]]] = {}
     for r in records:
         uid = r.get("external_user_id")
@@ -221,4 +234,4 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
                     "ERROR", rows_upserted=upserted, error_detail=str(exc)[:500],
                 )
 
-    return {**stats, "sync_run_id": str(sync_run_id), "gcs_path": blob_path}
+    return {**stats, "sync_run_id": str(sync_run_id)}

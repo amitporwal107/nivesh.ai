@@ -507,49 +507,24 @@ async def create_cas_snapshot(
         aggs=aggs,
     )
 
-    # Push holdings + transactions directly to NIDP Postgres via Query API.
-    # Direct path (no GCS): Nivesh app → NIDP Query API → TimescaleDB.
-    # Falls back to GCS export if direct push is unavailable (legacy path).
+    # Send holdings + transactions to NIDP (see portfolio_direct_push.sync_portfolio_to_nidp:
+    # HTTP push to the NIDP Query API; GCS export only where that API is not configured).
     import asyncio as _asyncio
 
     async def _push_to_nidp() -> None:
         from services import nidp_query_client as _nqc
+        from services.portfolio_direct_push import sync_portfolio_to_nidp
 
-        if _nqc.is_configured():
-            # ── Primary path: direct push (bypasses GCS) ────────────────────
-            try:
-                from services.portfolio_direct_push import (
-                    push_portfolio_direct,
-                    push_transactions_direct,
-                )
-                h_result = await push_portfolio_direct(db, target_date=snapshot_date)
-                logger.info("portfolio direct push after CAS import: %s", h_result)
-                t_result = await push_transactions_direct(db, target_date=snapshot_date)
-                logger.info("transactions direct push after CAS import: %s", t_result)
-                # Still trigger intelligence sync so V3 scores update
-                try:
-                    await _nqc.execute_feed("portfolio_intelligence_sync", target_date=snapshot_date)
-                except Exception as _exc:  # noqa: BLE001
-                    logger.debug("intelligence sync trigger skipped: %s", _exc)
-                return
-            except Exception as _exc:  # noqa: BLE001
-                logger.warning("portfolio direct push failed — falling back to GCS: %s", _exc)
-
-        # ── Fallback path: GCS export + sync jobs (original flow) ───────────
-        try:
-            from services.portfolio_gcs_export import (
-                export_portfolio_to_gcs,
-                export_cas_transactions_to_gcs,
-            )
-            holdings_result = await export_portfolio_to_gcs(db, target_date=snapshot_date)
-            logger.info("portfolio GCS export after CAS import: %s", holdings_result)
-            txn_result = await export_cas_transactions_to_gcs(db, target_date=snapshot_date)
-            logger.info("transactions GCS export after CAS import: %s", txn_result)
-        except Exception as _exc:  # noqa: BLE001
-            logger.warning("portfolio/transactions GCS export failed (non-blocking): %s", _exc)
+        result = await sync_portfolio_to_nidp(
+            db, target_date=snapshot_date, include=("holdings", "transactions"))
+        logger.info("portfolio sync to NIDP after CAS import: %s", result)
+        if not _nqc.is_configured():
             return
         try:
-            if _nqc.is_configured():
+            if result.get("via") == "direct":
+                # the data is already in NIDP — refresh the derived intelligence
+                await _nqc.execute_feed("portfolio_intelligence_sync", target_date=snapshot_date)
+            else:
                 await _nqc.execute_feed("portfolio_holdings_sync", target_date=snapshot_date)
                 await _nqc.execute_feed("portfolio_transactions_sync", target_date=snapshot_date)
         except Exception as _exc:  # noqa: BLE001

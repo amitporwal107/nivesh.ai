@@ -2,7 +2,10 @@
 
 Builds the same record shapes as portfolio_gcs_export.py but instead of
 writing JSONL to GCS it pushes them directly to the NIDP Query API
-(POST /portfolio/ingest-holdings and POST /portfolio/ingest-transactions).
+(POST /portfolio/ingest-holdings, /ingest-transactions and /ingest-goals).
+
+``sync_portfolio_to_nidp`` is the single entry point every trigger uses (CAS
+import, post-upload enrichment, the nightly job, the admin endpoints).
 
 The NIDP Query API writes straight to portfolio.user_holdings_snapshot
 and portfolio.user_transactions in NIDP TimescaleDB — no GCS billing,
@@ -223,3 +226,92 @@ async def push_transactions_direct(
         "via": "direct",
         "upserted": result.get("upserted", 0),
     }
+
+
+async def push_goals_direct(
+    db,
+    target_date: Optional[date] = None,
+) -> dict[str, Any]:
+    """Build goal records (PG `user_goals`) and push directly to NIDP Postgres."""
+    import json
+
+    from services import nidp_query_client as _nqc
+    from services.portfolio_gcs_export import build_goal_records
+
+    if not _nqc.is_configured():
+        logger.info("portfolio_direct_push: NIDP_QUERY_API_URL not configured — skipping")
+        return {"exported": 0, "via": "skipped"}
+
+    date_str = (target_date or date.today()).isoformat()
+    built = await build_goal_records(db)
+    if built.get("skipped_reason"):
+        return {"exported": 0, "users": 0, "date": date_str, "via": "direct",
+                "skipped_reason": built["skipped_reason"]}
+    if not built["records"]:
+        logger.info("portfolio_direct_push: no goals to push")
+        return {"exported": 0, "users": 0, "date": date_str, "via": "direct",
+                "skipped_no_email": built["skipped_no_email"]}
+
+    # Same serialisation the JSONL export applies (UUIDs, Decimals, datetimes → str).
+    records = json.loads(json.dumps(built["records"], default=str))
+    result = await _nqc.push_goals(records, date_str)
+    logger.info("portfolio_direct_push: goals push result: %s", result)
+    return {
+        "exported": len(records),
+        "users": len(built["users"]),
+        "date": date_str,
+        "via": "direct",
+        "upserted": result.get("upserted", 0),
+        "skipped_no_email": built["skipped_no_email"],
+    }
+
+
+_PUSHERS = {
+    "holdings":     push_portfolio_direct,
+    "transactions": push_transactions_direct,
+    "goals":        push_goals_direct,
+}
+
+
+async def sync_portfolio_to_nidp(
+    db,
+    target_date: Optional[date] = None,
+    include: tuple[str, ...] = ("holdings", "transactions", "goals"),
+) -> dict[str, Any]:
+    """Send user portfolio data to NIDP — the one entry point for every trigger.
+
+    With the NIDP Query API configured the data is pushed over HTTP. A failure
+    of one kind is logged and reported under its key (``{"error": ...}``) and
+    does not stop the others; nothing falls back to another transport, so a
+    failed push is visible instead of being masked.
+
+    Where the Query API is NOT configured, the legacy GCS export is used (an
+    environment that still relies on the bucket landing zone and the
+    portfolio_*_sync cron jobs).
+    """
+    from services import nidp_query_client as _nqc
+
+    if not _nqc.is_configured():
+        from services import portfolio_gcs_export as _gcs
+        exporters = {
+            "holdings":     _gcs.export_portfolio_to_gcs,
+            "transactions": _gcs.export_cas_transactions_to_gcs,
+            "goals":        _gcs.export_user_goals_to_gcs,
+        }
+        out: dict[str, Any] = {"via": "gcs"}
+        for kind in include:
+            try:
+                out[kind] = await exporters[kind](db, target_date=target_date)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("portfolio sync (gcs) %s failed: %s", kind, exc)
+                out[kind] = {"error": str(exc)[:300]}
+        return out
+
+    out = {"via": "direct"}
+    for kind in include:
+        try:
+            out[kind] = await _PUSHERS[kind](db, target_date=target_date)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("portfolio sync (direct) %s failed: %s", kind, exc)
+            out[kind] = {"error": str(exc)[:300]}
+    return out

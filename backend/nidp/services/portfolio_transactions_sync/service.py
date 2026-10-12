@@ -182,6 +182,18 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
         logger.info("portfolio_transactions_sync: empty file")
         return {**stats, "sync_run_id": str(sync_run_id)}
 
+    result = await ingest_records(records, sync_run_id=sync_run_id)
+    return {**result, "gcs_path": blob_path}
+
+
+async def ingest_records(records: list[dict[str, Any]],
+                         sync_run_id: Optional[uuid.UUID] = None) -> dict[str, Any]:
+    """Upsert transaction records into NIDP. Shared by the GCS-file path
+    (``run``) and the Query API ingest endpoint."""
+    sync_run_id = sync_run_id or uuid.uuid4()
+    nidp = await _get_nidp_pool()
+    stats = {"users": 0, "txns_seen": 0, "txns_upserted": 0, "errors": 0}
+
     # Bucket by (user, max-txn-date) so the audit log writes one row per user.
     by_user: dict[str, list[dict[str, Any]]] = {}
     for r in records:
@@ -217,4 +229,4 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
                     "ERROR", rows_upserted=upserted, error_detail=str(exc)[:500],
                 )
 
-    return {**stats, "sync_run_id": str(sync_run_id), "gcs_path": blob_path}
+    return {**stats, "sync_run_id": str(sync_run_id)}
