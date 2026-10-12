@@ -527,3 +527,7 @@ docs/OPEN_API_KEY
 # local deploy checkouts (not part of the repo)
 .deploy-dev
 .deploy-main
+
+# CloudPe Cloudflare DNS migration: local config (holds API token) and backups
+cloudflare.env
+cloudflare-dns-backup-*.json

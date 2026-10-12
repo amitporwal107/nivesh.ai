@@ -92,3 +92,28 @@ app — `/api/healthz`, `/v2/`, `/v5/` through the edge nginx; NIDP — DaaS and
 - **Python on the NIDP VM:** the venv is built with host Python 3.11 (Ubuntu) and mounted into
   `python:3.11-slim` containers (Debian). Packages compiled from source on the host could fail to
   load in the containers; wheels from PyPI are fine. Watch the first deploy's health output.
+
+## Cloudflare DNS → CloudPe
+
+`cloudflare_dns_migrate.py` repoints A records from the GCP IPs to the CloudPe VMs
+(standard-library Python, runs on Windows/Linux/macOS). The token is read from a config file
+outside the repo and never printed.
+
+1. In Cloudflare create an API token scoped to **zone `niveshcopilot.com`** with
+   **Zone → DNS → Edit** and **Zone → Zone → Read** only.
+2. Create the config (Git Bash or Linux):
+   ```bash
+   mkdir -p ~/.config/nivesh
+   cp deploy/cloudpe/cloudflare.env.example ~/.config/nivesh/cloudflare.env
+   chmod 600 ~/.config/nivesh/cloudflare.env
+   # edit it and paste the token after CF_API_TOKEN=
+   ```
+3. Dry run (changes nothing, shows the plan): `python deploy/cloudpe/cloudflare_dns_migrate.py`
+4. Apply: `python deploy/cloudpe/cloudflare_dns_migrate.py --apply`
+   — writes `cloudflare-dns-backup-<zone>-<time>.json` first.
+5. Undo: `python deploy/cloudpe/cloudflare_dns_migrate.py --rollback <that backup file>`
+
+Only A records whose IP is in `IP_MAP` change, and only their IP (proxy status, TTL, comments
+stay). `SKIP_NAMES` (default `ide.niveshcopilot.com`) is left alone. MX/TXT/CNAME are never touched.
+Changing DNS does not bring the site up by itself: the VMs must be deployed, listening on the
+public port with a Cloudflare Origin cert, and the CloudPe firewall must allow Cloudflare's IPs.
