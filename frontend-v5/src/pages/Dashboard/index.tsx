@@ -62,7 +62,7 @@ export default function DashboardPage() {
       <EmptyState
         title="Connect your investments to begin"
         description="Upload a CAS PDF, a broker statement, or an Excel/CSV file. We parse it, score it, and surface what to do next."
-        action={{ label: "Upload a statement", onClick: () => navigate("/onboarding") }}
+        action={{ label: "Upload a statement", onClick: () => navigate("/onboarding?tab=upload") }}
       />
     );
   }
