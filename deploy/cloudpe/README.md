@@ -141,8 +141,23 @@ sudo bash /opt/nivesh-staging/repo/deploy/cloudpe/app/deploy.sh dev [--backend-o
 sudo bash /opt/nidp/dev-repo/nivesh.ai/deploy/cloudpe/nidp/deploy.sh dev [--migrate]
 ```
 
-The GitHub workflows (`deploy-*-staging.yml`) still target the GCP VMs. Repointing them is
-a separate change to make after the cutover.
+## CI
+
+The three staging workflows (`deploy-backend-staging.yml`, `deploy-frontend-staging.yml`,
+`deploy-nidp-staging.yml`) SSH to these VMs as the user `ci-deploy` and run one command:
+
+```bash
+sudo /usr/bin/bash <checkout>/deploy/cloudpe/ci-deploy.sh app|nidp <branch> [flags]
+```
+
+`ci-deploy` exists on both VMs with a sudoers entry (`/etc/sudoers.d/91-ci-deploy`) that
+allows only that command. The workflows read four repository secrets, separate from the
+prod ones: `STAGING_APP_VM_HOST`, `STAGING_NIDP_VM_HOST`, `STAGING_SSH_USER` (`ci-deploy`)
+and `STAGING_SSH_KEY` (the private key whose public half is in
+`/home/ci-deploy/.ssh/authorized_keys` on both VMs).
+
+Other workflows that used the GCP NIDP VM for staging (`deploy-android-staging.yml`,
+`nidp-run-service.yml`, `deploy-grafana.yml`) have not been moved.
 
 ## Not covered
 
