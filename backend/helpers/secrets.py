@@ -206,6 +206,17 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "description": "Companion secret to BROKER_ZERODHA_API_KEY. Used in the SHA-256 checksum during `generate_session`.",
         "test_fn": None, "category": "broker",
     },
+    # ── Research data providers (docs/charting.md §32) ──
+    "KITE_ACCESS_TOKEN": {
+        "display_name": "Kite Connect · daily access token (research data)",
+        "description": "Access token for the Kite market-data adapter (/api/research/providers/kite/*). Expires ~06:00 IST every day; obtain a new one with the login handshake (`python -m nidp.services.kite_bars.auth --login`, then `--exchange`). Uses the BROKER_ZERODHA_API_KEY app.",
+        "test_fn": None, "category": "data",
+    },
+    "TRENDLYNE_MCP_URL": {
+        "display_name": "Trendlyne MCP · server URL (contains the access token)",
+        "description": "Full Trendlyne MCP endpoint including its `?token=` query, used by the Trendlyne research adapter (/api/research/providers/trendlyne/*). Treat the whole value as a secret. Data is internal-use only and PIT_UNVERIFIED.",
+        "test_fn": None, "category": "data",
+    },
     "BROKER_UPSTOX_API_KEY": {
         "display_name": "Upstox · API Key", "category": "broker", "test_fn": None,
         "description": "Upstox v2 app key. Register at https://account.upstox.com/developer/apps with redirect URI `<host>/api/broker/native/callback?broker=upstox`.",
