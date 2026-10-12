@@ -114,6 +114,24 @@ curl -sf https://staging-data.niveshcopilot.com/health
 **Rollback:** point the two records back at `34.47.250.214` / `34.93.60.254`. Nothing on
 GCP is changed by these scripts.
 
+## Rebuilding without a capture (what was done on 2026-10-12)
+
+GCP access was revoked before a capture could be taken, so staging was rebuilt empty:
+
+- Both bootstraps were run without `--bundle`. The NIDP one generates `nidp.env` with a
+  fresh DB password and internal tokens; the app one generates `.env.staging`. The two
+  tokens `NIDP_QUERY_API_TOKEN` and `NIDP_DAAS_INTERNAL_TOKEN` were copied from the NIDP
+  env into the app env, and `OPENAI_API_KEY` was added to both by hand.
+- `nidp/bootstrap.sh --tsdb-tag 2.26.4-pg16`, then `nidp/deploy.sh dev --migrate --install-cron`
+  built the NIDP schema from the 139 migrations.
+- `app/deploy.sh dev --migrate` built and started the app stack.
+- Each VM has its own Cloudflare Origin CA certificate (key generated on the VM).
+- `cloudflare-cutover.sh apply` repointed the two A records.
+
+The warehouse starts with no market data, and the staged crontab is the repo copy with
+the feed lines commented out. Enable feeds in `/opt/nidp-staging/cron/nidp-staging.cron`
+and re-run `nidp/deploy.sh dev --install-cron`.
+
 ## Routine deploys
 
 ```bash
