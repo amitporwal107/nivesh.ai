@@ -36,6 +36,7 @@ try:
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
+    from nidp.services.copilot_agent._llm import text_of as _llm_text_of
     from nidp.services.copilot_agent.persona_loader import load_persona_context as _load_persona_context
     from nidp.services.copilot_agent.schemas import AgentName as _AgentName
     from langchain_core.messages import HumanMessage as _HumanMessage
@@ -1416,10 +1417,12 @@ async def stream_chat(request: Request):
                             if "intent_internal" in tags:
                                 continue
                             chunk = event.get("data", {}).get("chunk")
-                            if chunk and hasattr(chunk, "content") and chunk.content:
-                                prose += chunk.content
+                            # text only: Claude chunks are lists of blocks (reasoning + text)
+                            token = _llm_text_of(chunk) if chunk is not None else ""
+                            if token:
+                                prose += token
                                 streamed_any = True
-                                yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
+                                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
                         elif kind == "on_chain_end" and event.get("name") == "intent_node":
                             output = event.get("data", {}).get("output", {})
                             intent = output.get("intent") if isinstance(output, dict) else None
