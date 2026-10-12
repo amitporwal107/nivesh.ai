@@ -320,8 +320,9 @@ if [[ -n "$BUNDLE" && -s "${BUNDLE}/config/cron/nidp-staging" ]]; then
     CRON_SRC="${BUNDLE}/config/cron/nidp-staging"
     log "Staging the crontab captured from the live GCP VM"
 else
-    CRON_SRC="${DEV_REPO}/backend/nidp/deploy/vm/nidp.staging.cron"
-    warn "No captured crontab — staging the repo copy, in which the feed lines are commented out."
+    # No capture: the CloudPe schedule, with the feeds verified on this VM enabled.
+    CRON_SRC="${DEV_REPO}/deploy/cloudpe/nidp/nidp-staging.cron"
+    log "No captured crontab — staging deploy/cloudpe/nidp/nidp-staging.cron"
 fi
 grep -v 'gate4_replication_check' "$CRON_SRC" > "$STAGED_CRON"
 chmod 644 "$STAGED_CRON"
