@@ -156,9 +156,24 @@ elif [[ -n "$BUNDLE" && -f "${BUNDLE}/config/nidp.env" ]]; then
     log "Installing nidp.env from the capture bundle"
     install -m 600 -o "$SVC_USER" -g "$SVC_USER" "${BUNDLE}/config/nidp.env" "$ENV_FILE"
 else
-    log "Seeding nidp.env from the example — every CHANGEME must be replaced"
-    install -m 600 -o "$SVC_USER" -g "$SVC_USER" \
-        "${DEV_REPO}/backend/nidp/deploy/vm/nidp.env.staging.example" "$ENV_FILE"
+    # No bundle (the source VM is unreachable): start from the example with a
+    # fresh DB password and fresh internal tokens. The two tokens must also be
+    # set on the app VM (NIDP_QUERY_API_TOKEN, NIDP_DAAS_INTERNAL_TOKEN in
+    # .env.staging). External API keys still have to be added by hand.
+    log "No nidp.env in a bundle — generating one from the example with fresh secrets"
+    pg_pass=$(openssl rand -hex 24)
+    query_token=$(openssl rand -hex 32)
+    daas_token=$(openssl rand -hex 32)
+    tmp_env=$(mktemp)
+    sed -e "s|^NIDP_PG_PASSWORD=.*|NIDP_PG_PASSWORD=${pg_pass}|" \
+        -e "s|^NIDP_POSTGRES_URL=.*|NIDP_POSTGRES_URL=postgresql://nidp_staging:${pg_pass}@localhost:5434/nidp_staging|" \
+        -e "s|^NIDP_QUERY_API_TOKEN=.*|NIDP_QUERY_API_TOKEN=${query_token}|" \
+        -e "s|^NIVESH_POSTGRES_URL=.*|# NIVESH_POSTGRES_URL= (app Postgres is on another VM and not exposed)|" \
+        "${DEV_REPO}/backend/nidp/deploy/vm/nidp.env.staging.example" > "$tmp_env"
+    printf '\n# ── DaaS API internal token (must match the app VM) ──\nNIDP_DAAS_INTERNAL_TOKEN=%s\n' "$daas_token" >> "$tmp_env"
+    install -m 600 -o "$SVC_USER" -g "$SVC_USER" "$tmp_env" "$ENV_FILE"
+    rm -f "$tmp_env"
+    unset pg_pass query_token daas_token
 fi
 
 printf '# Written by deploy/cloudpe/nidp/bootstrap.sh\nNIDP_TSDB_TAG=%s\n' "$TSDB_TAG" > "$CLOUDPE_ENV"
