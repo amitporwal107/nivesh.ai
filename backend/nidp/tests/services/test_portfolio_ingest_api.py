@@ -129,3 +129,35 @@ def test_errors_from_the_sync_service_make_ok_false(client, monkeypatch):
     r = client.post("/portfolio/ingest-holdings", headers=AUTH,
                     json={"snapshot_date": "2026-01-09", "records": [_holding("a@example.invalid", "INE000A01011")]})
     assert r.status_code == 200 and r.json()["ok"] is False and r.json()["errors"] == 1
+
+
+# ── JSON-borne dates must be bound as date/datetime objects ────────────────
+
+class _Conn:
+    def __init__(self):
+        self.args = None
+
+    async def execute(self, sql, *args):
+        self.args = args
+        return "INSERT 0 1"
+
+
+def test_transaction_date_string_is_bound_as_a_date():
+    import asyncio, datetime
+    conn = _Conn()
+    asyncio.run(txn_sync._upsert_transaction(conn, {
+        "external_user_id": "a@example.invalid", "txn_date": "2026-01-05", "txn_type": "PURCHASE",
+        "asset_class": "MF", "units": 10.0, "amount_inr": 1000.0}))
+    assert conn.args[2] == datetime.date(2026, 1, 5)
+
+
+def test_goal_timestamp_strings_are_bound_as_datetimes():
+    import asyncio, datetime
+    conn = _Conn()
+    asyncio.run(goals_sync._upsert_goal(conn, {
+        "goal_id": "00000000-0000-0000-0000-000000000001", "external_user_id": "a@example.invalid",
+        "last_simulated_at": "2026-01-09T10:00:00+00:00", "upstream_created_at": "2026-01-01T00:00:00Z",
+        "upstream_updated_at": None}))
+    stamps = [a for a in conn.args if isinstance(a, datetime.datetime)]
+    assert len(stamps) == 2 and all(s.tzinfo is not None for s in stamps)
+    assert not any(isinstance(a, str) and a.startswith("2026-01-0") for a in conn.args)

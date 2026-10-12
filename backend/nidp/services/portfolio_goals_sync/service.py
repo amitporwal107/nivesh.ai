@@ -36,7 +36,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional
 
 from nidp.shared.storage.pg import get_pool as _get_nidp_pool
@@ -83,6 +83,17 @@ def _load_records(blob_path: str) -> list[dict[str, Any]]:
 
 
 # ── Upserts ──────────────────────────────────────────────────────────
+
+def _ts(value: Any) -> Optional[datetime]:
+    """ISO-8601 string → datetime. Records arrive as JSON (file or HTTP), and
+    asyncpg binds a TIMESTAMPTZ parameter from a datetime object only."""
+    if value is None or isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
 
 async def _upsert_goal(conn, rec: dict[str, Any]) -> int:
     """Returns 1 if inserted, 0 if updated. Uses upstream goal_id as PK."""
@@ -143,10 +154,10 @@ async def _upsert_goal(conn, rec: dict[str, Any]) -> int:
         bool(rec.get("manual_fund_override") or False),
         rec.get("status", "active"),
         rec.get("on_track_pct"),
-        rec.get("last_simulated_at"),
+        _ts(rec.get("last_simulated_at")),
         json.dumps(rec.get("last_simulation") or {}),
-        rec.get("upstream_created_at"),
-        rec.get("upstream_updated_at"),
+        _ts(rec.get("upstream_created_at")),
+        _ts(rec.get("upstream_updated_at")),
     )
     return int(tag.split()[-1] or 0)
 

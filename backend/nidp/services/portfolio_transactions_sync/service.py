@@ -130,7 +130,9 @@ async def _upsert_transaction(conn, rec: dict[str, Any]) -> int:
         """,
         rec["external_user_id"],
         rec.get("source_system", "nivesh_cas"),
-        rec["txn_date"],
+        # Records arrive as JSON (file or HTTP), so the date is a string;
+        # asyncpg binds a DATE parameter from a date object only.
+        date.fromisoformat(str(rec["txn_date"])[:10]),
         txn_type,
         rec.get("folio"),
         rec.get("isin"),
