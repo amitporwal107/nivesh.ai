@@ -34,7 +34,7 @@ list's stocks as not live.
 | TC-11 | E2E | Open `/v5/watchlist` cold, no session | e2e | no redirect to `/login`; newest list renders; list picker shows the available dates | PASS |
 | TC-12 | E2E | Open `/v5/watchlist?list=2026-10-06` | e2e | "41 of 41 picks shown", CUMMINSIND visible, LIVE badge, row expands, tier filter narrows (the pre-existing TC-5/6/8, pinned to that list) | PASS |
 | TC-13 | E2E | Open `/v5/watchlist?list=2020-01-01` | edge | a clear "no list for that date" message with a way back to the latest list; no crash, no blank page | PASS |
-| TC-14 | E2E | Pick a different date in the list picker (needs two lists on staging) | e2e | list and URL switch to the chosen date; switching back restores the newest | NOT RUN — skipped: staging has one list until the 2026-10-12 list is approved and published |
+| TC-14 | E2E | Pick a different date in the list picker (needs two lists on staging) | e2e | list and URL switch to the chosen date; switching back restores the newest | PASS — run after the 2026-10-12 list was published; see research_watchlist_list_20261012_carryover.md (TC-9), including one unexplained first-run failure |
 
 ## API / Endpoint Tests (staging)
 Deployed commit `73498f48` (`sudo bash /opt/nivesh-staging/repo/deploy/cloudpe/app/deploy.sh dev`). The deploy
@@ -89,7 +89,7 @@ at 23:25:30 IST and its bundle contains the new picker, backend container health
 - Result: PASS (TC-10) — 41 documents, all dated 2026-10-06, unique index present, every `published_price` identical before and after.
 
 ## Inputs required from user
-- Approval of the 2026-10-12 candidate list. Publishing it creates the second list that TC-14 needs.
+- Approval of the 2026-10-12 candidate list (given; the list is published).
 
-## Verdict: IN PROGRESS
-TC-14 has not run. Everything else passed with the evidence above. See `OVERRIDE_research_watchlist_history.md`.
+## Verdict: PASS
+TC-14 was run once the second list existed; evidence is in `research_watchlist_list_20261012_carryover.md`.
