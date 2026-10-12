@@ -99,3 +99,23 @@ def test_goals_push_sends_json_safe_records(monkeypatch):
     rec = sent["records"][0]
     assert rec["goal_id"] == "00000000-0000-0000-0000-000000000001" and isinstance(rec["target_amount_rs"], str)
     assert sent["date"] == "2026-01-09"
+
+
+def test_same_instrument_in_several_folios_is_sent_as_one_position():
+    rows = [
+        {"asset_type": "mutual_fund", "isin": "INF000A01AA1", "name": "Alpha Fund", "quantity": 10, "current_price": 100, "buy_price": 80},
+        {"asset_type": "mutual_fund", "isin": "INF000A01AA1", "name": "Alpha Fund", "quantity": 30, "current_price": 100, "buy_price": 90},
+        {"asset_type": "mutual_fund", "isin": "INF000A01AA1", "name": "Alpha Fund", "quantity": 0,  "current_price": 100, "buy_price": 0},
+        {"asset_type": "equity", "isin": "INE000B01019", "nse_symbol": "BETA", "name": "Beta Ltd", "quantity": 5, "current_price": 20, "buy_price": 0},
+        {"asset_type": "equity", "isin": "INE000B01019", "nse_symbol": "BETA", "name": "Beta Ltd", "quantity": 5, "current_price": 20, "buy_price": 0},
+    ]
+    out = {p["isin"]: p for p in pdp._merge_same_instrument(rows)}
+    assert len(out) == 2
+    fund = out["INF000A01AA1"]
+    assert fund["quantity"] == 40 and fund["market_value_inr"] == 4000
+    assert fund["avg_buy_price"] == pytest.approx((10 * 80 + 30 * 90) / 40)      # quantity-weighted
+    assert fund["asset_class"] == "MF" and fund["symbol"] is None
+    stock = out["INE000B01019"]
+    assert stock["quantity"] == 10 and stock["market_value_inr"] == 200 and stock["symbol"] == "BETA"
+    assert stock["avg_buy_price"] is None                                         # no row carried a buy price
+    assert sum(p["market_value_inr"] for p in out.values()) == sum(r["quantity"] * r["current_price"] for r in rows)

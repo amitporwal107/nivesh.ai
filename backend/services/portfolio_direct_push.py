@@ -58,6 +58,46 @@ def _normalise_txn_type(raw: Optional[str]) -> str:
     return _TXN_TYPE_MAP.get((raw or "").upper().strip(), "OTHER")
 
 
+def _merge_same_instrument(raw_holdings: list[dict]) -> list[dict]:
+    """One position per instrument.
+
+    The same fund is often held in several folios, and the same stock in more
+    than one demat account, so `holdings` has several rows per ISIN. NIDP keys
+    a snapshot row on (user, date, isin, symbol, scheme code, source); sending
+    the rows as they are made each one overwrite the last, and the portfolio
+    arrived short (93 rows and about two thirds of the value for a 117-row
+    statement). Quantities and values are summed; the buy price is the
+    quantity-weighted average of the rows that have one.
+    """
+    merged: dict[tuple, dict] = {}
+    for h in raw_holdings:
+        qty = float(h.get("quantity") or 0)
+        price = float(h.get("current_price") or 0)
+        buy = float(h.get("buy_price") or 0)
+        asset_type = (h.get("asset_type") or "").lower()
+        isin = h.get("isin") or h.get("ticker")
+        symbol = h.get("nse_symbol") if asset_type == "equity" else None
+        key = (isin or "", symbol or "")
+        pos = merged.get(key)
+        if pos is None:
+            pos = merged[key] = {
+                "asset_class": _to_asset_class(asset_type), "symbol": symbol, "isin": isin,
+                "instrument_name": h.get("name"), "quantity": 0.0, "market_value_inr": 0.0,
+                "_cost": 0.0, "_cost_qty": 0.0,
+            }
+        pos["quantity"] += qty
+        pos["market_value_inr"] += qty * price
+        if buy > 0 and qty > 0:
+            pos["_cost"] += qty * buy
+            pos["_cost_qty"] += qty
+    out = []
+    for pos in merged.values():
+        cost, cost_qty = pos.pop("_cost"), pos.pop("_cost_qty")
+        pos["avg_buy_price"] = (cost / cost_qty) if cost_qty > 0 else None
+        out.append(pos)
+    return out
+
+
 async def push_portfolio_direct(
     db,
     target_date: Optional[date] = None,
@@ -101,36 +141,29 @@ async def push_portfolio_direct(
             skipped += 1
             continue
 
-        total_value = sum(
-            float(h.get("current_price") or 0) * float(h.get("quantity") or 0)
-            for h in raw_holdings
-        )
+        positions = _merge_same_instrument(raw_holdings)
+        total_value = sum(p["market_value_inr"] for p in positions)
 
-        for h in raw_holdings:
-            qty = float(h.get("quantity") or 0)
-            price = float(h.get("current_price") or 0)
-            mv = qty * price
-            asset_type = (h.get("asset_type") or "").lower()
-            is_equity = asset_type == "equity"
-            isin = h.get("isin") or h.get("ticker")
+        for p in positions:
             records.append({
                 "external_user_id": user_info["email"],
                 "client_id":        user_id,
                 "display_name":     user_info["name"],
                 "snapshot_date":    date_str,
-                "asset_class":      _to_asset_class(asset_type),
-                "symbol":           h.get("nse_symbol") if is_equity else None,
-                "isin":             isin,
+                "asset_class":      p["asset_class"],
+                "symbol":           p["symbol"],
+                "isin":             p["isin"],
                 "amfi_scheme_code": None,
-                "instrument_name":  h.get("name"),
-                "quantity":         qty,
-                "avg_buy_price":    float(h.get("buy_price") or 0) or None,
-                "market_value_inr": mv,
-                "weight_pct":       round(mv / total_value * 100, 6) if total_value > 0 else 0.0,
+                "instrument_name":  p["instrument_name"],
+                "quantity":         p["quantity"],
+                "avg_buy_price":    p["avg_buy_price"],
+                "market_value_inr": p["market_value_inr"],
+                "weight_pct":       round(p["market_value_inr"] / total_value * 100, 6) if total_value > 0 else 0.0,
                 "source_system":    "nivesh_cas",
             })
         exported += 1
-        logger.info("portfolio_direct_push: queued %s — %d holdings", user_info["email"], len(raw_holdings))
+        logger.info("portfolio_direct_push: queued %s — %d holdings as %d positions",
+                    user_info["email"], len(raw_holdings), len(positions))
 
     if not records:
         return {"exported": 0, "skipped": skipped, "date": date_str, "via": "direct"}
