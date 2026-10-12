@@ -119,6 +119,15 @@ async def cmd_migrate(args: argparse.Namespace) -> int:
                     # longer (122 repopulates stock_features_daily in ~30s), so
                     # they need an explicit, generous per-command override.
                     await conn.execute(sql, timeout=MIGRATION_TIMEOUT_SEC)
+                    # Record it here rather than rely on the file doing so: 31
+                    # migrations never insert their own row, so every later
+                    # `migrate` re-ran them, and the first non-re-runnable one
+                    # (022 on a current schema) failed the whole run.
+                    await conn.execute(
+                        "INSERT INTO nidp.schema_migrations (filename) VALUES ($1) "
+                        "ON CONFLICT (filename) DO NOTHING",
+                        f.name,
+                    )
                 print(f"  ✅ {f.name} applied")
             except Exception as e:                                 # noqa: BLE001
                 # asyncio.TimeoutError stringifies to '', which prints a blank
