@@ -9,7 +9,13 @@ Routes (all under /api/broker, all authenticated):
     GET    /api/broker/supported              — list of brokers we accept
     GET    /api/broker/accounts               — current user's connections
     POST   /api/broker/connect                — store + verify a new conn
-    POST   /api/broker/accounts/{id}/sync     — fetch holdings via OpenAlgo
+    POST   /api/broker/accounts/{id}/sync     — fetch holdings (OpenAlgo, or
+                                                the broker session for a
+                                                native account)
+    GET    /api/broker/accounts/{id}/positions — live positions, one native
+                                                account (never stored)
+    GET    /api/broker/positions              — live positions, all of the
+                                                user's native accounts
     DELETE /api/broker/accounts/{id}          — disconnect (delete + audit)
 
 The sync endpoint imports holdings into the same `db.holdings` collection
@@ -17,21 +23,37 @@ as CAS / Excel imports. Source-tracking distinguishes broker rows from
 CAS rows: `source = "openalgo"`, `source_id = "{exchange}:{symbol}"`,
 `broker_account_id = "<account>"`. Re-syncing the same account replaces
 *only that account's* prior rows so concurrent CAS imports stay intact.
+
+Accounts connected on the broker's own page (`native: True`, written by
+`routes.broker_native`) are read through `services.brokers.hub_reads`;
+their holdings rows carry `source = "broker_native"`. Syncing such an
+account and the two positions routes need the `broker_hub` feature flag;
+nothing else here does.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from core.exceptions import (
+    BusinessException,
+    IntegrationException,
+    NiveshException,
+    ValidationException,
+)
 from deps import db, get_current_user
+from feature_gate import require_feature
 from services import audit as _audit
 from services import pii_security as _pii
+from services.brokers import hub_reads as _hub
+from services.brokers import sessions as _sessions
 from services.openalgo_client import (
     SUPPORTED_BROKERS,
     OpenAlgoClient,
@@ -96,10 +118,20 @@ def _hosted_dashboard_url() -> str:
 def _public_account(doc: Dict[str, Any]) -> Dict[str, Any]:
     """Strip encrypted secrets before returning to the client."""
     hosted = bool(doc.get("openalgo_hosted"))
+    broker = doc.get("broker")
+    if doc.get("native"):
+        # Native rows use adapter slugs — the registry names them, the
+        # OpenAlgo map does not cover them all.
+        broker_display = _hub.display_name(broker or "") or broker
+    else:
+        broker_display = SUPPORTED_BROKERS.get(broker or "", broker)
     return {
+        # Session state (native, needs_reconnect, expiry, …). Spread first
+        # so it can never displace one of the keys below.
+        **_sessions.public_fields(doc),
         "account_id": doc["account_id"],
-        "broker": doc.get("broker"),
-        "broker_display": SUPPORTED_BROKERS.get(doc.get("broker") or "", doc.get("broker")),
+        "broker": broker,
+        "broker_display": broker_display,
         "label": doc.get("label"),
         # Don't leak the internal URL when it's the Nivesh-managed
         # instance — users only need to know it's hosted by Nivesh.
@@ -364,6 +396,9 @@ async def connect_broker_hosted(request: Request, body: HostedConnectRequest):
 @router.get("/accounts")
 async def list_accounts(request: Request):
     user = await get_current_user(request)
+    # Mark sessions whose broker expiry has passed before listing, so an
+    # expired connection is reported as needing a reconnect.
+    await _sessions.expire_due_sessions(db, user_id=user["user_id"])
     cursor = db.broker_accounts.find(
         {"user_id": user["user_id"]}, {"_id": 0},
     ).sort("created_at", -1)
@@ -451,6 +486,13 @@ async def sync_broker_account(request: Request, account_id: str):
     user_id = user["user_id"]
     doc = await _get_owned_account(user_id, account_id)
 
+    if doc.get("native"):
+        # Connected on the broker's own page: there is no OpenAlgo instance
+        # behind this row, the stored broker session reads the holdings.
+        # Only this branch depends on the `broker_hub` flag.
+        await _hub_user(request)
+        return await _sync_native_account(request, user_id, doc)
+
     client = await _client_from(doc)
     try:
         rows = client.fetch_normalized_holdings()
@@ -490,6 +532,179 @@ async def sync_broker_account(request: Request, account_id: str):
     )
 
     return {"ok": True, "count": len(saved), "holdings": saved}
+
+
+# ── Native (broker-session) reads ────────────────────────────────────────
+# Off stops holdings sync and position reads for redirect-connected accounts
+# (feature_flags.KNOWN_FEATURES). Listing, disconnecting and every OpenAlgo
+# route do not depend on it.
+FLAG = "broker_hub"
+
+
+async def _hub_user(request: Request) -> dict:
+    """The signed-in user, refused with 403 when `broker_hub` is off for them."""
+    return await require_feature(
+        FLAG, resolve_user=lambda r: get_current_user(r), get_db=lambda: db,
+    )(request)
+
+
+class BrokerSessionExpiredException(BusinessException):
+    """The broker session behind the account has ended — reconnect needed."""
+    error_code = _hub.CODE_SESSION_EXPIRED
+    http_status = 409
+
+
+# Read failure code → the domain exception the global handler turns into the
+# standard error envelope (409 / 400 / 502).
+_READ_ERRORS = {
+    _hub.CODE_SESSION_EXPIRED: BrokerSessionExpiredException,
+    _hub.CODE_NOT_SUPPORTED: ValidationException,
+    _hub.CODE_READ_FAILED: IntegrationException,
+}
+
+
+def _account_details(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [{"broker": doc.get("broker"), "account_id": doc["account_id"]}]
+
+
+def _read_error(exc: Exception, doc: Dict[str, Any], what: str) -> NiveshException:
+    """The error for a failed native read: a stable `code`, a fixed-text
+    message (`hub_reads.describe_failure`, never the broker's own error) and
+    the broker + account in `details`. The broker's exception is not passed
+    as `cause` — the handler logs a cause with its text — and callers raise
+    this `from None` for the same reason."""
+    code, message = _hub.describe_failure(exc, doc.get("broker") or "", what)
+    return _READ_ERRORS[code](message, code=code, details=_account_details(doc))
+
+
+async def _sync_native_account(
+    request: Request, user_id: str, doc: Dict[str, Any],
+) -> Dict[str, Any]:
+    account_id = doc["account_id"]
+    try:
+        result = await _hub.sync_account(db, doc)
+    except Exception as e:  # noqa: BLE001
+        err = _read_error(e, doc, "holdings")
+        await _audit.record(
+            user_id=user_id, action="broker_sync", resource=account_id,
+            outcome="error",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={
+                "broker": doc.get("broker"), "native": True,
+                "code": err.code, "reason": err.message,
+            },
+        )
+        raise err from None
+
+    await _audit.record(
+        user_id=user_id, action="broker_sync", resource=account_id,
+        outcome="success",
+        ip=request.client.host if request.client else "",
+        ua=request.headers.get("user-agent", ""),
+        details={"broker": doc.get("broker"), "native": True, "count": result["count"]},
+    )
+    return {"ok": True, "count": result["count"], "holdings": result["holdings"]}
+
+
+def _position_counts(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    return {
+        "total": len(rows),
+        "fno": sum(1 for r in rows if r.get("segment") == "fno"),
+        "intraday": sum(1 for r in rows if r.get("is_intraday")),
+    }
+
+
+def _filter_positions(rows: List[Dict[str, Any]], segment: str) -> List[Dict[str, Any]]:
+    if segment == "fno":
+        return [r for r in rows if r.get("segment") == "fno"]
+    if segment == "intraday":
+        return [r for r in rows if r.get("is_intraday")]
+    return rows
+
+
+@router.get("/accounts/{account_id}/positions")
+async def get_account_positions(
+    request: Request,
+    account_id: str,
+    kind: Literal["net", "day"] = "net",
+    segment: Literal["all", "fno", "intraday"] = "all",
+):
+    """Current positions of one natively connected account, read live from
+    the broker on every call and never stored. `counts` describe the whole
+    read; `segment` only narrows `positions`.
+    """
+    user = await _hub_user(request)
+    doc = await _get_owned_account(user["user_id"], account_id)
+    if not doc.get("native"):
+        raise ValidationException(
+            "Live positions are available only for accounts connected by signing in on the broker's own page.",
+            code=_hub.CODE_NOT_SUPPORTED,
+            details=_account_details(doc),
+        )
+    try:
+        rows = await _hub.read_account_positions(db, doc, kind)
+    except Exception as e:  # noqa: BLE001
+        raise _read_error(e, doc, f"{kind} positions") from None
+    return {
+        "account_id": account_id,
+        "broker": doc.get("broker"),
+        "kind": kind,
+        "segment": segment,
+        "as_of": _now_iso(),
+        "positions": _filter_positions(rows, segment),
+        "counts": _position_counts(rows),
+    }
+
+
+@router.get("/positions")
+async def get_all_positions(
+    request: Request,
+    kind: Literal["net", "day"] = "net",
+    segment: Literal["all", "fno", "intraday"] = "all",
+):
+    """Current positions across all of the user's natively connected
+    accounts. Each account is read on its own: one failing — or needing a
+    reconnect — is reported in its entry and never fails the others.
+    """
+    user = await _hub_user(request)
+    cursor = db.broker_accounts.find(
+        {"user_id": user["user_id"], "native": True}, {"_id": 0},
+    ).sort("created_at", -1)
+    docs = await cursor.to_list(length=50)
+
+    async def _read_one(doc: Dict[str, Any]) -> Dict[str, Any]:
+        entry: Dict[str, Any] = {
+            "account_id": doc["account_id"],
+            "broker": doc.get("broker"),
+            "label": doc.get("label"),
+            "ok": False,
+            "error": None,
+            "as_of": None,
+            "positions": [],
+            "counts": _position_counts([]),
+        }
+        try:
+            rows = await _hub.read_account_positions(db, doc, kind)
+        except Exception as e:  # noqa: BLE001
+            code, message = _hub.describe_failure(
+                e, doc.get("broker") or "", f"{kind} positions",
+            )
+            entry["error"] = {"code": code, "message": message}
+        else:
+            entry["ok"] = True
+            entry["positions"] = _filter_positions(rows, segment)
+            entry["counts"] = _position_counts(rows)
+        entry["as_of"] = _now_iso()
+        return entry
+
+    accounts = await asyncio.gather(*(_read_one(d) for d in docs))
+    return {
+        "as_of": _now_iso(),
+        "kind": kind,
+        "segment": segment,
+        "accounts": list(accounts),
+    }
 
 
 @router.delete("/accounts/{account_id}")

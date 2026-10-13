@@ -852,10 +852,27 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
     token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    # A portfolio can also arrive from a broker connection or an uploaded broker
+    # export, so the Portfolio step needs more than the CAS fields to know one
+    # is on file. Ended broker sessions are flipped first so "live" is current;
+    # a failed sweep must not take the bootstrap down with it.
+    try:
+        from services.brokers import sessions as _broker_sessions
+        await _broker_sessions.expire_due_sessions(db, user_id=user["user_id"])
+    except Exception:  # noqa: BLE001
+        logger.exception("onboarding_state: broker session sweep failed")
+    broker_accounts = await db.broker_accounts.count_documents({"user_id": user["user_id"]})
+    broker_accounts_live = await db.broker_accounts.count_documents(
+        {"user_id": user["user_id"], "status": "active"},
+    )
+    holdings_count = await db.holdings.count_documents({"user_id": user["user_id"]})
     return {
         "onboarding_completed": bool(profile.get("onboarding_completed")),
         "pan_on_file": bool(profile.get("pan") or profile.get("cas_password")),
         "gmail_connected": bool(token_doc),
+        "broker_accounts": broker_accounts,             # connected broker accounts, any state
+        "broker_accounts_live": broker_accounts_live,   # of those, readable right now
+        "holdings_count": holdings_count,               # stored holdings from any source
         "cas_statement_period": profile.get("cas_statement_period"),       # "Mar/2025" or null
         "cas_portfolio_value_rs": profile.get("cas_portfolio_value_rs"),   # current value in ₹ or null
         "cas_statement_date": profile.get("cas_statement_date"),           # "DD-MMM-YYYY" or null

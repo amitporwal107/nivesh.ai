@@ -264,6 +264,41 @@ async def logout(request: Request, response: Response):
             )
         except Exception:  # noqa: BLE001
             pass
+        # Broker sessions live only while the user is signed in to Nivesh.
+        # Signing out of the LAST device ends them (token wiped, one-tap
+        # reconnect later); another unexpired sign-in keeps them alive.
+        # Expired rows do not count — logins never clear them.
+        try:
+            now = datetime.now(timezone.utc)
+            still_signed_in = False
+            others = await db.user_sessions.find(
+                {"user_id": uid}, {"_id": 0, "expires_at": 1},
+            ).to_list(length=None)
+            for other in others:
+                expires_at = other.get("expires_at")
+                try:
+                    if isinstance(expires_at, str):
+                        expires_at = datetime.fromisoformat(expires_at)
+                    if expires_at.tzinfo is None:
+                        expires_at = expires_at.replace(tzinfo=timezone.utc)
+                except (AttributeError, ValueError):
+                    continue  # a row that could not authenticate anyone
+                if expires_at > now:
+                    still_signed_in = True
+                    break
+            if not still_signed_in:
+                from services import audit
+                from services.brokers import sessions as broker_sessions
+                ended = await broker_sessions.end_sessions_for_user(db, uid, "logout")
+                if ended:
+                    await audit.record(
+                        user_id=uid, action="broker_disconnect",
+                        ip=request.client.host if request.client else "",
+                        ua=request.headers.get("user-agent", ""),
+                        details={"reason": "logout", "sessions_ended": ended},
+                    )
+        except Exception:  # noqa: BLE001 — never block logout on this
+            logger.exception("logout: ending broker sessions failed for user %s", uid)
     return {"message": "Logged out"}
 
 
