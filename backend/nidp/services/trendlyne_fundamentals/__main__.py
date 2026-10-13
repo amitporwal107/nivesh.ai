@@ -27,11 +27,14 @@ def main() -> None:
     b = sub.add_parser("build", help="build dated quarterly rows from the staged values")
     b.add_argument("--dry-run", action="store_true")
     b.add_argument("--symbols", default=None)
+    sub.add_parser("daily", help="incomplete passes, build, then sectors — within today's call budget")
     a = p.parse_args()
-    symbols = [x.strip().upper() for x in a.symbols.split(",")] if a.symbols else None
+    symbols = [x.strip().upper() for x in a.symbols.split(",")] if getattr(a, "symbols", None) else None
 
     async def _go() -> dict:
         try:
+            if a.command == "daily":
+                return await service.daily()
             if a.command == "fetch":
                 return await service.fetch(a.pass_name, max_calls=a.max_calls, symbols=symbols)
             if a.command == "sectors":

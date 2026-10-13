@@ -59,8 +59,12 @@ NIDP_HOME=/opt/nidp-staging
 30 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh price_adjuster
 # Universe-wide fundamentals (v_screener_backfill_universe, ~2,400 names): without
 # it only the Nifty 500 had fundamentals. Enabled live 2026-09-11.
-# HELD (not yet run on this VM (weekly Screener scrape)):
+# HELD (Screener.in refuses connections from this VM since 2026-10-12, about 1,250 requests into a backfill):
 # 0  22 * * 0    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials.backfill_screener --concurrency 1 --delay-ms 3000
+# Fundamentals and sectors from the Trendlyne MCP server instead. Runs whatever is still
+# incomplete (quarterly passes, then sectors) inside TRENDLYNE_DAILY_CALL_BUDGET and stops;
+# a completed pass costs no calls until it is 30 days old.
+10 6  * * *    nidp-staging  /opt/nidp-staging/run_service.sh trendlyne_fundamentals daily
 # Daily price band / F&O / ETF flags → nidp.security_reference_daily. Enabled live 2026-09-11.
 30 7  * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh nse_reference_snapshot
 
@@ -82,7 +86,7 @@ NIDP_HOME=/opt/nidp-staging
 # */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_bse
 
 # ── S4: event/impact classifier (every 30 min, all week) ──────────
-# HELD (OpenAI key has no credits (429)):
+# HELD (replaced: the Claude Code filing pipeline on the app VM fills event_category, impact_score and sentiment):
 # */30 * * * *    nidp-staging  /opt/nidp-staging/run_service.sh announcement_classifier
 
 # ── S5: document parser (every 15 min, all day) ───────────────────

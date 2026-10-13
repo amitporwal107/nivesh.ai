@@ -22,6 +22,7 @@ Usage:
     python -m nidp.services.trendlyne_fundamentals fetch --pass p1 --max-calls 300
     python -m nidp.services.trendlyne_fundamentals sectors --max-calls 200
     python -m nidp.services.trendlyne_fundamentals build [--dry-run]
+    python -m nidp.services.trendlyne_fundamentals daily      # all of the above, what cron runs
 """
 from __future__ import annotations
 
@@ -335,3 +336,17 @@ async def build(dry_run: bool = False, symbols: Optional[List[str]] = None) -> d
     stats["rows_candidate"] = len(to_write)
     logger.info("trendlyne build: done — %s", stats)
     return stats
+
+
+# ── daily ────────────────────────────────────────────────────────────────────
+
+async def daily() -> dict:
+    """Everything, in priority order, inside today's call budget: the passes that
+    are still incomplete, the build, then sectors with whatever calls are left.
+    A pass that is already staged costs no calls, so this is safe to run every day."""
+    out: dict = {}
+    for pass_name in sorted(parse.PASSES):
+        out[pass_name] = await fetch(pass_name)
+    out["build"] = await build()
+    out["sectors"] = await sectors()
+    return out
