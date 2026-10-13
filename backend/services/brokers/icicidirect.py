@@ -69,6 +69,9 @@ CONNECT_BLOCKED_REASON = "ICICI Direct sign-in is switched off in Nivesh."
 CALLBACK_PATH_STYLE = True
 CALLBACK_CODE_PARAMS = ("apisession",)
 CALLBACK_FORM_FIELDS = ("API_Session",)
+# ICICI's app form limits the Redirect URL's length, so the URL to register
+# is the short one: <host>/api/b/icici (routes.broker_native.short_router).
+CALLBACK_ALIAS = "icici"
 
 _LOGIN_URL = "https://api.icicidirect.com/apiuser/login?api_key="
 _API = "https://api.icicidirect.com/breezeapi/api/v1"
@@ -360,6 +363,7 @@ class _Module:
     CALLBACK_PATH_STYLE = CALLBACK_PATH_STYLE
     CALLBACK_CODE_PARAMS = CALLBACK_CODE_PARAMS
     CALLBACK_FORM_FIELDS = CALLBACK_FORM_FIELDS
+    CALLBACK_ALIAS = CALLBACK_ALIAS
     auth_url = staticmethod(auth_url)
     exchange_code = staticmethod(exchange_code)
     fetch_holdings = staticmethod(fetch_holdings)

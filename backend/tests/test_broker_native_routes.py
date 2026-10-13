@@ -104,6 +104,7 @@ class Harness:
 
         app = FastAPI()
         app.include_router(bn.router)
+        app.include_router(bn.short_router)
         self.client = TestClient(app, follow_redirects=False)
 
     def register(self, broker):
@@ -613,6 +614,45 @@ def test_icici_posted_return_is_answered_303_to_the_get_and_nothing_else_happens
     assert "set-cookie" not in r.headers
     _nothing_was_done(h, icici, states=1)    # the attempt is still there for the GET to use
     assert SESSION_KEY not in _app_log(caplog)
+
+
+# ── short callback address: /api/b/<slug or alias> ───────────────────────
+# ICICI's app form caps the Redirect URL's length, so its registered URL is
+# <host>/api/b/icici.
+def test_icici_short_address_posted_return_goes_to_the_full_get_path(h, icici):
+    _start_icici(h)
+    h.signed_in = False
+
+    r = h.client.post("/api/b/icici", data={"API_Session": SESSION_KEY}, headers={"origin": ICICI_ORIGIN})
+
+    assert (r.status_code, r.headers["location"]) == (303, f"{ICICI_CALLBACK}?apisession={SESSION_KEY}")
+    _nothing_was_done(h, icici, states=1)
+
+
+def test_short_address_get_finishes_the_sign_in_by_slug_and_by_alias(h):
+    h.state()
+    r = h.client.get("/api/b/fakebroker?code=auth-code-1&state=state-1")
+    assert ("broker_connected", "fakebroker") in _landing(r)[1]
+
+    aliased = h.register(FakeBroker("longbrokername", "Long Broker", CALLBACK_ALIAS="lb"))
+    h.state("state-2", broker="longbrokername")
+    r = h.client.get("/api/b/lb?code=auth-code-2&state=state-2")
+    assert ("broker_connected", "longbrokername") in _landing(r)[1]
+    assert aliased.exchanged[0]["code"] == "auth-code-2"
+
+
+def test_short_address_for_an_unknown_name(h):
+    assert ("broker_error", "unknown_broker") in _landing(h.client.get("/api/b/nosuch?code=x&state=state-1"))[1]
+    assert h.client.post("/api/b/nosuch", data={"API_Session": "x"}).status_code == 405
+    assert h.client.post("/api/b/fakebroker", data={"API_Session": "x"}).status_code == 405   # does not return by POST
+
+
+def test_callback_aliases_are_unambiguous():
+    brokers = registry.all_brokers()
+    aliases = [b.CALLBACK_ALIAS for b in brokers if getattr(b, "CALLBACK_ALIAS", None)]
+    assert registry.get("icicidirect").CALLBACK_ALIAS == "icici"
+    assert len(aliases) == len(set(aliases))
+    assert not set(aliases) & {b.SLUG for b in brokers}        # an alias never shadows another broker's slug
 
 
 def test_icici_posted_return_with_the_value_already_in_the_query_keeps_the_query_as_it_came(h, icici):

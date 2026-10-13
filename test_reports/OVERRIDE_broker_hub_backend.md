@@ -5,4 +5,5 @@ REASON: Three things remain unverified on staging. (1) The storage-failure fix (
 - **Date:** 2026-10-14
 - **Verified live on staging so far:** Zerodha sign-in from Settings, encrypted storage, Sync now, positions read, Remove and reconnect (empty account; counts matched Zerodha's own SDK).
 - **Not verified:** any other broker live; a non-empty account; whether one app key can sign in other customers at ICICI Direct or Motilal Oswal; the daily 17:30 IST job running; logout ending broker sessions on staging.
+- **Added 2026-10-14 (short callback address):** `GET`/`POST /api/b/<slug or alias>` (ICICI Direct registers `/api/b/icici` because its form limits the URL length) is unit-tested only (892 passed, 1 skipped) and not on staging until its PR is merged.
 - **This is not a pass.** Resolve before merge to `main`.
