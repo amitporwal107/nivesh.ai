@@ -65,17 +65,40 @@ def test_shift_quarters_crosses_years_and_keeps_month_ends():
     assert parse.shift_quarters(date(2025, 12, 31), 1) == date(2026, 3, 31)
 
 
+AS_OF = date(2026, 10, 12)
+
+
 def test_anchor_dating_finds_the_offset_whose_revenue_matches():
     revenue = {0: 500.0, 1: 480.0, 2: 455.0, 3: 430.0}
     # we already hold the June quarter with revenue 480 -> the provider's latest is September
-    assert parse.latest_quarter_from_anchor(revenue, date(2026, 6, 30), 480.9) == date(2026, 9, 30)
-    assert parse.latest_quarter_from_anchor(revenue, date(2026, 6, 30), 500.0) == date(2026, 6, 30)
+    assert parse.latest_quarter_from_anchor(revenue, date(2026, 6, 30), 480.9, AS_OF) == date(2026, 9, 30)
+    assert parse.latest_quarter_from_anchor(revenue, date(2026, 6, 30), 500.0, AS_OF) == date(2026, 6, 30)
 
 
 def test_anchor_dating_refuses_no_match_and_ambiguous_matches():
-    assert parse.latest_quarter_from_anchor({0: 500.0, 1: 480.0}, date(2026, 6, 30), 300.0) is None
-    assert parse.latest_quarter_from_anchor({0: 100.0, 1: 100.0}, date(2026, 6, 30), 100.0) is None
-    assert parse.latest_quarter_from_anchor({0: 100.0}, date(2026, 6, 30), None) is None
+    assert parse.latest_quarter_from_anchor({0: 500.0, 1: 480.0}, date(2026, 6, 30), 300.0, AS_OF) is None
+    assert parse.latest_quarter_from_anchor({0: 100.0, 1: 100.0}, date(2026, 6, 30), 100.0, AS_OF) is None
+    assert parse.latest_quarter_from_anchor({0: 100.0}, date(2026, 6, 30), None, AS_OF) is None
+
+
+def test_anchor_dating_allows_for_an_anchor_rounded_to_whole_crores():
+    # the anchor says 6 (rounded); the provider's 5.67 this quarter and 6.01 a year ago both fit -> no date
+    small = {0: 5.67, 1: 73.09, 2: 4.89, 3: 9.17, 4: 6.01}
+    assert parse.latest_quarter_from_anchor(small, date(2026, 6, 30), 6.0, AS_OF) is None
+    assert parse.latest_quarter_from_anchor({0: 5.67, 1: 73.09}, date(2026, 6, 30), 6.0, AS_OF) == date(2026, 6, 30)
+
+
+def test_anchor_dating_never_returns_a_quarter_that_has_not_ended():
+    # a match four quarters back from a June anchor would put the latest quarter in June 2027
+    assert parse.latest_quarter_from_anchor({0: 9.0, 4: 6.01}, date(2026, 6, 30), 6.0, AS_OF) is None
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("The Karnataka Bank Limited", "Karnataka Bank"), ("Swaraj Engines Limited", "Swaraj Engines"),
+    ("Alpha Foods Ltd.", "Alpha Foods"), ("Theta Limited Partners", "Theta Limited Partners"), ("", ""),
+])
+def test_company_search_name(raw, expected):
+    assert parse.company_search_name(raw) == expected
 
 
 def test_filing_dating_uses_the_newest_quarter_only_if_results_were_filed_after_it():

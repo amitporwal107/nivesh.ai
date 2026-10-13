@@ -115,21 +115,28 @@ def shift_quarters(end: date, n: int) -> date:
 
 
 def latest_quarter_from_anchor(revenue_by_offset: Dict[int, Optional[float]], anchor_end: date,
-                               anchor_revenue: Optional[float], tolerance: float = 0.005) -> Optional[date]:
+                               anchor_revenue: Optional[float], as_of: date,
+                               tolerance: float = 0.005) -> Optional[date]:
     """Date the provider's "latest quarter" from a quarter we already hold.
 
     `anchor_end` / `anchor_revenue` are a quarter's end date and revenue from a
     source that states its dates. If exactly one of the provider's offsets has
-    that revenue (within `tolerance`), the provider's latest quarter is that many
-    quarters after the anchor. None when nothing matches or the match is ambiguous.
+    that revenue, the provider's latest quarter is that many quarters after the
+    anchor. None when nothing matches, when the match is ambiguous, or when it
+    would put the latest quarter after `as_of` (a quarter that has not ended).
+
+    The anchor may be rounded to whole crores (Screener's pages are), so a small
+    company's figure is allowed to differ by up to 0.5 Cr; that is also why two
+    offsets can both match, and then no date is returned.
     """
     if not anchor_revenue or anchor_revenue <= 0:
         return None
-    hits = [o for o, v in revenue_by_offset.items()
-            if v is not None and abs(v - anchor_revenue) <= tolerance * anchor_revenue]
+    allowed = max(0.5, tolerance * anchor_revenue)
+    hits = [o for o, v in revenue_by_offset.items() if v is not None and abs(v - anchor_revenue) <= allowed]
     if len(hits) != 1:
         return None
-    return shift_quarters(anchor_end, hits[0])
+    latest = shift_quarters(anchor_end, hits[0])
+    return latest if latest <= quarter_end_on_or_before(as_of) else None
 
 
 def latest_quarter_from_filings(as_of: date, results_filed_on: List[date]) -> Optional[date]:
@@ -163,3 +170,17 @@ def build_quarter_rows(values: Dict[str, Optional[float]], latest_end: date) -> 
             continue
         rows.append(row)
     return rows
+
+
+def company_search_name(company_name: str) -> str:
+    """A sector_master company name as a search query: the provider's search finds
+    "Karnataka Bank" but not "The Karnataka Bank Limited" style exchange names
+    reliably, and often nothing at all for a bare symbol."""
+    name = company_name.strip()
+    for prefix in ("The ",):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+    for suffix in (" Limited", " Ltd.", " Ltd"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    return name.strip()

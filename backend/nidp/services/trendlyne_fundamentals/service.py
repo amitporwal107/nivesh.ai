@@ -185,6 +185,8 @@ async def sectors(max_calls: Optional[int] = None, symbols: Optional[List[str]] 
     stats = {"calls": 0, "written": 0, "not_found": 0, "stopped": None}
     try:
         async with pool.acquire() as conn:
+            names = {r["symbol"]: r["company_name"] or "" for r in await conn.fetch(
+                "SELECT symbol, company_name FROM nidp.sector_master")}
             if symbols:
                 todo = [s.upper() for s in symbols]
             else:
@@ -195,13 +197,20 @@ async def sectors(max_calls: Optional[int] = None, symbols: Optional[List[str]] 
                 todo = [s for s in order if s in missing]
         logger.info("trendlyne sectors: %d symbols without a sector", len(todo))
         for symbol in todo:
-            try:
-                text = client.call("search_entities", {"query": symbol, "entity_type": "stock", "limit": 5})
-            finally:
-                await _flush_ledger(pool, ledger)
-            stats["calls"] += 1
-            match = next((e for e in parse.parse_entities(text)
-                          if e["nse_code"].upper() == symbol and e["sector"] not in ("", "None")), None)
+            # The company name finds far more than the bare symbol does, so it goes first;
+            # the symbol is the second try. Either way only an exact NSE-code match is used.
+            match = None
+            for query in dict.fromkeys(q for q in (parse.company_search_name(names.get(symbol, "")), symbol) if q):
+                try:
+                    text = client.call("search_entities", {"query": query, "entity_type": "stock", "limit": 5})
+                finally:
+                    await _flush_ledger(pool, ledger)
+                stats["calls"] += 1
+                match = next((e for e in parse.parse_entities(text)
+                              if e["nse_code"].upper() == symbol and e["sector"] not in ("", "None")), None)
+                await asyncio.sleep(DELAY_S)
+                if match:
+                    break
             async with pool.acquire() as conn:
                 if match:
                     status = await conn.execute(
@@ -215,7 +224,6 @@ async def sectors(max_calls: Optional[int] = None, symbols: Optional[List[str]] 
                         "UPDATE nidp.sector_master SET sector_source = $2, sector_resolved_at = NOW() "
                         "WHERE symbol = $1 AND sector IS NULL", symbol, SECTOR_NOT_FOUND)
                     stats["not_found"] += 1
-            await asyncio.sleep(DELAY_S)
     except BudgetExhausted as exc:
         stats["stopped"] = str(exc)
     finally:
@@ -271,7 +279,7 @@ async def build(dry_run: bool = False, symbols: Optional[List[str]] = None) -> d
                 filings.setdefault(r["symbol"], []).append(r["filed_on"])
 
     stats = {"symbols_staged": len(staged), "no_values": 0, "dated_by_anchor": 0, "dated_by_filings": 0,
-             "undated": 0, "methods_agree": 0, "methods_disagree": 0, "rows_written": 0, "dry_run": dry_run}
+             "undated": 0, "anchor_mismatch": 0, "methods_agree": 0, "methods_disagree": 0, "rows_written": 0, "dry_run": dry_run}
     to_write = []
     for symbol in sorted(staged):
         if symbols and symbol not in symbols:
@@ -283,10 +291,17 @@ async def build(dry_run: bool = False, symbols: Optional[List[str]] = None) -> d
             continue
         anchor = anchors.get(symbol)
         by_anchor = parse.latest_quarter_from_anchor(
-            revenue, anchor["period_end"], float(anchor["revenue_from_ops_cr"])) if anchor else None
+            revenue, anchor["period_end"], float(anchor["revenue_from_ops_cr"]), as_of[symbol]) if anchor else None
         by_filings = parse.latest_quarter_from_filings(as_of[symbol], filings.get(symbol, []))
         if by_anchor and by_filings:
             stats["methods_agree" if by_anchor == by_filings else "methods_disagree"] += 1
+        if anchor and not by_anchor:
+            # We hold a dated quarter for this company and none of the provider's quarters
+            # has its revenue: the two are on different bases (standalone vs consolidated)
+            # or the match is ambiguous. Writing the provider's series next to that row
+            # would mix bases inside one company's history, so nothing is written.
+            stats["anchor_mismatch"] += 1
+            continue
         latest_end, method = (by_anchor, "anchor") if by_anchor else (by_filings, "results_filing")
         if latest_end is None:
             stats["undated"] += 1
