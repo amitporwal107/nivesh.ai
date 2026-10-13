@@ -1,0 +1,150 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shapes; sources are named per key. GET /api/mfd/profiles (backend/routes/mfd.py list_profiles).",
+  "workspace": {
+    "workspace_id": "ws-fixture-1",
+    "owner_user_id": "u_adv",
+    "type": "ADVISORY",
+    "created_at": "2026-06-01T09:00:00+00:00",
+    "mode_selected_at": "2026-06-01T09:05:00+00:00",
+    "mfd_onboarding_completed": true,
+    "firm_name": "Fixture Advisory LLP",
+    "advisor_name": "Fixture Advisor",
+    "arn_or_ria": "ARN-FIXTURE-0001"
+  },
+  "profiles": [
+    {
+      "profile_id": "p-1",
+      "workspace_id": "ws-fixture-1",
+      "type": "CLIENT",
+      "shadow_user_id": "shadow_p-1",
+      "name": "Test Client One",
+      "aum_rs": null,
+      "tags": [
+        "Retail"
+      ],
+      "notes": null,
+      "last_reviewed_at": null,
+      "created_at": "2026-06-01T09:00:00+00:00",
+      "updated_at": "2026-06-01T09:00:00+00:00",
+      "portfolio_score": 41,
+      "risk_score": 72,
+      "portfolio_value_rs": 6200000,
+      "ai_summary": "Synthetic summary: equity heavy, and two of the funds hold much the same stocks.",
+      "recommendation_count": 2,
+      "priority": {
+        "score": 0.82,
+        "bucket": "high",
+        "factors": {
+          "portfolio_weakness": 0.59,
+          "risk": 0.72,
+          "aum": 0.4,
+          "recency": 1.0,
+          "recommendation_severity": 0.4
+        },
+        "reasons": [
+          "High exposure risk (72/100)",
+          "Never reviewed"
+        ],
+        "dominant_action": "rebalance"
+      }
+    },
+    {
+      "profile_id": "p-3",
+      "workspace_id": "ws-fixture-1",
+      "type": "CLIENT",
+      "shadow_user_id": "shadow_p-3",
+      "name": "Test Client Three",
+      "aum_rs": null,
+      "tags": [],
+      "notes": null,
+      "last_reviewed_at": "2026-03-02T10:00:00+00:00",
+      "created_at": "2026-06-01T09:00:00+00:00",
+      "updated_at": "2026-06-01T09:00:00+00:00",
+      "portfolio_score": 62,
+      "risk_score": 45,
+      "portfolio_value_rs": 52000000,
+      "ai_summary": null,
+      "recommendation_count": 1,
+      "priority": {
+        "score": 0.55,
+        "bucket": "medium",
+        "factors": {
+          "portfolio_weakness": 0.38,
+          "risk": 0.45,
+          "aum": 0.9,
+          "recency": 0.2,
+          "recommendation_severity": 0.5
+        },
+        "reasons": [
+          "Pending recommendation"
+        ],
+        "dominant_action": null
+      }
+    },
+    {
+      "profile_id": "p-self",
+      "workspace_id": "ws-fixture-1",
+      "type": "SELF",
+      "shadow_user_id": "shadow_p-self",
+      "name": "Fixture Advisor",
+      "aum_rs": null,
+      "tags": [],
+      "notes": null,
+      "last_reviewed_at": null,
+      "created_at": "2026-06-01T09:00:00+00:00",
+      "updated_at": "2026-06-01T09:00:00+00:00",
+      "portfolio_score": 70,
+      "risk_score": 35,
+      "portfolio_value_rs": 900000,
+      "ai_summary": null,
+      "recommendation_count": 0,
+      "priority": {
+        "score": 0.3,
+        "bucket": "low",
+        "factors": {
+          "portfolio_weakness": 0.3,
+          "risk": 0.35,
+          "aum": 0.1,
+          "recency": 0.1,
+          "recommendation_severity": 0
+        },
+        "reasons": [],
+        "dominant_action": null
+      }
+    },
+    {
+      "profile_id": "p-2",
+      "workspace_id": "ws-fixture-1",
+      "type": "CLIENT",
+      "shadow_user_id": "shadow_p-2",
+      "name": "Test Client Two",
+      "aum_rs": 2500000,
+      "tags": [],
+      "notes": null,
+      "last_reviewed_at": "2026-03-02T10:00:00+00:00",
+      "created_at": "2026-06-01T09:00:00+00:00",
+      "updated_at": "2026-06-01T09:00:00+00:00",
+      "portfolio_score": 78,
+      "risk_score": 30,
+      "portfolio_value_rs": null,
+      "ai_summary": null,
+      "recommendation_count": 0,
+      "priority": {
+        "score": 0.2,
+        "bucket": "low",
+        "factors": {
+          "portfolio_weakness": 0.22,
+          "risk": 0.3,
+          "aum": 0.3,
+          "recency": 0.1,
+          "recommendation_severity": 0
+        },
+        "reasons": [
+          "Stable portfolio, no urgent action"
+        ],
+        "dominant_action": null
+      }
+    }
+  ],
+  "count": 4
+}

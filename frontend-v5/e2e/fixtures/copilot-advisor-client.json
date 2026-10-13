@@ -1,0 +1,371 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shapes; sources are named per key.",
+  "attention": {
+    "items": [
+      {
+        "item_id": "act_fx1",
+        "title": "HDFC Flexi Cap Fund - Direct Growth",
+        "subtitle": "Concentration · More than 30% of the portfolio is in one fund",
+        "source_domain": "concentration",
+        "severity": "HIGH",
+        "discuss_status": "PENDING",
+        "linked_action_id": "act_fx1"
+      },
+      {
+        "item_id": "act_fx2",
+        "title": "Action needed",
+        "subtitle": "Portfolio · ",
+        "source_domain": null,
+        "severity": "HIGH",
+        "discuss_status": "DISCUSSED",
+        "linked_action_id": "act_fx2"
+      }
+    ]
+  },
+  "trend": {
+    "invested_rs": 4000000.0,
+    "current_rs": 4600000.0,
+    "absolute_change_rs": 600000.0,
+    "percent_change": 15.0,
+    "recent_buys": [
+      {
+        "name": "Parag Parikh Flexi Cap Fund - Direct Growth",
+        "asset_type": "mutual_fund",
+        "quantity": 1250.5,
+        "buy_price": 64.0,
+        "current_price": 80.0,
+        "value_rs": 100040.0,
+        "buy_date": "2026-09-10",
+        "source": "holdings"
+      },
+      {
+        "name": "Infosys",
+        "asset_type": "equity",
+        "quantity": 40.0,
+        "buy_price": 1500.0,
+        "current_price": 1600.0,
+        "value_rs": 64000.0,
+        "buy_date": "2026-08-22",
+        "source": "holdings"
+      },
+      {
+        "name": "Sovereign Gold Bond 2031",
+        "asset_type": "gold",
+        "quantity": 10.0,
+        "buy_price": 6000.0,
+        "current_price": 7000.0,
+        "value_rs": 70000.0,
+        "buy_date": "2026-07-01",
+        "source": "holdings"
+      }
+    ]
+  },
+  "tax": {
+    "total_invested_rs": 4000000.0,
+    "total_current_rs": 4600000.0,
+    "total_unrealized_rs": 600000.0,
+    "equity_stcg_rs": 120000.0,
+    "equity_ltcg_rs": 400000.0,
+    "debt_slab_rs": 30000.0,
+    "debt_ltcg_rs": 0.0,
+    "undated_gain_rs": 50000.0,
+    "equity_stcg_count": 3,
+    "equity_ltcg_count": 5,
+    "debt_slab_count": 1,
+    "debt_ltcg_count": 0,
+    "undated_count": 1,
+    "stcg_rs": 150000.0,
+    "ltcg_rs": 400000.0,
+    "stcg_count": 4,
+    "ltcg_count": 5,
+    "tax_breakdown": {
+      "equity_stcg": 24000.0,
+      "equity_ltcg": 34375.0,
+      "debt_slab": 9000.0,
+      "debt_ltcg_legacy": 0.0,
+      "cess_4pct": 2695.0
+    },
+    "ltcg_exemption_inr": 125000.0,
+    "ltcg_exemption_used": 125000.0,
+    "ltcg_exemption_remaining": 0.0,
+    "est_tax_if_realized_rs": 70070.0,
+    "user_slab_rate": 0.3,
+    "harvest_picks": [],
+    "loss_picks": [],
+    "near_lt_picks": [],
+    "biggest_positions": [
+      {
+        "name": "HDFC Flexi Cap Fund - Direct Growth",
+        "asset_type": "mutual_fund",
+        "gain": 310000.0,
+        "bucket": "equity_ltcg",
+        "days_held": 900,
+        "lot_buy_date": "2024-04-26",
+        "lot_source": "cas_lot"
+      },
+      {
+        "name": "Infosys",
+        "asset_type": "equity",
+        "gain": 64000.0,
+        "bucket": "equity_stcg",
+        "days_held": 52,
+        "lot_buy_date": "2026-08-22",
+        "lot_source": "holding"
+      },
+      {
+        "name": "Sovereign Gold Bond 2031",
+        "asset_type": "gold",
+        "gain": 50000.0,
+        "bucket": "undated",
+        "days_held": null,
+        "lot_buy_date": null,
+        "lot_source": "holding"
+      }
+    ],
+    "coverage_pct": 90.0,
+    "lot_coverage": {
+      "n_holdings_lot_resolved": 6,
+      "n_holdings_holding_only": 2,
+      "n_cas_transactions": 84,
+      "n_cas_symbols": 6,
+      "n_undated": 1,
+      "data_source": "cas_lots",
+      "cas_quality": "good",
+      "recommended_action": null,
+      "hint": "Lot-level coverage looks healthy."
+    },
+    "regime": {
+      "label": "Indian MF Tax · post-Jul-2024 / post-Apr-2023",
+      "equity_stcg": "20% (no indexation)",
+      "equity_ltcg": "12.5% on gains > ₹1.25 L / FY",
+      "debt_post_apr_2023": "Slab rate (no LTCG benefit)",
+      "switch_warning": "Switching = sale + buy. Holding period resets, tax payable now.",
+      "stt_note": "STT applies on equity-fund redemptions.",
+      "elss_note": "ELSS deduction available only in old tax regime.",
+      "lot_basis": "Lot-level holding periods from CAS transactions (per SIP installment)"
+    }
+  },
+  "notes": {
+    "note": "Synthetic note: prefers a call before any switch.",
+    "sip_amount_rs": 25000.0,
+    "sip_frequency": "monthly",
+    "next_sip_due": "2026-11-05",
+    "preferred_channel": "whatsapp",
+    "updated_at": "2026-09-01T08:00:00+00:00"
+  },
+  "snapshots": {
+    "count": 7,
+    "snapshots": [
+      {
+        "snapshot_date": "2026-10-10",
+        "allocation": {
+          "equity": 30.0,
+          "gold": 5.0,
+          "mf": 65.0
+        },
+        "created_at": "2026-10-10T18:30:00+00:00",
+        "grade": "B",
+        "health_score": 72.0,
+        "holdings_count": 14,
+        "return_pct": 15.0,
+        "total_invested": 4000000.0,
+        "total_value": 4600000.0,
+        "trigger": "cas_upload"
+      },
+      {
+        "snapshot_date": "2026-10-09",
+        "allocation": {
+          "equity": 30.0,
+          "gold": 5.0,
+          "mf": 65.0
+        },
+        "created_at": "2026-10-09T18:30:00+00:00",
+        "grade": "B",
+        "health_score": 71.0,
+        "holdings_count": 14,
+        "return_pct": 14.2,
+        "total_invested": 4000000.0,
+        "total_value": 4568000.0,
+        "trigger": "eod_cron"
+      },
+      {
+        "snapshot_date": "2026-10-08",
+        "allocation": {
+          "equity": 30.0,
+          "gold": 5.0,
+          "mf": 65.0
+        },
+        "created_at": "2026-10-08T18:30:00+00:00",
+        "grade": "B",
+        "health_score": 71.0,
+        "holdings_count": 14,
+        "return_pct": 13.9,
+        "total_invested": 4000000.0,
+        "total_value": 4556000.0,
+        "trigger": "eod_cron"
+      },
+      {
+        "snapshot_date": "2026-10-07",
+        "allocation": {
+          "equity": 30.0,
+          "gold": 5.0,
+          "mf": 65.0
+        },
+        "created_at": "2026-10-07T18:30:00+00:00",
+        "grade": "B",
+        "health_score": 70.0,
+        "holdings_count": 14,
+        "return_pct": 13.1,
+        "total_invested": 4000000.0,
+        "total_value": 4524000.0,
+        "trigger": "eod_cron"
+      },
+      {
+        "snapshot_date": "2026-10-06",
+        "allocation": {
+          "equity": 30.0,
+          "gold": 5.0,
+          "mf": 65.0
+        },
+        "created_at": "2026-10-06T18:30:00+00:00",
+        "grade": "B",
+        "health_score": 70.0,
+        "holdings_count": 14,
+        "return_pct": 12.8,
+        "total_invested": 4000000.0,
+        "total_value": 4512000.0,
+        "trigger": "eod_cron"
+      },
+      {
+        "snapshot_date": "2026-10-05",
+        "allocation": {
+          "equity": 30.0,
+          "gold": 5.0,
+          "mf": 65.0
+        },
+        "created_at": "2026-10-05T18:30:00+00:00",
+        "grade": "C",
+        "health_score": 68.0,
+        "holdings_count": 14,
+        "return_pct": 12.0,
+        "total_invested": 4000000.0,
+        "total_value": 4480000.0,
+        "trigger": "eod_cron"
+      },
+      {
+        "snapshot_date": "2026-07-01",
+        "allocation": {
+          "equity": 30.0,
+          "gold": 5.0,
+          "mf": 65.0
+        },
+        "created_at": "2026-07-01T18:30:00+00:00",
+        "grade": "C",
+        "health_score": 64.0,
+        "holdings_count": 12,
+        "return_pct": -2.5,
+        "total_invested": 4000000.0,
+        "total_value": 3900000.0,
+        "trigger": "cas_upload"
+      }
+    ],
+    "current_snapshot_date": null,
+    "is_default_latest": true
+  },
+  "uploads": {
+    "files": [
+      {
+        "file_id": "file_fx1",
+        "filename": "fixture_statement_detailed.pdf",
+        "file_size": 184000,
+        "file_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "source": "upload",
+        "status": "imported",
+        "holdings_count": 14,
+        "error": null,
+        "stored_at": "2026-10-10T11:00:00+00:00",
+        "started_at": "2026-10-10T11:00:01+00:00",
+        "completed_at": "2026-10-10T11:00:20+00:00",
+        "last_password_hint": null,
+        "reparse_count": 0,
+        "reparsed_by_mfd": false,
+        "invite_token": "tok_fixture_completed",
+        "profile_id": "p-2",
+        "client_name": "Test Client Two",
+        "client_email": "client.two@example.test",
+        "client_pan": null,
+        "is_downloadable": true,
+        "period_start": "2025-04-01",
+        "period_end": "2026-09-30",
+        "transactions_count": 84,
+        "sips_count": 2,
+        "parser_source": "fixture",
+        "statement_type": "detailed"
+      },
+      {
+        "file_id": "file_fx2",
+        "filename": "fixture_statement_locked.pdf",
+        "file_size": 92000,
+        "file_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "source": "gmail",
+        "status": "failed",
+        "holdings_count": 0,
+        "error": "Wrong password",
+        "stored_at": "2026-10-09T09:00:00+00:00",
+        "started_at": null,
+        "completed_at": null,
+        "last_password_hint": null,
+        "reparse_count": 1,
+        "reparsed_by_mfd": false,
+        "invite_token": "tok_fixture_completed",
+        "profile_id": "p-2",
+        "client_name": "Test Client Two",
+        "client_email": "client.two@example.test",
+        "client_pan": null,
+        "is_downloadable": false
+      }
+    ],
+    "count": 2
+  },
+  "invites": {
+    "invites": [
+      {
+        "invite_token": "tok_fixture_pending",
+        "workspace_id": "ws-fixture-1",
+        "profile_id": "p-2",
+        "created_by_user_id": "u_adv",
+        "created_at": "2026-10-11T09:00:00+00:00",
+        "expires_at": "2026-10-18T09:00:00+00:00",
+        "is_active": true,
+        "status": "PENDING",
+        "client_name_prefill": "Test Client Two",
+        "client_mobile_prefill": null,
+        "client_email_prefill": "client.two@example.test",
+        "processed_files": [],
+        "invite_url": "https://example.test/cas-connect/tok_fixture_pending"
+      },
+      {
+        "invite_token": "tok_fixture_completed",
+        "workspace_id": "ws-fixture-1",
+        "profile_id": "p-2",
+        "created_by_user_id": "u_adv",
+        "created_at": "2026-10-03T09:00:00+00:00",
+        "expires_at": "2026-10-10T09:00:00+00:00",
+        "is_active": false,
+        "status": "COMPLETED",
+        "client_name_prefill": "Test Client Two",
+        "client_mobile_prefill": null,
+        "client_email_prefill": "client.two@example.test",
+        "completed_at": "2026-10-10T11:00:20+00:00",
+        "processed_files": [
+          {
+            "file_id": "file_fx1",
+            "filename": "fixture_statement_detailed.pdf",
+            "status": "imported"
+          }
+        ],
+        "invite_url": "https://example.test/cas-connect/tok_fixture_completed"
+      }
+    ]
+  }
+}
