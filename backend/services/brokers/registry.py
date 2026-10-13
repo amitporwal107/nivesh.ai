@@ -54,6 +54,11 @@ def get(slug: str) -> base.Broker:
     return _REGISTRY[slug]
 
 
+def all_brokers() -> List[base.Broker]:
+    """Every registered adapter, placeholders included."""
+    return list(_REGISTRY.values())
+
+
 def missing_secrets(slug: str) -> List[str]:
     """Names (never values) of the app secrets `slug` still needs."""
     return [name for name in _REQUIRED_SECRETS.get(slug, ()) if not conf(name)]

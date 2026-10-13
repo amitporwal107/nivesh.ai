@@ -59,6 +59,9 @@ from services.brokers import sessions as _sessions
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/broker/native")
+# Short address of the path-style callback, `/api/b/<slug or alias>`, for
+# brokers whose app form caps the Redirect URL's length (ICICI Direct).
+short_router = APIRouter(prefix="/api/b")
 
 OAUTH_STATE_TTL_MIN = 10
 FIRST_SYNC_TIMEOUT_S = 12
@@ -323,6 +326,29 @@ async def oauth_callback_posted(broker_slug: str, request: Request):
             query = "&".join(part for part in (query, urlencode({code_params[0]: value})) if part)
     target = f"{router.prefix}/callback/{broker.SLUG}"
     return RedirectResponse(url=f"{target}?{query}" if query else target, status_code=303)
+
+
+def _slug_for_alias(alias: str) -> str:
+    """The broker a short-callback path names: a slug, or the `CALLBACK_ALIAS`
+    an adapter declares. Anything else is returned as given and fails as an
+    unknown broker further on."""
+    for b in _broker_registry.all_brokers():
+        if alias in (b.SLUG, getattr(b, "CALLBACK_ALIAS", None)):
+            return b.SLUG
+    return alias
+
+
+@short_router.get("/{alias}")
+async def oauth_callback_short(alias: str, request: Request):
+    """`oauth_callback_for` at a short address."""
+    return await _finish_sign_in(request, _slug_for_alias(alias))
+
+
+@short_router.post("/{alias}")
+async def oauth_callback_short_posted(alias: str, request: Request):
+    """`oauth_callback_posted` at a short address; the 303 goes to the full
+    GET path."""
+    return await oauth_callback_posted(_slug_for_alias(alias), request)
 
 
 async def _finish_sign_in(request: Request, broker_slug: str):

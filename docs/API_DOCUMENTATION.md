@@ -79,8 +79,9 @@ Broker sign-in as of 2026-10-14 (from each broker's official documentation):
 | Motilal Oswal | redirect (MOFSL "Login through Portal"; returns `authtoken`, no `state`) | adapter | built, not tested live. Whether one key signs in any client is not stated by MOFSL |
 
 - Redirect URLs to register: Zerodha `/api/broker/native/callback/zerodha`, Angel One `/callback/angel`,
-  ICICI Direct `/callback/icicidirect`, Motilal Oswal `/callback/motilal`, Upstox `/callback?broker=upstox`
-  (Upstox compares it with what Nivesh sends).
+  ICICI Direct `/api/b/icici`, Motilal Oswal `/callback/motilal`, Upstox `/callback?broker=upstox`
+  (Upstox compares it with what Nivesh sends). `/api/b/<slug or alias>` is a short address of the same
+  callback (GET and POST), for app forms that cap the URL's length or refuse a port; ICICI's alias is `icici`.
 - ICICI Direct and Motilal Oswal echo no `state`, so the returning user is identified by their Nivesh
   session cookie. That needs the cookie to be `SameSite=Lax` (staging) — with `SameSite=None` the CSRF
   middleware rejects ICICI's POST before the route runs.
