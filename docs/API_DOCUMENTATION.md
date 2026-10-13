@@ -48,7 +48,8 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
 | `GET /positions?kind=&segment=` | the same per connected account: `accounts[]` with `ok`, `error{code,message}`, `as_of` |
 | `DELETE /accounts/{id}` | removes the account, its token and its holdings |
 
-- `broker_error` codes: `denied, missing_params, unknown_broker, invalid_state, state_expired, token_exchange_failed`.
+- `broker_error` codes: `denied, missing_params, unknown_broker, invalid_state, state_expired, token_exchange_failed, server_error` (the broker signed the user in but Nivesh could not save the session).
+- The server must have `PII_ENCRYPTION_KEY` to store a session token. Without it `supported` reports nothing as `configured` or `connectable`, and `start` answers 503.
 - Position fields: `symbol, exchange, quantity (signed), avg_price, last_price, pnl, product, product_raw, segment (equity|fno|commodity|currency), is_intraday, instrument_type (FUT|CE|PE), expiry, strike, kind, name`. A field the broker does not return is null.
 - Read errors carry a stable `code`: `BROKER_SESSION_EXPIRED` (409, reconnect needed), `BROKER_READ_NOT_SUPPORTED` (400), `BROKER_READ_FAILED` (502).
 - Feature flag `broker_hub` (default everyone): off gives 403 `feature_not_enabled` on start, native sync and positions. Listing and disconnecting are not gated.

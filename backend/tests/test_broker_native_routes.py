@@ -217,6 +217,45 @@ def test_angel_one_uses_the_path_style_callback():
     assert adapter.CALLBACK_CODE_PARAMS == ("auth_token",)
 
 
+# ── the server cannot store a session token (no encryption key) ──────────
+# Seen on staging 2026-10-13: Zerodha signed the user in, the save raised and
+# the callback answered a raw 500 page.
+NO_KEY = RuntimeError("PII_ENCRYPTION_KEY is not configured (or invalid) and APP_ENV='staging' is not a dev environment.")
+
+
+def test_nothing_is_connectable_and_no_sign_in_starts_when_tokens_cannot_be_stored(h, monkeypatch):
+    monkeypatch.setattr(sessions, "storage_ready", lambda: False)
+
+    rows = h.client.get("/api/broker/native/supported").json()["brokers"]
+    assert rows and not any(r["connectable"] or r["configured"] for r in rows)
+
+    r = h.client.get("/api/broker/native/start/fakebroker")
+    assert (r.status_code, r.json()["detail"]) == (503, "Broker connections are not set up on this server yet.")
+    assert "PII" not in r.text
+    assert h.db.broker_oauth_states.docs == []                 # the user is never sent to the broker
+    assert (h.audits[0]["outcome"], h.audits[0]["details"]["reason"]) == ("error", "token storage not configured")
+
+
+@pytest.mark.parametrize("return_to, path", [(None, "/dashboard"), ("/v5/app/page/settings", "/v5/app/page/settings")])
+def test_a_session_that_cannot_be_saved_returns_to_the_page_with_a_code_not_a_500(h, monkeypatch, caplog, return_to, path):
+    async def cannot_store(*_a, **_k):
+        raise NO_KEY
+    monkeypatch.setattr(sessions, "upsert_native_account", cannot_store)
+    h.state(return_to=return_to)
+
+    with caplog.at_level(logging.DEBUG, logger=bn.logger.name):
+        r = h.callback(broker="fakebroker", code="auth-code-1", state="state-1")
+
+    landed, query, _ = _landing(r)
+    assert landed == path and ("broker_error", "server_error") in query
+    assert "tok-from-broker" not in r.headers["location"]
+    assert h.db.broker_accounts.docs == [] and h.synced == []
+    assert h.db.broker_oauth_states.docs == []                 # the one-time state is spent
+    assert (h.audits[0]["outcome"], h.audits[0]["details"]["stage"], h.audits[0]["details"]["reason"]) == (
+        "error", "store", "RuntimeError")
+    assert "PII_ENCRYPTION_KEY" not in repr(h.audits) and "tok-from-broker" not in caplog.text
+
+
 def test_start_refuses_a_broker_whose_sign_in_is_not_built_or_is_switched_off(h):
     h.register(FakeBroker("notyet", "Not Yet Broker", IMPLEMENTED=False))
     r = h.client.get("/api/broker/native/start/notyet")

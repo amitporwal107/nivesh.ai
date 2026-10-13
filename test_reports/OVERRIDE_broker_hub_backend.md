@@ -1,8 +1,8 @@
-# OVERRIDE — Broker hub backend (branch `feat/broker-hub`)
+# OVERRIDE — Broker hub backend
 
-REASON: Staging verification is deferred because the code is not on staging and cannot be exercised there yet. It is uncommitted on `feat/broker-hub` (worktree `/home/deploy/nivesh-broker-hub`); staging deploys only from `dev`, and a session cannot push to `dev`. A real end-to-end check also needs things only the user can supply: Nivesh's developer-app keys for at least one broker with the staging callback URL registered at that broker, a real broker login, and a staging `session_token`. To finish: commit and push the branch, merge it into `dev`, set the broker app keys on staging, then run the endpoint and data checks listed in `test_reports/broker_hub_backend_20261013_1900.md` (TC-41 and the two staging sections) and replace this override with a report ending in the PASS verdict.
+REASON: Two things remain unverified. (1) The fix on branch `fix/broker-hub-storage-failure` (refuse a sign-in when the session token cannot be stored; return a code instead of a 500 when the save fails) is unit-tested only and is not on staging until its PR is merged into `dev`. (2) The only broker account connected on staging so far is an empty Zerodha account, so the mapping of real holdings and positions rows has never been compared with a broker's own app. To finish: merge the fix PR, then connect an account that holds something and compare its holdings and positions with the broker's app, as listed under L7 in `test_reports/broker_hub_staging_20261014_0355.md`.
 
-- **Date:** 2026-10-13
-- **Status of the work:** IN PROGRESS. 738 unit tests pass in the staging backend image (788 in the same image with Fenix installed), using stubbed HTTP and an in-memory database. The whole app imports with the new routes registered. Nothing has been run against a live broker, the staging API or the staging database.
-- **Not connectable today, by the brokers' own rules:** Groww (no redirect sign-in) and ICICI Direct (personal API keys, third-party use prohibited). Angel One is built but its multi-client permission is unconfirmed.
+- **Date:** 2026-10-14
+- **Verified live on staging (2026-10-13 22:18–22:21 UTC):** Zerodha sign-in from Settings, encrypted storage of the session, Sync now, live positions read, Remove and reconnect. Counts from the hub's reader matched Zerodha's own SDK (0 holdings, 0 positions; the user confirmed the account is empty).
+- **Not verified:** any broker other than Zerodha; a non-empty account; the daily 17:30 IST job running; logout ending broker sessions on staging.
 - **This is not a pass.** Resolve before merge to `main`.

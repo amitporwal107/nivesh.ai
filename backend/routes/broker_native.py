@@ -146,7 +146,14 @@ async def _find_state(request: Request, state: str, broker_slug: str) -> Tuple[O
 async def list_supported(request: Request):
     """Public broker dropdown — what Nivesh has native adapters for."""
     await get_current_user(request)
-    return {"brokers": _broker_registry.list_supported()}
+    brokers = _broker_registry.list_supported()
+    if not _sessions.storage_ready():
+        # No session token can be stored, so no sign-in can complete on this
+        # server whatever the broker's own keys say: nothing is set up.
+        for b in brokers:
+            b["configured"] = False
+            b["connectable"] = False
+    return {"brokers": brokers}
 
 
 @router.get("/start/{broker_slug}")
@@ -170,6 +177,20 @@ async def start_oauth(broker_slug: str, request: Request):
         raise HTTPException(
             status_code=400,
             detail=f"{broker.DISPLAY} cannot be connected from Nivesh yet.",
+        )
+
+    # The server cannot encrypt a session token, so the sign-in could not be
+    # saved when the user comes back: stop before sending them to the broker.
+    if not _sessions.storage_ready():
+        await _audit.record(
+            user_id=user_id, action="broker_connect", outcome="error",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={"broker": broker_slug, "stage": "auth_url", "reason": "token storage not configured"},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Broker connections are not set up on this server yet.",
         )
 
     # Nivesh's own app keys for this broker are not set: the login could
@@ -305,9 +326,22 @@ async def _finish_sign_in(request: Request, broker_slug: str):
     # Persist as a `broker_accounts` row — same shape as the OpenAlgo
     # path so /sync, /disconnect, etc. work uniformly. Reconnecting the
     # same broker login refreshes its row instead of adding another.
-    doc = await _sessions.upsert_native_account(
-        db, user_id=user_id, slug=broker_slug, display=broker.DISPLAY, token=access_token,
-    )
+    try:
+        doc = await _sessions.upsert_native_account(
+            db, user_id=user_id, slug=broker_slug, display=broker.DISPLAY, token=access_token,
+        )
+    except Exception as e:  # noqa: BLE001
+        # The broker signed the user in but the session could not be saved
+        # (encryption key missing, database down). Send them back to the page
+        # they came from with a code, never a raw error page.
+        logger.error("native broker session could not be stored for %s (%s)", broker_slug, type(e).__name__)
+        await _audit.record(
+            user_id=user_id, action="broker_connect", outcome="error",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={"broker": broker_slug, "stage": "store", "reason": type(e).__name__},
+        )
+        return _back(back, broker_error="server_error")
     account_id = doc["account_id"]
 
     # First holdings sync, so the portfolio is there when the user lands
