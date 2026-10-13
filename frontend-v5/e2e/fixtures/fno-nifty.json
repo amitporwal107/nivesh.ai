@@ -1,0 +1,38 @@
+{
+  "_note": "Synthetic F&O responses in the shape of GET /api/fno/{symbol}/expiries, /chain and /futures. Not market data.",
+  "expiries": {
+    "symbol": "NIFTY", "as_of": "2026-10-12", "count": 3,
+    "expiries": [
+      { "expiry": "2026-10-13", "days_to_expiry": 1 },
+      { "expiry": "2026-10-27", "days_to_expiry": 15 },
+      { "expiry": "2026-11-24", "days_to_expiry": 43 }
+    ]
+  },
+  "chain": {
+    "symbol": "NIFTY",
+    "summary": {
+      "as_of": "2026-10-12", "expiry": "2026-10-13", "spot": 25040.5, "atm_strike": 25000,
+      "total_call_oi": 16800000, "total_put_oi": 8700000,
+      "total_call_oi_change": 1760000, "total_put_oi_change": -34500,
+      "pcr": 0.5179, "max_pain": 25000,
+      "max_call_oi": { "strike": 25100, "oi": 12400000 }, "max_put_oi": { "strike": 24900, "oi": 4200000 }
+    },
+    "lot_size": 65,
+    "strikes": [
+      { "strike": 24900, "call": { "close": 310.4, "settle": 310.4, "oi": 1300000, "change_in_oi": 50000, "volume": 800000 },
+                         "put": { "close": 95.5, "settle": 95.5, "oi": 4200000, "change_in_oi": -120000, "volume": 2500000 } },
+      { "strike": 25000, "call": { "close": 240.25, "settle": 240.25, "oi": 3100000, "change_in_oi": 210000, "volume": 5400000 },
+                         "put": { "close": 128.6, "settle": 128.6, "oi": 3600000, "change_in_oi": 90000, "volume": 4900000 } },
+      { "strike": 25100, "call": { "close": 180, "settle": 180, "oi": 12400000, "change_in_oi": 1500000, "volume": 9000000 },
+                         "put": { "close": 172.35, "settle": 172.35, "oi": 900000, "change_in_oi": -4500, "volume": 1200000 } }
+    ],
+    "strike_count": 3, "strikes_returned": 3
+  },
+  "futures": {
+    "symbol": "NIFTY", "as_of": "2026-10-12", "spot": 25040.5, "lot_size": 65, "count": 2,
+    "futures": [
+      { "expiry": "2026-10-27", "close": 25081, "settle": 25079, "oi": 14500000, "change_in_oi": -250000, "volume": 6100000, "basis": 38.5 },
+      { "expiry": "2026-11-24", "close": 25190.2, "settle": 25188.6, "oi": 1900000, "change_in_oi": 300000, "volume": 450000, "basis": 148.1 }
+    ]
+  }
+}
