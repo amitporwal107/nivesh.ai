@@ -266,6 +266,10 @@ async def _persist_holdings(
     stored: List[Dict[str, Any]] = []
     now = _now_iso()
     for h in holdings:
+        # Brokers also list instruments that were sold out (ICICI's demat list
+        # does, with every quantity field at zero): that is not a holding.
+        if float(h.quantity or 0) <= 0:
+            continue
         asset_type = h.asset_type if h.asset_type in _ASSET_TYPES else "equity"
         holding_doc = {
             "holding_id": f"hold_{uuid.uuid4().hex[:12]}",
@@ -291,9 +295,26 @@ async def _persist_holdings(
         isin = str(h.isin or "").strip().upper()
         if isin:
             holding_doc["isin"] = isin
+        _fill_from_masterdata(holding_doc)
         await db.holdings.insert_one(holding_doc)
         stored.append(holding_doc)
     return stored
+
+
+def _fill_from_masterdata(row: Dict[str, Any]) -> None:
+    """Fill what the broker left blank from an exact ISIN lookup: the company
+    name where the broker gave only its own code (ICICI) or a scrip label, a
+    price where it gave none (Groww, Motilal Oswal), and the sector. Never
+    changes ticker, quantity or cost. A failed lookup leaves the row as the
+    broker gave it; it must not fail the sync.
+    """
+    try:
+        from services import masterdata
+        from services.equity_sectors import enrich_holdings_with_sectors
+        masterdata.enrich_broker_row(row)
+        enrich_holdings_with_sectors([row])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("broker sync: masterdata fill skipped for one row (%s)", type(exc).__name__)
 
 
 async def _apply_broker_wins(

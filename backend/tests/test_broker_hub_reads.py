@@ -142,6 +142,15 @@ _ensure_sibling_modules()
 
 from services.brokers import hub_reads as hub  # noqa: E402
 
+# The masterdata fill reads the real masterdata files; tests state what they give a row themselves.
+REAL_MASTERDATA_FILL = hub._fill_from_masterdata
+
+
+@pytest.fixture(autouse=True)
+def broker_rows_as_given(monkeypatch):
+    """Rows are stored as the broker gave them unless a test puts the real fill back."""
+    monkeypatch.setattr(hub, "_fill_from_masterdata", lambda row: None)
+
 # helpers/holdings_reconcile.py (the "broker wins" rule) is on disk and imported for real by hub_reads;
 # `Siblings` replaces its `apply_broker_wins` per test, and one test below puts the real one back.
 SIBLINGS["helpers.holdings_reconcile"] = "real"
@@ -645,6 +654,61 @@ def test_a_holding_the_broker_gives_no_last_price_for_is_stored_at_zero_not_at_a
         row = db.holdings.one(ticker=ticker)
         assert row["current_price"] == 0.0 and row["buy_price"] == 1400.5    # not filled from the buy price
     assert all("current_price" not in r and "buy_price" not in r for r in result["holdings"])
+
+
+# ── sync_account: empty rows, and what masterdata fills in ───────────────
+def test_instruments_with_no_quantity_are_not_stored_as_holdings(sib):
+    # ICICI's demat list keeps sold-out instruments, with every quantity field at zero.
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [INFY, dataclasses.replace(GOLDBEES, quantity=0.0),
+                            dataclasses.replace(INFY, symbol="TCS", isin="INE467B01029", quantity=None)]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    assert result["count"] == 1 and [h["ticker"] for h in result["holdings"]] == ["INFY"]
+    assert [h["ticker"] for h in db.holdings.docs if h.get("broker_account_id") == "ba_z"] == ["INFY"]
+    assert db.broker_accounts.one(account_id="ba_z")["last_sync_count"] == 1
+
+
+def test_a_row_named_by_the_brokers_own_code_gets_the_company_name_and_a_missing_price(sib, monkeypatch):
+    from services import masterdata
+    monkeypatch.setattr(hub, "_fill_from_masterdata", REAL_MASTERDATA_FILL)
+    monkeypatch.setattr(masterdata, "lookup_isin", lambda isin: (
+        {"name": "INFOSYS LIMITED", "price": 1500.0, "source": "nse"} if isin == "INE009A01021" else None))
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [dataclasses.replace(INFY, name="INFTEC", symbol="INFTEC", current_price=0.0)]
+    asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    row = db.holdings.one(ticker="INFTEC")
+    assert (row["name"], row["current_price"]) == ("INFOSYS LIMITED", 1500.0)
+    # What the broker did give is never touched.
+    assert (row["ticker"], row["quantity"], row["buy_price"], row["isin"]) == ("INFTEC", 10.0, 1400.5, "INE009A01021")
+
+
+def test_a_real_name_and_price_from_the_broker_are_kept(sib, monkeypatch):
+    from services import masterdata
+    monkeypatch.setattr(hub, "_fill_from_masterdata", REAL_MASTERDATA_FILL)
+    monkeypatch.setattr(masterdata, "lookup_isin", lambda isin: {"name": "INFOSYS LIMITED", "price": 9999.0, "source": "nse"})
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [INFY]
+    asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    row = db.holdings.one(ticker="INFY")
+    assert (row["name"], row["current_price"], row["sector"]) == ("Infosys Ltd", 1525.0, "IT")
+
+
+def test_a_failed_masterdata_lookup_leaves_the_row_as_the_broker_gave_it(sib, monkeypatch):
+    from services import masterdata
+
+    def boom(_isin):
+        raise OSError("masterdata volume not mounted")
+
+    monkeypatch.setattr(hub, "_fill_from_masterdata", REAL_MASTERDATA_FILL)
+    monkeypatch.setattr(masterdata, "lookup_isin", boom)
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [INFY]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    assert result["count"] == 1 and db.holdings.one(ticker="INFY")["name"] == "Infosys Ltd"
 
 
 # ── sync_account: the broker wins (helpers.holdings_reconcile) ───────────

@@ -43,8 +43,8 @@
 - Broker app keys (`BROKER_<NAME>_API_KEY` / `_API_SECRET`) are Nivesh's own developer-app
   credentials per broker; a broker is connectable only when they are set. Staging has Zerodha's.
   ICICI Direct: `BROKER_ICICIDIRECT_API_KEY` / `_API_SECRET`. Motilal Oswal: `BROKER_MOTILAL_API_KEY`,
-  `BROKER_MOTILAL_API_SECRET`, `BROKER_MOTILAL_VENDOR_INFO` (vendor short name, or the client's own
-  code for a key they created themselves). Both brokers also need the server's public IP registered
+  `BROKER_MOTILAL_API_SECRET`; `BROKER_MOTILAL_VENDOR_INFO` only for a vendor key (its short name) —
+  for a key a client created themselves it is left unset and the client code read at sign-in is sent. Both brokers also need the server's public IP registered
   on the app (staging: 45.64.105.88).
 
 ## Infrastructure

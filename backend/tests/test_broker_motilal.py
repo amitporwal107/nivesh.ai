@@ -246,8 +246,31 @@ def test_auth_url_is_the_portal_login_with_only_the_app_key(monkeypatch):
     assert APP_SECRET not in url and VENDOR not in url
 
 
+def test_without_a_vendor_name_the_client_code_from_the_profile_is_sent(api, monkeypatch):
+    # A key a client created for their own use: no vendor short name is configured.
+    monkeypatch.delenv("BROKER_MOTILAL_VENDOR_INFO")
+
+    api.reply(ACCESS_PATH, ACCESS)
+    api.reply(PROFILE_PATH, PROFILE)
+    api.reply(HOLDINGS_PATH, _error("MO1015", "Holding Not Found"))
+    session = _sign_in()
+    asyncio.run(motilal.fetch_holdings(session))
+
+    sent = [r.headers["vendorinfo"] for r in api.requests]
+    assert sent[:2] == ["", ""]                              # getaccesstoken, getprofile: not known yet
+    assert sent[2] == session.extras["user_id"] != ""        # every call after: the session's client code
+    assert motilal.auth_url(state="st", redirect_uri=CALLBACK).startswith("https://invest.motilaloswal.com/")
+
+
+def test_a_refused_authtoken_as_the_live_api_reports_it_ends_the_session(api):
+    # Seen live 2026-10-14 for a made-up authtoken: HTTP 200, errorcode MO2007.
+    api.reply(HOLDINGS_PATH, _error("MO2007", "Authorization is Invalid In Header Parameter"))
+    with pytest.raises(motilal.MotilalSessionExpired):
+        asyncio.run(motilal.fetch_holdings(_token()))
+
+
 @pytest.mark.parametrize("missing", [
-    "BROKER_MOTILAL_API_KEY", "BROKER_MOTILAL_API_SECRET", "BROKER_MOTILAL_VENDOR_INFO",
+    "BROKER_MOTILAL_API_KEY", "BROKER_MOTILAL_API_SECRET",
 ])
 def test_missing_config_stops_sign_in_and_reads_before_any_request(api, monkeypatch, missing):
     monkeypatch.delenv(missing)
