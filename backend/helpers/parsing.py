@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from deps import db, ai_engine
+from helpers import holdings_reconcile
 
 logger = logging.getLogger(__name__)
 
@@ -70,79 +71,17 @@ def classify_mf_sector(scheme_name: str) -> str:
 
 async def parse_csv_holdings(content: bytes) -> list:
     """Parse CSV/Excel files into holding rows."""
-    holdings = []
-    for encoding in ["utf-8", "latin-1", "cp1252"]:
-        try:
-            text = content.decode(encoding)
-            break
-        except (UnicodeDecodeError, Exception):
-            continue
-    else:
-        raise HTTPException(status_code=400, detail="Could not decode file. Please use UTF-8 encoding.")
-
-    reader = csv.DictReader(io.StringIO(text))
-    for row in reader:
-        name = row.get("name") or row.get("Name") or row.get("STOCK") or row.get("stock") or row.get("Scheme Name") or row.get("scheme_name") or row.get("Fund") or ""
-        if not name.strip():
-            continue
-        holdings.append({
-            "name": name.strip(),
-            "ticker": (row.get("ticker") or row.get("Ticker") or row.get("SYMBOL") or row.get("symbol") or row.get("ISIN") or "").strip(),
-            "asset_type": (row.get("asset_type") or row.get("Type") or row.get("type") or row.get("Asset Type") or "equity").strip().lower(),
-            "quantity": float(row.get("quantity") or row.get("Quantity") or row.get("QTY") or row.get("qty") or row.get("Units") or row.get("units") or row.get("Balance Units") or 0),
-            "buy_price": float(row.get("buy_price") or row.get("Buy Price") or row.get("avg_price") or row.get("cost") or row.get("Avg. Cost") or row.get("NAV") or 0),
-            "current_price": float(row.get("current_price") or row.get("Current Price") or row.get("ltp") or row.get("cmp") or row.get("Current NAV") or row.get("Market Value") or 0),
-            "sector": (row.get("sector") or row.get("Sector") or "Other").strip(),
-            "buy_date": (row.get("buy_date") or row.get("Buy Date") or row.get("date") or row.get("Date") or "").strip(),
-        })
-    return holdings
+    # Header detection, broker column names and number cleaning live in
+    # helpers.statement_exports; this keeps the old list-of-rows contract.
+    from helpers.statement_exports import parse_csv_statement
+    return parse_csv_statement(content).holdings
 
 
 async def parse_excel_holdings(content: bytes) -> list:
     """Parse Excel (.xlsx) files into holding rows."""
-    import openpyxl
-    wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return []
-
-    headers = [str(h).strip().lower() if h else "" for h in rows[0]]
-    holdings = []
-
-    def col(names):
-        for n in names:
-            if n.lower() in headers:
-                return headers.index(n.lower())
-        return None
-
-    name_i = col(["name", "scheme name", "fund", "stock", "scheme"])
-    qty_i = col(["quantity", "qty", "units", "balance units"])
-    buy_i = col(["buy price", "buy_price", "avg price", "avg. cost", "nav", "cost"])
-    cur_i = col(["current price", "current_price", "ltp", "cmp", "current nav", "market value"])
-    type_i = col(["asset_type", "type", "asset type"])
-    sector_i = col(["sector"])
-    ticker_i = col(["ticker", "symbol", "isin"])
-    date_i = col(["buy_date", "buy date", "date"])
-
-    for row in rows[1:]:
-        if not row or name_i is None or name_i >= len(row) or not row[name_i]:
-            continue
-        name = str(row[name_i]).strip()
-        if not name:
-            continue
-        holdings.append({
-            "name": name,
-            "ticker": str(row[ticker_i]).strip() if ticker_i is not None and ticker_i < len(row) and row[ticker_i] else "",
-            "asset_type": str(row[type_i]).strip().lower() if type_i is not None and type_i < len(row) and row[type_i] else "equity",
-            "quantity": float(row[qty_i]) if qty_i is not None and qty_i < len(row) and row[qty_i] else 0,
-            "buy_price": float(row[buy_i]) if buy_i is not None and buy_i < len(row) and row[buy_i] else 0,
-            "current_price": float(row[cur_i]) if cur_i is not None and cur_i < len(row) and row[cur_i] else 0,
-            "sector": str(row[sector_i]).strip() if sector_i is not None and sector_i < len(row) and row[sector_i] else "Other",
-            "buy_date": str(row[date_i]).strip() if date_i is not None and date_i < len(row) and row[date_i] else "",
-        })
-    wb.close()
-    return holdings
+    # Also reads legacy .xls (via xlrd) — see helpers.statement_exports.
+    from helpers.statement_exports import parse_excel_statement
+    return parse_excel_statement(content).holdings
 
 
 def convert_casparser_to_holdings(cas_data: dict) -> list:
@@ -384,7 +323,9 @@ def parse_json_response_obj(response: str) -> dict:
 
 
 async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str = None, portfolio_id: str = ""):
-    """Save parsed holdings to DB. For CAS uploads, replaces ALL existing holdings."""
+    """Save parsed holdings to DB. A CAS upload replaces the user's existing holdings
+    except rows read from a broker; overlaps follow helpers.holdings_reconcile (the
+    broker wins)."""
     is_cas = "cas" in file_type.lower()
 
     # ── Masterdata enrichment (single chokepoint for ALL import paths) ──
@@ -409,14 +350,26 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
 
     old_count = 0
     if is_cas:
-        delete_query = {"user_id": user_id}
+        # Rows read from a broker survive a statement import, and the statement's
+        # copy of an instrument a broker source already holds is left out.
+        delete_query = {"user_id": user_id, **holdings_reconcile.not_broker_sourced_filter()}
         if portfolio_id:
             delete_query["portfolio_id"] = portfolio_id
         old_count = await db.holdings.count_documents(delete_query)
         await db.holdings.delete_many(delete_query)
         logger.info("CAS upload: cleared %d old holdings", old_count, extra={"user_id": user_id})
+        parsed, left_out = holdings_reconcile.drop_broker_held(
+            parsed, await holdings_reconcile.broker_held_isins(db, user_id),
+        )
+        if left_out:
+            logger.info("CAS upload: left out %d holdings a broker source already holds",
+                        left_out, extra={"user_id": user_id})
+    else:
+        # A broker's export replaces that broker's earlier export.
+        parsed = await holdings_reconcile.replace_broker_export(db, user_id, parsed)
 
     holdings_added = []
+    export_rows: dict = {}  # broker slug -> rows stored from that broker's export
     for h in parsed:
         asset_type = h.get("asset_type", "equity")
         # Sovereign Gold Bonds are gold; without this they fell through to the
@@ -447,6 +400,12 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
             "uploaded_at": datetime.now(timezone.utc).isoformat(),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
+        # What the reconcile rule matches on: the ISIN, and which broker an export came from.
+        if h.get("isin"):
+            holding_doc["isin"] = str(h["isin"]).strip().upper()
+        if holding_doc["source"] == holdings_reconcile.BROKER_EXPORT_SOURCE and h.get("broker"):
+            holding_doc["broker"] = h["broker"]
+            export_rows.setdefault(h["broker"], []).append(holding_doc)
         await db.holdings.insert_one(holding_doc)
         holdings_added.append({
             "holding_id": holding_doc["holding_id"],
@@ -454,6 +413,10 @@ async def save_holdings(user_id: str, parsed: list, file_type: str, task_id: str
             "asset_type": holding_doc["asset_type"],
             "quantity": holding_doc["quantity"],
         })
+
+    # The export now holds these instruments: drop the statement copies it supersedes.
+    for broker, rows in export_rows.items():
+        await holdings_reconcile.apply_broker_wins(db, user_id, rows, broker=broker, live=False)
 
     # Invalidate the MFD profile-signal cache for this user so the Advisor
     # dashboard picks up the fresh health score on next load.

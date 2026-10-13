@@ -100,3 +100,30 @@ class Broker(Protocol):
 
     async def fetch_funds(self, token: AccessToken) -> Funds:
         ...
+
+
+@dataclass
+class HubPosition:
+    """Broker-hub position shape (one row of a net or day position book).
+
+    Richer than `Position`: carries the normalised product, the segment and
+    the derivative contract details the hub screens need. Produced by
+    `fenix_reader.read_positions` and by `hub_reads` for adapter reads. A
+    field the broker does not give is left at its default (or None) — never
+    filled with a guess.
+    """
+    symbol: str                      # broker trading symbol, upper-case
+    exchange: str                    # NSE | BSE | NFO | BFO | MCX | CDS ...
+    quantity: float                  # signed net quantity (negative = short)
+    avg_price: float
+    last_price: Optional[float] = None  # None when the broker sends no price
+    pnl: float = 0.0
+    product: Optional[str] = None      # normalised: "intraday" | "delivery" | "carryforward" | "margin"; None if unknown
+    product_raw: Optional[str] = None  # the broker's own code (MIS, CNC, NRML, ...)
+    segment: str = "equity"            # "equity" | "fno" | "commodity" | "currency"
+    is_intraday: bool = False
+    instrument_type: Optional[str] = None  # "FUT" | "CE" | "PE"; None for cash
+    expiry: Optional[str] = None       # ISO date, when the broker gives it
+    strike: Optional[float] = None
+    kind: str = "net"                  # "net" | "day"
+    name: Optional[str] = None         # broker's instrument / company name, when given

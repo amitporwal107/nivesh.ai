@@ -32,6 +32,7 @@ from datetime import datetime, timezone, date
 from typing import Any, Dict, List, Optional
 
 from deps import db
+from helpers import holdings_reconcile
 from services import pg_client, portfolio_snapshot as _v1_snap
 from services.cas_period_detector import detect_statement_period
 
@@ -172,8 +173,18 @@ async def write_holdings_table(user_id: str, holdings: List[Dict[str, Any]],
                                 source: str = "snapshot_load") -> int:
     """Replace the live `holdings` table for `user_id` with the given
     list. This is what makes a snapshot the "current" view in Client 360.
+
+    Rows read from a broker are not part of any CAS snapshot: they stay, and
+    the snapshot's copy of an instrument a broker source holds is left out
+    (helpers.holdings_reconcile — the broker wins).
     """
-    await db.holdings.delete_many({"user_id": user_id})
+    await db.holdings.delete_many(
+        {"user_id": user_id, **holdings_reconcile.not_broker_sourced_filter()},
+    )
+    holdings = [h for h in holdings if not holdings_reconcile.is_broker_sourced(h)]
+    holdings, _ = holdings_reconcile.drop_broker_held(
+        holdings, await holdings_reconcile.broker_held_isins(db, user_id),
+    )
     inserted = 0
     for h in holdings:
         resolved_name = await _resolve_full_scheme_name(

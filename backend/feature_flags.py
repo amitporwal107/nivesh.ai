@@ -57,6 +57,16 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_mode": "everyone",
         "default_allowlist": [],
     },
+    "broker_hub": {
+        "display_name": "Broker connections",
+        "description": (
+            "Connect a broker by signing in on the broker's own site, then read holdings and positions (read-only). "
+            "Off stops new sign-ins, holdings sync and position reads for redirect-connected accounts; listing and "
+            "disconnecting accounts keep working, and OpenAlgo connections are not affected."
+        ),
+        "default_mode": "everyone",
+        "default_allowlist": [],
+    },
     "chat_streaming": {
         "display_name": "AI Chat (Streaming)",
         "description": "Conversational AI financial advisor",

@@ -258,6 +258,26 @@ async def _gmail_auto_import_job():
         logger.warning("gmail_auto_import error: %s", e)
 
 
+async def _broker_daily_sync_job():
+    """Daily broker holdings refresh — runs 17:30 IST, after market close
+    and while the day's broker sessions are still live. Re-reads holdings
+    for every directly connected broker account with a live session;
+    accounts whose session has ended are left for the user to reconnect.
+
+    Off switch (no deploy): set the secret / env `BROKER_DAILY_SYNC_ENABLED`
+    to 0, false, off or no. Unset means on."""
+    try:
+        from services.brokers._helpers import conf
+        if conf("BROKER_DAILY_SYNC_ENABLED").lower() in ("0", "false", "off", "no"):
+            logger.info("broker_daily_sync skipped — BROKER_DAILY_SYNC_ENABLED is off")
+            return
+        from services.brokers import hub_reads
+        res = await hub_reads.daily_sync(db)
+        logger.info("broker_daily_sync %s", res)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("broker_daily_sync error: %s", e)
+
+
 def start():
     """Idempotent start. No-op if already running."""
     global _scheduler
@@ -336,6 +356,17 @@ def start():
     _scheduler.add_job(
         _gmail_auto_import_job, CronTrigger(day=1, hour=6, minute=30),
         id="gmail_auto_import_monthly", replace_existing=True, max_instances=1,
+    )
+    # Broker holdings: daily 17:30 IST — refresh holdings of every directly
+    # connected broker account whose session is still live. Switched off
+    # with BROKER_DAILY_SYNC_ENABLED=0 (checked on each run). The trigger
+    # names its timezone: a CronTrigger instance does not take the
+    # scheduler's, it defaults to the process's local zone (UTC in the
+    # backend image).
+    _scheduler.add_job(
+        _broker_daily_sync_job,
+        CronTrigger(hour=17, minute=30, timezone="Asia/Kolkata"),
+        id="broker_holdings_sync_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

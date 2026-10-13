@@ -211,6 +211,19 @@ zipp==3.23.0
 
 # Native broker SDKs (Nivesh SPC)
 kiteconnect==5.2.0  # Zerodha Kite Connect — read-only holdings/positions/funds
+fenix==2.0.2        # Fenix unified broker reader — read-only holdings/positions (services/brokers/fenix_reader.py)
+# fenix's requirements that are not pinned above, at the versions pip resolved
+# against the staging image. selenium is imported by fenix/upstox.py at module
+# load (pyotp by fenix/base/broker.py); Nivesh never drives a browser or TOTP.
+pyotp==2.10.0
+selenium==4.51.0
+trio==0.34.0
+trio-websocket==0.12.2
+websocket-client==1.9.2
+wsproto==1.3.2
+outcome==1.3.0.post0
+sortedcontainers==2.4.0
+PySocks==1.7.1
 
 # Malware scanning
 pyclamd==0.4.0      # ClamAV client — talks to clamd daemon over Unix/TCP socket
