@@ -44,6 +44,7 @@ _FILED_KEYS = ("filed_at", "filed_date", "as_of", "date", "event_date", "publish
 _URL_KEYS = ("url", "attachment_url", "source_url", "pdf_url", "filing_url", "link")
 _SYMBOL_KEYS = ("symbol", "nse_symbol", "ticker", "security_symbol")
 _ID_KEYS = ("announcement_id", "event_id", "id")
+_COMPANY_KEYS = ("company", "company_name", "name")
 _SUMMARY_KEYS = ("summary", "description", "body", "ai_summary", "excerpt")
 
 # Canonical Phase-1 exchange categories (mirror the BSE/NSE filter list users see).
@@ -110,9 +111,21 @@ class StocksInsightsResult:
                     # before slicing so a non-string value can never raise
                     # TypeError and abort the whole answer.
                     filed = str(e.get("filed_at") or "")[:10]
+                    # Name the company on every line: the exchange's subject alone
+                    # ("Awarding of order(s)/contract(s)") says nothing about who filed.
+                    who = " ".join(x for x in (str(e.get("company") or "").strip(),
+                                               f"({e['symbol']})" if e.get("symbol") else "") if x)
                     line = (f"  [{self._n}] {filed} [{e.get('category') or 'other'}] "
-                            f"{str(e.get('headline') or '')[:120]}")
-                    if e.get("summary"):
+                            f"{who + ' — ' if who else ''}{str(e.get('headline') or '')[:120]}")
+                    if e.get("impact"):
+                        line += f" (impact {e['impact']})"
+                    # The corporate-event AI insight says what happened, with the amount and
+                    # the counterparty; the exchange summary is boilerplate, so it is the fallback.
+                    if e.get("insight"):
+                        line += f" — {str(e['insight'])[:300]}"
+                        if e.get("metric"):
+                            line += f" [{e['metric']}]"
+                    elif e.get("summary"):
                         line += f" — {str(e['summary'])[:200]}"
                     lines.append(line)
                 parts.append("\n".join(lines))
@@ -167,6 +180,7 @@ def _shape_event(row: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": _first(row, _ID_KEYS),
         "symbol": _first(row, _SYMBOL_KEYS),
+        "company": _first(row, _COMPANY_KEYS),
         "category": str(cat).lower().replace(" ", "_") if cat else "other",  # AI event_category (Phase 2)
         "exchange_category": exch,                                            # BSE/NSE native (Phase 1)
         "exchange_category_label": _EXCHANGE_CATEGORY_LABELS.get(exch, "Others"),
@@ -211,6 +225,95 @@ async def _daas_get(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
         return {}
 
 
+# A cross-company question about a KIND OF EVENT ("order wins in the last 14 days") is answered
+# from the filings table's own event_category, not by matching the whole question as text. The
+# codes are nidp.corporate_announcements.event_category; the phrases are how people ask.
+_THEME_CATEGORIES = (
+    ("orders", ("order win", "orders won", "order inflow", "new order", "order book", "contract win",
+                "contracts won", "bagged", "letter of award", "letter of acceptance")),
+    ("buyback", ("buyback", "buy back", "buy-back")),
+    ("mna", ("acquisition", "acquire", "merger", "demerger", "m&a", "stake sale", "stake purchase",
+             "takeover", "open offer")),
+    ("qip", ("qip", "fund raise", "fund raising", "fundraise", "fund-raise", "preferential issue",
+             "preferential allotment", "rights issue", "raised money", "raising money", "raised capital")),
+    ("capex", ("capex", "capacity expansion", "capacity addition", "new plant", "new-plant",
+               "commercial production", "commissioned")),
+    ("rating", ("credit rating", "rating upgrade", "rating downgrade", "rating action")),
+    ("litigation", ("litigation", "penalty", "penalties", "insolvency", "nclt", "court order",
+                    "regulatory order")),
+    ("management", ("resignation", "resigned", "management change", "ceo change", "cfo change",
+                    "new ceo", "new cfo")),
+    ("dividend", ("dividend", "bonus issue", "stock split")),
+    ("earnings", ("quarterly results", "financial results", "results announced", "reported results")),
+)
+_THEME_LIMIT = 15           # enough filings to rank; the thematic default of 8 is too few
+_MAX_WINDOW_DAYS = 30       # the market-pulse feed's ceiling
+_WINDOW_RE = re.compile(r"(?:last|past|previous)\s+(\d{1,3})\s*(day|week|month)s?")
+_WINDOW_WORDS = (("fortnight", 14), ("today", 1), ("yesterday", 2), ("this week", 7), ("last week", 7),
+                 ("past week", 7), ("this month", 30), ("last month", 30), ("past month", 30))
+
+
+# "won their largest-ever order", "first international orders", "biggest order wins": the verb and
+# the noun can sit either side of each other, so order questions are matched by pattern too.
+_ORDER_RE = re.compile(
+    r"\b(?:win|wins|won|winning|bag|bags|bagged|secure[ds]?|award(?:ed|s)?|receive[ds]?|largest|biggest|first)\b"
+    r"[^.?!]{0,40}\b(?:orders?|contracts?)\b"
+    r"|\b(?:orders?|contracts?)\b[^.?!]{0,20}\b(?:win|wins|won|bagged|secured|awarded|received)\b")
+
+
+def _theme_category(text: str) -> Optional[str]:
+    """The event category a cross-company question is about, or None."""
+    t = (text or "").lower()
+    if _ORDER_RE.search(t):
+        return "orders"
+    for category, phrases in _THEME_CATEGORIES:
+        if any(p in t for p in phrases):
+            return category
+    return None
+
+
+def _window_days(text: str, default: int = _MAX_WINDOW_DAYS) -> int:
+    """How far back the question looks, in days, capped at the feed's maximum."""
+    t = (text or "").lower()
+    m = _WINDOW_RE.search(t)
+    if m:
+        days = int(m.group(1)) * {"day": 1, "week": 7, "month": 30}[m.group(2)]
+        return max(1, min(days, _MAX_WINDOW_DAYS))
+    for words, days in _WINDOW_WORDS:
+        if words in t:
+            return days
+    return default
+
+
+async def _event_ai_lookup(ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    from deps import db
+    from services.event_ai_insight import insights_for
+    return await insights_for(db, ids)
+
+
+async def _attach_insights(events: List[Dict[str, Any]], lookup=None) -> List[Dict[str, Any]]:
+    """Add the corporate-event AI insight (Mongo event_ai_analysis) to each filing that has one:
+    `insight` is the one-line reading, `metric` its headline figure. Additive — a failed lookup
+    leaves the filings exactly as they were."""
+    ids = [str(e["id"]) for e in events if e.get("id")]
+    if not ids:
+        return events
+    try:
+        found = await (lookup or _event_ai_lookup)(ids)
+    except Exception as exc:  # noqa: BLE001 — never break the answer over an enrichment
+        logger.warning("event AI insight lookup failed: %s", exc)
+        return events
+    for e in events:
+        ins = found.get(str(e.get("id"))) if e.get("id") else None
+        if not ins or not ins.get("one"):
+            continue
+        e["insight"] = ins["one"]
+        m = ins.get("metric")
+        if isinstance(m, dict) and m.get("label") and m.get("value"):
+            e["metric"] = f"{m['label']}: {m['value']} {m.get('unit') or ''}".strip()
+    return events
+
+
 async def _fetch_filings(q: str, limit: int, *, ticker: bool) -> List[Dict[str, Any]]:
     """Recent corporate filings for the query.
 
@@ -226,6 +329,14 @@ async def _fetch_filings(q: str, limit: int, *, ticker: bool) -> List[Dict[str, 
                 "/announcements", {"symbol": q, "limit": limit, "sort": "filed_at"}), limit)
         except Exception as exc:  # noqa: BLE001
             logger.warning("announcements fetch failed for %s: %s", q, exc)
+    category = None if ticker else _theme_category(q)
+    if category:  # an event question: that category, in the stated window, most material first
+        n = max(limit, _THEME_LIMIT)
+        try:
+            events = _shape_events(await daas_client.get_market_pulse_articles(
+                days=_window_days(q), category=category, sort="material", limit=n), n)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("category fetch failed for %s: %s", category, exc)
     if not events:  # curated articles by free-text (primary for thematic; ticker fallback)
         try:
             events = _shape_events(await daas_client.get_market_pulse_articles(
@@ -365,6 +476,7 @@ async def get_stocks_insights(
         mode = "thematic"
         ticker = None
 
+    events = await _attach_insights(events)
     ok = bool(events) or bool(financials) or bool(commentary)
     subject = ticker or "that query"
     bits: List[str] = []
