@@ -1,16 +1,32 @@
 /**
- * Home — greeting, live market strip, "for your portfolio today" cards and
- * starter questions. Design: Nivesh Copilot.dc.html, the `isHome` block.
+ * Home — greeting, live market strip, the statement bar, "for your portfolio
+ * today" cards and starter questions. Design: Nivesh Copilot.dc.html, the
+ * `isHome` block.
  *
- * Data:
- *   market strip       GET /api/markets/home             (useMarketsHome)
- *   cards / questions  GET /api/copilot/suggested-prompts (useCopilotPrompts)
- *   portfolio facts    GET /api/portfolio/holdings-enriched (usePortfolioContext)
+ * It shows the same facts the existing dashboard (/dashboard) shows, from the
+ * same endpoints:
+ *   market strip        GET /api/markets/home                (useMarketsHome)
+ *   statement bar       GET /api/onboarding/state            (useCasState)
+ *   health card         GET /api/insights/analysis           (useHealthAnalysis)
+ *   plan card           GET /api/plans/active                (useActivePlan)
+ *   signal cards        GET /api/insights                    (useInsightsList)
+ *   drift card          equity share vs the risk profile's target, derived
+ *                       exactly as the dashboard's intelligence feed does
+ *   ranked prompts      GET /api/copilot/suggested-prompts   (useCopilotPrompts)
+ *   portfolio facts     GET /api/portfolio/holdings-enriched (usePortfolioContext)
  * Nothing is shown for a source that returned nothing.
  */
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useActivePlan } from "@/hooks/use-active-plan";
+import { useHealthAnalysis, useInsightsList } from "@/hooks/use-insights";
 import { useMarketsHome } from "@/hooks/use-markets";
+import { targetAllocationFor, useRiskProfile } from "@/hooks/use-risk-profile";
+import { GmailSyncModal } from "@/pages/Dashboard/GmailSyncModal";
+import { StockIcon } from "../components/EntityIcon";
 import { fmtNum, fmtPct, humaniseTag, signTone, TONE_COLOR, type Tone } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { useCasState } from "../lib/use-cas-state";
 import { useCopilotPrompts, type CopilotPrompt } from "../lib/use-copilot-prompts";
 import { usePortfolioContext } from "../lib/use-portfolio-context";
 import type { Mode } from "../lib/views";
@@ -52,6 +68,14 @@ const CATEGORY_TONE: Record<string, Tone> = {
   goals: "indigo",
 };
 
+/** Same bands as the existing dashboard headline (pages/Dashboard/Dashboard.tsx, healthLabel). */
+function healthPhrase(score: number): { phrase: string; tone: Tone } {
+  if (score >= 85) return { phrase: "in great shape", tone: "mint" };
+  if (score >= 70) return { phrase: "mostly healthy", tone: "mint" };
+  if (score >= 55) return { phrase: "in need of some work", tone: "amber" };
+  return { phrase: "in need of attention", tone: "danger" };
+}
+
 function MarketStrip() {
   const m = useMarketsHome();
   if (!m.data) return null;
@@ -82,9 +106,66 @@ function MarketStrip() {
   );
 }
 
-function TodayCard({ tag, tone, title, fact, second, cta, onOpen }: {
-  tag: string; tone: Tone; title: string; fact?: string; second?: { k: string; v: string }; cta: string; onOpen: () => void;
-}) {
+/**
+ * The statement the portfolio was read from, with the two ways to bring in a
+ * newer one — the same bar and the same actions as the existing dashboard
+ * (CasStatementBanner there). "Sync Gmail" opens the existing import flow,
+ * which fetches the latest eCAS and replaces the holdings with it.
+ */
+function StatementBar() {
+  const { go } = useCopilotShell();
+  const qc = useQueryClient();
+  const cas = useCasState();
+  const [syncOpen, setSyncOpen] = useState(false);
+  if (!cas.data?.period) return null;
+
+  const refreshAfterImport = () => {
+    // What the dashboard refreshes after an import, plus this shell's own reads.
+    for (const queryKey of [["onboarding", "state"], ["portfolio"], ["plans"], ["insights"], ["copilot"]]) {
+      void qc.invalidateQueries({ queryKey });
+    }
+  };
+  const link = { background: "none", border: 0, padding: 0, cursor: "pointer", fontFamily: "var(--sans)", fontSize: 12 } as const;
+
+  return (
+    <>
+      <GmailSyncModal
+        open={syncOpen}
+        onClose={() => setSyncOpen(false)}
+        gmailConnected={cas.data.gmailConnected}
+        panOnFile={cas.data.panOnFile}
+        onImported={refreshAfterImport}
+      />
+      <div data-testid="home-statement-bar" className="cp-card flex flex-wrap items-center" style={{ gap: "6px 12px", padding: "10px 16px", fontSize: 12.5, color: "var(--cp-ink-2)", marginTop: 8 }}>
+        <span className="cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>Last CAS</span>
+        <span data-testid="home-statement-period" style={{ fontWeight: 500, color: "var(--cp-ink)" }}>{cas.data.period}</span>
+        <span style={{ color: "var(--cp-ink-3)" }}>· Update if you have a newer statement</span>
+        <span className="flex items-center" style={{ gap: 10, marginLeft: "auto" }}>
+          <button type="button" data-testid="home-statement-sync" onClick={() => setSyncOpen(true)} style={{ ...link, color: "var(--mint)", fontWeight: 500 }}>
+            {cas.data.gmailConnected ? "Sync Gmail" : "Connect Gmail"}
+          </button>
+          <span aria-hidden style={{ color: "var(--cp-ink-4)" }}>·</span>
+          <button type="button" data-testid="home-statement-upload" onClick={() => go("page/brokers")} style={{ ...link, color: "var(--cp-ink-2)" }}>Upload file</button>
+        </span>
+      </div>
+    </>
+  );
+}
+
+interface Card {
+  key: string;
+  tag: string;
+  tone: Tone;
+  title: string;
+  fact?: string;
+  second?: { k: string; v: string };
+  /** The company the card is about, when it is about one: its icon sits in the card's top line. */
+  symbol?: string;
+  cta: string;
+  onOpen: () => void;
+}
+
+function TodayCard({ tag, tone, title, fact, second, symbol, cta, onOpen }: Omit<Card, "key">) {
   const row = (k: string, v: string, quiet: boolean) => (
     <div className="grid" style={{ gridTemplateColumns: "62px minmax(0,1fr)", gap: 8 }}>
       <span style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", color: "var(--cp-ink-4)", paddingTop: 3 }}>{k}</span>
@@ -101,6 +182,7 @@ function TodayCard({ tag, tone, title, fact, second, cta, onOpen }: {
     >
       <span className="flex items-center" style={{ gap: 8, fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", color: "var(--cp-ink-3)", textTransform: "uppercase" }}>
         <span className="nv-dot" style={{ background: TONE_COLOR[tone] }} />{tag}
+        {symbol && <span style={{ marginLeft: "auto" }}><StockIcon symbol={symbol} size={22} /></span>}
       </span>
       <span className="cp-pretty" style={{ fontFamily: "var(--display)", fontSize: 21, lineHeight: 1.2, letterSpacing: "-0.015em" }}>{title}</span>
       {(fact || second) && (
@@ -114,6 +196,77 @@ function TodayCard({ tag, tone, title, fact, second, cta, onOpen }: {
   );
 }
 
+/** Cards about the user's own portfolio, from the dashboard's sources. */
+function usePortfolioCards(enabled: boolean): Card[] {
+  const { ask, go } = useCopilotShell();
+  const health = useHealthAnalysis();
+  const plan = useActivePlan();
+  const signals = useInsightsList();
+  const risk = useRiskProfile();
+  const pf = usePortfolioContext();
+  if (!enabled) return [];
+  const cards: Card[] = [];
+
+  const h = health.data?.health;
+  const score = typeof h?.health_score === "number" ? h.health_score : typeof h?.score === "number" ? h.score : null;
+  if (score != null && score > 0) {
+    const { phrase, tone } = healthPhrase(score);
+    cards.push({
+      key: "health",
+      tag: "Portfolio health",
+      tone,
+      title: `Your portfolio is ${phrase}`,
+      fact: `Health score ${fmtNum(score, 0)} of 100${h?.grade ? ` · grade ${h.grade}` : ""}`,
+      cta: "Open portfolio analysis",
+      onOpen: () => go("tool/analysis"),
+    });
+  }
+
+  const actions = plan.data?.actions ?? [];
+  const pending = plan.data?.actions_pending ?? actions.filter((a) => String(a.status ?? "").toLowerCase() === "pending").length;
+  if (pending > 0) {
+    cards.push({
+      key: "plan",
+      tag: "Action plan",
+      tone: "amber",
+      title: `${fmtNum(pending)} ${pending === 1 ? "action" : "actions"} identified`,
+      fact: typeof plan.data?.plan_summary === "string" ? plan.data.plan_summary : undefined,
+      cta: "See the recommendations",
+      onOpen: () => go("tool/recommend"),
+    });
+  }
+
+  // Allocation drift — the dashboard's synthetic signal (Dashboard.tsx
+  // allocationDrift + IntelligenceFeed.tsx): actual equity share against the
+  // target for the user's risk category.
+  const target = risk.data?.category ? targetAllocationFor(risk.data.category) : null;
+  const equity = pf.allocation.find((a) => a.key.toLowerCase() === "equity");
+  if (target && equity) {
+    cards.push({
+      key: "drift",
+      tag: Math.abs(equity.pct - target.equity) > 15 ? "Watch" : "Signal",
+      tone: "amber",
+      title: `Portfolio drift: equity ${equity.pct.toFixed(0)}% vs target ${target.equity}%`,
+      fact: "Rebalance to align with your risk profile target allocation.",
+      cta: "Ask Nivesh",
+      onOpen: () => ask(`My equity allocation is ${equity.pct.toFixed(0)}% against a target of ${target.equity}% for my risk profile. How should I rebalance?`),
+    });
+  }
+
+  for (const s of (signals.data?.insights ?? []).slice(0, 2)) {
+    cards.push({
+      key: `signal:${s.id}`,
+      tag: s.severity === "fix" ? "Fix" : s.severity === "watch" ? "Watch" : humaniseTag(s.category) || "Signal",
+      tone: s.severity === "fix" ? "danger" : "amber",
+      title: s.title,
+      fact: s.detail || undefined,
+      cta: "Ask Nivesh",
+      onOpen: () => ask(`${s.title}. What does this mean for my portfolio, and what should I do about it?`),
+    });
+  }
+  return cards;
+}
+
 export default function Home() {
   const { ask, go, mobile, mode, firstName } = useCopilotShell();
   const markets = useMarketsHome();
@@ -121,20 +274,37 @@ export default function Home() {
   const pf = usePortfolioContext();
 
   const noPf = pf.status === "empty";
+  const hasPf = pf.status === "ready" || pf.status === "statement";
   const today = new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" });
   const marketState = markets.data ? (markets.data.market_state === "open" ? "Market open" : "Market closed") : null;
 
-  const ranked: CopilotPrompt[] = prompts.data?.prompts ?? [];
+  // At an advisor root the backend ranks prompts for the client book. They
+  // belong on this screen only in Advisor mode; in Investor or Trader mode the
+  // screen is about the user's own portfolio, as /dashboard is.
+  const forBook = prompts.data?.audience === "advisor";
+  const bookView = forBook && mode === "advisor";
+  const ranked: CopilotPrompt[] = forBook && !bookView ? [] : prompts.data?.prompts ?? [];
+  const portfolioCards = usePortfolioCards(hasPf && !bookView);
+
+  const promptCard = (c: CopilotPrompt): Card => ({
+    key: `prompt:${c.id}`,
+    tag: humaniseTag(c.category) || "For you",
+    tone: CATEGORY_TONE[c.category ?? ""] ?? "mint",
+    title: c.label,
+    fact: c.badge,
+    second: c.outcome ? { k: "OUTCOME", v: c.outcome } : undefined,
+    cta: "Ask Nivesh",
+    onOpen: () => ask(c.query),
+  });
   // Cards carry a figure the backend computed for this user; the rest are questions.
   const withFact = ranked.filter((p) => p.badge);
-  const cards = (withFact.length ? withFact : ranked).slice(0, 3);
-  const cardIds = new Set(cards.map((c) => c.id));
-  const rest = ranked.filter((p) => !cardIds.has(p.id)).slice(0, 6);
+  const promptCards = (withFact.length ? withFact : bookView ? ranked : []).map(promptCard);
+  // Two rows at most: the portfolio's own signals first, then ranked prompts.
+  const cards = [...portfolioCards, ...promptCards].slice(0, 6);
+  const usedPrompts = new Set(cards.map((c) => c.key));
+  const rest = ranked.filter((p) => !usedPrompts.has(`prompt:${p.id}`)).slice(0, 6);
   const news = (markets.data?.news ?? []).slice(0, 3);
   const showNews = cards.length === 0 && news.length > 0;
-  // At the advisor root the backend ranks prompts for the client book, not
-  // for the advisor's own holdings.
-  const forBook = prompts.data?.audience === "advisor";
 
   const sub = pf.status === "ready"
     ? `Ask in plain English. Nivesh picks the tools, runs the numbers on your ${pf.holdingsCount} holdings and shows you the evidence behind every answer.`
@@ -151,6 +321,7 @@ export default function Home() {
         </h1>
         <p className="m-0 cp-pretty" style={{ fontSize: 16, lineHeight: 1.6, color: "var(--cp-ink-2)", maxWidth: 600 }}>{sub}</p>
         <MarketStrip />
+        <StatementBar />
         {noPf && (
           <div data-testid="home-connect-banner" className="flex flex-wrap items-center justify-between" style={{ gap: 12, padding: "16px 18px", borderRadius: 14, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", marginTop: 8 }}>
             <div className="flex flex-col" style={{ gap: 4, flex: "1 1 260px" }}>
@@ -165,8 +336,10 @@ export default function Home() {
       {(cards.length > 0 || showNews || prompts.isPending) && (
         <section className="flex flex-col" style={{ gap: 12 }}>
           <div className="flex flex-wrap items-baseline justify-between" style={{ gap: "4px 12px" }}>
-            <span className="cp-eyebrow" data-testid="home-today-title" style={{ whiteSpace: "nowrap" }}>{showNews || (noPf && !forBook) ? "Worth knowing today" : forBook ? "For your client book today" : "For your portfolio today"}</span>
-            {cards.length > 0 && <span className="cp-mono-note">{forBook ? "Ranked for your client book" : "Ranked from your holdings"}</span>}
+            <span className="cp-eyebrow" data-testid="home-today-title" style={{ whiteSpace: "nowrap" }}>
+              {showNews || (noPf && !bookView) ? "Worth knowing today" : bookView ? "For your client book today" : "For your portfolio today"}
+            </span>
+            {cards.length > 0 && <span className="cp-mono-note">{bookView ? "Ranked for your client book" : "From your holdings"}</span>}
             {showNews && <span className="cp-mono-note">From today’s filings and news</span>}
           </div>
           {prompts.isPending && cards.length === 0 && !showNews ? (
@@ -175,18 +348,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12 }}>
-              {cards.map((c) => (
-                <TodayCard
-                  key={c.id}
-                  tag={humaniseTag(c.category) || "For you"}
-                  tone={CATEGORY_TONE[c.category ?? ""] ?? "mint"}
-                  title={c.label}
-                  fact={c.badge}
-                  second={c.outcome ? { k: "OUTCOME", v: c.outcome } : undefined}
-                  cta="Ask Nivesh"
-                  onOpen={() => ask(c.query)}
-                />
-              ))}
+              {cards.map(({ key, ...c }) => <TodayCard key={key} {...c} />)}
               {showNews && news.map((n) => (
                 <TodayCard
                   key={n.title}
@@ -194,6 +356,7 @@ export default function Home() {
                   tone={n.sentiment === "negative" ? "danger" : n.sentiment === "positive" ? "mint" : "amber"}
                   title={n.title}
                   fact={[n.symbol, n.when].filter(Boolean).join(" · ") || undefined}
+                  symbol={n.symbol || undefined}
                   cta="Ask what it means"
                   onOpen={() => ask(`What does this mean for investors: "${n.title}"${n.symbol ? ` (${n.symbol})` : ""}?`)}
                 />
