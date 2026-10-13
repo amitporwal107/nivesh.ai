@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import sys
@@ -263,11 +264,23 @@ def test_start_refuses_a_broker_whose_sign_in_is_not_built_or_is_switched_off(h)
     assert h.db.broker_oauth_states.docs == []
 
 
-def test_icici_direct_is_listed_but_not_connectable(h):
-    row = next(b for b in h.client.get("/api/broker/native/supported").json()["brokers"]
-               if b["slug"] == "icicidirect")
-    assert (row["name"], row["implemented"], row["connectable"]) == ("ICICI Direct", False, False)
-    assert h.client.get("/api/broker/native/start/icicidirect").status_code == 400
+def test_icici_direct_is_listed_and_connectable_only_with_both_app_keys(h, monkeypatch):
+    def row():
+        return next(b for b in h.client.get("/api/broker/native/supported").json()["brokers"]
+                    if b["slug"] == "icicidirect")
+
+    monkeypatch.delenv("BROKER_ICICIDIRECT_API_KEY", raising=False)
+    monkeypatch.delenv("BROKER_ICICIDIRECT_API_SECRET", raising=False)
+    assert (row()["name"], row()["implemented"], row()["auth_style"]) == ("ICICI Direct", True, "oauth")
+    assert (row()["configured"], row()["connectable"]) == (False, False)
+    # Listed but not set up: start stops before the broker, as for any oauth broker without keys.
+    assert h.client.get("/api/broker/native/start/icicidirect").status_code == 503
+    assert h.db.broker_oauth_states.docs == []
+
+    monkeypatch.setenv("BROKER_ICICIDIRECT_API_KEY", ICICI_APP_KEY)
+    assert row()["connectable"] is False                               # the secret half is still missing
+    monkeypatch.setenv("BROKER_ICICIDIRECT_API_SECRET", "unit-test-secret")
+    assert (row()["configured"], row()["connectable"]) == (True, True)
 
 
 def test_groww_is_listed_as_built_but_not_connectable_by_redirect(h):
@@ -521,6 +534,257 @@ def test_callback_ignores_undeclared_params(h):
     r = h.callback(broker="fakebroker", auth_token="not-declared-by-this-adapter", state="state-1")
     assert _landing(r) == ("/v5/app/page/brokers", [("broker_error", "missing_params")], "")
     assert h.broker.exchanged == [] and h.db.broker_accounts.docs == []
+
+
+# ── ICICI Direct: the broker returns by a cross-site form POST ───────────
+# ICICI's page POSTs the form field `API_Session` to the registered URL and also appends
+# `?apisession=<same value>` to it; it echoes no `state`. Observed in Chromium 148, Firefox 130
+# and WebKit 18 (2026-10-14, two local sites): a `SameSite=Lax` cookie is NOT sent on that POST
+# and IS sent on the GET the 303 leads to. Nothing here contacts ICICI Direct.
+ICICI_APP_KEY = "unit+test/app=key"
+ICICI_CALLBACK = "/api/broker/native/callback/icicidirect"
+ICICI_ORIGIN = "https://api.icicidirect.com"
+SESSION_KEY = "1731980"   # the value in ICICI's own screenshot of the redirect URL
+
+
+@pytest.fixture
+def icici(h, monkeypatch):
+    """The real ICICI Direct adapter with its app keys set. Its one outbound call during sign-in
+    (/customerdetails) is answered locally: `icici.calls` holds the bodies it sent, `icici.reply`
+    is what comes back (the success shape from ICICI's API reference by default)."""
+    import httpx
+
+    monkeypatch.setenv("BROKER_ICICIDIRECT_API_KEY", ICICI_APP_KEY)
+    monkeypatch.setenv("BROKER_ICICIDIRECT_API_SECRET", "unit-test-secret")
+    wire = types.SimpleNamespace(calls=[], reply={
+        "Success": {"idirect_userid": "379XTZ300", "session_token": "QUgzNzkzMDA6NDUwNTM0MjI="},
+        "Status": 200, "Error": None})
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        wire.calls.append(json.loads(request.content))
+        return httpx.Response(200, json=wire.reply)
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda **kw: real_client(transport=httpx.MockTransport(answer), **kw))
+    return wire
+
+
+def _start_icici(h, return_to="/v5/app/page/brokers"):
+    r = h.client.get("/api/broker/native/start/icicidirect", params={"return_to": return_to},
+                     headers={"x-forwarded-host": "staging.niveshcopilot.com", "x-forwarded-proto": "https"})
+    assert r.status_code in (302, 307), r.text
+    return r
+
+
+def _app_log(caplog) -> str:
+    """Everything logged, minus the test client's own request lines (httpx logs the URL it was asked
+    to fetch, which here is the test's input, not something the app wrote)."""
+    return "\n".join(r.getMessage() for r in caplog.records if "http://testserver" not in r.getMessage())
+
+
+def _nothing_was_done(h, icici, states=0):
+    assert icici.calls == [] and h.db.broker_accounts.docs == [] and h.audits == [] and h.synced == []
+    assert len(h.db.broker_oauth_states.docs) == states
+
+
+def test_icici_start_sends_the_user_to_icicis_login_page_and_stores_the_attempt(h, icici):
+    r = _start_icici(h)
+
+    # Only the app key travels: ICICI takes no redirect parameter and no `state`.
+    assert r.headers["location"] == "https://api.icicidirect.com/apiuser/login?api_key=unit%2Btest%2Fapp%3Dkey"
+    [state] = h.db.broker_oauth_states.docs
+    assert (state["user_id"], state["broker"], state["return_to"]) == ("u1", "icicidirect", "/v5/app/page/brokers")
+    # The URL the operator registers with ICICI: no query string, because ICICI appends its own.
+    assert state["redirect_uri"] == "https://staging.niveshcopilot.com/api/broker/native/callback/icicidirect"
+    assert state["state"] not in r.headers["location"]
+    assert h.audits == []
+
+
+def test_icici_posted_return_is_answered_303_to_the_get_and_nothing_else_happens(h, icici, caplog):
+    _start_icici(h)
+    h.signed_in = False                      # a cross-site POST carries no SameSite=Lax cookie
+
+    with caplog.at_level(logging.DEBUG):
+        r = h.client.post(ICICI_CALLBACK, data={"API_Session": SESSION_KEY}, headers={"origin": ICICI_ORIGIN})
+
+    assert r.status_code == 303
+    assert r.headers["location"] == f"{ICICI_CALLBACK}?apisession={SESSION_KEY}"
+    assert "set-cookie" not in r.headers
+    _nothing_was_done(h, icici, states=1)    # the attempt is still there for the GET to use
+    assert SESSION_KEY not in _app_log(caplog)
+
+
+def test_icici_posted_return_with_the_value_already_in_the_query_keeps_the_query_as_it_came(h, icici):
+    # What ICICI actually sends: the value in both places.
+    r = h.client.post(f"{ICICI_CALLBACK}?apisession={SESSION_KEY}", data={"API_Session": SESSION_KEY})
+    assert (r.status_code, r.headers["location"]) == (303, f"{ICICI_CALLBACK}?apisession={SESSION_KEY}")
+
+    # The query wins over a differing body, and is never duplicated.
+    r = h.client.post(f"{ICICI_CALLBACK}?apisession=from-query&x=a%20b", data={"API_Session": "from-body"})
+    assert (r.status_code, r.headers["location"]) == (303, f"{ICICI_CALLBACK}?apisession=from-query&x=a%20b")
+    _nothing_was_done(h, icici)
+
+
+@pytest.mark.parametrize("query, posted, location_query", [
+    ("", "a b+c&d=e/ü", "apisession=a+b%2Bc%26d%3De%2F%C3%BC"),                    # the value is encoded, never spliced
+    ("x=a%20b&utm=1", "1731980", "x=a%20b&utm=1&apisession=1731980"),              # other params are kept
+    ("apisession=", "1731980", "apisession=&apisession=1731980"),                  # an empty value is no value
+    ("error=access_denied", "", "error=access_denied"),                            # nothing posted: nothing added
+    ("", "", ""),
+])
+def test_icici_posted_value_is_copied_into_the_query_only_when_missing(h, icici, query, posted, location_query):
+    url = f"{ICICI_CALLBACK}?{query}" if query else ICICI_CALLBACK
+    r = h.client.post(url, data={"API_Session": posted} if posted else {"other": "1"})
+
+    assert r.status_code == 303
+    target = f"{ICICI_CALLBACK}?{location_query}" if location_query else ICICI_CALLBACK
+    assert r.headers["location"] == target
+    if posted:                                                                     # and it round-trips exactly
+        assert ("apisession", posted) in parse_qsl(urlsplit(r.headers["location"]).query)
+    _nothing_was_done(h, icici)
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"content": b"API_Session=" + b"9" * (bn.POSTED_FORM_MAX_BYTES + 1),
+     "headers": {"content-type": "application/x-www-form-urlencoded"}},            # larger than a login form
+    {"json": {"API_Session": SESSION_KEY}},                                         # not a form
+    {"content": b"API_Session=1731980", "headers": {"content-type": "text/plain"}},
+])
+def test_icici_posted_body_that_is_not_a_small_form_is_not_read(h, icici, kwargs):
+    r = h.client.post(ICICI_CALLBACK, **kwargs)
+    assert (r.status_code, r.headers["location"]) == (303, ICICI_CALLBACK)
+    _nothing_was_done(h, icici)
+
+
+def test_icici_round_trip_start_post_then_get_completes_for_the_signed_in_user(h, icici):
+    _start_icici(h, return_to="/v5/app/page/brokers?tab=accounts")
+    attempt = dict(h.db.broker_oauth_states.docs[0])
+    h.state("someone-else", broker="icicidirect", user_id="u2")       # another user's attempt, newer
+
+    posted = h.client.post(f"{ICICI_CALLBACK}?apisession={SESSION_KEY}", data={"API_Session": SESSION_KEY},
+                           headers={"origin": ICICI_ORIGIN})
+    assert posted.status_code == 303
+    # The browser follows the 303 with a top-level GET, which carries the session cookie.
+    r = h.client.get(posted.headers["location"])
+
+    [row] = h.db.broker_accounts.docs
+    assert _landing(r) == ("/v5/app/page/brokers",
+                           [("tab", "accounts"), ("broker_connected", "icicidirect"), ("account_id", row["account_id"])], "")
+    # No `state` came back: the attempt was found as u1's most recent one for this broker.
+    assert icici.calls == [{"SessionToken": SESSION_KEY, "AppKey": ICICI_APP_KEY}]
+    assert [d["state"] for d in h.db.broker_oauth_states.docs] == ["someone-else"]
+    assert attempt["state"] not in r.headers["location"] and SESSION_KEY not in r.headers["location"]
+    assert (row["user_id"], row["broker"], row["label"], row["native"]) == ("u1", "icicidirect", "ICICI Direct", True)
+    stored = sessions.load_token(row)
+    assert stored.token == "QUgzNzkzMDA6NDUwNTM0MjI=" and stored.extras["user_id"] == "379XTZ300"
+    assert "QUgzNzkzMDA6NDUwNTM0MjI=" not in repr(row) and "379XTZ300" not in repr(row)
+    # The session ends at the next midnight IST, as ICICI documents.
+    expires = datetime.fromisoformat(row["session_expires_at"])
+    assert expires.astimezone(timezone(timedelta(hours=5, minutes=30))).strftime("%H:%M:%S") == "00:00:00"
+    assert timedelta(0) < expires - datetime.now(timezone.utc) <= timedelta(hours=24)
+    assert [d["account_id"] for d in h.synced] == [row["account_id"]]
+    assert h.audits[-1]["outcome"] == "success" and h.audits[-1]["details"] == {"broker": "icicidirect", "native": True}
+
+
+def test_icici_get_with_nobody_signed_in_goes_to_login_and_spends_nothing(h, icici):
+    _start_icici(h)
+    h.signed_in = False
+    r = h.client.get(f"{ICICI_CALLBACK}?apisession={SESSION_KEY}")
+    assert r.headers["location"] == "/login?next=/dashboard"
+    _nothing_was_done(h, icici, states=1)
+
+
+def test_icici_get_without_a_started_attempt_is_invalid_state(h, icici):
+    r = h.client.get(f"{ICICI_CALLBACK}?apisession={SESSION_KEY}")
+    assert ("broker_error", "invalid_state") in _landing(r)[1]
+    _nothing_was_done(h, icici)
+
+
+def test_icici_refusing_the_session_key_lands_back_with_the_fixed_code(h, icici, caplog):
+    # What the live API answered on 2026-10-13 for an app key it does not know (HTTP 200).
+    icici.reply = {"Success": None, "Status": 5, "Error": "Public Key does not exist."}
+    _start_icici(h)
+
+    with caplog.at_level(logging.DEBUG):
+        r = h.client.get(f"{ICICI_CALLBACK}?apisession={SESSION_KEY}")
+
+    assert _landing(r) == ("/v5/app/page/brokers", [("broker_error", "token_exchange_failed")], "")
+    assert h.db.broker_accounts.docs == [] and h.db.broker_oauth_states.docs == [] and h.synced == []
+    assert h.audits[-1]["details"] == {"broker": "icicidirect", "stage": "exchange_code", "reason": "IciciDirectError"}
+    assert "exchange_code failed for icicidirect (IciciDirectError)" in _app_log(caplog)
+    assert SESSION_KEY not in _app_log(caplog) and ICICI_APP_KEY not in _app_log(caplog)
+
+
+@pytest.mark.parametrize("url", [
+    "/api/broker/native/callback/nosuchbroker",          # an unknown slug
+    "/api/broker/native/callback/fakebroker",            # a broker that does not return by POST
+    "/api/broker/native/callback/angel",                 # path-style, but returns by GET
+    "/api/broker/native/callback?broker=icicidirect",    # only the path-style route takes a POST
+    "/api/broker/native/start/icicidirect",
+])
+def test_post_is_405_everywhere_but_a_form_post_brokers_own_callback(h, icici, url):
+    r = h.client.post(url, data={"API_Session": SESSION_KEY})
+    assert r.status_code == 405
+    assert r.headers.get("allow") == "GET"
+    _nothing_was_done(h, icici)
+
+
+def test_a_broker_declares_its_own_form_field_and_code_param(h):
+    broker = h.register(FakeBroker("formbroker", "Form Broker", CALLBACK_PATH_STYLE=True,
+                                   CALLBACK_CODE_PARAMS=("ticket", "alt"), CALLBACK_FORM_FIELDS=("Ticket", "Alt")))
+    r = h.client.post("/api/broker/native/callback/formbroker", data={"Alt": "second", "Ticket": "first"})
+    assert (r.status_code, r.headers["location"]) == (303, "/api/broker/native/callback/formbroker?ticket=first")
+    r = h.client.post("/api/broker/native/callback/formbroker?alt=in-query", data={"Ticket": "first"})
+    assert r.headers["location"] == "/api/broker/native/callback/formbroker?alt=in-query"
+    assert broker.exchanged == []
+
+
+# ── ICICI Direct's return through the real CSRF middleware ───────────────
+@pytest.fixture
+def behind_csrf(h):
+    from middleware import CsrfProtectMiddleware
+    app = FastAPI()
+    app.include_router(bn.router)
+    app.add_middleware(CsrfProtectMiddleware)
+    return TestClient(app, follow_redirects=False)
+
+
+STAGING_CORS = "https://staging.niveshcopilot.com,https://staging.niveshcopilot.com:8443"
+
+
+@pytest.mark.parametrize("cors_origins", ["", STAGING_CORS])
+@pytest.mark.parametrize("origin", [ICICI_ORIGIN, "null", None])
+def test_csrf_middleware_lets_the_cookieless_cross_site_post_through(h, icici, behind_csrf, monkeypatch, cors_origins, origin):
+    """SameSite=Lax (staging): the browser sends no cookie on ICICI's POST, and the middleware only
+    judges requests that carry the session cookie."""
+    monkeypatch.setenv("CORS_ORIGINS", cors_origins)
+    headers = {} if origin is None else {"origin": origin}
+    r = behind_csrf.post(ICICI_CALLBACK, data={"API_Session": SESSION_KEY}, headers=headers)
+    assert (r.status_code, r.headers["location"]) == (303, f"{ICICI_CALLBACK}?apisession={SESSION_KEY}")
+
+
+@pytest.mark.parametrize("cors_origins", ["", STAGING_CORS])
+def test_csrf_middleware_passes_the_follow_up_get_that_carries_the_cookie(h, icici, behind_csrf, monkeypatch, cors_origins):
+    monkeypatch.setenv("CORS_ORIGINS", cors_origins)
+    _start_icici(h)
+    behind_csrf.cookies.set("session_token", "sess-1")
+    r = behind_csrf.get(f"{ICICI_CALLBACK}?apisession={SESSION_KEY}")
+    assert ("broker_connected", "icicidirect") in _landing(r)[1]
+
+
+@pytest.mark.parametrize("cors_origins", ["", STAGING_CORS])
+@pytest.mark.parametrize("origin", [ICICI_ORIGIN, "null"])
+def test_csrf_middleware_blocks_icicis_post_when_it_carries_the_cookie(h, icici, behind_csrf, monkeypatch, cors_origins, origin):
+    """KNOWN LIMIT, pinned so it is not forgotten: with a SameSite=None session cookie (the default in
+    backend/deps.py) the browser attaches the cookie to ICICI's cross-site POST, and the middleware
+    answers 403 before the route runs. The return then needs an exemption in the middleware for this
+    one path — not made here."""
+    monkeypatch.setenv("CORS_ORIGINS", cors_origins)
+    behind_csrf.cookies.set("session_token", "sess-1")
+    r = behind_csrf.post(ICICI_CALLBACK, data={"API_Session": SESSION_KEY}, headers={"origin": origin})
+    assert (r.status_code, r.json()["error"]) == (403, "CSRF_BLOCKED")
+    _nothing_was_done(h, icici)
 
 
 # ── /callback: failures ──────────────────────────────────────────────────

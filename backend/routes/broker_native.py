@@ -20,6 +20,11 @@ State for the round-trip is stored in `broker_oauth_states` Mongo
 collection (10-min TTL), keyed by a random `state` token in the URL.
 The `state` ties the callback back to the originating Nivesh user.
 
+A broker that returns by a cross-site form POST instead (ICICI Direct) is
+taken at `POST /callback/<slug>`, which only answers 303 to the same URL as
+a GET — see `oauth_callback_posted`. It is the one route here that accepts
+a POST.
+
 The callback always lands the browser back on a Nivesh page and reports
 the outcome in the query string, keeping whatever query the page had:
 
@@ -41,7 +46,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
-from urllib.parse import unquote_plus, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote_plus, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -63,6 +68,8 @@ _RESULT_PARAMS = ("broker_connected", "broker_error", "account_id")
 # Off stops new sign-ins (feature_flags.KNOWN_FEATURES); the listing and an
 # already-started callback stay available.
 FLAG = "broker_hub"
+# Most a broker's page may POST to the callback: a form with a one-time key.
+POSTED_FORM_MAX_BYTES = 4096
 
 
 def _now_iso() -> str:
@@ -259,6 +266,63 @@ async def oauth_callback_for(broker_slug: str, request: Request):
     """The same callback with the broker in the path, for adapters that set
     `CALLBACK_PATH_STYLE` (see `_redirect_uri`)."""
     return await _finish_sign_in(request, broker_slug)
+
+
+async def _posted_form(request: Request) -> dict:
+    """The urlencoded form in the request body, read up to
+    `POSTED_FORM_MAX_BYTES`. A larger body, or any other content type,
+    reads as empty."""
+    if "application/x-www-form-urlencoded" not in request.headers.get("content-type", ""):
+        return {}
+    body = b""
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > POSTED_FORM_MAX_BYTES:
+            return {}
+    return dict(parse_qsl(body.decode("utf-8", "replace")))
+
+
+@router.post("/callback/{broker_slug}")
+async def oauth_callback_posted(broker_slug: str, request: Request):
+    """A broker that returns the user by a cross-site form POST (ICICI
+    Direct) lands here. No sign-in work is done on the POST: it is answered
+    with `303 See Other` to the same path, which the browser follows with a
+    GET to `oauth_callback_for`.
+
+    Why not finish here: a cross-site POST does not carry a `SameSite=Lax`
+    session cookie, and such a broker echoes no `state`, so on the POST
+    there is nothing to say whose sign-in this is. The follow-up GET is a
+    top-level navigation, so it does carry the cookie, and `_find_state`
+    falls back to the signed-in user's most recent attempt for the broker.
+
+    The query string is kept as it came. When it has no value under the
+    adapter's `CALLBACK_CODE_PARAMS`, the value posted under one of its
+    `CALLBACK_FORM_FIELDS` is copied into the first of those names. The
+    posted value is never logged.
+
+    This return needs the session cookie to be `SameSite=Lax`. With a
+    `SameSite=None` cookie the browser attaches it to the cross-site POST,
+    and `middleware.CsrfProtectMiddleware` answers 403 before this runs.
+    """
+    try:
+        broker = _broker_registry.get(broker_slug)
+    except KeyError:
+        broker = None
+    form_fields = getattr(broker, "CALLBACK_FORM_FIELDS", ())
+    code_params = getattr(broker, "CALLBACK_CODE_PARAMS", ())
+    if not (form_fields and code_params):
+        # Unknown, or a broker that does not return by POST: as for any
+        # other GET-only route.
+        raise HTTPException(status_code=405, detail="Method Not Allowed", headers={"Allow": "GET"})
+
+    query = request.url.query
+    if not any(request.query_params.get(name) for name in code_params):
+        posted = await _posted_form(request)
+        value = next((posted[name] for name in form_fields if posted.get(name)), "")
+        if value:
+            query = "&".join(part for part in (query, urlencode({code_params[0]: value})) if part)
+    target = f"{router.prefix}/callback/{broker.SLUG}"
+    return RedirectResponse(url=f"{target}?{query}" if query else target, status_code=303)
 
 
 async def _finish_sign_in(request: Request, broker_slug: str):

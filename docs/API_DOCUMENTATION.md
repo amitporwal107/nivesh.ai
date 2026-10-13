@@ -42,6 +42,7 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
 | `GET /native/supported` | `brokers[]`: `slug, name, auth_style, implemented, configured, connectable` |
 | `GET /native/start/{slug}?return_to=<same-site path>` | 302 to the broker. 404 unknown, 400 not connectable, 503 app keys not set |
 | `GET /native/callback?broker={slug}` or `/native/callback/{slug}` | 302 to `return_to` (default `/dashboard`) with `broker_connected=<slug>&account_id=<id>` or `broker_error=<code>` |
+| `POST /native/callback/{slug}` | for brokers that return by a cross-site form POST (ICICI Direct): 303 to the same path as a GET with the posted value in the query. Does no sign-in work itself; 405 for other brokers |
 | `GET /accounts` | existing keys + `native, broker_user_masked, session_expires_at, session_ended_reason, needs_reconnect`; `status` may be `expired` |
 | `POST /accounts/{id}/sync` | `{ok, count, holdings[]}`; replaces only that account's holdings |
 | `GET /accounts/{id}/positions?kind=net\|day&segment=all\|fno\|intraday` | `{account_id, broker, kind, segment, as_of, positions[], counts{total,fno,intraday}}`; live, not stored |
@@ -66,15 +67,24 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
 - Read errors use the handlers' envelope `{timestamp, status, error, code, message, details[], correlationId, path}`;
   clients should key on `code`. `details` carries `{broker, account_id}`.
 
-Broker sign-in as of 2026-10-13 (from each broker's official documentation):
+Broker sign-in as of 2026-10-14 (from each broker's official documentation):
 
 | Broker | Sign-in | Reads through | State |
 |---|---|---|---|
-| Zerodha | redirect (Kite Connect) | Fenix when installed, else adapter | needs Nivesh app keys |
+| Zerodha | redirect (Kite Connect) | Fenix when installed, else adapter | connected live on staging (empty account); needs Nivesh app keys |
 | Upstox | redirect (OAuth) | Fenix when installed, else adapter | needs Nivesh app keys |
 | Angel One | redirect (SmartAPI publisher login) | adapter | built; Angel One has not confirmed one app may sign in other clients |
 | Groww | none by redirect; a daily access token the user generates on Groww | adapter | not connectable (needs a product decision and a token form) |
-| ICICI Direct | Breeze keys are personal and third-party use is prohibited | adapter | sign-in switched off; use file upload |
+| ICICI Direct | redirect (Breeze login page; returns by form POST, no `state`) | adapter | built, not tested live. Breeze keys are created per customer and ICICI's FAQ prohibits third-party integration; whether one app signs in other customers is untested |
+| Motilal Oswal | redirect (MOFSL "Login through Portal"; returns `authtoken`, no `state`) | adapter | built, not tested live. Whether one key signs in any client is not stated by MOFSL |
+
+- Redirect URLs to register: Zerodha `/api/broker/native/callback/zerodha`, Angel One `/callback/angel`,
+  ICICI Direct `/callback/icicidirect`, Motilal Oswal `/callback/motilal`, Upstox `/callback?broker=upstox`
+  (Upstox compares it with what Nivesh sends).
+- ICICI Direct and Motilal Oswal echo no `state`, so the returning user is identified by their Nivesh
+  session cookie. That needs the cookie to be `SameSite=Lax` (staging) — with `SameSite=None` the CSRF
+  middleware rejects ICICI's POST before the route runs.
+- ICICI Direct and Motilal Oswal both require the server's static IP to be registered on the app.
 
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.

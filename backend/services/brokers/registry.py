@@ -34,8 +34,10 @@ _REQUIRED_SECRETS: Dict[str, tuple] = {
     ),
     "dhan": (),
     "groww": (),  # the user brings the day's access token; Nivesh registers no app
-    # icicidirect is absent like the stubs: its sign-in is switched off in the
-    # adapter (icicidirect.CONNECTABLE). Add its two keys here if that changes.
+    "icicidirect": ("BROKER_ICICIDIRECT_API_KEY", "BROKER_ICICIDIRECT_API_SECRET"),
+    # VENDOR_INFO is the vendor short name MOFSL assigns (for a key a client
+    # made for their own use, that client's code); every call must send it.
+    "motilal": ("BROKER_MOTILAL_API_KEY", "BROKER_MOTILAL_API_SECRET", "BROKER_MOTILAL_VENDOR_INFO"),
 }
 
 
@@ -98,5 +100,6 @@ from . import dhan       # noqa: E402,F401  Dhan v2 (apikey-paste)
 from . import fivepaisa  # noqa: E402,F401  py5paisa SDK (form-auth)
 from . import aliceblue  # noqa: E402,F401  Ant API (oauth)
 from . import groww      # noqa: E402,F401  Groww Trading API (pasted daily token)
-from . import icicidirect  # noqa: E402,F401  Breeze API (raw HTTP; sign-in off)
+from . import icicidirect  # noqa: E402,F401  Breeze API (raw HTTP; returns by form POST)
+from . import motilal    # noqa: E402,F401  MOFSL OpenAPI (raw HTTP; portal redirect)
 from . import _stub      # noqa: E402,F401  registers placeholder adapters

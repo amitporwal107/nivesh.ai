@@ -4,29 +4,18 @@ Read-only: demat / portfolio holdings, positions, funds. Raw HTTP — the
 Breeze SDK is not a dependency, and nothing here places, modifies or
 cancels an order.
 
-SIGN-IN IS SWITCHED OFF (`CONNECTABLE = False`). The read side and the two
-sound pieces of sign-in (login URL, session exchange) are implemented, but
-`auth_url` / `exchange_code` refuse to run, for reasons taken from ICICI
-Direct's own pages:
-
-  * A Breeze app is registered by one ICICI Direct customer under their own
-    login, one API key per client, tied to that client's static IP, "for
-    individual and personal trading purposes. Any integration with any
-    third-party applications for trading is strictly prohibited."
-    Nothing official says one app may sign in other customers.
-      https://www.icicidirect.com/faqs/fno/how-can-i-use-a-third-party-platform-to-trade-via-breeze-api
-      https://www.icicidirect.com/faqs/fno/can-i-create-multiple-api-keys
-  * The session key returns to the app's redirect URL as a cross-site form
-    POST (form field `API_Session`; the value is also in the URL as
-    `?apisession=`), and no `state` parameter is documented. Nivesh's
-    callback is a GET route that finds the user by `state` or by cookie.
-      https://www.icicidirect.com/ilearn/stocks/articles/how-to-generate-session-key-and-install-sdk-for-breeze-api
-
 Auth model (https://api.icicidirect.com/breezeapi/documents/index.html):
   1. Browser → `https://api.icicidirect.com/apiuser/login?api_key=<APP_KEY>`;
-     the customer signs in on ICICI Direct's page.
-  2. ICICI sends the browser to the app's registered redirect URL with a
-     one-time session key.
+     the customer signs in on ICICI Direct's page. The URL takes nothing
+     else — no redirect parameter and no `state`.
+  2. ICICI returns the browser to the redirect URL registered with the app
+     by a cross-site form POST: form field `API_Session`, the same one-time
+     session key also appended to the URL as `?apisession=`. Because ICICI
+     appends its own `?…`, the registered URL must carry no query string
+     (`CALLBACK_PATH_STYLE`): `<host>/api/broker/native/callback/icicidirect`.
+     `routes.broker_native` answers that POST with a 303 to the same URL as
+     a GET and finishes the sign-in there, where the user's cookie is sent.
+       https://www.icicidirect.com/ilearn/stocks/articles/how-to-generate-session-key-and-install-sdk-for-breeze-api
   3. GET `/customerdetails` {SessionToken: <session key>, AppKey} →
      `session_token` + `idirect_userid`.
   4. Every later call: GET with a JSON body and the headers `X-AppKey`,
@@ -35,6 +24,20 @@ Auth model (https://api.icicidirect.com/breezeapi/documents/index.html):
   The session key "is valid for 24hrs or before midnight, whichever is
   earlier" and cannot be renewed without the customer.
 
+What ICICI Direct's own pages say about Breeze apps (sign-in is on by
+product decision; these stand as facts):
+  * An app is registered by one ICICI Direct customer under their own login,
+    one API key per client, tied to that client's static IP, "for individual
+    and personal trading purposes. Any integration with any third-party
+    applications for trading is strictly prohibited."
+      https://www.icicidirect.com/faqs/fno/how-can-i-use-a-third-party-platform-to-trade-via-breeze-api
+      https://www.icicidirect.com/faqs/fno/can-i-create-multiple-api-keys
+  * NOT TESTED LIVE: whether ICICI accepts a login made with Nivesh's app
+    key by a customer other than the one who registered the app. Nothing
+    official says it does.
+
+Operator: register the app at https://api.icicidirect.com/apiuser/home with
+the redirect URL above and the backend's egress IP as the static IP.
 Secrets: BROKER_ICICIDIRECT_API_KEY, BROKER_ICICIDIRECT_API_SECRET.
 """
 from __future__ import annotations
@@ -55,17 +58,17 @@ SLUG = "icicidirect"
 DISPLAY = "ICICI Direct"
 AUTH_STYLE = "oauth"
 
-# Sign-in stays off until ICICI Direct confirms that one Breeze app may sign
-# in customers other than the one who registered it — see the docstring.
-CONNECTABLE = False
-CONNECT_BLOCKED_REASON = (
-    "ICICI Direct cannot be connected yet: ICICI's Breeze API issues app keys "
-    "to individual customers for their own use, and it is not confirmed that "
-    "one Nivesh app may sign in other customers."
-)
+# The one switch for sign-in. Off, `auth_url` / `exchange_code` refuse with
+# CONNECT_BLOCKED_REASON and the registry lists the broker as not built.
+CONNECTABLE = True
+CONNECT_BLOCKED_REASON = "ICICI Direct sign-in is switched off in Nivesh."
 
-# Query parameter that carries the session key on the redirect URL.
+# How the session key comes back (see step 2 above): the registered URL has
+# no query string, the key is in the query as `apisession`, and the same
+# value is POSTed as the form field `API_Session`.
+CALLBACK_PATH_STYLE = True
 CALLBACK_CODE_PARAMS = ("apisession",)
+CALLBACK_FORM_FIELDS = ("API_Session",)
 
 _LOGIN_URL = "https://api.icicidirect.com/apiuser/login?api_key="
 _API = "https://api.icicidirect.com/breezeapi/api/v1"
@@ -169,7 +172,7 @@ async def _signed_get(path: str, payload: Dict[str, Any], token: AccessToken, wh
     return _unwrap(r, what)
 
 
-# ── Sign-in (switched off — see CONNECTABLE) ─────────────────────────────
+# ── Sign-in ──────────────────────────────────────────────────────────────
 def _login_url(api_key: str) -> str:
     return _LOGIN_URL + quote_plus(api_key)
 
@@ -351,10 +354,12 @@ class _Module:
     SLUG = SLUG
     DISPLAY = DISPLAY
     AUTH_STYLE = AUTH_STYLE
-    IMPLEMENTED = CONNECTABLE  # listed as "not yet" while sign-in is off
+    IMPLEMENTED = CONNECTABLE  # the registry lists it as not built when sign-in is off
     CONNECTABLE = CONNECTABLE
     CONNECT_BLOCKED_REASON = CONNECT_BLOCKED_REASON
+    CALLBACK_PATH_STYLE = CALLBACK_PATH_STYLE
     CALLBACK_CODE_PARAMS = CALLBACK_CODE_PARAMS
+    CALLBACK_FORM_FIELDS = CALLBACK_FORM_FIELDS
     auth_url = staticmethod(auth_url)
     exchange_code = staticmethod(exchange_code)
     fetch_holdings = staticmethod(fetch_holdings)
