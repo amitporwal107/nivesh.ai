@@ -58,8 +58,8 @@ test.describe("Tool builder — templates and data source pool", () => {
     await expect(template(page, "screener")).toContainText("3 data sources");
 
     // The pool: every source with its connection status, and nothing else called a status.
-    await expect(page.getByTestId("builder-pool-row")).toHaveCount(38);
-    expect(await poolIds(page, "partial")).toEqual(["filings", "nidp-features", "trendlyne-fundamentals", "fno-bhavcopy", "broker-accounts"]);
+    await expect(page.getByTestId("builder-pool-row")).toHaveCount(39);
+    expect(await poolIds(page, "partial")).toEqual(["filings", "nidp-features", "trendlyne-fundamentals", "personal-watchlists", "broker-accounts"]);
     expect(await poolIds(page, "planned")).toEqual(["kite-market-data", "entity-logos"]);
     expect([...new Set(await page.getByTestId("builder-pool-status").allInnerTexts())].map((t) => t.toLowerCase()).sort()).toEqual(["connected", "partial", "planned"]);
     await expect(page.locator('[data-testid="builder-pool-row"][data-source="nidp-features"] [data-testid="builder-pool-used-by"]')).toContainText("Screener");
@@ -99,7 +99,7 @@ test.describe("Tool builder — templates and data source pool", () => {
     expect(pills).toEqual(["nidp-features=partial", "strategy-builder=connected", "saved-screens=connected"]);
     // What the tool cannot do yet is shown beside the template, not hidden.
     await expect(page.getByTestId("builder-template-gaps")).toBeVisible();
-    await expect(page.getByTestId("builder-pool-row")).toHaveCount(38);
+    await expect(page.getByTestId("builder-pool-row")).toHaveCount(39);
 
     // An unedited template is replaced without a question.
     await template(page, "markets").click();
@@ -137,11 +137,11 @@ test.describe("Tool builder — templates and data source pool", () => {
     await expect(page.getByTestId("builder-pool-row")).toHaveCount(3);
     await expect(page.getByTestId("builder-pool-need")).toHaveCount(3);
     await page.getByTestId("builder-pool-filter").selectOption("");
-    await expect(page.getByTestId("builder-pool-row")).toHaveCount(38);
+    await expect(page.getByTestId("builder-pool-row")).toHaveCount(39);
     await page.getByTestId("builder-pool-toggle").click();
     await expect(page.getByTestId("builder-pool-row")).toHaveCount(0);
     await page.getByTestId("builder-pool-toggle").click();
-    await expect(page.getByTestId("builder-pool-row")).toHaveCount(38);
+    await expect(page.getByTestId("builder-pool-row")).toHaveCount(39);
 
     // The draft survives a reload with the template it came from; Clear empties both.
     await page.reload();

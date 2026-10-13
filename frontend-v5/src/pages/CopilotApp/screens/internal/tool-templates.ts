@@ -490,6 +490,7 @@ const SPECS: TemplateSpec[] = [
       "GET /api/positional/watchlist",
       "GET /api/positional/picks",
       "GET /api/broker/accounts",
+      "GET /api/broker/positions",
       "GET /api/portfolio/holdings",
     ],
     outputs: [
@@ -510,9 +511,9 @@ const SPECS: TemplateSpec[] = [
     ],
     triggers: [ON_OPEN, MARKET_STRIP],
     gaps: [
-      "Open positions cannot be read from a broker: no route returns a broker's intraday and F&O positions, its funds or its day P&L, so day P&L and trading capital stay empty.",
+      "A broker's funds and day P&L are not read: no route returns them, so trading capital stays empty. Open positions are read live from accounts signed in on the broker's own page.",
       "Risk limits are not stored, so nothing is measured against a limit.",
-      "At-the-money IV, the expected move, the stocks that moved the index and daily trend signals are not connected.",
+      "The stocks that moved the index and daily trend signals are not connected. At-the-money IV and the expected move are model estimates from end-of-day prices.",
     ],
   },
   {
@@ -539,7 +540,7 @@ const SPECS: TemplateSpec[] = [
     ],
     services: ["GET /api/fno/{symbol}/expiries", "GET /api/fno/{symbol}/chain", "GET /api/markets/home"],
     outputs: [
-      "The option chain by strike: closing price, open interest and volume for calls and puts",
+      "The option chain by strike: closing price, open interest and volume for calls and puts, with implied volatility and the Greeks as model estimates",
       "Open interest by strike, with totals, put-call ratio and max pain",
       "Payoff at expiry: net premium, maximum profit, maximum loss and breakevens",
       "The payoff curve across the strikes",
@@ -548,15 +549,15 @@ const SPECS: TemplateSpec[] = [
       NOT_ADVICE,
       NO_ORDERS,
       EOD_LABELLED,
-      "No implied volatility is shown or estimated",
+      "Implied volatility, the Greeks, the expected move and the chance of profit are model estimates from end-of-day prices and are labelled as such; none is a forecast",
       "The payoff is exact arithmetic on the legs entered; no price or date is assumed",
       "The page carries the SEBI finding that most individual F&O traders lose money",
     ],
     triggers: [ON_OPEN, MARKET_STRIP],
     gaps: [
-      "Greeks, chance of profit and today's payoff curve are not calculated: the end-of-day data has no implied volatility.",
-      "Margin is not estimated: it needs a broker or exchange source.",
-      "Lot size is empty until the data platform's F&O routes send it; until then the user types it.",
+      "Today's payoff curve is not drawn; the payoff shown is at expiry.",
+      "Margin is not estimated: it needs a broker session or the exchange's margin files.",
+      "Prices are end of day; nothing moves during the session.",
       "Options paper trading is not available: “Paper trade this” is disabled.",
     ],
   },
@@ -624,6 +625,7 @@ const SPECS: TemplateSpec[] = [
       "Which filing alerts am I set up to receive?",
     ],
     data: [
+      { source: "personal-watchlists", need: "required", freshness: "Live quotes, else the last end-of-day close" },
       { source: "research-watchlist", need: "required", freshness: "Live quotes" },
       { source: "saved-screens", need: "optional" },
       { source: "nidp-features", need: "optional", freshness: "End of day" },
@@ -636,6 +638,15 @@ const SPECS: TemplateSpec[] = [
       { field: "list_date", type: "date", fallback: "latest list", rule: "one of the dates a research list was published" },
     ],
     services: [
+      "GET /api/watchlists",
+      "POST /api/watchlists",
+      "POST /api/watchlists/starter",
+      "GET /api/watchlists/{watchlist_id}",
+      "PATCH /api/watchlists/{watchlist_id}",
+      "DELETE /api/watchlists/{watchlist_id}",
+      "POST /api/watchlists/{watchlist_id}/symbols",
+      "DELETE /api/watchlists/{watchlist_id}/symbols/{symbol}",
+      "GET /api/filings/companies/search",
       "GET /api/public/research-watchlist",
       "GET /api/screeners",
       "POST /api/screeners/run",
@@ -648,6 +659,7 @@ const SPECS: TemplateSpec[] = [
       "PUT /api/filings/alerts",
     ],
     outputs: [
+      "The user's own lists: the stocks in each, with a live price, a stored price and its date, or no quote",
       "The research watchlist for a date: each stock's place in the list, its price against the day it was added, and the research behind it",
       "A watchlist for each saved screen, rule screens and ready-made ones: the stocks that pass it today",
       "The scanner's setups to watch, each with its close, the level to cross and a stop",
@@ -665,7 +677,6 @@ const SPECS: TemplateSpec[] = [
       { type: "While open", detail: "the research list and its quotes are read again every 30 seconds" },
     ],
     gaps: [
-      "Adding a single stock by hand has nowhere to be stored.",
       "Being told when a price, a volume or a pledge level is crossed has nowhere to be stored.",
       "Filing-alert choices are saved, but nothing is sent until delivery is switched on.",
     ],

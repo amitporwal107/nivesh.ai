@@ -361,11 +361,11 @@ const POOL = [
     id: "fno-bhavcopy",
     name: "NSE F&O bhavcopy",
     provider: "NSE, through the Nivesh data platform (nidp.fno_bhavcopy)",
-    what: "Futures and options for every strike and expiry, with closing prices, open interest and volume.",
+    what: "Futures and options for every strike and expiry, with closing and settle prices, open interest, volume and lot size.",
     endpoints: ["GET /api/fno/{symbol}/chain", "GET /api/fno/{symbol}/expiries", "GET /api/fno/{symbol}/futures"],
     freshness: "End of day; loaded on weekday evenings",
-    status: "partial",
-    note: "Route being added in this branch. The source has no implied volatility. Lot size is empty until the data platform's F&O routes send the exchange file's lot column.",
+    status: "connected",
+    note: "Live on staging since 14 Oct 2026, lot size included. The exchange file has no implied volatility: the app works out implied volatility, the Greeks and the expected move from these prices as model estimates, labelled as such. Margin and intraday prices are not in this source.",
   },
   {
     // no app route serves Kite bars · backend/feature_flags.py (sim_lab, charting), backend/routes/sim_lab.py, research_chart.py, services/brokers/zerodha.py
@@ -434,6 +434,21 @@ const POOL = [
     note: "A public route that needs no sign-in. Internal research, not a recommendation.",
   },
   {
+    // backend/routes/watchlists.py · screens/workspace/personal-lists.ts
+    id: "personal-watchlists",
+    name: "Personal watchlists",
+    provider: "Saved by the user; quotes from Yahoo Finance, else the data platform's end-of-day prices",
+    what: "The lists of stocks a user has named, with the stocks in each and a price for each stock.",
+    endpoints: [
+      "GET /api/watchlists", "POST /api/watchlists", "POST /api/watchlists/starter", "GET /api/watchlists/{watchlist_id}",
+      "PATCH /api/watchlists/{watchlist_id}", "DELETE /api/watchlists/{watchlist_id}",
+      "POST /api/watchlists/{watchlist_id}/symbols", "DELETE /api/watchlists/{watchlist_id}/symbols/{symbol}",
+    ],
+    freshness: "As the user last changed them; prices are live for stocks in a research list, else the last end-of-day close",
+    status: "partial",
+    note: "Live quotes cover only stocks that are in a published research list. A first-time user is given one example list, copied from the newest research list. No price or volume alerts.",
+  },
+  {
     // backend/routes/screeners.py · hooks/use-screeners.ts
     id: "saved-screens",
     name: "Saved screens",
@@ -456,11 +471,12 @@ const POOL = [
       "GET /api/broker/native/start/{broker_slug}",
       "POST /api/broker/accounts/{account_id}/sync",
       "DELETE /api/broker/accounts/{account_id}",
+      "GET /api/broker/positions",
       "GET /api/portfolio/holdings",
     ],
-    freshness: "As of each account's last sync",
+    freshness: "Holdings as of each account's last sync; positions at the moment they are read",
     status: "partial",
-    note: "Linked accounts can be listed, synced and disconnected, and the delivery holdings a broker reported are stored. A sign-in can be started with some brokers, but coming back from it and reading a signed-in account are not on the server yet. No route returns a broker's open positions, funds or day P&L.",
+    note: "Sign-in happens on the broker's own page and only where the server marks a broker connectable (on staging, 14 Oct 2026, none has app keys set). Linked accounts can be listed, synced and disconnected; holdings a broker reported are stored, and open positions are read live and not stored. No route returns a broker's funds or day P&L.",
   },
 
   // ── advisor ────────────────────────────────────────────────────────────
