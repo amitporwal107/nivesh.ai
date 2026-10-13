@@ -119,9 +119,12 @@ export function useBrokerAdapters() {
 }
 
 // ── failures of a broker write ───────────────────────────────────────────
-// Today an error body is { detail: "<sentence>" }. Planned: { detail: { code,
-// message, broker, account_id } } with BROKER_SESSION_EXPIRED (409),
-// BROKER_READ_NOT_SUPPORTED (400) and BROKER_READ_FAILED (502). Both are read.
+// Today an error body is { detail: "<sentence>" }. The broker-hub backend
+// (planned, not deployed) answers with the app's standard error envelope,
+// { status, error, code, message, details: [{ broker, account_id }], … }, keyed
+// on `code`: BROKER_SESSION_EXPIRED (409), BROKER_READ_NOT_SUPPORTED (400),
+// BROKER_READ_FAILED (502); a switched-off feature is 403 with the message
+// "feature_not_enabled". Both shapes are read, and an object under `detail` too.
 
 export interface BrokerFailure {
   /** HTTP status; null when the request never got an answer. */
@@ -144,6 +147,12 @@ async function failureOf(res: Response): Promise<{ ok: false; error: BrokerFailu
   if (detail && typeof detail === "object") {
     const d = detail as { code?: unknown; message?: unknown };
     return fail(res.status, typeof d.code === "string" ? d.code : null, typeof d.message === "string" ? d.message : null);
+  }
+  if (body && typeof body === "object") {
+    const e = body as { code?: unknown; message?: unknown };
+    if (typeof e.code === "string" || typeof e.message === "string") {
+      return fail(res.status, typeof e.code === "string" ? e.code : null, typeof e.message === "string" ? e.message : null);
+    }
   }
   return fail(res.status);
 }

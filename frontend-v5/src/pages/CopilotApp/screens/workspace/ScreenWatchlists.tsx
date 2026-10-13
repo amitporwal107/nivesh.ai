@@ -238,7 +238,7 @@ export function ScreenWatchlists() {
             )}
           </Kind>
 
-          <Kind label="Ready-made screens you saved" count={strategies.isSuccess ? stockStrategies.length : undefined}>
+          <Kind label="Strategy screens you saved" count={strategies.isSuccess ? stockStrategies.length : undefined}>
             {strategies.isPending ? (
               <div style={{ padding: 16 }}><LoadingBlock label="Loading your saved ready-made screens" rows={2} /></div>
             ) : strategies.isError ? (

@@ -621,7 +621,7 @@ test.describe("Saved", () => {
     await expect(page.getByTestId("saved-screen-title")).toHaveText(["Fixture value screen"]);
     await expect(page.getByTestId("saved-screen")).toContainText("Rule screen · 1 rule");
     await expect(page.getByTestId("saved-strategy-title")).toHaveText(["Fixture uptrend watch"]);
-    await expect(page.getByTestId("saved-strategy")).toContainText("Ready-made screen · stocks");
+    await expect(page.getByTestId("saved-strategy")).toContainText("Strategy screen · stocks");
     await expect(page.getByTestId("saved-strategy")).toContainText("Saved 11 Oct 2026");
     // Only the starred question — the one that is in history alone is not a saved item.
     await expect(page.getByTestId("saved-question-title")).toHaveText(["Fixture question about capital goods order books"]);

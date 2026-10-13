@@ -464,22 +464,33 @@ test.describe("Broker connections — planned contract, not yet on staging", () 
     await live.getByTestId("broker-sync").click();
     await expect(live.getByTestId("broker-sync-result")).toHaveText("2 holdings read just now.");
 
-    const detail = (code: string) => ({ detail: { code, message: `fixture message for ${code}`, broker: "zerodha", account_id: "ba_fixture00011" } });
+    // The app's standard error envelope, keyed on `code` (the broker-hub contract as finally stated).
+    const detail = (code: string, status = 0) => ({
+      timestamp: "2026-10-13T10:00:00Z", status, error: "broker", code, message: `fixture message for ${code}`,
+      details: [{ broker: "zerodha", account_id: "ba_fixture00011" }], correlationId: "fixture-correlation", path: "/api/broker/accounts/ba_fixture00011/sync",
+    });
     const cases: Array<[number, string, string]> = [
       [409, "BROKER_SESSION_EXPIRED", "Your Zerodha session has ended. Sign in again, then sync."],
       [400, "BROKER_READ_NOT_SUPPORTED", "Nivesh can’t read holdings from this kind of Zerodha account yet."],
       [502, "BROKER_READ_FAILED", "Zerodha did not return your holdings. Try again in a little while."],
     ];
     for (const [status, code, sentence] of cases) {
-      reply = { status, body: detail(code) };
+      reply = { status, body: detail(code, status) };
       await live.getByTestId("broker-sync").click();
       await expect(live.getByTestId("broker-sync-error"), code).toContainText(sentence);
       await expect(live.getByTestId("broker-admin-detail"), code).toContainText(`fixture message for ${code}`);
       await expect(live.getByTestId("broker-sync-result"), code).toHaveCount(0);
     }
-    reply = { status: 403, body: { detail: "feature_not_enabled" } };
+    // The same codes under `detail`, as first described, are still understood.
+    reply = { status: 409, body: { detail: { code: "BROKER_SESSION_EXPIRED", message: "fixture message", broker: "zerodha", account_id: "ba_fixture00011" } } };
     await live.getByTestId("broker-sync").click();
-    await expect(live.getByTestId("broker-sync-error")).toContainText("Broker connections are not switched on for this account.");
+    await expect(live.getByTestId("broker-sync-error")).toContainText("Your Zerodha session has ended. Sign in again, then sync.");
+    // Switched off for the account: the envelope's message, or a bare detail string.
+    for (const body of [{ status: 403, error: "forbidden", code: "FORBIDDEN", message: "feature_not_enabled", details: [] }, { detail: "feature_not_enabled" }]) {
+      reply = { status: 403, body };
+      await live.getByTestId("broker-sync").click();
+      await expect(live.getByTestId("broker-sync-error")).toContainText("Broker connections are not switched on for this account.");
+    }
     await expect(page.getByText("Server hiccup")).toHaveCount(0);
   });
 

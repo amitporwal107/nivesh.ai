@@ -49,9 +49,9 @@ export function LoadFailed({ what, error, onRetry, forbidden = ADMIN_ONLY }: {
     return (
       <div data-testid="rate-limited" className="cp-card flex flex-col items-start" style={{ gap: 8, padding: "16px 18px" }}>
         <span className="cp-eyebrow">{what}</span>
-        <span style={{ fontSize: 14, lineHeight: 1.5 }}>Too many admin requests in the last minute</span>
+        <span style={{ fontSize: 14, lineHeight: 1.5 }}>Too many requests in the last minute</span>
         <span style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)", maxWidth: 560 }}>
-          The server answers ten admin requests a minute for each signed-in session, and these pages went over that. Nothing is broken — wait a minute, then load this again.
+          The server limits how many requests a signed-in session can make each minute, and this page went over that. Nothing is broken — wait a minute, then load this again.
         </span>
         <button type="button" className="cp-chip" onClick={onRetry}>Load again ›</button>
       </div>

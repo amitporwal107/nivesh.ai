@@ -239,7 +239,7 @@ function SavedScreens() {
                   <SavedCard
                     key={s.id}
                     testId="saved-strategy"
-                    kicker={`Ready-made screen · ${funds ? "funds" : "stocks"}`}
+                    kicker={`Strategy screen · ${funds ? "funds" : "stocks"}`}
                     tone="mint"
                     title={s.name}
                     detail={s.description ?? undefined}
