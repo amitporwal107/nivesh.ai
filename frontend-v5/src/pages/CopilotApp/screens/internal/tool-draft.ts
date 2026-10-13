@@ -3,8 +3,9 @@
  *
  * There is no tool-definition backend, so the draft lives in this browser only
  * (localStorage, through the app's safe storage adapter). It starts empty: the
- * contract text and the checklist below are computed from what the admin has
- * typed and from nothing else.
+ * contract text and the checklist below are computed from what is in the draft
+ * (typed by the admin, or loaded from an existing-tool template and then
+ * edited) and from nothing else.
  */
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -69,7 +70,15 @@ export function rowId(): string {
 
 interface ToolDraftState {
   draft: ToolDraft;
+  /**
+   * The existing-tool template the draft was last loaded from
+   * (screens/internal/tool-templates.ts), or null for a draft typed from empty.
+   * It stays set while the draft is edited, and is cleared with the draft.
+   */
+  templateId: string | null;
   patch: (p: Partial<ToolDraft>) => void;
+  /** Replace the whole draft with a template's. */
+  load: (templateId: string, draft: ToolDraft) => void;
   reset: () => void;
 }
 
@@ -77,17 +86,21 @@ export const useToolDraft = create<ToolDraftState>()(
   persist(
     (set) => ({
       draft: EMPTY_DRAFT,
+      templateId: null,
       patch: (p) => set((s) => ({ draft: { ...s.draft, ...p } })),
-      reset: () => set({ draft: EMPTY_DRAFT }),
+      load: (templateId, draft) => set({ draft, templateId }),
+      reset: () => set({ draft: EMPTY_DRAFT, templateId: null }),
     }),
     {
       name: "nivesh.copilot.tool-draft",
       storage: createSafeStorageAdapter(),
-      // A stored draft that no longer fits the shape is dropped, not half-loaded.
+      // A stored draft that no longer fits the shape is dropped, not half-loaded,
+      // and the template it came from is dropped with it.
       merge: (persisted, current) => {
-        const stored = (persisted as { draft?: unknown } | null | undefined)?.draft;
-        const parsed = ToolDraftC.safeParse(stored);
-        return { ...current, draft: parsed.success ? parsed.data : current.draft };
+        const stored = persisted as { draft?: unknown; templateId?: unknown } | null | undefined;
+        const parsed = ToolDraftC.safeParse(stored?.draft);
+        if (!parsed.success) return current;
+        return { ...current, draft: parsed.data, templateId: typeof stored?.templateId === "string" ? stored.templateId : null };
       },
     },
   ),
