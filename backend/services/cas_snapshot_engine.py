@@ -38,6 +38,13 @@ from services.cas_period_detector import detect_statement_period
 
 logger = logging.getLogger(__name__)
 
+# `stored_by` on a snapshot written by `store_cas_snapshot` (statement history
+# kept for an account whose live portfolio is written elsewhere). Snapshots
+# written by `create_cas_snapshot` do not carry the field. Readers that may
+# mount "the latest snapshot" on their own — the holdings self-heal in
+# services/portfolio_enrichment.py — leave these out.
+HISTORY_STORED_BY = "cas_history"
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -626,7 +633,9 @@ async def store_cas_snapshot(
     its other half: the live `holdings` table and `cas_view_state` are not
     touched, no health score is computed or backfilled, and nothing is sent
     to NIDP. Used to keep statement history for an account whose live
-    portfolio is written elsewhere (services.cas_history_import).
+    portfolio is written elsewhere (services.cas_history_import). The
+    document is marked `stored_by: HISTORY_STORED_BY` so the holdings
+    self-heal never mounts it.
 
     `period_end` is required and must be an ISO date: it is the snapshot's
     identity, so there is no "today" fallback here. `cas_source` (nsdl / cdsl /
@@ -652,6 +661,7 @@ async def store_cas_snapshot(
         "snapshot_date": snapshot_date,
         "trigger": "cas_upload",
         "source": "cas_upload",
+        "stored_by": HISTORY_STORED_BY,
         "cas_file_id": cas_file_id,
         "cas_filename": cas_filename,
         "cas_source": cas_source,

@@ -667,6 +667,11 @@ async def _gmail_import_all_statements(request: Request) -> Dict[str, Any]:
     its own snapshot, and shows the latest consolidated one. The rules, and what
     the answer carries, are in services/cas_history_import.py.
 
+    This is the one path that stores snapshots carrying a full holdings array
+    for an investor's own account (``portfolio_snapshots`` rows marked
+    ``stored_by: "cas_history"``). The holdings self-heal never mounts them, and
+    ``DELETE /api/portfolio/holdings-all`` (clear all) is what removes them.
+
     The checks before Gmail is read are the default import's, word for word."""
     user = await get_current_user(request)
     user_id = user["user_id"]

@@ -26,15 +26,18 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import deps
 from helpers import holdings_reconcile as hr
 from helpers import parsing
 from routes import cas_snapshots as cas_routes
 from routes import mfd as mfd_routes
 from routes import onboarding_gmail as route
+from routes import portfolio as portfolio_routes
 from routes import upload as upload_routes
 from services import action_plan_manager as apm
 from services import cas_snapshot_engine as eng
-from services import cas_summary_vision, equity_sectors, gmail_service, masterdata, mfd_workspace
+from services import cas_summary_vision, dashboard_cache, equity_sectors, gmail_service, masterdata, mfd_workspace
+from services import portfolio_enrichment as enrichment
 from services import portfolio_direct_push as pdp
 from services import portfolio_health
 from services import portfolio_snapshot as v1
@@ -44,6 +47,9 @@ UID = "investor-1"
 NOW = datetime(2026, 10, 14, 9, 0, tzinfo=timezone.utc)
 PASSWORD = "AAAAA0000A"          # PAN-shaped placeholder
 URL = "/api/onboarding/gmail/auto-import"
+# The engine's own mount, kept so the self-heal tests can run it for real (the fixture trips it everywhere else).
+REAL_LOAD_SNAPSHOT = eng.load_snapshot_into_holdings
+REAL_WRITE_HOLDINGS = eng.write_holdings_table
 A, B, C, D = "INE000A01001", "INE000A01002", "INE000A01003", "INE000A01004"
 MONTHLY = [{"month": "Aug 2026", "value_rs": 1900.0}, {"month": "Sep 2026", "value_rs": 2000.0}]
 VISION_REPLY = {"current_value_rs": 9999.0, "statement_date": "30-Sep-2026",
@@ -85,13 +91,18 @@ def world(monkeypatch):
         pg_mirror=[], forbidden=[],
     )
 
-    for module in (route, parsing, eng, v1, cas_routes, mfd_routes, mfd_workspace):
+    for module in (route, parsing, eng, v1, cas_routes, mfd_routes, mfd_workspace, portfolio_routes, deps):
         monkeypatch.setattr(module, "db", db)
 
     async def current_user(request):
         return {"user_id": UID, "_session_user_id": UID}
     monkeypatch.setattr(route, "get_current_user", current_user)
     monkeypatch.setattr(cas_routes, "get_current_user", current_user)
+    monkeypatch.setattr(portfolio_routes, "get_current_user", current_user)
+
+    async def no_dashboard_cache(user_id):
+        return None
+    monkeypatch.setattr(dashboard_cache, "invalidate", no_dashboard_cache)
     monkeypatch.setattr(route, "get_gmail_credentials",
                         lambda token_doc: SimpleNamespace(token=token_doc.get("access_token"), expiry=None))
     monkeypatch.setattr(route, "build_gmail_service", lambda creds: w.gmail)
@@ -154,6 +165,7 @@ def world(monkeypatch):
     app = FastAPI()
     app.include_router(route.router)
     app.include_router(cas_routes.router)
+    app.include_router(portfolio_routes.router)
     with TestClient(app) as client:      # one event loop for the test, so background tasks finish
         w.client = client
         yield w
@@ -933,6 +945,7 @@ def test_store_cas_snapshot_stores_one_statement_and_does_nothing_else(world):
     assert (doc["total_value"], doc["holdings_count"], doc["statement_period_end"], doc["trigger"], doc["source"]) == (
         110.0, 2, "2026-09-30", "cas_upload", "cas_upload")
     assert snap["snapshot_date"] == "2026-09-30" and snap["is_latest"] is True
+    assert doc["stored_by"] == eng.HISTORY_STORED_BY == "cas_history"      # how the history path's snapshots are told apart
     assert w.db.writes == [("portfolio_snapshots", "update_one")]       # one write; the Postgres mirror is the fake below
     assert w.pg_mirror == ["2026-09-30"]
     assert live(w) == [D] and "cas_view_state" not in w.db.users.docs[0]
@@ -1030,3 +1043,129 @@ def test_a_client_session_cannot_reach_another_advisors_client(book):
     book.caller = {"user_id": "shadow-mine", "_session_user_id": "shadow-mine"}       # not a workspace owner at all
     assert book.client.get(_with("/api/portfolio/cas-snapshots", "p-theirs")).status_code == 403
     assert book.client.get(_with("/api/portfolio/cas-snapshots", "p-mine")).status_code == 403
+
+
+# ══ clearing the portfolio, and the holdings self-heal ════════════════════════════════════════
+# The portfolio screens read services.portfolio_enrichment.build_enriched_portfolio. When the live
+# holdings are empty it reloads "the latest snapshot that carries holdings" through the engine's
+# mount. A statement kept by the history path must never come back that way, and clear-all must
+# leave nothing that could.
+EMPTY_PORTFOLIO = {"holdings": [], "alerts": [], "totals": {}, "coverage_pct": 0, "health": None}
+
+
+def old_style(user_id=UID, snapshot_date="2026-06-30", isin=C) -> Dict[str, Any]:
+    """A statement snapshot as create_cas_snapshot wrote it (the advisor flow): no `stored_by`."""
+    return {"snapshot_id": f"snap-{user_id}-{snapshot_date}", "user_id": user_id, "snapshot_date": snapshot_date,
+            "trigger": "cas_upload", "source": "cas_upload", "cas_file_id": "file-1", "cas_filename": "june.pdf",
+            "statement_period_start": None, "statement_period_end": snapshot_date,
+            "holdings": [holding(isin, 3, 10.0)], "holdings_count": 1, "total_value": 30.0}
+
+
+def trend_row(user_id=UID, snapshot_date="2026-10-13") -> Dict[str, Any]:
+    """A daily record as portfolio_snapshot.persist_snapshot writes it: totals only, no holdings array."""
+    return {"user_id": user_id, "snapshot_date": snapshot_date, "trigger": "eod_cron", "total_value": 2000.0,
+            "holdings_count": 2, "top_holdings": [{"name": "x", "value": 1000.0}]}
+
+
+def with_holdings(w, user_id=UID) -> List[str]:
+    return sorted(d["snapshot_date"] for d in w.db.portfolio_snapshots.docs
+                  if d["user_id"] == user_id and d.get("holdings"))
+
+
+def enriched(w) -> Dict[str, Any]:
+    return asyncio.run(enrichment.build_enriched_portfolio(UID, use_cache=False))
+
+
+def clear_all(w):
+    res = w.client.delete("/api/portfolio/holdings-all")
+    settle(w)
+    return res
+
+
+def test_clear_all_removes_the_stored_statements_and_the_next_read_reloads_nothing(world):
+    w = world
+    w.gmail.emails = three_months()
+    import_all(w)
+    assert with_holdings(w) == ["2026-07-31", "2026-08-31", "2026-09-30"] and live(w) == [A, B]
+    w.db.portfolio_snapshots.docs += [trend_row(), old_style("someone-else"), trend_row("someone-else"),
+                                      {**old_style("someone-else", "2026-09-30"), "stored_by": "cas_history"}]
+    w.db.holdings.docs.append({"holding_id": "hold_other", "user_id": "someone-else", "ticker": D, "source": "cas"})
+
+    res = clear_all(w)
+
+    assert res.status_code == 200
+    assert res.json() == {"message": "2 holdings cleared. All portfolio data reset.", "deleted": 2, "statements_deleted": 3}
+    assert with_holdings(w) == []
+    mine = [d for d in w.db.portfolio_snapshots.docs if d["user_id"] == UID]
+    assert mine == [trend_row()]                                         # the daily record survives, untouched
+    # Another user's statements, daily records and holdings are not touched.
+    assert with_holdings(w, "someone-else") == ["2026-06-30", "2026-09-30"]
+    assert len([d for d in w.db.portfolio_snapshots.docs if d["user_id"] == "someone-else"]) == 3
+    assert [d["holding_id"] for d in w.db.holdings.docs] == ["hold_other"]
+
+    assert enriched(w) == EMPTY_PORTFOLIO                                # the read the portfolio screens make
+    assert live(w) == [] and w.forbidden == []                           # nothing was reloaded
+    assert "cas_view_state" not in w.db.users.docs[0]
+
+
+def test_clear_all_also_removes_old_style_statements_and_the_view_state_pointing_at_one(world):
+    w = world
+    w.db.portfolio_snapshots.docs += [old_style(), old_style(snapshot_date="2026-05-31"), trend_row()]
+    w.db.users.docs[0]["cas_view_state"] = {"current_snapshot_date": "2026-06-30", "is_default_latest": True}
+    on_file(w, "30-Jun-2026", "Jun/2026", tickers=(C,))
+
+    res = clear_all(w)
+
+    assert (res.json()["deleted"], res.json()["statements_deleted"]) == (1, 2)
+    assert with_holdings(w) == [] and [d["trigger"] for d in w.db.portfolio_snapshots.docs] == ["eod_cron"]
+    assert "cas_view_state" not in w.db.users.docs[0]                    # it pointed at a statement that is gone
+    assert enriched(w) == EMPTY_PORTFOLIO and live(w) == [] and w.forbidden == []
+
+
+def test_clear_all_with_no_stored_statement_answers_as_before_plus_the_count(world):
+    w = world
+    w.db.portfolio_snapshots.docs.append(trend_row())
+    w.db.users.docs[0]["cas_view_state"] = {"current_snapshot_date": "2026-01-31"}     # points at nothing we delete
+    on_file(w, "30-Jun-2026", "Jun/2026", tickers=(C, D))
+
+    res = clear_all(w)
+
+    assert res.json() == {"message": "2 holdings cleared. All portfolio data reset.", "deleted": 2, "statements_deleted": 0}
+    assert w.db.portfolio_snapshots.docs == [trend_row()]
+    assert w.db.users.docs[0]["cas_view_state"] == {"current_snapshot_date": "2026-01-31"}
+
+
+def test_a_history_statement_alone_never_triggers_the_self_heal(world):
+    w = world
+    _store()                                                             # one statement kept by the history path
+    assert with_holdings(w) == ["2026-09-30"] and live(w) == []
+
+    assert enriched(w) == EMPTY_PORTFOLIO
+
+    assert live(w) == [] and w.forbidden == []                           # the engine's mount was not reached
+    assert "cas_view_state" not in w.db.users.docs[0]
+
+
+def test_the_self_heal_still_restores_from_an_old_style_statement_and_skips_newer_history(world, monkeypatch):
+    w = world
+    w.db.portfolio_snapshots.docs.append(old_style())                    # June, written the old way
+    _store()                                                             # September, kept by the history path: newer
+    loaded: List[str] = []
+
+    class StopHere(Exception):
+        """The rows are back; the scoring and health that follow in the read are not under test."""
+
+    async def load_for_real_then_stop(user_id, snapshot_date):
+        loaded.append(snapshot_date)
+        await REAL_LOAD_SNAPSHOT(user_id, snapshot_date)
+        raise StopHere()
+    monkeypatch.setattr(eng, "write_holdings_table", REAL_WRITE_HOLDINGS)
+    monkeypatch.setattr(eng, "load_snapshot_into_holdings", load_for_real_then_stop)
+
+    enriched(w)
+
+    assert loaded == ["2026-06-30"]                                      # the old-style statement, not the newer history one
+    assert live(w) == [C]
+    row = w.db.holdings.docs[0]
+    assert (row["quantity"], row["source"], row["user_id"]) == (3.0, "cas", UID) and row["holding_id"].startswith("hold_")
+    assert w.db.users.docs[0]["cas_view_state"]["current_snapshot_date"] == "2026-06-30"
