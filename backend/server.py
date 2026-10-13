@@ -54,6 +54,7 @@ from routes.upload import router as upload_router
 from routes.analytics import router as analytics_router
 from routes.chat import router as chat_router
 from routes.screeners import router as screeners_router
+from routes.watchlists import router as watchlists_router  # personal watchlists (per-user lists of stocks)
 from routes.user import router as user_router
 from routes.insights import router as insights_router
 from routes.scenarios import router as scenarios_router
@@ -175,6 +176,7 @@ app.include_router(upload_router)
 app.include_router(analytics_router)
 app.include_router(chat_router)
 app.include_router(screeners_router)
+app.include_router(watchlists_router)
 app.include_router(user_router)
 app.include_router(insights_router)
 app.include_router(scenarios_router)
