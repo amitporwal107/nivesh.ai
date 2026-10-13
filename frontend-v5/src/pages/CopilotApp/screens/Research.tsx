@@ -69,7 +69,7 @@ export default function ResearchScreen() {
           : (
             <EmptyBlock
               title="Pick a stock to research"
-              body="Search by company name or symbol above. You get its reported quarterly numbers, shareholding, corporate actions and filings here, and the Copilot’s full research card in the thread."
+              body="Search by company name or symbol above. You get its price history, key figures, quarterly results, scores and technicals, shareholding, corporate actions and filings here."
             />
           )
       )}
@@ -80,13 +80,13 @@ export default function ResearchScreen() {
           : (
             <EmptyBlock
               title="Pick a mutual fund to research"
-              body="Search by scheme or fund-house name above, then ask the Copilot for its overview, returns, holdings or peer comparison."
+              body="Search by scheme or fund-house name above. You get its NAV, size and cost, returns against its category, risk measures, holdings and managers here."
             />
           )
       )}
 
       <Footnote>
-        Sources: NSE and BSE filings and corporate actions through the Nivesh data platform · AI reads are summaries, refer to the source filing · educational, not investment advice
+        Sources: NSE and BSE filings, corporate actions, end-of-day prices and fund returns through the Nivesh data platform · fund size, cost, managers and holdings from each scheme’s factsheet · AI reads are summaries, refer to the source filing · educational, not investment advice
       </Footnote>
     </Screen>
   );

@@ -4,12 +4,26 @@
  * which answers with the full research card in the thread.
  *
  *   Search              → GET /api/chat/instrument-search (useInstrumentSearch)
- *   Key figures, quarterly results, shareholding
+ *   Stock
+ *     Key figures, quarterly results, shareholding
  *                       → POST /api/copilot/widgets/company_financials
- *   Corporate actions   → GET /api/markets/corporate-actions?q=<symbol>
- *   Filings             → GET /api/filings/feed?symbol=<symbol>
+ *     Price, 52-week range, 200-day average
+ *                       → GET /api/research/chart-live/<symbol>/ohlcv
+ *     Scores, technicals, risk, peers (the Copilot's card)
+ *                       → GET /api/move-odds/stocks/<symbol>/card
+ *     Market backdrop   → GET /api/stock/<symbol>/why
+ *     Corporate actions → GET /api/markets/corporate-actions?q=<symbol>
+ *     Filings           → GET /api/filings/feed?symbol=<symbol>
+ *   Mutual fund
+ *     NAV               → GET /api/mf/lookup
+ *     Returns, risk, rank, peers
+ *                       → GET /api/portfolio/holding-detail/<isin>
+ *     Size, cost, managers, holdings
+ *                       → GET /api/mf/holdings
+ *
+ * The blocks added for the last two groups live in ../research.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useCorporateActions } from "@/hooks/use-markets";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useInstrumentSearch, type FundHit, type StockHit } from "@/hooks/use-instrument-search";
@@ -18,7 +32,11 @@ import {
   Btn, DataTable, EmptyBlock, LoadingBlock, NotConnected, Pill, Section, Tiles, fmtNum, fmtPct,
   type Column,
 } from "../../components/ui";
+import { FundHouseIcon, StockIcon } from "../../components/EntityIcon";
 import { useCopilotShell } from "../../lib/shell-context";
+import { FundFacts, FundHoldings, FundManagers, FundReturns, type FundRef } from "../research/FundBlocks";
+import { NotAvailable, inWords, orNA } from "../research/parts";
+import { StockBackdrop, StockCard, StockPrice } from "../research/StockBlocks";
 import { actionLabel } from "./ActionsTab";
 import { FilingsFeed } from "./FilingsFeed";
 import { dayLabel, fmtCrCompact, fmtCrPlain, fmtMultiple, isoDay, titleCase } from "./format";
@@ -110,6 +128,9 @@ export function InstrumentSearch({ only, onPick }: { only?: InstrumentKind; onPi
                     className="cp-row-link flex w-full items-center"
                     style={{ gap: 10, padding: "9px 10px", border: 0, borderRadius: 10, background: "transparent", textAlign: "left", color: "var(--cp-ink)", fontFamily: "var(--sans)" }}
                   >
+                    {p.kind === "stock"
+                      ? <StockIcon symbol={p.hit.symbol} name={name} size={26} />
+                      : <FundHouseIcon name={p.hit.amc || name} size={26} />}
                     <span className="flex min-w-0 flex-col" style={{ flex: 1, gap: 2 }}>
                       <span style={{ fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</span>
                       {sub && <span style={{ fontSize: 12, color: "var(--cp-ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</span>}
@@ -128,7 +149,9 @@ export function InstrumentSearch({ only, onPick }: { only?: InstrumentKind; onPi
 
 // ── shared entity pieces ─────────────────────────────────────────────────
 
-function EntityCard({ crumb, name, meta, held, onAsk, onClear }: {
+function EntityCard({ icon, crumb, name, meta, held, onAsk, onClear }: {
+  /** The company's icon for a stock, the fund house's for a scheme. */
+  icon: ReactNode;
   crumb: string;
   name: string;
   meta: string;
@@ -139,13 +162,16 @@ function EntityCard({ crumb, name, meta, held, onAsk, onClear }: {
   const { mobile } = useCopilotShell();
   return (
     <div className="cp-card-raised flex flex-wrap justify-between" style={{ gap: 12, padding: 18 }} data-testid="research-entity">
-      <div className="flex min-w-0 flex-col" style={{ gap: 6, flex: "1 1 320px" }}>
-        <span className="cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>{crumb}</span>
-        <span data-testid="research-entity-name" style={{ fontFamily: "var(--display)", fontSize: mobile ? 26 : 32, lineHeight: 1.1, letterSpacing: "-0.015em" }}>{name}</span>
-        <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
-          <span className="cp-eyebrow" data-testid="research-entity-meta">{meta}</span>
-          {held && <Pill tone="mint">You hold this</Pill>}
-        </span>
+      <div className="flex min-w-0 items-start" style={{ gap: 14, flex: "1 1 320px" }}>
+        <span data-testid="research-entity-icon" style={{ flex: "none", paddingTop: 2 }}>{icon}</span>
+        <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
+          <span className="cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>{crumb}</span>
+          <span data-testid="research-entity-name" style={{ fontFamily: "var(--display)", fontSize: mobile ? 26 : 32, lineHeight: 1.1, letterSpacing: "-0.015em", overflowWrap: "anywhere" }}>{name}</span>
+          <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
+            <span className="cp-eyebrow" data-testid="research-entity-meta">{meta}</span>
+            {held && <Pill tone="mint">You hold this</Pill>}
+          </span>
+        </div>
       </div>
       <div className="flex flex-wrap items-start" style={{ gap: 6 }}>
         <Btn variant="ghost" onClick={onClear} data-testid="research-entity-clear">Change</Btn>
@@ -182,10 +208,11 @@ function AskList({ title, items }: { title: string; items: Array<{ label: string
 
 // ── stock ────────────────────────────────────────────────────────────────
 
-type StockTab = "overview" | "shareholding" | "actions" | "filings";
+type StockTab = "overview" | "scores" | "shareholding" | "actions" | "filings";
 
 const STOCK_TABS: TabItem<StockTab>[] = [
   { key: "overview", label: "Overview" },
+  { key: "scores", label: "Scores and technicals" },
   { key: "shareholding", label: "Shareholding" },
   { key: "actions", label: "Corporate actions" },
   { key: "filings", label: "Filings" },
@@ -200,6 +227,7 @@ export function StockResearch({ stock, onClear }: { stock: StockHit; onClear: ()
   return (
     <>
       <EntityCard
+        icon={<StockIcon symbol={stock.symbol} name={name} size={44} />}
         crumb={`Stocks${stock.sector ? ` / ${stock.sector}` : ""}`}
         name={name}
         meta={stock.symbol}
@@ -212,6 +240,7 @@ export function StockResearch({ stock, onClear }: { stock: StockHit; onClear: ()
 
       {tab === "overview" && (
         <>
+          <StockPrice symbol={stock.symbol} name={name} />
           <StockNumbers symbol={stock.symbol} />
           <AskList
             title={`Ask about ${name}`}
@@ -226,19 +255,27 @@ export function StockResearch({ stock, onClear }: { stock: StockHit; onClear: ()
           />
           <NotConnected
             testId="research-stock-nc"
-            title="The rest of the stock page is not connected yet"
-            body={`There is no endpoint that returns these for a stock you search for, so they are not shown here. The Copilot’s research card for ${name} covers price, scores and technicals in the thread.`}
+            title="Some parts of the stock page are not connected yet"
+            body={`Annual statements, a fair-value read against ${name}’s own history, bulk and block deals, and what a purchase would do to your portfolio have no source on this page yet, so they are not shown.`}
             needs={[
-              "Live price, day change and 52-week range for any symbol",
-              "Quality, health, add and exit scores, the SWOT read and the pre-buy checks",
-              "Fair value against the stock’s own P/E history, and a price chart with the 200-day average",
-              "Annual profit and loss, balance sheet, cash flow and efficiency ratios",
-              "Technicals: moving averages, oscillators and pivot levels",
-              "Bulk and block deals, and a typed peer comparison",
-              "Portfolio fit: what a purchase would do to your sector weights, overlap and volatility",
+              "Annual profit and loss, balance sheet, cash flow and efficiency ratios: only quarterly revenue, operating profit, net profit and EPS are stored; no route returns annual statements",
+              "ROE, ROCE, debt to equity, P/B and market cap: the feature store carries the fields but does not fill them, so the key-figure tiles read “Not available” until it does",
+              "Fair value against the stock’s own P/E history: the feature history is read by daas_client.get_stock_features_history but no route returns it",
+              "Health, add and exit scores, the SWOT read and the pre-buy checks for a stock: no endpoint",
+              "Pivot levels and the full moving-average and oscillator set for any symbol: /api/research/chart/{symbol}/indicators only covers the frozen snapshot’s symbols",
+              "Bulk and block deals for a symbol: the NSE feeds are ingested (bulk_deals, block_deals) but no route returns them",
+              "Portfolio fit of a purchase (sector weights, overlap, volatility): POST /api/intelligence/simulate only models removing funds",
+              "A live intraday price: the price block is end of day",
+              "A 200-day average across the whole chart: it needs daily prices going back 200 sessions before the first one shown",
             ]}
             action={<Btn variant="primary" onClick={() => ask(`Tell me about ${name}`)}>Research {name} in Copilot ›</Btn>}
           />
+        </>
+      )}
+      {tab === "scores" && (
+        <>
+          <StockCard symbol={stock.symbol} name={name} />
+          <StockBackdrop symbol={stock.symbol} />
         </>
       )}
       {tab === "shareholding" && <StockShareholding symbol={stock.symbol} />}
@@ -266,37 +303,50 @@ function StockNumbers({ symbol }: { symbol: string }) {
 
   const columns: Column<QuarterRow>[] = [
     { key: "q", header: "Quarter", width: "minmax(0,1.2fr)", render: (r) => <NameCell name={r.quarter ?? dayLabel(r.period_end, { year: true })} /> },
-    { key: "rev", header: "Revenue", align: "right", num: true, render: (r) => fmtCrPlain(r.revenue_cr) },
-    { key: "ebitda", header: "EBITDA", align: "right", num: true, render: (r) => fmtCrPlain(r.ebitda_cr) },
-    { key: "margin", header: "EBITDA margin", align: "right", num: true, render: (r) => fmtPct(r.ebitda_margin_pct) },
-    { key: "pat", header: "Net profit", align: "right", num: true, render: (r) => fmtCrPlain(r.pat_cr) },
-    { key: "eps", header: "EPS ₹", align: "right", num: true, render: (r) => fmtNum(r.eps_basic, 2) },
+    { key: "rev", header: "Revenue", align: "right", num: true, render: (r) => orNA(r.revenue_cr, fmtCrPlain) },
+    { key: "ebitda", header: "EBITDA", align: "right", num: true, render: (r) => orNA(r.ebitda_cr, fmtCrPlain) },
+    { key: "margin", header: "EBITDA margin", align: "right", num: true, render: (r) => orNA(r.ebitda_margin_pct, (n) => fmtPct(n)) },
+    { key: "pat", header: "Net profit", align: "right", num: true, render: (r) => orNA(r.pat_cr, fmtCrPlain) },
+    { key: "eps", header: "EPS ₹", align: "right", num: true, render: (r) => orNA(r.eps_basic, (n) => fmtNum(n, 2)) },
     {
       key: "yoy", header: "Profit YoY", align: "right", num: true,
-      render: (r) => <Signed value={r.pat_yoy_pct}>{fmtPct(r.pat_yoy_pct, { signed: true })}</Signed>,
+      render: (r) => (r.pat_yoy_pct == null ? <NotAvailable /> : <Signed value={r.pat_yoy_pct}>{fmtPct(r.pat_yoy_pct, { signed: true })}</Signed>),
     },
   ];
 
+  // A figure the data does not carry keeps its tile and says so; it is never hidden or shown as 0.
+  const figures: Array<{ label: string; value: number | null | undefined }> = [
+    { label: "market cap", value: f?.market_cap_cr },
+    { label: "P/E", value: f?.pe_ttm },
+    { label: "P/B", value: f?.pb },
+    { label: "ROE", value: f?.roe_pct },
+    { label: "debt to equity", value: f?.debt_to_equity },
+  ];
+  const missing = figures.filter((x) => x.value == null || !Number.isFinite(x.value)).map((x) => x.label);
+
   return (
     <>
-      {f && (
-        <div data-testid="research-stock-metrics">
-          <Tiles
-            min={140}
-            items={[
-              {
-                k: "Market cap",
-                v: <span data-testid="research-stock-mcap">{fmtCrCompact(f.market_cap_cr)}</span>,
-                s: f.market_cap_bucket ? titleCase(f.market_cap_bucket) : undefined,
-              },
-              { k: "P/E", v: <span data-testid="research-stock-pe">{fmtMultiple(f.pe_ttm)}</span>, s: "Trailing 12 months" },
-              { k: "P/B", v: fmtMultiple(f.pb) },
-              { k: "ROE", v: fmtPct(f.roe_pct) },
-              { k: "Debt / equity", v: fmtNum(f.debt_to_equity, 2) },
-            ]}
-          />
-        </div>
-      )}
+      <div data-testid="research-stock-metrics" className="flex flex-col" style={{ gap: 8 }}>
+        <Tiles
+          min={140}
+          items={[
+            {
+              k: "Market cap",
+              v: <span data-testid="research-stock-mcap">{orNA(f?.market_cap_cr, fmtCrCompact)}</span>,
+              s: f?.market_cap_bucket ? titleCase(f.market_cap_bucket) : undefined,
+            },
+            { k: "P/E", v: <span data-testid="research-stock-pe">{orNA(f?.pe_ttm, (n) => fmtMultiple(n))}</span>, s: "Trailing 12 months" },
+            { k: "P/B", v: <span data-testid="research-stock-pb">{orNA(f?.pb, (n) => fmtMultiple(n))}</span> },
+            { k: "ROE", v: <span data-testid="research-stock-roe">{orNA(f?.roe_pct, (n) => fmtPct(n))}</span> },
+            { k: "Debt / equity", v: <span data-testid="research-stock-de">{orNA(f?.debt_to_equity, (n) => fmtNum(n, 2))}</span> },
+          ]}
+        />
+        {missing.length > 0 && (
+          <span data-testid="research-stock-metrics-missing" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>
+            Not in the latest data for {symbol}: {inWords(missing)}.
+          </span>
+        )}
+      </div>
       <Section title="Quarterly results · ₹ Cr" note="Reported · from exchange filings" flush>
         <div data-testid="research-stock-quarters">
           <DataTable
@@ -351,7 +401,7 @@ function StockShareholding({ symbol }: { symbol: string }) {
       header: p.period ?? dayLabel(p.period_end, { year: true }),
       align: "right",
       num: true,
-      render: (r) => fmtPct(r.values[i], { digits: 2 }),
+      render: (r) => orNA(r.values[i], (n) => fmtPct(n, { digits: 2 })),
     })),
   ];
 
@@ -399,44 +449,68 @@ function StockActions({ symbol }: { symbol: string }) {
 
 // ── mutual fund ──────────────────────────────────────────────────────────
 
+type FundTab = "overview" | "holdings" | "managers";
+
+const FUND_TABS: TabItem<FundTab>[] = [
+  { key: "overview", label: "Overview" },
+  { key: "holdings", label: "Holdings" },
+  { key: "managers", label: "Managers" },
+];
+
 export function FundResearch({ fund, onClear }: { fund: FundHit; onClear: () => void }) {
   const { ask } = useCopilotShell();
+  const [tab, setTab] = useState<FundTab>("overview");
   const name = fund.name;
   // The AMFI code makes the Copilot resolve the scheme exactly instead of by name.
   const tag = fund.scheme_code ? ` (${fund.scheme_code})` : "";
   const overview = `Show the overview of ${name}${tag}`;
+  const ref: FundRef = { name, schemeCode: fund.scheme_code };
 
   return (
     <>
       <EntityCard
+        icon={<FundHouseIcon name={fund.amc || name} size={44} />}
         crumb={`Funds${fund.category ? ` / ${fund.category}` : ""}`}
         name={name}
         meta={[fund.scheme_code ? `AMFI ${fund.scheme_code}` : null, fund.amc].filter(Boolean).join(" · ") || "Mutual fund"}
         onAsk={() => ask(overview)}
         onClear={onClear}
       />
-      <AskList
-        title={`Ask about ${name}`}
-        items={[
-          { label: "Overview", query: overview },
-          { label: "Returns", query: `Show the returns of ${name}${tag}` },
-          { label: "Holdings", query: `Show the holdings of ${name}${tag}` },
-          { label: "Against its peers", query: `Compare ${name}${tag} with its peers` },
-        ]}
-      />
-      <NotConnected
-        testId="research-fund-nc"
-        title="Fund figures are not connected to this page yet"
-        body={`There is no endpoint that returns a fund’s figures for a scheme you search for. The Copilot’s fund card for ${name} shows them in the thread.`}
-        needs={[
-          "NAV with its date, AUM, expense ratio, exit load and manager tenure for a scheme code",
-          "Annualised returns against the category and the benchmark, with the rank in category",
-          "Top holdings from the latest factsheet",
-          "Risk measures: standard deviation, Sharpe ratio, maximum drawdown and beta",
-          "Overlap between this fund and the funds you already hold",
-        ]}
-        action={<Btn variant="primary" onClick={() => ask(overview)}>Research {name} in Copilot ›</Btn>}
-      />
+
+      <TabBar tabs={FUND_TABS} value={tab} onChange={setTab} label={`${name} sections`} idPrefix="research-fund-tab" />
+
+      {tab === "overview" && (
+        <>
+          <FundFacts fund={ref} />
+          <FundReturns fund={ref} />
+          <AskList
+            title={`Ask about ${name}`}
+            items={[
+              { label: "Overview", query: overview },
+              { label: "Returns", query: `Show the returns of ${name}${tag}` },
+              { label: "Holdings", query: `Show the holdings of ${name}${tag}` },
+              { label: "Against its peers", query: `Compare ${name}${tag} with its peers` },
+            ]}
+          />
+          <NotConnected
+            testId="research-fund-nc"
+            title="Some parts of the fund page are not connected yet"
+            body={`A NAV chart, returns against the benchmark, the fund’s score, its exit load and its overlap with the funds you hold have no source on this page yet, so they are not shown. The Copilot’s fund card for ${name} covers more in the thread.`}
+            needs={[
+              "NAV history for a chart: daas_client.get_mf_nav_history reads it but no route returns it",
+              "Returns against the benchmark, and 5-year and longer returns from the data platform: /api/portfolio/holding-detail/{isin} stops at 3 years and has no benchmark column",
+              "The fund’s score: GET /api/funds/{isin}/v3-score looks the scheme up in the Mongo mf_master collection and does not find the schemes this page searches; the full breakdown at /api/intelligence/v3-score/{id} is admin-only",
+              "Rank in category and ranked peers: shown when /api/portfolio/holding-detail/{isin} returns them; the data platform has to compute a category rank for the scheme first",
+              "Exit load and beta: in no response used here",
+              "Overlap between this fund and the funds you hold: /api/portfolio/exposure/fund-overlap/matrix only compares funds already held; no route takes a candidate scheme",
+              "The Copilot’s fund card as a read: stocks have GET /api/move-odds/stocks/{symbol}/card, funds have no equivalent over instrument_research.get_mf_research",
+            ]}
+            action={<Btn variant="primary" onClick={() => ask(overview)}>Research {name} in Copilot ›</Btn>}
+          />
+        </>
+      )}
+      {tab === "holdings" && <FundHoldings fund={ref} />}
+      {tab === "managers" && <FundManagers fund={ref} />}
     </>
   );
 }

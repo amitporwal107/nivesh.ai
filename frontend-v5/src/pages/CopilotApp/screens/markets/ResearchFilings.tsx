@@ -13,6 +13,7 @@ import { useState, type FormEvent } from "react";
 import type { Signal } from "@/services/adapters/filings.adapter";
 import { STARTERS_PAGE, THEMATIC_STARTERS } from "@/data/thematicStarters";
 import { Btn, EmptyBlock, LoadingBlock, Pill, fmtNum } from "../../components/ui";
+import { StockIcon } from "../../components/EntityIcon";
 import { useCopilotShell } from "../../lib/shell-context";
 import { sentimentTone } from "./ArticlesTab";
 import { FilingsFeed } from "./FilingsFeed";
@@ -206,6 +207,7 @@ function ReadForYou({ mobile }: { mobile: boolean }) {
       >
         <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 20, lineHeight: 1, color: "var(--cp-ink-3)" }}>{String(s.rank ?? i + 1).padStart(2, "0")}</span>
+          {s.ticker && <StockIcon symbol={s.ticker} name={s.company} size={20} />}
           <span className="cp-num" style={{ fontSize: 11, fontWeight: 600 }}>{s.ticker ?? "—"}</span>
           <span style={{ flex: 1 }} />
           <Pill tone={sentimentTone(s.sentiment)}>{titleCase(s.type) || "Filing"}</Pill>
