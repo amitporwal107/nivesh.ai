@@ -268,9 +268,9 @@ async def build(dry_run: bool = False, symbols: Optional[List[str]] = None) -> d
             as_of[r["symbol"]] = max(as_of.get(r["symbol"], r["as_of_date"]), r["as_of_date"])
         # The newest dated quarter held from any other source, per company.
         anchors = {r["symbol"]: r for r in await conn.fetch(
-            f"""SELECT DISTINCT ON (symbol) symbol, period_end, revenue_from_ops_cr, consolidated
+            f"""SELECT DISTINCT ON (symbol) symbol, period_end, revenue_from_ops_cr, pat_cr, consolidated
                   FROM nidp.nse_financials_quarterly
-                 WHERE period_type = 'quarterly' AND source <> '{SOURCE}' AND revenue_from_ops_cr > 0
+                 WHERE period_type = 'quarterly' AND source <> '{SOURCE}'
                  ORDER BY symbol, period_end DESC""")}
         filings: Dict[str, List[date]] = {}
         if as_of:
@@ -290,8 +290,15 @@ async def build(dry_run: bool = False, symbols: Optional[List[str]] = None) -> d
             stats["no_values"] += 1
             continue
         anchor = anchors.get(symbol)
-        by_anchor = parse.latest_quarter_from_anchor(
-            revenue, anchor["period_end"], float(anchor["revenue_from_ops_cr"]), as_of[symbol]) if anchor else None
+        by_anchor = None
+        if anchor:
+            # Match on revenue; a lender's row often has no revenue line, so profit is used then.
+            if anchor["revenue_from_ops_cr"] and anchor["revenue_from_ops_cr"] > 0:
+                series, held = revenue, float(anchor["revenue_from_ops_cr"])
+            else:
+                series = {o: values.get(parse.series_token("np", o)) for o in range(8)}
+                held = float(anchor["pat_cr"]) if anchor["pat_cr"] is not None else None
+            by_anchor = parse.latest_quarter_from_anchor(series, anchor["period_end"], held, as_of[symbol])
         by_filings = parse.latest_quarter_from_filings(as_of[symbol], filings.get(symbol, []))
         if by_anchor and by_filings:
             stats["methods_agree" if by_anchor == by_filings else "methods_disagree"] += 1

@@ -114,14 +114,15 @@ def shift_quarters(end: date, n: int) -> date:
     return date(year, month + 1, calendar.monthrange(year, month + 1)[1])
 
 
-def latest_quarter_from_anchor(revenue_by_offset: Dict[int, Optional[float]], anchor_end: date,
-                               anchor_revenue: Optional[float], as_of: date,
+def latest_quarter_from_anchor(values_by_offset: Dict[int, Optional[float]], anchor_end: date,
+                               anchor_value: Optional[float], as_of: date,
                                tolerance: float = 0.005) -> Optional[date]:
     """Date the provider's "latest quarter" from a quarter we already hold.
 
-    `anchor_end` / `anchor_revenue` are a quarter's end date and revenue from a
-    source that states its dates. If exactly one of the provider's offsets has
-    that revenue, the provider's latest quarter is that many quarters after the
+    `anchor_end` / `anchor_value` are a quarter's end date and one figure for it
+    (revenue, or profit where the held row has no revenue) from a source that
+    states its dates; `values_by_offset` is the provider's series for the same
+    figure. If exactly one offset has that value, the provider's latest quarter is that many quarters after the
     anchor. None when nothing matches, when the match is ambiguous, or when it
     would put the latest quarter after `as_of` (a quarter that has not ended).
 
@@ -129,10 +130,10 @@ def latest_quarter_from_anchor(revenue_by_offset: Dict[int, Optional[float]], an
     company's figure is allowed to differ by up to 0.5 Cr; that is also why two
     offsets can both match, and then no date is returned.
     """
-    if not anchor_revenue or anchor_revenue <= 0:
+    if anchor_value is None or anchor_value == 0:
         return None
-    allowed = max(0.5, tolerance * anchor_revenue)
-    hits = [o for o, v in revenue_by_offset.items() if v is not None and abs(v - anchor_revenue) <= allowed]
+    allowed = max(0.5, tolerance * abs(anchor_value))
+    hits = [o for o, v in values_by_offset.items() if v is not None and abs(v - anchor_value) <= allowed]
     if len(hits) != 1:
         return None
     latest = shift_quarters(anchor_end, hits[0])

@@ -88,6 +88,13 @@ def test_anchor_dating_allows_for_an_anchor_rounded_to_whole_crores():
     assert parse.latest_quarter_from_anchor({0: 5.67, 1: 73.09}, date(2026, 6, 30), 6.0, AS_OF) == date(2026, 6, 30)
 
 
+def test_anchor_dating_works_on_a_profit_series_including_losses():
+    profit = {0: 11.57, 1: 12.27, 2: -40.2}
+    # a held profit rounded to 12 fits both 11.57 and 12.27 -> ambiguous, so no date
+    assert parse.latest_quarter_from_anchor(profit, date(2026, 6, 30), 12.0, AS_OF) is None
+    assert parse.latest_quarter_from_anchor({0: 30.0, 1: -40.2}, date(2026, 6, 30), -40.0, AS_OF) == date(2026, 9, 30)
+
+
 def test_anchor_dating_never_returns_a_quarter_that_has_not_ended():
     # a match four quarters back from a June anchor would put the latest quarter in June 2027
     assert parse.latest_quarter_from_anchor({0: 9.0, 4: 6.01}, date(2026, 6, 30), 6.0, AS_OF) is None
