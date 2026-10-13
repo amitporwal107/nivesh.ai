@@ -28,6 +28,21 @@ CLAUDE = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
 CALL_TIMEOUT = 600
 
 
+# Running totals for the whole run, so the cost of a run is measured rather than estimated.
+USAGE = {"calls": 0, "cost_usd": 0.0, "input_tokens": 0, "cache_read_tokens": 0,
+         "cache_write_tokens": 0, "output_tokens": 0}
+
+
+def _record_usage(out: dict) -> None:
+    u = out.get("usage") or {}
+    USAGE["calls"] += 1
+    USAGE["cost_usd"] += float(out.get("total_cost_usd") or 0)
+    USAGE["input_tokens"] += int(u.get("input_tokens") or 0)
+    USAGE["cache_read_tokens"] += int(u.get("cache_read_input_tokens") or 0)
+    USAGE["cache_write_tokens"] += int(u.get("cache_creation_input_tokens") or 0)
+    USAGE["output_tokens"] += int(u.get("output_tokens") or 0)
+
+
 def run_claude(system: str, user: str, schema: dict) -> dict:
     """One isolated, tool-less model call returning the schema-shaped answer. Raises RuntimeError.
     The filing text goes in on stdin, never argv."""
@@ -47,6 +62,7 @@ def run_claude(system: str, user: str, schema: dict) -> dict:
         out = json.loads(r.stdout)
     except ValueError as e:
         raise RuntimeError(f"claude returned non-JSON output: {r.stdout[:200]!r}") from e
+    _record_usage(out)
     if out.get("is_error"):
         raise RuntimeError(f"claude reported an error: {str(out.get('result'))[:300]}")
     answer = out.get("structured_output")
@@ -130,18 +146,34 @@ def main(argv=None) -> int:
     pending = [v for v in verdicts.values() if v.get("include") and v["announcement_id"] not in analysed
                and (filings.get(v["announcement_id"]) or {}).get("text")]
     pending.sort(key=lambda v: v["event_importance_score"], reverse=True)
+    # The same document is often filed more than once (a revised press release, the same PDF on
+    # both exchanges). An analysis already made of identical text for the same company is reused.
+    by_text = {}
+    for d in docs:
+        if d.get("mode") == core.ANALYSIS_MODE and d.get("prompt_sha256") == a_sha and d.get("text_sha256"):
+            by_text[(d.get("symbol"), d["text_sha256"])] = d
+    tally["analyses_reused"] = 0
     for v in pending[:a.max_analyses]:
         f = filings[v["announcement_id"]]
+        key = (f.get("symbol"), core.text_sha(f.get("text") or ""))
+        if key in by_text:
+            d = core.reuse_analysis(by_text[key], f, datetime.now(timezone.utc))
+            _append(a.work, d)
+            tally["analyses_reused"] += 1
+            continue
         try:
             clean = core.clean_analysis(run_claude(analysis_prompt, _analysis_input(f), core.ANALYSIS_SCHEMA))
         except (RuntimeError, ValueError) as e:
             tally["analysis_failed"] += 1
             print(f"analysis of {f['id']} ({f.get('symbol')}) failed: {e}", file=sys.stderr)
             continue
-        _append(a.work, core.analysis_doc(f, clean, a_sha, MODEL, datetime.now(timezone.utc)))
+        d = core.analysis_doc(f, clean, a_sha, MODEL, datetime.now(timezone.utc))
+        _append(a.work, d)
+        by_text[key] = d
         tally["analysed"] += 1
 
     tally["kept_awaiting_analysis"] = max(0, len(pending) - a.max_analyses)
+    tally["usage"] = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in USAGE.items()}
     print(json.dumps(tally))
     return 1 if tally["call_errors"] and not tally["filtered"] and not tally["analysed"] else 0
 

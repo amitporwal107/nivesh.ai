@@ -118,6 +118,11 @@ def prompt_sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def text_sha(text: str) -> str:
+    """Identity of a document's text as the analysis saw it (whitespace-insensitive)."""
+    return hashlib.sha256(" ".join((text or "")[:ANALYSIS_TEXT_CHARS].split()).encode("utf-8")).hexdigest()
+
+
 def candidates(filings: Iterable[dict], done: set[str]) -> list[dict]:
     """Filings worth a model call: not compliance paperwork (any subject the rule files under
     'regulatory'), not already judged under this prompt."""
@@ -242,8 +247,21 @@ def filter_doc(filing: dict, verdict: dict, sha: str, model_tag: str, now: datet
 
 def analysis_doc(filing: dict, a: dict, sha: str, model_tag: str, now: datetime) -> dict:
     d = _base(filing, ANALYSIS_MODE, sha, model_tag, now)
+    d["text_sha256"] = text_sha(filing.get("text") or "")
     d.update(event_type=a["event_type"], event_subtype=a["event_subtype"], event_certainty=a["event_certainty"],
              net_impact_score=a["net_impact_score"], net_band=net_band(a["net_impact_score"]),
              materiality_score=a["materiality_score"], confidence_score=a["confidence_score"],
              analysis={"sum": a["sum"], "amt": a["amt"], "pf": a["pf"], "nf": a["nf"], "unk": a["unk"]})
+    return d
+
+
+def reuse_analysis(prior: dict, filing: dict, now: datetime) -> dict:
+    """The analysis already made of identical text, re-issued for another filing of the same
+    document. Same findings and model; its own id, filing fields and timestamp, and a pointer to
+    the document it was copied from."""
+    d = _base(filing, ANALYSIS_MODE, prior["prompt_sha256"], prior["model_tag"], now)
+    for k in ("text_sha256", "event_type", "event_subtype", "event_certainty", "net_impact_score", "net_band",
+              "materiality_score", "confidence_score", "analysis"):
+        d[k] = prior.get(k)
+    d["reused_from"] = prior["_id"]
     return d

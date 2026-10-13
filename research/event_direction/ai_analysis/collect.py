@@ -68,11 +68,13 @@ def main(argv=None) -> int:
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--days", type=int, default=3)
     p.add_argument("--max", type=int, default=250, help="new filings to collect this run")
+    p.add_argument("--list", type=Path, help="JSON-lines filing list to use instead of the data API feed "
+                                             "(the feed only reaches back 30 days)")
     a = p.parse_args(argv)
 
     base = (os.environ.get("NIDP_DAAS_BASE_URL") or "").rstrip("/")
     key = os.environ.get("NIDP_DAAS_INTERNAL_TOKEN") or os.environ.get("NIDP_DAAS_API_KEY") or ""
-    if not base or not key:
+    if not a.list and (not base or not key):
         print("NIDP_DAAS_BASE_URL and a data API key must be set", file=sys.stderr)
         return 2
     out = a.out / "filings"
@@ -81,7 +83,9 @@ def main(argv=None) -> int:
     tally = {"seen": 0, "routine_skipped": 0, "already_collected": 0, "collected": 0, "text": {}}
 
     with httpx.Client(timeout=45) as client:
-        for f in fetch_feed(client, base, key, a.days):
+        feed = ((json.loads(line) for line in a.list.read_text().splitlines() if line.strip())
+                if a.list else fetch_feed(client, base, key, a.days))
+        for f in feed:
             tally["seen"] += 1
             if not core.candidates([f], set()):
                 tally["routine_skipped"] += 1

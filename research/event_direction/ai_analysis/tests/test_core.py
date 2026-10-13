@@ -225,3 +225,33 @@ def test_subject_rule_only_covers_unambiguous_subjects():
     for vague in ("general updates", "updates", "press release", "outcome of board meeting", "others", "record date"):
         assert vague not in core.SUBJECT_CATEGORY
     assert all(s == s.lower().strip() for s in core.SUBJECT_CATEGORY)
+
+
+# ── cost: reuse and measurement ─────────────────────────────────────────────
+def test_identical_document_is_analysed_once():
+    """TC-E15: a second filing of the same text for the same company reuses the first analysis —
+    same findings, its own id and filing fields, and a pointer to where it came from."""
+    first = core.analysis_doc(_filing("k1"), core.clean_analysis(_analysis()), SHA, MODEL, NOW)
+    again = _filing("k2", title="Press Release (Revised)", text="DOCUMENT   BODY\nTEXT")
+    assert core.text_sha(again["text"]) == first["text_sha256"]            # whitespace does not matter
+    d = core.reuse_analysis(first, again, NOW)
+    assert d["_id"] != first["_id"] and d["announcement_id"] == "k2" and d["exchange_category"] == "Press Release (Revised)"
+    assert d["analysis"] == first["analysis"] and d["net_band"] == first["net_band"] and d["reused_from"] == first["_id"]
+    assert core.text_sha("a different document") != first["text_sha256"]
+    assert build([d])["k2"]["one"].startswith("Acme will acquire")
+
+
+def test_usage_is_recorded_per_call(monkeypatch):
+    """TC-E16: every model call adds its cost and token counts (cached input counted apart) to
+    the run's totals, including calls that end in an error."""
+    for k in analyse.USAGE:
+        analyse.USAGE[k] = 0
+    payload = _result(total_cost_usd=0.02, usage={"input_tokens": 100, "cache_read_input_tokens": 900,
+                                                 "cache_creation_input_tokens": 50, "output_tokens": 40})
+    monkeypatch.setattr(analyse.subprocess, "run", lambda *a, **k: _Proc(payload))
+    analyse.run_claude("S", "U", {"type": "object"})
+    monkeypatch.setattr(analyse.subprocess, "run", lambda *a, **k: _Proc(dict(payload, is_error=True)))
+    with pytest.raises(RuntimeError):
+        analyse.run_claude("S", "U", {"type": "object"})
+    assert analyse.USAGE["calls"] == 2 and abs(analyse.USAGE["cost_usd"] - 0.04) < 1e-9
+    assert analyse.USAGE["cache_read_tokens"] == 1800 and analyse.USAGE["output_tokens"] == 80

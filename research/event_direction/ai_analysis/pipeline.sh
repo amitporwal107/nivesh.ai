@@ -19,10 +19,23 @@ sudo docker exec "$BACKEND" sh -c \
   'printenv | grep -E "^(NIDP_DAAS_BASE_URL|NIDP_DAAS_INTERNAL_TOKEN|NIDP_DAAS_API_KEY)="' > "$ENVF"
 IMAGE="$(sudo docker inspect -f '{{.Config.Image}}' "$BACKEND")"
 
+# FROM/TO (YYYY-MM-DD) reach past the data API feed's 30 days by listing filings straight from the
+# filings table, newest first. Needs EVENT_AI_PSQL.
+LIST_ARGS=()
+if [ -n "${FROM:-}" ] && [ -n "${TO:-}" ]; then
+  [[ "$FROM" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$TO" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "FROM/TO must be YYYY-MM-DD"; exit 2; }
+  [ -n "${EVENT_AI_PSQL:-}" ] || { echo "FROM/TO need EVENT_AI_PSQL"; exit 2; }
+  printf '%s\n' '\pset tuples_only on' '\pset format unaligned' \
+    "SELECT json_build_object('id', announcement_id, 'symbol', ticker_symbol, 'company', company_name, 'title', subject, 'summary', description, 'source', source, 'when', filed_at, 'url', attachment_url) FROM nidp.corporate_announcements WHERE filed_at::date BETWEEN '$FROM' AND '$TO' ORDER BY filed_at DESC;" \
+    | "$EVENT_AI_PSQL" > "$WORK/list.jsonl"
+  echo "== list: $(wc -l < "$WORK/list.jsonl") filings from $FROM to $TO"
+  LIST_ARGS=(--list /work/list.jsonl)
+fi
+
 echo "== collect"
 sudo docker run --rm --user "$(id -u):$(id -g)" --env-file "$ENVF" -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
   -v "$HERE":/pipeline:ro -v "$WORK":/work --entrypoint python "$IMAGE" \
-  /pipeline/collect.py --out /work --days "${DAYS:-3}" --max "${MAX_FILINGS:-250}"
+  /pipeline/collect.py --out /work --days "${DAYS:-3}" --max "${MAX_FILINGS:-250}" "${LIST_ARGS[@]}"
 
 echo "== analyse"
 python3 "$HERE/analyse.py" --work "$WORK" --max-filter "${MAX_FILTER:-250}" --max-analyses "${MAX_ANALYSES:-40}"
