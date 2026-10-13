@@ -2,21 +2,23 @@
  * Broker connections — where the portfolio comes from.
  * Design: frontend-v5/design/nivesh-copilot/NVBrokers.dc.html.
  *
- * Real: CAS statements (uploaded, or found in Gmail), the broker accounts the
- * server holds for the user with what was read from each (sync, reconnect,
- * disconnect), and the brokers the server lists (./account/brokers). Read-only
- * throughout: nothing here can place an order.
+ * Real: the broker accounts the server holds for the user with what was read
+ * from each (sync, reconnect, remove), the brokers that can be added, a
+ * broker's holdings file (.xlsx / .xls / .csv), and CAS statements (uploaded,
+ * or found in Gmail). The broker parts are the hub components Settings and Get
+ * started render (./account/brokers). Read-only throughout: nothing here can
+ * place an order.
  *
- * A broker sign-in is offered only for a broker the server marks connectable.
- * Today's backend marks none, so today none is offered and the screen says so;
- * the copy that depends on that is chosen from the same field.
+ * A broker sign-in is offered only for a broker the server marks connectable;
+ * for any other the page offers that broker's holdings file.
  */
+import { useEffect, useRef, useState } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { BrokerIcon } from "../components/EntityIcon";
 import { DataTable, EmptyBlock, ErrorBlock, Eyebrow, LoadingBlock, Pill, Screen, ScreenHeader, Section, TONE_COLOR, fmtDate, fmtINR, fmtNum, relTime, type Column, type Tone } from "../components/ui";
 import { BrokerAccounts, BrokerConnect, BrokerReturnNotice } from "./account/brokers";
-import { GmailSource, StatementUpload } from "./account/parts";
-import { saysConnectable, useBrokerAccounts, useBrokerAdapters } from "./account/broker-queries";
+import { GmailSource, HoldingsFileUpload, StatementUpload } from "./account/parts";
+import { useBrokerAccounts } from "./account/broker-queries";
 import {
   hasStatement,
   useAuditTrail,
@@ -70,7 +72,7 @@ const IMPORT_STEPS: Array<{ n: string; t: string; d: string }> = [
   { n: "01", t: "Get a CAS", d: "A consolidated account statement from NSDL, CDSL, CAMS or KFintech, as a PDF." },
   { n: "02", t: "Upload it, or connect Gmail", d: "With Gmail connected, Nivesh looks for your latest CAS emails and imports the first one it can read." },
   { n: "03", t: "Unlock it", d: "Usually with your PAN. Some CAMS and KFintech statements use a password you chose." },
-  { n: "04", t: "Holdings are replaced", d: "The holdings in the new statement replace what Nivesh had on file." },
+  { n: "04", t: "Earlier statements are replaced", d: "The new statement replaces what earlier statements put on file. Holdings read from a broker are kept, and are the ones used where both list the same holding." },
 ];
 
 interface ReadRow { what: string; why: string; access: string; tone: Tone }
@@ -80,13 +82,12 @@ const READS: ReadRow[] = [
   { what: "Mutual fund transactions (NSDL CAS)", why: "Returns over time", access: "Read", tone: "mint" },
   { what: "Month-end values printed on the statement", why: "Your portfolio value trend", access: "Read", tone: "mint" },
   { what: "CAS emails in Gmail", why: "To find and download your latest statement", access: "Read-only", tone: "mint" },
-  { what: "Holdings in a connected broker account", why: "Read from the broker each time you press Sync now", access: "Read", tone: "mint" },
+  { what: "Holdings in a connected broker account", why: "Read when you connect and each time you press Sync now", access: "Read", tone: "mint" },
+  { what: "Holdings in a broker file you upload", why: "For a broker you would rather not connect, or that can’t be connected", access: "Read", tone: "mint" },
+  // The server can read these from a connected account; no screen in this app displays them yet.
+  { what: "Open positions in a connected broker account", why: "Not shown anywhere in this app yet", access: "Not shown", tone: "ink" },
+  { what: "Place, change or cancel orders", why: "Nivesh has no feature that does this, with any source", access: "Never", tone: "danger" },
 ];
-
-/** True of today's backend only, so shown only against it (see BrokersScreen). */
-const POSITIONS_NOT_READ: ReadRow = { what: "Open positions, funds and margins", why: "Not read yet from any broker account", access: "Not read", tone: "ink" };
-
-const NEVER: ReadRow = { what: "Place, change or cancel orders", why: "Nivesh has no feature that does this, with any source", access: "Never", tone: "danger" };
 
 const READ_COLUMNS: Column<ReadRow>[] = [
   { key: "what", header: "What", render: (r) => <span title={r.what} style={{ fontWeight: 500, color: "var(--cp-ink)" }}>{r.what}</span> },
@@ -103,6 +104,24 @@ const BROKER_EVENTS: Record<string, string> = {
   broker_sync: "Broker sync",
   broker_disconnect: "Broker disconnect",
 };
+
+const READ_FAILURES: Record<string, string> = {
+  BROKER_SESSION_EXPIRED: "the broker session had ended",
+  BROKER_READ_NOT_SUPPORTED: "this kind of account can’t be read",
+  BROKER_READ_FAILED: "the broker did not return holdings",
+};
+
+/**
+ * Why a broker event failed, from the trail's `code` or `stage`. The trail's
+ * own `reason` is never shown: for a sign-in that could not start it names
+ * server settings.
+ */
+function failureNote(d: Record<string, unknown>): string | null {
+  if (typeof d.code === "string" && READ_FAILURES[d.code]) return READ_FAILURES[d.code];
+  if (d.stage === "auth_url") return "the sign-in could not be started";
+  if (d.stage === "exchange_code") return "the broker did not accept the sign-in";
+  return null;
+}
 
 function logRows(imports: GmailImport[], audit: AuditRow[]): LogRow[] {
   const rows: LogRow[] = [];
@@ -129,7 +148,7 @@ function logRows(imports: GmailImport[], audit: AuditRow[]): LogRow[] {
       detail: [
         typeof d.broker === "string" ? d.broker : null,
         typeof d.count === "number" ? `${fmtNum(d.count)} holdings` : null,
-        failed && typeof d.reason === "string" ? d.reason : null,
+        failed ? failureNote(d) : null,
       ].filter(Boolean).join(" · "),
       failed,
     });
@@ -188,12 +207,16 @@ function ImportLog() {
 
 export default function BrokersScreen() {
   const accounts = useBrokerAccounts();
-  const adapters = useBrokerAdapters();
   const state = useOnboardingState();
   const gmail = useGmailSourceStatus();
-  // The planned broker backend says which brokers can be connected; today's does not.
-  const connectable = !!adapters.data && saysConnectable(adapters.data);
-  const reads = connectable ? [...READS, NEVER] : [...READS, POSITIONS_NOT_READ, NEVER];
+  // The broker whose "Upload file" was pressed; null for any file.
+  const [fileFor, setFileFor] = useState<{ broker: string | null; n: number }>({ broker: null, n: 0 });
+  const fileBox = useRef<HTMLDivElement>(null);
+
+  // The upload form is further down the page: bring it into view when the file route is taken.
+  useEffect(() => {
+    if (fileFor.n > 0) fileBox.current?.scrollIntoView({ block: "center" });
+  }, [fileFor]);
 
   const connectedCount = accounts.data && state.data && gmail.state === "ready"
     ? accounts.data.length + (hasStatement(state.data) ? 1 : 0) + (gmail.data.connected ? 1 : 0)
@@ -205,9 +228,7 @@ export default function BrokersScreen() {
         eyebrow="Broker connections"
         pills={<Pill tone="mint">Read-only</Pill>}
         title={<>Where your holdings <em>come from</em>.</>}
-        sub={connectable
-          ? "Nivesh reads your holdings from a CAS statement that you upload or that it finds in your Gmail, and from a broker account you connect. Whatever the source, Nivesh only reads. It never places an order."
-          : "Nivesh reads your holdings from a CAS statement that you upload, or that it finds in your Gmail. Signing in to a broker directly is not available yet. Whatever the source, Nivesh only reads. It never places an order."}
+        sub="Nivesh reads your holdings from a broker account you connect, from a holdings file your broker lets you download, and from a CAS statement that you upload or that it finds in your Gmail. Whatever the source, Nivesh only reads. It never places an order."
       />
 
       <BrokerReturnNotice />
@@ -222,13 +243,18 @@ export default function BrokersScreen() {
       </div>
 
       <div className="flex flex-col" style={{ gap: 10 }}>
-        <Eyebrow>Add or replace a statement</Eyebrow>
-        <StatementUpload panOnFile={state.data?.pan_on_file ?? false} />
+        <Eyebrow>Add a broker</Eyebrow>
+        <BrokerConnect onUseFile={(broker) => setFileFor((f) => ({ broker, n: f.n + 1 }))} />
+      </div>
+
+      <div ref={fileBox} className="flex flex-col" style={{ gap: 10 }}>
+        <Eyebrow>Upload a broker file</Eyebrow>
+        <HoldingsFileUpload key={fileFor.broker ?? ""} broker={fileFor.broker} />
       </div>
 
       <div className="flex flex-col" style={{ gap: 10 }}>
-        <Eyebrow>Connect a broker</Eyebrow>
-        <BrokerConnect />
+        <Eyebrow>Add or replace a statement</Eyebrow>
+        <StatementUpload panOnFile={state.data?.pan_on_file ?? false} />
       </div>
 
       <div className="flex flex-col" style={{ gap: 14, padding: 18, borderRadius: 14, border: "1px solid var(--mint-line)", background: "var(--bg-1)" }}>
@@ -245,7 +271,7 @@ export default function BrokersScreen() {
       </div>
 
       <Section title="What Nivesh reads, and why" flush>
-        <DataTable columns={READ_COLUMNS} rows={reads} rowKey={(r) => r.what} minWidth={760} />
+        <DataTable columns={READ_COLUMNS} rows={READS} rowKey={(r) => r.what} minWidth={760} />
       </Section>
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,340px),1fr))", gap: 12, alignItems: "start" }}>
@@ -255,7 +281,7 @@ export default function BrokersScreen() {
             <li>Gmail access is read-only. Nivesh searches only for emails with a PDF attachment from NSDL, CDSL, CAMS or KFintech.</li>
             <li>Disconnecting Gmail here deletes the Google token Nivesh holds. You can also remove Nivesh from your Google account’s third-party access.</li>
             <li>Your PAN, or the statement password when it is different, is kept on your profile so later statements can be opened. Disconnecting Gmail does not remove it.</li>
-            <li>A broker sign-in happens on the broker’s own site. Nivesh keeps the access it is given in encrypted form and deletes it when you disconnect the account.</li>
+            <li>A broker sign-in happens on the broker’s own site. Nivesh keeps the access it is given in encrypted form and deletes it when you remove the account.</li>
             <li>Each successful Gmail import is recorded with the file name and the number of holdings. You can see it in the import log.</li>
           </ul>
         </Section>

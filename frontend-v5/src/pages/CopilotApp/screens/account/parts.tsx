@@ -1,13 +1,13 @@
 /**
  * Account screens — pieces shared by Get started, Broker connections and
- * Settings: small controls, the CAS statement upload, the CSV / Excel upload,
- * the Gmail source card and the risk / goal wizard. Broker accounts and broker
- * sign-in are in ./brokers.
+ * Settings: small controls, the CAS statement upload, the broker file upload
+ * (.xlsx / .xls / .csv), the Gmail source card and the risk / goal wizard.
+ * Broker accounts and broker sign-in are in ./brokers.
  *
- * Statement upload, file upload, Gmail import and the wizard reuse what the
- * app already has (useCasUpload, casUploadService, GmailSyncModal,
- * ProfileWizardModal); nothing here speaks to the upload or OAuth endpoints
- * directly.
+ * Statement upload, Gmail import and the wizard reuse what the app already has
+ * (useCasUpload, GmailSyncModal, ProfileWizardModal); the broker file goes
+ * through useHoldingsFileUpload (./queries). Nothing here speaks to an upload
+ * or OAuth endpoint directly.
  */
 import { useId, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,7 +21,7 @@ import type { CasUploadResult } from "@/services/adapters/cas-upload.adapter";
 import { ApiError } from "@/services/api/errors";
 import { BrokerIcon } from "../../components/EntityIcon";
 import { Btn, ErrorBlock, LoadingBlock, Pill, errorSentence, fmtDate, fmtNum, relTime } from "../../components/ui";
-import { accountKeys, toRead, useAfterImport, useGmailSourceStatus, useHoldingsFileUpload, useOnboardingState, useRiskProfileRead, type RiskProfileView } from "./queries";
+import { EXPORT_BROKERS, accountKeys, toRead, useAfterImport, useGmailSourceStatus, useHoldingsFileUpload, useOnboardingState, useRiskProfileRead, type RiskProfileView } from "./queries";
 
 export function errorText(e: unknown, fallback = "Something went wrong. Try again."): string {
   return e instanceof Error && typeof e.message === "string" && e.message ? e.message : fallback;
@@ -237,7 +237,7 @@ export function StatementUpload({ panOnFile, onImported }: {
         <div role="status" data-testid="cas-result" style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", fontSize: 14, lineHeight: 1.5 }}>
           <span className="cp-num" data-testid="cas-imported-count">{fmtNum(imported)}</span> holdings imported
           {period ? <> · statement period <span data-testid="cas-statement-period">{period}</span></> : null}
-          . They replace the holdings Nivesh had on file.
+          . They replace what was on file from earlier statements and plain sheets. Holdings read from a broker are kept.
         </div>
       )}
       {result && imported === 0 && (
@@ -249,20 +249,44 @@ export function StatementUpload({ panOnFile, onImported }: {
   );
 }
 
-// ── CSV / Excel holdings file ────────────────────────────────────────────
+// ── broker holdings file (.xlsx / .xls / .csv) ───────────────────────────
 
-/** The server's own sentence when it sent one, else a plain reason. */
-function fileFailure(e: unknown): string {
-  if (e instanceof ApiError && e.detail) return e.detail.replace(/[.\s]+$/, "");
-  return errorSentence(e) || "the request failed";
-}
+const FILE_TYPES = /\.(xlsx|xls|csv)$/i;
+const EXPORT_NAMES = Object.values(EXPORT_BROKERS);
 
 /**
- * Upload a CSV or Excel list of holdings through casUploadService.uploadFile →
- * POST /api/portfolio/upload. The server saves the rows as it reads them and
- * adds them to what is on file, so the form says so before the file is sent.
+ * Why a file was not imported. A 400 carries the server's own message, written
+ * for the person uploading (which columns it looked for, or that the file could
+ * not be opened); every other failure is said in this app's words.
  */
-export function HoldingsFileUpload({ onImported }: { onImported?: (count: number) => void }) {
+function fileFailure(e: unknown): string {
+  const lead = "This file was not imported";
+  if (e instanceof ApiError) {
+    if (e.status === 400 && e.detail) return `${lead}. ${e.detail}`;
+    if (e.status === 410) return `${lead}: a PDF statement is imported under CAS statement, not here.`;
+    if (e.status === 413) return `${lead}: it is too large.`;
+    if (e.status === 415) return `${lead}: it is not a readable .xlsx, .xls or .csv file.`;
+    if (e.status === 422) return `${lead}: the server’s safety check rejected it.`;
+  }
+  return `${lead}: ${errorSentence(e) || "the request failed"}.`;
+}
+
+const noteStyle: CSSProperties = { padding: "12px 14px", borderRadius: 12, fontSize: 14, lineHeight: 1.5 };
+const doneStyle: CSSProperties = { ...noteStyle, border: "1px solid var(--mint-line)", background: "var(--mint-soft)" };
+const nothingStyle: CSSProperties = { ...noteStyle, border: "1px solid var(--amber-line)", background: "var(--amber-soft)" };
+
+/**
+ * Upload the holdings file a broker lets its customers download, or any sheet
+ * with a name and a quantity column → POST /api/portfolio/upload
+ * (useHoldingsFileUpload). The server saves the rows as it reads them, so the
+ * form says what will happen before the file is sent and what the server made
+ * of it afterwards.
+ */
+export function HoldingsFileUpload({ broker, onImported }: {
+  /** The broker the user chose this route for; names it in the form. */
+  broker?: string | null;
+  onImported?: (count: number) => void;
+}) {
   const upload = useHoldingsFileUpload();
   const afterImport = useAfterImport();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -271,19 +295,26 @@ export function HoldingsFileUpload({ onImported }: { onImported?: (count: number
   // Hide the last outcome once another file is chosen.
   const [edited, setEdited] = useState(false);
 
+  const wrongType = !!file && !FILE_TYPES.test(file.name);
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (!file || upload.isPending) return;
+    if (!file || wrongType || upload.isPending) return;
     setEdited(false);
     upload.mutate(file, {
       onSuccess: (done) => {
-        if (done.ok && done.value > 0) { afterImport(); onImported?.(done.value); }
+        if (!done.ok) return;
+        afterImport();
+        if (done.value.count > 0) onImported?.(done.value.count);
       },
     });
   };
 
   const outcome = !edited && !upload.isPending ? upload.data : undefined;
-  const added = outcome?.ok ? outcome.value : null;
+  const read = outcome?.ok ? outcome.value : null;
+  // A broker's own export: the server names the broker it recognised.
+  const from = read ? read.broker_name ?? (read.broker ? EXPORT_BROKERS[read.broker] ?? null : null) : null;
+  const holdings = read ? <><span className="cp-num" data-testid="holdings-file-count">{fmtNum(read.count)}</span> {read.count === 1 ? "holding" : "holdings"}</> : null;
 
   return (
     <form data-testid="holdings-file-upload" onSubmit={submit} className="cp-card flex flex-col" style={{ gap: 14, padding: 18 }}>
@@ -291,15 +322,15 @@ export function HoldingsFileUpload({ onImported }: { onImported?: (count: number
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+          accept=".xlsx,.xls,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
           hidden
-          aria-label="Holdings file, CSV or Excel"
+          aria-label="Holdings file: .xlsx, .xls or .csv"
           aria-describedby={hintId}
           data-testid="holdings-file"
           onChange={(e) => { setFile(e.target.files?.[0] ?? null); setEdited(true); }}
         />
         <Btn data-testid="holdings-file-choose" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
-          {file ? "Choose another file" : "Choose a CSV or Excel file"}
+          {file ? "Choose another file" : "Choose a holdings file"}
         </Btn>
         {file ? (
           <span className="flex flex-wrap items-center" style={{ gap: 8, fontSize: 13, minWidth: 0 }}>
@@ -307,39 +338,53 @@ export function HoldingsFileUpload({ onImported }: { onImported?: (count: number
             <span className="cp-mono-note">{fmtBytes(file.size)}</span>
           </span>
         ) : (
-          <span className="cp-mono-note">CSV or Excel</span>
+          <span className="cp-mono-note">XLSX · XLS · CSV</span>
         )}
       </div>
 
-      <span id={hintId} style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
-        The first row must be column headings. A Name column is needed; Symbol or ISIN, Quantity, Buy price, Current price, Type, Sector and Buy date are read when present. Write numbers as plain digits, without commas or a currency sign.
+      {broker && (
+        <span data-testid="holdings-file-for" style={{ fontSize: 14, lineHeight: 1.5 }}>
+          Download your holdings from {broker} as an Excel or CSV file, then choose it here.
+        </span>
+      )}
+      <span id={hintId} data-testid="holdings-file-recognised" style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
+        Read as downloaded from {EXPORT_NAMES.slice(0, -1).join(", ")} and {EXPORT_NAMES[EXPORT_NAMES.length - 1]}. Any other sheet needs a heading row with a Name and a Quantity column; Symbol or ISIN, Buy price, Current price, Type, Sector and Buy date are read when present.
       </span>
       <span data-testid="holdings-file-warning" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)", padding: "10px 12px", borderRadius: 12, border: "1px solid var(--amber-line)", background: "var(--amber-soft)" }}>
-        The rows are added to your holdings as soon as the file is read. There is no preview, and uploading the same file twice adds its rows twice. Importing a CAS statement later replaces all holdings, including these.
+        Rows are saved as soon as the file is read; there is no preview. A new file from the same broker replaces that broker’s earlier file. Any other sheet is added to what is on file, so uploading it twice adds its rows twice.
       </span>
 
       <div>
-        <Btn type="submit" variant="primary" data-testid="holdings-file-submit" disabled={!file || upload.isPending}>
+        <Btn type="submit" variant="primary" data-testid="holdings-file-submit" disabled={!file || wrongType || upload.isPending}>
           {upload.isPending ? "Reading the file…" : "Add these holdings"}
         </Btn>
       </div>
 
-      {outcome?.ok === false && (
-        <span data-testid="holdings-file-error">
+      {wrongType && (
+        <span data-testid="holdings-file-type">
           <InlineError>
-            This file was not imported: {fileFailure(outcome.error)}.
-            {/\.xls$/i.test(file?.name ?? "") ? " If it is an older .xls file, save it as .xlsx and try again." : ""}
+            This file can’t be read here. Choose an .xlsx, .xls or .csv file.{/\.pdf$/i.test(file.name) ? " A CAS PDF is imported under CAS statement." : ""}
           </InlineError>
         </span>
       )}
-      {added != null && added > 0 && (
-        <div role="status" data-testid="holdings-file-result" style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", fontSize: 14, lineHeight: 1.5 }}>
-          <span className="cp-num" data-testid="holdings-file-count">{fmtNum(added)}</span> {added === 1 ? "holding" : "holdings"} added to what was on file.
+      {outcome?.ok === false && <span data-testid="holdings-file-error"><InlineError>{fileFailure(outcome.error)}</InlineError></span>}
+      {read && read.count > 0 && from && (
+        <div role="status" data-testid="holdings-file-result" data-format={read.format ?? ""} style={doneStyle}>
+          {holdings} added from your <span data-testid="holdings-file-broker">{from}</span> file. Any earlier {from} file is replaced.
         </div>
       )}
-      {added === 0 && (
-        <div role="status" data-testid="holdings-file-result-empty" style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--amber-line)", background: "var(--amber-soft)", fontSize: 14, lineHeight: 1.5 }}>
-          The server read the file but found no holdings in it. Check that the first row has a Name column.
+      {read && read.count > 0 && !from && (
+        <div role="status" data-testid="holdings-file-result" data-format={read.format ?? ""} style={doneStyle}>
+          {holdings} added without a broker
+          {read.format === "unidentified" ? ": Nivesh could not tell which broker this file came from" : read.format === "generic" ? ": the file was read as a plain sheet" : ""}
+          . Nothing on file was replaced.
+        </div>
+      )}
+      {read && read.count === 0 && (
+        <div role="status" data-testid="holdings-file-result-empty" data-format={read.format ?? ""} style={nothingStyle}>
+          {from
+            ? <>The file was read as coming from <span data-testid="holdings-file-broker">{from}</span>, but no holdings were added. A holding already read from a connected {from} account is not added again.</>
+            : "The server read the file but found no holdings in it."}
         </div>
       )}
     </form>

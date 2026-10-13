@@ -616,7 +616,7 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
 
 // Real shape of GET /api/onboarding/state (backend/routes/onboarding_gmail.py).
 // e2e/fixtures/onboarding-state.json predates it and lacks these fields.
-const ONBOARDING_STATE = { onboarding_completed: true, pan_on_file: true, gmail_connected: true, cas_statement_period: "Mar/2025", cas_portfolio_value_rs: 1234567.5, cas_statement_date: "31-Mar-2025" };
+const ONBOARDING_STATE = { onboarding_completed: true, pan_on_file: true, gmail_connected: true, broker_accounts: 1, broker_accounts_live: 1, holdings_count: 12, cas_statement_period: "Mar/2025", cas_portfolio_value_rs: 1234567.5, cas_statement_date: "31-Mar-2025" };
 
 test.describe("TC-19 account screens — desktop", () => {
   test.beforeEach(async ({ page }) => {
@@ -673,6 +673,9 @@ test.describe("TC-19 account screens — desktop", () => {
     await expect(page.getByTestId("onboarding-rules-missing")).toBeVisible();
     await page.getByTestId("onboarding-next").click();
     await expect(page.getByTestId("onboarding-step-portfolio")).toBeVisible();
+    // The step opens on the broker; a CAS statement is one of its other sources.
+    await expect(page.getByTestId("onboarding-source-broker")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("onboarding-source-cas").click();
     await expect(page.getByTestId("cas-choose")).toBeVisible();
     await page.getByTestId("onboarding-back").click();
     await expect(page.getByTestId("onboarding-step-goals")).toBeVisible();
@@ -688,8 +691,9 @@ test.describe("TC-19 account screens — desktop", () => {
 
   test("Broker connections ← broker accounts, statement on file, Gmail, import log", async ({ page }) => {
     // Shapes: routes/broker_connect.py, routes/broker_native.py, routes/gmail.py, services/audit.py
-    await json(page, "**/api/broker/accounts", { accounts: [{ account_id: "ba_0123456789ab", broker: "zerodha", broker_display: "Zerodha", label: "Zerodha", status: "active", last_sync_at: "2026-10-13T08:30:00+00:00", last_sync_count: 12, last_error: null, created_at: "2026-10-01T10:00:00+00:00" }] });
-    await json(page, "**/api/broker/native/supported", { brokers: [{ slug: "zerodha", name: "Zerodha", auth_style: "oauth", implemented: true }, { slug: "groww", name: "Groww", auth_style: "form", implemented: false }] });
+    await json(page, "**/api/broker/accounts", { accounts: [{ account_id: "ba_0123456789ab", broker: "zerodha", broker_display: "Zerodha", label: "Zerodha", status: "active", last_sync_at: "2026-10-13T08:30:00+00:00", last_sync_count: 12, last_error: null, created_at: "2026-10-01T10:00:00+00:00", native: true, broker_user_masked: "••••34", session_expires_at: "2026-10-14T00:30:00+00:00", session_ended_reason: null, needs_reconnect: false }] });
+    // Zerodha's app keys are not set on the server and Groww has no redirect sign-in: neither is connectable.
+    await json(page, "**/api/broker/native/supported", { brokers: [{ slug: "zerodha", name: "Zerodha", auth_style: "oauth", implemented: true, configured: false, connectable: false }, { slug: "groww", name: "Groww", auth_style: "apikey", implemented: true, configured: true, connectable: false }] });
     await json(page, "**/api/gmail/status", { connected: true, connected_at: "2026-10-01T10:00:00+00:00", last_import: { filename: "NSDL_CAS.pdf", imported_at: "2026-10-12T06:30:00+00:00", count: 12 }, auto_import_enabled: true, auto_import_ready: true });
     await json(page, "**/api/gmail/history", { imports: [{ message_id: "m1", filename: "NSDL_CAS.pdf", count: 12, status: "completed", source: "onboarding_gmail", imported_at: "2026-10-12T06:30:00+00:00" }] });
     await json(page, "**/api/compliance/audit*", { rows: [{ audit_id: "aud_1", action: "broker_sync", outcome: "success", details: { broker: "zerodha", count: 12 }, ts: "2026-10-13T08:30:00+00:00" }] });
@@ -703,11 +707,11 @@ test.describe("TC-19 account screens — desktop", () => {
     await expect(page.getByTestId("statement-value")).toHaveText("₹12,34,568");
     await expect(page.getByTestId("gmail-status")).toHaveText("Connected");
     await expect(page.getByTestId("gmail-last-file")).toContainText("NSDL_CAS.pdf");
-    await expect(page.getByTestId("broker-adapters-built")).toHaveText("1");
-    await expect(page.getByTestId("broker-adapters-pending")).toHaveText("1");
+    await expect(page.getByTestId("broker-option")).toHaveCount(2);
     await expect(page.getByTestId("import-log-event")).toHaveText(["Broker sync", "Gmail import"]); // newest first
-    // Signing in to a broker from this app is not possible yet, and the screen says so.
-    await expect(page.getByTestId("broker-signin-missing")).toBeVisible();
+    // Neither broker can be connected, and the screen says so and offers the broker's file instead.
+    await expect(page.getByTestId("broker-none-connectable")).toContainText("No broker can be connected right now");
+    await expect(page.getByTestId("broker-option-note")).toHaveText(["Sign-in isn’t set up yet", "Can’t be connected"]);
   });
 
   test("Settings ← profile, risk, goals; mode and theme take effect", async ({ page }) => {
