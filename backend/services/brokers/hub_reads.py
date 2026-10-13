@@ -206,6 +206,9 @@ async def sync_account(db, doc: dict, *, trigger: str = "manual") -> dict:
         repeated_in_broker_reply, same_instrument_lines   see `_persist_holdings`
         broker_file_rows_replaced, statement_rows_replaced  see `_apply_broker_wins`
         also_in_other_accounts                             see `_held_in_other_accounts`
+
+    A counter of the last three is None when its check could not run: the
+    number is then not known, which is not the same as zero.
     """
     if trigger not in sync_snapshots.TRIGGERS:
         raise ValueError(f"trigger must be one of {sync_snapshots.TRIGGERS}")
@@ -379,12 +382,12 @@ def _fill_from_masterdata(row: Dict[str, Any]) -> None:
 
 async def _apply_broker_wins(
     db, user_id: str, account_id: str, broker: str, rows: List[Dict[str, Any]],
-) -> Dict[str, int]:
+) -> Dict[str, Optional[int]]:
     """The broker wins: drop the statement copies of what this account now
     holds, and the rows of an uploaded export of the same broker for the same
     instruments (`helpers.holdings_reconcile`). Returns its counts of removed
     rows. The account's rows are already stored, so a failure here is logged
-    and does not fail the sync — the counts then read zero."""
+    and does not fail the sync — the counts are then None (not known)."""
     try:
         return await holdings_reconcile.apply_broker_wins(db, user_id, rows, broker=broker, live=True)
     except Exception:  # noqa: BLE001
@@ -392,16 +395,16 @@ async def _apply_broker_wins(
             "broker sync: reconcile failed account=%s broker=%s — synced rows kept",
             account_id, broker,
         )
-        return {"statement_rows_removed": 0, "export_rows_removed": 0}
+        return {"statement_rows_removed": None, "export_rows_removed": None}
 
 
 async def _held_in_other_accounts(
     db, user_id: str, account_id: str, broker: str, rows: List[Dict[str, Any]],
-) -> int:
+) -> Optional[int]:
     """How many of the instruments just stored this user also holds in
     another connected account of the same broker. Two logins at one broker
     are two real accounts, so those rows are never removed — the overlap is
-    only counted. A failed read is logged and counted as none."""
+    only counted. A failed read is logged and gives None (not known)."""
     mine = {_instrument_key(r) for r in rows} - {""}
     if not mine:
         return 0
@@ -419,13 +422,13 @@ async def _held_in_other_accounts(
         logger.exception(
             "broker sync: other-account check failed account=%s broker=%s", account_id, broker,
         )
-        return 0
+        return None
     return len(mine & others)
 
 
 async def _record_snapshot(
     db, doc: dict, rows: List[Dict[str, Any]], *,
-    trigger: str, duplicates: Dict[str, int], synced_at: str,
+    trigger: str, duplicates: Dict[str, Optional[int]], synced_at: str,
 ) -> Optional[str]:
     """Keep a snapshot of this sync (`sync_snapshots`) and return its id. The
     holdings are already stored, so a failure here is logged and does not

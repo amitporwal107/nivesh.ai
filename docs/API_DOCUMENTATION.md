@@ -73,7 +73,8 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
   (same ISIN, or the same ticker when either row has no ISIN); `statement_rows_replaced` — CAS /
   statement rows superseded (same ISIN only); `also_in_other_accounts` — instruments the user also
   holds in another connected account of the same broker (counted, never removed). An instrument is
-  its ISIN, else exchange + symbol, else ticker.
+  its ISIN, else exchange + symbol, else ticker. The last three are `null` when that check could not
+  run (the number is not known; it is not zero).
 - `GET /api/onboarding/state` also returns `broker_accounts`, `broker_accounts_live`, `holdings_count`.
 - `POST /api/portfolio/upload` (and `/upload-raw`) read broker holdings exports (.xlsx / .xls / .csv) from
   Zerodha, Groww, Upstox, Angel One, ICICI Direct, HDFC Securities, Kotak, Dhan, 5paisa and MF Central;

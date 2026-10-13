@@ -41,7 +41,7 @@ _SUMMARY_FIELDS = (
 
 def build(
     account_doc: Dict[str, Any], rows: List[Dict[str, Any]], *,
-    trigger: str, duplicates: Dict[str, int], synced_at: str, broker_display: str,
+    trigger: str, duplicates: Dict[str, Optional[int]], synced_at: str, broker_display: str,
 ) -> Dict[str, Any]:
     """The snapshot document for one sync. `rows` are the holdings rows as
     stored; only named fields are copied from them and from the account row,
@@ -74,7 +74,7 @@ def build(
 
 async def record(
     db, account_doc: Dict[str, Any], rows: List[Dict[str, Any]], *,
-    trigger: str, duplicates: Dict[str, int], synced_at: str, broker_display: str,
+    trigger: str, duplicates: Dict[str, Optional[int]], synced_at: str, broker_display: str,
 ) -> str:
     """Write the snapshot of one sync and return its `snapshot_id`. Raises
     when the write fails — the caller decides that this must not fail the

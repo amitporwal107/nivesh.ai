@@ -772,8 +772,10 @@ def test_a_reconcile_failure_does_not_fail_the_sync(sib, caplog):
     assert sib.cache_invalidations == ["u1"]                        # carried on past the failure
     assert "reconcile failed account=ba_z broker=zerodha" in caplog.text
     assert SECRET not in caplog.text and CLIENT_ID not in caplog.text
-    # What it removed, if anything, is not known: the two counters read zero, and the snapshot is still kept.
-    assert result["duplicates"] == ZERO_DUPLICATES and len(db.broker_sync_snapshots.docs) == 1
+    # What it removed, if anything, is not known: the two counters are None, not zero, and the snapshot is still kept.
+    unknown = {**ZERO_DUPLICATES, "broker_file_rows_replaced": None, "statement_rows_replaced": None}
+    assert result["duplicates"] == unknown
+    assert [s["duplicates"] for s in db.broker_sync_snapshots.docs] == [unknown]
 
 
 def test_broker_wins_end_to_end_with_the_real_reconcile(sib, monkeypatch):
@@ -1021,7 +1023,9 @@ def test_the_other_account_check_failing_does_not_fail_the_sync(sib, monkeypatch
     sib.holdings["ba_z"] = [INFY]
     with caplog.at_level(logging.DEBUG, logger="services.brokers.hub_reads"):
         result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
-    assert result["count"] == 1 and result["duplicates"] == ZERO_DUPLICATES and result["snapshot_id"]
+    # Not known is not zero: the counter is None.
+    assert result["count"] == 1 and result["snapshot_id"]
+    assert result["duplicates"] == {**ZERO_DUPLICATES, "also_in_other_accounts": None}
     assert "other-account check failed account=ba_z" in caplog.text
 
 
