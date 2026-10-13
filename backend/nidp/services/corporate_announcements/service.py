@@ -46,10 +46,12 @@ _BSE_PAGE_SIZE = 50
 _BSE_MAX_PAGES = 60  # safety cap — busiest day seen is 1,258 filings (26 pages)
 
 # BSE's edge answers 403 "Access Denied" over HTTP/1.1 unless a request carries the site-root
-# Referer AND an Origin header. The old Referer (/corporates/ann.html) is refused outright.
+# Referer, an Origin header AND a Connection header. The old Referer (/corporates/ann.html) is
+# refused outright. aiohttp sends no Connection header by default (urllib and httpx do), which is
+# why the first version of this fix passed with the standalone script and still got 403 here.
 # Measured from both staging VMs on 2026-10-13; no proxy is involved.
 _BSE_REFERER = "https://www.bseindia.com/"
-_BSE_HEADERS = {"Origin": "https://www.bseindia.com"}
+_BSE_HEADERS = {"Origin": "https://www.bseindia.com", "Connection": "close"}
 
 # Subcategory sweep (adopted from the BSE Announcements API suite). Uses a
 # DIFFERENT endpoint that accepts a `subcategory` filter, letting us capture

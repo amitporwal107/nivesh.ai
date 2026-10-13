@@ -87,7 +87,15 @@ def test_production_sends_the_site_root_referer_and_an_origin(monkeypatch, inges
     assert seen
     for url, referer, extra in seen:
         assert url.startswith("https://api.bseindia.com/")
-        assert referer == "https://www.bseindia.com/" and extra == {"Origin": "https://www.bseindia.com"}
+        assert referer == "https://www.bseindia.com/"
+        assert extra == {"Origin": "https://www.bseindia.com", "Connection": "close"}
+
+
+def test_the_connection_header_is_sent_explicitly():
+    """BSE-H5: BSE's edge also refuses a request with NO Connection header. aiohttp, which the
+    ingesters use, omits it by default; the standalone fetcher's urllib adds one by itself. On the
+    NIDP VM the same URL and headers gave 403 through aiohttp and 200 once the header was set."""
+    assert S._BSE_HEADERS.get("Connection") == "close"
 
 
 def test_the_full_day_fetch_pages_politely_and_stops_at_the_end(monkeypatch):
