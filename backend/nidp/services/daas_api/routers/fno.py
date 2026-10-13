@@ -17,7 +17,7 @@ router = APIRouter(prefix="/fno", tags=["fno"], dependencies=[Depends(require_ap
 async def fno_for_symbol(
     symbol: str = Path(..., description="Underlying ticker, e.g. RELIANCE, NIFTY, BANKNIFTY"),
     on: Optional[str] = Query(None, description="Trading day; defaults to most recent"),
-    instrument_type: Optional[str] = Query(None, description="FUTIDX | FUTSTK | OPTIDX | OPTSTK"),
+    instrument_type: Optional[str] = Query(None, description="IDF | STF | IDO | STO (older rows: FUTIDX | FUTSTK | OPTIDX | OPTSTK)"),
     expiry: Optional[str] = Query(None, description="Expiry date YYYY-MM-DD"),
     page: Dict[str, int] = Depends(page_params),
 ) -> Dict[str, Any]:
@@ -42,7 +42,8 @@ async def fno_for_symbol(
                    open_price, high_price, low_price, close_price,
                    settle_price, underlying_price,
                    open_interest, change_in_oi,
-                   traded_volume, traded_value, num_trades
+                   traded_volume, traded_value, num_trades,
+                   new_board_lot_qty
               FROM nidp.fno_bhavcopy
              WHERE ticker_symbol = $1
                AND as_of_date = $2
@@ -97,7 +98,8 @@ async def options_chain(
             SELECT strike_price, option_type,
                    close_price, settle_price, underlying_price,
                    open_interest, change_in_oi,
-                   traded_volume, traded_value
+                   traded_volume, traded_value,
+                   new_board_lot_qty
               FROM nidp.fno_bhavcopy
              WHERE ticker_symbol = $1
                AND as_of_date = $2
