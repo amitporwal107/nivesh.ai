@@ -173,10 +173,14 @@ and numbers in the block above. If a name isn't there, don't write it."""
 
 # Compose the chart-emission contract onto the base advisor prompt. Done
 # at module load so the format-string substitution for {portfolio_context}
-# still works downstream.
+# still works downstream. The chart contract contains literal JSON, so its
+# braces are escaped here: unescaped, .format() raised KeyError('label') and
+# the prompt went out with "{portfolio_context}" still in it — no portfolio.
 from services.copilot_charts import CHART_PROTOCOL as _CHART_PROTOCOL  # noqa: E402
 
-FINANCIAL_ADVISOR_SYSTEM = _FINANCIAL_ADVISOR_SYSTEM_BASE + _CHART_PROTOCOL
+FINANCIAL_ADVISOR_SYSTEM = (
+    _FINANCIAL_ADVISOR_SYSTEM_BASE + _CHART_PROTOCOL.replace("{", "{{").replace("}", "}}")
+)
 
 
 INSIGHT_ANALYSIS_SYSTEM = """You are a portfolio analysis engine for nivesh.ai.
