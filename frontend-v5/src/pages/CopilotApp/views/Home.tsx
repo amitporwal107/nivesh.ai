@@ -30,6 +30,7 @@ import { useCasState } from "../lib/use-cas-state";
 import { useCopilotPrompts, type CopilotPrompt } from "../lib/use-copilot-prompts";
 import { usePortfolioContext } from "../lib/use-portfolio-context";
 import type { Mode } from "../lib/views";
+import { StatementImport } from "./StatementImport";
 
 /** Starter questions used only when the backend has no ranked prompts for the
  *  user. Plain questions — no figures. */
@@ -147,6 +148,7 @@ function StatementBar() {
           <span aria-hidden style={{ color: "var(--cp-ink-4)" }}>·</span>
           <button type="button" data-testid="home-statement-upload" onClick={() => go("page/brokers")} style={{ ...link, color: "var(--cp-ink-2)" }}>Upload file</button>
         </span>
+        <StatementImport gmailConnected={cas.data.gmailConnected} onImported={refreshAfterImport} />
       </div>
     </>
   );

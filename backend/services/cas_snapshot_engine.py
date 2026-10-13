@@ -604,6 +604,107 @@ async def create_cas_snapshot(
     return snap
 
 
+async def store_cas_snapshot(
+    *,
+    user_id: str,
+    holdings: List[Dict[str, Any]],
+    transactions: List[Dict[str, Any]],
+    sips_detected: List[Dict[str, Any]],
+    period_start: Optional[str],
+    period_end: str,
+    cas_file_id: str,
+    cas_filename: str,
+    cas_source: Optional[str] = None,
+    gmail_message_id: Optional[str] = None,
+    file_sha256: Optional[str] = None,
+    statement_date_source: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Store one CAS statement as a snapshot and do nothing else.
+
+    The storing half of `create_cas_snapshot` — buy-date enrichment, totals,
+    the upsert on (user_id, snapshot_date) and the Postgres mirror — without
+    its other half: the live `holdings` table and `cas_view_state` are not
+    touched, no health score is computed or backfilled, and nothing is sent
+    to NIDP. Used to keep statement history for an account whose live
+    portfolio is written elsewhere (services.cas_history_import).
+
+    `period_end` is required and must be an ISO date: it is the snapshot's
+    identity, so there is no "today" fallback here. `cas_source` (nsdl / cdsl /
+    cams / kfintech), `gmail_message_id` and `file_sha256` record which
+    statement this is, so it can be recognised without reading it again;
+    `statement_date_source` says where `period_end` was read from when it was
+    not the statement itself.
+
+    Returns the stored document; `is_latest` is True when no stored snapshot
+    with holdings is newer (information only — nothing is mounted).
+    """
+    try:
+        snapshot_date = date.fromisoformat(period_end).isoformat()
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"period_end must be an ISO date (YYYY-MM-DD), got {period_end!r}") from e
+
+    await _enrich_buy_dates(user_id, holdings, transactions or [])
+    aggs = _allocation_from_holdings(holdings)
+
+    snap: Dict[str, Any] = {
+        "snapshot_id": uuid.uuid4().hex[:16],
+        "user_id": user_id,
+        "snapshot_date": snapshot_date,
+        "trigger": "cas_upload",
+        "source": "cas_upload",
+        "cas_file_id": cas_file_id,
+        "cas_filename": cas_filename,
+        "cas_source": cas_source,
+        "gmail_message_id": gmail_message_id,
+        "file_sha256": file_sha256,
+        "statement_date_source": statement_date_source,
+        "statement_period_start": period_start,
+        "statement_period_end": snapshot_date,
+        "holdings": holdings,
+        "transactions": transactions or [],
+        "sips_detected": sips_detected or [],
+        "holdings_count": len(holdings),
+        "transactions_count": len(transactions or []),
+        "sips_count": len(sips_detected or []),
+        "created_at": _now_iso(),
+        **aggs,
+    }
+
+    latest_date = await get_latest_snapshot_date(user_id)
+    is_latest = latest_date is None or snapshot_date >= latest_date
+
+    await db.portfolio_snapshots.update_one(
+        {"user_id": user_id, "snapshot_date": snapshot_date},
+        {"$set": snap},
+        upsert=True,
+    )
+
+    _user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0, "email": 1, "name": 1})
+    await _persist_pg_snapshot(
+        user_id=user_id,
+        email=(_user_doc or {}).get("email"),
+        display_name=(_user_doc or {}).get("name"),
+        snapshot_date=snapshot_date,
+        holdings=holdings,
+        aggs=aggs,
+    )
+
+    snap["is_latest"] = is_latest
+    return snap
+
+
+async def note_duplicate_statement(
+    user_id: str, snapshot_date: str, *, gmail_message_id: str,
+) -> None:
+    """Remember that another email carries the statement already stored for
+    `snapshot_date` (the same file again, or a lower-priority statement for
+    the same date), so it is recognised next time without being read."""
+    await db.portfolio_snapshots.update_one(
+        {"user_id": user_id, "snapshot_date": snapshot_date},
+        {"$addToSet": {"duplicate_message_ids": gmail_message_id}},
+    )
+
+
 async def load_snapshot_into_holdings(user_id: str, snapshot_date: str) -> Dict[str, Any]:
     """MFD clicks an older snapshot tile → replace live holdings with
     that snapshot's holdings. Preserves all historical snapshots.
@@ -648,6 +749,9 @@ async def list_snapshots(user_id: str, limit: int = 60) -> List[Dict[str, Any]]:
             "source": 1,
             "cas_file_id": 1,
             "cas_filename": 1,
+            "cas_source": 1,
+            "gmail_message_id": 1,
+            "file_sha256": 1,
             "statement_period_start": 1,
             "statement_period_end": 1,
             "total_value": 1,

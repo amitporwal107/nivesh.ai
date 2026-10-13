@@ -38,11 +38,20 @@ async def _resolve_uid(user: dict, profile_id: Optional[str]) -> str:
     1. `profile_id` query param (MFD calling on behalf of a client)
     2. session impersonation (active_profile_id in session)
     3. the authenticated user themselves
+
+    A `profile_id` is honoured only when the profile sits in a workspace the
+    signed-in user owns — the same check every /api/mfd/profiles/{id} route
+    makes (routes.mfd._owned_or_404): 404 for an unknown profile, 403 for
+    someone else's. Without it any signed-in user could read, and activate,
+    any client's snapshots by passing that client's profile id.
     """
     if profile_id:
-        doc = await db.profiles.find_one({"profile_id": profile_id}, {"_id": 0, "shadow_user_id": 1})
-        if doc and doc.get("shadow_user_id"):
-            return doc["shadow_user_id"]
+        # Imported here, as routes/advisor.py does, to keep route modules from
+        # importing each other at load time.
+        from routes.mfd import _owned_or_404, _session_user_id
+        prof = await _owned_or_404(profile_id, _session_user_id(user))
+        if prof.get("shadow_user_id"):
+            return prof["shadow_user_id"]
     # Fall back to effective user from session (may be impersonated)
     return user["user_id"]
 
