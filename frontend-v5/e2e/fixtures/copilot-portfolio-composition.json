@@ -1,0 +1,53 @@
+{
+  "dimension": "asset_class",
+  "metric": "weight",
+  "period": "1Y",
+  "segments": [
+    {
+      "name": "Equity",
+      "weight_pct": 66.0,
+      "current_value": 660000.0,
+      "invested": 600000,
+      "pnl_pct": 10.0,
+      "metric_value": 66.0,
+      "breach": false,
+      "breach_threshold": 80.0
+    },
+    {
+      "name": "Hybrid",
+      "weight_pct": 15.0,
+      "current_value": 150000.0,
+      "invested": 140000,
+      "pnl_pct": 7.14,
+      "metric_value": 15.0,
+      "breach": false,
+      "breach_threshold": 80.0
+    },
+    {
+      "name": "Gold",
+      "weight_pct": 10.0,
+      "current_value": 100000.0,
+      "invested": 92000,
+      "pnl_pct": 8.7,
+      "metric_value": 10.0,
+      "breach": false,
+      "breach_threshold": 80.0
+    },
+    {
+      "name": "Debt",
+      "weight_pct": 9.0,
+      "current_value": 90000.0,
+      "invested": 88000,
+      "pnl_pct": 2.27,
+      "metric_value": 9.0,
+      "breach": false,
+      "breach_threshold": 80.0
+    }
+  ],
+  "totals": {
+    "current_value": 1000000,
+    "invested": 920000
+  },
+  "concentration_breaches": [],
+  "threshold": 80.0
+}

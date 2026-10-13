@@ -1,32 +1,44 @@
 /**
- * Portfolio ledger — health, totals, realised gains, month-end value and every
- * holding with the ones that need a look first. Design: NVPages.dc.html,
- * page === "ledger".
+ * Portfolio ledger — health, totals, the split by type, every holding with the
+ * ones that need a look first, and what is on record behind them: realised
+ * gains, month-end value, statements, transactions and SIPs.
+ * Design: NVPages.dc.html, page === "ledger".
+ *
+ * It carries what the original Portfolio page shows from the same endpoints
+ * (src/pages/Portfolio): the four headline figures, the allocation-by-type
+ * bar, top gainers and losers, the holdings table's columns and filters, and
+ * the SIP list.
  *
  * Data:
  *   health, totals, holdings   GET /api/portfolio/holdings-enriched         (useHoldingsEnriched)
+ *   source of each holding     GET /api/portfolio/holdings                  (portfolio/LedgerHoldings)
+ *   correct a holding          PUT /api/portfolio/holdings/{id}             (portfolio/LedgerHoldings)
  *   realised gains             GET /api/portfolio/capital-gains-statement   (useRealisedGains)
  *   month-end value            GET /api/portfolio/trend + /api/onboarding/state (usePortfolioNavHistory)
  *   change since last month    GET /api/portfolio/compare?from=             (usePortfolioCompare)
+ *   statements, transactions, SIPs
+ *                              GET /api/portfolio/cas-snapshots, /transactions, /sips (portfolio/LedgerSections)
  *
- * Not connected: corrections (fix / review / undo and their log), the source
- * of each holding (broker or CAS), and a time-weighted return.
+ * Not connected: a log of corrections, matching a holding to another name or
+ * merging two, and a time-weighted return.
  */
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useHoldingsEnriched, usePortfolioNavHistory } from "@/hooks/use-portfolio";
 import type { EnrichedHoldingsRes } from "@/services/contracts/portfolio.contract";
 import {
-  EmptyBlock, ErrorBlock, Footnote, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, Section, Tiles,
-  TONE_COLOR, fmtDate, fmtINR, fmtNum, fmtPct, signTone, type TileItem, type Tone,
+  EmptyBlock, ErrorBlock, Footnote, LoadingBlock, NotConnected, Screen, ScreenHeader, Section, Tiles,
+  TONE_COLOR, fmtDate, fmtINR, fmtPct, signTone, type TileItem, type Tone,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { usePortfolioContext } from "../lib/use-portfolio-context";
+import { Holdings } from "./portfolio/LedgerHoldings";
+import { Movers, Sips, Statements, Transactions, TypeSplit } from "./portfolio/LedgerSections";
 import {
-  holdingBadge, humanise, isoDay, isStock, loadError, num, readHealth, readNavPoints, usePortfolioCompare, useRealisedGains,
-  type EnrichedHolding, type HealthView, type ValuePoint,
+  isoDay, loadError, num, readHealth, readNavPoints, usePortfolioCompare, useRealisedGains,
+  type HealthView, type ValuePoint,
 } from "./portfolio/data";
-import { HeaderRow, NoPortfolio, ShowAll } from "./portfolio/parts";
+import { HeaderRow, NoPortfolio } from "./portfolio/parts";
 
-const HOLDING_LIMIT = 10;
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const RING = 2 * Math.PI * 40;
 
@@ -214,87 +226,18 @@ function Snapshots() {
   );
 }
 
-// ── holdings ─────────────────────────────────────────────────────────────
-
-interface Flag {
-  label: string;
-  tone: Tone;
-  reason: string;
-  /** Lower sorts first. */
-  rank: number;
-}
-
-/** What needs a look: the engine's verdict on the holding, or a gap in its record. */
-function flagFor(h: EnrichedHolding): Flag | null {
-  const badge = holdingBadge(h);
-  if (badge?.action === "EXIT") return { label: "Exit signal", tone: "danger", reason: badge.reason, rank: 0 };
-  if (h.invested_rs == null) return { label: "No cost basis", tone: "amber", reason: "No purchase price on record, so gain and XIRR can’t be worked out.", rank: 1 };
-  if (badge?.action === "SWITCH") return { label: "Switch signal", tone: "amber", reason: badge.reason, rank: 2 };
-  if (badge?.action === "REVIEW") return { label: "Needs review", tone: "amber", reason: badge.reason, rank: 3 };
-  return null;
-}
-
-const KIND: Record<string, string> = { mutual_fund: "Mutual fund", etf: "ETF", equity: "Stock", stock: "Stock", gold: "Gold", bond: "Bond", fd: "Fixed deposit" };
-
-function describe(h: EnrichedHolding): string {
-  const kind = KIND[h.asset_type.toLowerCase()] ?? humanise(h.asset_type);
-  const qty = fmtNum(h.quantity, Number.isInteger(h.quantity) ? 0 : 3);
-  return `${kind} · ${qty} ${isStock(h) ? "sh" : "units"}`;
-}
-
-function Holdings({ holdings }: { holdings: EnrichedHolding[] }) {
-  const { ask } = useCopilotShell();
-  const [expanded, setExpanded] = useState(false);
-  const rows = useMemo(
-    () => holdings
-      .map((h) => ({ h, flag: flagFor(h) }))
-      .sort((a, b) => (a.flag?.rank ?? 9) - (b.flag?.rank ?? 9) || (b.h.value_rs ?? 0) - (a.h.value_rs ?? 0)),
-    [holdings],
-  );
-  const flagged = rows.filter((r) => r.flag).length;
-  const visible = expanded ? rows : rows.slice(0, HOLDING_LIMIT);
-  return (
-    <Section
-      flush
-      title={<>Holdings · flagged first · {visible.length} of {rows.length}</>}
-      note={<span data-testid="ledger-flagged-count">{flagged} flagged</span>}
-    >
-      <div data-testid="ledger-holdings">
-        {visible.map(({ h, flag }) => (
-          <div key={h.holding_id} data-testid="ledger-holding" className="flex flex-wrap items-center" style={{ gap: "8px 16px", padding: "13px 16px", borderBottom: "1px solid var(--cp-line)" }}>
-            <div className="flex min-w-0 flex-col" style={{ flex: "1 1 200px", gap: 3 }}>
-              <span data-testid="ledger-holding-name" style={{ fontSize: 14, fontWeight: 500, overflowWrap: "anywhere" }}>{h.name}</span>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--cp-ink-3)" }}>{describe(h)}</span>
-              {flag?.reason && <span style={{ fontSize: 12, lineHeight: 1.45, color: "var(--cp-ink-3)" }}>{flag.reason}</span>}
-            </div>
-            <span data-testid="ledger-holding-value" className="cp-num" style={{ minWidth: 80, textAlign: "right" }}>{fmtINR(h.value_rs, { compact: true })}</span>
-            <span className="cp-num" style={{ minWidth: 48, textAlign: "right", color: "var(--cp-ink-3)" }}>{fmtPct(h.weight_pct)}</span>
-            {flag && <Pill tone={flag.tone} title={flag.reason || undefined}>{flag.label}</Pill>}
-            <button
-              type="button"
-              aria-label={`Ask about ${h.name}`}
-              onClick={() => ask(flag
-                ? `${h.name} is flagged “${flag.label}” in my portfolio${flag.reason ? ` (${flag.reason})` : ""}. What should I do about it?`
-                : `Tell me about my holding in ${h.name}: how it has done and whether to keep it.`)}
-              style={{ minWidth: 52, textAlign: "right", fontSize: 13, color: "var(--cp-ink-2)", background: "none", border: 0, padding: 0, cursor: "pointer" }}
-            >
-              Ask ›
-            </button>
-          </div>
-        ))}
-      </div>
-      <ShowAll total={rows.length} limit={HOLDING_LIMIT} expanded={expanded} onToggle={() => setExpanded((v) => !v)} noun="holdings" />
-    </Section>
-  );
-}
-
 // ── screen ───────────────────────────────────────────────────────────────
 
 function LedgerBody({ data }: { data: EnrichedHoldingsRes }) {
+  const pf = usePortfolioContext();
   const gain = num(data.totals?.pnl_rs);
   const withXirr = data.holdings.filter((h) => h.xirr_pct != null).length;
   const tiles: TileItem[] = [
-    { k: "Market value", v: <span data-testid="ledger-market-value">{fmtINR(num(data.totals?.value_rs), { compact: true })}</span>, s: "At the latest prices on record" },
+    {
+      k: "Market value",
+      v: <span data-testid="ledger-market-value">{fmtINR(num(data.totals?.value_rs), { compact: true })}</span>,
+      s: pf.statementPeriod ? <span data-testid="ledger-statement-period">Holdings from the {pf.statementPeriod} statement</span> : "At the latest prices on record",
+    },
     { k: "Invested", v: <span data-testid="ledger-invested">{fmtINR(num(data.totals?.invested_rs), { compact: true })}</span>, s: "Cost basis on record" },
     {
       k: "Unrealised",
@@ -308,19 +251,25 @@ function LedgerBody({ data }: { data: EnrichedHoldingsRes }) {
     <>
       <HealthCard health={readHealth(data.health)} />
       <Tiles items={tiles} min={140} />
-      <RealisedGains />
-      <Snapshots />
+      <TypeSplit parts={pf.typeSplit} />
+      <Movers holdings={data.holdings} />
       <Holdings holdings={data.holdings} />
       <NotConnected
         testId="ledger-corrections-not-connected"
-        title="Corrections are not connected"
-        body="The design lets you fix a holding (match a name, set a cost basis, merge a duplicate) and lists each correction with the analyses that re-ran. The app cannot save or list corrections yet, and it does not say which broker or statement a holding came from."
+        title="A log of corrections is not kept"
+        body="You can correct a holding’s buy price, purchase date or units from its row above. What is not there yet: a list of the corrections you made with a way to undo one, matching a holding to a different fund or stock, and merging two rows that are the same holding."
         needs={[
-          "A frontend call with a confirm step for PUT /api/portfolio/holdings/{id} (the endpoint exists; nothing in the app uses it)",
-          "A corrections log: what was changed, when, and which analyses re-ran",
-          "Source (broker or CAS) and reconciliation status for each holding in GET /api/portfolio/holdings-enriched",
+          "A corrections log written by PUT /api/portfolio/holdings/{id} (what changed, when, the value before) and an endpoint to list and undo entries",
+          "Corrections that survive the next statement import: an import replaces every holding row, edits included",
+          "An endpoint to re-point a holding at another instrument, and one to merge two holding rows",
+          "A reconciliation status for each holding (statement value against the value worked out from units and price)",
         ]}
       />
+      <RealisedGains />
+      <Snapshots />
+      <Statements />
+      <Transactions />
+      <Sips />
     </>
   );
 }

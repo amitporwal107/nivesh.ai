@@ -2,36 +2,49 @@
  * Recommendations — the open steps of the active plan, with what doing all of
  * them would change. Design: NVTools.dc.html, tool === "recommend".
  *
+ * It carries what the original Recommendations page shows from the same
+ * endpoint (src/pages/Recommendations, components/shared/RecommendationCard):
+ * the count, the Reduce / Add / Hold filter, and on each step its verb,
+ * severity, suggested route, amount, reason, tax breakdown, expected effect,
+ * lock-in or deferral, the plan's confidence tier, the goal nudge and the
+ * button that rebuilds the plan.
+ *
  * Data:
  *   steps, summary, tax, capital freed   GET /api/plans/active                    (useActivePlan)
  *   health / volatility / cost, before → after
  *                                        GET /api/plans/active/health-projection  (usePlanHealthProjection)
  *   "Built from"                         GET /api/goals, GET /api/user/risk-profile,
  *                                        GET /api/portfolio/holdings-enriched
- *   build a first plan                   POST /api/plans/refresh                  (useRefreshPlan, in NoPlan)
+ *   mark a step done or declined         PATCH /api/plans/{plan}/actions/{step}   (portfolio/StepControls)
+ *   rebuild / build a first plan         POST /api/plans/refresh                  (RebuildPlan, NoPlan)
  *
- * Nothing here changes a step: the app has no working call to accept or
- * decline one, so "Dismiss" is disabled and the plan button only navigates.
+ * Marking a step records the user's decision. Nothing is bought or sold here.
  */
+import { useState } from "react";
 import { useActivePlan } from "@/hooks/use-active-plan";
 import { useGoals } from "@/hooks/use-goals";
 import { useHoldingsEnriched } from "@/hooks/use-portfolio";
-import { useRiskProfile } from "@/hooks/use-risk-profile";
 import {
   Btn, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Pill, Screen, ScreenHeader, Tiles,
   TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone, type TileItem,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { RebuildPlan, StepBadges, StepControls, taxLine } from "./portfolio/StepControls";
 import {
-  effectText, loadError, planFacts, planSteps, readRiskCategory, subScore, usePlanHealthProjection, verbMeta,
-  type HealthProjection, type PlanFacts, type PlanStep,
+  effectText, loadError, planFacts, planSteps, subScore, usePlanHealthProjection, useRiskCategory, verbMeta,
+  type HealthProjection, type PlanFacts, type PlanStep, type StepGroup,
 } from "./portfolio/data";
-import { HeaderRow, NeedsRiskProfile, NiveshRead, NoPlan } from "./portfolio/parts";
+import { HoldingIcon } from "./portfolio/names";
+import { HeaderRow, NeedsRiskProfile, NiveshRead, NoPlan, Tabs, type TabItem } from "./portfolio/parts";
 
 const WORDS = ["Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
 const countWord = (n: number): string => WORDS[n] ?? String(n);
 
 const isOpen = (s: PlanStep): boolean => s.status === "PENDING" || s.status === "IN_PROGRESS";
+
+type Filter = "all" | StepGroup;
+
+const FILTER_LABEL: Record<Filter, string> = { all: "All", reduce: "Reduce", add: "Add", hold: "Hold or switch" };
 
 // ── before → after tiles ─────────────────────────────────────────────────
 
@@ -122,7 +135,7 @@ function EffectTiles({ facts }: { facts: PlanFacts }) {
 function BuiltFrom() {
   const { go } = useCopilotShell();
   const goals = useGoals();
-  const risk = useRiskProfile();
+  const risk = useRiskCategory();
   const enriched = useHoldingsEnriched();
   if (goals.isPending || risk.isPending || enriched.isPending) return <LoadingBlock label="Loading what these are built from" rows={1} />;
   if (goals.isError) return <ErrorBlock title="Your goals didn’t load" error={loadError(goals.error)} onRetry={() => goals.refetch()} />;
@@ -130,8 +143,7 @@ function BuiltFrom() {
   if (enriched.isError) return <ErrorBlock title="Your holdings didn’t load" error={loadError(enriched.error)} onRetry={() => enriched.refetch()} />;
 
   const names = goals.data.goals.map((g) => g.name).filter(Boolean);
-  // useRiskProfile does not validate its response, so read the category defensively.
-  const category = readRiskCategory(risk.data);
+  const category = risk.data;
   const count = enriched.data.holdings.length;
   const inputs: string[] = [
     `${count} ${count === 1 ? "holding" : "holdings"}`,
@@ -154,31 +166,38 @@ function BuiltFrom() {
 
 // ── one recommendation ───────────────────────────────────────────────────
 
-function RecCard({ step }: { step: PlanStep }) {
+function RecCard({ step, planId }: { step: PlanStep; planId: string }) {
   const { ask, go } = useCopilotShell();
   const meta = verbMeta(step.verb);
   const effect = effectText(step);
-  const tax = step.lockIn ? "ELSS lock-in applies" : step.taxLiabilityRs != null ? `Tax ${fmtINR(step.taxLiabilityRs)}` : "Tax not estimated";
   const priority = /[a-z]/i.test(step.priorityLabel) ? step.priorityLabel : "";
   const label = { fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", color: "var(--cp-ink-3)", marginRight: 6 } as const;
   return (
-    <article data-testid="recommend-card" className="cp-card-raised flex flex-col" style={{ gap: 12, padding: "16px 18px" }}>
+    <article data-testid="recommend-card" data-group={step.group} className="cp-card-raised flex flex-col" style={{ gap: 12, padding: "16px 18px" }}>
+      <StepBadges step={step} idPrefix="recommend-card" />
       <div className="flex flex-wrap items-center" style={{ gap: "8px 14px" }}>
-        <Pill tone={meta.tone}>{step.verb.replace(/_/g, " ")}</Pill>
-        <span data-testid="recommend-card-title" className="cp-pretty" style={{ flex: "1 1 280px", minWidth: 0, fontSize: 15, fontWeight: 500, overflowWrap: "anywhere" }}>{step.title}</span>
+        <span className="flex items-center" style={{ flex: "1 1 280px", minWidth: 0, gap: 10 }}>
+          <HoldingIcon name={step.name} assetType={step.assetType} size={28} />
+          <span data-testid="recommend-card-title" className="cp-pretty" style={{ minWidth: 0, fontSize: 15, fontWeight: 500, overflowWrap: "anywhere" }}>{step.title}</span>
+        </span>
         <span data-testid="recommend-card-amount" className="cp-num" style={{ fontFamily: "var(--display)", fontSize: 20 }}>{fmtINR(step.amountRs, { compact: true })}</span>
       </div>
       <div className="flex flex-wrap" style={{ gap: "6px 18px", fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-        {effect && <span style={{ color: TONE_COLOR[meta.tone] }}>{effect}</span>}
+        {effect && <span data-testid="recommend-card-effect" style={{ color: TONE_COLOR[meta.tone] }}>{effect}</span>}
         {priority && <span style={{ color: "var(--cp-ink-2)" }}>{priority}</span>}
-        <span style={{ color: "var(--cp-ink-3)" }}>{tax}</span>
+        <span data-testid="recommend-card-tax" style={{ color: "var(--cp-ink-3)" }}>{taxLine(step)}</span>
         {step.confidence && <span style={{ color: "var(--cp-ink-3)" }}>Confidence {step.confidence}</span>}
       </div>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,240px),1fr))", gap: "8px 16px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
         <span><span style={label}>WHY</span>{step.reason || "The engine gave no reason for this step."}</span>
         <span><span style={label}>RISK</span>{step.tradeOff || "Not stated for this step. Simulate it to see the trade-offs."}</span>
       </div>
-      <div className="flex flex-wrap" style={{ gap: 8 }}>
+      {step.deferReason && (
+        <span data-testid="recommend-card-deferred" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>
+          Flagged, not for now — {step.deferReason}
+        </span>
+      )}
+      <div className="flex flex-wrap items-start" style={{ gap: 8 }}>
         <Btn
           variant="primary"
           onClick={() => ask(`Simulate this step in my portfolio: ${step.title}${step.amountRs != null ? ` for ${fmtINR(step.amountRs)}` : ""}. Show the effect on risk, costs and tax.`)}
@@ -186,7 +205,7 @@ function RecCard({ step }: { step: PlanStep }) {
           Simulate
         </Btn>
         <Btn onClick={() => go("page/plan")}>View in plan</Btn>
-        <Btn variant="ghost" disabled title="Not available yet: the app has no working call to decline a plan step.">Dismiss</Btn>
+        <StepControls planId={planId} step={step} />
       </div>
     </article>
   );
@@ -194,10 +213,25 @@ function RecCard({ step }: { step: PlanStep }) {
 
 // ── screen ───────────────────────────────────────────────────────────────
 
+/** The plan was built without a risk profile: say what it rests on instead. */
+function tierNotice(facts: PlanFacts): string {
+  if (facts.confidenceTier === "dob_only") return "This plan is an estimate from your age alone. It does not know your risk tolerance; add your risk profile to sharpen it.";
+  if (facts.confidenceTier === "generic") return "This is a generic starting plan. It does not know your risk tolerance or your goals; add your profile to make it yours.";
+  return "";
+}
+
 function RecommendBody({ open, facts }: { open: PlanStep[]; facts: PlanFacts }) {
+  const [filter, setFilter] = useState<Filter>("all");
+  const counts: Record<Filter, number> = { all: open.length, reduce: 0, add: 0, hold: 0 };
+  for (const s of open) counts[s.group] += 1;
+  const tabs: Array<TabItem<Filter>> = (["all", "reduce", "add", "hold"] as const).map((id) => ({ id, label: `${FILTER_LABEL[id]} · ${counts[id]}` }));
+  const visible = filter === "all" ? open : open.filter((s) => s.group === filter);
+
   const bullets: string[] = [];
+  const tier = tierNotice(facts);
+  if (tier) bullets.push(tier);
   if (facts.confidenceLabel.toLowerCase() === "low") bullets.push("The engine rates its confidence in this plan as low, so treat the figures as rough.");
-  if (facts.requiresGoal) bullets.push("These are based on your risk profile only. Add a goal and they sharpen for your timeline.");
+  if (facts.requiresGoal && !tier) bullets.push("These are based on your risk profile only. Add a goal and they sharpen for your timeline.");
   return (
     <>
       <NiveshRead
@@ -208,8 +242,11 @@ function RecommendBody({ open, facts }: { open: PlanStep[]; facts: PlanFacts }) 
       <EffectTiles facts={facts} />
       <div className="flex flex-col" style={{ gap: 12 }}>
         <BuiltFrom />
-        <div data-testid="recommend-list" className="flex flex-col" style={{ gap: 12 }}>
-          {open.map((s) => <RecCard key={s.id} step={s} />)}
+        <Tabs tabs={tabs} value={filter} onChange={setFilter} label="Filter the steps" idPrefix="recommend-filter" />
+        <div role="tabpanel" id="recommend-filter-panel" aria-labelledby={`recommend-filter-tab-${filter}`} data-testid="recommend-list" className="flex flex-col" style={{ gap: 12 }}>
+          {visible.length === 0
+            ? <span data-testid="recommend-filter-empty" style={{ fontSize: 13, color: "var(--cp-ink-3)" }}>No open step in this group.</span>
+            : visible.map((s) => <RecCard key={s.id} step={s} planId={facts.planId} />)}
         </div>
       </div>
       <Footnote>Educational, not investment advice · Nothing is executed</Footnote>
@@ -227,16 +264,28 @@ export default function RecommendScreen() {
   const done = steps.filter((s) => s.status === "COMPLETED").length;
   const declined = steps.filter((s) => s.status === "SKIPPED").length;
   const ready = !!plan && !facts?.requiresPersona && open.length > 0;
+  const showPlanTools = !!plan && !!facts && !facts.requiresPersona;
 
   return (
     <Screen testId="screen-tool-recommend">
       <HeaderRow askLabel="Ask Copilot about this ›" onAsk={() => ask("Why these recommendations? Explain what each one is based on.")}>
         <ScreenHeader
           eyebrow="Recommendations · from your holdings, goals and risk profile"
-          pills={ready && facts?.confidenceLabel ? (
-            <Pill tone={facts.confidenceLabel.toLowerCase() === "low" ? "amber" : "ink"} title="How far the engine trusts this plan, from data completeness and tax certainty">
-              Plan confidence: {facts.confidenceLabel}
-            </Pill>
+          pills={ready && facts ? (
+            <>
+              {facts.confidenceLabel && (
+                <Pill tone={facts.confidenceLabel.toLowerCase() === "low" ? "amber" : "ink"} title="How far the engine trusts this plan, from data completeness and tax certainty">
+                  Plan confidence: {facts.confidenceLabel}
+                </Pill>
+              )}
+              {facts.confidenceTierLabel && (
+                <span data-testid="recommend-tier">
+                  <Pill title="What the plan was built from">
+                    {facts.confidenceTierLabel}{facts.planConfidenceScore != null ? ` · ${fmtNum(facts.planConfidenceScore)} of 100` : ""}
+                  </Pill>
+                </span>
+              )}
+            </>
           ) : undefined}
           title={ready
             ? <><em data-testid="recommend-count">{countWord(open.length)}</em> {open.length === 1 ? "thing" : "things"} worth doing</>
@@ -244,6 +293,7 @@ export default function RecommendScreen() {
           sub="Each step says why it is there, what it should change and what it costs in tax. Nothing is done for you."
         />
       </HeaderRow>
+      {showPlanTools && <RebuildPlan idPrefix="recommend" />}
 
       {q.isPending ? (
         <LoadingBlock label="Loading recommendations" rows={4} />

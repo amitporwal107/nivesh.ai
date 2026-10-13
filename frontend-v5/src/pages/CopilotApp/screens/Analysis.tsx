@@ -1,36 +1,63 @@
 /**
- * Portfolio analysis — value, gain and XIRR, then exposure by sector, company,
- * fund and asset class. Design: NVTools.dc.html, tool === "analysis".
+ * Portfolio analysis — value, gain and XIRR at the top, then four sections:
  *
- * Data:
- *   headline, tiles, Funds tab   GET /api/portfolio/holdings-enriched        (useHoldingsEnriched)
- *   Sectors + Companies tabs     GET /api/portfolio/exposure/concentration   (usePortfolioConcentration)
- *   Asset class tab              GET /api/portfolio/composition?dimension=asset_class (useComposition)
+ *   Overview                   exposure by sector, company, AMC, group, fund and asset class
+ *   Performance                the old Performance screen's data      (portfolio/PerformanceSection)
+ *   Concentration and overlap  the old AI Insights headline, ladder and overlap (portfolio/ConcentrationSection)
+ *   What to fix                the old AI Insights remediation plan   (portfolio/RemediationSection)
  *
- * Not connected (see the NotConnected blocks): a flow-adjusted 1-year return,
- * the Nifty 50 TRI comparison, the monthly-return strip, and a per-user target
- * allocation.
+ * Design: NVTools.dc.html, tool === "analysis".
+ *
+ * Data read in this file:
+ *   headline, tiles, Funds tab          GET /api/portfolio/holdings-enriched        (useHoldingsEnriched)
+ *   Sectors, Companies, AMCs, Groups    GET /api/portfolio/exposure/concentration   (usePortfolioConcentration)
+ *   Asset class tab                     GET /api/portfolio/composition?dimension=asset_class (useComposition)
+ *   Asset class tab, mix against target GET /api/user/risk-profile + the risk-category target table
+ *                                       the Home drift card uses                    (portfolio/TargetMix)
+ *
+ * Every row that names a company shows the company icon, every fund row the
+ * fund house icon (portfolio/names).
  */
 import { useState } from "react";
 import { useComposition } from "@/hooks/use-composition";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
 import type { EnrichedHoldingsRes } from "@/services/contracts/portfolio.contract";
 import {
-  AskChips, Btn, DataTable, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, NotConnected, Screen, ScreenHeader, Section, Tiles,
+  AskChips, DataTable, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Screen, ScreenHeader, Section, Tiles,
   TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone, type Column, type TileItem,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { AxisFooter, AxisSummary, AxisTable, CapCell, ConcentrationSection } from "./portfolio/ConcentrationSection";
+import { PerformanceSection } from "./portfolio/PerformanceSection";
+import { RemediationSection } from "./portfolio/RemediationSection";
+import { TargetMix } from "./portfolio/TargetMix";
+import { capScale, lensOf, readConcentration, type AxisId, type LensItem } from "./portfolio/concentration-data";
 import { BAD_SHAPE, isFund, isStock, loadError, num, readAlerts, readComposition, rec, str, type AssetClassSlice, type EnrichedHolding } from "./portfolio/data";
+import { HoldingIcon, Named } from "./portfolio/names";
 import { HeaderRow, NiveshRead, NoPortfolio, ShowAll, Tabs, WeightCell, type TabItem } from "./portfolio/parts";
 
-type TabId = "sectors" | "companies" | "funds" | "assets";
+type SectionId = "overview" | "performance" | "concentration" | "fix";
+
+const SECTIONS: Array<TabItem<SectionId>> = [
+  { id: "overview", label: "Overview" },
+  { id: "performance", label: "Performance" },
+  { id: "concentration", label: "Concentration and overlap" },
+  { id: "fix", label: "What to fix" },
+];
+
+type TabId = "sectors" | "companies" | "amc" | "group" | "funds" | "assets";
 
 const TABS: Array<TabItem<TabId>> = [
   { id: "sectors", label: "Sectors" },
   { id: "companies", label: "Companies" },
+  { id: "amc", label: "AMCs" },
+  { id: "group", label: "Groups" },
   { id: "funds", label: "Funds" },
   { id: "assets", label: "Asset class" },
 ];
+
+/** The Overview tab that holds each concentration axis. */
+const AXIS_TAB: Record<AxisId, TabId> = { sector: "sectors", company: "companies", amc: "amc", group: "group" };
 
 const FUND_LIMIT = 12;
 
@@ -66,6 +93,8 @@ interface SectorRow {
   weightPct: number | null;
   viaFundsRs: number | null;
   directRs: number | null;
+  /** The sector against its cap, as the concentration verdict judges it. */
+  cap: LensItem | undefined;
 }
 
 function SectorsTable() {
@@ -77,10 +106,11 @@ function SectorsTable() {
   if (!q.data.sector && q.data.empty !== true) return <ErrorBlock title="Sector exposure didn’t load" error={BAD_SHAPE} onRetry={() => q.refetch()} />;
 
   const total = num(q.data.total_value);
-  const rows: SectorRow[] = (q.data.sector?.items ?? []).map((it) => {
+  const lens = lensOf(readConcentration(q.data), "sector");
+  const rows: SectorRow[] = (q.data.sector?.items ?? []).map((it, i) => {
     const via = rec(it.via);
     const valueRs = num(it.value_inr);
-    return { name: it.name, valueRs, weightPct: share(valueRs, total), viaFundsRs: num(via?.mf), directRs: num(via?.direct) };
+    return { name: it.name, valueRs, weightPct: share(valueRs, total), viaFundsRs: num(via?.mf), directRs: num(via?.direct), cap: lens?.items[i] };
   });
   if (!rows.length) {
     return <EmptyBlock title="No sector exposure to show" body="Sector exposure appears once your holdings have been classified." />;
@@ -99,15 +129,24 @@ function SectorsTable() {
     { key: "funds", header: "Through funds", num: true, render: (r) => fmtINR(r.viaFundsRs, { compact: true }) },
     { key: "direct", header: "Direct", num: true, render: (r) => fmtINR(r.directRs, { compact: true }) },
   ];
+  if (lens) {
+    const scale = capScale(lens);
+    columns.push({ key: "cap", header: "Allocation vs cap", width: "minmax(0,1.5fr)", num: true, render: (r) => <CapCell item={r.cap} scale={scale} /> });
+  }
   return (
-    <Section flush title="Sectors · share of your whole portfolio" note={note}>
-      <DataTable
-        columns={columns}
-        rows={rows}
-        rowKey={(r) => r.name}
-        onRowClick={(r) => ask(`How have my ${r.name} holdings performed, and is ${fmtPct(r.weightPct)} of my portfolio in ${r.name} too much?`)}
-      />
-    </Section>
+    <div className="flex flex-col" style={{ gap: 12 }}>
+      {lens && <AxisSummary lens={lens} />}
+      <Section flush title="Sectors · share of your whole portfolio" note={note}>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.name}
+          minWidth={760}
+          onRowClick={(r) => ask(`How have my ${r.name} holdings performed, and is ${fmtPct(r.weightPct)} of my portfolio in ${r.name} too much?`)}
+        />
+        {lens && <AxisFooter lens={lens} />}
+      </Section>
+    </div>
   );
 }
 
@@ -120,6 +159,8 @@ interface CompanyRow {
   directPct: number | null;
   fundsPct: number | null;
   fundCount: number | null;
+  /** The company against its cap, as the concentration verdict judges it. */
+  cap: LensItem | undefined;
 }
 
 function CompaniesTable() {
@@ -130,7 +171,8 @@ function CompaniesTable() {
   if (!q.data.company && q.data.empty !== true) return <ErrorBlock title="Company exposure didn’t load" error={BAD_SHAPE} onRetry={() => q.refetch()} />;
 
   const total = num(q.data.total_value);
-  const rows: CompanyRow[] = (q.data.company?.items ?? []).map((it) => {
+  const lens = lensOf(readConcentration(q.data), "company");
+  const rows: CompanyRow[] = (q.data.company?.items ?? []).map((it, i) => {
     const valueRs = num(it.value_inr);
     const directRs = num(it.via_direct_inr);
     return {
@@ -140,6 +182,7 @@ function CompaniesTable() {
       directPct: share(directRs, total),
       fundsPct: share(valueRs != null && directRs != null ? valueRs - directRs : null, total),
       fundCount: num(it.via_funds_count),
+      cap: lens?.items[i],
     };
   });
   if (!rows.length) {
@@ -148,17 +191,25 @@ function CompaniesTable() {
   const max = Math.max(...rows.map((r) => r.totalPct ?? 0));
   const all = num(q.data.company?.all_items_count);
   const columns: Array<Column<CompanyRow>> = [
-    { key: "name", header: "Company", width: "minmax(0,1.7fr)", render: (r) => <Name testId="analysis-company-name">{r.name}</Name> },
+    { key: "name", header: "Company", width: "minmax(0,1.7fr)", render: (r) => <Named icon={<HoldingIcon name={r.name} assetType="equity" />}><Name testId="analysis-company-name">{r.name}</Name></Named> },
     { key: "total", header: "Total", num: true, render: (r) => <WeightCell pct={r.totalPct} max={max} /> },
     { key: "direct", header: "Direct", num: true, render: (r) => fmtPct(r.directPct) },
     { key: "funds", header: "Via funds", num: true, render: (r) => fmtPct(r.fundsPct) },
     { key: "value", header: "Value", num: true, render: (r) => fmtINR(r.valueRs, { compact: true }) },
     { key: "count", header: "Funds holding it", num: true, render: (r) => fmtNum(r.fundCount) },
   ];
+  if (lens) {
+    const scale = capScale(lens);
+    columns.push({ key: "cap", header: "Allocation vs cap", width: "minmax(0,1.5fr)", num: true, render: (r) => <CapCell item={r.cap} scale={scale} /> });
+  }
   return (
-    <Section flush title="Companies · direct plus through your funds" note={all != null && all > rows.length ? `Look-through · top ${rows.length} of ${all}` : "Look-through"}>
-      <DataTable columns={columns} rows={rows} rowKey={(r) => r.name} onRowClick={(r) => ask(`Research ${r.name} fundamentally and technically`)} />
-    </Section>
+    <div className="flex flex-col" style={{ gap: 12 }}>
+      {lens && <AxisSummary lens={lens} />}
+      <Section flush title="Companies · direct plus through your funds" note={all != null && all > rows.length ? `Look-through · top ${rows.length} of ${all}` : "Look-through"}>
+        <DataTable columns={columns} rows={rows} rowKey={(r) => r.name} minWidth={880} onRowClick={(r) => ask(`Research ${r.name} fundamentally and technically`)} />
+        {lens && <AxisFooter lens={lens} />}
+      </Section>
+    </div>
   );
 }
 
@@ -173,7 +224,7 @@ function FundsTable({ holdings }: { holdings: EnrichedHolding[] }) {
   }
   const max = Math.max(...funds.map((f) => f.weight_pct ?? 0));
   const columns: Array<Column<EnrichedHolding>> = [
-    { key: "name", header: "Fund", width: "minmax(0,2fr)", render: (f) => <Name testId="analysis-fund-name">{f.name}</Name> },
+    { key: "name", header: "Fund", width: "minmax(0,2fr)", render: (f) => <Named icon={<HoldingIcon name={f.name} assetType={f.asset_type} />}><Name testId="analysis-fund-name">{f.name}</Name></Named> },
     { key: "weight", header: "Weight", num: true, render: (f) => <WeightCell pct={f.weight_pct ?? null} max={max} /> },
     { key: "value", header: "Value", num: true, render: (f) => fmtINR(f.value_rs, { compact: true }) },
     { key: "ret", header: "Fund 1Y", num: true, render: (f) => <Signed value={f.cagr_1y_pct ?? null} text={fmtPct(f.cagr_1y_pct, { signed: true })} /> },
@@ -270,12 +321,7 @@ function AssetClassTable({ missingBasis }: { missingBasis: number }) {
       >
         <DataTable columns={columns} rows={rows} rowKey={(r) => r.name} onRowClick={(r) => ask(`Is ${fmtPct(r.weightPct)} in ${r.name} right for my goals and risk profile?`)} />
       </Section>
-      <NotConnected
-        testId="analysis-target-not-connected"
-        title="Your target mix is not connected"
-        body="The design sets each asset class against a target from your profile. The backend returns one fixed 60 / 30 / 10 reference for every account, so no target is shown as yours."
-        needs={["A per-user target allocation (from the risk profile and goals) returned with GET /api/portfolio/composition"]}
-      />
+      <TargetMix slices={comp.slices} />
     </div>
   );
 }
@@ -304,7 +350,7 @@ function readHeadline(d: EnrichedHoldingsRes, missingBasis: number): { title: st
 }
 
 function AnalysisBody({ data }: { data: EnrichedHoldingsRes }) {
-  const { ask } = useCopilotShell();
+  const [section, setSection] = useState<SectionId>("overview");
   const [tab, setTab] = useState<TabId>("sectors");
   const holdings = data.holdings;
   const stocks = holdings.filter(isStock).length;
@@ -350,25 +396,25 @@ function AnalysisBody({ data }: { data: EnrichedHoldingsRes }) {
       <NiveshRead testId="analysis-read" title={head.title} bullets={head.bullets} />
       <Tiles items={tiles} min={140} />
 
-      <NotConnected
-        testId="analysis-benchmark-not-connected"
-        title="Return against the Nifty 50 is not connected"
-        body="The design shows your 1-year return, the Nifty 50 TRI over the same period, the gap, and a month-by-month strip. The backend’s performance figures are the change in statement value (which includes money you added) against a peer-category average, so they are not shown here as a benchmark gap."
-        needs={[
-          "A flow-adjusted (time-weighted) portfolio return for 1 year and for each month",
-          "Nifty 50 TRI returns for the same windows",
-          "1-year return and contribution per sector and per company (look-through gives weights only)",
-        ]}
-        action={<Btn onClick={() => ask("How has my portfolio done against the Nifty 50 over the last year, after adjusting for the money I added?")}>Ask the Copilot instead ›</Btn>}
-      />
-
-      <div className="flex flex-col" style={{ gap: 14 }}>
-        <Tabs tabs={TABS} value={tab} onChange={setTab} label="Portfolio breakdown" idPrefix="analysis" />
-        <div role="tabpanel" id="analysis-panel" aria-labelledby={`analysis-tab-${tab}`} data-testid={`analysis-table-${tab}`}>
-          {tab === "sectors" && <SectorsTable />}
-          {tab === "companies" && <CompaniesTable />}
-          {tab === "funds" && <FundsTable holdings={holdings} />}
-          {tab === "assets" && <AssetClassTable missingBasis={missingBasis} />}
+      <div className="flex flex-col" style={{ gap: 18 }}>
+        <Tabs tabs={SECTIONS} value={section} onChange={setSection} label="Portfolio analysis sections" idPrefix="analysis-section" />
+        <div role="tabpanel" id="analysis-section-panel" aria-labelledby={`analysis-section-tab-${section}`} data-testid={`analysis-section-${section}`}>
+          {section === "overview" && (
+            <div className="flex flex-col" style={{ gap: 14 }}>
+              <Tabs tabs={TABS} value={tab} onChange={setTab} label="Portfolio breakdown" idPrefix="analysis" />
+              <div role="tabpanel" id="analysis-panel" aria-labelledby={`analysis-tab-${tab}`} data-testid={`analysis-table-${tab}`}>
+                {tab === "sectors" && <SectorsTable />}
+                {tab === "companies" && <CompaniesTable />}
+                {tab === "amc" && <AxisTable axis="amc" />}
+                {tab === "group" && <AxisTable axis="group" />}
+                {tab === "funds" && <FundsTable holdings={holdings} />}
+                {tab === "assets" && <AssetClassTable missingBasis={missingBasis} />}
+              </div>
+            </div>
+          )}
+          {section === "performance" && <PerformanceSection />}
+          {section === "concentration" && <ConcentrationSection onOpenAxis={(axis) => { setTab(AXIS_TAB[axis]); setSection("overview"); }} />}
+          {section === "fix" && <RemediationSection />}
         </div>
       </div>
 

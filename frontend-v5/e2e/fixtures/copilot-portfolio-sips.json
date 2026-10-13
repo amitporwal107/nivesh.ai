@@ -1,0 +1,45 @@
+{
+  "sips": [
+    {
+      "scheme_name": "Axis Fixture Bluechip Fund - Direct Growth",
+      "folio": "FIX/1001",
+      "amc": "Axis",
+      "isin": "INF000FIX01",
+      "cadence": "MONTHLY",
+      "amount": 5000.0,
+      "instalment_count": 12,
+      "first_date": "2025-09-05",
+      "last_date": "2026-08-05",
+      "total_invested": 60000.0,
+      "status": "ACTIVE",
+      "days_since_last": 30,
+      "gap_days_avg": 30.4,
+      "state": "ACTIVE",
+      "mandate_id": null,
+      "next_debit_date": null,
+      "cycles_missed": 0
+    },
+    {
+      "scheme_name": "SBI Fixture Midcap Fund - Regular Growth",
+      "folio": "FIX/1001",
+      "amc": "SBI",
+      "isin": "INF000FIX02",
+      "cadence": "MONTHLY",
+      "amount": 2000.0,
+      "instalment_count": 6,
+      "first_date": "2025-09-05",
+      "last_date": "2026-08-05",
+      "total_invested": 12000.0,
+      "status": "PAUSED",
+      "days_since_last": 30,
+      "gap_days_avg": 30.4,
+      "state": "PAUSED",
+      "mandate_id": null,
+      "next_debit_date": null,
+      "cycles_missed": 0
+    }
+  ],
+  "count": 2,
+  "active_count": 1,
+  "monthly_sip_outflow": 5000.0
+}

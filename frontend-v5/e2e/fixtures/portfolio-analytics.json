@@ -1,0 +1,58 @@
+{
+ "holdings_count": 5,
+ "heatmap_data": [
+  {
+   "name": "FIXTURE STOCK ONE LIMITED",
+   "ticker": "FIXONE",
+   "value": 300000.0,
+   "invested": 200000.0,
+   "return_pct": 50.0,
+   "cost_basis_estimated": false,
+   "asset_type": "equity",
+   "sector": "Fixture Sector A",
+   "quality_score": 71,
+   "sector_rank": 2,
+   "sector_total": 9
+  },
+  {
+   "name": "FIXTURE STOCK TWO LIMITED",
+   "ticker": "FIXTWO",
+   "value": 100000.0,
+   "invested": null,
+   "return_pct": null,
+   "cost_basis_estimated": true,
+   "asset_type": "equity",
+   "sector": "Fixture Sector B"
+  },
+  {
+   "name": "FIXTURE SGB 2031",
+   "ticker": "SGBFIX31",
+   "value": 250000.0,
+   "invested": 150000.0,
+   "return_pct": 66.7,
+   "cost_basis_estimated": false,
+   "asset_type": "gold",
+   "sector": "Gold"
+  },
+  {
+   "name": "PARAG PARIKH FLEXI CAP FUND",
+   "ticker": "INF879O01027",
+   "value": 328476.0,
+   "invested": 247854.0,
+   "return_pct": 32.5,
+   "cost_basis_estimated": false,
+   "asset_type": "mutual_fund",
+   "sector": "Other"
+  },
+  {
+   "name": "ICICI PRUDENTIAL NIFTY IT ETF",
+   "ticker": "INF109KC19U5",
+   "value": 49948.0,
+   "invested": 52100.0,
+   "return_pct": -4.1,
+   "cost_basis_estimated": false,
+   "asset_type": "etf",
+   "sector": "Other"
+  }
+ ]
+}
