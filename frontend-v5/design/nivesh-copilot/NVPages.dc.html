@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:960px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:24px;font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:14px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <span class="nv-eyebrow">{{ eyebrow }}</span>
+      <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:40px;line-height:1.05;letter-spacing:-0.02em">{{ title }}</h1>
+      <span style="font-size:14px;color:var(--ink-3);max-width:560px;text-wrap:pretty">{{ sub }}</span>
+    </div>
+    <span onClick="{{ askAbout }}" style="padding:8px 14px;border-radius:999px;border:1px solid var(--mint-line);color:var(--mint);font-size:13px;cursor:pointer">{{ askLabel }}</span>
+  </div>
+
+  <sc-if value="{{ isWatchlist }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+        <sc-for list="{{ watch }}" as="w" hint-placeholder-count="5">
+          <div onClick="{{ w.open }}" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:14px 18px;border-bottom:1px solid var(--line);cursor:pointer" style-hover="background:var(--bg-2)">
+            <div style="flex:1 1 180px;display:flex;flex-direction:column;gap:3px"><span style="font-size:15px;font-weight:500">{{ w.n }}</span><span style="font-size:12px;color:var(--ink-3)">{{ w.note }}</span></div>
+            <div style="flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:90px"><span class="nv-num">{{ w.px }}</span><span class="nv-num" style="font-family:var(--mono);font-size:11px;color:{{ w.cc }}">{{ w.ch }}</span></div>
+            <span style="flex:0 1 220px;font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3);text-align:right">{{ w.alert }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <span class="nv-eyebrow">Alerts · 5 active</span>
+        <sc-for list="{{ alerts }}" as="a" hint-placeholder-count="5">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)">
+            <span class="nv-dot" style="background:{{ a.color }}"></span>
+            <span style="flex:1 1 240px;font-size:14px">{{ a.t }}</span>
+            <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ a.ch }}</span>
+            <span class="nv-pill" style="color:{{ a.color }};border-color:{{ a.line }}">{{ a.st }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isSaved }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <sc-for list="{{ savedGroups }}" as="g" hint-placeholder-count="3">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <span class="nv-eyebrow">{{ g.t }}</span>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+            <sc-for list="{{ g.items }}" as="i" hint-placeholder-count="2">
+              <div onClick="{{ i.open }}" style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);cursor:pointer" style-hover="border-color:var(--line-3)">
+                <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:{{ i.color }}">{{ i.k }}</span>
+                <span style="font-family:var(--display);font-size:20px;line-height:1.2">{{ i.t }}</span>
+                <span style="font-size:12px;color:var(--ink-3)">{{ i.meta }}</span>
+                <span style="font-size:13px;color:var(--ink-2)">{{ i.cta }} ›</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isPlan }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px">
+        <sc-for list="{{ board }}" as="col" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;gap:10px;padding:14px;border-radius:14px;background:var(--bg-1);border:1px solid var(--line)">
+            <span class="nv-eyebrow">{{ col.t }} · {{ col.n }}</span>
+            <sc-for list="{{ col.items }}" as="i" hint-placeholder-count="2">
+              <div style="display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:10px;background:var(--bg-2);border:1px solid var(--line)">
+                <span style="font-size:14px;font-weight:500;text-wrap:pretty">{{ i.t }}</span>
+                <span style="display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:0.06em"><span style="color:{{ i.color }}">{{ i.impact }}</span><span style="color:var(--ink-3)">{{ i.d }}</span></span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+        <div style="display:flex;flex-direction:column;gap:6px;padding:14px 18px;border-bottom:1px solid var(--line)">
+          <span class="nv-eyebrow">Track record · expected vs observed</span>
+          <span style="font-size:13px;color:var(--ink-2)">Of 11 past proposals with measurable outcomes, 7 met their expected effect, 3 partly and 1 missed.</span>
+        </div>
+        <div style="overflow-x:auto"><div style="min-width:620px">
+          <div style="display:grid;grid-template-columns:minmax(0,1.6fr) 64px 80px minmax(0,1fr) minmax(0,1.3fr) 92px;gap:10px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><span>Proposal</span><span>Date</span><span>You</span><span>Expected</span><span>Observed</span><span style="text-align:right">Result</span></div>
+          <sc-for list="{{ outcomes }}" as="o" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:minmax(0,1.6fr) 64px 80px minmax(0,1fr) minmax(0,1.3fr) 92px;gap:10px;padding:12px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center">
+              <span>{{ o.t }}</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ o.d }}</span><span style="color:var(--ink-2)">{{ o.you }}</span><span style="color:var(--ink-2)">{{ o.exp }}</span><span style="color:var(--ink-2)">{{ o.obs }}</span><span style="text-align:right"><span class="nv-pill" style="color:{{ o.color }};border-color:{{ o.line }}">{{ o.res }}</span></span>
+            </div>
+          </sc-for>
+        </div></div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isLedger }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:center;padding:18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+        <div style="position:relative;width:96px;height:96px;flex:none">
+          <svg viewBox="0 0 96 96" style="width:96px;height:96px;transform:rotate(-90deg)"><circle cx="48" cy="48" r="40" fill="none" stroke="var(--bg-3)" stroke-width="7"></circle><circle cx="48" cy="48" r="40" fill="none" stroke="var(--mint)" stroke-width="7" stroke-linecap="round" stroke-dasharray="170.9 251.3"></circle></svg>
+          <div style="position:absolute;inset:0;display:grid;place-items:center;text-align:center"><span style="font-family:var(--display);font-size:32px;line-height:1">68</span></div>
+        </div>
+        <div style="flex:1 1 200px;display:flex;flex-direction:column;gap:6px">
+          <span class="nv-eyebrow">Portfolio health · grade B</span>
+          <span style="font-family:var(--display);font-size:22px;line-height:1.25">Fair. Concentration and sector tilt pull the score down.</span>
+        </div>
+        <div style="flex:1 1 300px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px">
+          <sc-for list="{{ signals }}" as="g" hint-placeholder-count="6">
+            <div style="display:flex;flex-direction:column;gap:4px"><span class="nv-num" style="font-family:var(--display);font-size:20px;color:{{ g.c }}">{{ g.v }}</span><span style="display:block;height:3px;border-radius:2px;background:{{ g.c }};width:{{ g.w }}"></span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ink-3)">{{ g.k }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+        <sc-for list="{{ summary }}" as="m" hint-placeholder-count="6">
+          <div style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><span class="nv-eyebrow">{{ m.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:24px;color:{{ m.c }}">{{ m.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ m.s }}</span></div>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;justify-content:space-between;gap:12px"><span class="nv-eyebrow">Monthly snapshots · value</span><span class="nv-eyebrow">Since last month: +2 holdings · −1 · financials +3 pts</span></div>
+        <div style="display:flex;align-items:flex-end;gap:8px;height:80px">
+          <sc-for list="{{ snaps }}" as="sn" hint-placeholder-count="7"><div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end"><span style="display:block;width:100%;height:{{ sn.h }};background:var(--indigo-soft);border-top:2px solid var(--indigo);border-radius:2px 2px 0 0"></span><span style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">{{ sn.m }}</span></div></sc-for>
+        </div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">Holdings · flagged first · 5 of 47</span><span class="nv-eyebrow">Zerodha + NSDL CAS, reconciled</span></div>
+        <sc-for list="{{ holdings }}" as="h" hint-placeholder-count="5">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:13px 18px;border-bottom:1px solid var(--line)">
+            <div style="flex:1 1 200px;display:flex;flex-direction:column;gap:3px"><span style="font-size:14px;font-weight:500">{{ h.n }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ h.src }}</span></div>
+            <span class="nv-num" style="min-width:80px;text-align:right">{{ h.v }}</span>
+            <span class="nv-num" style="min-width:48px;text-align:right;color:var(--ink-3)">{{ h.w }}</span>
+            <span class="nv-pill" style="color:{{ h.color }};border-color:{{ h.line }};background:{{ h.soft }}">{{ h.flag }}</span>
+            <span onClick="{{ h.fix }}" style="font-size:13px;color:var(--ink-2);cursor:pointer;min-width:52px;text-align:right">{{ h.cta }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Your corrections · analyses re-run automatically</span>
+        <sc-for list="{{ corrections }}" as="c" hint-placeholder-count="3">
+          <div style="display:grid;grid-template-columns:56px minmax(0,1fr);gap:12px;font-size:13px;line-height:1.5;padding-bottom:8px;border-bottom:1px solid var(--line)"><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ c.d }}</span><span style="color:var(--ink-2)">{{ c.t }}</span></div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isPaper }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:24px">
+      <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:12px;border:1px solid var(--amber-line);background:var(--amber-soft)">
+        <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber);padding-top:2px;flex:none">SAMPLE</span>
+        <span style="font-size:13px;line-height:1.5;color:var(--ink-2)">27 closed trades in 30 sessions. Too few to judge: a strategy needs at least 200 trades before Nivesh reports it as validated.</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+        <sc-for list="{{ paperStats }}" as="m" hint-placeholder-count="5">
+          <div style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><span class="nv-eyebrow">{{ m.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:24px;color:{{ m.c }}">{{ m.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ m.s }}</span></div>
+        </sc-for>
+      </div>
+      <sc-for list="{{ paperTables }}" as="tb" hint-placeholder-count="2">
+        <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+          <div style="padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">{{ tb.t }}</span></div>
+          <div style="overflow-x:auto"><div style="min-width:600px">
+            <div style="display:grid;grid-template-columns:minmax(0,1.8fr) repeat(5,minmax(0,1fr));gap:10px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><sc-for list="{{ tb.head }}" as="hd" hint-placeholder-count="6"><span>{{ hd }}</span></sc-for></div>
+            <sc-for list="{{ tb.rows }}" as="r" hint-placeholder-count="3">
+              <div style="display:grid;grid-template-columns:minmax(0,1.8fr) repeat(5,minmax(0,1fr));gap:10px;padding:12px 18px;border-top:1px solid var(--line);font-size:13px">
+                <sc-for list="{{ r.cells }}" as="cl" hint-placeholder-count="6"><span class="nv-num" style="color:{{ cl.c }}">{{ cl.v }}</span></sc-for>
+              </div>
+            </sc-for>
+          </div></div>
+        </div>
+      </sc-for>
+      <div style="display:flex;flex-direction:column;gap:6px;padding:14px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);font-size:13px;line-height:1.55;color:var(--ink-2)">
+        <span class="nv-eyebrow">Fill assumptions · strategy v3 · a91f3e2 · frozen</span>
+        <span>Entries at the next session’s open. Stops fill at the stop or the opening gap, whichever is worse. Costs 0.25% round trip plus 5 bps slippage. Options at mid price plus half the spread.</span>
+        <span>Predicted hit rate from the backtest: 41%. Observed so far: 44% over 27 trades.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,400px),1fr));gap:12px">
+      <sc-for list="{{ settings }}" as="g" hint-placeholder-count="6">
+        <div style="display:flex;flex-direction:column;gap:2px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <span class="nv-eyebrow" style="padding-bottom:8px">{{ g.t }}</span>
+          <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="3">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)">
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:14px">{{ r.k }}</span><span style="font-size:12px;color:var(--ink-3)">{{ r.s }}</span></div>
+              <span onClick="{{ r.go }}" style="font-size:13px;color:{{ r.c }};white-space:nowrap;cursor:pointer">{{ r.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1000,&quot;height&quot;:1200},&quot;page&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;watchlist&quot;,&quot;saved&quot;,&quot;plan&quot;,&quot;ledger&quot;,&quot;paper&quot;,&quot;settings&quot;],&quot;default&quot;:&quot;ledger&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props, P = p.page || 'watchlist';
+    const ask = (q, k) => () => p.onAsk && p.onAsk(q, k);
+    const nav = (v) => () => p.onNav && p.onNav(v);
+    const C = { mint: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], amber: ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'], indigo: ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'], danger: ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'], ink: ['var(--ink-2)', 'var(--line-2)', 'transparent'] };
+    const c = (k) => ({ color: C[k][0], line: C[k][1], soft: C[k][2] });
+    const HEAD = {
+      watchlist: ['Watchlist · 12 stocks', 'What you’re watching', 'Each stock carries Nivesh’s latest read and the condition you asked to be told about.', 'Ask about my watchlist', ['What changed on my watchlist this week?', 'events']],
+      saved: ['Saved', 'Reports, screens and threads', 'Saved items keep their data snapshot. Re-run any of them on today’s data.', 'Ask across saved reports', ['Summarise my saved reports', 'stock']],
+      plan: ['Action plan', 'Decisions and what happened next', 'Every option you accept lands here. Nivesh measures whether it did what it said it would.', 'Review my plan', ['Why is my portfolio underperforming the Nifty 50?', 'perf']],
+      ledger: ['Portfolio ledger', '47 holdings, ₹24.8 L', 'Reconciled across Zerodha and your NSDL CAS. Correct anything and every analysis re-runs.', 'Analyse my portfolio', ['Why is my portfolio underperforming the Nifty 50?', 'perf']],
+      paper: ['Paper trading · no live orders', 'Simulated trades', 'Frozen strategy versions, realistic fills and costs. Nothing here touches your broker account.', 'Evaluate my paper trades', ['Backtest this breakout screen over the last five years', 'backtest']],
+      settings: ['Settings', 'Make Nivesh yours', 'Your profile, constraints, memory and permissions shape every answer.', 'Redo onboarding', null],
+    }[P];
+    const askAbout = HEAD[4] ? ask(HEAD[4][0], HEAD[4][1]) : nav('onboarding');
+    const cell = (v, col) => ({ v, c: col || 'var(--ink-2)' });
+    return {
+      pad: p.mobile ? '24px' : '48px',
+      eyebrow: HEAD[0], title: HEAD[1], sub: HEAD[2], askLabel: HEAD[3], askAbout,
+      isWatchlist: P === 'watchlist', isSaved: P === 'saved', isPlan: P === 'plan', isLedger: P === 'ledger', isPaper: P === 'paper', isSettings: P === 'settings',
+      watch: [['CG Power', '₹682.30', '+1.20%', 'Coiling in a ₹640–700 range for 7 weeks', 'ALERT · CLOSE > ₹702 ON 1.5× VOL'], ['Zomato', '₹268.40', '+2.60%', 'FPI bought 0.9% in a bulk deal today', 'NO ALERT'], ['Cummins India', '₹3,688', '+1.40%', 'Broke its 7-week range; screen match', 'ALERT · CLOSE < ₹3,480'], ['Cholamandalam Inv.', '₹1,412', '−0.40%', 'Peer alternative to Bajaj Finance', 'ALERT · RS TURNS NEGATIVE'], ['Lupin', '₹2,184', '+0.90%', 'New 52-week high after a 5-week base', 'NO ALERT']].map(([n, px, ch, note, alert]) => ({ n, px, ch, note, alert, cc: ch[0] === '+' ? 'var(--mint)' : 'var(--danger)', open: ask(`Research ${n} fundamentally and technically`, 'stock') })),
+      alerts: [['Tata Motors closes below its 200-day average', 'IN-APP · EMAIL', 'Fired 15:30', 'danger'], ['CG Power closes above ₹702 on ≥ 1.5× volume', 'IN-APP', 'Waiting', 'ink'], ['Material filings on my holdings', 'IN-APP', 'Fired 2× today', 'amber'], ['IndusInd Bank pledge changes', 'EMAIL', 'New today', 'indigo'], ['Breakout screen v3: new matches', 'IN-APP · DAILY 16:00', 'Waiting', 'ink']].map(([t, ch, st, k]) => ({ t, ch, st, ...c(k) })),
+      savedGroups: [
+        { t: 'Reports', items: [['STOCK RESEARCH', 'CG Power deep dive', 'Saved 13 Oct · data as of 14:32', 'Re-run on today’s data', 'Analyse CG Power fundamentally and technically', 'stock', 'indigo'], ['PORTFOLIO', 'Why I trail the Nifty 50', 'Saved 13 Oct · 12-month window', 'Open report', 'Why is my portfolio underperforming the Nifty 50?', 'perf', 'amber']] },
+        { t: 'Screens', items: [['SCREEN · 4 RULES', 'Breakout screen v3', 'Last run 12 Oct · 11 matches · not validated', 'Run again', 'Which sectors are showing improving relative strength, and what is breaking out?', 'scan', 'mint'], ['SCREEN · 3 RULES', 'Improving ROCE, steady growth', 'Last run 10 Oct · 23 matches', 'Run again', 'Find companies with improving ROCE and consistent earnings growth', 'scan', 'mint']] },
+        { t: 'Threads', items: [['FUNDS', 'Fund overlap and rebalance', 'Pinned 9 Oct', 'Continue', 'How much overlap do my mutual funds have, and how do I rebalance tax-efficiently?', 'funds', 'indigo'], ['OPTIONS', 'Nifty spread vs index', 'Pinned 8 Oct', 'Continue', 'Compare a Nifty bull call spread with buying the index', 'options', 'mint']] },
+      ].map(g => ({ t: g.t, items: g.items.map(([k, t, meta, cta, q, kd, col]) => ({ k, t, meta, cta, color: C[col][0], open: ask(q, kd) })) })),
+      board: [
+        { t: 'Considering', items: [['Reduce Bajaj Finance to 6%', '−1.9 PT RISK', 'FROM 13 OCT', 'danger'], ['Switch HDFC Flexi → Nifty Next 50', '₹3,400/YR', 'FROM 9 OCT', 'amber']] },
+        { t: 'Decided', items: [['3-month STP of ₹1.2 L into Nifty 50 index', '+₹0.4 L/YR EST.', 'STARTED 13 OCT', 'indigo']] },
+        { t: 'Done', items: [['Consolidate 2 small-cap funds', '₹4,100/YR', 'AUG', 'mint'], ['Exit Yes Bank', '−0.6 PT RISK', 'JUL', 'mint']] },
+      ].map(col => ({ t: col.t, n: col.items.length, items: col.items.map(([t, impact, d, k]) => ({ t, impact, d, color: C[k][0] })) })),
+      outcomes: [['Consolidate 2 small-cap funds', '12 AUG', 'Accepted', '−₹4,100/yr fees', '−₹4,050/yr so far', 'Met', 'mint'], ['Exit Yes Bank', '3 JUL', 'Accepted', '−0.6 pt risk', '−0.7 pt', 'Met', 'mint'], ['Add gold to 5%', '2 MAY', 'Accepted', '−1.1 pt volatility', '−0.8 pt', 'Partly', 'amber'], ['Trim IT to 18%', '20 JUN', 'Declined', '−0.9 pt risk', 'IT rose 6%; holding added ₹9k', 'Declined', 'ink']].map(([t, d, you, exp, obs, res, k]) => ({ t, d, you, exp, obs, res, ...c(k) })),
+      signals: [['CONCENTRATION', 58, 'amber'], ['DIVERSIFY', 64, 'ink'], ['SECTOR', 52, 'amber'], ['ALLOCATION', 78, 'mint'], ['LIQUIDITY', 91, 'mint'], ['RISK', 61, 'ink']].map(([k, v, col]) => ({ k, v, w: v + '%', c: col === 'ink' ? 'var(--ink)' : C[col][0] })),
+      summary: [['Market value', '₹24.8 L', 'NSE delayed 15 min', 'var(--ink)'], ['Invested', '₹19.6 L', 'Cost basis, FIFO', 'var(--ink)'], ['Unrealised', '+₹5.2 L', '+26.5%', 'var(--mint)'], ['Realised FY26-27', '+₹38,200', 'From transactions', 'var(--mint)'], ['XIRR', '14.2%', '44 of 47 holdings', 'var(--ink)'], ['Time-weighted', '11.8%', 'Last 12 months', 'var(--ink)']].map(([k, v, s, cc]) => ({ k, v, s, c: cc })),
+      snaps: [['APR', 19.8], ['MAY', 20.6], ['JUN', 21.9], ['JUL', 22.4], ['AUG', 23.1], ['SEP', 24.2], ['OCT', 24.8]].map(([m, v]) => ({ m, h: (v / 24.8 * 100).toFixed(0) + '%' })),
+      holdings: [['Bajaj Finance', 'ZERODHA · 30 SH', '₹2.43 L', '9.8%', 'Over 8% limit', 'danger', 'Ask', ['Simulate reducing Bajaj Finance to 6%', 'perf']], ['IRFC', 'NSDL CAS · 1,800 SH', '₹0.28 L', '1.1%', 'No purchase history', 'amber', 'Fix', ['Import my NSDL CAS statement', 'import']], ['SGB 2029 Series V', 'NSDL CAS · 8 UNITS', '₹0.61 L', '2.5%', 'Matched by name', 'indigo', 'Review', ['Import my NSDL CAS statement', 'import']], ['HDFC Bank', 'ZERODHA + CAS · MERGED', '₹1.21 L', '4.9%', 'Duplicate merged', 'ink', 'View', ['Show duplicate holdings', 'import']], ['Tata Motors', 'CAS · WAS TATA MTRS-DVR', '₹0.85 L', '3.4%', 'Corrected by you', 'mint', 'Undo', ['Research Tata Motors fundamentally and technically', 'stock']]].map(([n, src, v, w, flag, k, cta, q]) => ({ n, src, v, w, flag, cta, ...c(k), fix: ask(q[0], q[1]) })),
+      corrections: [['13 OCT', 'You matched TATA MTRS-DVR to Tata Motors Ltd. 2 analyses re-ran; XIRR unchanged.'], ['3 OCT', 'You set the IRFC cost basis to ₹38.20. XIRR recalculated from 14.0% to 14.2%.'], ['12 SEP', 'You excluded ESOP shares from goal tracking.']].map(([d, t]) => ({ d, t })),
+      paperStats: [['Open', '4', 'Incl. 1 options spread', 'var(--ink)'], ['Closed', '27', '30 sessions', 'var(--ink)'], ['Net P&L', '−₹1,840', 'After ₹2,310 costs', 'var(--danger)'], ['Hit rate', '44%', 'Backtest said 41%', 'var(--ink)'], ['vs baseline', '+₹420', 'Same period', 'var(--mint)']].map(([k, v, s, cc]) => ({ k, v, s, c: cc })),
+      paperTables: [
+        { t: 'Open positions', head: ['Position', 'Entry', 'Stop', 'Target', 'Unrealised', 'Day'], rows: [['Cummins India · 27 sh', '3,652', '3,480', '3,835', '+₹972', '3 of 10'], ['Lupin · 46 sh', '2,171', '2,090', '2,280', '+₹598', '2 of 10'], ['KEI Industries · 23 sh', '4,236', '4,050', '4,448', '−₹460', '5 of 10'], ['NIFTY 22,400/22,800 CE · 1 lot', '₹125 debit', 'Max ₹9,375', 'Max ₹20,625', '−₹620', 'Margin ₹9,375']] },
+        { t: 'Recently closed', head: ['Trade', 'Entry', 'Exit', 'Reason', 'Net', 'Costs'], rows: [['Persistent Systems', '5,702', '5,588', 'Stop, gapped', '−2.4%', '₹31'], ['BEL', '312.0', '327.6', 'Target', '+4.7%', '₹18'], ['Dixon Technologies', '14,820', '14,990', 'Time exit', '+0.9%', '₹42']] },
+      ].map(tb => ({ t: tb.t, head: tb.head, rows: tb.rows.map(r => ({ cells: r.map((v, i) => cell(v, i === 0 ? 'var(--ink)' : /^\+/.test(v) ? 'var(--mint)' : /^−/.test(v) ? 'var(--danger)' : undefined)) })) })),
+      settings: [
+        { t: 'Profile', rows: [['Mode', 'Individual investor', 'Investor', 'onboarding'], ['Experience', 'Sets how much jargon answers use', 'Comfortable', 'onboarding'], ['Risk profile', 'From your 6-question assessment', 'Moderate', 'onboarding']] },
+        { t: 'Goals', rows: [['Retire by 2045', '₹4 Cr target · 72% on track', 'Edit', null], ['Child’s education, 2034', '₹45 L target · 81% on track', 'Edit', null]] },
+        { t: 'Constraints', rows: [['Single-stock limit', 'Applied to look-through exposure', '8%', null], ['Sector limit', 'Any one sector', '25%', null], ['Cash buffer', 'Never invested by suggestions', '3%', null], ['Excluded', 'Never suggested', 'Tobacco', null]] },
+        { t: 'Memory', rows: [['Prefers index funds for new money', 'From chat, 2 Oct', 'Forget', null], ['Avoid selling lots under 1 year', 'From chat, 18 Sep', 'Forget', null], ['Remember preferences from chats', 'You can review everything here', 'On', null]] },
+        { t: 'Connections & permissions', rows: [['Zerodha', 'Read-only holdings and trades · synced 2m ago', 'Re-auth 14 Oct', null], ['Gmail', 'Read-only, CAS emails only', 'Connected', null], ['Trading permission', 'Nivesh cannot place or modify orders', 'Not granted', null]] },
+        { t: 'Privacy & data', rows: [['Where your data lives', 'India · encrypted in transit and at rest', 'Details', null], ['Statements', 'Parsed, then deleted', 'Auto', null], ['Conversation history', 'Kept 12 months', 'Change', null], ['Your data', 'Download or delete everything', 'Export · Delete', null]] },
+      ].map(g => ({ t: g.t, rows: g.rows.map(([k, s, v, go]) => ({ k, s, v, c: v === 'Not granted' ? 'var(--danger)' : go ? 'var(--mint)' : 'var(--ink-2)', go: go ? nav(go) : () => {} })) })),
+    };
+  }
+}
+</script>
+</body>
+</html>

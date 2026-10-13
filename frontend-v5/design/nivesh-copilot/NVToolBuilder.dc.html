@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:1120px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:20px;font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="nv-eyebrow">Internal · Tool builder</span><span class="nv-pill nv-pill-danger">Admins only</span></span>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:40px;line-height:1.05;letter-spacing:-0.02em">Define a tool once. Every persona’s Copilot can use it.</h1>
+    <span style="font-size:14px;color:var(--ink-3);max-width:680px">Describe the objective, the data it needs and the rules it must follow. Nivesh drafts the tool contract; engineering and compliance review it before it reaches users.</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 12px 12px 18px;border-radius:16px;border:1px solid var(--mint-line);background:var(--bg-1)">
+    <span style="color:var(--mint)">✦</span><span style="flex:1;font-size:14px;color:var(--ink-3)">Describe a new tool, e.g. “a screener for traders that finds liquid breakouts and can turn any result into an alert”</span>
+    <button style="padding:9px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Draft it ›</button>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ personas }}" as="pp" hint-placeholder-count="4"><span onClick="{{ pp.pick }}" style="padding:7px 14px;border-radius:999px;font-size:13px;cursor:pointer;border:1px solid {{ pp.line }};color:{{ pp.color }};background:{{ pp.bg }}">{{ pp.t }}</span></sc-for></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+    <sc-for list="{{ templates }}" as="tp" hint-placeholder-count="5">
+      <div onClick="{{ tp.pick }}" style="display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:14px;cursor:pointer;border:1px solid {{ tp.line }};background:{{ tp.bg }}" style-hover="border-color:var(--line-3)">
+        <div style="display:flex;justify-content:space-between;gap:8px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:{{ tp.pc }}">{{ tp.persona }}</span><span style="font-family:var(--mono);font-size:10px;color:{{ tp.sc }}">{{ tp.status }}</span></div>
+        <span style="font-size:15px;font-weight:500">{{ tp.n }}</span>
+        <span style="font-size:12px;line-height:1.45;color:var(--ink-3)">{{ tp.short }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="8">
+        <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="font-family:var(--mono);font-size:11px;color:var(--mint)">{{ sec.n }}</span><span style="font-size:15px;font-weight:500">{{ sec.t }}</span><span style="flex:1"></span><span style="font-size:12px;color:var(--ink-3)">{{ sec.hint }}</span></div>
+          <sc-if value="{{ sec.hasText }}" hint-placeholder-val="{{ false }}"><div style="padding:12px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);font-size:14px;line-height:1.55;color:var(--ink)">{{ sec.text }}</div></sc-if>
+          <sc-if value="{{ sec.hasChips }}" hint-placeholder-val="{{ false }}"><div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ sec.chips }}" as="c" hint-placeholder-count="4"><span style="font-family:{{ c.font }};font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid {{ c.line }};color:{{ c.color }};background:var(--bg-2)">{{ c.t }}</span></sc-for><span style="font-size:12px;color:var(--mint);padding:6px 4px">＋ Add</span></div></sc-if>
+          <sc-if value="{{ sec.hasRows }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column">
+              <div style="display:grid;grid-template-columns:{{ sec.cols }};gap:10px;padding:0 0 6px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3);text-transform:uppercase"><sc-for list="{{ sec.head }}" as="h" hint-placeholder-count="4"><span>{{ h }}</span></sc-for></div>
+              <sc-for list="{{ sec.rows }}" as="r" hint-placeholder-count="4"><div style="display:grid;grid-template-columns:{{ sec.cols }};gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:13px"><sc-for list="{{ r }}" as="cl" hint-placeholder-count="4"><span style="color:{{ cl.c }};font-family:{{ cl.f }};font-size:{{ cl.s }};overflow-wrap:anywhere">{{ cl.v }}</span></sc-for></div></sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px;position:sticky;top:12px">
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;justify-content:space-between;gap:8px"><span class="nv-eyebrow">How it appears in the Copilot</span><span class="nv-pill">{{ cls }}</span></div>
+        <span style="align-self:flex-end;max-width:90%;padding:10px 14px;border-radius:14px 14px 4px 14px;background:var(--bg-3);font-size:13px">{{ sample }}</span>
+        <div style="display:flex;gap:10px;align-items:flex-start"><span class="nv-mark" style="width:22px;height:22px;font-size:13px;flex:none">न</span><div style="display:flex;flex-direction:column;gap:6px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ trace }}</span><div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ outputs }}" as="o" hint-placeholder-count="4"><span style="font-size:12px;padding:5px 9px;border-radius:8px;border:1px dashed var(--line-3);color:var(--ink-2)">{{ o }}</span></sc-for></div></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;justify-content:space-between;gap:8px"><span class="nv-eyebrow">Generated tool contract</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ version }}</span></div>
+        <span style="font-family:var(--mono);font-size:11px;line-height:1.6;color:var(--ink-2);white-space:pre-wrap;overflow-wrap:anywhere">{{ contract }}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Release checklist</span>
+        <sc-for list="{{ checks }}" as="c" hint-placeholder-count="6"><div style="display:flex;justify-content:space-between;gap:10px;font-size:13px"><span style="color:var(--ink-2)">{{ c.t }}</span><span style="font-family:var(--mono);font-size:11px;color:{{ c.c }}">{{ c.s }}</span></div></sc-for>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;padding-top:8px">
+          <button style="padding:9px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Run test prompts</button>
+          <button style="padding:9px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Send for review</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1160,&quot;height&quot;:1400},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { pf: 'All', sel: 'screener' };
+  renderVals() {
+    const p = this.props, s = this.state;
+    const PC = { Trader: 'var(--mint)', Advisor: 'var(--indigo)', Investor: 'var(--amber)' };
+    const ST = { Live: 'var(--mint)', 'In review': 'var(--amber)', Draft: 'var(--ink-3)' };
+    const TOOLS = {
+      screener: { n: 'Breakout screener', persona: 'Trader', status: 'Draft', short: 'Liquid breakouts on volume, each one explained, one click to alert or backtest.', obj: 'Find liquid NSE stocks breaking out of a consolidation on above-average volume, explain each match in plain language, and let the trader turn any match into an alert or a backtest.', ask: ['Find breakouts with volume today', 'Screen F&O stocks near 52-week highs', 'Which midcaps broke out this week?'], data: [['NSE end-of-day prices', 'Required', 'By 18:00'], ['Intraday quotes', 'Optional', '15-min delay'], ['Volume history, 50 days', 'Required', 'End of day'], ['Fundamentals (ROCE, debt)', 'Optional', 'Quarterly'], ['F&O eligible list', 'Optional', 'Daily']], inputs: [['universe', 'enum', 'Nifty 500', 'Nifty 50 · Nifty 500 · F&O'], ['lookback_days', 'int', '35', '10–250'], ['volume_multiple', 'float', '1.5', '≥ 1.0'], ['min_traded_value_cr', 'float', '10', '≥ 1']], svc: ['scan_stocks', 'detect_volume_anomaly', 'analyze_chart_pattern', 'get_fundamentals'], out: ['Results table', 'Mini chart per match', 'Insight card', 'Create alert', 'Backtest this'], cls: 'General research', guard: ['Call matches candidates, never recommendations', 'Show trigger, timeframe and invalidation per match', 'Show the setup’s validation status', 'No order placement'], trig: [['On demand', 'Any question that matches the intent'], ['Scheduled', 'Daily 16:00, saved screens only']], sample: 'Find breakouts with volume today', trace: '4 TOOLS · SCAN_STOCKS → DETECT_VOLUME_ANOMALY → …' },
+      alerts: { n: 'Alerts and notifications', persona: 'Trader', status: 'In review', short: 'Levels, indicators, filings and F&O positioning, notified once with the reason.', obj: 'Watch price levels, indicator conditions, filings and F&O positioning across a trader’s watchlist and positions, and notify once per trigger with the reason and a link to the thread.', ask: ['Alert me if CG Power closes above ₹702', 'Tell me when Bank Nifty PCR drops below 0.7', 'Notify me of any filing on my positions'], data: [['Intraday quotes', 'Required', '≤ 1 min'], ['Exchange filings', 'Required', '≤ 2 min'], ['F&O open interest', 'Optional', '≤ 3 min'], ['Broker positions', 'Optional', 'Read-only, 15 min'], ['Watchlist', 'Required', 'Live']], inputs: [['condition', 'expression', '—', 'Validated before saving'], ['symbols', 'list', 'Watchlist', '≤ 50'], ['channels', 'list', 'In-app', 'In-app · Email · WhatsApp'], ['cooldown_min', 'int', '60', '15–1,440']], svc: ['evaluate_condition', 'search_announcements', 'get_options_chain', 'notify'], out: ['Notification', 'Alert log', 'Open the thread'], cls: 'General research', guard: ['One notification per trigger; deduplicated', 'Quiet hours 22:00–07:00', 'Max 20 alerts a day per user', 'States the data delay in every alert'], trig: [['Event', 'Every minute in market hours'], ['Filing', 'On each new exchange filing']], sample: 'Alert me if CG Power closes above ₹702', trace: 'SAVES ALERT · EVALUATE_CONDITION EVERY 1 MIN' },
+      strategy: { n: 'Trading strategy lab', persona: 'Trader', status: 'Draft', short: 'Idea → explicit rules → point-in-time backtest → paper trade.', obj: 'Turn a natural-language trading idea into explicit rules, confirm them with the trader, backtest point-in-time with realistic costs against a baseline, then paper trade it.', ask: ['Backtest buying breakouts with a 2 ATR stop', 'Does this setup beat buying at the next open?', 'Paper trade the top five signals each day'], data: [['Point-in-time OHLCV', 'Required', 'Snapshot'], ['Index constituents history', 'Required', 'Snapshot'], ['Delisted securities', 'Required', 'Snapshot'], ['Cost model', 'Required', 'Versioned']], inputs: [['entry_rule', 'expression', '—', 'No look-ahead'], ['exit_rule', 'expression', '—', 'Stop, target or time'], ['universe', 'enum', 'Nifty 500', 'Point-in-time'], ['period', 'range', '5 years', '≥ 2 years']], svc: ['define_strategy', 'backtest_strategy', 'run_walk_forward_test', 'calculate_transaction_costs', 'simulate_paper_trade'], out: ['Rules card to confirm', 'Equity curve vs baseline', 'Metrics grid', 'Failure analysis', 'Paper ledger'], cls: 'Research · validation', guard: ['Rules shown and confirmed before any run', 'At least 200 trades before “validated”', 'Holdout used once; no retuning', 'Every run versioned and reproducible'], trig: [['On demand', 'User request'], ['Scheduled', 'Paper trades after each close']], sample: 'Backtest buying breakouts with a 2 ATR stop', trace: '6 TOOLS · DEFINE_STRATEGY → BACKTEST_STRATEGY → …' },
+      client: { n: 'Client AI insights', persona: 'Advisor', status: 'In review', short: 'Nightly read of every client against mandate and goals, with drafted notes.', obj: 'Each night, read every client’s portfolio against their mandate and goals, surface the few clients who need attention, and draft a plain-language note the advisor can approve and send.', ask: ['Which clients are off-mandate?', 'Who can harvest losses before 31 Mar?', 'Draft a review for D. Rao'], data: [['Client holdings (consented)', 'Required', 'Nightly'], ['Mandates and model portfolios', 'Required', 'On change'], ['Goals and SIP mandates', 'Required', 'Nightly'], ['KYC status', 'Required', 'Daily'], ['Tax lots', 'Optional', 'Nightly']], inputs: [['book_scope', 'enum', 'All clients', 'All · segment · client'], ['drift_threshold_pts', 'float', '10', '2–25'], ['max_flags', 'int', '5', '1–20'], ['note_depth', 'enum', 'Client’s level', 'Plain · comfortable · full']], svc: ['get_portfolio_health', 'compare_target_allocation', 'analyze_concentration', 'estimate_tax_impact', 'draft_client_note'], out: ['Needs-attention queue', 'Client card', 'Draft note for approval'], cls: 'Personalised · advisor-approved', guard: ['Nothing reaches a client without advisor approval', 'Only clients who consented are read', 'Every view and approval is audit-logged', 'Ranked by AUM at risk, max 5 a day'], trig: [['Scheduled', 'Nightly 02:00'], ['Event', 'KYC expiry or missed SIP']], sample: 'Which clients are off-mandate?', trace: '5 TOOLS · ACROSS 87 CLIENTS · NIGHTLY' },
+      portfolio: { n: 'Portfolio AI insights', persona: 'Investor', status: 'Live', short: 'The few things that changed in your portfolio, ranked by rupee impact.', obj: 'Tell an investor the few things that changed in their portfolio and why they matter, ranked by rupee impact, at the depth they chose during onboarding.', ask: ['What changed in my portfolio this week?', 'What should I fix first?', 'Did any filing affect my holdings today?'], data: [['Holdings and transactions', 'Required', '15 min'], ['Goals and constraints', 'Required', 'On change'], ['Filings for holdings', 'Required', '≤ 2 min'], ['Prices', 'Required', '15-min delay'], ['Fund look-through', 'Optional', 'Monthly']], inputs: [['depth', 'enum', 'From onboarding', 'Plain · comfortable · full'], ['max_insights', 'int', '3', '1–5'], ['quiet_days', 'list', 'None', 'Weekdays']], svc: ['get_portfolio_health', 'attribute_performance', 'map_events_to_holdings', 'analyze_fund_overlap'], out: ['Today cards on home', 'Action cards (7 fields)', 'Weekly digest'], cls: 'Personalised research', guard: ['At most 3 insights a day', 'Facts and inferences labelled separately', 'Educational, not advice', 'Every number links to evidence'], trig: [['Scheduled', 'Daily 08:30'], ['Event', 'Material filing on a holding']], sample: 'What changed in my portfolio this week?', trace: '4 TOOLS · RANKED BY ₹ IMPACT' },
+    };
+    const keys = Object.keys(TOOLS).filter(k => s.pf === 'All' || TOOLS[k].persona === s.pf);
+    const sel = TOOLS[keys.includes(s.sel) ? s.sel : keys[0]] || TOOLS.screener;
+    const cell = (v, i) => ({ v, c: i === 0 ? 'var(--ink)' : v === 'Required' ? 'var(--mint)' : 'var(--ink-2)', f: i === 0 ? 'var(--mono)' : 'var(--sans)', s: i === 0 ? '12px' : '13px' });
+    const chip = (t, mono, col) => ({ t, font: mono ? 'var(--mono)' : 'var(--sans)', line: col ? 'var(--mint-line)' : 'var(--line-2)', color: col ? 'var(--mint)' : 'var(--ink)' });
+    const slug = sel.n.toLowerCase().replace(/[^a-z]+/g, '_').replace(/_$/, '');
+    return {
+      pad: p.mobile ? '24px' : '44px',
+      personas: ['All', 'Investor', 'Trader', 'Advisor'].map(t => ({ t, line: t === s.pf ? 'var(--mint-line)' : 'var(--line-2)', color: t === s.pf ? 'var(--mint)' : 'var(--ink-2)', bg: t === s.pf ? 'var(--mint-soft)' : 'transparent', pick: () => this.setState({ pf: t }) })),
+      templates: keys.map(k => { const t = TOOLS[k], on = t === sel; return { n: t.n, persona: t.persona.toUpperCase(), status: t.status.toUpperCase(), short: t.short, pc: PC[t.persona], sc: ST[t.status], line: on ? 'var(--mint-line)' : 'var(--line)', bg: on ? 'var(--mint-soft)' : 'var(--bg-1)', pick: () => this.setState({ sel: k }) }; }),
+      sections: [
+        { n: '01', t: 'Objective', hint: 'What job does it do, for whom?', hasText: true, text: sel.obj },
+        { n: '02', t: 'Questions it should answer', hint: 'Used to route intents', hasChips: true, chips: sel.ask.map(a => chip(a)) },
+        { n: '03', t: 'Data it needs', hint: 'Source, need, freshness', hasRows: true, head: ['Source', 'Need', 'Freshness'], cols: 'minmax(0,1.6fr) minmax(0,0.8fr) minmax(0,1fr)', rows: sel.data.map(r => r.map(cell)) },
+        { n: '04', t: 'Inputs', hint: 'Typed and validated', hasRows: true, head: ['Field', 'Type', 'Default', 'Rule'], cols: 'minmax(0,1.3fr) minmax(0,0.7fr) minmax(0,0.9fr) minmax(0,1.2fr)', rows: sel.inputs.map(r => r.map(cell)) },
+        { n: '05', t: 'Services it calls', hint: 'Deterministic; the model never does the maths', hasChips: true, chips: sel.svc.map(x => chip(x, true, true)) },
+        { n: '06', t: 'What the answer shows', hint: 'Response components', hasChips: true, chips: sel.out.map(x => chip(x)) },
+        { n: '07', t: 'Guardrails', hint: sel.cls, hasChips: true, chips: sel.guard.map(x => chip(x)) },
+        { n: '08', t: 'Triggers and delivery', hint: 'When it runs', hasRows: true, head: ['Type', 'Detail'], cols: 'minmax(0,0.6fr) minmax(0,1.4fr)', rows: sel.trig.map(r => r.map(cell)) },
+      ].map(x => ({ hasText: false, hasChips: false, hasRows: false, chips: [], rows: [], head: [], cols: '1fr', text: '', ...x })),
+      cls: sel.cls, sample: sel.sample, trace: sel.trace, outputs: sel.out,
+      version: sel.status === 'Live' ? 'V1.2 · LIVE' : 'V0.1 · ' + sel.status.toUpperCase(),
+      contract: `tool: ${slug}\npersonas: [${sel.persona.toLowerCase()}]\nclass: ${sel.cls}\ninputs:\n${sel.inputs.map(i => `  ${i[0]}: ${i[1]} = ${i[2]}`).join('\n')}\ndata:\n${sel.data.map(d => `  - ${d[0]} (${d[1].toLowerCase()}, ${d[2]})`).join('\n')}\ncalls: [${sel.svc.join(', ')}]\noutput: { result, as_of, provenance[], calc_version }\nerrors: [E_STALE_DATA, E_PARTIAL, E_TIMEOUT, E_UNAUTHORISED]\npermissions: read_only\naudit: every run`,
+      checks: [['Contract and schemas', sel.status === 'Draft' ? 'Drafted' : 'Approved', sel.status === 'Draft' ? 'var(--ink-3)' : 'var(--mint)'], ['Test prompts · 12', sel.status === 'Draft' ? 'Not run' : '12 / 12 pass', sel.status === 'Draft' ? 'var(--ink-3)' : 'var(--mint)'], ['Data freshness checks', 'Pass', 'var(--mint)'], ['Engineering review', sel.status === 'Live' ? 'Approved' : 'Pending', sel.status === 'Live' ? 'var(--mint)' : 'var(--amber)'], ['Compliance review', sel.status === 'Live' ? 'Approved' : 'Pending', sel.status === 'Live' ? 'var(--mint)' : 'var(--amber)'], ['Rollout', sel.status === 'Live' ? '100% of ' + sel.persona.toLowerCase() + 's' : 'Not started', sel.status === 'Live' ? 'var(--mint)' : 'var(--ink-3)']].map(([t, st, c]) => ({ t, s: st, c })),
+    };
+  }
+}
+</script>
+</body>
+</html>

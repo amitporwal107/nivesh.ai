@@ -12,6 +12,7 @@ Static HTML / JSX / CSS design deliverables. Not part of the production app — 
 | **`Nivesh MVP.html`** | 5-screen MVP per the spec — white minimal, single accent, Keep/Reduce/Add recommendations. |
 | **`Nivesh MVP-print.html`** | Print-to-PDF sheet of the MVP screens (A4 landscape, 10 pages). |
 | **`Nivesh charting · offline.html`** | Charting proposal — **4 tabs**: 1A Chart, 2A Signals & Alerts, 4A Paper Trading, 3A Field Dictionary. Self-contained; open it directly. Added 2026-09-23. |
+| **`Nivesh Copilot · offline.html`** | One-screen, chat-first Copilot redesign — a single shell (threads rail, ask box, answer thread, evidence panel) with Investor / Trader / Advisor modes, desktop and mobile. Self-contained; open it directly. Unpacked sources in `nivesh-copilot/`. Added 2026-10-13. |
 
 ## Offline / standalone variants
 
@@ -69,3 +70,38 @@ Tab order is set in the artifact itself
 
 Only 1A corresponds to a screen that exists today. 2A and 4A are specced as PRDs under `docs/`;
 3A is a reference table, not a screen, and is the cheapest of the three to honour.
+
+### Copilot (`Nivesh Copilot · offline.html` + `nivesh-copilot/`)
+
+The one-screen Copilot redesign, exported from the Claude Design project "Nivesh Copilot redesign"
+on 2026-10-13. The offline file is the export exactly as received. `nivesh-copilot/` holds the same
+design unpacked into its component files so a screen can be read without decoding the bundle; it is
+a read-only copy, not something the offline file loads.
+
+**Every number, name and date in it is sample data** (the design itself labels this "illustrative
+data"). Use it for layout, wording and states, never as a source of figures.
+
+It has no `… · standalone-src.html` sibling. The `.dc.html` files use the design tool's own template
+syntax (`{{ value }}`, `<sc-if>`, `<sc-for>`, `<dc-import>`); each ends with a script block that
+holds the sample data and the view logic.
+
+| File in `nivesh-copilot/` | What it holds |
+|---|---|
+| `Nivesh Copilot.dc.html` | The shell: left rail (threads, tools, workspace, internal), home, ask box with suggestions, the answer thread with its tool steps, the evidence panel, and five answer layouts (portfolio performance, stock research, sector scan, statement import, backtest). |
+| `NVAnswers.dc.html` | Four more answer layouts: events and filings, fund overlap and rebalance, options, and a clarifying question. |
+| `NVTools.dc.html` | Tools: portfolio analysis, recommendations, stock and fund research, screener, markets. |
+| `NVIndex.dc.html` | F&O analyser card for an index or stock (levels, open interest, heavyweights). |
+| `NVTrader.dc.html` | Trader desk. |
+| `NVOptionsLab.dc.html` | Options lab: option chain, open interest, strategy builder. Trader mode only. |
+| `NVPages.dc.html` | Workspace pages: watchlist and alerts, saved, action plan, portfolio ledger, paper trades, settings. |
+| `NVBrokers.dc.html` | Broker connections. |
+| `NVAdvisor.dc.html` | Advisor home: client book and mandate drift. |
+| `NVOnboarding.dc.html` | Five-step onboarding, with broker / CAS / CSV import. |
+| `NVOps.dc.html` | Internal pages: tool registry, feed health, audit log, KPIs. |
+| `NVToolBuilder.dc.html` | Internal tool builder: define a new tool per persona. |
+| `colors_and_type.css` | The design's tokens and `nv-*` helper classes. It names `nivesh-tokens.css` in this folder as its source. |
+
+The shell takes six display settings, useful when comparing states: `theme` (dark / light),
+`surface` (desktop / mobile), `demoState` (none, toolFailure, staleFeed, noPortfolio, smallSample),
+`startView` (home / onboarding), `responseDetail` (compact / full) and `evidencePanel` (on / off).
+In the offline file these are changed from the design tool, not from the page itself.
