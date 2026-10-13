@@ -38,9 +38,10 @@ row that also has carried-forward quantity.
 Operator: register Nivesh as a vendor with MOFSL (tradingapi@motilaloswal.com,
 or "Become a partner" on https://invest.motilaloswal.com/moapi/) with the
 Redirect URL `<host>/api/broker/native/callback/motilal`, and set
-`BROKER_MOTILAL_API_KEY`, `BROKER_MOTILAL_API_SECRET` and
-`BROKER_MOTILAL_VENDOR_INFO` (the vendor short name MOFSL assigns; for a key
-a client created for their own use, that client's code). Optional
+`BROKER_MOTILAL_API_KEY` and `BROKER_MOTILAL_API_SECRET`. A vendor also sets
+`BROKER_MOTILAL_VENDOR_INFO` to the short name MOFSL assigns; for a key a
+client created for their own use it is left unset and the client code from
+the profile read is sent instead (see `_vendor_info`). Optional
 `BROKER_MOTILAL_PUBLIC_IP`: the backend's public IP, sent as ClientPublicIp.
 
 Docs: https://invest.motilaloswal.com/moapi/APIDocumentation/Introduction
@@ -113,6 +114,10 @@ _SESSION_ERROR_CODES = {
     "MO8002",  # Token Expired
     "MO8003",  # Token missing
     "MO1011",  # Client Not Login
+    # "Authorization is Invalid In Header Parameter": what the live API
+    # answers for an authtoken it does not accept (seen 2026-10-14 with a
+    # made-up token, on getprofile and getdpholding alike).
+    "MO2007",
 }
 # Read as "nothing to list" on their own read only — the docs do not say when
 # they are sent.
@@ -151,7 +156,6 @@ def auth_url(*, state: str, redirect_uri: str) -> str:
     api_key = require("BROKER_MOTILAL_API_KEY")
     # Needed for every call after the redirect: fail before the customer leaves.
     require("BROKER_MOTILAL_API_SECRET")
-    require("BROKER_MOTILAL_VENDOR_INFO")
     return f"{_LOGIN_URL}?apikey={quote(api_key, safe='')}"
 
 
@@ -202,10 +206,27 @@ def _headers(token: AccessToken) -> Dict[str, str]:
         "ApiKey": require("BROKER_MOTILAL_API_KEY"),
         "apisecretkey": require("BROKER_MOTILAL_API_SECRET"),
         "accesstoken": str((token.extras or {}).get("access_token") or ""),
-        "vendorinfo": require("BROKER_MOTILAL_VENDOR_INFO"),
+        "vendorinfo": _vendor_info(token),
         "ClientPublicIp": conf("BROKER_MOTILAL_PUBLIC_IP") or "127.0.0.1",
         **_DEVICE_HEADERS,
     }
+
+
+def _vendor_info(token: AccessToken) -> str:
+    """`vendorinfo`: "For client pass client code and for vendor pass vendor
+    short name". A vendor's short name is configuration
+    (`BROKER_MOTILAL_VENDOR_INFO`). For a key a client made for their own use
+    it is that client's code, which Nivesh only learns from the profile read
+    at sign-in — so it is the session's own client code once known, and empty
+    on the two calls before that.
+
+    NOT CONFIRMED LIVE that MOFSL accepts it empty on those two calls. What
+    was seen (2026-10-14): with a made-up authtoken the API answers MO2007
+    for the Authorization header whether this header is absent, empty or a
+    made-up code, so it is not checked first. If a real sign-in is refused
+    over it, the code is in the log line `_post` writes.
+    """
+    return conf("BROKER_MOTILAL_VENDOR_INFO") or str((token.extras or {}).get("user_id") or "")
 
 
 async def _post(path: str, token: AccessToken, what: str, empty_code: str = "") -> Dict[str, Any]:

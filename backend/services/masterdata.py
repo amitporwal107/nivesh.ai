@@ -404,7 +404,7 @@ def find_isin_by_name(name: str, asset_type: str = "") -> Optional[Tuple[str, di
     return best_match
 
 
-def _enrich_broker_row(h: dict) -> dict:
+def enrich_broker_row(h: dict) -> dict:
     """Fill what a broker's export leaves blank — the full name, and a price
     when the file had none — from an exact ISIN lookup.
 
@@ -445,9 +445,9 @@ def validate_and_enrich_holdings(holdings: list) -> list:
     enriched = []
 
     for h in holdings:
-        # A broker's own export is authoritative: see _enrich_broker_row.
+        # A broker's own export is authoritative: see enrich_broker_row.
         if h.get("source") == "broker_export":
-            enriched.append(_enrich_broker_row(h))
+            enriched.append(enrich_broker_row(h))
             continue
 
         # A row that states its ISIN is looked up by it; `ticker` may then be

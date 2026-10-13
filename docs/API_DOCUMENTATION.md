@@ -57,6 +57,8 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
 - A session ends at the broker's expiry, when the broker rejects the token, or when the user logs out of Nivesh on their last device. The account stays listed with `needs_reconnect`.
 - Holdings sync runs on connect, on demand, and daily at 17:30 IST for live sessions (`BROKER_DAILY_SYNC_ENABLED=0` switches the job off).
 - Overlapping sources: the broker wins. See `backend/helpers/holdings_reconcile.py`.
+- A holdings sync stores only rows with a quantity above zero, and fills a missing company name, price
+  and sector from masterdata by ISIN; ticker, quantity and cost are always the broker's.
 - `GET /api/onboarding/state` also returns `broker_accounts`, `broker_accounts_live`, `holdings_count`.
 - `POST /api/portfolio/upload` (and `/upload-raw`) read broker holdings exports (.xlsx / .xls / .csv) from
   Zerodha, Groww, Upstox, Angel One, ICICI Direct, HDFC Securities, Kotak, Dhan, 5paisa and MF Central;

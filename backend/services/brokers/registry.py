@@ -35,9 +35,9 @@ _REQUIRED_SECRETS: Dict[str, tuple] = {
     "dhan": (),
     "groww": (),  # the user brings the day's access token; Nivesh registers no app
     "icicidirect": ("BROKER_ICICIDIRECT_API_KEY", "BROKER_ICICIDIRECT_API_SECRET"),
-    # VENDOR_INFO is the vendor short name MOFSL assigns (for a key a client
-    # made for their own use, that client's code); every call must send it.
-    "motilal": ("BROKER_MOTILAL_API_KEY", "BROKER_MOTILAL_API_SECRET", "BROKER_MOTILAL_VENDOR_INFO"),
+    # BROKER_MOTILAL_VENDOR_INFO (a vendor's short name) is optional: without
+    # it the adapter sends the client code it reads at sign-in.
+    "motilal": ("BROKER_MOTILAL_API_KEY", "BROKER_MOTILAL_API_SECRET"),
 }
 
 

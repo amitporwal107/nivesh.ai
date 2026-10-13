@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from tests.test_broker_hub_reads import (  # noqa: F401  (`sib` is a fixture)
+    broker_rows_as_given,  # autouse: rows stored as the broker gave them
     CLIENT_ID, GOLDBEES, INFY, SECRET, FakeDB, holding_row, hub, hub_position, native_account, sib,
 )
 
