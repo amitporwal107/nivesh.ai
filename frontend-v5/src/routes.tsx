@@ -31,6 +31,7 @@ import LogsPage from "./pages/Logs";
 import ReleasesPage from "./pages/Releases";
 import ReleaseDetailPage from "./pages/Releases/ReleaseDetail";
 import ChatPage from "./pages/Chat";
+import CopilotAppPage from "./pages/CopilotApp";
 import ResearchPage from "./pages/Research";
 import ResearchQAPage from "./pages/Research/QAExercise";
 import FlowLedgerPage from "./pages/FlowLedger";
@@ -126,6 +127,13 @@ export function AppRoutes() {
       <Route element={<RequireAuth><RequireAppAccess><RequireOnboarded><LiteLayout /></RequireOnboarded></RequireAppAccess></RequireAuth>}>
         <Route path="/lite" element={<RouteErrorBoundary pageName="Copilot (Lite)"><ChatPage /></RouteErrorBoundary>} />
       </Route>
+
+      {/* One-screen Copilot — the chat-first shell (design/nivesh-copilot). Its own
+          full-bleed surface with its own rail, so it renders OUTSIDE AppLayout.
+          Additive: /lite and the app below are untouched. The shell routes its
+          own views under /app/* and sends a not-yet-onboarded user to
+          /app/onboarding itself, so RequireOnboarded is not used here. */}
+      <Route path="/app/*" element={<RequireAuth><RequireAppAccess><RouteErrorBoundary pageName="Copilot"><CopilotAppPage /></RouteErrorBoundary></RequireAppAccess></RequireAuth>} />
 
       {/* Filings Intelligence (Design B) — standalone & full-bleed: it is its own
           app surface (own header + ask bar), so it renders OUTSIDE AppLayout to

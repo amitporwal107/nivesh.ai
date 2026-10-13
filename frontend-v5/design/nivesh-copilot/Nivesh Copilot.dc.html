@@ -1,0 +1,2238 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="e99509ad-0335-47fd-b3d9-2179a61ac156"></script>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>/* ============================================================
+   NIVESH · Design System foundations — V5
+   colors_and_type.css
+
+   Source of truth: amitporwal107/nivesh.ai @ dev
+     frontend-v5/design/nivesh-tokens.css   (main · premium fintech)
+     frontend-v5/design/screens-chat.jsx
+     frontend-v5/index.html                 (font loading)
+
+   Premium fintech: DARK-FIRST (default) + matched warm-cream LIGHT.
+   Saturated palette · mint primary · editorial serif display.
+   Toggle theme with  data-theme="dark" | "light"  on a wrapper.
+   ============================================================ */
+
+/* latin-ext */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("cdf41606-c780-4742-bd4b-3c5fcb568b9d") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("baed4997-6d3e-43c6-b0e7-0379968f4635") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("c17a76fd-6307-446a-8f59-7034fb82e23e") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("79e8ca8d-42a4-430c-8392-c542b2faae13") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("57219f0f-592e-4476-bcc6-001073ae236f") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("3293c570-2b08-4f2f-bbaf-1e19907bb4ac") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("238f482b-de70-41a4-8f11-8e5239c88cf9") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("b36a47b7-20e5-4554-bd6f-69b436b3d2f1") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("25a0d95d-39ef-4784-ac1b-eb02ea9ff211") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("43d09ba1-d16b-412f-8c5b-d5c113bdb092") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("57219f0f-592e-4476-bcc6-001073ae236f") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("3293c570-2b08-4f2f-bbaf-1e19907bb4ac") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("238f482b-de70-41a4-8f11-8e5239c88cf9") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("b36a47b7-20e5-4554-bd6f-69b436b3d2f1") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("25a0d95d-39ef-4784-ac1b-eb02ea9ff211") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("43d09ba1-d16b-412f-8c5b-d5c113bdb092") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+
+:root, [data-theme="dark"] {
+  /* surfaces — near-black, layered */
+  --bg-0: #06080F;
+  --bg-1: #0A0E1A;
+  --bg-2: #10162A;
+  --bg-3: #181F38;
+  --bg-4: #232B48;
+  --bg-glass: rgba(18, 26, 50, 0.55);
+  --bg-spot-a: rgba(106, 240, 168, 0.06);  /* mint spotlight */
+  --bg-spot-b: rgba(255, 181, 71, 0.05);   /* amber spotlight */
+
+  /* hairlines */
+  --line:   rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.10);
+  --line-3: rgba(255, 255, 255, 0.18);
+
+  /* ink (text) */
+  --ink:   #F5F7FF;
+  --ink-2: #BCC4DC;
+  --ink-3: #7A839C;
+  --ink-4: #4A526A;
+  --ink-5: #2E3550;
+
+  /* accents — saturated */
+  --mint: #6AF0A8;  --mint-2: #36C57E;  --mint-soft: rgba(106,240,168,.12);  --mint-line: rgba(106,240,168,.28);
+  --amber:#FFB547;  --amber-2:#E68E1A;  --amber-soft:rgba(255,181,71,.12);   --amber-line:rgba(255,181,71,.30);
+  --indigo:#8E97FF; --indigo-2:#5B66E8; --indigo-soft:rgba(142,151,255,.13); --indigo-line:rgba(142,151,255,.30);
+  --danger:#FF6B7A; --danger-2:#D43B4D; --danger-soft:rgba(255,107,122,.12); --danger-line:rgba(255,107,122,.30);
+  --rose: #FF8DC7;
+
+  /* type */
+  --display: "Instrument Serif", "Fraunces", Georgia, serif; /* @kind font */
+  --sans:    "Inter Tight", "Inter", system-ui, -apple-system, sans-serif; /* @kind font */
+  --mono:    "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace; /* @kind font */
+
+  /* shadows — inset highlight + deep drop */
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 48px -24px rgba(0,0,0,0.6);
+  --shadow-pop:  0 1px 0 rgba(255,255,255,0.06) inset, 0 40px 80px -32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+
+  /* radii */
+  --radius-xs: 6px;  --radius-sm: 10px;  --radius-md: 14px;  --radius-lg: 20px;  --radius-xl: 28px;
+}
+
+[data-theme="light"] {
+  --bg-0: #F6F4ED;  --bg-1: #FFFFFF;  --bg-2: #F1EEE3;  --bg-3: #E7E3D4;  --bg-4: #DAD5C2;
+  --bg-glass: rgba(255,255,255,0.65);
+  --bg-spot-a: rgba(36,158,100,0.07);
+  --bg-spot-b: rgba(214,122,28,0.06);
+
+  --line: rgba(20,18,12,0.08);  --line-2: rgba(20,18,12,0.14);  --line-3: rgba(20,18,12,0.24);
+
+  --ink: #12100A;  --ink-2: #46412F;  --ink-3: #7A745E;  --ink-4: #A39B82;  --ink-5: #CFC9B5;
+
+  --mint: #0E8A55;  --mint-2: #146B45;  --mint-soft: rgba(14,138,85,.10);  --mint-line: rgba(14,138,85,.28);
+  --amber:#B86A12;  --amber-2:#8E4F09;  --amber-soft:rgba(184,106,18,.10);  --amber-line:rgba(184,106,18,.28);
+  --indigo:#4F58D6; --indigo-2:#3A42B5; --indigo-soft:rgba(79,88,214,.09);  --indigo-line:rgba(79,88,214,.28);
+  --danger:#C5303E; --danger-2:#962331; --danger-soft:rgba(197,48,62,.08);  --danger-line:rgba(197,48,62,.28);
+  --rose: #C25092;
+
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.5) inset, 0 18px 36px -20px rgba(40,30,10,0.18);
+  --shadow-pop:  0 1px 0 rgba(255,255,255,0.6) inset, 0 32px 60px -28px rgba(40,30,10,0.24), 0 0 0 1px rgba(0,0,0,0.04);
+}
+
+/* ─── frame primitive — sets the canvas + spotlight wash ─── */
+.nv-frame {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--bg-0);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+  position: relative;
+  letter-spacing: -0.005em;
+}
+.nv-frame::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 700px at 88% -10%, var(--bg-spot-a), transparent 60%),
+    radial-gradient(900px 800px at 3% 105%, var(--bg-spot-b), transparent 60%);
+}
+.nv-frame > * { position: relative; z-index: 1; }
+
+/* ─── type helpers ─── */
+.nv-serif { font-family: var(--display); font-weight: 400; letter-spacing: -0.02em; }
+.nv-mono  { font-family: var(--mono); }
+.nv-num   { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+/* semantic type scale (V5 chat) */
+.nv-synthesis { font-family: var(--display); font-weight: 400; font-size: 32px; line-height: 1.15; letter-spacing: -0.02em; color: var(--ink); }
+.nv-h1        { font-family: var(--display); font-weight: 400; font-size: 28px; line-height: 1.18; letter-spacing: -0.02em; color: var(--ink); }
+.nv-prose     { font-family: var(--sans); font-weight: 400; font-size: 15px; line-height: 1.6; color: var(--ink-2); }
+.nv-body      { font-family: var(--sans); font-weight: 400; font-size: 14px; line-height: 1.55; color: var(--ink-2); }
+.nv-eyebrow   { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+.nv-metric    { font-family: var(--display); font-weight: 400; font-size: 32px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+
+/* ─── cards ─── */
+.nv-card   { background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-card); }
+.nv-card-2 { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.nv-glass  { background: var(--bg-glass); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border: 1px solid var(--line-2); border-radius: var(--radius-md); }
+
+/* ─── pills ─── */
+.nv-pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2); background: transparent; }
+.nv-pill-mint   { color: var(--mint);   border-color: var(--mint-line);   background: var(--mint-soft); }
+.nv-pill-amber  { color: var(--amber);  border-color: var(--amber-line);  background: var(--amber-soft); }
+.nv-pill-indigo { color: var(--indigo); border-color: var(--indigo-line); background: var(--indigo-soft); }
+.nv-pill-danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-soft); }
+.nv-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
+
+/* ─── buttons ─── */
+.nv-btn { font-family: var(--sans); font-size: 14px; font-weight: 500; letter-spacing: -0.005em; padding: 11px 18px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all .15s ease; }
+.nv-btn:hover { border-color: var(--line-3); }
+.nv-btn-primary { border-color: transparent; font-weight: 500; }
+[data-theme="dark"]  .nv-btn-primary { background: var(--mint); color: #06120B; }
+[data-theme="light"] .nv-btn-primary { background: var(--ink); color: var(--bg-1); }
+
+.nv-hr { height: 1px; background: var(--line); border: 0; }
+
+/* ─── brand mark ─── */
+.nv-mark {
+  font-family: var(--display);
+  display: inline-grid; place-items: center;
+  background: linear-gradient(140deg, var(--ink) 0%, var(--ink-2) 100%);
+  color: var(--bg-0);
+  border-radius: 8px; font-weight: 500;
+  width: 28px; height: 28px; font-size: 17px; line-height: 1;
+}
+[data-theme="dark"] .nv-mark { background: linear-gradient(140deg, var(--mint) 0%, var(--mint-2) 100%); color: #06120B; }
+</style>
+<style>/* ============================================================
+   NIVESH · Design System foundations — V5
+   colors_and_type.css
+
+   Source of truth: amitporwal107/nivesh.ai @ dev
+     frontend-v5/design/nivesh-tokens.css   (main · premium fintech)
+     frontend-v5/design/screens-chat.jsx
+     frontend-v5/index.html                 (font loading)
+
+   Premium fintech: DARK-FIRST (default) + matched warm-cream LIGHT.
+   Saturated palette · mint primary · editorial serif display.
+   Toggle theme with  data-theme="dark" | "light"  on a wrapper.
+   ============================================================ */
+
+/* latin-ext */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("cdf41606-c780-4742-bd4b-3c5fcb568b9d") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("baed4997-6d3e-43c6-b0e7-0379968f4635") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("c17a76fd-6307-446a-8f59-7034fb82e23e") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("79e8ca8d-42a4-430c-8392-c542b2faae13") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 450;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("65c61ecc-42ef-40e4-bfe1-bddc4a48f1d0") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("becbec77-9225-489a-a375-85f18c8adf0e") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("a160ee61-ce34-40a7-a9f4-bfed8b597135") format('woff2');
+  unicode-range: U+1F00-1FFF;
+}
+/* greek */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("464c82e2-007b-492b-b63d-e3db80a198ff") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("35bc3656-41b4-45df-a75b-02c91b0f4782") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("e61f905f-9601-4f11-b191-9d828e1aeb72") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Inter Tight';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("bd51aa88-bd11-4b1f-9259-5e1c46076061") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("57219f0f-592e-4476-bcc6-001073ae236f") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("3293c570-2b08-4f2f-bbaf-1e19907bb4ac") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("238f482b-de70-41a4-8f11-8e5239c88cf9") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("b36a47b7-20e5-4554-bd6f-69b436b3d2f1") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("25a0d95d-39ef-4784-ac1b-eb02ea9ff211") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("43d09ba1-d16b-412f-8c5b-d5c113bdb092") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("57219f0f-592e-4476-bcc6-001073ae236f") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("3293c570-2b08-4f2f-bbaf-1e19907bb4ac") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* greek */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("238f482b-de70-41a4-8f11-8e5239c88cf9") format('woff2');
+  unicode-range: U+0370-0377, U+037A-037F, U+0384-038A, U+038C, U+038E-03A1, U+03A3-03FF;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("b36a47b7-20e5-4554-bd6f-69b436b3d2f1") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("25a0d95d-39ef-4784-ac1b-eb02ea9ff211") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("43d09ba1-d16b-412f-8c5b-d5c113bdb092") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+
+:root, [data-theme="dark"] {
+  /* surfaces — near-black, layered */
+  --bg-0: #06080F;
+  --bg-1: #0A0E1A;
+  --bg-2: #10162A;
+  --bg-3: #181F38;
+  --bg-4: #232B48;
+  --bg-glass: rgba(18, 26, 50, 0.55);
+  --bg-spot-a: rgba(106, 240, 168, 0.06);  /* mint spotlight */
+  --bg-spot-b: rgba(255, 181, 71, 0.05);   /* amber spotlight */
+
+  /* hairlines */
+  --line:   rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.10);
+  --line-3: rgba(255, 255, 255, 0.18);
+
+  /* ink (text) */
+  --ink:   #F5F7FF;
+  --ink-2: #BCC4DC;
+  --ink-3: #7A839C;
+  --ink-4: #4A526A;
+  --ink-5: #2E3550;
+
+  /* accents — saturated */
+  --mint: #6AF0A8;  --mint-2: #36C57E;  --mint-soft: rgba(106,240,168,.12);  --mint-line: rgba(106,240,168,.28);
+  --amber:#FFB547;  --amber-2:#E68E1A;  --amber-soft:rgba(255,181,71,.12);   --amber-line:rgba(255,181,71,.30);
+  --indigo:#8E97FF; --indigo-2:#5B66E8; --indigo-soft:rgba(142,151,255,.13); --indigo-line:rgba(142,151,255,.30);
+  --danger:#FF6B7A; --danger-2:#D43B4D; --danger-soft:rgba(255,107,122,.12); --danger-line:rgba(255,107,122,.30);
+  --rose: #FF8DC7;
+
+  /* type */
+  --display: "Instrument Serif", "Fraunces", Georgia, serif; /* @kind font */
+  --sans:    "Inter Tight", "Inter", system-ui, -apple-system, sans-serif; /* @kind font */
+  --mono:    "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace; /* @kind font */
+
+  /* shadows — inset highlight + deep drop */
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 24px 48px -24px rgba(0,0,0,0.6);
+  --shadow-pop:  0 1px 0 rgba(255,255,255,0.06) inset, 0 40px 80px -32px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04);
+
+  /* radii */
+  --radius-xs: 6px;  --radius-sm: 10px;  --radius-md: 14px;  --radius-lg: 20px;  --radius-xl: 28px;
+}
+
+[data-theme="light"] {
+  --bg-0: #F6F4ED;  --bg-1: #FFFFFF;  --bg-2: #F1EEE3;  --bg-3: #E7E3D4;  --bg-4: #DAD5C2;
+  --bg-glass: rgba(255,255,255,0.65);
+  --bg-spot-a: rgba(36,158,100,0.07);
+  --bg-spot-b: rgba(214,122,28,0.06);
+
+  --line: rgba(20,18,12,0.08);  --line-2: rgba(20,18,12,0.14);  --line-3: rgba(20,18,12,0.24);
+
+  --ink: #12100A;  --ink-2: #46412F;  --ink-3: #7A745E;  --ink-4: #A39B82;  --ink-5: #CFC9B5;
+
+  --mint: #0E8A55;  --mint-2: #146B45;  --mint-soft: rgba(14,138,85,.10);  --mint-line: rgba(14,138,85,.28);
+  --amber:#B86A12;  --amber-2:#8E4F09;  --amber-soft:rgba(184,106,18,.10);  --amber-line:rgba(184,106,18,.28);
+  --indigo:#4F58D6; --indigo-2:#3A42B5; --indigo-soft:rgba(79,88,214,.09);  --indigo-line:rgba(79,88,214,.28);
+  --danger:#C5303E; --danger-2:#962331; --danger-soft:rgba(197,48,62,.08);  --danger-line:rgba(197,48,62,.28);
+  --rose: #C25092;
+
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.5) inset, 0 18px 36px -20px rgba(40,30,10,0.18);
+  --shadow-pop:  0 1px 0 rgba(255,255,255,0.6) inset, 0 32px 60px -28px rgba(40,30,10,0.24), 0 0 0 1px rgba(0,0,0,0.04);
+}
+
+/* ─── frame primitive — sets the canvas + spotlight wash ─── */
+.nv-frame {
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--bg-0);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+  position: relative;
+  letter-spacing: -0.005em;
+}
+.nv-frame::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 700px at 88% -10%, var(--bg-spot-a), transparent 60%),
+    radial-gradient(900px 800px at 3% 105%, var(--bg-spot-b), transparent 60%);
+}
+.nv-frame > * { position: relative; z-index: 1; }
+
+/* ─── type helpers ─── */
+.nv-serif { font-family: var(--display); font-weight: 400; letter-spacing: -0.02em; }
+.nv-mono  { font-family: var(--mono); }
+.nv-num   { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+/* semantic type scale (V5 chat) */
+.nv-synthesis { font-family: var(--display); font-weight: 400; font-size: 32px; line-height: 1.15; letter-spacing: -0.02em; color: var(--ink); }
+.nv-h1        { font-family: var(--display); font-weight: 400; font-size: 28px; line-height: 1.18; letter-spacing: -0.02em; color: var(--ink); }
+.nv-prose     { font-family: var(--sans); font-weight: 400; font-size: 15px; line-height: 1.6; color: var(--ink-2); }
+.nv-body      { font-family: var(--sans); font-weight: 400; font-size: 14px; line-height: 1.55; color: var(--ink-2); }
+.nv-eyebrow   { font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-3); }
+.nv-metric    { font-family: var(--display); font-weight: 400; font-size: 32px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+
+/* ─── cards ─── */
+.nv-card   { background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-card); }
+.nv-card-2 { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-md); }
+.nv-glass  { background: var(--bg-glass); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); border: 1px solid var(--line-2); border-radius: var(--radius-md); }
+
+/* ─── pills ─── */
+.nv-pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--ink-2); background: transparent; }
+.nv-pill-mint   { color: var(--mint);   border-color: var(--mint-line);   background: var(--mint-soft); }
+.nv-pill-amber  { color: var(--amber);  border-color: var(--amber-line);  background: var(--amber-soft); }
+.nv-pill-indigo { color: var(--indigo); border-color: var(--indigo-line); background: var(--indigo-soft); }
+.nv-pill-danger { color: var(--danger); border-color: var(--danger-line); background: var(--danger-soft); }
+.nv-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; }
+
+/* ─── buttons ─── */
+.nv-btn { font-family: var(--sans); font-size: 14px; font-weight: 500; letter-spacing: -0.005em; padding: 11px 18px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; transition: all .15s ease; }
+.nv-btn:hover { border-color: var(--line-3); }
+.nv-btn-primary { border-color: transparent; font-weight: 500; }
+[data-theme="dark"]  .nv-btn-primary { background: var(--mint); color: #06120B; }
+[data-theme="light"] .nv-btn-primary { background: var(--ink); color: var(--bg-1); }
+
+.nv-hr { height: 1px; background: var(--line); border: 0; }
+
+/* ─── brand mark ─── */
+.nv-mark {
+  font-family: var(--display);
+  display: inline-grid; place-items: center;
+  background: linear-gradient(140deg, var(--ink) 0%, var(--ink-2) 100%);
+  color: var(--bg-0);
+  border-radius: 8px; font-weight: 500;
+  width: 28px; height: 28px; font-size: 17px; line-height: 1;
+}
+[data-theme="dark"] .nv-mark { background: linear-gradient(140deg, var(--mint) 0%, var(--mint-2) 100%); color: #06120B; }
+</style>
+<script src="0d1c3f6c-a762-41ba-a59e-9b140b345490"></script>
+<style>
+html,body{margin:0;height:100%;background:#06080F}
+a{color:var(--mint);text-decoration:none}a:hover{text-decoration:underline}
+input::placeholder{color:var(--ink-3)}
+</style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:{{ pagePad }};box-sizing:border-box">
+<div class="nv-frame" data-theme="{{ theme }}" style="width:{{ frameW }};height:{{ frameH }};border-radius:{{ frameR }};border:{{ frameBorder }};box-sizing:border-box;min-height:640px;display:grid;grid-template-columns:{{ cols }};overflow:hidden">
+
+<sc-if value="{{ navOpen }}" hint-placeholder-val="{{ false }}"><div sc-camel-on-click="{{ toggleNav }}" style="position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:5"></div></sc-if>
+<sc-if value="{{ railVisible }}" hint-placeholder-val="{{ true }}">
+<aside style="min-width:0;border-right:1px solid var(--line);background:var(--bg-0);position:{{ railPos }};top:0;left:0;bottom:0;width:{{ railW }};z-index:6;box-shadow:{{ railShadow }};box-sizing:border-box;display:flex;flex-direction:column;gap:20px;padding:16px 14px;overflow:auto">
+  <div sc-camel-on-click="{{ goHome }}" style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:4px 6px">
+    <span class="nv-mark">न</span>
+    <span style="font-family:var(--display);font-size:22px;letter-spacing:-0.02em">Nivesh</span>
+    <span sc-camel-on-click="{{ toggleMode }}" class="nv-pill" style="margin-left:auto;cursor:pointer;color:{{ modeColor }};border-color:{{ modeLine }}">{{ modeLabel }} ⇄</span>
+  </div>
+  <button sc-camel-on-click="{{ goHome }}" style="display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:14px;font-weight:500;cursor:pointer;transition:all .15s ease" style-hover="border-color:var(--line-3)">
+    <span>＋ New question</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">⌘K</span>
+  </button>
+  <div style="display:flex;flex-direction:column;gap:2px">
+    <div class="nv-eyebrow" style="padding:0 10px 8px">Threads</div>
+    <sc-for list="{{ threads }}" as="h" hint-placeholder-count="5">
+      <div sc-camel-on-click="{{ h.open }}" style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:8px;font-size:13px;color:{{ h.color }};background:{{ h.bg }};cursor:pointer" style-hover="background:var(--bg-2);color:var(--ink)">
+        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.t }}</span>
+        <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-4);flex:none;padding-top:2px">{{ h.k }}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:2px">
+    <div class="nv-eyebrow" style="padding:0 10px 8px">Tools</div>
+    <sc-for list="{{ toolsNav }}" as="tn" hint-placeholder-count="5">
+      <div sc-camel-on-click="{{ tn.open }}" style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:8px;font-size:13px;color:var(--ink-2);cursor:pointer;background:{{ tn.bg }}" style-hover="background:var(--bg-2)"><span>{{ tn.t }}</span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.08em;color:var(--ink-4)">{{ tn.k }}</span></div>
+    </sc-for>
+    <div style="height:14px"></div>
+    <div class="nv-eyebrow" style="padding:0 10px 8px">Workspace</div>
+    <sc-for list="{{ saved }}" as="sv" hint-placeholder-count="3">
+      <div sc-camel-on-click="{{ sv.open }}" style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:8px;font-size:13px;color:var(--ink-2);cursor:pointer;background:{{ sv.bg }}" style-hover="background:var(--bg-2)">
+        <span>{{ sv.t }}</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ sv.n }}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:2px">
+    <div class="nv-eyebrow" style="padding:0 10px 8px">Internal</div>
+    <sc-for list="{{ opsNav }}" as="sv" hint-placeholder-count="4">
+      <div sc-camel-on-click="{{ sv.open }}" style="padding:7px 10px;border-radius:8px;font-size:13px;color:var(--ink-3);cursor:pointer;background:{{ sv.bg }}" style-hover="background:var(--bg-2);color:var(--ink)">{{ sv.t }}</div>
+    </sc-for>
+  </div>
+  <div sc-camel-on-click="{{ goSettings }}" style="margin-top:auto;display:flex;align-items:center;gap:10px;padding:12px 10px;border-top:1px solid var(--line);cursor:pointer">
+    <div style="width:32px;height:32px;border-radius:50%;background:var(--bg-3);border:1px solid var(--line-2);display:grid;place-items:center;font-family:var(--mono);font-size:11px;color:var(--ink-2);flex:none">AP</div>
+    <div style="display:flex;flex-direction:column;gap:2px;min-width:0">
+      <span style="font-size:13px">Amit Porwal</span>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">₹24.8 L · SYNCED 2M AGO</span>
+    </div>
+  </div>
+</aside>
+</sc-if>
+
+<main style="display:flex;flex-direction:column;min-height:0;min-width:0">
+  <sc-if value="{{ compactBar }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:center;gap:10px;padding:{{ mTopPad }} 16px 10px;border-bottom:1px solid var(--line)">
+      <span sc-camel-on-click="{{ toggleNav }}" style="width:34px;height:34px;border-radius:10px;border:1px solid var(--line-2);display:grid;place-items:center;font-size:16px;color:var(--ink);cursor:pointer">≡</span>
+      <span sc-camel-on-click="{{ goHome }}" style="display:flex;align-items:center;gap:8px;cursor:pointer"><span class="nv-mark" style="width:26px;height:26px;font-size:15px">न</span><span style="font-family:var(--display);font-size:20px">Nivesh</span></span>
+      <span style="flex:1"></span>
+      <span sc-camel-on-click="{{ toggleEv }}" class="nv-pill" style="cursor:pointer">Evidence</span>
+      <div sc-camel-on-click="{{ goSettings }}" style="width:30px;height:30px;border-radius:50%;background:var(--bg-3);border:1px solid var(--line-2);display:grid;place-items:center;font-family:var(--mono);font-size:10px;color:var(--ink-2);cursor:pointer">AP</div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ threadBar }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 28px;border-bottom:1px solid var(--line)">
+      <span class="nv-pill" style="color:{{ kindColor }};border-color:{{ kindLine }}">{{ kindLabel }}</span>
+      <span style="flex:1;min-width:0;font-size:14px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ question }}</span>
+      <button style="padding:7px 12px;border-radius:10px;border:1px solid var(--line-2);background:transparent;color:var(--ink-2);font-family:var(--sans);font-size:13px;cursor:pointer" style-hover="border-color:var(--line-3);color:var(--ink)">Save report</button>
+      <button sc-camel-on-click="{{ toggleEv }}" style="padding:7px 12px;border-radius:10px;border:1px solid var(--line-2);background:{{ evBtnBg }};color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Evidence</button>
+    </div>
+  </sc-if>
+
+  <div ref="{{ scrollRef }}" style="flex:1;overflow:auto;padding:0 {{ padX }}">
+    <sc-if value="{{ isToolBuilder }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVToolBuilder" mobile="{{ mobile }}" hint-size="100%,1400px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isOptLab }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVOptionsLab" mobile="{{ mobile }}" on-ask="{{ askFn }}" hint-size="100%,1100px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isTrader }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVTrader" mobile="{{ mobile }}" on-ask="{{ askFn }}" on-nav="{{ navFn }}" hint-size="100%,1200px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isBrokers }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVBrokers" mobile="{{ mobile }}" on-ask="{{ askFn }}" on-nav="{{ navFn }}" hint-size="100%,1200px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isTool }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVTools" tool="{{ tool }}" mobile="{{ mobile }}" on-ask="{{ askFn }}" on-nav="{{ navFn }}" hint-size="100%,1000px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isPage }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVPages" page="{{ page }}" mobile="{{ mobile }}" on-ask="{{ askFn }}" on-nav="{{ navFn }}" hint-size="100%,900px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isOps }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVOps" page="{{ opsPage }}" mobile="{{ mobile }}" on-nav="{{ navFn }}" hint-size="100%,900px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isAdvisor }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVAdvisor" mobile="{{ mobile }}" on-ask="{{ askFn }}" on-open-client="{{ openClient }}" hint-size="100%,1000px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ isOnboarding }}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NVOnboarding" mobile="{{ mobile }}" on-done="{{ onboardDone }}" hint-size="100%,800px"></dc-import>
+    </sc-if>
+
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+      <div style="max-width:840px;margin:0 auto;padding:{{ heroPad }} 0 40px;display:flex;flex-direction:column;gap:44px">
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <span class="nv-eyebrow">Monday, 13 October · Market closes in 58 min</span>
+          <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:{{ h1Size }};line-height:1.02;letter-spacing:-0.025em;text-wrap:pretty">What would you like to <em style="color:var(--mint)">know</em>, Amit?</h1>
+          <p style="margin:0;font-size:16px;line-height:1.6;color:var(--ink-2);max-width:600px;text-wrap:pretty">{{ heroSub }}</p>
+          <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:11px;letter-spacing:0.04em;color:var(--ink-3);padding-top:4px">
+            <sc-for list="{{ market }}" as="m" hint-placeholder-count="5"><span>{{ m.k }} <span class="nv-num" style="color:{{ m.c }}">{{ m.v }}</span></span></sc-for>
+          </div>
+          <sc-if value="{{ noPf }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:16px 18px;border-radius:14px;border:1px solid var(--mint-line);background:var(--mint-soft);margin-top:8px">
+              <div style="display:flex;flex-direction:column;gap:4px;flex:1 1 260px"><span style="font-size:15px;font-weight:500">Connect a portfolio and every answer is about your money.</span><span style="font-size:13px;color:var(--ink-2)">Read-only broker link, NSDL/CDSL CAS or a CSV. Research questions work either way.</span></div>
+              <button sc-camel-on-click="{{ goOnboarding }}" style="padding:10px 16px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Connect</button>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+            <span class="nv-eyebrow">{{ todayTitle }}</span>
+            <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-4)">ILLUSTRATIVE DATA</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+            <sc-for list="{{ today }}" as="b" hint-placeholder-count="3">
+              <div sc-camel-on-click="{{ b.open }}" style="display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:14px;background:var(--bg-1);border:1px solid var(--line);box-shadow:var(--shadow-card);cursor:pointer;transition:all .15s ease" style-hover="border-color:var(--line-3)">
+                <span style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3)"><span class="nv-dot" style="background:{{ b.color }}"></span>{{ b.tag }}</span>
+                <div style="font-family:var(--display);font-size:21px;line-height:1.2;letter-spacing:-0.015em;text-wrap:pretty">{{ b.t }}</div>
+                <div style="display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.5">
+                  <div style="display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px"><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ink-4);padding-top:3px">FACT</span><span style="color:var(--ink-2)">{{ b.fact }}</span></div>
+                  <div style="display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px"><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ink-4);padding-top:3px">{{ b.k2 }}</span><span style="color:var(--ink-3)">{{ b.why }}</span></div>
+                </div>
+                <div style="margin-top:auto;font-size:13px;color:var(--ink)">{{ b.cta }} ›</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <span class="nv-eyebrow">Try asking</span>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));column-gap:28px">
+            <sc-for list="{{ tries }}" as="s" hint-placeholder-count="6">
+              <div sc-camel-on-click="{{ s.open }}" style="display:flex;flex-direction:column;gap:4px;padding:14px 2px;border-bottom:1px solid var(--line);cursor:pointer;color:var(--ink-2)" style-hover="color:var(--ink)">
+                <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.12em;color:{{ s.color }}">{{ s.k }}</span>
+                <span style="font-size:15px;line-height:1.45">{{ s.t }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isThread }}" hint-placeholder-val="{{ false }}">
+      <div style="max-width:880px;margin:0 auto;padding:36px 0 32px;display:flex;flex-direction:column;gap:24px">
+        <div style="align-self:flex-end;max-width:620px;display:flex;flex-direction:column;gap:8px;align-items:flex-end">
+          <sc-if value="{{ isImport }}" hint-placeholder-val="{{ false }}">
+            <span style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-2);font-size:13px">
+              <span style="font-family:var(--mono);font-size:10px;padding:3px 6px;border-radius:4px;background:var(--danger-soft);color:var(--danger)">PDF</span>
+              NSDL_CAS_Sep2026.pdf <span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">412 KB · PASSWORD UNLOCKED</span>
+            </span>
+          </sc-if>
+          <div style="padding:14px 18px;border-radius:18px 18px 4px 18px;background:var(--bg-3);border:1px solid var(--line-2);font-size:15px;line-height:1.55">{{ question }}</div>
+        </div>
+
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          <span class="nv-mark" style="flex:none">न</span>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:22px">
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3)"><span class="nv-pill" style="color:{{ classColor }};border-color:{{ classLine }}">{{ classLabel }}</span><span>{{ classNote }}</span></div>
+
+            <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1)">
+              <div sc-camel-on-click="{{ toggleTrace }}" style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;cursor:pointer">
+                <span style="display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-2)">
+                  <span class="nv-dot" style="background:{{ traceDot }}"></span>{{ traceLabel }}
+                </span>
+                <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ traceToggle }}</span>
+              </div>
+              <sc-if value="{{ traceVisible }}" hint-placeholder-val="{{ true }}">
+                <div style="border-top:1px solid var(--line);padding:6px 16px 10px">
+                  <sc-for list="{{ stepsShown }}" as="st" hint-placeholder-count="3">
+                    <div style="display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:baseline;padding:6px 0;font-size:13px">
+                      <span style="font-family:var(--mono);color:{{ st.color }}">{{ st.mark }}</span>
+                      <div style="display:flex;flex-wrap:wrap;gap:2px 12px;min-width:0"><span style="font-family:var(--mono);font-size:12px;color:var(--ink-2);width:220px;max-width:100%">{{ st.tool }}</span>
+                      <span style="color:var(--ink-3)">{{ st.out }}</span></div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+
+            <sc-if value="{{ showPartial }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-start;padding:12px 16px;border-radius:12px;border:1px solid var(--danger-line);background:var(--danger-soft)">
+                <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--danger);padding-top:2px">PARTIAL RESULT</span>
+                <span style="flex:1 1 240px;font-size:13px;line-height:1.5;color:var(--ink-2)">{{ partialText }}</span>
+                <span sc-camel-on-click="{{ retry }}" style="font-size:13px;color:var(--ink);cursor:pointer">Retry ›</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ showStale }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-wrap:wrap;gap:8px 12px;align-items:flex-start;padding:12px 16px;border-radius:12px;border:1px solid var(--amber-line);background:var(--amber-soft)">
+                <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber);padding-top:2px">STALE DATA</span>
+                <span style="flex:1 1 240px;font-size:13px;line-height:1.5;color:var(--ink-2)">NSE prices last updated at 13:02, 90 minutes ago. Values and returns below use those prices; filings are current.</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ansNoPf }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div class="nv-synthesis" style="text-wrap:pretty">I can’t see your holdings yet, so I <span style="color:var(--amber)">can’t answer this one</span> for your money.</div>
+                <p class="nv-prose" style="margin:0;text-wrap:pretty">What I can say without them: the Nifty 50 returned +11.4% over 12 months, led by capital goods and pharma while banks lagged. Connect a portfolio and I’ll answer for your holdings, stock by stock.</p>
+                <div style="display:flex;flex-wrap:wrap;gap:8px">
+                  <button sc-camel-on-click="{{ goOnboarding }}" style="padding:9px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Connect a broker</button>
+                  <button sc-camel-on-click="{{ goImport }}" style="padding:9px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Upload a CAS</button>
+                  <button sc-camel-on-click="{{ goScan }}" style="padding:9px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">See what’s leading the market</button>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ansChild }}" hint-placeholder-val="{{ false }}">
+              <dc-import name="NVAnswers" kind="{{ kind }}" mobile="{{ mobile }}" full="{{ full }}" on-ask="{{ askFn }}" hint-size="100%,900px"></dc-import>
+            </sc-if>
+            <sc-if value="{{ ansPerf }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:22px">
+                <div style="display:flex;flex-direction:column;gap:12px">
+                  <div class="nv-synthesis" style="text-wrap:pretty">You trailed the Nifty 50 by 5.3 points this year, and <span style="color:var(--amber)">three stocks explain nearly three-quarters</span> of the gap.</div>
+                  <p class="nv-prose" style="margin:0;text-wrap:pretty">Your portfolio returned +6.1% against +11.4% for the Nifty 50 TRI over the last 12 months. Tata Motors, Bajaj Finance and IndusInd Bank cost you 3.9 points between them; idle cash cost another 0.8.</p>
+                </div>
+
+                <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:12px;border:1px solid var(--amber-line);background:var(--amber-soft)">
+                  <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber);padding-top:2px;flex:none">DATA GAP</span>
+                  <span style="flex:1;font-size:13px;line-height:1.5;color:var(--ink-2)">3 holdings (IRFC, Zomato, SGB 2029) were imported without purchase history. They count toward value but are excluded from XIRR.</span>
+                  <span sc-camel-on-click="{{ goImport }}" style="font-size:13px;color:var(--ink);cursor:pointer;white-space:nowrap">Add transactions ›</span>
+                </div>
+
+                <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+                  <div style="display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)">
+                    <span class="nv-eyebrow">Where the gap came from · 1Y vs Nifty 50 TRI · pts</span>
+                    <span class="nv-eyebrow">Calculated</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;padding:8px 18px 14px">
+                    <sc-for list="{{ attribution }}" as="a" hint-placeholder-count="6">
+                      <div style="display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr) 56px;gap:14px;align-items:center;padding:8px 0;font-size:13px">
+                        <span style="color:var(--ink-2)">{{ a.k }}</span>
+                        <div style="position:relative;height:10px;background:var(--bg-2);border-radius:3px">
+                          <span style="position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--line-3)"></span>
+                          <span style="position:absolute;top:0;bottom:0;left:{{ a.left }};width:{{ a.width }};background:{{ a.color }};border-radius:2px"></span>
+                        </div>
+                        <span class="nv-num" style="text-align:right;font-family:var(--mono);font-size:12px;color:{{ a.color }}">{{ a.v }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;justify-content:space-between;gap:12px">
+                    <span class="nv-eyebrow">Options to consider · ranked by ₹ impact</span>
+                    <span class="nv-eyebrow">Nothing happens until you confirm</span>
+                  </div>
+                  <sc-for list="{{ actions }}" as="a" hint-placeholder-count="3">
+                    <div style="border-radius:14px;background:var(--bg-1);border:1px solid var(--line);overflow:hidden">
+                      <div sc-camel-on-click="{{ a.toggle }}" style="display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:14px;align-items:center;padding:16px 18px;cursor:pointer">
+                        <span style="font-family:var(--mono);font-size:13px;color:{{ a.color }}">{{ a.n }}</span>
+                        <div style="display:flex;flex-direction:column;gap:4px;min-width:0">
+                          <span style="font-size:15px;font-weight:500;text-wrap:pretty">{{ a.t }}</span>
+                          <span style="font-size:13px;color:var(--ink-3);text-wrap:pretty">{{ a.d }}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:14px">
+                          <span class="nv-num" style="font-family:var(--mono);font-size:12px;color:{{ a.color }};white-space:nowrap">{{ a.impact }}</span>
+                          <span style="font-family:var(--mono);font-size:12px;color:var(--ink-3)">{{ a.chev }}</span>
+                        </div>
+                      </div>
+                      <sc-if value="{{ a.open }}" hint-placeholder-val="{{ false }}">
+                        <div style="border-top:1px solid var(--line);padding:6px 18px 16px {{ fieldIndent }};display:flex;flex-direction:column">
+                          <sc-for list="{{ a.fields }}" as="f" hint-placeholder-count="7">
+                            <div style="display:grid;grid-template-columns:{{ fieldCols }};gap:4px 14px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;line-height:1.55">
+                              <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase;padding-top:2px">{{ f.k }}</span>
+                              <span style="color:var(--ink-2);text-wrap:pretty">{{ f.v }}</span>
+                            </div>
+                          </sc-for>
+                          <div style="display:flex;gap:8px;padding-top:14px">
+                            <button sc-camel-on-click="{{ a.primary }}" style="padding:8px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">{{ a.btn }}</button>
+                            <button style="padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Not for me</button>
+                          </div>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+                  <div style="display:flex;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)">
+                    <span class="nv-eyebrow">Scenario · current vs options 01 + 03</span>
+                    <span class="nv-eyebrow">Estimate</span>
+                  </div>
+                  <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:12px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase">
+                    <span>Measure</span><span style="text-align:right">Current</span><span style="text-align:right">After</span>
+                  </div>
+                  <sc-for list="{{ scenario }}" as="r" hint-placeholder-count="5">
+                    <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:12px;padding:12px 18px;border-top:1px solid var(--line);font-size:14px">
+                      <span style="color:var(--ink-2)">{{ r.k }}</span>
+                      <span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ r.a }}</span>
+                      <span class="nv-num" style="text-align:right;color:{{ r.c }}">{{ r.b }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--line)">
+                    <span style="font-size:12px;color:var(--ink-3)">Volatility from 3Y daily returns. Tax on FIFO lots under FY26-27 rules.</span>
+                    <div style="display:flex;gap:8px">
+                      <button style="padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Change assumptions</button>
+                      <button style="padding:8px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Add both to my plan</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ ansStock }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:22px">
+                <div style="display:flex;flex-direction:column;gap:12px">
+                  <div class="nv-synthesis" style="text-wrap:pretty">CG Power is a high-quality business <span style="color:var(--amber)">priced for perfection</span>. The fundamentals are strong; the valuation leaves little room for a miss.</div>
+                  <p class="nv-prose" style="margin:0;text-wrap:pretty">ROCE of 42% and eight straight quarters of revenue growth put it near the top of capital goods. At 98× earnings it trades above its own 5-year median and nearly twice the sector. The chart is consolidating near its high, and no breakout has been confirmed.</p>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+                  <span class="nv-eyebrow" style="margin-right:4px">Value types</span>
+                  <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ink-2);border:1px solid var(--line-2);border-radius:4px;padding:2px 6px">REPORTED</span>
+                  <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--indigo);border:1px solid var(--indigo-line);border-radius:4px;padding:2px 6px">CALCULATED</span>
+                  <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--amber);border:1px solid var(--amber-line);border-radius:4px;padding:2px 6px">MODEL</span>
+                  <span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--mint);border:1px solid var(--mint-line);border-radius:4px;padding:2px 6px">AI READ</span>
+                </div>
+
+                <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+                  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;padding:18px">
+                    <div style="display:flex;flex-direction:column;gap:6px">
+                      <span class="nv-eyebrow">01 · Business · NSE CGPOWER · Capital goods</span>
+                      <span style="font-size:17px;font-weight:500">CG Power and Industrial Solutions</span>
+                      <span style="font-size:13px;line-height:1.5;color:var(--ink-3);max-width:420px">Motors, drives, transformers and switchgear. Industrial systems are 62% of revenue, power systems 38%. A semiconductor assembly JV is in build-out.</span>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
+                      <span class="nv-metric">₹682.30</span>
+                      <span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--mint)">+₹8.10 · +1.20%</span>
+                      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)">ON YOUR WATCHLIST · NOT HELD</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:14px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                    <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">02 · Fundamentals · 8 quarters</span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ink-2);border:1px solid var(--line-2);border-radius:4px;padding:1px 5px">REPORTED</span></div>
+                    <div style="display:flex;align-items:flex-end;gap:6px;height:88px">
+                      <sc-for list="{{ quarters }}" as="q" hint-placeholder-count="8">
+                        <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;height:100%">
+                          <span style="display:block;height:{{ q.h }};background:var(--indigo-soft);border-top:2px solid var(--indigo);border-radius:2px 2px 0 0"></span>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-3)"><span>Q2 FY25</span><span>Revenue ₹2,010 → ₹2,896 Cr</span><span>Q1 FY27</span></div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding-top:10px;border-top:1px solid var(--line)">
+                      <sc-for list="{{ stockTiles }}" as="t" hint-placeholder-count="3">
+                        <div style="display:flex;flex-direction:column;gap:2px"><span class="nv-eyebrow">{{ t.k }}</span><span style="font-family:var(--display);font-size:22px">{{ t.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ t.s }}</span></div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:14px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                    <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">03 · Valuation · P/E</span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--indigo);border:1px solid var(--indigo-line);border-radius:4px;padding:1px 5px">CALCULATED</span></div>
+                    <div style="display:flex;align-items:baseline;gap:10px"><span class="nv-metric">98×</span><span style="font-size:13px;color:var(--ink-3)">trailing earnings</span></div>
+                    <div style="position:relative;height:34px;margin-top:4px">
+                      <span style="position:absolute;left:0;right:0;top:14px;height:6px;border-radius:3px;background:var(--bg-3)"></span>
+                      <span style="position:absolute;left:21.6%;top:8px;height:18px;width:1px;background:var(--ink-3)"></span>
+                      <span style="position:absolute;left:45.9%;top:8px;height:18px;width:1px;background:var(--ink-2)"></span>
+                      <span style="position:absolute;left:81%;top:9px;width:16px;height:16px;margin-left:-8px;border-radius:50%;background:var(--amber);border:2px solid var(--bg-1)"></span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:12px">
+                      <div style="display:flex;flex-direction:column;gap:2px"><span class="nv-eyebrow">5Y low</span><span>38×</span></div>
+                      <div style="display:flex;flex-direction:column;gap:2px"><span class="nv-eyebrow">Sector</span><span>54×</span></div>
+                      <div style="display:flex;flex-direction:column;gap:2px"><span class="nv-eyebrow">5Y median</span><span>72×</span></div>
+                      <div style="display:flex;flex-direction:column;gap:2px"><span class="nv-eyebrow">5Y high</span><span>112×</span></div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:1px solid var(--line)">
+                      <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:8px;font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--ink-3)"><span>PEERS</span><span style="text-align:right">P/E</span><span style="text-align:right">ROCE</span><span style="text-align:right">3Y REV</span></div>
+                      <sc-for list="{{ peers }}" as="pr" hint-placeholder-count="5"><div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(3,minmax(0,1fr));gap:8px;font-size:12px"><span style="color:{{ pr.c }}">{{ pr.n }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ pr.pe }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ pr.roce }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ pr.g }}</span></div></sc-for>
+                    </div>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><span class="nv-eyebrow">04 · Technical structure</span><span class="nv-pill nv-pill-amber">Candidate · not confirmed</span></div>
+                    <span style="font-size:14px;line-height:1.5">Range ₹640–700 for 7 weeks, above the 50- and 200-day averages. RSI 58 · MACD above signal · ATR ₹21 · RS vs Nifty 500 +12% over 6 months.</span>
+                    <div style="display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px;font-size:13px;line-height:1.5">
+                      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--mint);padding-top:2px">CONFIRMS IF</span><span style="color:var(--ink-2)">Daily close above ₹702 on ≥ 1.5× average volume</span>
+                      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--danger);padding-top:2px">INVALID IF</span><span style="color:var(--ink-2)">Daily close below ₹636</span>
+                    </div>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                    <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">05 · Ownership &amp; events</span><span class="nv-eyebrow">Sep qtr</span></div>
+                    <sc-for list="{{ holders }}" as="h" hint-placeholder-count="4">
+                      <div style="display:grid;grid-template-columns:80px minmax(0,1fr) 52px 60px;gap:10px;align-items:center;font-size:13px">
+                        <span style="color:var(--ink-2)">{{ h.k }}</span>
+                        <span style="height:6px;border-radius:3px;background:var(--bg-3);overflow:hidden;display:block"><span style="display:block;height:100%;width:{{ h.w }};background:var(--ink-4)"></span></span>
+                        <span class="nv-num" style="text-align:right">{{ h.v }}</span>
+                        <span class="nv-num" style="text-align:right;font-family:var(--mono);font-size:11px;color:{{ h.c }}">{{ h.d }}</span>
+                      </div>
+                    </sc-for>
+                    <span style="font-size:12px;color:var(--ink-3);padding-top:6px;border-top:1px solid var(--line)">Q2 results on 28 Oct · final dividend ₹1.30, ex-date 2 Aug · no promoter pledge · no bulk deals in 30 days</span>
+                  </div>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--mint-line);background:var(--mint-soft)">
+                    <span class="nv-eyebrow" style="color:var(--mint)">06 · Bull case</span>
+                    <sc-for list="{{ bull }}" as="b" hint-placeholder-count="3"><span style="font-size:13px;line-height:1.5;color:var(--ink)">＋ {{ b }}</span></sc-for>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--danger-line);background:var(--danger-soft)">
+                    <span class="nv-eyebrow" style="color:var(--danger)">06 · Bear case</span>
+                    <sc-for list="{{ bear }}" as="b" hint-placeholder-count="3"><span style="font-size:13px;line-height:1.5;color:var(--ink)">− {{ b }}</span></sc-for>
+                  </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                  <span class="nv-eyebrow">07 · Risks, invalidation and missing information</span>
+                  <span style="font-size:13px;line-height:1.55;color:var(--ink-2)">A single quarter of slower order inflow could compress the multiple sharply. The thesis weakens if ROCE falls below 30% or the semiconductor JV needs fresh equity.</span>
+                  <span style="font-size:13px;line-height:1.55;color:var(--amber)">Not assessed: results against analyst expectations. No consensus-estimate feed is connected.</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--indigo-line);background:var(--indigo-soft)">
+                  <span class="nv-eyebrow" style="color:var(--indigo)">08 · Conclusion</span>
+                  <span style="font-family:var(--display);font-size:20px;line-height:1.3">Quality is not in question; price is. On a watchlist, the cleaner entry is a confirmed breakout above ₹702 or a pullback toward the sector multiple.</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ ansScan }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:22px">
+                <div style="display:flex;flex-direction:column;gap:12px">
+                  <div class="nv-synthesis" style="text-wrap:pretty">Capital goods and pharma are <span style="color:var(--mint)">gaining strength</span> while banks fade. 11 stocks pass the breakout screen; 4 sit in improving sectors.</div>
+                  <p class="nv-prose" style="margin:0;text-wrap:pretty">The market is range-bound with breadth at 46%. You hold 21% in banks, the weakest sector on both 1-month and 3-month relative strength.</p>
+                </div>
+                <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+                  <div style="display:flex;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">Sector rotation · RS vs Nifty 500</span><span class="nv-eyebrow">analyze_sector_rotation</span></div>
+                  <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,0.8fr)) minmax(0,1fr) minmax(0,0.8fr);gap:12px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase">
+                    <span>Sector</span><span style="text-align:right">1M</span><span style="text-align:right">3M</span><span style="text-align:right">Trend</span><span style="text-align:right">You hold</span>
+                  </div>
+                  <sc-for list="{{ sectors }}" as="r" hint-placeholder-count="5">
+                    <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,0.8fr)) minmax(0,1fr) minmax(0,0.8fr);gap:12px;padding:12px 18px;border-top:1px solid var(--line);font-size:14px;align-items:center">
+                      <span>{{ r.k }}</span>
+                      <span class="nv-num" style="text-align:right;color:{{ r.c1 }}">{{ r.m1 }}</span>
+                      <span class="nv-num" style="text-align:right;color:{{ r.c3 }}">{{ r.m3 }}</span>
+                      <span style="text-align:right"><span class="nv-pill" style="color:{{ r.color }};border-color:{{ r.line }};background:{{ r.soft }}">{{ r.trend }}</span></span>
+                      <span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ r.hold }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+                  <div style="display:flex;flex-direction:column;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)">
+                    <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">Breakout screen · Nifty 500 · 11 matches</span><span style="font-size:12px;color:var(--ink-3);cursor:pointer">Edit rules</span></div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px">
+                      <sc-for list="{{ rules }}" as="r" hint-placeholder-count="4"><span style="font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2)">{{ r }}</span></sc-for>
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.8fr) 70px minmax(0,1fr);gap:12px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase">
+                    <span>Stock</span><span>Trigger</span><span style="text-align:right">Volume</span><span style="text-align:right">Invalid if</span>
+                  </div>
+                  <sc-for list="{{ candidates }}" as="c" hint-placeholder-count="4">
+                    <div sc-camel-on-click="{{ c.open }}" style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.8fr) 70px minmax(0,1fr);gap:12px;padding:12px 18px;border-top:1px solid var(--line);font-size:14px;align-items:center;cursor:pointer" style-hover="background:var(--bg-2)">
+                      <div style="display:flex;flex-direction:column;gap:2px"><span style="font-weight:500">{{ c.n }}</span><span style="font-size:12px;color:var(--ink-3)">{{ c.s }}</span></div>
+                      <span style="font-size:13px;color:var(--ink-2)">{{ c.t }}</span>
+                      <span class="nv-num" style="text-align:right;font-family:var(--mono);font-size:12px;color:var(--mint)">{{ c.v }}</span>
+                      <span class="nv-num" style="text-align:right;font-size:13px;color:var(--ink-3)">{{ c.x }}</span>
+                    </div>
+                  </sc-for>
+                  <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;padding:14px 18px;border-top:1px solid var(--line);background:var(--bg-2)">
+                    <span style="font-size:13px;color:var(--ink-2);flex:1;min-width:260px">These are screen matches, not recommendations. In the past five years, breakouts from this screen confirmed 41% of the time.</span>
+                    <span sc-camel-on-click="{{ goBacktest }}" style="font-size:13px;color:var(--mint);cursor:pointer;white-space:nowrap">Validate this screen ›</span>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ ansImport }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:22px">
+                <div style="display:flex;flex-direction:column;gap:12px">
+                  <div class="nv-synthesis" style="text-wrap:pretty">Your statement adds <span style="color:var(--mint)">6 new holdings</span>. 4 overlap with your Zerodha sync, and 2 need your help to match.</div>
+                  <p class="nv-prose" style="margin:0;text-wrap:pretty">Nothing is saved until you confirm. Duplicates are merged by ISIN so no holding is counted twice.</p>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+                  <sc-for list="{{ importStats }}" as="s" hint-placeholder-count="4">
+                    <div style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-radius:14px;border:1px solid {{ s.line }};background:var(--bg-1)">
+                      <span class="nv-eyebrow" style="color:{{ s.color }}">{{ s.k }}</span>
+                      <span class="nv-metric">{{ s.v }}</span>
+                      <span style="font-size:12px;color:var(--ink-3)">{{ s.d }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+                  <div style="display:flex;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow" style="color:var(--danger)">Needs your help · 2 unresolved</span><span class="nv-eyebrow">normalise_instruments</span></div>
+                  <sc-for list="{{ unresolved }}" as="u" hint-placeholder-count="2">
+                    <div style="display:flex;flex-wrap:wrap;gap:12px 16px;padding:14px 18px;border-top:1px solid var(--line);align-items:center">
+                      <div style="flex:1 1 180px;display:flex;flex-direction:column;gap:3px"><span style="font-family:var(--mono);font-size:12px">{{ u.raw }}</span><span style="font-size:12px;color:var(--ink-3)">{{ u.meta }}</span></div>
+                      <div style="flex:1 1 180px;display:flex;flex-direction:column;gap:3px"><span style="font-size:14px">→ {{ u.match }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--amber)">{{ u.conf }}</span></div>
+                      <div style="display:flex;gap:6px">
+                        <button style="padding:7px 12px;border-radius:10px;border:1px solid var(--mint-line);background:var(--mint-soft);color:var(--mint);font-family:var(--sans);font-size:13px;cursor:pointer">Accept</button>
+                        <button style="padding:7px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Choose</button>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                  <div style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:260px">
+                    <span style="font-size:13px;color:var(--ink-2)">Transactions before Apr 2021 aren't in this statement. Returns on those lots will use the statement's cost value.</span>
+                    <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)">READ-ONLY · PARSED IN MEMORY · FILE DELETED AFTER IMPORT</span>
+                  </div>
+                  <div style="display:flex;gap:8px">
+                    <button style="padding:9px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Review all 53 rows</button>
+                    <button sc-camel-on-click="{{ goPerf }}" style="padding:9px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Confirm import</button>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ ansBacktest }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:22px">
+                <div style="display:flex;flex-direction:column;gap:12px">
+                  <sc-if value="{{ smallSample }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:12px;border:1px solid var(--amber-line);background:var(--amber-soft)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber);padding-top:2px;flex:none">SAMPLE TOO SMALL</span><span style="font-size:13px;line-height:1.5;color:var(--ink-2)">This run has 27 trades from a 30-session window. Nivesh needs at least 200 before calling a result; the numbers below are shown for transparency, not as evidence.</span></div>
+                    <div class="nv-synthesis" style="text-wrap:pretty">27 trades can’t tell you whether this setup works. <span style="color:var(--amber)">Keep paper trading</span> before trusting it.</div>
+                  </sc-if>
+                  <sc-if value="{{ bigSample }}" hint-placeholder-val="{{ true }}"><div class="nv-synthesis" style="text-wrap:pretty">The breakout screen <span style="color:var(--danger)">does not beat the baseline</span> after costs. It adds risk without adding return.</div></sc-if>
+                  <sc-if value="{{ bigSample }}" hint-placeholder-val="{{ true }}"><p class="nv-prose" style="margin:0;text-wrap:pretty">Across 3,904 trades since 2021, the average net result per trade was −0.04%, against +0.02% for buying a random eligible stock at the next open. The result held across all five walk-forward periods.</p></sc-if>
+                </div>
+                <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+                  <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)">
+                    <span class="nv-eyebrow">Equity curve · net of costs · ₹100 start</span>
+                    <span class="nv-pill nv-pill-danger">Not validated</span>
+                  </div>
+                  <div style="padding:16px 18px 8px">
+                    <svg sc-camel-view-box="0 0 600 160" sc-camel-preserve-aspect-ratio="none" style="width:100%;height:160px;display:block">
+                      <line x1="0" y1="40" x2="600" y2="40" stroke="var(--line)"></line>
+                      <line x1="0" y1="80" x2="600" y2="80" stroke="var(--line)"></line>
+                      <line x1="0" y1="120" x2="600" y2="120" stroke="var(--line)"></line>
+                      <polyline points="{{ baseCurve }}" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 4"></polyline>
+                      <polyline points="{{ stratCurve }}" fill="none" stroke="var(--danger)" stroke-width="2" stroke-linejoin="round"></polyline>
+                    </svg>
+                    <div style="display:flex;justify-content:space-between;gap:12px;padding-top:8px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)">
+                      <span>JAN 2021</span>
+                      <span style="display:flex;gap:16px"><span style="color:var(--danger)">— SCREEN</span><span>- - BASELINE</span></span>
+                      <span>SEP 2026</span>
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));border-top:1px solid var(--line)">
+                    <sc-for list="{{ btMetrics }}" as="m" hint-placeholder-count="6">
+                      <div style="display:flex;flex-direction:column;gap:4px;padding:14px 18px;border-right:1px solid var(--line)">
+                        <span class="nv-eyebrow">{{ m.k }}</span>
+                        <span class="nv-num" style="font-family:var(--display);font-size:22px;color:{{ m.c }}">{{ m.v }}</span>
+                        <span style="font-size:11px;color:var(--ink-3)">{{ m.s }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+                  <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                    <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">Strategy as tested</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">v3 · a91f3e2</span></div>
+                    <sc-for list="{{ spec }}" as="s" hint-placeholder-count="5">
+                      <div style="display:grid;grid-template-columns:80px minmax(0,1fr);gap:10px;font-size:13px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);padding-top:2px">{{ s.k }}</span><span style="color:var(--ink-2)">{{ s.v }}</span></div>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--indigo-line);background:var(--indigo-soft)">
+                    <span class="nv-eyebrow" style="color:var(--indigo)">How sure is this</span>
+                    <span style="font-size:13px;line-height:1.55;color:var(--ink-2)">95% confidence interval for the edge per trade: −0.21% to +0.13%. It includes zero, so the screen shows no reliable edge either way.</span>
+                    <span style="font-size:13px;line-height:1.55;color:var(--ink-2)">Point-in-time universe including 38 delisted stocks. The 2026 holdout was used once and not retuned.</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                    <span class="nv-eyebrow">By market regime · net per trade</span>
+                    <sc-for list="{{ btRegime }}" as="r" hint-placeholder-count="3"><div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding-bottom:8px;border-bottom:1px solid var(--line)"><span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num" style="color:{{ r.c }}">{{ r.v }}</span></div></sc-for>
+                    <span style="font-size:12px;line-height:1.5;color:var(--ink-3)">Gross +0.21% → net −0.04% per trade. Turnover 31× a year; average exposure 64% of capital.</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+                    <span class="nv-eyebrow">Why trades failed · 2,303 losing trades</span>
+                    <sc-for list="{{ btFail }}" as="r" hint-placeholder-count="3"><div style="display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 40px;gap:10px;align-items:center;font-size:13px"><span style="color:var(--ink-2)">{{ r.k }}</span><span style="height:6px;border-radius:3px;background:var(--bg-3);display:block;overflow:hidden"><span style="display:block;height:100%;width:{{ r.v }};background:var(--danger)"></span></span><span class="nv-num" style="text-align:right">{{ r.v }}</span></div></sc-for>
+                    <span style="font-size:12px;line-height:1.5;color:var(--ink-3)">38% of breakouts closed back inside the range within 3 sessions.</span>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ answerReady }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;flex-direction:column;gap:14px">
+                <div style="display:flex;flex-wrap:wrap;gap:8px">
+                  <sc-for list="{{ followUps }}" as="f" hint-placeholder-count="3">
+                    <span sc-camel-on-click="{{ f.open }}" style="padding:8px 14px;border-radius:999px;border:1px solid var(--line-2);font-size:13px;color:var(--ink-2);cursor:pointer;transition:all .15s ease" style-hover="border-color:var(--mint-line);color:var(--ink)">{{ f.t }}</span>
+                  </sc-for>
+                </div>
+                <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-4)">EDUCATIONAL RESEARCH, NOT INVESTMENT ADVICE · ILLUSTRATIVE DATA · SEE EVIDENCE FOR SOURCES</span>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="padding:12px {{ padX }} {{ padB }}">
+    <div class="nv-glass" style="position:relative;max-width:880px;margin:0 auto;display:flex;flex-direction:column;gap:10px;padding:14px 14px 12px 18px;border-radius:20px;box-shadow:var(--shadow-pop)">
+      <sc-if value="{{ ssOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute;left:0;right:0;bottom:calc(100% + 10px);z-index:20;max-height:{{ ssMaxH }};overflow:auto;display:flex;flex-direction:column;border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-pop)">
+          <sc-if value="{{ ssEmpty }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line)">
+              <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="nv-eyebrow" style="color:var(--mint)">{{ ssPersonaSrc }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)">ANSWERS AT {{ ssLevel }} DEPTH</span></div>
+              <span style="font-family:var(--display);font-size:22px;line-height:1.2">{{ ssPersona }}</span>
+              <span style="font-size:13px;line-height:1.5;color:var(--ink-2)">{{ ssWhy }}</span>
+              <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ ssSignals }}" as="g" hint-placeholder-count="5"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;padding:4px 8px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2)">{{ g }}</span></sc-for></div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span style="font-size:12px;color:var(--ink-3);margin-right:4px">Not you?</span><sc-for list="{{ ssPersonas }}" as="pp" hint-placeholder-count="5"><span sc-camel-on-mouse-down="{{ pp.pick }}" style="padding:5px 10px;border-radius:999px;font-size:12px;cursor:pointer;border:1px solid {{ pp.line }};color:{{ pp.color }};background:{{ pp.bg }}">{{ pp.t }}</span></sc-for></div>
+            </div>
+          </sc-if>
+          <div style="display:flex;flex-direction:column;padding:6px">
+            <span class="nv-eyebrow" style="padding:10px 12px 6px">{{ ssTitle }}</span>
+            <sc-for list="{{ ssItems }}" as="it" hint-placeholder-count="5">
+              <div sc-camel-on-mouse-down="{{ it.pick }}" style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;background:{{ it.bg }}" style-hover="background:var(--bg-2)">
+                <span style="font-family:var(--mono);font-size:12px;color:var(--ink-3);width:14px;flex:none">{{ it.icon }}</span>
+                <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ it.t }}</span><span style="font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ it.why }}</span></div>
+                <span class="nv-pill" style="flex:none;color:{{ it.color }};border-color:{{ it.line }}">{{ it.tool }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <sc-if value="{{ ssEmpty }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:4px 18px 14px"><span class="nv-eyebrow" style="margin-right:4px">Tools for you</span><sc-for list="{{ ssTools }}" as="tl" hint-placeholder-count="3"><span sc-camel-on-mouse-down="{{ tl.pick }}" style="padding:6px 12px;border-radius:10px;font-size:12px;cursor:pointer;border:1px solid var(--line-2);color:var(--ink-2)" style-hover="border-color:var(--mint-line);color:var(--ink)">{{ tl.t }} ›</span></sc-for></div>
+          </sc-if>
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 18px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-4)"><span>↑↓ MOVE · TAB COMPLETE · ENTER ASK · ESC CLOSE</span><span>RANKED FOR YOUR PERSONA AND HOLDINGS</span></div>
+        </div>
+      </sc-if>
+      <input value="{{ draft }}" sc-camel-on-change="{{ onDraft }}" sc-camel-on-key-down="{{ onKey }}" sc-camel-on-focus="{{ onFocus }}" sc-camel-on-blur="{{ onBlur }}" placeholder="Ask about your portfolio, a stock, a sector, a filing or a strategy…" style="border:0;outline:0;background:transparent;color:var(--ink);font-family:var(--sans);font-size:16px;padding:6px 0">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px 12px">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span sc-camel-on-click="{{ goImport }}" title="Attach a statement" style="width:30px;height:30px;border-radius:50%;border:1px solid var(--line-2);display:grid;place-items:center;color:var(--ink-2);cursor:pointer">＋</span>
+          <sc-for list="{{ scopes }}" as="sc" hint-placeholder-count="3">
+            <span sc-camel-on-click="{{ sc.toggle }}" style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;padding:6px 10px;border-radius:999px;cursor:pointer;border:1px solid {{ sc.line }};color:{{ sc.color }};background:{{ sc.bg }}">{{ sc.t }}</span>
+          </sc-for>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span style="display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3);white-space:nowrap"><span class="nv-dot" style="background:{{ freshColor }}"></span>{{ freshText }}</span>
+          <button sc-camel-on-click="{{ send }}" style="width:36px;height:36px;border-radius:12px;border:0;background:var(--mint);color:#06120B;font-size:16px;cursor:pointer;display:grid;place-items:center">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<sc-if value="{{ showEv }}" hint-placeholder-val="{{ true }}">
+  <aside style="min-width:0;border-left:1px solid var(--line);background:var(--bg-0);display:flex;flex-direction:column;overflow:hidden;position:{{ evPos }};top:{{ evTop }};left:0;right:0;bottom:0;z-index:5;border-radius:{{ evRadius }};box-shadow:{{ evShadow }}">
+    <sc-if value="{{ mobile }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)">
+        <span class="nv-eyebrow">Evidence</span>
+        <span sc-camel-on-click="{{ toggleEv }}" style="font-size:13px;color:var(--ink-2);cursor:pointer">Close</span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:22px 20px;overflow:auto;display:flex;flex-direction:column;gap:26px">
+        <span class="nv-eyebrow">Your context</span>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <span style="font-size:12px;color:var(--ink-3)">Portfolio value</span>
+          <span class="nv-metric">{{ ctxValue }}</span>
+          <span class="nv-num" style="font-family:var(--mono);font-size:11px;color:var(--danger)">{{ ctxDay }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <span class="nv-eyebrow">Sector mix</span>
+          <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;gap:2px">
+            <span style="width:34%;background:var(--amber)"></span><span style="width:18%;background:var(--indigo)"></span><span style="width:12%;background:var(--rose)"></span><span style="width:36%;background:var(--bg-4)"></span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;color:var(--ink-2)"><span>Financials 34%</span><span>IT 18%</span><span>Auto 12%</span><span>Other 36%</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">What Nivesh remembers</span><span style="font-size:12px;color:var(--ink-3);cursor:pointer">Edit</span></div>
+          <sc-for list="{{ memory }}" as="m" hint-placeholder-count="4">
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding-bottom:8px;border-bottom:1px solid var(--line)"><span style="color:var(--ink-3)">{{ m.k }}</span><span>{{ m.v }}</span></div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <span class="nv-eyebrow">Data feeds</span>
+          <sc-for list="{{ feeds }}" as="f" hint-placeholder-count="5">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px">
+              <span style="display:flex;align-items:center;gap:8px;color:var(--ink-2)"><span class="nv-dot" style="background:{{ f.color }}"></span>{{ f.t }}</span>
+              <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ f.s }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ isThread }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;min-height:0;height:100%">
+        <div style="display:flex;gap:4px;padding:12px 14px;border-bottom:1px solid var(--line)">
+          <sc-for list="{{ evTabs }}" as="t" hint-placeholder-count="3">
+            <span sc-camel-on-click="{{ t.pick }}" style="flex:1;text-align:center;padding:7px 0;border-radius:8px;font-size:13px;cursor:pointer;color:{{ t.color }};background:{{ t.bg }}">{{ t.t }}</span>
+          </sc-for>
+        </div>
+        <div style="flex:1;overflow:auto;padding:18px 20px;display:flex;flex-direction:column;gap:14px">
+          <sc-if value="{{ tabTools }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ evTools }}" as="t" hint-placeholder-count="5">
+                <div style="display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)">
+                  <span style="font-family:var(--mono);font-size:12px;color:{{ t.color }}">{{ t.mark }}</span>
+                  <span style="font-family:var(--mono);font-size:12px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis">{{ t.n }}</span>
+                  <span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ t.ms }}</span>
+                </div>
+              </sc-for>
+              <span style="font-size:12px;line-height:1.5;color:var(--ink-3);padding-top:10px">Calculations run in tested services. The model chooses tools and writes the explanation; it does not produce the numbers.</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ tabSources }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <sc-for list="{{ evSources }}" as="s" hint-placeholder-count="4">
+                <div style="display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg-1)">
+                  <span style="font-size:13px">{{ s.t }}</span>
+                  <span style="display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)"><span>{{ s.k }}</span><span>{{ s.ts }}</span></span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ tabMethod }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <sc-for list="{{ evMethod }}" as="m" hint-placeholder-count="5">
+                <div style="display:flex;flex-direction:column;gap:3px;padding:9px 0;border-bottom:1px solid var(--line)">
+                  <span class="nv-eyebrow">{{ m.k }}</span><span style="font-size:13px;color:var(--ink-2)">{{ m.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <div style="display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:10px;border:1px solid var(--amber-line);background:var(--amber-soft)">
+            <span class="nv-eyebrow" style="color:var(--amber)">Data quality</span>
+            <sc-for list="{{ evQuality }}" as="w" hint-placeholder-count="2"><span style="font-size:12px;line-height:1.5;color:var(--ink-2)">{{ w }}</span></sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </aside>
+</sc-if>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark'|'light'&quot;},&quot;surface&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;desktop&quot;,&quot;mobile&quot;],&quot;default&quot;:&quot;desktop&quot;,&quot;tsType&quot;:&quot;'desktop'|'mobile'&quot;},&quot;demoState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;toolFailure&quot;,&quot;staleFeed&quot;,&quot;noPortfolio&quot;,&quot;smallSample&quot;],&quot;default&quot;:&quot;none&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Demo states&quot;},&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;home&quot;,&quot;onboarding&quot;],&quot;default&quot;:&quot;home&quot;,&quot;tsType&quot;:&quot;'home'|'onboarding'&quot;,&quot;section&quot;:&quot;Demo states&quot;},&quot;responseDetail&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;compact&quot;,&quot;full&quot;],&quot;default&quot;:&quot;compact&quot;,&quot;tsType&quot;:&quot;'compact'|'full'&quot;},&quot;evidencePanel&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { navOpen: false, view: 'home', page: 'ledger', opsPage: 'tools', mode: 'investor', client: null, kind: 'perf', q: '', step: 0, traceOpen: false, openAction: 0, evTab: 'tools', evOpen: null, draft: '', w: 1440, scopes: { Portfolio: true, Markets: true, Filings: true } };
+  scrollRef = React.createRef();
+  onResize = () => this.setState({ w: window.innerWidth });
+  componentDidMount() { this.onResize(); window.addEventListener('resize', this.onResize); if (this.props.startView === 'onboarding') this.setState({ view: 'onboarding' }); }
+  componentWillUnmount() { clearInterval(this.timer); window.removeEventListener('resize', this.onResize); }
+  STEPS = {
+    perf: [['get_portfolio_health', '47 holdings · ₹24.8 L · synced 2m ago'], ['calculate_xirr', '14.2% XIRR · 44 of 47 holdings have history'], ['compare_benchmark', '1Y: portfolio +6.1% · Nifty 50 TRI +11.4%'], ['attribute_performance', 'Stock, sector and cash effects · monthly'], ['get_company_results', 'Latest results for 6 underperformers'], ['simulate_rebalance', '2 scenarios against current allocation'], ['estimate_tax_impact', 'FIFO lots · FY26-27 rules']],
+    stock: [['get_quote', '₹682.30 · +1.20% · NSE delayed 15 min'], ['get_financial_statements', '8 quarters · 5 annual reports'], ['get_fundamentals', 'ROCE 42% · ROE 31% · net cash'], ['analyze_valuation', 'P/E 98× · 5Y median 72× · sector 54×'], ['compare_peers', 'ABB, Siemens, Havells, Bharat Bijlee'], ['analyze_shareholding', 'FII +0.8 pt · DII +0.4 pt · no pledge'], ['search_announcements', '9 filings in 90 days · 1 material'], ['analyze_chart_pattern', '7-week range ₹640–700 · not broken']],
+    scan: [['analyze_sector_rotation', '19 sectors · 1M and 3M RS'], ['detect_market_regime', 'Range-bound · breadth 46%'], ['scan_stocks', 'Nifty 500 · 4 rules · 11 matches'], ['detect_volume_anomaly', '7 of 11 above 1.5× volume'], ['get_fundamentals', 'ROCE ≥ 15% filter applied']],
+    import: [['parse_statement', '2 demat accounts · 6 MF folios · 53 rows'], ['normalise_instruments', '51 of 53 matched by ISIN or symbol'], ['reconcile_accounts', 'Against Zerodha sync · 41 matched'], ['detect_duplicates', '4 duplicates merged by ISIN']],
+    events: [['search_announcements', '142 NSE + BSE filings today'], ['map_events_to_holdings', '6 touch your holdings or watchlist'], ['classify_materiality', '3 material · 3 routine'], ['analyze_news_impact', 'Comparable past events for 3 filings'], ['monitor_regulatory_events', '1 RBI draft · financials'], ['detect_bulk_deals', '1 bulk deal on your watchlist']],
+    funds: [['get_fund_holdings', '6 schemes · Aug 2026 factsheets'], ['analyze_fund_overlap', 'Pairwise and against direct equity'], ['compute_look_through', '312 underlying companies'], ['compare_target_allocation', 'Equity 84% vs 85–90% target'], ['estimate_tax_impact', 'FIFO lots · ₹1.25 L LTCG exemption'], ['simulate_rebalance', '4 constraints · minimise tax']],
+    options: [['get_options_chain', 'NIFTY 30 Oct · 62 strikes'], ['get_implied_volatility', 'IV 13.8% · 34th percentile 1Y'], ['build_strategy', 'Buy 22,400 CE · sell 22,800 CE'], ['calculate_greeks', 'Delta +0.29 · theta −₹310/day'], ['simulate_payoff', 'Expiry and 7-day curves'], ['calculate_transaction_costs', '₹126 round trip']],
+    clarify: [['classify_intent', 'Rebalance request · target unclear'], ['get_user_profile', 'Risk profile Moderate · no target saved']],
+    backtest: [['define_strategy', 'Rules confirmed · version v3'], ['load_point_in_time_universe', 'Nifty 500 2021–2026 · incl. 38 delisted'], ['backtest_strategy', '3,904 signals · next-open entry'], ['calculate_transaction_costs', '0.25% round trip + 5 bps slippage'], ['run_walk_forward_test', '5 sequential folds'], ['evaluate_signal', 'vs random eligible stock · same exits']],
+  };
+  detect = (q) => {
+    if (/import|upload|\bcas\b|connect|broker|csv|statement/i.test(q)) return 'import';
+    if (/option|payoff|call spread|put spread|greeks|straddle|strangle|\biv\b/i.test(q)) return 'options';
+    if (/backtest|paper trade|strategy|validate|outperform buying/i.test(q)) return 'backtest';
+    if (/^rebalance( my portfolio)?\.?$/i.test(q.trim())) return 'clarify';
+    if (/overlap|mutual fund|my funds|regular plan|tax-efficient|rebalance|switch/i.test(q)) return 'funds';
+    if (/announcement|filing|pledge|news|bulk deal|regulatory|rbi/i.test(q)) return 'events';
+    if (/sector|rotation|screen|scan|breakout|find (stocks|companies)|discover|unusual volume/i.test(q)) return 'scan';
+    if (/my portfolio|underperform|my holdings|my risk|rebalance|changed/i.test(q)) return 'perf';
+    if (/research|analy[sz]e|compare|stock|tell me about|results|peers|fundamental|technical/i.test(q)) return 'stock';
+    return 'perf';
+  };
+  ask = (q, kind) => {
+    kind = kind || this.detect(q);
+    const max = this.STEPS[kind].length + 1;
+    clearInterval(this.timer);
+    this.setState({ focus: false, hi: 0, navOpen: false, view: 'thread', q, kind, step: 0, draft: '', traceOpen: false, openAction: 0, evTab: 'tools' });
+    if (this.scrollRef.current) this.scrollRef.current.scrollTop = 0;
+    this.timer = setInterval(() => this.setState(s => {
+      if (s.step >= max) { clearInterval(this.timer); return null; }
+      return { step: s.step + 1 };
+    }), 420);
+  };
+  nav = (v) => {
+    clearInterval(this.timer);
+    this.setState({ navOpen: false });
+    if (v.startsWith('page:')) this.setState({ view: 'page', page: v.slice(5) });
+    else if (v.startsWith('ops:')) this.setState({ view: 'ops', opsPage: v.slice(4) });
+    else if (v.startsWith('tool:')) this.setState({ view: 'tool', tool: v.slice(5) });
+    else this.setState({ view: v });
+    if (this.scrollRef.current) this.scrollRef.current.scrollTop = 0;
+  };
+  openClient = (n) => { this.setState({ client: n, mode: 'advisor' }); this.ask(`Why is ${n}’s portfolio off its mandate, and what should I review first?`, 'perf'); };
+  onboardDone = (mode) => { this.setState({ mode: mode || 'investor', client: null }); this.nav(mode === 'advisor' ? 'advisor' : 'home'); };
+  toggleMode = (e) => { if (e && e.stopPropagation) e.stopPropagation(); const m = { investor: 'trader', trader: 'advisor', advisor: 'investor' }[this.state.mode] || 'investor'; this.setState({ mode: m, client: null, persona: null }); this.nav(m === 'advisor' ? 'advisor' : m === 'trader' ? 'trader' : 'home'); };
+  PERSONAS = {
+    longterm: ['Long-term wealth builder', 'Comfortable', 'You mostly hold funds through SIPs, trade about twice a month and keep positions for years. Answers focus on allocation, costs, tax and goals.', ['84% EQUITY', '6 SIP FUNDS', 'AVG HOLD 3.2 YRS', '2 TRADES / MONTH', 'GOAL · RETIRE 2045'], ['analysis', 'recommend', 'research']],
+    newbie: ['New investor', 'Plain', 'Answers use plain words, explain each number and suggest one clear next step at a time.', ['FEW HOLDINGS', 'FIRST SIP < 2 YRS', 'NO F&O'], ['analysis', 'recommend']],
+    trader: ['Active trader', 'Full', 'Answers include indicators, levels, sample sizes and backtests, with paper trading for anything new.', ['10+ TRADES / MONTH', 'WATCHLIST 12', 'F&O DATA ON'], ['optlab', 'screener', 'markets']],
+    income: ['Income seeker', 'Comfortable', 'Answers focus on dividends, debt funds, withdrawal tax and keeping volatility low.', ['DIVIDEND STOCKS', 'DEBT 30%+', 'SWP ACTIVE'], ['markets', 'research']],
+    advisor: ['Advisor / MFD', 'Full', 'Answers are about your client book: mandates, drift, SIPs, KYC and client-ready reviews.', ['87 CLIENTS', '₹64 CR AUM', 'ARN-128459'], ['analysis', 'recommend']],
+  };
+  SUGG = {
+    longterm: [['Why is my portfolio underperforming the Nifty 50?', 'perf', 'You trail by 5.3 pts this year'], ['How much overlap do I have across my mutual funds?', 'funds', '3 funds share up to 68% of holdings'], ['Rebalance toward my target allocation tax-efficiently', 'funds', 'Equity 84% vs your 85–90% target'], ['Should I reduce Bajaj Finance before its results?', 'perf', '9.8% weight · results on 21 Oct'], ['Show important announcements affecting my holdings today', 'events', '3 material filings today'], ['Which of my funds are Regular plans?', 'funds', '3 Regular plans cost ₹6,100 a year extra']],
+    newbie: [['What does my portfolio actually own?', 'perf', 'A plain-language breakdown'], ['Is my money spread out enough?', 'perf', 'One stock is nearly a tenth of it'], ['Why did my portfolio fall today?', 'perf', '−0.5% today'], ['Should I have an index fund?', 'funds', 'You hold one small index fund']],
+    trader: [['Which stocks are breaking out with above-average volume?', 'scan', '11 matches on the breakout screen'], ['Is the CG Power breakout confirmed?', 'stock', 'On your watchlist · range ₹640–700'], ['Backtest this breakout screen over the last five years', 'backtest', 'Validate before trusting it'], ['Compare a Nifty bull call spread with buying the index', 'options', 'IV at the 34th percentile'], ['Which sectors are showing improving relative strength?', 'scan', 'Capital goods and pharma leading']],
+    income: [['Which of my holdings pay the most dividends?', 'stock', 'From your 41 stocks'], ['How can I cut tax on my fund gains this year?', 'funds', '₹1.25 L LTCG exemption unused'], ['Show upcoming dividend ex-dates for my stocks', 'events', 'Infosys ex-date 24 Oct']],
+    advisor: [['Which clients are off-mandate?', 'perf', '4 flagged overnight'], ['Who can harvest losses before 31 Mar?', 'funds', 'Across 87 clients'], ['Draft a review for D. Rao', 'perf', 'Equity 11 pts over mandate'], ['Which clients hold IndusInd Bank?', 'events', 'Pledge increase filed today']],
+  };
+  ENTITIES = ['CG Power', 'HDFC Bank', 'Tata Motors', 'Bajaj Finance', 'Infosys', 'Zomato', 'Lupin', 'ICICI Bank', 'Parag Parikh Flexi Cap'];
+  onFocus = () => this.setState({ focus: true });
+  onBlur = () => setTimeout(() => this.setState({ focus: false }), 150);
+  onKeySS = (e) => {
+    const items = this._ss || [], s = this.state, open = s.focus && items.length > 0, hi = s.hi || 0;
+    if (e.key === 'Escape') { this.setState({ focus: false }); return; }
+    if (open && e.key === 'ArrowDown') { e.preventDefault(); this.setState({ hi: (hi + 1) % items.length }); return; }
+    if (open && e.key === 'ArrowUp') { e.preventDefault(); this.setState({ hi: (hi - 1 + items.length) % items.length }); return; }
+    if (open && e.key === 'Tab') { const it = items[items[hi].fallback && items[1] ? 1 : hi]; if (it) { e.preventDefault(); this.setState({ draft: it.t, hi: 0 }); } return; }
+    if (e.key === 'Enter') { const it = open ? items[hi] : null; if (it) this.ask(it.t, it.k); else if (s.draft.trim()) this.ask(s.draft.trim()); }
+  };
+  curve(fn) { const pts = []; for (let i = 0; i <= 60; i++) pts.push(`${(i * 10).toFixed(0)},${(160 - (fn(i) - 85) * 3.2).toFixed(1)}`); return pts.join(' '); }
+  renderVals() {
+    const s = this.state, p = this.props;
+    const K = s.kind, steps = this.STEPS[K], N = steps.length, ready = s.step >= N + 1;
+    const open = (q, k) => () => this.ask(q, k);
+    const Q = { perf: 'Why is my portfolio underperforming the Nifty 50?', stock: 'Analyse CG Power fundamentally and technically', scan: 'Which sectors are showing improving relative strength, and what is breaking out?', import: 'Import my NSDL CAS statement', backtest: 'Backtest this breakout screen over the last five years', events: 'Show important announcements affecting my holdings today', funds: 'How much overlap do my mutual funds have, and how do I rebalance tax-efficiently?', options: 'Compare a Nifty bull call spread with buying the index', clarify: 'Rebalance my portfolio' };
+    const COL = { mint: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], amber: ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'], indigo: ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'], danger: ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'], ink: ['var(--ink-2)', 'var(--line-2)', 'transparent'] };
+    const c = (k) => ({ color: COL[k][0], line: COL[k][1], soft: COL[k][2] });
+    const KIND = { perf: ['Portfolio', 'amber'], stock: ['Stock research', 'indigo'], scan: ['Discovery', 'mint'], import: ['Import', 'ink'], backtest: ['Validation', 'danger'], events: ['Events', 'amber'], funds: ['Funds', 'indigo'], options: ['Options', 'mint'], clarify: ['Portfolio', 'amber'] };
+    const frame = p.surface === 'mobile';
+    const mobile = frame || s.w < 700;
+    const narrow = s.w < 1200;
+    const evDefault = (p.evidencePanel ?? true) && !narrow && !mobile;
+    const showEv = (s.view === 'home' || s.view === 'thread') && (s.evOpen ?? evDefault);
+    const demo = p.demoState || 'none', stale = demo === 'staleFeed', noPf = demo === 'noPortfolio', failing = demo === 'toolFailure';
+    const FAIL = { perf: 4, stock: 6, scan: 3, events: 3, funds: 4, options: 3, backtest: 4, import: 3 };
+    const failIdx = failing && FAIL[K] !== undefined ? FAIL[K] : -1;
+    const personal = ['perf', 'funds', 'events'].includes(K);
+    const small = demo === 'smallSample' && K === 'backtest';
+    const CLS = noPf && personal ? ['General research', 'indigo'] : { perf: ['Personalised research', 'amber'], stock: ['General research', 'indigo'], scan: ['General research', 'indigo'], import: ['Data import', 'ink'], backtest: ['Research · validation', 'indigo'], events: ['Personalised research', 'amber'], funds: ['Personalised research', 'amber'], options: ['Paper only · derivatives', 'danger'], clarify: ['Clarifying question', 'ink'] }[K];
+    const SMALL_BT = [['Trades', '27', '30 sessions', 'var(--amber)'], ['Win rate', '44%', 'Avg win +3.6%', 'var(--ink)'], ['Expectancy', '−0.07%', '95% CI −1.9% to +1.8%', 'var(--ink)'], ['Baseline', '+0.02%', 'Same window', 'var(--ink)'], ['Max drawdown', '−4.1%', 'Short window', 'var(--ink)'], ['Profit factor', '0.93', 'Not meaningful at n = 27', 'var(--ink-3)']];
+    const NOPF_TODAY = [
+      { tag: 'MARKET', color: 'var(--mint)', t: 'Capital goods lead while banks fade', fact: 'Capital goods +9.8% vs the Nifty 500 over 3 months; banks −4.5%.', k2: 'WHY', why: 'Strong order books; credit growth slowing.', cta: 'See sector rotation', open: open(Q.scan, 'scan') },
+      { tag: 'REGULATORY', color: 'var(--indigo)', t: 'RBI drafts a gold-loan LTV cap', fact: 'Draft circular published at 12:10 today.', k2: 'INFERRED', why: 'Most relevant to gold-loan NBFCs.', cta: 'Who is affected', open: open('Which sectors could be affected by the RBI gold-loan draft?', 'events') },
+      { tag: 'RESEARCH', color: 'var(--indigo)', t: 'CG Power is coiling near its high', fact: 'Traded in a ₹640–700 range for 7 weeks.', k2: 'INFERRED', why: 'A close above ₹702 would mark a breakout. Not confirmed.', cta: 'Research it', open: open(Q.stock, 'stock') },
+    ];
+    const showRail = !mobile && s.w >= 980;
+    const cols = [showRail ? '252px' : null, 'minmax(0,1fr)', showEv && !mobile ? '320px' : null].filter(Boolean).join(' ');
+    const full = (p.responseDetail ?? 'compact') === 'full';
+    const EV = {
+      perf: { tools: steps, sources: [['Zerodha holdings', 'HOLDINGS', 'SYNCED 2M AGO'], ['NSDL CAS · Sep 2026', 'HOLDINGS', 'IMPORTED 2 OCT'], ['Nifty 50 TRI', 'BENCHMARK', 'EOD 12 OCT'], ['BSE results filings · 6', 'REPORTED', 'JUL – AUG 2026']], method: [['Period', '13 Oct 2025 – 12 Oct 2026'], ['Benchmark', 'Nifty 50 Total Return Index'], ['Returns', 'XIRR on dated cash flows'], ['Attribution', 'Stock-level, monthly, with cash as a holding'], ['Tax', 'FIFO lots · FY26-27 rules'], ['Calculation version', 'perf-attr v2.3']], quality: ['3 holdings have no purchase history and are excluded from XIRR.', 'Bank savings balances are not tracked.'] },
+      stock: { tools: steps, sources: [['NSE prices', 'PRICE', 'DELAYED 15M'], ['Annual report FY26', 'REPORTED', 'FILED 28 JUN'], ['Q1 FY27 results', 'REPORTED', 'FILED 30 JUL'], ['Shareholding pattern', 'REPORTED', '30 SEP 2026'], ['BSE announcements · 9', 'AI READ', 'LAST 90 DAYS']], method: [['Ratios', 'Trailing twelve months, consolidated'], ['Valuation range', 'Daily P/E, 5 years'], ['Peers', 'Same industry, mcap ≥ ₹10,000 Cr'], ['Pattern detector', 'v4 · range, support/resistance, retest']], quality: ['No consensus-estimate feed. Results are compared with prior periods only.'] },
+      scan: { tools: steps, sources: [['NSE EOD prices', 'PRICE', '12 OCT 15:30'], ['Nifty sectoral indices', 'PRICE', '12 OCT'], ['Fundamentals', 'REPORTED', 'TTM · JUN QTR']], method: [['Universe', 'Nifty 500, point-in-time'], ['Relative strength', 'Return vs Nifty 500, 1M and 3M'], ['Trend label', 'Rule-based on RS slope and level'], ['Liquidity', 'Average traded value ≥ ₹10 Cr']], quality: ['4 stocks lacked 50 sessions of volume history and were excluded.'] },
+      import: { tools: steps, sources: [['NSDL_CAS_Sep2026.pdf', 'UPLOAD', 'JUST NOW'], ['Instrument master', 'ISIN MAP', '12 OCT'], ['Zerodha holdings', 'HOLDINGS', 'SYNCED 2M AGO']], method: [['Matching', 'ISIN, then exchange symbol, then verified alias'], ['Duplicates', 'Same ISIN across accounts merged'], ['Cost basis', 'From statement transactions where present']], quality: ['Transactions before Apr 2021 are not in this statement.'] },
+      backtest: { tools: steps, sources: [['NSE OHLCV, adjusted', 'SNAPSHOT 9F3C', '2021 – 2026'], ['Index constituents', 'POINT-IN-TIME', '2021 – 2026'], ['Cost model', 'CONFIG', 'ZERODHA-EQ V1']], method: [['Entry', 'Next session open after signal'], ['Costs', '0.25% round trip + 5 bps slippage'], ['Validation', '5-fold walk-forward, 2026 holdout'], ['Baseline', 'Random eligible stock, same exits'], ['Strategy hash', 'a91f3e2']], quality: [small ? 'Only 27 trades: below the 200-trade minimum for a conclusion.' : 'Sample is large enough to be conclusive (n = 3,904).'] },
+      events: { tools: steps, sources: [['NSE + BSE announcements · 142', 'AI READ', 'TODAY 09:00–14:30'], ['SAST and bulk-deal disclosures', 'REPORTED', 'TODAY'], ['RBI press releases', 'REPORTED', '12:10 TODAY'], ['Holdings + fund look-through', 'HOLDINGS', 'SYNCED 2M AGO']], method: [['Matching', 'Filer ISIN → holdings, watchlist and fund look-through'], ['Materiality', 'Rules by filing type, then an AI read of the text'], ['Historical reaction', 'Median absolute 1-day move after comparable filings'], ['Fact vs inference', 'Facts come from the filing; impact is labelled inferred']], quality: ['BSE feed lagged 6 minutes at 13:20 and was replayed in order.'] },
+      funds: { tools: steps, sources: [['AMC factsheets · 6 schemes', 'REPORTED', 'AUG 2026'], ['AMFI NAV and expense ratios', 'REPORTED', '12 OCT'], ['NSDL CAS tax lots', 'HOLDINGS', 'SEP 2026']], method: [['Overlap', 'Sum of the smaller common weight, pairwise'], ['Look-through', 'Fund weights × your units, plus direct holdings'], ['Tax', 'FIFO lots · LTCG 12.5% above ₹1.25 L · STCG 20%'], ['Constraints', '4 of your rules applied before optimising']], quality: ['2 ICICI Bluechip lots have no purchase date and were excluded.', 'Fund holdings are a month old (Aug factsheets).'] },
+      options: { tools: steps, sources: [['NSE options chain · 30 Oct', 'PRICE', '14:30 SNAPSHOT'], ['India VIX', 'PRICE', '14:30'], ['Cost model', 'CONFIG', 'ZERODHA-FO V1']], method: [['Pricing', 'Black-76 on futures, mid prices'], ['Greeks', 'Whole position, 1 lot = 75'], ['Probability', 'Lognormal at IV 13.8% · a model, not a forecast'], ['Permissions', 'Read-only broker access; paper trades only']], quality: ['Bid-ask on the 22,800 call is ₹2.10; real fills may differ.'] },
+      clarify: { tools: steps, sources: [['Your profile', 'SETTINGS', 'NO TARGET SAVED']], method: [['Why ask', 'A target allocation changes the trades materially']], quality: ['No target allocation on file.'] },
+    }[K];
+    const attr = [['Tata Motors', -1.9], ['Bajaj Finance', -1.4], ['Idle cash (8% at ~7%)', -0.8], ['IndusInd Bank', -0.6], ['Other 42 holdings', -1.0], ['HDFC Bank', 0.4]];
+    const actionsRaw = [
+      { n: '01', k: 'danger', t: 'Reduce Bajaj Finance from 9.8% → 6%', d: 'Sell about ₹94k of long-term lots before or after the 21 Oct results.', impact: '−1.9 PT RISK', btn: 'Simulate this', fields: [['Observation', 'Your largest holding, and −1.4 pts of this year’s gap.'], ['Evidence', 'Credit costs up 38 bps in Q1 FY27 (reported). Relative strength vs Nifty Financials −6% over 6 months (calculated).'], ['Portfolio impact', 'Brings it under your 8% single-stock limit; financials fall from 34% to 30%.'], ['Alternatives', 'Hold and review after results, or move part into Cholamandalam (similar valuation, stronger trend).'], ['Risks', 'A strong Q2 could re-rate the stock, and you would miss that rebound on the sold shares.'], ['Confidence', 'Weights and tax are exact. The stock’s next move is uncertain.'], ['Next step', 'Run the simulation, then decide. Nothing is placed for you.']] },
+      { n: '02', k: 'amber', t: 'Pause adding to Tata Motors', d: 'Review after JLR volumes stabilise rather than averaging down now.', impact: '−1.9 PT GAP', btn: 'Research Tata Motors', fields: [['Observation', 'Biggest single drag at −1.9 pts; closed below its 200-day average for 3 sessions.'], ['Evidence', 'JLR Q2 wholesales −11% YoY (filing, 10 Oct). FII holding −1.4 pts QoQ (reported).'], ['Portfolio impact', 'Your SIP adds ₹5,000 a month to it. Pausing caps exposure at 6.4%.'], ['Alternatives', 'Continue the SIP, or redirect it to an auto index fund.'], ['Risks', 'Cheap at 9.1× earnings; a demerger re-rating could come quickly.'], ['Confidence', 'Facts are reported. The causes of weakness are an interpretation.'], ['Next step', 'Open the full research report.']] },
+      { n: '03', k: 'indigo', t: 'Put ₹1.2 L of idle cash to work', d: '8% sits in liquid funds against your 3% buffer.', impact: '+₹0.4 L/YR EST.', btn: 'Plan a 3-month STP', fields: [['Observation', 'Cash cost −0.8 pts versus a fully invested benchmark.'], ['Evidence', 'Liquid fund yield 6.9% vs Nifty 50 TRI 11.4% over the period (calculated).'], ['Portfolio impact', 'Moves equity from 84% to 89%, inside your 85–90% target.'], ['Alternatives', 'Lump sum now, or keep cash for a planned expense.'], ['Risks', 'Investing just before a fall; the STP spreads that over 12 weeks.'], ['Confidence', 'Gap is exact. The +₹0.4 L estimate assumes past index returns, which are not guaranteed.'], ['Next step', 'Set the STP amount and start date.']] },
+    ];
+    const actions = actionsRaw.map((a, i) => {
+      const isOpen = full || s.openAction === i;
+      return { ...a, color: COL[a.k][0], open: isOpen, chev: isOpen ? '−' : '＋', fields: a.fields.map(([k, v]) => ({ k, v })), toggle: () => this.setState(x => ({ openAction: x.openAction === i ? null : i })), primary: i === 0 ? open('Simulate reducing Bajaj Finance to 6%', 'perf') : i === 1 ? open('Research Tata Motors fundamentally and technically', 'stock') : open('Plan a 3-month STP for my idle cash', 'perf') };
+    });
+    const rev = [2010, 2122, 2218, 2390, 2512, 2604, 2741, 2896];
+    const FU = {
+      perf: [['Simulate reducing Bajaj Finance', 'perf'], ['Show my sector exposure', 'perf'], ['What changed since last month?', 'perf']],
+      stock: [['Compare with ABB and Siemens', 'stock'], ['Alert me on a close above ₹702', 'scan'], ['Backtest this breakout setup', 'backtest']],
+      scan: [['Alert me on new matches', 'scan'], ['Research Cummins India', 'stock'], ['How exposed am I to banks?', 'perf']],
+      import: [['Analyse my portfolio', 'perf'], ['Show duplicate holdings', 'import'], ['How much overlap do my funds have?', 'perf']],
+      backtest: [['Try a +3% target and 1.5 ATR stop', 'backtest'], ['Show failed breakouts and why', 'backtest'], ['Paper trade it for 30 sessions', 'backtest']],
+      events: [['Alert me on pledge changes', 'events'], ['What did Bajaj Finance report last quarter?', 'stock'], ['Show all filings on my holdings this week', 'events']],
+      funds: [['Simulate the switch', 'funds'], ['Which of my funds are Regular plans?', 'funds'], ['How exposed am I to banks overall?', 'perf']],
+      options: [['What if IV rises 3 points?', 'options'], ['Compare with a bear put spread', 'options'], ['Paper trade the spread', 'options']],
+      clarify: [['Use my risk profile default', 'funds'], ['Set a target allocation', 'funds'], ['Only fix single-stock limits', 'perf']],
+    }[K];
+    return {
+      theme: p.theme ?? 'dark',
+      cols, mobile, showRail, showEv, threadBar: s.view === 'thread' && !mobile,
+      navOpen: !showRail && s.navOpen, railVisible: showRail || s.navOpen, compactBar: !showRail,
+      railPos: showRail ? 'relative' : 'absolute', railW: showRail ? 'auto' : '280px', railShadow: showRail ? 'none' : 'var(--shadow-pop)',
+      toggleNav: () => this.setState(x => ({ navOpen: !x.navOpen })),
+      ...(() => {
+        const pk = s.persona || (s.mode === 'advisor' ? 'advisor' : s.mode === 'trader' ? 'trader' : 'longterm'), P = this.PERSONAS[pk];
+        const TL = { analysis: 'Portfolio analysis', recommend: 'Recommendations', research: 'Research', screener: 'Screener', markets: 'Markets', optlab: 'Options lab' };
+        const q = (s.draft || '').trim().toLowerCase(), words = q.split(/\s+/).filter(w => w.length > 1);
+        const tag = (k) => ({ tool: KIND[k][0], color: COL[KIND[k][1]][0], line: COL[KIND[k][1]][1] });
+        const mk = (t, k, why, icon, extra) => ({ t, k, why, icon, ...tag(k), ...(extra || {}) });
+        let items;
+        if (!q) items = this.SUGG[pk].map(([t, k, why]) => mk(t, k, why, '↗'));
+        else {
+          const ents = this.ENTITIES.filter(n => words.some(w => n.toLowerCase().includes(w))).slice(0, 2).flatMap(n => [mk(`Research ${n} fundamentally and technically`, 'stock', 'Report with evidence and risks', '⌕'), mk(`Show recent filings for ${n}`, 'events', 'AI-read NSE and BSE filings', '≡')]);
+          const pool = [...this.SUGG[pk], ...Object.keys(this.SUGG).filter(x => x !== pk).flatMap(x => this.SUGG[x])];
+          const hits = pool.map(([t, k, why]) => ({ t, k, why, sc: words.filter(w => t.toLowerCase().includes(w)).length })).filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 4).map(x => mk(x.t, x.k, x.why, '↗'));
+          const dk = this.detect(s.draft);
+          items = [mk(`Ask “${s.draft.trim()}”`, dk, 'Routes to ' + KIND[dk][0].toLowerCase() + ' tools', '↵', { fallback: true, t: s.draft.trim() }), ...ents, ...hits].slice(0, 7);
+          items[0].t = s.draft.trim();
+          items[0].label = true;
+        }
+        this._ss = items;
+        const hi = Math.min(s.hi || 0, items.length - 1);
+        return {
+          ssOpen: !!s.focus && (s.view === 'home' || s.view === 'thread'), ssEmpty: !q, ssMaxH: mobile ? '62vh' : '460px',
+          ssPersonaSrc: s.persona ? 'Your persona · set by you' : 'Your persona · inferred from 47 holdings', ssPersona: P[0], ssLevel: P[1].toUpperCase(), ssWhy: P[2], ssSignals: P[3],
+          ssPersonas: Object.keys(this.PERSONAS).map(k => ({ t: this.PERSONAS[k][0], line: k === pk ? 'var(--mint-line)' : 'var(--line-2)', color: k === pk ? 'var(--mint)' : 'var(--ink-2)', bg: k === pk ? 'var(--mint-soft)' : 'transparent', pick: (e) => { e.preventDefault(); this.setState({ persona: k, hi: 0 }); } })),
+          ssTitle: q ? 'Completions' : 'Suggested for you',
+          ssItems: items.map((it, i) => ({ ...it, t: it.label ? `Ask “${it.t}”` : it.t, bg: i === hi ? 'var(--bg-2)' : 'transparent', pick: (e) => { e.preventDefault(); this.ask(it.t, it.k); } })),
+          ssTools: P[4].map(k => ({ t: TL[k], pick: (e) => { e.preventDefault(); this.setState({ focus: false }); this.nav('tool:' + k); } })),
+        };
+      })(), kind: K, full,
+      isTool: s.view === 'tool' && s.tool !== 'optlab', tool: s.tool || 'analysis', isOptLab: s.view === 'tool' && s.tool === 'optlab',
+      toolsNav: (s.mode === 'trader' ? [['Trader desk', 'trader', 'F&O'], ['Options lab', 'optlab', 'F&O'], ['Screener', 'screener', ''], ['Markets', 'markets', ''], ['Stock research', 'research', '']] : [['Portfolio analysis', 'analysis', ''], ['Recommendations', 'recommend', ''], ['Stock & fund research', 'research', ''], ['Screener', 'screener', ''], ['Markets', 'markets', '']]).map(([t, k, tag]) => ({ t, k: tag, open: () => this.nav(k === 'trader' ? 'trader' : 'tool:' + k), bg: (k === 'trader' ? s.view === 'trader' : s.view === 'tool' && (s.tool || 'analysis') === k) ? 'var(--bg-2)' : 'transparent' })),
+      isTrader: s.view === 'trader', isBrokers: s.view === 'page' && s.page === 'brokers',
+      isPage: s.view === 'page' && s.page !== 'brokers', page: s.page, isOps: s.view === 'ops', opsPage: s.opsPage, isAdvisor: s.view === 'advisor', isOnboarding: s.view === 'onboarding',
+      askFn: (q, k) => this.ask(q, k), navFn: this.nav, openClient: this.openClient, onboardDone: this.onboardDone, toggleMode: this.toggleMode,
+      goScan: () => this.ask(Q.scan, 'scan'), goOnboarding: () => this.nav('onboarding'), goSettings: () => this.nav('page:settings'),
+      modeLabel: { investor: 'Investor', trader: 'Trader', advisor: 'Advisor' }[s.mode] || 'Investor', modeColor: { trader: 'var(--mint)', advisor: 'var(--indigo)' }[s.mode] || 'var(--ink-2)', modeLine: { trader: 'var(--mint-line)', advisor: 'var(--indigo-line)' }[s.mode] || 'var(--line-2)',
+      opsNav: [['Tool builder', 'builder'], ['Tool registry', 'tools'], ['Feed health', 'feeds'], ['Audit log', 'audit'], ['KPIs', 'kpis']].map(([t, k]) => ({ t, open: () => this.nav(k === 'builder' ? 'builder' : 'ops:' + k), bg: (k === 'builder' ? s.view === 'builder' : s.view === 'ops' && s.opsPage === k) ? 'var(--bg-2)' : 'transparent' })),
+      isToolBuilder: s.view === 'builder',
+      classLabel: CLS[0], classColor: COL[CLS[1]][0], classLine: COL[CLS[1]][1],
+      classNote: s.client ? `ADVISOR VIEW · CLIENT ${s.client.toUpperCase()} · EDUCATIONAL, NOT ADVICE` : 'EDUCATIONAL, NOT INVESTMENT ADVICE',
+      noPf, heroSub: noPf ? 'Ask in plain English. Nivesh picks the tools and shows the evidence behind every answer. Connect a portfolio to make answers about your money.' : 'Ask in plain English. Nivesh picks the tools, runs the numbers on your 47 holdings and shows you the evidence behind every answer.',
+      todayTitle: noPf ? 'Worth knowing today' : 'For your portfolio today',
+      market: [['NIFTY 50', '22,363 −0.70%', 'var(--danger)'], ['BREADTH', '46% ADVANCING', 'var(--ink-2)'], ['INDIA VIX', '15.25 +6.1%', 'var(--amber)'], ['FII CASH', '−₹1,708 CR', 'var(--danger)'], ['DII CASH', '+₹3,045 CR', 'var(--mint)']].map(([k, v, cc]) => ({ k, v, c: cc })),
+      ctxValue: noPf ? '—' : '₹24.8 L', ctxDay: noPf ? 'NO PORTFOLIO CONNECTED' : '−₹12,400 · −0.5% TODAY',
+      freshText: stale ? 'NSE FEED STALE · LAST 13:02' : 'NSE DELAYED 15M · 14:32', freshColor: stale ? 'var(--danger)' : 'var(--amber)',
+      showPartial: ready && failIdx >= 0, retry: () => this.ask(s.q, K),
+      partialText: { perf: 'Company results timed out, so the attribution leaves out earnings changes for 6 holdings.', stock: 'The announcements search timed out; filings from the last 90 days are missing from section 05.', scan: 'Volume data was unavailable for 7 stocks; they were screened on price only.', events: 'Historical reaction data failed; impact notes have no past comparison.', funds: 'The tax estimate failed; the switch is shown without its tax.', options: 'Greeks timed out; the payoff is exact but sensitivity is missing.', backtest: 'The walk-forward test timed out; results cover the full period only.', import: 'The duplicate check failed; review duplicates before confirming.' }[K] || '',
+      showStale: stale && ready && s.view === 'thread',
+      smallSample: small, bigSample: !small,
+      btRegime: [['Trending markets · n = 1,180', '+0.11%', 'var(--mint)'], ['Range-bound · n = 2,014', '−0.09%', 'var(--danger)'], ['High volatility · n = 710', '−0.22%', 'var(--danger)']].map(([k, v, cc]) => ({ k, v, c: cc })),
+      btFail: [['Stopped out', '61%'], ['Time exit at a loss', '25%'], ['Gap through stop', '14%']].map(([k, v]) => ({ k, v })),
+      peers: [['CG Power', '98×', '42%', '19%', true], ['ABB India', '84×', '29%', '16%'], ['Siemens', '72×', '21%', '14%'], ['Havells', '66×', '24%', '11%'], ['Bharat Bijlee', '31×', '17%', '22%']].map(([n, pe, roce, g, me]) => ({ n, pe, roce, g, c: me ? 'var(--ink)' : 'var(--ink-2)' })),
+      pagePad: frame ? '32px' : '0', frameW: frame ? '390px' : '100%', frameH: frame ? '844px' : '100vh', frameR: frame ? '44px' : '0', frameBorder: frame ? '1px solid var(--line-2)' : '0',
+      padX: mobile ? '16px' : '28px', padB: frame ? '28px' : (mobile ? '14px' : '20px'), heroPad: mobile ? '28px' : '80px', h1Size: mobile ? '40px' : '60px', mTopPad: frame ? '48px' : '12px',
+      evPos: mobile ? 'absolute' : 'relative', evTop: mobile ? '22%' : 'auto', evRadius: mobile ? '20px 20px 0 0' : '0', evShadow: mobile ? 'var(--shadow-pop)' : 'none',
+      fieldIndent: mobile ? '18px' : '68px', fieldCols: mobile ? 'minmax(0,1fr)' : '120px minmax(0,1fr)',
+      toggleEv: () => this.setState({ evOpen: !showEv }),
+      evBtnBg: showEv ? 'var(--bg-3)' : 'transparent',
+      isHome: s.view === 'home', isThread: s.view === 'thread', isImport: K === 'import',
+      goHome: () => { clearInterval(this.timer); this.setState({ view: 'home', step: 0 }); },
+      goImport: () => this.ask(Q.import, 'import'), goPerf: () => this.ask(Q.perf, 'perf'), goBacktest: () => this.ask(Q.backtest, 'backtest'),
+      kindLabel: KIND[K][0], kindColor: COL[KIND[K][1]][0], kindLine: COL[KIND[K][1]][1],
+      threads: [['Underperforming the Nifty 50', 'perf'], ['CG Power deep dive', 'stock'], ['Sectors gaining strength', 'scan'], ['Breakout screen backtest', 'backtest'], ['CAS import · Sep 2026', 'import'], ['Filings on my holdings', 'events'], ['Fund overlap and rebalance', 'funds'], ['Nifty spread vs index', 'options']].map(([t, k]) => ({ t, k: KIND[k][0].toUpperCase().split(' ')[0], open: open(Q[k], k), color: s.view === 'thread' && K === k ? 'var(--ink)' : 'var(--ink-2)', bg: s.view === 'thread' && K === k ? 'var(--bg-2)' : 'transparent' })),
+      saved: [['Watchlist & alerts', 'watchlist', '12'], ['Saved', 'saved', '6'], ['Action plan', 'plan', '5'], ['Portfolio ledger', 'ledger', '47'], ['Paper trades', 'paper', '4'], ['Broker connections', 'brokers', '2'], ['Settings', 'settings', '']].map(([t, k, n]) => ({ t, n, open: () => this.nav('page:' + k), bg: s.view === 'page' && s.page === k ? 'var(--bg-2)' : 'transparent' })),
+      today: noPf ? NOPF_TODAY : [
+        { tag: 'PORTFOLIO', color: 'var(--amber)', t: 'You’re trailing the Nifty 50 by 5.3 points this year', fact: 'Portfolio +6.1% vs Nifty 50 TRI +11.4%, 12 months.', k2: 'WHY', why: 'Three holdings explain most of the gap.', cta: 'See the breakdown', open: open(Q.perf, 'perf') },
+        { tag: 'WATCHLIST', color: 'var(--indigo)', t: 'CG Power is coiling near its high', fact: 'Traded in a ₹640–700 range for 7 weeks.', k2: 'INFERRED', why: 'A close above ₹702 would mark a breakout. Not confirmed.', cta: 'Research it', open: open(Q.stock, 'stock') },
+        { tag: 'FILING · BSE', color: 'var(--danger)', t: 'Bajaj Finance board meets 21 Oct for Q2 results', fact: 'Board meeting intimation filed today, 11:42 IST.', k2: 'IMPACT', why: 'You hold 9.8%. Its last 8 result days moved it ±5.8% on average.', cta: 'See today’s filings', open: open(Q.events, 'events') },
+      ],
+      tries: [
+        { k: 'PORTFOLIO', color: 'var(--amber)', t: 'Which stocks contribute most to my risk?', open: open('Which stocks contribute most to my risk?', 'perf') },
+        { k: 'RESEARCH', color: 'var(--indigo)', t: Q.stock, open: open(Q.stock, 'stock') },
+        { k: 'DISCOVER', color: 'var(--mint)', t: 'Which sectors are showing improving relative strength?', open: open(Q.scan, 'scan') },
+        { k: 'VALIDATE', color: 'var(--danger)', t: 'Does this breakout setup beat buying at the next open?', open: open(Q.backtest, 'backtest') },
+        { k: 'IMPORT', color: 'var(--ink-2)', t: 'Import my NSDL CAS statement', open: open(Q.import, 'import') },
+        { k: 'EVENTS', color: 'var(--amber)', t: 'Show important announcements affecting my holdings today', open: open(Q.events, 'events') },
+        { k: 'FUNDS', color: 'var(--indigo)', t: 'How much overlap do I have across my mutual funds?', open: open(Q.funds, 'funds') },
+        { k: 'OPTIONS', color: 'var(--mint)', t: 'Compare a Nifty bull call spread with buying the index', open: open(Q.options, 'options') },
+      ],
+      question: s.q,
+      toggleTrace: () => this.setState(x => ({ traceOpen: !x.traceOpen })),
+      traceVisible: !ready || s.traceOpen,
+      traceLabel: ready ? `Done · ${N} tools · ${(N * 0.48).toFixed(1)}s · ${failIdx >= 0 ? '1 failed' : 'all succeeded'}` : `Working · step ${Math.min(s.step + 1, N)} of ${N}`,
+      traceDot: ready ? 'var(--mint)' : 'var(--amber)',
+      traceToggle: ready ? (s.traceOpen ? 'Hide steps' : 'Show steps') : '',
+      stepsShown: steps.slice(0, Math.min(s.step, N)).map(([tool, out], i) => { const run = !ready && i === s.step - 1; const bad = !run && i === failIdx; return { tool, out: run ? 'running…' : bad ? 'Timed out after 8s · retried once · skipped' : out, mark: run ? '◌' : bad ? '✕' : '✓', color: run ? 'var(--amber)' : bad ? 'var(--danger)' : 'var(--mint)' }; }),
+      answerReady: ready,
+      ansPerf: ready && K === 'perf' && !noPf, ansStock: ready && K === 'stock', ansScan: ready && K === 'scan', ansImport: ready && K === 'import', ansBacktest: ready && K === 'backtest',
+      ansNoPf: ready && noPf && personal, ansChild: ready && ['events', 'funds', 'options', 'clarify'].includes(K) && !(noPf && personal),
+      attribution: attr.map(([k, v]) => { const w = Math.abs(v) / 1.9 * 48; return { k, v: (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1), width: w + '%', left: v < 0 ? (50 - w) + '%' : '50%', color: v < 0 ? 'var(--danger)' : 'var(--mint)' }; }),
+      actions,
+      scenario: [['Expected volatility', '16.8%', '15.1%', 'var(--mint)'], ['Largest single holding', '9.8%', '6.0%', 'var(--mint)'], ['Financials exposure', '34%', '30%', 'var(--mint)'], ['Equity allocation', '84%', '89%', 'var(--ink)'], ['Estimated tax + costs', '—', '₹4,510', 'var(--amber)']].map(([k, a, b, cc]) => ({ k, a, b, c: cc })),
+      quarters: rev.map(v => ({ h: (v / 2896 * 100).toFixed(0) + '%' })),
+      stockTiles: [{ k: 'ROCE', v: '42%', s: 'Sector 21%' }, { k: 'Rev CAGR', v: '19%', s: '3 years' }, { k: 'Debt / eq', v: '0.0', s: 'Net cash' }],
+      holders: [['Promoter', '58.1%', '0.0 pt', 'var(--ink-3)'], ['FII', '13.2%', '+0.8 pt', 'var(--mint)'], ['DII', '11.6%', '+0.4 pt', 'var(--mint)'], ['Retail', '17.1%', '−1.2 pt', 'var(--danger)']].map(([k, v, d, cc]) => ({ k, v, d, w: v, c: cc })),
+      bull: ['Order book up 31% YoY gives about 14 months of revenue visibility.', 'Net cash and 42% ROCE fund growth without dilution.', 'Institutions added 1.2 pts last quarter.'],
+      bear: ['98× earnings prices in years of flawless execution.', 'Semiconductor JV is capital-hungry and unproven.', 'Retail ownership falling while price holds near the high.'],
+      sectors: [['Capital goods', '+4.2', '+9.8', 'Leading', 'mint', '3%'], ['Pharma', '+3.1', '+2.4', 'Improving', 'mint', '5%'], ['IT', '+1.0', '−3.2', 'Improving', 'indigo', '18%'], ['Auto', '−1.6', '+1.1', 'Weakening', 'amber', '12%'], ['Banks', '−2.8', '−4.5', 'Lagging', 'danger', '21%']].map(([k, m1, m3, trend, col, hold]) => ({ k, m1, m3, trend, hold, ...c(col), c1: m1[0] === '+' ? 'var(--mint)' : 'var(--danger)', c3: m3[0] === '+' ? 'var(--mint)' : 'var(--danger)' })),
+      rules: ['Close > 35-day high', 'Volume ≥ 1.5× 50-day avg', 'ROCE ≥ 15%', 'Avg traded value ≥ ₹10 Cr'],
+      candidates: [['Cummins India', 'Capital goods', 'Closed above 7-week range at ₹3,640', '2.1×', 'Close < ₹3,480'], ['Lupin', 'Pharma', 'New 52-week high after 5-week base', '1.8×', 'Close < ₹2,090'], ['KEI Industries', 'Capital goods', 'Retest of ₹4,200 breakout held', '1.6×', 'Close < ₹4,050'], ['Persistent Systems', 'IT', 'Broke 9-week range on results', '2.4×', 'Close < ₹5,610']].map(([n, sct, t, v, x]) => ({ n, s: sct, t, v, x, open: open(`Research ${n} fundamentally and technically`, 'stock') })),
+      importStats: [['New', '6', 'Added to your portfolio', 'mint'], ['Matched', '41', 'Already in Zerodha sync', 'ink'], ['Duplicate', '4', 'Merged, not double-counted', 'amber'], ['Unresolved', '2', 'Need a decision', 'danger']].map(([k, v, d, col]) => ({ k, v, d, color: COL[col][0], line: col === 'ink' ? 'var(--line)' : COL[col][1] })),
+      unresolved: [{ raw: 'TATA MTRS-DVR', meta: 'Demat A · 120 units · ISIN retired', match: 'Tata Motors Ltd (converted 2024)', conf: 'SUGGESTED · ALIAS MATCH' }, { raw: 'SGB 2.50% 2029 SR-V', meta: 'Demat B · 8 units', match: 'Sovereign Gold Bond 2029 Series V', conf: 'SUGGESTED · NAME MATCH' }],
+      stratCurve: this.curve(i => 100 + i * 0.30 + 4 * Math.sin(i / 4.2) + 2.2 * Math.sin(i / 1.6) - (i > 38 ? (i - 38) * 0.25 : 0)),
+      baseCurve: this.curve(i => 100 + i * 0.34 + 2 * Math.sin(i / 3.1)),
+      btMetrics: (small ? SMALL_BT : [['Trades', '3,904', '2021 – 2026', 'var(--ink)'], ['Win rate', '41%', 'Avg win +4.1%', 'var(--ink)'], ['Expectancy', '−0.04%', 'Per trade, net', 'var(--danger)'], ['Baseline', '+0.02%', 'Per trade, net', 'var(--ink)'], ['Max drawdown', '−18.6%', 'Baseline −14.2%', 'var(--danger)'], ['Profit factor', '0.97', 'Below 1.0', 'var(--danger)']]).map(([k, v, sub, cc]) => ({ k, v, s: sub, c: cc })),
+      spec: [['ENTRY', 'Next open after close > 35-day high on ≥ 1.5× volume'], ['STOP', '2× ATR below entry'], ['TARGET', '+5% from entry'], ['TIME EXIT', 'After 10 sessions'], ['UNIVERSE', 'Nifty 500, ROCE ≥ 15%, ADTV ≥ ₹10 Cr']].map(([k, v]) => ({ k, v })),
+      followUps: FU.map(([t, k]) => ({ t, open: open(t, k) })),
+      evTabs: ['tools', 'sources', 'method'].map(t => ({ t: t[0].toUpperCase() + t.slice(1), pick: () => this.setState({ evTab: t }), color: s.evTab === t ? 'var(--ink)' : 'var(--ink-3)', bg: s.evTab === t ? 'var(--bg-3)' : 'transparent' })),
+      tabTools: s.evTab === 'tools', tabSources: s.evTab === 'sources', tabMethod: s.evTab === 'method',
+      evTools: EV.tools.map(([n], i) => { const done = ready || i < s.step - 1; const bad = done && i === failIdx; return { n, mark: bad ? '✕' : done ? '✓' : (i === s.step - 1 ? '◌' : '·'), color: bad ? 'var(--danger)' : done ? 'var(--mint)' : 'var(--ink-4)', ms: done ? (i % 3 === 1 ? 'CACHED' : `${(0.3 + (i * 0.37) % 1.4).toFixed(1)}s`) : '' }; }),
+      evSources: EV.sources.map(([t, k, ts]) => ({ t, k, ts })),
+      evMethod: EV.method.map(([k, v]) => ({ k, v })),
+      evQuality: EV.quality,
+      memory: [{ k: 'Goal', v: 'Retire by 2045' }, { k: 'Risk profile', v: 'Moderate' }, { k: 'Single-stock limit', v: '8%' }, { k: 'Tax regime', v: 'New' }],
+      feeds: [['Zerodha', '2M AGO', 'mint'], ['NSE prices', stale ? 'STALE · 13:02' : 'DELAYED 15M', stale ? 'danger' : 'amber'], ['BSE filings', 'LIVE', 'mint'], ['Shareholding', '30 SEP', 'mint'], ['Consensus estimates', 'NOT CONNECTED', 'danger']].map(([t, st, col]) => ({ t, s: st, color: COL[col][0] })),
+      scopes: Object.keys(s.scopes).map(t => { const on = s.scopes[t]; return { t, toggle: () => this.setState(x => ({ scopes: { ...x.scopes, [t]: !x.scopes[t] } })), line: on ? 'var(--mint-line)' : 'var(--line-2)', color: on ? 'var(--mint)' : 'var(--ink-3)', bg: on ? 'var(--mint-soft)' : 'transparent' }; }),
+      draft: s.draft,
+      onDraft: (e) => this.setState({ draft: e.target.value, hi: 0, focus: true }),
+      onKey: this.onKeySS, onFocus: this.onFocus, onBlur: this.onBlur,
+      send: () => this.ask(s.draft.trim() || Q.perf),
+      scrollRef: this.scrollRef,
+    };
+  }
+}
+</script>
+
+
+</body></html>

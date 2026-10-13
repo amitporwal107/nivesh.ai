@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:1040px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:14px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <span class="nv-eyebrow">{{ eyebrow }}</span>
+      <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:40px;line-height:1.05;letter-spacing:-0.02em">{{ title }}</h1>
+    </div>
+    <span onClick="{{ askAbout }}" style="padding:8px 14px;border-radius:999px;border:1px solid var(--mint-line);color:var(--mint);font-size:13px;cursor:pointer">Ask Copilot about this ›</span>
+  </div>
+
+  <sc-if value="{{ hasTabs }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;gap:24px;overflow-x:auto;border-bottom:1px solid var(--line)">
+      <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="6">
+        <span onClick="{{ t.pick }}" style="padding:10px 0 12px;font-size:14px;white-space:nowrap;cursor:pointer;color:{{ t.color }};border-bottom:2px solid {{ t.line }}">{{ t.t }}</span>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isResearch }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <div style="flex:1 1 280px;display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-1)"><span style="color:var(--ink-3)">⌕</span><span style="font-size:14px;color:var(--ink-3)">Search any NSE/BSE stock or mutual fund</span></div>
+        <sc-for list="{{ kinds }}" as="k" hint-placeholder-count="2"><span onClick="{{ k.pick }}" style="padding:9px 14px;border-radius:999px;font-size:13px;cursor:pointer;border:1px solid {{ k.line }};color:{{ k.color }};background:{{ k.bg }}">{{ k.t }}</span></sc-for>
+      </div>
+      <div style="display:{{ entDisp }};flex-wrap:wrap;justify-content:space-between;gap:12px;padding:18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+        <div style="display:flex;flex-direction:column;gap:6px;flex:1 1 360px">
+          <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)">{{ entity.crumb }}</span>
+          <span style="font-family:var(--display);font-size:32px;line-height:1.1;letter-spacing:-0.015em">{{ entity.n }}</span>
+          <span class="nv-eyebrow">{{ entity.meta }}</span>
+          <span style="font-size:13px;line-height:1.5;color:var(--ink-3);max-width:560px;text-wrap:pretty">{{ entity.d }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+          <span class="nv-metric">{{ entity.px }}</span>
+          <span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--mint)">{{ entity.ch }}</span>
+          <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3);text-align:right">{{ entity.sub }}</span>
+          <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;padding-top:6px"><sc-for list="{{ entActions }}" as="a" hint-placeholder-count="4"><span onClick="{{ a.go }}" style="padding:6px 10px;border-radius:8px;border:1px solid {{ a.line }};font-size:12px;color:{{ a.color }};cursor:pointer">{{ a.t }}</span></sc-for></div>
+        </div>
+      </div>
+      <div style="position:sticky;top:0;z-index:4;display:{{ entDisp }};gap:24px;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--bg-0)">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="9">
+          <span onClick="{{ t.pick }}" style="padding:10px 0 12px;font-size:14px;white-space:nowrap;cursor:pointer;color:{{ t.color }};border-bottom:2px solid {{ t.line }}">{{ t.t }}</span>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isFilings }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:28px">
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <span class="nv-eyebrow" style="color:var(--mint)">✦ Ask across every filing · Nivesh has already read them</span>
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 10px 10px 18px;border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-card)">
+          <span style="color:var(--mint)">✦</span><span style="flex:1;font-size:15px;color:var(--ink-3)">Ask a question across all filings…</span>
+          <button onClick="{{ askFilings }}" style="padding:10px 16px;border-radius:12px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:14px;font-weight:500;cursor:pointer">Ask →</button>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:1px solid var(--line)">
+          <div style="display:flex;gap:22px"><sc-for list="{{ fTabs }}" as="t" hint-placeholder-count="3"><span style="padding:8px 0 10px;font-size:14px;color:{{ t.color }};border-bottom:2px solid {{ t.line }}">{{ t.t }}</span></sc-for></div>
+          <span style="font-size:11px;color:var(--mint);padding-bottom:10px">★ featured</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px">
+          <sc-for list="{{ themes }}" as="th" hint-placeholder-count="5">
+            <div onClick="{{ th.go }}" style="display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1);cursor:pointer" style-hover="border-color:var(--mint-line)">
+              <div style="display:flex;justify-content:space-between;gap:8px"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ th.star }}{{ th.k }}</span><span style="color:var(--ink-4)">⌑</span></div>
+              <span style="font-size:14px;line-height:1.4">{{ th.t }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <span style="align-self:flex-start;padding:8px 14px;border-radius:999px;border:1px solid var(--line-2);font-size:13px;color:var(--ink-2)">Show 5 more · 28 left</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px"><span class="nv-eyebrow" style="color:var(--ink-2)">Read for you today <span style="color:var(--ink-4)">· ranked by materiality</span></span><span style="display:flex;gap:8px;align-items:center"><span onClick="{{ goScan }}" style="padding:6px 12px;border-radius:999px;border:1px solid var(--mint-line);font-size:12px;color:var(--mint);cursor:pointer">Candidates for the next session →</span><span style="font-family:var(--mono);font-size:10px;color:var(--mint)">● NSE · BSE</span></span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:26px;border-radius:14px;border:1px dashed var(--line-2)"><span style="font-family:var(--display);font-size:20px">Markets quiet so far today</span><span style="font-size:13px;color:var(--ink-3)">New material disclosures appear here as they’re filed. <span style="color:var(--mint)">Show the latest instead →</span></span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px"><span class="nv-eyebrow">All filings · 8,078 results</span><span style="display:flex;gap:6px;align-items:center"><span class="nv-eyebrow" style="margin-right:4px">Sort</span><span style="font-family:var(--mono);font-size:11px;padding:6px 12px;border-radius:8px;background:var(--mint);color:#06120B">MATERIAL</span><span style="font-family:var(--mono);font-size:11px;padding:6px 12px;border-radius:8px;border:1px solid var(--line-2);color:var(--ink-2)">LATEST</span></span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ fCats }}" as="c" hint-placeholder-count="10"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;padding:6px 12px;border-radius:999px;border:1px solid {{ c.line }};color:{{ c.color }};background:{{ c.bg }}">{{ c.t }}</span></sc-for></div>
+        <div style="display:flex;flex-direction:column">
+          <sc-for list="{{ filings }}" as="f" hint-placeholder-count="5">
+            <div style="display:grid;grid-template-columns:14px minmax(0,1fr);gap:12px;padding:16px 0;border-top:1px solid var(--line)">
+              <span class="nv-dot" style="margin-top:7px;background:{{ f.dot }}"></span>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <span style="font-size:15px;font-weight:500">{{ f.co }} <span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ f.sym }}</span></span>
+                <span style="font-size:13px;line-height:1.55;color:var(--ink-2)">{{ f.t }}</span>
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px">
+                  <span style="font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:999px;border:1px solid {{ f.line }};color:{{ f.color }}">{{ f.fig }}</span>
+                  <span style="font-family:var(--mono);font-size:10px;color:var(--ink-4)">High impact</span>
+                  <span style="flex:1"></span>
+                  <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ f.d }}</span>
+                  <span onClick="{{ f.go }}" style="padding:7px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);font-size:12px;cursor:pointer">✦ AI insights</span>
+                </div>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isScreener }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;border:1px solid var(--mint-line);background:var(--bg-1)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--mint)">DESCRIBE</span><span style="flex:1;font-size:14px;color:var(--ink-3)">“Profitable midcaps with rising FII stake and low debt”</span><span style="font-size:13px;color:var(--mint)">Build rules ›</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <sc-for list="{{ presets }}" as="pr" hint-placeholder-count="5"><div onClick="{{ pr.pick }}" style="display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-radius:12px;cursor:pointer;border:1px solid {{ pr.line }};background:var(--bg-1)"><span style="font-size:13px;font-weight:500">{{ pr.t }}</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ pr.d }}</span></div></sc-for>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow" style="margin-right:6px">Rules</span>
+        <sc-for list="{{ rules }}" as="r" hint-placeholder-count="5"><span style="font-family:var(--mono);font-size:11px;padding:5px 9px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line-2);color:var(--ink)">{{ r }} ×</span></sc-for>
+        <span style="font-size:13px;color:var(--mint);cursor:pointer;margin-left:4px">＋ Add rule</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isStockOv }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
+        <sc-for list="{{ scores }}" as="sc" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:14px;border:1px solid {{ sc.line }};background:{{ sc.soft }}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span class="nv-eyebrow" style="color:var(--ink-2)">{{ sc.k }}</span><span style="font-family:var(--display);font-size:34px;line-height:1;color:{{ sc.color }}">{{ sc.v }}<span style="font-size:14px;color:var(--ink-3)"> /100</span></span></div>
+            <span style="display:block;height:4px;border-radius:2px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ sc.w }};background:{{ sc.color }};border-radius:2px"></span></span>
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px"><span style="color:var(--ink)">{{ sc.label }}</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ sc.note }}</span></div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 18px;border-radius:14px;border:1px solid var(--amber-line);background:var(--bg-1)">
+        <span class="nv-pill nv-pill-amber">High quality · expensive</span>
+        <span style="flex:1 1 320px;font-size:14px;line-height:1.5;color:var(--ink-2)">Strong business and balance sheet, but the price already assumes years of flawless growth. A pullback or a confirmed breakout is a cleaner entry than chasing.</span>
+        <span onClick="{{ similar }}" style="font-size:13px;color:var(--mint);cursor:pointer">Similar stocks ›</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:12px">
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">SWOT · AI read of filings and data</span><span style="font-size:12px;color:var(--mint);cursor:pointer">Read ›</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <sc-for list="{{ swot }}" as="w" hint-placeholder-count="4"><div style="display:flex;align-items:baseline;gap:8px;padding:10px 12px;border-radius:10px;background:var(--bg-2)"><span style="font-family:var(--display);font-size:28px;color:{{ w.c }}">{{ w.n }}</span><span style="font-size:12px;color:var(--ink-2)">{{ w.t }}</span></div></sc-for>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;justify-content:space-between"><span class="nv-eyebrow">Pre-buy checks · 23 rules</span><span style="font-size:12px;color:var(--mint);cursor:pointer">See all ›</span></div>
+          <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><span style="font-family:var(--display);font-size:28px;color:var(--mint)">14</span><span style="font-size:12px;color:var(--ink-3)">pass</span><span style="font-family:var(--display);font-size:28px;color:var(--danger)">9</span><span style="font-size:12px;color:var(--ink-3)">fail</span><span style="flex:1"></span><span style="font-family:var(--display);font-size:24px">61%</span></div>
+          <div style="position:relative;display:flex;height:8px;border-radius:4px;overflow:hidden"><span style="width:45%;background:var(--danger-soft)"></span><span style="width:10%;background:var(--amber-soft)"></span><span style="width:45%;background:var(--mint-soft)"></span><span style="position:absolute;left:61%;top:0;bottom:0;width:3px;margin-left:-1px;background:var(--ink)"></span></div>
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-3)"><span>0</span><span>45</span><span>55</span><span>100</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <span class="nv-eyebrow">Price vs fair value · P/E based</span>
+          <sc-for list="{{ valRows }}" as="vr" hint-placeholder-count="2"><div style="display:flex;justify-content:space-between;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--line)"><span style="font-size:13px;color:var(--ink-2)">{{ vr.k }}</span><span style="font-size:13px;color:var(--danger)">{{ vr.v }} <span class="nv-num">{{ vr.p }}</span></span></div></sc-for>
+          <span style="font-size:12px;line-height:1.5;color:var(--ink-3)">Overvalued on both trailing and next-year earnings. Fair value uses the 5-year median P/E of 72×.</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="nv-eyebrow">Price · 6 months · dashed = 200-day average</span><span style="display:flex;gap:6px"><sc-for list="{{ ranges }}" as="rg" hint-placeholder-count="5"><span style="font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:6px;color:{{ rg.color }};background:{{ rg.bg }}">{{ rg.t }}</span></sc-for></span></div>
+        <svg viewBox="0 0 600 150" preserveAspectRatio="none" style="width:100%;height:170px;display:block"><polyline points="{{ dmaLine }}" fill="none" stroke="var(--ink-3)" stroke-width="1.4" stroke-dasharray="4 4"></polyline><polyline points="{{ pxLine }}" fill="none" stroke="var(--mint)" stroke-width="2" stroke-linejoin="round"></polyline></svg>
+        <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-3)"><span>APR</span><span>RANGE ₹640–700 · 7 WEEKS</span><span>OCT</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--line)">
+        <sc-for list="{{ keyMetrics }}" as="km" hint-placeholder-count="12"><div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;background:var(--bg-1)"><span style="font-size:11px;color:var(--ink-3)">{{ km.k }}</span><span class="nv-num" style="font-size:15px">{{ km.v }}</span></div></sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isStockOv }}" hint-placeholder-val="{{ false }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px">
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--mint-line);background:var(--mint-soft)">
+        <div style="display:flex;justify-content:space-between;gap:8px"><span class="nv-eyebrow" style="color:var(--mint)">How it fits your portfolio · if you buy ₹50,000</span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--indigo)">CALCULATED</span></div>
+        <sc-for list="{{ fit }}" as="f" hint-placeholder-count="5"><div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding-bottom:7px;border-bottom:1px solid var(--line)"><span style="color:var(--ink-2)">{{ f.k }}</span><span class="nv-num" style="color:var(--ink)">{{ f.v }}</span></div></sc-for>
+        <span onClick="{{ simBuy }}" style="font-size:13px;color:var(--mint);cursor:pointer">Simulate in Copilot ›</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Ask about CG Power</span>
+        <sc-for list="{{ stockAsks }}" as="q" hint-placeholder-count="5"><span onClick="{{ q.go }}" style="display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border-radius:10px;border:1px solid var(--line-2);font-size:13px;color:var(--ink-2);cursor:pointer" style-hover="border-color:var(--mint-line);color:var(--ink)"><span>{{ q.t }}</span><span style="color:var(--ink-3)">›</span></span></sc-for>
+        <span style="font-size:12px;line-height:1.5;color:var(--amber)">Analyst estimates: not connected. Forward P/E uses Nivesh’s earnings-trend model and is labelled MODEL wherever it appears.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasAi }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;gap:14px;padding:18px 20px;border-radius:14px;border:1px solid var(--mint-line);background:var(--mint-soft)">
+      <span class="nv-mark" style="flex:none">न</span>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <span class="nv-eyebrow" style="color:var(--mint)">{{ ai.k }}</span>
+        <span style="font-family:var(--display);font-size:23px;line-height:1.25;text-wrap:pretty">{{ ai.t }}</span>
+        <sc-for list="{{ ai.b }}" as="b" hint-placeholder-count="0"><span style="font-size:13px;color:var(--ink-2)">· {{ b }}</span></sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasTiles }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+      <sc-for list="{{ tiles }}" as="m" hint-placeholder-count="5">
+        <div style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><span class="nv-eyebrow">{{ m.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:24px;color:{{ m.c }}">{{ m.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ m.s }}</span></div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasBars }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="nv-eyebrow">Net cash flows · last 10 sessions · ₹ Cr</span><span style="display:flex;gap:14px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em"><span style="color:var(--indigo)">● FII</span><span style="color:var(--amber)">● DII</span></span></div>
+      <div style="display:flex;gap:6px;height:160px">
+        <sc-for list="{{ bars }}" as="b" hint-placeholder-count="10">
+          <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0">
+            <div style="position:relative;flex:1;display:flex;gap:2px;justify-content:center">
+              <span style="position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line-2)"></span>
+              <span style="position:absolute;left:calc(50% - 12px);width:10px;top:{{ b.ft }};height:{{ b.fh }};background:var(--indigo);border-radius:2px"></span>
+              <span style="position:absolute;left:calc(50% + 2px);width:10px;top:{{ b.dt }};height:{{ b.dh }};background:var(--amber);border-radius:2px"></span>
+            </div>
+            <span style="font-family:var(--mono);font-size:9px;color:var(--ink-3);text-align:center;white-space:nowrap;overflow:hidden">{{ b.d }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasMonths }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span class="nv-eyebrow">Monthly return · you vs Nifty 50 TRI</span>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:6px">
+        <sc-for list="{{ months }}" as="mo" hint-placeholder-count="12"><div style="display:flex;flex-direction:column;gap:3px;padding:8px;border-radius:8px;background:{{ mo.bg }}"><span style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">{{ mo.m }}</span><span class="nv-num" style="font-size:13px;color:{{ mo.c }}">{{ mo.p }}</span><span class="nv-num" style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ mo.b }}</span></div></sc-for>
+      </div>
+      <span style="font-size:12px;color:var(--ink-3)">Tinted months are where you trailed the benchmark. Bottom figure is the Nifty 50 TRI.</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasChips }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ chips }}" as="c" hint-placeholder-count="6"><span onClick="{{ c.pick }}" style="padding:6px 12px;border-radius:999px;font-size:12px;cursor:pointer;border:1px solid {{ c.line }};color:{{ c.color }};background:{{ c.bg }}">{{ c.t }}</span></sc-for></div>
+  </sc-if>
+
+  <sc-for list="{{ tables }}" as="tb" hint-placeholder-count="1">
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">{{ tb.t }}</span><span class="nv-eyebrow">{{ tb.note }}</span></div>
+      <div style="overflow-x:auto"><div style="min-width:{{ tb.minW }}">
+        <div style="display:grid;grid-template-columns:{{ tb.cols }};gap:10px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><sc-for list="{{ tb.head }}" as="h" hint-placeholder-count="5"><span>{{ h }}</span></sc-for></div>
+        <sc-for list="{{ tb.rows }}" as="r" hint-placeholder-count="5">
+          <div onClick="{{ r.open }}" style="display:grid;grid-template-columns:{{ tb.cols }};gap:10px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center;cursor:{{ r.cursor }};background:{{ r.bg }}" style-hover="background:var(--bg-2)">
+            <sc-for list="{{ r.cells }}" as="cl" hint-placeholder-count="5">
+              <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span class="nv-num" style="color:{{ cl.c }};font-weight:{{ cl.fw }}">{{ cl.v }}</span><sc-if value="{{ cl.hasBar }}" hint-placeholder-val="{{ false }}"><span style="display:block;height:4px;border-radius:2px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ cl.bar }};background:{{ cl.bc }};border-radius:2px"></span></span></sc-if></div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div></div>
+    </div>
+  </sc-for>
+
+  <sc-if value="{{ hasList }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <sc-for list="{{ list }}" as="i" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:6px;padding:14px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span class="nv-pill" style="color:{{ i.color }};border-color:{{ i.line }}">{{ i.tag }}</span><span style="font-size:14px;font-weight:500">{{ i.t }}</span><span style="flex:1"></span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ i.meta }}</span></div>
+          <span style="font-size:13px;line-height:1.5;color:var(--ink-2)">{{ i.d }}</span>
+          <span onClick="{{ i.open }}" style="font-size:12px;color:var(--mint);cursor:pointer">Ask Copilot about this ›</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isRecommend }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span class="nv-eyebrow" style="margin-right:6px">Built from</span><sc-for list="{{ inputs }}" as="x" hint-placeholder-count="6"><span style="font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2)">{{ x }}</span></sc-for><span onClick="{{ goSettings }}" style="font-size:12px;color:var(--mint);cursor:pointer;margin-left:4px">Edit ›</span></div>
+      <sc-for list="{{ recs }}" as="r" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);box-shadow:var(--shadow-card)">
+          <div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center">
+            <span class="nv-pill" style="color:{{ r.color }};border-color:{{ r.line }};background:{{ r.soft }}">{{ r.type }}</span>
+            <span style="flex:1 1 280px;font-size:15px;font-weight:500;text-wrap:pretty">{{ r.t }}</span>
+            <span class="nv-num" style="font-family:var(--display);font-size:20px">{{ r.amt }}</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:11px;letter-spacing:0.04em"><span style="color:{{ r.color }}">{{ r.impact }}</span><span style="color:var(--ink-3)">{{ r.tax }}</span><span style="color:var(--ink-3)">{{ r.conf }}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:8px 16px;font-size:13px;line-height:1.5">
+            <span style="color:var(--ink-2)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);margin-right:6px">WHY</span>{{ r.why }}</span>
+            <span style="color:var(--ink-2)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);margin-right:6px">RISK</span>{{ r.risk }}</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            <button onClick="{{ r.sim }}" style="padding:8px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Simulate</button>
+            <button onClick="{{ goPlan }}" style="padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Add to plan</button>
+            <button style="padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:transparent;color:var(--ink-3);font-family:var(--sans);font-size:13px;cursor:pointer">Dismiss</button>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-4)">{{ foot }}</span>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1080,&quot;height&quot;:1100},&quot;tool&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;analysis&quot;,&quot;recommend&quot;,&quot;research&quot;,&quot;screener&quot;,&quot;markets&quot;],&quot;default&quot;:&quot;markets&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: {}, rk: 'filings' };
+  renderVals() {
+    const p = this.props, s = this.state, T = p.tool || 'analysis';
+    const ask = (q, k) => () => p.onAsk && p.onAsk(q, k);
+    const nav = (v) => () => p.onNav && p.onNav(v);
+    const COL = { mint: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], amber: ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'], indigo: ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'], danger: ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'], ink: ['var(--ink-2)', 'var(--line-2)', 'transparent'] };
+    const sel = (on) => ({ line: on ? 'var(--mint-line)' : 'var(--line-2)', color: on ? 'var(--mint)' : 'var(--ink-2)', bg: on ? 'var(--mint-soft)' : 'transparent' });
+    const tone = (v) => /^\+/.test(v) ? 'var(--mint)' : /^−/.test(v) ? 'var(--danger)' : null;
+    const table = (t, note, head, rows, opt = {}) => ({ t, note, head, minW: (head.length * 105) + 'px', cols: `minmax(0,1.7fr) repeat(${head.length - 1},minmax(0,1fr))`, rows: rows.map(r => ({ open: r.q ? ask(r.q[0], r.q[1]) : () => {}, cursor: r.q ? 'pointer' : 'default', bg: r.mine ? 'var(--mint-soft)' : 'transparent', cells: (r.c || r).map((v, i) => { const bar = opt.bar === i ? parseFloat(v) / (opt.max || 40) * 100 : null; return { v, c: i === 0 ? 'var(--ink)' : (tone(v) || 'var(--ink-2)'), fw: i === 0 ? 500 : 400, hasBar: bar !== null, bar: Math.min(bar || 0, 100) + '%', bc: 'var(--indigo)' }; }) })) });
+    const TABS = { analysis: ['Sectors', 'Companies', 'Funds', 'Asset class'], research: s.rk === 'filings' ? [] : s.rk === 'fund' ? ['Overview', 'Returns', 'Portfolio', 'Risk'] : ['Overview', 'Financials', 'Valuation', 'Technicals', 'Shareholding', 'Deals', 'Corporate actions', 'Filings', 'Peers'], markets: ['Market', 'Sector Analysis', 'Earnings Tracker', 'FII / DII', 'Corporate Actions', 'Articles', 'Daily Iris Update'] }[T] || [];
+    const key = T + (T === 'research' ? s.rk : '');
+    const tab = Math.min(s.tab[key] || 0, Math.max(TABS.length - 1, 0));
+    const TT = TABS[tab];
+    let V = { ai: null, tiles: [], tables: [], list: [], chips: [], bars: [], months: [] };
+    const HEAD = {
+      analysis: ['Portfolio analysis · 47 holdings · 12 months', 'Where your returns come from', 'Explain my portfolio’s returns by sector', 'perf'],
+      recommend: ['Recommendations · from your holdings, goals and rules', 'Six things worth doing', 'Why these recommendations?', 'perf'],
+      research: ['Stock and fund research', s.rk === 'fund' ? 'Fund research' : s.rk === 'filings' ? 'Research across filings' : 'Stock research', s.rk === 'fund' ? 'How much overlap do my mutual funds have, and how do I rebalance tax-efficiently?' : 'Analyse CG Power fundamentally and technically', s.rk === 'fund' ? 'funds' : 'stock'],
+      screener: ['Stock screener · Nifty 500 · end of day', 'Find stocks by rule', 'Which sectors are showing improving relative strength, and what is breaking out?', 'scan'],
+      markets: ['Markets · 13 Oct 2026 · NSE and BSE · market closed', 'Market pulse', 'Show important announcements affecting my holdings today', 'events'],
+    }[T];
+    if (T === 'analysis') {
+      V.ai = { k: 'Nivesh read', t: 'IT and financials did the heavy lifting. Auto was the only sector that lost you money, almost all of it in Tata Motors.', b: [] };
+      V.tiles = [['Value', '₹24.8 L', '41 stocks · 6 funds'], ['1Y return', '+6.1%', 'Time-weighted'], ['Nifty 50 TRI', '+11.4%', 'Same period'], ['Gap', '−5.3 pts', 'See attribution in Copilot'], ['XIRR', '14.2%', '44 of 47 holdings']];
+      V.tables = [[
+        table('Sectors · weight, return and contribution', 'Sums to +6.1%', ['Sector', 'Weight', 'Value', '1Y return', 'Contribution', 'Sector index'], [['Financials', '34%', '₹8.43 L', '+6.0%', '+2.0 pt', '+7.9%'], ['IT', '18%', '₹4.46 L', '+9.1%', '+1.6 pt', '+6.2%'], ['Auto', '12%', '₹2.98 L', '−8.4%', '−1.0 pt', '+3.1%'], ['Pharma', '7%', '₹1.74 L', '+14.8%', '+1.0 pt', '+12.6%'], ['Energy', '6%', '₹1.49 L', '+2.1%', '+0.1 pt', '+4.4%'], ['FMCG', '5%', '₹1.24 L', '−1.2%', '−0.1 pt', '+1.8%'], ['Capital goods', '3%', '₹0.74 L', '+31.0%', '+0.9 pt', '+28.4%'], ['Other sectors', '7%', '₹1.74 L', '+14.3%', '+1.0 pt', '—'], ['Cash and liquid', '8%', '₹1.98 L', '+6.9%', '+0.6 pt', '—']].map(c => ({ c, q: [`How did my ${c[0]} holdings perform?`, 'perf'] })), { bar: 1 })],
+        [table('Companies · direct plus through your funds', 'Look-through', ['Company', 'Total', 'Direct', 'Via funds', '1Y return', 'Contribution'], [['HDFC Bank', '11.2%', '4.9%', '6.3%', '+9.4%', '+1.0 pt'], ['Bajaj Finance', '9.8%', '9.8%', '0.0%', '−6.1%', '−0.6 pt'], ['ICICI Bank', '8.6%', '2.1%', '6.5%', '+18.2%', '+1.5 pt'], ['Tata Motors', '6.4%', '6.4%', '0.0%', '−14.2%', '−0.9 pt'], ['Reliance', '5.1%', '0.0%', '5.1%', '+3.3%', '+0.2 pt'], ['Infosys', '4.4%', '2.8%', '1.6%', '+11.0%', '+0.5 pt'], ['IndusInd Bank', '4.1%', '4.1%', '0.0%', '−15.0%', '−0.6 pt']].map(c => ({ c, q: [`Research ${c[0]} fundamentally and technically`, 'stock'] })), { bar: 1, max: 12 })],
+        [table('Funds · return vs category', 'Direct and Regular plans', ['Fund', 'Weight', 'Value', '1Y return', 'vs category', 'XIRR'], [['PPFAS Flexi Cap · D', '8.1%', '₹2.01 L', '+16.4%', '+3.1 pts', '17.8%'], ['HDFC Flexi Cap · R', '8.5%', '₹2.10 L', '+9.8%', '−1.6 pts', '12.1%'], ['ICICI Bluechip · D', '6.2%', '₹1.54 L', '+10.9%', '+0.4 pts', '13.0%'], ['Axis Midcap · D', '4.0%', '₹0.99 L', '+7.2%', '−4.8 pts', '15.5%'], ['UTI Nifty 50 Index · D', '3.6%', '₹0.89 L', '+11.2%', '−0.2 pts', '12.4%'], ['Liquid fund · D', '8.0%', '₹1.98 L', '+6.9%', '+0.1 pts', '6.9%']].map(c => ({ c, q: ['How much overlap do my mutual funds have, and how do I rebalance tax-efficiently?', 'funds'] })), { bar: 1, max: 12 })],
+        [table('Asset classes · against your target', 'Target from your profile', ['Asset', 'Weight', 'Target', 'Value', '1Y return', 'Contribution'], [['Equity', '84%', '85–90%', '₹20.8 L', '+5.1%', '+4.3 pt'], ['Liquid', '8%', '≤ 3%', '₹1.98 L', '+6.9%', '+0.6 pt'], ['Gold', '5%', '4–6%', '₹1.24 L', '+21.0%', '+1.0 pt'], ['Debt', '3%', '5–8%', '₹0.74 L', '+7.5%', '+0.2 pt']], { bar: 1, max: 100 })],
+      ][tab];
+      const MO = [['NOV', 1.2, 2.0], ['DEC', -0.8, -0.2], ['JAN', -2.1, -1.5], ['FEB', -1.4, -0.9], ['MAR', 3.9, 4.4], ['APR', 1.6, 2.1], ['MAY', 0.9, 1.2], ['JUN', 2.2, 2.4], ['JUL', -0.6, 0.3], ['AUG', -1.9, -1.1], ['SEP', 2.8, 2.6], ['OCT', -0.5, -0.9]];
+      const f = (x) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1) + '%';
+      V.months = MO.map(([m, a, b]) => ({ m, p: f(a), b: f(b), c: a >= 0 ? 'var(--mint)' : 'var(--danger)', bg: a < b ? 'var(--danger-soft)' : 'var(--bg-2)' }));
+    }
+    if (T === 'recommend') {
+      V.ai = { k: 'Nivesh read', t: 'Doing all six would cut expected volatility from 16.8% to 14.4% and save about ₹9,500 a year in fund costs.', b: [] };
+      V.tiles = [['Volatility', '16.8% → 14.4%', 'Calculated, 3Y daily'], ['Fund costs', '₹14.8k → ₹5.3k', 'Per year'], ['Estimated tax', '₹4,200', 'FIFO lots, FY26-27'], ['Retirement goal', '72% → 78%', 'Model estimate']];
+    }
+    if (T === 'research' && s.rk === 'stock') {
+      V.tables = [null,
+        table('Financials · consolidated · ₹ Cr', 'Reported', ['Year', 'Revenue', 'EBITDA', 'Profit', 'EBITDA margin', 'ROCE'], [['FY22', '5,421', '664', '418', '12.2%', '28%'], ['FY23', '6,973', '948', '709', '13.6%', '36%'], ['FY24', '8,046', '1,121', '815', '13.9%', '39%'], ['FY25', '9,909', '1,365', '974', '13.8%', '41%'], ['FY26', '11,402', '1,612', '1,142', '14.1%', '42%']]),
+        table('Valuation vs history and sector', 'Calculated', ['Metric', 'Now', '5Y median', 'Sector'], [['P/E', '98×', '72×', '54×'], ['EV / EBITDA', '64×', '48×', '36×'], ['P/B', '26×', '19×', '9×'], ['PEG', '4.2', '3.1', '2.4']]),
+        table('Technicals · daily', 'Confirms above ₹702 on 1.5× volume · invalid below ₹636', ['Indicator', 'Value', 'Read'], [['Price vs 50-DMA', '+3.1%', 'Above'], ['Price vs 200-DMA', '+9.8%', 'Above'], ['RSI (14)', '58', 'Neutral'], ['MACD', 'Above signal', 'Positive'], ['ATR (14)', '₹21', '3.1% of price'], ['Pattern', '₹640–700 range', '7 weeks, not broken']]),
+        table('Shareholding · % of equity', 'Reported quarterly', ['Holder', 'Dec 25', 'Mar 26', 'Jun 26', 'Sep 26'], [['Promoter', '58.1', '58.1', '58.1', '58.1'], ['FII', '11.9', '12.1', '12.4', '13.2'], ['DII', '10.8', '11.0', '11.2', '11.6'], ['Retail', '19.2', '18.8', '18.3', '17.1']]),
+        table('Bulk and block deals · 12 months', 'NSE + BSE', ['Date', 'Party', 'Side', 'Shares', 'Price'], [['22 Aug', 'Goldman Sachs India', 'Buy', '42 L', '₹612'], ['3 Jun', 'Ambit Capital', 'Sell', '18 L', '₹564'], ['11 Mar', 'Norges Bank', 'Buy', '25 L', '₹548']]),
+        table('Corporate actions', 'Last 3 years', ['Ex-date', 'Action', 'Details'], [['2 Aug 2026', 'Final dividend', '₹1.30'], ['5 Feb 2026', 'Interim dividend', '₹1.00'], ['26 Jul 2024', 'Final dividend', '₹1.30']]),
+        null,
+        table('Peers · heavy electrical equipment', 'Calculated', ['Company', 'P/E', 'ROCE', '3Y revenue CAGR', 'Market cap'], [['CG Power', '98×', '42%', '19%', '₹1.04 L Cr'], ['ABB India', '84×', '29%', '16%', '₹1.36 L Cr'], ['Siemens', '72×', '21%', '14%', '₹2.22 L Cr'], ['Havells', '66×', '24%', '11%', '₹1.05 L Cr'], ['Bharat Bijlee', '31×', '17%', '22%', '₹3,900 Cr']].map(c => ({ c, q: [`Research ${c[0]} fundamentally and technically`, 'stock'] })))][tab];
+      V.tables = V.tables ? [V.tables] : [];
+      if (false) { V.tiles = [['Market cap', '₹1.04 L Cr', 'Large cap'], ['P/E', '98×', 'Sector 54×'], ['ROCE', '42%', 'FY26'], ['Dividend yield', '0.2%', 'Trailing'], ['52-week', '₹517–748', '9% below high'], ['Beta', '1.1', 'vs Nifty 500']]; }
+      if (tab === 0) V.tables = [
+        table('Quarterly results · consolidated · ₹ Cr', 'Reported', ['Quarter', 'Revenue', 'Op. profit', 'OPM', 'Net profit', 'EPS ₹', 'Profit YoY'], [['Q1 FY27', '3,240', '461', '14.2%', '318', '2.08', '+21%'], ['Q4 FY26', '3,012', '428', '14.2%', '309', '2.02', '+15%'], ['Q3 FY26', '2,880', '409', '14.2%', '290', '1.90', '+20%'], ['Q2 FY26', '2,820', '398', '14.1%', '281', '1.84', '+19%'], ['Q1 FY26', '2,690', '377', '14.0%', '262', '1.71', '+18%'], ['Q4 FY25', '2,752', '384', '14.0%', '268', '1.75', '+19%'], ['Q3 FY25', '2,476', '338', '13.7%', '241', '1.58', '+22%'], ['Q2 FY25', '2,413', '326', '13.5%', '236', '1.54', '+24%']]),
+        table('Profit and loss · 5 years · ₹ Cr', 'Reported', ['Year', 'Revenue', 'EBITDA', 'Net profit', 'EBITDA margin', 'Revenue YoY'], [['FY26', '11,402', '1,612', '1,142', '14.1%', '+15%'], ['FY25', '9,909', '1,365', '974', '13.8%', '+23%'], ['FY24', '8,046', '1,121', '815', '13.9%', '+15%'], ['FY23', '6,973', '948', '709', '13.6%', '+29%'], ['FY22', '5,421', '664', '418', '12.2%', '+57%']]),
+        table('Balance sheet · ₹ Cr', 'Reported', ['Year', 'Net worth', 'Borrowings', 'Total assets', 'Cash', 'Book value / share'], [['FY26', '5,064', '0', '10,580', '2,980', '₹33.1'], ['FY25', '3,912', '0', '8,864', '2,410', '₹25.6'], ['FY24', '2,868', '0', '7,112', '1,842', '₹18.8'], ['FY23', '2,021', '86', '5,880', '1,104', '₹13.2'], ['FY22', '1,118', '412', '4,602', '322', '₹7.3']]),
+        table('Cash flow · ₹ Cr', 'Reported', ['Year', 'Operating cash', 'Capex', 'Free cash flow', 'Dividends paid'], [['FY26', '1,388', '−940', '448', '−351'], ['FY25', '1,192', '−612', '580', '−199'], ['FY24', '1,048', '−284', '764', '−199'], ['FY23', '1,021', '−148', '873', '−229'], ['FY22', '812', '−94', '718', '0']]),
+        table('Efficiency ratios', 'Calculated', ['Year', 'ROCE', 'ROE', 'Debtor days', 'Inventory days', 'Working capital days'], [['FY26', '42%', '31%', '43', '42', '−3'], ['FY25', '41%', '31%', '44', '40', '−6'], ['FY24', '39%', '32%', '46', '38', '−4'], ['FY23', '36%', '35%', '49', '39', '9'], ['FY22', '28%', '37%', '56', '41', '18']]),
+        table('Shareholding trend · % of equity', 'MF schemes holding: 38 (+4 QoQ) · pledged 0%', ['Holder', 'Mar 25', 'Sep 25', 'Mar 26', 'Jun 26', 'Sep 26'], [['Promoter', '58.1', '58.1', '58.1', '58.1', '58.1'], ['FII', '11.2', '11.6', '12.1', '12.4', '13.2'], ['DII', '10.1', '10.5', '11.0', '11.2', '11.6'], ['Retail and others', '20.6', '19.8', '18.8', '18.3', '17.1']]),
+        table('Moving averages · daily', 'Price ₹682.30', ['Average', 'SMA', 'EMA', 'Price vs SMA', 'Signal'], [['5-day', '678', '679', '+0.6%', 'Bullish'], ['20-day', '671', '672', '+1.7%', 'Bullish'], ['50-day', '662', '664', '+3.1%', 'Bullish'], ['100-day', '641', '646', '+6.4%', 'Bullish'], ['200-day', '621', '628', '+9.8%', 'Bullish']]),
+        table('Oscillators and volume', 'Calculated', ['Indicator', 'Value', 'Read'], [['RSI (14)', '58', 'Neutral'], ['MACD (12, 26, 9)', '6.4 vs 4.1', 'Bullish'], ['Stochastic (14)', '71', 'Neutral'], ['ADX (14)', '17', 'Weak trend'], ['MFI (14)', '55', 'Neutral'], ['Delivery, 20-day avg', '48%', 'Above 6-month avg']]),
+        table('Pivot levels · daily', 'Support and resistance', ['Level', 'Classic', 'Fibonacci'], [['R3', '₹721', '₹709'], ['R2', '₹706', '₹699'], ['R1', '₹694', '₹693'], ['Pivot', '₹682', '₹682'], ['S1', '₹670', '₹671'], ['S2', '₹658', '₹665'], ['S3', '₹643', '₹655']]),
+      ];
+      if (tab === 7) V.list = [['RESULTS', 'Board meeting on 28 Oct for Q2 FY27 results', 'Filed today 10:12. Last quarter revenue grew 21% YoY.', '13 OCT · BSE', 'indigo'], ['ORDERS', 'Order from Indian Railways for traction motors', 'Value about ₹1,240 Cr, executed over 30 months.', '8 OCT · NSE', 'mint'], ['RATING', 'Long-term rating reaffirmed at AA+ stable', 'No change in outlook.', '2 OCT · BSE', 'ink']];
+    }
+    if (T === 'research' && s.rk === 'fund') {
+      V.tables = [null,
+        table('Returns · annualised', 'Direct plan', ['Period', 'Fund', 'Category', 'Nifty 500 TRI', 'Rank'], [['1 year', '+16.4%', '+13.3%', '+12.1%', '8 of 38'], ['3 years', '+21.9%', '+18.0%', '+17.2%', '3 of 36'], ['5 years', '+24.6%', '+20.1%', '+19.4%', '2 of 33']]),
+        table('Top holdings · Aug 2026', 'Factsheet', ['Holding', 'Weight', 'Sector'], [['HDFC Bank', '8.1%', 'Banks'], ['Bajaj Holdings', '6.4%', 'Financials'], ['Power Grid', '6.0%', 'Power'], ['Coal India', '5.1%', 'Mining'], ['Alphabet', '4.2%', 'Foreign · tech'], ['Microsoft', '3.1%', 'Foreign · tech']]),
+        table('Risk · 3 years', 'Calculated', ['Measure', 'Fund', 'Category'], [['Standard deviation', '11.8%', '14.2%'], ['Sharpe ratio', '1.32', '0.98'], ['Max drawdown', '−21%', '−27%'], ['Beta', '0.78', '0.94'], ['Overlap with your HDFC Flexi Cap', '41%', '—']])][tab];
+      V.tables = V.tables ? [V.tables] : [];
+      if (tab === 0) { V.ai = { k: 'Nivesh read', t: 'Consistent and low-turnover: 81% of 3-year periods in the top half of its category, with 15% in foreign stocks.', b: [] }; V.tiles = [['NAV', '₹86.42', '12 Oct'], ['AUM', '₹92,400 Cr', 'Aug 2026'], ['Expense', '0.63%', 'Direct'], ['Manager tenure', '12 years', 'Same team'], ['Exit load', '2%', 'Within 1 year']]; }
+    }
+    if (T === 'screener') {
+      V.tables = [table('38 matches · showing 8 · sorted by 3-month RS', 'Candidates, not recommendations', ['Stock', 'Sector', 'Market cap', 'P/E', 'ROCE', '3M RS'], [['CG Power', 'Capital goods', '₹1.04 L Cr', '98×', '42%', '+12%'], ['Dixon Technologies', 'Electronics', '₹82,000 Cr', '112×', '28%', '+18%'], ['Coforge', 'IT', '₹54,000 Cr', '58×', '23%', '+11%'], ['Persistent Systems', 'IT', '₹86,000 Cr', '64×', '31%', '+9%'], ['Lupin', 'Pharma', '₹99,000 Cr', '34×', '20%', '+8%'], ['KEI Industries', 'Capital goods', '₹40,100 Cr', '52×', '24%', '+7%'], ['Divi’s Labs', 'Pharma', '₹1.58 L Cr', '72×', '21%', '+6%'], ['Polycab', 'Capital goods', '₹1.02 L Cr', '48×', '27%', '+5%']].map(c => ({ c, q: [`Research ${c[0]} fundamentally and technically`, 'stock'] })))];
+    }
+    if (T === 'markets') {
+      const M = [
+        () => { V.ai = { k: 'Today’s tape', t: 'Markets closed lower, led by pharma, with breadth mixed. Your portfolio fell 0.5% against 0.7% for the Nifty 50.', b: [] }; V.tiles = [['Nifty 50', '22,363', '−0.70%'], ['Sensex', '71,925', '−0.76%'], ['Nifty Bank', '54,918', '−0.61%'], ['Midcap 50', '16,828', '+0.24%'], ['Nifty 500', '21,823', '−0.20%'], ['India VIX', '15.25', '+6.05%']]; V.tables = [table('Top movers · Nifty 500', '912 advances · 1,184 declines', ['Stock', 'Price', 'Change'], [['Lupin', '₹2,184', '+3.4%'], ['Sun Pharma', '₹1,812', '+2.9%'], ['Cummins India', '₹3,688', '+2.2%'], { c: ['Tata Motors', '₹712', '−3.1%'], mine: true }, { c: ['IndusInd Bank', '₹1,018', '−2.6%'], mine: true }, { c: ['Bajaj Finance', '₹8,104', '−1.9%'], mine: true }]), table('Global cues', 'Asia live · US and Europe previous close', ['Market', 'Last', 'Change'], [['S&P 500 futures', '7,836.75', '−0.12%'], ['USD / INR', '95.76', '+0.08%'], ['Brent crude', '105.43', '−0.40%'], ['US 10Y yield', '5.24%', '−0.08']])]; },
+        () => { V.ai = { k: 'Sector read', t: 'Capital goods and pharma lead over the year; banks and NBFCs are under pressure, and you hold 21% in banks.', b: [] }; V.tables = [table('Sectors · NSE', 'Median P/E, trailing', ['Sector', '1D', '1M', '1Y', 'Median P/E', 'Up / down'], [['Capital goods & infra', '+0.40%', '+4.2%', '+41.7%', '58×', '12 / 6'], ['Pharma & healthcare', '+0.45%', '+3.1%', '+18.2%', '36×', '12 / 4'], ['Cyclicals', '−0.30%', '−1.6%', '+4.4%', '22×', '13 / 17'], ['IT', '−0.79%', '+1.0%', '−6.1%', '28×', '4 / 5'], ['FMCG & consumer', '−0.20%', '−0.8%', '−5.0%', '44×', '3 / 6'], ['Banks', '−0.61%', '−2.8%', '−6.5%', '14×', '0 / 3'], ['NBFCs', '−0.90%', '−3.4%', '−10.4%', '24×', '6 / 20']].map(c => ({ c, q: ['Which sectors are showing improving relative strength, and what is breaking out?', 'scan'] })))]; },
+        () => { V.ai = { k: 'Earnings season', t: '6 of 501 Nifty 500 companies have reported Q2 FY27. Your holdings start reporting on 18 Oct.', b: [] }; V.tiles = [['Declared', '6 / 501', '1%'], ['Profit grew', '4', 'vs year-ago'], ['Profit shrank', '1', 'vs year-ago'], ['No comparable', '1', 'New listing']]; V.tables = [table('Your holdings · upcoming results', 'Average move on result day', ['Company', 'Date', 'Last qtr profit YoY', 'Avg result-day move'], [{ c: ['HDFC Bank', '18 Oct', '+8%', '±2.1%'], mine: true }, { c: ['Bajaj Finance', '21 Oct', '+14%', '±5.8%'], mine: true }, { c: ['Infosys', '23 Oct', '+5%', '±3.4%'], mine: true }, { c: ['Tata Motors', '6 Nov', '−12%', '±4.9%'], mine: true }]), table('By sector · Q2 FY27 so far', 'Median of declared companies', ['Sector', 'Declared', 'Grew', 'Shrank', 'Sales YoY', 'Profit YoY'], [['Financial services', '4 / 98', '3', '1', '+14%', '+11%'], ['IT', '1 / 25', '1', '0', '+6%', '+4%'], ['Consumer services', '1 / 23', '0', '0', '—', '—'], ['Capital goods', '0 / 70', '—', '—', '—', '—'], ['Healthcare', '0 / 44', '—', '—', '—', '—']])]; },
+        () => { V.ai = { k: 'Flows read', t: 'FIIs sold ₹1,708 Cr in cash on 12 Oct, their sixth sale in ten sessions; DIIs absorbed it with ₹3,045 Cr of buying.', b: [] }; const F = [['29 SEP', -2210, 2980], ['30 SEP', 640, 1120], ['1 OCT', -1450, 2310], ['3 OCT', -2890, 3560], ['6 OCT', 1120, 480], ['7 OCT', -980, 1640], ['8 OCT', -2040, 2760], ['9 OCT', -3569, 4743], ['10 OCT', 410, 930], ['12 OCT', -1708, 3045]]; const bar = (v) => { const h = Math.abs(v) / 5000 * 50; return v >= 0 ? { t: (50 - h) + '%', h: h + '%' } : { t: '50%', h: h + '%' }; }; V.bars = F.map(([d, f, di]) => { const a = bar(f), b = bar(di); return { d, ft: a.t, fh: a.h, dt: b.t, dh: b.h }; }); V.tables = [table('Cash market · ₹ Cr', 'NSE provisional', ['Date', 'FII buy', 'FII sell', 'FII net', 'DII buy', 'DII sell', 'DII net'], [['12 Oct', '12,583', '14,292', '−1,708', '15,507', '12,462', '+3,045'], ['9 Oct', '10,374', '13,943', '−3,569', '15,627', '10,883', '+4,743']]), table('FII holdings by sector · Nifty 500', 'Positioning, not flows', ['Sector', 'Holding value', 'Stocks'], [['Banking', '₹5.53 L Cr', '4'], ['Financial services', '₹1.90 L Cr', '14'], ['Healthcare', '₹1.25 L Cr', '7'], ['Power', '₹78.9K Cr', '4'], ['FMCG', '₹75.1K Cr', '6']])]; },
+        () => { V.chips = ['All 5', 'Dividend 3', 'Bonus 0', 'Rights 1', 'Splits 1', 'Buyback 0'].map((t, i) => ({ t, ...sel(i === 0), pick: () => {} })); V.tables = [table('Corporate actions · 13 Sep – 12 Nov 2026', 'Source: NSE', ['Company', 'Ex-date', 'Event', 'Details'], [['Ola Electric', '13 Oct', 'Rights', '2:25'], ['TCS', '14 Oct', 'Dividend', '₹12'], ['Vedanta', '14 Oct', 'Dividend', '₹5'], ['Bansal Wire', '16 Oct', 'Split', 'FV ₹5 → ₹1'], { c: ['Infosys · you hold', '24 Oct', 'Dividend', '₹21'], mine: true }])]; },
+        () => { V.chips = ['All', 'Management 212', 'M&A 138', 'Earnings 114', 'Rating 95', 'Litigation 93', 'QIP 85', 'Orders 71', 'Capex 45', 'Dividend 29', 'Buyback 8'].map((t, i) => ({ t, ...sel(i === 0), pick: () => {} })); V.list = [['QIP · HIGH IMPACT', 'TD Power Systems raises about ₹600 Cr', 'Allotted 77.4 lakh shares to qualified institutions at ₹775, a 0.05% discount to the floor price.', '12 OCT', 'mint'], ['EARNINGS · HIGH IMPACT', 'RBL Bank: Q2 profit ₹482 Cr, up 170% YoY', 'Net interest income +37%; gross NPA down to 1.02% from 2.32%.', '12 OCT', 'mint'], ['ORDERS · HIGH IMPACT', 'Vikran Engineering: ₹2,941 Cr IREDA term loan', 'Part-finances a 969 MWac solar project; corporate guarantee still to be executed.', '12 OCT', 'indigo'], ['MANAGEMENT · HIGH IMPACT', 'Sun Pharma: NCDs up to ₹10,000 Cr; director resigns', 'Independent director Gautam Doshi resigned for personal reasons.', '12 OCT', 'amber']]; },
+        () => { V.ai = { k: 'Iris read · rules-based', t: 'Markets closed lower.', b: ['Nifty 50 −0.70%', 'FII net −₹1,708 Cr in cash', 'DII net +₹3,045 Cr in cash', 'India VIX at 15.25, rising', '4 material corporate announcements today'] }; V.tiles = [['Nifty 50', '22,363.35', '−0.70%'], ['India VIX', '15.25', '+6.05%'], ['Advances / declines', '912 / 1,184', 'NSE'], ['FII net', '−₹1,708 Cr', 'Cash'], ['DII net', '+₹3,045 Cr', 'Cash']]; V.list = [['QIP', 'TD Power Systems · allotment of securities', 'Qualified institutional placement completed.', '12 OCT', 'ink'], ['EARNINGS', 'Swan Defence and Heavy Industries · press release', 'H1 FY27 revenue ₹99.5 Cr; order book about ₹6,500 Cr.', '12 OCT', 'ink'], ['MANAGEMENT', 'Sun Pharmaceutical Industries · resignation', 'Independent director resigned.', '12 OCT', 'ink']]; },
+      ];
+      M[tab]();
+      V.tiles = V.tiles.map(([k, v, sub]) => [k, v, sub, tone(sub)]);
+    }
+    const LIST = (V.list || []).map(([tag, t, d, meta, col]) => ({ tag, t, d, meta, color: COL[col][0], line: COL[col][1], open: ask(t, 'events') }));
+    return {
+      pad: p.mobile ? '24px' : '44px', eyebrow: HEAD[0], title: HEAD[1], askAbout: ask(HEAD[2], HEAD[3]),
+      hasTabs: TABS.length > 0 && T !== 'research', tabs: TABS.map((t, i) => ({ t, color: i === tab ? 'var(--ink)' : 'var(--ink-3)', line: i === tab ? 'var(--ink)' : 'transparent', pick: () => this.setState(x => ({ tab: { ...x.tab, [key]: i } })) })),
+      isResearch: T === 'research', isScreener: T === 'screener', isRecommend: T === 'recommend',
+      isFilings: T === 'research' && s.rk === 'filings', entDisp: s.rk === 'filings' ? 'none' : 'flex',
+      askFilings: ask('Which companies won their largest-ever order this year?', 'events'), goScan: ask('Which stocks are breaking out with above-average volume?', 'scan'),
+      fTabs: ['Curated themes', 'History (4)', 'Favorites'].map((t, i) => ({ t, color: i === 0 ? 'var(--ink)' : 'var(--ink-3)', line: i === 0 ? 'var(--mint)' : 'transparent' })),
+      themes: [['GROWTH & ORDER MOMENTUM', 'Biggest order wins this fortnight, by value, sector and counterparty (govt, PSU, private)', true], ['GROWTH & ORDER MOMENTUM', 'Which companies won their largest-ever order this year?', false], ['GROWTH & ORDER MOMENTUM', 'Companies whose order book grew fastest by their own concall disclosures', false], ['GROWTH & ORDER MOMENTUM', 'Which smallcaps entered new export markets or won first international orders?', false], ['CAPEX CYCLE · BOTH ENDS OF IT', 'Major capacity expansions or new-plant announcements this quarter', true]].map(([k, t, st]) => ({ k, t, star: st ? '★ ' : '', go: ask(t, 'events') })),
+      fCats: ['ALL', 'MANAGEMENT', 'M&A', 'LITIGATION', 'QIP', 'RATING', 'ORDERS', 'EARNINGS', 'CAPEX', 'DIVIDEND', 'BUYBACK'].map((t, i) => ({ t, ...sel(i === 0) })),
+      filings: [['TD Power Systems Limited', 'TDPOWERSYS', 'TD Power Systems allotted 77,41,935 equity shares to qualified institutional buyers in a QIP at ₹775 per share, raising about ₹600 crore. Paid-up share capital rises from 31,37,06,860 to 32,14,48,795 shares.', 'Total issue amount: 600 ₹ cr', '12 Oct', 'mint'], ['Swan Defence and Heavy Industries', 'SWANDEF', 'Reported H1 FY27 revenue from operations of ₹99.46 cr versus ₹39.99 cr a year earlier, with a reported PBT loss of ₹38.37 cr. Firm order book is about ₹6,500 cr, giving revenue visibility through FY31.', 'H1 FY27 revenue: 99.46 ₹ cr', '12 Oct', 'mint'], ['Sun Pharmaceutical Industries', 'SUNPHARMA', 'The board approved private placement of listed, rated, unsecured NCDs of up to ₹10,000 crore. An independent director resigned for personal reasons and confirmed no other material reasons.', 'Max NCD issuance: 10,000 ₹ cr', '12 Oct', 'indigo'], ['Vikran Engineering Limited', 'VIKRAN', 'Subsidiary NOPL Solar signed a ₹2,941 crore IREDA term loan to part-finance a 969 MWac solar project costing ₹4,201.70 crore in Maharashtra.', 'IREDA term loan: 2,941.19 ₹ cr', '12 Oct', 'mint'], ['The Bombay Burmah Trading Corporation', 'BBTC', 'The Tamil Nadu Forest Department issued a notice with a provisional computation of ₹6,462 crore for re-computed lease rent. The company says the liability is not crystallised.', 'Provisional lease rent: 6,462.12 ₹ cr', '12 Oct', 'danger']].map(([co, sym, t, fig, d, col]) => ({ co, sym, t, fig, d, dot: COL[col][0], color: COL[col][0], line: COL[col][1], go: ask(`What does the latest ${co} filing mean for shareholders?`, 'events') })),
+      kinds: [['filings', 'Filings'], ['stock', 'Stock'], ['fund', 'Mutual fund']].map(([k, t]) => ({ t, ...sel(s.rk === k), pick: () => this.setState({ rk: k }) })),
+      entity: s.rk === 'fund' ? { crumb: 'FUNDS / EQUITY / FLEXI CAP / PARAG PARIKH FLEXI CAP', meta: 'AMFI · DIRECT · GROWTH', n: 'Parag Parikh Flexi Cap Fund', d: 'Value-tilted flexi cap with up to 35% abroad. You hold ₹2.01 L.', px: '₹86.42', ch: '+0.31% · NAV 12 OCT', sub: 'AUM ₹92,400 CR · EXPENSE 0.63%' } : { crumb: 'MARKETS / CAPITAL GOODS / HEAVY ELECTRICAL EQUIPMENT / CG POWER', meta: 'NSE: CGPOWER · BSE: 500093 · ON YOUR WATCHLIST', n: 'CG Power and Industrial Solutions Ltd.', d: 'Diversified electrical engineering company in the Murugappa group, majority-owned by Tube Investments of India. Makes motors, drives, transformers, switchgear and railway equipment.', px: '₹682.30', ch: '+₹8.10 · +1.20%', sub: '+32% FROM 52-WEEK LOW · VOL 1.6M · NSE 13 OCT 11:29 IST' },
+      entActions: [['＋ Watchlist', nav('page:watchlist'), 'mint'], ['Alert', nav('page:watchlist'), 'ink'], ['Notes', () => {}, 'ink'], ['Ask Copilot ›', ask(HEAD[2], HEAD[3]), 'mint']].map(([t, go, col]) => ({ t, go, color: COL[col][0], line: COL[col][1] })),
+      isStockOv: T === 'research' && s.rk === 'stock' && tab === 0,
+      similar: ask('Find quality compounders like CG Power at lower valuations', 'scan'),
+      simBuy: ask('Simulate buying ₹50,000 of CG Power in my portfolio', 'perf'),
+      fit: [['Capital goods exposure', '3% → 5%'], ['Overlap with your funds', 'None held'], ['Correlation with your portfolio', '0.41 · diversifying'], ['Portfolio volatility', '16.8% → 16.9%'], ['Portfolio health score', '68 → 69']].map(([k, v]) => ({ k, v })),
+      stockAsks: [['Is the breakout confirmed?', 'scan'], ['What changed in the latest quarterly results?', 'stock'], ['Compare CG Power with ABB and Siemens', 'stock'], ['Backtest a breakout from this kind of range', 'backtest'], ['Show recent filings for CG Power', 'events']].map(([t, k]) => ({ t, go: ask(t, k) })),
+      scores: [['Quality', 82, 'Strong business', '+3 vs last qtr', 'mint'], ['Health', 74, 'Healthy balance sheet', 'Net cash', 'mint'], ['Add score', 31, 'Expensive to add now', 'P/E 98× vs 72×', 'danger'], ['Exit score', 18, 'No exit signal', 'Trend intact', 'mint']].map(([k, v, label, note, col]) => ({ k, v, label, note, w: v + '%', color: COL[col][0], line: COL[col][1], soft: COL[col][2] })),
+      swot: [[7, 'Strengths', 'mint'], [3, 'Weaknesses', 'amber'], [16, 'Opportunities', 'indigo'], [2, 'Threats', 'danger']].map(([n, t, col]) => ({ n, t, c: COL[col][0] })),
+      valRows: [{ k: 'On trailing P/E', v: 'Overvalued', p: '26%' }, { k: 'On 1-year forward P/E', v: 'Overvalued', p: '6%' }],
+      ranges: ['1M', '6M', '1Y', '3Y', '5Y'].map(t => ({ t, color: t === '6M' ? 'var(--ink)' : 'var(--ink-3)', bg: t === '6M' ? 'var(--bg-3)' : 'transparent' })),
+      ...(() => { const px = []; for (let i = 0; i < 130; i++) { const tr = 560 + 140 * Math.min(1, i / 80) + 18 * Math.sin(i / 6) + 9 * Math.sin(i / 2.3) - (i > 80 ? 12 * Math.sin((i - 80) / 5) : 0); px.push(tr); } const dma = px.map((v, i) => { const w = px.slice(Math.max(0, i - 50), i + 1); return w.reduce((a, b) => a + b, 0) / w.length - 25; }); const pts = (arr) => arr.map((v, i) => `${(i / 129 * 600).toFixed(1)},${(150 - (v - 500) / 260 * 150).toFixed(1)}`).join(' '); return { pxLine: pts(px), dmaLine: pts(dma) }; })(),
+      keyMetrics: [['Market cap', '₹1.04 L Cr'], ['P/E', '98×'], ['P/B', '26×'], ['ROCE', '42%'], ['ROE', '31%'], ['Debt / equity', '0.0'], ['Dividend yield', '0.2%'], ['EPS growth, 3Y', '34%'], ['52-week high', '₹748'], ['52-week low', '₹517'], ['Beta', '1.1'], ['Promoter holding', '58.1%']].map(([k, v]) => ({ k, v })),
+      presets: [['Quality compounders', 'ROCE ≥ 20% · D/E ≤ 0.5 · 38'], ['Breakout with volume', '4 rules · 11'], ['FII buying 2 quarters', 'Stake up twice · 27'], ['Near 52-week high', 'Within 3% · 46'], ['Improving ROCE', '3-year rise · 23']].map(([t, d], i) => ({ t, d, line: i === 0 ? 'var(--mint-line)' : 'var(--line)', pick: () => {} })),
+      rules: ['Universe: Nifty 500', 'ROCE ≥ 20%', 'Debt / equity ≤ 0.5', '3Y revenue CAGR ≥ 15%', 'Avg traded value ≥ ₹10 Cr'],
+      hasAi: !!V.ai, ai: V.ai || { k: '', t: '', b: [] },
+      hasTiles: V.tiles.length > 0, tiles: V.tiles.map(([k, v, sub, c]) => ({ k, v, s: sub, c: c || tone(v) || 'var(--ink)' })),
+      hasBars: V.bars.length > 0, bars: V.bars,
+      hasMonths: V.months.length > 0, months: V.months,
+      hasChips: V.chips.length > 0, chips: V.chips,
+      tables: V.tables,
+      hasList: LIST.length > 0, list: LIST,
+      inputs: ['Retire by 2045', 'Risk: moderate', 'Max 8% per stock', 'Max 25% per sector', 'Cash buffer 3%', 'Excludes tobacco'],
+      goSettings: nav('page:settings'), goPlan: nav('page:plan'),
+      recs: [['TRIM', 'danger', 'Reduce Bajaj Finance from 9.8% to 6%', '₹94,000', '−1.9 PT RISK', 'TAX ₹4,200', 'CALCULATED · DIRECTION UNCERTAIN', 'Above your 8% limit, and −1.4 pts of this year’s gap.', 'A strong Q2 on 21 Oct could re-rate it.', 'Simulate reducing Bajaj Finance to 6%', 'perf'], ['SWITCH', 'amber', 'HDFC Flexi Cap (Regular) → UTI Nifty Next 50 Index (Direct)', '₹2.10 L', '₹3,400/YR SAVED', 'TAX ₹0', 'EXACT OVERLAP AND COSTS', '68% overlap with ICICI Bluechip.', 'Next 50 is more volatile than a flexi cap.', 'Simulate switching HDFC Flexi Cap to UTI Nifty Next 50', 'funds'], ['ADD', 'indigo', 'Move ₹1.2 L of idle cash into a Nifty 50 index fund over 3 months', '₹1.20 L', '+₹0.4 L/YR EST.', 'NO TAX', 'ESTIMATE · PAST RETURNS', 'Liquid funds are 8% against your 3% buffer.', 'Investing just before a fall; the STP spreads that out.', 'Plan a 3-month STP for my idle cash', 'perf'], ['SWITCH', 'amber', 'Move 3 Regular plans to Direct over two financial years', '₹4.6 L', '₹6,100/YR SAVED', 'TAX ₹0', 'EXACT AT TODAY’S VALUES', 'Same portfolios at about 0.9% lower annual cost.', 'Switching resets the holding period on new units.', 'Which of my funds are Regular plans?', 'funds'], ['ADD', 'indigo', 'Add a short-duration debt fund to reach 5% debt', '₹50,000', '−0.6 PT VOLATILITY', 'NO TAX', 'CALCULATED', 'Debt is 3% against your 5–8% target.', 'Lower expected return than equity.', 'Rebalance toward 85% equity, 10% debt, 5% gold', 'funds'], ['HOLD', 'ink', 'Keep Tata Motors; pause its SIP until JLR volumes stabilise', '—', 'CAPS EXPOSURE AT 6.4%', 'NO TAX', 'FACTS REPORTED · CAUSE INTERPRETED', 'Cheap at 9.1× earnings but below its 200-day average.', 'A demerger re-rating could come quickly.', 'Research Tata Motors fundamentally and technically', 'stock']].map(([type, col, t, amt, impact, tax, conf, why, risk, q, k]) => ({ type, t, amt, impact, tax, conf, why, risk, color: COL[col][0], line: COL[col][1], soft: COL[col][2], sim: ask(q, k) })),
+      foot: T === 'screener' ? 'END-OF-DAY DATA · SCREEN MATCHES ARE CANDIDATES, NOT RECOMMENDATIONS · ILLUSTRATIVE' : T === 'recommend' ? 'EDUCATIONAL, NOT INVESTMENT ADVICE · NOTHING IS EXECUTED · ILLUSTRATIVE' : 'SOURCES: NSE, BSE, AMFI, AMC FACTSHEETS, YOUR HOLDINGS · ILLUSTRATIVE DATA',
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "as_of": "2026-10-13T10:00:00+05:30",
+  "is_live": false,
+  "market_state": "closed",
+  "fetched_at": "2026-10-13T10:00:05+05:30",
+  "verdict": "NORMAL",
+  "verdict_reason": "TEST FIXTURE — not real market data",
+  "indices": [
+    { "name": "Nifty 50", "value": 24568, "change": -120.5, "change_pct": -0.49, "is_vix": false, "trend": "down", "spark": [] },
+    { "name": "Nifty Bank", "value": 52110, "change": 80.2, "change_pct": 0.15, "is_vix": false, "trend": "up", "spark": [] },
+    { "name": "India VIX", "value": 13.42, "change": 0.5, "change_pct": 3.9, "is_vix": true, "trend": "up", "spark": [] }
+  ],
+  "breadth": { "advances": 1200, "declines": 800, "unchanged": 50, "universe": 2050, "tone": "positive" },
+  "gainers": [
+    { "symbol": "FIXTUREUP", "name": "Fixture Gainer Ltd", "price": 101.5, "change_pct": 4.2 }
+  ],
+  "losers": [
+    { "symbol": "FIXTUREDN", "name": "Fixture Loser Ltd", "price": 88.25, "change_pct": -3.1 }
+  ],
+  "movers_as_of": "2026-10-13",
+  "sectors": [
+    { "name": "Fixture Sector A", "change_pct": 1.2 },
+    { "name": "Fixture Sector B", "change_pct": -0.8 }
+  ],
+  "fii_dii": { "as_of": "2026-10-12", "fii_net_cr": -1234, "dii_net_cr": 2345 },
+  "news": [
+    { "title": "Fixture headline one for the test suite", "category": "results", "when": "2026-10-13", "symbol": "FIXTUREUP", "sentiment": "positive" },
+    { "title": "Fixture headline two for the test suite", "category": "corporate_action", "when": "2026-10-13", "symbol": "FIXTUREDN", "sentiment": "negative" }
+  ],
+  "global_cues": [],
+  "global_indices": { "us": [], "europe": [], "asia": [] },
+  "commodities": []
+}

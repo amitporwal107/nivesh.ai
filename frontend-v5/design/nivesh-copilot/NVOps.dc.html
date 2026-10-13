@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:1040px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:24px;font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <span style="display:flex;gap:10px;align-items:center"><span class="nv-eyebrow">Internal · Operations</span><span class="nv-pill nv-pill-danger">Admins only</span></span>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:40px;line-height:1.05;letter-spacing:-0.02em">{{ title }}</h1>
+    <span style="font-size:14px;color:var(--ink-3);max-width:620px;text-wrap:pretty">{{ sub }}</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4">
+      <span onClick="{{ t.go }}" style="padding:7px 14px;border-radius:999px;font-size:13px;cursor:pointer;border:1px solid {{ t.line }};color:{{ t.color }};background:{{ t.bg }}">{{ t.t }}</span>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ isTools }}" hint-placeholder-val="{{ true }}">
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+      <div style="overflow-x:auto"><div style="min-width:760px">
+        <div style="display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1.3fr) 60px 90px 80px 70px 70px;gap:10px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><span>Tool</span><span>Service</span><span>Ver</span><span>Freshness</span><span>Timeout</span><span style="text-align:right">p95</span><span style="text-align:right">7D OK</span></div>
+        <sc-for list="{{ tools }}" as="t" hint-placeholder-count="8">
+          <div>
+            <div onClick="{{ t.toggle }}" style="display:grid;grid-template-columns:minmax(0,1.8fr) minmax(0,1.3fr) 60px 90px 80px 70px 70px;gap:10px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px;cursor:pointer;background:{{ t.bg }}" style-hover="background:var(--bg-2)">
+              <span style="font-family:var(--mono);font-size:12px">{{ t.n }}</span><span style="color:var(--ink-3)">{{ t.svc }}</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ t.v }}</span><span style="color:var(--ink-2)">{{ t.fresh }}</span><span style="color:var(--ink-2)">{{ t.to }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ t.p95 }}</span><span class="nv-num" style="text-align:right;color:{{ t.okc }}">{{ t.ok }}</span>
+            </div>
+            <sc-if value="{{ t.open }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;padding:14px 18px 18px;background:var(--bg-2);border-top:1px solid var(--line)">
+                <sc-for list="{{ t.contract }}" as="k" hint-placeholder-count="6">
+                  <div style="display:flex;flex-direction:column;gap:4px"><span class="nv-eyebrow">{{ k.k }}</span><span style="font-family:var(--mono);font-size:12px;line-height:1.55;color:var(--ink-2);white-space:pre-wrap">{{ k.v }}</span></div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div></div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isFeeds }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:12px;border:1px solid var(--amber-line);background:var(--amber-soft);font-size:13px;line-height:1.5;color:var(--ink-2)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber);padding-top:2px;flex:none">INCIDENT</span>BSE announcements lagged 6 minutes from 13:20 to 13:26. 41 filings were replayed in order; 2 duplicates were dropped. No insights were published from incomplete data.</div>
+      <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+        <div style="overflow-x:auto"><div style="min-width:760px">
+          <div style="display:grid;grid-template-columns:minmax(0,1.6fr) 90px 110px 100px 70px 70px minmax(0,1fr);gap:10px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><span>Source</span><span>Type</span><span>Last update</span><span>Cadence</span><span style="text-align:right">Fails 24h</span><span style="text-align:right">Dupes</span><span style="text-align:right">Status</span></div>
+          <sc-for list="{{ feeds }}" as="f" hint-placeholder-count="8">
+            <div style="display:grid;grid-template-columns:minmax(0,1.6fr) 90px 110px 100px 70px 70px minmax(0,1fr);gap:10px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center">
+              <span>{{ f.n }}</span><span style="color:var(--ink-3)">{{ f.t }}</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">{{ f.last }}</span><span style="color:var(--ink-3)">{{ f.cad }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ f.fails }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ f.dup }}</span><span style="text-align:right"><span class="nv-pill" style="color:{{ f.color }};border-color:{{ f.line }}">{{ f.st }}</span></span>
+            </div>
+          </sc-for>
+        </div></div>
+      </div>
+      <span style="font-size:12px;color:var(--ink-3)">Raw payloads are kept with lineage to every derived table. Ingestion is idempotent and replayable; schemas are validated before publish.</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isAudit }}" hint-placeholder-val="{{ false }}">
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <sc-for list="{{ audit }}" as="a" hint-placeholder-count="6">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;padding:13px 18px;border-bottom:1px solid var(--line)">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--ink-3);min-width:64px">{{ a.time }}</span>
+          <div style="flex:1 1 260px;display:flex;flex-direction:column;gap:3px"><span style="font-size:14px">{{ a.t }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.04em;color:var(--ink-3)">{{ a.meta }}</span></div>
+          <span class="nv-pill" style="color:{{ a.color }};border-color:{{ a.line }}">{{ a.st }}</span>
+          <span style="font-size:13px;color:var(--mint);cursor:pointer;min-width:52px;text-align:right">Replay</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isKpis }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-direction:column;gap:22px">
+      <sc-for list="{{ kpis }}" as="g" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <span class="nv-eyebrow">{{ g.t }}</span>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
+            <sc-for list="{{ g.items }}" as="m" hint-placeholder-count="4">
+              <div style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)">
+                <span style="font-size:12px;color:var(--ink-3);min-height:32px">{{ m.k }}</span>
+                <span class="nv-num" style="font-family:var(--display);font-size:26px;color:{{ m.c }}">{{ m.v }}</span>
+                <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ m.s }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <span style="font-size:13px;color:var(--ink-2);padding:12px 16px;border-radius:12px;border:1px solid var(--indigo-line);background:var(--indigo-soft)">Acceptance is always reported next to outcomes and calibration. Fewer, better-supported insights beat many confident ones.</span>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1080,&quot;height&quot;:1000},&quot;page&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;tools&quot;,&quot;feeds&quot;,&quot;audit&quot;,&quot;kpis&quot;],&quot;default&quot;:&quot;tools&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { open: 0 };
+  renderVals() {
+    const p = this.props, P = p.page || 'tools', s = this.state;
+    const nav = (v) => () => p.onNav && p.onNav(v);
+    const C = { mint: ['var(--mint)', 'var(--mint-line)'], amber: ['var(--amber)', 'var(--amber-line)'], danger: ['var(--danger)', 'var(--danger-line)'], ink: ['var(--ink-2)', 'var(--line-2)'], indigo: ['var(--indigo)', 'var(--indigo-line)'] };
+    const H = { tools: ['Tool registry', 'Every tool the Copilot can call, with its contract. The model selects tools; tested services do the maths.'], feeds: ['Feed health', 'Source freshness, failures and duplicates. Material gaps are shown to users as data-quality notes.'], audit: ['Audit log', 'Every analysis run, import and consequential action, with inputs and versions so it can be replayed.'], kpis: ['Product KPIs', 'Last 30 days. Measured on whether answers lead to well-supported decisions.'] }[P];
+    const TOOLS = [
+      ['get_portfolio_health', 'portfolio-service', '2.4', '≤ 5 min', '4s · 1 retry', '0.6s', '99.8%'],
+      ['calculate_xirr', 'portfolio-service', '1.9', 'On sync', '6s · 1 retry', '1.1s', '99.9%'],
+      ['attribute_performance', 'portfolio-insights', '2.3', 'EOD', '10s · 1 retry', '1.9s', '99.4%'],
+      ['get_company_results', 'fundamental-research', '3.1', '≤ 1 day', '8s · 1 retry', '0.9s', '97.2%'],
+      ['search_announcements', 'market-events', '2.0', '≤ 2 min', '5s · 2 retries', '0.7s', '99.1%'],
+      ['scan_stocks', 'technical-analysis', '4.0', 'EOD', '12s · 0 retries', '2.6s', '99.6%'],
+      ['backtest_strategy', 'backtesting', '4.1', 'Snapshot', '120s · async', '38s', '99.9%'],
+      ['estimate_tax_impact', 'portfolio-insights', '1.6', 'On sync', '5s · 1 retry', '0.5s', '100%'],
+      ['get_options_chain', 'market-data', '1.2', '≤ 1 min', '4s · 2 retries', '0.8s', '98.7%'],
+    ];
+    const contract = (n) => [
+      ['Input schema', n === 'search_announcements' ? '{ isin[]?: string, since: datetime,\n  types?: enum[], material_only: bool }' : '{ user_id: uuid, as_of?: date,\n  scope?: enum["all","equity","mf"] }'],
+      ['Output schema', '{ result: object, as_of: datetime,\n  provenance: source[], calc_version }'],
+      ['Permissions', 'Caller must own user_id · read-only'],
+      ['Errors', 'E_STALE_DATA · E_PARTIAL · E_TIMEOUT\nE_UNAUTHORISED · E_NOT_FOUND'],
+      ['Cache', 'Key: inputs + data snapshot · TTL 15 min'],
+      ['Idempotency', 'Pure read; safe to retry'],
+    ].map(([k, v]) => ({ k, v }));
+    return {
+      pad: p.mobile ? '24px' : '48px', title: H[0], sub: H[1],
+      tabs: [['tools', 'Tools'], ['feeds', 'Feed health'], ['audit', 'Audit log'], ['kpis', 'KPIs']].map(([k, t]) => ({ t, go: nav('ops:' + k), color: P === k ? 'var(--ink)' : 'var(--ink-3)', bg: P === k ? 'var(--bg-3)' : 'transparent', line: P === k ? 'var(--line-3)' : 'var(--line-2)' })),
+      isTools: P === 'tools', isFeeds: P === 'feeds', isAudit: P === 'audit', isKpis: P === 'kpis',
+      tools: TOOLS.map(([n, svc, v, fresh, to, p95, ok], i) => ({ n, svc, v, fresh, to, p95, ok, okc: parseFloat(ok) < 98 ? 'var(--amber)' : 'var(--mint)', open: s.open === i, bg: s.open === i ? 'var(--bg-2)' : 'transparent', contract: contract(n), toggle: () => this.setState(x => ({ open: x.open === i ? null : i })) })),
+      feeds: [['NSE equities · end of day', 'Prices', '12 Oct 15:30', 'Daily', '0', '0', 'Healthy', 'mint'], ['NSE quotes · intraday', 'Prices', '14:32', '15-min delay', '0', '0', 'Delayed by licence', 'amber'], ['BSE announcements', 'Filings', '14:31', 'Live', '1', '2', 'Recovered', 'amber'], ['NSE announcements', 'Filings', '14:30', 'Live', '0', '0', 'Healthy', 'mint'], ['Bulk and block deals', 'Deals', '14:05', 'Hourly', '0', '0', 'Healthy', 'mint'], ['Shareholding patterns', 'Ownership', '30 Sep qtr', 'Quarterly', '0', '0', '14 not yet filed', 'amber'], ['AMC factsheets', 'Funds', 'Aug 2026', 'Monthly', '0', '0', 'Healthy', 'mint'], ['Consensus estimates', 'Estimates', '—', '—', '—', '—', 'Not connected', 'danger']].map(([n, t, last, cad, fails, dup, st, k]) => ({ n, t, last, cad, fails, dup, st, color: C[k][0], line: C[k][1] })),
+      audit: [['14:33:08', 'Underperformance vs Nifty 50 · amit.p', 'RUN 7F3A91 · 7 TOOLS · SNAPSHOT 9F3C · PERF-ATTR 2.3', 'Complete', 'mint'], ['14:21:40', 'NSDL CAS import confirmed · amit.p', 'RUN 7F39C2 · FILE SHA 3B1E… DELETED AFTER PARSE · IMPORT 1.8', 'User confirmed', 'indigo'], ['13:58:02', 'Backtest · breakout screen v3 · amit.p', 'RUN 7F37AA · 6 TOOLS · SNAPSHOT 9F3C · BT-ENGINE 4.1 · HASH A91F3E2', 'Reproduced', 'mint'], ['13:12:55', 'Client review sent · D. Rao · advisor.rk', 'RUN 7F3410 · 9 TOOLS · APPROVED BY ADVISOR BEFORE SEND', 'Approved', 'indigo'], ['12:40:11', 'CG Power report · amit.p', 'RUN 7F31E8 · 8 TOOLS · GET_COMPANY_RESULTS TIMED OUT', 'Partial', 'amber'], ['11:02:37', 'Paper trade opened · Cummins India · amit.p', 'LEDGER P-0192 · STRATEGY V3 · NEXT-OPEN FILL', 'Logged', 'ink']].map(([time, t, meta, st, k]) => ({ time, t, meta, st, color: C[k][0], line: C[k][1] })),
+      kpis: [
+        { t: 'User experience', items: [['Time to first useful answer', '6.2s', 'P50 · TARGET < 8S', 'var(--mint)'], ['Answered without manual tool choice', '94%', 'OF ALL QUESTIONS', 'var(--ink)'], ['Task completion', '81%', 'KEY WORKFLOWS', 'var(--ink)'], ['Saved-workspace use', '38%', 'WEEKLY ACTIVE USERS', 'var(--ink)']] },
+        { t: 'Data and intelligence', items: [['Portfolio reconciliation accuracy', '99.2%', 'VS SOURCE STATEMENTS', 'var(--mint)'], ['Claims with traceable evidence', '97%', 'TARGET 100%', 'var(--amber)'], ['Tool success rate', '99.1%', 'P95 LATENCY 2.8S', 'var(--mint)'], ['Feed freshness within SLA', '98.6%', '1 INCIDENT TODAY', 'var(--ink)']] },
+        { t: 'Decision quality', items: [['Insights taken forward', '34%', 'ALWAYS READ WITH OUTCOMES', 'var(--ink)'], ['Signals beating baseline', '1 of 8', 'AFTER COSTS, OUT OF SAMPLE', 'var(--amber)'], ['Paper outcomes, net of cost', '−0.4%', '27 TRADES · TOO FEW', 'var(--danger)'], ['Calibration', '63%', 'STATED 60–70% → OBSERVED', 'var(--mint)']] },
+        { t: 'Efficiency', items: [['AI cost per completed task', '₹1.90', 'TARGET < ₹2.50', 'var(--mint)'], ['Cache hit rate', '46%', 'REPEATED CALCULATIONS', 'var(--ink)'], ['Tool calls per task', '5.2', 'MEDIAN', 'var(--ink)'], ['Resolved without model escalation', '82%', 'DEFAULT MODEL ONLY', 'var(--ink)']] },
+      ].map(g => ({ t: g.t, items: g.items.map(([k, v, sub, cc]) => ({ k, v, s: sub, c: cc })) })),
+    };
+  }
+}
+</script>
+</body>
+</html>

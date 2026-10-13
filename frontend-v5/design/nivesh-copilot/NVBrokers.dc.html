@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:1000px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:24px;font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="nv-eyebrow">Broker connections</span><span class="nv-pill nv-pill-mint">Read-only</span></span>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:42px;line-height:1.05;letter-spacing:-0.02em">Connect where you trade.</h1>
+    <span style="font-size:14px;color:var(--ink-3);max-width:620px;text-wrap:pretty">Nivesh reads holdings, positions, orders and funds to analyse them. It never asks for permission to place orders, and never asks for passwords or OTPs.</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <span class="nv-eyebrow">Connected · 2</span>
+    <sc-for list="{{ connected }}" as="b" hint-placeholder-count="2">
+      <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid {{ b.line }};background:var(--bg-1);box-shadow:var(--shadow-card)">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px">
+          <span style="width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:var(--bg-3);font-family:var(--mono);font-size:12px">{{ b.mono }}</span>
+          <div style="flex:1 1 200px;display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:500">{{ b.n }}</span><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ b.meta }}</span></div>
+          <span class="nv-pill" style="color:{{ b.color }};border-color:{{ b.line }}">{{ b.st }}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ b.scopes }}" as="sc" hint-placeholder-count="5"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;padding:4px 8px;border-radius:6px;border:1px solid {{ sc.line }};color:{{ sc.color }}">{{ sc.t }}</span></sc-for></div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ b.btns }}" as="bt" hint-placeholder-count="3"><button style="padding:7px 12px;border-radius:10px;border:1px solid var(--line-2);background:{{ bt.bg }};color:{{ bt.color }};font-family:var(--sans);font-size:13px;cursor:pointer">{{ bt.t }}</button></sc-for></div>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:center"><span class="nv-eyebrow">Add a broker</span><div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-1);font-size:13px;color:var(--ink-3);min-width:220px">⌕ Search brokers</div></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
+      <sc-for list="{{ brokers }}" as="b" hint-placeholder-count="12">
+        <div onClick="{{ b.pick }}" style="display:flex;align-items:center;gap:10px;padding:12px;border-radius:12px;cursor:pointer;border:1px solid {{ b.line }};background:var(--bg-1)" style-hover="border-color:var(--line-3)">
+          <span style="width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--bg-3);font-family:var(--mono);font-size:10px;flex:none">{{ b.mono }}</span>
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:0"><span style="font-size:13px">{{ b.n }}</span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.06em;color:var(--ink-3)">{{ b.m }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:14px;padding:18px;border-radius:14px;border:1px solid var(--mint-line);background:var(--bg-1)">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="nv-eyebrow" style="color:var(--mint)">Connecting {{ picked }} · 4 steps</span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">ABOUT 60 SECONDS</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px">
+      <sc-for list="{{ steps }}" as="st" hint-placeholder-count="4"><div style="display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:12px;background:var(--bg-2)"><span style="font-family:var(--mono);font-size:11px;color:var(--mint)">{{ st.n }}</span><span style="font-size:14px;font-weight:500">{{ st.t }}</span><span style="font-size:12px;line-height:1.5;color:var(--ink-3)">{{ st.d }}</span></div></sc-for>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center"><button style="padding:10px 16px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Continue to {{ picked }} ↗</button><span style="font-size:12px;color:var(--ink-3)">You’ll sign in on {{ picked }}’s own page. Nivesh never sees your password.</span></div>
+  </div>
+  <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">What Nivesh reads, and why</span></div>
+    <sc-for list="{{ perms }}" as="pm" hint-placeholder-count="5">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) 110px;gap:12px;padding:12px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center">
+        <span style="font-weight:500">{{ pm.k }}</span><span style="color:var(--ink-2)">{{ pm.why }}</span><span style="text-align:right;font-family:var(--mono);font-size:11px;color:{{ pm.c }}">{{ pm.st }}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px">
+    <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span class="nv-eyebrow">Sync log</span>
+      <sc-for list="{{ log }}" as="l" hint-placeholder-count="5"><div style="display:grid;grid-template-columns:86px minmax(0,1fr);gap:10px;font-size:13px;padding-bottom:7px;border-bottom:1px solid var(--line)"><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3);padding-top:2px">{{ l.t }}</span><span style="color:{{ l.c }}">{{ l.d }}</span></div></sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);font-size:13px;line-height:1.55;color:var(--ink-2)">
+      <span class="nv-eyebrow">Security</span>
+      <span>Access tokens are encrypted and stored in India. Most brokers expire them daily; Nivesh tells you before analysis goes stale.</span>
+      <span>You can revoke access here or from your broker’s app at any time. Revoking deletes the token immediately.</span>
+      <span>Every sync is written to the audit log with what was read.</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1040,&quot;height&quot;:1300},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { pick: 'Angel One' };
+  renderVals() {
+    const p = this.props, s = this.state;
+    const C = { mint: ['var(--mint)', 'var(--mint-line)'], amber: ['var(--amber)', 'var(--amber-line)'], danger: ['var(--danger)', 'var(--danger-line)'], ink: ['var(--ink-2)', 'var(--line-2)'] };
+    const scope = (t, on) => ({ t: (on ? '✓ ' : '✕ ') + t, color: on ? 'var(--mint)' : 'var(--danger)', line: on ? 'var(--mint-line)' : 'var(--danger-line)' });
+    const btn = (t, primary) => ({ t, bg: primary ? 'var(--mint)' : 'var(--bg-2)', color: primary ? '#06120B' : 'var(--ink)' });
+    return {
+      pad: p.mobile ? '24px' : '44px',
+      connected: [
+        { mono: 'ZE', n: 'Zerodha · Kite', meta: 'LAST SYNC 2M AGO · TOKEN EXPIRES 14 OCT 06:00 · 47 HOLDINGS · 5 POSITIONS', st: 'Connected', k: 'mint', scopes: [scope('Holdings', 1), scope('Positions', 1), scope('Orders & trades', 1), scope('Funds & margins', 1), scope('Place orders', 0)], btns: [btn('Sync now', 1), btn('Re-authorise'), btn('Disconnect')] },
+        { mono: 'UP', n: 'Upstox', meta: 'TOKEN EXPIRED 12 OCT 06:00 · 6 HOLDINGS NOT REFRESHED', st: 'Needs re-authorisation', k: 'amber', scopes: [scope('Holdings', 1), scope('Positions', 1), scope('Orders & trades', 1), scope('Funds & margins', 0), scope('Place orders', 0)], btns: [btn('Re-authorise', 1), btn('Disconnect')] },
+      ].map(b => ({ ...b, color: C[b.k][0], line: C[b.k][1] })),
+      brokers: [['AO', 'Angel One', 'OAUTH'], ['GR', 'Groww', 'VIA CAS'], ['IC', 'ICICI Direct', 'OAUTH'], ['HS', 'HDFC Sky', 'OAUTH'], ['KN', 'Kotak Neo', 'OAUTH'], ['DH', 'Dhan', 'OAUTH'], ['FY', 'FYERS', 'OAUTH'], ['5P', '5paisa', 'OAUTH'], ['IF', 'IIFL', 'OAUTH'], ['MO', 'Motilal Oswal', 'VIA CAS'], ['AX', 'Axis Direct', 'VIA CAS'], ['PM', 'Paytm Money', 'VIA CAS']].map(([mono, n, m]) => ({ mono, n, m, line: s.pick === n ? 'var(--mint-line)' : 'var(--line)', pick: () => this.setState({ pick: n }) })),
+      picked: s.pick,
+      steps: [['01', 'Pick your broker', 'Brokers marked via CAS are read from your NSDL/CDSL statement instead.'], ['02', 'Sign in on the broker’s page', 'A new window opens on the broker’s own domain.'], ['03', 'Approve read-only access', 'Holdings, positions, orders and funds. Trading stays off.'], ['04', 'Sync and reconcile', 'Matched against your CAS so nothing is counted twice.']].map(([n, t, d]) => ({ n, t, d })),
+      perms: [['Holdings', 'Portfolio value, health score and look-through exposure', 'READ', 'var(--mint)'], ['Positions', 'Trader desk, open risk and stop distances', 'READ', 'var(--mint)'], ['Orders and trades', 'XIRR, tax lots and your trade journal', 'READ', 'var(--mint)'], ['Funds and margins', 'Position sizing and F&O exposure', 'READ', 'var(--mint)'], ['Place or modify orders', 'Not used. Nivesh is research and paper trading only', 'NEVER REQUESTED', 'var(--danger)']].map(([k, why, st, c]) => ({ k, why, st, c })),
+      log: [['14:31 TODAY', 'Zerodha holdings synced · 47 · no changes', 'var(--ink-2)'], ['14:16 TODAY', 'Zerodha positions synced · 5 open', 'var(--ink-2)'], ['09:02 TODAY', 'Zerodha re-authorised by you', 'var(--ink-2)'], ['12 OCT 06:00', 'Upstox token expired', 'var(--amber)'], ['2 OCT 11:40', 'NSDL CAS reconciled with Zerodha · 4 duplicates merged', 'var(--ink-2)']].map(([t, d, c]) => ({ t, d, c })),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:1040px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="nv-eyebrow">Trader desk · positions read from Zerodha</span><span class="nv-pill nv-pill-mint">Trader mode</span><span class="nv-pill">Live orders off</span></span>
+    <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:42px;line-height:1.05;letter-spacing:-0.02em;text-wrap:pretty">Two positions are <em style="color:var(--amber)">near their stops</em>.</h1>
+    <span style="font-size:14px;color:var(--ink-3);max-width:620px">Tata Motors is ₹7 above its stop and KEI ₹149 above. Open risk is 1.2% of capital, inside your 5% limit.</span>
+  </div>
+  <dc-import name="NVIndex" on-ask="{{ onAsk }}" hint-size="100%,1100px"></dc-import>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+    <sc-for list="{{ tiles }}" as="m" hint-placeholder-count="5"><div style="display:flex;flex-direction:column;gap:4px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg-1)"><span class="nv-eyebrow">{{ m.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:26px;color:{{ m.c }}">{{ m.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ m.s }}</span></div></sc-for>
+  </div>
+  <sc-for list="{{ tables }}" as="tb" hint-placeholder-count="2">
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">{{ tb.t }}</span><span class="nv-eyebrow">{{ tb.note }}</span></div>
+      <div style="overflow-x:auto"><div style="min-width:{{ tb.minW }}">
+        <div style="display:grid;grid-template-columns:{{ tb.cols }};gap:10px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><sc-for list="{{ tb.head }}" as="h" hint-placeholder-count="6"><span>{{ h }}</span></sc-for></div>
+        <sc-for list="{{ tb.rows }}" as="r" hint-placeholder-count="5">
+          <div onClick="{{ r.open }}" style="display:grid;grid-template-columns:{{ tb.cols }};gap:10px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px;align-items:center;cursor:pointer;background:{{ r.bg }}" style-hover="background:var(--bg-2)">
+            <sc-for list="{{ r.cells }}" as="cl" hint-placeholder-count="6"><span class="nv-num" style="color:{{ cl.c }};font-weight:{{ cl.fw }}">{{ cl.v }}</span></sc-for>
+          </div>
+        </sc-for>
+      </div></div>
+    </div>
+  </sc-for>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px">
+    <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span class="nv-eyebrow">Scanner alerts today</span>
+      <sc-for list="{{ signals }}" as="g" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:10px;border-bottom:1px solid var(--line)">
+          <div style="display:flex;gap:10px;align-items:baseline"><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ g.time }}</span><span style="font-family:var(--mono);font-size:12px">{{ g.sym }}</span><span style="flex:1"></span><span class="nv-pill" style="color:{{ g.color }};border-color:{{ g.line }}">{{ g.st }}</span></div>
+          <span style="font-size:13px;color:var(--ink-2)">{{ g.t }}</span>
+          <span onClick="{{ g.bt }}" style="font-size:12px;color:var(--mint);cursor:pointer">Backtest this setup ›</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+      <span class="nv-eyebrow">Your risk rules</span>
+      <sc-for list="{{ rules }}" as="r" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px"><span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num">{{ r.v }}</span></div>
+          <span style="display:block;height:5px;border-radius:3px;background:var(--bg-3)"><span style="display:block;height:100%;width:{{ r.w }};background:{{ r.c }};border-radius:3px"></span></span>
+        </div>
+      </sc-for>
+      <span style="font-size:12px;line-height:1.5;color:var(--danger);padding-top:6px;border-top:1px solid var(--line)">9 out of 10 individual F&amp;O traders incurred net losses (SEBI study). Nivesh reads positions; it cannot place orders.</span>
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <sc-for list="{{ asks }}" as="a" hint-placeholder-count="4"><span onClick="{{ a.go }}" style="padding:8px 14px;border-radius:999px;border:1px solid var(--line-2);font-size:13px;color:var(--ink-2);cursor:pointer" style-hover="border-color:var(--mint-line);color:var(--ink)">{{ a.t }}</span></sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1080,&quot;height&quot;:1300},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;},&quot;onNav&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(view: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props;
+    const ask = (q, k) => () => p.onAsk && p.onAsk(q, k);
+    const C = { mint: ['var(--mint)', 'var(--mint-line)'], amber: ['var(--amber)', 'var(--amber-line)'], danger: ['var(--danger)', 'var(--danger-line)'], ink: ['var(--ink-2)', 'var(--line-2)'] };
+    const tone = (v) => /^\+/.test(v) ? 'var(--mint)' : /^−/.test(v) ? 'var(--danger)' : 'var(--ink-2)';
+    const table = (t, note, head, rows) => ({ t, note, head, minW: head.length * 100 + 'px', cols: `minmax(0,1.6fr) repeat(${head.length - 1},minmax(0,1fr))`, rows: rows.map(r => ({ bg: r.warn ? 'var(--amber-soft)' : 'transparent', open: ask(r.q || `Show the ${r.c[0]} chart with support and resistance`, 'stock'), cells: r.c.map((v, i) => ({ v, c: i === 0 ? 'var(--ink)' : tone(v), fw: i === 0 ? 500 : 400 })) })) });
+    return {
+      pad: p.mobile ? '24px' : '44px', onAsk: p.onAsk,
+      tiles: [['Day P&L', '+₹4,820', '+0.9% of capital', 'var(--mint)'], ['Open risk', '₹6,400', '1.2% of capital', 'var(--ink)'], ['Capital', '₹5.2 L', 'Trading account', 'var(--ink)'], ['Win rate, 30 days', '47%', '32 trades', 'var(--ink)'], ['Expectancy', '+0.18R', 'Per trade, after costs', 'var(--mint)']].map(([k, v, s, c]) => ({ k, v, s, c })),
+      tables: [
+        table('Open positions · broker, read-only', 'Synced 2m ago', ['Position', 'Qty', 'Avg', 'LTP', 'P&L', 'Stop', 'Target', 'Risk left'], [{ c: ['TATAMOTORS', '200', '726.40', '712.40', '−₹2,800', '705', '760', '₹1,480'], warn: true }, { c: ['KEI', '23', '4,236', '4,199', '−₹851', '4,050', '4,448', '₹3,428'], warn: true }, { c: ['CUMMINSIND', '27', '3,652', '3,688', '+₹972', '3,480', '3,835', '₹5,616'] }, { c: ['LUPIN', '46', '2,171', '2,184', '+₹598', '2,090', '2,280', '₹4,370'] }, { c: ['BANKNIFTY 30 OCT 54500 PE', '30', '212', '268', '+₹1,680', '180', '320', '₹2,640'], q: 'Show the effect of IV rising 3 points on my Bank Nifty put' }]),
+        table('Levels to watch', 'Daily · ATR 14', ['Stock', 'LTP', 'Support', 'Resistance', 'ATR', 'Setup'], [{ c: ['CG Power', '682.30', '670', '702', '21', 'Range top'] }, { c: ['HAL', '4,412', '4,320', '4,560', '118', 'Pullback to 20-DMA'] }, { c: ['Persistent', '5,702', '5,610', '5,880', '164', 'Gap after results'] }, { c: ['Dixon', '14,990', '14,600', '15,400', '410', 'Near 52-week high'] }]),
+        table('Journal · last 5 closed', 'R = multiple of risk taken', ['Trade', 'Setup', 'Result', 'R', 'Held'], [{ c: ['BEL', 'Breakout', '+4.7%', '+1.9R', '6 days'] }, { c: ['Persistent', 'Breakout', '−2.4%', '−1.2R', '2 days'] }, { c: ['Dixon', 'Pullback', '+0.9%', '+0.4R', '10 days'] }, { c: ['Coforge', 'Breakout', '−1.1%', '−0.6R', '3 days'] }, { c: ['Lupin', '52-week high', '+3.2%', '+1.4R', '5 days'] }]),
+      ],
+      signals: [['14:05', 'CGPOWER', 'Testing the top of a 7-week ₹640–700 range on 1.3× volume.', 'Watch', 'ink'], ['13:40', 'PERSISTENT', 'Gap up on results with 2.4× volume.', 'Not validated', 'amber'], ['11:20', 'HAL', 'Pullback to the 20-day average inside an uptrend.', 'Validated · n = 640', 'mint'], ['10:02', 'INDUSINDBK', 'Broke below its 50-day average after the pledge filing.', 'Not validated', 'amber']].map(([time, sym, t, st, k]) => ({ time, sym, t, st, color: C[k][0], line: C[k][1], bt: ask(`Backtest this setup: ${t}`, 'backtest') })),
+      rules: [['Risk per trade · max 1%', '₹5,200', '40%', 'var(--mint)'], ['Open risk · max 5%', '1.2% used', '24%', 'var(--mint)'], ['Daily loss limit · 2%', '0% used', '2%', 'var(--mint)'], ['F&O share of capital · max 20%', '12%', '60%', 'var(--amber)']].map(([k, v, w, c]) => ({ k, v, w, c })),
+      asks: [['Open the options lab', 'nav'], ['Which positions should I trail stops on?', 'stock'], ['Size a trade in HAL with 1% risk', 'stock'], ['Scan for pullbacks in uptrends', 'scan'], ['How did my breakout trades do this month?', 'backtest']].map(([t, k]) => ({ t, go: k === 'nav' ? () => p.onNav && p.onNav('tool:optlab') : ask(t, k) })),
+    };
+  }
+}
+</script>
+</body>
+</html>
