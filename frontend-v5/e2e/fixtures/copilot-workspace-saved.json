@@ -1,0 +1,46 @@
+{
+  "_comment": "MOCK — not real data. Shapes of GET /api/screeners, GET /api/chat/sessions and GET /api/thematic/prefs; every value is made up.",
+  "screeners": [
+    {
+      "screener_id": "scr_fixture01",
+      "user_id": "user_fixture",
+      "name": "Fixture value screen",
+      "query": "Screen stocks where P/E under 15",
+      "conditions": [
+        {
+          "key": "pe",
+          "op": "under",
+          "value": "15"
+        }
+      ],
+      "bucket": "",
+      "created_at": "2026-10-11T10:00:00+00:00",
+      "updated_at": "2026-10-11T10:00:00+00:00"
+    }
+  ],
+  "sessions": [
+    {
+      "session_id": "sess_fixture01",
+      "user_id": "user_fixture",
+      "title": "Fixture thread one",
+      "created_at": "2026-10-12T09:00:00+00:00",
+      "updated_at": "2026-10-12T10:00:00+00:00"
+    },
+    {
+      "session_id": "sess_fixture02",
+      "user_id": "user_fixture",
+      "title": "Fixture thread two",
+      "created_at": "2026-10-11T09:00:00+00:00",
+      "updated_at": "2026-10-11T10:00:00+00:00"
+    }
+  ],
+  "prefs": {
+    "history": [
+      "Fixture question about capital goods order books",
+      "Fixture question from history only"
+    ],
+    "favorites": [
+      "Fixture question about capital goods order books"
+    ]
+  }
+}
