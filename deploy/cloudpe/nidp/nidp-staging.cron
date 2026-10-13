@@ -75,6 +75,9 @@ NIDP_HOME=/opt/nidp-staging
 
 # ── S4: corporate announcements (NSE + BSE), every 10 min, 09–23 ──
 */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_nse
+# Weekends too: companies file on Saturdays and Sundays (results season most of all — NSE lists
+# 482 filings for Sat 2026-08-08 and 199 for Sat 2026-10-10). With weekdays only, none were ingested.
+*/30 9-23 * * 6,0  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_nse
 # HELD (api.bseindia.com returns 403 to this VM (needs BSE_PROXY_URL)):
 # */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_bse
 
