@@ -99,7 +99,8 @@ async def options_chain(
                    close_price, settle_price, underlying_price,
                    open_interest, change_in_oi,
                    traded_volume, traded_value,
-                   new_board_lot_qty
+                   new_board_lot_qty,
+                   open_price, high_price, low_price, prev_close_price
               FROM nidp.fno_bhavcopy
              WHERE ticker_symbol = $1
                AND as_of_date = $2
