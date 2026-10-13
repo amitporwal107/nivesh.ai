@@ -13,7 +13,6 @@ import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { z } from "zod";
 import { useGmailStatus } from "@/hooks/use-gmail";
-import { casUploadService } from "@/services";
 import { http } from "@/services/api/http";
 import { apiFetch } from "@/services/api/authed-fetch";
 import { ApiError } from "@/services/api/errors";
@@ -88,9 +87,6 @@ export function toRead<T>(q: UseQueryResult<T>): Read<T> {
 // ── GET /api/onboarding/state ────────────────────────────────────────────
 // backend/routes/onboarding_gmail.py :: onboarding_state
 
-/** A number, or the length of a list; null when absent or anything else. */
-const countish = z.unknown().transform((v) => (typeof v === "number" && Number.isFinite(v) ? v : Array.isArray(v) ? v.length : null));
-
 const OnboardingStateC = z.object({
   /** A PAN (the usual CAS password) is saved on the profile. */
   pan_on_file: z.boolean(),
@@ -100,11 +96,12 @@ const OnboardingStateC = z.object({
   cas_portfolio_value_rs: optNum,
   /** As printed on the statement, e.g. "31-Mar-2025". */
   cas_statement_date: optStr,
-  // Planned (broker backend, not on staging yet); absent today. Each may arrive
-  // as a count or as a list, so both are read as a count.
-  holdings_count: countish,
-  broker_accounts: countish,
-  broker_accounts_live: countish,
+  /** Stored holdings from any source: a broker account, a broker file, a statement. */
+  holdings_count: z.number(),
+  /** Connected broker accounts, in any state. */
+  broker_accounts: z.number(),
+  /** Of those, the ones whose status is "active". */
+  broker_accounts_live: z.number(),
 });
 export type OnboardingState = z.infer<typeof OnboardingStateC>;
 
@@ -328,15 +325,69 @@ export function useCompleteOnboarding() {
   });
 }
 
-// ── POST /api/portfolio/upload (CSV / Excel) ─────────────────────────────
-// backend/routes/upload.py :: upload_portfolio → { message, count, holdings }.
-// Through the app's existing client (casUploadService.uploadFile). The server
-// saves the file's rows at once and ADDS them to the holdings on file: there is
-// no preview, no column mapping and no check for rows already present.
+// ── POST /api/portfolio/upload (.xlsx / .xls / .csv) ─────────────────────
+// backend/routes/upload.py :: upload_portfolio →
+//   { message, count, holdings, broker, broker_name, format }
+// backend/helpers/statement_exports.py reads the file; helpers/parsing.py ::
+// save_holdings and helpers/holdings_reconcile.py store it:
+//   - a broker's own holdings export is recognised by its columns. Its rows
+//     REPLACE the rows of that broker's earlier export, and a holding already
+//     read from a connected account at the same broker is left out;
+//   - any other sheet with a name and a quantity column ("generic"), or a
+//     table whose broker cannot be named ("unidentified"), is ADDED to what is
+//     on file with no broker on its rows.
+// Rows are saved in the same call: there is no preview. A file with no
+// holdings table is a 400 whose message names the columns looked for.
+//
+// Posted here and not through casUploadService.uploadFile, which keeps only
+// message, count and holdings. One request per press: apiFetch does not
+// re-send (the shared http() client would, after a 5xx, and the rows would be
+// saved twice), and the mutation resolves with an Outcome so the form words
+// the failure itself.
+
+/**
+ * Brokers whose own holdings export the server recognises, by slug
+ * (statement_exports.py :: _BROKERS — keep in step with it).
+ */
+export const EXPORT_BROKERS: Record<string, string> = {
+  zerodha: "Zerodha",
+  groww: "Groww",
+  upstox: "Upstox",
+  angel: "Angel One",
+  icicidirect: "ICICI Direct",
+  hdfcsec: "HDFC Securities",
+  kotak: "Kotak Securities",
+  dhan: "Dhan",
+  fivepaisa: "5paisa",
+  mfcentral: "MF Central",
+};
+
+const HoldingsUploadRes = z.object({
+  /** Holdings saved from the file. */
+  count: z.number(),
+  /** Slug of the broker whose export this is; null for a generic or unidentified file. */
+  broker: optStr,
+  broker_name: optStr,
+  /** A broker slug, "generic" or "unidentified"; null when the file was empty. */
+  format: optStr,
+});
+export type HoldingsUpload = z.infer<typeof HoldingsUploadRes>;
 
 export function useHoldingsFileUpload() {
-  return useMutation<Outcome<number>, never, File>({
-    mutationFn: (file) => settle(async () => (await casUploadService.uploadFile(file)).count),
+  return useMutation<Outcome<HoldingsUpload>, never, File>({
+    mutationFn: (file) => settle(async () => {
+      const form = new FormData();
+      form.append("file", file);
+      let res: Response;
+      try {
+        res = await apiFetch("/api/portfolio/upload", { method: "POST", body: form });
+      } catch (cause) {
+        throw ApiError.network(cause);
+      }
+      const body: unknown = await res.json().catch(() => undefined);
+      if (!res.ok) throw ApiError.fromResponse(res, body);
+      return parse(HoldingsUploadRes, body, "portfolio.upload");
+    }),
   });
 }
 

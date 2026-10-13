@@ -1,13 +1,13 @@
 /**
- * Broker accounts — the accounts a user has connected (what was read, sync,
- * reconnect, disconnect), the brokers the server lists, a sign-in for the ones
- * it marks connectable, and the notice shown when a sign-in comes back.
+ * Broker hub — the accounts a user has connected (what was read, sync,
+ * reconnect, remove), the brokers that can be added, and the notice shown when
+ * a sign-in comes back. Settings, Get started and Broker connections render
+ * these same components.
  *
- * Read-only by rule: a broker connection is used to read holdings (and
- * positions, where the server can). Nothing here asks a broker to place,
- * change or cancel an order, no endpoint this file calls can, and a broker
- * password or one-time code is never asked for in this app: sign-in happens
- * on the broker's own page.
+ * Read-only by rule: a broker connection is used to read holdings. Nothing
+ * here asks a broker to place, change or cancel an order, no endpoint this file
+ * calls can, and a broker password or one-time code is never asked for in this
+ * app: sign-in happens on the broker's own page.
  *
  *   GET    /api/broker/accounts              useBrokerAccounts
  *   GET    /api/portfolio/holdings           useBrokerFetched (rows a broker read stored)
@@ -16,30 +16,32 @@
  *   GET    /api/broker/native/supported      useBrokerAdapters
  *   GET    /api/broker/native/start/{slug}   useBrokerSignIn
  *
- * Today's backend does not say which brokers are connectable, cannot return to
- * this app after a sign-in and cannot read a signed-in account, so against it
- * no sign-in is offered and the screen says so. The planned broker backend
- * marks brokers `connectable`; when that field arrives the sign-in appears
- * with no change here (see ./broker-queries).
+ * "Connect" is offered only for a broker the server marks connectable. Every
+ * other broker is shown as not connectable, with the file route beside it when
+ * the server recognises that broker's holdings export (./parts ::
+ * HoldingsFileUpload).
  *
  * Not used on purpose: POST /api/broker/connect-hosted and POST
  * /api/broker/connect. The first sends the user into a third-party trading
  * dashboard that can place orders; the second asks for an API key that can.
+ * Not shown: open positions. The server can read them from a connected
+ * account, but no screen in this app displays them yet.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useHref, useLocation, useSearchParams } from "react-router-dom";
 import { useMe } from "@/hooks/use-auth";
-import { BrokerIcon, BrokerName, NameCell } from "../../components/EntityIcon";
-import { Btn, EmptyBlock, ErrorBlock, LoadingBlock, NotConnected, Pill, Section, errorSentence, fmtDate, fmtINR, fmtNum, humaniseTag, relTime, type Tone } from "../../components/ui";
+import { BrokerIcon } from "../../components/EntityIcon";
+import { Btn, EmptyBlock, ErrorBlock, Eyebrow, LoadingBlock, Pill, errorSentence, fmtDate, fmtINR, fmtNum, humaniseTag, relTime, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
-import { InlineError } from "./parts";
-import { accountKeys } from "./queries";
+import { HoldingsFileUpload, InlineError, LinkButton } from "./parts";
+import { EXPORT_BROKERS, accountKeys } from "./queries";
 import {
   BROKER_RESULT_PARAMS,
+  awaitsAppKeys,
   canSignIn,
   needsReconnect,
-  saysConnectable,
+  useBrokerAccounts,
   useBrokerAdapters,
   useBrokerDisconnect,
   useBrokerFetched,
@@ -63,10 +65,13 @@ export function ReadOnlyNote() {
   );
 }
 
-/** The server's own sentence for a failure, for admins; everyone else gets the plain sentence beside it. */
+/** A secret's name ("BROKER_X_API_KEY") or a route path. Never put on screen, for anyone. */
+const NAMES_AN_INTERNAL = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b|\/api\//;
+
+/** The server's own message for a failure, for admins; everyone gets the plain sentence beside it. */
 function AdminDetail({ detail }: { detail: string | null | undefined }) {
   const { isAdmin } = useCopilotShell();
-  if (!isAdmin || !detail) return null;
+  if (!isAdmin || !detail || NAMES_AN_INTERNAL.test(detail)) return null;
   return <span className="cp-mono-note" data-testid="broker-admin-detail" style={{ overflowWrap: "anywhere" }}> Server said: {detail}</span>;
 }
 
@@ -80,9 +85,9 @@ const SIGNED_OUT = "You are signed out of Nivesh. Sign in again, then retry.";
 const NOT_SWITCHED_ON = "Broker connections are not switched on for this account.";
 
 /**
- * Planned: a per-user `broker_hub` flag in the feature map on /api/auth/me.
- * Off → the server answers 403 "feature_not_enabled" to a sign-in start and to
- * a read; listing and disconnecting still work. Absent (today) → not off.
+ * The per-user `broker_hub` flag in the feature map on /api/auth/me. Off → the
+ * server answers 403 "feature_not_enabled" to a sign-in start and to a read of
+ * an account signed in on the broker's page; listing and removing still work.
  */
 function useBrokerHubOff(): boolean {
   return useMe().data?.features?.broker_hub === false;
@@ -94,9 +99,11 @@ function signInFailure(f: BrokerFailure, broker: string): string {
   if (notSwitchedOn(f)) return NOT_SWITCHED_ON;
   if (f.status == null) return NOT_REACHED;
   if (f.status === 401) return SIGNED_OUT;
-  if (f.status === 404) return `The server does not offer ${broker}.`;
-  if (f.status >= 500) return `Sign-in with ${broker} isn’t set up on the server yet.`;
-  return `Sign-in with ${broker} couldn’t be started.`;
+  if (f.status === 404) return `Nivesh does not offer ${broker}.`;
+  if (f.status === 400) return `${broker} can’t be connected from Nivesh yet. Upload its holdings file instead.`;
+  // 503 is also what the server answers when it cannot read the feature flags.
+  if (f.status === 503 && f.detail !== "feature_state_unavailable") return `Sign-in with ${broker} isn’t set up on Nivesh yet.`;
+  return `Sign-in with ${broker} couldn’t be started. Try again in a little while.`;
 }
 
 function syncFailure(f: BrokerFailure, broker: string): string {
@@ -112,7 +119,7 @@ function syncFailure(f: BrokerFailure, broker: string): string {
 function disconnectFailure(f: BrokerFailure): string {
   if (f.status == null) return NOT_REACHED;
   if (f.status === 401) return SIGNED_OUT;
-  return "Couldn’t disconnect this account. It is still connected.";
+  return "Couldn’t remove this account. It is still connected.";
 }
 
 /** "13 Oct, 3:42 pm". Empty for a bad input. */
@@ -120,6 +127,19 @@ function fmtStamp(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return "";
   return d.toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+/** A broker's icon with its name beside it and a second line that wraps instead of clipping. */
+function BrokerLabel({ broker, size, name, sub }: { broker: string; size: number; name: ReactNode; sub?: ReactNode }) {
+  return (
+    <span className="flex items-center" style={{ gap: 10, minWidth: 0 }}>
+      <BrokerIcon name={broker} size={size} />
+      <span className="flex flex-col" style={{ gap: 2, minWidth: 0 }}>
+        <span style={{ fontWeight: 500, color: "var(--cp-ink)", overflowWrap: "anywhere" }}>{name}</span>
+        {sub != null && sub !== "" && <span style={{ fontSize: 12, lineHeight: 1.45, color: "var(--cp-ink-3)" }}>{sub}</span>}
+      </span>
+    </span>
+  );
 }
 
 // ── connected accounts ───────────────────────────────────────────────────
@@ -130,9 +150,10 @@ const ACCOUNT_STATUS: Record<string, { label: string; tone: Tone }> = {
   error: { label: "Last read failed", tone: "danger" },
 };
 
+/** Why the broker session ended (services/brokers/sessions.py :: END_REASONS). */
 const SESSION_ENDED: Record<string, string> = {
   expired: "The sign-in for this account has expired.",
-  logout: "You were signed out at the broker.",
+  logout: "Signing out of Nivesh ended the sign-in for this account.",
   broker_rejected: "The broker no longer accepts the saved sign-in.",
 };
 
@@ -163,14 +184,7 @@ function FetchedLine({ q, account }: { q: UseQueryResult<Record<string, BrokerFe
       </>
     );
   }
-  return (
-    <span data-testid="broker-account-fetched" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-      {body}
-      {/* True of today's backend, which no route reads positions from. The planned
-          one marks its accounts with `native`; nothing is claimed about it here. */}
-      {account.native == null && <span style={{ color: "var(--cp-ink-3)" }}> Open positions are not read yet.</span>}
-    </span>
-  );
+  return <span data-testid="broker-account-fetched" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{body}</span>;
 }
 
 function BrokerAccountCard({ account, fetched }: { account: BrokerAccount; fetched: UseQueryResult<Record<string, BrokerFetched>> }) {
@@ -179,46 +193,65 @@ function BrokerAccountCard({ account, fetched }: { account: BrokerAccount; fetch
   const signIn = useBrokerSignIn();
   const adapters = useBrokerAdapters();
   const returnTo = useReturnTo();
+  const hubOff = useBrokerHubOff();
   const [confirming, setConfirming] = useState(false);
 
   const broker = account.broker_display || account.broker || "Broker";
   const name = account.label || broker;
   const ended = needsReconnect(account);
   const status = ended
-    ? { label: "Session expired", tone: "amber" as Tone }
+    ? { label: "Reconnect needed", tone: "amber" as Tone }
     : ACCOUNT_STATUS[account.status ?? ""] ?? { label: account.status ? humaniseTag(account.status) : "Status unknown", tone: "ink" as Tone };
-  const meta = [
+  const synced = [
     account.last_sync_at ? `Last synced ${relTime(account.last_sync_at)}` : "Never synced",
     account.last_sync_at && account.last_sync_count != null ? `${fmtNum(account.last_sync_count)} holdings` : null,
-    account.broker_user_masked ? `ID ${account.broker_user_masked}` : null,
-    account.created_at ? `Added ${fmtDate(account.created_at)}` : null,
   ].filter(Boolean).join(" · ");
-  const hubOff = useBrokerHubOff();
+  // Read out with the card's buttons, so "Remove" says which account.
+  const spoken = account.broker_user_masked ? `${name}, client ID ending ${account.broker_user_masked.replace(/[^A-Za-z0-9]/g, "")}` : name;
   const adapter = adapters.data?.find((b) => b.slug === account.broker);
   const canReconnect = ended && !hubOff && !!adapter && canSignIn(adapter);
+  // An ended session cannot be read, and with `broker_hub` off the server
+  // refuses to read an account signed in on the broker's page.
+  const canSync = !ended && !(hubOff && account.native);
   const leaving = signIn.isPending || signIn.data?.ok === true;
   const busy = sync.isPending || disconnect.isPending || leaving;
   const until = !ended && account.session_expires_at ? fmtStamp(account.session_expires_at) : "";
 
   return (
-    <div data-testid="broker-account" className="cp-card-raised flex flex-col" style={{ gap: 12, padding: "16px 18px" }}>
+    <div role="group" aria-label={spoken} data-testid="broker-account" data-account-id={account.account_id} className="cp-card-raised flex flex-col" style={{ gap: 12, padding: "16px 18px" }}>
       <div className="flex flex-wrap items-center" style={{ gap: "10px 14px" }}>
-        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
-          <NameCell
-            icon={<BrokerIcon name={broker} size={38} />}
+        <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+          <BrokerLabel
+            broker={broker}
+            size={38}
             name={<span data-testid="broker-account-name" style={{ fontSize: 15 }}>{name}</span>}
-            sub={<span className="cp-mono-note" data-testid="broker-account-meta">{meta}</span>}
+            sub={account.broker_user_masked
+              ? <>Client ID <span className="cp-num" data-testid="broker-account-id">{account.broker_user_masked}</span></>
+              : name !== broker ? broker : undefined}
           />
         </div>
         <span data-testid="broker-account-status"><Pill tone={status.tone}>{status.label}</Pill></span>
       </div>
 
+      <span className="cp-mono-note" style={{ lineHeight: 1.7, color: "var(--cp-ink-3)" }}>
+        <span data-testid="broker-account-meta">{synced}</span>
+        {until && <> · <span data-testid="broker-account-session">Signed in until {until}</span></>}
+        {account.created_at && <> · Added {fmtDate(account.created_at)}</>}
+      </span>
+
       {ended && (
         <span data-testid="broker-account-session" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--amber)" }}>
-          {SESSION_ENDED[account.session_ended_reason ?? ""] ?? "The sign-in for this account has ended."} Reconnect to keep reading it.
+          {SESSION_ENDED[account.session_ended_reason ?? ""] ?? "The sign-in for this account has ended."}{" "}
+          {canReconnect
+            ? "Reconnect to keep reading it."
+            : hubOff
+              ? "Broker sign-in is off for this account."
+              // Said only once the broker list has loaded and does not offer this broker.
+              : adapters.data
+                ? `Sign-in with ${broker} isn’t available right now, so it can’t be reconnected here.`
+                : ""}
         </span>
       )}
-      {until && <span data-testid="broker-account-session" className="cp-mono-note">Signed in until {until}</span>}
 
       <FetchedLine q={fetched} account={account} />
 
@@ -235,21 +268,23 @@ function BrokerAccountCard({ account, fetched }: { account: BrokerAccount; fetch
             {leaving ? `Opening ${broker}…` : "Reconnect"}
           </Btn>
         )}
-        <Btn data-testid="broker-sync" disabled={busy} onClick={() => sync.mutate(account.account_id)}>
-          {sync.isPending ? "Reading holdings…" : "Sync now"}
-        </Btn>
+        {canSync && (
+          <Btn data-testid="broker-sync" disabled={busy} onClick={() => sync.mutate(account.account_id)}>
+            {sync.isPending ? "Reading holdings…" : "Sync now"}
+          </Btn>
+        )}
         {!confirming ? (
-          <Btn data-testid="broker-disconnect" disabled={busy} onClick={() => setConfirming(true)}>Disconnect</Btn>
+          <Btn data-testid="broker-disconnect" disabled={busy} onClick={() => setConfirming(true)}>Remove</Btn>
         ) : (
           <>
-            <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>Disconnect {name}? The holdings read from it are removed.</span>
+            <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>Remove {name}? The holdings read from it are removed.</span>
             <Btn
               data-testid="broker-disconnect-confirm"
               disabled={busy}
               onClick={() => disconnect.mutate(account.account_id, { onSettled: () => setConfirming(false) })}
               style={{ color: "var(--cp-danger)", borderColor: "var(--danger-line)" }}
             >
-              {disconnect.isPending ? "Disconnecting…" : "Yes, disconnect"}
+              {disconnect.isPending ? "Removing…" : "Yes, remove"}
             </Btn>
             <Btn variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>Keep</Btn>
           </>
@@ -299,7 +334,7 @@ export function BrokerAccounts({ q, hideWhenEmpty }: { q: UseQueryResult<BrokerA
       <div data-testid="broker-accounts-empty">
         <EmptyBlock
           title="No broker account connected"
-          body="Your holdings come from the statement sources below. The brokers the server lists are under ‘Connect a broker’."
+          body="Connect one under ‘Add a broker’, or upload your broker’s holdings file."
         />
       </div>
     );
@@ -307,40 +342,51 @@ export function BrokerAccounts({ q, hideWhenEmpty }: { q: UseQueryResult<BrokerA
   return <>{q.data.map((a) => <BrokerAccountCard key={a.account_id} account={a} fetched={fetched} />)}</>;
 }
 
-// ── connect a broker ─────────────────────────────────────────────────────
+// ── add a broker ─────────────────────────────────────────────────────────
 
-function BrokerGroup({ title, count, countTestId, children }: { title: string; count: number; countTestId: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col" style={{ gap: 8 }}>
-      <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
-        {title} · <span className="cp-num" data-testid={countTestId}>{count}</span>
-      </span>
-      {children}
-    </div>
-  );
+/**
+ * The brokers the product leads with, in the order the product owner named
+ * them. Every other broker the server lists sits behind "more brokers" unless
+ * it can be connected.
+ */
+const FIRST_BROKERS = ["zerodha", "groww", "angel", "upstox", "icicidirect"];
+
+/** One line on why a broker has no Connect. */
+function whyNot(b: BrokerAdapter, hubOff: boolean): string {
+  if (hubOff && canSignIn(b)) return "Sign-in is off for this account";
+  if (awaitsAppKeys(b)) return "Sign-in isn’t set up yet";
+  return "Can’t be connected";
 }
 
-const TILE_GRID = "repeat(auto-fill,minmax(min(100%,200px),1fr))";
+/** Called with the broker's name when the file route is taken for one broker, or with null for any file. */
+export type UseFile = (broker: string | null) => void;
 
-function BrokerTiles({ brokers, sub }: { brokers: BrokerAdapter[]; sub?: (b: BrokerAdapter) => string | undefined }) {
-  return (
-    <div className="grid" style={{ gridTemplateColumns: TILE_GRID, gap: 8 }}>
-      {brokers.map((b) => (
-        <div key={b.slug} data-testid="broker-tile" style={{ padding: "8px 10px", borderRadius: 10, border: "1px solid var(--line-2)", minWidth: 0 }}>
-          <BrokerName name={b.name} sub={sub?.(b)} size={24} />
-        </div>
-      ))}
-    </div>
-  );
-}
+const ROW_GRID = "repeat(auto-fill,minmax(min(100%,320px),1fr))";
 
-function ConnectRow({ broker, disabled, onPick }: { broker: BrokerAdapter; disabled: boolean; onPick: () => void }) {
+function AddRow({ broker, offer, hubOff, disabled, onConnect, onUseFile }: {
+  broker: BrokerAdapter;
+  /** Connect is offered: the server marks the broker connectable and the hub is on. */
+  offer: boolean;
+  hubOff: boolean;
+  disabled: boolean;
+  onConnect: () => void;
+  onUseFile: UseFile;
+}) {
   return (
-    <div data-testid="broker-option" className="flex flex-wrap items-center justify-between" style={{ gap: "8px 12px", padding: "10px 12px", borderRadius: 12, border: "1px solid var(--cp-line)", background: "var(--bg-1)" }}>
-      <div style={{ flex: "1 1 160px", minWidth: 0 }}>
-        <BrokerName name={broker.name} sub="Sign in on the broker’s own site" size={32} />
+    <div data-testid="broker-option" data-slug={broker.slug} data-connectable={offer} className="flex flex-wrap items-center justify-between" style={{ gap: "8px 12px", padding: "10px 12px", borderRadius: 12, border: "1px solid var(--cp-line)", background: "var(--bg-1)", minWidth: 0 }}>
+      <div style={{ flex: "1 1 150px", minWidth: 0 }}>
+        <BrokerLabel
+          broker={broker.name}
+          size={32}
+          name={broker.name}
+          sub={<span data-testid="broker-option-note">{offer ? "Sign in on the broker’s own site" : whyNot(broker, hubOff)}</span>}
+        />
       </div>
-      <Btn data-testid={`broker-connect-${broker.slug}`} disabled={disabled} onClick={onPick}>Connect</Btn>
+      {offer ? (
+        <Btn data-testid={`broker-connect-${broker.slug}`} aria-label={`Connect ${broker.name}`} disabled={disabled} onClick={onConnect}>Connect</Btn>
+      ) : broker.slug in EXPORT_BROKERS ? (
+        <Btn data-testid={`broker-file-${broker.slug}`} aria-label={`Upload a holdings file from ${broker.name}`} onClick={() => onUseFile(broker.name)}>Upload file</Btn>
+      ) : null}
     </div>
   );
 }
@@ -351,7 +397,7 @@ function ConnectConfirm({ broker, onClose }: { broker: BrokerAdapter; onClose: (
   const leaving = signIn.isPending || signIn.data?.ok === true;
   return (
     <div data-testid="broker-connect-confirm" role="group" aria-label={`Connect ${broker.name}`} className="flex flex-col" style={{ gap: 10, padding: "14px 16px", borderRadius: 12, border: "1px solid var(--mint-line)", background: "var(--bg-2)" }}>
-      <BrokerName name={broker.name} sub="Before you continue" size={32} />
+      <BrokerLabel broker={broker.name} size={32} name={broker.name} sub="Before you continue" />
       <ul className="m-0 flex flex-col" style={{ gap: 6, paddingLeft: 18, fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
         <li>You sign in on {broker.name}’s own site. Nivesh never sees your {broker.name} password or one-time code.</li>
         <li>Read-only: Nivesh never places, changes or cancels an order.</li>
@@ -375,178 +421,256 @@ function ConnectConfirm({ broker, onClose }: { broker: BrokerAdapter; onClose: (
   );
 }
 
-const AUTH_NOTE: Record<string, string> = {
-  form: "Signs in with a client code and a one-time code",
-  apikey: "Signs in with a pasted token",
-};
-
-/** Why a broker the server lists cannot be connected (planned backend). */
-function unavailableNote(b: BrokerAdapter): string {
-  if (!b.implemented) return "Not built yet";
-  if (b.configured === false) return "Not set up on the server yet";
-  return "Not available yet";
+/** The file route, said once above the broker list: louder when no broker can be connected. */
+function FileRoute({ state, onUseFile }: { state: "off" | "none" | "some"; onUseFile: UseFile }) {
+  const quiet = state === "some";
+  const text = state === "off"
+    ? `${NOT_SWITCHED_ON} Nivesh can’t sign in to a broker or read one for you. Accounts already connected stay listed and can be removed, and you can still upload a holdings file.`
+    : state === "none"
+      ? "No broker can be connected right now. Upload your broker’s holdings file instead."
+      : "Prefer not to connect? Upload your broker’s holdings file instead.";
+  return (
+    <div
+      data-testid={state === "off" ? "broker-hub-off" : state === "none" ? "broker-none-connectable" : "broker-file-route"}
+      className="flex flex-wrap items-center justify-between"
+      style={quiet ? { gap: "6px 12px" } : { gap: "8px 12px", padding: "12px 14px", borderRadius: 12, border: "1px solid var(--amber-line)", background: "var(--amber-soft)" }}
+    >
+      <span style={{ flex: "1 1 240px", fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{text}</span>
+      {quiet
+        ? <LinkButton tone="mint" data-testid="broker-use-file" onClick={() => onUseFile(null)}>Upload a broker file ›</LinkButton>
+        : <Btn data-testid="broker-use-file" onClick={() => onUseFile(null)}>Upload a broker file</Btn>}
+    </div>
+  );
 }
 
 /**
- * Brokers the server lists. A broker the server marks connectable gets a
- * "Connect" that leaves for the broker's own sign-in page; without that mark
- * (today's backend) nothing is offered and the block says what is missing.
+ * The brokers that can be added. A broker the server marks connectable gets a
+ * "Connect" that leaves for the broker's own sign-in page. Any other is shown
+ * as not connectable, with "Upload file" when the server recognises that
+ * broker's holdings export. `onUseFile` takes the user to the file upload.
  */
-export function BrokerConnect() {
+export function BrokerConnect({ onUseFile }: { onUseFile: UseFile }) {
   const q = useBrokerAdapters();
   const hubOff = useBrokerHubOff();
+  const { isAdmin } = useCopilotShell();
   const [picked, setPicked] = useState<string | null>(null);
+  const [showMore, setShowMore] = useState(false);
 
-  // The planned backend says which brokers are connectable; today's says nothing, so nothing is offered.
-  const planned = !!q.data && saysConnectable(q.data);
   let body: ReactNode;
   if (q.isPending) body = <LoadingBlock label="Loading the broker list" rows={2} />;
   else if (q.isError) body = <ErrorBlock title="The broker list didn’t load" error={q.error} onRetry={() => q.refetch()} />;
-  else if (q.data.length === 0) body = <div data-testid="broker-adapters-empty"><EmptyBlock title="The server lists no brokers" body="Until it does, a CAS statement is how your holdings get in." /></div>;
-  else {
-    const built = q.data.filter((b) => b.implemented);
-    const summary = (
-      <span style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-        The server has a reader for <span className="cp-num" data-testid="broker-adapters-built">{built.length}</span> of
-        the <span className="cp-num">{q.data.length}</span> brokers it lists.
-      </span>
+  else if (q.data.length === 0) {
+    body = (
+      <div data-testid="broker-adapters-empty">
+        <EmptyBlock
+          title="No broker is listed"
+          body="Upload your broker’s holdings file instead."
+          action={<Btn data-testid="broker-use-file" onClick={() => onUseFile(null)}>Upload a broker file</Btn>}
+        />
+      </div>
     );
-    if (planned && hubOff) {
-      body = (
-        <div className="flex flex-col" style={{ gap: 16 }}>
-          <span data-testid="broker-hub-off" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-            {NOT_SWITCHED_ON} Accounts already connected stay listed above and can be disconnected.
+  } else {
+    const offered = (b: BrokerAdapter) => !hubOff && canSignIn(b);
+    const rank = (b: BrokerAdapter) => {
+      const i = FIRST_BROKERS.indexOf(b.slug);
+      return i < 0 ? FIRST_BROKERS.length : i;
+    };
+    // Connectable brokers first, then the product's first brokers, each group in that order.
+    const lead = q.data
+      .filter((b) => offered(b) || FIRST_BROKERS.includes(b.slug))
+      .sort((a, b) => Number(offered(b)) - Number(offered(a)) || rank(a) - rank(b));
+    const more = q.data.filter((b) => !lead.includes(b));
+    const connectable = lead.filter(offered);
+    const chosen = connectable.find((b) => b.slug === picked) ?? null;
+    const awaiting = q.data.filter(awaitsAppKeys).map((b) => b.name);
+    const row = (b: BrokerAdapter) => (
+      <AddRow key={b.slug} broker={b} offer={offered(b)} hubOff={hubOff} disabled={picked != null} onConnect={() => setPicked(b.slug)} onUseFile={onUseFile} />
+    );
+    body = (
+      <>
+        <FileRoute state={hubOff ? "off" : connectable.length === 0 ? "none" : "some"} onUseFile={onUseFile} />
+        <div className="grid" data-testid="broker-options" style={{ gridTemplateColumns: ROW_GRID, gap: 8 }}>{lead.map(row)}</div>
+        {chosen && <ConnectConfirm key={chosen.slug} broker={chosen} onClose={() => setPicked(null)} />}
+        {more.length > 0 && (
+          <div className="flex flex-col" style={{ gap: 8 }}>
+            <div>
+              <LinkButton data-testid="broker-more-toggle" aria-expanded={showMore} onClick={() => setShowMore((v) => !v)}>
+                {showMore ? "Hide" : "Show"} <span className="cp-num" data-testid="broker-more-count">{more.length}</span> more {more.length === 1 ? "broker" : "brokers"}, none connectable yet {showMore ? "‹" : "›"}
+              </LinkButton>
+            </div>
+            {showMore && <div className="grid" data-testid="broker-options-more" style={{ gridTemplateColumns: ROW_GRID, gap: 8 }}>{more.map(row)}</div>}
+          </div>
+        )}
+        {isAdmin && !hubOff && awaiting.length > 0 && (
+          <span className="cp-mono-note" data-testid="broker-admin-keys" style={{ lineHeight: 1.6 }}>
+            Shown to admins only · sign-in turns on once Nivesh’s app keys are set on the server for: {awaiting.join(", ")}
           </span>
-          <BrokerGroup title="Brokers the server lists" count={q.data.length} countTestId="broker-adapters-listed">
-            <BrokerTiles brokers={q.data} />
-          </BrokerGroup>
-        </div>
-      );
-    } else if (planned) {
-      const connectable = q.data.filter(canSignIn);
-      const rest = q.data.filter((b) => !canSignIn(b));
-      const chosen = connectable.find((b) => b.slug === picked) ?? null;
-      body = (
-        <div className="flex flex-col" style={{ gap: 16 }}>
-          {summary}
-          {connectable.length > 0 ? (
-            <BrokerGroup title="Can be connected" count={connectable.length} countTestId="broker-adapters-connectable">
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(min(100%,280px),1fr))", gap: 8 }}>
-                {connectable.map((b) => <ConnectRow key={b.slug} broker={b} disabled={picked != null} onPick={() => setPicked(b.slug)} />)}
-              </div>
-              {chosen && <ConnectConfirm key={chosen.slug} broker={chosen} onClose={() => setPicked(null)} />}
-            </BrokerGroup>
-          ) : (
-            <span data-testid="broker-none-connectable" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-              None of these can be connected yet. Until one can, a CAS statement is how your holdings get in.
-            </span>
-          )}
-          {rest.length > 0 && (
-            <BrokerGroup title="Not available yet" count={rest.length} countTestId="broker-adapters-unavailable">
-              <BrokerTiles brokers={rest} sub={unavailableNote} />
-            </BrokerGroup>
-          )}
-        </div>
-      );
-    } else {
-      const pending = q.data.filter((b) => !b.implemented);
-      body = (
-        <div className="flex flex-col" style={{ gap: 16 }}>
-          {summary}
-          {built.length > 0 && (
-            <BrokerGroup title="Reader built, sign-in not available here yet" count={built.length} countTestId="broker-adapters-reader">
-              <BrokerTiles brokers={built} sub={(b) => AUTH_NOTE[b.auth_style ?? ""] ?? "Signs in on the broker’s own site"} />
-            </BrokerGroup>
-          )}
-          {pending.length > 0 && (
-            <BrokerGroup title="Not built yet" count={pending.length} countTestId="broker-adapters-pending">
-              <BrokerTiles brokers={pending} />
-            </BrokerGroup>
-          )}
-        </div>
-      );
-    }
+        )}
+      </>
+    );
   }
 
   return (
     <div className="flex flex-col" style={{ gap: 10 }}>
       <ReadOnlyNote />
-      <Section title="Brokers" note="From the server’s list">{body}</Section>
-      {/* Against today's backend, and while the list has not loaded: nothing can be connected. */}
-      {!planned && (
-        <NotConnected
-          testId="broker-signin-missing"
-          title="Broker sign-in isn’t available yet"
-          body="You can’t connect a broker from this app today. Your holdings come from a CAS statement, uploaded or found in Gmail."
-          needs={[
-            "GET /api/broker/native/supported saying which brokers are connectable (it sends slug, name, auth_style and implemented only); this screen offers Connect for a broker only when connectable is true",
-            "A return path: GET /api/broker/native/callback always redirects to /dashboard at the site root (routes/broker_native.py); it should redirect to the return_to this app sends on /start, with broker_connected or broker_error appended, which this screen already reads",
-            "A reader for accounts signed in on the broker’s page: POST /api/broker/accounts/{id}/sync reads through OpenAlgo only and answers 500 for them; the adapters’ fetch_holdings / fetch_positions are never called",
-            "Positions: no route stores or returns a broker’s open positions for any kind of account",
-            "Brokers that use a client code or a pasted token (Angel One, 5paisa, Dhan): the server points at /broker-credentials/{slug}, which does not exist. A broker password or one-time code must not be typed into this app",
-          ]}
-        />
-      )}
+      {body}
     </div>
   );
 }
 
 // ── coming back from a sign-in ───────────────────────────────────────────
 
+/** `broker_error` codes (routes/broker_native.py). Anything else gets the fixed sentence below: the address is never echoed. */
 const RETURN_ERRORS: Record<string, string> = {
   denied: "the sign-in was cancelled or refused at the broker",
   missing_params: "the broker did not send back a sign-in code",
   invalid_state: "the sign-in could not be matched to this account. Start it again from here",
   state_expired: "the sign-in took more than ten minutes. Start it again",
-  unknown_broker: "the server does not know that broker",
+  unknown_broker: "Nivesh does not know that broker",
   token_exchange_failed: "the broker did not accept the sign-in",
 };
 
-type ReturnNotice = { kind: "connected"; slug: string } | { kind: "error"; code: string };
+type ReturnNotice =
+  | { kind: "connected"; slug: string; accountId: string | null; /** When the browser came back (ms). */ at: number }
+  | { kind: "error"; code: string };
+
+const noticeStyle = (tone: "mint" | "amber" | "danger") => ({
+  gap: "8px 12px",
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: `1px solid var(--${tone}-line)`,
+  background: tone === "danger" ? "var(--cp-danger-soft)" : `var(--${tone}-soft)`,
+});
 
 /**
  * Shows the outcome the broker callback puts in the address
- * (?broker_connected=<slug>&account_id=<id> or ?broker_error=<code>), refreshes
- * the account list and clears the address. Renders nothing otherwise.
+ * (?broker_connected=<slug>&account_id=<id> or ?broker_error=<code>), reads
+ * the accounts again and clears the address. Renders nothing otherwise.
+ *
+ * A success is said only once the account is in the list the server returns:
+ * the address alone proves nothing.
  */
 export function BrokerReturnNotice() {
   const qc = useQueryClient();
-  const adapters = useBrokerAdapters();
+  const accounts = useBrokerAccounts();
   const [params, setParams] = useSearchParams();
   const [notice, setNotice] = useState<ReturnNotice | null>(null);
+  const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const slug = params.get(BROKER_RESULT_PARAMS.connected);
     const code = params.get(BROKER_RESULT_PARAMS.error);
     if (slug == null && code == null) return;
-    setNotice(code != null ? { kind: "error", code } : { kind: "connected", slug: slug ?? "" });
+    setNotice(code != null
+      ? { kind: "error", code }
+      : { kind: "connected", slug: slug ?? "", accountId: params.get(BROKER_RESULT_PARAMS.account), at: Date.now() });
     for (const queryKey of [accountKeys.brokerAccounts, accountKeys.brokerFetched, accountKeys.onboardingState]) void qc.invalidateQueries({ queryKey });
     const rest = new URLSearchParams(params);
     for (const name of Object.values(BROKER_RESULT_PARAMS)) rest.delete(name);
     setParams(rest, { replace: true });
   }, [params, setParams, qc]);
 
+  // The hub can sit below the first screenful (Settings): bring the outcome into view.
+  useEffect(() => {
+    if (notice) box.current?.scrollIntoView({ block: "center" });
+  }, [notice]);
+
   if (!notice) return null;
   const dismiss = (
     <button type="button" onClick={() => setNotice(null)} style={{ fontSize: 13, color: "var(--cp-ink)", background: "none", border: 0, cursor: "pointer" }}>Dismiss</button>
   );
+  const text = { flex: "1 1 240px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" } as const;
+
   if (notice.kind === "error") {
     return (
-      <div role="alert" data-testid="broker-return-error" className="flex flex-wrap items-start" style={{ gap: "8px 12px", padding: "12px 16px", borderRadius: 12, border: "1px solid var(--danger-line)", background: "var(--cp-danger-soft)" }}>
-        <span style={{ flex: "1 1 240px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
-          The broker sign-in didn’t finish: {RETURN_ERRORS[notice.code] ?? (humaniseTag(notice.code).toLowerCase() || "no reason was given")}. No account was added.
+      <div ref={box} role="alert" data-testid="broker-return-error" className="flex flex-wrap items-start" style={noticeStyle("danger")}>
+        <span style={text}>
+          The broker sign-in didn’t finish: {RETURN_ERRORS[notice.code] ?? "the reason was not one Nivesh knows"}. No account was added.
         </span>
         {dismiss}
       </div>
     );
   }
-  const name = adapters.data?.find((b) => b.slug === notice.slug)?.name ?? humaniseTag(notice.slug);
+
+  // Wait for a read of the accounts that finished after the browser came back.
+  if (accounts.isFetching || Math.max(accounts.dataUpdatedAt, accounts.errorUpdatedAt) < notice.at) {
+    return (
+      <div ref={box} role="status" data-testid="broker-return-checking" className="flex flex-wrap items-start" style={noticeStyle("mint")}>
+        <span className="cp-running" style={text}>Back from the broker. Checking the account…</span>
+      </div>
+    );
+  }
+  const account = accounts.data?.find((a) => (notice.accountId ? a.account_id === notice.accountId : a.broker === notice.slug));
+  if (!account) {
+    return (
+      <div ref={box} role="alert" data-testid="broker-return-unconfirmed" className="flex flex-wrap items-start" style={noticeStyle("amber")}>
+        <span style={text}>
+          {accounts.isError
+            ? "You are back from the broker, but your accounts didn’t load, so Nivesh can’t confirm the new one yet."
+            : "You are back from the broker, but the new account is not in your list. Connect it again."}
+        </span>
+        {dismiss}
+      </div>
+    );
+  }
+  const name = account.broker_display || account.label || "your broker";
   return (
-    <div role="status" data-testid="broker-return-connected" className="flex flex-wrap items-start" style={{ gap: "8px 12px", padding: "12px 16px", borderRadius: 12, border: "1px solid var(--mint-line)", background: "var(--mint-soft)" }}>
-      <span style={{ flex: "1 1 240px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
-        Signed in to {name || "your broker"}. The account is listed below; press “Sync now” to read its holdings.
+    <div ref={box} role="status" data-testid="broker-return-connected" className="flex flex-wrap items-start" style={noticeStyle("mint")}>
+      <span style={text}>
+        Signed in to {name}.{" "}
+        {account.last_sync_at
+          ? <><span className="cp-num">{fmtNum(account.last_sync_count ?? 0)}</span> {account.last_sync_count === 1 ? "holding was" : "holdings were"} read from it.</>
+          : "Its holdings have not been read yet: press “Sync now” on the account."}
       </span>
       {dismiss}
+    </div>
+  );
+}
+
+// ── the hub ──────────────────────────────────────────────────────────────
+
+/**
+ * The whole hub: the outcome of a sign-in that just came back, the connected
+ * accounts, and the brokers that can be added.
+ *
+ * The file route: a host that has its own place for the file upload (Get
+ * started has a "Broker file" source) passes `onUseFile`; without it the upload
+ * form opens inside the hub (Settings).
+ */
+export function BrokerHub({ onUseFile }: { onUseFile?: UseFile }) {
+  const accounts = useBrokerAccounts();
+  // undefined: the upload form is closed. null: open for any file. A name: open for that broker.
+  const [fileFor, setFileFor] = useState<string | null | undefined>(undefined);
+  const fileBox = useRef<HTMLDivElement>(null);
+  const count = accounts.data?.length;
+
+  useEffect(() => {
+    if (fileFor !== undefined) fileBox.current?.scrollIntoView({ block: "nearest" });
+  }, [fileFor]);
+
+  return (
+    <div data-testid="broker-hub" className="flex flex-col" style={{ gap: 18, minWidth: 0 }}>
+      <BrokerReturnNotice />
+      <div className="flex flex-col" style={{ gap: 10 }}>
+        <Eyebrow>
+          Your broker accounts{count != null ? <> · <span data-testid="broker-accounts-count">{count}</span></> : null}
+        </Eyebrow>
+        <BrokerAccounts q={accounts} hideWhenEmpty />
+        {count === 0 && <span data-testid="broker-accounts-none" style={{ fontSize: 13, color: "var(--cp-ink-3)" }}>None connected yet.</span>}
+      </div>
+      <div className="flex flex-col" style={{ gap: 10 }}>
+        <Eyebrow>Add a broker</Eyebrow>
+        <BrokerConnect onUseFile={onUseFile ?? setFileFor} />
+      </div>
+      {!onUseFile && fileFor !== undefined && (
+        <div ref={fileBox} data-testid="broker-hub-file" className="flex flex-col" style={{ gap: 10 }}>
+          <div className="flex flex-wrap items-center justify-between" style={{ gap: 8 }}>
+            <Eyebrow>Upload a broker file</Eyebrow>
+            <LinkButton data-testid="broker-hub-file-close" aria-label="Close the file upload" onClick={() => setFileFor(undefined)}>Close</LinkButton>
+          </div>
+          <HoldingsFileUpload key={fileFor ?? ""} broker={fileFor} />
+        </div>
+      )}
     </div>
   );
 }

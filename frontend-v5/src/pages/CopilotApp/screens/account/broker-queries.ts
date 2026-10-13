@@ -1,17 +1,11 @@
 /**
- * Broker accounts — reads and writes behind Broker connections, the broker
- * source in Get started and the broker row in Settings. Read-only by rule:
+ * Broker accounts — reads and writes behind the broker hub in Settings, the
+ * broker source in Get started and Broker connections. Read-only by rule:
  * nothing here asks a broker to place, change or cancel an order.
  *
- * Two response shapes are accepted everywhere:
- *
- *   today    what the backend in this repository returns.
- *   planned  the broker backend being built on another branch (not on staging
- *            yet). Every field it adds is optional here; when a field is
- *            absent the screens behave exactly as they do against today's
- *            backend. Nothing is assumed to work until the server says so:
- *            a sign-in is offered only for a broker the server marks
- *            `connectable`.
+ * Each schema mirrors the handler named above it (docs/API_DOCUMENTATION.md,
+ * "Broker hub"). A field is nullable only where the server can send null, and
+ * a sign-in is offered only for a broker the server marks `connectable`.
  *
  * Writes resolve with an Outcome (see ./queries) instead of rejecting, so a
  * failure is reported once, on the screen, in plain words.
@@ -24,32 +18,31 @@ import { apiConfig } from "@/services/api/config";
 import { apiFetch } from "@/services/api/authed-fetch";
 import { accountKeys, optNum, optStr, parse, retryUnlessDrift, type Outcome } from "./queries";
 
-/** true / false as sent; null when the server did not send the field. */
-const optBool = z.boolean().nullish().transform((v) => v ?? null);
-
 // ── GET /api/broker/accounts ─────────────────────────────────────────────
 // backend/routes/broker_connect.py :: list_accounts / _public_account
+// backend/services/brokers/sessions.py :: public_fields (the session fields)
 
 const BrokerAccountC = z.object({
   account_id: z.string(),
   broker: optStr,
   broker_display: optStr,
   label: optStr,
-  /** "active" | "pending" | "error"; planned: also "expired". */
+  /** "active" | "pending" | "error" | "expired" */
   status: optStr,
   last_sync_at: optStr,
   last_sync_count: optNum,
   last_error: optStr,
   created_at: optStr,
-  // ── planned; absent today ──
-  /** Signed in on the broker's own page. Its presence marks the planned backend. */
-  native: optBool,
-  /** The broker's client id, masked by the server. */
+  /** Signed in on the broker's own page (false: linked through the hosted middleware). */
+  native: z.boolean(),
+  /** The broker's client id, masked by the server ("••••34"); null when the broker gave none. */
   broker_user_masked: optStr,
+  /** Sent only while the session is live. */
   session_expires_at: optStr,
-  /** "expired" | "logout" | "broker_rejected" */
+  /** "expired" | "logout" (signed out of Nivesh) | "broker_rejected" */
   session_ended_reason: optStr,
-  needs_reconnect: optBool,
+  /** The broker session has ended; the account stays listed until a new sign-in. */
+  needs_reconnect: z.boolean(),
 });
 export type BrokerAccount = z.infer<typeof BrokerAccountC>;
 
@@ -57,7 +50,7 @@ const BrokerAccountsRes = z.object({ accounts: z.array(BrokerAccountC) });
 
 /** The broker session behind this account has ended and a new sign-in is needed. */
 export function needsReconnect(a: BrokerAccount): boolean {
-  return a.needs_reconnect === true || a.status === "expired" || !!a.session_ended_reason;
+  return a.needs_reconnect;
 }
 
 export function useBrokerAccounts() {
@@ -79,31 +72,27 @@ export function useBrokerAccounts() {
 const BrokerAdapterC = z.object({
   slug: z.string(),
   name: z.string(),
-  /** false = a placeholder on the server that raises on every call. */
+  /** false = no sign-in exists on the server for this broker (a placeholder, or switched off). */
   implemented: z.boolean(),
-  /** "oauth" (on the broker's own site) | "form" (client code, password, TOTP) | "apikey" (a pasted token). */
-  auth_style: optStr,
-  // ── planned; absent today ──
-  /** The broker's app keys are set on the server. */
-  configured: optBool,
-  /** The server can take a user through this broker's sign-in and read the account. */
-  connectable: optBool,
+  /** "oauth" (a redirect to the broker's own site) | "form" | "apikey": only "oauth" can be connected. */
+  auth_style: z.string(),
+  /** Nivesh's own app keys for the broker are set on the server. */
+  configured: z.boolean(),
+  /** A user can sign in on the broker's own page right now (implemented, oauth and configured). */
+  connectable: z.boolean(),
 });
 export type BrokerAdapter = z.infer<typeof BrokerAdapterC>;
 
 const BrokerAdaptersRes = z.object({ brokers: z.array(BrokerAdapterC) });
 
-/**
- * A sign-in may be offered only when the server says the broker is connectable.
- * Today's backend does not send the field, so today nothing is offered.
- */
+/** A sign-in is offered only when the server says the broker is connectable. */
 export function canSignIn(b: BrokerAdapter): boolean {
-  return b.connectable === true;
+  return b.connectable;
 }
 
-/** The list comes from the planned backend (it says which brokers are connectable). */
-export function saysConnectable(list: BrokerAdapter[]): boolean {
-  return list.some((b) => b.connectable != null);
+/** Sign-in for this broker waits only on Nivesh's app keys being set on the server. */
+export function awaitsAppKeys(b: BrokerAdapter): boolean {
+  return b.implemented && b.auth_style === "oauth" && !b.configured;
 }
 
 export function useBrokerAdapters() {
@@ -119,19 +108,19 @@ export function useBrokerAdapters() {
 }
 
 // ── failures of a broker write ───────────────────────────────────────────
-// Today an error body is { detail: "<sentence>" }. The broker-hub backend
-// (planned, not deployed) answers with the app's standard error envelope,
-// { status, error, code, message, details: [{ broker, account_id }], … }, keyed
-// on `code`: BROKER_SESSION_EXPIRED (409), BROKER_READ_NOT_SUPPORTED (400),
-// BROKER_READ_FAILED (502); a switched-off feature is 403 with the message
-// "feature_not_enabled". Both shapes are read, and an object under `detail` too.
+// Every error is the app's standard envelope (backend/core/error_handlers.py):
+// { status, error, code, message, details: [{ broker, account_id }], … }.
+// A failed read is keyed on `code`: BROKER_SESSION_EXPIRED (409),
+// BROKER_READ_NOT_SUPPORTED (400), BROKER_READ_FAILED (502). A switched-off
+// `broker_hub` flag is 403 with the message "feature_not_enabled". A bare
+// { detail } body (a proxy in front of the server) is read as well.
 
 export interface BrokerFailure {
   /** HTTP status; null when the request never got an answer. */
   status: number | null;
   /** The server's error code, when it sent one. */
   code: string | null;
-  /** The server's own sentence. Shown to admins only: it can name internals. */
+  /** The envelope's `message`. Shown to admins only, and never when it names an internal (see brokers.tsx). */
   detail: string | null;
 }
 
@@ -170,27 +159,28 @@ async function brokerCall(path: string, init: RequestInit): Promise<{ ok: true; 
 
 // ── GET /api/broker/native/start/{slug}?return_to=… ──────────────────────
 // backend/routes/broker_native.py :: start_oauth — answers with a redirect to
-// the broker's own sign-in page, or an error (today 500, planned 503) when the
-// broker's app keys are not set on the server.
+// the broker's own sign-in page, or 404 (unknown broker), 400 (no sign-in for
+// this broker), 503 (Nivesh's app keys for it are not set) or 403 (`broker_hub`
+// off for the user).
 //
 // The browser has to leave the app for the broker, so a failure would land the
 // user on a raw error page. The request is therefore made once with fetch
 // first (redirects not followed): a redirect means the server is ready and the
 // browser is then sent the same way; anything else is reported on the screen.
 //
-// `return_to` is the same-site path of the screen that started the sign-in.
-// Today's callback ignores it and redirects to /dashboard at the site root; the
-// planned one redirects to it with the outcome in the query string.
+// `return_to` is the same-site path of the screen that started the sign-in
+// (Settings, Get started or Broker connections). The callback redirects back
+// to it with the outcome in the query string.
 
 /**
- * Query parameters the callback appends to its redirect
- * (routes/broker_native.py :: oauth_callback; planned: on `return_to`).
+ * Query parameters the callback appends to `return_to`
+ * (routes/broker_native.py :: _finish_sign_in).
  */
 export const BROKER_RESULT_PARAMS = { connected: "broker_connected", error: "broker_error", account: "account_id" } as const;
 
 export interface SignInStart {
   slug: string;
-  /** Same-site path to come back to, including the router base ("/v5/app/page/brokers"). */
+  /** Same-site path to come back to, including the router base ("/v5/app/page/settings"). */
   returnTo: string;
 }
 
@@ -213,9 +203,7 @@ export function useBrokerSignIn() {
 // ── POST /api/broker/accounts/{id}/sync ──────────────────────────────────
 // backend/routes/broker_connect.py :: sync_broker_account → { ok, count, holdings }
 // Reads the account's holdings from the broker and replaces the rows stored
-// for that account. `count` is the number of holdings saved. Today this works
-// for accounts linked through the hosted middleware only and answers 500 for an
-// account signed in on the broker's page; the planned backend reads those too.
+// for that account only. `count` is the number of holdings saved.
 
 const BrokerSyncRes = z.object({ count: z.number() });
 
