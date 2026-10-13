@@ -6,12 +6,12 @@ Adapters use either the broker's official Python SDK (Zerodha/Kite,
 Upstox, Angel/SmartAPI, Fyers, Dhan) or vendored OpenAlgo plugin code
 for brokers without an SDK. Either way the user-facing flow is:
 
-    Nivesh UI  → /api/broker/native/start/<slug>
+    Nivesh UI  → /api/broker/native/start/<slug>?return_to=<path>
         302 →  broker's own OAuth login URL (kite.trade, upstox.com, …)
     User authenticates at broker
         302 →  broker → /api/broker/native/callback?broker=<slug>&code=…
-    Nivesh exchanges code → access_token → encrypts → saves
-        302 →  Nivesh dashboard
+    Nivesh exchanges code → access_token → encrypts → saves → first sync
+        302 →  `return_to` (the page the user started from), else /dashboard
 
 No OpenAlgo dashboard, no SSO bridge, no per-user containers, no proxy
 rewriting. Pure Nivesh UX.
@@ -19,32 +19,61 @@ rewriting. Pure Nivesh UX.
 State for the round-trip is stored in `broker_oauth_states` Mongo
 collection (10-min TTL), keyed by a random `state` token in the URL.
 The `state` ties the callback back to the originating Nivesh user.
+
+The callback always lands the browser back on a Nivesh page and reports
+the outcome in the query string, keeping whatever query the page had:
+
+    ?broker_connected=<slug>&account_id=<id>     connected
+    ?broker_error=<code>                         not connected
+
+`<code>` is one of a fixed set — never text supplied by the broker:
+    denied                 the broker reported an error / the user backed out
+    missing_params         no broker slug, or no authorisation value
+    unknown_broker         the slug is not a registered broker
+    invalid_state          no matching sign-in attempt for this callback
+    state_expired          the sign-in attempt is older than 10 minutes
+    token_exchange_failed  the broker did not hand back a session token
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets
-import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Optional, Tuple
+from urllib.parse import unquote_plus, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from deps import db, get_current_user
+from feature_gate import require_feature
 from services import audit as _audit
-from services import pii_security as _pii
 from services.brokers import registry as _broker_registry
-from services.openalgo_client import mask_api_key  # reused for masking
+from services.brokers import sessions as _sessions
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/broker/native")
 
 OAUTH_STATE_TTL_MIN = 10
+FIRST_SYNC_TIMEOUT_S = 12
+DEFAULT_RETURN_TO = "/dashboard"
+# Query params this module appends to the page the user lands back on.
+_RESULT_PARAMS = ("broker_connected", "broker_error", "account_id")
+# Off stops new sign-ins (feature_flags.KNOWN_FEATURES); the listing and an
+# already-started callback stay available.
+FLAG = "broker_hub"
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+async def _hub_user(request: Request) -> dict:
+    """The signed-in user, refused with 403 when `broker_hub` is off for them."""
+    return await require_feature(
+        FLAG, resolve_user=lambda r: get_current_user(r), get_db=lambda: db,
+    )(request)
 
 
 def _redirect_uri(request: Request, broker_slug: str) -> str:
@@ -55,7 +84,61 @@ def _redirect_uri(request: Request, broker_slug: str) -> str:
     fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
     fwd_proto = request.headers.get("x-forwarded-proto", "https")
     base = f"{fwd_proto}://{fwd_host}"
+    # A broker that appends its own `?…` to the registered URL (Angel One)
+    # cannot be given one that already has a query string.
+    try:
+        path_style = getattr(_broker_registry.get(broker_slug), "CALLBACK_PATH_STYLE", False)
+    except KeyError:
+        path_style = False
+    if path_style:
+        return f"{base}/api/broker/native/callback/{broker_slug}"
     return f"{base}/api/broker/native/callback?broker={broker_slug}"
+
+
+def _back(target: str, **params: str) -> RedirectResponse:
+    """Redirect to `target` — a path `safe_return_to` accepted, or the
+    default — with the outcome params appended. A query string or fragment
+    it already carries is kept as-is; outcome params left over from an
+    earlier round-trip are dropped so the page reads exactly one outcome.
+    """
+    parts = urlsplit(target)
+    kept = [
+        seg for seg in parts.query.split("&")
+        if seg and unquote_plus(seg.split("=", 1)[0]) not in _RESULT_PARAMS
+    ]
+    query = "&".join(kept + [urlencode(params)])
+    return RedirectResponse(url=urlunsplit(("", "", parts.path, query, parts.fragment)))
+
+
+async def _find_state(request: Request, state: str, broker_slug: str) -> Tuple[Optional[dict], bool]:
+    """Find the sign-in attempt this callback belongs to. Returns
+    `(state_doc, signed_in)`; `signed_in` is False only when the fallback
+    below was needed and nobody is logged in.
+    """
+    # `state` may be missing for brokers that don't echo it back (Kite
+    # passes it via redirect_params and may strip on some flows). When
+    # present, validate; when absent, fall back to the most recent
+    # unused state for the broker. Accepting fallback is a small
+    # downgrade from full CSRF protection — acceptable here because the
+    # broker callback URL is registered + this endpoint requires HTTPS.
+    state_doc = None
+    if state:
+        state_doc = await db.broker_oauth_states.find_one({"state": state}, {"_id": 0})
+    if state_doc or not broker_slug:
+        return state_doc, True
+    # broker_slug is enough to find the most recent state for this
+    # broker, but we still need a way to identify the user — fall
+    # back to none here means the user MUST be logged in.
+    try:
+        user = await get_current_user(request)
+    except HTTPException:
+        return None, False
+    state_doc = await db.broker_oauth_states.find_one(
+        {"user_id": user["user_id"], "broker": broker_slug},
+        {"_id": 0},
+        sort=[("created_at", -1)],
+    )
+    return state_doc, True
 
 
 # ── Routes ───────────────────────────────────────────────────────────────
@@ -70,18 +153,47 @@ async def list_supported(request: Request):
 async def start_oauth(broker_slug: str, request: Request):
     """Generate a state token, persist (state → user_id, broker), and
     redirect the user's browser to the broker's OAuth login URL.
+
+    `return_to` (optional) is the Nivesh page to land back on afterwards;
+    it is kept only when it is a plain same-site path.
     """
-    user = await get_current_user(request)
+    user = await _hub_user(request)
     user_id = user["user_id"]
     try:
         broker = _broker_registry.get(broker_slug)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown broker '{broker_slug}'")
 
+    # A placeholder, or an adapter whose sign-in is switched off: say so
+    # plainly instead of failing inside `auth_url`.
+    if not getattr(broker, "IMPLEMENTED", True):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{broker.DISPLAY} cannot be connected from Nivesh yet.",
+        )
+
+    # Nivesh's own app keys for this broker are not set: the login could
+    # not finish, so stop here rather than send the user to the broker.
+    missing = _broker_registry.missing_secrets(broker_slug)
+    if broker.AUTH_STYLE == "oauth" and missing:
+        await _audit.record(
+            user_id=user_id, action="broker_connect", outcome="error",
+            ip=request.client.host if request.client else "",
+            ua=request.headers.get("user-agent", ""),
+            details={
+                "broker": broker_slug, "stage": "auth_url",
+                "reason": "app keys not configured: " + ", ".join(missing),
+            },
+        )
+        raise HTTPException(
+            status_code=503,
+            detail=f"{broker.DISPLAY} sign-in is not available yet — Nivesh's {broker.DISPLAY} app keys are not configured.",
+        )
+
     state = secrets.token_urlsafe(24)
     redirect_uri = _redirect_uri(request, broker_slug)
 
-    await db.broker_oauth_states.insert_one({
+    state_doc = {
         "state": state,
         "user_id": user_id,
         "broker": broker_slug,
@@ -90,7 +202,11 @@ async def start_oauth(broker_slug: str, request: Request):
         "expires_at": (
             datetime.now(timezone.utc) + timedelta(minutes=OAUTH_STATE_TTL_MIN)
         ).isoformat(),
-    })
+    }
+    return_to = _sessions.safe_return_to(request.query_params.get("return_to"))
+    if return_to:
+        state_doc["return_to"] = return_to
+    await db.broker_oauth_states.insert_one(state_doc)
 
     try:
         url = broker.auth_url(state=state, redirect_uri=redirect_uri)
@@ -110,44 +226,51 @@ async def start_oauth(broker_slug: str, request: Request):
 async def oauth_callback(request: Request):
     """Receives the broker's redirect after the user authenticates. The
     contract is broker-specific in the param names — Kite uses
-    `request_token`, OAuth2 brokers use `code`. Adapters consume both
-    via the unified `code` arg.
+    `request_token`, OAuth2 brokers use `code`, and an adapter may name
+    others in `CALLBACK_CODE_PARAMS`. Adapters consume them all via the
+    unified `code` arg.
     """
-    qp = dict(request.query_params)
-    broker_slug = qp.get("broker") or ""
+    return await _finish_sign_in(request, request.query_params.get("broker") or "")
+
+
+@router.get("/callback/{broker_slug}")
+async def oauth_callback_for(broker_slug: str, request: Request):
+    """The same callback with the broker in the path, for adapters that set
+    `CALLBACK_PATH_STYLE` (see `_redirect_uri`)."""
+    return await _finish_sign_in(request, broker_slug)
+
+
+async def _finish_sign_in(request: Request, broker_slug: str):
+    qp = request.query_params
     state = qp.get("state") or ""
-    code = qp.get("code") or qp.get("request_token") or ""
-    error = qp.get("error") or qp.get("status") if qp.get("status") not in ("success", None) else ""
+    status = qp.get("status")
+    error = qp.get("error") or (status if status not in ("success", None) else "")
+
+    state_doc, signed_in = await _find_state(request, state, broker_slug)
+    back = _sessions.safe_return_to((state_doc or {}).get("return_to")) or DEFAULT_RETURN_TO
 
     if error:
-        return RedirectResponse(url=f"/dashboard?broker_error={error}")
-    if not (broker_slug and code):
-        return RedirectResponse(url="/dashboard?broker_error=missing_params")
+        # The broker's own text stays in our log; the page only gets a fixed code.
+        logger.info("native broker callback: %r reported an error: %r", broker_slug[:40], error[:120])
+        return _back(back, broker_error="denied")
+    if not broker_slug:
+        return _back(back, broker_error="missing_params")
+    try:
+        broker = _broker_registry.get(broker_slug)
+    except KeyError:
+        return _back(back, broker_error="unknown_broker")
+    code = ""
+    for name in ("code", "request_token", *getattr(broker, "CALLBACK_CODE_PARAMS", ())):
+        code = qp.get(name) or ""
+        if code:
+            break
+    if not code:
+        return _back(back, broker_error="missing_params")
 
-    # `state` may be missing for brokers that don't echo it back (Kite
-    # passes it via redirect_params and may strip on some flows). When
-    # present, validate; when absent, fall back to the most recent
-    # unused state for the broker. Accepting fallback is a small
-    # downgrade from full CSRF protection — acceptable here because the
-    # broker callback URL is registered + this endpoint requires HTTPS.
-    state_doc = None
-    if state:
-        state_doc = await db.broker_oauth_states.find_one({"state": state}, {"_id": 0})
-    if not state_doc and broker_slug:
-        # broker_slug is enough to find the most recent state for this
-        # broker, but we still need a way to identify the user — fall
-        # back to none here means the user MUST be logged in.
-        try:
-            user = await get_current_user(request)
-            state_doc = await db.broker_oauth_states.find_one(
-                {"user_id": user["user_id"], "broker": broker_slug},
-                {"_id": 0},
-                sort=[("created_at", -1)],
-            )
-        except HTTPException:
-            return RedirectResponse(url="/login?next=/dashboard")
+    if not signed_in:
+        return RedirectResponse(url="/login?next=/dashboard")
     if not state_doc:
-        return RedirectResponse(url="/dashboard?broker_error=invalid_state")
+        return _back(back, broker_error="invalid_state")
 
     expires_at = state_doc["expires_at"]
     if isinstance(expires_at, str):
@@ -155,56 +278,57 @@ async def oauth_callback(request: Request):
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if datetime.now(timezone.utc) > expires_at:
-        return RedirectResponse(url="/dashboard?broker_error=state_expired")
+        return _back(back, broker_error="state_expired")
 
     user_id = state_doc["user_id"]
     redirect_uri = state_doc.get("redirect_uri") or _redirect_uri(request, broker_slug)
     await db.broker_oauth_states.delete_one({"state": state_doc["state"]})
 
     try:
-        broker = _broker_registry.get(broker_slug)
-    except KeyError:
-        return RedirectResponse(url=f"/dashboard?broker_error=unknown_broker")
-
-    try:
         access_token = await broker.exchange_code(
             code=code, state=state_doc.get("state", ""), redirect_uri=redirect_uri,
         )
+        if not access_token.token:
+            raise RuntimeError("adapter returned no session token")
     except Exception as e:  # noqa: BLE001
-        logger.exception("native broker exchange_code failed")
+        # Adapters put the broker's raw response into their error text, and
+        # that can carry token fields: record only the kind of failure.
+        logger.error("native broker exchange_code failed for %s (%s)", broker_slug, type(e).__name__)
         await _audit.record(
             user_id=user_id, action="broker_connect", outcome="error",
             ip=request.client.host if request.client else "",
             ua=request.headers.get("user-agent", ""),
-            details={"broker": broker_slug, "stage": "exchange_code", "reason": str(e)},
+            details={"broker": broker_slug, "stage": "exchange_code", "reason": type(e).__name__},
         )
-        return RedirectResponse(url=f"/dashboard?broker_error=token_exchange_failed")
+        return _back(back, broker_error="token_exchange_failed")
 
     # Persist as a `broker_accounts` row — same shape as the OpenAlgo
-    # path so /sync, /disconnect, etc. work uniformly.
-    account_id = f"ba_{uuid.uuid4().hex[:12]}"
-    extras_blob = _pii.encrypt(_safe_json(access_token.extras))
-    now = _now_iso()
-    doc = {
-        "account_id": account_id,
-        "user_id": user_id,
-        "broker": broker_slug,
-        "label": broker.DISPLAY,
-        "openalgo_url": "",
-        "openalgo_hosted": False,
-        "openalgo_per_account_instance": False,
-        "native": True,  # marks this row as following the native path
-        "api_key_encrypted": _pii.encrypt(access_token.token),
-        "api_key_masked": mask_api_key(access_token.token),
-        "extras_encrypted": extras_blob,
-        "status": "active",
-        "created_at": now,
-        "updated_at": now,
-        "last_sync_at": None,
-        "last_sync_count": 0,
-        "last_error": None,
-    }
-    await db.broker_accounts.insert_one(doc)
+    # path so /sync, /disconnect, etc. work uniformly. Reconnecting the
+    # same broker login refreshes its row instead of adding another.
+    doc = await _sessions.upsert_native_account(
+        db, user_id=user_id, slug=broker_slug, display=broker.DISPLAY, token=access_token,
+    )
+    account_id = doc["account_id"]
+
+    # First holdings sync, so the portfolio is there when the user lands
+    # back. A failed or slow sync must not fail the connect.
+    try:
+        # Imported here so this module stays importable on its own.
+        from services.brokers import hub_reads
+        await asyncio.wait_for(hub_reads.sync_account(db, doc), timeout=FIRST_SYNC_TIMEOUT_S)
+    except Exception as e:  # noqa: BLE001
+        timed_out = isinstance(e, asyncio.TimeoutError)
+        logger.warning(
+            "native broker first sync %s for %s (%s)",
+            "timed out" if timed_out else "failed", account_id, type(e).__name__,
+        )
+        await db.broker_accounts.update_one(
+            {"account_id": account_id},
+            {"$set": {
+                "last_error": "First holdings sync timed out." if timed_out else "First holdings sync failed.",
+                "updated_at": _now_iso(),
+            }},
+        )
 
     await _audit.record(
         user_id=user_id, action="broker_connect", resource=account_id,
@@ -213,15 +337,4 @@ async def oauth_callback(request: Request):
         ua=request.headers.get("user-agent", ""),
         details={"broker": broker_slug, "native": True},
     )
-    return RedirectResponse(url=f"/dashboard?broker_connected={broker_slug}")
-
-
-def _safe_json(value: Dict[str, Any]) -> str:
-    """Serialise `extras` for encryption. Defensive: any non-JSON-able
-    value gets stringified rather than crashing the connect flow.
-    """
-    import json
-    try:
-        return json.dumps(value or {}, default=str)
-    except Exception:  # noqa: BLE001
-        return "{}"
+    return _back(back, broker_connected=broker_slug, account_id=account_id)
