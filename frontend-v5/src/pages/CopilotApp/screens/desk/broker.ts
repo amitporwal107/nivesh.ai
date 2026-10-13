@@ -7,8 +7,14 @@
  *                                 (backend/routes/broker_connect.py :: _persist_broker_holdings).
  *
  * Those rows are the delivery holdings the broker reported the last time the
- * account was read. No route returns a broker's open-position book, its funds
- * or its day P&L, so nothing here stands in for them.
+ * account was read.
+ *
+ *   GET /api/broker/positions     the open positions of every account signed in on the broker's
+ *                                 own page, read live from the broker and not stored
+ *                                 (backend/routes/broker_connect.py :: get_all_positions).
+ *
+ * Read-only throughout. No route returns a broker's funds or its day P&L, so
+ * nothing here stands in for them.
  *
  * The fetcher returns a complete typed list or throws ApiError("contract_drift")
  * — a `200 {}` is an error on screen, never "no holdings".
@@ -151,4 +157,135 @@ export function totalsOf(rows: BrokerHolding[]): HoldingsTotals {
     pnl += r.pnlRs;
   }
   return { priced, valueRs: priced ? value : null, pnlRs: priced ? pnl : null };
+}
+
+// ── open positions, read live ────────────────────────────────────────────────
+
+const PositionC = z.object({
+  symbol: z.string().min(1),
+  name: optStr,
+  exchange: optStr,
+  /** Signed: negative is a short position. */
+  quantity: z.number(),
+  avg_price: optNum,
+  last_price: optNum,
+  pnl: optNum,
+  /** intraday | delivery | carryforward | margin */
+  product: optStr,
+  /** equity | fno | commodity | currency */
+  segment: optStr,
+  is_intraday: z.boolean().nullish(),
+  /** FUT | CE | PE for a derivative */
+  instrument_type: optStr,
+  expiry: optStr,
+  strike: optNum,
+});
+
+const PositionsAccountC = z.object({
+  account_id: z.string().min(1),
+  broker: optStr,
+  label: optStr,
+  ok: z.boolean(),
+  error: z.object({ code: optStr, message: optStr }).nullish(),
+  as_of: optStr,
+  positions: z.array(PositionC),
+});
+
+const PositionsC = z.object({ as_of: optStr, accounts: z.array(PositionsAccountC) });
+
+export interface BrokerPosition {
+  /** Stable within one account's list. */
+  key: string;
+  symbol: string;
+  name: string | null;
+  exchange: string | null;
+  /** Signed quantity as the broker reports it; negative is short. */
+  qty: number;
+  avg: number | null;
+  /** Null when the broker sent no last price. */
+  last: number | null;
+  /** The broker's own P&L for the position, in rupees; null when it sent none. */
+  pnlRs: number | null;
+  product: string | null;
+  fno: boolean;
+  intraday: boolean;
+  /** FUT | CE | PE */
+  instrument: string | null;
+  expiry: string | null;
+  strike: number | null;
+}
+
+export interface PositionsAccount {
+  id: string;
+  broker: string | null;
+  label: string | null;
+  /** False when this account could not be read; the others are still listed. */
+  ok: boolean;
+  errorCode: string | null;
+  /** The server's sentence. For admins only: it can name internals. */
+  errorMessage: string | null;
+  asOf: string | null;
+  positions: BrokerPosition[];
+}
+
+export interface PositionsBook {
+  asOf: string | null;
+  accounts: PositionsAccount[];
+}
+
+const num = (v: number | null | undefined): number | null => (v != null && Number.isFinite(v) ? v : null);
+
+export function readPositions(body: unknown): PositionsBook {
+  const parsed = PositionsC.safeParse(body);
+  if (!parsed.success) throw ApiError.contractDrift(`broker.positions: ${parsed.error.message}`);
+  return {
+    asOf: text(parsed.data.as_of),
+    accounts: parsed.data.accounts.map((a) => ({
+      id: a.account_id,
+      broker: text(a.broker),
+      label: text(a.label),
+      ok: a.ok,
+      errorCode: text(a.error?.code),
+      errorMessage: text(a.error?.message),
+      asOf: text(a.as_of),
+      positions: a.positions.map((p, i) => ({
+        key: `${a.account_id}:${i}:${p.symbol}`,
+        symbol: p.symbol.trim().toUpperCase(),
+        name: text(p.name),
+        exchange: text(p.exchange),
+        qty: p.quantity,
+        avg: positive(p.avg_price),
+        last: positive(p.last_price),
+        pnlRs: num(p.pnl),
+        product: text(p.product),
+        fno: p.segment === "fno",
+        intraday: p.is_intraday === true,
+        instrument: text(p.instrument_type),
+        expiry: text(p.expiry),
+        strike: positive(p.strike),
+      })),
+    })),
+  };
+}
+
+export async function fetchPositions(signal?: AbortSignal): Promise<PositionsBook> {
+  const res = await http({ path: "/api/broker/positions", signal });
+  return readPositions(res.data);
+}
+
+/**
+ * Open positions, read from the broker when asked. Each call is a live read at
+ * the broker, so the query does not poll and does not re-run on window focus;
+ * the screen offers "Read again".
+ */
+export function useBrokerPositions(enabled: boolean) {
+  const profile = useImpersonationStore((s) => s.profileId);
+  return useQuery<PositionsBook>({
+    queryKey: ["copilot", "desk", "broker-positions", profile ?? "self"],
+    enabled,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    retry: (count, e) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
+    queryFn: ({ signal }) => fetchPositions(signal),
+  });
 }

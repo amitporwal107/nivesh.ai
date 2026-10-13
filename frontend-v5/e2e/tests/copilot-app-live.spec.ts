@@ -28,6 +28,8 @@ const VIEWS = [
   "tool/analysis", "tool/recommend", "tool/research", "tool/screener", "tool/markets", "tool/optlab", "trader",
   "page/watchlist", "page/saved", "page/plan", "page/ledger", "page/paper", "page/brokers", "page/settings",
   "advisor", "builder", "ops/tools", "ops/feeds", "ops/audit", "ops/kpis",
+  // the original v5 pages mounted in the shell, and the screens added with them
+  "tool/risk", "tool/goals", "tool/tax", "trader/strategy", "advisor/workspace", "advisor/client-360", "advisor/sip-board",
 ];
 
 /** Ask one question and report what the thread showed once the answer settled. */
