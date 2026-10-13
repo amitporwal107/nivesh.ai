@@ -46,7 +46,71 @@ def test_headers_match_the_production_session_and_referer():
     assert F.HEADERS["User-Agent"] == DEFAULT_UA
     assert F.HEADERS["Accept"] == "text/html,application/xhtml+xml,application/xml,*/*"
     assert F.HEADERS["Accept-Encoding"] == "gzip, deflate"
-    assert F.HEADERS["Referer"] == "https://www.bseindia.com/corporates/ann.html"
+    assert F.HEADERS["Referer"] == S._BSE_REFERER == "https://www.bseindia.com/"
+    assert F.HEADERS["Origin"] == S._BSE_HEADERS["Origin"] == "https://www.bseindia.com"
+
+
+def test_the_full_day_fetch_uses_the_endpoint_that_still_answers():
+    """BSE-H1: AnnGetData/w answers "No Record Found!" for every date since 2026-10; the
+    all-categories call on AnnSubCategoryGetData/w returns the whole day with CATEGORYNAME and
+    SUBCATNAME. The full-day ('coarse') fetch therefore uses that call."""
+    url = S._BSE_ANN_URL_TMPL.format(d="20261009", page=3)
+    assert url.startswith("https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?")
+    assert "strCat=-1" in url and "subcategory=-1" in url and "pageno=3" in url and "strPrevDate=20261009" in url
+    assert "AnnGetData" not in url
+
+
+def test_the_page_cap_covers_the_busiest_day_seen():
+    """BSE-H2: 1,258 filings on 2026-10-07 is 26 pages of 50; the old cap of 20 would cut it."""
+    assert S._BSE_MAX_PAGES * S._BSE_PAGE_SIZE >= 2 * 1258
+
+
+@pytest.mark.parametrize("ingester", ["BseAnnouncementsIngester", "BseSubcategoryAnnouncementsIngester"])
+def test_production_sends_the_site_root_referer_and_an_origin(monkeypatch, ingester):
+    """BSE-H3: BSE's edge answers 403 over HTTP/1.1 unless the request carries the site-root
+    Referer AND an Origin header (measured from both staging VMs, 2026-10-13). Every BSE request
+    the ingesters make carries both, and the sweeps pause between pages."""
+    import asyncio
+    seen, sleeps = [], []
+
+    async def fake_fetch(url, referer=None, extra_headers=None, **kw):
+        seen.append((url, referer, extra_headers))
+        return b"No Record Found!", 200          # a past-the-end page: stops the loop
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+
+    monkeypatch.setattr(S, "fetch_bytes", fake_fetch)
+    monkeypatch.setattr(S.asyncio, "sleep", fake_sleep)
+    from datetime import date
+    asyncio.run(getattr(S, ingester)().fetch(date(2026, 10, 9)))
+    assert seen
+    for url, referer, extra in seen:
+        assert url.startswith("https://api.bseindia.com/")
+        assert referer == "https://www.bseindia.com/" and extra == {"Origin": "https://www.bseindia.com"}
+
+
+def test_the_full_day_fetch_pages_politely_and_stops_at_the_end(monkeypatch):
+    """BSE-H4: full pages keep the loop going with a one-second pause between requests; the
+    first empty page ends it."""
+    import asyncio
+    from datetime import date
+    page_of_rows = b'{"Table":[' + b",".join(b'{"NEWSID":"%d"}' % i for i in range(50)) + b'],"Table1":[{"ROWCNT":120}]}'
+    served, sleeps = [], []
+
+    async def fake_fetch(url, referer=None, extra_headers=None, **kw):
+        served.append(url)
+        return (page_of_rows if len(served) <= 3 else b'{"Table":[],"Table1":[{"ROWCNT":120}]}'), 200
+
+    async def fake_sleep(s):
+        sleeps.append(s)
+
+    monkeypatch.setattr(S, "fetch_bytes", fake_fetch)
+    monkeypatch.setattr(S.asyncio, "sleep", fake_sleep)
+    body, last_url, status = asyncio.run(S.BseAnnouncementsIngester().fetch(date(2026, 10, 9)))
+    assert len(served) == 4 and "pageno=4" in last_url and status == 200
+    assert sleeps == [S._BSE_SUBCAT_THROTTLE_S] * 3
+    assert len(body.split(b"\x1e")) == 4
 
 
 @pytest.mark.parametrize("body,coarse_last,subcat_last", [
