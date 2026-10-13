@@ -62,8 +62,11 @@ NIDP_HOME=/opt/nidp-staging
 # HELD (Screener.in refuses connections from this VM since 2026-10-12, about 1,250 requests into a backfill):
 # 0  22 * * 0    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials.backfill_screener --concurrency 1 --delay-ms 3000
 # Fundamentals and sectors from the Trendlyne MCP server instead. Runs whatever is still
-# incomplete (quarterly passes, then sectors) inside TRENDLYNE_DAILY_CALL_BUDGET and stops;
-# a completed pass costs no calls until it is 30 days old.
+# incomplete inside TRENDLYNE_DAILY_CALL_BUDGET and stops, in this order: the ratio pass r1
+# (ROE, ROCE, debt-to-equity, P/B, market cap -> nidp.stock_fundamental_values, source
+# recorded), the quarterly passes p1-p4, then sectors. A completed quarterly pass costs no
+# calls until it is 30 days old; r1 is refreshed every TRENDLYNE_RATIOS_REFRESH_DAYS (7),
+# about 252 calls each time. fundamental_engine (23:05) copies r1 into stock_features_daily.
 10 6  * * *    nidp-staging  /opt/nidp-staging/run_service.sh trendlyne_fundamentals daily
 # Daily price band / F&O / ETF flags → nidp.security_reference_daily. Enabled live 2026-09-11.
 30 7  * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh nse_reference_snapshot

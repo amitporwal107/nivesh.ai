@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import calendar
 import json
+import re
 from datetime import date
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 # Quarter offset -> parameter token, per series. Trendlyne's naming is irregular:
 # "4 quarters ago" is `...qmy1`, and there is no `...qmq4`.
@@ -24,14 +25,45 @@ def series_token(prefix: str, offset: int) -> str:
     return prefix + OFFSET_SUFFIX[offset]
 
 
-# The calls, in priority order. Each pass is one call per 10 stocks.
+class RatioMetric(NamedTuple):
+    column: str         # the nidp.stock_features_daily column the figure feeds
+    parameter: str      # the token sent to the provider
+    unit: str           # 'percent' | 'ratio' | 'inr_crore'
+    period_basis: str   # 'annual' = latest reported fiscal year; 'point_in_time' = moves with price
+
+
+# The provider's own ratios, as checked in the 2026-10-14 pilot against its other fields:
+#   ROE Ann. %    = annual net profit / shareholders' funds at that year end x 100
+#   ROCE Ann. %   = annual; (PBT + interest) / (total assets - current liabilities) reproduced it
+#                   for 3 of 8 companies, so its capital-employed definition is not pinned down
+#   Total Debt to Total Equity Ann. = (long-term + short-term borrowings) / shareholders' funds
+#   PBV Adjusted  = LTP / latest book value per share
+#   Market Cap    = LTP x shares outstanding, in rupees crore
+# All on the provider's default basis (consolidated where the company reports it).
+RATIO_METRICS: List[RatioMetric] = [
+    RatioMetric("roe_pct", "roea", "percent", "annual"),
+    RatioMetric("roce_pct", "rocea", "percent", "annual"),
+    RatioMetric("debt_to_equity", "debtcea", "ratio", "annual"),
+    RatioMetric("pb", "pbva", "ratio", "point_in_time"),
+    RatioMetric("market_cap_cr", "mcapq", "inr_crore", "point_in_time"),
+]
+# The price behind P/B and market cap. The reply's date stamp is not the price's date (a reply
+# stamped 13 Oct carried the 12 Oct close), so the price is staged too and matched to our own closes.
+PRICE_PARAMETER = "currentprice"
+RATIO_PASS = "r1"
+
+# Each pass is one call per 10 stocks.
 PASSES: Dict[str, List[str]] = {
     # revenue and profit for the latest five quarters: enough for QoQ and YoY
     "p1": [series_token(s, o) for s in ("sr", "np") for o in range(5)],
     "p2": [series_token(s, o) for s in ("op", "eps") for o in range(5)],
-    "p3": [series_token(s, o) for s in ("sr", "np") for o in (5, 6, 7)] + ["mcapq"] + list(LATEST_COLUMN)[:3],
+    "p3": [series_token(s, o) for s in ("sr", "np") for o in (5, 6, 7)] + list(LATEST_COLUMN)[:3],
     "p4": [series_token(s, o) for s in ("op", "eps") for o in (5, 6, 7)] + list(LATEST_COLUMN)[3:],
+    # ROE, ROCE, debt-to-equity, P/B and market cap, as the provider computes them
+    RATIO_PASS: [m.parameter for m in RATIO_METRICS] + [PRICE_PARAMETER],
 }
+# The order the daily job spends its call budget in.
+DAILY_ORDER: Tuple[str, ...] = (RATIO_PASS, "p1", "p2", "p3", "p4")
 
 
 def parse_parameter_values(text: str) -> Tuple[Dict[str, date], Dict[str, Dict[str, Optional[float]]]]:
@@ -77,6 +109,96 @@ def _number(raw: str) -> Optional[float]:
         return float(raw)
     except ValueError:
         return None
+
+
+_UNRESOLVED = re.compile(r"Could not resolve stock code\(s\):\s*(.*?)\.?\s*(?:\[code:\d+\])?\s*$")
+
+
+def unresolved_codes(text: str) -> List[str]:
+    """The stock codes an error reply says the provider cannot resolve; [] for any other reply.
+
+    One unknown code fails the whole call:
+        {"status": "error", "message": "Could not resolve stock code(s): ZZNOTREAL. [code:1012]"}
+    so the caller drops those codes and asks again for the rest.
+    """
+    try:
+        body = json.loads(text)
+    except ValueError:
+        return []
+    if not isinstance(body, dict) or body.get("status") != "error":
+        return []
+    match = _UNRESOLVED.search(str(body.get("message") or ""))
+    return [c.strip() for c in match.group(1).split(",") if c.strip()] if match else []
+
+
+# ── ratios ───────────────────────────────────────────────────────────────────
+
+# A figure carrying one of these is stored as the provider gave it but is not copied into the
+# feature row: the number does not mean what its column says.
+UNUSABLE_FLAGS = frozenset({"negative_book_value", "market_cap_zero", "implausible_magnitude"})
+ROE_FLAG_BEYOND_PCT = 200.0
+# Percentages and ratios at or beyond this cannot be real and would not fit their columns.
+MAX_RATIO_MAGNITUDE = 100_000.0
+
+
+def price_session(ltp: Optional[float], stamp: date, closes: Dict[date, float],
+                  tolerance: float = 0.005) -> Optional[date]:
+    """The trading day whose close is the provider's price: the latest day on or before the
+    reply's stamp whose close (from our own price feed) equals `ltp`. None when no day matches,
+    so a date is never guessed."""
+    if ltp is None:
+        return None
+    days = [d for d, close in closes.items() if d <= stamp and close is not None and abs(close - ltp) <= tolerance]
+    return max(days) if days else None
+
+
+def build_ratio_rows(values: Dict[str, Optional[float]], labels: Dict[str, str], stamp: date,
+                     price_date: Optional[date]) -> List[Dict[str, object]]:
+    """One company's staged {parameter: value} -> one row per figure, with its unit, basis,
+    the provider's field name, dates and sanity flags. [] when the provider gave none of the
+    five (an ETF, say). A figure the provider did not give keeps value None — never 0.
+
+    `stamp` is the date on the provider's reply; `price_date` the session whose close it used
+    (see price_session), or None when that could not be confirmed. Rows are dated by
+    `price_date` when there is one, otherwise by the stamp with 'price_date_unconfirmed' on
+    the two price-based figures.
+
+    Flags (the value is always kept as given):
+      negative_book_value   P/B or D/E below zero means net worth is negative; P/B, D/E and ROE
+                            then carry the wrong sign and are marked unusable
+      roe_beyond_200        ROE outside +/-200%: kept and usable, but worth a look
+      market_cap_zero       market cap of zero or less: unusable
+      implausible_magnitude a percentage or ratio of 100,000 or more: unusable
+    """
+    by_column = {m.column: values.get(m.parameter) for m in RATIO_METRICS}
+    if all(v is None for v in by_column.values()):
+        return []
+    pb, de = by_column["pb"], by_column["debt_to_equity"]
+    negative_book = (pb is not None and pb < 0) or (de is not None and de < 0)
+    rows: List[Dict[str, object]] = []
+    for m in RATIO_METRICS:
+        value = by_column[m.column]
+        flags: List[str] = []
+        if value is not None:
+            if negative_book and m.column in ("pb", "debt_to_equity", "roe_pct"):
+                flags.append("negative_book_value")
+            if m.column == "roe_pct" and abs(value) > ROE_FLAG_BEYOND_PCT:
+                flags.append("roe_beyond_200")
+            if m.column == "market_cap_cr" and value <= 0:
+                flags.append("market_cap_zero")
+            if m.unit != "inr_crore" and abs(value) >= MAX_RATIO_MAGNITUDE:
+                flags.append("implausible_magnitude")
+            if m.period_basis == "point_in_time" and price_date is None:
+                flags.append("price_date_unconfirmed")
+        rows.append({
+            "metric": m.column, "value": value, "unit": m.unit, "period_basis": m.period_basis,
+            "usable": not UNUSABLE_FLAGS.intersection(flags), "flags": flags,
+            "provider_field": labels.get(m.parameter), "provider_parameter": m.parameter,
+            # The provider gives no fiscal-year end for its annual figures, so none is recorded.
+            "period_end": None,
+            "as_of_date": price_date or stamp, "provider_date": stamp,
+        })
+    return rows
 
 
 ENTITY_COLUMNS = ["name", "nse_code", "bse_code", "isin", "entity_type", "sector", "industry"]
