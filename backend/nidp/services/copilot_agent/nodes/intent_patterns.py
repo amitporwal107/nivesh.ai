@@ -220,6 +220,11 @@ _P_POLICY_IMPACT = re.compile(
 
 _P_PORTFOLIO = re.compile(
     r"\b((?:my\s+)?portfolio|my\s+investments?|my\s+holdings?|"
+    # "my biggest holdings", "my top 5 positions", "my largest stocks": a size word
+    # between "my" and the noun used to miss this rule and fall through to the
+    # generic "what are …" stock rule, which then asked which stock was meant.
+    r"my\s+(?:top|biggest|largest|major|main|current)\s+(?:\d+\s+)?"
+    r"(?:equity\s+|stock\s+|mutual\s+fund\s+|mf\s+)?(?:investments?|holdings?|positions?|stocks?|funds?)|"
     r"xirr|portfolio\s+(?:return|performance|summary|health|snapshot)|"
     r"rebalance|rebalancing|drift|concentration|overlap(?:ping)?|"
     r"which\s+(?:sectors?|funds?|stocks?|holdings?|positions?)\s+(?:should|to)\s+(?:i|we)\s+(?:trim|exit|sell|reduce|book|remove|cut|drop|hold|keep)|"
