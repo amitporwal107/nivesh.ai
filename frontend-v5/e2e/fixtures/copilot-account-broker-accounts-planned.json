@@ -1,0 +1,43 @@
+{
+  "_fixture": "MOCK — not real data. PLANNED CONTRACT, NOT YET ON STAGING: the broker backend being built on another branch. Synthetic values; field names as agreed for that branch.",
+  "accounts": [
+    {
+      "account_id": "ba_fixture00011",
+      "broker": "zerodha",
+      "broker_display": "Zerodha",
+      "label": "Zerodha",
+      "openalgo_url": "",
+      "openalgo_hosted": false,
+      "api_key_masked": "abcd••••••wxyz",
+      "status": "active",
+      "last_sync_at": "2026-10-13T04:30:00+00:00",
+      "last_sync_count": 3,
+      "last_error": null,
+      "created_at": "2026-10-12T10:00:00+00:00",
+      "native": true,
+      "broker_user_masked": "FX••42",
+      "session_expires_at": "2026-10-14T00:30:00+00:00",
+      "session_ended_reason": null,
+      "needs_reconnect": false
+    },
+    {
+      "account_id": "ba_fixture00012",
+      "broker": "upstox",
+      "broker_display": "Upstox",
+      "label": "Upstox",
+      "openalgo_url": "",
+      "openalgo_hosted": false,
+      "api_key_masked": "efgh••••••stuv",
+      "status": "expired",
+      "last_sync_at": "2026-10-10T04:30:00+00:00",
+      "last_sync_count": 2,
+      "last_error": null,
+      "created_at": "2026-10-09T10:00:00+00:00",
+      "native": true,
+      "broker_user_masked": "FY••07",
+      "session_expires_at": "2026-10-11T00:30:00+00:00",
+      "session_ended_reason": "expired",
+      "needs_reconnect": true
+    }
+  ]
+}

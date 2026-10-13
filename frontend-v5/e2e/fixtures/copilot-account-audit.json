@@ -1,0 +1,141 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape.",
+  "rows": [
+    {
+      "audit_id": "aud_fixture0001",
+      "user_id": "user_fixture0001",
+      "action": "broker_sync",
+      "resource": "ba_fixture00002",
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "error",
+      "details": {
+        "broker": "upstox",
+        "reason": "fixture failure"
+      },
+      "ts": "2026-10-13T05:00:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0002",
+      "user_id": "user_fixture0001",
+      "action": "broker_sync",
+      "resource": "ba_fixture00001",
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "broker": "zerodha",
+        "count": 3
+      },
+      "ts": "2026-10-12T04:30:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0003",
+      "user_id": "user_fixture0001",
+      "action": "data_export",
+      "resource": null,
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "holdings_count": 5,
+        "action_plans_count": 1
+      },
+      "ts": "2026-10-11T08:00:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0004",
+      "user_id": "user_fixture0001",
+      "action": "login",
+      "resource": null,
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "email": "fixture.user@example.test",
+        "new_user": false
+      },
+      "ts": "2026-10-11T07:55:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0005",
+      "user_id": "user_fixture0001",
+      "action": "broker_connect",
+      "resource": "ba_fixture00002",
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "broker": "upstox",
+        "native": true
+      },
+      "ts": "2026-10-10T10:00:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0006",
+      "user_id": "user_fixture0001",
+      "action": "consent_withdraw",
+      "resource": "marketing_comms",
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "version": "1.0"
+      },
+      "ts": "2026-09-15T09:00:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0007",
+      "user_id": "user_fixture0001",
+      "action": "login",
+      "resource": null,
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "email": "fixture.user@example.test",
+        "new_user": false
+      },
+      "ts": "2026-09-15T08:55:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0008",
+      "user_id": "user_fixture0001",
+      "action": "consent_grant",
+      "resource": "data_processing",
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "version": "1.0"
+      },
+      "ts": "2026-09-01T09:00:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0009",
+      "user_id": "user_fixture0001",
+      "action": "login",
+      "resource": null,
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": {
+        "email": "fixture.user@example.test",
+        "new_user": true
+      },
+      "ts": "2026-09-01T08:55:00+00:00"
+    },
+    {
+      "audit_id": "aud_fixture0010",
+      "user_id": "user_fixture0001",
+      "action": "some_new_event",
+      "resource": null,
+      "ip": "192.0.2.10",
+      "ua": "FixtureBrowser/1.0",
+      "outcome": "success",
+      "details": null,
+      "ts": "2026-08-31T08:00:00+00:00"
+    }
+  ],
+  "count": 10
+}

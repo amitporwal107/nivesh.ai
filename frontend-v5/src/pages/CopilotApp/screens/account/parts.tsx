@@ -1,11 +1,13 @@
 /**
  * Account screens — pieces shared by Get started, Broker connections and
- * Settings: small controls, the CAS statement upload, the Gmail source card
- * and the risk / goal wizard.
+ * Settings: small controls, the CAS statement upload, the CSV / Excel upload,
+ * the Gmail source card and the risk / goal wizard. Broker accounts and broker
+ * sign-in are in ./brokers.
  *
- * Statement upload, Gmail import and the wizard reuse what the app already
- * has (useCasUpload, GmailSyncModal, ProfileWizardModal); nothing here speaks
- * to the upload or OAuth endpoints directly.
+ * Statement upload, file upload, Gmail import and the wizard reuse what the
+ * app already has (useCasUpload, casUploadService, GmailSyncModal,
+ * ProfileWizardModal); nothing here speaks to the upload or OAuth endpoints
+ * directly.
  */
 import { useId, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,8 +18,10 @@ import { GmailSyncModal } from "@/pages/Dashboard/GmailSyncModal";
 import { ProfileWizardModal } from "@/pages/Dashboard/ProfileWizardModal";
 import type { RiskCategory, RiskProfile } from "@/hooks/use-risk-profile";
 import type { CasUploadResult } from "@/services/adapters/cas-upload.adapter";
-import { Btn, ErrorBlock, LoadingBlock, NotConnected, Pill, fmtDate, fmtNum, relTime } from "../../components/ui";
-import { accountKeys, toRead, useAfterImport, useGmailSourceStatus, useOnboardingState, useRiskProfileRead, type RiskProfileView } from "./queries";
+import { ApiError } from "@/services/api/errors";
+import { BrokerIcon } from "../../components/EntityIcon";
+import { Btn, ErrorBlock, LoadingBlock, Pill, errorSentence, fmtDate, fmtNum, relTime } from "../../components/ui";
+import { accountKeys, toRead, useAfterImport, useGmailSourceStatus, useHoldingsFileUpload, useOnboardingState, useRiskProfileRead, type RiskProfileView } from "./queries";
 
 export function errorText(e: unknown, fallback = "Something went wrong. Try again."): string {
   return e instanceof Error && typeof e.message === "string" && e.message ? e.message : fallback;
@@ -107,15 +111,6 @@ export function Row({ label, sub, children, testId }: { label: ReactNode; sub?: 
   );
 }
 
-/** Two-letter tile used beside a source name. */
-export function Monogram({ children, size = 38 }: { children: ReactNode; size?: number }) {
-  return (
-    <span aria-hidden className="grid place-items-center" style={{ flex: "none", width: size, height: size, borderRadius: size > 32 ? 10 : 8, background: "var(--bg-3)", fontFamily: "var(--mono)", fontSize: size > 32 ? 12 : 10 }}>
-      {children}
-    </span>
-  );
-}
-
 function fmtBytes(n: number): string {
   if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
   return `${Math.max(1, Math.round(n / 1024))} KB`;
@@ -135,27 +130,6 @@ export function goalHorizonYears(targetDate: string): number | null {
 /** "Assessed 20 May 2026", or "" when the profile carries no date. */
 export function riskAssessed(p: RiskProfileView): string {
   return p.assessedAt ? `Assessed ${fmtDate(p.assessedAt)}` : "";
-}
-
-// ── parts of the design with no backend ──────────────────────────────────
-
-/** Signing in to a broker directly. The server has pieces of it; none is usable from this app. */
-export function BrokerSignInMissing({ children }: { children?: ReactNode }) {
-  return (
-    <NotConnected
-      testId="broker-signin-missing"
-      title="Broker sign-in isn’t available yet"
-      body="You can’t connect Zerodha, Upstox or any other broker from this app today. Your holdings come from a CAS statement, uploaded or found in Gmail."
-      needs={[
-        "A sign-in round trip that returns here: the server’s broker callback redirects to /dashboard at the site root, and nothing in this app reads its result",
-        "Holdings sync for accounts connected that way: POST /api/broker/accounts/{id}/sync reads through OpenAlgo only and fails for them",
-        "A credentials page for brokers that use an API key or a login form (Angel One, 5paisa, Dhan)",
-        "Granted scopes and token expiry on GET /api/broker/accounts (it returns neither)",
-        "Connect, sync and disconnect actions in this app (none exist yet)",
-      ]}
-      action={children}
-    />
-  );
 }
 
 // ── CAS statement upload ─────────────────────────────────────────────────
@@ -275,6 +249,103 @@ export function StatementUpload({ panOnFile, onImported }: {
   );
 }
 
+// ── CSV / Excel holdings file ────────────────────────────────────────────
+
+/** The server's own sentence when it sent one, else a plain reason. */
+function fileFailure(e: unknown): string {
+  if (e instanceof ApiError && e.detail) return e.detail.replace(/[.\s]+$/, "");
+  return errorSentence(e) || "the request failed";
+}
+
+/**
+ * Upload a CSV or Excel list of holdings through casUploadService.uploadFile →
+ * POST /api/portfolio/upload. The server saves the rows as it reads them and
+ * adds them to what is on file, so the form says so before the file is sent.
+ */
+export function HoldingsFileUpload({ onImported }: { onImported?: (count: number) => void }) {
+  const upload = useHoldingsFileUpload();
+  const afterImport = useAfterImport();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const hintId = useId();
+  const [file, setFile] = useState<File | null>(null);
+  // Hide the last outcome once another file is chosen.
+  const [edited, setEdited] = useState(false);
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!file || upload.isPending) return;
+    setEdited(false);
+    upload.mutate(file, {
+      onSuccess: (done) => {
+        if (done.ok && done.value > 0) { afterImport(); onImported?.(done.value); }
+      },
+    });
+  };
+
+  const outcome = !edited && !upload.isPending ? upload.data : undefined;
+  const added = outcome?.ok ? outcome.value : null;
+
+  return (
+    <form data-testid="holdings-file-upload" onSubmit={submit} className="cp-card flex flex-col" style={{ gap: 14, padding: 18 }}>
+      <div className="flex flex-wrap items-center" style={{ gap: 10 }}>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+          hidden
+          aria-label="Holdings file, CSV or Excel"
+          aria-describedby={hintId}
+          data-testid="holdings-file"
+          onChange={(e) => { setFile(e.target.files?.[0] ?? null); setEdited(true); }}
+        />
+        <Btn data-testid="holdings-file-choose" disabled={upload.isPending} onClick={() => fileRef.current?.click()}>
+          {file ? "Choose another file" : "Choose a CSV or Excel file"}
+        </Btn>
+        {file ? (
+          <span className="flex flex-wrap items-center" style={{ gap: 8, fontSize: 13, minWidth: 0 }}>
+            <span data-testid="holdings-file-name" style={{ overflowWrap: "anywhere" }}>{file.name}</span>
+            <span className="cp-mono-note">{fmtBytes(file.size)}</span>
+          </span>
+        ) : (
+          <span className="cp-mono-note">CSV or Excel</span>
+        )}
+      </div>
+
+      <span id={hintId} style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
+        The first row must be column headings. A Name column is needed; Symbol or ISIN, Quantity, Buy price, Current price, Type, Sector and Buy date are read when present. Write numbers as plain digits, without commas or a currency sign.
+      </span>
+      <span data-testid="holdings-file-warning" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)", padding: "10px 12px", borderRadius: 12, border: "1px solid var(--amber-line)", background: "var(--amber-soft)" }}>
+        The rows are added to your holdings as soon as the file is read. There is no preview, and uploading the same file twice adds its rows twice. Importing a CAS statement later replaces all holdings, including these.
+      </span>
+
+      <div>
+        <Btn type="submit" variant="primary" data-testid="holdings-file-submit" disabled={!file || upload.isPending}>
+          {upload.isPending ? "Reading the file…" : "Add these holdings"}
+        </Btn>
+      </div>
+
+      {outcome?.ok === false && (
+        <span data-testid="holdings-file-error">
+          <InlineError>
+            This file was not imported: {fileFailure(outcome.error)}.
+            {/\.xls$/i.test(file?.name ?? "") ? " If it is an older .xls file, save it as .xlsx and try again." : ""}
+          </InlineError>
+        </span>
+      )}
+      {added != null && added > 0 && (
+        <div role="status" data-testid="holdings-file-result" style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", fontSize: 14, lineHeight: 1.5 }}>
+          <span className="cp-num" data-testid="holdings-file-count">{fmtNum(added)}</span> {added === 1 ? "holding" : "holdings"} added to what was on file.
+        </div>
+      )}
+      {added === 0 && (
+        <div role="status" data-testid="holdings-file-result-empty" style={{ padding: "12px 14px", borderRadius: 12, border: "1px solid var(--amber-line)", background: "var(--amber-soft)", fontSize: 14, lineHeight: 1.5 }}>
+          The server read the file but found no holdings in it. Check that the first row has a Name column.
+        </div>
+      )}
+    </form>
+  );
+}
+
 // ── Gmail (CAS emails) ───────────────────────────────────────────────────
 
 /**
@@ -302,7 +373,7 @@ export function GmailSource({ onImported }: { onImported?: () => void }) {
   return (
     <div data-testid="gmail-source" className="cp-card-raised flex flex-col" style={{ gap: 12, padding: "16px 18px" }}>
       <div className="flex flex-wrap items-center" style={{ gap: "10px 14px" }}>
-        <Monogram>GM</Monogram>
+        <BrokerIcon name="Gmail" size={38} />
         <div className="flex flex-col" style={{ flex: "1 1 200px", gap: 2, minWidth: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 500 }}>Gmail · CAS emails</span>
           <span className="cp-mono-note" data-testid="gmail-meta" style={{ overflowWrap: "anywhere" }}>

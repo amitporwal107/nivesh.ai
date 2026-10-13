@@ -2,10 +2,13 @@
  * Settings.
  * Design: frontend-v5/design/nivesh-copilot/NVPages.dc.html (page === "settings").
  *
- * Real: the account (useMe), mode (Copilot prefs), risk profile, goals, theme,
- * connections (Gmail, CAS statement, broker accounts) and the data export.
- * The design's answer depth, constraints, memory and privacy controls have no
- * backend and are shown as NotConnected.
+ * Real: the account (useMe), mode (Copilot prefs), risk profile, goals, the
+ * financial snapshot, theme, notification choices, connections (Gmail, CAS
+ * statement, broker accounts), saved conversations, consent records, account
+ * activity, the data export and session logging (./account/settings-cards).
+ * The design's answer depth, constraints and memory have no backend; changing
+ * a consent, a retention period and deleting the account are not offered
+ * (the privacy block says why). Those are shown as NotConnected.
  */
 import { useState, type ReactNode } from "react";
 import { useLogout, useMe } from "@/hooks/use-auth";
@@ -17,18 +20,13 @@ import { useCopilotShell } from "../lib/shell-context";
 import { useCopilotPrefs } from "../lib/store";
 import { MODE_LABEL, type Mode } from "../lib/views";
 import { InlineError, LinkButton, Row, ToggleChip, errorText, goalHorizonYears, riskAssessed, useProfileWizard } from "./account/parts";
-import { hasStatement, toRead, useBrokerAccounts, useDataExport, useGmailSourceStatus, useOnboardingState, type Read } from "./account/queries";
+import { needsReconnect, useBrokerAccounts } from "./account/broker-queries";
+import { hasStatement, toRead, useDataExport, useGmailSourceStatus, useOnboardingState } from "./account/queries";
+import { ActivityCard, DiagnosticsCard, Loaded, NotificationsCard, PrivacyCard, SnapshotCard } from "./account/settings-cards";
 
 type Wizard = ReturnType<typeof useProfileWizard>;
 
 const MODES: Mode[] = ["investor", "trader", "advisor"];
-
-/** Loading and error for one source inside a card; the row itself once it has validated data. */
-function Loaded<T>({ read, what, children }: { read: Read<T>; what: string; children: (data: T) => ReactNode }) {
-  if (read.state === "loading") return <div style={{ padding: "8px 0" }}><LoadingBlock label={`Loading ${what}`} rows={1} /></div>;
-  if (read.state === "error") return <div style={{ padding: "8px 0" }}><ErrorBlock title={`${what} didn’t load`} error={read.error} onRetry={read.retry} /></div>;
-  return <>{children(read.data)}</>;
-}
 
 // ── profile ──────────────────────────────────────────────────────────────
 
@@ -197,8 +195,11 @@ function ConnectionsCard() {
           <Row
             label="Broker accounts"
             sub={list.length > 0
-              ? list.map((a) => a.label || a.broker_display || a.broker).filter(Boolean).join(", ")
-              : "Broker sign-in isn’t available yet"}
+              ? [
+                  list.map((a) => a.label || a.broker_display || a.broker).filter(Boolean).join(", "),
+                  list.some(needsReconnect) ? `${fmtNum(list.filter(needsReconnect).length)} need a new sign-in` : null,
+                ].filter(Boolean).join(" · ")
+              : "None connected"}
           >
             <span className="cp-num" data-testid="settings-broker-count" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>{fmtNum(list.length)} connected</span>
           </Row>
@@ -234,7 +235,7 @@ function DataCard() {
 
   return (
     <Section title="Your data">
-      <Row label="Download your data" sub="Your account record, holdings, action plans and consent records in one JSON file. A stored PAN is masked." testId="settings-export">
+      <Row label="Download your data" sub="Your account record, holdings, action plans and consent records in one JSON file. Goals, conversations and the PAN saved for opening statements are not in it." testId="settings-export">
         <Btn data-testid="settings-export-button" disabled={exportQuery.isFetching} onClick={() => void download()}>
           {exportQuery.isFetching ? "Preparing…" : "Download"}
         </Btn>
@@ -244,9 +245,6 @@ function DataCard() {
           <ErrorBlock title="The download didn’t start" error={exportQuery.error} onRetry={() => void download()} />
         </div>
       )}
-      <Row label="Delete your account" sub="Not available in this app yet.">
-        <Btn disabled title="Account deletion has no confirmed flow in this app yet">Delete</Btn>
-      </Row>
     </Section>
   );
 }
@@ -282,47 +280,52 @@ export default function SettingsScreen() {
       <div className="grid" style={{ gridTemplateColumns: columns, gap: 12, alignItems: "start" }}>
         <ProfileCard wizard={wizard} />
         <GoalsCard wizard={wizard} />
+        <SnapshotCard />
         <ConnectionsCard />
+        <NotificationsCard />
         <AppearanceCard />
+        <PrivacyCard />
         <DataCard />
+        <ActivityCard />
+        <DiagnosticsCard />
       </div>
 
       <div className="grid" style={{ gridTemplateColumns: columns, gap: 12, alignItems: "start" }}>
         <NotConnected
           testId="settings-answer-depth-missing"
           title="Answer depth can’t be set yet"
-          body="The design lets you choose how answers read: plain words, key numbers, or full depth."
+          body="The design lets you choose how answers read: plain words, key numbers, or full depth. Nivesh has nowhere to keep that choice, and the Copilot does not take one."
           needs={[
-            "A stored per-user answer-depth setting, with an endpoint to read and save it",
-            "The Copilot using that setting when it writes an answer",
+            "A stored per-user answer-depth setting: GET / PATCH /api/user/preferences keeps notification flags only (routes/user.py)",
+            "The Copilot taking it: POST /api/chat/stream reads a message, a session id and an agent name, nothing about depth (routes/chat.py :: stream_chat)",
           ]}
         />
         <NotConnected
           testId="settings-constraints-missing"
           title="Constraints aren’t stored yet"
-          body="A single-stock limit, a sector limit, a cash buffer and things never to suggest."
+          body="A single-stock limit, a sector limit, a cash buffer and things never to suggest. Nivesh keeps your risk profile and goals, but no limits of your own."
           needs={[
-            "An endpoint that stores a user’s limits and exclusions",
-            "Recommendations and answers that read those limits",
+            "A per-user store for limits and exclusions with read and save endpoints: none exists (the rule thresholds at /api/admin/rules-config and the allocation bands at /api/admin/allocation-bands apply to every user and are admin-only)",
+            "Recommendations and Copilot answers reading those limits",
           ]}
         />
         <NotConnected
           testId="settings-memory-missing"
           title="Memory isn’t available yet"
-          body="Preferences remembered from your chats, each one reviewable and forgettable."
+          body="Preferences remembered from your chats, each one reviewable and forgettable. Nivesh keeps your conversations, which you can delete under Privacy, but does not draw preferences out of them."
           needs={[
-            "A store of preferences the Copilot has picked up from chats",
+            "A store of preferences the Copilot has picked up from chats: none exists (chat_sessions and chat_messages hold the transcripts only)",
             "Endpoints to list them, forget one, and turn remembering on or off",
           ]}
         />
         <NotConnected
           testId="settings-privacy-missing"
-          title="Privacy controls aren’t available yet"
-          body="How long conversations are kept, and deleting your account from inside the app."
+          title="Some privacy controls aren’t available yet"
+          body="Changing a consent choice, choosing how long conversations are kept, and deleting your account from inside the app."
           needs={[
-            "A retention setting for conversation history",
-            "A confirmed delete-account flow in this app (the server has DELETE /api/compliance/account; nothing here calls it)",
-            "A data-location and statement-retention policy this screen can quote",
+            "Consent changes: POST / DELETE /api/compliance/consents/{purpose} exist, but the notice text they record against is out of date (services/consents.py names one AI provider; the Copilot can use others) and nothing checks a consent before acting, apart from PUT /api/compliance/pan. Fix the notices and enforce them, then offer the switches",
+            "Account deletion: DELETE /api/compliance/account removes holdings and action plans and sets is_deleted on the user, but nothing reads is_deleted (sign-in still works) and the profile with the saved PAN and statement password, the Gmail token, goals, conversations and broker accounts are left. It is not offered as “delete my account” until it does that",
+            "A retention setting for conversation history (none exists; conversations are kept until deleted)",
           ]}
         />
       </div>

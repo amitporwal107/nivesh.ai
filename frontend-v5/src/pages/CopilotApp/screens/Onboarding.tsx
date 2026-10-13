@@ -2,9 +2,11 @@
  * Get started — onboarding inside the Copilot shell.
  * Design: frontend-v5/design/nivesh-copilot/NVOnboarding.dc.html.
  *
- * Steps: You (mode) → Goals (goals, risk profile) → Portfolio (statement
- * import) → done. The design's "How should answers read?" step is not here:
- * nothing in the backend stores an answer depth.
+ * Steps: You (mode) → Goals (goals, risk profile) → Portfolio (a CAS
+ * statement, Gmail, a CSV / Excel file, or a broker where the server marks one
+ * connectable) → done. The
+ * design's "How should answers read?" step is not here: nothing in the backend
+ * stores an answer depth.
  *
  * The shell sends every signed-in user who has not finished onboarding to this
  * screen, so "Skip setup" is on every step. Skipping and finishing both record
@@ -13,6 +15,7 @@
  */
 import { useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { useUpgradeToAdvisory } from "@/hooks/use-advisor";
 import { useToastStore } from "@/stores/toast.store";
 import type { Goal } from "@/types/goal";
@@ -20,7 +23,9 @@ import { Btn, EmptyBlock, ErrorBlock, Eyebrow, LoadingBlock, NotConnected, Pill,
 import { useCopilotShell } from "../lib/shell-context";
 import { useCopilotPrefs } from "../lib/store";
 import type { Mode } from "../lib/views";
-import { BrokerSignInMissing, ChoiceCard, GmailSource, InlineError, LinkButton, StatementUpload, ToggleChip, errorText, goalHorizonYears, riskAssessed, useProfileWizard } from "./account/parts";
+import { BROKER_RESULT_PARAMS, useBrokerAccounts } from "./account/broker-queries";
+import { BrokerAccounts, BrokerConnect, BrokerReturnNotice } from "./account/brokers";
+import { ChoiceCard, GmailSource, HoldingsFileUpload, InlineError, LinkButton, StatementUpload, ToggleChip, errorText, goalHorizonYears, riskAssessed, useProfileWizard } from "./account/parts";
 import { useCompleteOnboarding, useOnboardingState } from "./account/queries";
 
 type StepKey = "you" | "goals" | "portfolio" | "done";
@@ -157,8 +162,8 @@ function StepGoals() {
           title="Portfolio rules can’t be saved yet"
           body="Limits such as the most you want in one stock or one sector, a cash buffer, or things never to suggest."
           needs={[
-            "An endpoint that stores a user’s limits (single stock, single sector, cash buffer, exclusions)",
-            "Recommendations and answers that read those limits",
+            "A per-user store for limits (single stock, single sector, cash buffer, exclusions) with read and save endpoints: none exists. The profile keeps a risk profile, goals and a financial snapshot only; the rule thresholds at /api/admin/rules-config apply to every user",
+            "Recommendations and Copilot answers reading those limits",
           ]}
         />
       </div>
@@ -170,15 +175,27 @@ function StepGoals() {
 
 // ── step 3: portfolio ────────────────────────────────────────────────────
 
-function StepPortfolio({ onImported }: { onImported: (holdings: number | null) => void }) {
+/** Broker source: the outcome of a sign-in that just came back, accounts already connected, and the broker list. */
+function BrokerSource() {
+  const accounts = useBrokerAccounts();
+  return (
+    <div className="flex flex-col" style={{ gap: 10 }}>
+      <BrokerReturnNotice />
+      <BrokerAccounts q={accounts} hideWhenEmpty />
+      <BrokerConnect />
+    </div>
+  );
+}
+
+function StepPortfolio({ initialSource, onImported }: { initialSource: Source; onImported: (holdings: number | null) => void }) {
   const state = useOnboardingState();
-  const [source, setSource] = useState<Source>("cas");
+  const [source, setSource] = useState<Source>(initialSource);
 
   return (
     <section data-testid="onboarding-step-portfolio" className="flex flex-col" style={{ gap: 18 }}>
       <StepTitle>Bring in your portfolio.</StepTitle>
       <span style={{ fontSize: 14, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
-        Read-only. A statement, or Gmail access to find one, gives Nivesh no way to place orders or move money.
+        Read-only. A statement or a file holds no access to your accounts, Gmail access is used only to find statements, and a broker connection is used only to read. Nivesh never places orders or moves money.
       </span>
       <div role="group" aria-label="Where to import from" className="flex flex-wrap" style={{ gap: 6 }}>
         {SOURCES.map((s) => (
@@ -188,18 +205,21 @@ function StepPortfolio({ onImported }: { onImported: (holdings: number | null) =
 
       {source === "cas" && <StatementUpload panOnFile={state.data?.pan_on_file ?? false} onImported={(r) => onImported(r.imported_holdings)} />}
       {source === "gmail" && <GmailSource onImported={() => onImported(null)} />}
-      {source === "broker" && <BrokerSignInMissing />}
+      {source === "broker" && <BrokerSource />}
       {source === "csv" && (
-        <NotConnected
-          testId="onboarding-csv-missing"
-          title="CSV and Excel import isn’t available here yet"
-          body="The design maps your columns and shows new, matched and duplicate holdings before anything is saved. The server cannot do either."
-          needs={[
-            "An endpoint that reads a file and returns its columns for mapping, without saving",
-            "A preview of new, matched, duplicate and unresolved holdings: POST /api/portfolio/upload saves the file’s rows at once",
-            "A screen in this app that uses that upload (none does today)",
-          ]}
-        />
+        <>
+          <HoldingsFileUpload onImported={onImported} />
+          <NotConnected
+            testId="onboarding-csv-missing"
+            title="Column mapping and a preview aren’t available yet"
+            body="The design lets you match your own column names and see new, matched and duplicate holdings before anything is saved. Today the file must use the column names above, and its rows are saved as they are read."
+            needs={[
+              "An endpoint that reads a file and returns its columns for mapping, without saving: POST /api/portfolio/upload parses and saves in one call (routes/upload.py, helpers/parsing.py :: parse_csv_holdings)",
+              "A preview of new, matched, duplicate and unresolved holdings, and a check against rows already on file: save_holdings appends every row",
+              "Legacy .xls files: the server opens Excel files with a reader that takes .xlsx only",
+            ]}
+          />
+        </>
       )}
     </section>
   );
@@ -215,13 +235,16 @@ function StepDone({ importedHoldings }: { importedHoldings: number | null }) {
   if (s?.cas_statement_period) tiles.push({ k: "Statement on file", v: <span data-testid="onboarding-statement-period">{s.cas_statement_period}</span> });
   if (s?.cas_portfolio_value_rs != null) tiles.push({ k: "Value on the statement", v: <span data-testid="onboarding-statement-value">{fmtINR(s.cas_portfolio_value_rs)}</span> });
   if (s?.cas_statement_date) tiles.push({ k: "Statement date", v: s.cas_statement_date });
+  // Sent by the planned broker backend only; absent today.
+  if (s?.holdings_count != null && s.holdings_count > 0) tiles.push({ k: "Holdings on file", v: <span data-testid="onboarding-holdings-count">{fmtNum(s.holdings_count)}</span> });
+  if (s?.broker_accounts != null && s.broker_accounts > 0) tiles.push({ k: "Broker accounts", v: <span data-testid="onboarding-broker-accounts">{fmtNum(s.broker_accounts)}</span> });
 
   return (
     <section data-testid="onboarding-step-done" className="flex flex-col" style={{ gap: 14 }}>
       <StepTitle size={44}>You’re set{firstName ? <>, <em>{firstName}</em></> : null}.</StepTitle>
       {importedHoldings != null && importedHoldings > 0 && (
         <span style={{ fontSize: 15, lineHeight: 1.6, color: "var(--cp-ink-2)" }}>
-          <span className="cp-num" data-testid="onboarding-imported-count">{fmtNum(importedHoldings)}</span> holdings imported from your statement.
+          <span className="cp-num" data-testid="onboarding-imported-count">{fmtNum(importedHoldings)}</span> {importedHoldings === 1 ? "holding" : "holdings"} brought in just now.
         </span>
       )}
       {state.isPending ? (
@@ -247,7 +270,11 @@ export default function OnboardingScreen() {
   const setMode = useCopilotPrefs((s) => s.setMode);
   const pushToast = useToastStore((s) => s.push);
   const complete = useCompleteOnboarding();
-  const [step, setStep] = useState<StepKey>("you");
+  // A broker sign-in started from the portfolio step comes back to this screen
+  // with its outcome in the address: reopen that step on the broker source.
+  const [params] = useSearchParams();
+  const [fromBroker] = useState(() => params.has(BROKER_RESULT_PARAMS.connected) || params.has(BROKER_RESULT_PARAMS.error));
+  const [step, setStep] = useState<StepKey>(fromBroker ? "portfolio" : "you");
   const [picked, setPicked] = useState<StartMode | null>(null);
   const [importedHoldings, setImportedHoldings] = useState<number | null>(null);
 
@@ -290,7 +317,7 @@ export default function OnboardingScreen() {
 
         {step === "you" && <StepYou picked={picked} onPick={setPicked} />}
         {step === "goals" && <StepGoals />}
-        {step === "portfolio" && <StepPortfolio onImported={setImportedHoldings} />}
+        {step === "portfolio" && <StepPortfolio initialSource={fromBroker ? "broker" : "cas"} onImported={setImportedHoldings} />}
         {step === "done" && <StepDone importedHoldings={importedHoldings} />}
 
         <div className="flex flex-wrap items-center justify-between" style={{ gap: 12, paddingTop: 8 }}>

@@ -1,0 +1,47 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape.",
+  "brokers": [
+    {
+      "slug": "fivepaisa",
+      "name": "5paisa",
+      "auth_style": "form",
+      "implemented": true
+    },
+    {
+      "slug": "dhan",
+      "name": "Dhan",
+      "auth_style": "apikey",
+      "implemented": true
+    },
+    {
+      "slug": "upstox",
+      "name": "Upstox",
+      "auth_style": "oauth",
+      "implemented": true
+    },
+    {
+      "slug": "zerodha",
+      "name": "Zerodha",
+      "auth_style": "oauth",
+      "implemented": true
+    },
+    {
+      "slug": "groww",
+      "name": "Groww",
+      "auth_style": "form",
+      "implemented": false
+    },
+    {
+      "slug": "kotak",
+      "name": "Kotak Neo",
+      "auth_style": "form",
+      "implemented": false
+    },
+    {
+      "slug": "paytm",
+      "name": "Paytm Money",
+      "auth_style": "oauth",
+      "implemented": false
+    }
+  ]
+}

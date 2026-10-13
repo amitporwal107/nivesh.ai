@@ -1,7 +1,7 @@
 /**
- * Account screens (Get started, Broker connections, Settings) — typed reads for
- * backend endpoints that had no hook in this app, plus the "finish onboarding"
- * call the existing Onboarding page makes inline.
+ * Account screens (Get started, Broker connections, Settings) — typed reads and
+ * writes for backend endpoints that had no hook in this app, plus the "finish
+ * onboarding" call the existing Onboarding page makes inline.
  *
  * Every response is checked with zod before a screen sees it. A body that does
  * not have the documented shape (for example `{}`) fails the query, so the
@@ -13,6 +13,7 @@ import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { z } from "zod";
 import { useGmailStatus } from "@/hooks/use-gmail";
+import { casUploadService } from "@/services";
 import { http } from "@/services/api/http";
 import { apiFetch } from "@/services/api/authed-fetch";
 import { ApiError } from "@/services/api/errors";
@@ -24,15 +25,18 @@ export const accountKeys = {
   onboardingState: [ROOT, "onboarding-state"] as const,
   brokerAccounts: [ROOT, "broker-accounts"] as const,
   brokerAdapters: [ROOT, "broker-adapters"] as const,
+  brokerFetched: [ROOT, "broker-fetched"] as const,
   gmailHistory: [ROOT, "gmail-history"] as const,
   audit: [ROOT, "audit"] as const,
   dataExport: [ROOT, "data-export"] as const,
+  consents: [ROOT, "consents"] as const,
+  notifications: [ROOT, "notifications"] as const,
 };
 
 // ── validation ───────────────────────────────────────────────────────────
 
-const optStr = z.string().nullish().transform((v) => v ?? null);
-const optNum = z.number().nullish().transform((v) => v ?? null);
+export const optStr = z.string().nullish().transform((v) => v ?? null);
+export const optNum = z.number().nullish().transform((v) => v ?? null);
 const optFlag = z.boolean().nullish().transform((v) => v === true);
 
 function drift(source: string, error: z.ZodError): ApiError {
@@ -40,15 +44,33 @@ function drift(source: string, error: z.ZodError): ApiError {
   return ApiError.contractDrift(`${source} (${where})`);
 }
 
-function parse<S extends z.ZodTypeAny>(schema: S, value: unknown, source: string): z.infer<S> {
+export function parse<S extends z.ZodTypeAny>(schema: S, value: unknown, source: string): z.infer<S> {
   const r = schema.safeParse(value);
   if (!r.success) throw drift(source, r.error);
   return r.data as z.infer<S>;
 }
 
 /** A malformed 200 will be malformed again; only other failures get one more try. */
-function retryUnlessDrift(failureCount: number, error: Error): boolean {
+export function retryUnlessDrift(failureCount: number, error: Error): boolean {
   return !(error instanceof ApiError && error.kind === "contract_drift") && failureCount < 1;
+}
+
+/**
+ * Result of a write whose failure the screen reports itself.
+ *
+ * The app shows a toast for every REJECTED mutation, quoting the server's own
+ * wording to whoever is signed in (App.tsx → toastFromError). The writes on
+ * these screens resolve with an Outcome instead, so a failure is said once, in
+ * plain words, where the action was taken.
+ */
+export type Outcome<T, E = unknown> = { ok: true; value: T } | { ok: false; error: E };
+
+export async function settle<T>(run: () => Promise<T>): Promise<Outcome<T>> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (error) {
+    return { ok: false, error };
+  }
 }
 
 /** What a screen renders from: still loading, failed (with a retry), or data that passed validation. */
@@ -66,6 +88,9 @@ export function toRead<T>(q: UseQueryResult<T>): Read<T> {
 // ── GET /api/onboarding/state ────────────────────────────────────────────
 // backend/routes/onboarding_gmail.py :: onboarding_state
 
+/** A number, or the length of a list; null when absent or anything else. */
+const countish = z.unknown().transform((v) => (typeof v === "number" && Number.isFinite(v) ? v : Array.isArray(v) ? v.length : null));
+
 const OnboardingStateC = z.object({
   /** A PAN (the usual CAS password) is saved on the profile. */
   pan_on_file: z.boolean(),
@@ -75,6 +100,11 @@ const OnboardingStateC = z.object({
   cas_portfolio_value_rs: optNum,
   /** As printed on the statement, e.g. "31-Mar-2025". */
   cas_statement_date: optStr,
+  // Planned (broker backend, not on staging yet); absent today. Each may arrive
+  // as a count or as a list, so both are read as a count.
+  holdings_count: countish,
+  broker_accounts: countish,
+  broker_accounts_live: countish,
 });
 export type OnboardingState = z.infer<typeof OnboardingStateC>;
 
@@ -91,63 +121,6 @@ export function useOnboardingState() {
     queryFn: async ({ signal }) => {
       const res = await http({ path: "/api/onboarding/state", signal });
       return parse(OnboardingStateC, res.data, "onboarding.state");
-    },
-  });
-}
-
-// ── GET /api/broker/accounts ─────────────────────────────────────────────
-// backend/routes/broker_connect.py :: list_accounts / _public_account
-
-const BrokerAccountC = z.object({
-  account_id: z.string(),
-  broker: optStr,
-  broker_display: optStr,
-  label: optStr,
-  /** "active" | "pending" | "error" */
-  status: optStr,
-  last_sync_at: optStr,
-  last_sync_count: optNum,
-  last_error: optStr,
-  created_at: optStr,
-});
-export type BrokerAccount = z.infer<typeof BrokerAccountC>;
-
-const BrokerAccountsRes = z.object({ accounts: z.array(BrokerAccountC) });
-
-export function useBrokerAccounts() {
-  return useQuery<BrokerAccount[]>({
-    queryKey: accountKeys.brokerAccounts,
-    staleTime: 60_000,
-    retry: retryUnlessDrift,
-    queryFn: async ({ signal }) => {
-      const res = await http({ path: "/api/broker/accounts", signal });
-      return parse(BrokerAccountsRes, res.data, "broker.accounts").accounts;
-    },
-  });
-}
-
-// ── GET /api/broker/native/supported ─────────────────────────────────────
-// backend/routes/broker_native.py :: list_supported
-// backend/services/brokers/registry.py :: list_supported
-
-const BrokerAdapterC = z.object({
-  slug: z.string(),
-  name: z.string(),
-  /** false = a placeholder on the server that raises on every call. */
-  implemented: z.boolean(),
-});
-export type BrokerAdapter = z.infer<typeof BrokerAdapterC>;
-
-const BrokerAdaptersRes = z.object({ brokers: z.array(BrokerAdapterC) });
-
-export function useBrokerAdapters() {
-  return useQuery<BrokerAdapter[]>({
-    queryKey: accountKeys.brokerAdapters,
-    staleTime: 10 * 60_000,
-    retry: retryUnlessDrift,
-    queryFn: async ({ signal }) => {
-      const res = await http({ path: "/api/broker/native/supported", signal });
-      return parse(BrokerAdaptersRes, res.data, "broker.native.supported").brokers;
     },
   });
 }
@@ -355,6 +328,184 @@ export function useCompleteOnboarding() {
   });
 }
 
+// ── POST /api/portfolio/upload (CSV / Excel) ─────────────────────────────
+// backend/routes/upload.py :: upload_portfolio → { message, count, holdings }.
+// Through the app's existing client (casUploadService.uploadFile). The server
+// saves the file's rows at once and ADDS them to the holdings on file: there is
+// no preview, no column mapping and no check for rows already present.
+
+export function useHoldingsFileUpload() {
+  return useMutation<Outcome<number>, never, File>({
+    mutationFn: (file) => settle(async () => (await casUploadService.uploadFile(file)).count),
+  });
+}
+
+// ── GET /api/compliance/consents ─────────────────────────────────────────
+// backend/routes/compliance.py :: list_consents — the consent purposes and the
+// latest recorded choice for each (services/consents.py).
+
+const ConsentC = z.object({
+  purpose: z.string().min(1),
+  title: z.string().min(1),
+  required: z.boolean(),
+  /** "granted" | "withdrawn" | "pending" (no choice recorded) */
+  status: z.string(),
+  granted_at: optStr,
+  withdrawn_at: optStr,
+});
+export type Consent = z.infer<typeof ConsentC>;
+
+const ConsentsRes = z.object({ consents: z.array(ConsentC) });
+
+export function useConsents() {
+  return useQuery<Consent[]>({
+    queryKey: accountKeys.consents,
+    staleTime: 5 * 60_000,
+    retry: retryUnlessDrift,
+    queryFn: async ({ signal }) => {
+      const res = await http({ path: "/api/compliance/consents", signal });
+      return parse(ConsentsRes, res.data, "compliance.consents").consents;
+    },
+  });
+}
+
+// ── GET / PATCH /api/user/preferences ────────────────────────────────────
+// backend/routes/user.py :: get_user_preferences / update_user_preferences →
+// { notifications: { push, email } }. The two flags are stored on the profile;
+// no sender in the backend reads them yet.
+
+const NotificationPrefsRes = z.object({
+  notifications: z.object({ push: z.boolean(), email: z.boolean() }),
+});
+export type NotificationPrefs = z.infer<typeof NotificationPrefsRes>["notifications"];
+
+export function useNotificationPrefs() {
+  return useQuery<NotificationPrefs>({
+    queryKey: accountKeys.notifications,
+    staleTime: 5 * 60_000,
+    retry: retryUnlessDrift,
+    queryFn: async ({ signal }) => {
+      const res = await http({ path: "/api/user/preferences", signal });
+      return parse(NotificationPrefsRes, res.data, "user.preferences").notifications;
+    },
+  });
+}
+
+export function useSaveNotificationPrefs() {
+  const qc = useQueryClient();
+  return useMutation<Outcome<NotificationPrefs>, never, Partial<NotificationPrefs>>({
+    mutationFn: (change) => settle(async () => {
+      const res = await http({ method: "PATCH", path: "/api/user/preferences", body: { notifications: change }, noRetry: true });
+      return parse(NotificationPrefsRes, res.data, "user.preferences").notifications;
+    }),
+    onSuccess: (saved) => { if (saved.ok) qc.setQueryData(accountKeys.notifications, saved.value); },
+  });
+}
+
+// ── GET /api/goals/snapshot ──────────────────────────────────────────────
+// backend/routes/goals.py :: get_snapshot → { snapshot: {…} | null }
+//
+// Read here and not through useGoalsSnapshot: that hook parses the wrapper as
+// if it were the snapshot, so its age / income / expenses are always undefined.
+// The key sits under the shared ["goals", "snapshot"] prefix, so
+// useSnapshotUpsert (which invalidates that prefix) refreshes this read.
+//
+// PUT replaces the whole row and resets any field left out to its default, so
+// a save must send every field back: `snapshotBody` merges an edit into what
+// the server last returned.
+
+const SnapshotC = z.object({
+  age: optNum,
+  dependents: optNum,
+  monthly_income_rs: optNum,
+  monthly_expenses_rs: optNum,
+  marital_status: optStr,
+  income_growth_pct: optNum,
+  inflation_pct: optNum,
+  current_corpus_rs: optNum,
+  total_liabilities_rs: optNum,
+  risk_profile: optStr,
+  behavior_score: optNum,
+  updated_at: optStr,
+});
+export type FinancialSnapshot = z.infer<typeof SnapshotC>;
+
+const SnapshotRes = z.object({ snapshot: SnapshotC.nullable() });
+
+/** `null` = the server holds no snapshot for this user. */
+export function useFinancialSnapshot() {
+  return useQuery<FinancialSnapshot | null>({
+    queryKey: ["goals", "snapshot", ROOT],
+    staleTime: 5 * 60_000,
+    retry: retryUnlessDrift,
+    queryFn: async ({ signal }) => {
+      const res = await http({ path: "/api/goals/snapshot", signal });
+      return parse(SnapshotRes, res.data, "goals.snapshot").snapshot;
+    },
+  });
+}
+
+export interface SnapshotEdit {
+  age: number | null;
+  dependents: number;
+  monthly_income_rs: number | null;
+  monthly_expenses_rs: number | null;
+}
+
+/**
+ * Body of PUT /api/goals/snapshot (backend/routes/goals.py :: FinancialSnapshot).
+ * A type alias, not an interface: the shared upsert hook takes an object with an
+ * index signature, which an interface is not assignable to.
+ */
+export type SnapshotBody = {
+  age?: number;
+  dependents: number;
+  monthly_income_rs?: number;
+  monthly_expenses_rs?: number;
+  marital_status?: string;
+  income_growth_pct?: number;
+  inflation_pct?: number;
+  current_corpus_rs?: number;
+  total_liabilities_rs?: number;
+  risk_profile?: string;
+  behavior_score?: number;
+};
+
+/**
+ * The full body for a save: the edit over everything already stored. A field
+ * that is left out takes the server's default, which is what "not given" means.
+ */
+export function snapshotBody(current: FinancialSnapshot | null, edit: SnapshotEdit): SnapshotBody {
+  const given = <T,>(v: T | null | undefined): T | undefined => v ?? undefined;
+  return {
+    dependents: edit.dependents,
+    age: given(edit.age),
+    monthly_income_rs: given(edit.monthly_income_rs),
+    monthly_expenses_rs: given(edit.monthly_expenses_rs),
+    marital_status: given(current?.marital_status),
+    income_growth_pct: given(current?.income_growth_pct),
+    inflation_pct: given(current?.inflation_pct),
+    current_corpus_rs: given(current?.current_corpus_rs),
+    total_liabilities_rs: given(current?.total_liabilities_rs),
+    risk_profile: given(current?.risk_profile),
+    behavior_score: given(current?.behavior_score),
+  };
+}
+
+// ── DELETE /api/chat/clear ───────────────────────────────────────────────
+// backend/routes/chat.py :: clear_chat — with no session id, deletes every
+// conversation and message of the signed-in user.
+
+export function useClearConversations() {
+  const qc = useQueryClient();
+  return useMutation<Outcome<void>, never, void>({
+    mutationFn: () => settle(async () => {
+      await http({ method: "DELETE", path: "/api/chat/clear", noRetry: true });
+    }),
+    onSuccess: (done) => { if (done.ok) void qc.invalidateQueries({ queryKey: ["chat"] }); },
+  });
+}
+
 /** Refresh everything a newly imported statement changes. */
 export function useAfterImport() {
   const qc = useQueryClient();
@@ -362,6 +513,7 @@ export function useAfterImport() {
     const keys: ReadonlyArray<readonly string[]> = [
       accountKeys.onboardingState,
       accountKeys.gmailHistory,
+      accountKeys.brokerFetched,
       ["gmail", "status"],
       ["onboarding", "state"],
       ["portfolio"],

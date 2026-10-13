@@ -1,0 +1,7 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape.",
+  "notifications": {
+    "push": true,
+    "email": false
+  }
+}
