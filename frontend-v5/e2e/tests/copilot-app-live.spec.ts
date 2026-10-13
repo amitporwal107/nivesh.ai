@@ -63,9 +63,14 @@ test.describe("Copilot app — live staging", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
   test.describe.configure({ mode: "serial" });
 
-  test.beforeEach(async ({ context }) => {
+  // The cookie is set for whatever host the run points at: localhost for a
+  // local build proxied to staging, or the staging host itself (PW_BASE_URL)
+  // for the deployed build — the only setup where the browser can post a
+  // question, since staging refuses writes from a page at localhost.
+  test.beforeEach(async ({ context, baseURL }) => {
     const token = fs.readFileSync(TOKEN_FILE as string, "utf-8").trim();
-    await context.addCookies([{ name: "session_token", value: token, domain: "localhost", path: "/", httpOnly: true }]);
+    const host = new URL(baseURL ?? "http://localhost:5174");
+    await context.addCookies([{ name: "session_token", value: token, domain: host.hostname, path: "/", httpOnly: true, secure: host.protocol === "https:" }]);
   });
 
   test("TC-22 home shows the real portfolio value and market data", async ({ page }) => {
@@ -132,7 +137,9 @@ test.describe("Copilot app — live staging", () => {
     await page.goto(APP);
     await expect(page.getByTestId("home-headline")).toBeVisible();
     const r = await askAndReport(page, "How risky is my portfolio?", "own profile open");
-    await page.getByTestId("answer-trace").getByRole("button").click().catch(() => {});
+    // Open the steps only when there are any: with no tool frames the toggle is disabled.
+    const steps = page.getByTestId("answer-trace").getByRole("button");
+    if (await steps.isEnabled()) await steps.click();
     await shot(page, "live-thread-portfolio");
     expect(r.state, r.banner ?? "").toBe("saved");
     expect(r.answerChars + r.widget).toBeGreaterThan(0);

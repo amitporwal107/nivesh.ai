@@ -3,7 +3,7 @@
 - **Branch:** feat/copilot-one-screen (worktree `/home/deploy/nivesh-copilot-ui`, based on `origin/dev` b0184b1a; code changes are uncommitted)
 - **Date:** 2026-10-13
 - **Author:** Claude (design engineer + full-stack developer + QA)
-- **Environment:** production build (`vite build`, base `/v5/`) served by `vite preview`. Mocked suites: every `/api/*` call answered by Playwright route mocks. Live checks (added later the same day): the same build with `/api` proxied to **staging**, signed in with a staging session supplied by the user. Nothing is deployed to staging.
+- **Environment:** (1) production build served locally with every `/api/*` call mocked; (2) the same local build with `/api` proxied to **staging**; (3) the **deployed staging app** at `https://staging.niveshcopilot.com/v5/app` after PR #205 was merged into `dev` (build of commit 034d8089). (2) and (3) used a staging session supplied by the user.
 - **Changed areas:** backend routes/services: no · frontend src: yes
 
 ## Summary
@@ -22,11 +22,14 @@ portfolio value to the rupee and live market data; all 20 screens load with no f
 no error state and no crash; the chat backend answers two real questions with exactly the
 frames the thread expects; and those real answers render in full in the thread.
 
-Not verified: a browser on the DEPLOYED origin sending a question. From this local build the
-browser's write is rejected by staging's cross-site check (HTTP 403 `CSRF_BLOCKED`, origin
-`http://localhost:5174`), which is the check working as designed; the questions were therefore
-asked with a plain HTTP client and replayed through the UI. Also not verified: the native
-Android / iOS build (TC-23).
+On the deployed staging app (after the user merged PR #205): the home screen shows the real
+portfolio value and live market data, a question typed in the browser was answered by the real
+backend in 8.9 s with label, routing, result card and follow-ups, and all 20 screens load with
+no failed API call. See "On the deployed staging app".
+
+Not verified: the native Android / iOS build (TC-23), and every write path other than chat.
+The four corrections made after the first live run (commit 56ff58d1) are on the feature branch
+but not yet on `dev`, so staging still runs the build without them.
 
 Mocked tests use fixtures or inline test payloads (MOCK — not real data); expected values in
 the per-screen tests were worked out from the payload, not copied from the screen.
@@ -64,7 +67,7 @@ Desktop = 1280×800. Phone = 390×844.
 | TC-19 | Screens | Wired screens show their endpoint's data | e2e · mocked | See the wiring table; 21 tests | PASS |
 | TC-20 | Build | Typecheck and production build | unit | `tsc --noEmit` exit 0; `vite build` completes | PASS |
 | TC-21 | Regression | Existing chat surfaces | e2e · mocked | `lite-copilot.spec.ts` passes | PASS |
-| TC-22 | Live data | `/v5/app` against staging with a real session | e2e · live | Real portfolio value and a real streamed answer | **PARTIAL** — real home data, all screens and real answers verified from a local build; asking from a browser on the deployed origin NOT RUN (needs the merge to `dev`) |
+| TC-22 | Live data | `/v5/app` on staging with a real session | e2e · live | Real portfolio value and a real streamed answer | **PASS** on the deployed app: home data, a browser-asked question, all 20 screens. A second question (own profile open) was answered and rendered, but that test then failed on a script error (clicking a disabled toggle) and was not re-run |
 | TC-23 | Native | Android / iOS (Capacitor) build opens the new shell | e2e · device | Shell renders in the native app, safe areas respected | **NOT RUN** — needs a device build; the APK script also publishes to a public download URL |
 
 ## API / Endpoint Tests (staging)
@@ -274,6 +277,83 @@ playwright exit=0
 Answer text shown in full (866 / 866 and 1,389 / 1,389 characters), correct label and routing,
 the real result card rendered by the existing widget code, three follow-ups, two source tags.
 
+**5. On the deployed staging app** — after PR #205 (`feat/copilot-one-screen` → `dev`) was
+merged and staging redeployed. The deployed bundle (`assets/index-C7bUwQfS.js`, previously
+`index-CQwzUSSh.js`) contains the new shell (`copilot-app`, `home-headline`, `composer-input`
+each found once) and `GET /v5/app` answers 200. Browser pointed at staging itself:
+
+```
+$ PW_BASE_URL=https://staging.niveshcopilot.com npx playwright test --config pw.copilot-app.config.ts copilot-app-live.spec.ts -g "live staging"
+Running 4 tests using 1 worker
+LIVE {"label":"home","threadsInRail":10,"todayTitle":"FOR YOUR PORTFOLIO TODAY","todayCards":1,"marketStrip":"NIFTY 50 22,702 +1.51% INDIA VIX 14.14 −7.3% FII CASH −₹1,708 CR DII CASH +₹3,045 CR","freshness":"NSE LIVE","holdings":117,"valueShown":"matches API total"}
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:76:3 › Copilot app — live staging › TC-22 home shows the real portfolio value and market data (11.6s)
+LIVE {"label":"default context","state":"saved","seconds":8.9,"classPill":"GENERAL RESEARCH","routed":"ROUTED TO MARKET ANALYST · 92%","trace":"DONE · ANSWERED WITHOUT TOOLS · 8.4S","widget":1,"answerChars":998,"answerStart":"Sector leadership: data unavailable. Our snapshot has no sector index performance, no top movers list, and no month-to-date figures, so I can't say which sector","followUps":3,"banner":null}
+  ✓  2 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:116:3 › Copilot app — live staging › TC-22 a real question gets a real streamed answer (9.9s)
+LIVE {"label":"own profile open","state":"saved","seconds":6.9,"classPill":"PERSONALISED RESEARCH","routed":"ROUTED TO RISK ANALYST · 92%","trace":"DONE · ANSWERED WITHOUT TOOLS · 6.4S","widget":1,"answerChars":1390,"answerStart":"Risk rating: HIGH (score 6.7/10). Equity is 81% of the portfolio, with small/mid caps at 8%, which is above what a moderate profile typically supports. Key risk","followUps":3,"banner":null}
+  ✘  3 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:126:3 › Copilot app — live staging › TC-22 a portfolio question with the account's own profile open (4.0m)
+  -  4 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:146:3 › Copilot app — live staging › TC-22 every screen against the real backend
+  1) [copilot-app] › e2e/tests/copilot-app-live.spec.ts:126:3 › Copilot app — live staging › TC-22 a portfolio question with the account's own profile open 
+    [31mTest timeout of 240000ms exceeded.[39m
+    Error: page.screenshot: Target page, context or browser has been closed
+      23 |
+      24 | const inr = (rupees: number) => `₹${new Intl.NumberFormat("en-IN").format(Math.round(rupees))}`;
+    > 25 | const shot = async (page: Page, name: string) => { if (OUT) await page.screenshot({ path: path.join(OUT, `${name}.png`) }); };
+         |                                                                        ^
+      26 |
+      27 | const VIEWS = [
+      28 |   "tool/analysis", "tool/recommend", "tool/research", "tool/screener", "tool/markets", "tool/optlab", "trader",
+        at shot (/app/e2e/tests/copilot-app-live.spec.ts:25:72)
+        at /app/e2e/tests/copilot-app-live.spec.ts:141:11
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../out/results/copilot-app-live-Copilot-a-99e74--account-s-own-profile-open-copilot-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+    Error Context: ../out/results/copilot-app-live-Copilot-a-99e74--account-s-own-profile-open-copilot-app/error-context.md
+  1 failed
+    [copilot-app] › e2e/tests/copilot-app-live.spec.ts:126:3 › Copilot app — live staging › TC-22 a portfolio question with the account's own profile open 
+  1 did not run
+  2 passed (4.4m)
+playwright exit=1
+```
+
+Tests 1 and 2 pass: real home data, and a question typed into the ask box was answered by the
+real backend (state `saved`, 998 characters, result card, three follow-ups). Test 3's answer
+also arrived and rendered (the `LIVE` line: state `saved`, 1,390 characters, card, three
+follow-ups); the test then timed out on a step of the script itself — it clicked the "show
+steps" toggle, which is disabled when the stream reports no tool steps. The script is fixed;
+the test was not re-run, to avoid adding another thread. The remaining screen pass was run
+separately:
+
+```
+$ PW_BASE_URL=https://staging.niveshcopilot.com npx playwright test --config pw.copilot-app.config.ts copilot-app-live.spec.ts -g "every screen"
+Running 1 test using 1 worker
+LIVE-SCREEN {"view":"tool/analysis","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/recommend","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/research","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/screener","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/markets","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/optlab","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"trader","rendered":1,"crashed":0,"notConnected":3,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/watchlist","rendered":1,"crashed":0,"notConnected":5,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/saved","rendered":1,"crashed":0,"notConnected":2,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/plan","rendered":1,"crashed":0,"notConnected":2,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/ledger","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/paper","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/brokers","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/settings","rendered":1,"crashed":0,"notConnected":4,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"advisor","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"builder","rendered":1,"crashed":0,"notConnected":2,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/tools","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/feeds","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/audit","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/kpis","rendered":1,"crashed":0,"notConnected":4,"loadingLeft":0,"alerts":[],"failedApi":[]}
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:148:3 › Copilot app — live staging › TC-22 every screen against the real backend (2.9m)
+  1 passed (2.9m)
+playwright exit=0
+```
+
+The trace text in these lines ("answered without tools") is the wording of the deployed build;
+the correction below is not on `dev` yet.
+
 **Corrections made from the live run**
 - A thread that cannot be created now shows a "Not sent" message with Retry (TC-07c).
 - Answers loaded from history no longer take their label from the widget's `agent` tag: the
@@ -313,20 +393,23 @@ the real result card rendered by the existing widget code, three follow-ups, two
 | Tool builder | none (local draft) | Saving, AI drafting, test prompts, review |
 
 ## Data Correctness (staging)
-PARTIAL. Verified on real data: home portfolio value and market figures equal the API values;
-every screen's read endpoints answer 200 with shapes the screens accept. Not checked: whether
-the figures themselves are right and fresh at source (no query against the NIDP tables was run),
-and no write path other than chat was exercised (plan refresh, CAS upload, Gmail import, saved
-screens, goal archive, advisor workspace upgrade, profile switch).
+PARTIAL. Verified on real data, locally and on the deployed app: home portfolio value and
+market figures equal the API values; every screen's read endpoints answer 200 with shapes the
+screens accept; real chat answers render in full. Not checked: whether the figures are right
+and fresh at source (no query against the NIDP tables was run). One real answer said its
+snapshot had no sector performance and quoted end-of-day figures "as of 2026-10-12" while the
+home strip showed live values — a property of the backend's data, not of this UI. No write
+path other than chat was exercised (plan refresh, CAS upload, Gmail import, saved screens,
+goal archive, advisor workspace upgrade, profile switch).
 
 ## Inputs required from user
-- Merge `feat/copilot-one-screen` into `dev` (a push to `dev` from this session was blocked by the permission system as a deploy action). After staging redeploys, one question asked from `https://staging.niveshcopilot.com/v5/app` closes TC-22.
+- Merge the follow-up commits on `feat/copilot-one-screen` into `dev` to put the four corrections on staging.
 - A decision on building the Android / iOS app for TC-23 (the build script publishes the APK to a public download URL).
 
-Side effects of the live checks on the staging account: two chat threads were created
-("Which sectors are leading the market this month?" and "How risky is my portfolio?").
+Side effects of the live checks on the staging account: four chat threads were created
+("Which sectors are leading the market this month?" twice, "How risky is my portfolio?" twice).
 
 ## Verdict: BLOCKED
-<!-- 44/44 mocked UI tests, typecheck, build, the /lite regression and the live read checks pass.
-     The verdict stays BLOCKED because asking from a browser on the deployed origin (rest of
-     TC-22) and the native build (TC-23) have not run. See OVERRIDE_copilot_one_screen.md. -->
+<!-- Mocked suites (44/44), typecheck, build, the /lite regression and the live checks on the
+     deployed staging app pass. The verdict stays BLOCKED only because TC-23 (native build) has
+     not run. See OVERRIDE_copilot_one_screen.md. -->
