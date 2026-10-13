@@ -31,6 +31,7 @@ import logging
 import os
 import uuid
 from datetime import date
+from decimal import Decimal
 from typing import Dict, List, Optional
 
 from nidp.shared.storage.pg import get_pool
@@ -39,6 +40,11 @@ from . import parse
 from .client import MAX_STOCKS, BudgetExhausted, TrendlyneClient, TrendlyneError, mcp_url
 
 logger = logging.getLogger(__name__)
+
+
+def _dec(value: Optional[float]) -> Optional[Decimal]:
+    """A float as the exact decimal the provider printed (747.16, not 747.15999...)."""
+    return None if value is None else Decimal(str(round(value, 4)))
 
 SOURCE = "trendlyne_mcp"
 SECTOR_NOT_FOUND = "trendlyne_mcp_not_found"
@@ -149,7 +155,7 @@ async def fetch(pass_name: str, max_calls: Optional[int] = None, symbols: Option
                     stats["symbols_unknown_to_provider"] += 1
                 for label, values in blocks.items():
                     # A company the provider does not know is staged as NULLs so it is not asked for again.
-                    rows.append((symbol, label_to_parameter[label], values.get(symbol) if as_of else None,
+                    rows.append((symbol, label_to_parameter[label], _dec(values.get(symbol)) if as_of else None,
                                  as_of or date.today(), run_id))
             async with pool.acquire() as conn:
                 await conn.executemany(
@@ -292,7 +298,8 @@ async def build(dry_run: bool = False, symbols: Optional[List[str]] = None) -> d
         raw = json.dumps({"provider": SOURCE, "as_of_date": as_of[symbol].isoformat(), "dated_by": method,
                           "consolidated_basis": "matched anchor" if by_anchor else "assumed (provider default)"})
         for row in parse.build_quarter_rows(values, latest_end):
-            to_write.append((symbol, row["period_end"], consolidated, *[row.get(c) for c in _COLUMNS], run_id, raw))
+            to_write.append((symbol, row["period_end"], consolidated,
+                             *[_dec(row.get(c)) for c in _COLUMNS], run_id, raw))
 
     if to_write and not dry_run:
         async with pool.acquire() as conn:
