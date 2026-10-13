@@ -50,7 +50,10 @@ function savedTurns(messages: ChatMessageC[], sessionId: string, engine: ThreadE
     if (!open) turns.push(turn);
     turn.text = m.content;
     turn.widget = widget;
-    turn.agent = meta?.agent ?? widget?.agent?.id;
+    // Routing is known only for answers made in this session. The widget's own
+    // `agent` tag is not used: the backend fills it with a fixed default
+    // ("portfolio_analyst") whichever specialist actually answered.
+    turn.agent = meta?.agent;
     turn.confidence = meta?.confidence;
     turn.steps = meta ? meta.steps : null;
     turn.followUps = meta?.followUps ?? [];

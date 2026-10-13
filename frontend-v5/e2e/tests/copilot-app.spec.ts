@@ -281,6 +281,32 @@ test.describe("Copilot app — desktop", () => {
     await expect(page.getByTestId("composer-send")).toBeEnabled();
   });
 
+  test("TC-07c a thread that cannot be started says so, and Retry sends the question", async ({ page }) => {
+    await setup(page);
+    const chat = await mockChat(page);
+    // First create call is refused (what staging answers to a cross-site write), the next succeeds.
+    let refused = 0;
+    await page.route("**/api/chat/sessions", async (route) => {
+      if (route.request().method() === "POST" && refused === 0) {
+        refused += 1;
+        return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: "CSRF_BLOCKED", message: "Cross-origin request rejected." }) });
+      }
+      return route.fallback();
+    });
+    await page.goto(APP);
+    await askFromBox(page, "How risky is my portfolio?");
+    const failed = page.getByTestId("ask-failed");
+    await expect(failed).toContainText("“How risky is my portfolio?” could not be sent");
+    await expect(page).toHaveURL(/\/v5\/app$/); // still on home, with the reason in view
+    expect(chat.streams.length).toBe(0);
+    await expect(page.getByTestId("composer-send")).toBeVisible(); // not stuck in a busy state
+    await page.getByTestId("ask-failed-retry").click();
+    await expect(page).toHaveURL(/\/v5\/app\/t\/new1$/);
+    await expect.poll(() => chat.streams.length).toBe(1);
+    expect(chat.streams[0].message).toBe("How risky is my portfolio?");
+    await expect(page.getByTestId("ask-failed")).toHaveCount(0);
+  });
+
   test("TC-07b stopping an answer in flight keeps the question and offers a retry", async ({ page }) => {
     await setup(page);
     await mockChat(page);

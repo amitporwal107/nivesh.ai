@@ -56,6 +56,9 @@ export interface CopilotPrompts {
   prompts: CopilotPrompt[];
   /** Backend persona id, e.g. "mutual_fund_investor". */
   persona?: string;
+  /** Who the backend ranked these for: "investor" (own portfolio) or
+   *  "advisor" (the client book, at the advisor root). */
+  audience?: string;
   context?: z.infer<typeof ContextSummaryC>;
 }
 
@@ -93,6 +96,7 @@ export function useCopilotPrompts() {
       return {
         prompts,
         persona: parsed.data.persona ?? undefined,
+        audience: parsed.data.mode ?? undefined,
         context: parsed.data.context_summary ?? undefined,
       };
     },

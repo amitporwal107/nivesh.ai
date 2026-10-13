@@ -179,7 +179,7 @@ function ThreadEvidence({ sessionId, engine }: { sessionId: string; engine: Thre
         {turn && tab === "tools" && (
           <div className="flex flex-col" style={{ gap: 2 }}>
             {turn.steps === null && <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>Tool steps are recorded only for answers generated in this session. This answer was loaded from history.</span>}
-            {turn.steps && turn.steps.length === 0 && <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{working ? "No tool has started yet." : "This answer was written without calling a tool."}</span>}
+            {turn.steps && turn.steps.length === 0 && <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{working ? "No tool has started yet." : "The Copilot reported no tool steps for this answer."}</span>}
             {turn.steps?.map((s, i) => (
               <div key={s.tool + i} data-testid="evidence-tool" className="grid items-center" style={{ gridTemplateColumns: "14px minmax(0,1fr) auto", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--cp-line)" }}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: s.done ? "var(--mint)" : "var(--cp-ink-4)" }} aria-hidden>{s.done ? "✓" : working ? "◌" : "·"}</span>

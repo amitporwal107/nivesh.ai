@@ -3,7 +3,7 @@
 - **Branch:** feat/copilot-one-screen (worktree `/home/deploy/nivesh-copilot-ui`, based on `origin/dev` b0184b1a; code changes are uncommitted)
 - **Date:** 2026-10-13
 - **Author:** Claude (design engineer + full-stack developer + QA)
-- **Environment:** production build (`vite build`, base `/v5/`) served by `vite preview`, every `/api/*` call answered by Playwright route mocks. NOT staging: nothing is deployed and no real session was used.
+- **Environment:** production build (`vite build`, base `/v5/`) served by `vite preview`. Mocked suites: every `/api/*` call answered by Playwright route mocks. Live checks (added later the same day): the same build with `/api` proxied to **staging**, signed in with a staging session supplied by the user. Nothing is deployed to staging.
 - **Changed areas:** backend routes/services: no · frontend src: yes
 
 ## Summary
@@ -14,14 +14,22 @@ advisor / internal screens, at desktop and phone widths. It reads existing backe
 only; no backend file is changed. Existing routes (`/lite`, `/chat`, `/dashboard`, …) are not
 modified — the only edit outside the new folder is one added route in `src/routes.tsx`.
 
-Verified here: typecheck, production build, and 43 Playwright tests (shell and screens,
-desktop 1280×800 and phone 390×844) plus the existing `/lite` regression spec, all with
-mocked API responses. Not verified: anything against the real backend (TC-22) and the native
-Android / iOS build (TC-23). Those need a deploy to staging, a session token and a device build.
+Verified with mocked responses: typecheck, production build, 44 Playwright tests (shell and
+screens, desktop 1280×800 and phone 390×844) and the existing `/lite` regression spec.
 
-Every response in these tests is a fixture or an inline test payload (MOCK — not real data).
-Expected values in the per-screen tests were worked out from the payload, not copied from the
-screen.
+Verified against the real staging backend (see "Live checks"): the home screen shows the real
+portfolio value to the rupee and live market data; all 20 screens load with no failed API call,
+no error state and no crash; the chat backend answers two real questions with exactly the
+frames the thread expects; and those real answers render in full in the thread.
+
+Not verified: a browser on the DEPLOYED origin sending a question. From this local build the
+browser's write is rejected by staging's cross-site check (HTTP 403 `CSRF_BLOCKED`, origin
+`http://localhost:5174`), which is the check working as designed; the questions were therefore
+asked with a plain HTTP client and replayed through the UI. Also not verified: the native
+Android / iOS build (TC-23).
+
+Mocked tests use fixtures or inline test payloads (MOCK — not real data); expected values in
+the per-screen tests were worked out from the payload, not copied from the screen.
 
 ## Test Cases
 > TC-01 … TC-23 were written before the implementation (first version of this report,
@@ -39,6 +47,7 @@ Desktop = 1280×800. Phone = 390×844.
 | TC-06 | Thread | Stream `error` frame | failure · mocked | Partial-result banner, one copy of the turn, Retry re-sends | PASS |
 | TC-07 | Thread | Stream HTTP 500 | failure · mocked | Error banner, ask box usable | PASS |
 | TC-07b | Thread | Stop an answer in flight | edge · mocked | Turn marked stopped, question kept, Retry offered | PASS |
+| TC-07c | Thread | Thread cannot be created (found in the live run) | failure · mocked | "Not sent" message with the question; Retry sends it | PASS |
 | TC-08 | Home | No holdings | edge · mocked | Connect banner, "Worth knowing today", no ₹0 value | PASS |
 | TC-09 | Evidence | Home context and thread evidence | e2e · mocked | Portfolio value from `holdings-enriched`; tools, sources, routing of the answer; toggle | PASS |
 | TC-10 | Ask box | Suggestions | e2e · mocked | Ranked prompts on focus; completions while typing; ↓ + Enter asks; Esc closes | PASS |
@@ -55,7 +64,7 @@ Desktop = 1280×800. Phone = 390×844.
 | TC-19 | Screens | Wired screens show their endpoint's data | e2e · mocked | See the wiring table; 21 tests | PASS |
 | TC-20 | Build | Typecheck and production build | unit | `tsc --noEmit` exit 0; `vite build` completes | PASS |
 | TC-21 | Regression | Existing chat surfaces | e2e · mocked | `lite-copilot.spec.ts` passes | PASS |
-| TC-22 | Live data | `/v5/app` on staging with a real session | e2e · live | Real portfolio value and a real streamed answer | **NOT RUN** — needs a deploy to staging and a session token |
+| TC-22 | Live data | `/v5/app` against staging with a real session | e2e · live | Real portfolio value and a real streamed answer | **PARTIAL** — real home data, all screens and real answers verified from a local build; asking from a browser on the deployed origin NOT RUN (needs the merge to `dev`) |
 | TC-23 | Native | Android / iOS (Capacitor) build opens the new shell | e2e · device | Shell renders in the native app, safe areas respected | **NOT RUN** — needs a device build; the APK script also publishes to a public download URL |
 
 ## API / Endpoint Tests (staging)
@@ -74,96 +83,204 @@ HTTP 401
 
 ## UI / Playwright Tests
 
-Commands (run inside `mcr.microsoft.com/playwright:v1.47.0-jammy` with no network, from
-`frontend-v5/`):
+Run inside `mcr.microsoft.com/playwright:v1.47.0-jammy` with **no network**, from `frontend-v5/`,
+against `vite build` + `vite preview`. Real output of the last run (after the fixes below):
 
 ```
-VITE_USE_MOCK_API=false VITE_BASE=/v5/ npx vite build --outDir /tmp/cp-dist --emptyOutDir
-VITE_BASE=/v5/ npx vite preview --outDir /tmp/cp-dist --port 5174 --strictPort &
-npx playwright test --config pw.copilot-app.config.ts copilot-app.spec.ts copilot-app-screens.spec.ts
-npx playwright test --config pw.copilot.config.ts lite-copilot.spec.ts
-```
-
-- **Typecheck**
-
-```
-$ npx tsc --noEmit -p tsconfig.json
-tsc exit=0
-```
-
-- **Specs:** `frontend-v5/e2e/tests/copilot-app.spec.ts`, `frontend-v5/e2e/tests/copilot-app-screens.spec.ts` — Result: PASS (43 passed)
-
-```
-- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
-- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-✓ built in 19.86s
-Running 43 tests using 3 workers
-  ✓   1 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:106:3 › Copilot app screens — phone (390×844) › TC-17 every destination renders without sideways page scroll (17.4s)
-  ✓   2 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:77:3 › Copilot app screens — desktop › TC-17 every rail destination renders (17.6s)
-  ✓   3 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:85:3 › Copilot app screens — desktop › TC-18 with empty API responses no screen shows the design's sample data (17.9s)
-  ✓   4 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:157:3 › TC-19 screens show their endpoint's data — desktop › Portfolio analysis ← holdings-enriched + concentration (751ms)
-  ✓   5 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:172:3 › TC-19 screens show their endpoint's data — desktop › Portfolio ledger ← holdings-enriched (848ms)
-  ✓   7 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:202:3 › TC-19 screens show their endpoint's data — desktop › Markets ← markets/home, and a mover row asks the Copilot (972ms)
+$ npx tsc -b
+tsc -b exit=0
+✓ built in 20.34s
+vite build exit=0
+$ npx playwright test --config pw.copilot-app.config.ts copilot-app.spec.ts copilot-app-screens.spec.ts
+Running 44 tests using 3 workers
+  ✓   1 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:106:3 › Copilot app screens — phone (390×844) › TC-17 every destination renders without sideways page scroll (18.0s)
+  ✓   2 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:77:3 › Copilot app screens — desktop › TC-17 every rail destination renders (18.4s)
+  ✓   4 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:157:3 › TC-19 screens show their endpoint's data — desktop › Portfolio analysis ← holdings-enriched + concentration (974ms)
+  ✓   5 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:172:3 › TC-19 screens show their endpoint's data — desktop › Portfolio ledger ← holdings-enriched (1.1s)
+  ✓   3 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:85:3 › Copilot app screens — desktop › TC-18 with empty API responses no screen shows the design's sample data (20.3s)
+  ✓   7 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:202:3 › TC-19 screens show their endpoint's data — desktop › Markets ← markets/home, and a mover row asks the Copilot (959ms)
+  ✓   9 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:237:3 › TC-19 screens show their endpoint's data — desktop › Screener ← saved screeners; a rule compiles to the query that is asked (927ms)
   ✓   8 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:217:3 › TC-19 screens show their endpoint's data — desktop › Research ← instrument search + company financials (1.3s)
-  ✓   9 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:237:3 › TC-19 screens show their endpoint's data — desktop › Screener ← saved screeners; a rule compiles to the query that is asked (881ms)
-  ✓   6 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:184:3 › TC-19 screens show their endpoint's data — desktop › Recommendations and Action plan ← plans/active (2.8s)
-  ✓  11 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:273:3 › TC-19 screens show their endpoint's data — desktop › Saved ← screeners + chat sessions; a thread opens (852ms)
-  ✓  10 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:251:3 › TC-19 screens show their endpoint's data — desktop › Watchlist ← filing alerts only; the internal research list is not requested (1.2s)
-  ✓  12 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:285:3 › TC-19 screens show their endpoint's data — desktop › Trader desk ← journal, scanner, watch levels, broker accounts, markets/home (942ms)
-  ✓  14 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:341:3 › TC-19 screens show their endpoint's data — desktop › Paper trades ← paper-trades portfolio, evaluation, live (1.0s)
-  ✓  13 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:316:3 › TC-19 screens show their endpoint's data — desktop › Options lab: payoff is computed from typed legs; chain and open interest are declared missing (1.2s)
-  ✓  15 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:369:3 › TC-19 screens show their endpoint's data — desktop › Advisor ← client book + SIP board; opening a client lands in the Copilot (1.1s)
-  ✓  16 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:400:3 › TC-19 screens show their endpoint's data — desktop › Advisor screen explains itself to a non-advisor account (794ms)
+  ✓   6 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:184:3 › TC-19 screens show their endpoint's data — desktop › Recommendations and Action plan ← plans/active (2.7s)
+  ✓  11 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:273:3 › TC-19 screens show their endpoint's data — desktop › Saved ← screeners + chat sessions; a thread opens (889ms)
+  ✓  12 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:285:3 › TC-19 screens show their endpoint's data — desktop › Trader desk ← journal, scanner, watch levels, broker accounts, markets/home (814ms)
+  ✓  10 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:251:3 › TC-19 screens show their endpoint's data — desktop › Watchlist ← filing alerts only; the internal research list is not requested (1.4s)
+  ✓  14 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:341:3 › TC-19 screens show their endpoint's data — desktop › Paper trades ← paper-trades portfolio, evaluation, live (1.1s)
+  ✓  13 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:316:3 › TC-19 screens show their endpoint's data — desktop › Options lab: payoff is computed from typed legs; chain and open interest are declared missing (1.4s)
+  ✓  15 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:369:3 › TC-19 screens show their endpoint's data — desktop › Advisor ← client book + SIP board; opening a client lands in the Copilot (1.3s)
+  ✓  16 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:400:3 › TC-19 screens show their endpoint's data — desktop › Advisor screen explains itself to a non-advisor account (798ms)
   ✓  18 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:447:3 › TC-19 screens show their endpoint's data — desktop › Tool builder: the contract is derived from what is typed; saving is declared missing (1.1s)
   ✓  19 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:463:3 › TC-19 screens show their endpoint's data — desktop › the engineering 'needs' list on a not-connected block is shown to admins only (1.3s)
-  ✓  17 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:405:3 › TC-19 screens show their endpoint's data — desktop › Internal pages ← feeds, audit trail, admin stats, routing agents (2.3s)
-  ✓  21 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:512:3 › TC-19 account screens — desktop › Onboarding: if recording completion fails the user still gets out, and is told (794ms)
-  ✓  20 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:497:3 › TC-19 account screens — desktop › Onboarding: skipping records completion and lands on home for good (1.4s)
-  ✓  22 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:522:3 › TC-19 account screens — desktop › Onboarding: the four steps in order, showing what is on file, then finish (1.2s)
-  ✓  23 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:545:3 › TC-19 account screens — desktop › Broker connections ← broker accounts, statement on file, Gmail, import log (890ms)
-  ✓  25 [copilot-app] › e2e/tests/copilot-app.spec.ts:125:3 › Copilot app — desktop › TC-01 shell renders: rail, greeting, ask box (865ms)
+  ✓  17 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:405:3 › TC-19 screens show their endpoint's data — desktop › Internal pages ← feeds, audit trail, admin stats, routing agents (2.4s)
+  ✓  21 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:512:3 › TC-19 account screens — desktop › Onboarding: if recording completion fails the user still gets out, and is told (883ms)
+  ✓  20 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:497:3 › TC-19 account screens — desktop › Onboarding: skipping records completion and lands on home for good (1.5s)
+  ✓  23 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:545:3 › TC-19 account screens — desktop › Broker connections ← broker accounts, statement on file, Gmail, import log (956ms)
+  ✓  22 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:522:3 › TC-19 account screens — desktop › Onboarding: the four steps in order, showing what is on file, then finish (1.4s)
   ✓  24 [copilot-app] › e2e/tests/copilot-app-screens.spec.ts:569:3 › TC-19 account screens — desktop › Settings ← profile, risk, goals; mode and theme take effect (1.3s)
+  ✓  25 [copilot-app] › e2e/tests/copilot-app.spec.ts:125:3 › Copilot app — desktop › TC-01 shell renders: rail, greeting, ask box (916ms)
   ✓  26 [copilot-app] › e2e/tests/copilot-app.spec.ts:144:3 › Copilot app — desktop › TC-02 rail lists saved threads and opens one (1.1s)
-  ✓  27 [copilot-app] › e2e/tests/copilot-app.spec.ts:172:3 › Copilot app — desktop › TC-03 market strip shows /api/markets/home values, and nothing when it is empty (1.3s)
-  ✓  28 [copilot-app] › e2e/tests/copilot-app.spec.ts:192:3 › Copilot app — desktop › TC-04 'for your portfolio today' cards come from suggested-prompts and ask their query (1.2s)
-  ✓  29 [copilot-app] › e2e/tests/copilot-app.spec.ts:211:3 › Copilot app — desktop › TC-05 asking a question streams an answer with class, tool steps and follow-ups (1.4s)
-  ✓  30 [copilot-app] › e2e/tests/copilot-app.spec.ts:252:3 › Copilot app — desktop › TC-06 an error frame shows a partial-result banner with a working retry (1.2s)
-  ✓  31 [copilot-app] › e2e/tests/copilot-app.spec.ts:269:3 › Copilot app — desktop › TC-07 a failed stream request shows an error and leaves the ask box usable (1.1s)
-  ✓  32 [copilot-app] › e2e/tests/copilot-app.spec.ts:284:3 › Copilot app — desktop › TC-07b stopping an answer in flight keeps the question and offers a retry (1.2s)
-  ✓  33 [copilot-app] › e2e/tests/copilot-app.spec.ts:308:3 › Copilot app — desktop › TC-08 an account with no holdings gets the connect banner and no zero values (1.3s)
-  ✓  34 [copilot-app] › e2e/tests/copilot-app.spec.ts:328:3 › Copilot app — desktop › TC-09 evidence panel: context on home, tools and sources in a thread, and the toggle (1.6s)
-  ✓  35 [copilot-app] › e2e/tests/copilot-app.spec.ts:365:3 › Copilot app — desktop › TC-10 ask-box suggestions: ranked prompts, completions, keyboard (1.6s)
-  ✓  36 [copilot-app] › e2e/tests/copilot-app.spec.ts:394:3 › Copilot app — desktop › TC-11 mode pill swaps the tools; Advisor only for an advisory workspace (1.8s)
-  ✓  38 [copilot-app] › e2e/tests/copilot-app.spec.ts:446:3 › Copilot app — desktop › TC-13 a signed-out visitor is sent to login (939ms)
-  ✓  37 [copilot-app] › e2e/tests/copilot-app.spec.ts:425:3 › Copilot app — desktop › TC-12 internal pages are for admins only (1.8s)
-  ✓  39 [copilot-app] › e2e/tests/copilot-app.spec.ts:453:3 › Copilot app — desktop › a user who has not finished onboarding lands on the onboarding screen (843ms)
-  ✓  40 [copilot-app] › e2e/tests/copilot-app.spec.ts:462:3 › Copilot app — desktop › an unknown view falls back to home (790ms)
-  ✓  41 [copilot-app] › e2e/tests/copilot-app.spec.ts:486:3 › Copilot app — phone (390×844) › TC-14 no rail; the menu opens a drawer that navigates and closes (1.0s)
-  ✓  42 [copilot-app] › e2e/tests/copilot-app.spec.ts:513:3 › Copilot app — phone (390×844) › TC-15 evidence opens as a bottom sheet and closes (849ms)
-  ✓  43 [copilot-app] › e2e/tests/copilot-app.spec.ts:529:3 › Copilot app — phone (390×844) › TC-16 the ask flow works and the ask box stays on screen (832ms)
-  43 passed (35.5s)
+  ✓  27 [copilot-app] › e2e/tests/copilot-app.spec.ts:172:3 › Copilot app — desktop › TC-03 market strip shows /api/markets/home values, and nothing when it is empty (1.2s)
+  ✓  28 [copilot-app] › e2e/tests/copilot-app.spec.ts:192:3 › Copilot app — desktop › TC-04 'for your portfolio today' cards come from suggested-prompts and ask their query (1.1s)
+  ✓  29 [copilot-app] › e2e/tests/copilot-app.spec.ts:211:3 › Copilot app — desktop › TC-05 asking a question streams an answer with class, tool steps and follow-ups (1.2s)
+  ✓  30 [copilot-app] › e2e/tests/copilot-app.spec.ts:252:3 › Copilot app — desktop › TC-06 an error frame shows a partial-result banner with a working retry (1.1s)
+  ✓  31 [copilot-app] › e2e/tests/copilot-app.spec.ts:269:3 › Copilot app — desktop › TC-07 a failed stream request shows an error and leaves the ask box usable (909ms)
+  ✓  32 [copilot-app] › e2e/tests/copilot-app.spec.ts:284:3 › Copilot app — desktop › TC-07c a thread that cannot be started says so, and Retry sends the question (1.1s)
+  ✓  33 [copilot-app] › e2e/tests/copilot-app.spec.ts:310:3 › Copilot app — desktop › TC-07b stopping an answer in flight keeps the question and offers a retry (1.1s)
+  ✓  34 [copilot-app] › e2e/tests/copilot-app.spec.ts:334:3 › Copilot app — desktop › TC-08 an account with no holdings gets the connect banner and no zero values (1.2s)
+  ✓  35 [copilot-app] › e2e/tests/copilot-app.spec.ts:354:3 › Copilot app — desktop › TC-09 evidence panel: context on home, tools and sources in a thread, and the toggle (1.3s)
+  ✓  36 [copilot-app] › e2e/tests/copilot-app.spec.ts:391:3 › Copilot app — desktop › TC-10 ask-box suggestions: ranked prompts, completions, keyboard (1.4s)
+  ✓  37 [copilot-app] › e2e/tests/copilot-app.spec.ts:420:3 › Copilot app — desktop › TC-11 mode pill swaps the tools; Advisor only for an advisory workspace (1.5s)
+  ✓  39 [copilot-app] › e2e/tests/copilot-app.spec.ts:472:3 › Copilot app — desktop › TC-13 a signed-out visitor is sent to login (832ms)
+  ✓  38 [copilot-app] › e2e/tests/copilot-app.spec.ts:451:3 › Copilot app — desktop › TC-12 internal pages are for admins only (1.8s)
+  ✓  40 [copilot-app] › e2e/tests/copilot-app.spec.ts:479:3 › Copilot app — desktop › a user who has not finished onboarding lands on the onboarding screen (1.1s)
+  ✓  41 [copilot-app] › e2e/tests/copilot-app.spec.ts:488:3 › Copilot app — desktop › an unknown view falls back to home (981ms)
+  ✓  42 [copilot-app] › e2e/tests/copilot-app.spec.ts:512:3 › Copilot app — phone (390×844) › TC-14 no rail; the menu opens a drawer that navigates and closes (974ms)
+  ✓  43 [copilot-app] › e2e/tests/copilot-app.spec.ts:539:3 › Copilot app — phone (390×844) › TC-15 evidence opens as a bottom sheet and closes (939ms)
+  ✓  44 [copilot-app] › e2e/tests/copilot-app.spec.ts:555:3 › Copilot app — phone (390×844) › TC-16 the ask flow works and the ask box stays on screen (772ms)
+  44 passed (37.0s)
 playwright exit=0
-```
-
-- **Regression spec:** `frontend-v5/e2e/tests/lite-copilot.spec.ts` — Result: PASS (4 passed)
-
-```
-✓ built in 18.85s
-
-Running 4 tests using 1 worker
-
-  ✓  1 [unauthenticated] › e2e/tests/lite-copilot.spec.ts:31:3 › Lite Copilot surface › /lite renders the Copilot (1.1s)
-  ✓  2 [unauthenticated] › e2e/tests/lite-copilot.spec.ts:38:3 › Lite Copilot surface › /lite hides the dashboard sidebar (no app chrome) (1.1s)
-  ✓  3 [unauthenticated] › e2e/tests/lite-copilot.spec.ts:44:3 › Lite Copilot surface › NOT-onboarded user on /lite is routed to onboarding (CAS upload / Gmail sync) (525ms)
-  ✓  4 [unauthenticated] › e2e/tests/lite-copilot.spec.ts:57:3 › Lite Copilot surface › CONTROL: /chat renders the SAME Copilot WITH the sidebar (1.1s)
-
-  4 passed (4.8s)
-playwright exit=0
+$ npx playwright test --config pw.copilot.config.ts lite-copilot.spec.ts
+  ✓  3 [unauthenticated] › e2e/tests/lite-copilot.spec.ts:44:3 › Lite Copilot surface › NOT-onboarded user on /lite is routed to onboarding (CAS upload / Gmail sync) (527ms)
+  ✓  4 [unauthenticated] › e2e/tests/lite-copilot.spec.ts:57:3 › Lite Copilot surface › CONTROL: /chat renders the SAME Copilot WITH the sidebar (1.2s)
+  4 passed (4.6s)
+regression exit=0
 ```
 
 Screenshots of every screen at both sizes, plus the light theme, were captured with
 `copilot-app-shots.spec.ts` (skipped unless `SHOT_DIR` is set) and reviewed by eye against the
 design. They are not committed.
+
+## Live checks against staging (TC-22)
+
+Spec: `frontend-v5/e2e/tests/copilot-app-live.spec.ts` (skipped unless `LIVE_TOKEN_FILE` or
+`REPLAY_DIR` is set). The session token is read from a file outside the repo and is never
+printed; outputs below hold statuses, counts and on-screen text only.
+
+**1. Home with real data, then a question from the browser** — `/api` proxied to staging:
+
+```
+Running 4 tests using 1 worker
+LIVE {"label":"home","threadsInRail":8,"todayTitle":"FOR YOUR CLIENT BOOK TODAY","todayCards":1,"marketStrip":"NIFTY 50 22,690 +1.46% INDIA VIX 14.22 −6.8% FII CASH −₹1,708 CR DII CASH +₹3,045 CR","freshness":"NSE LIVE","holdings":117,"valueShown":"matches API total"}
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:71:3 › Copilot app — live staging › TC-22 home shows the real portfolio value and market data (8.6s)
+  ✘  2 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:111:3 › Copilot app — live staging › TC-22 a real question gets a real streamed answer (30.7s)
+  -  3 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:121:3 › Copilot app — live staging › TC-22 a portfolio question with the account's own profile open
+  -  4 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:141:3 › Copilot app — live staging › TC-22 every screen against the real backend
+  1) [copilot-app] › e2e/tests/copilot-app-live.spec.ts:111:3 › Copilot app — live staging › TC-22 a real question gets a real streamed answer 
+    Error: [2mexpect([22m[31mpage[39m[2m).[22mtoHaveURL[2m([22m[32mexpected[39m[2m)[22m failed
+    Expected pattern: [32m/\/v5\/app\/t\/[^/]+$/[39m
+    Received string:  [31m"http://localhost:5174/v5/app"[39m
+    Timeout: 30000ms
+    Call log:
+    [2m  - Expect "toHaveURL" with timeout 30000ms[22m
+    [2m    63 × unexpected value "http://localhost:5174/v5/app"[22m
+      36 |   await input.fill(question);
+      37 |   await input.press("Enter");
+    > 38 |   await expect(page).toHaveURL(/\/v5\/app\/t\/[^/]+$/, { timeout: 30_000 });
+         |                      ^
+      39 |   const turn = page.getByTestId("thread-turn").last();
+      40 |   const started = Date.now();
+      41 |   await expect(turn).toHaveAttribute("data-state", /saved|error|stopped/, { timeout: 170_000 });
+        at askAndReport (/app/e2e/tests/copilot-app-live.spec.ts:38:22)
+        at /app/e2e/tests/copilot-app-live.spec.ts:115:15
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    ../out/results/copilot-app-live-Copilot-a-88395-gets-a-real-streamed-answer-copilot-app/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+    Error Context: ../out/results/copilot-app-live-Copilot-a-88395-gets-a-real-streamed-answer-copilot-app/error-context.md
+  1 failed
+    [copilot-app] › e2e/tests/copilot-app-live.spec.ts:111:3 › Copilot app — live staging › TC-22 a real question gets a real streamed answer 
+  2 did not run
+  1 passed (40.2s)
+playwright exit=1
+  ➜  Local:   http://localhost:5174/v5/
+  ➜  Network: http://172.17.0.2:5174/v5/
+```
+
+The home test passes: the value on screen equals `totals.value_rs` from
+`GET /api/portfolio/holdings-enriched`, and the Nifty figure equals `GET /api/markets/home`.
+The question test fails at thread creation. Cause, shown with a plain client:
+
+```
+$ curl -X POST https://staging.niveshcopilot.com/api/chat/sessions            (session cookie, no Origin header)
+{"session_id":"sess_10da2c274e00","user_id":"<redacted>","title":"New Conversation","created_at":"2026-10-13T09:38:13.942572+00:00","updated_at":"2026-10-13T09:38:13.942583+00:00"}
+HTTP 200
+$ curl -X POST … -H 'Origin: http://localhost:5174'                          (what the local page sends)
+{"error":"CSRF_BLOCKED","message":"Cross-origin request rejected."}
+HTTP 403
+```
+
+`backend/middleware.py` (`CsrfProtectMiddleware`) allows staging's own origins and the native
+app origins; a page at `localhost` is correctly refused. The header was not spoofed. The empty
+thread the first call created was deleted (`DELETE … -> HTTP 200`). This run also exposed a real
+defect — a failed thread creation showed no message — now fixed and covered by TC-07c.
+
+**2. Every screen against the real backend** (reads only):
+
+```
+Running 1 test using 1 worker
+LIVE-SCREEN {"view":"tool/analysis","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/recommend","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/research","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/screener","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/markets","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"tool/optlab","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"trader","rendered":1,"crashed":0,"notConnected":3,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/watchlist","rendered":1,"crashed":0,"notConnected":5,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/saved","rendered":1,"crashed":0,"notConnected":2,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/plan","rendered":1,"crashed":0,"notConnected":2,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/ledger","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/paper","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/brokers","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"page/settings","rendered":1,"crashed":0,"notConnected":4,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"advisor","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"builder","rendered":1,"crashed":0,"notConnected":2,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/tools","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/feeds","rendered":1,"crashed":0,"notConnected":0,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/audit","rendered":1,"crashed":0,"notConnected":1,"loadingLeft":0,"alerts":[],"failedApi":[]}
+LIVE-SCREEN {"view":"ops/kpis","rendered":1,"crashed":0,"notConnected":4,"loadingLeft":0,"alerts":[],"failedApi":[]}
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:141:3 › Copilot app — live staging › TC-22 every screen against the real backend (2.1m)
+  1 passed (2.1m)
+playwright exit=0
+```
+
+20 of 20 screens rendered; `failedApi` is empty for every one (no 4xx / 5xx from any endpoint,
+including those whose shapes were taken from route code), no error block, no crash, no loading
+state left. Onboarding was not visited (the account is already onboarded).
+
+**3. The chat backend, asked two real questions with a plain HTTP client** — one at the
+account's default context, one with its own profile open (`X-Active-Profile`):
+
+```
+{"run": "root", "frame_types": {"meta": 1, "route": 1, "widget": 1, "token": 73, "done": 1}, "route": {"agent": "market_analyst", "confidence": 0.92}, "tool_frames": 0, "widget_type": "market_detail", "widget_sources": ["NIDP", "portfolio_holdings"], "answer_chars": 869, "follow_ups": 3, "saved_roles": ["user", "assistant"], "saved_answer_id_matches_stream": true, "saved_answer_has_widget": true}
+{"run": "own-profile", "frame_types": {"meta": 1, "route": 1, "widget": 1, "token": 117, "done": 1}, "route": {"agent": "risk_analyst", "confidence": 0.92}, "tool_frames": 0, "widget_type": "risk_assessment", "widget_sources": ["NIDP", "portfolio_holdings"], "answer_chars": 1394, "follow_ups": 3, "saved_roles": ["user", "assistant"], "saved_answer_id_matches_stream": true, "saved_answer_has_widget": true}
+```
+
+Both streamed `meta → route → widget → token… → done` with three follow-ups, and the saved
+answer carries the same id as the stream and the widget. No `thinking` (tool) frames were sent,
+so the steps card reads "no tool steps reported".
+
+**4. Those real answers replayed through the thread UI** (the captured stream bytes and saved
+messages fed to the app; captures are not committed):
+
+```
+Running 2 tests using 2 workers
+REPLAY {"tag":"root","classPill":"GENERAL RESEARCH","routed":"ROUTED TO MARKET ANALYST · 92%","trace":"DONE · NO TOOL STEPS REPORTED · 0.1S","widgetType":"market_detail","widgetHeightPx":335,"answerCharsShown":866,"answerCharsSent":866,"followUps":3}
+REPLAY {"tag":"own-profile","classPill":"PERSONALISED RESEARCH","routed":"ROUTED TO RISK ANALYST · 92%","trace":"DONE · NO TOOL STEPS REPORTED · 0.1S","widgetType":"risk_assessment","widgetHeightPx":1007,"answerCharsShown":1389,"answerCharsSent":1389,"followUps":3}
+  ✓  1 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:187:5 › Copilot app — real staging answers replayed › TC-22 replay · root (1.4s)
+  ✓  2 [copilot-app] › e2e/tests/copilot-app-live.spec.ts:187:5 › Copilot app — real staging answers replayed › TC-22 replay · own-profile (1.4s)
+  2 passed (2.5s)
+playwright exit=0
+```
+
+Answer text shown in full (866 / 866 and 1,389 / 1,389 characters), correct label and routing,
+the real result card rendered by the existing widget code, three follow-ups, two source tags.
+
+**Corrections made from the live run**
+- A thread that cannot be created now shows a "Not sent" message with Retry (TC-07c).
+- Answers loaded from history no longer take their label from the widget's `agent` tag: the
+  backend sets it to `portfolio_analyst` whichever specialist answered.
+- A stream with no tool frames reads "no tool steps reported", not "answered without tools".
+- At an advisor root the home section is titled for the client book, matching the prompts the
+  backend returns there.
 
 ## Wiring — what each screen reads, and what is declared "not connected"
 
@@ -196,21 +313,20 @@ design. They are not committed.
 | Tool builder | none (local draft) | Saving, AI drafting, test prompts, review |
 
 ## Data Correctness (staging)
-NOT RUN. Mocked tests prove the screens show what the endpoint returns; they cannot prove the
-real endpoints return correct, fresh data. `GET /api/markets/home` answers 401 without a
-session (output above), so this needs TC-22.
-
-Response shapes for endpoints that had no frontend hook were taken from the backend route
-code, not from a live response: positional journal / picks / watchlist, broker accounts and
-adapters, plans history and health projection, capital-gains statement, portfolio compare,
-company financials widget, filings signals / feed / alerts, thematic prefs, admin stats,
-copilot agents, compliance audit / export, Gmail history. Each is UNVERIFIED against staging.
+PARTIAL. Verified on real data: home portfolio value and market figures equal the API values;
+every screen's read endpoints answer 200 with shapes the screens accept. Not checked: whether
+the figures themselves are right and fresh at source (no query against the NIDP tables was run),
+and no write path other than chat was exercised (plan refresh, CAS upload, Gmail import, saved
+screens, goal archive, advisor workspace upgrade, profile switch).
 
 ## Inputs required from user
-- A staging session token and a go-ahead to push the branch to `dev` (which deploys to staging), for TC-22.
+- Merge `feat/copilot-one-screen` into `dev` (a push to `dev` from this session was blocked by the permission system as a deploy action). After staging redeploys, one question asked from `https://staging.niveshcopilot.com/v5/app` closes TC-22.
 - A decision on building the Android / iOS app for TC-23 (the build script publishes the APK to a public download URL).
 
+Side effects of the live checks on the staging account: two chat threads were created
+("Which sectors are leading the market this month?" and "How risky is my portfolio?").
+
 ## Verdict: BLOCKED
-<!-- 43/43 mocked UI tests, typecheck, build and the /lite regression pass. The verdict stays
-     BLOCKED because TC-22 (real data on staging) and TC-23 (native build) have not run.
-     See test_reports/OVERRIDE_copilot_one_screen.md. -->
+<!-- 44/44 mocked UI tests, typecheck, build, the /lite regression and the live read checks pass.
+     The verdict stays BLOCKED because asking from a browser on the deployed origin (rest of
+     TC-22) and the native build (TC-23) have not run. See OVERRIDE_copilot_one_screen.md. -->

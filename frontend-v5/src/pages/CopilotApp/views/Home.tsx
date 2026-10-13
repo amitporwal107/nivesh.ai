@@ -132,6 +132,9 @@ export default function Home() {
   const rest = ranked.filter((p) => !cardIds.has(p.id)).slice(0, 6);
   const news = (markets.data?.news ?? []).slice(0, 3);
   const showNews = cards.length === 0 && news.length > 0;
+  // At the advisor root the backend ranks prompts for the client book, not
+  // for the advisor's own holdings.
+  const forBook = prompts.data?.audience === "advisor";
 
   const sub = pf.status === "ready"
     ? `Ask in plain English. Nivesh picks the tools, runs the numbers on your ${pf.holdingsCount} holdings and shows you the evidence behind every answer.`
@@ -162,8 +165,8 @@ export default function Home() {
       {(cards.length > 0 || showNews || prompts.isPending) && (
         <section className="flex flex-col" style={{ gap: 12 }}>
           <div className="flex flex-wrap items-baseline justify-between" style={{ gap: "4px 12px" }}>
-            <span className="cp-eyebrow" data-testid="home-today-title" style={{ whiteSpace: "nowrap" }}>{noPf || showNews ? "Worth knowing today" : "For your portfolio today"}</span>
-            {cards.length > 0 && <span className="cp-mono-note">Ranked from your holdings</span>}
+            <span className="cp-eyebrow" data-testid="home-today-title" style={{ whiteSpace: "nowrap" }}>{showNews || (noPf && !forBook) ? "Worth knowing today" : forBook ? "For your client book today" : "For your portfolio today"}</span>
+            {cards.length > 0 && <span className="cp-mono-note">{forBook ? "Ranked for your client book" : "Ranked from your holdings"}</span>}
             {showNews && <span className="cp-mono-note">From today’s filings and news</span>}
           </div>
           {prompts.isPending && cards.length === 0 && !showNews ? (

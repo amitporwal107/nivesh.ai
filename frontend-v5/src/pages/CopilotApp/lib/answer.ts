@@ -56,7 +56,9 @@ export function traceLabel(steps: StepRec[], working: boolean, totalMs?: number,
     return n ? `${head} · ${tools} called` : head;
   }
   const took = totalMs != null ? ` · ${fmtSecs(totalMs)}` : "";
-  if (!n) return `Done · answered without tools${took}`;
+  // The stream reports tool calls only; analysis steps that built the result
+  // card are not announced, so "no tool steps" is all that can be said.
+  if (!n) return `Done · no tool steps reported${took}`;
   const open = steps.filter((s) => !s.done).length;
   const tail = open ? ` · ${open} did not report back` : "";
   return `Done · ${tools}${took}${tail}`;
