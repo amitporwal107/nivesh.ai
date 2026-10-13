@@ -209,6 +209,11 @@ def test_account_erasure_removes_the_users_snapshots(monkeypatch):
     db.holdings = FakeCollection([{"user_id": "u1", "name": "INFY"}, {"user_id": "u2", "name": "TCS"}])
     db.action_plans = FakeCollection([{"user_id": "u1"}])
     db.users = FakeCollection([{"user_id": "u1"}, {"user_id": "u2"}])
+    db.broker_accounts = FakeCollection([
+        {"user_id": "u1", "account_id": "ba_1", "api_key_encrypted": "enc(token)"},
+        {"user_id": "u2", "account_id": "ba_2", "api_key_encrypted": "enc(token)"},
+    ])
+    db.broker_oauth_states = FakeCollection([{"user_id": "u1", "state": "s1"}, {"user_id": "u2", "state": "s2"}])
     audits = []
 
     async def current_user(_request):
@@ -225,7 +230,13 @@ def test_account_erasure_removes_the_users_snapshots(monkeypatch):
     app.include_router(compliance.router)
 
     res = TestClient(app).delete("/api/compliance/account")
-    assert res.status_code == 200 and res.json() == {"ok": True, "holdings_deleted": 1, "plans_deleted": 1}
+    assert res.status_code == 200 and res.json() == {
+        "ok": True, "holdings_deleted": 1, "plans_deleted": 1, "broker_accounts_deleted": 1}
     assert [s["user_id"] for s in db.broker_sync_snapshots.docs] == ["u2"]            # only the erased user's
     assert [h["user_id"] for h in db.holdings.docs] == ["u2"]
+    # The connection and its stored session token go too, or the daily sync
+    # would read the account again and bring the erased holdings back.
+    assert [a["account_id"] for a in db.broker_accounts.docs] == ["ba_2"]
+    assert [s["state"] for s in db.broker_oauth_states.docs] == ["s2"]
+    assert audits[0]["details"]["broker_accounts_deleted"] == 1
     assert db.users.one(user_id="u1")["is_deleted"] is True and audits[0]["action"] == "data_delete"
