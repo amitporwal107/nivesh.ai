@@ -1,5 +1,5 @@
 {
-  "_fixture": "MOCK — not real data. Synthetic values in the real response shape.",
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape. Two accounts linked through the hosted middleware (native: false), which have no broker session of their own.",
   "accounts": [
     {
       "account_id": "ba_fixture00001",
@@ -13,7 +13,12 @@
       "last_sync_at": "2026-10-12T04:30:00+00:00",
       "last_sync_count": 3,
       "last_error": null,
-      "created_at": "2026-10-01T10:00:00+00:00"
+      "created_at": "2026-10-01T10:00:00+00:00",
+      "native": false,
+      "broker_user_masked": null,
+      "session_expires_at": null,
+      "session_ended_reason": null,
+      "needs_reconnect": false
     },
     {
       "account_id": "ba_fixture00002",
@@ -27,7 +32,12 @@
       "last_sync_at": null,
       "last_sync_count": 0,
       "last_error": null,
-      "created_at": "2026-10-10T10:00:00+00:00"
+      "created_at": "2026-10-10T10:00:00+00:00",
+      "native": false,
+      "broker_user_masked": null,
+      "session_expires_at": null,
+      "session_ended_reason": null,
+      "needs_reconnect": false
     }
   ]
 }

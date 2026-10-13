@@ -3,9 +3,12 @@
  * Design: frontend-v5/design/nivesh-copilot/NVPages.dc.html (page === "settings").
  *
  * Real: the account (useMe), mode (Copilot prefs), risk profile, goals, the
- * financial snapshot, theme, notification choices, connections (Gmail, CAS
- * statement, broker accounts), saved conversations, consent records, account
- * activity, the data export and session logging (./account/settings-cards).
+ * broker hub (connected broker accounts: sync, reconnect, remove; add a broker;
+ * upload a broker file — ./account/brokers, the same components Broker
+ * connections and Get started render), statement sources (Gmail, CAS
+ * statement), the financial snapshot, theme, notification choices, saved
+ * conversations, consent records, account activity, the data export and
+ * session logging (./account/settings-cards).
  * The design's answer depth, constraints and memory have no backend; changing
  * a consent, a retention period and deleting the account are not offered
  * (the privacy block says why). Those are shown as NotConnected.
@@ -15,12 +18,12 @@ import { useLogout, useMe } from "@/hooks/use-auth";
 import { useGoalArchive } from "@/hooks/use-goals";
 import { useUIStore } from "@/stores/ui.store";
 import type { Goal } from "@/types/goal";
-import { Btn, EmptyBlock, ErrorBlock, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, Section, fmtDate, fmtINR, fmtNum } from "../components/ui";
+import { Btn, EmptyBlock, ErrorBlock, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, Section, fmtDate, fmtINR } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
 import { useCopilotPrefs } from "../lib/store";
 import { MODE_LABEL, type Mode } from "../lib/views";
 import { InlineError, LinkButton, Row, ToggleChip, errorText, goalHorizonYears, riskAssessed, useProfileWizard } from "./account/parts";
-import { needsReconnect, useBrokerAccounts } from "./account/broker-queries";
+import { BrokerHub } from "./account/brokers";
 import { hasStatement, toRead, useDataExport, useGmailSourceStatus, useOnboardingState } from "./account/queries";
 import { ActivityCard, DiagnosticsCard, Loaded, NotificationsCard, PrivacyCard, SnapshotCard } from "./account/settings-cards";
 
@@ -161,16 +164,32 @@ function AppearanceCard() {
   );
 }
 
-// ── connections ──────────────────────────────────────────────────────────
+// ── broker hub ───────────────────────────────────────────────────────────
 
-function ConnectionsCard() {
+/**
+ * The broker hub, across the full width of the grid. A sign-in started here
+ * comes back to this screen (the hub sends this screen's path as `return_to`)
+ * and the hub shows the outcome.
+ */
+function BrokerHubCard() {
+  return (
+    <div data-testid="settings-broker-hub" className="col-span-full min-w-0">
+      <Section title="Broker connections" note="Read-only">
+        <BrokerHub />
+      </Section>
+    </div>
+  );
+}
+
+// ── statement sources ────────────────────────────────────────────────────
+
+function StatementsCard() {
   const { go } = useCopilotShell();
   const gmail = useGmailSourceStatus();
   const state = useOnboardingState();
-  const accounts = useBrokerAccounts();
 
   return (
-    <Section title="Connections">
+    <Section title="Statement sources">
       <Loaded read={gmail} what="Gmail status">
         {(g) => (
           <Row label="Gmail" sub={g.connected ? `Read-only, used to find CAS emails${g.connected_at ? ` · connected ${fmtDate(g.connected_at)}` : ""}` : "Used to find CAS emails"}>
@@ -190,23 +209,8 @@ function ConnectionsCard() {
           </Row>
         )}
       </Loaded>
-      <Loaded read={toRead(accounts)} what="Broker accounts">
-        {(list) => (
-          <Row
-            label="Broker accounts"
-            sub={list.length > 0
-              ? [
-                  list.map((a) => a.label || a.broker_display || a.broker).filter(Boolean).join(", "),
-                  list.some(needsReconnect) ? `${fmtNum(list.filter(needsReconnect).length)} need a new sign-in` : null,
-                ].filter(Boolean).join(" · ")
-              : "None connected"}
-          >
-            <span className="cp-num" data-testid="settings-broker-count" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>{fmtNum(list.length)} connected</span>
-          </Row>
-        )}
-      </Loaded>
       <div style={{ paddingTop: 14 }}>
-        <Btn data-testid="settings-manage-connections" onClick={() => go("page/brokers")}>Manage connections</Btn>
+        <Btn data-testid="settings-manage-connections" onClick={() => go("page/brokers")}>Manage statements and Gmail</Btn>
       </div>
     </Section>
   );
@@ -280,8 +284,9 @@ export default function SettingsScreen() {
       <div className="grid" style={{ gridTemplateColumns: columns, gap: 12, alignItems: "start" }}>
         <ProfileCard wizard={wizard} />
         <GoalsCard wizard={wizard} />
+        <BrokerHubCard />
+        <StatementsCard />
         <SnapshotCard />
-        <ConnectionsCard />
         <NotificationsCard />
         <AppearanceCard />
         <PrivacyCard />
