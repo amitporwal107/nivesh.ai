@@ -7,23 +7,28 @@
  *                     GET /api/positional/journal/summary/portfolio  (useJournalSummary)
  *   levels to watch   GET /api/positional/watchlist                  (useWatchLevels)
  *   scanner signals   GET /api/positional/picks                      (useScannerPicks)
- *   broker status     GET /api/broker/accounts                       (useBrokerAccounts)
+ *   broker block      GET /api/broker/accounts                       (useBrokerAccounts, in desk/BrokerPositions)
+ *                     GET /api/portfolio/holdings                    (useBrokerHoldings — the rows a broker read stored)
  *
  * Not connected: the broker position book (and with it day P&L and trading
  * capital) and the risk rules. The journal is the user's own log of trades,
- * so it is shown as a journal and never labelled as broker positions.
+ * so it is shown as a journal and never labelled as broker positions; the
+ * holdings a broker reported are shown as holdings, not as open positions.
  */
 import { useState, type ReactNode } from "react";
 import {
   Btn, DataTable, EmptyBlock, Footnote, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, Section, Tiles,
-  TONE_COLOR, fmtDate, fmtINR, fmtNum, fmtPct, humaniseTag, relTime, signTone,
+  TONE_COLOR, fmtDate, fmtINR, fmtNum, fmtPct, humaniseTag, signTone,
   type Column, type TileItem, type Tone,
 } from "../components/ui";
+import { StockIcon } from "../components/EntityIcon";
 import { useCopilotShell } from "../lib/shell-context";
+import { BrokerPositions } from "./desk/BrokerPositions";
+import { SymbolCell } from "./desk/parts";
 import { FnoAnalyser } from "./trading/FnoAnalyser";
 import { Labeled, QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtPrice, fmtSigned } from "./trading/parts";
 import {
-  heldDays, rMultiple, riskLeftRs, useBrokerAccounts, useJournalSummary, useScannerPicks, useTradeJournal, useWatchLevels,
+  heldDays, rMultiple, riskLeftRs, useJournalSummary, useScannerPicks, useTradeJournal, useWatchLevels,
   type JournalTrade, type ScannerPick, type WatchBucket, type WatchRow,
 } from "./trading/queries";
 
@@ -54,7 +59,7 @@ function Header() {
   return (
     <ScreenHeader
       eyebrow="Trader desk · journal, scanner and levels"
-      pills={<><Pill tone="mint">Trader mode</Pill><Pill>Live orders off</Pill></>}
+      pills={<><Pill tone="mint">Trader mode</Pill><Pill>Read-only · no orders</Pill></>}
       title={<span data-testid="trader-headline">{title}</span>}
       sub={sub}
     />
@@ -110,35 +115,8 @@ function JournalTiles() {
   return <Tiles items={items} />;
 }
 
-// ── open positions from the broker (not connected) ───────────────────────
-
-function BrokerPositions() {
-  const { go } = useCopilotShell();
-  const q = useBrokerAccounts();
-  const note = q.isPending
-    ? "Checking broker connections"
-    : q.isError
-      ? undefined
-      : q.data.length
-        ? q.data.map((a) => `${a.name} · holdings ${a.lastSyncAt ? `synced ${relTime(a.lastSyncAt)}` : "not synced yet"}`).join(" · ")
-        : "No broker connected";
-  return (
-    <Labeled title="Open positions · broker, read-only" note={note && <span data-testid="trader-broker-status">{note}</span>} testId="trader-broker-positions">
-      <NotConnected
-        testId="trader-positions-not-connected"
-        title="Broker positions are not read yet"
-        body="The broker link imports delivery holdings into your portfolio. Intraday and F&O positions are not read, so this table, day P&L and trading capital stay empty instead of being filled from something else. Trades you log yourself are in the journal below."
-        needs={[
-          "A route that returns the broker’s position book. The OpenAlgo client calls /api/v1/positionbook only to fill average prices during the holdings sync (POST /api/broker/accounts/{id}/sync); nothing returns positions to the app.",
-          "Broker funds, for trading capital and day P&L. /api/v1/funds is called only as a connection check.",
-          "A stop and a target for each position; the broker’s book has neither.",
-        ]}
-        action={<Btn onClick={() => go("page/brokers")}>Broker connections</Btn>}
-      />
-      {q.isError && <QueryProblem what="Broker connections" error={q.error} onRetry={() => q.refetch()} />}
-    </Labeled>
-  );
-}
+// The broker block (connected accounts, the holdings they reported, and what
+// cannot be read) lives in ./desk/BrokerPositions.
 
 // ── levels to watch ──────────────────────────────────────────────────────
 
@@ -171,7 +149,7 @@ function WatchLevels() {
   }
 
   const columns: Column<WatchRow>[] = [
-    { key: "sym", header: "Stock", width: "minmax(0,1.4fr)", render: (r) => <span data-testid="watch-row" title={r.sector ?? undefined} style={{ color: "var(--cp-ink)", fontWeight: 500 }}>{r.symbol}</span> },
+    { key: "sym", header: "Stock", width: "minmax(0,1.4fr)", render: (r) => <SymbolCell symbol={r.symbol} testId="watch-row" title={r.sector ?? undefined} /> },
     { key: "close", header: "Close", num: true, render: (r) => fmtPrice(r.close) },
     { key: "trigger", header: "Trigger", num: true, render: (r) => fmtPrice(r.trigger) },
     { key: "stop", header: "Stop · 1.5× ATR", num: true, render: (r) => fmtPrice(r.stop) },
@@ -232,9 +210,9 @@ function JournalTables() {
     {
       key: "sym", header: "Trade", width: "minmax(0,1.6fr)",
       render: (t) => (
-        <span data-testid="journal-open-row" className="inline-flex items-center" style={{ gap: 8, color: "var(--cp-ink)", fontWeight: 500 }}>
+        <SymbolCell symbol={t.symbol} testId="journal-open-row">
           {t.symbol}{atStop(t) && <Pill tone="danger">At stop</Pill>}
-        </span>
+        </SymbolCell>
       ),
     },
     { key: "qty", header: "Qty", num: true, render: (t) => fmtNum(t.heldQty) },
@@ -246,7 +224,7 @@ function JournalTables() {
     { key: "risk", header: "Risk left", num: true, render: (t) => fmtINR(riskLeftRs(t)) },
   ];
   const closedCols: Column<JournalTrade>[] = [
-    { key: "sym", header: "Trade", width: "minmax(0,1.6fr)", render: (t) => <span data-testid="journal-closed-row" style={{ color: "var(--cp-ink)", fontWeight: 500 }}>{t.symbol}</span> },
+    { key: "sym", header: "Trade", width: "minmax(0,1.6fr)", render: (t) => <SymbolCell symbol={t.symbol} testId="journal-closed-row" /> },
     { key: "setup", header: "Setup", render: (t) => (t.planSource ? SOURCE_LABEL[t.planSource] ?? humaniseTag(t.planSource.toLowerCase()) : "—") },
     { key: "result", header: "Result", num: true, render: (t) => toned(fmtPct(t.realizedPct, { signed: true }), signTone(t.realizedPct)) },
     {
@@ -345,8 +323,9 @@ function ScannerSignals() {
           ].filter(Boolean).join(" · ");
           return (
             <div key={p.symbol} data-testid="scanner-pick" className="flex flex-col" style={{ gap: 4, paddingBottom: 10, borderBottom: "1px solid var(--cp-line)" }}>
-              <div className="flex flex-wrap items-baseline" style={{ gap: "4px 10px" }}>
-                <span className="cp-num" style={{ fontSize: 12, fontWeight: 500 }}>{p.symbol}</span>
+              <div className="flex flex-wrap items-center" style={{ gap: "4px 10px" }}>
+                <StockIcon symbol={p.symbol} size={24} />
+                <span data-testid="scanner-pick-symbol" className="cp-num" style={{ fontSize: 12, fontWeight: 500 }}>{p.symbol}</span>
                 {stage && <span className="cp-mono-note">{stage}</span>}
                 <span style={{ flex: 1 }} />
                 {p.confidence && <Pill tone={p.confidence === "HIGH" ? "mint" : "ink"}>{p.confidence.toLowerCase()} confidence{p.score != null ? ` · ${fmtNum(p.score, 2)}` : ""}</Pill>}
@@ -378,11 +357,11 @@ function RiskRules() {
         <NotConnected
           testId="trader-risk-rules-not-connected"
           title="Risk limits are not stored yet"
-          body="Risk per trade, open risk, a daily loss limit and the F&O share of capital belong here, each measured against your limit. The app has nowhere to keep those limits and no capital figure to measure them against."
+          body="Risk per trade, open risk, a daily loss limit and the F&O share of capital belong here, each measured against your limit. The app has nowhere to keep those limits and no capital figure to measure them against. Open risk to the stops you logged is in the tiles above."
           needs={[
-            "A per-user store for trading risk limits (risk per trade, open risk, daily loss, F&O share of capital).",
-            "Trading capital, from broker funds or entered by you.",
-            "Day P&L and F&O exposure from the broker’s position book.",
+            "A per-user store for trading risk limits (risk per trade, open risk, daily loss, F&O share of capital). None exists: GET /api/user/preferences returns whatever is stored under the user’s preferences, but PATCH /api/user/preferences accepts only notifications.push and notifications.email. Accepting a trading_rules object there would be enough.",
+            "Trading capital: entered by the user in the same object, or read from broker funds (no route returns funds). The journal stores only the capital planned for each trade.",
+            "Day P&L and F&O exposure from the broker’s position book (no route returns it).",
           ]}
         />
         <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-danger)", paddingTop: 10, borderTop: "1px solid var(--cp-line)" }}>
