@@ -21,6 +21,7 @@ const VIEWS: Array<[string, string]> = [
   ["tool/markets", "screen-tool-markets"],
   ["tool/optlab", "screen-tool-optlab"],
   ["trader", "screen-trader"],
+  ["trader/strategy", "screen-trader-strategy"],
   ["page/watchlist", "screen-page-watchlist"],
   ["page/saved", "screen-page-saved"],
   ["page/plan", "screen-page-plan"],
@@ -29,6 +30,13 @@ const VIEWS: Array<[string, string]> = [
   ["page/brokers", "screen-page-brokers"],
   ["page/settings", "screen-page-settings"],
   ["advisor", "screen-advisor"],
+  // screens of the original v5 app, mounted inside the shell
+  ["tool/risk", "screen-tool-risk"],
+  ["tool/goals", "screen-tool-goals"],
+  ["tool/tax", "screen-tool-tax"],
+  ["advisor/workspace", "screen-advisor-workspace"],
+  ["advisor/client-360", "screen-advisor-client-360"],
+  ["advisor/sip-board", "screen-advisor-sip-board"],
   ["onboarding", "screen-onboarding"],
   ["builder", "screen-builder"],
   ["ops/tools", "screen-ops-tools"],
@@ -154,7 +162,12 @@ const ADVISOR_ME = { user_id: "u_adv", email: "advisor@example.test", name: "Fix
 test.describe("TC-19 screens show their endpoint's data — desktop", () => {
   test.beforeEach(async ({ page }) => { await populated(page); });
 
-  test("Portfolio analysis ← holdings-enriched + concentration", async ({ page }) => {
+  test("Portfolio analysis ← holdings, concentration, overlap, remediation, performance (the old AI Insights and Performance data)", async ({ page }) => {
+    await mockSingleRoute(page, "**/api/portfolio/exposure/fund-overlap/matrix*", "fund-overlap-matrix.json");
+    await mockSingleRoute(page, "**/api/portfolio/exposure/remediation*", "exposure-remediation.json");
+    await mockSingleRoute(page, "**/api/dashboards/performance*", "dashboards-performance-rich.json");
+    await mockSingleRoute(page, "**/api/portfolio/value-history*", "portfolio-value-history.json");
+    await mockSingleRoute(page, "**/api/portfolio/analytics*", "portfolio-analytics.json");
     await page.goto(`${APP}/tool/analysis`);
     // holdings-enriched.json totals: value 1,03,06,772.4 · invested 84,07,496.59 · pnl 18,99,275.8 (22.59%) · xirr 14.29
     await expect(page.getByTestId("analysis-total-value")).toHaveText("₹1.03 Cr");
@@ -162,11 +175,44 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
     await expect(page.getByTestId("analysis-gain")).toHaveText("+₹18.99 L");
     await expect(page.getByTestId("analysis-gain-pct")).toHaveText("+22.6%");
     await expect(page.getByTestId("analysis-xirr")).toHaveText("14.3%");
-    // concentration.json: 10 sector rows returned, first is "Unclassified"
+    // concentration.json: 10 sector rows returned, first is "Unclassified"; sector Effective N 12.1, HHI 0.0824
     await expect(page.getByTestId("analysis-sector-name")).toHaveCount(10);
     await expect(page.getByTestId("analysis-sector-name").first()).toHaveText("Unclassified");
-    // No benchmark series exists, so the comparison is declared missing, not drawn.
-    await expect(page.getByTestId("analysis-benchmark-not-connected")).toBeVisible();
+    await expect(page.getByTestId("analysis-sector-effective-n")).toContainText("12.1");
+    await expect(page.getByTestId("analysis-sector-hhi")).toContainText("824");
+    // AMC axis: HDFC first at 40.58%, Effective N 4.9
+    await page.getByTestId("analysis-tab-amc").click();
+    await expect(page.getByTestId("analysis-amc-name").first()).toHaveText("HDFC");
+    await expect(page.getByTestId("analysis-amc-effective-n")).toContainText("4.9");
+    await expect(page.getByTestId("analysis-amc-largest")).toContainText("40.6%");
+
+    // Concentration ladder (Effective N per axis) and fund overlap
+    await page.getByTestId("analysis-section-tab-concentration").click();
+    await expect(page.getByTestId("analysis-ladder-row")).toHaveCount(4);
+    await expect(page.getByTestId("analysis-ladder-company-n")).toContainText("74.4");
+    await expect(page.getByTestId("analysis-ladder-sector-n")).toContainText("12.1");
+    await expect(page.getByTestId("analysis-ladder-group-n")).toContainText("5.6");
+    await expect(page.getByTestId("analysis-ladder-amc-n")).toContainText("4.9");
+    await expect(page.getByTestId("analysis-overlap-pair")).toHaveCount(3); // fund-overlap-matrix.json has three pairs
+    await expect(page.getByTestId("analysis-overlap-pct").first()).toContainText("96.5%");
+
+    // Remediation plan
+    await page.getByTestId("analysis-section-tab-fix").click();
+    await expect(page.getByTestId("analysis-remediation-card")).toHaveCount(2); // exposure-remediation.json
+    await expect(page.getByTestId("analysis-remediation-leverage").first()).toContainText("90");
+    await expect(page.getByTestId("analysis-remediation-saving").first()).toContainText("₹1,950");
+
+    // Performance — the figures the old Performance page shows, labelled the same way
+    await page.getByTestId("analysis-section-tab-performance").click();
+    await expect(page.getByTestId("analysis-perf-headline")).toHaveText("You beat the benchmark by 3.2 points");
+    await expect(page.getByTestId("analysis-perf-tile-xirr")).toContainText("14.8%");
+    await expect(page.getByTestId("analysis-perf-tile-sharpe")).toContainText("1.24");
+    await expect(page.getByTestId("analysis-perf-tile-alpha")).toContainText("+3.2pp");
+    // portfolio-value-history.json: three months, current value ₹10,25,000 (+2.5% on the first month's ₹10,00,000)
+    await expect(page.getByTestId("analysis-value-now")).toContainText("₹10.25 L");
+    await expect(page.getByTestId("analysis-value-change")).toContainText("2.5%");
+    await expect(page.getByTestId("analysis-value-source")).toContainText("CAS statement · 3 months of history");
+    await expect(page.getByTestId("analysis-benchmark-basis")).toContainText("Portfolio XIRR vs Nifty 500 CAGR");
   });
 
   test("Portfolio ledger ← holdings-enriched", async ({ page }) => {
@@ -234,7 +280,7 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
     await expect(page.getByTestId("research-stock-nc")).toBeVisible();
   });
 
-  test("Screener ← saved screeners; a rule compiles to the query that is asked", async ({ page }) => {
+  test("Screener ← saved screeners; Open in Copilot asks the compiled rule (in-page runs: copilot-app-screener.spec.ts)", async ({ page }) => {
     const sent = await mockAsk(page);
     // Shape: backend/routes/screeners.py (contract in src/hooks/use-screeners.ts)
     await json(page, "**/api/screeners", [{ screener_id: "scr_fixture01", name: "Fixture quality screen", query: "Screen stocks where ROE over 20, P/E under 15", conditions: [{ key: "roe", op: "over", value: "20" }, { key: "pe", op: "under", value: "15" }], bucket: "", updated_at: "2026-10-11T10:00:00+00:00" }]);
@@ -243,14 +289,24 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
     await expect(page.getByTestId("screener-run")).toBeDisabled();
     await page.getByTestId("screener-rule-value").first().fill("20");
     await expect(page.getByTestId("screener-query")).toHaveText("Screen stocks where ROE over 20");
-    await page.getByTestId("screener-run").click();
+    await page.getByTestId("screener-open-copilot").click();
     await expect.poll(() => sent).toEqual(["Screen stocks where ROE over 20"]);
     await expect(page).toHaveURL(/\/v5\/app\/t\/asked1$/);
   });
 
-  test("Watchlist ← filing alerts only; the internal research list is not requested", async ({ page }) => {
-    const requested: string[] = [];
-    page.on("request", (r) => requested.push(new URL(r.url()).pathname));
+  test("Watchlist ← the research watchlist, watchlists from saved screens, and filing alerts", async ({ page }) => {
+    const sent = await mockAsk(page);
+    // Shape: backend/routes/research_watchlist.py (types in research-watchlist.adapter.ts)
+    await json(page, "**/api/public/research-watchlist*", {
+      meta: { count: 1, carried_over: 0, list_date: "2026-10-12", available_dates: [{ list_date: "2026-10-12", count: 1 }, { list_date: "2026-10-05", count: 3 }], disclaimer: "Fixture disclaimer text.", live_quotes_source: "yahoo_finance" },
+      items: [{ list_date: "2026-10-12", symbol: "FIXTUREUP", company_name: "Fixture Gainer Ltd", tier: "high", rank: 1, thesis: "Fixture thesis line.", published_price: 95, published_date: "2026-10-12", current_price: 101.5, current_price_date: "2026-10-13", change_since_published_pct: 6.84, day_change: 1.5, day_change_pct: 1.5, is_live: true, earlier_list_dates: [] }],
+    });
+    await json(page, "**/api/screeners", [{ screener_id: "scr_fixture01", name: "Fixture value screen", query: "Screen stocks where P/E under 15", conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "", updated_at: "2026-10-11T10:00:00+00:00" }]);
+    const runs: unknown[] = [];
+    await page.route("**/api/screeners/run", (route) => {
+      runs.push(route.request().postDataJSON());
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(load("screener-run-examples.json").matches) });
+    });
     // Shape: AlertsC in src/services/adapters/filings.adapter.ts
     await json(page, "**/api/filings/alerts", {
       ok: true,
@@ -261,13 +317,30 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
       updatedAt: "2026-10-12T10:00:00+00:00",
     });
     await page.goto(`${APP}/page/watchlist`);
+
+    // The research watchlist the product already publishes, with its live quote and disclaimer.
+    await expect(page.getByTestId("watchlist-count")).toHaveText("Research watchlist · 1 stock");
+    await expect(page.getByTestId("watchlist-name")).toHaveText("Fixture Gainer Ltd");
+    await expect(page.getByTestId("watchlist-price")).toHaveText("₹101.50");
+    await expect(page.getByTestId("watchlist-change")).toHaveText("+1.50%");
+    await expect(page.getByTestId("watchlist-since")).toContainText("+6.8%");
+    await expect(page.getByTestId("watchlist-disclaimer")).toHaveText("Fixture disclaimer text.");
+    await expect(page.getByTestId("watchlist-list-picker")).toBeVisible(); // two dated lists
+
+    // A saved screen is a watchlist: its stocks are whatever passes it today.
+    await expect(page.getByTestId("watchlist-screen-name")).toHaveText("Fixture value screen");
+    expect(runs).toEqual([]); // nothing runs until asked
+    await page.getByTestId("watchlist-screen-toggle").click();
+    await expect(page.getByTestId("watchlist-screen-stock")).toHaveText(["FIXALPHA", "FIXBRAVO"]);
+    await expect(page.getByTestId("watchlist-screen-count")).toContainText("2 stocks today");
+    expect(runs).toEqual([{ conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "" }]);
+
     await expect(page.getByTestId("watchlist-alerts-on")).toHaveText("3"); // three of four types are true
     await expect(page.getByTestId("watchlist-alert")).toHaveCount(4);
-    await expect(page.getByTestId("watchlist-alerts-delivery")).toHaveText("Fixture delivery note.");
-    await expect(page.getByTestId("watchlist-personal-nc")).toBeVisible();
     await expect(page.getByTestId("watchlist-alerts-nc")).toBeVisible();
-    await page.waitForLoadState("networkidle");
-    expect(requested.filter((p) => p.includes("research-watchlist"))).toEqual([]);
+
+    await page.getByTestId("watchlist-row").click();
+    await expect.poll(() => sent).toEqual(["Tell me about Fixture Gainer Ltd"]);
   });
 
   test("Saved ← screeners + chat sessions; a thread opens", async ({ page }) => {
@@ -313,9 +386,11 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
     await expect(page.getByTestId("trader-risk-rules-not-connected")).toBeVisible();
   });
 
-  test("Options lab: payoff is computed from typed legs; chain and open interest are declared missing", async ({ page }) => {
+  test("Options lab: payoff is computed from typed legs; with no F&O answer the chain and open interest show an error, not numbers", async ({ page }) => {
     await page.goto(`${APP}/tool/optlab`);
+    // No chain (the mock answers /api/fno/* with {}), so the spot falls back to the markets feed.
     await expect(page.getByTestId("optlab-spot")).toContainText("24,568.00");
+    await expect(page.getByTestId("optlab-asof")).toHaveCount(0);
     await page.getByTestId("optlab-tab-builder").click();
     await page.getByTestId("optlab-structure").filter({ hasText: "Bull call spread" }).click();
     await expect(page.getByTestId("optlab-payoff-empty")).toBeVisible(); // nothing computed until prices are typed
@@ -333,9 +408,78 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
     await expect(page.getByTestId("optlab-payoff-chart")).toBeVisible();
     await expect(page.getByTestId("optlab-analytics-not-connected")).toBeVisible();
     await page.getByTestId("optlab-tab-chain").click();
-    await expect(page.getByTestId("optlab-chain-not-connected")).toBeVisible();
+    await expect(page.getByTestId("optlab-chain-error")).toBeVisible();
+    await expect(page.getByTestId("optlab-chain-row")).toHaveCount(0);
     await page.getByTestId("optlab-tab-oi").click();
-    await expect(page.getByTestId("optlab-oi-not-connected")).toBeVisible();
+    await expect(page.getByTestId("optlab-oi-error")).toBeVisible();
+    await expect(page.getByTestId("optlab-oi-bar")).toHaveCount(0);
+  });
+
+  test("Options lab ← /api/fno: end-of-day chain, open interest, lot size and prefilled legs", async ({ page }) => {
+    const fno = load("fno-nifty.json");
+    await json(page, "**/api/fno/NIFTY/expiries", fno.expiries);
+    await json(page, "**/api/fno/NIFTY/chain*", fno.chain);
+    await page.goto(`${APP}/tool/optlab`);
+    // Spot and date come from the chain, and are labelled end of day.
+    await expect(page.getByTestId("optlab-spot")).toHaveText("25,040.50");
+    await expect(page.getByTestId("optlab-asof")).toHaveText("End-of-day data · as of 12 Oct 2026");
+    await expect(page.getByTestId("optlab-expiry")).toHaveValue("2026-10-13");
+
+    await page.getByTestId("optlab-tab-chain").click();
+    const rows = page.getByTestId("optlab-chain-row");
+    await expect(rows).toHaveCount(3);
+    const atm = page.locator('[data-testid="optlab-chain-row"][data-atm="true"]');
+    await expect(atm).toHaveAttribute("data-strike", "25000");
+    await expect(atm.locator('[data-col="call-oi"]')).toHaveText("31.00 L");
+    await expect(atm.locator('[data-col="call-price"]')).toHaveText("240.25");
+    await expect(atm.locator('[data-col="put-price"]')).toHaveText("128.60");
+    await expect(atm.locator('[data-col="put-oi"]')).toHaveText("36.00 L");
+    await expect(page.getByTestId("optlab-chain-note")).toContainText("3 of this expiry’s 3 strikes");
+
+    await page.getByTestId("optlab-tab-oi").click();
+    // Totals 1,68,00,000 calls and 87,00,000 puts → PCR 0.5179
+    await expect(page.getByTestId("optlab-oi-total-call")).toHaveText("1.68 Cr");
+    await expect(page.getByTestId("optlab-oi-total-put")).toHaveText("87.00 L");
+    await expect(page.getByTestId("optlab-oi-pcr")).toHaveText("0.52");
+    await expect(page.getByTestId("optlab-oi-max-pain")).toHaveText("25,000");
+    await expect(page.getByTestId("optlab-oi-top-call")).toHaveText("25,100 · 1.24 Cr");
+    await expect(page.getByTestId("optlab-oi-top-put")).toHaveText("24,900 · 42.00 L");
+    await expect(page.getByTestId("optlab-oi-bar")).toHaveCount(6);
+
+    await page.getByTestId("optlab-tab-builder").click();
+    // "Buy call" is filled from the ATM strike's close, and the lot from the contract file.
+    await expect(page.getByTestId("optlab-leg-0-strike")).toHaveValue("25000");
+    await expect(page.getByTestId("optlab-leg-0-premium")).toHaveValue("240.25");
+    await expect(page.getByTestId("optlab-lot-size")).toHaveValue("65");
+    await expect(page.getByTestId("optlab-lot-source")).toBeVisible();
+    await expect(page.getByTestId("optlab-prefill-note")).toContainText("end-of-day closing prices as of 12 Oct 2026");
+    // Buy 1 lot of 65 at 240.25: the most that can be lost is the premium, 240.25 × 65 = 15,616.25
+    await expect(page.getByTestId("optlab-max-profit")).toHaveText("Unlimited");
+    await expect(page.getByTestId("optlab-max-loss")).toHaveText("₹15,616");
+    // A typed lot size is kept when another expiry's chain arrives.
+    await page.getByTestId("optlab-lot-size").fill("130");
+    await page.getByTestId("optlab-expiry").selectOption("2026-10-27");
+    await expect(page.getByTestId("optlab-lot-size")).toHaveValue("130");
+    await expect(page.getByTestId("optlab-lot-source")).toHaveCount(0);
+    // Nothing here offers an order.
+    await expect(page.getByTestId("screen-tool-optlab").getByRole("button", { name: /place|send order|buy now|sell now/i })).toHaveCount(0);
+  });
+
+  test("Trader desk F&O card ← /api/fno: futures basis, put-call ratio, max pain and open-interest levels", async ({ page }) => {
+    const fno = load("fno-nifty.json");
+    await json(page, "**/api/fno/NIFTY/expiries", fno.expiries);
+    await json(page, "**/api/fno/NIFTY/chain*", fno.chain);
+    await json(page, "**/api/fno/NIFTY/futures", fno.futures);
+    await page.goto(`${APP}/trader`);
+    await expect(page.getByTestId("fno-futures-price")).toHaveText("25,079.00");
+    // 25,079.00 settle − 25,040.50 spot
+    await expect(page.getByTestId("fno-basis")).toHaveText("+38.50");
+    await expect(page.getByTestId("fno-futures-asof")).toHaveText("End-of-day data · as of 12 Oct 2026");
+    await expect(page.getByTestId("fno-pcr")).toHaveText("0.52");
+    await expect(page.getByTestId("fno-max-pain")).toHaveText("25,000");
+    await expect(page.getByTestId("fno-top-put-oi")).toHaveText("24,900");
+    await expect(page.getByTestId("fno-top-call-oi")).toHaveText("25,100");
+    await expect(page.getByTestId("fno-oi-by-strike-row")).toHaveCount(3);
   });
 
   test("Paper trades ← paper-trades portfolio, evaluation, live", async ({ page }) => {
@@ -462,10 +606,10 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
 
   test("the engineering 'needs' list on a not-connected block is shown to admins only", async ({ page }) => {
     await page.goto(`${APP}/page/watchlist`); // fixture user is an admin
-    await expect(page.getByTestId("watchlist-personal-nc").getByTestId("not-connected-needs")).toBeVisible();
+    await expect(page.getByTestId("watchlist-alerts-nc").getByTestId("not-connected-needs")).toBeVisible();
     await json(page, "**/api/auth/me", { user_id: "u_plain", email: "user@example.test", name: "Fixture User", is_admin: false, onboarding_completed: true });
     await page.reload();
-    await expect(page.getByTestId("watchlist-personal-nc")).toBeVisible();
+    await expect(page.getByTestId("watchlist-alerts-nc")).toBeVisible();
     await expect(page.getByTestId("not-connected-needs")).toHaveCount(0);
   });
 });
