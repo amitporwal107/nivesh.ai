@@ -1,0 +1,84 @@
+{
+  "Fixture Sector A": {
+    "ok": true,
+    "index": "Fixture Index 100",
+    "sector": "Fixture Sector A",
+    "period_end": "2025-12-31",
+    "quarter": "Q3 FY26",
+    "declared": 2,
+    "members": 3,
+    "companies": [
+      {
+        "symbol": "FIXTUREUP",
+        "name": "Fixture Gainer Ltd.",
+        "declared": true,
+        "revenue_cr": 1200,
+        "pat_cr": 150,
+        "sales_yoy": 15.0,
+        "profit_yoy": 20.0,
+        "sales_qoq": 2.0,
+        "profit_qoq": 5.0,
+        "profit_grew": true
+      },
+      {
+        "symbol": "FIXTUREOTHER",
+        "name": "Fixture Other Ltd.",
+        "declared": true,
+        "revenue_cr": 800,
+        "pat_cr": 60,
+        "sales_yoy": -3.0,
+        "profit_yoy": -12.5,
+        "sales_qoq": 1.0,
+        "profit_qoq": -4.0,
+        "profit_grew": false
+      },
+      {
+        "symbol": "FIXTUREWAIT",
+        "name": "Fixture Waiting Ltd.",
+        "declared": false,
+        "revenue_cr": null,
+        "pat_cr": null,
+        "sales_yoy": null,
+        "profit_yoy": null,
+        "sales_qoq": null,
+        "profit_qoq": null,
+        "profit_grew": false
+      }
+    ]
+  },
+  "Fixture Sector B": {
+    "ok": true,
+    "index": "Fixture Index 100",
+    "sector": "Fixture Sector B",
+    "period_end": "2025-12-31",
+    "quarter": "Q3 FY26",
+    "declared": 1,
+    "members": 2,
+    "companies": [
+      {
+        "symbol": "FIXNAME",
+        "name": "Fixture Nameonly Ltd.",
+        "declared": true,
+        "revenue_cr": 300,
+        "pat_cr": 25,
+        "sales_yoy": 6.0,
+        "profit_yoy": null,
+        "sales_qoq": 1.5,
+        "profit_qoq": null,
+        "profit_grew": null
+      },
+      {
+        "symbol": "FIXTUREDN",
+        "name": "Fixture Loser Ltd.",
+        "declared": false,
+        "revenue_cr": null,
+        "pat_cr": null,
+        "sales_yoy": null,
+        "profit_yoy": null,
+        "sales_qoq": null,
+        "profit_qoq": null,
+        "profit_grew": false
+      }
+    ]
+  }
+}
