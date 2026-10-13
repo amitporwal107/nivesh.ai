@@ -10,21 +10,49 @@
  * then says so and shows nothing else. Returns are fractions (0.05 = 5%) and
  * are shown as the engine stored them. Forward and replay are separate samples
  * and are never pooled. "Open" and "closed" follow the engine's headline exit.
+ *
+ * Two views. "Summary" is this screen. "Full record" mounts the original
+ * Research → Paper screen (desk/PaperEngine), which shows everything else the
+ * same endpoints return: the ranked universe, sizing what-ifs, one trade's
+ * path and lifecycle (GET /api/paper-trades/trades/{id}), every exit mode, the
+ * benchmarks and the calibration buckets. Accounts with the sim_lab feature get
+ * a third view, "Simulation lab": the original Research → Lab screen
+ * (desk/SimulationLab, GET /api/sim-lab/*), the engine's frozen backtest runs.
  */
-import { useState, type ReactNode } from "react";
+import { Suspense, lazy, useState, type ReactNode } from "react";
 import {
   PORTFOLIOS,
   type PaperEvaluation, type PaperLive, type PaperLivePosition, type PaperPortfolio, type PaperPortfolioData, type PaperPosition, type PaperSample,
 } from "@/services/adapters/paperTrades.adapter";
 import { MODE_SESSION, clock } from "@/pages/Research/paperMath";
+import { useMe } from "@/hooks/use-auth";
 import {
   Btn, DataTable, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Screen, ScreenHeader, Section, Tiles,
   TONE_COLOR, fmtINR, fmtNum, fmtPct, humaniseTag, signTone,
   type Column, type TileItem, type Tone,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { SymbolCell } from "./desk/parts";
 import { Choices, INPUT_STYLE, Labeled, fmtDay, fmtPrice } from "./trading/parts";
 import { usePaperEvaluation, usePaperLive, usePaperPortfolio } from "./trading/queries";
+
+/** The original Research → Paper screen; its chart code loads only when the view is opened. */
+const PaperEngine = lazy(() => import("./desk/PaperEngine"));
+/** The original Research → Lab screen: the engine's frozen simulation runs. */
+const SimulationLab = lazy(() => import("./desk/SimulationLab"));
+
+type PaperView = "summary" | "record" | "lab";
+const VIEWS: Array<{ value: PaperView; label: string }> = [
+  { value: "summary", label: "Summary" },
+  { value: "record", label: "Full record" },
+];
+/** Offered only to accounts with the sim_lab feature — the gate the original Research page uses. */
+const LAB_VIEW: { value: PaperView; label: string } = { value: "lab", label: "Simulation lab" };
+const VIEW_NOTE: Record<PaperView, string> = {
+  summary: "Full record adds the ranked universe, each trade’s path, every exit mode and the benchmarks",
+  record: "The engine’s own screen, with every stored figure",
+  lab: "The engine’s frozen simulation runs, trade by trade",
+};
 
 const SAMPLES: Array<{ value: PaperSample; label: string }> = [
   { value: "forward", label: "Forward" },
@@ -143,7 +171,7 @@ function SessionTables({ s, live, liveProblem }: { s: PaperPortfolioData; live: 
   const liveBy = new Map<string, PaperLivePosition>((live?.positions ?? []).map((p) => [p.symbol, p]));
 
   const openCols: Column<PaperPosition>[] = [
-    { key: "pos", header: "Position", width: "minmax(0,1.8fr)", render: (p) => <span data-testid="paper-open-row" title={p.company_name ?? undefined} style={{ color: "var(--cp-ink)" }}>{positionLabel(p)}</span> },
+    { key: "pos", header: "Position", width: "minmax(0,1.8fr)", render: (p) => <SymbolCell symbol={p.symbol} name={p.company_name} sub={p.company_name} testId="paper-open-row">{positionLabel(p)}</SymbolCell> },
     { key: "entry", header: "Entry", num: true, render: (p) => (p.entry_price != null ? fmtPrice(p.entry_price) : `Open of ${fmtDay(p.intended_entry_date)}`) },
     { key: "stop", header: "Stop", num: true, render: (p) => fmtPrice(p.stop_loss_price) },
     { key: "target", header: "Target", num: true, render: (p) => fmtPrice(targetOf(p, s)) },
@@ -168,7 +196,7 @@ function SessionTables({ s, live, liveProblem }: { s: PaperPortfolioData; live: 
   }
 
   const closedCols: Column<PaperPosition>[] = [
-    { key: "pos", header: "Trade", width: "minmax(0,1.8fr)", render: (p) => <span data-testid="paper-closed-row" title={p.company_name ?? undefined} style={{ color: "var(--cp-ink)" }}>{positionLabel(p)}</span> },
+    { key: "pos", header: "Trade", width: "minmax(0,1.8fr)", render: (p) => <SymbolCell symbol={p.symbol} name={p.company_name} sub={p.company_name} testId="paper-closed-row">{positionLabel(p)}</SymbolCell> },
     { key: "entry", header: "Entry", num: true, render: (p) => fmtPrice(p.entry_price) },
     { key: "exit", header: "Exit", num: true, render: (p) => fmtPrice(p.exits[mode]?.exit_price) },
     {
@@ -245,6 +273,9 @@ export default function PaperScreen() {
   const [sample, setSample] = useState<PaperSample>("forward");
   const [portfolio, setPortfolio] = useState<PaperPortfolio>("P5-NEXT");
   const [date, setDate] = useState<string | null>(null);
+  const [picked, setView] = useState<PaperView>("summary");
+  const labEnabled = !!useMe().data?.features?.sim_lab;
+  const view: PaperView = picked === "lab" && !labEnabled ? "summary" : picked;
 
   const pq = usePaperPortfolio(sample, portfolio, date);
   const eq = usePaperEvaluation(sample, portfolio);
@@ -269,6 +300,13 @@ export default function PaperScreen() {
       ? <ErrorBlock title="Live status didn’t load. Official values are written after the close" error={lq.data.message} onRetry={() => lq.refetch()} />
       : <Footnote>Live status is not available for this account.</Footnote>;
 
+  const viewPicker = (
+    <div className="flex flex-wrap items-center" style={{ gap: "8px 14px" }}>
+      <Choices label="View" testId="paper-view" value={view} options={labEnabled ? [...VIEWS, LAB_VIEW] : VIEWS} onChange={setView} />
+      <span className="cp-mono-note" style={{ flex: "1 1 220px", minWidth: 0 }}>{VIEW_NOTE[view]}</span>
+    </div>
+  );
+
   return (
     <Screen testId="screen-page-paper">
       <div className="flex flex-wrap items-end justify-between" style={{ gap: 14 }}>
@@ -286,15 +324,34 @@ export default function PaperScreen() {
         )}
       </div>
 
-      {noAccess ? (
-        <div data-testid="paper-no-access">
-          <EmptyBlock
-            title="Paper trades are not enabled for this account"
-            body="This research page is limited to invited accounts. An admin can turn on the move-odds research feature for you."
-          />
-        </div>
+      {view === "lab" ? (
+        <>
+          {viewPicker}
+          <Suspense fallback={<LoadingBlock label="Loading the simulation lab" rows={4} />}>
+            <SimulationLab />
+          </Suspense>
+        </>
+      ) : noAccess ? (
+        <>
+          {/* An account can have the simulation lab without the paper-trade record. */}
+          {labEnabled && viewPicker}
+          <div data-testid="paper-no-access">
+            <EmptyBlock
+              title="Paper trades are not enabled for this account"
+              body="This research page is limited to invited accounts. An admin can turn on the move-odds research feature for you."
+            />
+          </div>
+        </>
+      ) : view === "record" ? (
+        <>
+          {viewPicker}
+          <Suspense fallback={<LoadingBlock label="Loading the full record" rows={4} />}>
+            <PaperEngine />
+          </Suspense>
+        </>
       ) : (
         <>
+          {viewPicker}
           <div role="note" data-testid="paper-disclaimer" className="flex items-start" style={{ gap: 12, padding: "12px 16px", borderRadius: 12, border: "1px solid var(--line-2)", background: "var(--bg-1)" }}>
             <span className="cp-mono-note" style={{ paddingTop: 2, flex: "none" }}>Disclaimer</span>
             <span className="cp-pretty" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>

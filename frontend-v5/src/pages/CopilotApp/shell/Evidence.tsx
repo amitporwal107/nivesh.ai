@@ -3,8 +3,10 @@
  * answer was produced (thread). A column on wide screens, a bottom sheet on a
  * phone. Design: Nivesh Copilot.dc.html, the `showEv` aside.
  *
- * Home ("Your context"):
+ * Home ("Your context") — the same sources as the existing dashboard:
  *   portfolio value, gain, mix   GET /api/portfolio/holdings-enriched
+ *   health score                 GET /api/insights/analysis
+ *   statement, persona           GET /api/onboarding/state
  *   risk profile                 GET /api/user/risk-profile
  *   goals                        GET /api/goals
  *   data feeds                   GET /api/markets/home (state and as-of times)
@@ -14,10 +16,12 @@
 import { useState } from "react";
 import { agentLabel, toolLabel } from "@/components/chat/StreamStatus";
 import { useGoals } from "@/hooks/use-goals";
+import { useHealthAnalysis } from "@/hooks/use-insights";
 import { useMarketsHome } from "@/hooks/use-markets";
 import { useRiskProfile } from "@/hooks/use-risk-profile";
-import { fmtDate, fmtINR, fmtPct, humaniseTag, relTime, signTone, TONE_COLOR } from "../components/ui";
+import { fmtDate, fmtINR, fmtNum, fmtPct, humaniseTag, relTime, signTone, TONE_COLOR } from "../components/ui";
 import { fmtSecs } from "../lib/answer";
+import { personaConfidenceLabel, personaLabel, useCasState } from "../lib/use-cas-state";
 import { useCopilotPrompts } from "../lib/use-copilot-prompts";
 import { usePortfolioContext } from "../lib/use-portfolio-context";
 import type { ThreadEngine } from "../lib/use-thread-engine";
@@ -41,14 +45,24 @@ function HomeContext({ mode, onGo }: { mode: Mode; onGo: (v: string) => void }) 
   const goals = useGoals();
   const prompts = useCopilotPrompts();
   const markets = useMarketsHome();
+  const cas = useCasState();
+  const health = useHealthAnalysis();
+
+  const h = health.data?.health;
+  const healthScore = typeof h?.health_score === "number" ? h.health_score : typeof h?.score === "number" ? h.score : null;
 
   const remembers: Array<{ k: string; v: string }> = [{ k: "Mode", v: MODE_LABEL[mode] }];
+  // The persona the backend detected from the statement, as on the dashboard.
+  const persona = cas.data?.persona ?? prompts.data?.persona ?? null;
+  if (persona) {
+    const conf = personaConfidenceLabel(cas.data?.persona ? cas.data.personaConfidence : null);
+    remembers.push({ k: "Persona", v: `${personaLabel(persona)}${conf ? ` · ${conf}` : ""}` });
+  }
   if (risk.data?.category) remembers.push({ k: "Risk profile", v: risk.data.category });
   if (goals.data && goals.data.goals.length > 0) {
     const g = goals.data.goals;
     remembers.push({ k: g.length === 1 ? "Goal" : "Goals", v: g.length === 1 ? g[0].name : `${g.length} goals` });
   }
-  if (prompts.data?.persona) remembers.push({ k: "Persona", v: humaniseTag(prompts.data.persona) });
 
   const feeds: Array<{ t: string; s: string; color: string }> = [];
   if (markets.data) {
@@ -58,7 +72,9 @@ function HomeContext({ mode, onGo }: { mode: Mode; onGo: (v: string) => void }) 
   } else if (markets.isError) {
     feeds.push({ t: "NSE prices", s: "Unavailable", color: "var(--cp-danger)" });
   }
+  if (cas.data?.period) feeds.push({ t: "Last statement", s: cas.data.period, color: "var(--mint)" });
   if (pf.status === "ready") feeds.push({ t: "Your holdings", s: pf.generatedAt ? relTime(pf.generatedAt) : "Loaded", color: "var(--mint)" });
+  else if (pf.status === "statement") feeds.push({ t: "Your holdings", s: "Being prepared", color: "var(--amber)" });
   else if (pf.status === "empty") feeds.push({ t: "Your holdings", s: "Not connected", color: "var(--cp-danger)" });
   else if (pf.status === "error") feeds.push({ t: "Your holdings", s: "Unavailable", color: "var(--cp-danger)" });
 
@@ -80,6 +96,15 @@ function HomeContext({ mode, onGo }: { mode: Mode; onGo: (v: string) => void }) 
             <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{pf.holdingsCount} holdings{pf.xirrPct != null ? ` · XIRR ${fmtPct(pf.xirrPct)}` : ""}</span>
           </>
         )}
+        {pf.status === "statement" && (
+          <>
+            <span className="cp-metric" data-testid="context-portfolio-value">{fmtINR(pf.valueRs)}</span>
+            <span data-testid="context-from-statement" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+              As printed on your {pf.statementPeriod ?? "latest"} statement. Your holdings are still being prepared, so gains and the mix are not shown yet.
+            </span>
+            <button type="button" className="cp-btn" onClick={pf.refetch} style={{ alignSelf: "flex-start" }}>Check again</button>
+          </>
+        )}
         {pf.status === "empty" && (
           <div data-testid="context-no-portfolio" className="flex flex-col items-start" style={{ gap: 8 }}>
             <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>No portfolio connected yet.</span>
@@ -94,14 +119,25 @@ function HomeContext({ mode, onGo }: { mode: Mode; onGo: (v: string) => void }) 
         )}
       </div>
 
-      {pf.status === "ready" && pf.allocation.length > 0 && (
+      {healthScore != null && healthScore > 0 && pf.status !== "empty" && (
+        <div className="flex flex-col" style={{ gap: 6 }}>
+          <span className="cp-eyebrow">Health score</span>
+          <span className="flex items-baseline" style={{ gap: 8 }}>
+            <span className="cp-metric" data-testid="context-health-score">{fmtNum(healthScore, 0)}</span>
+            <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>of 100{h?.grade ? ` · grade ${h.grade}` : ""}</span>
+          </span>
+          <button type="button" onClick={() => onGo("tool/analysis")} style={{ alignSelf: "flex-start", fontSize: 12, color: "var(--cp-ink-3)", background: "none", border: 0, cursor: "pointer", padding: 0 }}>How it is made up ›</button>
+        </div>
+      )}
+
+      {pf.status === "ready" && pf.typeSplit.length > 0 && (
         <div className="flex flex-col" style={{ gap: 10 }}>
-          <span className="cp-eyebrow">Asset mix</span>
+          <span className="cp-eyebrow">Allocation by type</span>
           <div className="flex" style={{ height: 8, borderRadius: 4, overflow: "hidden", gap: 2 }} aria-hidden>
-            {pf.allocation.map((a, i) => <span key={a.key} style={{ width: `${a.pct}%`, background: MIX_COLORS[Math.min(i, MIX_COLORS.length - 1)] }} />)}
+            {pf.typeSplit.map((a, i) => <span key={a.key} style={{ width: `${a.pct}%`, background: MIX_COLORS[Math.min(i, MIX_COLORS.length - 1)] }} />)}
           </div>
           <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12, color: "var(--cp-ink-2)" }} data-testid="context-mix">
-            {pf.allocation.map((a) => <span key={a.key}>{a.label} {fmtPct(a.pct, { digits: 0 })}</span>)}
+            {pf.typeSplit.map((a) => <span key={a.key}>{a.label} {fmtPct(a.pct, { digits: 0 })}</span>)}
           </div>
         </div>
       )}
@@ -179,7 +215,7 @@ function ThreadEvidence({ sessionId, engine }: { sessionId: string; engine: Thre
         {turn && tab === "tools" && (
           <div className="flex flex-col" style={{ gap: 2 }}>
             {turn.steps === null && <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>Tool steps are recorded only for answers generated in this session. This answer was loaded from history.</span>}
-            {turn.steps && turn.steps.length === 0 && <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{working ? "No tool has started yet." : "This answer was written without calling a tool."}</span>}
+            {turn.steps && turn.steps.length === 0 && <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{working ? "No tool has started yet." : "The Copilot reported no tool steps for this answer."}</span>}
             {turn.steps?.map((s, i) => (
               <div key={s.tool + i} data-testid="evidence-tool" className="grid items-center" style={{ gridTemplateColumns: "14px minmax(0,1fr) auto", gap: 10, padding: "9px 0", borderBottom: "1px solid var(--cp-line)" }}>
                 <span style={{ fontFamily: "var(--mono)", fontSize: 12, color: s.done ? "var(--mint)" : "var(--cp-ink-4)" }} aria-hidden>{s.done ? "✓" : working ? "◌" : "·"}</span>

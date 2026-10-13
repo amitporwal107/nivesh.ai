@@ -151,7 +151,7 @@ export function Rail({ mode, view, drawer, isAdmin, onGo, onNewQuestion, onToggl
         <span className="flex flex-col" style={{ gap: 2, minWidth: 0 }}>
           <span style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{me.data?.name || me.data?.email || "Account"}</span>
           <span style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.06em", color: "var(--cp-ink-3)", textTransform: "uppercase" }}>
-            {pf.status === "loading" ? "…" : pf.status === "ready" ? `Portfolio ${fmtINR(pf.valueRs, { compact: true })}` : pf.status === "error" ? "Portfolio didn’t load" : "No portfolio connected"}
+            {pf.status === "loading" ? "…" : pf.status === "ready" || pf.status === "statement" ? `Portfolio ${fmtINR(pf.valueRs, { compact: true })}` : pf.status === "error" ? "Portfolio didn’t load" : "No portfolio connected"}
           </span>
         </span>
       </button>

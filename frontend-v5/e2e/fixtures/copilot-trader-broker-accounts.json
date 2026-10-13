@@ -1,0 +1,18 @@
+{
+  "accounts": [
+    {
+      "account_id": "ba_fixture00001",
+      "broker": "zerodha",
+      "broker_display": "Zerodha",
+      "label": "Zerodha",
+      "openalgo_url": "",
+      "openalgo_hosted": true,
+      "api_key_masked": "fixt••••••0001",
+      "status": "active",
+      "last_sync_at": "2026-10-12T10:12:00+00:00",
+      "last_sync_count": 3,
+      "last_error": null,
+      "created_at": "2026-10-01T05:00:00+00:00"
+    }
+  ]
+}

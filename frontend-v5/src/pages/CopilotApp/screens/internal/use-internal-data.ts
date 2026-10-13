@@ -7,8 +7,16 @@
  *   GET /api/compliance/audit        the caller's own trail  (backend/routes/compliance.py)
  *   GET /api/copilot/agents          routing agents          (backend/routes/copilot_agents.py)
  *
+ * The data platform's other read endpoints are in ops-nidp-data.ts and the
+ * app's own admin endpoints in ops-platform-data.ts; both use `parse` and
+ * `retryTransient` from here.
+ *
  * Responses are checked against the fields the screens read, so a changed
  * contract shows up as an error block instead of a broken page.
+ *
+ * Request budget: the backend allows 10 requests a minute per session on
+ * /api/admin/* (backend/middleware.py). Every query here is therefore cached
+ * for minutes, never refetched on a 429, and the one poll runs once a minute.
  */
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -17,7 +25,7 @@ import { ApiError } from "@/services/api/errors";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 
 /** Checks a response; a mismatch becomes one short line naming the fields at fault. */
-function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, data: unknown, name: string): T {
+export function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, data: unknown, name: string): T {
   const parsed = schema.safeParse(data);
   if (parsed.success) return parsed.data;
   const fields = parsed.error.issues
@@ -30,21 +38,28 @@ function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, data: unknown, na
 /**
  * A changed contract or a refusal will not improve on a second try, so those
  * fail at once and the screen shows its error state instead of a skeleton.
- * Anything transient gets the app's usual single retry.
+ * A 429 is not retried either: the admin budget is counted per minute, so a
+ * second request a second later only uses more of it. Anything transient gets
+ * the app's usual single retry.
  */
-function retryTransient(failureCount: number, error: unknown): boolean {
-  if (error instanceof ApiError && !["network", "timeout", "server", "rate_limit", "unknown"].includes(error.kind)) return false;
+export function retryTransient(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && !["network", "timeout", "server", "unknown"].includes(error.kind)) return false;
   return failureCount < 1;
 }
+
+/** How long an admin read stays fresh. Long, because the admin budget is small. */
+export const ADMIN_STALE_MS = 5 * 60_000;
 
 // ── GET /api/admin/nidp/feeds/live ───────────────────────────────────────
 
 const FeedDayC = z.object({
   date: z.string(),
+  is_today: z.boolean().nullable().optional(),
   /** OK | PARTIAL | FAILED | SKIPPED, or null when nothing ran that day. */
   status: z.string().nullable().optional(),
   run_count: z.number().nullable().optional(),
 }).passthrough();
+export type FeedDay = z.infer<typeof FeedDayC>;
 
 const LiveFeedC = z.object({
   ingester: z.string(),
@@ -52,17 +67,26 @@ const LiveFeedC = z.object({
   source_class: z.string().nullable().optional(),
   expected_freq: z.string().nullable().optional(),
   schedule_cron: z.string().nullable().optional(),
+  /** OK | PARTIAL | FAILED, or null when the job has never run. */
   last_run_status: z.string().nullable().optional(),
   consecutive_failures: z.number().nullable().optional(),
   last_run_at: z.string().nullable().optional(),
   last_success_at: z.string().nullable().optional(),
   last_failure_at: z.string().nullable().optional(),
+  /** The market day the last run loaded data for. */
+  last_target_date: z.string().nullable().optional(),
   last_rows_inserted: z.number().nullable().optional(),
+  last_run_duration_ms: z.number().nullable().optional(),
+  /** Run totals over the job log's whole history. */
+  success_count: z.number().nullable().optional(),
+  failure_count: z.number().nullable().optional(),
+  partial_count: z.number().nullable().optional(),
   last_error_message: z.string().nullable().optional(),
   last_7_days: z.array(FeedDayC).nullable().optional(),
   /** running | never_run | failing | stale | healthy */
   freshness_state: z.string(),
   hours_since_success: z.number().nullable().optional(),
+  missed_last_trading_day: z.boolean().nullable().optional(),
 }).passthrough();
 export type LiveFeed = z.infer<typeof LiveFeedC>;
 
@@ -83,13 +107,18 @@ const FeedsLiveC = z.object({
 }).passthrough();
 export type FeedsLive = z.infer<typeof FeedsLiveC>;
 
-/** Status of every NIDP ingester, worst first. Refreshes every 30 seconds. */
+/** How often feed status is re-read while the page is open. */
+export const FEEDS_POLL_MS = 60_000;
+
+/** Status of every NIDP ingester, worst first. Refreshes once a minute. */
 export function useFeedsLive() {
   return useQuery<FeedsLive>({
     queryKey: ["copilot-app", "ops", "feeds-live"],
     retry: retryTransient,
-    staleTime: 15_000,
-    refetchInterval: 30_000,
+    staleTime: 30_000,
+    // A failed read is not polled again: on a 429 that would spend the budget
+    // the retry button needs.
+    refetchInterval: (query) => (query.state.status === "error" ? false : FEEDS_POLL_MS),
     refetchIntervalInBackground: false,
     queryFn: async ({ signal }) => {
       const res = await http({ path: "/api/admin/nidp/feeds/live", timeoutMs: 30_000, signal });
@@ -122,7 +151,7 @@ export function useAdminStats() {
   return useQuery<AdminStats>({
     queryKey: ["copilot-app", "ops", "admin-stats"],
     retry: retryTransient,
-    staleTime: 60_000,
+    staleTime: ADMIN_STALE_MS,
     queryFn: async ({ signal }) => {
       const res = await http({ path: "/api/admin/stats", signal });
       return parse(AdminStatsC, res.data, "ops.adminStats");
@@ -139,6 +168,8 @@ const AuditRowC = z.object({
   resource: z.string().nullable().optional(),
   /** success | denied | error */
   outcome: z.string().nullable().optional(),
+  /** Free-form context, already stripped of passwords and tokens by the backend. Broker actions carry `broker`. */
+  details: z.record(z.unknown()).nullable().optional(),
   /** UTC ISO timestamp. */
   ts: z.string().nullable().optional(),
 }).passthrough();

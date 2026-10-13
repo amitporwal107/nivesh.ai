@@ -83,3 +83,69 @@ export function isoDay(days = 0): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${m}-${day}`;
 }
+
+/**
+ * A time stamp from a response, for an "as of" line: "12 Oct 2026" for a
+ * calendar day, "13 Oct 2026, 6:22 pm" when the stamp carries a time. Empty
+ * string for nothing or an unreadable value.
+ */
+export function stampLabel(iso: string | null | undefined): string {
+  if (!iso) return "";
+  if (DATE_ONLY.test(iso)) return dayLabel(iso, { year: true });
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** Source codes the market endpoints send, in plain words. */
+const SOURCE_LABELS: Record<string, string> = {
+  NSE_ANN: "NSE announcements",
+  BSE_ANN: "BSE announcements",
+  NSE: "NSE",
+  BSE: "BSE",
+  NIDP: "Nivesh data platform",
+};
+
+/** The source a response named, in plain words. A code this list does not know is shown as sent. */
+export function sourceLabel(code: string | null | undefined): string {
+  const raw = (code ?? "").trim();
+  if (!raw) return "";
+  return SOURCE_LABELS[raw.toUpperCase()] ?? raw;
+}
+
+/** Index points with a sign ("+357.83" / "−120.50"). */
+export function fmtPoints(n: number | null | undefined): string {
+  if (!ok(n)) return DASH;
+  return `${n < 0 ? "−" : n > 0 ? "+" : ""}${dec2.format(Math.abs(n))}`;
+}
+
+/** A share count → "1.24 Cr" / "3.50 L" / "12,345". */
+export function fmtShares(n: number | null | undefined): string {
+  if (!ok(n)) return DASH;
+  if (n >= 1_00_00_000) return `${(n / 1_00_00_000).toFixed(2)} Cr`;
+  if (n >= 1_00_000) return `${(n / 1_00_000).toFixed(2)} L`;
+  return int.format(Math.round(n));
+}
+
+/** "2026-10-01" (first day of a month) → "Oct 2026". */
+export function monthLabel(iso: string | null | undefined): string {
+  if (!iso) return DASH;
+  const d = new Date(DATE_ONLY.test(iso) ? `${iso}T00:00:00Z` : iso);
+  if (!Number.isFinite(d.getTime())) return DASH;
+  return d.toLocaleDateString("en-IN", { month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+/** Corporate-action type codes → labels, in the order the calendar lists them. */
+export const ACTION_LABELS: Record<string, string> = {
+  DIVIDEND: "Dividend",
+  BONUS: "Bonus",
+  RIGHTS: "Rights",
+  SPLIT: "Split",
+  MERGER: "Merger",
+  DEMERGER: "Demerger",
+  BUYBACK: "Buyback",
+};
+
+export function actionLabel(type: string): string {
+  return ACTION_LABELS[type] ?? titleCase(type);
+}

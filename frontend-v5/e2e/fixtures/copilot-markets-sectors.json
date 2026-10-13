@@ -1,0 +1,54 @@
+{
+  "ok": true,
+  "sectors": [
+    {
+      "slug": "fixture-a",
+      "name": "Fixture Sector A",
+      "icon": null,
+      "blurb": "Fixture blurb A",
+      "benchmark_index": "Fixture Index A",
+      "as_of_date": "2026-01-08",
+      "generated_at": "2026-01-09T02:00:00+00:00",
+      "headline": "Fixture Sector A: fixture headline.",
+      "metrics": {
+        "stock_count": 12,
+        "advancing": 9,
+        "declining": 3,
+        "market_cap_cr": 250000,
+        "median_pe": 22.5,
+        "median_pb": 2.5,
+        "median_roe": 15.5,
+        "avg_return_1y": 18.25,
+        "index_pct_change": 0.6,
+        "index_pe": 21.0
+      },
+      "has_commentary": true,
+      "excerpt": "Fixture excerpt"
+    },
+    {
+      "slug": "fixture-b",
+      "name": "Fixture Sector B",
+      "icon": null,
+      "blurb": "Fixture blurb B",
+      "benchmark_index": "Fixture Index B",
+      "as_of_date": "2026-01-08",
+      "generated_at": "2026-01-09T02:00:00+00:00",
+      "headline": "Fixture Sector B: fixture headline.",
+      "metrics": {
+        "stock_count": 8,
+        "advancing": 2,
+        "declining": 6,
+        "market_cap_cr": null,
+        "median_pe": null,
+        "median_pb": 2.5,
+        "median_roe": null,
+        "avg_return_1y": -6.5,
+        "index_pct_change": -0.4,
+        "index_pe": 17.5
+      },
+      "has_commentary": false,
+      "excerpt": null
+    }
+  ],
+  "llm_enabled": true
+}

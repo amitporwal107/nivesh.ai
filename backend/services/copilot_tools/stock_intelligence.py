@@ -297,6 +297,13 @@ _SCREENER_FIELD_MAP = (
     + [(k, col) for (k, col, _lbl, _grp) in _SCREENER_PRIMITIVES]
 )
 
+# Columns the data platform returns under another name. GET /v1/stocks/screener
+# selects `f.pe_vs_sector_pct AS pe_overvaluation_pct` (daas_api/routers/
+# stock_scores.py), so a row never carries `pe_vs_sector_pct` itself — without
+# this the "P/E vs sector" metric is empty on every row and no screen on it can
+# match. The column's own name is still read first.
+_SCREENER_ROW_ALIASES = {"pe_vs_sector_pct": "pe_overvaluation_pct"}
+
 # key → short label for the compiled query string (covers ALL primitives, so an
 # NL-set filter that isn't in the Refine panel still labels cleanly).
 _SCREENER_FILTER_LABELS = {k: lbl for (k, _col, lbl, _grp) in _SCREENER_PRIMITIVES}
@@ -425,7 +432,10 @@ def build_stock_screener_widget(
     for r in raw_rows:
         row: Dict[str, Any] = {}
         for wkey, src in _SCREENER_FIELD_MAP:
-            row[wkey] = r.get(src)
+            value = r.get(src)
+            if value is None and src in _SCREENER_ROW_ALIASES:
+                value = r.get(_SCREENER_ROW_ALIASES[src])
+            row[wkey] = value
         universe.append(row)
 
     note = "Live NIDP feature store" + (f" · as of {as_of_date}" if as_of_date else "")

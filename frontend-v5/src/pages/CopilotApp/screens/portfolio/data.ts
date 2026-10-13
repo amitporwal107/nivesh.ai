@@ -6,6 +6,14 @@
  *      GET /api/portfolio/capital-gains-statement   useRealisedGains
  *      GET /api/plans/history                       usePlanHistory
  *      GET /api/plans/active/health-projection      usePlanHealthProjection
+ *      GET /api/user/risk-profile                   useRiskCategory (the shared
+ *          useRiskProfile answers "no profile" when the request fails)
+ *      GET /api/portfolio/trend                     useHealthRecords (the health score
+ *          and its parts in each recorded snapshot; the shared
+ *          usePortfolioNavHistory keeps the value only)
+ *      PATCH /api/plans/{plan}/actions/{step}       useSetStepStatus (the shared
+ *          plansService.updateActionStatus sends a status the backend rejects
+ *          and expects a response shape it does not send)
  * 2. Readers that turn loosely typed payloads (zod passthrough fields and
  *    `unknown` blocks) into small view models, so a screen never indexes into
  *    `unknown` itself.
@@ -18,7 +26,7 @@
  * Units: every money value here is RUPEES; every percentage is in percent
  * units (12.4 = 12.4%).
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import { PlanC, type PlanActionC } from "@/services/contracts/plan.contract";
@@ -39,7 +47,7 @@ export function rec(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
-function list(v: unknown): unknown[] {
+export function list(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
 
@@ -137,9 +145,26 @@ export function readComposition(raw: unknown): CompositionView | null {
   return { totalInvestedRs: num(rec(d.totals)?.invested), slices };
 }
 
-/** `category` of GET /api/user/risk-profile as useRiskProfile hands it over; empty when unset. */
-export function readRiskCategory(raw: unknown): string {
-  return str(rec(raw)?.category);
+// ── risk category (GET /api/user/risk-profile) ───────────────────────────
+
+/**
+ * The risk category saved on the user's profile ("Moderate", "Aggressive", …);
+ * empty when no profile has been saved. Unlike the shared useRiskProfile, a
+ * failed request is an error here, not "no profile".
+ */
+export async function fetchRiskCategory(signal?: AbortSignal): Promise<string> {
+  const data = rec((await http({ path: "/api/user/risk-profile", signal })).data);
+  if (!data || !("risk_profile" in data)) throw ApiError.contractDrift("user.riskProfile: missing `risk_profile`");
+  return str(rec(data.risk_profile)?.category);
+}
+
+export function useRiskCategory() {
+  return useQuery<string>({
+    // Under the shared hook's key, so saving a risk profile refreshes this too.
+    queryKey: ["user", "risk-profile", "category"],
+    staleTime: 10 * 60_000,
+    queryFn: ({ signal }) => fetchRiskCategory(signal),
+  });
 }
 
 export interface ValuePoint {
@@ -315,12 +340,20 @@ export interface ExpectedEffect {
   fundingDelta: number | null;
 }
 
+/** The original Recommendations page's three filter groups. */
+export type StepGroup = "reduce" | "add" | "hold";
+
 export interface PlanStep {
   id: string;
+  /** The id the backend finds the step by when its status is changed. */
+  actionId: string;
   /** Engine verb, upper case: TRIM, EXIT, ADD, SWITCH, MERGE, HOLD… */
   verb: string;
+  group: StepGroup;
   /** Fund / stock the step is about; may be empty. */
   name: string;
+  /** The type the engine tagged that asset with ("mutual_fund", "equity", …); empty when it sent none. */
+  assetType: string;
   /** "Trim HDFC Balanced Advantage Fund". */
   title: string;
   /** Size of the step in rupees, when the engine gave one. */
@@ -335,7 +368,20 @@ export interface PlanStep {
   impactText: string;
   /** null = the engine did not estimate tax for this step. */
   taxLiabilityRs: number | null;
+  /** Short- and long-term gain the step would realise, exit load and days held; null when not sent. */
+  stcgRs: number | null;
+  ltcgRs: number | null;
+  exitLoadRs: number | null;
+  holdingDays: number | null;
   lockIn: boolean;
+  /** "aligned" | "minor" | "mismatch" | "severe", or empty. */
+  severity: string;
+  /** How the engine suggests going about it: "redirect" | "harvest" | "stagger" | "sell-now", or empty. */
+  execution: string;
+  /** Why the step is flagged but cannot be acted on yet; empty when it can. */
+  deferReason: string;
+  /** Fees the step saves per year, when the engine estimated it. */
+  annualSavingRs: number | null;
   effect: ExpectedEffect | null;
   note: string;
   createdAt: string;
@@ -369,6 +415,37 @@ export function verbMeta(verb: string): { label: string; tone: Tone } {
   return VERBS[verb] ?? { label: humanise(verb), tone: "ink" };
 }
 
+/**
+ * The original Recommendations page's grouping (normaliseAction and
+ * actionToFilterGroup) for the verbs it knows. It sends every verb it does not
+ * know to "add"; the newer ones are placed where they belong instead.
+ */
+const GROUPS: Record<string, StepGroup> = {
+  EXIT: "reduce", SELL: "reduce", REDUCE: "reduce", TRIM: "reduce", SIP_DECREASE: "reduce", CONSOLIDATE: "reduce",
+  MERGE: "reduce", HARVEST: "reduce",
+  ADD: "add", BUY: "add", SIP_INCREASE: "add", RAISE_SIP: "add", REDIRECT: "add", DIVERSIFY: "add",
+  HOLD: "hold", KEEP: "hold", SWITCH: "hold", REVIEW: "hold",
+};
+
+export function stepGroup(verb: string): StepGroup {
+  return GROUPS[verb] ?? "add";
+}
+
+export const SEVERITY_META: Record<string, { label: string; tone: Tone }> = {
+  aligned: { label: "Aligned", tone: "mint" },
+  minor: { label: "Minor drift", tone: "ink" },
+  mismatch: { label: "Mismatch", tone: "amber" },
+  severe: { label: "Severe", tone: "danger" },
+};
+
+/** The route the engine suggests for a step, in the original page's words. */
+export const EXECUTION_LABEL: Record<string, string> = {
+  redirect: "Redirect new money",
+  harvest: "Harvest",
+  stagger: "Stagger",
+  "sell-now": "Sell now",
+};
+
 export function toPlanStep(a: PlanActionC): PlanStep {
   const verb = (str(a.verb) || str(a.action) || str(a.type) || str(a.action_type)).toUpperCase() || "REVIEW";
   const name = str(a.asset_name) || str(a.holding_name);
@@ -377,8 +454,11 @@ export function toPlanStep(a: PlanActionC): PlanStep {
   const eff = rec(a.expected_effect);
   return {
     id: str(a.id) || a.action_id,
+    actionId: a.action_id,
     verb,
+    group: stepGroup(verb),
     name,
+    assetType: str(a.asset_type),
     title: `${verbMeta(verb).label} ${name}`.trim(),
     amountRs: amount != null && amount > 0 ? amount : null,
     status: STATUS[str(a.status).toUpperCase()] ?? "PENDING",
@@ -388,7 +468,15 @@ export function toPlanStep(a: PlanActionC): PlanStep {
     confidence: str(a.confidence).toUpperCase(),
     impactText: str(rec(a.impact)?.value),
     taxLiabilityRs: num(tax?.tax_liability),
+    stcgRs: num(tax?.stcg),
+    ltcgRs: num(tax?.ltcg),
+    exitLoadRs: num(tax?.exit_load_rs),
+    holdingDays: num(tax?.holding_period_days),
     lockIn: tax?.lock_in === true,
+    severity: str(a.severity).toLowerCase(),
+    execution: (str(a.execution) || str(a.execution_path)).toLowerCase(),
+    deferReason: str(a.defer_reason),
+    annualSavingRs: num(rec(a.estimated_impact)?.annual_savings_rs),
     effect: eff ? { riskBand: str(eff.risk_band_delta), scoreDelta: num(eff.score_delta_pct), fundingDelta: num(eff.funding_probability_delta) } : null,
     note: str(a.completion_note),
     createdAt: str(a.created_at),
@@ -416,7 +504,19 @@ export function effectText(step: PlanStep): string {
 
 // ── plan-level facts (passthrough fields on GET /api/plans/active) ────────
 
+/** One figure the plan expects to move, as the engine wrote it when it built the plan. */
+export interface BeforeAfter {
+  key: string;
+  label: string;
+  before: number;
+  after: number;
+  /** "pct" = percent units, "count" = a whole number. */
+  unit: "pct" | "count";
+  digits: number;
+}
+
 export interface PlanFacts {
+  planId: string;
   /** Backend-written one-paragraph summary of the plan. */
   summary: string;
   version: string;
@@ -429,13 +529,55 @@ export interface PlanFacts {
   freedCapitalRs: number | null;
   /** "High" | "Medium" | "Low", or empty. */
   confidenceLabel: string;
+  /** What the plan was built from: "goals_and_risk" | "risk_only" | "dob_only" | "generic", or empty. */
+  confidenceTier: string;
+  /** The backend's own label for that tier, e.g. "Risk-based plan". */
+  confidenceTierLabel: string;
+  /** 0–100, the plan-level confidence that rides on each step; null when not sent. */
+  planConfidenceScore: number | null;
   requiresPersona: boolean;
   requiresGoal: boolean;
+  /** What the engine expected each figure to move from and to. Only the figures it sent. */
+  expected: BeforeAfter[];
+  /** Fees the plan expects to save per year; null when it sent none or zero. */
+  annualCostSavingRs: number | null;
+}
+
+function beforeAfter(raw: unknown, key: string, label: string, unit: BeforeAfter["unit"], digits: number): BeforeAfter[] {
+  const r = rec(raw);
+  const before = num(r?.before);
+  const after = num(r?.after);
+  return before != null && after != null ? [{ key, label, before, after, unit, digits }] : [];
+}
+
+/**
+ * `improvements` and `simulation` on the plan. The simulation's projected
+ * ten-year value and blended return are left out: a forecast of returns is not
+ * something this screen should state as a figure.
+ */
+function planExpected(plan: PlanC): BeforeAfter[] {
+  const imp = rec(plan.improvements);
+  const sim = rec(plan.simulation);
+  const simBefore = rec(sim?.before);
+  const simAfter = rec(sim?.after);
+  const fromSim = (field: string, key: string, label: string, unit: BeforeAfter["unit"], digits: number): BeforeAfter[] =>
+    beforeAfter({ before: simBefore?.[field], after: simAfter?.[field] }, key, label, unit, digits);
+  return [
+    ...beforeAfter(imp?.overlap_pct, "overlap", "Highest overlap between two funds", "pct", 1),
+    ...beforeAfter(imp?.top_amc_pct, "top-amc", "Largest fund house, share of your funds", "pct", 1),
+    ...beforeAfter(imp?.debt_pct, "debt", "Debt, share of the portfolio", "pct", 1),
+    ...fromSim("mf_count", "fund-count", "Mutual funds held", "count", 0),
+    ...fromSim("weighted_expense_ratio_pct", "cost", "Fund costs per year (weighted expense ratio)", "pct", 2),
+  ];
 }
 
 export function planFacts(plan: PlanC): PlanFacts {
   const conf = rec(plan.confidence_breakdown);
+  // The tier rides on every step (the original page reads it off the first).
+  const first = rec(plan.actions?.[0]);
+  const saving = num(rec(plan.improvements)?.annual_cost_saving_rs);
   return {
+    planId: plan.plan_id,
     summary: str(plan.plan_summary),
     version: plan.version != null ? String(plan.version) : "",
     createdAt: str(plan.created_at),
@@ -443,9 +585,52 @@ export function planFacts(plan: PlanC): PlanFacts {
     taxCertainty: num(conf?.tax_certainty),
     freedCapitalRs: num(plan.freed_capital),
     confidenceLabel: str(conf?.label),
+    confidenceTier: str(first?.confidence_tier),
+    confidenceTierLabel: str(first?.confidence_label),
+    planConfidenceScore: num(first?.plan_confidence_score),
     requiresPersona: plan.gate_flags?.requires_persona === true,
     requiresGoal: plan.gate_flags?.requires_goal === true,
+    expected: planExpected(plan),
+    annualCostSavingRs: saving != null && saving > 0 ? saving : null,
   };
+}
+
+// ── change a step's status (PATCH /api/plans/{plan}/actions/{step}) ───────
+
+export interface StepStatusChange {
+  planId: string;
+  /** PlanStep.actionId. */
+  actionId: string;
+  status: StepStatus;
+  /** Kept with the step as the user's note; optional. */
+  note?: string;
+}
+
+/**
+ * Records where a step stands. It is a record only — nothing is bought or
+ * sold. The backend answers with the whole plan as it now stands.
+ */
+export async function setStepStatus(change: StepStatusChange): Promise<PlanC> {
+  const res = await http({
+    method: "PATCH",
+    path: `/api/plans/${encodeURIComponent(change.planId)}/actions/${encodeURIComponent(change.actionId)}`,
+    body: { status: change.status, completion_note: change.note?.trim() || undefined },
+    noRetry: true,
+  });
+  const parsed = PlanC.safeParse(rec(res.data)?.plan);
+  if (!parsed.success) throw ApiError.contractDrift(`plans.setStepStatus: ${parsed.error.message}`);
+  return parsed.data;
+}
+
+export function useSetStepStatus() {
+  const qc = useQueryClient();
+  return useMutation<PlanC, unknown, StepStatusChange>({
+    mutationFn: setStepStatus,
+    onSuccess: () => {
+      // What the original page refreshes after a step is applied.
+      for (const queryKey of [["plans"], ["recommendations"], ["portfolio"]]) void qc.invalidateQueries({ queryKey });
+    },
+  });
 }
 
 // ── plan history (GET /api/plans/history) ────────────────────────────────
@@ -495,4 +680,73 @@ export function usePlanHealthProjection() {
     staleTime: 5 * 60_000,
     queryFn: ({ signal }) => fetchHealthProjection(signal),
   });
+}
+
+// ── health in each recorded snapshot (GET /api/portfolio/trend) ──────────
+
+export interface HealthRecord {
+  /** "YYYY-MM-DD". */
+  date: string;
+  valueRs: number | null;
+  /** Portfolio health recorded that day, 0–100; null when it was not computed. */
+  health: number | null;
+  /** Component scores recorded with it, keyed in lower case ("diversification", "risk", "cost", "performance"). */
+  components: Record<string, number>;
+}
+
+/** Every snapshot in the window, oldest first. A snapshot is written on a statement import and by the daily job. */
+export async function fetchHealthRecords(days: number, signal?: AbortSignal): Promise<HealthRecord[]> {
+  const data = rec((await http({ path: "/api/portfolio/trend", query: { days }, signal })).data);
+  if (!data || !Array.isArray(data.series)) throw ApiError.contractDrift("portfolio.trend: missing `series`");
+  const rows = data.series.flatMap((item: unknown): HealthRecord[] => {
+    const r = rec(item);
+    const date = str(r?.snapshot_date).slice(0, 10);
+    if (!r || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    const components: Record<string, number> = {};
+    for (const [k, v] of Object.entries(rec(r.scores) ?? {})) {
+      const score = num(v);
+      // `health` repeats the overall score.
+      if (score != null && k.toLowerCase() !== "health") components[k.toLowerCase()] = score;
+    }
+    return [{ date, valueRs: num(r.total_value), health: num(r.health_score), components }];
+  });
+  return rows.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function useHealthRecords(days = 730) {
+  return useQuery<HealthRecord[]>({
+    queryKey: ["portfolio", "trend", "health", days],
+    staleTime: 5 * 60_000,
+    queryFn: ({ signal }) => fetchHealthRecords(days, signal),
+  });
+}
+
+export interface ObservedChange {
+  /** The record on or before the day the plan was built; null when every record is later. */
+  start: HealthRecord | null;
+  /** The latest record; null when there is none. */
+  latest: HealthRecord | null;
+  /** True when `latest` is a later day than `start`, so there is a change to read. */
+  comparable: boolean;
+}
+
+/**
+ * The India calendar day ("YYYY-MM-DD") of a backend timestamp. The backend
+ * writes UTC times without a zone; snapshots are dated by the India day.
+ */
+export function indiaDay(iso: string): string {
+  if (!iso || /^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const t = new Date(/([zZ]|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`);
+  if (!Number.isFinite(t.getTime())) return iso.slice(0, 10);
+  // en-CA writes a date as YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(t);
+}
+
+/** The record the plan started from and the latest one. `planCreatedAt` is the plan's ISO timestamp. */
+export function observedSince(records: HealthRecord[], planCreatedAt: string): ObservedChange {
+  const planDay = indiaDay(planCreatedAt);
+  const latest = records.length ? records[records.length - 1] : null;
+  const before = planDay ? records.filter((r) => r.date <= planDay) : [];
+  const start = before.length ? before[before.length - 1] : null;
+  return { start, latest, comparable: !!start && !!latest && latest.date > start.date };
 }

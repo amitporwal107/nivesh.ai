@@ -3,11 +3,13 @@
  * Watchlist and Saved screens. Layout follows design/nivesh-copilot/NVTools and
  * NVPages; every value shown comes from the caller.
  */
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ZodError } from "zod";
 import { ApiError } from "@/services/api/errors";
+import { StockName } from "../../components/EntityIcon";
 import { ErrorBlock, Pill, TONE_COLOR, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { sourceLabel, stampLabel } from "./format";
 
 /**
  * ErrorBlock for a failed read or write. A response that did not match its
@@ -206,4 +208,200 @@ export function NameCell({ name, sub, held }: { name: ReactNode; sub?: ReactNode
       {held && <Pill tone="mint" title="This company is in your holdings">You hold</Pill>}
     </span>
   );
+}
+
+/**
+ * Where a block's figures came from and how fresh they are, using only what
+ * the response said. A response that names no source gets no source claim;
+ * admins are told the response did not state one.
+ */
+export function SourceLine({ source, asOf, asOfLabel = "as of", note, quiet, testId, style }: {
+  /** Source name or code from the response (one or several). */
+  source?: string | string[] | null;
+  /** A date or date-time from the response. */
+  asOf?: string | null;
+  /** Words before the stamp ("as of", "updated", "generated"). */
+  asOfLabel?: string;
+  /** Anything else worth saying on the same line. */
+  note?: ReactNode;
+  /** A block that shares its response with a neighbour which already carries the source remark. */
+  quiet?: boolean;
+  testId?: string;
+  style?: CSSProperties;
+}) {
+  const { isAdmin } = useCopilotShell();
+  const names = (Array.isArray(source) ? source : [source]).map((x) => sourceLabel(x)).filter(Boolean);
+  const stamp = stampLabel(asOf);
+  const parts: ReactNode[] = [];
+  if (names.length) parts.push(<span key="src" data-testid="source-name">Source: {names.join(" · ")}</span>);
+  else if (isAdmin && !quiet) parts.push(<span key="src" data-testid="source-unstated" title="Shown to admins only">Source not stated in the response</span>);
+  if (stamp) parts.push(<span key="asof" data-testid="source-asof">{asOfLabel} {stamp}</span>);
+  if (note) parts.push(<span key="note">{note}</span>);
+  if (!parts.length) return null;
+  return (
+    <div data-testid={testId} className="cp-mono-note flex flex-wrap" style={{ gap: "2px 10px", lineHeight: 1.6, ...style }}>
+      {parts}
+    </div>
+  );
+}
+
+/**
+ * The first cell of a row that names a listed company: its icon, its name, the
+ * symbol on the second line, and a badge when the user holds it. A row with no
+ * symbol keys its icon by the company name.
+ */
+export function CompanyCell({ symbol, name, sub, held, testId }: {
+  symbol?: string | null;
+  name?: string | null;
+  /** Replaces the symbol on the second line. */
+  sub?: ReactNode;
+  held?: boolean;
+  testId?: string;
+}) {
+  const key = (symbol ?? "").trim() || (name ?? "").trim();
+  if (!key) return <span style={{ color: "var(--cp-ink-3)" }}>—</span>;
+  return (
+    <span className="inline-flex items-center" style={{ gap: 8, maxWidth: "100%", minWidth: 0 }}>
+      <StockName symbol={key} name={name} sub={sub} testId={testId} />
+      {held && <Pill tone="mint" title="This company is in your holdings">You hold</Pill>}
+    </span>
+  );
+}
+
+/** One announcement: who it is about, what it is, a line of detail, then where it came from. */
+export function AnnouncementCard({ company, tag, tone = "ink", title, when, body, footer, askQuery, href, testId }: {
+  /** The company the announcement names (a CompanyCell), when it names one. */
+  company?: ReactNode;
+  tag: string;
+  tone?: Tone;
+  title: ReactNode;
+  when?: ReactNode;
+  body?: ReactNode;
+  /** Quiet facts under the body: source, reading time. */
+  footer?: ReactNode;
+  askQuery: string;
+  /** Source document, opened in a new tab. */
+  href?: string | null;
+  testId?: string;
+}) {
+  return (
+    <article data-testid={testId} className="cp-card flex min-w-0 flex-col" style={{ gap: 8, padding: "14px 18px" }}>
+      {(company || when) && (
+        <div className="flex flex-wrap items-center justify-between" style={{ gap: "6px 12px" }}>
+          <span className="min-w-0" style={{ fontSize: 13 }}>{company}</span>
+          {when && <span className="cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>{when}</span>}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
+        <Pill tone={tone}>{tag}</Pill>
+        <span style={{ flex: "1 1 200px", minWidth: 0, fontSize: 14, fontWeight: 500, overflowWrap: "anywhere" }}>{title}</span>
+      </div>
+      {body && <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>{body}</span>}
+      <div className="flex flex-wrap items-center" style={{ gap: "4px 16px" }}>
+        <AskLink query={askQuery}>Ask Copilot about this ›</AskLink>
+        {href && (
+          <a className="cp-link" href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Open the filing ↗</a>
+        )}
+        {footer && <span className="cp-mono-note" style={{ marginLeft: "auto" }}>{footer}</span>}
+      </div>
+    </article>
+  );
+}
+
+/** A trend line for a short series of closes. Decorative: the figures sit beside it. */
+export function Sparkline({ values, tone = "ink", height = 22, testId }: { values: number[]; tone?: Tone; height?: number; testId?: string }) {
+  const pts = values.filter((v) => Number.isFinite(v));
+  if (pts.length < 2) return null;
+  const min = Math.min(...pts);
+  const range = Math.max(...pts) - min || 1;
+  const points = pts
+    .map((v, i) => `${((i / (pts.length - 1)) * 100).toFixed(1)},${(height - 1 - ((v - min) / range) * (height - 2)).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg data-testid={testId} aria-hidden viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{ display: "block", width: "100%", height }}>
+      <polyline fill="none" stroke={tone === "ink" ? "var(--cp-ink-3)" : TONE_COLOR[tone]} strokeWidth="1.5" points={points} vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+const fieldStyle: CSSProperties = {
+  padding: "8px 10px", borderRadius: 10, border: "1px solid var(--line-2)", background: "var(--bg-1)",
+  color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13, minWidth: 0,
+};
+
+/** A labelled text, search or date input. */
+export function Field({ label, value, onChange, type = "text", placeholder, min, max, testId, grow }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: "text" | "search" | "date";
+  placeholder?: string;
+  min?: string;
+  max?: string;
+  testId?: string;
+  /** Take the remaining width of the row. */
+  grow?: boolean;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col" style={{ gap: 4, flex: grow ? "1 1 220px" : "0 1 auto" }}>
+      <span className="cp-mono-note">{label}</span>
+      <input
+        type={type}
+        value={value}
+        min={min}
+        max={max}
+        placeholder={placeholder}
+        data-testid={testId}
+        onChange={(e) => onChange(e.target.value)}
+        style={fieldStyle}
+      />
+    </label>
+  );
+}
+
+/** A labelled drop-down. */
+export function SelectField({ label, value, onChange, children, testId }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  children: ReactNode;
+  testId?: string;
+}) {
+  return (
+    <label className="flex min-w-0 flex-col" style={{ gap: 4 }}>
+      <span className="cp-mono-note">{label}</span>
+      <select value={value} data-testid={testId} onChange={(e) => onChange(e.target.value)} style={{ ...fieldStyle, maxWidth: "100%" }}>
+        {children}
+      </select>
+    </label>
+  );
+}
+
+/** A small figure with its label underneath, for a block that shows several side by side. */
+export function Stat({ label, value, tone = "ink", testId }: { label: string; value: ReactNode; tone?: Tone; testId?: string }) {
+  return (
+    <div className="flex min-w-0 flex-col" style={{ gap: 2 }}>
+      <span data-testid={testId} className="cp-num" style={{ fontSize: 17, color: TONE_COLOR[tone] }}>{value}</span>
+      <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{label}</span>
+    </div>
+  );
+}
+
+/** Brings a panel into view when it opens or its subject changes (a row opened far down a table). */
+export function useReveal<T extends HTMLElement>(subject: string) {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "nearest" });
+  }, [subject]);
+  return ref;
+}
+
+/** A value that settles after the user stops typing, so a search box does not refetch on every key. */
+export function useDebounced<T>(value: T, ms = 300): T {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return settled;
 }

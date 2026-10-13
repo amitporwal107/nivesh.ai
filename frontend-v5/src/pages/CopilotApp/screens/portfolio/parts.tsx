@@ -2,12 +2,25 @@
  * Portfolio screens — small pieces shared by Analysis, Recommend, Plan and
  * Ledger. Mostly layout; NoPlan is the one piece that reads data itself.
  */
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useHoldingsEnriched } from "@/hooks/use-portfolio";
 import { useRefreshPlan } from "@/hooks/use-recommendations";
 import { Btn, EmptyBlock, ErrorBlock, LoadingBlock, fmtPct } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
 import { loadError } from "./data";
+
+/** A text, number or date input on these screens. Pair it with a <label>. */
+export const FIELD_STYLE: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: "1px solid var(--line-2)",
+  background: "var(--bg-2)",
+  color: "var(--cp-ink)",
+  fontFamily: "var(--sans)",
+  fontSize: 13,
+};
 
 /** Screen header on the left, the "ask the Copilot" pill on the right. */
 export function HeaderRow({ askLabel, onAsk, children }: { askLabel: string; onAsk: () => void; children: ReactNode }) {

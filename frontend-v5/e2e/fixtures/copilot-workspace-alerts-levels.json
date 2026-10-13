@@ -1,0 +1,107 @@
+{
+  "_comment": "MOCK — not real data. Shapes of GET /api/filings/alerts and GET /api/positional/watchlist; symbols and numbers are made up.",
+  "alerts": {
+    "ok": true,
+    "types": {
+      "concall_transcript": true,
+      "annual_report": false,
+      "investor_presentation": true,
+      "financial_results": true
+    },
+    "channels": {
+      "email": true,
+      "whatsapp": false
+    },
+    "catalog": [
+      {
+        "key": "concall_transcript",
+        "label": "Earnings transcripts"
+      },
+      {
+        "key": "annual_report",
+        "label": "Annual reports"
+      },
+      {
+        "key": "investor_presentation",
+        "label": "Investor presentations"
+      },
+      {
+        "key": "financial_results",
+        "label": "Quarterly results"
+      }
+    ],
+    "delivery": {
+      "active": false,
+      "note": "Fixture delivery note: nothing is sent today."
+    },
+    "updatedAt": "2026-10-12T10:00:00+00:00"
+  },
+  "levels": {
+    "as_of_date": "2026-10-12",
+    "buckets": {
+      "breakout_confirmed": [
+        {
+          "nse_symbol": "FIXALPHA",
+          "sector": "Capital Goods",
+          "stage": "BREAKOUT",
+          "confidence": "HIGH",
+          "final_score": 0.71,
+          "close_price": 510.0,
+          "trigger_price": 500.0,
+          "stop_price": 477.5,
+          "atr_pct": 2.94,
+          "rsi_14": 58.4,
+          "sma_50": 484.5,
+          "sma_200": 459.0,
+          "ema_20": 499.8,
+          "signals": {
+            "range_pct_15d": 6.2,
+            "volume_slope_10d_pct": -1.4,
+            "volume_spike_3v20": 1.6,
+            "higher_lows_count": 2,
+            "upper_wick_pct": 0.2,
+            "delivery_trend_pct": 3.1,
+            "dist_breakout_pct": 1.2,
+            "dist_ema20_pct": 2.0
+          },
+          "why": "Fixture reason: broke above the level on volume"
+        }
+      ],
+      "pre_breakout": [
+        {
+          "nse_symbol": "FIXBRAVO",
+          "sector": null,
+          "stage": "ACCUMULATION",
+          "confidence": "HIGH",
+          "final_score": 0.71,
+          "close_price": 98.5,
+          "trigger_price": 100.0,
+          "stop_price": 96.4,
+          "atr_pct": 2.4,
+          "rsi_14": 58.4,
+          "sma_50": 93.57499999999999,
+          "sma_200": 88.65,
+          "ema_20": 96.53,
+          "signals": {
+            "range_pct_15d": 6.2,
+            "volume_slope_10d_pct": -1.4,
+            "volume_spike_3v20": 1.6,
+            "higher_lows_count": 2,
+            "upper_wick_pct": 0.2,
+            "delivery_trend_pct": 3.1,
+            "dist_breakout_pct": 1.2,
+            "dist_ema20_pct": 2.0
+          },
+          "why": "Fixture reason: just below resistance"
+        }
+      ],
+      "true_accumulation": [],
+      "trend_continuation": []
+    }
+  },
+  "levels_none": {
+    "as_of_date": null,
+    "buckets": {},
+    "_reason": "no technical features yet — run the engine first"
+  }
+}

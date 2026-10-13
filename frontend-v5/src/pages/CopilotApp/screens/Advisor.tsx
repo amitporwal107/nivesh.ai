@@ -4,46 +4,38 @@
  *
  * Data:
  *   firm, headline, tiles, queue, roster   GET /api/mfd/profiles               (useAdvisorBook)
- *   SIP tile                               GET /api/advisor/sip-board/summary  (useSipBoardSummary)
+ *   SIP tile                               GET /api/advisor/sip-board/summary  (useSipSummary)
  * Health, top issue and the "needs action" test are the same derivations the
  * current advisor workspace uses (pages/AdvisorDashboard/derive), so the two
  * pages agree on every number.
  *
- * "Open in Copilot" switches to the client the way the current app does
- * (useActivateProfile → impersonation store), then goes to the Copilot home.
+ * Two ways into a client:
+ *   "Open in Copilot" switches to the client the way the current app does
+ *   (useActivateProfile → impersonation store), then goes to the Copilot home.
+ *   "Client 360" reads the client without switching: it goes to
+ *   advisor/client-360?client=<profile id>.
+ *
  * Model portfolios and report drafts have no backend and say so.
  */
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { useAdvisorBook, useSipBoardSummary } from "@/hooks/use-advisor";
-import { useActivateProfile, useDeactivateProfile } from "@/hooks/use-mfd";
-import {
-  decorateProfile, fmtDaysSince, healthTone,
-  type AdvisorProfile, type Tone as BookTone,
-} from "@/pages/AdvisorDashboard/derive";
+import { useAdvisorBook } from "@/hooks/use-advisor";
+import { decorateProfile, fmtDaysSince, healthTone, type AdvisorProfile } from "@/pages/AdvisorDashboard/derive";
 import { MfdWorkspaceC } from "@/services/contracts/advisor.contract";
-import { useImpersonationStore } from "@/stores/impersonation.store";
-import { useToastStore } from "@/stores/toast.store";
 import {
   AskChips, Btn, DataTable, EmptyBlock, Eyebrow, Footnote, LoadingBlock, NotConnected, Pill,
   Screen, ScreenHeader, Section, Tiles, TONE_COLOR, fmtINR, fmtNum,
   type Column, type TileItem, type Tone,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { SCREENS } from ".";
+import { useSipSummary } from "./advisor/data";
+import { AdvisorOnly, BOOK_TONE, NotAnAdvisor, client360View, useAdvisorSession } from "./advisor/parts";
 import { LoadFailed, isForbidden } from "./internal/shared";
 
 const QUEUE_PREVIEW = 5;
 const ROSTER_PREVIEW = 10;
 
-/** The advisor workspace's tone names → this shell's. */
-const BOOK_TONE: Record<BookTone, Tone> = { neg: "danger", warm: "amber", pos: "mint", accent: "indigo", neutral: "ink" };
-
 const BUCKET_TONE: Record<string, Tone> = { high: "danger", medium: "amber" };
-
-/** A finite number, or null. The SIP summary comes through an adapter that does not validate its response. */
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
 
 /** The reason a client is in the queue: the priority engine's first reason, else the derived top issue. */
 function issueOf(p: AdvisorProfile): string {
@@ -52,52 +44,16 @@ function issueOf(p: AdvisorProfile): string {
 
 type OpenClient = (p: AdvisorProfile) => void;
 
-// ── states that are not the book ─────────────────────────────────────────
+/** The SIP board is linked only once it is a registered screen (screens/index.ts). */
+const SIP_BOARD_VIEW = "advisor/sip-board";
+const HAS_SIP_BOARD = SIP_BOARD_VIEW in SCREENS;
 
-function NotAnAdvisor() {
-  const { go } = useCopilotShell();
-  return (
-    <div data-testid="advisor-not-advisor" className="flex flex-col" style={{ gap: 22 }}>
-      <ScreenHeader eyebrow="Advisor" title="This screen is for advisor accounts" />
-      <EmptyBlock
-        title="Your account manages one portfolio"
-        body="The advisor home shows a book of clients — who needs attention, their assets and their SIPs. This account is set up for a single investor, so there is no client book to show. If you advise clients, you can switch the account to advisor mode from the advisor workspace."
-        action={
-          <span className="flex flex-wrap items-center" style={{ gap: "8px 16px" }}>
-            <Btn onClick={() => go("")}>Back to the Copilot</Btn>
-            <Link to="/advisor" className="cp-link" style={{ fontSize: 13 }}>Open the advisor workspace ›</Link>
-          </span>
-        }
-      />
-    </div>
-  );
-}
-
-function ViewingClient({ onBack, returning }: { onBack: () => void; returning: boolean }) {
-  const { go } = useCopilotShell();
-  const name = useImpersonationStore((s) => s.name);
-  return (
-    <div data-testid="advisor-viewing-client" className="flex flex-col" style={{ gap: 22 }}>
-      <ScreenHeader
-        eyebrow="Advisor"
-        pills={<Pill tone="indigo">Viewing a client</Pill>}
-        title={<>You are viewing <em data-testid="advisor-viewing-name">{name || "a client"}</em>.</>}
-        sub="While a client is open, every screen and every answer is about that client. Go back to your book to see all your clients again."
-      />
-      <div className="flex flex-wrap" style={{ gap: 8 }}>
-        <Btn data-testid="advisor-back-to-book" variant="primary" disabled={returning} onClick={onBack}>
-          {returning ? "Returning…" : "Back to your book"}
-        </Btn>
-        <Btn onClick={() => go("")}>Stay with {name || "this client"}</Btn>
-      </div>
-    </div>
-  );
-}
+const LINK_BUTTON = { fontSize: 13, color: "var(--cp-ink)", background: "none", border: 0, padding: 0, cursor: "pointer", fontFamily: "var(--sans)" } as const;
 
 // ── the book ─────────────────────────────────────────────────────────────
 
 function QueueRow({ p, onOpen, openingId }: { p: AdvisorProfile; onOpen: OpenClient; openingId: string | null }) {
-  const { mobile } = useCopilotShell();
+  const { mobile, go } = useCopilotShell();
   const tone = BUCKET_TONE[p.priority?.bucket ?? ""] ?? "ink";
   const issue = issueOf(p);
   return (
@@ -109,17 +65,43 @@ function QueueRow({ p, onOpen, openingId }: { p: AdvisorProfile; onOpen: OpenCli
           <span data-testid="advisor-queue-issue" style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>{issue}</span>
         )}
       </div>
-      <span data-testid="advisor-queue-aum" className="cp-num" style={{ fontFamily: "var(--display)", fontSize: 20 }}>{fmtINR(p._aum, { compact: true })}</span>
+      <span data-testid="advisor-queue-aum" className="cp-num" style={{ fontFamily: "var(--display)", fontSize: 20, ...(mobile ? { flex: "1 1 100%" } : null) }}>{fmtINR(p._aum, { compact: true })}</span>
+      <Btn
+        data-testid="advisor-queue-360"
+        variant="ghost"
+        aria-label={`Client 360: ${p.name}`}
+        onClick={() => go(client360View(p.profile_id))}
+        style={mobile ? { flex: "1 1 120px" } : undefined}
+      >
+        Client 360
+      </Btn>
       <Btn
         data-testid="advisor-open-client"
         aria-label={`Open in Copilot: ${p.name}`}
         disabled={openingId != null}
         onClick={() => onOpen(p)}
-        style={mobile ? { flex: "1 1 100%" } : undefined}
+        style={mobile ? { flex: "1 1 150px" } : undefined}
       >
         {openingId === p.profile_id ? "Opening…" : "Open in Copilot"}
       </Btn>
     </div>
+  );
+}
+
+/** Reads the client without switching to them. Inside a row that itself opens the client. */
+function See360({ p }: { p: AdvisorProfile }) {
+  const { go } = useCopilotShell();
+  return (
+    <button
+      type="button"
+      data-testid="advisor-client-360"
+      aria-label={`Client 360: ${p.name}`}
+      onClick={(e) => { e.stopPropagation(); go(client360View(p.profile_id)); }}
+      onKeyDown={(e) => e.stopPropagation()}
+      style={LINK_BUTTON}
+    >
+      Client 360 ›
+    </button>
   );
 }
 
@@ -152,11 +134,13 @@ const ROSTER_COLUMNS: Column<AdvisorProfile>[] = [
       </span>
     ),
   },
+  { key: "see", header: <span className="sr-only">Client 360</span>, width: "96px", align: "right", render: (p) => <See360 p={p} /> },
 ];
 
 function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | null }) {
+  const { go } = useCopilotShell();
   const book = useAdvisorBook();
-  const sips = useSipBoardSummary();
+  const sips = useSipSummary();
   const [allQueue, setAllQueue] = useState(false);
   const [allRoster, setAllRoster] = useState(false);
 
@@ -208,6 +192,8 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
   );
 
   if (clients.length === 0) {
+    // The advisor's own portfolio is a profile too; it is not a client, but Client 360 can read it.
+    const self = book.data.profiles.find((p) => p.type === "SELF");
     return (
       <>
         <ScreenHeader eyebrow={eyebrow} pills={<Pill tone="indigo">Advisor mode</Pill>} title="Your client book" />
@@ -215,7 +201,14 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
           <EmptyBlock
             title="No clients in your book yet"
             body="Add a client in the advisor workspace. Once their holdings are in, their health score, top issue and SIPs appear here."
-            action={<Link to="/advisor" className="cp-link" style={{ fontSize: 13 }}>Add a client in the advisor workspace ›</Link>}
+            action={
+              <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
+                <Btn data-testid="advisor-empty-add" variant="primary" onClick={() => go("advisor/workspace")}>Add a client in the advisor workspace ›</Btn>
+                {self && (
+                  <Btn data-testid="advisor-empty-own-360" variant="ghost" onClick={() => go(client360View(self.profile_id))}>See your own portfolio in Client 360 ›</Btn>
+                )}
+              </span>
+            }
           />
         </div>
       </>
@@ -229,24 +222,27 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
   const sipRetry = (
     <button type="button" data-testid="advisor-tile-sips-retry" onClick={() => sips.refetch()} style={{ fontSize: 12, color: "var(--cp-ink-2)", background: "none", border: 0, padding: 0, cursor: "pointer" }}>Didn’t load · Retry ›</button>
   );
-  const sipActive = num(sips.data?.active_sips_count);
-  const sipFailed = num(sips.data?.failed_count);
-  const sipMandates = num(sips.data?.mandate_at_risk_count);
+  const sipBoardLink = HAS_SIP_BOARD && (
+    <button type="button" data-testid="advisor-open-sip-board" onClick={() => go(SIP_BOARD_VIEW)} style={{ ...LINK_BUTTON, fontSize: 12, textAlign: "left" }}>Open the SIP board ›</button>
+  );
   let sipTile: TileItem;
   if (sips.isPending) {
     sipTile = { k: "SIPs", v: "…", s: "Loading" };
   } else if (sips.isError) {
+    // Also where an answer that is not a SIP summary ends up: no figure is printed for it.
     sipTile = { k: "SIPs", v: "—", s: isForbidden(sips.error) ? "Not available to this account" : sipRetry };
-  } else if (sipActive == null) {
-    // Answered, but without a count: say so rather than print a figure.
-    sipTile = { k: "SIPs", v: "—", s: sipRetry };
-  } else if (sipActive === 0 && !sipFailed && !sipMandates) {
-    sipTile = { k: "SIPs", v: <span data-testid="advisor-tile-sips">0</span>, s: <span data-testid="advisor-tile-sips-sub">None recorded for your clients</span> };
   } else {
+    const { active_sips_count: count, failed_count: failed, mandate_at_risk_count: mandates } = sips.data;
+    const none = count === 0 && failed === 0 && mandates === 0;
     sipTile = {
       k: "SIPs",
-      v: <span data-testid="advisor-tile-sips">{fmtNum(sipActive)}</span>,
-      s: <span data-testid="advisor-tile-sips-sub">{fmtNum(sipFailed)} failed · {fmtNum(sipMandates)} mandates expiring in 90 days</span>,
+      v: <span data-testid="advisor-tile-sips">{fmtNum(count)}</span>,
+      s: (
+        <span className="flex flex-col items-start" style={{ gap: 4 }}>
+          <span data-testid="advisor-tile-sips-sub">{none ? "None recorded for your clients" : `${fmtNum(failed)} failed · ${fmtNum(mandates)} mandates expiring in 90 days`}</span>
+          {sipBoardLink}
+        </span>
+      ),
     };
   }
 
@@ -307,13 +303,13 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
         flush
         className="cp-card-raised"
         title={<>Roster · <span data-testid="advisor-roster-shown">{rosterShown.length}</span> of <span data-testid="advisor-roster-total">{roster.length}</span></>}
-        note="Sorted by health · select a client to open them"
+        note="Sorted by health · select a row to open the client in the Copilot"
       >
         <DataTable
           columns={ROSTER_COLUMNS}
           rows={rosterShown}
           rowKey={(p) => p.profile_id}
-          minWidth={640}
+          minWidth={740}
           onRowClick={onOpen}
         />
         {roster.length > ROSTER_PREVIEW && (
@@ -334,16 +330,19 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
             "A store of the advisor’s approved model portfolios (name and equity / debt / other mix)",
             "A link from each client to the model they follow",
             "An endpoint that lists the models with their client counts",
+            "Closest thing today: POST /api/portfolio-builder/generate builds one proposed portfolio for the signed-in investor; it is not saved and is not tied to an advisor",
           ]}
         />
         <NotConnected
           testId="advisor-reports-not-connected"
           title="Client report drafts"
-          body="The design shows review drafts waiting for your approval. The backend can queue a review pack for one client, but nothing writes the document, so there are no drafts to list or approve."
+          body="The design shows review drafts waiting for your approval. Nivesh can take a request for a client’s review pack, but nothing writes the document, so there are no drafts to list or approve. Until then, a client’s holdings can be downloaded as a spreadsheet from their Client 360."
           needs={[
-            "A worker that produces the review pack (the generate endpoint only queues a task)",
+            "A worker that produces the review pack: POST /api/mfd/profiles/{id}/review-pack/generate only stores a task with status “queued”, and nothing changes it afterwards",
+            "The status poll answers lower-case “queued”; the app’s contract accepts QUEUED / PROCESSING / COMPLETED / FAILED, so the shared hook rejects it",
             "A list of drafts awaiting the advisor’s approval, per client",
             "An approve-and-send step that records who approved what",
+            "Exists today: holdings as CSV or Excel per client (wired in Client 360), and a proposal PDF for the signed-in investor at POST /api/portfolio-builder/export.pdf",
           ]}
         />
       </div>
@@ -354,48 +353,14 @@ function Book({ onOpen, openingId }: { onOpen: OpenClient; openingId: string | n
 }
 
 export default function AdvisorScreen() {
-  const { isAdvisorWorkspace, go } = useCopilotShell();
-  const viewingId = useImpersonationStore((s) => s.profileId);
-  const push = useToastStore((s) => s.push);
   // Held here, not in <Book>: opening a client flips the impersonation store,
-  // and the callbacks below must still run after that re-render.
-  const activate = useActivateProfile();
-  const deactivate = useDeactivateProfile();
-  const [openingId, setOpeningId] = useState<string | null>(null);
-  // Set when the advisor leaves a client from this screen. Only an advisor can
-  // be viewing a client, so the book is shown without waiting for the shell to
-  // recompute isAdvisorWorkspace.
-  const [returned, setReturned] = useState(false);
-
-  const openClient: OpenClient = (p) => {
-    if (openingId) return;
-    setOpeningId(p.profile_id);
-    activate.mutate({ profileId: p.profile_id, name: p.name }, {
-      onSuccess: () => {
-        push({ kind: "success", title: `Opened ${p.name}'s portfolio` });
-        go("");
-      },
-      onError: (e) => {
-        setOpeningId(null);
-        push({ kind: "error", title: "Could not open profile", description: e instanceof Error ? e.message : undefined });
-      },
-    });
-  };
-
-  const backToBook = () => {
-    setReturned(true);
-    deactivate.mutate();
-  };
-
-  // While a client is being opened the book stays on screen until the shell
-  // has moved to the Copilot home.
-  const showBook = openingId != null || (!viewingId && (isAdvisorWorkspace || returned));
-
+  // and the session's callbacks must still run after that re-render.
+  const session = useAdvisorSession();
   return (
     <Screen testId="screen-advisor" width={1000}>
-      {showBook
-        ? <Book onOpen={openClient} openingId={openingId} />
-        : viewingId ? <ViewingClient onBack={backToBook} returning={deactivate.isPending} /> : <NotAnAdvisor />}
+      <AdvisorOnly session={session}>
+        <Book onOpen={session.openClient} openingId={session.openingId} />
+      </AdvisorOnly>
     </Screen>
   );
 }

@@ -2,82 +2,31 @@
  * Broker connections — where the portfolio comes from.
  * Design: frontend-v5/design/nivesh-copilot/NVBrokers.dc.html.
  *
- * Real today: CAS statements (uploaded, or found in Gmail) and the list of
- * broker accounts the server already holds for the user. Signing in to a
- * broker cannot be done from this app (BrokerSignInMissing lists what is
- * missing), so no broker is offered as connectable and the design's scopes,
- * token expiry and per-broker sync are not shown.
+ * Real: CAS statements (uploaded, or found in Gmail), the broker accounts the
+ * server holds for the user with what was read from each (sync, reconnect,
+ * disconnect), and the brokers the server lists (./account/brokers). Read-only
+ * throughout: nothing here can place an order.
+ *
+ * A broker sign-in is offered only for a broker the server marks connectable.
+ * Today's backend marks none, so today none is offered and the screen says so;
+ * the copy that depends on that is chosen from the same field.
  */
-import type { ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { Btn, DataTable, EmptyBlock, ErrorBlock, Eyebrow, LoadingBlock, Pill, Screen, ScreenHeader, Section, TONE_COLOR, fmtDate, fmtINR, fmtNum, relTime, type Column, type Tone } from "../components/ui";
-import { BrokerSignInMissing, GmailSource, InlineError, Monogram, StatementUpload } from "./account/parts";
+import { BrokerIcon } from "../components/EntityIcon";
+import { DataTable, EmptyBlock, ErrorBlock, Eyebrow, LoadingBlock, Pill, Screen, ScreenHeader, Section, TONE_COLOR, fmtDate, fmtINR, fmtNum, relTime, type Column, type Tone } from "../components/ui";
+import { BrokerAccounts, BrokerConnect, BrokerReturnNotice } from "./account/brokers";
+import { GmailSource, StatementUpload } from "./account/parts";
+import { saysConnectable, useBrokerAccounts, useBrokerAdapters } from "./account/broker-queries";
 import {
   hasStatement,
   useAuditTrail,
-  useBrokerAccounts,
-  useBrokerAdapters,
   useGmailImportHistory,
   useGmailSourceStatus,
   useOnboardingState,
   type AuditRow,
-  type BrokerAccount,
   type GmailImport,
   type OnboardingState,
 } from "./account/queries";
-
-// ── connected: broker accounts ───────────────────────────────────────────
-
-const ACCOUNT_STATUS: Record<string, { label: string; tone: Tone }> = {
-  active: { label: "Connected", tone: "mint" },
-  pending: { label: "Sign-in not finished", tone: "amber" },
-  error: { label: "Error", tone: "danger" },
-};
-
-const NO_ACTION = "Not available in this app yet";
-
-function BrokerAccountCard({ account }: { account: BrokerAccount }) {
-  const name = account.label || account.broker_display || account.broker || "Broker account";
-  const status = ACCOUNT_STATUS[account.status ?? ""] ?? { label: account.status || "Status unknown", tone: "ink" as Tone };
-  const meta = [
-    account.last_sync_at ? `Last sync ${relTime(account.last_sync_at)}` : "Never synced",
-    account.last_sync_at && account.last_sync_count != null ? `${fmtNum(account.last_sync_count)} holdings` : null,
-    account.created_at ? `Added ${fmtDate(account.created_at)}` : null,
-  ].filter(Boolean).join(" · ");
-
-  return (
-    <div data-testid="broker-account" className="cp-card-raised flex flex-col" style={{ gap: 12, padding: "16px 18px" }}>
-      <div className="flex flex-wrap items-center" style={{ gap: "10px 14px" }}>
-        <Monogram>{name.slice(0, 2).toUpperCase()}</Monogram>
-        <div className="flex flex-col" style={{ flex: "1 1 200px", gap: 2, minWidth: 0 }}>
-          <span data-testid="broker-account-name" style={{ fontSize: 15, fontWeight: 500, overflowWrap: "anywhere" }}>{name}</span>
-          <span className="cp-mono-note" data-testid="broker-account-meta">{meta}</span>
-        </div>
-        <span data-testid="broker-account-status"><Pill tone={status.tone}>{status.label}</Pill></span>
-      </div>
-      {account.last_error && <InlineError>{account.last_error}</InlineError>}
-      <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
-        <Btn disabled title={NO_ACTION}>Sync now</Btn>
-        <Btn disabled title={NO_ACTION}>Disconnect</Btn>
-        <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>Sync and disconnect are not available in this app yet.</span>
-      </div>
-    </div>
-  );
-}
-
-function BrokerAccounts({ q }: { q: UseQueryResult<BrokerAccount[]> }) {
-  if (q.isPending) return <LoadingBlock label="Loading broker accounts" rows={2} />;
-  if (q.isError) return <ErrorBlock title="Broker accounts didn’t load" error={q.error} onRetry={() => q.refetch()} />;
-  if (q.data.length === 0) {
-    return (
-      <EmptyBlock
-        title="No broker account connected"
-        body="Broker sign-in isn’t available in this app yet. Your holdings come from the statement sources below."
-      />
-    );
-  }
-  return <>{q.data.map((a) => <BrokerAccountCard key={a.account_id} account={a} />)}</>;
-}
 
 // ── connected: statement on file ─────────────────────────────────────────
 
@@ -91,7 +40,7 @@ function StatementOnFile({ q }: { q: UseQueryResult<OnboardingState> }) {
   return (
     <div data-testid="statement-source" className="cp-card-raised flex flex-col" style={{ gap: 12, padding: "16px 18px" }}>
       <div className="flex flex-wrap items-center" style={{ gap: "10px 14px" }}>
-        <Monogram>CAS</Monogram>
+        <BrokerIcon name="CAS statement" size={38} />
         <div className="flex flex-col" style={{ flex: "1 1 200px", gap: 2, minWidth: 0 }}>
           <span style={{ fontSize: 15, fontWeight: 500 }}>CAS statement</span>
           <span className="cp-mono-note">
@@ -115,47 +64,6 @@ function StatementOnFile({ q }: { q: UseQueryResult<OnboardingState> }) {
   );
 }
 
-// ── add a broker: what the server reports ────────────────────────────────
-
-function NameTags({ names }: { names: string[] }) {
-  return (
-    <div className="flex flex-wrap" style={{ gap: 6 }}>
-      {names.map((n) => (
-        <span key={n} style={{ fontSize: 12, padding: "5px 10px", borderRadius: 8, border: "1px solid var(--line-2)", color: "var(--cp-ink-2)" }}>{n}</span>
-      ))}
-    </div>
-  );
-}
-
-function AdapterCatalogue() {
-  const q = useBrokerAdapters();
-  let body: ReactNode;
-  if (q.isPending) body = <LoadingBlock label="Loading the broker list" rows={2} />;
-  else if (q.isError) body = <ErrorBlock title="The broker list didn’t load" error={q.error} onRetry={() => q.refetch()} />;
-  else if (q.data.length === 0) body = <EmptyBlock title="The server lists no brokers" />;
-  else {
-    const built = q.data.filter((b) => b.implemented).map((b) => b.name);
-    const pending = q.data.filter((b) => !b.implemented).map((b) => b.name);
-    body = (
-      <div className="flex flex-col" style={{ gap: 14 }}>
-        <div className="flex flex-col" style={{ gap: 8 }}>
-          <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
-            Reader built on the server · <span className="cp-num" data-testid="broker-adapters-built">{built.length}</span>
-          </span>
-          {built.length > 0 && <NameTags names={built} />}
-        </div>
-        <div className="flex flex-col" style={{ gap: 8 }}>
-          <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
-            Placeholder only · <span className="cp-num" data-testid="broker-adapters-pending">{pending.length}</span>
-          </span>
-          {pending.length > 0 && <NameTags names={pending} />}
-        </div>
-      </div>
-    );
-  }
-  return <Section title="Brokers the server knows about" note="None can be connected here yet">{body}</Section>;
-}
-
 // ── how importing works / what is read ───────────────────────────────────
 
 const IMPORT_STEPS: Array<{ n: string; t: string; d: string }> = [
@@ -172,9 +80,13 @@ const READS: ReadRow[] = [
   { what: "Mutual fund transactions (NSDL CAS)", why: "Returns over time", access: "Read", tone: "mint" },
   { what: "Month-end values printed on the statement", why: "Your portfolio value trend", access: "Read", tone: "mint" },
   { what: "CAS emails in Gmail", why: "To find and download your latest statement", access: "Read-only", tone: "mint" },
-  { what: "Positions, orders, funds and margins", why: "Not read. They would need a broker connection", access: "Not read", tone: "ink" },
-  { what: "Place or modify orders", why: "Not possible with a statement or with Gmail access", access: "Never", tone: "danger" },
+  { what: "Holdings in a connected broker account", why: "Read from the broker each time you press Sync now", access: "Read", tone: "mint" },
 ];
+
+/** True of today's backend only, so shown only against it (see BrokersScreen). */
+const POSITIONS_NOT_READ: ReadRow = { what: "Open positions, funds and margins", why: "Not read yet from any broker account", access: "Not read", tone: "ink" };
+
+const NEVER: ReadRow = { what: "Place, change or cancel orders", why: "Nivesh has no feature that does this, with any source", access: "Never", tone: "danger" };
 
 const READ_COLUMNS: Column<ReadRow>[] = [
   { key: "what", header: "What", render: (r) => <span title={r.what} style={{ fontWeight: 500, color: "var(--cp-ink)" }}>{r.what}</span> },
@@ -276,8 +188,12 @@ function ImportLog() {
 
 export default function BrokersScreen() {
   const accounts = useBrokerAccounts();
+  const adapters = useBrokerAdapters();
   const state = useOnboardingState();
   const gmail = useGmailSourceStatus();
+  // The planned broker backend says which brokers can be connected; today's does not.
+  const connectable = !!adapters.data && saysConnectable(adapters.data);
+  const reads = connectable ? [...READS, NEVER] : [...READS, POSITIONS_NOT_READ, NEVER];
 
   const connectedCount = accounts.data && state.data && gmail.state === "ready"
     ? accounts.data.length + (hasStatement(state.data) ? 1 : 0) + (gmail.data.connected ? 1 : 0)
@@ -289,8 +205,12 @@ export default function BrokersScreen() {
         eyebrow="Broker connections"
         pills={<Pill tone="mint">Read-only</Pill>}
         title={<>Where your holdings <em>come from</em>.</>}
-        sub="Nivesh reads your holdings from a CAS statement that you upload, or that it finds in your Gmail. Signing in to a broker directly is not available yet."
+        sub={connectable
+          ? "Nivesh reads your holdings from a CAS statement that you upload or that it finds in your Gmail, and from a broker account you connect. Whatever the source, Nivesh only reads. It never places an order."
+          : "Nivesh reads your holdings from a CAS statement that you upload, or that it finds in your Gmail. Signing in to a broker directly is not available yet. Whatever the source, Nivesh only reads. It never places an order."}
       />
+
+      <BrokerReturnNotice />
 
       <div className="flex flex-col" style={{ gap: 10 }}>
         <Eyebrow>
@@ -307,9 +227,8 @@ export default function BrokersScreen() {
       </div>
 
       <div className="flex flex-col" style={{ gap: 10 }}>
-        <Eyebrow>Add a broker</Eyebrow>
-        <BrokerSignInMissing />
-        <AdapterCatalogue />
+        <Eyebrow>Connect a broker</Eyebrow>
+        <BrokerConnect />
       </div>
 
       <div className="flex flex-col" style={{ gap: 14, padding: 18, borderRadius: 14, border: "1px solid var(--mint-line)", background: "var(--bg-1)" }}>
@@ -326,7 +245,7 @@ export default function BrokersScreen() {
       </div>
 
       <Section title="What Nivesh reads, and why" flush>
-        <DataTable columns={READ_COLUMNS} rows={READS} rowKey={(r) => r.what} minWidth={760} />
+        <DataTable columns={READ_COLUMNS} rows={reads} rowKey={(r) => r.what} minWidth={760} />
       </Section>
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,340px),1fr))", gap: 12, alignItems: "start" }}>
@@ -335,7 +254,8 @@ export default function BrokersScreen() {
           <ul className="m-0 flex flex-col p-0" style={{ gap: 8, listStyle: "none", fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
             <li>Gmail access is read-only. Nivesh searches only for emails with a PDF attachment from NSDL, CDSL, CAMS or KFintech.</li>
             <li>Disconnecting Gmail here deletes the Google token Nivesh holds. You can also remove Nivesh from your Google account’s third-party access.</li>
-            <li>Your PAN, or the statement password when it is different, is kept on your profile so later statements can be opened.</li>
+            <li>Your PAN, or the statement password when it is different, is kept on your profile so later statements can be opened. Disconnecting Gmail does not remove it.</li>
+            <li>A broker sign-in happens on the broker’s own site. Nivesh keeps the access it is given in encrypted form and deletes it when you disconnect the account.</li>
             <li>Each successful Gmail import is recorded with the file name and the number of holdings. You can see it in the import log.</li>
           </ul>
         </Section>

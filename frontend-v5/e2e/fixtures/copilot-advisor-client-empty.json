@@ -1,0 +1,87 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shapes; sources are named per key. A client with nothing on file.",
+  "attention": {
+    "items": []
+  },
+  "trend": {
+    "invested_rs": 0.0,
+    "current_rs": 0.0,
+    "absolute_change_rs": 0.0,
+    "percent_change": null,
+    "recent_buys": []
+  },
+  "tax": {
+    "total_invested_rs": 0.0,
+    "total_current_rs": 0.0,
+    "total_unrealized_rs": 0.0,
+    "equity_stcg_rs": 0.0,
+    "equity_ltcg_rs": 0.0,
+    "debt_slab_rs": 0.0,
+    "debt_ltcg_rs": 0.0,
+    "undated_gain_rs": 0.0,
+    "equity_stcg_count": 0,
+    "equity_ltcg_count": 0,
+    "debt_slab_count": 0,
+    "debt_ltcg_count": 0,
+    "undated_count": 0,
+    "stcg_rs": 0.0,
+    "ltcg_rs": 0.0,
+    "stcg_count": 0,
+    "ltcg_count": 0,
+    "tax_breakdown": {
+      "equity_stcg": 0.0,
+      "equity_ltcg": 0.0,
+      "debt_slab": 0.0,
+      "debt_ltcg_legacy": 0.0,
+      "cess_4pct": 0.0
+    },
+    "ltcg_exemption_inr": 125000.0,
+    "ltcg_exemption_used": 0.0,
+    "ltcg_exemption_remaining": 125000.0,
+    "est_tax_if_realized_rs": 0.0,
+    "user_slab_rate": 0.3,
+    "harvest_picks": [],
+    "loss_picks": [],
+    "near_lt_picks": [],
+    "biggest_positions": [],
+    "coverage_pct": 0.0,
+    "lot_coverage": {
+      "n_holdings_lot_resolved": 0,
+      "n_holdings_holding_only": 0,
+      "n_cas_transactions": 0,
+      "n_cas_symbols": 0,
+      "n_undated": 0,
+      "data_source": "holdings_only",
+      "cas_quality": "no_data",
+      "recommended_action": "request_detailed_cas",
+      "hint": "CAS uploaded has no transaction history."
+    },
+    "regime": {
+      "label": "Indian MF Tax · post-Jul-2024 / post-Apr-2023",
+      "equity_stcg": "20% (no indexation)",
+      "equity_ltcg": "12.5% on gains > ₹1.25 L / FY",
+      "debt_post_apr_2023": "Slab rate (no LTCG benefit)"
+    }
+  },
+  "notes": {
+    "note": null,
+    "sip_amount_rs": null,
+    "sip_frequency": null,
+    "next_sip_due": null,
+    "preferred_channel": null,
+    "updated_at": null
+  },
+  "snapshots": {
+    "count": 0,
+    "snapshots": [],
+    "current_snapshot_date": null,
+    "is_default_latest": true
+  },
+  "uploads": {
+    "files": [],
+    "count": 0
+  },
+  "invites": {
+    "invites": []
+  }
+}

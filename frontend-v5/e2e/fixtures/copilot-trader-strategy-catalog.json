@@ -1,0 +1,9 @@
+{
+  "as_of_date": "2026-10-12",
+  "return_window": "3M",
+  "count": 2,
+  "universes": [
+    { "kind": "broad", "category": "Broad Market", "ref": "NIFTY500", "id": null, "name": "Fixture Broad 500", "description": "Fixture broad universe.", "symbol_count": null, "return_3m_pct": 1.25, "trend": "steady", "trend_label": "Steady" },
+    { "kind": "sector", "category": "Sector", "ref": null, "id": "uni_fixture01", "name": "Fixture Sector Basket", "description": "Fixture sector universe.", "symbol_count": 12, "return_3m_pct": -2.5, "trend": "cooling", "trend_label": "Cooling" }
+  ]
+}

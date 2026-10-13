@@ -29,6 +29,21 @@ export interface NavItem {
 const INVESTOR_TOOLS: NavItem[] = [
   { view: "tool/analysis", label: "Portfolio analysis" },
   { view: "tool/recommend", label: "Recommendations" },
+  // The original v5 dashboards, mounted inside the shell.
+  { view: "tool/risk", label: "Risk" },
+  { view: "tool/goals", label: "Goals" },
+  { view: "tool/tax", label: "Tax" },
+  { view: "tool/research", label: "Stock & fund research" },
+  { view: "tool/screener", label: "Screener" },
+  { view: "tool/markets", label: "Markets" },
+];
+
+/** Advisor mode: the client book plus the original v5 advisor tools. */
+const ADVISOR_TOOLS: NavItem[] = [
+  { view: "advisor", label: "Client book" },
+  { view: "advisor/workspace", label: "Advisor workspace" },
+  { view: "advisor/client-360", label: "Client 360" },
+  { view: "advisor/sip-board", label: "SIP board" },
   { view: "tool/research", label: "Stock & fund research" },
   { view: "tool/screener", label: "Screener" },
   { view: "tool/markets", label: "Markets" },
@@ -37,15 +52,16 @@ const INVESTOR_TOOLS: NavItem[] = [
 const TRADER_TOOLS: NavItem[] = [
   { view: "trader", label: "Trader desk", tag: "F&O" },
   { view: "tool/optlab", label: "Options lab", tag: "F&O" },
+  // The original strategy builder (screen → backtest → save), mounted inside the shell.
+  { view: "trader/strategy", label: "Strategy builder" },
   { view: "tool/screener", label: "Screener" },
   { view: "tool/markets", label: "Markets" },
   { view: "tool/research", label: "Stock research" },
 ];
 
-/** Tools shown in the rail. Advisor mode keeps the investor tools — the
- *  design only swaps the list for Trader. */
+/** Tools shown in the rail for a mode. */
 export function toolsNav(mode: Mode): NavItem[] {
-  return mode === "trader" ? TRADER_TOOLS : INVESTOR_TOOLS;
+  return mode === "trader" ? TRADER_TOOLS : mode === "advisor" ? ADVISOR_TOOLS : INVESTOR_TOOLS;
 }
 
 export const WORKSPACE_NAV: NavItem[] = [

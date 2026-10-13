@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { chatService } from "@/services";
+import { errorSentence } from "../components/ui";
 
 export interface WidgetEnvelope {
   widget_type: string;
@@ -58,7 +59,9 @@ export interface LiveTurn {
 }
 
 /** An answer that was stopped or failed. The server keeps no copy of a stopped
- *  answer, so it lives here until the next question in that thread. */
+ *  answer, so it lives here until the next question in that thread.
+ *  `sessionId` is "" when the thread itself could not be created; the shell
+ *  shows that case above the ask box, since there is no thread to show it in. */
 export interface LocalAnswer {
   sessionId: string;
   question: string;
@@ -186,7 +189,7 @@ export function useThreadEngine(): ThreadEngine {
       }, { signal: ac.signal });
     } catch (e) {
       if (!ac.signal.aborted) {
-        errorText = e instanceof Error && e.message ? e.message : "Connection interrupted. Please try again.";
+        errorText = errorSentence(e) || "Connection interrupted. Please try again.";
       }
     }
 

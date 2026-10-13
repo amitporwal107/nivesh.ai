@@ -9,6 +9,8 @@
  * text/event-stream body carrying the same frames backend/routes/chat.py emits.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
+import fs from "fs";
+import path from "path";
 import { mockApi, mockAuthAs, mockSingleRoute, mock401 } from "../helpers/api-mock";
 
 const APP = "/v5/app";
@@ -189,23 +191,99 @@ test.describe("Copilot app — desktop", () => {
     await expect(page.getByTestId("home-eyebrow")).not.toContainText("Market");
   });
 
-  test("TC-04 'for your portfolio today' cards come from suggested-prompts and ask their query", async ({ page }) => {
+  test("TC-04 'for your portfolio today' cards: health, plan and ranked prompts, each from its endpoint", async ({ page }) => {
     await setup(page);
     const chat = await mockChat(page);
     await page.goto(APP);
     await expect(page.getByTestId("home-today-title")).toHaveText("For your portfolio today");
     const cards = page.getByTestId("home-today-card");
-    await expect(cards).toHaveCount(3);
-    // suggested-prompts.json: the three prompts that carry a computed badge.
-    await expect(cards.nth(0)).toContainText("Fix overlap in my funds");
-    await expect(cards.nth(0)).toContainText("Top pair 97% overlap");
-    await expect(cards.nth(0)).toContainText("Find duplicate funds and which to exit with lowest tax hit");
-    await expect(cards.nth(1)).toContainText("Equity 93% · Debt 0%");
-    await cards.nth(0).click();
+    await expect(cards).toHaveCount(6);
+    // insights-analysis.json: health_score 68.56, grade B → the dashboard's 55–70 band.
+    await expect(cards.nth(0)).toContainText("Your portfolio is in need of some work");
+    await expect(cards.nth(0)).toContainText("Health score 69 of 100 · grade B");
+    // plans-active.json: six PENDING actions.
+    await expect(cards.nth(1)).toContainText("6 actions identified");
+    // holdings-enriched.json equity 69.4% vs the 65% target for "Moderately Aggressive"
+    // (risk-profile.json) — the dashboard's drift signal, same wording.
+    await expect(cards.nth(2)).toContainText("Portfolio drift: equity 69% vs target 65%");
+    // suggested-prompts.json: the prompts that carry a computed badge.
+    await expect(cards.nth(3)).toContainText("Fix overlap in my funds");
+    await expect(cards.nth(3)).toContainText("Top pair 97% overlap");
+    await expect(cards.nth(3)).toContainText("Find duplicate funds and which to exit with lowest tax hit");
+    await expect(cards.nth(4)).toContainText("Equity 93% · Debt 0%");
+    await cards.nth(3).click();
     await expect(page).toHaveURL(/\/v5\/app\/t\/new1$/);
     await expect.poll(() => chat.streams.length).toBe(1);
     expect(chat.streams[0].message).toBe("Which funds or stocks in my portfolio are overlapping the most, and which ones should I remove with minimal tax impact?");
     expect(chat.streams[0].session_id).toBe("new1");
+
+    // The health and plan cards open their screens instead of asking.
+    await page.goto(APP);
+    await cards.filter({ hasText: "Health score" }).click();
+    await expect(page).toHaveURL(/\/v5\/app\/tool\/analysis$/);
+    await page.goto(APP);
+    await cards.filter({ hasText: "actions identified" }).click();
+    await expect(page).toHaveURL(/\/v5\/app\/tool\/recommend$/);
+  });
+
+  test("TC-04c the cards appear together: none is shown, and none can be clicked, while a source is still loading", async ({ page }) => {
+    await setup(page);
+    await mockChat(page);
+    // The health score answers late; the ranked prompts answer at once.
+    const analysis = JSON.parse(fs.readFileSync(path.join(process.cwd(), "e2e", "fixtures", "insights-analysis.json"), "utf-8"));
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/insights/analysis", async (route) => {
+      await held;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(analysis) });
+    });
+    const prompts = page.waitForResponse((r) => r.url().includes("/api/copilot/suggested-prompts"));
+    await page.goto(APP);
+    await prompts;
+    // The prompts are in, the health score is not: the row is still a placeholder,
+    // so a prompt card cannot sit where the health card is about to appear.
+    await expect(page.getByRole("status", { name: "Loading suggestions" })).toBeVisible();
+    await expect(page.getByTestId("home-today-card")).toHaveCount(0);
+    release();
+    const cards = page.getByTestId("home-today-card");
+    await expect(cards).toHaveCount(6);
+    await expect(cards.nth(0)).toContainText("Health score 69 of 100 · grade B");
+    await expect(page.getByRole("status", { name: "Loading suggestions" })).toHaveCount(0);
+  });
+
+  test("TC-04b the statement bar shows the last CAS and offers Gmail sync and upload, as the dashboard does", async ({ page }) => {
+    await setup(page);
+    await mockChat(page);
+    // Real shape of GET /api/onboarding/state (backend/routes/onboarding_gmail.py).
+    await page.route("**/api/onboarding/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ onboarding_completed: true, pan_on_file: true, gmail_connected: true, cas_statement_period: "Mar/2025", cas_portfolio_value_rs: 1234567.5, cas_statement_date: "31-Mar-2025", persona: "hni_investor", persona_confidence: 55 }) }));
+    await page.goto(APP);
+    await expect(page.getByTestId("home-statement-period")).toHaveText("Mar/2025");
+    await expect(page.getByTestId("home-statement-sync")).toHaveText("Sync Gmail");
+    // Persona and health as the dashboard shows them (labels from its persona card).
+    const ctx = page.getByTestId("evidence-context");
+    await expect(ctx).toContainText("HNI / UHNI Investor · 55% low confidence");
+    await expect(page.getByTestId("context-health-score")).toHaveText("69");
+    await expect(ctx).toContainText("Last statement");
+    // Sync opens the existing Gmail import flow; nothing is imported until the user confirms there.
+    await page.getByTestId("home-statement-sync").click();
+    await expect(page.getByText("Import latest CAS", { exact: false }).first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await page.reload();
+    await page.getByTestId("home-statement-upload").click();
+    await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
+  });
+
+  test("TC-08b a statement on file with no holdings rows yet is not shown as 'no portfolio'", async ({ page }) => {
+    await setup(page, "empty"); // holdings-enriched answers with no rows
+    await mockChat(page);
+    await page.route("**/api/onboarding/state", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ onboarding_completed: true, pan_on_file: true, gmail_connected: false, cas_statement_period: "Mar/2025", cas_portfolio_value_rs: 1234567.5, cas_statement_date: "31-Mar-2025" }) }));
+    await page.goto(APP);
+    await expect(page.getByTestId("context-portfolio-value")).toHaveText("₹12,34,568"); // the statement's own figure
+    await expect(page.getByTestId("context-from-statement")).toContainText("As printed on your Mar/2025 statement");
+    await expect(page.getByTestId("context-no-portfolio")).toHaveCount(0);
+    await expect(page.getByTestId("home-connect-banner")).toHaveCount(0);
+    await expect(page.getByTestId("home-statement-sync")).toHaveText("Connect Gmail");
+    await expect(page.getByTestId("rail-user")).toContainText("Portfolio ₹12.35 L");
   });
 
   test("TC-05 asking a question streams an answer with class, tool steps and follow-ups", async ({ page }) => {
@@ -281,6 +359,32 @@ test.describe("Copilot app — desktop", () => {
     await expect(page.getByTestId("composer-send")).toBeEnabled();
   });
 
+  test("TC-07c a thread that cannot be started says so, and Retry sends the question", async ({ page }) => {
+    await setup(page);
+    const chat = await mockChat(page);
+    // First create call is refused (what staging answers to a cross-site write), the next succeeds.
+    let refused = 0;
+    await page.route("**/api/chat/sessions", async (route) => {
+      if (route.request().method() === "POST" && refused === 0) {
+        refused += 1;
+        return route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: "CSRF_BLOCKED", message: "Cross-origin request rejected." }) });
+      }
+      return route.fallback();
+    });
+    await page.goto(APP);
+    await askFromBox(page, "How risky is my portfolio?");
+    const failed = page.getByTestId("ask-failed");
+    await expect(failed).toContainText("“How risky is my portfolio?” could not be sent");
+    await expect(page).toHaveURL(/\/v5\/app$/); // still on home, with the reason in view
+    expect(chat.streams.length).toBe(0);
+    await expect(page.getByTestId("composer-send")).toBeVisible(); // not stuck in a busy state
+    await page.getByTestId("ask-failed-retry").click();
+    await expect(page).toHaveURL(/\/v5\/app\/t\/new1$/);
+    await expect.poll(() => chat.streams.length).toBe(1);
+    expect(chat.streams[0].message).toBe("How risky is my portfolio?");
+    await expect(page.getByTestId("ask-failed")).toHaveCount(0);
+  });
+
   test("TC-07b stopping an answer in flight keeps the question and offers a retry", async ({ page }) => {
     await setup(page);
     await mockChat(page);
@@ -339,8 +443,10 @@ test.describe("Copilot app — desktop", () => {
     await expect(page.getByTestId("context-portfolio-value")).toHaveText("₹1,03,06,772");
     await expect(page.getByTestId("context-portfolio-gain")).toContainText("+₹18,99,276 (+22.6%)");
     await expect(page.getByTestId("evidence-context")).toContainText("111 holdings");
-    await expect(page.getByTestId("context-mix")).toContainText("Equity 69%");
-    await expect(page.getByTestId("context-mix")).toContainText("Hybrid 31%");
+    // Allocation by type, worked out from the fixture's holdings (value by asset_type):
+    // mutual funds 80.4%, equity 17.1% — the split the dashboard's portfolio view shows.
+    await expect(page.getByTestId("context-mix")).toContainText("Mutual funds 80%");
+    await expect(page.getByTestId("context-mix")).toContainText("Equity (stocks) 17%");
     await expect(page.getByTestId("evidence-context")).toContainText("Moderately Aggressive"); // risk-profile.json
 
     await page.getByTestId("evidence-toggle").click();
@@ -399,6 +505,8 @@ test.describe("Copilot app — desktop", () => {
     const pill = page.getByTestId("mode-pill");
     await expect(pill).toContainText("Investor");
     await expect(rail.getByRole("button", { name: "Portfolio analysis" })).toBeVisible();
+    // The original v5 dashboards are tools in Investor mode.
+    for (const name of ["Risk", "Goals", "Tax"]) await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
     await pill.click();
     await expect(pill).toContainText("Trader");
     await expect(page).toHaveURL(/\/v5\/app\/trader$/);
@@ -420,6 +528,37 @@ test.describe("Copilot app — desktop", () => {
     await pill.click();
     await expect(pill).toContainText("Advisor");
     await expect(page).toHaveURL(/\/v5\/app\/advisor$/);
+    // Advisor mode lists the original v5 advisor tools.
+    await expect(rail.getByRole("button", { name: "Advisor workspace" })).toBeVisible();
+    await rail.getByRole("button", { name: "Client 360" }).click();
+    await expect(page).toHaveURL(/\/v5\/app\/advisor\/client-360$/);
+    await expect(page.getByTestId("screen-advisor-client-360")).toBeVisible();
+  });
+
+  test("TC-11b while an advisor has a client open, every screen says whose data it is and offers the way back", async ({ page }) => {
+    await setup(page);
+    await mockChat(page);
+    // The original app's own record of the client being viewed (stores/impersonation.store.ts).
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem("seeded")) {
+        localStorage.setItem("nivesh.impersonation", JSON.stringify({ state: { profileId: "p-2", name: "Test Client Two" }, version: 0 }));
+        sessionStorage.setItem("seeded", "1");
+      }
+    });
+    await page.goto(APP);
+    await expect(page.getByTestId("client-bar-name")).toHaveText("Test Client Two");
+    // Requests made while the client is open carry the client's profile.
+    const asClient = page.waitForRequest((r) => r.url().includes("/api/") && r.headers()["x-active-profile"] === "p-2");
+    await page.goto(`${APP}/tool/markets`);
+    await asClient;
+    await expect(page.getByTestId("client-bar")).toBeVisible();
+    await page.getByTestId("client-bar-back").click();
+    await expect(page).toHaveURL(/\/v5\/app\/advisor$/);
+    await expect(page.getByTestId("client-bar")).toHaveCount(0);
+    // Out of the client view for good: the strip does not come back on other screens.
+    await page.getByTestId("copilot-rail").getByRole("button", { name: "Nivesh home" }).click();
+    await expect(page.getByTestId("home-headline")).toBeVisible();
+    await expect(page.getByTestId("client-bar")).toHaveCount(0);
   });
 
   test("TC-12 internal pages are for admins only", async ({ page }) => {
@@ -491,7 +630,7 @@ test.describe("Copilot app — phone (390×844)", () => {
     await expect(page.getByTestId("compact-bar")).toBeVisible();
     await expect(page.getByTestId("copilot-rail")).toHaveCount(0);
     await expect(page.getByTestId("home-headline")).toBeVisible();
-    await expect(page.getByTestId("home-today-card")).toHaveCount(3);
+    await expect(page.getByTestId("home-today-card")).toHaveCount(6);
     await noSidewaysScroll(page);
 
     await page.getByTestId("menu-button").click();

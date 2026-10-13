@@ -1,0 +1,87 @@
+{
+ "funds": [
+  {
+   "id": "INF000A",
+   "name": "Fixture Fund Regular",
+   "amc": null,
+   "category": null,
+   "value_rs": 150000.0
+  },
+  {
+   "id": "INF000B",
+   "name": "Fixture Fund Direct",
+   "amc": null,
+   "category": null,
+   "value_rs": 250000.0
+  },
+  {
+   "id": "INF000C",
+   "name": "Other Fund",
+   "amc": null,
+   "category": null,
+   "value_rs": 90000.0
+  }
+ ],
+ "matrix": [
+  [
+   100.0,
+   96.5,
+   66.25
+  ],
+  [
+   96.5,
+   100.0,
+   35.0
+  ],
+  [
+   66.25,
+   35.0,
+   100.0
+  ]
+ ],
+ "pairs": [
+  {
+   "a": "INF000A",
+   "b": "INF000B",
+   "a_name": "Fixture Fund Regular",
+   "b_name": "Fixture Fund Direct",
+   "overlap_pct": 96.5,
+   "shared_count": 41,
+   "top_shared": [
+    {
+     "name": "Alpha Bank",
+     "w_a": 9.5,
+     "w_b": 9.4
+    },
+    {
+     "name": "Beta Motors",
+     "w_a": 4.1,
+     "w_b": 4.0
+    }
+   ]
+  },
+  {
+   "a": "INF000A",
+   "b": "INF000C",
+   "a_name": "Fixture Fund Regular",
+   "b_name": "Other Fund",
+   "overlap_pct": 66.25,
+   "shared_count": 20,
+   "top_shared": []
+  },
+  {
+   "a": "INF000B",
+   "b": "INF000C",
+   "a_name": "Fixture Fund Direct",
+   "b_name": "Other Fund",
+   "overlap_pct": 35.0,
+   "shared_count": 9,
+   "top_shared": []
+  }
+ ],
+ "max_pct": 96.5,
+ "high_pairs": 2,
+ "unique_stocks_count": 120,
+ "coverage_pct": 78.2,
+ "empty": false
+}

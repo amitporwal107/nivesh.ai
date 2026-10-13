@@ -1,0 +1,273 @@
+{
+  "plan": {
+    "plan_id": "plan_fixture_v2",
+    "user_id": "user_fixture",
+    "version": 2,
+    "status": "active",
+    "created_at": "2026-07-10T06:00:00",
+    "updated_at": "2026-07-20T06:00:00",
+    "signals": [],
+    "actions": [
+      {
+        "action_id": "act_fix_1",
+        "id": "rec_fix_1",
+        "type": "TRIM",
+        "verb": "TRIM",
+        "action": "TRIM",
+        "asset_name": "Axis Fixture Bluechip Fund - Direct Growth",
+        "asset_type": "mutual_fund",
+        "amount": 120000.0,
+        "amount_rs": 120000.0,
+        "magnitude": 120000.0,
+        "reason_codes": [],
+        "reason_text": "",
+        "priority": 1,
+        "status": "COMPLETED",
+        "tax_impact": {
+          "tax_liability": 1200.0,
+          "stcg": 3000.0,
+          "ltcg": 9600.0,
+          "exit_load_rs": 150.0,
+          "holding_period_days": 412,
+          "lock_in": false
+        },
+        "priority_label": "Critical",
+        "effort": "LOW",
+        "trade_off": "Selling realises a gain.",
+        "impact": {
+          "label": "Impact",
+          "value": ""
+        },
+        "expected_impact": {},
+        "confidence": "MEDIUM",
+        "created_at": "2026-07-10T06:00:00",
+        "confidence_tier": "risk_only",
+        "confidence_label": "Risk-based plan",
+        "plan_confidence_score": 70,
+        "defer_reason": null,
+        "execution_date": null,
+        "severity": "mismatch",
+        "requires_confirmation": false,
+        "execution": "stagger",
+        "execution_path": "stagger",
+        "conviction_text": "This fund is 40% of the fixture portfolio.",
+        "expected_effect": {
+          "risk_band_delta": "lower",
+          "score_delta_pct": 3.5,
+          "funding_probability_delta": 0
+        },
+        "completed_at": "2026-10-13T06:00:00",
+        "completion_note": "Redeemed through my broker"
+      },
+      {
+        "action_id": "act_fix_2",
+        "id": "rec_fix_2",
+        "type": "ADD",
+        "verb": "ADD",
+        "action": "ADD",
+        "asset_name": "Fixture Steel Ltd",
+        "asset_type": "equity",
+        "amount": 50000.0,
+        "amount_rs": 50000.0,
+        "magnitude": 50000.0,
+        "reason_codes": [],
+        "reason_text": "Under its target weight.",
+        "priority": 1,
+        "status": "PENDING",
+        "tax_impact": null,
+        "priority_label": "Optimise",
+        "effort": "LOW",
+        "trade_off": "",
+        "impact": {
+          "label": "Impact",
+          "value": ""
+        },
+        "expected_impact": {},
+        "confidence": "MEDIUM",
+        "created_at": "2026-07-10T06:00:00",
+        "confidence_tier": "risk_only",
+        "confidence_label": "Risk-based plan",
+        "plan_confidence_score": 70,
+        "defer_reason": null,
+        "execution_date": null,
+        "severity": "minor",
+        "requires_confirmation": false,
+        "execution": "redirect",
+        "execution_path": "redirect"
+      },
+      {
+        "action_id": "act_fix_3",
+        "id": "rec_fix_3",
+        "type": "EXIT",
+        "verb": "EXIT",
+        "action": "EXIT",
+        "asset_name": "SBI Fixture Midcap Fund - Regular Growth",
+        "asset_type": null,
+        "amount": 150000.0,
+        "amount_rs": 150000.0,
+        "magnitude": 150000.0,
+        "reason_codes": [],
+        "reason_text": "Behind its category for three years.",
+        "priority": 1,
+        "status": "IN_PROGRESS",
+        "tax_impact": null,
+        "priority_label": "Optimise",
+        "effort": "LOW",
+        "trade_off": "",
+        "impact": {
+          "label": "Impact",
+          "value": ""
+        },
+        "expected_impact": {},
+        "confidence": "MEDIUM",
+        "created_at": "2026-07-10T06:00:00",
+        "confidence_tier": "risk_only",
+        "confidence_label": "Risk-based plan",
+        "plan_confidence_score": 70,
+        "defer_reason": "Exit load applies until 30 Nov 2026.",
+        "execution_date": null,
+        "severity": "minor",
+        "requires_confirmation": false,
+        "execution": "sell-now",
+        "execution_path": "sell-now",
+        "started_at": "2026-07-12T06:00:00"
+      },
+      {
+        "action_id": "act_fix_4",
+        "id": "rec_fix_4",
+        "type": "SWITCH",
+        "verb": "SWITCH",
+        "action": "SWITCH",
+        "asset_name": "Nippon India ETF Fixture 50",
+        "asset_type": "etf",
+        "amount": 40000.0,
+        "amount_rs": 40000.0,
+        "magnitude": 40000.0,
+        "reason_codes": [],
+        "reason_text": "A cheaper tracker of the same index exists.",
+        "priority": 1,
+        "status": "COMPLETED",
+        "tax_impact": null,
+        "priority_label": "Optimise",
+        "effort": "LOW",
+        "trade_off": "",
+        "impact": {
+          "label": "Impact",
+          "value": ""
+        },
+        "expected_impact": {},
+        "confidence": "MEDIUM",
+        "created_at": "2026-07-10T06:00:00",
+        "confidence_tier": "risk_only",
+        "confidence_label": "Risk-based plan",
+        "plan_confidence_score": 70,
+        "defer_reason": null,
+        "execution_date": null,
+        "severity": "minor",
+        "requires_confirmation": false,
+        "execution": "sell-now",
+        "execution_path": "sell-now",
+        "completed_at": "2026-07-20T06:00:00",
+        "completion_note": "Switched through my broker"
+      },
+      {
+        "action_id": "act_fix_5",
+        "id": "rec_fix_5",
+        "type": "TRIM",
+        "verb": "TRIM",
+        "action": "TRIM",
+        "asset_name": "Fixture Bank Ltd",
+        "asset_type": "equity",
+        "amount": 30000.0,
+        "amount_rs": 30000.0,
+        "magnitude": 30000.0,
+        "reason_codes": [],
+        "reason_text": "One fifth of the fixture portfolio.",
+        "priority": 1,
+        "status": "SKIPPED",
+        "tax_impact": null,
+        "priority_label": "Optimise",
+        "effort": "LOW",
+        "trade_off": "",
+        "impact": {
+          "label": "Impact",
+          "value": ""
+        },
+        "expected_impact": {},
+        "confidence": "MEDIUM",
+        "created_at": "2026-07-10T06:00:00",
+        "confidence_tier": "risk_only",
+        "confidence_label": "Risk-based plan",
+        "plan_confidence_score": 70,
+        "defer_reason": null,
+        "execution_date": null,
+        "severity": "minor",
+        "requires_confirmation": false,
+        "execution": "sell-now",
+        "execution_path": "sell-now",
+        "skipped_at": "2026-07-15T06:00:00",
+        "completion_note": "Keeping it for now"
+      }
+    ],
+    "total_actions": 5,
+    "completed_actions": 2,
+    "pending_actions": 1,
+    "skipped_actions": 1,
+    "completion_pct": 20.0,
+    "freed_capital": 270000.0,
+    "total_tax_impact": {
+      "total_tax_liability": 1200.0
+    },
+    "post_tax_proceeds": 268800.0,
+    "plan_summary": "Five steps to spread the fixture portfolio out.",
+    "portfolio_score": 61.0,
+    "confidence_score": 70.0,
+    "confidence_breakdown": {
+      "tax_certainty": 50.0,
+      "label": "Medium"
+    },
+    "improvements": {
+      "overlap_pct": {
+        "before": 62.0,
+        "after": 47.0
+      },
+      "top_amc_pct": {
+        "before": 72.7,
+        "after": 56.7
+      },
+      "debt_pct": {
+        "before": 9.0,
+        "after": 9.0
+      },
+      "annual_cost_saving_rs": 4500.0
+    },
+    "do_nothing": false,
+    "degraded": false,
+    "degraded_reason": null,
+    "metadata": {
+      "portfolio_value_at_creation": 960000.0
+    },
+    "simulation": {
+      "before": {
+        "label": "Before",
+        "mf_count": 9,
+        "weighted_expense_ratio_pct": 0.92,
+        "blended_cagr_pct": 11.1,
+        "projected_10y_value_rs": 2500000
+      },
+      "after": {
+        "label": "After",
+        "mf_count": 7,
+        "weighted_expense_ratio_pct": 0.71,
+        "blended_cagr_pct": 11.4,
+        "projected_10y_value_rs": 2600000
+      }
+    },
+    "gate_flags": {
+      "requires_persona": false,
+      "requires_goal": true,
+      "capacity_tolerance_diverged": false
+    }
+  },
+  "has_plan": true
+}

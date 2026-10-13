@@ -14,6 +14,7 @@ export const SCREENS: Record<string, Screen> = {
   "tool/markets": lazy(() => import("./Markets")),
   "tool/optlab": lazy(() => import("./OptionsLab")),
   trader: lazy(() => import("./Trader")),
+  "trader/strategy": lazy(() => import("./desk/StrategyBuilder")),
   "page/watchlist": lazy(() => import("./Watchlist")),
   "page/saved": lazy(() => import("./Saved")),
   "page/plan": lazy(() => import("./Plan")),
@@ -22,6 +23,13 @@ export const SCREENS: Record<string, Screen> = {
   "page/brokers": lazy(() => import("./Brokers")),
   "page/settings": lazy(() => import("./Settings")),
   advisor: lazy(() => import("./Advisor")),
+  // Screens of the original v5 app, mounted unchanged inside the shell.
+  "tool/risk": lazy(() => import("./legacy/Risk")),
+  "tool/goals": lazy(() => import("./legacy/Goals")),
+  "tool/tax": lazy(() => import("./legacy/Tax")),
+  "advisor/workspace": lazy(() => import("./legacy/AdvisorWorkspace")),
+  "advisor/client-360": lazy(() => import("./legacy/Client360")),
+  "advisor/sip-board": lazy(() => import("./advisor/SipBoard")),
   onboarding: lazy(() => import("./Onboarding")),
 };
 

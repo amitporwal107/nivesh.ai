@@ -21,6 +21,19 @@ export function fmtSigned(n: number | null | undefined, digits = 2): string {
 }
 
 /**
+ * A quantity (open interest, volume) in Indian units: "1.23 Cr" from one crore,
+ * "45.60 L" from one lakh, grouped digits below that ("98,750").
+ */
+export function fmtQty(n: number | null | undefined, opts: { signed?: boolean } = {}): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "−" : opts.signed && n > 0 ? "+" : "";
+  if (abs >= 1_00_00_000) return `${sign}${(abs / 1_00_00_000).toFixed(2)} Cr`;
+  if (abs >= 1_00_000) return `${sign}${(abs / 1_00_000).toFixed(2)} L`;
+  return `${sign}${fmtNum(abs)}`;
+}
+
+/**
  * A trading-session date ("2026-10-12") as "12 Oct 2026". fmtDate parses a
  * date-only string as UTC midnight, which lands on the previous day for a
  * viewer west of UTC; a session date is an India date wherever it is read.
@@ -78,7 +91,8 @@ export function QueryProblem({ what, error, onRetry }: { what: string; error: un
 export function Choices<T extends string>({ label, value, options, onChange, testId }: {
   label: string;
   value: T;
-  options: Array<{ value: T; label: string }>;
+  /** `label` is usually text; a stock option passes its icon and name. */
+  options: Array<{ value: T; label: ReactNode }>;
   onChange: (v: T) => void;
   testId?: string;
 }) {

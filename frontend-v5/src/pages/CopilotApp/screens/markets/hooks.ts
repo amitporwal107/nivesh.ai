@@ -1,14 +1,115 @@
 /**
- * Query hooks for endpoints that had no react-query hook yet. Each wraps an
- * existing adapter (filings) or reads an existing backend route with `http`.
- * Reads only — nothing here changes data.
+ * Data access for the market / research screens. Reads only — nothing here
+ * changes data.
+ *
+ * 1. Named hooks over the app's existing market hooks (@/hooks/use-markets), so
+ *    a screen never names a provider or an endpoint. They share the original
+ *    app's query keys, so both apps show the same numbers from one cache; when a
+ *    feed moves to another provider, only this file changes.
+ * 2. Query hooks for endpoints that had no react-query hook yet. Each wraps an
+ *    existing adapter (filings, markets) or reads an existing backend route
+ *    with `http`.
+ * 3. The joins between the user's directly held stocks and the market
+ *    calendars (results, corporate actions).
  */
-import { useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo } from "react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { marketsService } from "@/services";
 import { http } from "@/services/api/http";
+import { ApiError } from "@/services/api/errors";
 import { filingsService, type FeedParams } from "@/services/adapters/filings.adapter";
+import type {
+  ArticlesQuery, CapSegment, CorpActionsQuery, EarningsCompaniesQuery, EarningsQuery,
+} from "@/services/adapters/markets.adapter";
+import type { CorpAction, EarningsCompany } from "@/services/contracts/markets.contract";
+import {
+  useArticles, useBriefHistory, useCorporateActions, useDailyBrief, useEarnings, useEarningsCompanies,
+  useInstitutionalPositioning, useMarketsExplore, useMarketsFiiDii, useMarketsHome, useMarketsMovers,
+  useSectorAnalyses, useSectorAnalysis,
+} from "@/hooks/use-markets";
+import { useHoldingsEnriched } from "@/hooks/use-portfolio";
 import { useThematicQueries } from "@/hooks/useThematicQueries";
+import { isoDay } from "./format";
+
+// ── market and sector data ───────────────────────────────────────────────
+
+/** GET /api/markets/home — indices, breadth, sectors, movers, flows, global quotes, headlines. */
+export function useMarketOverview() {
+  return useMarketsHome();
+}
+
+/** GET /api/markets/movers?cap= — gainers and losers for one market-cap segment. */
+export function useMarketMovers(cap: CapSegment) {
+  return useMarketsMovers(cap);
+}
+
+/** GET /api/markets/explore — near 52-week high / low and most-active lists. Fetched when first opened. */
+export function useMarketLists(enabled: boolean) {
+  return useMarketsExplore(enabled);
+}
+
+/** GET /api/markets/sectors — one card per sector profile. */
+export function useSectorList() {
+  return useSectorAnalyses();
+}
+
+/** GET /api/markets/sectors/{slug} — one sector's figures, largest companies and commentary. */
+export function useSectorDetail(slug: string) {
+  return useSectorAnalysis(slug);
+}
+
+/** GET /api/markets/fii-dii — daily and monthly FII / DII cash flows. */
+export function useInstitutionalFlows(days = 90) {
+  return useMarketsFiiDii(days);
+}
+
+/** GET /api/markets/institutional-positioning — FII / DII holdings by sector. */
+export function useSectorPositioning() {
+  return useInstitutionalPositioning();
+}
+
+/** GET /api/markets/earnings — declared results by sector for an index and quarter. */
+export function useEarningsSeason(params: EarningsQuery) {
+  return useEarnings(params);
+}
+
+/** GET /api/markets/earnings/companies — the companies behind one sector row. */
+export function useEarningsSectorCompanies(params: EarningsCompaniesQuery, enabled: boolean) {
+  return useEarningsCompanies(params, enabled);
+}
+
+// ── corporate events and news ────────────────────────────────────────────
+
+/** GET /api/markets/corporate-actions — the corporate-action calendar. */
+export function useActionCalendar(params: CorpActionsQuery) {
+  return useCorporateActions(params);
+}
+
+/** GET /api/markets/articles — classified exchange announcements. */
+export function useAnnouncements(params: ArticlesQuery) {
+  return useArticles(params);
+}
+
+/** GET /api/markets/daily-brief — the stored brief for today or a past day. */
+export function useMarketBrief(date?: string) {
+  return useDailyBrief(date);
+}
+
+/** GET /api/markets/daily-brief/history — the days a brief exists for. */
+export function useMarketBriefDays(limit = 30) {
+  return useBriefHistory(limit);
+}
+
+/** GET /api/filings/{id}/insights — the generated read of one filing; null when none exists yet. */
+export function useFilingInsight(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["filings", "insight", id],
+    queryFn: () => filingsService.getInsight(id),
+    enabled: enabled && !!id,
+    staleTime: 5 * 60_000,
+  });
+}
 
 // ── filings ──────────────────────────────────────────────────────────────
 
@@ -251,4 +352,253 @@ export function useCompanyNumbers(symbol: string) {
       return { quarters, holdings, features: data?.v3_score ?? null };
     },
   });
+}
+
+// ── the user's directly held stocks ──────────────────────────────────────
+
+export interface DirectStock {
+  /** NSE symbol in upper case; null when the holding carries none. */
+  symbol: string | null;
+  name: string;
+  /** Shares held, as on the latest statement or broker sync. */
+  quantity: number | null;
+  /** Rupees. */
+  valueRs: number | null;
+}
+
+export interface DirectStocks {
+  stocks: DirectStock[];
+  /** Mutual funds and ETFs in the portfolio. The stocks inside them are not looked through. */
+  fundCount: number;
+}
+
+/**
+ * GET /api/portfolio/holdings-enriched (the app's useHoldingsEnriched, same
+ * cache) reduced to the stocks the user owns directly. Funds are only counted:
+ * the look-through endpoint returns the top companies by name without an
+ * exchange symbol, which is not enough to match a calendar row.
+ */
+export function useDirectStocks() {
+  const q = useHoldingsEnriched();
+  const data = useMemo((): DirectStocks | undefined => {
+    if (!q.data) return undefined;
+    const stocks: DirectStock[] = [];
+    let fundCount = 0;
+    for (const h of q.data.holdings) {
+      const type = h.asset_type.toLowerCase();
+      if (type === "mutual_fund" || type === "etf") fundCount += 1;
+      if (type !== "equity" && type !== "stock") continue;
+      const symbol = h.nse_symbol?.trim().toUpperCase() || null;
+      stocks.push({ symbol, name: h.name, quantity: Number.isFinite(h.quantity) ? h.quantity : null, valueRs: h.value_rs ?? null });
+    }
+    return { stocks, fundCount };
+  }, [q.data]);
+  return { data, isPending: q.isPending, isError: q.isError, error: q.error, refetch: q.refetch };
+}
+
+export interface StockIndex {
+  bySymbol: Map<string, DirectStock>;
+  byName: Map<string, DirectStock>;
+}
+
+export function indexStocks(stocks: DirectStock[]): StockIndex {
+  const bySymbol = new Map<string, DirectStock>();
+  const byName = new Map<string, DirectStock>();
+  for (const s of stocks) {
+    if (s.symbol) bySymbol.set(s.symbol, s);
+    const n = normName(s.name);
+    if (n) byName.set(n, s);
+  }
+  return { bySymbol, byName };
+}
+
+/** The directly held stock a calendar row refers to: by NSE symbol, else by company name. */
+export function findStock(index: StockIndex, symbol?: string | null, name?: string | null): DirectStock | undefined {
+  const bySymbol = symbol ? index.bySymbol.get(symbol.trim().toUpperCase()) : undefined;
+  if (bySymbol) return bySymbol;
+  const n = normName(name);
+  return n ? index.byName.get(n) : undefined;
+}
+
+// ── results calendar (upcoming result dates) ─────────────────────────────
+
+const CalendarEventC = z.object({
+  symbol: z.string(),
+  company_name: z.string().nullish(),
+  /** quarterly_results, board_meeting, agm, dividend, … */
+  event_type: z.string().nullish(),
+  /** YYYY-MM-DD. */
+  event_date: z.string().nullish(),
+  /** "Q2 FY27" when the notice named a period. */
+  period: z.string().nullish(),
+  purpose: z.string().nullish(),
+  /** Where the calendar row came from, as the route reports it. */
+  calendar_source: z.string().nullish(),
+});
+export type CalendarEvent = z.infer<typeof CalendarEventC>;
+
+const CalendarDayC = z.object({
+  events: z.array(z.unknown()).default([]),
+  /** Set by the route (with HTTP 200) when it could not read its calendar. */
+  _error: z.string().nullish(),
+  _reason: z.string().nullish(),
+});
+
+interface CalendarDay {
+  events: CalendarEvent[];
+  /** The route answered but said it could not read the calendar. */
+  unavailable: boolean;
+}
+
+async function fetchCalendarDay(date: string, signal?: AbortSignal): Promise<CalendarDay> {
+  const res = await http({ path: "/api/market/events", query: { date_str: date }, signal });
+  const parsed = CalendarDayC.safeParse(res.data);
+  if (!parsed.success) throw ApiError.contractDrift(`market.events: ${parsed.error.message}`);
+  const events = parsed.data.events.flatMap((e) => {
+    const row = CalendarEventC.safeParse(e);
+    return row.success ? [row.data] : [];
+  });
+  return { events, unavailable: !!(parsed.data._error || parsed.data._reason) };
+}
+
+/** Days ahead the results calendar is read for (today included). */
+export const RESULTS_WINDOW_DAYS = 14;
+
+export interface ResultsCalendar {
+  /** "unavailable": the route answered, but could not read its calendar. */
+  status: "loading" | "error" | "unavailable" | "ready";
+  /** Scheduled quarterly-results events in the window, soonest first. */
+  events: CalendarEvent[];
+  from: string;
+  to: string;
+  error: unknown;
+  refetch: () => void;
+}
+
+/**
+ * GET /api/market/events?date_str= — the event calendar, which the route serves
+ * one day per call. Today is read first; the remaining days are requested only
+ * when that call could read the calendar, so an unavailable calendar costs one
+ * request, not fourteen.
+ */
+export function useResultsCalendar(enabled = true): ResultsCalendar {
+  const days = useMemo(() => Array.from({ length: RESULTS_WINDOW_DAYS }, (_, i) => isoDay(i)), []);
+  const first = useQuery({
+    queryKey: ["market-events", "day", days[0]],
+    queryFn: ({ signal }) => fetchCalendarDay(days[0], signal),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+  const usable = first.isSuccess && !first.data.unavailable;
+  const rest = useQueries({
+    queries: days.slice(1).map((day) => ({
+      queryKey: ["market-events", "day", day],
+      queryFn: ({ signal }: { signal: AbortSignal }) => fetchCalendarDay(day, signal),
+      enabled: enabled && usable,
+      staleTime: 5 * 60_000,
+    })),
+  });
+
+  const base = { from: days[0], to: days[days.length - 1] };
+  const refetch = () => {
+    void first.refetch();
+    for (const r of rest) if (r.isError) void r.refetch();
+  };
+  if (first.isError) return { ...base, status: "error", events: [], error: first.error, refetch };
+  const failed = rest.find((r) => r.isError);
+  if (failed) return { ...base, status: "error", events: [], error: failed.error, refetch };
+  if (first.isPending) return { ...base, status: "loading", events: [], error: null, refetch };
+  if (first.data.unavailable || rest.some((r) => r.data?.unavailable)) {
+    return { ...base, status: "unavailable", events: [], error: null, refetch };
+  }
+  if (rest.some((r) => r.isPending)) return { ...base, status: "loading", events: [], error: null, refetch };
+
+  const events = [first.data, ...rest.flatMap((r) => (r.data ? [r.data] : []))]
+    .flatMap((d) => d.events)
+    .filter((e) => e.event_type === "quarterly_results" && !!e.event_date)
+    .sort((a, b) => (a.event_date ?? "").localeCompare(b.event_date ?? "") || a.symbol.localeCompare(b.symbol));
+  return { ...base, status: "ready", events, error: null, refetch };
+}
+
+// ── this quarter's results for the user's stocks ─────────────────────────
+
+export interface HeldResult {
+  stock: DirectStock;
+  company: EarningsCompany;
+  sector: string;
+}
+
+export interface HeldResults {
+  status: "loading" | "error" | "ready";
+  /** Directly held stocks that are in the index, reported ones first. */
+  rows: HeldResult[];
+  /** Directly held stocks the index does not contain. */
+  outside: DirectStock[];
+  error: unknown;
+  refetch: () => void;
+}
+
+/**
+ * GET /api/markets/earnings/companies for every sector of the index, joined
+ * with the user's directly held stocks. Same query keys as the sector
+ * drill-down, so opening a sector afterwards costs no request.
+ */
+export function useHeldResults({ index, quarter, sectors, stocks, enabled }: {
+  index: string;
+  quarter?: string;
+  sectors: string[];
+  stocks: DirectStock[];
+  enabled: boolean;
+}): HeldResults {
+  const on = enabled && stocks.length > 0;
+  const lists = useQueries({
+    queries: sectors.map((sector) => {
+      const params: EarningsCompaniesQuery = { index, sector, quarter };
+      return {
+        queryKey: ["markets", "earnings-companies", params],
+        queryFn: () => marketsService.getEarningsCompanies(params),
+        enabled: on,
+        staleTime: 5 * 60_000,
+      };
+    }),
+  });
+
+  const refetch = () => {
+    for (const r of lists) if (r.isError) void r.refetch();
+  };
+  const failed = lists.find((r) => r.isError);
+  if (failed) return { status: "error", rows: [], outside: [], error: failed.error, refetch };
+  if (on && lists.some((r) => r.isPending)) return { status: "loading", rows: [], outside: [], error: null, refetch };
+
+  const held = indexStocks(stocks);
+  const seen = new Set<DirectStock>();
+  const rows: HeldResult[] = [];
+  lists.forEach((r, i) => {
+    for (const company of r.data?.companies ?? []) {
+      const stock = findStock(held, company.symbol, company.name);
+      if (!stock || seen.has(stock)) continue;
+      seen.add(stock);
+      rows.push({ stock, company, sector: sectors[i] });
+    }
+  });
+  rows.sort((a, b) => Number(b.company.declared) - Number(a.company.declared) || a.stock.name.localeCompare(b.stock.name));
+  return { status: "ready", rows, outside: stocks.filter((s) => !seen.has(s)), error: null, refetch };
+}
+
+// ── corporate actions on the user's stocks ───────────────────────────────
+
+export interface HeldAction {
+  stock: DirectStock;
+  action: CorpAction;
+}
+
+/** The calendar rows that name a stock the user holds directly, soonest ex-date first. */
+export function heldActions(actions: CorpAction[], stocks: DirectStock[]): HeldAction[] {
+  const index = indexStocks(stocks);
+  return actions
+    .flatMap((action) => {
+      const stock = findStock(index, action.symbol, action.name);
+      return stock ? [{ stock, action }] : [];
+    })
+    .sort((a, b) => (a.action.ex_date ?? "9999").localeCompare(b.action.ex_date ?? "9999"));
 }

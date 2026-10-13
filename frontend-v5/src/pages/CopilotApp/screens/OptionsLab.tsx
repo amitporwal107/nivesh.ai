@@ -1,21 +1,30 @@
 /**
  * Options lab. Design: NVOptionsLab.dc.html.
  *
- * Data:
- *   header spot, VIX   GET /api/markets/home (useMarketsHome)
- *   strategy builder   a calculator on what the user types (trading/payoff.ts)
+ * Data (all end of day, from the NSE F&O bhavcopy; see trading/fno.ts):
+ *   underlying, expiry   GET /api/fno/{symbol}/expiries
+ *   chain, open interest GET /api/fno/{symbol}/chain?expiry=
+ *   header spot          the chain's end-of-day underlying price. The index quote from
+ *                        GET /api/markets/home (useMarketsHome) is shown only when no chain loaded.
+ *   VIX                  GET /api/markets/home
+ *   strategy builder     a calculator on the legs (trading/payoff.ts). With a chain loaded,
+ *                        picking a structure fills strikes around the money and each
+ *                        contract's end-of-day closing price; every value stays editable.
+ *                        Without a chain the legs start empty, as before.
  *
- * Not connected: the option chain and open interest tabs, and in the builder
- * the Greeks, chance of profit, margin and today's curve. All of them need an
- * option-chain feed the app does not have, so legs start with empty strike and
- * premium inputs and nothing is pre-filled.
+ * Not connected: the Greeks, chance of profit, margin and today's curve. The
+ * end-of-day data has no implied volatility and none is estimated. The lot
+ * size is filled from the chain when the route sends one (the exchange file
+ * carries it); otherwise the user types it, and a typed value is never replaced.
  */
-import { useState } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useMarketsHome } from "@/hooks/use-markets";
-import { Btn, EmptyBlock, Footnote, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone } from "../components/ui";
+import { StockIcon, StockName } from "../components/EntityIcon";
+import { Btn, EmptyBlock, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
-import { FNO_INDEX_NAMES } from "./trading/FnoAnalyser";
-import { Choices, INPUT_STYLE, QueryProblem, SEBI_FNO_NOTE, fmtPrice } from "./trading/parts";
+import { ChainGate, ChainTable, OpenInterestPanel } from "./trading/OptionChainViews";
+import { FNO_INDICES, cleanSymbol, indexNameForSymbol, isIndexUnderlying, legFromChain, useOptionChain, type ChainState, type FnoChain } from "./trading/fno";
+import { Choices, INPUT_STYLE, QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtPrice } from "./trading/parts";
 import {
   MARKET_VIEWS, STRUCTURES, analysePayoff, shapePoints, strikeHint,
   type Leg, type MarketView, type OptionType, type Side, type Structure,
@@ -29,54 +38,142 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "builder", label: "Strategy builder" },
 ];
 
-/** Picked when the legs are for something the markets feed has no quote for. */
-const OTHER = "Other";
-const UNDERLYINGS = [...FNO_INDEX_NAMES, OTHER];
-
-const CHAIN_NEEDS = [
-  "An /api route over the F&O chain. The data platform keeps an end-of-day chain (DaaS /v1/fno/{symbol}/chain), which the backend reads only to price a hedge in POST /api/positional/basket.",
-  "Per strike: call and put last price, IV, open interest and change in open interest.",
-  "The list of expiries and the lot size for each underlying.",
-  "The snapshot time, and an intraday refresh if the chain is to be more than end of day.",
-];
-const OI_NEEDS = [
-  "Open interest and change in open interest per strike, for calls and puts.",
-  "Totals per expiry, to derive the put-call ratio and max pain.",
-  "The time of the exchange snapshot the figures were taken from.",
-];
 const ANALYTICS_NEEDS = [
-  "Implied volatility for each strike and the underlying’s spot from an option-chain endpoint, for the Greeks, the chance of profit and today’s curve.",
-  "Days to expiry, from an expiry calendar.",
+  "Implied volatility for each strike. The end-of-day F&O data has closing prices and open interest but no IV; it needs an IV feed, or an agreed and validated model (rate, dividends, time to expiry) to derive IV from the closing prices.",
   "A margin calculation (SPAN and exposure) from a broker or exchange source.",
+  "The lot size is in the exchange's file and the app route passes it on, but the data platform's F&O routes must be redeployed to send it (new_board_lot_qty). Until then the user types it.",
 ];
+
+type OptionChain = ReturnType<typeof useOptionChain>;
+
+// ── underlying and expiry ────────────────────────────────────────────────
+
+function UnderlyingPicker({ symbol, onPick }: { symbol: string; onPick: (s: string) => void }) {
+  const [typed, setTyped] = useState("");
+  const [bad, setBad] = useState(false);
+  const options: Array<{ value: string; label: ReactNode }> = FNO_INDICES.map((i) => ({ value: i.symbol, label: i.symbol }));
+  // An underlying the user loaded sits beside the two indices while it is the one shown; a company gets its icon.
+  if (!options.some((o) => o.value === symbol)) {
+    options.push({ value: symbol, label: isIndexUnderlying(symbol) ? symbol : <StockName symbol={symbol} size={18} testId="optlab-symbol-stock" /> });
+  }
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const s = cleanSymbol(typed);
+    setBad(s == null);
+    if (s == null) return;
+    setTyped("");
+    onPick(s);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center" style={{ gap: "8px 10px", flex: "1 1 520px", minWidth: 0 }}>
+      <span className="cp-eyebrow">Underlying</span>
+      <Choices label="Underlying" testId="optlab-symbol" value={symbol} onChange={onPick} options={options} />
+      <form onSubmit={submit} className="flex items-center" style={{ gap: 6, flex: "0 1 300px", minWidth: 0 }}>
+        <input
+          data-testid="optlab-symbol-input"
+          aria-label="Stock ticker"
+          aria-invalid={bad}
+          placeholder="Stock ticker, e.g. RELIANCE"
+          title="Any NSE F&O underlying: a stock ticker, or an index such as FINNIFTY"
+          maxLength={20}
+          autoCapitalize="characters"
+          spellCheck={false}
+          value={typed}
+          onChange={(e) => { setTyped(e.target.value); setBad(false); }}
+          style={INPUT_STYLE}
+        />
+        <Btn type="submit" data-testid="optlab-symbol-load" style={{ flex: "none" }}>Load</Btn>
+      </form>
+      {bad && (
+        <span role="alert" data-testid="optlab-symbol-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>
+          A ticker is letters, digits, &amp; or -, up to 20 characters.
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ExpiryPicker({ oc, onPick }: { oc: OptionChain; onPick: (expiry: string) => void }) {
+  const { expiries, list, expiry } = oc;
+  if (expiries.isPending) return <span className="cp-mono-note">Loading expiries</span>;
+  if (expiries.isError) {
+    return (
+      <span data-testid="optlab-expiry-error" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>
+        The expiry list didn’t load, so only the nearest expiry can be shown.{" "}
+        <button type="button" onClick={() => expiries.refetch()} style={{ padding: 0, border: 0, background: "none", fontSize: 12, color: "var(--cp-ink)", cursor: "pointer" }}>Retry ›</button>
+      </span>
+    );
+  }
+  if (!list.length || expiry == null) return null;
+  return (
+    <label className="flex items-center" style={{ gap: 8, minWidth: 0 }}>
+      <span className="cp-eyebrow">Expiry</span>
+      <select data-testid="optlab-expiry" value={expiry} onChange={(e) => onPick(e.target.value)} style={{ ...INPUT_STYLE, width: "auto" }}>
+        {list.map((e) => (
+          <option key={e.expiry} value={e.expiry}>{fmtDay(e.expiry)}{e.days_to_expiry === 0 ? " · expired at this close" : ""}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 // ── header spot ──────────────────────────────────────────────────────────
 
-function useSpot(underlying: string) {
+function useIndexQuote(indexName: string | null) {
   const home = useMarketsHome();
-  const idx = underlying === OTHER ? undefined : home.data?.indices.find((i) => i.name === underlying && !i.is_vix && i.value != null);
+  const idx = indexName == null ? undefined : home.data?.indices.find((i) => i.name === indexName && !i.is_vix && i.value != null);
   const vix = home.data?.indices.find((i) => i.is_vix && i.value != null);
   return { home, idx, vix };
 }
 
-function SpotBadge({ underlying }: { underlying: string }) {
+function SpotBadge({ symbol, state }: { symbol: string; state: ChainState }) {
   const { mobile } = useCopilotShell();
-  const { home, idx, vix } = useSpot(underlying);
-  if (underlying === OTHER) return null;
-
+  const indexName = indexNameForSymbol(symbol);
+  const { home, idx, vix } = useIndexQuote(indexName);
   const box = { flex: "0 1 280px", minWidth: 0 };
-  if (home.isPending) return <div style={box}><LoadingBlock label={`Loading the ${underlying} spot`} rows={1} /></div>;
+  const column = { alignItems: mobile ? "flex-start" : "flex-end", gap: 4 } as const;
+
+  if (state.status === "loading") return <div style={box}><LoadingBlock label={`Loading the ${symbol} chain`} rows={1} /></div>;
+
+  const summary = state.status === "ok" ? state.chain.summary : null;
+  const asOf = summary && (
+    <span data-testid="optlab-asof" className="cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>End-of-day data · as of {fmtDay(summary.as_of)}</span>
+  );
+  const vixLine = vix?.value != null && (
+    <span data-testid="optlab-vix" className="cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>India VIX {fmtNum(vix.value, 2)}</span>
+  );
+
+  if (summary?.spot != null) {
+    return (
+      <div className="flex flex-col" style={column}>
+        <span className="cp-num flex items-center" style={{ gap: 6, fontSize: 11, color: "var(--cp-ink-3)" }}>
+          {!isIndexUnderlying(symbol) && <StockIcon symbol={symbol} size={18} />}
+          {symbol} · SPOT
+        </span>
+        <span data-testid="optlab-spot" className="cp-metric">{fmtNum(summary.spot, 2)}</span>
+        {asOf}
+        {vixLine}
+      </div>
+    );
+  }
+
+  // No chain (it failed, or the underlying has none): the index quote from the markets feed, as before.
+  if (indexName == null) return null;
+  if (home.isPending) return <div style={box}><LoadingBlock label={`Loading the ${indexName} spot`} rows={1} /></div>;
   if (home.isError) return <div style={box}><QueryProblem what="The spot price" error={home.error} onRetry={() => home.refetch()} /></div>;
-  if (!idx) return <div style={box}><EmptyBlock title={`No ${underlying} quote right now`} body="The markets feed returned no value for it." /></div>;
+  if (!idx) return <div style={box}><EmptyBlock title={`No ${indexName} quote right now`} body="The markets feed returned no value for it." /></div>;
 
   return (
-    <div className="flex flex-col" style={{ alignItems: mobile ? "flex-start" : "flex-end", gap: 4 }}>
-      <span className="cp-num" style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>{underlying.toUpperCase()} · SPOT</span>
+    <div className="flex flex-col" style={column}>
+      <span className="cp-num" style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>{indexName.toUpperCase()} · SPOT</span>
       <span className="flex items-baseline" style={{ gap: 8 }}>
         <span data-testid="optlab-spot" className="cp-metric">{fmtNum(idx.value, 2)}</span>
         <span className="cp-num" style={{ fontSize: 12, color: TONE_COLOR[signTone(idx.change_pct)] }}>{fmtPct(idx.change_pct, { signed: true, digits: 2 })}</span>
       </span>
-      {vix?.value != null && <span data-testid="optlab-vix" className="cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>India VIX {fmtNum(vix.value, 2)}</span>}
+      {asOf}
+      {vixLine}
     </div>
   );
 }
@@ -94,10 +191,36 @@ interface LegDraft {
   hint: string;
 }
 
+/** The chain a set of legs was filled from. */
+interface FillSource {
+  symbol: string;
+  expiry: string;
+  asOf: string;
+}
+
 let nextLegId = 1;
 
-function draftsFor(structure: Structure): LegDraft[] {
-  return structure.legs.map((t) => ({ id: nextLegId++, side: t.side, type: t.type, lots: String(t.lots), strike: "", premium: "", hint: strikeHint(structure, t) }));
+const sourceOf = (c: FnoChain): FillSource => ({ symbol: c.symbol, expiry: c.summary.expiry, asOf: c.summary.as_of });
+const sourceKey = (s: FillSource | null) => (s ? `${s.symbol}|${s.expiry}|${s.asOf}` : null);
+
+/**
+ * A structure's legs. With a chain, each leg gets the strike that many steps
+ * from the money and that contract's end-of-day closing price; a leg the chain
+ * cannot price is left blank. Without a chain every strike and premium is blank.
+ */
+function draftsFor(structure: Structure, chain: FnoChain | null): LegDraft[] {
+  return structure.legs.map((t) => {
+    const fill = chain ? legFromChain(chain, t.type, t.offset) : null;
+    return {
+      id: nextLegId++,
+      side: t.side,
+      type: t.type,
+      lots: String(t.lots),
+      strike: fill ? String(fill.strike) : "",
+      premium: fill?.premium != null ? String(fill.premium) : "",
+      hint: strikeHint(structure, t),
+    };
+  });
 }
 
 function toNumber(s: string): number | null {
@@ -124,20 +247,41 @@ function parseLeg(l: LegDraft): Leg | null {
   return strike != null && premium != null && lots != null ? { side: l.side, type: l.type, strike, premium, lots } : null;
 }
 
-function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlying: (u: string) => void }) {
+function Builder({ symbol, chain }: { symbol: string; chain: FnoChain | null }) {
   const { ask } = useCopilotShell();
-  const { idx } = useSpot(underlying);
+  const { idx } = useIndexQuote(indexNameForSymbol(symbol));
   const [view, setView] = useState<MarketView>("Bullish");
   const [structure, setStructure] = useState<Structure>(STRUCTURES.Bullish[0]);
-  const [legs, setLegs] = useState<LegDraft[]>(() => draftsFor(STRUCTURES.Bullish[0]));
+  const [legs, setLegs] = useState<LegDraft[]>(() => draftsFor(STRUCTURES.Bullish[0], null));
   const [lotSize, setLotSize] = useState("");
+  /** True once the user typed a lot size; a typed value is never replaced by the chain's. */
+  const [lotTyped, setLotTyped] = useState(false);
   /** True once legs were added, removed or flipped, so the picked name no longer describes them. */
   const [edited, setEdited] = useState(false);
+  /** True once the user changed any leg value; such legs are never overwritten by a newly loaded chain. */
+  const [touched, setTouched] = useState(false);
+  /** The chain the current legs were filled from; null when they were not filled. */
+  const [filled, setFilled] = useState<FillSource | null>(null);
+  const [seenChain, setSeenChain] = useState<string | null>(null);
+
+  const chainKey = sourceKey(chain ? sourceOf(chain) : null);
+  if (chainKey !== seenChain) {
+    // A different chain arrived (or the chain went away). Legs the user has not
+    // typed in follow it; legs the user changed are left exactly as they are.
+    setSeenChain(chainKey);
+    if (!lotTyped) setLotSize(chain?.lot_size ? String(chain.lot_size) : "");
+    if (!touched) {
+      setLegs(draftsFor(structure, chain));
+      setFilled(chain ? sourceOf(chain) : null);
+    }
+  }
 
   const pick = (s: Structure) => {
     setStructure(s);
-    setLegs(draftsFor(s));
+    setLegs(draftsFor(s, chain));
+    setFilled(chain ? sourceOf(chain) : null);
     setEdited(false);
+    setTouched(false);
   };
   const pickView = (v: MarketView) => {
     setView(v);
@@ -145,14 +289,17 @@ function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlyin
   };
   const patch = (id: number, change: Partial<LegDraft>, reshapes = false) => {
     setLegs((ls) => ls.map((l) => (l.id === id ? { ...l, ...change } : l)));
+    setTouched(true);
     if (reshapes) setEdited(true);
   };
   const addLeg = () => {
     setLegs((ls) => [...ls, { id: nextLegId++, side: "buy", type: "CE", lots: "1", strike: "", premium: "", hint: "Strike" }]);
+    setTouched(true);
     setEdited(true);
   };
   const removeLeg = (id: number) => {
     setLegs((ls) => ls.filter((l) => l.id !== id));
+    setTouched(true);
     setEdited(true);
   };
 
@@ -161,16 +308,17 @@ function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlyin
   const parsed = legs.map(parseLeg);
   const complete = parsed.filter((l): l is Leg => l != null);
   const payoff = size != null && complete.length > 0 && complete.length === legs.length ? analysePayoff(complete, size) : null;
-  const on = underlying === OTHER ? "" : `${underlying} `;
+  const chainSpot = chain?.summary.spot ?? null;
+  const hasBlank = legs.some((l) => l.strike === "" || l.premium === "");
 
   const explain = () => {
     if (!payoff || size == null) {
-      ask(`Explain the risk of a ${on}${name.toLowerCase()}`);
+      ask(`Explain the risk of a ${symbol} ${name.toLowerCase()}`);
       return;
     }
     const legText = complete.map((l) => `${l.side} ${l.lots} lot${l.lots > 1 ? "s" : ""} of the ${fmtLevel(l.strike)} ${l.type} at ${fmtPrice(l.premium)}`).join(", ");
     ask(
-      `Explain the risk of this ${on}${name.toLowerCase()}: ${legText}; lot size ${fmtNum(size)}. At expiry the max profit is ${payoff.maxProfit == null ? "unlimited" : fmtINR(payoff.maxProfit)}, the max loss is ${payoff.maxLoss == null ? "unlimited" : fmtINR(payoff.maxLoss)} and the breakeven is ${payoff.breakevens.length ? payoff.breakevens.map(fmtLevel).join(" and ") : "none"}.`,
+      `Explain the risk of this ${symbol} ${name.toLowerCase()}: ${legText}; lot size ${fmtNum(size)}. At expiry the max profit is ${payoff.maxProfit == null ? "unlimited" : fmtINR(payoff.maxProfit)}, the max loss is ${payoff.maxLoss == null ? "unlimited" : fmtINR(payoff.maxLoss)} and the breakeven is ${payoff.breakevens.length ? payoff.breakevens.map(fmtLevel).join(" and ") : "none"}.`,
     );
   };
 
@@ -199,8 +347,10 @@ function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlyin
             );
           })}
         </div>
-        <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-          Pick a ready-made structure, then enter each leg’s strike and premium from your broker’s option chain. No chain is connected here, so no price is filled in for you. The small curves show each structure’s shape only.
+        <span data-testid="optlab-builder-help" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+          {chain
+            ? `Pick a ready-made structure. Its legs are filled with strikes around the money and each contract’s end-of-day closing price from the ${chain.symbol} ${fmtDay(chain.summary.expiry)} chain, as of ${fmtDay(chain.summary.as_of)}. Every value can be edited. The small curves show each structure’s shape only.`
+            : `Pick a ready-made structure, then enter each leg’s strike and premium from your broker’s option chain. No end-of-day chain is loaded for ${symbol}, so no price is filled in for you. The small curves show each structure’s shape only.`}
         </span>
       </div>
 
@@ -210,18 +360,20 @@ function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlyin
             <span data-testid="optlab-structure-name" className="cp-eyebrow">{name} · legs</span>
             <button type="button" data-testid="optlab-add-leg" onClick={addLeg} style={{ padding: 0, border: 0, background: "none", fontSize: 12, color: "var(--mint)", cursor: "pointer" }}>＋ Add leg</button>
           </div>
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8 }}>
-            <label className="flex flex-col" style={{ gap: 4, minWidth: 0 }}>
-              <span className="cp-mono-note">Underlying</span>
-              <select data-testid="optlab-underlying" value={underlying} onChange={(e) => onUnderlying(e.target.value)} style={INPUT_STYLE}>
-                {UNDERLYINGS.map((u) => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col" style={{ gap: 4, minWidth: 0 }}>
-              <span className="cp-mono-note">Lot size · units per lot</span>
-              <input data-testid="optlab-lot-size" type="number" inputMode="numeric" min="1" step="1" placeholder="From the contract" value={lotSize} onChange={(e) => setLotSize(e.target.value)} style={INPUT_STYLE} />
-            </label>
-          </div>
+          {filled && (
+            <span data-testid="optlab-prefill-note" style={{ padding: "8px 10px", borderRadius: 8, background: "var(--bg-2)", fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+              Strikes and premiums were filled from the {filled.symbol} {fmtDay(filled.expiry)} chain: end-of-day closing prices as of {fmtDay(filled.asOf)}. They do not update during the session, so edit any value to match your broker.
+              {!touched && hasBlank && " A leg left blank has no strike that far from the money, or no closing price, in that chain."}
+              {sourceKey(filled) !== chainKey && " The lab now shows a different chain; pick the structure again to refill from it."}
+            </span>
+          )}
+          <label className="flex flex-col" style={{ gap: 4, minWidth: 0, maxWidth: 260 }}>
+            <span className="cp-mono-note">Lot size · units per lot</span>
+            <input data-testid="optlab-lot-size" type="number" inputMode="numeric" min="1" step="1" placeholder="From the contract" value={lotSize} onChange={(e) => { setLotSize(e.target.value); setLotTyped(true); }} style={INPUT_STYLE} />
+            {!lotTyped && chain?.lot_size != null && lotSize !== "" && (
+              <span data-testid="optlab-lot-source" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>From the exchange’s contract file for {symbol}. Edit it if your broker shows a different lot.</span>
+            )}
+          </label>
           {legs.map((l, i) => (
             <div key={l.id} role="group" aria-label={`Leg ${i + 1}`} data-testid="optlab-leg" className="grid items-end" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(84px,1fr))", gap: 8, paddingTop: 10, borderTop: "1px solid var(--cp-line)" }}>
               <div className="flex flex-col" style={{ gap: 4, minWidth: 0 }}>
@@ -263,7 +415,13 @@ function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlyin
         </div>
 
         {payoff && size != null ? (
-          <PayoffResult payoff={payoff} lotSize={size} spot={idx?.value ?? null} underlying={underlying === OTHER ? null : underlying} />
+          <PayoffResult
+            payoff={payoff}
+            lotSize={size}
+            spot={chainSpot ?? idx?.value ?? null}
+            spotLabel={chainSpot != null ? "END-OF-DAY SPOT" : "SPOT"}
+            underlying={symbol}
+          />
         ) : (
           <div data-testid="optlab-payoff-empty">
             <EmptyBlock
@@ -276,7 +434,7 @@ function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlyin
         <NotConnected
           testId="optlab-analytics-not-connected"
           title="Greeks, chance of profit and margin"
-          body="The design also shows Delta, Gamma, Theta and Vega, a modelled chance of profit, a margin estimate and today’s payoff curve. Each needs market inputs the app does not have, so none is calculated from a guess."
+          body="The design also shows Delta, Gamma, Theta and Vega, a modelled chance of profit, a margin estimate and today’s payoff curve. The first three need implied volatility, which the end-of-day F&O data does not carry, and margin needs a broker or exchange source. None of them is estimated from a guess."
           needs={ANALYTICS_NEEDS}
         />
 
@@ -293,7 +451,15 @@ function Builder({ underlying, onUnderlying }: { underlying: string; onUnderlyin
 
 export default function OptionsLabScreen() {
   const [tab, setTab] = useState<Tab>("builder");
-  const [underlying, setUnderlying] = useState<string>(UNDERLYINGS[0]);
+  const [symbol, setSymbol] = useState<string>(FNO_INDICES[0].symbol);
+  /** The expiry the user chose for `symbol`; null = the default (nearest still to come). */
+  const [picked, setPicked] = useState<string | null>(null);
+  const oc = useOptionChain(symbol, picked);
+
+  const pickSymbol = (s: string) => {
+    setSymbol(s);
+    setPicked(null);
+  };
 
   return (
     <Screen testId="screen-tool-optlab">
@@ -301,11 +467,16 @@ export default function OptionsLabScreen() {
         <div style={{ flex: "1 1 320px", minWidth: 0 }}>
           <ScreenHeader
             eyebrow="Options lab · NSE F&O"
-            pills={<><Pill tone="mint">Trader mode</Pill><Pill tone="indigo">Analysis only</Pill></>}
+            pills={<><Pill tone="mint">Trader mode</Pill><Pill tone="indigo">Analysis only</Pill><Pill>End-of-day data</Pill></>}
             title={<>Build, test and understand <em>option trades</em>.</>}
           />
         </div>
-        <SpotBadge underlying={underlying} />
+        <SpotBadge symbol={symbol} state={oc.state} />
+      </div>
+
+      <div className="flex flex-wrap items-center" style={{ gap: "10px 20px" }}>
+        <UnderlyingPicker symbol={symbol} onPick={pickSymbol} />
+        <ExpiryPicker oc={oc} onPick={setPicked} />
       </div>
 
       <div role="tablist" aria-label="Options lab" className="cp-scroll flex overflow-x-auto" style={{ gap: 24, borderBottom: "1px solid var(--cp-line)" }}>
@@ -331,27 +502,18 @@ export default function OptionsLabScreen() {
 
       <div role="tabpanel" id="optlab-panel" aria-labelledby={`optlab-tab-${tab}`} className="flex flex-col min-w-0" style={{ gap: 12 }}>
         {tab === "chain" && (
-          <NotConnected
-            testId="optlab-chain-not-connected"
-            title="The option chain is not connected"
-            body="This tab is designed to list calls and puts by strike, with open interest, change in open interest, IV and last price, and the row nearest the spot marked. No app route returns a chain, so no strikes or prices are shown."
-            needs={CHAIN_NEEDS}
-          />
+          <ChainGate state={oc.state} what="The option chain" testId="optlab-chain">
+            {(chain) => <ChainTable chain={chain} />}
+          </ChainGate>
         )}
         {tab === "oi" && (
-          <>
-            <NotConnected
-              testId="optlab-oi-not-connected"
-              title="Open interest is not connected"
-              body="This tab is designed to chart call and put open interest by strike around the money, with totals, the put-call ratio and max pain. It needs the same option chain as the first tab."
-              needs={OI_NEEDS}
-            />
-            <Footnote>The exchange updates open interest every few minutes, so no source has truly real-time OI.</Footnote>
-          </>
+          <ChainGate state={oc.state} what="Open interest" testId="optlab-oi">
+            {(chain) => <OpenInterestPanel chain={chain} />}
+          </ChainGate>
         )}
         {/* Kept mounted so the legs survive a look at the other tabs. */}
         <div hidden={tab !== "builder"}>
-          <Builder underlying={underlying} onUnderlying={setUnderlying} />
+          <Builder symbol={symbol} chain={oc.state.status === "ok" ? oc.state.chain : null} />
         </div>
       </div>
 

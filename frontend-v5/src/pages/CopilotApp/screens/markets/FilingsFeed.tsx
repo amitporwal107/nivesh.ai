@@ -5,16 +5,18 @@
  *
  * A row shows what the filing really carries. The one-line read and the headline
  * figure appear only when the insight generator produced them; otherwise the
- * exchange's own document label is shown.
+ * exchange's own document label is shown. "AI insights" opens the generated
+ * read of that filing under the row (mkt-FilingInsight).
  */
 import { useState } from "react";
 import type { FilingRow } from "@/services/adapters/filings.adapter";
+import { StockIcon } from "../../components/EntityIcon";
 import { Btn, EmptyBlock, LoadingBlock, TONE_COLOR, fmtNum } from "../../components/ui";
-import { useCopilotShell } from "../../lib/shell-context";
 import { sentimentTone } from "./ArticlesTab";
 import { dayLabel, titleCase } from "./format";
 import { isHeld, useFilingsFeed, useHeldKeys } from "./hooks";
-import { FilterChips, LoadError } from "./parts";
+import { FilingInsight } from "./mkt-FilingInsight";
+import { AskLink, FilterChips, LoadError } from "./parts";
 
 /** The classifier keeps 30 days of filings; the feed window matches it. */
 const FEED_DAYS = 30;
@@ -24,7 +26,6 @@ const ALL = "__all";
 type Sort = "material" | "latest";
 
 export function FilingsFeed({ symbol, name }: { symbol?: string; name?: string }) {
-  const { ask } = useCopilotShell();
   const [category, setCategory] = useState<string>(ALL);
   const [sort, setSort] = useState<Sort>("material");
   const [page, setPage] = useState(1);
@@ -96,7 +97,7 @@ export function FilingsFeed({ symbol, name }: { symbol?: string; name?: string }
               key={r.id}
               row={r}
               held={isHeld(held.data, r.ticker, r.name)}
-              onAsk={() => ask(`What does the latest ${r.name ?? name ?? r.ticker ?? "company"} filing mean for shareholders?`)}
+              askQuery={`What does the latest ${r.name ?? name ?? r.ticker ?? "company"} filing mean for shareholders?`}
             />
           ))}
         </div>
@@ -113,24 +114,26 @@ export function FilingsFeed({ symbol, name }: { symbol?: string; name?: string }
   );
 }
 
-function FilingItem({ row: r, held, onAsk }: { row: FilingRow; held: boolean; onAsk: () => void }) {
+function FilingItem({ row: r, held, askQuery }: { row: FilingRow; held: boolean; askQuery: string }) {
+  const [open, setOpen] = useState(false);
   const tone = sentimentTone(r.sentiment);
   const color = tone === "ink" ? "var(--cp-indigo)" : TONE_COLOR[tone];
   const ticker = r.code ?? r.ticker;
+  const iconKey = ticker ?? r.name;
   return (
     <div
       data-testid="filing-row"
       className="grid"
-      style={{ gridTemplateColumns: "14px minmax(0,1fr)", gap: 12, padding: "16px 0", borderTop: "1px solid var(--cp-line)" }}
+      style={{ gridTemplateColumns: "28px minmax(0,1fr)", gap: 12, padding: "16px 0", borderTop: "1px solid var(--cp-line)" }}
     >
-      <span className="nv-dot" style={{ marginTop: 7, background: color }} aria-hidden />
+      {iconKey ? <StockIcon symbol={iconKey} name={r.name} size={28} /> : <span aria-hidden />}
       <div className="flex min-w-0 flex-col" style={{ gap: 8 }}>
         <span style={{ fontSize: 15, fontWeight: 500 }}>
           <span data-testid="filing-company">{r.name ?? r.ticker ?? "—"}</span>{" "}
           {ticker && <span className="cp-num" style={{ fontSize: 10, color: "var(--cp-ink-3)", fontWeight: 400 }}>{ticker}</span>}
           {held && <span className="cp-pill" data-tone="mint" style={{ marginLeft: 8 }}>You hold</span>}
         </span>
-        <span style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }} data-testid="filing-summary">
+        <span style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }} data-testid="filing-summary">
           {r.one ?? (r.docLabel ? `${r.docLabel} · no AI read of this filing yet` : titleCase(r.category))}
         </span>
         <div className="flex flex-wrap items-center" style={{ gap: "8px 12px" }}>
@@ -139,13 +142,27 @@ function FilingItem({ row: r, held, onAsk }: { row: FilingRow; held: boolean; on
               {r.metric}
             </span>
           )}
-          {r.category && <span className="cp-mono-note">{titleCase(r.category)}</span>}
+          {r.category && (
+            <span className="cp-mono-note inline-flex items-center" style={{ gap: 6 }}>
+              <span className="nv-dot" style={{ background: color }} aria-hidden />{titleCase(r.category)}
+            </span>
+          )}
           {r.impact && <span className="cp-mono-note">{titleCase(r.impact)} impact</span>}
+          {r.period && <span className="cp-mono-note">{r.period}</span>}
           <span style={{ flex: 1 }} />
           <span className="cp-num" style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>{dayLabel(r.date)}</span>
           {r.url && <a className="cp-link" href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>Filing ↗</a>}
-          <Btn onClick={onAsk} style={{ padding: "7px 12px", fontSize: 12 }}>✦ AI insights</Btn>
+          <AskLink query={askQuery} testId="filing-ask">Ask Copilot ›</AskLink>
+          <Btn
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            data-testid="filing-insight-toggle"
+            style={{ padding: "7px 12px", fontSize: 12 }}
+          >
+            {open ? "Hide insights" : "✦ AI insights"}
+          </Btn>
         </div>
+        {open && <FilingInsight row={r} />}
       </div>
     </div>
   );

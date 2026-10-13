@@ -11,14 +11,14 @@ import type { Payoff } from "./payoff";
 /** An index level or strike: no decimals unless it has them ("22,150", "22,524.95"). */
 export const fmtLevel = (n: number) => fmtNum(n, Number.isInteger(n) ? 0 : 2);
 
-function PayoffChart({ payoff, spot }: { payoff: Payoff; spot: number | null }) {
+function PayoffChart({ payoff, spot, spotLabel }: { payoff: Payoff; spot: number | null; spotLabel: string }) {
   const [x0, x1] = payoff.domain;
   const ys = payoff.points.map((p) => p.pnl);
   const lo = Math.min(0, ...ys);
   const hi = Math.max(0, ...ys);
   const X = (s: number) => ((s - x0) / (x1 - x0 || 1)) * 600;
   const Y = (v: number) => 190 - ((v - lo) / (hi - lo || 1)) * 180;
-  // The real spot, drawn only when it falls inside the range the legs span.
+  // The spot, drawn only when it falls inside the range the legs span.
   const mark = spot != null && spot > x0 && spot < x1 ? spot : null;
   return (
     <>
@@ -43,18 +43,20 @@ function PayoffChart({ payoff, spot }: { payoff: Payoff; spot: number | null }) 
       </svg>
       <div className="cp-num flex justify-between" style={{ gap: 8, fontSize: 10, color: "var(--cp-ink-3)" }}>
         <span>{fmtLevel(x0)}</span>
-        {mark != null && <span data-testid="optlab-chart-spot">SPOT {fmtNum(mark, 2)}</span>}
+        {mark != null && <span data-testid="optlab-chart-spot">{spotLabel} {fmtNum(mark, 2)}</span>}
         <span>{fmtLevel(x1)}</span>
       </div>
     </>
   );
 }
 
-export function PayoffResult({ payoff, lotSize, spot, underlying }: {
+export function PayoffResult({ payoff, lotSize, spot, spotLabel = "SPOT", underlying }: {
   payoff: Payoff;
   lotSize: number;
-  /** The underlying's real spot from the markets feed, or null when there is none. */
+  /** The underlying's spot (the end-of-day chain's, else the markets feed's), or null when there is none. */
   spot: number | null;
+  /** How the marked spot is captioned, e.g. "END-OF-DAY SPOT" when it comes from the chain. */
+  spotLabel?: string;
   /** Name for the breakeven caption; null when the legs are for something without a quote. */
   underlying: string | null;
 }) {
@@ -71,7 +73,7 @@ export function PayoffResult({ payoff, lotSize, spot, underlying }: {
           <span className="cp-eyebrow">Payoff · 1 lot = {fmtNum(lotSize)}</span>
           <span className="cp-num" style={{ fontSize: 10, color: "var(--mint)" }}>— AT EXPIRY</span>
         </div>
-        <PayoffChart payoff={payoff} spot={spot} />
+        <PayoffChart payoff={payoff} spot={spot} spotLabel={spotLabel} />
       </div>
       <Tiles items={summary} min={120} />
     </>

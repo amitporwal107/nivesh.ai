@@ -25,6 +25,7 @@ import { useThreadTurns } from "./lib/use-thread-turns";
 import { APP_BASE, MODE_HOME, threadIdOf, threadView, viewOf, viewPath, type Mode } from "./lib/views";
 import { ADMIN_SCREENS, SCREENS } from "./screens";
 import { Composer, type ComposerHandle } from "./shell/Composer";
+import { ClientBar } from "./shell/ClientBar";
 import { Evidence } from "./shell/Evidence";
 import { Rail } from "./shell/Rail";
 import Home from "./views/Home";
@@ -183,6 +184,7 @@ export default function CopilotAppPage() {
               </button>
             </div>
           )}
+          {view !== "advisor" && !view.startsWith("advisor/") && <ClientBar padX={padX} onBack={() => go("advisor")} />}
           {threadId && !mobile && (
             <div data-testid="thread-bar" className="flex items-center" style={{ gap: 12, padding: `12px ${padX}px`, borderBottom: "1px solid var(--cp-line)" }}>
               {lastClass && <span className="cp-pill" data-tone={lastClass.tone}>{lastClass.label}</span>}
@@ -211,6 +213,18 @@ export default function CopilotAppPage() {
             )}
           </div>
 
+          {engine.local && engine.local.sessionId === "" && (
+            <div style={{ padding: `0 ${padX}px` }}>
+              <div role="alert" data-testid="ask-failed" className="mx-auto flex flex-wrap items-start" style={{ maxWidth: 880, gap: "8px 12px", padding: "12px 16px", borderRadius: 12, border: "1px solid var(--danger-line)", background: "var(--cp-danger-soft)" }}>
+                <span className="cp-mono-note" style={{ color: "var(--cp-danger)", paddingTop: 2 }}>Not sent</span>
+                <span style={{ flex: "1 1 240px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>
+                  “{engine.local.question}” could not be sent{engine.local.errorText ? ` — ${engine.local.errorText}` : ""}.
+                </span>
+                <button type="button" data-testid="ask-failed-retry" onClick={() => { const q = engine.local?.question; engine.clearLocal(); if (q) ask(q); }} style={{ fontSize: 13, color: "var(--cp-ink)", background: "none", border: 0, cursor: "pointer", padding: 0 }}>Retry ›</button>
+                <button type="button" onClick={engine.clearLocal} style={{ fontSize: 13, color: "var(--cp-ink-3)", background: "none", border: 0, cursor: "pointer", padding: 0 }}>Dismiss</button>
+              </div>
+            </div>
+          )}
           <Composer
             ref={composerRef}
             busy={engine.busy}
