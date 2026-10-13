@@ -9,6 +9,8 @@
  * text/event-stream body carrying the same frames backend/routes/chat.py emits.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
+import fs from "fs";
+import path from "path";
 import { mockApi, mockAuthAs, mockSingleRoute, mock401 } from "../helpers/api-mock";
 
 const APP = "/v5/app";
@@ -217,11 +219,36 @@ test.describe("Copilot app — desktop", () => {
 
     // The health and plan cards open their screens instead of asking.
     await page.goto(APP);
-    await cards.nth(0).click();
+    await cards.filter({ hasText: "Health score" }).click();
     await expect(page).toHaveURL(/\/v5\/app\/tool\/analysis$/);
     await page.goto(APP);
-    await cards.nth(1).click();
+    await cards.filter({ hasText: "actions identified" }).click();
     await expect(page).toHaveURL(/\/v5\/app\/tool\/recommend$/);
+  });
+
+  test("TC-04c the cards appear together: none is shown, and none can be clicked, while a source is still loading", async ({ page }) => {
+    await setup(page);
+    await mockChat(page);
+    // The health score answers late; the ranked prompts answer at once.
+    const analysis = JSON.parse(fs.readFileSync(path.join(process.cwd(), "e2e", "fixtures", "insights-analysis.json"), "utf-8"));
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/insights/analysis", async (route) => {
+      await held;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(analysis) });
+    });
+    const prompts = page.waitForResponse((r) => r.url().includes("/api/copilot/suggested-prompts"));
+    await page.goto(APP);
+    await prompts;
+    // The prompts are in, the health score is not: the row is still a placeholder,
+    // so a prompt card cannot sit where the health card is about to appear.
+    await expect(page.getByRole("status", { name: "Loading suggestions" })).toBeVisible();
+    await expect(page.getByTestId("home-today-card")).toHaveCount(0);
+    release();
+    const cards = page.getByTestId("home-today-card");
+    await expect(cards).toHaveCount(6);
+    await expect(cards.nth(0)).toContainText("Health score 69 of 100 · grade B");
+    await expect(page.getByRole("status", { name: "Loading suggestions" })).toHaveCount(0);
   });
 
   test("TC-04b the statement bar shows the last CAS and offers Gmail sync and upload, as the dashboard does", async ({ page }) => {

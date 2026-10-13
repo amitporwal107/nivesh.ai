@@ -196,15 +196,18 @@ function TodayCard({ tag, tone, title, fact, second, symbol, cta, onOpen }: Omit
   );
 }
 
-/** Cards about the user's own portfolio, from the dashboard's sources. */
-function usePortfolioCards(enabled: boolean): Card[] {
+/**
+ * Cards about the user's own portfolio, from the dashboard's sources.
+ * `settling` is true while any of those sources is still being read.
+ */
+function usePortfolioCards(enabled: boolean): { cards: Card[]; settling: boolean } {
   const { ask, go } = useCopilotShell();
   const health = useHealthAnalysis();
   const plan = useActivePlan();
   const signals = useInsightsList();
   const risk = useRiskProfile();
   const pf = usePortfolioContext();
-  if (!enabled) return [];
+  if (!enabled) return { cards: [], settling: false };
   const cards: Card[] = [];
 
   const h = health.data?.health;
@@ -264,7 +267,7 @@ function usePortfolioCards(enabled: boolean): Card[] {
       onOpen: () => ask(`${s.title}. What does this mean for my portfolio, and what should I do about it?`),
     });
   }
-  return cards;
+  return { cards, settling: health.isLoading || plan.isLoading || signals.isLoading || risk.isLoading };
 }
 
 export default function Home() {
@@ -284,7 +287,12 @@ export default function Home() {
   const forBook = prompts.data?.audience === "advisor";
   const bookView = forBook && mode === "advisor";
   const ranked: CopilotPrompt[] = forBook && !bookView ? [] : prompts.data?.prompts ?? [];
-  const portfolioCards = usePortfolioCards(hasPf && !bookView);
+  const portfolio = usePortfolioCards(hasPf && !bookView);
+  const portfolioCards = portfolio.cards;
+  // The cards come from several requests that finish at different times. They
+  // are shown together once all have answered, so a card never moves from
+  // under the pointer as another one arrives above it.
+  const settling = pf.status === "loading" || portfolio.settling || prompts.isPending;
 
   const promptCard = (c: CopilotPrompt): Card => ({
     key: `prompt:${c.id}`,
@@ -304,7 +312,7 @@ export default function Home() {
   const usedPrompts = new Set(cards.map((c) => c.key));
   const rest = ranked.filter((p) => !usedPrompts.has(`prompt:${p.id}`)).slice(0, 6);
   const news = (markets.data?.news ?? []).slice(0, 3);
-  const showNews = cards.length === 0 && news.length > 0;
+  const showNews = !settling && cards.length === 0 && news.length > 0;
 
   const sub = pf.status === "ready"
     ? `Ask in plain English. Nivesh picks the tools, runs the numbers on your ${pf.holdingsCount} holdings and shows you the evidence behind every answer.`
@@ -333,16 +341,16 @@ export default function Home() {
         )}
       </div>
 
-      {(cards.length > 0 || showNews || prompts.isPending) && (
+      {(cards.length > 0 || showNews || settling) && (
         <section className="flex flex-col" style={{ gap: 12 }}>
           <div className="flex flex-wrap items-baseline justify-between" style={{ gap: "4px 12px" }}>
             <span className="cp-eyebrow" data-testid="home-today-title" style={{ whiteSpace: "nowrap" }}>
               {showNews || (noPf && !bookView) ? "Worth knowing today" : bookView ? "For your client book today" : "For your portfolio today"}
             </span>
-            {cards.length > 0 && <span className="cp-mono-note">{bookView ? "Ranked for your client book" : "From your holdings"}</span>}
+            {!settling && cards.length > 0 && <span className="cp-mono-note">{bookView ? "Ranked for your client book" : "From your holdings"}</span>}
             {showNews && <span className="cp-mono-note">From today’s filings and news</span>}
           </div>
-          {prompts.isPending && cards.length === 0 && !showNews ? (
+          {settling ? (
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12 }} role="status" aria-label="Loading suggestions">
               {[0, 1, 2].map((i) => <span key={i} className="cp-card cp-running" style={{ height: 150 }} />)}
             </div>
