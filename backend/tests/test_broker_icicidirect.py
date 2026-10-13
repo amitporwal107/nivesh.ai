@@ -156,35 +156,50 @@ def keys(monkeypatch):
 
 
 @pytest.fixture
-def connectable(monkeypatch):
-    """Sign-in is switched off in the module; these tests switch it on to pin the pieces that are
-    ready for the day it can be."""
-    monkeypatch.setattr(icici, "CONNECTABLE", True)
+def switched_off(monkeypatch):
+    """`CONNECTABLE` is the adapter's one switch for sign-in; it ships on."""
+    monkeypatch.setattr(icici, "CONNECTABLE", False)
 
 
 def run(coro):
     return asyncio.run(coro)
 
 
-# ── Sign-in is switched off ──────────────────────────────────────────────
-def test_adapter_is_registered_but_not_connectable(keys):
+# ── Registration, and the switch ─────────────────────────────────────────
+def test_adapter_is_registered_with_the_way_icici_returns_the_user():
     adapter = registry.get("icicidirect")
     assert (adapter.SLUG, adapter.DISPLAY, adapter.AUTH_STYLE) == ("icicidirect", "ICICI Direct", "oauth")
-    assert adapter.CONNECTABLE is False and adapter.IMPLEMENTED is False
+    assert adapter.CONNECTABLE is True and adapter.IMPLEMENTED is True
+    # ICICI appends `?apisession=` to the registered URL and POSTs the same value as `API_Session`.
+    assert adapter.CALLBACK_PATH_STYLE is True
     assert adapter.CALLBACK_CODE_PARAMS == ("apisession",)
-    row = next(r for r in registry.list_supported() if r["slug"] == "icicidirect")
-    assert row["implemented"] is False
-    assert not row.get("connectable")
+    assert adapter.CALLBACK_FORM_FIELDS == ("API_Session",)
+    assert registry._REQUIRED_SECRETS["icicidirect"] == (
+        "BROKER_ICICIDIRECT_API_KEY", "BROKER_ICICIDIRECT_API_SECRET")
 
 
-def test_auth_url_refuses_while_sign_in_is_off(keys):
+def test_connectable_only_when_both_app_keys_are_set(monkeypatch):
+    row = lambda: next(r for r in registry.list_supported() if r["slug"] == "icicidirect")  # noqa: E731
+    monkeypatch.delenv("BROKER_ICICIDIRECT_API_KEY", raising=False)
+    monkeypatch.delenv("BROKER_ICICIDIRECT_API_SECRET", raising=False)
+    assert (row()["implemented"], row()["configured"], row()["connectable"]) == (True, False, False)
+    assert registry.missing_secrets("icicidirect") == ["BROKER_ICICIDIRECT_API_KEY", "BROKER_ICICIDIRECT_API_SECRET"]
+
+    monkeypatch.setenv("BROKER_ICICIDIRECT_API_KEY", APP_KEY)
+    assert (row()["configured"], row()["connectable"]) == (False, False)      # the secret half is missing
+    monkeypatch.setenv("BROKER_ICICIDIRECT_API_SECRET", APP_SECRET)
+    assert (row()["implemented"], row()["configured"], row()["connectable"]) == (True, True, True)
+    assert APP_KEY not in repr(row()) and APP_SECRET not in repr(row())
+
+
+def test_auth_url_refuses_when_sign_in_is_switched_off(keys, switched_off):
     with pytest.raises(icici.IciciDirectNotSupported) as err:
         icici.auth_url(state="s1", redirect_uri="https://nivesh.example/cb")
     assert str(err.value) == icici.CONNECT_BLOCKED_REASON
     assert APP_KEY not in str(err.value)
 
 
-def test_exchange_refuses_while_sign_in_is_off_and_calls_nobody(keys, monkeypatch):
+def test_exchange_refuses_when_sign_in_is_switched_off_and_calls_nobody(keys, switched_off, monkeypatch):
     wire = Wire(monkeypatch, {"customerdetails": (200, DOCS_CUSTOMER_DETAILS)})
     with pytest.raises(icici.IciciDirectNotSupported):
         run(icici.exchange_code(code=SESSION_KEY, state="s1", redirect_uri="https://nivesh.example/cb"))
@@ -192,21 +207,21 @@ def test_exchange_refuses_while_sign_in_is_off_and_calls_nobody(keys, monkeypatc
 
 
 # ── Login URL ────────────────────────────────────────────────────────────
-def test_auth_url_is_the_documented_login_url_with_the_key_url_encoded(keys, connectable):
-    url = icici.auth_url(state="state-abc", redirect_uri="https://nivesh.example/cb?broker=icicidirect")
+def test_auth_url_is_the_documented_login_url_with_the_key_url_encoded(keys):
+    url = icici.auth_url(state="state-abc", redirect_uri="https://nivesh.example/api/broker/native/callback/icicidirect")
     assert url == "https://api.icicidirect.com/apiuser/login?api_key=8g791%5EN029R47I831B8153%3D%5EO2f%237u8g"
     # Breeze documents no `state` or redirect parameter; neither is sent.
     assert "state-abc" not in url and "nivesh.example" not in url
 
 
-def test_auth_url_needs_the_app_key(connectable, monkeypatch):
+def test_auth_url_needs_the_app_key(monkeypatch):
     monkeypatch.delenv("BROKER_ICICIDIRECT_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="BROKER_ICICIDIRECT_API_KEY is not configured"):
         icici.auth_url(state="s1", redirect_uri="https://nivesh.example/cb")
 
 
 # ── Session exchange ─────────────────────────────────────────────────────
-def test_exchange_turns_the_session_key_into_a_session_token(keys, connectable, monkeypatch):
+def test_exchange_turns_the_session_key_into_a_session_token(keys, monkeypatch):
     wire = Wire(monkeypatch, {"customerdetails": (200, DOCS_CUSTOMER_DETAILS)})
     before = datetime.now(timezone.utc)
     token = run(icici.exchange_code(code=SESSION_KEY, state="s1", redirect_uri="https://nivesh.example/cb"))
@@ -236,7 +251,7 @@ def test_session_ends_at_the_next_midnight_ist(now_ist, expires_utc):
     assert icici._session_expiry(datetime.fromisoformat(now_ist)).isoformat() == expires_utc
 
 
-def test_exchange_with_an_unknown_app_key_is_a_config_error_not_an_expired_session(keys, connectable, monkeypatch):
+def test_exchange_with_an_unknown_app_key_is_a_config_error_not_an_expired_session(keys, monkeypatch):
     Wire(monkeypatch, {"customerdetails": OBSERVED_UNKNOWN_KEY_ON_EXCHANGE})
     with pytest.raises(icici.IciciDirectError) as err:
         run(icici.exchange_code(code=SESSION_KEY, state="s1", redirect_uri="https://nivesh.example/cb"))
@@ -245,7 +260,7 @@ def test_exchange_with_an_unknown_app_key_is_a_config_error_not_an_expired_sessi
     assert APP_KEY not in str(err.value) and SESSION_KEY not in str(err.value)
 
 
-def test_exchange_with_a_refused_session_key_fails(keys, connectable, monkeypatch):
+def test_exchange_with_a_refused_session_key_fails(keys, monkeypatch):
     # "Invalid session." is the text ICICI's SDK checks for; the envelope around it is CONSTRUCTED.
     Wire(monkeypatch, {"customerdetails": (200, {"Success": None, "Status": 500, "Error": "Invalid session."})})
     with pytest.raises(icici.IciciDirectSessionExpired) as err:
@@ -253,14 +268,14 @@ def test_exchange_with_a_refused_session_key_fails(keys, connectable, monkeypatc
     assert SESSION_KEY not in str(err.value) and APP_KEY not in str(err.value)
 
 
-def test_exchange_without_a_session_token_in_the_answer_fails(keys, connectable, monkeypatch):
+def test_exchange_without_a_session_token_in_the_answer_fails(keys, monkeypatch):
     details = {k: v for k, v in DOCS_CUSTOMER_DETAILS["Success"].items() if k != "session_token"}
     Wire(monkeypatch, {"customerdetails": ok(details)})
     with pytest.raises(icici.IciciDirectError, match="no session token"):
         run(icici.exchange_code(code=SESSION_KEY, state="s1", redirect_uri="https://nivesh.example/cb"))
 
 
-def test_exchange_needs_both_app_secrets_before_calling_icici(connectable, monkeypatch):
+def test_exchange_needs_both_app_secrets_before_calling_icici(monkeypatch):
     monkeypatch.setenv("BROKER_ICICIDIRECT_API_KEY", APP_KEY)
     monkeypatch.delenv("BROKER_ICICIDIRECT_API_SECRET", raising=False)
     wire = Wire(monkeypatch, {"customerdetails": (200, DOCS_CUSTOMER_DETAILS)})

@@ -454,6 +454,16 @@ def test_expire_due_sessions_ends_only_sessions_past_their_expiry():
     assert run(sessions.expire_due_sessions(db, now=after)) == 0
 
 
+# ── storage_ready ────────────────────────────────────────────────────────
+def test_storage_ready_follows_whether_a_token_can_be_encrypted(monkeypatch):
+    assert sessions.storage_ready() is True                    # the fixture's throwaway key
+
+    def no_key(_plaintext):
+        raise RuntimeError("PII_ENCRYPTION_KEY is not configured")
+    monkeypatch.setattr(pii, "encrypt", no_key)
+    assert sessions.storage_ready() is False
+
+
 # ── is_live / load_token / public_fields ─────────────────────────────────
 def test_is_live_needs_active_status_a_token_and_an_unpassed_expiry():
     db = FakeDb()

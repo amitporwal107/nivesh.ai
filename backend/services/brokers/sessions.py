@@ -225,6 +225,17 @@ def _mask_user(client_id: str) -> str:
     return "•" * hidden + client_id[hidden:]
 
 
+def storage_ready() -> bool:
+    """True when a session token can be encrypted for storage. Outside a dev
+    environment that needs PII_ENCRYPTION_KEY; without it no sign-in can be
+    completed, so none should be started."""
+    try:
+        _pii.encrypt("probe")
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 # ── Reading a row ────────────────────────────────────────────────────────
 def is_live(doc: dict, now: datetime | None = None) -> bool:
     """Status active, token present, not past `session_expires_at`."""
