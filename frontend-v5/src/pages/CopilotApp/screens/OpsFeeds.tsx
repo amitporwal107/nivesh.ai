@@ -1,22 +1,34 @@
 /**
- * Feed health — every NIDP ingester with its freshness, worst first.
+ * Feed health — every NIDP ingester with its freshness, worst first, plus the
+ * checks, tables and pipeline behind the feeds.
  * Design: frontend-v5/design/nivesh-copilot/NVOps.dc.html, page === 'feeds'.
  *
- * Data: GET /api/admin/nidp/feeds/live (useFeedsLive) — the same payload the
- * NIDP console's "Feeds Live" tab reads. This is a read view: run history,
- * logs and manual runs stay in the console, which this screen links to.
+ * Data (all read-only; the same endpoints the NIDP console's tabs read):
+ *   Sources   GET /api/admin/nidp/feeds/live           status, last run, the trailing week
+ *             GET /api/admin/nidp/jobs/{ingester}/runs  run history of an opened feed
+ *   Checks    GET /api/admin/nidp/quality/consistency   cross-source checks and findings
+ *             GET /api/admin/nidp/catalog               recent validation runs per feed
+ *   Tables    GET /api/admin/nidp/catalog               row counts and date range per table
+ *   Pipeline  GET /api/admin/nidp/pipeline/stages       filings → searchable text
  *
- * The design's "Fails 24h" and "Dupes" columns have no source in that payload.
- * They are replaced by the two failure counts it does carry (failed runs in a
- * row, failed days in the trailing week) and the rows written by the last run.
+ * Log lines and manual runs stay in the console, which this screen links to.
+ * Only the Sources request is made on page load; the other sections ask when
+ * opened, because the admin API allows ten requests a minute.
+ *
+ * The design's "Fails 24h" and "Dupes" columns have no source in any of those
+ * payloads. They are replaced by the failure counts the job log does carry
+ * (failed runs in a row, failed days in the trailing week) and the rows the
+ * last run wrote.
  */
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  DataTable, EmptyBlock, Footnote, LoadingBlock, Pill, Screen, Section, Tiles,
+  EmptyBlock, Footnote, LoadingBlock, Pill, Screen, Section, TONE_COLOR, Tiles,
   fmtDate, fmtNum, relTime, type Column, type TileItem, type Tone,
 } from "../components/ui";
-import { LoadFailed, OpsHeader, OpsTabs } from "./internal/shared";
-import { useFeedsLive, type LiveFeed } from "./internal/use-internal-data";
+import { ExpandableTable, LoadFailed, OpsHeader, OpsTabs, SectionTabs, statusTone } from "./internal/shared";
+import { FEEDS_POLL_MS, useFeedsLive, type FeedsLive, type LiveFeed } from "./internal/use-internal-data";
+import { ChecksSection, FeedRunHistory, PipelineSection, TablesSection, WeekStrip } from "./internal/ops-feeds-sections";
 
 const STATE: Record<string, { label: string; tone: Tone }> = {
   healthy: { label: "Healthy", tone: "mint" },
@@ -47,40 +59,65 @@ function attentionReason(f: LiveFeed): string {
   return f.last_success_at ? `No successful run since ${fmtDate(f.last_success_at)}` : "Has never succeeded";
 }
 
+/** Colour of the last run's result word; a result with no tone of its own stays quiet. */
+function runColor(status: string): string {
+  const tone = statusTone(status);
+  return tone === "ink" ? "var(--cp-ink-3)" : TONE_COLOR[tone];
+}
+
+const twoLine = { display: "flex", flexDirection: "column", gap: 1, minWidth: 0 } as const;
+const subLine = { fontSize: 11, color: "var(--cp-ink-3)", overflow: "hidden", textOverflow: "ellipsis" } as const;
+
 const COLUMNS: Column<LiveFeed>[] = [
   {
-    key: "source", header: "Source", width: "minmax(0,1.7fr)",
-    render: (f) => <span data-testid="feeds-row" data-ingester={f.ingester} style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--cp-ink)" }}>{f.ingester}</span>,
+    key: "source", header: "Source", width: "minmax(170px,1.7fr)",
+    render: (f) => (
+      <span style={twoLine}>
+        <span data-testid="feeds-row" data-ingester={f.ingester} title={f.ingester} style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--cp-ink)", overflow: "hidden", textOverflow: "ellipsis" }}>{f.ingester}</span>
+        <span style={subLine} title="Reliability class of the source in the NIDP source registry, then how often it is expected to run">
+          {[f.source_class ? `Class ${f.source_class}` : null, f.expected_freq].filter(Boolean).join(" · ") || "—"}
+        </span>
+      </span>
+    ),
   },
   {
-    key: "class", header: "Class", width: "64px",
-    render: (f) => <span title="Reliability class of the source in the NIDP source registry">{f.source_class || "—"}</span>,
+    key: "run", header: "Last run", width: "104px",
+    render: (f) => (
+      <span style={twoLine}>
+        <span data-testid="feeds-last-run" title={f.last_run_at ?? undefined} style={{ fontFamily: "var(--mono)", fontSize: 11 }}>
+          {f.last_run_at ? relTime(f.last_run_at) || "—" : "Never"}
+        </span>
+        {f.last_run_status && (
+          <span data-testid="feeds-last-run-status" style={{ ...subLine, color: runColor(f.last_run_status) }}>{f.last_run_status.toLowerCase()}</span>
+        )}
+      </span>
+    ),
   },
   {
-    key: "last", header: "Last success", width: "110px",
+    key: "last", header: "Last success", width: "100px",
     render: (f) => (
       <span data-testid="feeds-last-success" title={f.last_success_at ?? undefined} style={{ fontFamily: "var(--mono)", fontSize: 11 }}>
         {f.last_success_at ? relTime(f.last_success_at) || "—" : "Never"}
       </span>
     ),
   },
-  { key: "cadence", header: "Cadence", width: "90px", render: (f) => f.expected_freq || "—" },
+  { key: "week7", header: "Last 7 days", width: "100px", render: (f) => <WeekStrip days={f.last_7_days} /> },
   {
-    key: "streak", header: "Fails in a row", width: "96px", align: "right", num: true,
+    key: "streak", header: "Fails in a row", width: "92px", align: "right", num: true,
     render: (f) => {
       const n = f.consecutive_failures;
       return <span data-testid="feeds-fail-streak" style={n ? { color: "var(--cp-danger)" } : undefined}>{fmtNum(n)}</span>;
     },
   },
   {
-    key: "week", header: "Failed days · 7d", width: "110px", align: "right", num: true,
+    key: "week", header: "Failed days · 7d", width: "104px", align: "right", num: true,
     render: (f) => {
       const n = failedDays(f);
       return <span data-testid="feeds-failed-days" style={n ? { color: "var(--cp-danger)" } : undefined}>{fmtNum(n)}</span>;
     },
   },
   {
-    key: "rows", header: "Rows · last run", width: "104px", align: "right", num: true,
+    key: "rows", header: "Rows · last run", width: "100px", align: "right", num: true,
     render: (f) => <span data-testid="feeds-rows">{fmtNum(f.last_rows_inserted)}</span>,
   },
   {
@@ -92,8 +129,48 @@ const COLUMNS: Column<LiveFeed>[] = [
   },
 ];
 
+type Tab = "sources" | "checks" | "tables" | "pipeline";
+
+const TABS: Array<{ id: Tab; label: string }> = [
+  { id: "sources", label: "Sources" },
+  { id: "checks", label: "Checks" },
+  { id: "tables", label: "Tables" },
+  { id: "pipeline", label: "Filings pipeline" },
+];
+
+function Sources({ data }: { data: FeedsLive }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const feeds = data.feeds;
+  return (
+    <>
+      <Section
+        flush
+        title={`Sources · ${feeds.length}`}
+        note={[
+          data.last_trading_day ? `Last trading day ${fmtDate(data.last_trading_day)}` : null,
+          data.generated_at ? `Checked ${relTime(data.generated_at)}` : null,
+          "Select a row for its runs",
+        ].filter(Boolean).join(" · ")}
+      >
+        <ExpandableTable
+          columns={COLUMNS}
+          rows={feeds}
+          rowKey={(f) => f.ingester}
+          minWidth={980}
+          openKey={openId}
+          onToggle={(f) => setOpenId((cur) => (cur === f.ingester ? null : f.ingester))}
+          openLabel={(f) => `${f.ingester} — show its run history`}
+          renderOpen={(f) => <FeedRunHistory feed={f} />}
+        />
+      </Section>
+      <Footnote>Status is read from the NIDP source registry and job log · refreshes every {Math.round(FEEDS_POLL_MS / 1000)} seconds · this page does not start or stop any job</Footnote>
+    </>
+  );
+}
+
 export default function OpsFeedsScreen() {
   const q = useFeedsLive();
+  const [tab, setTab] = useState<Tab>("sources");
   const data = q.data;
   const feeds = data?.feeds ?? [];
   const attention = feeds.filter((f) => f.freshness_state === "failing" || f.freshness_state === "stale");
@@ -117,7 +194,7 @@ export default function OpsFeedsScreen() {
     <Screen testId="screen-ops-feeds">
       <OpsHeader
         title={title}
-        sub="Freshness and failures for every data source the platform ingests, worst first. A daily or high-frequency source is stale when it has not succeeded since the last trading day."
+        sub="Freshness and failures for every data source the platform ingests, worst first, with the checks run on the data and the tables it lands in. A daily or high-frequency source is stale when it has not succeeded since the last trading day."
       />
       <OpsTabs current="ops/feeds" />
 
@@ -159,24 +236,27 @@ export default function OpsFeedsScreen() {
                   ))}
                 </div>
               )}
-
-              <Section
-                flush
-                title={`Sources · ${feeds.length}`}
-                note={[
-                  data.last_trading_day ? `Last trading day ${fmtDate(data.last_trading_day)}` : null,
-                  data.generated_at ? `Checked ${relTime(data.generated_at)}` : null,
-                ].filter(Boolean).join(" · ")}
-              >
-                <DataTable columns={COLUMNS} rows={feeds} rowKey={(f) => f.ingester} minWidth={860} />
-              </Section>
             </>
           )}
-
-          <Link to="/nidp" className="cp-link" style={{ fontSize: 13, alignSelf: "flex-start" }}>Run history, logs and manual runs are in the NIDP console ›</Link>
-          <Footnote>Status is read from the NIDP source registry and job log · refreshes every 30 seconds · this page does not start or stop any job</Footnote>
         </>
       )}
+
+      {/* The other sections do not depend on the status request, so they stay
+          reachable when it fails or returns nothing. */}
+      {!q.isPending && (
+        <div className="flex flex-col" style={{ gap: 14 }}>
+          <SectionTabs label="Feed health sections" testId="feeds-tabs" tabs={TABS} current={tab} onChange={setTab} />
+          {tab === "sources" && data && feeds.length > 0 && <Sources data={data} />}
+          {tab === "sources" && (!data || feeds.length === 0) && (
+            <span data-testid="feeds-sources-none" style={{ fontSize: 13, color: "var(--cp-ink-3)" }}>There is no source list to show. The checks, tables and pipeline are read separately.</span>
+          )}
+          {tab === "checks" && <ChecksSection />}
+          {tab === "tables" && <TablesSection />}
+          {tab === "pipeline" && <PipelineSection />}
+        </div>
+      )}
+
+      <Link to="/nidp" className="cp-link" style={{ fontSize: 13, alignSelf: "flex-start" }}>Log lines, manual runs and the quality rules are in the NIDP console ›</Link>
     </Screen>
   );
 }
