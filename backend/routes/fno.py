@@ -6,9 +6,8 @@
 
 The rows live in nidp.fno_bhavcopy, which only the data platform can read (DaaS /v1/fno/*,
 nidp/services/daas_api/routers/fno.py), so each route forwards to it and shapes the answer. The data is end of
-day: one row per contract per trading day, with prices, open interest, volume and the contract's lot size. It
-has no implied volatility, so none is returned and none is estimated. `lot_size` is null until the data
-platform's F&O routes send the bhavcopy's lot column (new_board_lot_qty).
+day: one row per contract per trading day, with prices, open interest, volume and the contract's lot size.
+`lot_size` is null until the data platform's F&O routes send the bhavcopy's lot column (new_board_lot_qty).
 
 Definitions (the pure functions below; tests/test_fno_routes.py works one example by hand):
     spot        the bhavcopy's underlying_price for the day (the first positive value among the rows)
@@ -17,6 +16,45 @@ Definitions (the pure functions below; tests/test_fno_routes.py works one exampl
     max pain    the strike K where  Σ call OI(k) × max(K − k, 0)  +  Σ put OI(k) × max(k − K, 0)  is smallest:
                 the total intrinsic value of every open call and put if the underlying settled at K
     basis       futures settle price − spot (positive = the future is at a premium to the spot)
+
+Model estimates on the chain (services/option_pricing.py: Black-76 on a forward). The exchange file carries no
+implied volatility, so every figure in this block is worked out here from end-of-day prices. Each is null when
+it cannot be worked out; none is ever filled in with a guess.
+    summary.days_to_expiry    calendar days from the data's day to the expiry
+    summary.forward           the forward the expiry is priced on, and summary.forward_basis how it was found,
+                              by the first rule that applies:
+                              "future"           the settle price of the future expiring the same day
+                              "put-call parity"  no such future (weekly index expiries): the forward the options
+                                                 imply, F = K* + (C − P)·e^(rT), at the strike K* where the call
+                                                 and the put are closest in price, among strikes whose call AND
+                                                 put both traded that day (volume above zero; `parity_pairs`)
+                              "carried spot"     no such strike either: spot × e^(rT). Calls and puts at one
+                                                 strike can then disagree (see option_pricing)
+    summary.rate_pct          r, the annual interest rate the model discounts and carries with, in percent
+                              (option_pricing.RISK_FREE_RATE)
+    call.iv / put.iv          implied volatility in percent a year, from the contract's settle price when it has
+                              one, else its close; iv_price says which ("settle" | "close"; null with iv). A
+                              contract with open interest but no trade that day is still priced, from the settle
+                              price the exchange worked out for it. null when the contract neither traded nor
+                              has open interest that day (zero volume AND zero open interest: its price is not a
+                              market price), when it expires on the data's day, or when its price is at or below
+                              intrinsic value
+    delta gamma theta vega    per unit, at that implied volatility: delta and gamma per one-point move in the
+                              forward, theta per calendar day, vega per one volatility point. null with iv
+    summary.atm_iv            the mean of the call and put iv at the ATM strike (the one that exists if only one
+                              does): the mean barely moves when the forward is a little off
+    summary.expected_move     the ATM straddle: call close + put close at the ATM strike, in price points, and
+    summary.expected_move_pct the same as a percent of the spot. A market price for movement to expiry, not a
+                              forecast and not a probability. null on the expiry day itself
+Model fields are null for the whole chain when the futures read fails: without it the route cannot tell
+whether a future expires with the options, and the forward is not guessed.
+
+Day change (null until the data platform's chain query sends prev_close_price):
+    call.change / put.change  close − previous close, and change_pct the same in percent
+    oi_buildup                how the contract's price and open interest moved together that day:
+                              price up + OI up "long build-up", price down + OI up "short build-up",
+                              price up + OI down "short covering", price down + OI down "long unwinding".
+                              A reading of two figures, not a record of who traded. null when either is flat
 
 Errors: an underlying with no F&O rows is 404 with a plain sentence. An unreachable or failing data platform is
 502 upstream_unavailable, as on /api/movers and /api/move-odds, never an empty or an older answer.
@@ -32,6 +70,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 
 from deps import get_current_user
+from services import option_pricing
 from services.copilot_tools import daas_client
 
 logger = logging.getLogger(__name__)
@@ -270,6 +309,165 @@ def shape_futures(rows: Iterable[Any], spot: Optional[float]) -> List[Dict[str, 
     return out
 
 
+# ── model estimates (Black-76) ───────────────────────────────────────────────
+
+_MODEL_FIELDS = ("iv", "iv_price", "delta", "gamma", "theta", "vega")
+_SIDE_KIND = {"call": "CE", "put": "PE"}
+
+
+def _positive(v: Any) -> Optional[float]:
+    f = _num(v)
+    return f if f is not None and f > 0 else None
+
+
+def model_price_source(side: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
+    """(the price implied volatility is read from, which field it is): the settle price when the contract has
+    one, else its close. (None, None) when it has neither."""
+    for field in ("settle", "close"):
+        px = _positive(side.get(field))
+        if px is not None:
+            return px, field
+    return None, None
+
+
+def model_price(side: Dict[str, Any]) -> Optional[float]:
+    """The price implied volatility is read from: the settle price when the contract has one, else its close."""
+    return model_price_source(side)[0]
+
+
+def is_live(side: Dict[str, Any]) -> bool:
+    """False for a contract with zero volume AND zero open interest that day: nobody traded or holds it, so
+    its price is the exchange's placeholder, not a market price. A missing figure counts as zero."""
+    return bool(side.get("volume")) or bool(side.get("oi"))
+
+
+def traded(side: Any) -> bool:
+    """True for a contract that traded on the data's day: volume above zero."""
+    return isinstance(side, dict) and bool(side.get("volume"))
+
+
+def parity_pairs(strikes: Iterable[Dict[str, Any]]) -> List[Tuple[float, float, float]]:
+    """(strike, call price, put price) for the strikes the put-call-parity forward may be read from.
+
+    A strike qualifies only when it is live on both sides, and live here means exactly this: the call AND the
+    put each traded on the data's day (volume above zero) and each has a price above zero. That is stricter
+    than the rule for showing an implied volatility (`is_live`: volume OR open interest): a contract that is
+    held but did not trade carries the exchange's theoretical settle price, which is worked out from the spot,
+    so a pair containing one would hand back the exchange's carried spot instead of the market's forward. The
+    prices are the ones implied volatility is read from (settle, else close)."""
+    pairs: List[Tuple[float, float, float]] = []
+    for r in strikes:
+        call, put = r.get("call"), r.get("put")
+        if traded(call) and traded(put):
+            c, p = model_price(call), model_price(put)
+            if c is not None and p is not None:
+                pairs.append((float(r["strike"]), c, p))
+    return pairs
+
+
+def model_side(kind: str, side: Dict[str, Any], strike: float, forward: Optional[float], t: float) -> Dict[str, Any]:
+    """{iv, iv_price, delta, gamma, theta, vega} for one contract; every value None when implied volatility
+    cannot be worked out. `iv` is in percent a year; `iv_price` names the price it was read from."""
+    out: Dict[str, Any] = dict.fromkeys(_MODEL_FIELDS)
+    if forward is None or not is_live(side):
+        return out
+    px, field = model_price_source(side)
+    vol = option_pricing.implied_vol(kind, px, forward, strike, t)
+    g = option_pricing.greeks(kind, forward, strike, t, vol)
+    if vol is None or g is None:
+        return out
+    return {"iv": round(vol * 100, 2), "iv_price": field, "delta": round(g.delta, 4), "gamma": round(g.gamma, 8),
+            "theta": round(g.theta, 4), "vega": round(g.vega, 4)}
+
+
+def add_model(strikes: Sequence[Dict[str, Any]], forward: Optional[float], t: float) -> List[Dict[str, Any]]:
+    """The strike rows with the model fields added to each side that exists."""
+    out: List[Dict[str, Any]] = []
+    for r in strikes:
+        row = dict(r)
+        for name, kind in _SIDE_KIND.items():
+            if r[name] is not None:
+                row[name] = {**r[name], **model_side(kind, r[name], float(r["strike"]), forward, t)}
+        out.append(row)
+    return out
+
+
+def atm_iv(row: Optional[Dict[str, Any]]) -> Optional[float]:
+    """Mean of the call and put implied volatility at the ATM strike; the one that exists when only one does."""
+    ivs = [side["iv"] for side in ((row or {}).get("call"), (row or {}).get("put")) if side and side.get("iv") is not None]
+    return round(sum(ivs) / len(ivs), 2) if ivs else None
+
+
+def straddle(row: Optional[Dict[str, Any]]) -> Optional[float]:
+    """Call close + put close at one strike. None unless both closed above zero."""
+    call, put = _positive(((row or {}).get("call") or {}).get("close")), _positive(((row or {}).get("put") or {}).get("close"))
+    return None if call is None or put is None else round(call + put, 2)
+
+
+def same_expiry_future(rows: Optional[Iterable[Any]], as_of: str, expiry: str) -> Optional[float]:
+    """The settle price of the future that expires on `expiry`, from the futures rows of the day `as_of`."""
+    for f in shape_futures([r for r in rows or [] if isinstance(r, dict) and _iso_day(r.get("as_of_date")) == as_of], None):
+        if f["expiry"] == expiry and _positive(f["settle"]) is not None:
+            return f["settle"]
+    return None
+
+
+def model_summary(as_of: str, expiry: str, spot: Optional[float], futures_rows: Optional[Iterable[Any]],
+                  strikes: Iterable[Dict[str, Any]] = ()) -> Dict[str, Any]:
+    """days_to_expiry, forward, forward_basis and rate_pct. `strikes` are every strike of the expiry: the
+    put-call-parity forward is read from them when no future expires that day. `futures_rows` is None when the
+    futures read failed: no forward is then chosen, because anything else would be a guess at whether a future
+    exists."""
+    days = option_pricing.days_between(date.fromisoformat(as_of), date.fromisoformat(expiry))
+    chosen = None
+    if days > 0 and futures_rows is not None:
+        chosen = option_pricing.choose_forward(
+            same_expiry_future(futures_rows, as_of, expiry), spot, option_pricing.year_fraction(days), pairs=parity_pairs(strikes))
+    return {
+        "days_to_expiry": days,
+        "forward": round(chosen[0], 2) if chosen else None,
+        "forward_basis": chosen[1] if chosen else None,
+        "rate_pct": round(option_pricing.RISK_FREE_RATE * 100, 4),
+    }
+
+
+def expected_move(atm_row: Optional[Dict[str, Any]], spot: Optional[float], days: int) -> Tuple[Optional[float], Optional[float]]:
+    """(ATM straddle in price points, the same as a percent of the spot). None on or after the expiry day."""
+    move = straddle(atm_row) if days > 0 else None
+    pct = round(move / spot * 100, 2) if move is not None and spot is not None and spot > 0 else None
+    return move, pct
+
+
+# ── day change ───────────────────────────────────────────────────────────────
+
+def day_change(raw: Any, side: Dict[str, Any]) -> Dict[str, Any]:
+    """{change, change_pct, oi_buildup} for one contract, from the data platform's row and its shaped side.
+    All None when the row carries no previous close (the column is not sent until the data platform is
+    redeployed)."""
+    prev = _positive(raw.get("prev_close_price")) if isinstance(raw, dict) else None
+    close = _positive(side.get("close"))
+    if prev is None or close is None:
+        return {"change": None, "change_pct": None, "oi_buildup": None}
+    change, d_oi = round(close - prev, 2), side.get("change_in_oi")
+    label = None
+    if change and d_oi:
+        label = ("long build-up" if change > 0 else "short build-up") if d_oi > 0 else ("short covering" if change > 0 else "long unwinding")
+    return {"change": change, "change_pct": round(change / prev * 100, 2), "oi_buildup": label}
+
+
+def add_day_change(strikes: Sequence[Dict[str, Any]], raw: Any) -> List[Dict[str, Any]]:
+    """The strike rows with change, change_pct and oi_buildup added to each side that exists."""
+    by_strike = {_tidy(_num(item.get("strike"))): item for item in (raw if isinstance(raw, list) else []) if isinstance(item, dict)}
+    out: List[Dict[str, Any]] = []
+    for r in strikes:
+        row, item = dict(r), by_strike.get(r["strike"], {})
+        for name, kind in _SIDE_KIND.items():
+            if r[name] is not None:
+                row[name] = {**r[name], **day_change(item.get(kind), r[name])}
+        out.append(row)
+    return out
+
+
 # ── data platform ────────────────────────────────────────────────────────────
 
 def no_data(sym: str) -> str:
@@ -313,6 +511,26 @@ async def _daas(path: str, params: Dict[str, Any], sym: str) -> Dict[str, Any]:
     raise HTTPException(status_code=502, detail=_UNAVAILABLE)
 
 
+async def _futures_rows(sym: str) -> Tuple[List[Dict[str, Any]], List[Optional[str]]]:
+    """(every futures row the data platform has for the latest day, the day each read said it was for)."""
+    # An underlying is an index or a stock, never both, and the bhavcopy does not say which without a read.
+    bodies = await asyncio.gather(*(
+        _daas(f"/fno/{sym}", {"instrument_type": kind, "limit": _FUTURES_LIMIT}, sym) for kind in _FUTURES_TYPES
+    ))
+    rows = [r for b in bodies for r in (b.get("data") if isinstance(b.get("data"), list) else []) if isinstance(r, dict)]
+    return rows, [_iso_day(b.get("as_of")) for b in bodies]
+
+
+async def _futures_rows_or_none(sym: str) -> Optional[List[Dict[str, Any]]]:
+    """The futures rows for the chain's forward, or None when the read failed (the chain is still answered,
+    without model estimates)."""
+    try:
+        return (await _futures_rows(sym))[0]
+    except HTTPException as e:
+        logger.warning("fno futures read for the %s chain failed (%s): model estimates are left out", sym, e.detail)
+        return None
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
 
 @router.get("/{symbol}/expiries")
@@ -338,10 +556,21 @@ async def chain(
     around: int = Query(DEFAULT_AROUND, ge=1, le=MAX_AROUND, description="Strikes sent each side of the ATM strike"),
 ) -> Dict[str, Any]:
     """One expiry's calls and puts by strike. `summary` is worked out over every strike of the expiry;
-    `strikes` holds only the window around the ATM strike."""
+    `strikes` holds only the window around the ATM strike.
+
+    Each side also carries the model estimates iv, delta, gamma, theta and vega (Black-76 on the forward in
+    `summary.forward`; see the module docstring). A contract with zero volume AND zero open interest is
+    skipped: its iv and Greeks are null, because its price is not a market price."""
     await get_current_user(request)
     sym = symbol.upper()
-    body = await _daas(f"/fno/{sym}/chain", {"expiry": expiry.isoformat()} if expiry else {}, sym)
+    # The forward for the expiry is the future that expires with it, so the futures are read alongside.
+    futures_read = asyncio.ensure_future(_futures_rows_or_none(sym))
+    try:
+        body = await _daas(f"/fno/{sym}/chain", {"expiry": expiry.isoformat()} if expiry else {}, sym)
+    except BaseException:
+        futures_read.cancel()
+        raise
+    futures_rows = await futures_read
     as_of, exp = _iso_day(body.get("as_of")), _iso_day(body.get("expiry"))
     if not as_of or not exp:
         logger.warning("fno DaaS /fno/%s/chain answered without a day or an expiry", sym)
@@ -352,7 +581,15 @@ async def chain(
         raise HTTPException(status_code=404, detail=f"No option contracts for {sym} expiring {exp}")
     sides = [item.get(side) for item in raw if isinstance(item, dict) for side in _OPTION_SIDES]
     summary = summarise_chain(strikes, find_spot(sides), as_of, exp)
-    shown = window_around(strikes, summary["atm_strike"], around)
+    summary.update(model_summary(as_of, exp, summary["spot"], futures_rows, strikes))
+    t = option_pricing.year_fraction(summary["days_to_expiry"])
+    shown = add_day_change(window_around(strikes, summary["atm_strike"], around), raw)
+    # Priced on the forward exactly as it is sent (2 decimals), so every figure can be reproduced from the response.
+    shown = add_model(shown, summary["forward"], t)
+    # The window is centred on the ATM strike, so its row is among the ones just priced.
+    atm_row = next((r for r in shown if r["strike"] == summary["atm_strike"]), None)
+    summary["atm_iv"] = atm_iv(atm_row)
+    summary["expected_move"], summary["expected_move_pct"] = expected_move(atm_row, summary["spot"], summary["days_to_expiry"])
     return {
         "symbol": sym, "summary": summary, "lot_size": find_lot_size(sides),
         "strikes": shown, "strike_count": len(strikes), "strikes_returned": len(shown),
@@ -367,12 +604,8 @@ async def futures(
     """The latest trading day's futures contracts for the underlying, nearest expiry first."""
     await get_current_user(request)
     sym = symbol.upper()
-    # An underlying is an index or a stock, never both, and the bhavcopy does not say which without a read.
-    bodies = await asyncio.gather(*(
-        _daas(f"/fno/{sym}", {"instrument_type": kind, "limit": _FUTURES_LIMIT}, sym) for kind in _FUTURES_TYPES
-    ))
-    rows = [r for b in bodies for r in (b.get("data") if isinstance(b.get("data"), list) else []) if isinstance(r, dict)]
-    days = [d for d in [*(_iso_day(b.get("as_of")) for b in bodies), *(_iso_day(r.get("as_of_date")) for r in rows)] if d]
+    rows, read_days = await _futures_rows(sym)
+    days = [d for d in [*read_days, *(_iso_day(r.get("as_of_date")) for r in rows)] if d]
     if not days:
         raise HTTPException(status_code=404, detail=no_data(sym))
     as_of = max(days)

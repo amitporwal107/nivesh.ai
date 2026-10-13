@@ -1,0 +1,141 @@
+{
+ "_note": "Synthetic responses in the shape of GET /api/fno/{symbol}/expiries, /chain and /futures, produced by running backend/routes/fno.py over a made-up data-platform payload. Not market data.",
+ "symbol": "NIFTY",
+ "summary": {
+  "as_of": "2026-10-12",
+  "expiry": "2027-03-30",
+  "spot": 25010.0,
+  "atm_strike": 25000,
+  "total_call_oi": 3750000,
+  "total_put_oi": 7860000,
+  "total_call_oi_change": -180000,
+  "total_put_oi_change": 300000,
+  "pcr": 2.096,
+  "max_pain": 25500,
+  "max_call_oi": {
+   "strike": 25500,
+   "oi": 1600000
+  },
+  "max_put_oi": {
+   "strike": 24500,
+   "oi": 3000000
+  },
+  "days_to_expiry": 169,
+  "forward": 25684.79,
+  "forward_basis": "carried spot",
+  "rate_pct": 5.75,
+  "atm_iv": 13.0,
+  "expected_move": 1821.7,
+  "expected_move_pct": 7.28
+ },
+ "lot_size": 65,
+ "strikes": [
+  {
+   "strike": 24500,
+   "call": {
+    "close": 1587.55,
+    "settle": 1587.55,
+    "oi": 900000,
+    "change_in_oi": -120000,
+    "volume": 400000,
+    "change": 95.25,
+    "change_pct": 6.38,
+    "oi_buildup": "short covering",
+    "iv": 13.5,
+    "iv_price": "settle",
+    "delta": 0.6936,
+    "gamma": 0.00014075,
+    "theta": -2.068,
+    "vega": 58.0381
+   },
+   "put": {
+    "close": 433.9,
+    "settle": 433.9,
+    "oi": 3000000,
+    "change_in_oi": 150000,
+    "volume": 0,
+    "change": -30.35,
+    "change_pct": -6.54,
+    "oi_buildup": "short build-up",
+    "iv": 13.5,
+    "iv_price": "settle",
+    "delta": -0.2802,
+    "gamma": 0.00014075,
+    "theta": -2.2497,
+    "vega": 58.0384
+   }
+  },
+  {
+   "strike": 25000,
+   "call": {
+    "close": 1244.25,
+    "settle": 1244.25,
+    "oi": 1250000,
+    "change_in_oi": -60000,
+    "volume": 490000,
+    "change": 37.35,
+    "change_pct": 3.09,
+    "oi_buildup": "short covering",
+    "iv": 13.0,
+    "iv_price": "settle",
+    "delta": 0.62,
+    "gamma": 0.00016083,
+    "theta": -2.2604,
+    "vega": 63.8651
+   },
+   "put": {
+    "close": 577.45,
+    "settle": 577.45,
+    "oi": 2620000,
+    "change_in_oi": 100000,
+    "volume": 0,
+    "change": -23.1,
+    "change_pct": -3.85,
+    "oi_buildup": "short build-up",
+    "iv": 13.0,
+    "iv_price": "settle",
+    "delta": -0.3537,
+    "gamma": 0.00016083,
+    "theta": -2.3654,
+    "vega": 63.8651
+   }
+  },
+  {
+   "strike": 25500,
+   "call": {
+    "close": 951.85,
+    "settle": 951.85,
+    "oi": 1600000,
+    "change_in_oi": 0,
+    "volume": 580000,
+    "change": 0.0,
+    "change_pct": 0.0,
+    "oi_buildup": null,
+    "iv": 12.7,
+    "iv_price": "settle",
+    "delta": 0.536,
+    "gamma": 0.00017361,
+    "theta": -2.3807,
+    "vega": 67.349
+   },
+   "put": {
+    "close": 771.9,
+    "settle": 771.9,
+    "oi": 2240000,
+    "change_in_oi": 50000,
+    "volume": 0,
+    "change": -7.7,
+    "change_pct": -0.99,
+    "oi_buildup": "short build-up",
+    "iv": 12.7,
+    "iv_price": "settle",
+    "delta": -0.4378,
+    "gamma": 0.00017361,
+    "theta": -2.409,
+    "vega": 67.349
+   }
+  }
+ ],
+ "strike_count": 3,
+ "strikes_returned": 3
+}

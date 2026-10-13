@@ -27,10 +27,34 @@ The worked example every summary test uses (one expiry, spot 108):
                smallest is 150, at K = 110                                       → 110
     heaviest   call OI 50 at 120, put OI 40 at 100
     futures    settle 108.75 − spot 108 = +0.75 (premium); settle 107.50 − 108 = −0.50 (discount)
+
+The model example (MODEL_CHAIN below; the pricing itself is tested by hand in tests/test_option_pricing.py).
+Data day 12 Oct 2026, expiry 27 Oct 2026: 15 calendar days, T = 15/365 = 0.0410959, r = 5.75%.
+
+    forward    the 27 Oct future settles at 110.00 → forward 110.00, basis "future"
+               without that future, from the options (PARITY_CHAIN: the 110 call settles at 1.50, the put at 2.20):
+                   F = K + (C − P) × e^(rT) = 110 + (1.50 − 2.20) × 1.0023658 = 110 − 0.70166 = 109.29834 → 109.30,
+                   "put-call parity"
+               with neither (NO_PAIR_CHAIN: no strike has both sides traded):
+                   108 × e^(0.0575 × 15/365) = 108 × 1.0023658 = 108.2555 → 108.26, "carried spot"
+    110 strike (ATM, and exactly at the forward), both sides settle at 1.7749:
+               √T = 0.2027212     at σ = 20%: σ√T = 0.0405442, d1 = 0.0202721, d2 = −0.0202721
+               N(d1) = 0.5080869  φ(d1) = 0.3988603            DF = e^(−0.0023630) = 0.9976398
+               price = DF × 110 × (2×0.5080869 − 1) = 0.9976398 × 110 × 0.0161737 = 1.77491   → iv 20.00 for both
+               delta   call  DF×N(d1) = 0.5069          put  −DF×N(−d1) = −0.4908
+               gamma   DF×φ(d1)/(110×0.0405442) = 0.089222
+               vega    DF×110×φ(d1)×√T/100 = 0.0887
+               theta   (0.0575×1.77491 − DF×110×φ(d1)×0.20/(2×0.2027212))/365 = (0.10206 − 21.59176)/365 = −0.0589
+    ATM iv     (20.00 + 20.00)/2 = 20.00
+    straddle   call close 1.70 + put close 1.80 = 3.50 → 3.50/108 = 3.24% of the spot
+    100 call   settles at 9.90, below its intrinsic value DF×(110 − 100) = 9.9764 → no implied volatility
+    120 call   volume 0 and open interest 0 → skipped
 """
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import pytest
@@ -38,6 +62,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from routes import fno as route
+from services import option_pricing
 
 SPOT = 108.0
 DAY = "2026-10-12"
@@ -68,6 +93,19 @@ CHAIN: Dict[str, Any] = {
 EXAMPLE = [(100.0, 10.0, 40.0), (110.0, 20.0, 30.0), (120.0, 50.0, 5.0)]
 
 Reply = Union[Tuple[int, Any], Exception]
+
+# What the chain route added to `summary` and to each side with the model estimates and the day change.
+MODEL_SUMMARY_KEYS = {"days_to_expiry", "forward", "forward_basis", "rate_pct", "atm_iv", "expected_move", "expected_move_pct"}
+MODEL_SIDE_KEYS = {"iv", "iv_price", "delta", "gamma", "theta", "vega", "change", "change_pct", "oi_buildup"}
+
+
+def _only(d: Dict[str, Any], keys: Any) -> Dict[str, Any]:
+    return {k: d[k] for k in keys}
+
+
+def _chain_calls(calls: List[Tuple[str, Optional[dict]]]) -> List[Tuple[str, Optional[dict]]]:
+    """The chain reads among the recorded calls. The route also reads the futures, for the forward."""
+    return [c for c in calls if c[0].endswith("/chain")]
 
 
 def _client(monkeypatch, replies: Union[Reply, Callable[[str, Optional[dict]], Reply]], *, signed_in: bool = True,
@@ -229,23 +267,28 @@ def test_chain_returns_the_summary_and_the_strike_rows(monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["symbol"] == "TESTCO"
-    assert body["summary"] == {
+    expected_summary = {
         "as_of": DAY, "expiry": EXPIRY, "spot": 108.0, "atm_strike": 110,
         "total_call_oi": 80, "total_put_oi": 75, "total_call_oi_change": 4, "total_put_oi_change": 6,
         "pcr": 0.9375, "max_pain": 110,
         "max_call_oi": {"strike": 120, "oi": 50}, "max_put_oi": {"strike": 100, "oi": 40},
     }
+    # every field the route sent before the model estimates were added is still there, unchanged
+    assert _only(body["summary"], expected_summary) == expected_summary
+    assert set(body["summary"]) - set(expected_summary) == MODEL_SUMMARY_KEYS
     assert [s["strike"] for s in body["strikes"]] == [100, 110, 120]
-    assert body["strikes"][1]["call"] == {"close": 2.4, "settle": 2.45, "oi": 20, "change_in_oi": -2, "volume": 30}
+    expected_call = {"close": 2.4, "settle": 2.45, "oi": 20, "change_in_oi": -2, "volume": 30}
+    assert _only(body["strikes"][1]["call"], expected_call) == expected_call
+    assert set(body["strikes"][1]["call"]) - set(expected_call) == MODEL_SIDE_KEYS
     assert (body["strike_count"], body["strikes_returned"]) == (3, 3)
     # the symbol is upper-cased, and no expiry is sent when none was asked for (the data platform picks the nearest)
-    assert calls == [("/fno/TESTCO/chain", None)]
+    assert _chain_calls(calls) == [("/fno/TESTCO/chain", None)]
 
 
 def test_chain_forwards_the_expiry_asked_for(monkeypatch):
     c, calls = _client(monkeypatch, (200, CHAIN))
     assert c.get("/api/fno/TESTCO/chain", params={"expiry": EXPIRY}).status_code == 200
-    assert calls == [("/fno/TESTCO/chain", {"expiry": EXPIRY})]
+    assert _chain_calls(calls) == [("/fno/TESTCO/chain", {"expiry": EXPIRY})]
 
 
 def test_around_limits_the_rows_sent_but_the_summary_covers_the_whole_chain(monkeypatch):
@@ -397,7 +440,7 @@ def test_chain_body_without_a_day_or_expiry_is_502(monkeypatch):
 def test_index_and_stock_symbols_are_accepted_and_upper_cased(monkeypatch, symbol):
     c, calls = _client(monkeypatch, (200, CHAIN))
     assert c.get(f"/api/fno/{symbol}/chain").status_code == 200
-    assert calls == [(f"/fno/{symbol.upper()}/chain", None)]
+    assert _chain_calls(calls) == [(f"/fno/{symbol.upper()}/chain", None)]
 
 
 @pytest.mark.parametrize("symbol", ["NIFTY$", "NIF TY", "NIFTY.NS", "A" * 21, "NIFTY;DROP", "नि", "..%2Fadmin"])
@@ -531,3 +574,387 @@ def test_futures_route_is_502_when_one_of_the_two_reads_fails(monkeypatch):
     c, _ = _client(monkeypatch, replies)
     r = c.get("/api/fno/TESTCO/futures")
     assert (r.status_code, r.json()) == (502, {"detail": "upstream_unavailable"})
+
+
+# ── model estimates on the chain (Black-76; the example is worked in the module docstring) ───────────────────
+
+def _priced(strike: float, side: str, close: float, settle: Optional[float], oi: Optional[int], volume: Optional[int]) -> Dict[str, Any]:
+    return {**_contract(strike, side, close, oi, 0, volume), "settle_price": settle}
+
+
+# (close, settle, OI, volume) per side.
+MODEL_CHAIN: Dict[str, Any] = {
+    "symbol": "TESTCO", "as_of": DAY, "expiry": EXPIRY, "strike_count": 3,
+    "strikes": [
+        {"strike": 100.0, "CE": _priced(100.0, "CE", 9.9, 9.9, 10, 7), "PE": _priced(100.0, "PE", 0.05, 0.05, 40, 9)},
+        {"strike": 110.0, "CE": _priced(110.0, "CE", 1.7, 1.7749, 20, 30), "PE": _priced(110.0, "PE", 1.8, 1.7749, 30, 25)},
+        {"strike": 120.0, "CE": _priced(120.0, "CE", 0.05, 0.05, 0, 0), "PE": _priced(120.0, "PE", 10.4, 10.4, 5, 2)},
+    ],
+}
+NO_MODEL = {"iv": None, "iv_price": None, "delta": None, "gamma": None, "theta": None, "vega": None}
+
+
+def _untraded_puts(chain: Dict[str, Any]) -> Dict[str, Any]:
+    """The chain with no put traded that day (each still held: open interest stays). No strike then has a
+    call and a put that both traded, so the options imply no forward."""
+    out = copy.deepcopy(chain)
+    for row in out["strikes"]:
+        row["PE"]["traded_volume"] = 0
+    return out
+
+
+NO_PAIR_CHAIN = _untraded_puts(MODEL_CHAIN)
+# The 110 strike priced off a forward that is not a strike: call settle 1.50, put settle 2.20 → F = 109.30.
+PARITY_CHAIN = copy.deepcopy(MODEL_CHAIN)
+PARITY_CHAIN["strikes"][1]["CE"]["settle_price"] = 1.5
+PARITY_CHAIN["strikes"][1]["PE"]["settle_price"] = 2.2
+
+
+def _with_futures(chain: Dict[str, Any], futures: Union[List[Dict[str, Any]], Exception]) -> Callable[[str, Optional[dict]], Reply]:
+    """Answers the chain read with `chain` and the futures reads with `futures` (stock rows) or an error."""
+    def replies(path: str, params: Optional[dict]) -> Reply:
+        if path.endswith("/chain"):
+            return 200, chain
+        if isinstance(futures, Exception):
+            return futures
+        return 200, _envelope(futures if params["instrument_type"] == "STF" else [])
+    return replies
+
+
+def _stf(expiry: str, settle: Optional[float]) -> Dict[str, Any]:
+    return {**_future("STF", expiry, 110.0, settle, 5000, 120, 2500), "option_type": "FUT", "strike_price": -1.0}
+
+
+SAME_EXPIRY = [_stf(EXPIRY, 110.0), _stf("2026-11-24", 111.0)]
+
+
+def _model(body: Dict[str, Any], strike: int, side: str) -> Dict[str, Any]:
+    row = next(r for r in body["strikes"] if r["strike"] == strike)
+    return _only(row[side], NO_MODEL)
+
+
+def test_chain_prices_each_contract_on_the_future_that_expires_with_it(monkeypatch):
+    c, calls = _client(monkeypatch, _with_futures(MODEL_CHAIN, SAME_EXPIRY))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    s = body["summary"]
+    # the future wins even though the options would imply a forward of their own
+    assert (s["days_to_expiry"], s["forward"], s["forward_basis"], s["rate_pct"]) == (15, 110.0, "future", 5.75)
+    # the ATM strike is the forward itself, and both sides settle at the price 20% gives
+    # (gamma is sent to 8 places; a settle price quoted to 4 places pins it to about 6)
+    gamma = pytest.approx(0.089222, abs=2e-6)
+    assert _model(body, 110, "call") == {"iv": 20.0, "iv_price": "settle", "delta": 0.5069, "gamma": gamma, "theta": -0.0589, "vega": 0.0887}
+    assert _model(body, 110, "put") == {"iv": 20.0, "iv_price": "settle", "delta": -0.4908, "gamma": gamma, "theta": -0.0589, "vega": 0.0887}
+    assert s["atm_iv"] == 20.0
+    # the straddle is the two closes (1.70 + 1.80), not the settle prices the volatility was read from
+    assert (s["expected_move"], s["expected_move_pct"]) == (3.5, 3.24)
+    # the futures are read alongside the chain, every kind in both naming vintages, as on /futures
+    assert sorted(calls, key=lambda t: (t[0], (t[1] or {}).get("instrument_type", ""))) == [
+        ("/fno/TESTCO", {"instrument_type": "FUTIDX", "limit": 50}),
+        ("/fno/TESTCO", {"instrument_type": "FUTSTK", "limit": 50}),
+        ("/fno/TESTCO", {"instrument_type": "IDF", "limit": 50}),
+        ("/fno/TESTCO", {"instrument_type": "STF", "limit": 50}),
+        ("/fno/TESTCO/chain", None),
+    ]
+
+
+def test_a_price_at_or_below_intrinsic_value_has_no_implied_volatility(monkeypatch):
+    c, _ = _client(monkeypatch, _with_futures(MODEL_CHAIN, SAME_EXPIRY))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    # the 100 call settles at 9.90; on a forward of 110 it cannot be worth less than 0.99764 × 10 = 9.9764
+    assert _model(body, 100, "call") == NO_MODEL
+    # the 100 put (0.05, ten points out of the money) does have one
+    put = _model(body, 100, "put")
+    assert put["iv"] is not None and 20.0 < put["iv"] < 60.0 and -0.05 < put["delta"] < 0.0
+
+
+def test_a_contract_with_no_volume_and_no_open_interest_is_skipped(monkeypatch):
+    c, _ = _client(monkeypatch, _with_futures(MODEL_CHAIN, SAME_EXPIRY))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    assert _model(body, 120, "call") == NO_MODEL                    # volume 0 and open interest 0
+    # with open interest but no trade that day it is priced, from the exchange's settle price
+    held = copy.deepcopy(MODEL_CHAIN)
+    held["strikes"][2]["CE"].update(open_interest=15, traded_volume=0)
+    c2, _ = _client(monkeypatch, _with_futures(held, SAME_EXPIRY))
+    priced = _model(c2.get("/api/fno/TESTCO/chain").json(), 120, "call")
+    assert priced["iv"] is not None and priced["iv_price"] == "settle"
+    # and a contract whose volume and open interest are not sent at all is not assumed to be live
+    unknown = copy.deepcopy(MODEL_CHAIN)
+    unknown["strikes"][1]["CE"].update(open_interest=None, traded_volume=None)
+    c3, _ = _client(monkeypatch, _with_futures(unknown, SAME_EXPIRY))
+    b3 = c3.get("/api/fno/TESTCO/chain").json()
+    assert _model(b3, 110, "call") == NO_MODEL
+    assert b3["summary"]["atm_iv"] == 20.0                           # the put alone
+
+
+def test_implied_volatility_falls_back_to_the_close_when_there_is_no_settle_price(monkeypatch):
+    no_settle = copy.deepcopy(MODEL_CHAIN)
+    no_settle["strikes"][1]["CE"].update(settle_price=None, close_price=1.7749)
+    no_settle["strikes"][1]["PE"].update(settle_price=0.0, close_price=1.7749)   # a zero settle is a missing price
+    c, _ = _client(monkeypatch, _with_futures(no_settle, SAME_EXPIRY))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    assert _only(_model(body, 110, "call"), ("iv", "iv_price")) == {"iv": 20.0, "iv_price": "close"}
+    assert _only(_model(body, 110, "put"), ("iv", "iv_price")) == {"iv": 20.0, "iv_price": "close"}
+    assert body["summary"]["expected_move"] == 3.55                  # 1.7749 + 1.7749, rounded to paise
+
+
+def test_without_a_same_expiry_future_the_forward_is_the_one_the_options_imply(monkeypatch):
+    other_month = [_stf("2026-11-24", 111.0)]
+    c, _ = _client(monkeypatch, _with_futures(PARITY_CHAIN, other_month))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    s = body["summary"]
+    # the 110 strike is where the call (1.50) and the put (2.20) are closest: 110 + (1.50 − 2.20) × 1.0023658 = 109.2983
+    assert (s["forward"], s["forward_basis"], s["rate_pct"]) == (109.3, "put-call parity", 5.75)
+    # on the forward they imply, the call and the put at that strike imply one volatility
+    # (0.02 apart at most: the forward is sent, and used, to 2 decimals)
+    call, put = _model(body, 110, "call"), _model(body, 110, "put")
+    assert call["iv"] == pytest.approx(put["iv"], abs=0.02) and 19.0 < call["iv"] < 23.0
+    assert s["atm_iv"] == pytest.approx(call["iv"], abs=0.02)
+    # a future with no settle price, or one from an older day, is not a forward: the options' own is used
+    for rows in ([_stf(EXPIRY, None)], [{**_stf(EXPIRY, 110.0), "as_of_date": "2026-10-09"}], []):
+        c2, _ = _client(monkeypatch, _with_futures(PARITY_CHAIN, rows))
+        assert c2.get("/api/fno/TESTCO/chain").json()["summary"]["forward_basis"] == "put-call parity"
+
+
+def test_the_parity_forward_is_read_only_from_a_strike_whose_call_and_put_both_traded(monkeypatch):
+    # The 110 put is held (open interest 30) but did not trade: its settle price is the exchange's own
+    # theoretical figure, so that strike is passed over. The 100 strike traded on both sides:
+    # 100 + (9.90 − 0.05) × 1.0023658 = 109.8733
+    held_put = copy.deepcopy(PARITY_CHAIN)
+    held_put["strikes"][1]["PE"]["traded_volume"] = 0
+    c, _ = _client(monkeypatch, _with_futures(held_put, []))
+    s = c.get("/api/fno/TESTCO/chain").json()["summary"]
+    assert (s["forward"], s["forward_basis"]) == (109.87, "put-call parity")
+    assert route.parity_pairs(route.shape_strikes(held_put["strikes"])) == [(100.0, 9.9, 0.05)]
+    assert route.parity_pairs(route.shape_strikes(PARITY_CHAIN["strikes"])) == [(100.0, 9.9, 0.05), (110.0, 1.5, 2.2)]
+    assert route.parity_pairs(route.shape_strikes(NO_PAIR_CHAIN["strikes"])) == []
+    # a strike with one side missing, or a side with no price, is no pair
+    assert route.parity_pairs([{"strike": 100, "call": {"settle": 5.0, "close": 5.0, "volume": 9, "oi": 1}, "put": None},
+                               {"strike": 110, "call": {"settle": None, "close": 0.0, "volume": 9, "oi": 1},
+                                "put": {"settle": 3.0, "close": 3.0, "volume": 9, "oi": 1}}]) == []
+
+
+def test_with_no_future_and_no_traded_pair_the_spot_is_carried_at_the_rate(monkeypatch):
+    c, _ = _client(monkeypatch, _with_futures(NO_PAIR_CHAIN, [_stf("2026-11-24", 111.0)]))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    s = body["summary"]
+    # 108 × e^(0.0575 × 15/365) = 108.2555
+    assert (s["forward"], s["forward_basis"], s["rate_pct"]) == (108.26, "carried spot", 5.75)
+    # the same two prices on a forward 1.74 lower than the one they were struck on: the call now needs more
+    # volatility than the put (the put is still priced: it is held, from its settle price)
+    call, put = _model(body, 110, "call"), _model(body, 110, "put")
+    assert call["iv"] > 20.0 > put["iv"] and put["iv_price"] == "settle"
+    assert s["atm_iv"] == round((call["iv"] + put["iv"]) / 2, 2)
+
+
+def test_no_forward_without_a_future_a_traded_pair_and_a_spot(monkeypatch):
+    no_spot = copy.deepcopy(NO_PAIR_CHAIN)
+    for row in no_spot["strikes"]:
+        row["CE"]["underlying_price"] = row["PE"]["underlying_price"] = None
+    c, _ = _client(monkeypatch, _with_futures(no_spot, []))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    s = body["summary"]
+    assert (s["forward"], s["forward_basis"], s["atm_iv"], s["expected_move"], s["expected_move_pct"]) == (None, None, None, None, None)
+    assert (s["days_to_expiry"], s["rate_pct"]) == (15, 5.75)
+    assert all(_model(body, k, side) == NO_MODEL for k in (100, 110, 120) for side in ("call", "put"))
+    # with the future but no spot, contracts are priced; there is no ATM strike to name an ATM figure for
+    c2, _ = _client(monkeypatch, _with_futures(no_spot, SAME_EXPIRY))
+    b2 = c2.get("/api/fno/TESTCO/chain").json()
+    assert (b2["summary"]["forward"], b2["summary"]["forward_basis"]) == (110.0, "future")
+    assert _model(b2, 110, "call")["iv"] == 20.0
+    assert (b2["summary"]["atm_strike"], b2["summary"]["atm_iv"], b2["summary"]["expected_move"]) == (None, None, None)
+    # the options' own forward needs no spot either
+    traded_no_spot = copy.deepcopy(PARITY_CHAIN)
+    for row in traded_no_spot["strikes"]:
+        row["CE"]["underlying_price"] = row["PE"]["underlying_price"] = None
+    c3, _ = _client(monkeypatch, _with_futures(traded_no_spot, []))
+    assert _only(c3.get("/api/fno/TESTCO/chain").json()["summary"], ("forward", "forward_basis")) == {"forward": 109.3, "forward_basis": "put-call parity"}
+
+
+def test_no_model_estimates_on_the_expiry_day(monkeypatch):
+    expiring = {**copy.deepcopy(MODEL_CHAIN), "expiry": DAY}
+    c, _ = _client(monkeypatch, _with_futures(expiring, [_stf(DAY, 110.0)]))
+    body = c.get("/api/fno/TESTCO/chain").json()
+    s = body["summary"]
+    assert s["days_to_expiry"] == 0
+    assert (s["forward"], s["forward_basis"], s["atm_iv"], s["expected_move"], s["expected_move_pct"]) == (None, None, None, None, None)
+    assert all(_model(body, k, side) == NO_MODEL for k in (100, 110, 120) for side in ("call", "put"))
+    # the exchange's figures are still sent
+    assert body["strikes"][1]["call"]["close"] == 1.7 and s["pcr"] == 2.5       # put OI 75 ÷ call OI 30
+
+
+def test_a_failed_futures_read_leaves_the_model_out_but_still_answers_the_chain(monkeypatch):
+    c, _ = _client(monkeypatch, _with_futures(MODEL_CHAIN, route.daas_client.DaasError("timed out")))
+    r = c.get("/api/fno/TESTCO/chain")
+    assert r.status_code == 200
+    body = r.json()
+    s = body["summary"]
+    # not "carried spot": the route cannot tell whether a future expires with the options
+    assert (s["forward"], s["forward_basis"], s["atm_iv"]) == (None, None, None)
+    assert all(_model(body, k, side) == NO_MODEL for k in (100, 110, 120) for side in ("call", "put"))
+    # everything that does not need a forward is unchanged
+    assert (s["days_to_expiry"], s["expected_move"], s["pcr"], s["max_pain"]) == (15, 3.5, 2.5, 110)   # put OI 75 ÷ call OI 30
+    assert body["strikes"][1]["put"]["close"] == 1.8
+
+
+def test_only_the_strikes_sent_are_priced_and_the_atm_figures_do_not_depend_on_the_window(monkeypatch):
+    c, _ = _client(monkeypatch, _with_futures(MODEL_CHAIN, SAME_EXPIRY))
+    narrow = c.get("/api/fno/TESTCO/chain", params={"around": 1}).json()
+    wide = c.get("/api/fno/TESTCO/chain").json()
+    assert narrow["summary"] == wide["summary"]
+
+
+def test_atm_iv_is_the_mean_of_the_two_sides_or_the_one_that_exists():
+    assert route.atm_iv({"call": {"iv": 15.91}, "put": {"iv": 10.81}}) == 13.36
+    assert route.atm_iv({"call": {"iv": 15.91}, "put": {"iv": None}}) == 15.91
+    assert route.atm_iv({"call": None, "put": {"iv": 10.81}}) == 10.81
+    assert route.atm_iv({"call": {"iv": None}, "put": None}) is None
+    assert route.atm_iv(None) is None
+
+
+def test_straddle_needs_both_closes():
+    assert route.straddle({"call": {"close": 207.2}, "put": {"close": 105.05}}) == 312.25
+    assert route.straddle({"call": {"close": 207.2}, "put": {"close": 0.0}}) is None
+    assert route.straddle({"call": {"close": 207.2}, "put": None}) is None
+    assert route.expected_move({"call": {"close": 207.2}, "put": {"close": 105.05}}, 22721.95, 6) == (312.25, 1.37)   # 312.25/22721.95
+    assert route.expected_move({"call": {"close": 207.2}, "put": {"close": 105.05}}, None, 6) == (312.25, None)
+    assert route.expected_move({"call": {"close": 207.2}, "put": {"close": 105.05}}, 22721.95, 0) == (None, None)
+
+
+# ── day change and open-interest build-up ────────────────────────────────────
+
+def test_day_change_is_close_minus_previous_close_with_a_build_up_label():
+    side = lambda close, d_oi: {"close": close, "change_in_oi": d_oi}  # noqa: E731
+    # 2.40 − 2.00 = +0.40 = +20%; open interest up → long build-up
+    assert route.day_change({"prev_close_price": 2.0}, side(2.4, 5)) == {"change": 0.4, "change_pct": 20.0, "oi_buildup": "long build-up"}
+    assert route.day_change({"prev_close_price": 2.0}, side(2.4, -5))["oi_buildup"] == "short covering"
+    # 1.50 − 2.00 = −0.50 = −25%
+    assert route.day_change({"prev_close_price": 2.0}, side(1.5, 5)) == {"change": -0.5, "change_pct": -25.0, "oi_buildup": "short build-up"}
+    assert route.day_change({"prev_close_price": 2.0}, side(1.5, -5))["oi_buildup"] == "long unwinding"
+    # a flat price or flat open interest is not a build-up
+    assert route.day_change({"prev_close_price": 2.0}, side(2.0, 5)) == {"change": 0.0, "change_pct": 0.0, "oi_buildup": None}
+    assert route.day_change({"prev_close_price": 2.0}, side(2.4, 0))["oi_buildup"] is None
+    assert route.day_change({"prev_close_price": 2.0}, side(2.4, None))["oi_buildup"] is None
+    # no previous close (the data platform does not send it yet), or no close: nothing is worked out
+    nothing = {"change": None, "change_pct": None, "oi_buildup": None}
+    assert route.day_change({}, side(2.4, 5)) == nothing
+    assert route.day_change({"prev_close_price": 0.0}, side(2.4, 5)) == nothing
+    assert route.day_change({"prev_close_price": 2.0}, side(None, 5)) == nothing
+    assert route.day_change(None, side(2.4, 5)) == nothing
+
+
+def test_chain_sends_the_day_change_when_the_data_platform_sends_the_previous_close(monkeypatch):
+    with_prev = copy.deepcopy(CHAIN)
+    with_prev["strikes"][1]["CE"]["prev_close_price"] = 2.0     # close 2.40, change in OI −2
+    with_prev["strikes"][1]["PE"]["prev_close_price"] = 4.0     # close 3.90, change in OI +3
+    c, _ = _client(monkeypatch, (200, with_prev))
+    row = c.get("/api/fno/TESTCO/chain").json()["strikes"][1]
+    assert _only(row["call"], ("change", "change_pct", "oi_buildup")) == {"change": 0.4, "change_pct": 20.0, "oi_buildup": "short covering"}
+    # 3.90 − 4.00 = −0.10 = −2.5%; open interest up → short build-up
+    assert _only(row["put"], ("change", "change_pct", "oi_buildup")) == {"change": -0.1, "change_pct": -2.5, "oi_buildup": "short build-up"}
+    # until the data platform is redeployed the column is absent, and the three fields are null
+    c2, _ = _client(monkeypatch, (200, CHAIN))
+    plain = c2.get("/api/fno/TESTCO/chain").json()["strikes"][1]["call"]
+    assert _only(plain, ("change", "change_pct", "oi_buildup")) == {"change": None, "change_pct": None, "oi_buildup": None}
+
+
+# ── the frontend's fixtures carry this model's figures ───────────────────────
+
+FRONTEND_FIXTURES = Path(__file__).resolve().parents[2] / "frontend-v5" / "e2e" / "fixtures"
+
+
+@pytest.mark.parametrize("name", ["copilot-options-chain.json", "copilot-options-chain-parity.json", "copilot-options-chain-carried.json"])
+def test_the_options_lab_fixtures_are_what_this_model_gives(name):
+    """frontend-v5/e2e/tests/copilot-app-options.spec.ts asserts on figures in these synthetic chains
+    (MOCK — not market data). Every contract is re-priced here from its own prices and the chain's forward,
+    so a change to the model cannot leave the screen tests agreeing with stale numbers."""
+    path = FRONTEND_FIXTURES / name
+    if not path.exists():
+        pytest.skip("the frontend fixtures are not part of this checkout")
+    body = json.loads(path.read_text(encoding="utf-8"))
+    s = body["summary"]
+    t = option_pricing.year_fraction(s["days_to_expiry"])
+    bare = [
+        {"strike": r["strike"], **{name_: None if r[name_] is None else {k: v for k, v in r[name_].items() if k not in NO_MODEL}
+                                   for name_ in ("call", "put")}}
+        for r in body["strikes"]
+    ]
+    assert route.add_model(bare, s["forward"], t) == body["strikes"]
+    atm_row = next(r for r in body["strikes"] if r["strike"] == s["atm_strike"])
+    assert route.atm_iv(atm_row) == s["atm_iv"]
+    assert route.expected_move(atm_row, s["spot"], s["days_to_expiry"]) == (s["expected_move"], s["expected_move_pct"])
+    assert sum(1 for r in body["strikes"] for side in ("call", "put") if r[side]["iv"] is not None) >= 6
+    assert s["rate_pct"] == round(option_pricing.RISK_FREE_RATE * 100, 4)
+    # the forward itself: what the three-step rule gives for a chain with these strikes (the fixtures hold every
+    # strike of their made-up expiry). A fixture priced on a future says so and is taken at its word.
+    if s["forward_basis"] != "future":
+        chosen = option_pricing.choose_forward(None, s["spot"], t, pairs=route.parity_pairs(body["strikes"]))
+        assert (round(chosen[0], 2), chosen[1]) == (s["forward"], s["forward_basis"])
+
+
+# ── real figures: the NIFTY weekly chain of 13 Oct 2026 ──────────────────────
+
+def _real(strike: float, call: Tuple[float, int, int], put: Tuple[float, int, int]) -> Dict[str, Any]:
+    """One strike as the data platform sends it. (close = settle, open interest, volume) per side."""
+    side = lambda kind, px, oi, vol: {  # noqa: E731
+        "strike_price": strike, "option_type": kind, "close_price": px, "settle_price": px, "underlying_price": 22721.95,
+        "open_interest": oi, "change_in_oi": 0, "traded_volume": vol, "traded_value": 1.0, "new_board_lot_qty": 65}
+    return {"strike": strike, "CE": side("CE", *call), "PE": side("PE", *put)}
+
+
+# Public end-of-day market data, NOT a mock: the seven strikes around the money of the NIFTY 19 Oct 2026 expiry
+# in the NSE F&O bhavcopy of 13 Oct 2026, as staging's GET /api/fno/NIFTY/chain?expiry=2026-10-19 served them
+# (close, open interest, volume; settle equals close on all fourteen contracts). Spot 22,721.95. No NIFTY
+# future expires on 19 Oct; the futures that day settle at 22,834.80 (27 Oct), 22,937.50 (23 Nov), 23,074.50 (29 Dec).
+NIFTY_WEEKLY: Dict[str, Any] = {
+    "symbol": "NIFTY", "as_of": "2026-10-13", "expiry": "2026-10-19", "strike_count": 7,
+    "strikes": [
+        _real(22550.0, (320.65, 550680, 202722), (63.65, 1897610, 232134)),
+        _real(22600.0, (280.9, 2798315, 494449), (75.25, 4665440, 453726)),
+        _real(22650.0, (243.15, 810420, 174676), (89.1, 1224925, 118534)),
+        _real(22700.0, (207.2, 3922620, 496918), (105.05, 4154865, 248760)),
+        _real(22750.0, (178.25, 959400, 180229), (121.95, 1313130, 63217)),
+        _real(22800.0, (150.8, 3710070, 420590), (142.0, 2173470, 113098)),
+        _real(22850.0, (126.45, 918515, 175669), (163.8, 547820, 18437)),
+    ],
+}
+NIFTY_FUTURES = [
+    {**_future("IDF", expiry, settle, settle, 1, 0, 1, as_of="2026-10-13"), "option_type": "FUT", "strike_price": -1.0, "underlying_price": 22721.95}
+    for expiry, settle in (("2026-10-27", 22834.8), ("2026-11-23", 22937.5), ("2026-12-29", 23074.5))
+]
+
+
+def test_real_nifty_weekly_chain_is_priced_on_the_forward_its_own_options_imply(monkeypatch):
+    """The case that made the parity rule necessary. Each of these seven strikes puts the forward
+    (K + (C − P)·e^(rT)) between 22,802 and 22,813; the spot carried at the rate gives 22,743.44, 60 points
+    lower, which read the 22,700 call at 15.91% and the put at 10.81%.
+
+    Tolerances, and why:
+      forward within 10 points of 22,805   the strikes themselves disagree by ±5.5 points (tick size, and closes
+                                           not struck at one instant); 10 points of forward is under half a
+                                           volatility point at the money (delta 0.5 × 10 ÷ vega 11.5 a point)
+      call/put IV gap ≤ 1.0 point at each  that ±5.5-point disagreement is about 0.25 of a point on each side,
+      strike, median ≤ 0.5                 0.5 on the gap; 1.0 leaves room for one more tick. Measured: largest
+                                           0.59, median 0.29. The carried spot gave 5.09 at the money."""
+    def replies(path: str, params: Optional[dict]) -> Reply:
+        if path.endswith("/chain"):
+            return 200, NIFTY_WEEKLY
+        rows = NIFTY_FUTURES if params["instrument_type"] == "IDF" else []
+        return 200, {"data": rows, "count": len(rows), "pagination": {}, "symbol": "NIFTY", "as_of": "2026-10-13"}
+    c, _ = _client(monkeypatch, replies)
+    body = c.get("/api/fno/NIFTY/chain", params={"expiry": "2026-10-19"}).json()
+    s = body["summary"]
+    assert (s["days_to_expiry"], s["atm_strike"], s["forward_basis"]) == (6, 22700, "put-call parity")
+    # read at 22,800, where the call (150.80) and the put (142.00) are closest:
+    # 22,800 + 8.80 × e^(0.0575 × 6/365) = 22,800 + 8.80 × 1.0009457 = 22,808.81
+    assert s["forward"] == 22808.81
+    assert abs(s["forward"] - 22805.0) <= 10.0
+    gaps = sorted(abs(r["call"]["iv"] - r["put"]["iv"]) for r in body["strikes"])
+    assert len(gaps) == 7 and gaps[-1] <= 1.0 and gaps[3] <= 0.5, gaps
+    atm = next(r for r in body["strikes"] if r["strike"] == 22700)
+    assert (atm["call"]["iv"], atm["put"]["iv"], s["atm_iv"]) == (12.6, 13.19, 12.89)   # 12.895 → 12.89 (round-half-even)
+    assert all(r[side]["iv_price"] == "settle" for r in body["strikes"] for side in ("call", "put"))
+    # the same rows on the carried spot, for the record: this is the split the parity rule removes
+    carried = option_pricing.choose_forward(None, 22721.95, 6 / 365)
+    assert (round(carried[0], 2), carried[1]) == (22743.44, "carried spot")
+    split = route.add_model(route.shape_strikes(NIFTY_WEEKLY["strikes"]), round(carried[0], 2), 6 / 365)[3]
+    assert (split["call"]["iv"], split["put"]["iv"]) == (15.91, 10.81)

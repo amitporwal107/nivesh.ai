@@ -12,16 +12,24 @@
  *                        contract's end-of-day closing price; every value stays editable.
  *                        Without a chain the legs start empty, as before.
  *
- * Not connected: the Greeks, chance of profit, margin and today's curve. The
- * end-of-day data has no implied volatility and none is estimated. The lot
- * size is filled from the chain when the route sends one (the exchange file
- * carries it); otherwise the user types it, and a typed value is never replaced.
+ *   model estimates      implied volatility and the Greeks per strike, ATM IV, the forward
+ *                        and the ATM straddle: worked out by the chain route with Black-76
+ *                        from end-of-day prices (backend/services/option_pricing.py). The
+ *                        builder adds the legs' net Greeks and a model chance of profit
+ *                        (trading/odds.ts). Each is labelled a model estimate, and reads
+ *                        "Not available" when the route sent none.
+ *
+ * Not connected: margin, prices that move during the session and today's
+ * payoff curve. The lot size is filled from the chain when the route sends one
+ * (the exchange file carries it); otherwise the user types it, and a typed
+ * value is never replaced.
  */
 import { useState, type FormEvent, type ReactNode } from "react";
 import { useMarketsHome } from "@/hooks/use-markets";
 import { StockIcon, StockName } from "../components/EntityIcon";
 import { Btn, EmptyBlock, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { LegModel, ModelStrip } from "./trading/ModelViews";
 import { ChainGate, ChainTable, OpenInterestPanel } from "./trading/OptionChainViews";
 import { FNO_INDICES, cleanSymbol, indexNameForSymbol, isIndexUnderlying, legFromChain, useOptionChain, type ChainState, type FnoChain } from "./trading/fno";
 import { Choices, INPUT_STYLE, QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtPrice } from "./trading/parts";
@@ -39,9 +47,9 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 
 const ANALYTICS_NEEDS = [
-  "Implied volatility for each strike. The end-of-day F&O data has closing prices and open interest but no IV; it needs an IV feed, or an agreed and validated model (rate, dividends, time to expiry) to derive IV from the closing prices.",
-  "A margin calculation (SPAN and exposure) from a broker or exchange source.",
-  "The lot size is in the exchange's file and the app route passes it on, but the data platform's F&O routes must be redeployed to send it (new_board_lot_qty). Until then the user types it.",
+  "Margin (SPAN and exposure): a broker margin calculation for the legs, or the clearing corporation’s daily risk-parameter files ingested by the data platform. Neither is connected.",
+  "Intraday option prices and open interest: a broker market-data session or a licensed feed. The F&O data is one exchange file a day, after the close.",
+  "Today’s payoff curve: each leg re-priced across spot levels at the day’s implied volatility. The pricing model exists on the server; no route or screen draws the curve yet.",
 ];
 
 type OptionChain = ReturnType<typeof useOptionChain>;
@@ -431,10 +439,12 @@ function Builder({ symbol, chain }: { symbol: string; chain: FnoChain | null }) 
           </div>
         )}
 
+        {payoff && size != null && <LegModel chain={chain} legs={complete} lotSize={size} />}
+
         <NotConnected
           testId="optlab-analytics-not-connected"
-          title="Greeks, chance of profit and margin"
-          body="The design also shows Delta, Gamma, Theta and Vega, a modelled chance of profit, a margin estimate and today’s payoff curve. The first three need implied volatility, which the end-of-day F&O data does not carry, and margin needs a broker or exchange source. None of them is estimated from a guess."
+          title="Margin, intraday prices and today’s payoff curve"
+          body="The design also shows a margin estimate, prices that move during the session and the payoff curve for today. Margin needs a broker or exchange source, the data here is end of day only, and today’s curve is not built. None of them is estimated from a guess."
           needs={ANALYTICS_NEEDS}
         />
 
@@ -478,6 +488,8 @@ export default function OptionsLabScreen() {
         <UnderlyingPicker symbol={symbol} onPick={pickSymbol} />
         <ExpiryPicker oc={oc} onPick={setPicked} />
       </div>
+
+      {oc.state.status === "ok" && <ModelStrip chain={oc.state.chain} />}
 
       <div role="tablist" aria-label="Options lab" className="cp-scroll flex overflow-x-auto" style={{ gap: 24, borderBottom: "1px solid var(--cp-line)" }}>
         {TABS.map((t) => {

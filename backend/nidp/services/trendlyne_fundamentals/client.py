@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from typing import Any, Callable, Optional
+from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 
@@ -30,6 +31,19 @@ def mcp_url() -> str:
     return os.environ.get("TRENDLYNE_MCP_URL", "").strip()
 
 
+def redact(text: str, url: str) -> str:
+    """`text` without the MCP URL, its host or anything from its query string. For any text
+    that came back from the server (an error page can echo the address it was asked at)
+    before it goes into an exception or a log."""
+    if not url:
+        return text
+    parts = urlsplit(url)
+    secrets = {url, parts.netloc, parts.query, *(v for _, v in parse_qsl(parts.query) if len(v) >= 4)}
+    for secret in sorted((s for s in secrets if s), key=len, reverse=True):
+        text = text.replace(secret, "[redacted]")
+    return text
+
+
 class TrendlyneClient:
     """One MCP session. `on_call(tool, ok, detail)` is told about every tools/call
     so the caller can keep the ledger the budget is counted from."""
@@ -48,6 +62,9 @@ class TrendlyneClient:
 
     def close(self) -> None:
         self._http.close()
+
+    def redact(self, text: str) -> str:
+        return redact(text, self._url)
 
     def _rpc(self, method: str, params: Optional[dict]) -> dict:
         self._id += 1

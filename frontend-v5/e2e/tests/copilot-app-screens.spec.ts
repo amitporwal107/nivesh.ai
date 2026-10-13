@@ -296,6 +296,8 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
 
   test("Watchlist ← the research watchlist, watchlists from saved screens, and filing alerts", async ({ page }) => {
     const sent = await mockAsk(page);
+    // The user's own lists (backend/routes/watchlists.py): none yet, and no example list is due.
+    await json(page, /\/api\/watchlists(?:[/?]|$)/, { lists: [], limits: { max_lists: 20, max_symbols: 100 }, starter_pending: false });
     // Shape: backend/routes/research_watchlist.py (types in research-watchlist.adapter.ts)
     await json(page, "**/api/public/research-watchlist*", {
       meta: { count: 1, carried_over: 0, list_date: "2026-10-12", available_dates: [{ list_date: "2026-10-12", count: 1 }, { list_date: "2026-10-05", count: 3 }], disclaimer: "Fixture disclaimer text.", live_quotes_source: "yahoo_finance" },

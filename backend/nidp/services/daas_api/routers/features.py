@@ -8,6 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import envelope, normalise_symbol, page_params, parse_date, row_to_dict
+from nidp.services.daas_api.routers._fundamentals_source import source_columns
 
 
 router = APIRouter(prefix="/features", tags=["features"], dependencies=[Depends(require_api_key)])
@@ -38,6 +39,9 @@ _FEATURE_COLS = """
     promoter_pct, promoter_pledged_pct, fii_pct, dii_pct,
     fii_pct_change_qoq, promoter_pct_change_qoq
 """
+# Both routes below also return fundamentals_source / fundamentals_as_of (migration 162):
+# where the row's roe_pct, roce_pct, debt_to_equity, pb and market_cap_cr came from, and the
+# day they are as of — see _fundamentals_source.source_columns.
 # Hard caps so a single call can't ask for an unbounded scan.
 _BULK_MAX_SYMBOLS = 300
 _BULK_MAX_ROWS = 400_000
@@ -55,8 +59,9 @@ async def stock_features(
     d_end = parse_date(end, field="end")
     pool = await get_pool()
     async with pool.acquire() as conn:
+        source_cols = await source_columns(conn)
         rows = await conn.fetch(
-            """
+            f"""
             SELECT symbol, as_of_date, close, sector,
                    sma20, sma50, sma100, sma200, sma50_slope,
                    dist_200dma_pct, dist_52w_high_pct, dist_52w_low_pct,
@@ -75,7 +80,8 @@ async def stock_features(
                    market_cap_cr,
                    return_252d_pct, volatility_1y_pct, beta_1y, max_drawdown_1y_pct, momentum_score,
                    promoter_pct, promoter_pledged_pct, fii_pct, dii_pct,
-                   fii_pct_change_qoq, promoter_pct_change_qoq
+                   fii_pct_change_qoq, promoter_pct_change_qoq,
+                   {source_cols}
               FROM nidp.stock_features_daily
              WHERE symbol = $1
                AND ($2::date IS NULL OR as_of_date >= $2)
@@ -162,9 +168,10 @@ async def features_bulk(
     d_end = parse_date(body.get("end"), field="end")
     pool = await get_pool()
     async with pool.acquire() as conn:
+        source_cols = await source_columns(conn)
         rows = await conn.fetch(
             f"""
-            SELECT {_FEATURE_COLS}
+            SELECT {_FEATURE_COLS.rstrip()}, {source_cols}
               FROM nidp.stock_features_daily
              WHERE symbol = ANY($1::text[])
                AND ($2::date IS NULL OR as_of_date >= $2)

@@ -4,27 +4,31 @@
  * Data:
  *   GET /api/broker/accounts      which broker accounts the user has connected (useBrokerAccounts)
  *   GET /api/portfolio/holdings   the delivery holdings a broker read stored (useBrokerHoldings)
+ *   GET /api/broker/positions     open positions, read live from each account signed in on the
+ *                                 broker's own page (useBrokerPositions)
  *
  * What it shows:
  *   no account            says so, with a link to Broker connections
  *   account, rows stored  the holdings as the broker reported them: quantity, average, last price, P&L, as-of time
  *   account, no rows      says nothing has been read yet
+ *   open positions        per account: instrument, product, signed quantity, average, last price and
+ *                         the broker's own P&L, with the time of the read; an account that could not
+ *                         be read says why and the others are still shown
  *
- * Not connected, in every state: the broker's open-position book (intraday and
- * F&O), its funds and its day P&L. The server has no route that returns them,
- * so the block says exactly that instead of showing holdings as "positions".
+ * Not connected, in every state: the broker's funds and its day P&L, and a
+ * stop or target per position. No route returns them, so the block says so.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Btn, DataTable, EmptyBlock, Footnote, LoadingBlock, NotConnected, Section,
-  TONE_COLOR, fmtINR, fmtNum, fmtPct, humaniseTag, signTone,
+  TONE_COLOR, fmtDate, fmtINR, fmtNum, fmtPct, humaniseTag, signTone,
   type Column,
 } from "../../components/ui";
 import { BrokerName, StockName } from "../../components/EntityIcon";
 import { useCopilotShell } from "../../lib/shell-context";
 import { Labeled, QueryProblem, fmtPrice } from "../trading/parts";
-import { useBrokerAccounts, type BrokerAccount } from "../trading/queries";
-import { totalsOf, useBrokerHoldings, type BrokerHolding } from "./broker";
+import { isForbidden, useBrokerAccounts, type BrokerAccount } from "../trading/queries";
+import { totalsOf, useBrokerHoldings, useBrokerPositions, type BrokerHolding, type BrokerPosition, type PositionsAccount } from "./broker";
 
 const TITLE = "Broker account · read-only";
 
@@ -137,6 +141,158 @@ function HoldingsTable({ rows, accounts }: { rows: BrokerHolding[]; accounts: Br
   );
 }
 
+const PRODUCT_WORDS: Record<string, string> = {
+  intraday: "Intraday",
+  delivery: "Delivery",
+  carryforward: "Carry forward",
+  margin: "Margin",
+};
+
+/** "27 Oct 2026 future" · "27 Oct 2026 · 25,000 call"; null for a share. */
+function contractOf(p: BrokerPosition): string | null {
+  if (!p.instrument) return null;
+  const expiry = p.expiry ? fmtDate(p.expiry) : null;
+  if (p.instrument === "FUT") return [expiry, "future"].filter(Boolean).join(" ");
+  const side = p.instrument === "CE" ? "call" : p.instrument === "PE" ? "put" : p.instrument;
+  return [expiry, [p.strike != null ? fmtNum(p.strike, Number.isInteger(p.strike) ? 0 : 2) : null, side].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
+}
+
+/** Why one account could not be read, in plain words. The server's own sentence goes to admins only. */
+function readFailure(a: PositionsAccount, broker: string): string {
+  if (a.errorCode === "BROKER_SESSION_EXPIRED") return `Your ${broker} session has ended. Sign in again from Broker connections to read its positions.`;
+  if (a.errorCode === "BROKER_READ_NOT_SUPPORTED") return `Open positions cannot be read from this kind of ${broker} account.`;
+  if (a.errorCode === "BROKER_READ_FAILED") return `${broker} did not return its positions. Try again in a little while.`;
+  return `The positions of this ${broker} account could not be read.`;
+}
+
+type PositionFilter = "all" | "fno" | "intraday";
+
+function AccountPositions({ account, filter }: { account: PositionsAccount; filter: PositionFilter }) {
+  const { ask, isAdmin } = useCopilotShell();
+  const broker = account.label ?? (account.broker ? humaniseTag(account.broker) : "Broker");
+  const rows = account.positions.filter((p) => (filter === "fno" ? p.fno : filter === "intraday" ? p.intraday : true));
+  const withPnl = rows.filter((p) => p.pnlRs != null);
+  const pnl = withPnl.reduce((sum, p) => sum + (p.pnlRs as number), 0);
+
+  const columns: Column<BrokerPosition>[] = [
+    {
+      key: "instrument", header: "Instrument", width: "minmax(0,2fr)",
+      render: (p) => <StockName testId="broker-position-row" symbol={p.symbol} name={p.name} sub={contractOf(p) ?? p.exchange ?? undefined} size={24} />,
+    },
+    { key: "product", header: "Held as", render: (p) => (p.product ? PRODUCT_WORDS[p.product] ?? humaniseTag(p.product) : "—") },
+    {
+      key: "qty", header: "Qty", num: true,
+      render: (p) => <span data-testid="broker-position-qty">{p.qty < 0 ? `Short ${fmtNum(-p.qty, Number.isInteger(p.qty) ? 0 : 2)}` : fmtNum(p.qty, Number.isInteger(p.qty) ? 0 : 2)}</span>,
+    },
+    { key: "avg", header: "Average", num: true, render: (p) => fmtPrice(p.avg) },
+    { key: "last", header: "Last price", num: true, render: (p) => (p.last != null ? fmtPrice(p.last) : "Not sent") },
+    {
+      key: "pnl", header: "P&L", num: true,
+      render: (p) => <span data-testid="broker-position-pnl" style={{ color: TONE_COLOR[signTone(p.pnlRs)] }}>{p.pnlRs != null ? fmtINR(p.pnlRs, { signed: true }) : "Not sent"}</span>,
+    },
+  ];
+
+  return (
+    <div data-testid="trader-positions-account" className="flex flex-col" style={{ gap: 8 }}>
+      <div className="flex flex-wrap items-center justify-between" style={{ gap: "6px 16px", padding: "0 16px" }}>
+        <BrokerName name={broker} sub={account.ok ? `Read ${fmtStamp(account.asOf)}` : "Not read"} size={24} />
+        {account.ok && withPnl.length > 0 && (
+          <span className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>
+            P&amp;L <span data-testid="broker-positions-pnl" style={{ color: TONE_COLOR[signTone(pnl)] }}>{fmtINR(pnl, { signed: true })}</span>
+            {withPnl.length < rows.length ? ` · ${fmtNum(withPnl.length)} of ${fmtNum(rows.length)} positions carry one` : ""}
+          </span>
+        )}
+      </div>
+      {!account.ok ? (
+        <div data-testid="trader-positions-account-error" role="alert" style={{ padding: "0 16px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+          {readFailure(account, broker)}
+          {isAdmin && account.errorMessage && <span className="cp-mono-note" style={{ display: "block", marginTop: 4, overflowWrap: "anywhere" }}>Server said: {account.errorMessage}</span>}
+        </div>
+      ) : rows.length === 0 ? (
+        <div data-testid="trader-positions-none" style={{ padding: "0 16px", fontSize: 13, color: "var(--cp-ink-3)" }}>
+          {account.positions.length === 0 ? "No open positions in this account." : "No open position of this kind in this account."}
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={rows}
+          rowKey={(p) => p.key}
+          minWidth={760}
+          onRowClick={(p) => ask(`Show the ${p.symbol} chart with support and resistance. My broker account has ${p.qty < 0 ? "a short position of" : "an open position of"} ${fmtNum(Math.abs(p.qty), Number.isInteger(p.qty) ? 0 : 2)}${p.avg != null ? ` at an average of ${fmtPrice(p.avg)}` : ""}.`)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Open positions, read live from each account signed in on the broker's own page. */
+function OpenPositions() {
+  const { go } = useCopilotShell();
+  const q = useBrokerPositions(true);
+  const [filter, setFilter] = useState<PositionFilter>("all");
+
+  let body: ReactNode;
+  if (q.isPending) {
+    body = <div style={{ padding: "0 16px 12px" }}><LoadingBlock label="Reading open positions from your broker" rows={2} /></div>;
+  } else if (q.isError) {
+    body = isForbidden(q.error) ? (
+      <div data-testid="trader-positions-off" style={{ padding: "0 16px 14px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+        Reading positions from a broker is not switched on for this account.
+      </div>
+    ) : (
+      <div style={{ padding: "0 16px 12px" }}><QueryProblem what="Open positions" error={q.error} onRetry={() => q.refetch()} /></div>
+    );
+  } else if (q.data.accounts.length === 0) {
+    body = (
+      <div data-testid="trader-positions-no-live" className="flex flex-wrap items-center justify-between" style={{ gap: "8px 16px", padding: "0 16px 14px" }}>
+        <span style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)", maxWidth: 620 }}>
+          Open positions are read only from an account signed in on the broker’s own page. None of your connected accounts is, so there is nothing to read.
+        </span>
+        <Btn onClick={() => go("page/brokers")}>Broker connections</Btn>
+      </div>
+    );
+  } else {
+    const all = q.data.accounts.flatMap((a) => (a.ok ? a.positions : []));
+    const counts: Record<PositionFilter, number> = { all: all.length, fno: all.filter((p) => p.fno).length, intraday: all.filter((p) => p.intraday).length };
+    const chips: Array<[PositionFilter, string]> = [["all", "All"], ["fno", "F&O"], ["intraday", "Intraday"]];
+    body = (
+      <div className="flex flex-col" style={{ gap: 14, paddingBottom: 12 }}>
+        <div className="flex flex-wrap" role="group" aria-label="Which positions to show" style={{ gap: 8, padding: "0 16px" }}>
+          {chips.map(([key, label]) => (
+            <button key={key} type="button" className="cp-chip" data-testid={`trader-positions-filter-${key}`} aria-pressed={filter === key} onClick={() => setFilter(key)}
+              style={{ padding: "5px 12px", fontSize: 12, ...(filter === key ? { borderColor: "var(--mint-line)", color: "var(--cp-ink)" } : {}) }}>
+              {label} · {fmtNum(counts[key])}
+            </button>
+          ))}
+        </div>
+        {q.data.accounts.map((a) => <AccountPositions key={a.id} account={a} filter={filter} />)}
+        <div style={{ padding: "0 16px" }}>
+          <Footnote>
+            Read from your broker when this desk opened, not streamed: use “Read again” for the current book. Quantity, average, last price and P&amp;L are the broker’s own figures; a field the broker did not send says so. Nivesh only reads; it cannot place, change or close a position.
+          </Footnote>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Section
+      title="Open positions · read live from your broker"
+      note={
+        <span className="flex items-center" style={{ gap: 10 }}>
+          {q.data?.asOf && <span data-testid="trader-positions-asof">Read {fmtStamp(q.data.asOf)}</span>}
+          <button type="button" data-testid="trader-positions-refresh" onClick={() => q.refetch()} disabled={q.isFetching} style={{ background: "none", border: 0, padding: 0, cursor: "pointer", color: "var(--cp-ink)", fontSize: 12 }}>
+            {q.isFetching ? "Reading…" : "Read again ›"}
+          </button>
+        </span>
+      }
+      flush
+    >
+      <div data-testid="trader-open-positions">{body}</div>
+    </Section>
+  );
+}
+
 function Connected({ accounts }: { accounts: BrokerAccount[] }) {
   const q = useBrokerHoldings(true);
   const names = accounts.map((a) => a.name).join(", ");
@@ -163,21 +319,21 @@ function Connected({ accounts }: { accounts: BrokerAccount[] }) {
     <Labeled title={TITLE} note={<span data-testid="trader-broker-status">{plural(accounts.length, "account")} connected</span>}>
       <Accounts accounts={accounts} />
       {body}
+      <OpenPositions />
     </Labeled>
   );
 }
 
-/** What the server cannot read from a broker today. Shown in every state, because it is true in every state. */
+/** What is still not read from a broker. Shown in every state, because it is true in every state. */
 function PositionBookMissing() {
   return (
     <NotConnected
       testId="trader-positions-not-connected"
-      title="Open positions cannot be read from a broker yet"
-      body="The server can store the delivery holdings a connected broker reports. It has no way to hand this desk a broker’s open intraday and F&O positions, its funds or its day P&L, so none of those are shown and nothing else is used to fill them in. Trades you log yourself are in the journal below. Nivesh only reads from a broker; it cannot place orders."
+      title="Broker funds and day P&L are not read yet"
+      body="Holdings and open positions are read from a connected broker. Its funds (available and used margin) and its day P&L are not, and a broker’s book has no stop or target, so none of those are shown and nothing else is used to fill them in. Trades you log yourself are in the journal below. Nivesh only reads from a broker; it cannot place orders."
       needs={[
-        "A GET route that returns a connected account’s position book. The readers exist and nothing calls them for the app: OpenAlgoClient.fetch_positions_raw() (/api/v1/positionbook) is used only inside POST /api/broker/accounts/{id}/sync to fill average prices, and services/brokers/*.fetch_positions() has no caller.",
-        "A GET route for broker funds, for trading capital and day P&L. fetch_funds_raw() and services/brokers/*.fetch_funds() exist; /api/v1/funds is called only as the connection check.",
-        "A read this app can start. Holdings are imported only by POST /api/broker/accounts/{id}/sync, which builds an OpenAlgo client; an account connected through /api/broker/native stores no OpenAlgo URL, so that route cannot read it.",
+        "A read-only GET route for broker funds, for trading capital and day P&L. services/brokers/*.fetch_funds() exists; no route returns it.",
+        "Day positions (kind=day) work only where the broker has a day book; this desk reads the net book.",
         "A stop and a target for each position; a broker’s book has neither.",
       ]}
     />

@@ -1,0 +1,25 @@
+{
+  "onboarding_completed": true,
+  "pan_on_file": true,
+  "gmail_connected": true,
+  "broker_accounts": 0,
+  "broker_accounts_live": 0,
+  "holdings_count": 42,
+  "cas_statement_period": "Aug/2026",
+  "cas_portfolio_value_rs": 1215000.0,
+  "cas_statement_date": "31-Aug-2026",
+  "cas_monthly_values": [
+    {
+      "month": "Jul 2026",
+      "value_rs": 1180000.0
+    },
+    {
+      "month": "Aug 2026",
+      "value_rs": 1215000.0
+    }
+  ],
+  "persona": "retail_investor",
+  "persona_confidence": 72,
+  "persona_label": "Retail Investor",
+  "has_risk_profile": true
+}

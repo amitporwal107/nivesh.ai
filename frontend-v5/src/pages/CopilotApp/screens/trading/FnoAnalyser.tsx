@@ -9,16 +9,21 @@
  *   futures price and basis, nearest expiry   GET /api/fno/{symbol}/futures
  *   put-call ratio, max pain, the strikes     GET /api/fno/{symbol}/expiries
  *   with the most call and put open interest, GET /api/fno/{symbol}/chain
- *   open interest by strike
+ *   open interest by strike, at-the-money IV
+ *   and the ATM straddle
  *
- * Still not connected: at-the-money IV and the expected move (the data has no
- * implied volatility), the stocks that moved the index and daily trend
- * signals. They are listed as not connected instead of being drawn.
+ * At-the-money IV is the chain route's model estimate (Black-76 on end-of-day
+ * prices) and is labelled as one; the expected move is the ATM straddle's
+ * closing price. Either reads "Not available" when the route sent none.
+ *
+ * Still not connected: the stocks that moved the index, daily trend signals
+ * and intraday F&O prices. They are listed as not connected instead of drawn.
  */
 import { useState, type ReactNode } from "react";
 import { useMarketsHome } from "@/hooks/use-markets";
 import { AskChips, Btn, EmptyBlock, LoadingBlock, NotConnected, TONE_COLOR, fmtNum, fmtPct, relTime, signTone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { fmtIv, fmtMove, forwardNote, modelLabel, noModelReason } from "./ModelViews";
 import { ChainGate, OiRows } from "./OptionChainViews";
 import { fmtLevel } from "./PayoffResult";
 import { FNO_INDICES, fnoSymbolForIndex, nearestFuture, useFnoFutures, useOptionChain, type FnoChain } from "./fno";
@@ -28,10 +33,9 @@ import { Choices, Labeled, QueryProblem, fmtDay, fmtSigned } from "./parts";
 export const FNO_INDEX_NAMES: string[] = FNO_INDICES.map((i) => i.indexName);
 
 const NEEDS = [
-  "Implied volatility per strike, for at-the-money IV. The end-of-day F&O data has closing prices and open interest but no IV; it needs an IV feed, or an agreed and validated model to derive IV from the closing prices.",
-  "The expected move to expiry. The design takes it from the at-the-money straddle price, which the end-of-day chain does carry, but it is a model figure and its “two-thirds of expiries” claim has to be validated before it is shown.",
   "Index open, high, low and daily history, for pivots, the previous day’s range, moving averages, RSI and ADX.",
   "Index constituents with weights, for the points each stock added or took away.",
+  "Intraday futures and options prices and open interest. The F&O data is one exchange file a day, after the close; figures that move during the session need a broker market-data session or a licensed feed.",
 ];
 
 interface Tile {
@@ -113,8 +117,18 @@ function OptionsSummary({ chain }: { chain: FnoChain }) {
         tiles={[
           { k: "Put-call ratio", v: s.pcr == null ? "—" : fmtNum(s.pcr, 2), s: "Put OI ÷ call OI, all strikes", testId: "fno-pcr" },
           { k: "Max pain", v: s.max_pain == null ? "—" : fmtLevel(s.max_pain), s: `Strike · ${expiry} expiry`, testId: "fno-max-pain" },
+          { k: "ATM IV", v: fmtIv(s.atm_iv), s: s.atm_iv == null ? "No model estimate" : "Model estimate · a year", testId: "fno-atm-iv" },
+          {
+            k: "Expected move",
+            v: fmtMove(s.expected_move),
+            s: s.expected_move == null ? "Needs the ATM call and put close" : `ATM straddle${s.expected_move_pct != null ? ` · ${fmtNum(s.expected_move_pct, 2)}% of spot` : ""} · to ${expiry}`,
+            testId: "fno-expected-move",
+          },
         ]}
       />
+      <span data-testid="fno-model-label" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+        ATM IV: {modelLabel(s)}. {noModelReason(s) ?? forwardNote(s)} The expected move is what the ATM straddle cost at the close: a market price for movement either way, not a forecast.
+      </span>
       {levels.length > 0 && (
         <div data-testid="fno-key-levels" className="flex flex-col" style={{ gap: 6 }}>
           <span className="cp-eyebrow">Open-interest levels · not price targets</span>
@@ -261,8 +275,8 @@ export function FnoAnalyser() {
 
       <NotConnected
         testId="fno-not-connected"
-        title={`Implied volatility, expected move and index internals for ${idx.name}`}
-        body="At-the-money IV, the expected move to expiry, the stocks that moved the index and daily trend signals also belong on this card. The end-of-day F&O data carries no implied volatility, and nothing serves index constituents or index history to the app, so none of them is shown or estimated."
+        title={`Index internals and intraday F&O for ${idx.name}`}
+        body="The stocks that moved the index, daily trend signals and futures and options prices that move during the session also belong on this card. Nothing serves index constituents with weights, index history or intraday F&O data to the app, so none of them is shown or estimated."
         needs={NEEDS}
       />
 

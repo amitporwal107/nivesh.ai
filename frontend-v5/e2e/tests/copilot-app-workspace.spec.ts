@@ -68,6 +68,10 @@ async function open(page: Page) {
   await json(page, "**/api/filings/alerts", WX.alerts);
   await json(page, "**/api/positional/watchlist*", WX.levels);
   await json(page, "**/api/thematic/prefs", SV.prefs);
+  // GET /api/watchlists (backend/routes/watchlists.py): a user who has had lists and
+  // has none now, so "Your lists" is in its empty state and asks for nothing more.
+  // That section has its own spec: copilot-app-watchlists.spec.ts.
+  await json(page, /\/api\/watchlists(?:[/?]|$)/, { lists: [], limits: { max_lists: 20, max_symbols: 100 }, starter_pending: false });
   return { sent, errors };
 }
 
@@ -462,8 +466,8 @@ test.describe("Watchlist — price levels and filing alerts", () => {
     await page.reload();
     await expect(screen).toContainText("Your alert preferences didn’t load — the server reported an error", { timeout: 15_000 });
     // What has no store stays declared, with its engineering notes for the admin fixture user.
-    await expect(page.getByTestId("watchlist-alerts-nc")).toContainText("Hand-picked lists and price alerts are not connected yet");
-    await expect(page.getByTestId("watchlist-alerts-nc").getByTestId("not-connected-needs")).toContainText("A per-user watchlist store");
+    await expect(page.getByTestId("watchlist-alerts-nc")).toContainText("Price and volume alerts, and the sending of alerts, are not connected yet");
+    await expect(page.getByTestId("watchlist-alerts-nc").getByTestId("not-connected-needs")).toContainText("Alert rules on price, volume");
     expect(errors).toEqual([]);
   });
 });

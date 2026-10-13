@@ -24,6 +24,7 @@ import {
 import { useCopilotShell } from "../../lib/shell-context";
 import { dayLabel, fmtCrCompact, fmtMultiple, fmtPrice } from "../markets/format";
 import { FilterChips, LoadError, type ChipItem } from "../markets/parts";
+import { AddToList } from "./PersonalLists";
 
 const TIERS: WatchlistTier[] = ["high", "caveat", "speculative"];
 const TIER_LABEL: Record<WatchlistTier, string> = {
@@ -314,10 +315,12 @@ function PickRow({ pick, open, onToggle }: { pick: WatchlistPick; open: boolean;
           )}
         </span>
       </button>
-      <div style={{ padding: "0 16px 10px 60px" }}>
+      <div className="flex flex-wrap items-center" style={{ gap: "6px 16px", padding: "0 16px 10px 60px" }}>
         <button type="button" data-testid="watchlist-row-toggle" aria-expanded={open} aria-controls={detailId} onClick={onToggle} style={{ ...quietLink, fontSize: 12, color: "var(--cp-ink-3)" }}>
           {open ? "Hide the research ‹" : "Show the research ›"}
         </button>
+        {/* Copies this stock into one of the user's own lists (workspace/PersonalLists.tsx). */}
+        <AddToList symbol={pick.symbol} name={name} />
       </div>
       {open && <PickDetail id={detailId} pick={pick} name={name} />}
     </div>

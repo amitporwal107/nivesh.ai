@@ -18,6 +18,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import envelope, page_params, row_to_dict
+from nidp.services.daas_api.routers._fundamentals_source import source_columns
 
 router = APIRouter(
     prefix="/stocks",
@@ -81,6 +82,12 @@ _PRIMITIVE_COLS = """
     f.fii_pct_change_qoq,
     f.promoter_pct_change_qoq
 """
+
+
+async def _primitive_cols(conn) -> str:
+    """_PRIMITIVE_COLS plus fundamentals_source / fundamentals_as_of (migration 162): where the
+    row's roe_pct, roce_pct, debt_to_equity, pb and market cap came from, and as of which day."""
+    return f"{_PRIMITIVE_COLS.rstrip()},\n    {await source_columns(conn, 'f')}\n"
 
 
 # Friendly universe aliases → the `index_name` string stored in
@@ -156,7 +163,7 @@ async def stock_screener(
 
         rows = await conn.fetch(
             f"""
-            SELECT {_PRIMITIVE_COLS}
+            SELECT {await _primitive_cols(conn)}
               FROM nidp.stock_features_daily f
              WHERE f.as_of_date = $1
                AND ($2::text IS NULL OR UPPER(f.sector) ILIKE '%' || UPPER($2) || '%')
@@ -231,7 +238,7 @@ async def top_stocks(
             ))
         rows = await conn.fetch(
             f"""
-            SELECT {_PRIMITIVE_COLS}
+            SELECT {await _primitive_cols(conn)}
               FROM nidp.stock_features_daily f
              WHERE f.as_of_date = $1
                AND f.{metric} IS NOT NULL
@@ -262,7 +269,7 @@ async def stock_primitives(
         if as_of_date:
             row = await conn.fetchrow(
                 f"""
-                SELECT {_PRIMITIVE_COLS}
+                SELECT {await _primitive_cols(conn)}
                   FROM nidp.stock_features_daily f
                  WHERE f.symbol = UPPER($1) AND f.as_of_date = $2
                 """,
@@ -271,7 +278,7 @@ async def stock_primitives(
         else:
             row = await conn.fetchrow(
                 f"""
-                SELECT {_PRIMITIVE_COLS}
+                SELECT {await _primitive_cols(conn)}
                   FROM nidp.stock_features_daily f
                  WHERE f.symbol = UPPER($1)
                  ORDER BY f.as_of_date DESC
@@ -320,7 +327,7 @@ async def stock_v3_primitives_bulk(
                  WHERE symbol = ANY($1::text[])
                  GROUP BY symbol
             )
-            SELECT {_PRIMITIVE_COLS}
+            SELECT {await _primitive_cols(conn)}
               FROM nidp.stock_features_daily f
               JOIN latest l ON l.symbol = f.symbol AND l.d = f.as_of_date
             """,

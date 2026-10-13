@@ -27,7 +27,10 @@ def main() -> None:
     b = sub.add_parser("build", help="build dated quarterly rows from the staged values")
     b.add_argument("--dry-run", action="store_true")
     b.add_argument("--symbols", default=None)
-    sub.add_parser("daily", help="incomplete passes, build, then sectors — within today's call budget")
+    r = sub.add_parser("ratios", help="build nidp.stock_fundamental_values from the staged ratio pass (r1)")
+    r.add_argument("--dry-run", action="store_true")
+    r.add_argument("--symbols", default=None)
+    sub.add_parser("daily", help="incomplete passes, the two builds, then sectors — within today's call budget")
     a = p.parse_args()
     symbols = [x.strip().upper() for x in a.symbols.split(",")] if getattr(a, "symbols", None) else None
 
@@ -39,6 +42,8 @@ def main() -> None:
                 return await service.fetch(a.pass_name, max_calls=a.max_calls, symbols=symbols)
             if a.command == "sectors":
                 return await service.sectors(max_calls=a.max_calls, symbols=symbols)
+            if a.command == "ratios":
+                return await service.build_ratios(dry_run=a.dry_run, symbols=symbols)
             return await service.build(dry_run=a.dry_run, symbols=symbols)
         finally:
             await close_pool()

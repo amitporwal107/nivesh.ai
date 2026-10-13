@@ -7,13 +7,18 @@
  * are the route's `summary`, worked out over every strike of the expiry; the
  * tables and bars show a window of strikes around the money.
  *
+ * Implied volatility and the Greeks in the chain table are the route's model
+ * estimates (Black-76 on end-of-day prices). They are labelled as such under
+ * the table, and a contract the model gave none for reads "Not available".
+ *
  * Calls are drawn in the danger colour and puts in mint, as in the design.
  */
 import { useState, type ReactNode } from "react";
 import { StockIcon } from "../../components/EntityIcon";
 import { EmptyBlock, LoadingBlock, TONE_COLOR, fmtNum, signTone } from "../../components/ui";
 import { fmtLevel } from "./PayoffResult";
-import { Choices, QueryProblem, fmtDay, fmtQty } from "./parts";
+import { NOT_AVAILABLE, forwardNote, modelLabel, noModelReason } from "./ModelViews";
+import { Choices, QueryProblem, fmtDay, fmtQty, fmtSigned } from "./parts";
 import { atmIndex, inTheMoney, isIndexUnderlying, strikesAround, type ChainState, type FnoChain, type FnoSide, type FnoStrike } from "./fno";
 
 const CALL_COLOR = "var(--cp-danger)";
@@ -55,7 +60,11 @@ export function ChainGate({ state, what, testId, children }: {
 // ── chain table ──────────────────────────────────────────────────────────
 
 type ChainWindow = "10" | "20" | "all";
-const CHAIN_COLS = "repeat(4,minmax(0,1fr)) 96px repeat(4,minmax(0,1fr))";
+/** Which figures the table shows for each contract. */
+type ChainView = "prices" | "greeks" | "day";
+
+/** A signed figure with the app's minus sign ("−0.40"), or "—". */
+const signedNum = (n: number | null | undefined, digits: number) => (n == null ? "—" : n < 0 ? `−${fmtNum(-n, digits)}` : fmtNum(n, digits));
 
 function Cell({ col, itm, right, color, children }: { col: string; itm: boolean; right?: boolean; color?: string; children: ReactNode }) {
   return (
@@ -71,24 +80,76 @@ function Cell({ col, itm, right, color, children }: { col: string; itm: boolean;
   );
 }
 
-/** The four figures of one side, in reading order from the outside of the table to the strike. */
-function sideCells(prefix: "call" | "put", side: FnoSide | null, itm: boolean, right: boolean): ReactNode[] {
-  const change = side?.change_in_oi ?? null;
-  return [
-    <Cell key="oi" col={`${prefix}-oi`} itm={itm} right={right}>{fmtQty(side?.oi)}</Cell>,
-    <Cell key="chg" col={`${prefix}-oi-change`} itm={itm} right={right} color={change ? TONE_COLOR[signTone(change)] : undefined}>{fmtQty(change, { signed: true })}</Cell>,
-    <Cell key="vol" col={`${prefix}-volume`} itm={itm} right={right}>{fmtQty(side?.volume)}</Cell>,
-    <Cell key="px" col={`${prefix}-price`} itm={itm} right={right} color="var(--cp-ink)">{side?.close == null ? "—" : fmtNum(side.close, 2)}</Cell>,
-  ];
+interface ChainColumn {
+  /** `data-col` is `call-${key}` or `put-${key}`. */
+  key: string;
+  head: string;
+  /** The call side names its outermost column "Call OI"; the put side "Put OI". */
+  headFor?: (prefix: "call" | "put") => string;
+  cell: (side: FnoSide | null) => { text: ReactNode; color?: string };
 }
+
+/** Implied volatility for one contract: the figure, or "Not available" in words when the model gave none. */
+function ivCell(side: FnoSide | null): { text: ReactNode; color?: string } {
+  if (side == null) return { text: "—" };
+  if (side.iv == null) return { text: <span data-testid="optlab-iv-missing" style={{ fontSize: 10, whiteSpace: "normal", lineHeight: 1.15, color: "var(--cp-ink-3)" }}>{NOT_AVAILABLE}</span> };
+  return { text: fmtNum(side.iv, 2), color: "var(--cp-ink)" };
+}
+
+const tone = (n: number | null | undefined) => (n ? TONE_COLOR[signTone(n)] : undefined);
+const IV_COL: ChainColumn = { key: "iv", head: "IV %", cell: ivCell };
+const PRICE_COL: ChainColumn = { key: "price", head: "Close ₹", cell: (x) => ({ text: x?.close == null ? "—" : fmtNum(x.close, 2), color: "var(--cp-ink)" }) };
+
+/** Each view's columns for one side, from the outside of the table in to the strike. */
+const CHAIN_COLUMNS: Record<ChainView, ChainColumn[]> = {
+  prices: [
+    { key: "oi", head: "OI", headFor: (p) => (p === "call" ? "Call OI" : "Put OI"), cell: (x) => ({ text: fmtQty(x?.oi) }) },
+    { key: "oi-change", head: "Chg in OI", cell: (x) => ({ text: fmtQty(x?.change_in_oi, { signed: true }), color: tone(x?.change_in_oi) }) },
+    { key: "volume", head: "Volume", cell: (x) => ({ text: fmtQty(x?.volume) }) },
+    IV_COL,
+    PRICE_COL,
+  ],
+  greeks: [
+    { key: "vega", head: "Vega", cell: (x) => ({ text: signedNum(x?.vega, 2) }) },
+    { key: "theta", head: "Theta", cell: (x) => ({ text: signedNum(x?.theta, 2) }) },
+    { key: "gamma", head: "Gamma", cell: (x) => ({ text: signedNum(x?.gamma, 5) }) },
+    { key: "delta", head: "Delta", cell: (x) => ({ text: signedNum(x?.delta, 2), color: "var(--cp-ink)" }) },
+    IV_COL,
+  ],
+  day: [
+    { key: "buildup", head: "OI build-up", cell: (x) => ({ text: x?.oi_buildup ?? "—" }) },
+    { key: "change-pct", head: "Chg %", cell: (x) => ({ text: x?.change_pct == null ? "—" : `${fmtSigned(x.change_pct)}%`, color: tone(x?.change_pct) }) },
+    { key: "change", head: "Chg ₹", cell: (x) => ({ text: fmtSigned(x?.change), color: tone(x?.change) }) },
+    PRICE_COL,
+  ],
+};
+
+const CHAIN_MIN_WIDTH: Record<ChainView, number> = { prices: 880, greeks: 880, day: 900 };
+
+/** The cells of one side: outside-in for calls, mirrored for puts. */
+function sideCells(view: ChainView, prefix: "call" | "put", side: FnoSide | null, itm: boolean): ReactNode[] {
+  const right = prefix === "put";
+  const cells = CHAIN_COLUMNS[view].map((c) => {
+    const { text, color } = c.cell(side);
+    return <Cell key={c.key} col={`${prefix}-${c.key}`} itm={itm} right={right} color={color}>{text}</Cell>;
+  });
+  return right ? cells.reverse() : cells;
+}
+
+const hasDayChange = (chain: FnoChain) => chain.strikes.some((r) => r.call?.change != null || r.put?.change != null);
 
 export function ChainTable({ chain }: { chain: FnoChain }) {
   const [win, setWin] = useState<ChainWindow>("10");
+  const [view, setView] = useState<ChainView>("prices");
   const s = chain.summary;
   const rows = win === "all" ? chain.strikes : strikesAround(chain, Number(win));
-  const head = (label: string, right = false, center = false) => (
-    <span role="columnheader" className="cp-mono-note" style={{ padding: "0 6px", textAlign: center ? "center" : right ? "right" : "left" }}>{label}</span>
+  const cols = CHAIN_COLUMNS[view];
+  const template = `repeat(${cols.length},minmax(0,1fr)) 96px repeat(${cols.length},minmax(0,1fr))`;
+  const head = (key: string, label: string, right = false, center = false) => (
+    <span key={key} role="columnheader" className="cp-mono-note" style={{ padding: "0 6px", textAlign: center ? "center" : right ? "right" : "left" }}>{label}</span>
   );
+  const noModel = noModelReason(s);
+  const dayMissing = view === "day" && !hasDayChange(chain);
   return (
     <div data-testid="optlab-chain" className="cp-card flex flex-col min-w-0" style={{ overflow: "hidden" }}>
       <div className="flex flex-wrap items-center justify-between" style={{ gap: "8px 12px", padding: "12px 16px", borderBottom: "1px solid var(--cp-line)" }}>
@@ -96,50 +157,71 @@ export function ChainTable({ chain }: { chain: FnoChain }) {
           {!isIndexUnderlying(chain.symbol) && <StockIcon symbol={chain.symbol} size={18} />}
           <span>{chain.symbol} · {fmtDay(s.expiry)} expiry · calls and puts by strike</span>
         </span>
-        <Choices<ChainWindow>
-          label="Strikes shown"
-          testId="optlab-chain-window"
-          value={win}
-          onChange={setWin}
-          options={[{ value: "10", label: "±10 strikes" }, { value: "20", label: "±20" }, { value: "all", label: `All ${fmtNum(chain.strikes.length)}` }]}
-        />
-      </div>
-      <div className="cp-scroll overflow-x-auto" role="table" aria-label={`${chain.symbol} option chain, ${fmtDay(s.expiry)} expiry`}>
-        <div style={{ minWidth: 720 }}>
-          <div role="row" className="grid" style={{ gridTemplateColumns: CHAIN_COLS, gap: 8, padding: "10px 16px" }}>
-            {head("Call OI")}{head("Chg in OI")}{head("Volume")}{head("Close ₹")}
-            {head("Strike", false, true)}
-            {head("Close ₹", true)}{head("Volume", true)}{head("Chg in OI", true)}{head("Put OI", true)}
-          </div>
-          {rows.map((r) => {
-            const atm = r.strike === s.atm_strike;
-            return (
-              <div
-                key={r.strike}
-                role="row"
-                data-testid="optlab-chain-row"
-                data-strike={r.strike}
-                data-atm={atm ? "true" : undefined}
-                className="grid items-center"
-                style={{ gridTemplateColumns: CHAIN_COLS, gap: 8, padding: "7px 16px", borderTop: "1px solid var(--cp-line)", fontSize: 13, background: atm ? "var(--mint-soft)" : undefined }}
-              >
-                {sideCells("call", r.call, inTheMoney("CE", r.strike, s.spot), false)}
-                <span role="cell" data-col="strike" className="cp-num flex items-center justify-center" style={{ gap: 6, fontSize: 12, fontWeight: 500, color: "var(--cp-ink)" }}>
-                  {fmtLevel(r.strike)}
-                  {atm && <span data-testid="optlab-chain-atm" className="cp-pill" data-tone="mint" style={{ padding: "1px 5px", fontSize: 9 }}>ATM</span>}
-                </span>
-                {sideCells("put", r.put, inTheMoney("PE", r.strike, s.spot), true).reverse()}
-              </div>
-            );
-          })}
+        <div className="flex flex-wrap items-center" style={{ gap: "8px 12px" }}>
+          <Choices<ChainView>
+            label="Figures shown"
+            testId="optlab-chain-view"
+            value={view}
+            onChange={setView}
+            options={[{ value: "prices", label: "Prices, OI and IV" }, { value: "greeks", label: "Greeks" }, { value: "day", label: "Day change" }]}
+          />
+          <Choices<ChainWindow>
+            label="Strikes shown"
+            testId="optlab-chain-window"
+            value={win}
+            onChange={setWin}
+            options={[{ value: "10", label: "±10 strikes" }, { value: "20", label: "±20" }, { value: "all", label: `All ${fmtNum(chain.strikes.length)}` }]}
+          />
         </div>
       </div>
+      {dayMissing ? (
+        <div data-testid="optlab-chain-day-missing" style={{ padding: "14px 16px", fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
+          {NOT_AVAILABLE}. The day’s price change and the open-interest build-up need each contract’s previous close. The exchange file has it, but the data platform does not send it to the app yet.
+        </div>
+      ) : (
+        <div className="cp-scroll overflow-x-auto" role="table" aria-label={`${chain.symbol} option chain, ${fmtDay(s.expiry)} expiry`}>
+          <div style={{ minWidth: CHAIN_MIN_WIDTH[view] }}>
+            <div role="row" className="grid" style={{ gridTemplateColumns: template, gap: 8, padding: "10px 16px" }}>
+              {cols.map((c) => head(`call-${c.key}`, c.headFor?.("call") ?? c.head))}
+              {head("strike", "Strike", false, true)}
+              {[...cols].reverse().map((c) => head(`put-${c.key}`, c.headFor?.("put") ?? c.head, true))}
+            </div>
+            {rows.map((r) => {
+              const atm = r.strike === s.atm_strike;
+              return (
+                <div
+                  key={r.strike}
+                  role="row"
+                  data-testid="optlab-chain-row"
+                  data-strike={r.strike}
+                  data-atm={atm ? "true" : undefined}
+                  className="grid items-center"
+                  style={{ gridTemplateColumns: template, gap: 8, padding: "7px 16px", borderTop: "1px solid var(--cp-line)", fontSize: 13, background: atm ? "var(--mint-soft)" : undefined }}
+                >
+                  {sideCells(view, "call", r.call, inTheMoney("CE", r.strike, s.spot))}
+                  <span role="cell" data-col="strike" className="cp-num flex items-center justify-center" style={{ gap: 6, fontSize: 12, fontWeight: 500, color: "var(--cp-ink)" }}>
+                    {fmtLevel(r.strike)}
+                    {atm && <span data-testid="optlab-chain-atm" className="cp-pill" data-tone="mint" style={{ padding: "1px 5px", fontSize: 9 }}>ATM</span>}
+                  </span>
+                  {sideCells(view, "put", r.put, inTheMoney("PE", r.strike, s.spot))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div data-testid="optlab-chain-note" style={{ padding: "10px 16px", borderTop: "1px solid var(--cp-line)", fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
         End-of-day closing prices, open interest and volume from the NSE F&O bhavcopy, as of {fmtDay(s.as_of)}; nothing here moves during the session.
         {s.spot != null && s.atm_strike != null
           ? ` Tinted cells are in the money against the end-of-day spot of ${fmtNum(s.spot, 2)}; the marked row is the strike nearest it.`
           : " The file carries no spot for this day, so no row is marked and no cell is tinted."}
-        {` Showing ${fmtNum(rows.length)} of this expiry’s ${fmtNum(chain.strike_count)} strikes. The data has no implied volatility.`}
+        {` Showing ${fmtNum(rows.length)} of this expiry’s ${fmtNum(chain.strike_count)} strikes.`}
+      </div>
+      <div data-testid="optlab-chain-model-label" style={{ padding: "0 16px 12px", fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+        IV and the Greeks: {modelLabel(s)}. The exchange file carries neither; each is worked out from the contract’s settle price (its close when it has none).{" "}
+        {noModel ?? `${forwardNote(s)} “${NOT_AVAILABLE}” marks a contract that did not trade and has no open interest, or whose price is at or below its intrinsic value: no volatility prices it.`}
+        {view === "greeks" && " Delta and gamma are per one-point move in the forward, theta per calendar day and vega per one point of IV, all per unit."}
+        {view === "day" && !dayMissing && " OI build-up reads the day’s price change and change in open interest together (price up and OI up: long build-up; price down and OI up: short build-up; price up and OI down: short covering; price down and OI down: long unwinding). It describes two figures, not who traded."}
       </div>
     </div>
   );

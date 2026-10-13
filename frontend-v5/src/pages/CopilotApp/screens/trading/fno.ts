@@ -7,8 +7,12 @@
  *   GET /api/fno/{symbol}/futures                the latest day's futures, each with its basis to the spot
  *
  * The source is the NSE F&O bhavcopy: one row per contract per trading day. It
- * has closing and settlement prices, open interest and volume. It has no
- * implied volatility and no lot size, so nothing here carries either.
+ * has closing and settlement prices, open interest, volume and the lot size.
+ * It has no implied volatility. The chain route works implied volatility, the
+ * Greeks, the forward and the ATM straddle out of those prices with Black-76
+ * (backend/services/option_pricing.py); they are model estimates, each null
+ * when it could not be worked out, and absent from a route that predates them.
+ * A screen shows "Not available" for a null or absent one, never a figure.
  *
  * Each fetch answers one of three ways: the data, "none" (the route said 404:
  * the underlying has no F&O rows), or it throws. A body that is not what the
@@ -59,6 +63,13 @@ const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const Num = z.number().finite();
 const NumOrNull = Num.nullable();
 
+/** A figure the route may not send at all (an older deployment) or may send as null. */
+const Estimate = NumOrNull.optional();
+
+/** How a contract's price and open interest moved together on the day. */
+const BUILDUPS = ["long build-up", "short build-up", "short covering", "long unwinding"] as const;
+export type OiBuildup = (typeof BUILDUPS)[number];
+
 const SideC = z.object({
   /** Closing price per unit, rupees. */
   close: NumOrNull,
@@ -66,6 +77,19 @@ const SideC = z.object({
   oi: NumOrNull,
   change_in_oi: NumOrNull,
   volume: NumOrNull,
+  /** Model estimate: implied volatility, percent a year. */
+  iv: Estimate,
+  /** Which of the contract's prices `iv` was read from; null with `iv`. */
+  iv_price: z.enum(["settle", "close"]).nullable().optional(),
+  /** Model estimates per unit: delta and gamma per one-point move in the forward, theta per calendar day, vega per volatility point. */
+  delta: Estimate,
+  gamma: Estimate,
+  theta: Estimate,
+  vega: Estimate,
+  /** Close − previous close, and the same in percent. Null until the data platform sends the previous close. */
+  change: Estimate,
+  change_pct: Estimate,
+  oi_buildup: z.enum(BUILDUPS).nullable().optional(),
 });
 export type FnoSide = z.infer<typeof SideC>;
 
@@ -96,6 +120,22 @@ const SummaryC = z.object({
   max_pain: NumOrNull,
   max_call_oi: TopOiC,
   max_put_oi: TopOiC,
+  /** Calendar days from the data's day to the expiry. */
+  days_to_expiry: Num.int().nullable().optional(),
+  /**
+   * Model input: the forward the expiry is priced on, and how it was found. "future" is the settle price of
+   * the future expiring the same day; "put-call parity" is the forward the call and put prices imply when no
+   * future expires that day; "carried spot" is the spot grown at `rate_pct`, the last resort.
+   */
+  forward: Estimate,
+  forward_basis: z.enum(["future", "put-call parity", "carried spot"]).nullable().optional(),
+  /** Model input: the annual interest rate the model discounts and carries with, percent. */
+  rate_pct: Estimate,
+  /** Model estimate: mean of the call and put implied volatility at the ATM strike, percent a year. */
+  atm_iv: Estimate,
+  /** The ATM straddle (call close + put close), in price points and as a percent of the spot. */
+  expected_move: Estimate,
+  expected_move_pct: Estimate,
 });
 export type FnoSummary = z.infer<typeof SummaryC>;
 
@@ -300,6 +340,12 @@ export function legFromChain(chain: FnoChain, type: OptionType, offset: number):
   if (!row) return null;
   const close = (type === "CE" ? row.call : row.put)?.close;
   return { strike: row.strike, premium: close != null && close > 0 ? close : null };
+}
+
+/** The call or put contract at `strike`, or null when the chain sent no such strike or side. */
+export function sideAt(chain: FnoChain, type: OptionType, strike: number): FnoSide | null {
+  const row = chain.strikes.find((s) => s.strike === strike);
+  return (type === "CE" ? row?.call : row?.put) ?? null;
 }
 
 /** The nearest future still to come on the data's day; the nearest listed one otherwise. */
