@@ -19,7 +19,9 @@ import asyncio
 import dataclasses
 import importlib
 import inspect
+import json
 import logging
+import re
 import sys
 import types
 from dataclasses import dataclass
@@ -159,24 +161,44 @@ REAL_APPLY_BROKER_WINS = hub.holdings_reconcile.apply_broker_wins
 
 # ── In-memory db ─────────────────────────────────────────────────────────
 class _Cursor:
-    def __init__(self, docs):
-        self._docs = docs
+    def __init__(self, docs, proj=None):
+        self._docs, self._proj = docs, proj
 
     def sort(self, key, direction=1):
         self._docs.sort(key=lambda d: d.get(key) or "", reverse=direction < 0)
         return self
 
+    def skip(self, n):
+        self._docs = self._docs[n:]
+        return self
+
+    def limit(self, n):
+        self._docs = self._docs[:n]
+        return self
+
     async def to_list(self, length=None):
-        return self._docs if length is None else self._docs[:length]
+        docs = self._docs if length is None else self._docs[:length]
+        return [_project(d, self._proj) for d in docs]      # projected last, as Mongo does: after sort / skip / limit
+
+
+def _project(doc, proj):
+    """A Mongo projection: named fields only when any is asked for, else all but the excluded ones."""
+    wanted = [k for k, v in (proj or {}).items() if v and k != "_id"]
+    if wanted:
+        return {k: doc[k] for k in wanted if k in doc}
+    return {k: v for k, v in doc.items() if (proj or {}).get(k, 1)}
 
 
 class FakeCollection:
     def __init__(self, docs=()):
         self.docs = [dict(d) for d in docs]
 
-    _OPS = {"$ne": lambda have, arg: have != arg,
-            "$in": lambda have, arg: have in arg,           # like Mongo, None also matches a missing field
-            "$nin": lambda have, arg: have not in arg}
+    _OPS = {"$ne": lambda have, arg, cond: have != arg,
+            "$in": lambda have, arg, cond: have in arg,     # like Mongo, None also matches a missing field
+            "$nin": lambda have, arg, cond: have not in arg,
+            "$regex": lambda have, arg, cond: isinstance(have, str) and re.search(
+                arg, have, re.I if "i" in cond.get("$options", "") else 0) is not None,
+            "$options": lambda have, arg, cond: True}
 
     @classmethod
     def _matches(cls, doc, query):
@@ -187,19 +209,19 @@ class FakeCollection:
                 continue
             have = doc.get(key)
             if isinstance(want, dict) and want and all(k.startswith("$") for k in want):
-                if not all(cls._OPS[op](have, arg) for op, arg in want.items()):
+                if not all(cls._OPS[op](have, arg, want) for op, arg in want.items()):
                     return False
             elif have != want:
                 return False
         return True
 
     def find(self, query=None, proj=None):
-        return _Cursor([dict(d) for d in self.docs if self._matches(d, query)])
+        return _Cursor([d for d in self.docs if self._matches(d, query)], proj)
 
     async def find_one(self, query, proj=None, **_kw):
         for d in self.docs:
             if self._matches(d, query):
-                return dict(d)
+                return _project(d, proj)
         return None
 
     async def insert_one(self, doc):
@@ -234,6 +256,7 @@ class FakeDB:
     def __init__(self, accounts=(), holdings=()):
         self.broker_accounts = FakeCollection(accounts)
         self.holdings = FakeCollection(holdings)
+        self.broker_sync_snapshots = FakeCollection()
         self.mfd_profile_signal_cache = FakeCollection([{"user_id": "u1", "signal": "stale"}])
 
 
@@ -244,7 +267,7 @@ def native_account(account_id: str, user_id: str = "u1", broker: str = "zerodha"
         "openalgo_url": "", "openalgo_hosted": False, "openalgo_per_account_instance": False,
         "native": True,
         "api_key_encrypted": f"enc({SECRET})", "api_key_masked": "tok-••••••3a71",
-        "extras_encrypted": f"enc({CLIENT_ID})",
+        "extras_encrypted": f"enc({CLIENT_ID})", "broker_user_masked": "••••71",
         "status": "active",
         "created_at": "2026-10-13T04:00:00+00:00", "updated_at": "2026-10-13T04:00:00+00:00",
         "last_sync_at": None, "last_sync_count": 0, "last_error": None,
@@ -315,6 +338,7 @@ class Siblings:
         self.cache_invalidations: list[str] = []
         self.reconciled: list[dict] = []
         self.reconcile_error: Optional[BaseException] = None
+        self.reconcile_result = {"statement_rows_removed": 0, "export_rows_removed": 0}
 
     # tokens ---------------------------------------------------------------
     @staticmethod
@@ -403,7 +427,7 @@ class Siblings:
                                 "in_db": [h["holding_id"] for h in db.holdings.docs]})
         if self.reconcile_error is not None:
             raise self.reconcile_error
-        return {"statement_rows_removed": 0, "export_rows_removed": 0}
+        return dict(self.reconcile_result)
 
     def install(self, monkeypatch) -> "Siblings":
         for name in ("is_live", "load_token", "public_fields", "end_session", "expire_due_sessions"):
@@ -437,6 +461,10 @@ INFY = Holding(isin="INE009A01021", symbol="INFY", asset_type="equity", quantity
                current_price=1525.0, name="Infosys Ltd", sector="IT", exchange="NSE", source_id="NSE:INFY")
 GOLDBEES = Holding(isin="INF204KB17I5", symbol="GOLDBEES", asset_type="etf", quantity=100, avg_price=52.0,
                    current_price=61.25, name=None, sector=None, exchange="NSE", source_id=None)
+
+# The duplicate check of a sync that found nothing.
+ZERO_DUPLICATES = {"repeated_in_broker_reply": 0, "same_instrument_lines": 0, "broker_file_rows_replaced": 0,
+                   "statement_rows_replaced": 0, "also_in_other_accounts": 0}
 
 
 # ── Reader choice ────────────────────────────────────────────────────────
@@ -632,8 +660,8 @@ def test_native_rows_carry_the_isin_upper_cased_and_omit_the_key_when_the_broker
     sib.holdings["ba_z"] = [
         INFY,
         dataclasses.replace(GOLDBEES, isin=" inf204kb17i5 "),
-        dataclasses.replace(INFY, symbol="NOISIN", isin=None),
-        dataclasses.replace(INFY, symbol="BLANKISIN", isin="  "),
+        dataclasses.replace(INFY, symbol="NOISIN", isin=None, source_id="NSE:NOISIN"),
+        dataclasses.replace(INFY, symbol="BLANKISIN", isin="  ", source_id="NSE:BLANKISIN"),
     ]
     asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
     assert db.holdings.one(ticker="INFY")["isin"] == "INE009A01021"
@@ -744,6 +772,8 @@ def test_a_reconcile_failure_does_not_fail_the_sync(sib, caplog):
     assert sib.cache_invalidations == ["u1"]                        # carried on past the failure
     assert "reconcile failed account=ba_z broker=zerodha" in caplog.text
     assert SECRET not in caplog.text and CLIENT_ID not in caplog.text
+    # What it removed, if anything, is not known: the two counters read zero, and the snapshot is still kept.
+    assert result["duplicates"] == ZERO_DUPLICATES and len(db.broker_sync_snapshots.docs) == 1
 
 
 def test_broker_wins_end_to_end_with_the_real_reconcile(sib, monkeypatch):
@@ -766,6 +796,259 @@ def test_broker_wins_end_to_end_with_the_real_reconcile(sib, monkeypatch):
         "Infosys Ltd", "GOLDBEES",                      # the broker's rows
         "CAS-OTHER", "OTHER-ACCT-INFY", "U2-CAS-INFY",  # untouched
     ])                                                  # CAS-INFY and this broker's export copy are gone
+
+
+# ── sync_account: a snapshot of every sync (sync_snapshots) ──────────────
+TCS_UNPRICED = dataclasses.replace(INFY, symbol="TCS", isin="INE467B01029", source_id="NSE:TCS", name="TCS",
+                                   quantity=2, avg_price=4000.0, current_price=0.0, sector=None)
+
+
+def test_every_sync_leaves_a_snapshot_with_the_broker_identifiers_and_totals(sib):
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [INFY, GOLDBEES, TCS_UNPRICED]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    (snap,) = db.broker_sync_snapshots.docs
+    assert result["snapshot_id"] == snap["snapshot_id"] and re.fullmatch(r"bsnap_[0-9a-f]{12}", snap["snapshot_id"])
+    assert set(snap) == {"snapshot_id", "user_id", "broker_account_id", "broker", "broker_display",
+                         "broker_user_masked", "trigger", "synced_at", "count", "total_value_rs",
+                         "total_invested_rs", "priced", "holdings", "duplicates"}
+    assert {k: snap[k] for k in ("user_id", "broker_account_id", "broker", "broker_display", "broker_user_masked",
+                                 "trigger", "count", "priced", "total_value_rs", "total_invested_rs")} == {
+        "user_id": "u1", "broker_account_id": "ba_z", "broker": "zerodha", "broker_display": "Zerodha",
+        "broker_user_masked": "••••71", "trigger": "manual", "count": 3,
+        "priced": 2,                                    # TCS came without a price
+        "total_value_rs": 21375.0,                      # 10 × 1525 + 100 × 61.25; the unpriced row adds nothing
+        "total_invested_rs": 27205.0}                   # 10 × 1400.5 + 100 × 52 + 2 × 4000
+    assert snap["synced_at"] == db.broker_accounts.one(account_id="ba_z")["last_sync_at"]
+    assert snap["duplicates"] == result["duplicates"] == ZERO_DUPLICATES
+    assert snap["holdings"] == [
+        {"name": "Infosys Ltd", "ticker": "INFY", "isin": "INE009A01021", "asset_type": "equity", "quantity": 10.0,
+         "buy_price": 1400.5, "current_price": 1525.0, "sector": "IT", "source_id": "NSE:INFY"},
+        {"name": "GOLDBEES", "ticker": "GOLDBEES", "isin": "INF204KB17I5", "asset_type": "etf", "quantity": 100.0,
+         "buy_price": 52.0, "current_price": 61.25, "sector": "Other", "source_id": ""},
+        {"name": "TCS", "ticker": "TCS", "isin": "INE467B01029", "asset_type": "equity", "quantity": 2.0,
+         "buy_price": 4000.0, "current_price": 0.0, "sector": "Other", "source_id": "NSE:TCS"},
+    ]
+    # No session token, no encrypted blob, no client id in the clear — only the masked login.
+    dumped = json.dumps(snap, ensure_ascii=False)
+    assert SECRET not in dumped and CLIENT_ID not in dumped and "enc(" not in dumped
+
+
+@pytest.mark.parametrize("trigger", ["connect", "manual", "daily"])
+def test_the_snapshot_says_what_started_the_sync(sib, trigger):
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [INFY]
+    asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z"), trigger=trigger))
+    assert [s["trigger"] for s in db.broker_sync_snapshots.docs] == [trigger]
+
+
+def test_an_unknown_trigger_is_refused_before_anything_is_read_or_stored(sib):
+    db = _seeded_db()
+    before = [dict(h) for h in db.holdings.docs]
+    with pytest.raises(ValueError):
+        asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z"), trigger="cron"))
+    assert sib.calls == [] and db.holdings.docs == before and db.broker_sync_snapshots.docs == []
+
+
+def test_the_daily_job_marks_its_snapshots_daily(sib):
+    db = FakeDB(accounts=[native_account("ba_z"), native_account("ba_i", user_id="u2", broker="icicidirect")])
+    sib.holdings.update({"ba_z": [INFY], "ba_i": [GOLDBEES]})
+    assert asyncio.run(hub.daily_sync(db))["synced"] == 2
+    assert sorted((s["broker_account_id"], s["broker"], s["user_id"], s["trigger"])
+                  for s in db.broker_sync_snapshots.docs) == [
+        ("ba_i", "icicidirect", "u2", "daily"), ("ba_z", "zerodha", "u1", "daily")]
+
+
+def test_a_second_sync_replaces_the_holdings_and_adds_a_second_snapshot(sib):
+    # Holdings already stored for the account are replaced, never added to; each sync stays on record.
+    db = _seeded_db()
+    doc = db.broker_accounts.one(account_id="ba_z")
+    sib.holdings["ba_z"] = [INFY, GOLDBEES]
+    first = asyncio.run(hub.sync_account(db, doc))
+    sib.holdings["ba_z"] = [dataclasses.replace(INFY, quantity=25)]
+    second = asyncio.run(hub.sync_account(db, doc))
+
+    assert [(h["ticker"], h["quantity"]) for h in db.holdings.docs if h.get("broker_account_id") == "ba_z"] == [
+        ("INFY", 25.0)]
+    snaps = {s["snapshot_id"]: s for s in db.broker_sync_snapshots.docs}
+    assert len(snaps) == 2 and first["snapshot_id"] != second["snapshot_id"]
+    assert [(h["ticker"], h["quantity"]) for h in snaps[first["snapshot_id"]]["holdings"]] == [
+        ("INFY", 10.0), ("GOLDBEES", 100.0)]            # the earlier snapshot is not rewritten
+    assert [(h["ticker"], h["quantity"]) for h in snaps[second["snapshot_id"]]["holdings"]] == [("INFY", 25.0)]
+    assert snaps[first["snapshot_id"]]["synced_at"] <= snaps[second["snapshot_id"]]["synced_at"]
+
+
+def test_a_snapshot_that_cannot_be_written_does_not_fail_the_sync(sib, monkeypatch, caplog):
+    db = _seeded_db()
+
+    async def write_fails(_doc):
+        raise RuntimeError("mongo write failed")
+    monkeypatch.setattr(db.broker_sync_snapshots, "insert_one", write_fails)
+    sib.holdings["ba_z"] = [INFY, GOLDBEES]
+    with caplog.at_level(logging.DEBUG, logger="services.brokers.hub_reads"):
+        result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    assert result["snapshot_id"] is None and result["count"] == 2 and result["duplicates"] == ZERO_DUPLICATES
+    assert sorted(h["ticker"] for h in db.holdings.docs if h.get("broker_account_id") == "ba_z") == ["GOLDBEES", "INFY"]
+    acct = db.broker_accounts.one(account_id="ba_z")
+    assert (acct["status"], acct["last_sync_count"], acct["last_error"]) == ("active", 2, None)
+    assert "snapshot not written account=ba_z broker=zerodha" in caplog.text
+    assert SECRET not in caplog.text and CLIENT_ID not in caplog.text
+
+
+def test_a_prune_that_fails_keeps_the_snapshot_and_the_sync(sib, monkeypatch, caplog):
+    db = _seeded_db()
+
+    async def prune_fails(*_a, **_k):
+        raise RuntimeError("mongo delete failed")
+    monkeypatch.setattr(hub.sync_snapshots, "prune", prune_fails)
+    sib.holdings["ba_z"] = [INFY]
+    with caplog.at_level(logging.DEBUG):
+        result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    assert [s["snapshot_id"] for s in db.broker_sync_snapshots.docs] == [result["snapshot_id"]]
+    assert result["count"] == 1 and "prune failed account=ba_z" in caplog.text
+
+
+# ── sync_account: the duplicate check ────────────────────────────────────
+def test_a_line_the_broker_sends_twice_is_stored_once_and_counted(sib):
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [
+        INFY, GOLDBEES,
+        dataclasses.replace(INFY, name="INFOSYS", current_price=1530.0),    # same instrument, quantity and cost
+        INFY,
+    ]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    assert result["duplicates"] == {**ZERO_DUPLICATES, "repeated_in_broker_reply": 2}
+    assert result["count"] == 2
+    stored = [h for h in db.holdings.docs if h.get("broker_account_id") == "ba_z"]
+    assert [(h["ticker"], h["name"], h["quantity"]) for h in stored] == [
+        ("INFY", "Infosys Ltd", 10.0), ("GOLDBEES", "GOLDBEES", 100.0)]      # the first copy is the one kept
+    (snap,) = db.broker_sync_snapshots.docs
+    assert snap["count"] == 2 and snap["duplicates"]["repeated_in_broker_reply"] == 2
+    assert db.broker_accounts.one(account_id="ba_z")["last_sync_count"] == 2
+
+
+def test_separate_lots_of_one_instrument_are_all_stored_and_counted(sib):
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [
+        INFY,
+        dataclasses.replace(INFY, quantity=5),                              # another quantity
+        dataclasses.replace(INFY, avg_price=1500.0),                        # another cost
+        GOLDBEES,
+    ]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    # Two lines beyond the first for INFY: count − same_instrument_lines = distinct instruments.
+    assert result["duplicates"] == {**ZERO_DUPLICATES, "same_instrument_lines": 2}
+    assert result["count"] == 4
+    assert sorted((h["quantity"], h["buy_price"]) for h in db.holdings.docs if h.get("ticker") == "INFY") == [
+        (5.0, 1400.5), (10.0, 1400.5), (10.0, 1500.0)]
+
+
+_NO_ISIN = dataclasses.replace(INFY, isin=None)
+_TICKER_ONLY = dataclasses.replace(INFY, isin=None, source_id=None)
+
+
+@pytest.mark.parametrize("second, repeated", [
+    (dataclasses.replace(INFY, symbol="INFY-BE", source_id="NSE:INFY-BE"), 1),      # the same ISIN under another symbol
+    (dataclasses.replace(INFY, isin="INE467B01029"), 0),                           # another ISIN, same symbol
+], ids=["same-isin", "other-isin"])
+def test_rows_with_an_isin_are_the_same_instrument_by_isin(sib, second, repeated):
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [INFY, second]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+    assert result["duplicates"]["repeated_in_broker_reply"] == repeated and result["count"] == 2 - repeated
+
+
+@pytest.mark.parametrize("first, second, repeated", [
+    (_NO_ISIN, dataclasses.replace(_NO_ISIN, symbol="INFOSYS", source_id="nse:infy"), 1),   # exchange + symbol
+    (_NO_ISIN, dataclasses.replace(_NO_ISIN, source_id="BSE:INFY"), 0),                     # another exchange
+    (_TICKER_ONLY, dataclasses.replace(_TICKER_ONLY, symbol="infy"), 1),                   # ticker, ignoring case
+    (_TICKER_ONLY, dataclasses.replace(_TICKER_ONLY, symbol="INFY-BE"), 0),                # another ticker
+], ids=["same-source-id", "other-source-id", "same-ticker", "other-ticker"])
+def test_rows_without_an_isin_fall_back_to_exchange_and_symbol_then_ticker(sib, first, second, repeated):
+    db = _seeded_db()
+    sib.holdings["ba_z"] = [first, second]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+    assert result["duplicates"]["repeated_in_broker_reply"] == repeated and result["count"] == 2 - repeated
+    assert result["duplicates"]["same_instrument_lines"] == 0
+
+
+def test_replaced_statement_and_broker_file_rows_are_reported(sib):
+    db = _seeded_db()
+    sib.reconcile_result = {"statement_rows_removed": 3, "export_rows_removed": 2}
+    sib.holdings["ba_z"] = [INFY]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+    assert result["duplicates"] == {**ZERO_DUPLICATES, "statement_rows_replaced": 3, "broker_file_rows_replaced": 2}
+    assert db.broker_sync_snapshots.docs[0]["duplicates"] == result["duplicates"]
+
+
+def test_instruments_also_held_in_another_account_of_the_same_broker_are_counted_never_removed(sib):
+    others = [
+        holding_row("Z2-INFY", source="broker_native", broker="zerodha", broker_account_id="ba_z2",
+                    ticker="INFY", isin="INE009A01021"),                     # the same broker, another login: counted
+        holding_row("Z2-TCS", source="broker_native", broker="zerodha", broker_account_id="ba_z2",
+                    ticker="TCS", isin="INE467B01029"),                      # not held in the account being synced
+        holding_row("ICICI-INFY", source="broker_native", broker="icicidirect", broker_account_id="ba_i",
+                    ticker="INFY", isin="INE009A01021"),                     # another broker
+        holding_row("U2-INFY", user_id="u2", source="broker_native", broker="zerodha", broker_account_id="ba_u2",
+                    ticker="INFY", isin="INE009A01021"),                     # another user
+        holding_row("FILE-GOLDBEES", source="broker_export", broker="zerodha", ticker="GOLDBEES",
+                    isin="INF204KB17I5"),                                    # an uploaded file is not an account
+    ]
+    db = FakeDB(accounts=[native_account("ba_z"), native_account("ba_z2")], holdings=others)
+    sib.holdings["ba_z"] = [INFY, GOLDBEES]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    assert result["duplicates"] == {**ZERO_DUPLICATES, "also_in_other_accounts": 1}
+    # Two logins at one broker are two real accounts: every one of those rows is still there, unchanged.
+    assert [h for h in db.holdings.docs if h.get("broker_account_id") != "ba_z"] == others
+    assert result["count"] == 2
+
+
+def test_the_other_account_check_failing_does_not_fail_the_sync(sib, monkeypatch, caplog):
+    db = _seeded_db()
+    real_find = db.holdings.find
+
+    def find(query=None, proj=None):
+        if "broker" in (query or {}):
+            raise RuntimeError("mongo read failed")
+        return real_find(query, proj)
+    monkeypatch.setattr(db.holdings, "find", find)
+    sib.holdings["ba_z"] = [INFY]
+    with caplog.at_level(logging.DEBUG, logger="services.brokers.hub_reads"):
+        result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+    assert result["count"] == 1 and result["duplicates"] == ZERO_DUPLICATES and result["snapshot_id"]
+    assert "other-account check failed account=ba_z" in caplog.text
+
+
+def test_the_duplicate_check_end_to_end_with_the_real_reconcile(sib, monkeypatch):
+    monkeypatch.setattr(hub.holdings_reconcile, "apply_broker_wins", REAL_APPLY_BROKER_WINS)
+    kept = [
+        holding_row("CAS-OTHER", source="cas", ticker="INE002A01018"),                # an ISIN the broker lacks
+        holding_row("CAS-BY-SYMBOL", source="cas", ticker="GOLDBEES"),               # a statement row is never matched by symbol
+        holding_row("MANUAL-INFY", source="manual", ticker="INE009A01021"),          # the user's own entry
+        holding_row("UPSTOX-FILE", source="broker_export", broker="upstox", ticker="goldbees"),   # another broker's file
+        holding_row("Z2-INFY", source="broker_native", broker="zerodha", broker_account_id="ba_z2",
+                    ticker="INFY", isin="INE009A01021"),                             # another login at this broker
+        holding_row("U2-CAS-INFY", user_id="u2", source="cas", ticker="INE009A01021"),
+    ]
+    db = FakeDB(accounts=[native_account("ba_z")], holdings=kept + [
+        holding_row("CAS-INFY", source="cas", ticker="INE009A01021"),                # the statement's copy of INFY
+        holding_row("ZERODHA-FILE", source="broker_export", broker="zerodha", ticker="goldbees"),  # no ISIN in the file
+    ])
+    sib.holdings["ba_z"] = [INFY, GOLDBEES, INFY, dataclasses.replace(GOLDBEES, quantity=40)]
+    result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
+
+    assert result["duplicates"] == {"repeated_in_broker_reply": 1, "same_instrument_lines": 1,
+                                    "broker_file_rows_replaced": 1, "statement_rows_replaced": 1,
+                                    "also_in_other_accounts": 1}
+    assert [h for h in db.holdings.docs if h.get("broker_account_id") != "ba_z"] == kept
+    assert result["count"] == 3
+    assert db.broker_sync_snapshots.docs[0]["duplicates"] == result["duplicates"]
 
 
 def test_native_sync_never_writes_openalgo_as_the_source(sib):
@@ -802,10 +1085,16 @@ def test_an_empty_portfolio_clears_the_accounts_rows_and_counts_zero(sib):
     db = _seeded_db()
     sib.holdings["ba_z"] = []
     result = asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
-    assert result == {"count": 0, "holdings": []}
+    assert (result["count"], result["holdings"], result["duplicates"]) == (0, [], ZERO_DUPLICATES)
     assert [h for h in db.holdings.docs if h.get("broker_account_id") == "ba_z"] == []
     assert len(db.holdings.docs) == 5
     assert [c["rows"] for c in sib.reconciled] == [[]]
+
+    # An empty account is a fact worth recording: the sync still leaves its snapshot.
+    (snap,) = db.broker_sync_snapshots.docs
+    assert result["snapshot_id"] == snap["snapshot_id"]
+    assert (snap["count"], snap["priced"], snap["total_value_rs"], snap["total_invested_rs"], snap["holdings"]) == (
+        0, 0, 0, 0, [])
 
 
 def test_broker_rejecting_the_token_ends_the_session_and_keeps_stored_holdings(sib):
@@ -817,6 +1106,7 @@ def test_broker_rejecting_the_token_ends_the_session_and_keeps_stored_holdings(s
     assert sib.ended == [("ba_z", "broker_rejected")]
     assert db.holdings.docs == before
     assert sib.cache_invalidations == [] and sib.reconciled == []
+    assert db.broker_sync_snapshots.docs == []      # only a successful sync is snapshotted
 
 
 def test_an_ended_session_is_not_synced_and_not_ended_twice(sib):
@@ -842,6 +1132,7 @@ def test_a_failed_read_keeps_stored_holdings_and_records_the_error(sib):
     assert acct["last_sync_at"] is None and sib.ended == []
     assert db.holdings.docs == before
     assert sib.reconciled == []                     # nothing was stored, so nothing is reconciled
+    assert db.broker_sync_snapshots.docs == []
 
 
 def test_a_sync_that_finishes_after_the_session_was_ended_does_not_reactivate_it(sib):
@@ -855,6 +1146,7 @@ def test_a_sync_that_finishes_after_the_session_was_ended_does_not_reactivate_it
     asyncio.run(hub.sync_account(db, db.broker_accounts.one(account_id="ba_z")))
     acct = db.broker_accounts.one(account_id="ba_z")
     assert (acct["status"], acct["session_ended_reason"]) == ("expired", "logout")
+    assert len(db.broker_sync_snapshots.docs) == 1  # the holdings were stored, so the sync is on record
 
 
 # ── Positions ────────────────────────────────────────────────────────────

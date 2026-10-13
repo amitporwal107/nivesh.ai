@@ -439,7 +439,7 @@ async def _finish_sign_in(request: Request, broker_slug: str):
     try:
         # Imported here so this module stays importable on its own.
         from services.brokers import hub_reads
-        await asyncio.wait_for(hub_reads.sync_account(db, doc), timeout=FIRST_SYNC_TIMEOUT_S)
+        await asyncio.wait_for(hub_reads.sync_account(db, doc, trigger="connect"), timeout=FIRST_SYNC_TIMEOUT_S)
     except Exception as e:  # noqa: BLE001
         timed_out = isinstance(e, asyncio.TimeoutError)
         logger.warning(

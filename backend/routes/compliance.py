@@ -202,6 +202,7 @@ async def delete_account(request: Request):
     # Hard-delete user-owned data.
     h_res = await db.holdings.delete_many({"user_id": uid})
     p_res = await db.action_plans.delete_many({"user_id": uid})
+    await db.broker_sync_snapshots.delete_many({"user_id": uid})  # copies of broker-synced holdings
     # Soft-delete account — keep user row for audit linkage.
     from datetime import datetime, timezone
     await db.users.update_one(

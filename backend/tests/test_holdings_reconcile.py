@@ -2,6 +2,7 @@
 broker export are reconciled (helpers.holdings_reconcile), and how the central
 import path (helpers.parsing.save_holdings) applies it."""
 import asyncio
+import re
 
 import pytest
 
@@ -28,6 +29,11 @@ def _match(doc, query):
                     ok = value not in arg
                 elif op == "$ne":
                     ok = value != arg
+                elif op == "$regex":
+                    flags = re.I if "i" in cond.get("$options", "") else 0
+                    ok = isinstance(value, str) and re.search(arg, value, flags) is not None
+                elif op == "$options":
+                    ok = True                      # read with `$regex`
                 else:
                     raise NotImplementedError(op)
                 if not ok:
@@ -240,6 +246,90 @@ def test_rows_without_an_establishable_isin_remove_nothing():
     out = asyncio.run(hr.apply_broker_wins(db, "u1", [{"ticker": "UNLISTEDCO"}], broker="zerodha", live=True))
     assert out == {"statement_rows_removed": 0, "export_rows_removed": 0}
     assert len(db.holdings.rows) == 1
+
+
+# ── A live sync and the same broker's export: also matched by ticker ─────
+def _file_row(ticker, broker="zerodha", user="u1", **extra):
+    """An uploaded export row. No `isin` unless given: many exports carry only the symbol."""
+    return {"user_id": user, "ticker": ticker, "source": "broker_export", "broker": broker, "quantity": 10, **extra}
+
+
+def _synced(ticker, isin=None, account="ba_1", broker="zerodha"):
+    row = {"user_id": "u1", "ticker": ticker, "source": "broker_native", "broker": broker,
+           "broker_account_id": account, "quantity": 10}
+    return {**row, "isin": isin} if isin else row
+
+
+def _tickers(db, **where):
+    return sorted(r["ticker"] for r in db.holdings.rows if _match(r, where))
+
+
+def test_an_export_row_without_an_isin_is_matched_by_the_same_ticker():
+    # UNLISTEDCO is in no masterdata index, so nothing but the ticker can tie the two rows together.
+    db = _Db([_file_row("UNLISTEDCO"), _file_row("OTHERCO"), _synced("UNLISTEDCO", isin=HDFC)])
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", [_synced("UNLISTEDCO", isin=HDFC)], broker="zerodha", live=True))
+    assert out == {"statement_rows_removed": 0, "export_rows_removed": 1}
+    assert _tickers(db, source="broker_export") == ["OTHERCO"]
+
+
+def test_a_synced_row_without_an_isin_matches_the_export_row_by_ticker_even_when_that_has_one():
+    db = _Db([_file_row("UNLISTEDCO", isin=HDFC), _file_row("OTHERCO", isin=MF)])
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", [_synced("UNLISTEDCO")], broker="zerodha", live=True))
+    assert out == {"statement_rows_removed": 0, "export_rows_removed": 1}
+    assert _tickers(db, source="broker_export") == ["OTHERCO"]
+
+
+@pytest.mark.parametrize("stored, synced", [
+    ("unlistedco", "UNLISTEDCO"), ("UnlistedCo", "unlistedco"), ("M&M", "m&m"), ("BAJAJ-AUTO", "bajaj-auto"),
+])
+def test_the_ticker_match_ignores_case(stored, synced):
+    db = _Db([_file_row(stored)])
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", [_synced(synced)], broker="zerodha", live=True))
+    assert out["export_rows_removed"] == 1 and db.holdings.rows == []
+
+
+@pytest.mark.parametrize("stored", ["UNLISTEDCO2", "XUNLISTEDCO", "UNLISTED", "UNLISTEDCO-BE", "NSE:UNLISTEDCO", ""])
+def test_the_ticker_match_is_exact_not_partial(stored):
+    db = _Db([_file_row(stored)])
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", [_synced("UNLISTEDCO")], broker="zerodha", live=True))
+    assert out["export_rows_removed"] == 0 and len(db.holdings.rows) == 1
+
+
+def test_two_rows_that_both_state_an_isin_are_matched_by_isin_never_by_ticker():
+    # The same symbol under two different ISINs is two instruments: the export row stays.
+    db = _Db([_file_row("UNLISTEDCO", isin=HDFC)])
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", [_synced("UNLISTEDCO", isin=MF)], broker="zerodha", live=True))
+    assert out["export_rows_removed"] == 0 and len(db.holdings.rows) == 1
+
+
+def test_the_ticker_match_is_for_the_same_brokers_export_only():
+    other_rows = [
+        _file_row("UNLISTEDCO", broker="groww"),                                    # another broker's export
+        _file_row("UNLISTEDCO", user="u2"),                                         # another user's export
+        {"user_id": "u1", "ticker": "UNLISTEDCO", "source": "cas", "quantity": 10},              # a statement row
+        {"user_id": "u1", "ticker": "UNLISTEDCO", "source": "snapshot_load", "quantity": 10},    # a statement row
+        {"user_id": "u1", "ticker": "UNLISTEDCO", "source": "manual", "quantity": 10},           # the user's own entry
+        _synced("UNLISTEDCO", account="ba_2"),                                      # another login at this broker
+        _synced("UNLISTEDCO", account="ba_9", broker="groww"),                      # a connection to another broker
+    ]
+    db = _Db(other_rows + [_file_row("UNLISTEDCO")])
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", [_synced("UNLISTEDCO")], broker="zerodha", live=True))
+    assert out == {"statement_rows_removed": 0, "export_rows_removed": 1}
+    assert db.holdings.rows == other_rows                # a statement row is never removed on a symbol
+
+
+def test_an_uploaded_export_does_not_use_the_ticker_match():
+    # `live=False` is the upload path: it never removes export rows at all, by ISIN or by ticker.
+    db = _Db([_file_row("UNLISTEDCO", broker="zerodha"), _file_row("UNLISTEDCO", broker="groww")])
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", [_file_row("UNLISTEDCO")], broker="zerodha", live=False))
+    assert out == {"statement_rows_removed": 0, "export_rows_removed": 0} and len(db.holdings.rows) == 2
+
+
+def test_an_isin_match_and_a_ticker_match_on_one_row_count_once():
+    db = _Db([_file_row("INFY", isin=INFY), _file_row("TCS")])
+    synced = [_synced("INFY", isin=INFY), _synced("TCS", isin=TCS)]
+    out = asyncio.run(hr.apply_broker_wins(db, "u1", synced, broker="zerodha", live=True))
+    assert out == {"statement_rows_removed": 0, "export_rows_removed": 2} and db.holdings.rows == []
 
 
 # ── save_holdings ────────────────────────────────────────────────────────

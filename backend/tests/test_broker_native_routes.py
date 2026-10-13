@@ -68,6 +68,7 @@ class Harness:
         self.db = FakeDb()
         self.audits: list[dict] = []
         self.synced: list[dict] = []
+        self.sync_triggers: list[str] = []
         self.sync_result: object = {"count": 2, "holdings": []}
         self.signed_in = True
         self.broker = self.register(FakeBroker())
@@ -90,8 +91,9 @@ class Harness:
             return "aud_test"
         monkeypatch.setattr(bn._audit, "record", record)
 
-        async def sync_account(db, doc):
+        async def sync_account(db, doc, *, trigger="manual"):
             self.synced.append(dict(doc))
+            self.sync_triggers.append(trigger)
             if isinstance(self.sync_result, Exception):
                 raise self.sync_result
             if callable(self.sync_result):
@@ -452,8 +454,9 @@ def test_callback_success_lands_on_return_to_with_the_outcome_appended(h, return
     assert sessions.load_token(row).token == "tok-from-broker"
     assert "tok-from-broker" not in r.headers["location"]
     assert h.db.broker_oauth_states.docs == []                         # the state is single-use
-    # first holdings sync ran against the stored document
+    # first holdings sync ran against the stored document, and says it was the connect that started it
     assert [d["account_id"] for d in h.synced] == [row["account_id"]]
+    assert h.sync_triggers == ["connect"]
     assert sessions.load_token(h.synced[0]).token == "tok-from-broker"
     assert h.audits == [{"user_id": "u1", "action": "broker_connect", "resource": row["account_id"],
                          "outcome": "success", "ip": "testclient", "ua": "testclient",

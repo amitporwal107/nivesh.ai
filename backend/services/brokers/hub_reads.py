@@ -8,7 +8,8 @@ is the one read path for such an account:
                 session is live (`daily_sync`); stored in `db.holdings`
                 tagged with `broker_account_id`. The broker wins: statement
                 copies of what the account holds are then removed
-                (`helpers.holdings_reconcile`).
+                (`helpers.holdings_reconcile`). Each sync leaves a snapshot
+                (`sync_snapshots`) with the result of its duplicate check.
   * positions — fetched on demand only; read live and never stored.
 
 Strictly read-only: nothing here places, modifies or cancels an order.
@@ -40,7 +41,7 @@ import httpx
 
 from helpers import holdings_reconcile
 from services import dashboard_cache
-from . import fenix_reader, registry, sessions
+from . import fenix_reader, registry, sessions, sync_snapshots
 from ._helpers import to_thread
 from .base import AccessToken, Holding, HubPosition, Position
 from .fenix_reader import BrokerNotSupported, BrokerReadError, BrokerSessionExpired
@@ -193,13 +194,24 @@ async def read_holdings_for(doc: dict) -> list[Holding]:
     return await _adapter_call(adapter, "holdings", adapter.fetch_holdings, token)
 
 
-async def sync_account(db, doc: dict) -> dict:
+async def sync_account(db, doc: dict, *, trigger: str = "manual") -> dict:
     """Read one native account's holdings and store them, replacing only that
-    account's rows. Returns `{"count": n, "holdings": [...]}` — the same
-    summary rows the OpenAlgo sync returns.
+    account's rows, then keep a snapshot of the sync.
+
+    `trigger` says what started it: "connect", "manual" or "daily". Returns
+    `{"count", "holdings", "duplicates", "snapshot_id"}` — `holdings` are the
+    summary rows the OpenAlgo sync returns and `snapshot_id` is None when the
+    snapshot could not be written. `duplicates` is the duplicate check:
+
+        repeated_in_broker_reply, same_instrument_lines   see `_persist_holdings`
+        broker_file_rows_replaced, statement_rows_replaced  see `_apply_broker_wins`
+        also_in_other_accounts                             see `_held_in_other_accounts`
     """
+    if trigger not in sync_snapshots.TRIGGERS:
+        raise ValueError(f"trigger must be one of {sync_snapshots.TRIGGERS}")
     account_id = doc["account_id"]
     user_id = doc["user_id"]
+    broker = doc.get("broker") or ""
     try:
         holdings = await read_holdings_for(doc)
     except BrokerSessionExpired:
@@ -221,8 +233,14 @@ async def sync_account(db, doc: dict) -> dict:
         )
         raise
 
-    rows = await _persist_holdings(db, user_id, account_id, doc, holdings)
-    await _apply_broker_wins(db, user_id, account_id, doc.get("broker") or "", rows)
+    rows, in_reply = await _persist_holdings(db, user_id, account_id, doc, holdings)
+    replaced = await _apply_broker_wins(db, user_id, account_id, broker, rows)
+    duplicates = {
+        **in_reply,
+        "broker_file_rows_replaced": replaced["export_rows_removed"],
+        "statement_rows_replaced": replaced["statement_rows_removed"],
+        "also_in_other_accounts": await _held_in_other_accounts(db, user_id, account_id, broker, rows),
+    }
     await _invalidate_user_caches(db, user_id)
     saved = [
         {
@@ -248,22 +266,51 @@ async def sync_account(db, doc: dict) -> dict:
             "updated_at": now,
         }},
     )
-    return {"count": len(saved), "holdings": saved}
+    snapshot_id = await _record_snapshot(
+        db, doc, rows, trigger=trigger, duplicates=duplicates, synced_at=now,
+    )
+    return {
+        "count": len(saved),
+        "holdings": saved,
+        "duplicates": duplicates,
+        "snapshot_id": snapshot_id,
+    }
+
+
+def _instrument_key(row: Dict[str, Any]) -> str:
+    """What makes two rows the same instrument: the ISIN when the row has
+    one, else exchange + trading symbol (`source_id`), else the ticker."""
+    for field in ("isin", "source_id", "ticker"):
+        value = str(row.get(field) or "").strip().upper()
+        if value:
+            return value
+    return ""
 
 
 async def _persist_holdings(
     db, user_id: str, account_id: str, account_doc: dict, holdings: List[Holding],
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """Replace this account's prior holdings, leave every other row alone
-    (CAS / Excel imports, other broker accounts), and return the rows as
-    stored. Mirrors `routes.broker_connect._persist_broker_holdings`, which
-    stays the writer for OpenAlgo accounts.
+    (CAS / Excel imports, other broker accounts). Mirrors
+    `routes.broker_connect._persist_broker_holdings`, which stays the writer
+    for OpenAlgo accounts.
+
+    Returns the rows as stored and what the duplicate check found inside the
+    broker's reply:
+        repeated_in_broker_reply — a line the broker sent again (same
+            instrument, quantity and average price): one copy is stored
+        same_instrument_lines — a further line for an instrument already in
+            the reply, with another quantity or cost (a separate lot): every
+            such line is stored, and counted here
     """
     await db.holdings.delete_many(
         {"user_id": user_id, "broker_account_id": account_id},
     )
 
     stored: List[Dict[str, Any]] = []
+    seen_lines: set = set()
+    seen_instruments: set = set()
+    repeated = same_instrument = 0
     now = _now_iso()
     for h in holdings:
         # Brokers also list instruments that were sold out (ICICI's demat list
@@ -295,10 +342,23 @@ async def _persist_holdings(
         isin = str(h.isin or "").strip().upper()
         if isin:
             holding_doc["isin"] = isin
+        key = _instrument_key(holding_doc)
+        if key:
+            line = (key, holding_doc["quantity"], holding_doc["buy_price"])
+            if line in seen_lines:
+                repeated += 1
+                continue
+            if key in seen_instruments:
+                same_instrument += 1
+            seen_lines.add(line)
+            seen_instruments.add(key)
         _fill_from_masterdata(holding_doc)
         await db.holdings.insert_one(holding_doc)
         stored.append(holding_doc)
-    return stored
+    return stored, {
+        "repeated_in_broker_reply": repeated,
+        "same_instrument_lines": same_instrument,
+    }
 
 
 def _fill_from_masterdata(row: Dict[str, Any]) -> None:
@@ -319,17 +379,68 @@ def _fill_from_masterdata(row: Dict[str, Any]) -> None:
 
 async def _apply_broker_wins(
     db, user_id: str, account_id: str, broker: str, rows: List[Dict[str, Any]],
-) -> None:
-    """The broker wins: drop the statement / export copies of what this
-    account now holds (`helpers.holdings_reconcile`). The account's rows are
-    already stored, so a failure here is logged and does not fail the sync."""
+) -> Dict[str, int]:
+    """The broker wins: drop the statement copies of what this account now
+    holds, and the rows of an uploaded export of the same broker for the same
+    instruments (`helpers.holdings_reconcile`). Returns its counts of removed
+    rows. The account's rows are already stored, so a failure here is logged
+    and does not fail the sync — the counts then read zero."""
     try:
-        await holdings_reconcile.apply_broker_wins(db, user_id, rows, broker=broker, live=True)
+        return await holdings_reconcile.apply_broker_wins(db, user_id, rows, broker=broker, live=True)
     except Exception:  # noqa: BLE001
         logger.exception(
             "broker sync: reconcile failed account=%s broker=%s — synced rows kept",
             account_id, broker,
         )
+        return {"statement_rows_removed": 0, "export_rows_removed": 0}
+
+
+async def _held_in_other_accounts(
+    db, user_id: str, account_id: str, broker: str, rows: List[Dict[str, Any]],
+) -> int:
+    """How many of the instruments just stored this user also holds in
+    another connected account of the same broker. Two logins at one broker
+    are two real accounts, so those rows are never removed — the overlap is
+    only counted. A failed read is logged and counted as none."""
+    mine = {_instrument_key(r) for r in rows} - {""}
+    if not mine:
+        return 0
+    try:
+        cursor = db.holdings.find(
+            {
+                "user_id": user_id,
+                "broker": broker,
+                "broker_account_id": {"$nin": [None, "", account_id]},
+            },
+            {"_id": 0, "isin": 1, "source_id": 1, "ticker": 1},
+        )
+        others = {_instrument_key(r) for r in await cursor.to_list(length=5000)}
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "broker sync: other-account check failed account=%s broker=%s", account_id, broker,
+        )
+        return 0
+    return len(mine & others)
+
+
+async def _record_snapshot(
+    db, doc: dict, rows: List[Dict[str, Any]], *,
+    trigger: str, duplicates: Dict[str, int], synced_at: str,
+) -> Optional[str]:
+    """Keep a snapshot of this sync (`sync_snapshots`) and return its id. The
+    holdings are already stored, so a failure here is logged and does not
+    fail the sync — the id is then None."""
+    try:
+        return await sync_snapshots.record(
+            db, doc, rows, trigger=trigger, duplicates=duplicates, synced_at=synced_at,
+            broker_display=display_name(doc.get("broker") or ""),
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "broker sync: snapshot not written account=%s broker=%s",
+            doc.get("account_id"), doc.get("broker"),
+        )
+        return None
 
 
 async def _invalidate_user_caches(db, user_id: str) -> None:
@@ -448,7 +559,7 @@ async def daily_sync(db) -> dict:
             return "expired"
         async with gate:
             try:
-                await sync_account(db, doc)
+                await sync_account(db, doc, trigger="daily")
                 return "synced"
             except (sessions.SessionEnded, BrokerSessionExpired):
                 return "expired"

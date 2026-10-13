@@ -44,10 +44,12 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
 | `GET /native/callback?broker={slug}` or `/native/callback/{slug}` | 302 to `return_to` (default `/dashboard`) with `broker_connected=<slug>&account_id=<id>` or `broker_error=<code>` |
 | `POST /native/callback/{slug}` | for brokers that return by a cross-site form POST (ICICI Direct): 303 to the same path as a GET with the posted value in the query. Does no sign-in work itself; 405 for other brokers |
 | `GET /accounts` | existing keys + `native, broker_user_masked, session_expires_at, session_ended_reason, needs_reconnect`; `status` may be `expired` |
-| `POST /accounts/{id}/sync` | `{ok, count, holdings[]}`; replaces only that account's holdings |
+| `POST /accounts/{id}/sync` | `{ok, count, holdings[]}`; replaces only that account's holdings. A redirect-connected account also returns `snapshot_id` (null if the snapshot could not be written) and `duplicates{repeated_in_broker_reply, same_instrument_lines, broker_file_rows_replaced, statement_rows_replaced, also_in_other_accounts}` |
+| `GET /accounts/{id}/snapshots?limit=30` (1–90) | `{account_id, broker, snapshots[]}`, newest first: `snapshot_id, synced_at, trigger (connect\|manual\|daily), count, total_value_rs, total_invested_rs, priced, duplicates`. 404 for an account that is not the caller's |
+| `GET /snapshots/{snapshot_id}` | one snapshot in full: the list fields plus `broker_account_id, broker, broker_display, broker_user_masked, holdings[]` (`name, ticker, isin, asset_type, quantity, buy_price, current_price, sector, source_id`). 404 unless it is the caller's |
 | `GET /accounts/{id}/positions?kind=net\|day&segment=all\|fno\|intraday` | `{account_id, broker, kind, segment, as_of, positions[], counts{total,fno,intraday}}`; live, not stored |
 | `GET /positions?kind=&segment=` | the same per connected account: `accounts[]` with `ok`, `error{code,message}`, `as_of` |
-| `DELETE /accounts/{id}` | removes the account, its token and its holdings |
+| `DELETE /accounts/{id}` | removes the account, its token, its holdings and its sync snapshots |
 
 - `broker_error` codes: `denied, missing_params, unknown_broker, invalid_state, state_expired, token_exchange_failed, server_error` (the broker signed the user in but Nivesh could not save the session).
 - The server must have `PII_ENCRYPTION_KEY` to store a session token. Without it `supported` reports nothing as `configured` or `connectable`, and `start` answers 503.
@@ -59,6 +61,19 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
 - Overlapping sources: the broker wins. See `backend/helpers/holdings_reconcile.py`.
 - A holdings sync stores only rows with a quantity above zero, and fills a missing company name, price
   and sector from masterdata by ISIN; ticker, quantity and cost are always the broker's.
+- Every successful holdings sync of a redirect-connected account leaves an immutable snapshot
+  (`broker_sync_snapshots`): the broker, the masked login, what started the sync, the rows as stored and
+  the duplicate check. The newest 90 per account are kept; older ones are pruned. Snapshots go when the
+  account is disconnected or the user's account is erased. The two snapshot routes need a signed-in
+  user but not the `broker_hub` flag. `total_value_rs` covers only the `priced` rows.
+- Duplicate check of a sync (`duplicates`): `repeated_in_broker_reply` — a line the broker sent again
+  (same instrument, quantity and average price), stored once; `same_instrument_lines` — further lines
+  for an instrument already in the reply with another quantity or cost, all stored;
+  `broker_file_rows_replaced` — rows of an uploaded export of the same broker that the sync superseded
+  (same ISIN, or the same ticker when either row has no ISIN); `statement_rows_replaced` — CAS /
+  statement rows superseded (same ISIN only); `also_in_other_accounts` — instruments the user also
+  holds in another connected account of the same broker (counted, never removed). An instrument is
+  its ISIN, else exchange + symbol, else ticker.
 - `GET /api/onboarding/state` also returns `broker_accounts`, `broker_accounts_live`, `holdings_count`.
 - `POST /api/portfolio/upload` (and `/upload-raw`) read broker holdings exports (.xlsx / .xls / .csv) from
   Zerodha, Groww, Upstox, Angel One, ICICI Direct, HDFC Securities, Kotak, Dhan, 5paisa and MF Central;
