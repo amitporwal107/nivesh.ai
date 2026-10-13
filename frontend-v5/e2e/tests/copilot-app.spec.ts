@@ -535,6 +535,32 @@ test.describe("Copilot app — desktop", () => {
     await expect(page.getByTestId("screen-advisor-client-360")).toBeVisible();
   });
 
+  test("TC-11b while an advisor has a client open, every screen says whose data it is and offers the way back", async ({ page }) => {
+    await setup(page);
+    await mockChat(page);
+    // The original app's own record of the client being viewed (stores/impersonation.store.ts).
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem("seeded")) {
+        localStorage.setItem("nivesh.impersonation", JSON.stringify({ state: { profileId: "p-2", name: "Test Client Two" }, version: 0 }));
+        sessionStorage.setItem("seeded", "1");
+      }
+    });
+    await page.goto(APP);
+    await expect(page.getByTestId("client-bar-name")).toHaveText("Test Client Two");
+    // Requests made while the client is open carry the client's profile.
+    const asClient = page.waitForRequest((r) => r.url().includes("/api/") && r.headers()["x-active-profile"] === "p-2");
+    await page.goto(`${APP}/tool/markets`);
+    await asClient;
+    await expect(page.getByTestId("client-bar")).toBeVisible();
+    await page.getByTestId("client-bar-back").click();
+    await expect(page).toHaveURL(/\/v5\/app\/advisor$/);
+    await expect(page.getByTestId("client-bar")).toHaveCount(0);
+    // Out of the client view for good: the strip does not come back on other screens.
+    await page.getByTestId("copilot-rail").getByRole("button", { name: "Nivesh home" }).click();
+    await expect(page.getByTestId("home-headline")).toBeVisible();
+    await expect(page.getByTestId("client-bar")).toHaveCount(0);
+  });
+
   test("TC-12 internal pages are for admins only", async ({ page }) => {
     await setup(page); // user-profile-onboarded.json is an admin
     await mockChat(page);

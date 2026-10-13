@@ -25,6 +25,7 @@ import { useThreadTurns } from "./lib/use-thread-turns";
 import { APP_BASE, MODE_HOME, threadIdOf, threadView, viewOf, viewPath, type Mode } from "./lib/views";
 import { ADMIN_SCREENS, SCREENS } from "./screens";
 import { Composer, type ComposerHandle } from "./shell/Composer";
+import { ClientBar } from "./shell/ClientBar";
 import { Evidence } from "./shell/Evidence";
 import { Rail } from "./shell/Rail";
 import Home from "./views/Home";
@@ -183,6 +184,7 @@ export default function CopilotAppPage() {
               </button>
             </div>
           )}
+          {view !== "advisor" && !view.startsWith("advisor/") && <ClientBar padX={padX} onBack={() => go("advisor")} />}
           {threadId && !mobile && (
             <div data-testid="thread-bar" className="flex items-center" style={{ gap: 12, padding: `12px ${padX}px`, borderBottom: "1px solid var(--cp-line)" }}>
               {lastClass && <span className="cp-pill" data-tone={lastClass.tone}>{lastClass.label}</span>}
