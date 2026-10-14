@@ -6,31 +6,34 @@
  *   GET /api/filings/feed?days=7&category=&sort=&limit=    classified NSE / BSE filings, with sentiment (intel-data.ts)
  *   GET /api/filings/{id}/insights                        the generated read of the selected filing, when its row says one exists
  *   GET /api/markets/fii-dii                              daily FII / DII net cash flows, ₹ crore (NSE provisional)
+ *   GET /api/markets/deals?days=5&kind=all                NSE bulk and block deals, under the Orders & deals chip
+ *   GET /api/markets/circulars?days=30&limit=50           SEBI circulars and master circulars, under the Regulatory chip
  *   GET /api/positional/watchlist + /picks                whether the filing's stock is in today's scanner (useDeskScanner)
  *
  * Chips map to the classifier's categories: Results = earnings; Orders & deals
- * = orders, mna; Corporate = capex, management, dividend, buyback, qip, rating,
- * litigation; Regulatory = regulatory (the default feed leaves it out).
- * Not connected: bulk and block deals (the only source, GET
- * /api/movers/candidates, sits behind the move_odds flag) and SEBI circulars
- * (no feed exists). Those parts say so instead of showing sample rows.
+ * = orders, mna (plus the exchange's bulk and block deals); Corporate = capex,
+ * management, dividend, buyback, qip, rating, litigation; Regulatory =
+ * regulatory (the default feed leaves it out), plus SEBI's own circulars.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { FilingRow } from "@/services/adapters/filings.adapter";
 import type { FiiDiiFlowRow } from "@/services/contracts/markets.contract";
 import { StockIcon } from "../../components/EntityIcon";
-import { DataTable, EmptyBlock, LoadingBlock, NotConnected, Pill, Section, TONE_COLOR, fmtNum, type Column } from "../../components/ui";
+import { DataTable, EmptyBlock, LoadingBlock, Pill, Section, TONE_COLOR, fmtNum, type Column, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
 import { sentimentTone } from "../markets/ArticlesTab";
 import { dayLabel, fmtCrPlain, titleCase } from "../markets/format";
 import { useInstitutionalFlows } from "../markets/hooks";
 import { FilingInsight } from "../markets/mkt-FilingInsight";
 import { LoadError, Signed, SourceLine } from "../markets/parts";
+import { SymbolCell } from "../desk/parts";
+import { QueryProblem, fmtPrice, fmtQty } from "../trading/parts";
 import { useDesk } from "./context";
 import { useDeskScanner } from "./desk-data";
 import {
-  FEED_DAYS, INTEL_CHIPS, categoryLabel, categoryTone, chipCount, eventWhen, exchangeOf, useEventFeed,
-  type FeedSort, type IntelChip,
+  CIRCULAR_DAYS, CIRCULAR_KIND_LABEL, DEAL_DAYS, FEED_DAYS, INTEL_CHIPS, categoryLabel, categoryTone, chipCount, eventWhen, filingExchange,
+  useCirculars, useDeals, useEventFeed,
+  type Circular, type DealRow, type FeedSort, type IntelChip,
 } from "./intel-data";
 
 /** Rows listed before "Show more". */
@@ -92,24 +95,8 @@ export default function IntelTab() {
 
         {chip === "flows" ? <FlowsView /> : <EventsView key={`${chip}-${sort}`} feed={feed} sort={sort} />}
 
-        {chip === "orders" && (
-          <NotConnected
-            testId="desk-intel-deals-gap"
-            title="Bulk and block deals"
-            body="The list above is companies’ own filings about orders and acquisitions. Exchange bulk and block deals are not connected to this desk yet."
-            needs={[
-              "A bulk / block-deal feed open to every account — today the only one is GET /api/movers/candidates, which sits behind the move_odds feature flag",
-            ]}
-          />
-        )}
-        {chip === "regulatory" && (
-          <NotConnected
-            testId="desk-intel-sebi-gap"
-            title="SEBI circulars"
-            body="The list above is companies’ own regulatory filings. Circulars from SEBI and the exchanges are not connected yet."
-            needs={["A SEBI / exchange circular feed — no ingester or endpoint exists for it"]}
-          />
-        )}
+        {chip === "orders" && <DealsView />}
+        {chip === "regulatory" && <CircularsView />}
       </div>
     </Section>
   );
@@ -221,7 +208,7 @@ function EventDetail({ row: r }: { row: FilingRow }) {
   const when = eventWhen(r.date);
   const ticker = (r.code ?? r.ticker ?? "").trim().toUpperCase() || null;
   const title = r.docLabel ?? "Exchange filing";
-  const exchange = exchangeOf(r.url);
+  const exchange = filingExchange(r);
   const who = r.name ?? ticker;
   return (
     <article data-testid="desk-event-detail" data-id={r.id} className="cp-card flex min-w-0 flex-col" style={{ gap: 14, padding: 16 }}>
@@ -314,6 +301,138 @@ function LinkedStock({ symbol, name }: { symbol: string; name: string | null }) 
         <span data-testid="desk-event-not-scanner" className="cp-mono-note">Not in today’s scanner</span>
       )}
     </div>
+  );
+}
+
+// ── bulk and block deals ─────────────────────────────────────────────────
+
+/** Deals listed before "Show more". */
+const DEAL_PAGE = 15;
+
+function SubHead({ title, note }: { title: string; note?: string }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between" style={{ gap: "4px 12px", paddingTop: 6, borderTop: "1px solid var(--cp-line)" }}>
+      <span className="cp-eyebrow" style={{ paddingTop: 10 }}>{title}</span>
+      {note && <span className="cp-mono-note">{note}</span>}
+    </div>
+  );
+}
+
+function DealsView() {
+  const { openChart } = useDesk();
+  const q = useDeals(true);
+  const [shown, setShown] = useState(DEAL_PAGE);
+  let body: ReactNode;
+  if (q.isPending) body = <LoadingBlock label="Loading bulk and block deals" rows={3} />;
+  else if (q.isError) body = <div data-testid="desk-deals-error"><QueryProblem what="Bulk and block deals" error={q.error} onRetry={() => q.refetch()} /></div>;
+  else if (q.data.rows.length === 0) {
+    body = (
+      <div data-testid="desk-deals-empty">
+        <EmptyBlock title="No bulk or block deals" body={q.data.asOf ? `No bulk or block deals are on record in the ${fmtNum(q.data.days ?? DEAL_DAYS)} calendar days to ${dayLabel(q.data.asOf, { year: true })}.` : "No bulk or block deals are on record yet."} />
+      </div>
+    );
+  } else {
+    const d = q.data;
+    const sideTone = (side: string | null): Tone => (side === "BUY" ? "mint" : side === "SELL" ? "danger" : "ink");
+    const columns: Column<DealRow>[] = [
+      { key: "date", header: "Date", width: "74px", render: (r) => <span data-testid="desk-deal-date">{dayLabel(r.date)}</span> },
+      { key: "kind", header: "Kind", width: "64px", render: (r) => <span data-testid="desk-deal-kind">{r.kind ? titleCase(r.kind) : "—"}</span> },
+      { key: "stock", header: "Stock", width: "minmax(120px,1fr)", render: (r) => <SymbolCell symbol={r.symbol} size={20} testId="desk-deal-symbol" /> },
+      { key: "client", header: "Client", width: "minmax(140px,1.4fr)", render: (r) => <span data-testid="desk-deal-client" title={r.client ?? undefined}>{r.client ?? "—"}</span> },
+      { key: "side", header: "Side", width: "52px", render: (r) => <span data-testid="desk-deal-side" style={{ color: TONE_COLOR[sideTone(r.side)] }}>{r.side ?? "—"}</span> },
+      { key: "qty", header: "Quantity", align: "right", num: true, width: "86px", render: (r) => <span data-testid="desk-deal-qty">{fmtQty(r.quantity)}</span> },
+      { key: "price", header: "Price", align: "right", num: true, width: "92px", render: (r) => <span data-testid="desk-deal-price">{fmtPrice(r.price)}</span> },
+      { key: "value", header: "₹ Cr", align: "right", num: true, width: "70px", render: (r) => <span data-testid="desk-deal-value">{fmtNum(r.valueCr, 2)}</span> },
+    ];
+    const rows = d.rows.slice(0, shown);
+    body = (
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        <div data-testid="desk-deals-table" style={{ border: "1px solid var(--cp-line)", borderRadius: 12 }}>
+          <DataTable columns={columns} rows={rows} rowKey={(r, i) => `${r.date}-${r.kind}-${r.symbol}-${r.client}-${r.side}-${i}`} minWidth={760} onRowClick={(r) => openChart(r.symbol)} />
+        </div>
+        <div className="flex flex-wrap items-center justify-between" style={{ gap: 8 }}>
+          <span data-testid="desk-deals-count" className="cp-mono-note">
+            {fmtNum(rows.length)} of {fmtNum(d.rows.length)} loaded{d.total != null && d.total > d.rows.length ? ` · ${fmtNum(d.total)} in the window, largest first each day` : ""} · open a row for its chart
+          </span>
+          {shown < d.rows.length && (
+            <button type="button" className="cp-chip" data-testid="desk-deals-more" onClick={() => setShown((n) => n + DEAL_PAGE)}>Show more</button>
+          )}
+        </div>
+        <SourceLine
+          testId="desk-deals-source"
+          source={d.source}
+          asOf={d.asOf}
+          asOfLabel="end of day"
+          note={`${d.from && d.asOf ? `${dayLabel(d.from)} to ${dayLabel(d.asOf)}` : `last ${fmtNum(d.days ?? DEAL_DAYS)} calendar days`}, the sessions on record · price = the deal’s average price · value = quantity × price, ₹ crore`}
+        />
+      </div>
+    );
+  }
+  return (
+    <div data-testid="desk-deals" className="flex flex-col" style={{ gap: 10 }}>
+      <SubHead title="Bulk and block deals" note="Reported by the exchange · not company filings" />
+      {body}
+    </div>
+  );
+}
+
+// ── SEBI circulars ───────────────────────────────────────────────────────
+
+function CircularsView() {
+  const q = useCirculars(true);
+  let body: ReactNode;
+  if (q.isPending) body = <LoadingBlock label="Loading SEBI circulars" rows={3} />;
+  else if (q.isError) body = <div data-testid="desk-circulars-error"><QueryProblem what="SEBI circulars" error={q.error} onRetry={() => q.refetch()} /></div>;
+  else if (q.data.rows.length === 0) {
+    body = (
+      <div data-testid="desk-circulars-empty">
+        <EmptyBlock title="No SEBI circulars on record" body={`No circular or master circular issued in the last ${CIRCULAR_DAYS} days has been read from SEBI’s feed.`} />
+      </div>
+    );
+  } else {
+    const d = q.data;
+    body = (
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        <ul data-testid="desk-circulars-list" className="m-0 flex flex-col" style={{ gap: 6, padding: 0, listStyle: "none" }}>
+          {d.rows.map((c, i) => <CircularRow key={`${c.url ?? c.title}-${i}`} c={c} />)}
+        </ul>
+        <SourceLine
+          testId="desk-circulars-source"
+          source={d.source}
+          asOf={d.asOf}
+          note={`issued in the last ${CIRCULAR_DAYS} days · ${fmtNum(d.rows.length)} listed`}
+        />
+      </div>
+    );
+  }
+  return (
+    <div data-testid="desk-circulars" className="flex flex-col" style={{ gap: 10 }}>
+      <SubHead title="SEBI circulars" note="From the regulator · not company filings" />
+      {body}
+    </div>
+  );
+}
+
+function CircularRow({ c }: { c: Circular }) {
+  const kind = c.kind ? CIRCULAR_KIND_LABEL[c.kind] ?? titleCase(c.kind) : "Circular";
+  return (
+    <li
+      data-testid="desk-circular"
+      className="grid"
+      style={{ gridTemplateColumns: "minmax(0,1fr)", gap: 4, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--cp-line)", background: "var(--bg-1)" }}
+    >
+      <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
+        <span data-testid="desk-circular-kind"><Pill tone={c.kind === "master_circular" ? "indigo" : "ink"}>{kind}</Pill></span>
+        <span data-testid="desk-circular-date" className="cp-num" style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>{c.issuedOn ? `Issued ${dayLabel(c.issuedOn, { year: true })}` : "Issue date not stated"}</span>
+      </span>
+      {c.url ? (
+        <a data-testid="desk-circular-title" className="cp-link" href={c.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.4, overflowWrap: "anywhere" }}>
+          {c.title} ↗
+        </a>
+      ) : (
+        <span data-testid="desk-circular-title" style={{ fontSize: 13.5, fontWeight: 500, lineHeight: 1.4, overflowWrap: "anywhere" }}>{c.title}</span>
+      )}
+    </li>
   );
 }
 

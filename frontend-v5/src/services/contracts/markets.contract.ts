@@ -24,6 +24,8 @@ export const MarketBreadthC = z.object({
   declines:  z.number().nullable(),
   unchanged: z.number().nullable(),
   universe:  z.number().nullable(),
+  /** Which stocks `universe` counts: the full NSE bhavcopy (end of day) or the Nifty 50 live fallback. */
+  universe_kind: z.string().nullable().optional(),
   tone:      z.string(),
   /** Structural breadth from the NIDP EOD builder (full equity universe). */
   pct_above_20ema: z.number().nullable().optional(),

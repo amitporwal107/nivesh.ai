@@ -212,6 +212,16 @@ PROVENANCE: Dict[str, Dict[str, Any]] = {
         "validation":  ["filed_at_in_past", "category_classified"],
         "criticality": "RECOMMENDED",
     },
+    "sebi_circulars": {
+        "source":      "SEBI",
+        "source_url":  "https://www.sebi.gov.in/sebirss.xml",
+        "retrieval":   "rss",
+        "ingester":    "sebi_circulars",
+        "cadence":     "rolling",
+        "depth":       "RSS window + listing page 1",
+        "validation":  ["kind_in_set"],
+        "criticality": "OPTIONAL",
+    },
     # ── Derived ───────────────────────────────────────────────────────
     "stock_features_daily": {
         "source":      "derived",
@@ -426,6 +436,7 @@ def for_feed(name: str) -> Dict[str, Any]:
         "document_parser":             "corporate_announcements",
         "mf_holdings":             "mf_holdings_monthly",
         "amfi_circulars":          "mf_amfi_circulars",
+        "sebi_circulars":          "sebi_circulars",
         "rbi":                     "rbi_yields",
     }
     if lower in aliases and aliases[lower] in PROVENANCE:

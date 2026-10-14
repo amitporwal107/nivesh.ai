@@ -2,6 +2,11 @@
 
 Public (auth-required):
   GET  /api/positional/picks?date=&min_score=&stage=&limit=
+  GET  /api/positional/watchlist?limit=
+       Rows of both carry spark_closes (last 24 daily closes up to the signal / features date, oldest first, from
+       stock_ohlcv), spark_end (date of the last one) and avg_traded_value_cr_20d (mean close × volume over the last
+       20 sessions, ₹ crore; null with fewer than 20 sessions or a missing volume). Watchlist rows also carry
+       resistance_level and support_level from stock_technical_features.
   GET  /api/positional/picks/{symbol}?date=
   GET  /api/positional/picks/mine          — portfolio-aware filtered picks
 
@@ -45,6 +50,58 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid date: {s}, expected YYYY-MM-DD")
+
+
+SPARK_SESSIONS = 24        # daily closes in a row's sparkline
+ATV_SESSIONS = 20          # sessions in the average traded value
+_CRORE = 1e7
+
+# The last SPARK_SESSIONS bars per symbol up to a date, for every symbol of a request in one query.
+_SPARK_SQL = """
+    SELECT nse_symbol, bar_date, close_price, volume
+      FROM (SELECT nse_symbol, bar_date, close_price, volume,
+                   row_number() OVER (PARTITION BY nse_symbol ORDER BY bar_date DESC) AS rn
+              FROM stock_ohlcv
+             WHERE nse_symbol = ANY($1::text[])
+               AND bar_date <= $2
+               AND bar_date > $2 - INTERVAL '90 days') t
+     WHERE rn <= $3
+     ORDER BY nse_symbol, bar_date
+"""
+
+
+def _bar_fields(bars: Optional[list]) -> dict:
+    """spark_closes / spark_end / avg_traded_value_cr_20d from (bar_date, close, volume) bars, oldest first.
+    bars None (the read failed) → every field null; no bars → an empty spark and nulls."""
+    if bars is None:
+        return {"spark_closes": None, "spark_end": None, "avg_traded_value_cr_20d": None}
+    spark = [(d, float(c)) for d, c, _ in bars if c is not None][-SPARK_SESSIONS:]
+    tail = bars[-ATV_SESSIONS:]
+    atv = None
+    if len(tail) == ATV_SESSIONS and all(c is not None and v is not None for _, c, v in tail):
+        atv = round(sum(float(c) * int(v) for _, c, v in tail) / ATV_SESSIONS / _CRORE, 2)
+    return {"spark_closes": [round(c, 2) for _, c in spark],
+            "spark_end": str(spark[-1][0]) if spark else None,
+            "avg_traded_value_cr_20d": atv}
+
+
+async def _spark_bars(symbols: List[str], through: date) -> Optional[dict]:
+    """symbol → [(bar_date, close, volume)] oldest first, up to `through`; None when the read failed."""
+    if not symbols:
+        return {}
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(_SPARK_SQL, symbols, through, SPARK_SESSIONS)
+    except Exception as e:  # noqa: BLE001 — the picks still answer, with the bar fields null
+        logger.warning("positional: spark bars read failed (%s)", e)
+        return None
+    out: dict = {s: [] for s in symbols}
+    for r in rows:
+        out.setdefault(r["nse_symbol"], []).append((r["bar_date"], r["close_price"], r["volume"]))
+    return out
 
 
 async def _latest_signal_date() -> Optional[date]:
@@ -124,6 +181,9 @@ async def get_picks(request: Request,
     if sig_date is None:
         return {"signal_date": None, "picks": [], "message": "no signals available yet"}
     picks = await _fetch_picks(sig_date, min_score, stage, limit)
+    bars = await _spark_bars(sorted({p["nse_symbol"] for p in picks}), sig_date)
+    for p in picks:
+        p.update(_bar_fields(None if bars is None else bars.get(p["nse_symbol"], [])))
     return {
         "signal_date": str(sig_date),
         "count": len(picks),
@@ -200,10 +260,12 @@ async def get_watchlist(request: Request, limit: int = 30):
             # Second pass — bulk-load last 60 bars for each candidate
             # symbol from stock_ohlcv. One query.
             bars_by_sym: dict = {}
+            raw_bars_by_sym: dict = {}   # (bar_date, close, volume) as stored, for the spark / traded-value fields
             if candidate_syms:
                 ohlcv_rows = await conn.fetch(
                     """
-                    SELECT nse_symbol, bar_date, open, high, low, close, volume,
+                    SELECT nse_symbol, bar_date, open_price AS open, high_price AS high,
+                           low_price AS low, close_price AS close, volume,
                            delivery_qty, delivery_pct
                     FROM stock_ohlcv
                     WHERE nse_symbol = ANY($1::text[])
@@ -214,6 +276,7 @@ async def get_watchlist(request: Request, limit: int = 30):
                     candidate_syms, d,
                 )
                 for r in ohlcv_rows:
+                    raw_bars_by_sym.setdefault(r["nse_symbol"], []).append((r["bar_date"], r["close"], r["volume"]))
                     bars_by_sym.setdefault(r["nse_symbol"], []).append({
                         "date":         r["bar_date"],
                         "open":         float(r["open"]) if r["open"] is not None else 0.0,
@@ -294,6 +357,9 @@ async def get_watchlist(request: Request, limit: int = 30):
             "sma_200": sma200,
             "ema_20": ema20,
             "signals": signals,
+            "resistance_level": float(r["resistance_level"]) if r["resistance_level"] is not None else None,
+            "support_level": float(r["support_level"]) if r["support_level"] is not None else None,
+            **_bar_fields(raw_bars_by_sym.get(sym, [])),
         }
 
         # ── Bucket gates (precedence: confirmed → pre → continuation → accum) ──

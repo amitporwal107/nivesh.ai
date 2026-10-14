@@ -36,7 +36,7 @@ INGESTERS=(
     nse_calendar nse_equity_master nse_financials nse_shareholding
     parsed price_adjuster
     rbi_yields
-    snapshot_builder
+    sebi_circulars snapshot_builder
 )
 
 mkdir -p "$DATA_DIR"

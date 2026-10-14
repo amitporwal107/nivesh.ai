@@ -1,33 +1,33 @@
 /**
  * Smart trading desk — 05 Portfolio & risk. Design: "Smart Trading Desk",
- * Portfolio & risk. Read-only: brokers are read, nothing places an order.
+ * Portfolio & risk. Brokers are read only, and nothing places an order; the
+ * only writes are the user's own simulated paper trades and price alerts.
  *
  * Left card · Portfolio, broker hub
  *   sources line          GET /api/broker/accounts                        (useBrokerAccounts)
  *   value, P&L, positions GET /api/portfolio/holdings-enriched            (useHoldingsEnriched); the list is the
  *                         direct stocks (asset type equity / stock), each weight the route's share of the whole portfolio
  *   sector ring           GET /api/portfolio/exposure/concentration       (usePortfolioConcentration), sector.items
+ *   market-cap split      GET /api/portfolio/market-cap-split             (useMarketCapSplit, portfolio-data.ts)
  *   risk checks           largest stock weight from holdings-enriched, sector concentration from the
  *                         concentration route, beta / volatility / 1-day VaR / risk drivers from
  *                         GET /api/portfolio/risk-analytics               (useRiskAnalytics, portfolio-data.ts)
+ *   correlated positions  GET /api/portfolio/correlation?sessions=120&limit=10 (useCorrelation)
  * Right card · your trades and the model's record
  *   trade journal         GET /api/positional/journal/summary/portfolio   (useJournalSummary)
  *   calibration           GET /api/paper-trades/evaluation?sample=&portfolio=P5-NEXT (usePaperEvaluation);
  *                         forward and replay are separate samples, forward first; 403 = not enabled
- * Below: the broker block (desk/BrokerPositions, as on the Trader desk)
+ * Below: your paper trades and price alerts (PaperDesk.tsx)
+ *                         GET /api/desk/paper-trades, POST …/{id}/close, GET /api/desk/alerts, DELETE …/{id}
+ * Then the broker block (desk/BrokerPositions, as on the Trader desk)
  *                         GET /api/broker/accounts, /api/portfolio/holdings, /api/broker/positions
- *
- * Not connected:
- *   correlated positions  no route works out a correlation across the user's holdings; the
- *                         recommendation engine computes correlations internally only
- *   market-cap split      no route returns a large / mid / small-cap split, so the ring is by sector
  */
 import { useState, type ReactNode } from "react";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
 import type { PaperSample } from "@/services/adapters/paperTrades.adapter";
 import { BrokerIcon, StockIcon, StockName } from "../../components/EntityIcon";
 import {
-  Btn, DataTable, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, NotConnected, Pill,
+  Btn, DataTable, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Pill,
   TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone,
   type Column, type Tone,
 } from "../../components/ui";
@@ -38,9 +38,11 @@ import { VERDICT_META, lensOf, readConcentration } from "../portfolio/concentrat
 import { loadError } from "../portfolio/data";
 import { Choices, QueryProblem, fmtDay, fmtSigned } from "../trading/parts";
 import { useBrokerAccounts, useJournalSummary, usePaperEvaluation } from "../trading/queries";
+import { AlertsBlock, PaperTradesBlock } from "./PaperDesk";
 import {
-  SINGLE_STOCK_LIMIT_PCT, calibrationRows, largestStock, readPortfolio, sectorSlices, useRiskAnalytics,
-  type CalibrationRow, type PortfolioView, type RiskAnalytics, type SectorSlice, type StockPosition,
+  CORR_SESSIONS, SINGLE_STOCK_LIMIT_PCT, calibrationRows, largestStock, readPortfolio, sectorSlices, useCorrelation, useMarketCapSplit,
+  useRiskAnalytics,
+  type CalibrationRow, type CapBucket, type CorrPair, type PortfolioView, type RiskAnalytics, type SectorSlice, type StockPosition,
 } from "./portfolio-data";
 
 const quiet = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
@@ -50,10 +52,8 @@ const plural = (n: number, one: string, many = `${one}s`) => `${fmtNum(n)} ${n =
 const BETA_HIGH = 1.2;
 const BETA_LOW = 0.8;
 
-const CORRELATION_NEEDS = [
-  "A pairwise return correlation over the user's holdings (for example one year of daily returns), served by a portfolio route.",
-  "Correlations are computed today only inside the recommendation engine (backend/services/recommendation_engine/orchestrator.py, DaaS correlations) and are not returned by any route.",
-];
+/** Flag a pair at or above this when the route does not send its own threshold. */
+const CORR_HIGH_DEFAULT = 0.7;
 
 function Card({ title, pill, aside, testId, children }: { title: string; pill?: ReactNode; aside?: ReactNode; testId: string; children: ReactNode }) {
   return (
@@ -176,12 +176,101 @@ function SectorRing() {
   return (
     <Sub title="Allocation" note="By sector" testId="desk-portfolio-sectors">
       {body}
-      <span data-testid="desk-portfolio-mcap-note" style={quiet}>
-        Sector exposure of the whole portfolio, counting the stocks inside your funds where their holdings are on record. A large-, mid- and small-cap split is not shown: no route returns one yet.
+      <span data-testid="desk-portfolio-sector-note" style={quiet}>
+        Sector exposure of the whole portfolio, counting the stocks inside your funds where their holdings are on record. The market-cap split below covers direct stocks only.
       </span>
     </Sub>
   );
 }
+
+// ── market-cap split ─────────────────────────────────────────────────────
+
+const CAP_LABEL: Record<CapBucket, { name: string; rule: string }> = {
+  large: { name: "Large cap", rule: "Nifty 100" },
+  mid: { name: "Mid cap", rule: "Nifty Midcap 150" },
+  small: { name: "Small cap", rule: "Nifty Smallcap 250" },
+  micro: { name: "Micro and other", rule: "rest of the Nifty Total Market" },
+  unclassified: { name: "Unclassified", rule: "in none of these indices" },
+};
+const capColor = (b: CapBucket, i: number) => (b === "unclassified" ? "var(--bg-4)" : `var(--ring-${i + 1})`);
+
+function CapSplitBlock() {
+  const q = useMarketCapSplit();
+  let body: ReactNode;
+  if (q.isPending) body = <LoadingBlock label="Loading the market-cap split" rows={2} />;
+  else if (q.isError) body = <div data-testid="desk-mcap-error"><QueryProblem what="The market-cap split" error={q.error} onRetry={() => q.refetch()} /></div>;
+  else if (q.data.slices.length === 0 || q.data.totalValueRs === 0) {
+    body = <span data-testid="desk-mcap-empty" style={quiet}>No direct stocks to split by market cap.</span>;
+  } else {
+    const d = q.data;
+    const u = d.unsplit;
+    const large = d.slices.find((sl) => sl.bucket === "large");
+    const unsplitLabel = large?.available ? "Outside Nifty 100 — not split yet" : "Not split yet";
+    const drawn = d.slices.filter((sl) => sl.available && sl.weightPct != null && sl.weightPct > 0);
+    const unsplitShare = u?.weightPct != null && u.weightPct > 0 ? u.weightPct : 0;
+    const total = drawn.reduce((a, sl) => a + (sl.weightPct ?? 0), 0) + unsplitShare || 1;
+    const reason = u?.reason ?? d.reason ?? d.slices.find((sl) => !sl.available && sl.reason)?.reason ?? null;
+    body = (
+      <div className="desk-ring flex flex-col" style={{ gap: 10 }}>
+        <style>{RING_STYLE}</style>
+        <div
+          data-testid="desk-mcap-bar"
+          role="img"
+          aria-label={`By market cap: ${[...drawn.map((sl) => `${CAP_LABEL[sl.bucket].name} ${fmtPct(sl.weightPct)}`), ...(unsplitShare ? [`${unsplitLabel} ${fmtPct(unsplitShare)}`] : [])].join(", ")}`}
+          className="flex overflow-hidden"
+          style={{ height: 10, borderRadius: 5, background: "var(--bg-2)", gap: 2 }}
+        >
+          {drawn.map((sl) => (
+            <span key={sl.bucket} title={`${CAP_LABEL[sl.bucket].name}: ${fmtPct(sl.weightPct)}`} style={{ width: `${((sl.weightPct ?? 0) / total) * 100}%`, background: capColor(sl.bucket, CAP_BUCKET_INDEX[sl.bucket]) }} />
+          ))}
+          {unsplitShare > 0 && (
+            <span data-testid="desk-mcap-bar-unsplit" title={`${unsplitLabel}: ${fmtPct(unsplitShare)}`} style={{ width: `${(unsplitShare / total) * 100}%`, background: "repeating-linear-gradient(135deg, var(--bg-4) 0 4px, var(--bg-3) 4px 8px)" }} />
+          )}
+        </div>
+        <ul className="m-0 flex flex-col" style={{ gap: 6, padding: 0, listStyle: "none" }}>
+          {d.slices.map((sl) => (
+            <li key={sl.bucket} data-testid="desk-mcap-row" data-bucket={sl.bucket} data-available={sl.available ? "true" : "false"} className="flex items-center" style={{ gap: 8, fontSize: 12.5, minWidth: 0 }}>
+              <span aria-hidden="true" style={{ flex: "none", width: 10, height: 10, borderRadius: 3, background: sl.available ? capColor(sl.bucket, CAP_BUCKET_INDEX[sl.bucket]) : "transparent", border: sl.available ? 0 : "1px dashed var(--line-3)" }} />
+              <span style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--cp-ink-2)" }}>
+                {CAP_LABEL[sl.bucket].name} <span style={{ color: "var(--cp-ink-3)" }}>· {CAP_LABEL[sl.bucket].rule}</span>
+              </span>
+              {sl.available ? (
+                <>
+                  <span data-testid="desk-mcap-count" className="cp-num" style={{ flex: "none", fontSize: 11, color: "var(--cp-ink-3)" }}>{sl.count != null ? plural(sl.count, "stock") : ""}</span>
+                  <span data-testid="desk-mcap-value" className="cp-num" style={{ flex: "none", fontSize: 11, color: "var(--cp-ink-3)" }}>{fmtINR(sl.valueRs, { compact: true })}</span>
+                  <span data-testid="desk-mcap-weight" className="cp-num" style={{ flex: "none", width: 48, textAlign: "right", color: "var(--cp-ink)" }}>{fmtPct(sl.weightPct)}</span>
+                </>
+              ) : (
+                <span data-testid="desk-mcap-weight" className="cp-num" style={{ flex: "none", color: "var(--cp-ink-3)" }}>Not available</span>
+              )}
+            </li>
+          ))}
+        </ul>
+        {u && (
+          <div data-testid="desk-mcap-unsplit" role="status" className="flex flex-col" style={{ gap: 4, padding: "8px 10px", borderRadius: 10, border: "1px solid var(--amber-line)", background: "var(--amber-soft)" }}>
+            <span style={{ fontSize: 12.5, color: "var(--cp-ink)" }}>
+              {unsplitLabel}: <span data-testid="desk-mcap-unsplit-value" className="cp-num">{fmtINR(u.valueRs, { compact: true })} ({fmtPct(u.weightPct)})</span>
+              {u.count != null ? ` · ${plural(u.count, "stock")}` : ""}
+            </span>
+            {reason && <span data-testid="desk-mcap-reason" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>{reason}.</span>}
+          </div>
+        )}
+        {!u && !d.available && reason && (
+          <span data-testid="desk-mcap-reason" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{reason}.</span>
+        )}
+        <span data-testid="desk-mcap-note" style={quiet}>
+          {d.method ?? "NSE index membership"}.{" "}
+          {d.indices.length > 0 && `Lists: ${d.indices.map((ix) => (ix.available && ix.date ? `${ix.name} (${ix.members != null ? `${fmtNum(ix.members)} members, ` : ""}${fmtDay(ix.date)})` : `${ix.name} (not on record)`)).join(" · ")}. `}
+          Weights are shares of your direct stocks’ value{d.totalValueRs != null ? ` (${fmtINR(d.totalValueRs, { compact: true })})` : ""}.
+          {d.fundsValueRs != null && d.fundsValueRs > 0 ? ` Funds and other holdings (${fmtINR(d.fundsValueRs, { compact: true })}) are not split.` : " Funds are not split."}
+        </span>
+      </div>
+    );
+  }
+  return <Sub title="By market cap" note="Direct stocks · NSE index membership" testId="desk-portfolio-mcap">{body}</Sub>;
+}
+
+const CAP_BUCKET_INDEX: Record<CapBucket, number> = { large: 0, mid: 1, small: 2, micro: 3, unclassified: 4 };
 
 // ── positions ────────────────────────────────────────────────────────────
 
@@ -378,13 +467,90 @@ function RiskChecks({ view }: { view: PortfolioView }) {
           {`Beta above ${fmtNum(BETA_HIGH, 1)} is marked high and below ${fmtNum(BETA_LOW, 1)} low. Volatility bands and risk-driver levels are the route’s own.`}
         </span>
       )}
-      <NotConnected
-        testId="desk-portfolio-correlation"
-        title="Correlated positions"
-        body="Which of your holdings tend to move together. No route works out a correlation across your holdings yet, so this check is not shown."
-        needs={CORRELATION_NEEDS}
-      />
+      <CorrelationBlock />
     </Sub>
+  );
+}
+
+// ── correlated positions ─────────────────────────────────────────────────
+
+function PairRow({ p, high }: { p: CorrPair; high: number }) {
+  const flagged = p.corr >= high;
+  const weights = [
+    p.weightA != null && p.weightB != null ? `${fmtPct(p.weightA)} and ${fmtPct(p.weightB)} of the portfolio` : "",
+    p.commonSessions != null ? `${fmtNum(p.commonSessions)} common sessions` : "",
+  ].filter(Boolean).join(" · ") || null;
+  return (
+    <li
+      data-testid="desk-corr-pair"
+      data-pair={`${p.a}-${p.b}`}
+      data-high={flagged ? "true" : "false"}
+      className="grid items-center"
+      style={{ gridTemplateColumns: "minmax(0,1fr) auto", gap: "2px 12px", padding: "8px 0", borderTop: "1px solid var(--cp-line)" }}
+    >
+      <span className="flex min-w-0 flex-wrap items-center" style={{ gap: "4px 8px", fontSize: 13 }}>
+        <span className="inline-flex items-center" style={{ gap: 5 }}><StockIcon symbol={p.a} size={18} /><span data-testid="desk-corr-a" className="cp-num" style={{ color: "var(--cp-ink)" }}>{p.a}</span></span>
+        <span aria-hidden="true" style={{ color: "var(--cp-ink-4)" }}>↔</span>
+        <span className="inline-flex items-center" style={{ gap: 5 }}><StockIcon symbol={p.b} size={18} /><span data-testid="desk-corr-b" className="cp-num" style={{ color: "var(--cp-ink)" }}>{p.b}</span></span>
+      </span>
+      <span className="flex items-center justify-end" style={{ gap: 8 }}>
+        {flagged && <span data-testid="desk-corr-flag"><Pill tone="amber">High</Pill></span>}
+        <span data-testid="desk-corr-value" className="cp-num" style={{ fontSize: 14, color: flagged ? "var(--amber)" : "var(--cp-ink)" }}>{fmtNum(p.corr, 2)}</span>
+      </span>
+      {weights && <span style={{ gridColumn: "1 / -1", fontSize: 11.5, color: "var(--cp-ink-3)" }}>{weights}</span>}
+    </li>
+  );
+}
+
+function CorrelationBlock() {
+  const q = useCorrelation();
+  let body: ReactNode;
+  if (q.isPending) body = <LoadingBlock label="Working out which holdings move together" rows={2} />;
+  else if (q.isError) body = <div data-testid="desk-corr-error"><QueryProblem what="Correlated positions" error={q.error} onRetry={() => q.refetch()} /></div>;
+  else {
+    const d = q.data;
+    const high = d.highThreshold ?? CORR_HIGH_DEFAULT;
+    // The route counts flagged pairs over every pair, not only the ones it lists.
+    const flagged = d.highPairs ?? d.pairs.filter((p) => p.corr >= high).length;
+    const skipped = d.skipped.length > 0 && (
+      <span data-testid="desk-corr-skipped" style={quiet}>
+        Not compared: {d.skipped.map((s) => `${s.symbol}${s.reason ? ` (${s.reason})` : ""}`).join("; ")}.
+      </span>
+    );
+    body = d.pairs.length === 0 ? (
+      <div data-testid="desk-corr-none" className="flex flex-col" style={{ gap: 6 }}>
+        <span style={quiet}>Fewer than two of your stocks have enough daily prices to compare{d.sessions ? ` over ${fmtNum(d.sessions)} sessions` : ""}.</span>
+        {skipped}
+      </div>
+    ) : (
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        <span data-testid="desk-corr-summary" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+          {flagged > 0 ? `${plural(flagged, "pair")} at ${fmtNum(high, 2)} or above` : `No pair at ${fmtNum(high, 2)} or above`}
+          {d.pairsTotal != null ? ` of ${plural(d.pairsTotal, "pair")}` : ""}
+          {d.avgCorr != null ? ` · average ${fmtNum(d.avgCorr, 2)}` : ""}
+          {d.holdingsUsed != null ? ` · ${plural(d.holdingsUsed, "stock")} compared` : ""}
+          {d.pairsTotal != null && d.pairsTotal > d.pairs.length ? ` · top ${fmtNum(d.pairs.length)} listed` : ""}
+        </span>
+        <ul className="m-0 flex flex-col" style={{ padding: 0, listStyle: "none" }}>
+          {d.pairs.map((p) => <PairRow key={`${p.a}-${p.b}`} p={p} high={high} />)}
+        </ul>
+        {skipped}
+      </div>
+    );
+    body = (
+      <>
+        {body}
+        <span data-testid="desk-corr-method" style={quiet}>
+          {d.method ?? "Correlation of daily returns"} over {fmtNum(d.sessions ?? CORR_SESSIONS)} sessions{d.minSessions != null ? ` (a stock needs at least ${fmtNum(d.minSessions)})` : ""}{d.source ? ` · ${d.source}` : ""}{d.asOf ? ` · end of day ${fmtDay(d.asOf)}` : ""}. 1.00 = always move together; a pair at {fmtNum(high, 2)} or above is flagged. Most correlated first.
+        </span>
+      </>
+    );
+  }
+  return (
+    <div data-testid="desk-portfolio-correlation" className="flex min-w-0 flex-col" style={{ gap: 8, paddingTop: 6 }}>
+      <span style={{ fontSize: 13, fontWeight: 500, color: "var(--cp-ink)" }}>Correlated positions</span>
+      {body}
+    </div>
   );
 }
 
@@ -435,6 +601,7 @@ function HubCard() {
         </span>
       </div>
       <SectorRing />
+      <CapSplitBlock />
       <Positions view={view} />
       <RiskChecks view={view} />
     </Card>
@@ -610,6 +777,10 @@ export default function PortfolioTab() {
         <HubCard />
         <RecordCard />
       </div>
+      <Card title="Your paper trades and price alerts" pill={<Pill tone="amber">Simulated · no orders</Pill>} testId="desk-portfolio-paper">
+        <PaperTradesBlock />
+        <AlertsBlock />
+      </Card>
       <BrokerPositions />
       <Footnote>Holdings and risk figures are as Nivesh last valued them; broker connections are read-only and nothing here places an order.</Footnote>
     </div>

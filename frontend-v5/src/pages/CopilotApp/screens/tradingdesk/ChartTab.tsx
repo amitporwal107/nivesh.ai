@@ -3,7 +3,8 @@
  *
  *   daily candles, indicators   GET /api/research/chart-live/{symbol}/ohlcv?start=   (useDailyBars; flag `charting`;
  *                               end of day, split and bonus adjusted: nidp.prices_eod_adjusted)
- *   setup, levels, why          GET /api/positional/watchlist + /picks                (useDeskScanner, end of day)
+ *   setup, levels, why          GET /api/positional/watchlist + /picks                (useDeskScanner, end of day);
+ *                               next resistance / support: the watchlist row's resistance_level / support_level
  *   P(+5% next session), record GET /api/move-odds/latest?head=…                      (useDeskOdds; flag `move_odds`)
  *   four next-session estimates GET /api/move-odds/stocks/{symbol}                    (useStockOdds)
  *
@@ -282,6 +283,10 @@ function setupLines(s: DeskSetup): CheckLine[] {
     const d = sig.dist_breakout_pct;
     add("trigger", "Breakout level (trigger)", `${fmtPrice(s.trigger)}${d != null ? ` · close ${fmtPct(d, { signed: true, digits: 1 })} from it` : ""}`, d != null && d >= 0 ? "mint" : "ink");
   }
+  // The watchlist's own levels around the close; each says how far the scan-day close is from it.
+  const fromClose = (level: number) => (s.close != null && s.close > 0 ? ` · ${fmtPct(((level - s.close) / s.close) * 100, { signed: true, digits: 1 })} from the close` : "");
+  if (s.resistance != null) add("resistance", "Next resistance", `${fmtPrice(s.resistance)}${fromClose(s.resistance)}`);
+  if (s.support != null) add("support", "Next support", `${fmtPrice(s.support)}${fromClose(s.support)}`);
   if (sig.volume_spike_3v20 != null) add("volume", "Volume, 3 sessions vs 20-day average", `${fmtNum(sig.volume_spike_3v20, 1)}×`, sig.volume_spike_3v20 >= 1.5 ? "mint" : "ink");
   if (s.rsi14 != null) add("rsi", "RSI 14", fmtNum(s.rsi14, 1), s.rsi14 >= 70 ? "amber" : s.rsi14 >= 55 ? "mint" : "ink");
   if (sig.dist_ema20_pct != null) add("ema20", "Distance to EMA 20", fmtPct(sig.dist_ema20_pct, { signed: true, digits: 1 }), sig.dist_ema20_pct >= 0 && sig.dist_ema20_pct <= 4 ? "mint" : "ink");

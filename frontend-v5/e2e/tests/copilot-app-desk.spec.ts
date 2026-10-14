@@ -88,6 +88,11 @@ async function deskApi(page: Page) {
   await page.route("**/api/positional/picks*", (route) => json(route, PICKS));
   // backend/routes/move_odds.py: an account not on the move_odds allowlist.
   await page.route("**/api/move-odds/**", (route) => json(route, { detail: "feature_not_enabled" }, 403));
+  // The desk's own reads (backend/routes/markets_desk.py, desk_trading.py, portfolio_desk.py, fno.py), empty or minimal:
+  // the shell does not depend on them; each tab's spec checks their figures.
+  await page.route("**/api/markets/sector-returns", (route) => json(route, { as_of: "2026-10-13", source: "NSE index close (nidp.index_eod)", sessions: { "1d": 1, "1w": 5, "1m": 21 }, sectors: [] }));
+  await page.route("**/api/desk/paper-trades*", (route) => json(route, { as_of: null, checked_through: null, marks_error: null, trades: [], summary: { open: 0, closed: 0, wins: 0, losses: 0, realized_pnl_rs: null, unrealized_pnl_rs: null, unmarked_open: 0, partial: false } }));
+  await page.route("**/api/desk/alerts*", (route) => json(route, { as_of: null, checked_through: null, marks_error: null, alerts: [] }));
 }
 
 async function traderMode(page: Page) {

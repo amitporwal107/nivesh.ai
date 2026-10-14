@@ -157,6 +157,14 @@ _DATASETS: List[Dict[str, Any]] = [
         "description": "NSE + BSE filings, classified into impact / category / sentiment.",
     },
     {
+        "name":       "sebi_circulars",
+        "table":      "nidp.sebi_circulars",
+        "date_col":   "issued_on",
+        "domain":     "Disclosure",
+        "endpoints":  ["/v1/circulars/sebi"],
+        "description": "SEBI circulars and master circulars (title, link, issue date) from the SEBI RSS feed and listing pages.",
+    },
+    {
         "name":       "stock_features_daily",
         "table":      "nidp.stock_features_daily",
         "date_col":   "as_of_date",

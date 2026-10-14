@@ -6,17 +6,22 @@
  *                           GET /api/move-odds/stocks/{symbol} (useStockOdds)
  *   model record            the out-of-sample record in /latest — the model's record, not this stock's
  *   last close              the chart's last daily bar (GET /api/research/chart-live/{symbol}/ohlcv)
+ *   Add to paper trades     POST /api/desk/paper-trades { symbol, quantity (the calculator's), entry_price,
+ *                           stop_price, target_price, source: { kind: "scanner", bucket, signal_date } }
+ *   Alert on trigger        POST /api/desk/alerts { symbol, condition: "above", level: the trigger, else the entry }
  *
- * The position-size calculator works on the levels in the browser; nothing is
- * saved or sent. "Add to paper trades" and "Alert on trigger" have no backend
- * (paper trades are chosen by the model engine; there is no price-alert route),
- * so they are disabled and send nothing. Nivesh does not place orders.
+ * The position-size calculator works on the levels in the browser. The two
+ * buttons are the only writes: a paper trade is simulated (marked against
+ * end-of-day closes; no order is placed) and an alert is checked after each
+ * close. Both lists are on the Portfolio & risk tab. Nivesh does not place orders.
  */
 import { useState, type ReactNode } from "react";
 import { Btn, Footnote, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, type Tone } from "../../components/ui";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { STATUS_LABEL, setupLabel, useStockOdds } from "./chart-data";
-import { useDeskOdds, type DeskSetup } from "./desk-data";
+import { useDesk } from "./context";
+import { useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
+import { useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
 
 const CAPITALS = [
   { value: 200_000, label: "₹2L", id: "2l" },
@@ -311,23 +316,122 @@ export function RiskDesk({ symbol, setup, lastClose }: { symbol: string; setup: 
           )}
         </div>
 
-        <div className="flex flex-col" style={{ gap: 10, paddingTop: 12, borderTop: "1px solid var(--cp-line)" }}>
-          <div className="flex flex-col" style={{ gap: 4 }}>
-            <Btn disabled aria-describedby="desk-risk-paper-note" data-testid="desk-risk-paper">Add to paper trades</Btn>
-            <span id="desk-risk-paper-note" data-testid="desk-risk-paper-note" style={{ fontSize: 11.5, lineHeight: 1.45, color: "var(--cp-ink-3)" }}>
-              Not connected yet: paper trades are chosen by the model engine, and nothing here can add one.
-            </span>
-          </div>
-          <div className="flex flex-col" style={{ gap: 4 }}>
-            <Btn disabled aria-describedby="desk-risk-alert-note" data-testid="desk-risk-alert">Alert on trigger</Btn>
-            <span id="desk-risk-alert-note" data-testid="desk-risk-alert-note" style={{ fontSize: 11.5, lineHeight: 1.45, color: "var(--cp-ink-3)" }}>
-              Not connected yet: there is no price-alert service to watch the trigger.
-            </span>
-          </div>
-        </div>
+        <DeskActions symbol={sym} setup={setup} sizing={sizing} />
 
-        <Footnote>Nivesh reads broker positions and cannot place orders. Sizing is worked out here from the scanner’s levels; nothing is saved.</Footnote>
+        <Footnote>Nivesh reads broker positions and cannot place orders. Sizing is worked out here from the scanner’s levels; nothing is saved unless you add a paper trade or an alert.</Footnote>
       </div>
     </section>
+  );
+}
+
+// ── paper trade and alert ────────────────────────────────────────────────
+
+const noteStyle = { fontSize: 11.5, lineHeight: 1.45, color: "var(--cp-ink-3)" } as const;
+const linkStyle = { padding: 0, border: 0, background: "none", fontSize: 12, color: "var(--mint)", cursor: "pointer", fontFamily: "var(--sans)" } as const;
+
+function Outcome({ ok, testId, children, onOpen, openLabel }: { ok: boolean; testId: string; children: ReactNode; onOpen?: () => void; openLabel?: string }) {
+  return (
+    <span
+      data-testid={testId}
+      role={ok ? "status" : "alert"}
+      style={{
+        fontSize: 12, lineHeight: 1.5, padding: "8px 10px", borderRadius: 10,
+        color: ok ? "var(--cp-ink-2)" : "var(--cp-ink-2)",
+        border: `1px solid ${ok ? "var(--mint-line)" : "var(--danger-line)"}`,
+        background: ok ? "var(--mint-soft)" : "var(--cp-danger-soft)",
+      }}
+    >
+      {children}
+      {onOpen && openLabel && <>{" "}<button type="button" data-testid={`${testId}-open`} onClick={onOpen} style={linkStyle}>{openLabel}</button></>}
+    </span>
+  );
+}
+
+/**
+ * "Add to paper trades" (the calculator's quantity at the setup's levels) and
+ * "Alert on trigger". Each is disabled while its request is in flight, says
+ * why when it cannot be used, and shows the server's words when it fails.
+ */
+function DeskActions({ symbol, setup, sizing }: { symbol: string; setup: DeskSetup | null; sizing: Sizing | null }) {
+  const { openTab } = useDesk();
+  const scan = useDeskScanner();
+  const paper = useAddPaperTrade();
+  const alert = useAddAlert();
+
+  const entry = setup?.entry ?? null;
+  const stop = setup?.stop ?? null;
+  const target = setup?.target ?? null;
+  // The route takes a target only above the entry.
+  const sendTarget = target != null && entry != null && target > entry ? target : null;
+  const signalDate = setup ? (setup.inPicks ? scan.data?.signalDate : scan.data?.watchAsOf) ?? null : null;
+
+  let paperBody: NewPaperTrade | null = null;
+  let paperWhy: string;
+  if (!setup) paperWhy = "Needs a scanner setup: this stock has no entry or stop.";
+  else if (entry == null || stop == null || !(entry > stop)) paperWhy = "Needs an entry with a stop below it; this setup does not have both.";
+  else if (!sizing || sizing.qty < 1) paperWhy = "The risk budget fits no whole share; pick more capital or a larger risk.";
+  else {
+    paperBody = {
+      symbol,
+      quantity: sizing.qty,
+      entry_price: entry,
+      stop_price: stop,
+      target_price: sendTarget,
+      source: { kind: "scanner", ...(setup.bucket ? { bucket: setup.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
+    };
+    paperWhy = `Simulated: ${fmtNum(sizing.qty)} shares at ${fmtPrice(entry)}, stop ${fmtPrice(stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. No order is placed; it is marked against end-of-day closes.`;
+  }
+
+  const level = setup?.trigger ?? entry;
+  const alertBody: NewAlert | null = level != null ? { symbol, condition: "above", level } : null;
+  const alertWhy = alertBody
+    ? `Watches for a session whose high reaches ${fmtPrice(alertBody.level)} (the ${setup?.trigger != null ? "trigger" : "entry"}), checked after each close. Shown in your alerts list only.`
+    : "Needs a trigger or an entry level; this stock has neither on today’s scanner.";
+
+  // An outcome belongs to the stock it was sent for; another stock starts clean.
+  const paperDone = paper.variables?.symbol === symbol ? paper : null;
+  const alertDone = alert.variables?.symbol === symbol ? alert : null;
+
+  return (
+    <div data-testid="desk-risk-actions" className="flex flex-col" style={{ gap: 12, paddingTop: 12, borderTop: "1px solid var(--cp-line)" }}>
+      <div className="flex flex-col" style={{ gap: 6 }}>
+        <Btn
+          data-testid="desk-risk-paper"
+          aria-describedby="desk-risk-paper-note"
+          disabled={!paperBody || paper.isPending}
+          onClick={() => { if (paperBody) paper.mutate(paperBody); }}
+        >
+          {paper.isPending ? "Adding…" : "Add to paper trades"}
+        </Btn>
+        <span id="desk-risk-paper-note" data-testid="desk-risk-paper-note" style={noteStyle}>{paperWhy}</span>
+        {paperDone?.isSuccess && (
+          <Outcome ok testId="desk-risk-paper-done" onOpen={() => openTab("portfolio")} openLabel="See your paper trades ›">
+            Paper trade added: {fmtNum(paperDone.variables?.quantity ?? null)} {symbol} at {fmtPrice(paperDone.variables?.entry_price ?? null)}. No order is placed.
+          </Outcome>
+        )}
+        {paperDone?.isError && (
+          <Outcome ok={false} testId="desk-risk-paper-error">Not added — {writeProblem(paperDone.error)}</Outcome>
+        )}
+      </div>
+      <div className="flex flex-col" style={{ gap: 6 }}>
+        <Btn
+          data-testid="desk-risk-alert"
+          aria-describedby="desk-risk-alert-note"
+          disabled={!alertBody || alert.isPending}
+          onClick={() => { if (alertBody) alert.mutate(alertBody); }}
+        >
+          {alert.isPending ? "Setting…" : "Alert on trigger"}
+        </Btn>
+        <span id="desk-risk-alert-note" data-testid="desk-risk-alert-note" style={noteStyle}>{alertWhy}</span>
+        {alertDone?.isSuccess && (
+          <Outcome ok testId="desk-risk-alert-done" onOpen={() => openTab("portfolio")} openLabel="See your alerts ›">
+            Alert set: {symbol} above {fmtPrice(alertDone.variables?.level ?? null)}, checked against end-of-day highs.
+          </Outcome>
+        )}
+        {alertDone?.isError && (
+          <Outcome ok={false} testId="desk-risk-alert-error">Not set — {writeProblem(alertDone.error)}</Outcome>
+        )}
+      </div>
+    </div>
   );
 }

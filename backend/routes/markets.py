@@ -185,6 +185,46 @@ def _breadth_tone(advances: Optional[int], declines: Optional[int]) -> str:
     return "NEUTRAL"
 
 
+def _breadth(eod: Dict[str, Any], live_breadth: Dict[str, Any]) -> Dict[str, Any]:
+    """Home-page breadth: NIDP's end-of-day count when it has one, else the live Nifty-50 count.
+
+    `universe_kind` says which stocks `universe` counted (null when neither source answered):
+      bhavcopy      every NSE stock with 21+ sessions of daily bars in stock_ohlcv (loaded from the NSE bhavcopy;
+                    positional_engine.market_dashboard), end of day
+      nifty50_live  the Nifty 50 constituents with a delayed quote (positional_engine.nse_live)
+    `universe` stays the bare count it always was: the app's zod contract (MarketBreadthC) reads it as a number, so
+    turning it into an object would fail the whole /markets/home parse.
+    """
+    advances = eod.get("advances")
+    declines = eod.get("declines")
+    universe = eod.get("universe_size")
+    kind = "bhavcopy"
+    if advances is None:
+        advances = live_breadth.get("advances")
+        declines = live_breadth.get("declines")
+        universe = live_breadth.get("universe")
+        unchanged = live_breadth.get("unchanged")
+        kind = "nifty50_live"
+    else:
+        unchanged = None
+        if universe is not None and declines is not None:
+            unchanged = max(universe - advances - declines, 0)
+    return {
+        "advances":  advances,
+        "declines":  declines,
+        "unchanged": unchanged,
+        "universe":  universe,
+        "universe_kind": kind if advances is not None else None,
+        "tone":      _breadth_tone(advances, declines),
+        # Structural breadth from the NIDP EOD builder (full equity universe).
+        # These stay EOD even intraday — they're computed off daily bars.
+        "pct_above_20ema": eod.get("pct_above_20ema"),
+        "pct_above_50ema": eod.get("pct_above_50ema"),
+        "new_52w_highs":   eod.get("new_52w_highs"),
+        "new_52w_lows":    eod.get("new_52w_lows"),
+    }
+
+
 @router.get("/home")
 async def markets_home(request: Request):
     """Aggregate everything the Markets home dashboard renders, in one call.
@@ -281,33 +321,7 @@ async def markets_home(request: Request):
         indices = [i for i in indices if i is not None]
 
     # ── Breadth: prefer NIDP's full-universe count; else live Nifty-50 ──
-    b = dash.get("breadth") or {}
-    advances = b.get("advances")
-    declines = b.get("declines")
-    universe = b.get("universe_size")
-    if advances is None:
-        lb = live.get("breadth") or {}
-        advances = lb.get("advances")
-        declines = lb.get("declines")
-        universe = lb.get("universe")
-        unchanged = lb.get("unchanged")
-    else:
-        unchanged = None
-        if universe is not None and declines is not None:
-            unchanged = max(universe - advances - declines, 0)
-    breadth = {
-        "advances":  advances,
-        "declines":  declines,
-        "unchanged": unchanged,
-        "universe":  universe,
-        "tone":      _breadth_tone(advances, declines),
-        # Structural breadth from the NIDP EOD builder (full equity universe).
-        # These stay EOD even intraday — they're computed off daily bars.
-        "pct_above_20ema": b.get("pct_above_20ema"),
-        "pct_above_50ema": b.get("pct_above_50ema"),
-        "new_52w_highs":   b.get("new_52w_highs"),
-        "new_52w_lows":    b.get("new_52w_lows"),
-    }
+    breadth = _breadth(dash.get("breadth") or {}, live.get("breadth") or {})
 
     # ── Sectors: prefer NIDP heatmap; else the live sector indices ──────
     sectors = [

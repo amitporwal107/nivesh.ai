@@ -1,0 +1,24 @@
+# /etc/cron.d/nivesh-staging-desk-alerts — evening check of every user's
+# Smart trading desk paper trades and price alerts [staging].
+#
+# Applies the end-of-day stop/target exit rule to open paper trades and the
+# firing rule to active price alerts (backend/scripts/check_desk_alerts.py,
+# same rules as GET /api/desk/paper-trades and /api/desk/alerts). In-app only:
+# results show in the desk's lists; no email or push. No orders, no brokers.
+#
+# Schedule (Asia/Kolkata): 20:45 IST Mon-Fri. The NIDP bhavcopy ingest runs at
+# 19:00 IST (deploy/cloudpe/nidp/nidp-staging.cron), so the day's raw close is
+# in nidp.prices_eod by then; runs after the 20:00 positional-engine and 20:15
+# research-watchlist slots to avoid contending for the same container. A missed
+# or failed run is caught up by the next one (each run checks from the trade's
+# or alert's first session onward).
+#
+# Install (one-off, not CI-managed — see deploy/nivesh-staging/install-desk-alerts.sh):
+#   sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/install-desk-alerts.sh
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+45 20 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.check_desk_alerts >> /opt/nivesh-staging/logs/desk-alerts.log 2>&1

@@ -9,14 +9,18 @@
  * production build — see pw.copilot-app.config.ts.
  *
  * Covers: TC-28 holdings with weights (>25% amber), the sector concentration
- * check, beta and VaR from the payloads; the correlation check as not
- * connected; TC-29 an empty portfolio's connect button; the paper evaluation's
- * 403 note and its forward / replay calibration; TC-30 the NIFTY and BANKNIFTY
- * cards; TC-31 the ATM / R / S / MP tags; TC-32 a stock loaded by ticker and a
- * ticker with no F&O rows; TC-33 OI build-up as not connected; TC-7 no
- * sideways scroll at 390px on both tabs.
+ * check, beta and VaR from the payloads; correlated positions from GET
+ * /api/portfolio/correlation; the market-cap split from GET
+ * /api/portfolio/market-cap-split (split, and not yet split); your paper trades
+ * (GET /api/desk/paper-trades, Close → POST …/{id}/close) and price alerts (GET
+ * /api/desk/alerts, Delete → DELETE …/{id}) with their confirmations; TC-29 an
+ * empty portfolio's connect button; the paper evaluation's 403 note and its
+ * forward / replay calibration; TC-30 the NIFTY and BANKNIFTY cards; TC-31 the
+ * ATM / R / S / MP tags; TC-32 a stock loaded by ticker and a ticker with no F&O
+ * rows; TC-33 OI build-up from GET /api/fno/scan/buildup (counts, sort, filter,
+ * a row opens its chain); TC-7 no sideways scroll at 390px on both tabs.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
@@ -144,10 +148,175 @@ const RISK = {
   coverage_pct: 100.0, data_source: "DAAS", period: null,
 };
 
-async function portfolioData(page: Page, opts: { holdings?: unknown; concentration?: unknown; risk?: unknown } = {}) {
+/**
+ * GET /api/portfolio/correlation?sessions=120&limit=10 (backend/routes/portfolio_desk.py). Three compared stocks → three
+ * pairs; average (0.82 + 0.55 − 0.14) ÷ 3 = 0.41; one pair at 0.70 or above. FIXNEW is skipped with the route's reason.
+ */
+const CORRELATION = {
+  as_of: "2026-10-13", sessions: 120, min_sessions: 60,
+  method: "Pearson correlation of daily log returns, split and bonus adjusted closes", source: "nidp.prices_eod_adjusted via DaaS",
+  holdings_used: 3, holdings_skipped: [{ symbol: "FIXNEW", reason: "fewer than 60 sessions of prices in the window" }],
+  high_threshold: 0.7, high_pairs: 1, avg_corr: 0.41, pairs_total: 3, pairs_excluded: 0,
+  pairs: [
+    { a: "FIXHEAVY", b: "FIXLIGHT", corr: 0.82, common_sessions: 118, weight_a_pct: 30.0, weight_b_pct: 10.0 },
+    { a: "FIXHEAVY", b: "FIXMID", corr: 0.55, common_sessions: 120, weight_a_pct: 30.0, weight_b_pct: 5.0 },
+    { a: "FIXLIGHT", b: "FIXMID", corr: -0.14, common_sessions: 118, weight_a_pct: 10.0, weight_b_pct: 5.0 },
+  ],
+};
+
+/**
+ * GET /api/portfolio/market-cap-split as it answers today (the lead's note, 2026-10-14): the Nifty Midcap 150 and Smallcap
+ * 250 lists are not in the warehouse, so only large cap is split and the rest is `unsplit`. Large ₹3,00,000 (75%) +
+ * unsplit ₹1,00,000 (25%) = the ₹4,00,000 of direct stocks.
+ */
+const ABSENT = "Nifty Midcap 150, Nifty Smallcap 250 constituents are not in the warehouse yet";
+const MCAP_PARTIAL = {
+  as_of: "2026-10-13",
+  method: "NSE index membership: Large = Nifty 100, Mid = Nifty Midcap 150, Small = Nifty Smallcap 250, Micro = rest of Nifty Total Market, Unclassified = in none of them",
+  source: "Holdings and values as in /api/portfolio/holdings-enriched; index membership from nidp.index_constituents (NSE index lists) via DaaS",
+  total_value_rs: 400000, available: false, reason: `${ABSENT}; mid, small, micro and unclassified are not split`,
+  buckets: [
+    { bucket: "large", available: true, value_rs: 300000, weight_pct: 75.0, count: 1, symbols: ["FIXHEAVY"] },
+    { bucket: "mid", available: false, value_rs: null, weight_pct: null, count: null, symbols: null, reason: "Nifty Midcap 150 constituents are not in the warehouse yet" },
+    { bucket: "small", available: false, value_rs: null, weight_pct: null, count: null, symbols: null, reason: ABSENT },
+    { bucket: "micro", available: false, value_rs: null, weight_pct: null, count: null, symbols: null, reason: ABSENT },
+    { bucket: "unclassified", available: false, value_rs: null, weight_pct: null, count: null, symbols: null, reason: ABSENT },
+  ],
+  unsplit: { value_rs: 100000, weight_pct: 25.0, count: 1, symbols: ["FIXLIGHT"], reason: `${ABSENT}, so these holdings cannot be placed in a bucket` },
+  indices: [
+    { bucket: "large", index: "Nifty 100", as_of: "2026-10-13", available: true, members: 100 },
+    { bucket: "mid", index: "Nifty Midcap 150", as_of: null, available: false, members: null },
+    { bucket: "small", index: "Nifty Smallcap 250", as_of: null, available: false, members: null },
+    { bucket: "micro", index: "Nifty Total Market", as_of: "2026-10-13", available: true, members: 750 },
+  ],
+  excluded: { funds_value_rs: 600000, holdings: 1, note: "Mutual funds, ETFs and other non-stock holdings are not split by market cap" },
+};
+/** The same once every list is on record: five buckets, no `unsplit`. */
+const MCAP_FULL = {
+  ...MCAP_PARTIAL, available: true, reason: null, unsplit: null,
+  buckets: [
+    { bucket: "large", available: true, value_rs: 240000, weight_pct: 60.0, count: 1, symbols: ["FIXHEAVY"] },
+    { bucket: "mid", available: true, value_rs: 100000, weight_pct: 25.0, count: 1, symbols: ["FIXLIGHT"] },
+    { bucket: "small", available: true, value_rs: 40000, weight_pct: 10.0, count: 1, symbols: ["FIXSML"] },
+    { bucket: "micro", available: true, value_rs: 20000, weight_pct: 5.0, count: 1, symbols: ["FIXMIC"] },
+    { bucket: "unclassified", available: true, value_rs: 0, weight_pct: 0.0, count: 0, symbols: [] },
+  ],
+  indices: MCAP_PARTIAL.indices.map((ix) => ({ ...ix, as_of: "2026-10-13", available: true, members: ix.members ?? (ix.index === "Nifty Midcap 150" ? 150 : 250) })),
+};
+
+// ── your paper trades and alerts (backend/routes/desk_trading.py) ────────
+
+type Trade = Record<string, unknown> & { id: string; symbol: string; quantity: number; entry_price: number; status: string; last_close: number | null; unrealized_pnl_rs: number | null; realized_pnl_rs: number | null };
+const trade = (o: Partial<Trade> & { id: string; symbol: string; quantity: number; entry_price: number }): Trade => ({
+  stop_price: null, target_price: null, note: null, source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-12" },
+  opened_at: "2026-10-12T10:00:00+00:00", status: "open", closed_at: null, exit_price: null, exit_reason: null, exit_session: null, exit_note: null,
+  last_close: null, last_close_date: null, unrealized_pnl_rs: null, realized_pnl_rs: null, checked_through: null, mark_error: null, ...o,
+});
+const BOTH = "The stop and the target were both inside this session's range; counted as the stop (conservative).";
+/** Fresh each test: two open trades marked at the 13 Oct close, two closed (one at the stop on a both-touched session). */
+function paperTrades(): Trade[] {
+  return [
+    // (512.40 − 505) × 200 = +1,480
+    trade({ id: "pt-001", symbol: "FIXBRK", quantity: 200, entry_price: 505, stop_price: 480, target_price: 555, last_close: 512.4, last_close_date: "2026-10-13", unrealized_pnl_rs: 1480, checked_through: "2026-10-13" }),
+    // (118.20 − 120) × 833 = −1,499.40
+    trade({ id: "pt-002", symbol: "FIXPICK", quantity: 833, entry_price: 120, stop_price: 114, target_price: 138, last_close: 118.2, last_close_date: "2026-10-13", unrealized_pnl_rs: -1499.4, checked_through: "2026-10-13", source: { kind: "scanner", signal_date: "2026-10-12" } }),
+    // (84 − 90) × 100 = −600, at the stop
+    trade({ id: "pt-000", symbol: "FIXACC", quantity: 100, entry_price: 90, stop_price: 84, target_price: 99, status: "closed", opened_at: "2026-10-06T10:00:00+00:00", closed_at: "2026-10-09T15:00:00+00:00", exit_price: 84, exit_reason: "stop", exit_session: "2026-10-09", exit_note: BOTH, realized_pnl_rs: -600 }),
+    // (1,260 − 1,200) × 20 = +1,200, at the target
+    trade({ id: "pt-00a", symbol: "FIXTRD", quantity: 20, entry_price: 1200, stop_price: 1150, target_price: 1260, status: "closed", opened_at: "2026-10-01T10:00:00+00:00", closed_at: "2026-10-08T15:00:00+00:00", exit_price: 1260, exit_reason: "target", exit_session: "2026-10-08", realized_pnl_rs: 1200 }),
+  ];
+}
+/** The route's summary, worked out over the trades the same way (services/desk_trading.py :: summarize). */
+function summarize(trades: Trade[]) {
+  const open = trades.filter((t) => t.status === "open");
+  const closed = trades.filter((t) => t.status === "closed");
+  const realized = closed.map((t) => t.realized_pnl_rs as number);
+  const unmarked = open.filter((t) => t.unrealized_pnl_rs == null).length;
+  return {
+    open: open.length, closed: closed.length, wins: realized.filter((r) => r > 0).length, losses: realized.filter((r) => r < 0).length,
+    realized_pnl_rs: realized.length ? Math.round(realized.reduce((a, b) => a + b, 0) * 100) / 100 : null,
+    unrealized_pnl_rs: open.length && !unmarked ? Math.round(open.reduce((a, t) => a + (t.unrealized_pnl_rs as number), 0) * 100) / 100 : null,
+    unmarked_open: unmarked, partial: false,
+  };
+}
+
+const alert = (o: Record<string, unknown> & { id: string; symbol: string; condition: string; level: number; status: string }) => ({
+  note: null, created_at: "2026-10-12T09:00:00+00:00", fired_at: null, fired_session: null, fired_price: null,
+  last_close: null, last_close_date: null, checked_through: null, mark_error: null, ...o,
+});
+function priceAlerts() {
+  return [
+    alert({ id: "al-001", symbol: "FIXBRK", condition: "above", level: 530, status: "active", last_close: 512.4, last_close_date: "2026-10-13", checked_through: "2026-10-13" }),
+    alert({ id: "al-003", symbol: "FIXACC", condition: "below", level: 84, status: "active", last_close: 88.5, last_close_date: "2026-10-13", checked_through: "2026-10-13" }),
+    alert({ id: "al-002", symbol: "FIXPRE", condition: "above", level: 250, status: "fired", fired_at: "2026-10-13T15:30:00+00:00", fired_session: "2026-10-13", fired_price: 250 }),
+  ];
+}
+
+interface DeskCalls { closes: Array<{ path: string; body: unknown }>; deletes: string[]; paperReads: number; alertReads: number }
+
+/**
+ * The desk lists, stateful like the real routes: a close moves the trade to closed at its last close ("manual"), a
+ * delete removes the alert. `closeReply` / `paperList` / `alertList` override an answer.
+ */
+async function mockDeskLists(page: Page, opts: { closeReply?: { status: number; body: unknown }; paperList?: { status: number; body: unknown }; alertList?: { status: number; body: unknown }; empty?: boolean } = {}): Promise<DeskCalls> {
+  const calls: DeskCalls = { closes: [], deletes: [], paperReads: 0, alertReads: 0 };
+  let trades = opts.empty ? [] : paperTrades();
+  let alerts = opts.empty ? [] : priceAlerts();
+  const reply = (route: Route, body: unknown, status = 200) =>
+    route.fulfill({ status, contentType: "application/json", body: status === 204 ? "" : JSON.stringify(body) });
+  await page.route("**/api/desk/paper-trades*", (route) => {
+    calls.paperReads += 1;
+    if (opts.paperList) return reply(route, opts.paperList.body, opts.paperList.status);
+    return reply(route, {
+      as_of: "2026-10-13", checked_through: "2026-10-13", source: "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the data platform)", price_basis: "end of day",
+      exit_rule: "fixture", marks_error: null, status: "all", trades, summary: summarize(trades), limits: { max_open: 100 }, evaluated_at: "2026-10-14T10:00:00+00:00",
+    });
+  });
+  await page.route("**/api/desk/paper-trades/*/close", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    calls.closes.push({ path, body: route.request().postDataJSON() });
+    if (opts.closeReply) return reply(route, opts.closeReply.body, opts.closeReply.status);
+    const id = path.split("/").slice(-2)[0];
+    trades = trades.map((t) => (t.id === id
+      ? { ...t, status: "closed", closed_at: "2026-10-14T10:05:00+00:00", exit_price: t.last_close, exit_reason: "manual", exit_session: "2026-10-13",
+          realized_pnl_rs: Math.round(((t.last_close as number) - t.entry_price) * t.quantity * 100) / 100, last_close: null, last_close_date: null, unrealized_pnl_rs: null }
+      : t));
+    return reply(route, { trade: trades.find((t) => t.id === id) });
+  });
+  const alertsRoute = (route: Route) => {
+    if (route.request().method() === "DELETE") {
+      const id = new URL(route.request().url()).pathname.split("/").pop() ?? "";
+      calls.deletes.push(id);
+      alerts = alerts.filter((a) => a.id !== id);
+      return reply(route, null, 204);
+    }
+    calls.alertReads += 1;
+    if (opts.alertList) return reply(route, opts.alertList.body, opts.alertList.status);
+    return reply(route, {
+      as_of: "2026-10-13", checked_through: "2026-10-13", source: "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the data platform)", price_basis: "end of day",
+      firing_rule: "fixture", marks_error: null, status: "all", alerts,
+      counts: { active: alerts.filter((a) => a.status === "active").length, fired: alerts.filter((a) => a.status === "fired").length }, limits: { max_active: 50 },
+    });
+  };
+  await page.route("**/api/desk/alerts*", alertsRoute);
+  await page.route("**/api/desk/alerts/*", alertsRoute);
+  return calls;
+}
+
+// ── expected-value helpers (the screen's formats, written out) ──────────
+const MINUS = "−";
+const rupees = (n: number, signed = false) => `${n < 0 ? MINUS : signed && n > 0 ? "+" : ""}₹${Math.round(Math.abs(n)).toLocaleString("en-IN")}`;
+const paise = (n: number) => `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const lakh = (n: number) => `₹${(n / 1e5).toFixed(2)} L`;
+const dec2 = (n: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const dayY = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" });
+
+async function portfolioData(page: Page, opts: { holdings?: unknown; concentration?: unknown; risk?: unknown; correlation?: { status: number; body: unknown }; mcap?: { status: number; body: unknown } } = {}) {
   if (opts.holdings) await json(page, "**/api/portfolio/holdings-enriched*", opts.holdings);
   if (opts.concentration) await json(page, "**/api/portfolio/exposure/concentration", opts.concentration);
   await json(page, "**/api/portfolio/risk-analytics*", opts.risk ?? RISK);
+  await json(page, "**/api/portfolio/correlation*", opts.correlation?.body ?? CORRELATION, opts.correlation?.status ?? 200);
+  await json(page, "**/api/portfolio/market-cap-split*", opts.mcap?.body ?? MCAP_PARTIAL, opts.mcap?.status ?? 200);
 }
 
 /** The colour var(--amber) resolves to in the page's current theme. */
@@ -167,6 +336,7 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
 
   test("TC-28 positions with weights, a stock above 25% in amber, sector concentration, beta and VaR", async ({ page }) => {
     await mockPaper(page, { status: 403, body: { detail: "Feature not enabled" } });
+    await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio`);
 
@@ -204,7 +374,8 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(sectors).toHaveCount(5);
     await expect(sectors.nth(0)).toContainText("Financial");
     await expect(sectors.nth(0)).toContainText("48.0%");
-    await expect(page.getByTestId("desk-portfolio-mcap-note")).toContainText("large-, mid- and small-cap split is not shown");
+    await expect(page.getByTestId("desk-portfolio-mcap-note")).toHaveCount(0);
+    await expect(page.getByTestId("desk-portfolio-mcap")).toBeVisible();
 
     // risk checks, in order: beta, largest stock, sector, volatility, VaR, then the route's drivers
     const risk = page.getByTestId("desk-portfolio-risk");
@@ -226,12 +397,12 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-driver-debt-gold-buffer")).toHaveAttribute("data-level", "High");
     await expect(page.getByTestId("desk-portfolio-risk-note")).toContainText("cover 100.0% of the portfolio’s value");
 
-    // correlated positions: no route, so it says so (the needs list shows: the fixture user is an admin)
+    // correlated positions: from GET /api/portfolio/correlation (its own test below); nothing says "not connected"
     const corr = page.getByTestId("desk-portfolio-correlation");
     await expect(corr).toBeVisible();
-    await expect(corr).toContainText("Not connected yet");
     await expect(corr).toContainText("Correlated positions");
-    await expect(corr.getByTestId("not-connected-needs")).toContainText("pairwise return correlation");
+    await expect(corr).not.toContainText("Not connected yet");
+    await expect(corr.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
 
     // right card: the journal summary, and the paper record's 403 as "not enabled"
     await expect(page.getByTestId("desk-journal-open")).toHaveText("1");
@@ -248,6 +419,7 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
 
   test("TC-28 over the shared fixtures: equity rows only, weights from the route, sector split with the rest folded", async ({ page }) => {
     await mockPaper(page);
+    await mockDeskLists(page);
     await portfolioData(page);
     await page.goto(`${DESK}?tab=portfolio`);
 
@@ -302,9 +474,13 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
 
   test("TC-29 an empty portfolio shows the empty state, and its button opens broker connections", async ({ page }) => {
     await mockPaper(page);
+    await mockDeskLists(page, { empty: true });
     await mockSingleRoute(page, "**/api/portfolio/holdings-enriched*", "empty-portfolio.json");
     await portfolioData(page);
     await page.goto(`${DESK}?tab=portfolio`);
+    // Paper trades and alerts do not depend on holdings: their empty states show.
+    await expect(page.getByTestId("desk-paper-trades-empty")).toContainText("No paper trades yet");
+    await expect(page.getByTestId("desk-alerts-empty")).toContainText("No price alerts");
 
     const empty = page.getByTestId("desk-portfolio-empty");
     await expect(empty).toContainText("No holdings on record yet");
@@ -312,6 +488,275 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-portfolio-risk")).toHaveCount(0);
     await page.getByTestId("desk-portfolio-connect").click();
     await expect(page).toHaveURL(/\/v5\/app\/page\/brokers/);
+  });
+});
+
+test.describe("Smart trading desk — Portfolio & risk: correlation, market cap, paper trades and alerts", () => {
+  test.beforeEach(async ({ page }) => {
+    await deskBase(page);
+    await mockPaper(page);
+  });
+
+  test("correlated positions: the route's pairs with both icons, values, the 0.70 flag, method, sessions and skips", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-portfolio-correlation");
+    const pairs = block.getByTestId("desk-corr-pair");
+    await expect(pairs).toHaveCount(CORRELATION.pairs.length);
+    for (let i = 0; i < CORRELATION.pairs.length; i += 1) {
+      const p = CORRELATION.pairs[i];
+      const row = pairs.nth(i);
+      const high = p.corr >= CORRELATION.high_threshold;
+      await expect(row).toHaveAttribute("data-pair", `${p.a}-${p.b}`);
+      await expect(row).toHaveAttribute("data-high", String(high));
+      await expect(row.getByTestId("desk-corr-value")).toHaveText(dec2(p.corr));
+      await expect(row.getByTestId("desk-corr-flag")).toHaveCount(high ? 1 : 0);
+      const icons = row.locator('[data-testid="entity-icon"]');
+      await expect(icons).toHaveCount(2);
+      await expect(icons.nth(0)).toHaveAttribute("data-key", p.a);
+      await expect(icons.nth(1)).toHaveAttribute("data-key", p.b);
+      await expect(row).toContainText(`${p.weight_a_pct.toFixed(1)}% and ${p.weight_b_pct.toFixed(1)}% of the portfolio · ${p.common_sessions} common sessions`);
+    }
+    // The route's own counts over every pair; the average worked out here matches its figure.
+    const avg = CORRELATION.pairs.reduce((a, p) => a + p.corr, 0) / CORRELATION.pairs.length;
+    expect(avg.toFixed(2)).toBe(CORRELATION.avg_corr.toFixed(2));
+    expect(CORRELATION.pairs.filter((p) => p.corr >= CORRELATION.high_threshold).length).toBe(CORRELATION.high_pairs);
+    await expect(block.getByTestId("desk-corr-summary")).toHaveText(
+      `${CORRELATION.high_pairs} pair at ${CORRELATION.high_threshold.toFixed(2)} or above of ${CORRELATION.pairs_total} pairs · average ${avg.toFixed(2)} · ${CORRELATION.holdings_used} stocks compared`,
+    );
+    await expect(block.getByTestId("desk-corr-method")).toContainText(
+      `${CORRELATION.method} over ${CORRELATION.sessions} sessions (a stock needs at least ${CORRELATION.min_sessions}) · ${CORRELATION.source} · end of day ${dayY(CORRELATION.as_of)}`,
+    );
+    await expect(block.getByTestId("desk-corr-skipped")).toHaveText(`Not compared: ${CORRELATION.holdings_skipped[0].symbol} (${CORRELATION.holdings_skipped[0].reason}).`);
+  });
+
+  test("correlated positions: fewer than two usable stocks, and a failed read with retry", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, correlation: { status: 200, body: { ...CORRELATION, holdings_used: 1, high_pairs: 0, avg_corr: null, pairs_total: 0, pairs: [] } } });
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-corr-none")).toContainText(`Fewer than two of your stocks have enough daily prices to compare over ${CORRELATION.sessions} sessions.`);
+    await expect(page.getByTestId("desk-corr-none")).toContainText("Not compared: FIXNEW");
+
+    let reads = 0;
+    await page.route("**/api/portfolio/correlation*", (route) => { reads += 1; return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "upstream_unavailable" }) }); });
+    await page.reload();
+    const err = page.getByTestId("desk-corr-error");
+    await expect(err.getByRole("alert")).toContainText("Correlated positions didn’t load", { timeout: 15_000 });
+    const before = reads;
+    await err.getByRole("button", { name: /Retry/ }).click();
+    await expect.poll(() => reads).toBeGreaterThan(before);
+  });
+
+  test("market-cap split as the route answers today: large cap split, the rest named as not split yet with the route's reason", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-portfolio-mcap");
+    const rows = block.getByTestId("desk-mcap-row");
+    await expect(rows).toHaveCount(MCAP_PARTIAL.buckets.length);
+    for (const b of MCAP_PARTIAL.buckets) {
+      const row = block.locator(`[data-testid="desk-mcap-row"][data-bucket="${b.bucket}"]`);
+      await expect(row).toHaveAttribute("data-available", String(b.available));
+      if (b.available) {
+        // Each weight is its value over the direct stocks' total.
+        expect(((b.value_rs as number) / MCAP_PARTIAL.total_value_rs) * 100).toBeCloseTo(b.weight_pct as number, 6);
+        await expect(row.getByTestId("desk-mcap-weight")).toHaveText(`${(b.weight_pct as number).toFixed(1)}%`);
+        await expect(row.getByTestId("desk-mcap-value")).toHaveText(lakh(b.value_rs as number));
+        await expect(row.getByTestId("desk-mcap-count")).toHaveText(`${b.count} stock`);
+      } else {
+        await expect(row.getByTestId("desk-mcap-weight")).toHaveText("Not available");
+      }
+    }
+    // large + unsplit = the equity total
+    const u = MCAP_PARTIAL.unsplit;
+    expect((MCAP_PARTIAL.buckets[0].value_rs as number) + u.value_rs).toBe(MCAP_PARTIAL.total_value_rs);
+    await expect(block.getByTestId("desk-mcap-unsplit")).toContainText(`Outside Nifty 100 — not split yet: ${lakh(u.value_rs)} (${u.weight_pct.toFixed(1)}%) · ${u.count} stock`);
+    await expect(block.getByTestId("desk-mcap-reason")).toHaveText(`${u.reason}.`);
+    // The bar: the large-cap share and the not-split share.
+    await expect(block.getByTestId("desk-mcap-bar").locator("span")).toHaveCount(2);
+    await expect(block.getByTestId("desk-mcap-bar-unsplit")).toHaveCount(1);
+    // Method, each list's date and size (or "not on record"), the total and the funds left out.
+    const note = block.getByTestId("desk-mcap-note");
+    await expect(note).toContainText(MCAP_PARTIAL.method);
+    await expect(note).toContainText(`Lists: ${MCAP_PARTIAL.indices.map((ix) => (ix.available ? `${ix.index} (${ix.members} members, ${dayY(ix.as_of as string)})` : `${ix.index} (not on record)`)).join(" · ")}.`);
+    await expect(note).toContainText(`(${lakh(MCAP_PARTIAL.total_value_rs)})`);
+    await expect(note).toContainText(`Funds and other holdings (${lakh(MCAP_PARTIAL.excluded.funds_value_rs)}) are not split.`);
+  });
+
+  test("market-cap split once every list is on record: five buckets, no not-split line; a failed read says so", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, mcap: { status: 200, body: MCAP_FULL } });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-portfolio-mcap");
+    for (const b of MCAP_FULL.buckets) {
+      const row = block.locator(`[data-testid="desk-mcap-row"][data-bucket="${b.bucket}"]`);
+      await expect(row).toHaveAttribute("data-available", "true");
+      await expect(row.getByTestId("desk-mcap-weight")).toHaveText(`${(b.weight_pct as number).toFixed(1)}%`);
+    }
+    expect(MCAP_FULL.buckets.reduce((a, b) => a + (b.weight_pct as number), 0)).toBeCloseTo(100, 6);
+    // A zero bucket is listed but not drawn.
+    await expect(block.getByTestId("desk-mcap-bar").locator("span")).toHaveCount(MCAP_FULL.buckets.filter((b) => (b.weight_pct as number) > 0).length);
+    await expect(block.getByTestId("desk-mcap-unsplit")).toHaveCount(0);
+    await expect(block.getByTestId("desk-mcap-reason")).toHaveCount(0);
+
+    await page.route("**/api/portfolio/market-cap-split*", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "upstream_unavailable" }) }));
+    await page.reload();
+    await expect(page.getByTestId("desk-mcap-error").getByRole("alert")).toContainText("The market-cap split didn’t load", { timeout: 15_000 });
+  });
+
+  test("your paper trades: open marks, closed exits and reasons, the summary; Close asks first, then posts {} to …/{id}/close", async ({ page }) => {
+    const calls = await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-paper-trades");
+    const trades = paperTrades();
+    const sum = summarize(trades);
+    const open = trades.filter((t) => t.status === "open");
+    const closed = trades.filter((t) => t.status === "closed");
+
+    await expect(page.getByTestId("desk-portfolio-paper")).toContainText("Simulated · no orders");
+    await expect(block.getByTestId("desk-paper-open")).toHaveText(String(sum.open));
+    await expect(block.getByTestId("desk-paper-closed")).toHaveText(String(sum.closed));
+    await expect(block).toContainText(`${sum.wins} won · ${sum.losses} lost`);
+    await expect(block.getByTestId("desk-paper-realised")).toHaveText(rupees(sum.realized_pnl_rs as number, true));
+    await expect(block.getByTestId("desk-paper-unrealised")).toHaveText(rupees(sum.unrealized_pnl_rs as number, true));
+
+    const openRows = block.getByTestId("desk-paper-open-table").getByRole("row").filter({ has: page.getByTestId("desk-paper-symbol") });
+    await expect(openRows).toHaveCount(open.length);
+    for (let i = 0; i < open.length; i += 1) {
+      const t = open[i];
+      const r = openRows.nth(i);
+      await expect(r.getByTestId("desk-paper-symbol")).toHaveText(t.symbol);
+      await expect(r.locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", t.symbol);
+      await expect(r.getByTestId("desk-paper-qty")).toHaveText(t.quantity.toLocaleString("en-IN"));
+      await expect(r.getByTestId("desk-paper-last")).toHaveText(paise(t.last_close as number));
+      // Unrealised = (last close − entry) × quantity, worked out here.
+      const u = ((t.last_close as number) - t.entry_price) * t.quantity;
+      expect(u).toBeCloseTo(t.unrealized_pnl_rs as number, 6);
+      await expect(r.getByTestId("desk-paper-unrealised-row")).toHaveText(rupees(u, true));
+    }
+    const closedRows = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ has: page.getByTestId("desk-paper-symbol") });
+    await expect(closedRows).toHaveCount(closed.length);
+    for (let i = 0; i < closed.length; i += 1) {
+      const t = closed[i];
+      const r = closedRows.nth(i);
+      await expect(r.getByTestId("desk-paper-exit")).toHaveText(paise(t.exit_price as number));
+      await expect(r.getByTestId("desk-paper-reason")).toHaveAttribute("data-reason", t.exit_reason as string);
+      await expect(r.getByTestId("desk-paper-reason")).toContainText(t.exit_reason === "stop" ? "Stop" : "Target");
+      const realised = ((t.exit_price as number) - t.entry_price) * t.quantity;
+      expect(realised).toBeCloseTo(t.realized_pnl_rs as number, 6);
+      await expect(r.getByTestId("desk-paper-realised-row")).toHaveText(rupees(realised, true));
+    }
+    // The both-touched session closed at the stop, and the note says so.
+    await expect(block.getByTestId("desk-paper-exit-notes")).toContainText(BOTH);
+    await expect(block.getByTestId("desk-paper-rules")).toContainText("Simulated: no order is placed.");
+    await expect(block.getByTestId("desk-paper-rules")).toContainText(`checked through ${dayY("2026-10-13")}`);
+    await expect(block.getByTestId("desk-paper-rules")).toContainText("one that reaches both closes it at the stop");
+
+    // Close asks first; Cancel sends nothing.
+    const brk = openRows.filter({ hasText: "FIXBRK" });
+    await brk.getByTestId("desk-paper-close").click();
+    const confirm = block.getByTestId("desk-paper-confirm");
+    const t0 = open[0];
+    await expect(confirm).toContainText(`Close the FIXBRK paper trade (${t0.quantity} shares) at its last close, ${paise(t0.last_close as number)} (end of day ${dayY("2026-10-13")})? It is simulated: no order is placed.`);
+    await confirm.getByTestId("desk-paper-confirm-no").click();
+    await expect(confirm).toHaveCount(0);
+    expect(calls.closes).toHaveLength(0);
+
+    // Confirm: POST …/pt-001/close with {} (the server closes at the last close); the list re-reads.
+    await brk.getByTestId("desk-paper-close").click();
+    const reads = calls.paperReads;
+    await block.getByTestId("desk-paper-confirm-yes").click();
+    await expect.poll(() => calls.closes.length).toBe(1);
+    expect(calls.closes[0]).toEqual({ path: "/api/desk/paper-trades/pt-001/close", body: {} });
+    await expect.poll(() => calls.paperReads).toBeGreaterThan(reads);
+    await expect(block.getByTestId("desk-paper-open-count")).toHaveText(String(open.length - 1));
+    await expect(block.getByTestId("desk-paper-closed-count")).toHaveText(String(closed.length + 1));
+    const closedNow = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXBRK" });
+    await expect(closedNow.getByTestId("desk-paper-reason")).toHaveText("Closed by you");
+    await expect(closedNow.getByTestId("desk-paper-realised-row")).toHaveText(rupees(((t0.last_close as number) - t0.entry_price) * t0.quantity, true));
+    await expect(block.getByTestId("desk-paper-confirm")).toHaveCount(0);
+  });
+
+  test("your paper trades: a refused close shows the server's words; missing marks are said, not made up; errors and 403", async ({ page }) => {
+    const calls = await mockDeskLists(page, { closeReply: { status: 409, body: { detail: "trade_already_closed" } } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-paper-trades");
+    await block.getByTestId("desk-paper-close").first().click();
+    await block.getByTestId("desk-paper-confirm-yes").click();
+    await expect(block.getByTestId("desk-paper-confirm-error")).toHaveText("That paper trade is already closed. (trade_already_closed)");
+    expect(calls.closes).toHaveLength(1);
+    // The confirmation stays open, with its buttons usable again.
+    await expect(block.getByTestId("desk-paper-confirm-yes")).toBeEnabled();
+
+    // Prices unreadable: marks null and the route's marks_error — said in words, P&L "—".
+    const unmarked = paperTrades().map((t) => (t.status === "open" ? { ...t, last_close: null, last_close_date: null, unrealized_pnl_rs: null, mark_error: "prices_unavailable" } : t));
+    await page.route("**/api/desk/paper-trades*", (route) => route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ as_of: null, checked_through: null, marks_error: "prices_unavailable", trades: unmarked, summary: summarize(unmarked) }),
+    }));
+    await page.reload();
+    await expect(page.getByTestId("desk-paper-marks-error")).toContainText("End-of-day prices could not be read just now");
+    await expect(page.getByTestId("desk-paper-unrealised")).toHaveText("—");
+    await expect(page.getByTestId("desk-paper-last").first()).toHaveText("—");
+    await expect(page.getByTestId("desk-paper-trades")).toContainText("2 open without a mark");
+
+    await page.route("**/api/desk/paper-trades*", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "upstream_unavailable" }) }));
+    await page.reload();
+    await expect(page.getByTestId("desk-paper-trades-error").getByRole("alert")).toContainText("Your paper trades didn’t load", { timeout: 15_000 });
+    await page.route("**/api/desk/paper-trades*", (route) => route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ detail: "forbidden" }) }));
+    await page.reload();
+    await expect(page.getByTestId("desk-paper-trades-error")).toContainText("Your paper trades is not enabled for this account");
+  });
+
+  test("your price alerts: levels, status, fired session, last close; Delete asks first, then sends DELETE …/{id}", async ({ page }) => {
+    const calls = await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-alerts");
+    const alerts = priceAlerts();
+    const rows = block.getByTestId("desk-alert-row");
+    await expect(rows).toHaveCount(alerts.length);
+    for (const a of alerts) {
+      const row = block.locator(`[data-testid="desk-alert-row"][data-id="${a.id}"]`);
+      await expect(row).toHaveAttribute("data-status", a.status as string);
+      await expect(row.getByTestId("desk-alert-symbol")).toHaveText(a.symbol);
+      await expect(row.locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", a.symbol);
+      await expect(row.getByTestId("desk-alert-level")).toHaveText(`${a.condition === "above" ? "Above" : "Below"} ${paise(a.level)}`);
+      await expect(row.getByTestId("desk-alert-status")).toHaveText(a.status === "fired" ? "Fired" : "Active");
+      if (a.status === "fired") {
+        await expect(row.getByTestId("desk-alert-fired")).toHaveText(`Reached on ${dayY(a.fired_session as string)} at ${paise(a.fired_price as number)} (end of day).`);
+      } else {
+        await expect(row.getByTestId("desk-alert-last")).toHaveText(`Last close ${paise(a.last_close as number)} · end of day ${dayY(a.last_close_date as string)}`);
+      }
+    }
+    await expect(block.getByTestId("desk-alerts-rules")).toContainText(`checked through ${dayY("2026-10-13")}`);
+    await expect(block.getByTestId("desk-alerts-rules")).toContainText("no email or push");
+
+    const acc = block.locator('[data-testid="desk-alert-row"][data-id="al-003"]');
+    await acc.getByTestId("desk-alert-delete").click();
+    await expect(acc.getByTestId("desk-alert-confirm")).toContainText(`Delete the FIXACC alert (below ${paise(84)})?`);
+    await acc.getByTestId("desk-alert-confirm-no").click();
+    await expect(acc.getByTestId("desk-alert-confirm")).toHaveCount(0);
+    expect(calls.deletes).toHaveLength(0);
+    await acc.getByTestId("desk-alert-delete").click();
+    await acc.getByTestId("desk-alert-confirm-yes").click();
+    await expect.poll(() => calls.deletes).toEqual(["al-003"]);
+    await expect(rows).toHaveCount(alerts.length - 1);
+    await expect(block.locator('[data-testid="desk-alert-row"][data-id="al-003"]')).toHaveCount(0);
+  });
+
+  test("your price alerts: a failed read with retry", async ({ page }) => {
+    const calls = await mockDeskLists(page, { alertList: { status: 502, body: { detail: "upstream_unavailable" } } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const err = page.getByTestId("desk-alerts-error");
+    await expect(err.getByRole("alert")).toContainText("Your price alerts didn’t load", { timeout: 15_000 });
+    const before = calls.alertReads;
+    await err.getByRole("button", { name: /Retry/ }).click();
+    await expect.poll(() => calls.alertReads).toBeGreaterThan(before);
   });
 });
 
@@ -381,6 +826,31 @@ const FIX_CHAIN = {
 const FIX_EXPIRIES = { symbol: "FIXFNO", as_of: "2026-10-12", expiries: [{ expiry: "2026-10-27", days_to_expiry: 15 }], count: 1 };
 const FIX_FUTURES = { symbol: "FIXFNO", as_of: "2026-10-12", spot: 1502.5, lot_size: 500, futures: [{ expiry: "2026-10-27", close: 1510.0, settle: 1509.6, oi: 5400000, change_in_oi: -120000, volume: 2100000, basis: 7.1 }], count: 1 };
 
+/**
+ * GET /api/fno/scan/buildup (backend/nidp/services/daas_api/routers/desk_market.py :: fno_buildup, via routes/fno.py).
+ * Rows come largest |OI chg %| first; the label is null when a change is missing (counted as no_data). FIXFNO is the
+ * stock the lab can load (fnoData), so its row opens a real chain.
+ */
+const bu = (symbol: string, price: number | null, oiPct: number | null, label: string | null, extra: Record<string, unknown> = {}) => ({
+  symbol, near_expiry: "2026-10-27", close: price == null ? null : 1000 * (1 + price / 100), prev_close: price == null ? null : 1000,
+  price_chg_pct: price, oi: 1_000_000, oi_chg: oiPct == null ? null : Math.round((1_000_000 * oiPct) / (100 + oiPct)), oi_chg_pct: oiPct, expiries: 3, label, ...extra,
+});
+const BUILDUP_ROWS = [
+  bu("FIXFNO", 2.03, 12.5, "long_buildup", { close: 1510.0, prev_close: 1480.0, oi: 5_400_000, oi_chg: 600_000 }),
+  bu("FIXSHORT", -1.8, 9.2, "short_buildup"),
+  bu("FIXCOVER", 0.9, -7.4, "short_covering"),
+  bu("FIXUNWIND", -2.4, -5.1, "long_unwinding"),
+  bu("FIXLONG2", 0.4, 3.3, "long_buildup", { expiries: 2 }),
+  bu("FIXFLAT", 0.0, 1.0, "neutral"),
+  bu("FIXNODATA", null, null, null, { expiries: 1 }),
+];
+const countBy = (label: string | null) => BUILDUP_ROWS.filter((r) => r.label === label).length;
+const BUILDUP = {
+  as_of: "2026-10-13", source: "NSE F&O bhavcopy (nidp.fno_bhavcopy), stock futures", universe: BUILDUP_ROWS.length,
+  counts: { long_buildup: countBy("long_buildup"), short_buildup: countBy("short_buildup"), short_covering: countBy("short_covering"), long_unwinding: countBy("long_unwinding"), neutral: countBy("neutral"), no_data: countBy(null) },
+  rows: BUILDUP_ROWS,
+};
+
 /** Every /api/fno/* route. Returns the paths (with query) the page asked for. */
 async function fnoData(page: Page): Promise<string[]> {
   const asked: string[] = [];
@@ -402,6 +872,7 @@ async function fnoData(page: Page): Promise<string[]> {
   await json(page, "**/api/fno/FIXFNO/chain*", FIX_CHAIN);
   // backend/routes/fno.py answers 404 with no_data(sym) when the bhavcopy has no rows for the underlying
   await json(page, "**/api/fno/NOFNO/**", { detail: "No F&O data for NOFNO" }, 404);
+  await json(page, "**/api/fno/scan/buildup*", BUILDUP);
   return asked;
 }
 
@@ -563,17 +1034,100 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-symbol-error")).toBeVisible();
   });
 
-  test("TC-33 OI build-up is not connected; strategies link to the Options lab and say paper strategies are not connected", async ({ page }) => {
+  test("TC-33 OI build-up: the route's quadrant counts, a sortable table, a quadrant filter, and a row opens that stock's chain", async ({ page }) => {
+    const asked = await fnoData(page);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-fno-pcr")).toHaveText("0.96");
+    // Not read until the view is open.
+    expect(asked.some((a) => a.startsWith("/api/fno/scan/buildup"))).toBe(false);
+    await page.getByTestId("desk-fno-view-buildup").click();
+    await expect(page.getByTestId("desk-fno-buildup-not-connected")).toHaveCount(0);
+
+    // The four counts are the route's, and agree with its rows.
+    for (const k of ["long_buildup", "short_buildup", "short_covering", "long_unwinding"] as const) {
+      expect(BUILDUP.counts[k]).toBe(countBy(k));
+      await expect(page.getByTestId(`desk-buildup-count-${k}`)).toHaveText(String(BUILDUP.counts[k]));
+    }
+    await expect(page.getByTestId("desk-buildup-neutral")).toHaveText(
+      `${BUILDUP.counts.neutral} neutral (price or OI unchanged) · ${BUILDUP.counts.no_data} without a label (a change is missing) · ${BUILDUP.universe} F&O stocks scanned`,
+    );
+
+    // Default: the route's order (largest |OI chg %| first, missing last).
+    const order = () => page.getByTestId("desk-buildup-row").evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")));
+    expect(await order()).toEqual(BUILDUP_ROWS.map((r) => r.symbol));
+    const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
+    const pctTxt = (v: number | null) => (v == null ? "—" : `${sign(v)}${Math.abs(v).toFixed(2)}%`);
+    const META: Record<string, string> = { long_buildup: "Long build-up", short_buildup: "Short build-up", short_covering: "Short covering", long_unwinding: "Long unwinding", neutral: "Neutral" };
+    for (const r of BUILDUP_ROWS) {
+      const row = page.locator(`[data-testid="desk-buildup-row"][data-symbol="${r.symbol}"]`);
+      await expect(row.getByTestId("desk-buildup-symbol")).toHaveText(r.symbol);
+      await expect(row.locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", r.symbol);
+      await expect(row.getByTestId("desk-buildup-price")).toHaveText(pctTxt(r.price_chg_pct));
+      await expect(row.getByTestId("desk-buildup-oi")).toHaveText(pctTxt(r.oi_chg_pct));
+      await expect(row.getByTestId("desk-buildup-label")).toHaveText(r.label ? META[r.label] : "—");
+      await expect(row).toContainText(`${r.expiries} ${r.expiries === 1 ? "expiry" : "expiries"}`);
+    }
+    // FIXFNO's figures agree with its close / previous close and OI.
+    const f = BUILDUP_ROWS[0];
+    expect(((f.close as number) / (f.prev_close as number) - 1) * 100).toBeCloseTo(f.price_chg_pct as number, 2);
+    expect(((f.oi_chg as number) / (f.oi - (f.oi_chg as number))) * 100).toBeCloseTo(f.oi_chg_pct as number, 6);
+
+    // Sort by price change: high to low, then low to high; missing last both ways.
+    const byPrice = (dir: 1 | -1) => [...BUILDUP_ROWS].sort((a, b) => {
+      if (a.price_chg_pct == null) return 1;
+      if (b.price_chg_pct == null) return -1;
+      return dir * (a.price_chg_pct - b.price_chg_pct) || a.symbol.localeCompare(b.symbol);
+    }).map((r) => r.symbol);
+    await page.getByTestId("desk-buildup-sort-price").click();
+    expect(await order()).toEqual(byPrice(-1));
+    await expect(page.getByRole("columnheader").filter({ has: page.getByTestId("desk-buildup-sort-price") })).toHaveAttribute("aria-sort", "descending");
+    await page.getByTestId("desk-buildup-sort-price").click();
+    expect(await order()).toEqual(byPrice(1));
+    await expect(page.getByRole("columnheader").filter({ has: page.getByTestId("desk-buildup-sort-price") })).toHaveAttribute("aria-sort", "ascending");
+    await page.getByTestId("desk-buildup-sort-symbol").click();
+    expect(await order()).toEqual(BUILDUP_ROWS.map((r) => r.symbol).sort((a, b) => a.localeCompare(b)));
+
+    // A quadrant filters the table (aria-pressed), and again shows every row.
+    await page.getByTestId("desk-buildup-q-long_buildup").click();
+    await expect(page.getByTestId("desk-buildup-q-long_buildup")).toHaveAttribute("aria-pressed", "true");
+    expect((await order()).sort()).toEqual(BUILDUP_ROWS.filter((r) => r.label === "long_buildup").map((r) => r.symbol).sort());
+    await page.getByTestId("desk-buildup-q-long_buildup").click();
+    await expect(page.getByTestId("desk-buildup-row")).toHaveCount(BUILDUP_ROWS.length);
+
+    const src = page.getByTestId("desk-buildup-source");
+    await expect(src).toContainText(`Source: ${BUILDUP.source}`);
+    await expect(src).toContainText("end of day 13 Oct 2026");
+
+    // A row opens that stock's option chain in the lab.
+    await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').click();
+    await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("desk-fno-symbol-fixfno")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(5);
+    await expect(page.getByTestId("desk-fno-spot")).toHaveText("1,502.50");
+  });
+
+  test("TC-33 OI build-up: a failed scan shows an error with retry; the keyboard opens a row", async ({ page }) => {
+    await fnoData(page);
+    // 502 (the route's upstream_unavailable) until Retry is pressed; the client's own retries also see 502.
+    let failing = true;
+    await page.route("**/api/fno/scan/buildup*", (route) => (failing
+      ? route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "upstream_unavailable" }) })
+      : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(BUILDUP) })));
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-buildup").click();
+    const err = page.getByTestId("desk-buildup-error");
+    await expect(err.getByRole("alert")).toContainText("OI build-up across F&O stocks didn’t load", { timeout: 15_000 });
+    failing = false;
+    await err.getByRole("button", { name: /Retry/ }).click();
+    await expect(page.getByTestId("desk-buildup-row")).toHaveCount(BUILDUP_ROWS.length);
+    await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("desk-fno-symbol-fixfno")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("TC-33 strategies link to the Options lab and say one-click paper strategies are not connected", async ({ page }) => {
     await fnoData(page);
     await page.goto(`${DESK}?tab=fno`);
-
-    await page.getByTestId("desk-fno-view-buildup").click();
-    const buildup = page.getByTestId("desk-fno-buildup-not-connected");
-    await expect(buildup).toContainText("Not connected yet");
-    await expect(buildup).toContainText("OI build-up across F&O stocks");
-    await expect(buildup.getByTestId("not-connected-needs")).toContainText("no previous close");
-    await expect(buildup.getByTestId("not-connected-needs")).toContainText("one underlying at a time");
-
     await page.getByTestId("desk-fno-view-strategies").click();
     await expect(page.getByTestId("desk-fno-strategies-not-connected")).toContainText("One-click paper strategies");
     await page.getByTestId("desk-fno-open-optlab").click();
@@ -587,12 +1141,17 @@ test.describe("Smart trading desk — Portfolio & risk and F&O at 390px", () => 
   test("TC-7 no sideways scroll on the Portfolio & risk tab or the Options & futures lab", async ({ page }) => {
     await deskBase(page);
     await mockPaper(page);
+    await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await fnoData(page);
 
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("desk-risk-beta")).toBeVisible();
     await expect(page.getByTestId("desk-portfolio-correlation")).toBeVisible();
+    await expect(page.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
+    await expect(page.getByTestId("desk-mcap-unsplit")).toBeVisible();
+    await expect(page.getByTestId("desk-paper-open-table")).toBeVisible();
+    await expect(page.getByTestId("desk-alert-row")).toHaveCount(3);
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     // the weight column (where the 25% limit shows) fits on a phone without scrolling the table
     const weightBox = await page.getByTestId("desk-portfolio-weight").first().boundingBox();
@@ -615,6 +1174,13 @@ test.describe("Smart trading desk — Portfolio & risk and F&O at 390px", () => 
 
     await page.getByTestId("desk-fno-view-indices").click();
     await expect(page.getByTestId("desk-fno-card-BANKNIFTY-pcr")).toHaveText("0.80");
+    o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+
+    // OI build-up: the table scrolls inside its own box.
+    await page.getByTestId("desk-fno-view-buildup").click();
+    await expect(page.getByTestId("desk-buildup-row")).toHaveCount(BUILDUP_ROWS.length);
     o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);

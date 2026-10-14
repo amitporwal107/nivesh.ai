@@ -58,6 +58,7 @@ SERVICES: dict[str, str] = {
     "amfi_nav":               "nidp.services.amfi_nav.service",
     "amfi_nav_history":       "nidp.services.amfi_nav_history.service",
     "amfi_circulars":         "nidp.services.amfi_circulars.service",
+    "sebi_circulars":         "nidp.services.sebi_circulars.service",
     "mf_disclosure_snapshot": "nidp.services.mf_disclosure_snapshot.service",
     "mf_holdings":            "nidp.services.mf_holdings.service",
     "event_calendar":         "nidp.services.event_calendar.service",

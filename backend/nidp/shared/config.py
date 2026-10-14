@@ -126,6 +126,9 @@ INDEX_CONSTITUENT_URLS: Final[dict[str, str]] = {
     # Nifty 500 + Microcap 250: NSE's industry for ~250 stocks outside the
     # Nifty 500, in the same taxonomy as the Nifty 500 list.
     "Nifty Total Market": f"{NSE_ARCHIVES}/content/indices/ind_niftytotalmarket_list.csv",
+    # Market-cap tiers for the trading desk's portfolio split (Large = Nifty 100).
+    "Nifty Midcap 150":   f"{NSE_ARCHIVES}/content/indices/ind_niftymidcap150list.csv",
+    "Nifty Smallcap 250": f"{NSE_ARCHIVES}/content/indices/ind_niftysmallcap250list.csv",
 }
 
 # 2.1 FII/DII cash daily — NSE moved from XLS archive to JSON API.
@@ -269,6 +272,7 @@ SOURCE_REGISTRY: Final[list[dict]] = [
     ("NSE_SHP",             "nse_shareholding",    NSE_SHAREHOLDING_LIST_URL,   "B", 0.85, "daily"),
     ("NSE_EQUITY_MASTER",   "nse_equity_master",   NSE_EQUITY_MASTER_URL,       "A", 0.95, "weekly"),
     ("NSE_FO_BHAVCOPY",     "fno_bhavcopy",        NSE_FO_BHAVCOPY_URL_NEW,     "A", 0.95, "daily"),
+    ("SEBI_CIRCULARS",      "sebi_circulars",      "https://www.sebi.gov.in/sebirss.xml", "A", 0.95, "high-freq"),
     # Sector-level FPI custody has no NSE equivalent — it is reported by the
     # depository, not the exchange. Class A: NSDL is the primary custodian record.
     ("NSDL_FPI_FORTNIGHTLY", "fpi_sector_auc",  NSDL_FPI_FORTNIGHTLY_URL,    "A", 0.95, "fortnightly"),
