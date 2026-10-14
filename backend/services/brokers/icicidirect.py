@@ -42,6 +42,7 @@ Secrets: BROKER_ICICIDIRECT_API_KEY, BROKER_ICICIDIRECT_API_SECRET.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
@@ -52,7 +53,9 @@ import httpx
 
 from . import registry
 from ._helpers import detect_etf, require
-from .base import AccessToken, Funds, Holding, HubPosition, Position
+from .base import (
+    AccessToken, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, Position,
+)
 
 SLUG = "icicidirect"
 DISPLAY = "ICICI Direct"
@@ -150,9 +153,11 @@ def _unwrap(r: httpx.Response, what: str) -> Any:
         raise IciciDirectSessionExpired(f"ICICI Direct rejected the session ({what})")
     status = envelope.get("Status")
     if r.status_code != 200 or error or str(status) != "200":
-        raise IciciDirectError(
+        failure = IciciDirectError(
             f"ICICI Direct {what} failed (HTTP {r.status_code}, API status {status!r})",
         )
+        failure.http_status = r.status_code   # a caller may treat a 503 as "try again"
+        raise failure
     return envelope.get("Success")
 
 
@@ -353,6 +358,146 @@ async def fetch_funds(token: AccessToken) -> Funds:
     return Funds(available_cash=allocated - blocked, used_margin=blocked)
 
 
+# ── Contract chart ───────────────────────────────────────────────────────
+# The hub's view → Breeze's own interval name and how many days one read
+# covers. There is no daily view. Seen live on 2026-10-14 for an NFO stock
+# option and its future: "1day" (the documented name) and "1minute" answer
+# API status 500, and the rows "day" returns are not candles — their `close`
+# is the PREVIOUS day's close (13 Oct: close 35.15 while that day's last
+# trade and the quote's ltp were 21.85) — so they would draw wrong bars.
+_CHART_VIEWS: Dict[str, tuple] = {"5m": ("5minute", 7), "30m": ("30minute", 45)}
+_RIGHTS = {"CE": "call", "PE": "put"}
+# `/quotes` answers HTTP 503 when calls come in a burst (seen live: two in a
+# row answered, the next three did not). It is tried once more after this.
+_QUOTE_RETRY_AFTER_S = 0.5
+
+
+def _number(raw: Any) -> Optional[float]:
+    """Breeze sends a number as a number in a quote and as text in a candle.
+    None for anything that is not one — a missing price is not a zero."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        text = str(raw).strip()
+        return float(text) if text else None
+    except ValueError:
+        return None
+
+
+def _ist_iso(raw: Any, fmt: str) -> Optional[str]:
+    """Breeze's exchange-local time (no offset) as an ISO timestamp in IST."""
+    try:
+        return datetime.strptime(str(raw).strip(), fmt).replace(tzinfo=_IST).isoformat()
+    except ValueError:
+        return None
+
+
+def _contract_payload(contract: ContractRef) -> Dict[str, str]:
+    """A future or an option in Breeze's words. Refuses anything else, an
+    option with no strike, and an expiry that is not an ISO date."""
+    kind = (contract.instrument_type or "").upper()
+    option = kind in _RIGHTS
+    if not option and kind != "FUT":
+        raise IciciDirectNotSupported("ICICI Direct charts are read for futures and options only")
+    if option and not contract.strike:
+        raise IciciDirectNotSupported("An option's chart needs its strike price")
+    try:
+        expiry = datetime.strptime(contract.expiry, "%Y-%m-%d").date().isoformat()
+    except (TypeError, ValueError):
+        raise IciciDirectNotSupported("A contract's chart needs its expiry date") from None
+    return {
+        "stock_code": contract.symbol,
+        "exchange_code": contract.exchange,
+        "product_type": "options" if option else "futures",
+        # Breeze's samples send every expiry at 06:00 UTC.
+        "expiry_date": f"{expiry}T06:00:00.000Z",
+        "right": _RIGHTS.get(kind, "others"),
+        "strike_price": f"{contract.strike:g}" if option else "0",
+    }
+
+
+def _candle(row: Any) -> Optional[Candle]:
+    """One `/historicalcharts` row, or None when it has no time or lacks one
+    of its four prices — a bar is not drawn from a guess."""
+    if not isinstance(row, dict):
+        return None
+    when = _ist_iso(row.get("datetime"), "%Y-%m-%d %H:%M:%S")
+    prices = [_number(row.get(k)) for k in ("open", "high", "low", "close")]
+    if when is None or any(p is None for p in prices):
+        return None
+    return Candle(
+        time=when, open=prices[0], high=prices[1], low=prices[2], close=prices[3],
+        volume=_number(row.get("volume")), open_interest=_number(row.get("open_interest")),
+    )
+
+
+def _quote(rows: Any) -> Optional[ContractQuote]:
+    row = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else None
+    if row is None:
+        return None
+    return ContractQuote(
+        last_price=_number(row.get("ltp")),
+        last_traded_at=_ist_iso(row.get("ltt"), "%d-%b-%Y %H:%M:%S"),
+        open=_number(row.get("open")),
+        high=_number(row.get("high")),
+        low=_number(row.get("low")),
+        previous_close=_number(row.get("previous_close")),
+        change_pct=_number(row.get("ltp_percent_change")),
+        spot_price=_number(row.get("spot_price")),
+        volume=_number(row.get("total_quantity_traded")),
+    )
+
+
+async def fetch_contract_chart(token: AccessToken, contract: ContractRef, interval: str) -> ContractChart:
+    """The price history of one future or option and its latest quote — the
+    contract's own price, not the underlying share's. Two reads
+    (`/historicalcharts`, `/quotes`); nothing is stored and nothing is ordered.
+
+    `contract.symbol` is ICICI's stock code, as `fetch_hub_positions` gives
+    it. `interval` is "5m" or "30m". The candles are the chart: if they
+    cannot be read the call fails. The quote is an extra: a 503 is tried once
+    more, and if it still fails the chart comes back with `quote=None` —
+    unless ICICI refused the session, which always raises.
+    """
+    view = _CHART_VIEWS.get(interval)
+    if view is None:
+        raise IciciDirectNotSupported(f"ICICI Direct has no {interval!r} chart view")
+    breeze_interval, days = view
+    which = _contract_payload(contract)
+    end = datetime.now(timezone.utc).replace(microsecond=0)
+    window = {
+        "interval": breeze_interval,
+        "from_date": _timestamp(end - timedelta(days=days)),
+        "to_date": _timestamp(end),
+    }
+    rows = await _signed_get("historicalcharts", {**window, **which}, token, "chart")
+    bars = (_candle(r) for r in (rows if isinstance(rows, list) else []))
+    candles = sorted((c for c in bars if c is not None), key=lambda c: c.time)
+    return ContractChart(candles=candles, quote=await _read_quote(which, token))
+
+
+async def _read_quote(which: Dict[str, str], token: AccessToken) -> Optional[ContractQuote]:
+    """One `/quotes` read: a 503 is tried once more; any other failure, or a
+    second 503, is None. A refused session always raises."""
+    for attempt in (1, 2):
+        try:
+            return _quote(await _signed_get("quotes", which, token, "quote"))
+        except IciciDirectSessionExpired:
+            raise
+        except IciciDirectError as failure:
+            if attempt == 2 or getattr(failure, "http_status", None) != 503:
+                return None
+            await asyncio.sleep(_QUOTE_RETRY_AFTER_S)
+    return None
+
+
+async def fetch_contract_quote(token: AccessToken, contract: ContractRef) -> Optional[ContractQuote]:
+    """The latest quote of one future or option, on its own — one read of
+    `/quotes`. None when ICICI returns no quote or it cannot be read; a
+    refused session raises. Nothing is stored and nothing is ordered."""
+    return await _read_quote(_contract_payload(contract), token)
+
+
 class _Module:
     SLUG = SLUG
     DISPLAY = DISPLAY
@@ -370,6 +515,8 @@ class _Module:
     fetch_positions = staticmethod(fetch_positions)
     fetch_hub_positions = staticmethod(fetch_hub_positions)
     fetch_funds = staticmethod(fetch_funds)
+    fetch_contract_chart = staticmethod(fetch_contract_chart)
+    fetch_contract_quote = staticmethod(fetch_contract_quote)
 
 
 registry.register(_Module())

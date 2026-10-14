@@ -28,19 +28,11 @@ import { BrokerName, StockName } from "../../components/EntityIcon";
 import { useCopilotShell } from "../../lib/shell-context";
 import { Labeled, QueryProblem, fmtPrice } from "../trading/parts";
 import { isForbidden, useBrokerAccounts, type BrokerAccount } from "../trading/queries";
-import { totalsOf, useBrokerHoldings, useBrokerPositions, type BrokerHolding, type BrokerPosition, type PositionsAccount } from "./broker";
+import { fmtStamp, positionRefOf, totalsOf, useBrokerHoldings, useBrokerPositions, type BrokerHolding, type BrokerPosition, type PositionsAccount } from "./broker";
 
 const TITLE = "Broker account · read-only";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${fmtNum(n)} ${n === 1 ? one : many}`;
-
-/** "13 Oct, 3:42 pm" in India time — a broker read is an India-market timestamp wherever it is viewed. */
-export function fmtStamp(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "—";
-  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
-}
 
 const STATUS_WORDS: Record<string, string> = {
   active: "Connected",
@@ -236,7 +228,12 @@ function AccountPositions({ account, filter }: { account: PositionsAccount; filt
           rows={rows}
           rowKey={(p) => p.key}
           minWidth={760}
-          onRowClick={(p) => ask(positionQuestion(p))}
+          onRowClick={(p) => {
+            // A future or an option also says which contract it is, so the answer charts
+            // the contract itself. A share row sends the question alone.
+            const position = positionRefOf(p);
+            ask(positionQuestion(p), position ? { position } : undefined);
+          }}
         />
       )}
     </div>

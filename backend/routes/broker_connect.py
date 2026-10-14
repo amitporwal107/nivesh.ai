@@ -670,6 +670,54 @@ async def get_account_positions(
     }
 
 
+@router.get("/accounts/{account_id}/contract-chart")
+async def get_contract_chart(
+    request: Request,
+    account_id: str,
+    symbol: str = Query(..., min_length=1, max_length=40),
+    exchange: str = Query(..., min_length=2, max_length=10),
+    instrument_type: Literal["FUT", "CE", "PE"] = Query(...),
+    expiry: str = Query(..., min_length=10, max_length=10),
+    strike: Optional[float] = Query(None),
+    interval: Literal["5m", "30m"] = "5m",
+):
+    """The price history and latest quote of one futures or options contract
+    the account holds — the contract's own price, not the underlying share's —
+    read live from the broker on every call and never stored. The contract is
+    named by the values of its position row.
+    """
+    user = await _hub_user(request)
+    doc = await _get_owned_account(user["user_id"], account_id)
+    if not doc.get("native"):
+        raise ValidationException(
+            "A contract chart is available only for accounts connected by signing in on the broker's own page.",
+            code=_hub.CODE_NOT_SUPPORTED,
+            details=_account_details(doc),
+        )
+    try:
+        contract = _hub.parse_contract(symbol, exchange, instrument_type, expiry, strike)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    try:
+        chart = await _hub.read_contract_chart(db, doc, contract, interval)
+    except Exception as e:  # noqa: BLE001
+        raise _read_error(e, doc, "a contract chart") from None
+    return {
+        "account_id": account_id,
+        "broker": doc.get("broker"),
+        "broker_display": _hub.display_name(doc.get("broker") or ""),
+        "contract": {
+            "symbol": contract.symbol, "exchange": contract.exchange,
+            "instrument_type": contract.instrument_type,
+            "expiry": contract.expiry, "strike": contract.strike,
+        },
+        "interval": interval,
+        "as_of": _now_iso(),
+        "candles": chart["candles"],
+        "quote": chart["quote"],
+    }
+
+
 @router.get("/positions")
 async def get_all_positions(
     request: Request,

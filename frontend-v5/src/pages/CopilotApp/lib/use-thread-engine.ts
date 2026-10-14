@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { chatService } from "@/services";
+import type { PositionRef } from "@/services/adapters/chat.adapter";
 import { errorSentence } from "../components/ui";
 
 export interface WidgetEnvelope {
@@ -80,8 +81,10 @@ export interface ThreadEngine {
   local: LocalAnswer | null;
   busy: boolean;
   /** Send a question. Creates a thread when `sessionId` is undefined and
-   *  reports its id through `onSession` before the answer starts. */
-  send: (question: string, sessionId: string | undefined, onSession?: (id: string) => void, opts?: { persona?: string }) => Promise<void>;
+   *  reports its id through `onSession` before the answer starts.
+   *  `opts.position` is the futures or options position the question was asked
+   *  from; the server then answers with that contract's own chart. */
+  send: (question: string, sessionId: string | undefined, onSession?: (id: string) => void, opts?: { persona?: string; position?: PositionRef }) => Promise<void>;
   stop: () => void;
   /** Meta for a saved answer, by its message id; falls back to the last answer
    *  of the thread when `isLast` is set. Undefined for history. */
@@ -115,6 +118,9 @@ export function useThreadEngine(): ThreadEngine {
   const busyRef = useRef(false);
   const metaById = useRef(new Map<string, AnswerMeta>());
   const lastBySession = useRef(new Map<string, AnswerMeta>());
+  // The position a stopped or failed answer was asked about. Retry re-sends the
+  // question text alone, so this is what keeps the retry about the same contract.
+  const unanswered = useRef<{ sessionId: string; question: string; position: PositionRef } | null>(null);
 
   // Abort an in-flight answer if the shell unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -125,6 +131,13 @@ export function useThreadEngine(): ThreadEngine {
     busyRef.current = true;
     setBusy(true);
     setLocal(null);
+
+    // The same question sent again to the thread it stopped or failed in (or,
+    // when no thread could be started, to any) is a retry: it keeps its position.
+    const before = unanswered.current;
+    unanswered.current = null;
+    const position = opts?.position
+      ?? (before && before.question === q && (before.sessionId === "" || before.sessionId === sessionId) ? before.position : undefined);
 
     let sid = sessionId;
     const startedAt = performance.now();
@@ -186,7 +199,7 @@ export function useThreadEngine(): ThreadEngine {
             return;
         }
         setLive((cur) => (cur && cur.sessionId === threadId ? { ...cur, text, steps, agent, confidence, widget } : cur));
-      }, { signal: ac.signal, persona: opts?.persona });
+      }, { signal: ac.signal, persona: opts?.persona, position });
     } catch (e) {
       if (!ac.signal.aborted) {
         errorText = errorSentence(e) || "Connection interrupted. Please try again.";
@@ -197,6 +210,9 @@ export function useThreadEngine(): ThreadEngine {
     const totalMs = Math.round(performance.now() - startedAt);
     // Steps still open when the stream ended never reported an end frame.
     const closedSteps = steps;
+    if (position && (!sid || ac.signal.aborted || errorText)) {
+      unanswered.current = { sessionId: sid ?? "", question: q, position };
+    }
 
     if (!sid) {
       // The thread itself could not be created — nothing to attach the answer to.

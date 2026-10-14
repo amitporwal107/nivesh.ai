@@ -21,7 +21,9 @@ import pytest
 
 from services.brokers import icicidirect as icici
 from services.brokers import registry
-from services.brokers.base import AccessToken, Funds, Holding, HubPosition, Position
+from services.brokers.base import (
+    AccessToken, Candle, ContractChart, ContractQuote, ContractRef, Funds, Holding, HubPosition, Position,
+)
 
 # The reference's own example AppKey (public text, chosen for its special characters).
 APP_KEY = "8g791^N029R47I831B8153=^O2f#7u8g"
@@ -495,4 +497,252 @@ def test_reads_need_both_app_secrets_and_call_nobody_without_them(keys, monkeypa
     wire = Wire(monkeypatch, {"dematholdings": ok([DOCS_DEMAT_ROW]), "portfolioholdings": ok([])})
     with pytest.raises(RuntimeError, match=f"{missing} is not configured"):
         run(icici.fetch_holdings(TOKEN))
+    assert wire.requests == []
+
+
+# ── Contract chart (a future's or an option's own price) ─────────────────
+# OBSERVED 2026-10-14 on a live account (values replaced): `/historicalcharts` rows and a `/quotes` row
+# for an NFO stock option. Numbers arrive as strings in a candle and as numbers in a quote; `datetime`
+# and `ltt` are IST with no offset. "1day" and "1minute" answered API status 500, and the rows "day"
+# returns carry the previous day's close, so there is no daily view. `/quotes` answered HTTP 503 with an
+# empty body when called in a burst.
+PUT = ContractRef(symbol="FIXCO", exchange="NFO", instrument_type="PE", expiry="2026-10-27", strike=1760.0)
+CALL = ContractRef(symbol="FIXCO", exchange="NFO", instrument_type="CE", expiry="2026-10-27", strike=1762.5)
+FUTURE = ContractRef(symbol="FIXCO", exchange="NFO", instrument_type="FUT", expiry="2026-10-27", strike=None)
+
+
+def candle_row(when: str, o: str, h: str, low: str, c: str, volume="1100", oi="109450") -> dict:
+    return {
+        "datetime": when, "stock_code": "FIXCO", "exchange_code": "NFO", "product_type": "Options",
+        "expiry_date": "27-OCT-2026", "right": "Put", "strike_price": "1760",
+        "open": o, "high": h, "low": low, "close": c, "volume": volume, "open_interest": oi, "count": 3,
+    }
+
+
+OBSERVED_QUOTE = {
+    "exchange_code": "NFO", "product_type": "Options", "stock_code": "FIXCO", "expiry_date": "27-Oct-2026",
+    "right": "Put", "strike_price": 1760.0, "ltp": 21.85, "ltt": "13-Oct-2026 15:38:34",
+    "best_bid_price": 21.6, "best_bid_quantity": "550", "best_offer_price": 22.1, "best_offer_quantity": "275",
+    "open": 34.1, "high": 34.1, "low": 19.1, "previous_close": 22.05, "ltp_percent_change": -0.91,
+    "upper_circuit": 60.0, "lower_circuit": 0.05, "total_quantity_traded": "48400", "spot_price": "1801",
+}
+
+
+def _body(request: httpx.Request) -> dict:
+    return json.loads(request.content)
+
+
+@pytest.mark.parametrize("contract,product,right,strike", [
+    (PUT, "options", "put", "1760"),
+    (CALL, "options", "call", "1762.5"),
+    (FUTURE, "futures", "others", "0"),
+])
+def test_a_contract_chart_asks_icici_for_that_contract_in_breezes_own_words(keys, monkeypatch, contract, product, right, strike):
+    wire = Wire(monkeypatch, {"historicalcharts": ok([]), "quotes": ok([])})
+    run(icici.fetch_contract_chart(TOKEN, contract, "5m"))
+
+    for path in ("historicalcharts", "quotes"):
+        sent = _body(wire.sent(path))
+        assert {k: sent[k] for k in ("stock_code", "exchange_code", "product_type", "expiry_date", "right", "strike_price")} == {
+            "stock_code": "FIXCO", "exchange_code": "NFO", "product_type": product,
+            "expiry_date": "2026-10-27T06:00:00.000Z", "right": right, "strike_price": strike,
+        }
+        assert wire.sent(path).method == "GET"                       # reads only
+    assert set(_body(wire.sent("quotes"))) == {"stock_code", "exchange_code", "product_type", "expiry_date", "right", "strike_price"}
+
+
+@pytest.mark.parametrize("interval,breeze_name,days", [("5m", "5minute", 7), ("30m", "30minute", 45)])
+def test_each_view_uses_breezes_interval_name_and_a_window_that_ends_now(keys, monkeypatch, interval, breeze_name, days):
+    wire = Wire(monkeypatch, {"historicalcharts": ok([]), "quotes": ok([])})
+    before = datetime.now(timezone.utc).replace(microsecond=0)
+    run(icici.fetch_contract_chart(TOKEN, PUT, interval))
+    sent = _body(wire.sent("historicalcharts"))
+
+    assert sent["interval"] == breeze_name
+    start = datetime.strptime(sent["from_date"], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc)
+    end = datetime.strptime(sent["to_date"], "%Y-%m-%dT%H:%M:%S.000Z").replace(tzinfo=timezone.utc)
+    assert end - start == timedelta(days=days)
+    assert before <= end <= before + timedelta(seconds=30)
+
+
+def test_candles_come_back_oldest_first_as_numbers_with_ist_times(keys, monkeypatch):
+    Wire(monkeypatch, {
+        "historicalcharts": ok([
+            candle_row("2026-10-13 15:35:00", "21.85", "21.85", "21.85", "21.85", volume="0"),
+            candle_row("2026-10-13 09:15:00", "34.1", "34.1", "30", "31.5"),
+        ]),
+        "quotes": ok([OBSERVED_QUOTE]),
+    })
+    chart = run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+
+    assert chart == ContractChart(
+        candles=[
+            Candle(time="2026-10-13T09:15:00+05:30", open=34.1, high=34.1, low=30.0, close=31.5, volume=1100.0, open_interest=109450.0),
+            Candle(time="2026-10-13T15:35:00+05:30", open=21.85, high=21.85, low=21.85, close=21.85, volume=0.0, open_interest=109450.0),
+        ],
+        quote=ContractQuote(
+            last_price=21.85, last_traded_at="2026-10-13T15:38:34+05:30", open=34.1, high=34.1, low=19.1,
+            previous_close=22.05, change_pct=-0.91, spot_price=1801.0, volume=48400.0,
+        ),
+    )
+
+
+def test_a_candle_without_a_time_or_a_price_is_left_out_and_a_missing_volume_stays_none(keys, monkeypatch):
+    Wire(monkeypatch, {
+        "historicalcharts": ok([
+            candle_row("not a time", "1", "1", "1", "1"),
+            candle_row("2026-10-13 09:20:00", "", "31", "30", "30.5"),                 # no open
+            candle_row("2026-10-13 09:25:00", "30.5", "31", "30", "30.8", volume=None, oi=None),
+            "not a row",
+        ]),
+        "quotes": ok([]),
+    })
+    chart = run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+
+    assert chart.candles == [Candle(time="2026-10-13T09:25:00+05:30", open=30.5, high=31.0, low=30.0, close=30.8, volume=None, open_interest=None)]
+    assert chart.quote is None                                               # no quote row: none, not zeros
+
+
+def test_a_quote_field_icici_did_not_send_is_none_never_zero(keys, monkeypatch):
+    Wire(monkeypatch, {"historicalcharts": ok([]), "quotes": ok([{"ltp": 21.85, "ltt": "nonsense", "spot_price": ""}])})
+    chart = run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+
+    assert chart.candles == []
+    assert chart.quote == ContractQuote(last_price=21.85)
+
+
+def test_a_quote_that_fails_does_not_lose_the_candles(keys, monkeypatch):
+    Wire(monkeypatch, {
+        "historicalcharts": ok([candle_row("2026-10-13 09:15:00", "34.1", "34.1", "30", "31.5")]),
+        "quotes": (200, {"Success": None, "Status": 500, "Error": "Resource not available"}),
+    })
+    chart = run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+
+    assert len(chart.candles) == 1 and chart.quote is None
+
+
+class QuoteWire:
+    """One candle from `/historicalcharts`; `/quotes` is answered from a list, one answer per call
+    (the last one repeats)."""
+
+    def __init__(self, monkeypatch, quote_answers: list):
+        self.requests: list[httpx.Request] = []
+        answers = list(quote_answers)
+        real_client = httpx.AsyncClient
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            if request.url.path.endswith("/quotes"):
+                status, body = answers.pop(0) if len(answers) > 1 else answers[0]
+            else:
+                status, body = ok([candle_row("2026-10-13 09:15:00", "34.1", "34.1", "30", "31.5")])
+            if isinstance(body, str):
+                return httpx.Response(status, text=body)
+            return httpx.Response(status, json=body)
+
+        monkeypatch.setattr(
+            httpx, "AsyncClient",
+            lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw),
+        )
+
+    def quote_calls(self) -> int:
+        return sum(1 for r in self.requests if r.url.path.endswith("/quotes"))
+
+
+BUSY = (503, "")          # OBSERVED: HTTP 503 with an empty body
+
+
+def test_a_busy_quote_is_asked_once_more_and_then_used(keys, monkeypatch):
+    monkeypatch.setattr(icici, "_QUOTE_RETRY_AFTER_S", 0)
+    wire = QuoteWire(monkeypatch, [BUSY, ok([OBSERVED_QUOTE])])
+    chart = run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+    assert chart.quote.last_price == 21.85 and wire.quote_calls() == 2
+
+
+def test_a_quote_that_stays_busy_is_given_up_after_one_more_try_and_the_candles_are_kept(keys, monkeypatch):
+    monkeypatch.setattr(icici, "_QUOTE_RETRY_AFTER_S", 0)
+    wire = QuoteWire(monkeypatch, [BUSY])
+    chart = run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+    assert chart.quote is None and len(chart.candles) == 1 and wire.quote_calls() == 2
+
+
+def test_a_quote_that_fails_for_any_other_reason_is_not_asked_again(keys, monkeypatch):
+    wire = QuoteWire(monkeypatch, [(200, {"Success": None, "Status": 500, "Error": "Resource not available"})])
+    chart = run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+    assert chart.quote is None and wire.quote_calls() == 1
+
+
+def test_candles_that_fail_fail_the_chart_without_quoting_the_broker(keys, monkeypatch):
+    Wire(monkeypatch, {
+        "historicalcharts": (200, {"Success": None, "Status": 500, "Error": "Secret broker text"}),
+        "quotes": ok([OBSERVED_QUOTE]),
+    })
+    with pytest.raises(icici.IciciDirectError) as exc:
+        run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+    assert not isinstance(exc.value, (icici.IciciDirectSessionExpired, icici.IciciDirectNotSupported))
+    assert "Secret broker text" not in str(exc.value) and SESSION_TOKEN not in str(exc.value)
+
+
+@pytest.mark.parametrize("failing", ["historicalcharts", "quotes"])
+def test_a_rejected_session_on_either_call_ends_the_chart_read_as_session_expired(keys, monkeypatch, failing):
+    routes = {"historicalcharts": ok([]), "quotes": ok([OBSERVED_QUOTE])}
+    routes[failing] = (401, {"Success": None, "Status": 401, "Error": "Invalid session."})
+    Wire(monkeypatch, routes)
+    with pytest.raises(icici.IciciDirectSessionExpired):
+        run(icici.fetch_contract_chart(TOKEN, PUT, "5m"))
+
+
+@pytest.mark.parametrize("contract,interval", [
+    (PUT, "1m"), (PUT, "1d"), (PUT, "1day"), (PUT, "day"), (PUT, ""),
+    (ContractRef(symbol="FIXCO", exchange="NSE", instrument_type="EQ", expiry="2026-10-27"), "5m"),
+    (ContractRef(symbol="FIXCO", exchange="NFO", instrument_type="PE", expiry="2026-10-27", strike=None), "5m"),
+    (ContractRef(symbol="FIXCO", exchange="NFO", instrument_type="PE", expiry="27-Oct-2026", strike=1760.0), "5m"),
+])
+def test_a_view_or_a_contract_the_adapter_cannot_serve_is_refused_before_any_call(keys, monkeypatch, contract, interval):
+    wire = Wire(monkeypatch, {"historicalcharts": ok([]), "quotes": ok([])})
+    with pytest.raises(icici.IciciDirectNotSupported):
+        run(icici.fetch_contract_chart(TOKEN, contract, interval))
+    assert wire.requests == []
+
+
+# ── A contract's quote on its own (what a chat answer about the position is told) ──
+def test_a_contracts_quote_alone_is_one_read_of_quotes(keys, monkeypatch):
+    wire = Wire(monkeypatch, {"quotes": ok([OBSERVED_QUOTE])})
+    quote = run(icici.fetch_contract_quote(TOKEN, PUT))
+
+    assert quote == ContractQuote(
+        last_price=21.85, last_traded_at="2026-10-13T15:38:34+05:30", open=34.1, high=34.1, low=19.1,
+        previous_close=22.05, change_pct=-0.91, spot_price=1801.0, volume=48400.0,
+    )
+    assert [r.url.path.rsplit("/", 1)[-1] for r in wire.requests] == ["quotes"]
+    assert wire.requests[0].method == "GET"
+
+
+def test_no_quote_row_is_none(keys, monkeypatch):
+    Wire(monkeypatch, {"quotes": ok([])})
+    assert run(icici.fetch_contract_quote(TOKEN, FUTURE)) is None
+
+
+def test_a_busy_quote_alone_is_asked_once_more(keys, monkeypatch):
+    monkeypatch.setattr(icici, "_QUOTE_RETRY_AFTER_S", 0)
+    wire = QuoteWire(monkeypatch, [BUSY, ok([OBSERVED_QUOTE])])
+    assert run(icici.fetch_contract_quote(TOKEN, PUT)).last_price == 21.85 and wire.quote_calls() == 2
+
+
+def test_a_quote_that_cannot_be_read_alone_is_none(keys, monkeypatch):
+    monkeypatch.setattr(icici, "_QUOTE_RETRY_AFTER_S", 0)
+    QuoteWire(monkeypatch, [BUSY])
+    assert run(icici.fetch_contract_quote(TOKEN, PUT)) is None
+
+
+def test_a_quote_read_alone_that_icici_refuses_the_session_for_raises(keys, monkeypatch):
+    Wire(monkeypatch, {"quotes": (401, {"Success": None, "Status": 401, "Error": "Invalid session."})})
+    with pytest.raises(icici.IciciDirectSessionExpired):
+        run(icici.fetch_contract_quote(TOKEN, PUT))
+
+
+def test_a_quote_for_something_that_is_not_a_contract_is_refused_before_any_call(keys, monkeypatch):
+    wire = Wire(monkeypatch, {"quotes": ok([OBSERVED_QUOTE])})
+    with pytest.raises(icici.IciciDirectNotSupported):
+        run(icici.fetch_contract_quote(TOKEN, ContractRef(symbol="FIXCO", exchange="NSE", instrument_type="EQ", expiry="2026-10-27")))
     assert wire.requests == []

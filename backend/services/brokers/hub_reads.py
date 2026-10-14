@@ -32,9 +32,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+import re
 import uuid
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -43,7 +45,7 @@ from helpers import holdings_reconcile
 from services import dashboard_cache
 from . import fenix_reader, registry, sessions, sync_snapshots
 from ._helpers import to_thread
-from .base import AccessToken, Holding, HubPosition, Position
+from .base import AccessToken, ContractRef, Holding, HubPosition, Position
 from .fenix_reader import BrokerNotSupported, BrokerReadError, BrokerSessionExpired
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,13 @@ DAILY_SYNC_CONCURRENCY = 4
 CODE_SESSION_EXPIRED = "BROKER_SESSION_EXPIRED"
 CODE_NOT_SUPPORTED = "BROKER_READ_NOT_SUPPORTED"
 CODE_READ_FAILED = "BROKER_READ_FAILED"
+
+# The views of a contract chart (`read_contract_chart`): five-minute and
+# thirty-minute bars.
+CHART_INTERVALS = ("5m", "30m")
+_CONTRACT_KINDS = ("FUT", "CE", "PE")
+_SYMBOL_RE = re.compile(r"[A-Z0-9][A-Z0-9&._-]{0,39}")
+_EXCHANGE_RE = re.compile(r"[A-Z]{2,10}")
 
 _ASSET_TYPES = ("equity", "mutual_fund", "etf", "bond", "gold", "fd", "other")
 
@@ -536,6 +545,103 @@ async def read_account_positions(db, doc: dict, kind: str = "net") -> list[dict]
         logger.warning(
             "broker positions read failed account=%s broker=%s kind=%s error=%s",
             doc.get("account_id"), doc.get("broker"), kind, _error_label(exc),
+        )
+        raise
+
+
+# ── Contract chart ───────────────────────────────────────────────────────
+def parse_contract(symbol: Any, exchange: Any, instrument_type: Any, expiry: Any, strike: Any) -> ContractRef:
+    """A futures or options contract named by a client, checked and put in
+    one form. The values are those of a position row (`HubPosition`). Raises
+    `ValueError` with a plain sentence for anything that cannot name one — the
+    values go into a broker request, so nothing is passed on unchecked.
+    """
+    sym = symbol.strip().upper() if isinstance(symbol, str) else ""
+    if not _SYMBOL_RE.fullmatch(sym):
+        raise ValueError("symbol must be the position's own symbol")
+    exch = exchange.strip().upper() if isinstance(exchange, str) else ""
+    if not _EXCHANGE_RE.fullmatch(exch):
+        raise ValueError("exchange must be the position's own exchange")
+    kind = instrument_type.strip().upper() if isinstance(instrument_type, str) else ""
+    if kind not in _CONTRACT_KINDS:
+        raise ValueError("instrument_type must be FUT, CE or PE")
+    if isinstance(expiry, datetime) or not isinstance(expiry, (str, date)):
+        raise ValueError("expiry must be a date (YYYY-MM-DD)")
+    try:
+        expires = expiry if isinstance(expiry, date) else datetime.strptime(expiry.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        raise ValueError("expiry must be a date (YYYY-MM-DD)") from None
+    if kind == "FUT":
+        return ContractRef(symbol=sym, exchange=exch, instrument_type=kind, expiry=expires.isoformat(), strike=None)
+    if isinstance(strike, bool) or not isinstance(strike, (int, float)) or not math.isfinite(strike) or not 0 < strike <= 10_000_000:
+        raise ValueError("an option needs its strike price")
+    return ContractRef(symbol=sym, exchange=exch, instrument_type=kind, expiry=expires.isoformat(), strike=float(strike))
+
+
+def supports_contract_chart(slug: str) -> bool:
+    """Whether the broker's adapter can read a contract's own price history."""
+    try:
+        adapter = registry.get(slug)
+    except KeyError:
+        return False
+    return bool(getattr(adapter, "IMPLEMENTED", True)) and callable(getattr(adapter, "fetch_contract_chart", None))
+
+
+async def read_contract_chart(db, doc: dict, contract: ContractRef, interval: str) -> dict:
+    """The price history and latest quote of one futures or options contract,
+    read live from the account's broker on every call; nothing is stored.
+    Returns `ContractChart` as a dict: `{"candles": [...], "quote": {...} | None}`.
+
+    Raises like `read_account_positions`: a broker that refuses the session
+    ends it; a broker with no chart reader is `BrokerNotSupported`.
+    """
+    if interval not in CHART_INTERVALS:
+        raise ValueError(f"interval must be one of {CHART_INTERVALS}")
+    try:
+        slug = doc.get("broker") or ""
+        token = _live_token(doc)
+        adapter = _adapter_for(slug, "contract chart")
+        fetch = getattr(adapter, "fetch_contract_chart", None)
+        if fetch is None:
+            raise BrokerNotSupported(f"{adapter.DISPLAY} has no contract chart reader")
+        chart = await _adapter_call(adapter, "a contract chart", fetch, token, contract, interval)
+        return asdict(chart)
+    except BrokerSessionExpired:
+        await sessions.end_session(db, doc["account_id"], "broker_rejected")
+        raise
+    except (sessions.SessionEnded, BrokerNotSupported):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "broker contract chart read failed account=%s broker=%s interval=%s error=%s",
+            doc.get("account_id"), doc.get("broker"), interval, _error_label(exc),
+        )
+        raise
+
+
+async def read_contract_quote(db, doc: dict, contract: ContractRef) -> Optional[dict]:
+    """The latest quote of one futures or options contract, read live from
+    the account's broker; nothing is stored. `ContractQuote` as a dict, or
+    None when the broker returned none. Raises like `read_contract_chart`.
+    """
+    try:
+        slug = doc.get("broker") or ""
+        token = _live_token(doc)
+        adapter = _adapter_for(slug, "contract quote")
+        fetch = getattr(adapter, "fetch_contract_quote", None)
+        if fetch is None:
+            raise BrokerNotSupported(f"{adapter.DISPLAY} has no contract quote reader")
+        quote = await _adapter_call(adapter, "a contract quote", fetch, token, contract)
+        return asdict(quote) if quote is not None else None
+    except BrokerSessionExpired:
+        await sessions.end_session(db, doc["account_id"], "broker_rejected")
+        raise
+    except (sessions.SessionEnded, BrokerNotSupported):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "broker contract quote read failed account=%s broker=%s error=%s",
+            doc.get("account_id"), doc.get("broker"), _error_label(exc),
         )
         raise
 
