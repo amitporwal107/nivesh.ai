@@ -479,9 +479,18 @@ async def build_enriched_portfolio(
             # If we self-heal from one of those, `write_holdings_table`
             # wipes the live table to zero rows on every page-load — the
             # exact failure mode this self-heal was designed to fix.
+            #
+            # Statement history kept by the Gmail "import all statements"
+            # path (cas_snapshot_engine.store_cas_snapshot) is left out: it
+            # can hold an older or a mutual-fund-only statement, and that
+            # account's portfolio is only ever written through save_holdings.
+            # `$ne` also matches snapshots without the field, so everything
+            # written before that path existed self-heals exactly as before.
+            from services.cas_snapshot_engine import HISTORY_STORED_BY
             latest_snap = await db.portfolio_snapshots.find_one(
                 {"user_id": user_id,
-                 "holdings": {"$exists": True, "$not": {"$size": 0}}},
+                 "holdings": {"$exists": True, "$not": {"$size": 0}},
+                 "stored_by": {"$ne": HISTORY_STORED_BY}},
                 {"_id": 0, "snapshot_date": 1},
                 sort=[("snapshot_date", -1)],
             )

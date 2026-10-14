@@ -25,16 +25,30 @@ const returningFromOauth = () => {
   return q.has("gmail_code") || q.has("gmail_error");
 };
 
+// Sent here by an in-app "Upload a statement" / "Connect investments" action
+// (/onboarding?tab=upload|gmail|otp). That is an explicit request to add a
+// statement, so it must reach the connect step even for an account that has
+// already finished onboarding.
+const requestedMethod = (): Method | null => {
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  return tab === "upload" || tab === "gmail" || tab === "otp" ? tab : null;
+};
+
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [method, setMethod] = useState<Method>("gmail");
-  const [phase, setPhase] = useState<Phase>(returningFromOauth() ? "connect" : "persona");
+  const [method, setMethod] = useState<Method>(requestedMethod() ?? "gmail");
+  const [phase, setPhase] = useState<Phase>(
+    returningFromOauth() || requestedMethod() ? "connect" : "persona");
 
   // If already onboarded (CAS imported), send them straight to the Copilot
   // (/lite) — the lite surface is the product's primary destination. Only
   // brand-new users continue through the onboarding steps below.
+  // Not when the user explicitly asked to add a statement, or is coming back
+  // from the Gmail consent screen: bouncing those to /lite left an onboarded
+  // account with no way to reach the upload step again.
   useEffect(() => {
+    if (requestedMethod() || returningFromOauth()) return;
     apiFetch("/api/onboarding/state")
       .then(r => r.ok ? r.json() : null)
       .then((d: { onboarding_completed?: boolean } | null) => {

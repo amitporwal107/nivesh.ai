@@ -1,0 +1,60 @@
+{
+  "days": 730,
+  "count": 3,
+  "series": [
+    {
+      "snapshot_date": "2026-05-31",
+      "total_value": 900000.0,
+      "health_score": 57.0,
+      "return_pct": 8.0,
+      "allocation": {
+        "equity": 30.0,
+        "mf": 65.0,
+        "gold": 5.0
+      },
+      "scores": {
+        "health": 57.0,
+        "Diversification": 52.0,
+        "Risk": 60.0,
+        "Cost": 55.0,
+        "Performance": 61.0
+      }
+    },
+    {
+      "snapshot_date": "2026-07-01",
+      "total_value": 960000.0,
+      "health_score": 60.0,
+      "return_pct": 8.0,
+      "allocation": {
+        "equity": 30.0,
+        "mf": 65.0,
+        "gold": 5.0
+      },
+      "scores": {
+        "health": 60.0,
+        "Diversification": 55.0,
+        "Risk": 62.0,
+        "Cost": 58.0,
+        "Performance": 65.0
+      }
+    },
+    {
+      "snapshot_date": "2026-08-31",
+      "total_value": 1000000.0,
+      "health_score": 64.5,
+      "return_pct": 8.0,
+      "allocation": {
+        "equity": 30.0,
+        "mf": 65.0,
+        "gold": 5.0
+      },
+      "scores": {
+        "health": 64.5,
+        "Diversification": 61.0,
+        "Risk": 62.0,
+        "Cost": 60.0,
+        "Performance": 66.0
+      }
+    }
+  ]
+}

@@ -404,6 +404,38 @@ def find_isin_by_name(name: str, asset_type: str = "") -> Optional[Tuple[str, di
     return best_match
 
 
+def enrich_broker_row(h: dict) -> dict:
+    """Fill what a broker's export leaves blank — the full name, and a price
+    when the file had none — from an exact ISIN lookup.
+
+    The quantity and cost are the broker's own figures, so they are never
+    "corrected" against market prices the way parsed statements are, and the
+    row is never matched by name: an export often names a holding by its
+    symbol alone, and "RELIANCE" fuzzy-matches Reliance Power. `ticker` stays
+    the trading symbol; the ISIN goes in `isin`.
+    """
+    from helpers import holdings_reconcile
+
+    isin = holdings_reconcile.resolve_isin(h)
+    master = lookup_isin(isin) if isin else None
+    if not master:
+        return h
+
+    h["isin"] = isin
+    name = (h.get("name") or "").strip()
+    symbol = str(h.get("ticker") or "").strip()
+    master_name = (master.get("name") or "").strip()
+    if master_name and (len(name) < 5 or name.upper() in (symbol.upper(), isin)):
+        h["name"] = master_name
+    if not h.get("current_price") and master.get("price", 0) > 0:
+        h["current_price"] = round(master["price"], 4)
+    if master.get("source") == "amfi":
+        for key in ("plan", "option"):
+            if master.get(key):
+                h[key] = master[key]
+    return h
+
+
 def validate_and_enrich_holdings(holdings: list) -> list:
     """Validate parsed holdings against masterdata. Fix ISINs, names, prices, and quantities.
     
@@ -413,7 +445,14 @@ def validate_and_enrich_holdings(holdings: list) -> list:
     enriched = []
 
     for h in holdings:
-        isin = h.get("ticker", "")
+        # A broker's own export is authoritative: see enrich_broker_row.
+        if h.get("source") == "broker_export":
+            enriched.append(enrich_broker_row(h))
+            continue
+
+        # A row that states its ISIN is looked up by it; `ticker` may then be
+        # a trading symbol.
+        isin = h.get("isin") or h.get("ticker", "")
         name = h.get("name", "")
         asset_type = h.get("asset_type", "")
         qty = h.get("quantity", 0)
@@ -517,8 +556,10 @@ def validate_and_enrich_holdings(holdings: list) -> list:
             enriched.append(h)
             continue
 
-        # 2. ISIN not found — try fuzzy name matching
-        if name and len(name) >= 3:
+        # 2. ISIN not found — try fuzzy name matching. Not for a row that
+        # states an ISIN: its identity is known, and a name match would
+        # replace it with whatever company sounds closest.
+        if name and len(name) >= 3 and not h.get("isin"):
             match = find_isin_by_name(name, asset_type)
             if match:
                 new_isin, info = match

@@ -261,3 +261,16 @@ async def push_transactions(records: list, snapshot_date: str) -> Dict[str, Any]
         "POST", "/portfolio/ingest-transactions",
         json={"records": records, "snapshot_date": snapshot_date},
     )
+
+
+async def push_goals(records: list, snapshot_date: str) -> Dict[str, Any]:
+    """POST goal records directly to NIDP Postgres via Query API.
+
+    Args:
+        records: list of dicts in the shape portfolio_goals_sync upserts
+        snapshot_date: ISO date string "YYYY-MM-DD"
+    """
+    return await _request(
+        "POST", "/portfolio/ingest-goals",
+        json={"records": records, "snapshot_date": snapshot_date},
+    )

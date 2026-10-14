@@ -1,0 +1,33 @@
+# CloudPe override for backend/nidp/deploy/vm/docker-compose.staging.yml.
+#
+# The base file is still what GCP staging runs, so it is left alone and only
+# the GCP-coupled parts are replaced here:
+#
+#   docker compose \
+#     --env-file /opt/nidp-staging/nidp.env --env-file /opt/nidp-staging/cloudpe.env \
+#     -f backend/nidp/deploy/vm/docker-compose.staging.yml \
+#     -f deploy/cloudpe/nidp/docker-compose.cloudpe.yml  <command>
+#
+# Use deploy/cloudpe/nidp/deploy.sh rather than running this by hand.
+# Needs Docker Compose >= 2.33.1 (same floor as the app stack; !reset / !override need 2.24).
+
+services:
+  postgres:
+    # Pinned to the TimescaleDB version the GCP staging DB was dumped from
+    # (cloudpe.env, written by nidp/bootstrap.sh). Restoring a dump into a
+    # different extension version can corrupt the hypertable catalogs, and the
+    # base file's floating latest-pg16 tag would drift on every pull.
+    image: timescale/timescaledb:${NIDP_TSDB_TAG:?set NIDP_TSDB_TAG in /opt/nidp-staging/cloudpe.env}
+    # Loopback only. The base file also binds 10.160.0.3 (the GCP VPC address
+    # of nidp-stack-vm), which does not exist here and would stop the container starting.
+    ports: !override
+      - "127.0.0.1:5434:5432"
+    volumes: !override
+      - /opt/nidp-staging/data/postgres:/var/lib/postgresql/data
+      # Lets nidp/restore.sh run a parallel pg_restore from a file.
+      - /opt/nidp-staging/dumps:/dumps:ro
+
+  daas-api:
+    environment:
+      # The base file hardcodes the password here; take it from nidp.env instead.
+      NIDP_POSTGRES_URL: postgresql://${NIDP_PG_USER:-nidp_staging}:${NIDP_PG_PASSWORD}@nidp-postgres-staging:5432/${NIDP_PG_DB:-nidp_staging}

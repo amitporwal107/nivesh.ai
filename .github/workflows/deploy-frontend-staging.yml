@@ -1,8 +1,10 @@
-name: Deploy frontend → nivesh-app-vm [staging]
+name: Deploy frontend → CloudPe app VM [staging]
 
 # Triggers on pushes to dev when frontend code changes (v2 or v5).
-# Passes --frontend-only to redeploy-staging.sh so the backend
-# image is NOT rebuilt — much faster than a full rebuild.
+# Passes --frontend-only so the backend image is NOT rebuilt.
+#
+# Staging runs on the CloudPe app VM (see deploy/cloudpe/README.md); the deploy
+# is one on-VM command, deploy/cloudpe/ci-deploy.sh.
 "on":
   push:
     branches: [dev]
@@ -36,40 +38,23 @@ jobs:
           BRANCH="${{ github.event.inputs.branch || github.ref_name }}"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: SSH → redeploy frontend [staging]
+      # Secrets: STAGING_APP_VM_HOST, STAGING_SSH_USER, STAGING_SSH_KEY
+      # (see deploy-backend-staging.yml).
+      - name: SSH → deploy frontend [staging]
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:            ${{ secrets.NIVESH_VM_HOST }}
-          username:        ${{ secrets.DEVOPS_SSH_USER }}
-          key:             ${{ secrets.DEVOPS_SSH_KEY }}
+          host:            ${{ secrets.STAGING_APP_VM_HOST }}
+          username:        ${{ secrets.STAGING_SSH_USER }}
+          key:             ${{ secrets.STAGING_SSH_KEY }}
           port:            22
           timeout:         10m
-          command_timeout: 25m
+          command_timeout: 30m
           script: |
             set -euo pipefail
             echo "=== STAGING frontend deploy ==="
             echo "    Branch : ${{ steps.config.outputs.branch }}"
             echo "    Commit : ${{ github.sha }}"
-
-            # Pull the on-VM repo with safe.directory passed INLINE so git never
-            # writes ~/.gitconfig (unwritable/root-owned under OS Login →
-            # "could not lock config file /home/<user>/.gitconfig"). This also
-            # lands the current redeploy-staging.sh before we run it.
-            REPO=/opt/nivesh-staging/repo
-            BR="${{ steps.config.outputs.branch }}"
-            sudo chown -R "$(id -un):$(id -un)" "$REPO" 2>/dev/null || true
-            git -c "safe.directory=$REPO" -C "$REPO" fetch  --quiet origin "$BR"
-            git -c "safe.directory=$REPO" -C "$REPO" checkout --quiet "$BR"
-            git -c "safe.directory=$REPO" -C "$REPO" reset --hard --quiet "origin/$BR"
-
-            sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/redeploy-staging.sh \
-              "$BR" --frontend-only
-
-      - name: Health check [staging]
-        run: |
-          sleep 15
-          HTTP=$(curl -sfk -o /dev/null -w "%{http_code}" \
-            --max-time 15 https://staging.niveshcopilot.com/api/healthz \
-            2>/dev/null || echo "000")
-          echo "Health check → HTTP $HTTP"
-          [[ "$HTTP" == "200" ]] || echo "::warning::Health check returned $HTTP"
+            # Health and frontend checks run on the VM through the edge nginx
+            # (Cloudflare returns 403 to Actions runners).
+            sudo /usr/bin/bash /opt/nivesh-staging/repo/deploy/cloudpe/ci-deploy.sh \
+              app "${{ steps.config.outputs.branch }}" --frontend-only

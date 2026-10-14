@@ -159,7 +159,13 @@ CREATE OR REPLACE VIEW nidp.v_feed_status_base AS
      LEFT JOIN last_run lr USING (ingester)
      LEFT JOIN last_snapshot ls USING (ingester);
 
-CREATE OR REPLACE VIEW nidp.v_feed_status AS
+-- Dropped and recreated, not replaced: v_feed_status is `fs.*` plus the DQ
+-- columns, so the columns just added to v_feed_status_base land in the middle
+-- of it, and CREATE OR REPLACE VIEW refuses to move existing columns ("cannot
+-- change name of view column last_dq_status to staleness_days"). No CASCADE:
+-- if something depends on the view, fail here instead of silently dropping it.
+DROP VIEW IF EXISTS nidp.v_feed_status;
+CREATE VIEW nidp.v_feed_status AS
  SELECT fs.*,
     COALESCE(dq.dq_status, 'NONE')      AS last_dq_status,
     COALESCE(dq.dq_rules_failed, 0)::int AS last_dq_rules_failed,

@@ -156,13 +156,15 @@ async def get_market_research() -> MarketResult:
     snapshot: Dict[str, Any] = {}
     movers: Optional[Dict[str, Any]] = None
     try:
-        body = await daas_client._get("/v1/snapshots/market")
+        # daas_client._get prepends /v1 itself; a path that also starts with /v1
+        # requests /v1/v1/... , which 404s and comes back as None.
+        body = await daas_client._get("/snapshots/market")
         if isinstance(body, dict):
             snapshot = body.get("data") or body
     except Exception as exc:  # noqa: BLE001 — never break the turn
         logger.warning("market snapshot fetch failed: %s", exc)
     try:
-        movers = await daas_client._get("/v1/market-pulse/movers", params={"cap": "large"})
+        movers = await daas_client._get("/market-pulse/movers", params={"cap": "large"})
     except Exception as exc:  # noqa: BLE001
         logger.debug("market movers fetch failed: %s", exc)
 

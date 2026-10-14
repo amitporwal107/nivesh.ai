@@ -23,8 +23,12 @@ CREATE INDEX IF NOT EXISTS idx_container_health_vm_time
     ON monitoring.container_health (vm, collected_at DESC);
 
 -- ── 2. Service health: HTTP probe results ────────────────────────────────────
+-- The key includes collected_at because create_hypertable() below rejects a
+-- primary key that omits the partitioning column ("cannot create a unique
+-- index without the column collected_at"); with `id` alone this file could
+-- not be applied to an empty database.
 CREATE TABLE IF NOT EXISTS monitoring.service_health (
-    id              BIGSERIAL       PRIMARY KEY,
+    id              BIGSERIAL,
     collected_at    TIMESTAMPTZ     NOT NULL DEFAULT now(),
     vm              TEXT            NOT NULL,
     service_name    TEXT            NOT NULL,
@@ -33,7 +37,8 @@ CREATE TABLE IF NOT EXISTS monitoring.service_health (
     is_up           BOOLEAN,
     http_status     INT,
     response_ms     INT,
-    error_msg       TEXT
+    error_msg       TEXT,
+    PRIMARY KEY (id, collected_at)
 );
 
 SELECT create_hypertable(

@@ -70,12 +70,10 @@ def make_stub(slug: str, display: str, auth_style: str = "form"):
 # delete its entry here and add a real module under `services/brokers/`.
 make_stub("definedge", "Definedge", "form")
 make_stub("flattrade", "Flattrade", "form")
-make_stub("groww", "Groww", "form")
 make_stub("iifl", "IIFL", "oauth")
 make_stub("iiflcapital", "IIFL Capital", "oauth")
 make_stub("indmoney", "INDmoney", "oauth")
 make_stub("kotak", "Kotak Neo", "form")
-make_stub("motilal", "Motilal Oswal", "form")
 make_stub("mstock", "m.Stock", "form")
 make_stub("paytm", "Paytm Money", "oauth")
 make_stub("samco", "Samco", "form")

@@ -27,9 +27,12 @@ claude-opus-4-8; override via the DB setting SECTOR_ANALYSIS_MODEL.
 """
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import os
 import statistics
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -170,21 +173,15 @@ def _mean(values: List[float]) -> Optional[float]:
 
 
 # ── Grounding: fetch real per-stock facts from the data lake ──────────────────
-async def _fetch_stocks(pool) -> List[Dict[str, Any]]:
+async def _fetch_stocks() -> List[Dict[str, Any]]:
     """Per-stock facts for the latest trading day, as unified dicts:
     {symbol, name, sector, industry, return_1y_pct, market_cap_cr, pe_ttm, pb,
     roe_pct, _as_of}.
 
-    Prefers the DaaS screener: on Cloud Run the app's own Postgres does NOT carry
-    the ingested nidp.* rows (often not even the tables), so the sector
-    aggregates must be sourced over DaaS like the other Market Pulse tabs. Falls
-    back to a direct PG read of nidp.stock_features_daily where the data lake is
-    colocated with the app. Real data only — [] when neither path yields rows.
+    Read through the NIDP (DaaS) screener — the app has no SQL access to the
+    NIDP database. Real data only: [] when DaaS yields no rows.
     """
-    rows = await _fetch_stocks_daas()
-    if rows:
-        return rows
-    return await _fetch_stocks_pg(pool)
+    return await _fetch_stocks_daas()
 
 
 async def _fetch_stocks_daas() -> List[Dict[str, Any]]:
@@ -234,76 +231,32 @@ async def _fetch_stocks_daas() -> List[Dict[str, Any]]:
     return out
 
 
-async def _fetch_stocks_pg(pool) -> List[Dict[str, Any]]:
-    """Direct PG read — used where the nidp data lake is colocated with the app.
-    DISTINCT ON dedupes the (symbol, as_of_date, source) PK so each stock counts
-    once, preferring the row that actually has a market cap."""
-    sql = """
-        SELECT DISTINCT ON (sfd.symbol)
-               sfd.symbol,
-               sm.security_name AS company_name,
-               sfd.sector,
-               sfd.industry,
-               sfd.return_252d_pct,
-               sfd.market_cap_cr,
-               sfd.pe_ttm,
-               sfd.pb,
-               sfd.roe_pct
-          FROM nidp.stock_features_daily sfd
-          LEFT JOIN ref.security_master sm
-                 ON sm.entity_type = 'EQUITY' AND sm.symbol = sfd.symbol
-         WHERE sfd.as_of_date = (SELECT max(as_of_date) FROM nidp.stock_features_daily)
-           AND (sfd.sector IS NOT NULL OR sfd.industry IS NOT NULL)
-         ORDER BY sfd.symbol, sfd.market_cap_cr DESC NULLS LAST
-    """
-    try:
-        async with pool.acquire() as conn:
-            as_of = await conn.fetchval("SELECT max(as_of_date) FROM nidp.stock_features_daily")
-            rows = await conn.fetch(sql)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("sector_analysis fetch_stocks_pg failed: %s", e)
-        return []
-    out: List[Dict[str, Any]] = []
-    for r in rows:
-        out.append({
-            "symbol":        r["symbol"],
-            "name":          r["company_name"] or r["symbol"],
-            "sector":        r["sector"],
-            "industry":      r["industry"],
-            "return_1y_pct": _f(r["return_252d_pct"]),
-            "market_cap_cr": _f(r["market_cap_cr"]),
-            "pe_ttm":        _f(r["pe_ttm"]),
-            "pb":            _f(r["pb"]),
-            "roe_pct":       _f(r["roe_pct"]),
-            "_as_of":        as_of,
-        })
-    return out
-
-
-async def _fetch_index_eod(pool, names: List[str]) -> Dict[str, Dict[str, Any]]:
-    """Latest close + 1d %change + P/E for the given NSE indices."""
-    if not names:
+async def _fetch_index_eod(names: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Latest close + 1d %change + P/E for the given NSE indices, from the NIDP
+    (DaaS) index series. An index DaaS has no recent row for is simply absent."""
+    from services.copilot_tools import daas_client
+    wanted = list(dict.fromkeys(n for n in names if n))
+    if not wanted or not daas_client.is_configured():
         return {}
-    sql = """
-        SELECT DISTINCT ON (index_name)
-               index_name, pct_change, pe_ratio, close_price, as_of_date
-          FROM nidp.index_eod
-         WHERE index_name = ANY($1)
-         ORDER BY index_name, as_of_date DESC
-    """
-    try:
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(sql, names)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("sector_analysis fetch_index_eod failed: %s", e)
-        return {}
+    # A short window is enough to find the latest trading day across a long weekend.
+    start = (date.today() - timedelta(days=10)).isoformat()
+
+    async def _latest(name: str) -> Optional[Dict[str, Any]]:
+        try:
+            rows = await daas_client.get_index_eod_history(name, start=start, page_size=20, max_rows=20)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("sector_analysis fetch_index_eod(%s) via DaaS failed: %s", name, e)
+            return None
+        return rows[-1] if rows else None            # history is date-ascending
+
+    latest = await asyncio.gather(*(_latest(n) for n in wanted))
     return {
-        r["index_name"]: {
-            "pct_change": _f(r["pct_change"]),
-            "pe_ratio":   _f(r["pe_ratio"]),
-            "close":      _f(r["close_price"]),
+        name: {
+            "pct_change": _f(row.get("pct_change")),
+            "pe_ratio":   _f(row.get("pe_ratio")),
+            "close":      _f(row.get("close_price")),
         }
-        for r in rows
+        for name, row in zip(wanted, latest) if row
     }
 
 
@@ -392,13 +345,11 @@ def _build_profile_doc(meta: Dict[str, str], stocks: List[Dict[str, Any]],
     }
 
 
-async def diagnose(pool) -> Dict[str, Any]:
-    """Probe the data state behind an empty grid — surfaces WHY (missing table
-    vs empty/NULL-sector data) without needing DB/log access. Each probe is
-    isolated so one failure (e.g. a missing table) still reports the rest."""
+async def diagnose() -> Dict[str, Any]:
+    """Probe the NIDP (DaaS) screener behind an empty grid — surfaces WHY the
+    build found no stocks without needing DB/log access."""
     out: Dict[str, Any] = {}
 
-    # DaaS is the primary path (Cloud Run has no local nidp.* rows) — probe it first.
     try:
         from services.copilot_tools import daas_client
         out["daas_configured"] = daas_client.is_configured()
@@ -429,37 +380,16 @@ async def diagnose(pool) -> Dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         out["daas_error"] = str(e)[:200]
 
-    async def _val(key: str, sql: str) -> None:
-        try:
-            async with pool.acquire() as conn:
-                out[key] = await conn.fetchval(sql)
-        except Exception as e:  # noqa: BLE001
-            out[key + "_error"] = str(e)[:200]
-
-    await _val("sfd_table",            "SELECT to_regclass('nidp.stock_features_daily')::text")
-    await _val("ref_security_master",  "SELECT to_regclass('ref.security_master')::text")
-    await _val("sector_master_table",  "SELECT to_regclass('nidp.sector_master')::text")
-    await _val("sfd_latest",           "SELECT max(as_of_date)::text FROM nidp.stock_features_daily")
-    await _val("sfd_rows_latest",
-               "SELECT count(*) FROM nidp.stock_features_daily "
-               "WHERE as_of_date=(SELECT max(as_of_date) FROM nidp.stock_features_daily)")
-    await _val("sfd_with_sector",
-               "SELECT count(*) FROM nidp.stock_features_daily "
-               "WHERE as_of_date=(SELECT max(as_of_date) FROM nidp.stock_features_daily) AND sector IS NOT NULL")
-    await _val("sfd_with_mcap",
-               "SELECT count(*) FROM nidp.stock_features_daily "
-               "WHERE as_of_date=(SELECT max(as_of_date) FROM nidp.stock_features_daily) AND market_cap_cr IS NOT NULL")
-    await _val("sector_master_rows",   "SELECT count(*) FROM nidp.sector_master")
     return out
 
 
-async def build_all_metrics(pool, generated_at: str) -> List[Dict[str, Any]]:
+async def build_all_metrics(generated_at: str) -> List[Dict[str, Any]]:
     """Grounded metric docs for every profile that has enough stocks. No LLM."""
-    stocks = await _fetch_stocks(pool)
+    stocks = await _fetch_stocks()
     if not stocks:
         return []
     as_of = stocks[0].get("_as_of")
-    index_eod = await _fetch_index_eod(pool, [p["benchmark"] for p in PROFILES])
+    index_eod = await _fetch_index_eod([p["benchmark"] for p in PROFILES])
     docs: List[Dict[str, Any]] = []
     for meta in PROFILES:
         doc = _build_profile_doc(meta, stocks, index_eod, as_of, generated_at)

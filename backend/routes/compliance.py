@@ -202,6 +202,12 @@ async def delete_account(request: Request):
     # Hard-delete user-owned data.
     h_res = await db.holdings.delete_many({"user_id": uid})
     p_res = await db.action_plans.delete_many({"user_id": uid})
+    await db.broker_sync_snapshots.delete_many({"user_id": uid})  # copies of broker-synced holdings
+    # Broker connections go too. A row left behind keeps an encrypted broker
+    # session token, and the daily sync would read that account again and
+    # re-create the holdings just erased.
+    b_res = await db.broker_accounts.delete_many({"user_id": uid})
+    await db.broker_oauth_states.delete_many({"user_id": uid})
     # Soft-delete account — keep user row for audit linkage.
     from datetime import datetime, timezone
     await db.users.update_one(
@@ -219,10 +225,12 @@ async def delete_account(request: Request):
         details={
             "holdings_deleted": h_res.deleted_count,
             "plans_deleted": p_res.deleted_count,
+            "broker_accounts_deleted": b_res.deleted_count,
         },
     )
     return {
         "ok": True,
         "holdings_deleted": h_res.deleted_count,
         "plans_deleted": p_res.deleted_count,
+        "broker_accounts_deleted": b_res.deleted_count,
     }

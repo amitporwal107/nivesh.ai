@@ -35,6 +35,7 @@ from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api import metric_registry as reg
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import envelope, jsonify
+from nidp.services.daas_api.routers._fundamentals_source import source_columns
 from nidp.services.daas_api.screen_query import (
     FEATURES_TABLE, ScreenQueryError, metric_or_raise, predicate, select_columns, where,
 )
@@ -49,6 +50,12 @@ _FEATURES = FEATURES_TABLE
 _MAX_LIMIT = 500
 # Rows a relaxed threshold should aim to admit when suggesting a loosening (B6-A).
 _SUGGEST_TARGET_ROWS = 10
+# The feature columns whose origin a row records in fundamentals_source / fundamentals_as_of
+# (migration 162), the label the engine's own calculation gets there, and where figures
+# supplied from outside are kept.
+_SOURCED_COLUMNS = ("roe_pct", "roce_pct", "debt_to_equity", "pb", "market_cap_cr")
+_OWN_CALCULATION = "nidp_computed"
+_SOURCED_DATASET = "nidp.stock_fundamental_values"
 
 
 class _Bad(HTTPException):
@@ -115,9 +122,15 @@ async def _coverage(conn, as_of) -> Dict[str, Dict[str, Any]]:
     return out
 
 
-def _cell(m: reg.Metric, value: Any, as_of: Any) -> Dict[str, Any]:
+def _cell(m: reg.Metric, value: Any, as_of: Any, row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """One cell WITH its provenance inline (C1/C2). A null value must explain
-    itself — a bare em-dash is the silent failure this product exists to avoid."""
+    itself — a bare em-dash is the silent failure this product exists to avoid.
+
+    `row` is the feature row the value came from. For the five figures that can be
+    supplied from outside (migration 162) the cell adds `source` and `source_as_of`
+    from the row's fundamentals_source / fundamentals_as_of. When the source is not
+    our own calculation, the registry's formula is left out: it describes our
+    arithmetic, not the supplier's."""
     cell: Dict[str, Any] = {"value": jsonify(value), "as_of": jsonify(as_of)}
     if value is None:
         cell["null_reason"] = (
@@ -125,6 +138,13 @@ def _cell(m: reg.Metric, value: Any, as_of: Any) -> Dict[str, Any]:
             if m.source_dataset.endswith("financials_quarterly")
             else "No value available for this company today")
         return cell
+    source = (row or {}).get("fundamentals_source") if m.column in _SOURCED_COLUMNS else None
+    if source:
+        cell["source"] = source
+        cell["source_as_of"] = jsonify((row or {}).get("fundamentals_as_of"))
+        if source != _OWN_CALCULATION:
+            cell["source_dataset"] = _SOURCED_DATASET
+            return cell
     cell["formula"] = m.formula
     cell["source_dataset"] = m.source_dataset
     # C2 — a price-derived value must say how many sessions produced it, so a
@@ -244,7 +264,8 @@ async def screen(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         direction = "ASC" if str(sort.get("dir", "desc")).lower() == "asc" else "DESC"
 
         rows = await conn.fetch(
-            f"SELECT {select_columns(wanted)} FROM {_FEATURES} f WHERE {where_sql} "
+            f"SELECT {select_columns(wanted)}, {await source_columns(conn, 'f')} "
+            f"FROM {_FEATURES} f WHERE {where_sql} "
             # `, f.symbol ASC` is load-bearing: without a tiebreaker, tied rows
             # reorder between calls and pagination repeats or drops rows (B1).
             f'ORDER BY f."{sort_col}" {direction} NULLS LAST, f.symbol ASC '
@@ -254,7 +275,7 @@ async def screen(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         out_rows: List[Dict[str, Any]] = []
         for r in rows:
             d = dict(r)
-            cells = {k: _cell(reg.BY_KEY[k], d.get(reg.BY_KEY[k].column), as_of) for k in wanted}
+            cells = {k: _cell(reg.BY_KEY[k], d.get(reg.BY_KEY[k].column), as_of, d) for k in wanted}
             matched = [{
                 "key": f["key"], "op": f["op"],
                 "threshold": f.get("value", f.get("values", [f.get("min"), f.get("max")])),

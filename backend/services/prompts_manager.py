@@ -137,8 +137,14 @@ async def get(name: str, **format_kwargs: Any) -> str:
     if format_kwargs:
         try:
             return text.format(**format_kwargs)
-        except (KeyError, IndexError) as e:
-            logger.warning("prompt %s format error: %s — returning raw", name, e)
+        except (KeyError, IndexError, ValueError) as e:
+            # An admin override can contain literal braces (a JSON example) that
+            # .format() cannot parse. Returning the text untouched would send the
+            # model "{portfolio_context}" instead of the data, so the named
+            # placeholders are filled in literally and everything else is kept.
+            logger.warning("prompt %s format error: %s — substituting placeholders literally", name, e)
+            for key, value in format_kwargs.items():
+                text = text.replace("{" + key + "}", str(value))
             return text
     return text
 

@@ -89,32 +89,53 @@ ON CONFLICT (amc_id) DO NOTHING;
 -- deliberately deferred. Column names and types are identical to the local
 -- table (verified position by position), which CREATE OR REPLACE requires, and
 -- a single-table pass-through stays auto-updatable so writes keep working.
-CREATE OR REPLACE VIEW nidp.mf_scheme_master AS
-SELECT scheme_code, scheme_name, amc_id, amc_name_raw, isin_growth, isin_idcw,
-       scheme_type, scheme_category, benchmark_id, launch_date, status,
-       latest_nav, latest_nav_date, first_seen_at, updated_at
-  FROM nidp.mf_scheme_master_local;
+-- That layout (canonical name = view over a foreign table, plus a _local table)
+-- only exists on a database that was linked to production through postgres_fdw.
+-- On a database built from the migrations alone, nidp.mf_scheme_master is an
+-- ordinary table, there is no _local table, and amfi_nav writes to the canonical
+-- name directly — so the repoint is skipped and the backfill runs against the
+-- table itself. Anything else is refused rather than guessed at.
+DO $$
+DECLARE
+    v_target TEXT;
+BEGIN
+    IF to_regclass('nidp.mf_scheme_master_local') IS NOT NULL THEN
+        CREATE OR REPLACE VIEW nidp.mf_scheme_master AS
+        SELECT scheme_code, scheme_name, amc_id, amc_name_raw, isin_growth, isin_idcw,
+               scheme_type, scheme_category, benchmark_id, launch_date, status,
+               latest_nav, latest_nav_date, first_seen_at, updated_at
+          FROM nidp.mf_scheme_master_local;
+        v_target := 'nidp.mf_scheme_master_local';
+    ELSIF (SELECT relkind FROM pg_class
+            WHERE oid = to_regclass('nidp.mf_scheme_master')) IN ('r', 'p') THEN
+        v_target := 'nidp.mf_scheme_master';
+    ELSE
+        RAISE EXCEPTION 'nidp.mf_scheme_master is neither a table nor backed by nidp.mf_scheme_master_local';
+    END IF;
 
--- Backfill the unmapped schemes on the LOCAL table (never through the view --
--- see above), using the SAME rule the amfi_nav writer applies on insert so a
--- re-run of the ingester is a no-op rather than a second, differently-shaped
--- answer.
-UPDATE nidp.mf_scheme_master_local s
-   SET amc_id = (
-           SELECT m.amc_id
-             FROM nidp.mf_amc_master m
-            WHERE lower(s.amc_name_raw) LIKE lower(m.amc_name) || '%'
-            ORDER BY length(m.amc_name) DESC
-            LIMIT 1
-       ),
-       updated_at = NOW()
- WHERE coalesce(s.amc_id, '') = ''
-   AND s.amc_name_raw IS NOT NULL
-   AND EXISTS (
-           SELECT 1
-             FROM nidp.mf_amc_master m
-            WHERE lower(s.amc_name_raw) LIKE lower(m.amc_name) || '%'
-       );
+    -- Backfill the unmapped schemes on the LOCAL table (never through the view --
+    -- see above), using the SAME rule the amfi_nav writer applies on insert so a
+    -- re-run of the ingester is a no-op rather than a second, differently-shaped
+    -- answer.
+    EXECUTE format($q$
+        UPDATE %s s
+           SET amc_id = (
+                   SELECT m.amc_id
+                     FROM nidp.mf_amc_master m
+                    WHERE lower(s.amc_name_raw) LIKE lower(m.amc_name) || '%%'
+                    ORDER BY length(m.amc_name) DESC
+                    LIMIT 1
+               ),
+               updated_at = NOW()
+         WHERE coalesce(s.amc_id, '') = ''
+           AND s.amc_name_raw IS NOT NULL
+           AND EXISTS (
+                   SELECT 1
+                     FROM nidp.mf_amc_master m
+                    WHERE lower(s.amc_name_raw) LIKE lower(m.amc_name) || '%%'
+               )
+    $q$, v_target);
+    EXECUTE format('ANALYZE %s', v_target);
+END $$;
 
 ANALYZE nidp.mf_amc_master;
-ANALYZE nidp.mf_scheme_master_local;

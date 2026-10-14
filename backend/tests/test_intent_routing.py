@@ -210,3 +210,30 @@ def test_stock_only_vocab_routes_without_resolvable_symbol():
 ])
 def test_gate_does_not_steal_non_stock(text, agent):
     assert match_agent(text) == agent
+
+
+# ── "my biggest holdings" → portfolio_analyst ────────────────────────────────
+# A size word between "my" and the noun used to miss _P_PORTFOLIO and fall through
+# to the generic "what are …" stock rule, so the copilot replied "Which stock would
+# you like me to look at?" to a question about the user's own book.
+@pytest.mark.parametrize("q", [
+    "What are my biggest holdings?",
+    "What are my top holdings?",
+    "my largest positions",
+    "show my biggest investments",
+    "Which are my top 5 stocks?",
+    "my top mutual fund holdings",
+])
+def test_size_ranked_questions_about_my_own_book_route_to_portfolio(q):
+    assert match_agent(q) == PORTFOLIO
+
+
+@pytest.mark.parametrize("q, agent", [
+    ("biggest holdings of HDFC Flexi Cap fund", MF),          # a fund's holdings, not mine
+    ("what are the top holdings of Parag Parikh Flexi Cap", MF),
+    ("What are the top stocks to buy?", RECOMMENDATION),
+    ("top 5 large cap funds", MF),
+    ("What is the PE of TCS?", STOCK),
+])
+def test_similar_phrasings_about_other_things_route_as_before(q, agent):
+    assert match_agent(q) == agent

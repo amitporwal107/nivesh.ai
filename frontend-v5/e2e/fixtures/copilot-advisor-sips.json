@@ -1,0 +1,138 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shapes; sources are named per key. GET /api/advisor/sip-board and /api/advisor/sip-board/summary (backend/routes/advisor_v4.py).",
+  "summary": {
+    "cycle": "2026-10",
+    "monthly_inflow_rs": 45000.0,
+    "active_sips_count": 5,
+    "failed_count": 1,
+    "mandate_at_risk_count": 1
+  },
+  "board": {
+    "cycle": "2026-10",
+    "queues": {
+      "failed": [
+        {
+          "sip_id": "sip_fx1",
+          "profile_id": "p-1",
+          "client_name": "Test Client One",
+          "fund_isin": "INF000FIXT01",
+          "fund_name": "HDFC Flexi Cap Fund - Direct Growth",
+          "amount_rs": 10000.0,
+          "cadence": "MONTHLY",
+          "state": "failed",
+          "mandate_id": "mnd_sip_fx1",
+          "mandate_expiry_date": null,
+          "last_bounce_reason": "insufficient_balance",
+          "last_bounce_date": "2026-10-05",
+          "cycles_missed": 2,
+          "next_debit_date": "2026-11-05",
+          "proposed_stepup_pct": null,
+          "available_actions": [
+            "MESSAGE_CLIENT",
+            "REQUEST_BANK_UPDATE"
+          ]
+        }
+      ],
+      "expiring": [
+        {
+          "sip_id": "sip_fx2",
+          "profile_id": "p-2",
+          "client_name": "Test Client Two",
+          "fund_isin": "INF000FIXT01",
+          "fund_name": "Parag Parikh Flexi Cap Fund - Direct Growth",
+          "amount_rs": 15000.0,
+          "cadence": "MONTHLY",
+          "state": "expiring",
+          "mandate_id": "mnd_sip_fx2",
+          "mandate_expiry_date": "2026-11-30",
+          "last_bounce_reason": null,
+          "last_bounce_date": null,
+          "cycles_missed": 0,
+          "next_debit_date": "2026-11-05",
+          "proposed_stepup_pct": null,
+          "available_actions": [
+            "MESSAGE_CLIENT",
+            "REQUEST_MANDATE_RENEWAL"
+          ]
+        }
+      ],
+      "step_up": [
+        {
+          "sip_id": "sip_fx3",
+          "profile_id": "p-3",
+          "client_name": "Test Client Three",
+          "fund_isin": "INF000FIXT01",
+          "fund_name": "SBI Small Cap Fund - Direct Growth",
+          "amount_rs": 5000.0,
+          "cadence": "MONTHLY",
+          "state": "step_up",
+          "mandate_id": "mnd_sip_fx3",
+          "mandate_expiry_date": null,
+          "last_bounce_reason": null,
+          "last_bounce_date": null,
+          "cycles_missed": 0,
+          "next_debit_date": "2026-11-05",
+          "proposed_stepup_pct": 10,
+          "available_actions": [
+            "MESSAGE_CLIENT",
+            "APPROVE_STEP_UP"
+          ]
+        }
+      ],
+      "healthy": [
+        {
+          "sip_id": "sip_fx4",
+          "profile_id": "p-3",
+          "client_name": "Test Client Three",
+          "fund_isin": "INF000FIXT01",
+          "fund_name": "Axis Nifty 50 Index Fund - Direct Growth",
+          "amount_rs": 10000.0,
+          "cadence": "MONTHLY",
+          "state": "healthy",
+          "mandate_id": "mnd_sip_fx4",
+          "mandate_expiry_date": null,
+          "last_bounce_reason": null,
+          "last_bounce_date": null,
+          "cycles_missed": 0,
+          "next_debit_date": "2026-11-05",
+          "proposed_stepup_pct": null,
+          "available_actions": []
+        },
+        {
+          "sip_id": "sip_fx5",
+          "profile_id": "p-2",
+          "client_name": "Test Client Two",
+          "fund_isin": "INF000FIXT01",
+          "fund_name": "ICICI Prudential Liquid Fund - Direct Growth",
+          "amount_rs": 5000.0,
+          "cadence": "MONTHLY",
+          "state": "healthy",
+          "mandate_id": "mnd_sip_fx5",
+          "mandate_expiry_date": null,
+          "last_bounce_reason": null,
+          "last_bounce_date": null,
+          "cycles_missed": 0,
+          "next_debit_date": "2026-11-05",
+          "proposed_stepup_pct": null,
+          "available_actions": []
+        }
+      ]
+    }
+  },
+  "empty_summary": {
+    "cycle": "2026-10",
+    "monthly_inflow_rs": 0,
+    "active_sips_count": 0,
+    "failed_count": 0,
+    "mandate_at_risk_count": 0
+  },
+  "empty_board": {
+    "cycle": "2026-10",
+    "queues": {
+      "failed": [],
+      "expiring": [],
+      "step_up": [],
+      "healthy": []
+    }
+  }
+}

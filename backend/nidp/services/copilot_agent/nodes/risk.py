@@ -14,7 +14,7 @@ from typing import List, Optional
 
 from langchain_core.messages import AIMessage
 
-from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -206,7 +206,7 @@ async def risk_node(state: CopilotState) -> dict:
         {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
-    answer_text = resp.content
+    answer_text = text_of(resp)
 
     response = AgentResponse(
         agent=AgentName.RISK,

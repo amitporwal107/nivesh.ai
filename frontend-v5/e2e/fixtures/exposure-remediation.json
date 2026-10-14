@@ -1,0 +1,73 @@
+{
+ "recommendations": [
+  {
+   "id": "dup-fixture fund",
+   "action_kind": "duplicate_plan",
+   "title": "Switch Fixture Fund Regular → Direct plan",
+   "why": "You hold the same scheme in two plans. The Regular plan charges ~1.8% p.a. vs ~0.5% for Direct — identical portfolio, higher fees. Switching saves ₹1,950/yr.",
+   "action": "Redeem Fixture Fund Regular (₹150,000) and invest in Fixture Fund Direct.",
+   "amount_rs": 150000.0,
+   "annual_saving_rs": 1950.0,
+   "contributors": [
+    {
+     "name": "Fixture Fund Regular",
+     "pct_of_exposure": 100,
+     "value_rs": 150000.0
+    }
+   ],
+   "before_after": [],
+   "redeploy_to": "Fixture Fund Direct",
+   "caveats": [
+    {
+     "icon": "tax",
+     "text": "LTCG at 10% on units held > 1 year (above ₹1 L annual exemption). STCG at 15% on units held < 1 year."
+    },
+    {
+     "icon": "lock",
+     "text": "ELSS units are locked for 3 years per instalment — switch only unlocked units."
+    }
+   ],
+   "leverage_score": 90
+  },
+  {
+   "id": "trim-amc-Fixture AMC",
+   "action_kind": "trim_amc",
+   "title": "Reduce Fixture AMC from 40.6% → ~25.0%",
+   "why": "Fixture AMC is 40.6% of your mutual-fund portfolio — 15.6pt above the 30% cap.",
+   "action": "Redeem ₹156,000 from Fixture Fund Regular (largest Fixture AMC holding).",
+   "amount_rs": 156000.0,
+   "annual_saving_rs": 0,
+   "contributors": [
+    {
+     "name": "Fixture Fund Regular",
+     "pct_of_exposure": 62.5,
+     "value_rs": 150000.0
+    }
+   ],
+   "before_after": [
+    {
+     "lens_id": "amc",
+     "lens_label": "AMC",
+     "before_verdict": "over-concentrated",
+     "after_verdict": "elevated",
+     "before_pct": 40.6,
+     "after_pct": 25.0,
+     "before_hhi": 2044,
+     "after_hhi": 1500,
+     "before_eff_n": 4.9,
+     "after_eff_n": 6.7
+    }
+   ],
+   "redeploy_to": "Redeploy into an AMC currently below 10% of your portfolio.",
+   "caveats": [
+    {
+     "icon": "exit",
+     "text": "Check exit load schedule — most equity funds are load-free after 12 months."
+    }
+   ],
+   "leverage_score": 71
+  }
+ ],
+ "total_value": 1000000.0,
+ "empty": false
+}

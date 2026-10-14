@@ -14,7 +14,7 @@ import logging
 
 from langchain_core.messages import AIMessage
 
-from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -97,7 +97,7 @@ async def backtest_node(state: CopilotState) -> dict:
             {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
             {"role": "user", "content": user_msg or "Run the backtest."},
         ])
-        answer_text = (resp.content or "").strip()
+        answer_text = text_of(resp).strip()
     except Exception as exc:  # noqa: BLE001 — never crash the stream on the narrative
         logger.warning("backtest node LLM narrative failed: %s", exc)
 

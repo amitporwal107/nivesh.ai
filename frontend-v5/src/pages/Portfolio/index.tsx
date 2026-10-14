@@ -35,7 +35,7 @@ export default function PortfolioPage() {
       <EmptyState
         title="No holdings yet"
         description="Upload a CAS PDF, broker statement, or CSV to populate your portfolio."
-        action={{ label: "Connect investments", onClick: () => navigate("/onboarding") }}
+        action={{ label: "Connect investments", onClick: () => navigate("/onboarding?tab=gmail") }}
       />
     );
   }

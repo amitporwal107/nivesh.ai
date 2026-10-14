@@ -20,7 +20,7 @@ from typing import Any, Dict, Optional
 
 from langchain_core.messages import HumanMessage
 
-from .._llm import make_chat_llm, temperature_for
+from .._llm import make_chat_llm, temperature_for, text_of
 from ..schemas import AgentName, CopilotState, IntentClassification
 from .intent_patterns import match_agent
 
@@ -115,7 +115,13 @@ async def _llm_classify(text: str) -> IntentClassification:
             config={"tags": ["intent_internal"]},
         )
         import json
-        data = json.loads(resp.content)
+        raw = text_of(resp).strip()
+        # Some models wrap the routing JSON in a code fence or a sentence; take
+        # the outermost object so that does not silently reroute to the default agent.
+        start, end = raw.find("{"), raw.rfind("}")
+        if start != -1 and end > start:
+            raw = raw[start:end + 1]
+        data = json.loads(raw)
         agent_str = data.get("agent", "market_analyst")
         # normalise to enum value
         agent = next(

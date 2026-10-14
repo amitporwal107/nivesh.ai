@@ -10,9 +10,8 @@ from deps import db, get_current_user
 from services import dashboard_cache
 from core.idempotency import IdempotencyState, check_idempotency, store_idempotency_result
 from helpers.upload_validation import validate_upload_async
-from helpers.parsing import (
-    parse_csv_holdings, parse_excel_holdings, save_holdings
-)
+from helpers.parsing import save_holdings
+from helpers.statement_exports import parse_csv_statement, parse_excel_statement
 
 # Deprecation message returned to clients that still POST CAS PDFs to
 # the legacy direct-upload endpoints. CAS parsing now lives exclusively
@@ -62,13 +61,16 @@ router = APIRouter(prefix="/api")
                                 "message": "3 holdings imported from CSV",
                                 "count": 3,
                                 "holdings": [{"ticker": "INE040A01034", "quantity": 10}],
+                                "broker": "zerodha",
+                                "broker_name": "Zerodha",
+                                "format": "zerodha",
                             },
                         },
                     }
                 }
             },
         },
-        400: {"description": "Unsupported format, empty file, or wrong CAS PDF password."},
+        400: {"description": "Unsupported format, empty or unreadable file, or no holdings table recognised in it."},
         413: {"description": "File exceeds the maximum upload size."},
         415: {"description": "File magic-byte check failed (validate_upload)."},
     },
@@ -111,27 +113,32 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
 
     if filename.endswith(".xlsx") or filename.endswith(".xls"):
-        parsed = await parse_excel_holdings(content)
+        statement = parse_excel_statement(content, filename)
         file_type = "Excel"
     elif filename.endswith(".csv"):
-        parsed = await parse_csv_holdings(content)
+        statement = parse_csv_statement(content, filename)
         file_type = "CSV"
     else:
         try:
-            parsed = await parse_csv_holdings(content)
+            statement = parse_csv_statement(content, filename)
             file_type = "CSV"
         except Exception:
             raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV, Excel (.xlsx), or CAS PDF.")
 
+    parsed = statement.holdings
+    # What the file was read as: `broker` is the slug stored on the rows (None for
+    # the generic template or a table whose broker is not identified).
+    detected = {"broker": statement.broker, "broker_name": statement.broker_name, "format": statement.layout}
     if not parsed:
-        return {"message": "No holdings found in the uploaded file", "count": 0, "holdings": []}
+        return {"message": "No holdings found in the uploaded file", "count": 0, "holdings": [], **detected}
 
     holdings_added = await save_holdings(user_id, parsed, file_type)
     await dashboard_cache.invalidate(user_id)
     return {
         "message": f"{len(holdings_added)} holdings imported from {file_type}",
         "count": len(holdings_added),
-        "holdings": holdings_added
+        "holdings": holdings_added,
+        **detected,
     }
 
 
@@ -146,7 +153,7 @@ async def upload_portfolio(request: Request, file: UploadFile = File(...)):
                 "PDFs, synchronous holdings list for CSV/Excel."
             )
         },
-        400: {"description": "Empty body, unsupported format, or wrong CAS PDF password."},
+        400: {"description": "Empty body, unsupported format, unreadable file, or no holdings table recognised in it."},
         413: {"description": "Body exceeds the maximum upload size."},
     },
 )
@@ -203,19 +210,21 @@ async def upload_portfolio_raw(request: Request):
         raise HTTPException(status_code=410, detail=_CAS_PDF_DEPRECATED)
 
     if filename.endswith(".xlsx") or filename.endswith(".xls"):
-        parsed = await parse_excel_holdings(content)
+        statement = parse_excel_statement(content, filename)
         file_type = "Excel"
     elif filename.endswith(".csv"):
-        parsed = await parse_csv_holdings(content)
+        statement = parse_csv_statement(content, filename)
         file_type = "CSV"
     else:
         raise HTTPException(status_code=400, detail="Unsupported format")
 
+    parsed = statement.holdings
+    detected = {"broker": statement.broker, "broker_name": statement.broker_name, "format": statement.layout}
     if not parsed:
-        return {"message": "No holdings found", "count": 0, "holdings": []}
+        return {"message": "No holdings found", "count": 0, "holdings": [], **detected}
     holdings_added = await save_holdings(user_id, parsed, file_type, portfolio_id=portfolio_id)
     await dashboard_cache.invalidate(user_id)
-    return {"message": f"{len(holdings_added)} holdings imported from {file_type}", "count": len(holdings_added), "holdings": holdings_added}
+    return {"message": f"{len(holdings_added)} holdings imported from {file_type}", "count": len(holdings_added), "holdings": holdings_added, **detected}
 
 
 @router.get(

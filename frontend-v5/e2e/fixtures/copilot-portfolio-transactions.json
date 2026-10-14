@@ -1,0 +1,52 @@
+{
+  "transactions": [
+    {
+      "date": "2026-08-05",
+      "scheme_name": "Axis Fixture Bluechip Fund - Direct Growth",
+      "isin": "INF000FIX01",
+      "folio": "FIX/1001",
+      "amc": "Axis",
+      "type": "SIP_PURCHASE",
+      "amount": 5000.0,
+      "units": 100.0,
+      "nav": 50.0,
+      "balance": 0,
+      "raw_description": "Sip_Purchase",
+      "user_id": "user_fixture",
+      "source": "CAS"
+    },
+    {
+      "date": "2026-07-18",
+      "scheme_name": "SBI Fixture Midcap Fund - Regular Growth",
+      "isin": "INF000FIX02",
+      "folio": "FIX/1001",
+      "amc": "SBI",
+      "type": "REDEMPTION",
+      "amount": 12000.0,
+      "units": -240.0,
+      "nav": 50.0,
+      "balance": 0,
+      "raw_description": "Redemption",
+      "user_id": "user_fixture",
+      "source": "CAS"
+    },
+    {
+      "date": "2026-07-05",
+      "scheme_name": "Axis Fixture Bluechip Fund - Direct Growth",
+      "isin": "INF000FIX01",
+      "folio": "FIX/1001",
+      "amc": "Axis",
+      "type": "SIP_PURCHASE",
+      "amount": 5000.0,
+      "units": 102.0408,
+      "nav": 49.0,
+      "balance": 0,
+      "raw_description": "Sip_Purchase",
+      "user_id": "user_fixture",
+      "source": "CAS"
+    }
+  ],
+  "count": 3,
+  "total_invested": 10000.0,
+  "total_redeemed": 12000.0
+}

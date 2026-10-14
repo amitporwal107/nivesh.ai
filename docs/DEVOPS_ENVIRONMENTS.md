@@ -37,6 +37,15 @@
   GCP OAuth token (`/app/.gcp-token`) expires in 1h — refresh if >45 min old.
 - Key GCP secrets: `NIDP_POSTGRES_URL`, `NIDP_KAFKA_BROKERS`, `NIDP_REDIS_URL`,
   `NIDP_SCHEMA_REGISTRY_URL`, `NIDP_DAAS_INTERNAL_TOKEN`, `nidp-tls-cert`, `nidp-tls-key`.
+- `PII_ENCRYPTION_KEY` (base64 of 32 random bytes) encrypts PII and broker session tokens at rest.
+  Staging: set in `/opt/nivesh-staging/.env.staging` on 2026-10-14. Prod: UNVERIFIED whether it is
+  set. Broker connections need it, and losing it makes stored broker sessions unreadable.
+- Broker app keys (`BROKER_<NAME>_API_KEY` / `_API_SECRET`) are Nivesh's own developer-app
+  credentials per broker; a broker is connectable only when they are set. Staging has Zerodha's.
+  ICICI Direct: `BROKER_ICICIDIRECT_API_KEY` / `_API_SECRET`. Motilal Oswal: `BROKER_MOTILAL_API_KEY`,
+  `BROKER_MOTILAL_API_SECRET`; `BROKER_MOTILAL_VENDOR_INFO` only for a vendor key (its short name) —
+  for a key a client created themselves it is left unset and the client code read at sign-in is sent. Both brokers also need the server's public IP registered
+  on the app (staging: 45.64.105.88).
 
 ## Infrastructure
 2 GCE VMs (app `e2-standard-4`, NIDP `e2-small`, Debian 12) + 28 Cloud Run jobs + 2 Cloud Run

@@ -23,13 +23,16 @@ RUN pip install --quiet uv
 # Copy requirements and resolve with uv.
 # Two known inter-requirement conflicts in requirements.txt are handled via --override:
 #   1. openai==1.99.9  vs  langchain-openai>=1.2 (needs openai>=2.26)
-#   2. pdfminer.six==20240706  vs  pdfplumber (needs pdfminer.six>=20251230)
+#   2. pdfminer.six==20240706  vs  pdfplumber==0.11.9 (requires pdfminer.six==20251230)
+#      Pinned exactly, not `>=`: a floating override let a fresh build resolve
+#      20260107, a version pdfplumber does not declare support for, underneath
+#      the text extraction the in-house CAS extractors parse line by line.
 # emergentintegrations lives on a private index so installed separately.
 COPY backend/requirements.txt /tmp/requirements.txt
 
 RUN grep -v '^emergentintegrations' /tmp/requirements.txt \
         > /tmp/requirements_uv.txt && \
-    printf 'openai>=2.26.0\npdfminer.six>=20251230\n' > /tmp/overrides.txt && \
+    printf 'openai>=2.26.0\npdfminer.six==20251230\n' > /tmp/overrides.txt && \
     uv pip install --system --no-cache \
         --override /tmp/overrides.txt \
         -r /tmp/requirements_uv.txt

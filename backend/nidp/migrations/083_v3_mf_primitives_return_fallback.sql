@@ -15,8 +15,18 @@
 -- and the following CREATE VIEW would fail ("… is not a view"). Drop whichever
 -- object type exists first; 098 re-materializes it downstream. No object depends
 -- on this view, so CASCADE is safe. (See the ⚠️ note in 098_v3_mf_primitives_materialized.sql.)
-DROP MATERIALIZED VIEW IF EXISTS nidp.v_v3_mf_primitives CASCADE;
-DROP VIEW IF EXISTS nidp.v_v3_mf_primitives CASCADE;
+-- The kind is checked first because `DROP MATERIALIZED VIEW IF EXISTS` raises
+-- ("is not a materialized view") when the name exists as a plain view, which is
+-- the case when the chain is replayed on an empty database.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'nidp' AND c.relname = 'v_v3_mf_primitives' AND c.relkind = 'm') THEN
+        DROP MATERIALIZED VIEW nidp.v_v3_mf_primitives CASCADE;
+    ELSE
+        DROP VIEW IF EXISTS nidp.v_v3_mf_primitives CASCADE;
+    END IF;
+END $$;
 CREATE VIEW nidp.v_v3_mf_primitives AS
 WITH latest_rank AS (
     -- Latest analytics row per scheme (may have nulls for longer-period returns)

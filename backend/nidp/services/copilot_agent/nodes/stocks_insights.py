@@ -20,7 +20,7 @@ import re
 
 from langchain_core.messages import AIMessage
 
-from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -203,7 +203,7 @@ async def stocks_insights_node(state: CopilotState) -> dict:
                 {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
                 {"role": "user", "content": user_msg},
             ])
-            answer_text = (resp.content or "").strip()
+            answer_text = text_of(resp).strip()
         except Exception as exc:  # noqa: BLE001 — never abort the turn on a compose failure
             logger.error("stocks_insights compose failed: %s", exc, exc_info=True)
             answer_text = (

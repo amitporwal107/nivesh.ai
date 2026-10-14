@@ -1,0 +1,20 @@
+{
+ "_note": "Synthetic responses in the shape of GET /api/fno/{symbol}/expiries, /chain and /futures, produced by running backend/routes/fno.py over a made-up data-platform payload. Not market data.",
+ "symbol": "NIFTY",
+ "as_of": "2026-10-12",
+ "expiries": [
+  {
+   "expiry": "2026-10-27",
+   "days_to_expiry": 15
+  },
+  {
+   "expiry": "2026-11-24",
+   "days_to_expiry": 43
+  },
+  {
+   "expiry": "2027-03-30",
+   "days_to_expiry": 169
+  }
+ ],
+ "count": 3
+}

@@ -3,8 +3,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
+import math
 import uuid
 import json
 import logging
@@ -36,6 +37,7 @@ try:
     import sys as _sys
     _sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from nidp.services.copilot_agent.graph import get_graph as _get_copilot_graph
+    from nidp.services.copilot_agent._llm import text_of as _llm_text_of
     from nidp.services.copilot_agent.persona_loader import load_persona_context as _load_persona_context
     from nidp.services.copilot_agent.schemas import AgentName as _AgentName
     from langchain_core.messages import HumanMessage as _HumanMessage
@@ -81,6 +83,205 @@ def _resolve_pinned_agent(raw: Any) -> Optional[Any]:
         raise HTTPException(status_code=503,
                             detail="Copilot engine unavailable — cannot honour the agent pin.")
     return _AgentName(key)
+
+
+# Personas of the Copilot app in which the caller works on their OWN portfolio.
+# An advisor who switches to one of them is asking about their own holdings
+# and positions, so the chat answers from those with the investor engine and
+# its tools. The cross-client book belongs to the advisor persona.
+_OWN_PORTFOLIO_PERSONAS = frozenset({"investor", "trader"})
+
+
+def _advisor_mode_for(advisor_caller: bool, persona: Any) -> bool:
+    """Whether this request is answered from the advisor's client book.
+
+    `advisor_caller` is `_is_advisor_caller`'s answer; `persona` is the
+    optional `persona` field of the chat request body. Only "investor" and
+    "trader" change anything, and only for an advisor: they move the request
+    to the caller's own portfolio. A missing or unknown value is ignored, so a
+    chat surface that sends no persona behaves as it always has, and no value
+    can put a caller on a client book they do not own.
+    """
+    if not advisor_caller:
+        return False
+    return not (isinstance(persona, str) and persona.strip().lower() in _OWN_PORTFOLIO_PERSONAS)
+
+
+def _number_or_none(raw: Any) -> Optional[float]:
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
+        return None
+    return float(raw)
+
+
+def _contract_words(contract: Any) -> tuple:
+    """("1,760 put" | "3,012.50 call" | "future", "27 Oct 2026") for a ContractRef."""
+    expiry = datetime.strptime(contract.expiry, "%Y-%m-%d").strftime("%d %b %Y").lstrip("0")
+    if contract.instrument_type == "FUT":
+        return "future", expiry
+    strike = contract.strike or 0
+    what = f"{strike:,.0f}" if float(strike).is_integer() else f"{strike:,.2f}"
+    return what + (" call" if contract.instrument_type == "CE" else " put"), expiry
+
+
+def _rupees(x: float) -> str:
+    return f"-₹{abs(x):,.2f}" if x < 0 else f"₹{x:,.2f}"
+
+
+def _count(x: float) -> str:
+    return f"{int(x)}" if float(x).is_integer() else f"{x:,.2f}"
+
+
+async def _position_context(user_id: str, widget: Optional[Dict[str, Any]]) -> str:
+    """Facts for the engine about the broker position a question was asked
+    from, so its answer is about the contract the user holds and not only
+    the underlying share: the contract, the holding, the broker's live quote
+    (read now) and what follows from them (P&L, breakeven). "" without a
+    position card. Never raises: when the quote cannot be read it says so,
+    and then nothing is worked out — the engine must not price the position
+    from the share.
+
+    The text never names the broker: the engine finds the stock in this same
+    message, and a broker's name is also a company's ("ICICI Direct" was read
+    as ICICI Bank, live on 2026-10-14; Motilal Oswal, Kotak and Angel One are
+    listed companies too).
+    """
+    if not widget:
+        return ""
+    data = widget.get("data") or {}
+    try:
+        from services.brokers import hub_reads as _broker_hub
+        contract = _broker_hub.parse_contract(
+            data.get("symbol"), data.get("exchange"), data.get("instrument_type"),
+            data.get("expiry"), data.get("strike"),
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+    what, expiry = _contract_words(contract)
+    option = contract.instrument_type in ("CE", "PE")
+    qty, avg = _number_or_none(data.get("quantity")), _number_or_none(data.get("avg_price"))
+    lines = [
+        "Broker position this question was asked from, read from the user's broker account for "
+        "this answer. The prices are the contract's own, not the share's.",
+        f"- Contract: {contract.symbol} {what}, expiring {expiry} ({contract.exchange}).",
+    ]
+    if qty is None:
+        lines.append("- Holding: the broker gave no quantity.")
+    else:
+        side = "long" if qty > 0 else "short" if qty < 0 else "flat"
+        held = f"- Holding: {side} {_count(abs(qty))}"
+        lines.append(f"{held} at an average {'premium' if option else 'price'} of {_rupees(avg)}." if avg
+                     else f"{held}; the broker gave no average.")
+
+    quote, why_not = None, None
+    try:
+        doc = await db.broker_accounts.find_one(
+            {"account_id": data.get("account_id"), "user_id": user_id, "native": True}, {"_id": 0},
+        )
+        if not doc:
+            why_not = "the broker could not be read just now"
+        else:
+            quote = await _broker_hub.read_contract_quote(db, doc, contract)
+            if not quote or quote.get("last_price") is None:
+                quote, why_not = None, "the broker returned no quote just now"
+    except (_broker_hub.BrokerSessionExpired, _broker_hub.sessions.SessionEnded):
+        why_not = "the broker session has ended; the user must sign in again from Broker connections"
+    except Exception as e:  # noqa: BLE001
+        logger.warning("position context: quote not read (%s)", type(e).__name__)
+        why_not = "the broker could not be read just now"
+    if quote is None:
+        lines.append(f"- Latest quote: {why_not}, so no live price is known.")
+        return "\n".join(lines)
+
+    last = quote["last_price"]
+    parts = [f"last traded {_rupees(last)}"]
+    try:
+        traded = datetime.fromisoformat(quote.get("last_traded_at") or "").astimezone(
+            timezone(timedelta(hours=5, minutes=30)))
+        parts[0] += f" at {traded.strftime('%d %b %Y, %H:%M').lstrip('0')} IST"
+    except ValueError:
+        pass
+    facts = [parts[0]]
+    if quote.get("high") is not None and quote.get("low") is not None:
+        facts.append(f"day high {_rupees(quote['high'])}, day low {_rupees(quote['low'])}")
+    if quote.get("previous_close") is not None:
+        facts.append(f"previous close {_rupees(quote['previous_close'])}")
+    if quote.get("spot_price") is not None:
+        facts.append(f"underlying price {_rupees(quote['spot_price'])}")
+    lines.append("- Latest quote: " + "; ".join(facts) + ".")
+
+    if qty and avg:
+        pnl = (last - avg) * qty
+        worked = f"- Worked out from these: P&L = ({last:,.2f} - {avg:,.2f}) x {_count(qty)} = {_rupees(pnl)}; "
+        if contract.instrument_type == "PE":
+            worked += f"breakeven at expiry {_rupees(contract.strike - avg)} (strike - average premium)."
+        elif contract.instrument_type == "CE":
+            worked += f"breakeven at expiry {_rupees(contract.strike + avg)} (strike + average premium)."
+        else:
+            worked += f"breakeven {_rupees(avg)} (the average price)."
+        lines.append(worked)
+    return "\n".join(lines)
+
+
+async def _position_chart_widget(user_id: str, raw: Any) -> Optional[Dict[str, Any]]:
+    """The result card for a question asked from a broker futures or options
+    position: a chart of that contract's own price, read from the broker by
+    the card itself (GET /api/broker/accounts/{id}/contract-chart). The card
+    carries only the reference — which account and which contract — so it is
+    live whenever it is opened, including from thread history.
+
+    `raw` is the optional `position` field of the chat request. Returns None,
+    and the question is answered like any other, when the field is absent or
+    malformed, the account is not the caller's own redirect-connected account,
+    or its broker cannot serve a contract chart. Never raises: the card is an
+    extra, and a bad reference must not cost the user their answer.
+    """
+    if not isinstance(raw, dict):
+        return None
+    try:
+        from services.brokers import hub_reads as _broker_hub
+        contract = _broker_hub.parse_contract(
+            raw.get("symbol"), raw.get("exchange"), raw.get("instrument_type"),
+            raw.get("expiry"), raw.get("strike"),
+        )
+        account_id = raw.get("account_id")
+        if not isinstance(account_id, str) or not 0 < len(account_id) <= 64:
+            return None
+        doc = await db.broker_accounts.find_one(
+            {"account_id": account_id, "user_id": user_id, "native": True},
+            {"_id": 0, "account_id": 1, "broker": 1},
+        )
+        if not doc or not _broker_hub.supports_contract_chart(doc.get("broker") or ""):
+            return None
+        display = _broker_hub.display_name(doc.get("broker") or "")
+    except ValueError:
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("position chart card skipped: %s", type(e).__name__)
+        return None
+
+    what, expiry = _contract_words(contract)
+    avg = _number_or_none(raw.get("avg_price"))
+    return {
+        "widget_type": "broker_contract_chart",
+        "title": f"{contract.symbol} {what} · {expiry}",
+        "data": {
+            "account_id": doc["account_id"],
+            "broker": doc.get("broker"),
+            "broker_display": display,
+            "symbol": contract.symbol,
+            "exchange": contract.exchange,
+            "instrument_type": contract.instrument_type,
+            "expiry": contract.expiry,
+            "strike": contract.strike,
+            # As the position row gave them: signed quantity, and the average
+            # only when it is a real price.
+            "quantity": _number_or_none(raw.get("quantity")),
+            "avg_price": avg if avg and avg > 0 else None,
+        },
+        "freshness": {"state": "live", "last_updated": datetime.now(timezone.utc).isoformat(),
+                      "source": [display]},
+        "agent": {"id": "broker", "confidence": 100},
+    }
 
 
 # Advisor-mode system prompt — replaces FINANCIAL_ADVISOR_SYSTEM (which is
@@ -1242,8 +1443,10 @@ async def stream_chat(request: Request):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
+    advisor_caller = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
     body = await request.json()
+    # An advisor in the investor or trader persona is on their own portfolio.
+    advisor_mode = _advisor_mode_for(advisor_caller, body.get("persona"))
     message = body.get("message", "").strip()
     session_id = body.get("session_id")
     pinned_agent = _resolve_pinned_agent(body.get("agent"))
@@ -1259,6 +1462,22 @@ async def stream_chat(request: Request):
     route_investor = (
         bool(pinned_agent) or (not advisor_mode) or _is_research_tool_intent(message)
     )
+    # A question asked from a broker futures / options position brings that
+    # contract's own chart card with it. Own-portfolio path only.
+    position_widget = (
+        await _position_chart_widget(user_id, body.get("position")) if route_investor else None
+    )
+    # ...and the engine is told the position's facts (read live from the
+    # broker) with the question, so its answer is about that contract. The
+    # thread keeps the question as the user asked it.
+    position_context = await _position_context(user_id, position_widget)
+    # Such a question goes to the stock analyst — it has the underlying's
+    # chart levels — whatever words the facts add: left to the router, a
+    # message about a holding and its P&L is sent to the portfolio analyst,
+    # which has no price levels. A client's own pin is kept.
+    engine_pin = pinned_agent
+    if engine_pin is None and position_widget and _AgentName is not None:
+        engine_pin = _AgentName("stock_analyst")
 
     # Resolve or create session
     if not session_id:
@@ -1373,7 +1592,9 @@ async def stream_chat(request: Request):
                             lg_messages.append(_HumanMessage(content=m["content"]))
                         elif m["role"] == "assistant":
                             lg_messages.append(_AIMessage(content=m["content"]))
-                    lg_messages.append(_HumanMessage(content=message))
+                    lg_messages.append(_HumanMessage(
+                        content=f"{message}\n\n{position_context}" if position_context else message,
+                    ))
 
                     persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
                     lg_input = {
@@ -1386,13 +1607,20 @@ async def stream_chat(request: Request):
                         # turn leaves an EARLIER turn's pin in place and silently
                         # pins the rest of the session to that agent. Writing None
                         # explicitly is what clears it.
-                        "pinned_agent": pinned_agent,
+                        "pinned_agent": engine_pin,
                         **persona_ctx,
                     }
                     prose = ""
                     streamed_any = False  # True once real LLM tokens are emitted
                     widget_streamed = False  # True once a widget frame is emitted (early or final)
                     widget_envelope: Optional[Dict] = None
+                    if position_widget:
+                        # The contract's own chart is this answer's card. It
+                        # goes out first, and the engine's card — for the
+                        # underlying share — is neither sent nor saved.
+                        widget_envelope = position_widget
+                        widget_streamed = True
+                        yield f"data: {json.dumps({'type': 'widget', **position_widget})}\n\n"
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
                         if kind == "on_custom_event" and event.get("name") == "copilot_widget":
@@ -1416,10 +1644,12 @@ async def stream_chat(request: Request):
                             if "intent_internal" in tags:
                                 continue
                             chunk = event.get("data", {}).get("chunk")
-                            if chunk and hasattr(chunk, "content") and chunk.content:
-                                prose += chunk.content
+                            # text only: Claude chunks are lists of blocks (reasoning + text)
+                            token = _llm_text_of(chunk) if chunk is not None else ""
+                            if token:
+                                prose += token
                                 streamed_any = True
-                                yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
+                                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
                         elif kind == "on_chain_end" and event.get("name") == "intent_node":
                             output = event.get("data", {}).get("output", {})
                             intent = output.get("intent") if isinstance(output, dict) else None
@@ -1450,7 +1680,7 @@ async def stream_chat(request: Request):
                                     # — kept here for the DB save (and as a fallback
                                     # if the early custom event didn't fire).
                                     env = _widget_envelope(wt_s, wd, agent_id)
-                                    if env:
+                                    if env and not position_widget:
                                         widget_envelope = env
                                 fu = getattr(final_resp, "follow_ups", None) or []
                                 if fu:

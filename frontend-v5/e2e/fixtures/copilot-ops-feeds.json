@@ -1,0 +1,612 @@
+{
+  "_note": "MOCK — not real data: synthetic values in the shape of the real responses (looked at on staging, 2026-10-13). Keyed by the endpoint each body answers.",
+  "/api/admin/nidp/feeds/live": {
+    "generated_at": "2026-10-13T12:54:35.471923+00:00",
+    "last_trading_day": "2026-10-13",
+    "summary": {
+      "total": 4,
+      "healthy": 1,
+      "failing": 1,
+      "stale": 1,
+      "never_run": 1,
+      "running": 0
+    },
+    "feeds": [
+      {
+        "ingester": "fixture_filings",
+        "job_name": "nidp-fixture-filings",
+        "source_class": "derived",
+        "expected_freq": "daily",
+        "schedule_cron": null,
+        "confidence": 0.99,
+        "is_primary": true,
+        "last_run_status": "FAILED",
+        "consecutive_failures": 3,
+        "last_run_at": "2026-10-13T02:30:32+00:00",
+        "last_success_at": "2026-10-09T02:30:00+00:00",
+        "last_failure_at": "2026-10-13T02:30:32+00:00",
+        "last_target_date": "2026-10-09",
+        "last_rows_inserted": 0,
+        "last_run_duration_ms": 30940,
+        "success_count": 40,
+        "failure_count": 5,
+        "partial_count": 2,
+        "last_error_message": "FixtureError: source returned HTTP 503",
+        "cloud_logs_url": "https://logs.example.test/q",
+        "cloud_logs_url_24h": "https://logs.example.test/q24",
+        "last_7_days": [
+          {
+            "date": "2026-10-07",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-08",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-09",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-10",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-11",
+            "is_today": false,
+            "status": "FAILED",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-12",
+            "is_today": false,
+            "status": "FAILED",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-13",
+            "is_today": true,
+            "status": "FAILED",
+            "run_count": 1
+          }
+        ],
+        "freshness_state": "failing",
+        "hours_since_success": 106.4,
+        "missed_last_trading_day": false
+      },
+      {
+        "ingester": "fixture_flows",
+        "job_name": "nidp-fixture-flows",
+        "source_class": "B",
+        "expected_freq": "daily",
+        "schedule_cron": null,
+        "confidence": 0.99,
+        "is_primary": true,
+        "last_run_status": "PARTIAL",
+        "consecutive_failures": 0,
+        "last_run_at": "2026-10-10T13:00:00+00:00",
+        "last_success_at": "2026-10-10T13:00:00+00:00",
+        "last_failure_at": null,
+        "last_target_date": "2026-10-10",
+        "last_rows_inserted": 12,
+        "last_run_duration_ms": 850,
+        "success_count": 18,
+        "failure_count": 0,
+        "partial_count": 4,
+        "last_error_message": null,
+        "cloud_logs_url": "https://logs.example.test/q",
+        "cloud_logs_url_24h": "https://logs.example.test/q24",
+        "last_7_days": [
+          {
+            "date": "2026-10-07",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-08",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-09",
+            "is_today": false,
+            "status": "PARTIAL",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-10",
+            "is_today": false,
+            "status": "PARTIAL",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-11",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-12",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-13",
+            "is_today": true,
+            "status": null,
+            "run_count": 0
+          }
+        ],
+        "freshness_state": "stale",
+        "hours_since_success": 71.9,
+        "missed_last_trading_day": true
+      },
+      {
+        "ingester": "fixture_backfill",
+        "job_name": "nidp-fixture-backfill",
+        "source_class": "C",
+        "expected_freq": "monthly",
+        "schedule_cron": null,
+        "confidence": 0.99,
+        "is_primary": true,
+        "last_run_status": null,
+        "consecutive_failures": 0,
+        "last_run_at": null,
+        "last_success_at": null,
+        "last_failure_at": null,
+        "last_target_date": null,
+        "last_rows_inserted": null,
+        "last_run_duration_ms": null,
+        "success_count": 0,
+        "failure_count": 0,
+        "partial_count": 0,
+        "last_error_message": null,
+        "cloud_logs_url": "https://logs.example.test/q",
+        "cloud_logs_url_24h": "https://logs.example.test/q24",
+        "last_7_days": [
+          {
+            "date": "2026-10-07",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-08",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-09",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-10",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-11",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-12",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-13",
+            "is_today": true,
+            "status": null,
+            "run_count": 0
+          }
+        ],
+        "freshness_state": "never_run",
+        "hours_since_success": null,
+        "missed_last_trading_day": false
+      },
+      {
+        "ingester": "fixture_prices",
+        "job_name": "nidp-fixture-prices",
+        "source_class": "A",
+        "expected_freq": "daily",
+        "schedule_cron": "0 13 * * 1-5",
+        "confidence": 0.99,
+        "is_primary": true,
+        "last_run_status": "OK",
+        "consecutive_failures": 0,
+        "last_run_at": "2026-10-13T08:00:03+00:00",
+        "last_success_at": "2026-10-13T08:00:03+00:00",
+        "last_failure_at": null,
+        "last_target_date": "2026-10-13",
+        "last_rows_inserted": 3713,
+        "last_run_duration_ms": 2132,
+        "success_count": 209,
+        "failure_count": 4,
+        "partial_count": 44,
+        "last_error_message": null,
+        "cloud_logs_url": "https://logs.example.test/q",
+        "cloud_logs_url_24h": "https://logs.example.test/q24",
+        "last_7_days": [
+          {
+            "date": "2026-10-07",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-08",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-09",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-10",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-11",
+            "is_today": false,
+            "status": null,
+            "run_count": 0
+          },
+          {
+            "date": "2026-10-12",
+            "is_today": false,
+            "status": "OK",
+            "run_count": 1
+          },
+          {
+            "date": "2026-10-13",
+            "is_today": true,
+            "status": "OK",
+            "run_count": 1
+          }
+        ],
+        "freshness_state": "healthy",
+        "hours_since_success": 1.0,
+        "missed_last_trading_day": false
+      }
+    ],
+    "db_error": null
+  },
+  "/api/admin/nidp/jobs/fixture_filings/runs": {
+    "ingester": "fixture_filings",
+    "job_name": "nidp-fixture-filings",
+    "runs": [
+      {
+        "run_id": "00000000-0000-4000-8000-000000000003",
+        "target_date": "2026-10-13",
+        "status": "FAILED",
+        "started_at": "2026-10-13T02:30:01.711221+00:00",
+        "finished_at": "2026-10-13T02:30:32.651221+00:00",
+        "duration_ms": 30940,
+        "rows_fetched": 0,
+        "rows_inserted": 0,
+        "rows_skipped": 0,
+        "error_class": "FixtureError",
+        "error_message": "source returned HTTP 503",
+        "cloud_logs_url": "https://logs.example.test/r3"
+      },
+      {
+        "run_id": "00000000-0000-4000-8000-000000000002",
+        "target_date": "2026-10-12",
+        "status": "FAILED",
+        "started_at": "2026-10-12T02:30:01+00:00",
+        "finished_at": "2026-10-12T02:30:20+00:00",
+        "duration_ms": 19000,
+        "rows_fetched": 0,
+        "rows_inserted": 0,
+        "rows_skipped": 0,
+        "error_class": "FixtureError",
+        "error_message": "source returned HTTP 503",
+        "cloud_logs_url": "https://logs.example.test/r2"
+      },
+      {
+        "run_id": "00000000-0000-4000-8000-000000000001",
+        "target_date": "2026-10-09",
+        "status": "OK",
+        "started_at": "2026-10-09T02:30:01+00:00",
+        "finished_at": "2026-10-09T02:30:03+00:00",
+        "duration_ms": 2132,
+        "rows_fetched": 4321,
+        "rows_inserted": 4310,
+        "rows_skipped": 11,
+        "error_class": null,
+        "error_message": null,
+        "cloud_logs_url": "https://logs.example.test/r1"
+      }
+    ]
+  },
+  "/api/admin/nidp/catalog": {
+    "as_of": "2026-10-13T12:54:29.006173Z",
+    "totals": {
+      "tables": 3,
+      "feeds": 4
+    },
+    "by_domain": [
+      {
+        "domain": "Fixture market data",
+        "tables": 2,
+        "rows": 1234567,
+        "earliest": "2025-10-01",
+        "latest": "2026-10-12",
+        "description": "Fixture domain one."
+      },
+      {
+        "domain": "Fixture reference",
+        "tables": 1,
+        "rows": 6119,
+        "earliest": null,
+        "latest": null,
+        "description": "Fixture domain two."
+      }
+    ],
+    "tables": [
+      {
+        "table": "fixture_prices_eod",
+        "domain": "Fixture market data",
+        "date_col": "as_of_date",
+        "rows": 854201,
+        "first_at": "2025-10-01",
+        "last_at": "2026-10-12",
+        "description": {
+          "source": "Fixture exchange daily file",
+          "stores": "Fixture OHLC per symbol and day",
+          "use": "Fixture use."
+        },
+        "error": null
+      },
+      {
+        "table": "fixture_delivery",
+        "domain": "Fixture market data",
+        "date_col": "as_of_date",
+        "rows": 380366,
+        "first_at": "2025-10-01",
+        "last_at": "2026-10-09",
+        "description": {
+          "source": "Fixture delivery file",
+          "stores": "Fixture delivery per symbol and day",
+          "use": "Fixture use."
+        },
+        "error": null
+      },
+      {
+        "table": "fixture_instruments",
+        "domain": "Fixture reference",
+        "date_col": null,
+        "rows": 6119,
+        "first_at": null,
+        "last_at": null,
+        "description": {
+          "source": "Fixture master list",
+          "stores": "Fixture one row per instrument",
+          "use": "Fixture use."
+        },
+        "error": null
+      }
+    ],
+    "feeds": [],
+    "validation": [
+      {
+        "ingester": "fixture_prices",
+        "target_date": "2026-10-13",
+        "status": "PASSED",
+        "rules_run": 13,
+        "rules_failed": 0,
+        "findings_count": 0,
+        "started_at": "2026-10-13T08:00:03+00:00"
+      },
+      {
+        "ingester": "fixture_flows",
+        "target_date": "2026-10-10",
+        "status": "FAILED",
+        "rules_run": 6,
+        "rules_failed": 2,
+        "findings_count": 5,
+        "started_at": "2026-10-10T13:00:01+00:00"
+      },
+      {
+        "ingester": "fixture_prices",
+        "target_date": "2026-10-12",
+        "status": "PASSED",
+        "rules_run": 13,
+        "rules_failed": 0,
+        "findings_count": 0,
+        "started_at": "2026-10-12T08:00:03+00:00"
+      },
+      {
+        "ingester": "fixture_flows",
+        "target_date": "2026-10-09",
+        "status": "PASSED",
+        "rules_run": 6,
+        "rules_failed": 0,
+        "findings_count": 0,
+        "started_at": "2026-10-09T13:00:01+00:00"
+      },
+      {
+        "ingester": "fixture_prices",
+        "target_date": "2026-10-09",
+        "status": "PARTIAL",
+        "rules_run": 13,
+        "rules_failed": 1,
+        "findings_count": 2,
+        "started_at": "2026-10-09T08:00:03+00:00"
+      }
+    ]
+  },
+  "/api/admin/nidp/quality/consistency": {
+    "runs": [
+      {
+        "target_date": "2026-10-12",
+        "domain": "equity",
+        "status": "PARTIAL",
+        "rules_run": 7,
+        "rules_failed": 2,
+        "findings_count": 2,
+        "has_block": false,
+        "started_at": "2026-10-12T17:00:05.657808+00:00"
+      },
+      {
+        "target_date": "2026-10-12",
+        "domain": "mf",
+        "status": "PASSED",
+        "rules_run": 7,
+        "rules_failed": 0,
+        "findings_count": 1,
+        "has_block": false,
+        "started_at": "2026-10-12T17:00:03.474301+00:00"
+      }
+    ],
+    "findings": [
+      {
+        "target_date": "2026-10-12",
+        "domain": "equity",
+        "dimension": "TEMPORAL",
+        "rule_name": "equity.price_temporal_change",
+        "severity": "WARN",
+        "failure_class": "FIX",
+        "entity_type": "symbol",
+        "entity_id": "FIXTUREA",
+        "field_name": "close_price",
+        "source_a": "prior_period",
+        "value_a": "100.00",
+        "source_b": "current_period",
+        "value_b": "70.00",
+        "deviation_pct": 30.0,
+        "message": "close_price changed -30.00% for FIXTUREA (threshold ±20.0%): 100.00 → 70.00",
+        "detected_at": "2026-10-12T17:00:07.379024+00:00"
+      },
+      {
+        "target_date": "2026-10-12",
+        "domain": "equity",
+        "dimension": "ARITHMETIC",
+        "rule_name": "equity.shareholding_sum",
+        "severity": "ERROR",
+        "failure_class": "FIX",
+        "entity_type": "symbol",
+        "entity_id": "FIXTUREB",
+        "field_name": "shareholding_pct",
+        "source_a": "reported",
+        "value_a": "104.20",
+        "source_b": "expected",
+        "value_b": "100.00",
+        "deviation_pct": 4.2,
+        "message": "shareholding categories sum to 104.20% for FIXTUREB",
+        "detected_at": "2026-10-12T17:00:07.379024+00:00"
+      },
+      {
+        "target_date": "2026-10-12",
+        "domain": "mf",
+        "dimension": "TEMPORAL",
+        "rule_name": "mf.nav_temporal_change",
+        "severity": "WARN",
+        "failure_class": "REVIEW",
+        "entity_type": "scheme",
+        "entity_id": "990001",
+        "field_name": "nav",
+        "source_a": "prior_period",
+        "value_a": "50.00",
+        "source_b": "current_period",
+        "value_b": "56.00",
+        "deviation_pct": 12.0,
+        "message": "nav changed +12.00% for scheme 990001",
+        "detected_at": "2026-10-12T17:00:04.100000+00:00"
+      }
+    ],
+    "errors": {
+      "runs": null,
+      "findings": null
+    }
+  },
+  "/api/admin/nidp/pipeline/stages": {
+    "generated_at": "2026-10-13T12:52:53.559734+00:00",
+    "stages": [
+      {
+        "id": "ingest",
+        "label": "Ingest",
+        "order": 1,
+        "table": "nidp.fixture_announcements",
+        "total": 5000,
+        "done": 5000,
+        "pending": 0,
+        "problem": 0,
+        "latest_at": "2026-10-13T12:50:02+00:00",
+        "latest_filed": "2026-10-13T12:47:09+00:00",
+        "age_hours": 0.05,
+        "trading_days_behind": 0,
+        "last_close": "2026-10-12",
+        "state": "healthy",
+        "breakdown": [],
+        "note": "Fixture note for ingest."
+      },
+      {
+        "id": "classify",
+        "label": "Classify",
+        "order": 2,
+        "table": "nidp.fixture_classified",
+        "total": 5000,
+        "done": 4800,
+        "pending": 150,
+        "problem": 50,
+        "latest_at": "2026-10-13T11:00:00+00:00",
+        "age_hours": 1.9,
+        "trading_days_behind": 0,
+        "state": "backlog",
+        "breakdown": [],
+        "note": "Fixture note for classify."
+      },
+      {
+        "id": "embed",
+        "label": "Embed",
+        "order": 3,
+        "table": "nidp.fixture_chunks",
+        "total": 0,
+        "done": 0,
+        "pending": 0,
+        "problem": 0,
+        "latest_at": null,
+        "age_hours": null,
+        "trading_days_behind": null,
+        "state": "never",
+        "breakdown": [],
+        "note": "Fixture note for embed."
+      }
+    ],
+    "db_error": null,
+    "summary": {
+      "total": 3,
+      "healthy": 1,
+      "backlog": 1,
+      "lagging": 0,
+      "stale": 0,
+      "never": 1
+    },
+    "worst_state": "never"
+  }
+}

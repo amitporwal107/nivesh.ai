@@ -1,0 +1,225 @@
+{
+  "holdings": [
+    {
+      "name": "Fixture Bank Ltd",
+      "stock_slug": "fixture-bank-ltd",
+      "sector": "Fixture Financials",
+      "instrument_type": "Equity",
+      "pct": 7.5,
+      "market_value_cr": 150.0,
+      "rank": 1
+    },
+    {
+      "name": "Fixture Power Ltd",
+      "stock_slug": "fixture-power-ltd",
+      "sector": "Fixture Utilities",
+      "instrument_type": "Equity",
+      "pct": 5.25,
+      "market_value_cr": 105.0,
+      "rank": 2
+    },
+    {
+      "name": "Fixture Treasury Bill",
+      "stock_slug": null,
+      "sector": null,
+      "instrument_type": "Treasury Bills",
+      "pct": 2.0,
+      "market_value_cr": 40.0,
+      "rank": 3
+    }
+  ],
+  "sectors": [
+    {
+      "name": "Fixture Financials",
+      "pct": 29.5
+    },
+    {
+      "name": "Fixture Utilities",
+      "pct": 12.0
+    }
+  ],
+  "split": {
+    "equity": 73.5,
+    "debt": 0.5,
+    "cash": null
+  },
+  "ratios": {
+    "alpha": 1.0,
+    "beta": 0.9,
+    "sharpe": 0.7,
+    "sortino": 0.9,
+    "std_dev": 10.0,
+    "information_ratio": 0.2,
+    "mean_return": 11.0,
+    "ret_1y": 12.0,
+    "ret_3y": 14.0,
+    "ret_5y": 13.0,
+    "ret_10y": 12.5,
+    "risk_rating": null,
+    "risk_label": "Very High"
+  },
+  "metadata": {
+    "scheme_code": "900001",
+    "direct_scheme_code": "900001",
+    "isin": "INF000FIX001",
+    "scheme_name": "Fixture Flexi Cap Fund Direct Growth",
+    "fund_house": "Fixture Mutual Fund",
+    "amc": "Fixture",
+    "category": "Equity",
+    "sub_category": "Flexi Cap",
+    "benchmark": "Fixture 500 Total Return Index",
+    "plan_type": "Direct",
+    "scheme_type": "Growth",
+    "risk_label": "Very High",
+    "aum_cr": 2000.0,
+    "nav": 44.0,
+    "nav_date": "09-Oct-2026",
+    "expense_ratio": 0.6,
+    "launch_date": "2015-04-01",
+    "min_sip": 1000.0,
+    "portfolio_turnover": 30.0,
+    "expense_ratio_direct": 0.6,
+    "expense_ratio_regular": 1.45
+  },
+  "v3_primitives": {
+    "fund_managers": [
+      {
+        "name": "Fixture Manager One",
+        "since": "2015-04-01",
+        "tenure_years": 11.5,
+        "education": "Synthetic",
+        "experience": "Synthetic",
+        "funds_managed_count": 3
+      },
+      {
+        "name": "Fixture Manager Two",
+        "since": null,
+        "tenure_years": null,
+        "education": "Synthetic",
+        "experience": "Synthetic",
+        "funds_managed_count": 1
+      }
+    ],
+    "top10_concentration_pct": 51.2,
+    "plan_type": "Direct"
+  },
+  "fetched_at": "2026-10-12T11:00:00+00:00",
+  "source": "cache",
+  "slug": "fixture-flexi-cap-fund-direct-growth",
+  "scheme_name": "Fixture Flexi Cap Fund Growth",
+  "valid": true,
+  "validation_issues": [],
+  "sibling": {
+    "holdings": [
+      {
+        "name": "Fixture Bank Ltd",
+        "stock_slug": "fixture-bank-ltd",
+        "sector": "Fixture Financials",
+        "instrument_type": "Equity",
+        "pct": 7.5,
+        "market_value_cr": 150.0,
+        "rank": 1
+      },
+      {
+        "name": "Fixture Power Ltd",
+        "stock_slug": "fixture-power-ltd",
+        "sector": "Fixture Utilities",
+        "instrument_type": "Equity",
+        "pct": 5.25,
+        "market_value_cr": 105.0,
+        "rank": 2
+      },
+      {
+        "name": "Fixture Treasury Bill",
+        "stock_slug": null,
+        "sector": null,
+        "instrument_type": "Treasury Bills",
+        "pct": 2.0,
+        "market_value_cr": 40.0,
+        "rank": 3
+      }
+    ],
+    "sectors": [
+      {
+        "name": "Fixture Financials",
+        "pct": 29.5
+      },
+      {
+        "name": "Fixture Utilities",
+        "pct": 12.0
+      }
+    ],
+    "split": {
+      "equity": 73.5,
+      "debt": 0.5,
+      "cash": null
+    },
+    "ratios": {
+      "alpha": 1.0,
+      "beta": 0.9,
+      "sharpe": 0.7,
+      "sortino": 0.9,
+      "std_dev": 10.0,
+      "information_ratio": 0.2,
+      "mean_return": 11.0,
+      "ret_1y": 12.0,
+      "ret_3y": 14.0,
+      "ret_5y": 13.0,
+      "ret_10y": 12.5,
+      "risk_rating": null,
+      "risk_label": "Very High"
+    },
+    "metadata": {
+      "scheme_code": "900002",
+      "direct_scheme_code": "900001",
+      "isin": "INF000FIX002",
+      "scheme_name": "Fixture Flexi Cap Fund Regular Growth",
+      "fund_house": "Fixture Mutual Fund",
+      "amc": "Fixture",
+      "category": "Equity",
+      "sub_category": "Flexi Cap",
+      "benchmark": "Fixture 500 Total Return Index",
+      "plan_type": "Regular",
+      "scheme_type": "Growth",
+      "risk_label": "Very High",
+      "aum_cr": 2000.0,
+      "nav": 41.2345,
+      "nav_date": "09-Oct-2026",
+      "expense_ratio": 1.45,
+      "launch_date": "2015-04-01",
+      "min_sip": 1000.0,
+      "portfolio_turnover": 30.0,
+      "expense_ratio_direct": 0.6,
+      "expense_ratio_regular": 1.45
+    },
+    "v3_primitives": {
+      "fund_managers": [
+        {
+          "name": "Fixture Manager One",
+          "since": "2015-04-01",
+          "tenure_years": 11.5,
+          "education": "Synthetic",
+          "experience": "Synthetic",
+          "funds_managed_count": 3
+        },
+        {
+          "name": "Fixture Manager Two",
+          "since": null,
+          "tenure_years": null,
+          "education": "Synthetic",
+          "experience": "Synthetic",
+          "funds_managed_count": 1
+        }
+      ],
+      "top10_concentration_pct": 51.2,
+      "plan_type": "Regular"
+    }
+  },
+  "instrument_key": "ISIN:INF000FIX002",
+  "instrument_id": "00000000-0000-4000-8000-000000000002",
+  "symbol": "900002",
+  "isin": "INF000FIX002",
+  "_age_days": 1,
+  "_stale": false,
+  "available": true
+}

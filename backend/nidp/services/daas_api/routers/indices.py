@@ -88,7 +88,7 @@ async def index_eod(
             """
             SELECT DISTINCT ON (as_of_date)
                    as_of_date, index_name, open_price, high_price, low_price,
-                   close_price, pct_change
+                   close_price, pct_change, pe_ratio
               FROM nidp.index_eod
              WHERE index_name = $1
                AND ($2::date IS NULL OR as_of_date >= $2)

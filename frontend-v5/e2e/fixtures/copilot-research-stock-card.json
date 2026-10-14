@@ -1,0 +1,228 @@
+{
+  "data": {
+    "widget_type": "instrument_detail",
+    "data": {
+      "kind": "stock",
+      "name": "FIXTUREUP",
+      "badge": "STOCK",
+      "subtitle": "FIXTUREUP · NSE",
+      "meta": "Fixture Sector A",
+      "source": "NIDP DaaS",
+      "disclaimer_note": "Not investment advice",
+      "price": {
+        "label": "Last price",
+        "value": "₹145.90",
+        "change": "+0.07%",
+        "change_positive": true,
+        "asof": "09 Oct 2026"
+      },
+      "quality": {
+        "score": 61,
+        "label": "Fair",
+        "tone": "warm"
+      },
+      "scores": {
+        "fundamental": {
+          "score": 64,
+          "label": "Average",
+          "tone": "warm"
+        },
+        "technical": {
+          "score": 55,
+          "label": "Neutral",
+          "tone": "warm"
+        },
+        "explainer": "Quality score blends fundamentals with short-term technicals into one read."
+      },
+      "summary": "Synthetic summary: a fixture business at a fixture valuation.",
+      "highlights": [
+        {
+          "tone": "info",
+          "text": "Synthetic highlight: trades at P/E 24.6 vs sector 20.0."
+        }
+      ],
+      "fundamentals_grid": [
+        {
+          "label": "P / E",
+          "value": "24.6",
+          "note": "sector median 20.0",
+          "tone": "warm"
+        }
+      ],
+      "price_position": {
+        "current": 145.9,
+        "current_label": "₹146",
+        "support": 140.0,
+        "support_label": "₹140",
+        "sma50": 143.0,
+        "sma50_label": "₹143",
+        "resistance": 150.0,
+        "resistance_label": "₹150",
+        "trend": {
+          "label": "Sideways trend",
+          "tone": "warm"
+        }
+      },
+      "technicals_cards": [
+        {
+          "label": "RSI (14)",
+          "value": "51.2",
+          "note": "neutral",
+          "tone": "warm"
+        },
+        {
+          "label": "MACD",
+          "value": "Flat",
+          "tone": "warm"
+        },
+        {
+          "label": "Momentum",
+          "value": "48",
+          "note": "1M +1.0% · 3M +2.0% · steady",
+          "tone": "warm"
+        }
+      ],
+      "risk": {
+        "title": "Risk profile",
+        "items": [
+          {
+            "label": "Beta (Nifty)",
+            "value": "1.02"
+          },
+          {
+            "label": "ATR",
+            "value": "1.5%"
+          }
+        ]
+      },
+      "peers": {
+        "rows": [
+          {
+            "symbol": "FIXTUREPEERA",
+            "quality": 70,
+            "industry": "Fixture Sector A",
+            "market_cap": null,
+            "is_current": false
+          },
+          {
+            "symbol": "FIXTUREUP",
+            "quality": 61,
+            "industry": "Fixture Sector A",
+            "market_cap": null,
+            "is_current": true
+          }
+        ],
+        "total": 2,
+        "sector": "Fixture Sector A",
+        "current_rank": 2
+      },
+      "research_rail": [
+        {
+          "id": "buy_verdict",
+          "primary": "Worth buying now?",
+          "alt": "Should I buy?"
+        },
+        {
+          "id": "performance",
+          "primary": "How's it performed?",
+          "alt": "Track record"
+        },
+        {
+          "id": "peers",
+          "primary": "Compare to peers",
+          "alt": "Beats its peers?"
+        }
+      ],
+      "lens_views": {
+        "buy_verdict": {
+          "view": "stock_verdict",
+          "quality": {
+            "score": 61,
+            "label": "Fair",
+            "tone": "warm"
+          },
+          "scores": {
+            "fundamental": {
+              "score": 64,
+              "label": "Average",
+              "tone": "warm"
+            },
+            "technical": {
+              "score": 55,
+              "label": "Neutral",
+              "tone": "warm"
+            },
+            "explainer": "Quality score blends fundamentals with short-term technicals into one read."
+          },
+          "summary": "Synthetic summary: a fixture business at a fixture valuation.",
+          "highlights": [
+            {
+              "tone": "info",
+              "text": "Synthetic highlight: trades at P/E 24.6 vs sector 20.0."
+            }
+          ]
+        },
+        "performance": {
+          "view": "stock_performance",
+          "price_position": {
+            "current": 145.9,
+            "current_label": "₹146",
+            "support": 140.0,
+            "support_label": "₹140",
+            "sma50": 143.0,
+            "sma50_label": "₹143",
+            "resistance": 150.0,
+            "resistance_label": "₹150",
+            "trend": {
+              "label": "Sideways trend",
+              "tone": "warm"
+            }
+          },
+          "technicals_cards": [
+            {
+              "label": "RSI (14)",
+              "value": "51.2",
+              "note": "neutral",
+              "tone": "warm"
+            },
+            {
+              "label": "MACD",
+              "value": "Flat",
+              "tone": "warm"
+            },
+            {
+              "label": "Momentum",
+              "value": "48",
+              "note": "1M +1.0% · 3M +2.0% · steady",
+              "tone": "warm"
+            }
+          ]
+        },
+        "peers": {
+          "view": "stock_peers",
+          "peers": {
+            "rows": [
+              {
+                "symbol": "FIXTUREPEERA",
+                "quality": 70,
+                "industry": "Fixture Sector A",
+                "market_cap": null,
+                "is_current": false
+              },
+              {
+                "symbol": "FIXTUREUP",
+                "quality": 61,
+                "industry": "Fixture Sector A",
+                "market_cap": null,
+                "is_current": true
+              }
+            ],
+            "total": 2,
+            "sector": "Fixture Sector A",
+            "current_rank": 2
+          }
+        }
+      }
+    }
+  }
+}

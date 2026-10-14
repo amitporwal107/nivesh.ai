@@ -54,6 +54,7 @@ from routes.upload import router as upload_router
 from routes.analytics import router as analytics_router
 from routes.chat import router as chat_router
 from routes.screeners import router as screeners_router
+from routes.watchlists import router as watchlists_router  # personal watchlists (per-user lists of stocks)
 from routes.user import router as user_router
 from routes.insights import router as insights_router
 from routes.scenarios import router as scenarios_router
@@ -82,6 +83,7 @@ from routes.strategy_builder import router as strategy_builder_router  # Strateg
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
 from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
+from routes.broker_native import short_router as broker_callback_short_router  # /api/b/<broker>: short broker callback address
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
@@ -90,6 +92,7 @@ from routes.markets import router as markets_router              # Markets home 
 from routes.filings import router as filings_router              # Filings Home — feed + signals (/api/filings/*)
 from routes.move_odds import router as move_odds_router          # Research → Move odds (/api/move-odds/*, allowlist flag)
 from routes.paper_trades import router as paper_trades_router    # Research → Paper (/api/paper-trades/*, move_odds allowlist)
+from routes.fno import router as fno_router                      # Options lab + F&O analyser — end-of-day chain, expiries, futures (/api/fno/*, read-only)
 from routes.sim_lab import router as sim_lab_router            # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 from routes.research_chart import router as research_chart_router        # Research → Charts (/api/research/chart/*, allowlist flag)
 from routes.research_chart_live import router as research_chart_live_router  # Research → Charts LIVE bars (/api/research/chart-live/*)
@@ -174,6 +177,7 @@ app.include_router(upload_router)
 app.include_router(analytics_router)
 app.include_router(chat_router)
 app.include_router(screeners_router)
+app.include_router(watchlists_router)
 app.include_router(user_router)
 app.include_router(insights_router)
 app.include_router(scenarios_router)
@@ -205,6 +209,7 @@ app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: 
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
 app.include_router(broker_connect_router)          # Secure Portfolio Connect — broker holdings via OpenAlgo
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
+app.include_router(broker_callback_short_router)   # /api/b/<broker> — the same callback at a short address (ICICI Direct's form caps the URL length)
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(movers_router)                   # Top Movers dashboard (/api/movers, /{symbol}, /{symbol}/analysis)
@@ -212,6 +217,7 @@ app.include_router(markets_router)                 # Markets home dashboard aggr
 app.include_router(filings_router)                # Filings Home — feed + signals (/api/filings/*)
 app.include_router(move_odds_router)              # Research → Move odds (/api/move-odds/*, allowlist flag)
 app.include_router(paper_trades_router)           # Research → Paper (/api/paper-trades/*, move_odds allowlist)
+app.include_router(fno_router)                    # Options lab + F&O analyser — end-of-day chain, expiries, futures (/api/fno/*, read-only)
 app.include_router(sim_lab_router)                # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 app.include_router(research_chart_router)         # Research → Charts (/api/research/chart/*, allowlist flag)
 app.include_router(research_chart_live_router)    # Research → Charts LIVE bars (/api/research/chart-live/*, allowlist flag)
@@ -387,6 +393,15 @@ async def startup_seed():
         await _db.otp_codes.create_index("email", unique=True, background=True)
     except Exception as e:
         logger.warning("otp_codes index ensure failed: %s", e)
+    # Broker sync snapshots — listed per account, newest first; fetched by id.
+    try:
+        from deps import db as _db
+        await _db.broker_sync_snapshots.create_index(
+            [("user_id", 1), ("broker_account_id", 1), ("synced_at", -1)], background=True
+        )
+        await _db.broker_sync_snapshots.create_index("snapshot_id", unique=True, background=True)
+    except Exception as e:
+        logger.warning("broker_sync_snapshots index ensure failed: %s", e)
     # Datastore isolation — refuse to start production when Postgres /
     # Redis / Mongo are shared with the preview environment. Preview
     # deploys log a warning and continue.

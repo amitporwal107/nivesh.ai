@@ -207,6 +207,14 @@ async def snapshot_features_for_date(
                     target_date,
                     timeout=_EXTENDED_POPULATE_TIMEOUT_S,
                 )
+                # The extended pass rewrites ROE, ROCE, D/E, P/B and market cap from our own
+                # filings. Re-apply the figures held from a named source (migration 162) so
+                # the values and the row's fundamentals_source label never disagree.
+                await conn.fetchval(
+                    "SELECT nidp.populate_stock_fundamentals_sourced($1::date)",
+                    target_date,
+                    timeout=_EXTENDED_POPULATE_TIMEOUT_S,
+                )
             logger.info(
                 "feature_snapshotter extended columns populated for %d rows",
                 int(extended_rows or 0),

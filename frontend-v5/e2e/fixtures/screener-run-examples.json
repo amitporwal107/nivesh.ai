@@ -1,0 +1,1680 @@
+{
+ "matches": {
+  "ok": true,
+  "as_of_date": "2026-10-12",
+  "widget": {
+   "title": "Stock screen",
+   "columns": [
+    {
+     "key": "name",
+     "label": "Stock",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "sector",
+     "label": "Sector",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "mcap",
+     "label": "Mkt Cap",
+     "unit": "Cr",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "pe",
+     "label": "P/E",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "de",
+     "label": "D/E",
+     "kind": "num",
+     "align": "right",
+     "goodLow": true,
+     "decimals": 2
+    },
+    {
+     "key": "divYield",
+     "label": "Div Yld",
+     "unit": "%",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "salesG",
+     "label": "Sales 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "profitG",
+     "label": "Profit 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Ret",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    }
+   ],
+   "universe": [
+    {
+     "name": "FIXALPHA",
+     "ticker": "FIXALPHA",
+     "sector": "IT",
+     "pe": 12.5,
+     "pb": null,
+     "evEbitda": null,
+     "peVsSector": null,
+     "divYield": null,
+     "roe": null,
+     "roce": null,
+     "profitMargin": null,
+     "interestCoverage": null,
+     "earningsConsistency": null,
+     "salesG": null,
+     "profitG": null,
+     "salesGyoy": null,
+     "profitGyoy": null,
+     "epsGyoy": null,
+     "marginTrend": null,
+     "de": null,
+     "debtTrend": null,
+     "liquidity": null,
+     "mcap": null,
+     "return1y": 18.4,
+     "volatility": null,
+     "beta": null,
+     "maxDrawdown": null,
+     "rsi": 48.2,
+     "momentum": 61.0,
+     "accumulation": null,
+     "promoter": null,
+     "promoterPledge": null,
+     "fii": null,
+     "dii": null,
+     "fiiChange": null,
+     "promoterChange": null
+    },
+    {
+     "name": "FIXBRAVO",
+     "ticker": "FIXBRAVO",
+     "sector": null,
+     "pe": 9.1,
+     "pb": null,
+     "evEbitda": null,
+     "peVsSector": null,
+     "divYield": null,
+     "roe": null,
+     "roce": null,
+     "profitMargin": null,
+     "interestCoverage": null,
+     "earningsConsistency": null,
+     "salesG": null,
+     "profitG": null,
+     "salesGyoy": null,
+     "profitGyoy": null,
+     "epsGyoy": null,
+     "marginTrend": null,
+     "de": null,
+     "debtTrend": null,
+     "liquidity": null,
+     "mcap": null,
+     "return1y": -4.2,
+     "volatility": null,
+     "beta": null,
+     "maxDrawdown": null,
+     "rsi": 63.7,
+     "momentum": null,
+     "accumulation": null,
+     "promoter": null,
+     "promoterPledge": null,
+     "fii": null,
+     "dii": null,
+     "fiiChange": null,
+     "promoterChange": null
+    }
+   ],
+   "rows": [
+    {
+     "name": "FIXALPHA",
+     "ticker": "FIXALPHA",
+     "sector": "IT",
+     "pe": 12.5,
+     "pb": null,
+     "evEbitda": null,
+     "peVsSector": null,
+     "divYield": null,
+     "roe": null,
+     "roce": null,
+     "profitMargin": null,
+     "interestCoverage": null,
+     "earningsConsistency": null,
+     "salesG": null,
+     "profitG": null,
+     "salesGyoy": null,
+     "profitGyoy": null,
+     "epsGyoy": null,
+     "marginTrend": null,
+     "de": null,
+     "debtTrend": null,
+     "liquidity": null,
+     "mcap": null,
+     "return1y": 18.4,
+     "volatility": null,
+     "beta": null,
+     "maxDrawdown": null,
+     "rsi": 48.2,
+     "momentum": 61.0,
+     "accumulation": null,
+     "promoter": null,
+     "promoterPledge": null,
+     "fii": null,
+     "dii": null,
+     "fiiChange": null,
+     "promoterChange": null
+    },
+    {
+     "name": "FIXBRAVO",
+     "ticker": "FIXBRAVO",
+     "sector": null,
+     "pe": 9.1,
+     "pb": null,
+     "evEbitda": null,
+     "peVsSector": null,
+     "divYield": null,
+     "roe": null,
+     "roce": null,
+     "profitMargin": null,
+     "interestCoverage": null,
+     "earningsConsistency": null,
+     "salesG": null,
+     "profitG": null,
+     "salesGyoy": null,
+     "profitGyoy": null,
+     "epsGyoy": null,
+     "marginTrend": null,
+     "de": null,
+     "debtTrend": null,
+     "liquidity": null,
+     "mcap": null,
+     "return1y": -4.2,
+     "volatility": null,
+     "beta": null,
+     "maxDrawdown": null,
+     "rsi": 63.7,
+     "momentum": null,
+     "accumulation": null,
+     "promoter": null,
+     "promoterPledge": null,
+     "fii": null,
+     "dii": null,
+     "fiiChange": null,
+     "promoterChange": null
+    }
+   ],
+   "filter_defs": [
+    {
+     "key": "mcap",
+     "label": "Market Cap",
+     "qlabel": "Market Cap",
+     "unit": "Cr",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "pe",
+     "label": "P/E Ratio",
+     "qlabel": "P/E",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "qlabel": "ROE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "qlabel": "ROCE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "de",
+     "label": "Debt / Equity",
+     "qlabel": "Debt to Equity",
+     "min": false,
+     "max": true
+    },
+    {
+     "key": "divYield",
+     "label": "Dividend Yield",
+     "qlabel": "Dividend Yield",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "salesG",
+     "label": "Sales Growth 3Y",
+     "qlabel": "Sales Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "profitG",
+     "label": "Profit Growth 3Y",
+     "qlabel": "Profit Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Return",
+     "qlabel": "1Y Return",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "rsi",
+     "label": "RSI (14)",
+     "qlabel": "RSI",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "promoterPledge",
+     "label": "Promoter Pledge",
+     "qlabel": "Promoter Pledge",
+     "unit": "%",
+     "min": false,
+     "max": true
+    }
+   ],
+   "filter_labels": {
+    "pe": "P/E",
+    "pb": "P/B",
+    "evEbitda": "EV / EBITDA",
+    "peVsSector": "P/E vs sector",
+    "divYield": "Dividend Yield",
+    "roe": "ROE",
+    "roce": "ROCE",
+    "profitMargin": "Net margin",
+    "interestCoverage": "Interest cover",
+    "earningsConsistency": "Earnings consistency",
+    "salesG": "Sales growth 3Y",
+    "profitG": "Profit growth 3Y",
+    "salesGyoy": "Sales growth YoY",
+    "profitGyoy": "Profit growth YoY",
+    "epsGyoy": "EPS growth YoY",
+    "marginTrend": "Margin trend",
+    "de": "Debt / Equity",
+    "debtTrend": "Debt trend",
+    "liquidity": "Liquidity score",
+    "mcap": "Market Cap",
+    "return1y": "1Y return",
+    "volatility": "Volatility 1Y",
+    "beta": "Beta",
+    "maxDrawdown": "Max drawdown 1Y",
+    "rsi": "RSI (14)",
+    "momentum": "Momentum score",
+    "accumulation": "Accumulation score",
+    "promoter": "Promoter holding",
+    "promoterPledge": "Promoter pledge",
+    "fii": "FII holding",
+    "dii": "DII holding",
+    "fiiChange": "FII change QoQ",
+    "promoterChange": "Promoter change QoQ"
+   },
+   "filters": {
+    "pe_max": 15.0
+   },
+   "presets": [
+    {
+     "name": "Quality compounders",
+     "query": "Screen stocks where ROCE over 20, ROE over 18, sales growth over 12, profit growth over 12, debt to equity under 0.5"
+    },
+    {
+     "name": "Low-debt, high-margin",
+     "query": "Screen stocks where debt to equity under 0.3, net margin over 18, ROE over 18, interest coverage over 5"
+    },
+    {
+     "name": "Value (Graham-style)",
+     "query": "Screen stocks where P/E under 15, P/B under 1.5, debt to equity under 1, market cap over 500"
+    },
+    {
+     "name": "GARP",
+     "query": "Screen stocks where profit growth over 15, ROE over 15, P/E vs sector under 0"
+    },
+    {
+     "name": "High dividend yield",
+     "query": "Screen stocks where dividend yield over 3, profit growth over 0, debt to equity under 0.6"
+    },
+    {
+     "name": "Promoter conviction",
+     "query": "Screen stocks where promoter holding over 50, promoter pledge under 1, promoter change over 0"
+    },
+    {
+     "name": "Turnaround / momentum",
+     "query": "Screen stocks where profit growth yoy over 50, sales growth yoy over 25, margin trend over 0, market cap over 300"
+    },
+    {
+     "name": "Smallcap multibagger",
+     "query": "Screen stocks where market cap over 100, market cap under 2000, sales growth over 20, profit growth over 20, ROE over 18, promoter pledge under 1"
+    },
+    {
+     "name": "Magic Formula",
+     "query": "Screen stocks where ROCE over 25, P/E under 10, market cap over 500"
+    }
+   ],
+   "sort": {
+    "key": "mcap",
+    "dir": "desc"
+   },
+   "name_key": "name",
+   "ticker_key": "ticker",
+   "sector_key": "sector",
+   "ask_template": "Tell me about {ticker} \u2014 is it worth a deeper look?",
+   "count": 2,
+   "source": "NIDP stock feature store",
+   "note": "Live NIDP feature store \u00b7 as of 2026-10-12 \u00b7 figures are exchange-filed fundamentals, not investment advice."
+  },
+  "coverage": {
+   "name": {
+    "filled": 2,
+    "total": 2
+   },
+   "sector": {
+    "filled": 1,
+    "total": 2
+   },
+   "mcap": {
+    "filled": 0,
+    "total": 2
+   },
+   "pe": {
+    "filled": 2,
+    "total": 2
+   },
+   "roe": {
+    "filled": 0,
+    "total": 2
+   },
+   "roce": {
+    "filled": 0,
+    "total": 2
+   },
+   "de": {
+    "filled": 0,
+    "total": 2
+   },
+   "divYield": {
+    "filled": 0,
+    "total": 2
+   },
+   "salesG": {
+    "filled": 0,
+    "total": 2
+   },
+   "profitG": {
+    "filled": 0,
+    "total": 2
+   },
+   "return1y": {
+    "filled": 2,
+    "total": 2
+   }
+  },
+  "matched": 2,
+  "universe_complete": true
+ },
+ "no_data": {
+  "ok": true,
+  "as_of_date": "2026-10-12",
+  "widget": {
+   "title": "Stock screen",
+   "columns": [
+    {
+     "key": "name",
+     "label": "Stock",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "sector",
+     "label": "Sector",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "mcap",
+     "label": "Mkt Cap",
+     "unit": "Cr",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "pe",
+     "label": "P/E",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "de",
+     "label": "D/E",
+     "kind": "num",
+     "align": "right",
+     "goodLow": true,
+     "decimals": 2
+    },
+    {
+     "key": "divYield",
+     "label": "Div Yld",
+     "unit": "%",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "salesG",
+     "label": "Sales 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "profitG",
+     "label": "Profit 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Ret",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    }
+   ],
+   "universe": [],
+   "rows": [],
+   "filter_defs": [
+    {
+     "key": "mcap",
+     "label": "Market Cap",
+     "qlabel": "Market Cap",
+     "unit": "Cr",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "pe",
+     "label": "P/E Ratio",
+     "qlabel": "P/E",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "qlabel": "ROE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "qlabel": "ROCE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "de",
+     "label": "Debt / Equity",
+     "qlabel": "Debt to Equity",
+     "min": false,
+     "max": true
+    },
+    {
+     "key": "divYield",
+     "label": "Dividend Yield",
+     "qlabel": "Dividend Yield",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "salesG",
+     "label": "Sales Growth 3Y",
+     "qlabel": "Sales Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "profitG",
+     "label": "Profit Growth 3Y",
+     "qlabel": "Profit Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Return",
+     "qlabel": "1Y Return",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "rsi",
+     "label": "RSI (14)",
+     "qlabel": "RSI",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "promoterPledge",
+     "label": "Promoter Pledge",
+     "qlabel": "Promoter Pledge",
+     "unit": "%",
+     "min": false,
+     "max": true
+    }
+   ],
+   "filter_labels": {
+    "pe": "P/E",
+    "pb": "P/B",
+    "evEbitda": "EV / EBITDA",
+    "peVsSector": "P/E vs sector",
+    "divYield": "Dividend Yield",
+    "roe": "ROE",
+    "roce": "ROCE",
+    "profitMargin": "Net margin",
+    "interestCoverage": "Interest cover",
+    "earningsConsistency": "Earnings consistency",
+    "salesG": "Sales growth 3Y",
+    "profitG": "Profit growth 3Y",
+    "salesGyoy": "Sales growth YoY",
+    "profitGyoy": "Profit growth YoY",
+    "epsGyoy": "EPS growth YoY",
+    "marginTrend": "Margin trend",
+    "de": "Debt / Equity",
+    "debtTrend": "Debt trend",
+    "liquidity": "Liquidity score",
+    "mcap": "Market Cap",
+    "return1y": "1Y return",
+    "volatility": "Volatility 1Y",
+    "beta": "Beta",
+    "maxDrawdown": "Max drawdown 1Y",
+    "rsi": "RSI (14)",
+    "momentum": "Momentum score",
+    "accumulation": "Accumulation score",
+    "promoter": "Promoter holding",
+    "promoterPledge": "Promoter pledge",
+    "fii": "FII holding",
+    "dii": "DII holding",
+    "fiiChange": "FII change QoQ",
+    "promoterChange": "Promoter change QoQ"
+   },
+   "filters": {
+    "roe_min": 20.0
+   },
+   "presets": [
+    {
+     "name": "Quality compounders",
+     "query": "Screen stocks where ROCE over 20, ROE over 18, sales growth over 12, profit growth over 12, debt to equity under 0.5"
+    },
+    {
+     "name": "Low-debt, high-margin",
+     "query": "Screen stocks where debt to equity under 0.3, net margin over 18, ROE over 18, interest coverage over 5"
+    },
+    {
+     "name": "Value (Graham-style)",
+     "query": "Screen stocks where P/E under 15, P/B under 1.5, debt to equity under 1, market cap over 500"
+    },
+    {
+     "name": "GARP",
+     "query": "Screen stocks where profit growth over 15, ROE over 15, P/E vs sector under 0"
+    },
+    {
+     "name": "High dividend yield",
+     "query": "Screen stocks where dividend yield over 3, profit growth over 0, debt to equity under 0.6"
+    },
+    {
+     "name": "Promoter conviction",
+     "query": "Screen stocks where promoter holding over 50, promoter pledge under 1, promoter change over 0"
+    },
+    {
+     "name": "Turnaround / momentum",
+     "query": "Screen stocks where profit growth yoy over 50, sales growth yoy over 25, margin trend over 0, market cap over 300"
+    },
+    {
+     "name": "Smallcap multibagger",
+     "query": "Screen stocks where market cap over 100, market cap under 2000, sales growth over 20, profit growth over 20, ROE over 18, promoter pledge under 1"
+    },
+    {
+     "name": "Magic Formula",
+     "query": "Screen stocks where ROCE over 25, P/E under 10, market cap over 500"
+    }
+   ],
+   "sort": {
+    "key": "mcap",
+    "dir": "desc"
+   },
+   "name_key": "name",
+   "ticker_key": "ticker",
+   "sector_key": "sector",
+   "ask_template": "Tell me about {ticker} \u2014 is it worth a deeper look?",
+   "count": 0,
+   "source": "NIDP stock feature store",
+   "note": "Live NIDP feature store \u00b7 as of 2026-10-12 \u00b7 figures are exchange-filed fundamentals, not investment advice."
+  },
+  "coverage": {
+   "name": {
+    "filled": 2,
+    "total": 2
+   },
+   "sector": {
+    "filled": 1,
+    "total": 2
+   },
+   "mcap": {
+    "filled": 0,
+    "total": 2
+   },
+   "pe": {
+    "filled": 2,
+    "total": 2
+   },
+   "roe": {
+    "filled": 0,
+    "total": 2
+   },
+   "roce": {
+    "filled": 0,
+    "total": 2
+   },
+   "de": {
+    "filled": 0,
+    "total": 2
+   },
+   "divYield": {
+    "filled": 0,
+    "total": 2
+   },
+   "salesG": {
+    "filled": 0,
+    "total": 2
+   },
+   "profitG": {
+    "filled": 0,
+    "total": 2
+   },
+   "return1y": {
+    "filled": 2,
+    "total": 2
+   }
+  },
+  "matched": 0,
+  "universe_complete": true
+ },
+ "no_match": {
+  "ok": true,
+  "as_of_date": "2026-10-12",
+  "widget": {
+   "title": "Stock screen",
+   "columns": [
+    {
+     "key": "name",
+     "label": "Stock",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "sector",
+     "label": "Sector",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "mcap",
+     "label": "Mkt Cap",
+     "unit": "Cr",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "pe",
+     "label": "P/E",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "de",
+     "label": "D/E",
+     "kind": "num",
+     "align": "right",
+     "goodLow": true,
+     "decimals": 2
+    },
+    {
+     "key": "divYield",
+     "label": "Div Yld",
+     "unit": "%",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "salesG",
+     "label": "Sales 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "profitG",
+     "label": "Profit 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Ret",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    }
+   ],
+   "universe": [],
+   "rows": [],
+   "filter_defs": [
+    {
+     "key": "mcap",
+     "label": "Market Cap",
+     "qlabel": "Market Cap",
+     "unit": "Cr",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "pe",
+     "label": "P/E Ratio",
+     "qlabel": "P/E",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "qlabel": "ROE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "qlabel": "ROCE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "de",
+     "label": "Debt / Equity",
+     "qlabel": "Debt to Equity",
+     "min": false,
+     "max": true
+    },
+    {
+     "key": "divYield",
+     "label": "Dividend Yield",
+     "qlabel": "Dividend Yield",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "salesG",
+     "label": "Sales Growth 3Y",
+     "qlabel": "Sales Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "profitG",
+     "label": "Profit Growth 3Y",
+     "qlabel": "Profit Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Return",
+     "qlabel": "1Y Return",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "rsi",
+     "label": "RSI (14)",
+     "qlabel": "RSI",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "promoterPledge",
+     "label": "Promoter Pledge",
+     "qlabel": "Promoter Pledge",
+     "unit": "%",
+     "min": false,
+     "max": true
+    }
+   ],
+   "filter_labels": {
+    "pe": "P/E",
+    "pb": "P/B",
+    "evEbitda": "EV / EBITDA",
+    "peVsSector": "P/E vs sector",
+    "divYield": "Dividend Yield",
+    "roe": "ROE",
+    "roce": "ROCE",
+    "profitMargin": "Net margin",
+    "interestCoverage": "Interest cover",
+    "earningsConsistency": "Earnings consistency",
+    "salesG": "Sales growth 3Y",
+    "profitG": "Profit growth 3Y",
+    "salesGyoy": "Sales growth YoY",
+    "profitGyoy": "Profit growth YoY",
+    "epsGyoy": "EPS growth YoY",
+    "marginTrend": "Margin trend",
+    "de": "Debt / Equity",
+    "debtTrend": "Debt trend",
+    "liquidity": "Liquidity score",
+    "mcap": "Market Cap",
+    "return1y": "1Y return",
+    "volatility": "Volatility 1Y",
+    "beta": "Beta",
+    "maxDrawdown": "Max drawdown 1Y",
+    "rsi": "RSI (14)",
+    "momentum": "Momentum score",
+    "accumulation": "Accumulation score",
+    "promoter": "Promoter holding",
+    "promoterPledge": "Promoter pledge",
+    "fii": "FII holding",
+    "dii": "DII holding",
+    "fiiChange": "FII change QoQ",
+    "promoterChange": "Promoter change QoQ"
+   },
+   "filters": {
+    "pe_max": 5.0
+   },
+   "presets": [
+    {
+     "name": "Quality compounders",
+     "query": "Screen stocks where ROCE over 20, ROE over 18, sales growth over 12, profit growth over 12, debt to equity under 0.5"
+    },
+    {
+     "name": "Low-debt, high-margin",
+     "query": "Screen stocks where debt to equity under 0.3, net margin over 18, ROE over 18, interest coverage over 5"
+    },
+    {
+     "name": "Value (Graham-style)",
+     "query": "Screen stocks where P/E under 15, P/B under 1.5, debt to equity under 1, market cap over 500"
+    },
+    {
+     "name": "GARP",
+     "query": "Screen stocks where profit growth over 15, ROE over 15, P/E vs sector under 0"
+    },
+    {
+     "name": "High dividend yield",
+     "query": "Screen stocks where dividend yield over 3, profit growth over 0, debt to equity under 0.6"
+    },
+    {
+     "name": "Promoter conviction",
+     "query": "Screen stocks where promoter holding over 50, promoter pledge under 1, promoter change over 0"
+    },
+    {
+     "name": "Turnaround / momentum",
+     "query": "Screen stocks where profit growth yoy over 50, sales growth yoy over 25, margin trend over 0, market cap over 300"
+    },
+    {
+     "name": "Smallcap multibagger",
+     "query": "Screen stocks where market cap over 100, market cap under 2000, sales growth over 20, profit growth over 20, ROE over 18, promoter pledge under 1"
+    },
+    {
+     "name": "Magic Formula",
+     "query": "Screen stocks where ROCE over 25, P/E under 10, market cap over 500"
+    }
+   ],
+   "sort": {
+    "key": "mcap",
+    "dir": "desc"
+   },
+   "name_key": "name",
+   "ticker_key": "ticker",
+   "sector_key": "sector",
+   "ask_template": "Tell me about {ticker} \u2014 is it worth a deeper look?",
+   "count": 0,
+   "source": "NIDP stock feature store",
+   "note": "Live NIDP feature store \u00b7 as of 2026-10-12 \u00b7 figures are exchange-filed fundamentals, not investment advice."
+  },
+  "coverage": {
+   "name": {
+    "filled": 2,
+    "total": 2
+   },
+   "sector": {
+    "filled": 1,
+    "total": 2
+   },
+   "mcap": {
+    "filled": 0,
+    "total": 2
+   },
+   "pe": {
+    "filled": 2,
+    "total": 2
+   },
+   "roe": {
+    "filled": 0,
+    "total": 2
+   },
+   "roce": {
+    "filled": 0,
+    "total": 2
+   },
+   "de": {
+    "filled": 0,
+    "total": 2
+   },
+   "divYield": {
+    "filled": 0,
+    "total": 2
+   },
+   "salesG": {
+    "filled": 0,
+    "total": 2
+   },
+   "profitG": {
+    "filled": 0,
+    "total": 2
+   },
+   "return1y": {
+    "filled": 2,
+    "total": 2
+   }
+  },
+  "matched": 0,
+  "universe_complete": true
+ },
+ "no_size_labels": {
+  "ok": true,
+  "as_of_date": "2026-10-12",
+  "widget": {
+   "title": "Stock screen",
+   "columns": [
+    {
+     "key": "name",
+     "label": "Stock",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "sector",
+     "label": "Sector",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "mcap",
+     "label": "Mkt Cap",
+     "unit": "Cr",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "pe",
+     "label": "P/E",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "de",
+     "label": "D/E",
+     "kind": "num",
+     "align": "right",
+     "goodLow": true,
+     "decimals": 2
+    },
+    {
+     "key": "divYield",
+     "label": "Div Yld",
+     "unit": "%",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "salesG",
+     "label": "Sales 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "profitG",
+     "label": "Profit 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Ret",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    }
+   ],
+   "universe": [],
+   "rows": [],
+   "filter_defs": [
+    {
+     "key": "mcap",
+     "label": "Market Cap",
+     "qlabel": "Market Cap",
+     "unit": "Cr",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "pe",
+     "label": "P/E Ratio",
+     "qlabel": "P/E",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "qlabel": "ROE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "qlabel": "ROCE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "de",
+     "label": "Debt / Equity",
+     "qlabel": "Debt to Equity",
+     "min": false,
+     "max": true
+    },
+    {
+     "key": "divYield",
+     "label": "Dividend Yield",
+     "qlabel": "Dividend Yield",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "salesG",
+     "label": "Sales Growth 3Y",
+     "qlabel": "Sales Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "profitG",
+     "label": "Profit Growth 3Y",
+     "qlabel": "Profit Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Return",
+     "qlabel": "1Y Return",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "rsi",
+     "label": "RSI (14)",
+     "qlabel": "RSI",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "promoterPledge",
+     "label": "Promoter Pledge",
+     "qlabel": "Promoter Pledge",
+     "unit": "%",
+     "min": false,
+     "max": true
+    }
+   ],
+   "filter_labels": {
+    "pe": "P/E",
+    "pb": "P/B",
+    "evEbitda": "EV / EBITDA",
+    "peVsSector": "P/E vs sector",
+    "divYield": "Dividend Yield",
+    "roe": "ROE",
+    "roce": "ROCE",
+    "profitMargin": "Net margin",
+    "interestCoverage": "Interest cover",
+    "earningsConsistency": "Earnings consistency",
+    "salesG": "Sales growth 3Y",
+    "profitG": "Profit growth 3Y",
+    "salesGyoy": "Sales growth YoY",
+    "profitGyoy": "Profit growth YoY",
+    "epsGyoy": "EPS growth YoY",
+    "marginTrend": "Margin trend",
+    "de": "Debt / Equity",
+    "debtTrend": "Debt trend",
+    "liquidity": "Liquidity score",
+    "mcap": "Market Cap",
+    "return1y": "1Y return",
+    "volatility": "Volatility 1Y",
+    "beta": "Beta",
+    "maxDrawdown": "Max drawdown 1Y",
+    "rsi": "RSI (14)",
+    "momentum": "Momentum score",
+    "accumulation": "Accumulation score",
+    "promoter": "Promoter holding",
+    "promoterPledge": "Promoter pledge",
+    "fii": "FII holding",
+    "dii": "DII holding",
+    "fiiChange": "FII change QoQ",
+    "promoterChange": "Promoter change QoQ"
+   },
+   "filters": {
+    "pe_max": 15.0
+   },
+   "presets": [
+    {
+     "name": "Quality compounders",
+     "query": "Screen stocks where ROCE over 20, ROE over 18, sales growth over 12, profit growth over 12, debt to equity under 0.5"
+    },
+    {
+     "name": "Low-debt, high-margin",
+     "query": "Screen stocks where debt to equity under 0.3, net margin over 18, ROE over 18, interest coverage over 5"
+    },
+    {
+     "name": "Value (Graham-style)",
+     "query": "Screen stocks where P/E under 15, P/B under 1.5, debt to equity under 1, market cap over 500"
+    },
+    {
+     "name": "GARP",
+     "query": "Screen stocks where profit growth over 15, ROE over 15, P/E vs sector under 0"
+    },
+    {
+     "name": "High dividend yield",
+     "query": "Screen stocks where dividend yield over 3, profit growth over 0, debt to equity under 0.6"
+    },
+    {
+     "name": "Promoter conviction",
+     "query": "Screen stocks where promoter holding over 50, promoter pledge under 1, promoter change over 0"
+    },
+    {
+     "name": "Turnaround / momentum",
+     "query": "Screen stocks where profit growth yoy over 50, sales growth yoy over 25, margin trend over 0, market cap over 300"
+    },
+    {
+     "name": "Smallcap multibagger",
+     "query": "Screen stocks where market cap over 100, market cap under 2000, sales growth over 20, profit growth over 20, ROE over 18, promoter pledge under 1"
+    },
+    {
+     "name": "Magic Formula",
+     "query": "Screen stocks where ROCE over 25, P/E under 10, market cap over 500"
+    }
+   ],
+   "sort": {
+    "key": "mcap",
+    "dir": "desc"
+   },
+   "name_key": "name",
+   "ticker_key": "ticker",
+   "sector_key": "sector",
+   "ask_template": "Tell me about {ticker} \u2014 is it worth a deeper look?",
+   "count": 0,
+   "source": "NIDP stock feature store",
+   "note": "Live NIDP feature store \u00b7 as of 2026-10-12 \u00b7 figures are exchange-filed fundamentals, not investment advice."
+  },
+  "coverage": {
+   "name": {
+    "filled": 2,
+    "total": 2
+   },
+   "sector": {
+    "filled": 1,
+    "total": 2
+   },
+   "mcap": {
+    "filled": 0,
+    "total": 2
+   },
+   "pe": {
+    "filled": 2,
+    "total": 2
+   },
+   "roe": {
+    "filled": 0,
+    "total": 2
+   },
+   "roce": {
+    "filled": 0,
+    "total": 2
+   },
+   "de": {
+    "filled": 0,
+    "total": 2
+   },
+   "divYield": {
+    "filled": 0,
+    "total": 2
+   },
+   "salesG": {
+    "filled": 0,
+    "total": 2
+   },
+   "profitG": {
+    "filled": 0,
+    "total": 2
+   },
+   "return1y": {
+    "filled": 2,
+    "total": 2
+   },
+   "bucket": {
+    "filled": 0,
+    "total": 2
+   }
+  },
+  "matched": 0,
+  "universe_complete": true
+ },
+ "unreachable": {
+  "ok": false,
+  "as_of_date": null,
+  "widget": {
+   "title": "Stock screen",
+   "columns": [
+    {
+     "key": "name",
+     "label": "Stock",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "sector",
+     "label": "Sector",
+     "kind": "text",
+     "align": "left"
+    },
+    {
+     "key": "mcap",
+     "label": "Mkt Cap",
+     "unit": "Cr",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "pe",
+     "label": "P/E",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "goodHigh": true
+    },
+    {
+     "key": "de",
+     "label": "D/E",
+     "kind": "num",
+     "align": "right",
+     "goodLow": true,
+     "decimals": 2
+    },
+    {
+     "key": "divYield",
+     "label": "Div Yld",
+     "unit": "%",
+     "kind": "num",
+     "align": "right"
+    },
+    {
+     "key": "salesG",
+     "label": "Sales 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "profitG",
+     "label": "Profit 3Y",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Ret",
+     "unit": "%",
+     "kind": "num",
+     "align": "right",
+     "signed": true
+    }
+   ],
+   "universe": [],
+   "rows": [],
+   "filter_defs": [
+    {
+     "key": "mcap",
+     "label": "Market Cap",
+     "qlabel": "Market Cap",
+     "unit": "Cr",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "pe",
+     "label": "P/E Ratio",
+     "qlabel": "P/E",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roe",
+     "label": "ROE",
+     "qlabel": "ROE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "roce",
+     "label": "ROCE",
+     "qlabel": "ROCE",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "de",
+     "label": "Debt / Equity",
+     "qlabel": "Debt to Equity",
+     "min": false,
+     "max": true
+    },
+    {
+     "key": "divYield",
+     "label": "Dividend Yield",
+     "qlabel": "Dividend Yield",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "salesG",
+     "label": "Sales Growth 3Y",
+     "qlabel": "Sales Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "profitG",
+     "label": "Profit Growth 3Y",
+     "qlabel": "Profit Growth",
+     "unit": "%",
+     "min": true,
+     "max": false
+    },
+    {
+     "key": "return1y",
+     "label": "1Y Return",
+     "qlabel": "1Y Return",
+     "unit": "%",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "rsi",
+     "label": "RSI (14)",
+     "qlabel": "RSI",
+     "min": true,
+     "max": true
+    },
+    {
+     "key": "promoterPledge",
+     "label": "Promoter Pledge",
+     "qlabel": "Promoter Pledge",
+     "unit": "%",
+     "min": false,
+     "max": true
+    }
+   ],
+   "filter_labels": {
+    "pe": "P/E",
+    "pb": "P/B",
+    "evEbitda": "EV / EBITDA",
+    "peVsSector": "P/E vs sector",
+    "divYield": "Dividend Yield",
+    "roe": "ROE",
+    "roce": "ROCE",
+    "profitMargin": "Net margin",
+    "interestCoverage": "Interest cover",
+    "earningsConsistency": "Earnings consistency",
+    "salesG": "Sales growth 3Y",
+    "profitG": "Profit growth 3Y",
+    "salesGyoy": "Sales growth YoY",
+    "profitGyoy": "Profit growth YoY",
+    "epsGyoy": "EPS growth YoY",
+    "marginTrend": "Margin trend",
+    "de": "Debt / Equity",
+    "debtTrend": "Debt trend",
+    "liquidity": "Liquidity score",
+    "mcap": "Market Cap",
+    "return1y": "1Y return",
+    "volatility": "Volatility 1Y",
+    "beta": "Beta",
+    "maxDrawdown": "Max drawdown 1Y",
+    "rsi": "RSI (14)",
+    "momentum": "Momentum score",
+    "accumulation": "Accumulation score",
+    "promoter": "Promoter holding",
+    "promoterPledge": "Promoter pledge",
+    "fii": "FII holding",
+    "dii": "DII holding",
+    "fiiChange": "FII change QoQ",
+    "promoterChange": "Promoter change QoQ"
+   },
+   "filters": {
+    "roe_min": 20.0
+   },
+   "presets": [
+    {
+     "name": "Quality compounders",
+     "query": "Screen stocks where ROCE over 20, ROE over 18, sales growth over 12, profit growth over 12, debt to equity under 0.5"
+    },
+    {
+     "name": "Low-debt, high-margin",
+     "query": "Screen stocks where debt to equity under 0.3, net margin over 18, ROE over 18, interest coverage over 5"
+    },
+    {
+     "name": "Value (Graham-style)",
+     "query": "Screen stocks where P/E under 15, P/B under 1.5, debt to equity under 1, market cap over 500"
+    },
+    {
+     "name": "GARP",
+     "query": "Screen stocks where profit growth over 15, ROE over 15, P/E vs sector under 0"
+    },
+    {
+     "name": "High dividend yield",
+     "query": "Screen stocks where dividend yield over 3, profit growth over 0, debt to equity under 0.6"
+    },
+    {
+     "name": "Promoter conviction",
+     "query": "Screen stocks where promoter holding over 50, promoter pledge under 1, promoter change over 0"
+    },
+    {
+     "name": "Turnaround / momentum",
+     "query": "Screen stocks where profit growth yoy over 50, sales growth yoy over 25, margin trend over 0, market cap over 300"
+    },
+    {
+     "name": "Smallcap multibagger",
+     "query": "Screen stocks where market cap over 100, market cap under 2000, sales growth over 20, profit growth over 20, ROE over 18, promoter pledge under 1"
+    },
+    {
+     "name": "Magic Formula",
+     "query": "Screen stocks where ROCE over 25, P/E under 10, market cap over 500"
+    }
+   ],
+   "sort": {
+    "key": "mcap",
+    "dir": "desc"
+   },
+   "name_key": "name",
+   "ticker_key": "ticker",
+   "sector_key": "sector",
+   "ask_template": "Tell me about {ticker} \u2014 is it worth a deeper look?",
+   "count": 0,
+   "source": "NIDP stock feature store",
+   "note": "Live NIDP feature store \u00b7 figures are exchange-filed fundamentals, not investment advice."
+  },
+  "coverage": {},
+  "matched": null,
+  "universe_complete": false
+ }
+}

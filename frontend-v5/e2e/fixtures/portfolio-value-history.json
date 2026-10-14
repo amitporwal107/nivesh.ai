@@ -1,0 +1,19 @@
+{
+ "monthly_values": [
+  {
+   "month": "Aug 2025",
+   "value_rs": 1000000.0
+  },
+  {
+   "month": "Sep 2025",
+   "value_rs": 1100000.0
+  },
+  {
+   "month": "Oct 2025",
+   "value_rs": 950000.0
+  }
+ ],
+ "current_value_rs": 1025000.0,
+ "source": "cas_statement",
+ "count": 3
+}

@@ -1,0 +1,25 @@
+# Claude Code gateway — OpenAI-compatible chat endpoint backed by the Claude Code
+# CLI on this VM. Installed by deploy/cloudpe/app/claude-gateway/install.sh.
+[Unit]
+Description=Claude Code gateway (OpenAI-compatible chat endpoint for the app backend)
+# It listens on the docker0 address, which exists only once Docker is up.
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+# Runs as the user whose Claude Code login the model calls use.
+User=deploy
+Group=deploy
+Environment=HOME=/home/deploy
+Environment=PATH=/home/deploy/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/claude-gateway.env
+StateDirectory=claude-gateway
+ExecStart=/usr/bin/python3 /opt/claude-gateway/gateway.py
+Restart=always
+RestartSec=3
+# `deploy` has passwordless sudo; this stops anything started from here using it.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
