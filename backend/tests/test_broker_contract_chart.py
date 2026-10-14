@@ -56,14 +56,26 @@ class ChartNotSupported(Exception):
     """An adapter's own "I cannot serve this"."""
 
 
-def chart_reader(sib, result=CHART, slug="icicidirect"):
-    """Give the fake ICICI adapter the optional `fetch_contract_chart`; `result` is returned or raised."""
+FULL_QUOTE = ContractQuote(last_price=21.85, last_traded_at="2026-10-13T15:38:34+05:30", open=34.1, high=34.1, low=19.1,
+                           previous_close=22.05, change_pct=-0.91, spot_price=1801.0, volume=48400.0)
+
+
+def chart_reader(sib, result=CHART, slug="icicidirect", quote=FULL_QUOTE):
+    """Give the fake ICICI adapter the optional `fetch_contract_chart` and `fetch_contract_quote`;
+    `result` / `quote` is returned or raised."""
     async def fetch(token, contract, interval):
         sib.calls.append(("adapter.fetch_contract_chart", slug, sib.account_of(token), contract, interval))
         if isinstance(result, BaseException):
             raise result
         return result
+
+    async def fetch_quote(token, contract):
+        sib.calls.append(("adapter.fetch_contract_quote", slug, sib.account_of(token), contract))
+        if isinstance(quote, BaseException):
+            raise quote
+        return quote
     sib.adapters[slug].fetch_contract_chart = fetch
+    sib.adapters[slug].fetch_contract_quote = fetch_quote
 
 
 def chart_reads(sib):
@@ -174,6 +186,37 @@ def test_any_other_failure_is_a_read_error_that_carries_no_broker_text(sib, capl
     _no_secret(str(e.value), caplog.text)
     assert "contract chart read failed account=ba_i broker=icicidirect interval=5m" in caplog.text
     assert sib.ended == []
+
+
+# ── hub_reads.read_contract_quote ─────────────────────────────────────────
+def test_the_quote_alone_is_read_from_the_accounts_broker_and_nothing_is_stored(sib):
+    chart_reader(sib)
+    db = FakeDB(accounts=[icici()], holdings=[])
+    before = json.dumps([db.broker_accounts.docs, db.holdings.docs], default=str)
+    got = asyncio.run(hub.read_contract_quote(db, db.broker_accounts.one(account_id="ba_i"), PUT))
+
+    assert got == {"last_price": 21.85, "last_traded_at": "2026-10-13T15:38:34+05:30", "open": 34.1, "high": 34.1,
+                   "low": 19.1, "previous_close": 22.05, "change_pct": -0.91, "spot_price": 1801.0, "volume": 48400.0}
+    assert [c for c in sib.calls if c[0].startswith("adapter.")] == [("adapter.fetch_contract_quote", "icicidirect", "ba_i", PUT)]
+    assert json.dumps([db.broker_accounts.docs, db.holdings.docs], default=str) == before
+
+
+def test_no_quote_from_the_broker_is_none(sib):
+    chart_reader(sib, quote=None)
+    assert asyncio.run(hub.read_contract_quote(FakeDB(accounts=[icici()]), icici(), PUT)) is None
+
+
+def test_a_quote_from_a_broker_with_no_quote_reader_is_not_supported(sib):
+    with pytest.raises(hub.BrokerNotSupported):
+        asyncio.run(hub.read_contract_quote(FakeDB(accounts=[native_account("ba_z")]), native_account("ba_z"), PUT))
+
+
+def test_a_quote_read_the_broker_refuses_ends_the_session(sib):
+    chart_reader(sib, quote=IciciSessionExpired("Invalid session."))
+    db = FakeDB(accounts=[icici()])
+    with pytest.raises(hub.BrokerSessionExpired):
+        asyncio.run(hub.read_contract_quote(db, db.broker_accounts.one(account_id="ba_i"), PUT))
+    assert sib.ended == [("ba_i", "broker_rejected")]
 
 
 # ── GET /api/broker/accounts/{id}/contract-chart ──────────────────────────
@@ -350,11 +393,16 @@ class _Response:
     follow_ups = ["What is the breakeven?"]
 
 
+ENGINE_INPUTS: list = []
+
+
 class _Graph:
     """The engine, reduced to the events `/chat/stream` reads: an early card for the underlying
-    share, some answer text, and the final response carrying the same share card."""
+    share, some answer text, and the final response carrying the same share card. Keeps each
+    input it is given in ENGINE_INPUTS."""
 
     async def astream_events(self, _input, config=None, version=None):
+        ENGINE_INPUTS.append(_input)
         yield {"event": "on_custom_event", "name": "copilot_widget",
                "data": {"widget_type": "instrument_detail", "widget_data": {"symbol": "FIXCO"}}}
         yield {"event": "on_chat_model_stream", "tags": [], "data": {"chunk": _Chunk("Levels for FIXCO.")}}
@@ -391,6 +439,8 @@ def stream(monkeypatch, chat_db):
     monkeypatch.setattr(chat, "_lg_available", True)
     monkeypatch.setattr(chat, "_get_copilot_graph", lambda: _Graph())
     monkeypatch.setattr(chat, "_llm_text_of", lambda chunk: chunk.content)
+
+    ENGINE_INPUTS.clear()
 
     def ask(**extra):
         async def run():
@@ -430,3 +480,103 @@ def test_a_reference_that_is_not_the_callers_changes_nothing(stream):
     frames, saved = stream(position={**POSITION, "account_id": "ba_u2"})
     assert [f["widget_type"] for f in frames if f["type"] == "widget"] == ["instrument_detail"]
     assert saved["widget"]["widget_type"] == "instrument_detail"
+
+
+# ── What the engine is told about the position ────────────────────────────
+def context(position, user_id="u1"):
+    widget = card(position, user_id)
+    return asyncio.run(chat._position_context(user_id, widget))
+
+
+def test_the_engine_is_told_the_contract_the_holding_and_the_brokers_live_quote(chat_db, sib):
+    assert context(POSITION).splitlines() == [
+        "Broker position this question was asked from, read from the user's broker account for "
+        "this answer. The prices are the contract's own, not the share's.",
+        "- Contract: FIXCO 1,760 put, expiring 27 Oct 2026 (NFO).",
+        "- Holding: long 550 at an average premium of ₹35.88.",
+        "- Latest quote: last traded ₹21.85 at 13 Oct 2026, 15:38 IST; day high ₹34.10, day low ₹19.10; "
+        "previous close ₹22.05; underlying price ₹1,801.00.",
+        "- Worked out from these: P&L = (21.85 - 35.88) x 550 = -₹7,716.50; "
+        "breakeven at expiry ₹1,724.12 (strike - average premium).",
+    ]
+    assert [c[0] for c in sib.calls if c[0].startswith("adapter.")] == ["adapter.fetch_contract_quote"]
+
+
+def test_a_short_future_and_a_call_are_worked_out_with_their_own_breakevens(chat_db):
+    future = context({**POSITION, "instrument_type": "FUT", "strike": None, "quantity": -275, "avg_price": 1863.2})
+    assert "- Contract: FIXCO future, expiring 27 Oct 2026 (NFO)." in future
+    assert "- Holding: short 275 at an average price of ₹1,863.20." in future
+    assert "P&L = (21.85 - 1,863.20) x -275 = ₹506,371.25; breakeven ₹1,863.20 (the average price)." in future
+
+    call = context({**POSITION, "instrument_type": "CE", "strike": 1700})
+    assert "breakeven at expiry ₹1,735.88 (strike + average premium)." in call
+
+
+def test_without_an_average_nothing_is_worked_out(chat_db):
+    text = context({**POSITION, "avg_price": None})
+    assert "- Holding: long 550; the broker gave no average." in text
+    assert "Worked out" not in text
+
+
+def test_without_a_quote_the_engine_is_told_no_live_price_is_known(chat_db, sib):
+    chart_reader(sib, quote=None)
+    text = context(POSITION)
+    assert "- Latest quote: the broker returned no quote just now, so no live price is known." in text
+    assert "Worked out" not in text and "21.85" not in text
+
+
+@pytest.mark.parametrize("raised,said", [
+    (IciciSessionExpired("Invalid session."), "the broker session has ended; the user must sign in again from Broker connections"),
+    (RuntimeError(f"boom {SECRET}"), "the broker could not be read just now"),
+])
+def test_a_failed_read_is_said_plainly_and_never_raises(chat_db, sib, raised, said):
+    chart_reader(sib, quote=raised)
+    text = context(POSITION)
+    assert f"- Latest quote: {said}, so no live price is known." in text
+    _no_secret(text)
+
+
+def test_no_card_means_nothing_is_added(chat_db):
+    assert asyncio.run(chat._position_context("u1", None)) == ""
+
+
+def test_the_engine_gets_the_question_with_the_facts_while_the_thread_keeps_the_question_as_asked(stream, chat_db):
+    frames, saved = stream(position=POSITION)
+    engine_text = ENGINE_INPUTS[-1]["messages"][-1].content
+    assert engine_text.startswith("Show the FIXCO chart\n\nBroker position this question was asked from")
+    assert "average premium of ₹35.88" in engine_text and "last traded ₹21.85" in engine_text
+    stored = [m["content"] for m in chat_db.chat_messages.docs if m.get("role") == "user"]
+    assert stored == ["Show the FIXCO chart"]
+
+
+def test_without_a_position_the_engine_gets_the_question_alone(stream):
+    stream()
+    assert ENGINE_INPUTS[-1]["messages"][-1].content == "Show the FIXCO chart"
+    assert ENGINE_INPUTS[-1]["pinned_agent"] is None                 # the router decides, as before
+
+
+def test_a_question_from_a_position_is_sent_to_the_stock_analyst(stream):
+    # Left to the router, the facts about a holding and its P&L would send it to the portfolio
+    # analyst (seen live on 2026-10-14), which has no chart levels.
+    stream(position=POSITION)
+    assert ENGINE_INPUTS[-1]["pinned_agent"] == chat._AgentName("stock_analyst")
+
+
+def test_a_reference_that_gives_no_card_pins_nothing(stream):
+    stream(position={**POSITION, "account_id": "ba_u2"})
+    assert ENGINE_INPUTS[-1]["pinned_agent"] is None
+    assert ENGINE_INPUTS[-1]["messages"][-1].content == "Show the FIXCO chart"
+
+
+def test_the_facts_never_name_the_broker_so_the_engine_still_finds_the_underlying(chat_db):
+    # Live on 2026-10-14, "read from ICICI Direct" in this text made the engine's symbol lookup pick
+    # ICICI Bank instead of COLPAL, and the answer came back with no levels. The lookup is the
+    # engine's own (services/copilot_tools/symbol_resolver).
+    from services.copilot_tools.symbol_resolver import resolve_symbol
+    colpal = {**POSITION, "symbol": "COLPAL"}
+    question = ("Show the COLPAL chart with support and resistance. My broker account has an open position "
+                "of 550 in a 1,760 put option expiring 27 Oct 2026, at an average premium of ₹35.88.")
+    text = context(colpal)
+    assert "ICICI" not in text and "Direct" not in text
+    assert resolve_symbol(f"{question}\n\n{text}").symbol == "COLPAL"
+    assert resolve_symbol(f"{question}\n\n{text}\nread from ICICI Direct").symbol != "COLPAL"   # the trap is real

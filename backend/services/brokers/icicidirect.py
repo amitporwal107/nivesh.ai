@@ -473,18 +473,29 @@ async def fetch_contract_chart(token: AccessToken, contract: ContractRef, interv
     rows = await _signed_get("historicalcharts", {**window, **which}, token, "chart")
     bars = (_candle(r) for r in (rows if isinstance(rows, list) else []))
     candles = sorted((c for c in bars if c is not None), key=lambda c: c.time)
-    quote = None
+    return ContractChart(candles=candles, quote=await _read_quote(which, token))
+
+
+async def _read_quote(which: Dict[str, str], token: AccessToken) -> Optional[ContractQuote]:
+    """One `/quotes` read: a 503 is tried once more; any other failure, or a
+    second 503, is None. A refused session always raises."""
     for attempt in (1, 2):
         try:
-            quote = _quote(await _signed_get("quotes", which, token, "quote"))
-            break
+            return _quote(await _signed_get("quotes", which, token, "quote"))
         except IciciDirectSessionExpired:
             raise
         except IciciDirectError as failure:
             if attempt == 2 or getattr(failure, "http_status", None) != 503:
-                break
+                return None
             await asyncio.sleep(_QUOTE_RETRY_AFTER_S)
-    return ContractChart(candles=candles, quote=quote)
+    return None
+
+
+async def fetch_contract_quote(token: AccessToken, contract: ContractRef) -> Optional[ContractQuote]:
+    """The latest quote of one future or option, on its own — one read of
+    `/quotes`. None when ICICI returns no quote or it cannot be read; a
+    refused session raises. Nothing is stored and nothing is ordered."""
+    return await _read_quote(_contract_payload(contract), token)
 
 
 class _Module:
@@ -505,6 +516,7 @@ class _Module:
     fetch_hub_positions = staticmethod(fetch_hub_positions)
     fetch_funds = staticmethod(fetch_funds)
     fetch_contract_chart = staticmethod(fetch_contract_chart)
+    fetch_contract_quote = staticmethod(fetch_contract_quote)
 
 
 registry.register(_Module())

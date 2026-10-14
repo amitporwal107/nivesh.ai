@@ -703,3 +703,46 @@ def test_a_view_or_a_contract_the_adapter_cannot_serve_is_refused_before_any_cal
     with pytest.raises(icici.IciciDirectNotSupported):
         run(icici.fetch_contract_chart(TOKEN, contract, interval))
     assert wire.requests == []
+
+
+# ── A contract's quote on its own (what a chat answer about the position is told) ──
+def test_a_contracts_quote_alone_is_one_read_of_quotes(keys, monkeypatch):
+    wire = Wire(monkeypatch, {"quotes": ok([OBSERVED_QUOTE])})
+    quote = run(icici.fetch_contract_quote(TOKEN, PUT))
+
+    assert quote == ContractQuote(
+        last_price=21.85, last_traded_at="2026-10-13T15:38:34+05:30", open=34.1, high=34.1, low=19.1,
+        previous_close=22.05, change_pct=-0.91, spot_price=1801.0, volume=48400.0,
+    )
+    assert [r.url.path.rsplit("/", 1)[-1] for r in wire.requests] == ["quotes"]
+    assert wire.requests[0].method == "GET"
+
+
+def test_no_quote_row_is_none(keys, monkeypatch):
+    Wire(monkeypatch, {"quotes": ok([])})
+    assert run(icici.fetch_contract_quote(TOKEN, FUTURE)) is None
+
+
+def test_a_busy_quote_alone_is_asked_once_more(keys, monkeypatch):
+    monkeypatch.setattr(icici, "_QUOTE_RETRY_AFTER_S", 0)
+    wire = QuoteWire(monkeypatch, [BUSY, ok([OBSERVED_QUOTE])])
+    assert run(icici.fetch_contract_quote(TOKEN, PUT)).last_price == 21.85 and wire.quote_calls() == 2
+
+
+def test_a_quote_that_cannot_be_read_alone_is_none(keys, monkeypatch):
+    monkeypatch.setattr(icici, "_QUOTE_RETRY_AFTER_S", 0)
+    QuoteWire(monkeypatch, [BUSY])
+    assert run(icici.fetch_contract_quote(TOKEN, PUT)) is None
+
+
+def test_a_quote_read_alone_that_icici_refuses_the_session_for_raises(keys, monkeypatch):
+    Wire(monkeypatch, {"quotes": (401, {"Success": None, "Status": 401, "Error": "Invalid session."})})
+    with pytest.raises(icici.IciciDirectSessionExpired):
+        run(icici.fetch_contract_quote(TOKEN, PUT))
+
+
+def test_a_quote_for_something_that_is_not_a_contract_is_refused_before_any_call(keys, monkeypatch):
+    wire = Wire(monkeypatch, {"quotes": ok([OBSERVED_QUOTE])})
+    with pytest.raises(icici.IciciDirectNotSupported):
+        run(icici.fetch_contract_quote(TOKEN, ContractRef(symbol="FIXCO", exchange="NSE", instrument_type="EQ", expiry="2026-10-27")))
+    assert wire.requests == []

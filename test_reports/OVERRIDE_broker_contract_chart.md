@@ -36,6 +36,12 @@ REASON: Not on staging until the PR is merged into `dev`, and the end-to-end che
 | TC-15 | live backend | this branch's hub and route against ICICI Direct, staging account, read-only | live | PASS |
 | TC-16 | integration | the app's card drawn from the real responses of TC-15 | e2e on real data | PASS |
 | TC-17 | staging | click the F&O position on the Trader desk | live UI | NOT RUN — needs merge + the user's session |
+| TC-18 | adapter | a contract's quote on its own: one GET; none → null; 503 retried once; refused session raises; non-contract refused before any call | unit | PASS |
+| TC-19 | hub | `read_contract_quote`: dispatch, nothing stored, not-supported, refused session ends it | unit | PASS |
+| TC-20 | chat | the facts for a long put, a short future and a call (P&L, breakeven); no average → nothing worked out; no quote / ended session / failure said plainly, never raises | unit | PASS |
+| TC-21 | chat | the engine gets question + facts and the stock-analyst pin; the thread stores the question as asked; no card → no facts, no pin | route (fake engine) | PASS |
+| TC-22 | chat | the facts never name the broker, and the engine's real symbol lookup still finds COLPAL (it finds ICICI Bank when "ICICI Direct" is in the text) | unit | PASS |
+| TC-23 | live engine | the staging engine on the real facts, read-only | live | PASS |
 
 ## Evidence (real output from this session)
 - Backend, staging image: `python -m pytest <20 broker and chat test files> -q` → `1082 passed, 1 skipped, 1 warning in 15.08s`; `import server` works and `/api/broker/accounts/{account_id}/contract-chart` is registered.
@@ -49,6 +55,15 @@ REASON: Not on staging until the PR is merged into `dev`, and the end-to-end che
 - TC-15, route (signed-in user replaced by the staging account's owner; everything else real): four reads `HTTP 200`; `interval=1d` → `HTTP 422`; option without strike → `HTTP 422 | an option needs its strike price`; an unknown account → `HTTP 404 | Broker account not found`. The chat card built from the live position rows: `COLPAL 1,760 put · 27 Oct 2026 | qty 550.0 avg 35.88` and `COLPAL future · 27 Oct 2026 | qty 275.0 avg 1863.2`.
 - TC-16: `title=COLPAL 1,760 put · 27 Oct 2026 | last=₹21.85 | avg=₹35.88 | qty=550 | pnl=−₹7,717 | spot=₹1,801.00 | prev=₹22.05 | caption=312 candles · 5 min each · 7 Oct, 9:35 am to 13 Oct, 3:35 pm` and `title=COLPAL future · 27 Oct 2026 | last=₹1,805.00 | avg=₹1,863.20 | qty=275 | pnl=−₹16,005`; request sent by the card: `?symbol=COLPAL&exchange=NFO&instrument_type=PE&expiry=2026-10-27&strike=1760&interval=5m`. `2 passed`. (P&L check: (21.85 − 35.88) × 550 = −7,716.5; (1805 − 1863.2) × 275 = −16,005.)
 
+## Second commit: the answer's text is about the position (2026-10-14, after "please continue")
+The card fixed what is shown; the text still came from the stock analyst and discussed the share. With a position card the server now reads the contract's quote once and gives the engine the facts with the question, and sends it to the stock analyst.
+- Facts my code built from ICICI (live, 12:00 IST): `last traded ₹20.50 at 14 Oct 2026, 12:00 IST; day high ₹29.00, day low ₹19.85; previous close ₹22.05; underlying price ₹1,804.10` and `P&L = (20.50 - 35.88) x 550 = -₹8,459.00; breakeven at expiry ₹1,724.12`.
+- Engine runs on staging data, read-only, nothing saved to the user's threads:
+  - facts appended, router left to decide → `portfolio_analyst`: the position right, but "I can't ... mark support and resistance" — no levels.
+  - facts + stock-analyst pin, broker named in the facts → `('stock_analyst', 'ICICIBANK')`: the symbol lookup read "ICICI Direct" as ICICI Bank.
+  - final (facts without the broker's name + pin) → `('stock_analyst', 'COLPAL')`: levels "Resistance: 1,918 · 50-day average: 1,881 · Support: 1,716" and "Your 1,760 put is long 550 at ₹35.88 and last traded ₹20.50, a P&L of -₹8,459.00. Breakeven at expiry is ₹1,724.12, just above our support of ₹1,716." It also says its research snapshot price (1,767) differs from the broker's live underlying (1,804.10).
+- Tests: `1104 passed, 1 skipped` across the 20 broker and chat files; mutation checks — pin removed → `1 failed`, broker named → `2 failed`, facts not sent → `1 failed`.
+
 ## Found in ICICI's data
 - **Daily rows are not candles.** Their `close` is the previous day's close (13 Oct: 35.15, while that day's last trade and the quote were 21.85; three days × two contracts agree). The documented `1day` and `1minute` answer API status 500. So there is no daily view.
 - **Bars can miss a brief extreme.** On 12 Oct ICICI's own day low for the put was 7.65; its 30-minute bars bottom at 14.15. Bars are drawn as ICICI sends them.
@@ -56,7 +71,7 @@ REASON: Not on staging until the PR is merged into `dev`, and the end-to-end che
 
 ## Not verified / limits
 - TC-17. Nothing here is on staging.
-- The answer's text still comes from the stock analyst and discusses the underlying; it does not know the contract's live price that the card shows.
+- The stock analyst's own levels and "price" come from Nivesh's research snapshot, which can be a day old; the answer now says when it differs from the broker's live underlying.
 - No broker other than ICICI Direct can serve a contract chart (Zerodha rows carry a trading symbol, not the underlying; no reader exists).
 - "Live" is a read when the card opens and on "Read again"; nothing ticks by itself.
 - The card on the older `/chat` page and in the dock (both use the same widget switch) and the light theme are untested.

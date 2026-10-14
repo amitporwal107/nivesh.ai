@@ -131,6 +131,11 @@ Server-sent events. Body: `message` (required), `session_id`, `page`, `agent`, `
   (`account_id, broker, broker_display, symbol, exchange, instrument_type, expiry, strike, quantity, avg_price`);
   the card reads prices itself from `GET /api/broker/accounts/{id}/contract-chart`. A missing, malformed or
   foreign reference is ignored and the question is answered as usual.
+  With such a card the server also reads the contract's quote once and gives the engine, with the question,
+  the facts of the position (contract, holding, last traded price, day range, previous close, underlying,
+  worked-out P&L and breakeven), and sends the question to the stock analyst so the answer keeps the
+  underlying's chart levels. The facts never name the broker (a broker's name is also a listed company's and
+  would be read as the stock). The thread stores the question as the user asked it.
 - `POST /api/chat/send` (the older dock) takes no `persona` or `position` and is unchanged.
 
 ## Standard error shape

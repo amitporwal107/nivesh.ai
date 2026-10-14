@@ -619,6 +619,33 @@ async def read_contract_chart(db, doc: dict, contract: ContractRef, interval: st
         raise
 
 
+async def read_contract_quote(db, doc: dict, contract: ContractRef) -> Optional[dict]:
+    """The latest quote of one futures or options contract, read live from
+    the account's broker; nothing is stored. `ContractQuote` as a dict, or
+    None when the broker returned none. Raises like `read_contract_chart`.
+    """
+    try:
+        slug = doc.get("broker") or ""
+        token = _live_token(doc)
+        adapter = _adapter_for(slug, "contract quote")
+        fetch = getattr(adapter, "fetch_contract_quote", None)
+        if fetch is None:
+            raise BrokerNotSupported(f"{adapter.DISPLAY} has no contract quote reader")
+        quote = await _adapter_call(adapter, "a contract quote", fetch, token, contract)
+        return asdict(quote) if quote is not None else None
+    except BrokerSessionExpired:
+        await sessions.end_session(db, doc["account_id"], "broker_rejected")
+        raise
+    except (sessions.SessionEnded, BrokerNotSupported):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "broker contract quote read failed account=%s broker=%s error=%s",
+            doc.get("account_id"), doc.get("broker"), _error_label(exc),
+        )
+        raise
+
+
 # ── Daily sync ───────────────────────────────────────────────────────────
 async def daily_sync(db) -> dict:
     """Refresh holdings for every native account whose session is live.
