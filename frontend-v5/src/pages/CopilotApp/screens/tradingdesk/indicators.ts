@@ -14,6 +14,7 @@
  *   vwapRolling(bars, 20) Σ(typical × volume) / Σ volume over the last 20 sessions, typical = (H + L + C) / 3.
  *                         A 20-day volume-weighted average of daily prices — not the intraday VWAP.
  *   rvol(bars, 20)        the latest session's volume ÷ the mean volume of the 20 sessions before it
+ *   largestGap(bars)      the biggest opening gap, open ÷ previous close − 1, over the bars given
  */
 
 export interface DailyBar {
@@ -116,6 +117,21 @@ export function rvol(bars: DailyBar[], n = 20): number | null {
   for (let i = bars.length - 1 - n; i < bars.length - 1; i++) sum += bars[i].volume;
   const mean = sum / n;
   return mean > 0 ? last / mean : null;
+}
+
+/**
+ * The largest opening gap in the bars: open ÷ the previous session's close − 1, in percent, signed, with its
+ * session. Null with fewer than two bars.
+ */
+export function largestGap(bars: DailyBar[]): { pct: number; day: string } | null {
+  let best: { pct: number; day: string } | null = null;
+  for (let i = 1; i < bars.length; i++) {
+    const pc = bars[i - 1].close;
+    if (!(pc > 0)) continue;
+    const pct = (bars[i].open / pc - 1) * 100;
+    if (best == null || Math.abs(pct) > Math.abs(best.pct)) best = { pct, day: bars[i].day };
+  }
+  return best;
 }
 
 /** The value as of the last session (null when that session has none — never an older value). */

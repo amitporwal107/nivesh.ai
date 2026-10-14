@@ -326,3 +326,37 @@ export function useDeleteAlert() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ALERTS_KEY }),
   });
 }
+
+// ── per-trade figures the Portfolio tab shows (worked out from the trade) ─
+
+const IST = "Asia/Kolkata";
+const istDay = (iso: string | null): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-CA", { timeZone: IST }) : null;
+};
+
+/** True when the trade was opened today, India time. */
+export function openedToday(t: PaperTrade, now: Date = new Date()): boolean {
+  return istDay(t.openedAt) === now.toLocaleDateString("en-CA", { timeZone: IST });
+}
+
+/** Calendar days from opening to closing (India time); null without both stamps. */
+export function heldDays(t: PaperTrade): number | null {
+  const a = istDay(t.openedAt);
+  const b = istDay(t.closedAt);
+  if (!a || !b) return null;
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/** A closed trade's return on its entry, percent: (exit − entry) ÷ entry. */
+export function tradeReturnPct(t: PaperTrade): number | null {
+  if (t.exitPrice == null || t.entry == null) return null;
+  return ((t.exitPrice - t.entry) / t.entry) * 100;
+}
+
+/** A closed trade's result in R: (exit − entry) ÷ (entry − stop); null without a stop below the entry. */
+export function tradeR(t: PaperTrade): number | null {
+  if (t.exitPrice == null || t.entry == null || t.stop == null || !(t.entry > t.stop)) return null;
+  return (t.exitPrice - t.entry) / (t.entry - t.stop);
+}

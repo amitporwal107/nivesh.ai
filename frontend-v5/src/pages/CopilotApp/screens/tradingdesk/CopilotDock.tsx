@@ -1,21 +1,26 @@
 /**
- * The Copilot docked beside the trading desk (design: the "Nivesh Copilot ·
- * Conversational intelligence" panel at the right of the desk).
+ * The Copilot docked beside the trading desk (design §9: the "Nivesh Copilot ·
+ * 06 · Conversational intelligence" card at the right of the desk), and the
+ * same Copilot full height on a phone (design §11 M6: More · AI Copilot).
  *
  * It is the same Copilot as the rest of the app — POST /api/chat/stream, asked
- * in the trader persona — with its own thread, so the desk stays on screen
- * while an answer streams. The thread id is kept for the browser tab
- * (sessionStorage), so moving between tabs or screens keeps the conversation;
- * "Open full thread" shows it in the app's normal thread view, with the
- * evidence panel and any result card.
+ * in the desk's persona (the TRADER / INVESTOR switch in the desk header) —
+ * with its own thread, so the desk stays on screen while an answer streams.
+ * Answers are the real streamed Markdown, styled like the design's answer
+ * (serif headings, mint emphasis, "›" bullets); nothing is restructured or
+ * made up. The thread id is kept for the browser tab (sessionStorage), so
+ * moving between tabs or screens keeps the conversation; "Open the full
+ * thread" shows it in the app's normal thread view, with the evidence panel
+ * and any result card.
  */
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import { Markdown } from "@/components/chat/Markdown";
 import { WIDGET_TYPES } from "@/components/chat/ChatWidget";
 import { useCopilotShell } from "../../lib/shell-context";
 import { useThreadEngine } from "../../lib/use-thread-engine";
 import { useThreadTurns, type Turn } from "../../lib/use-thread-turns";
 import { threadView } from "../../lib/views";
+import { useDesk } from "./context";
 
 const STORE_KEY = "nv.copilot.desk.thread";
 
@@ -36,39 +41,75 @@ function writeStored(id: string | undefined) {
   }
 }
 
+/** The design's answer type, applied to the streamed Markdown. Scoped to the dock. */
+const DOCK_STYLE = `
+.cp-dock-prose { font-size: 13.5px; line-height: 1.6; color: var(--cp-ink-2); }
+.cp-dock-prose :is(h1, h2, h3) { font-family: var(--display); font-weight: 400; font-size: 21px; line-height: 1.2; letter-spacing: -0.02em; color: var(--cp-ink); }
+.cp-dock-prose h4 { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cp-ink-3); font-weight: 400; }
+.cp-dock-prose em { color: var(--mint); }
+.cp-dock-prose strong { color: var(--cp-ink); font-weight: 500; }
+.cp-dock-prose ul { list-style: none; margin-left: 0; padding-left: 0; }
+.cp-dock-prose ul > li { position: relative; padding-left: 16px; }
+.cp-dock-prose ul > li::before { content: "›"; position: absolute; left: 2px; top: 0; color: var(--mint); }
+.cp-dock-prose a { font-family: var(--mono); font-size: 11px; color: var(--cp-ink-2); text-decoration: none; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-2); white-space: nowrap; }
+.cp-dock-prose a:hover { border-color: var(--mint-line); color: var(--cp-ink); }
+.cp-dock-prose code { font-family: var(--mono); font-size: 12px; }
+.cp-dock-page .cp-dock-prose :is(h1, h2, h3) { font-size: 19px; }
+.cp-dock-page .cp-dock-prose { font-size: 12.5px; }
+@keyframes cp-dock-dot { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-2px); } }
+.cp-dock-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--mint); animation: cp-dock-dot 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .cp-dock-dot { animation: none; opacity: 0.7; } }
+`;
+
 export interface CopilotDockHandle {
   ask: (question: string) => void;
+  /** Put the cursor in the ask box (More · AI Copilot with the dock showing). */
+  focus: () => void;
 }
 
-function DockTurn({ turn, busy, onRetry, onOpenThread }: { turn: Turn; busy: boolean; onRetry: (q: string) => void; onOpenThread: () => void }) {
+function Mark({ size }: { size: number }) {
+  return <span className="nv-mark" aria-hidden style={{ flex: "none", width: size, height: size, fontSize: Math.round(size * 0.58) }}>न</span>;
+}
+
+/** Design: three pulsing mint dots and "READING THE DESK…" beside the mark. */
+function Typing() {
+  return (
+    <span role="status" data-testid="dock-typing" className="flex items-center" style={{ gap: 10, minHeight: 24 }}>
+      <span className="flex items-center" style={{ gap: 4 }} aria-hidden>
+        {[0, 1, 2].map((i) => <span key={i} className="cp-dock-dot" style={{ animationDelay: `${i * 0.16}s` }} />)}
+      </span>
+      <span className="cp-mono-note" style={{ color: "var(--cp-ink-3)", letterSpacing: "0.12em" }}>Reading the desk…</span>
+    </span>
+  );
+}
+
+function DockTurn({ turn, busy, page, onRetry, onOpenThread }: { turn: Turn; busy: boolean; page: boolean; onRetry: (q: string) => void; onOpenThread: () => void }) {
   const working = turn.state === "streaming";
   const card = !!turn.widget?.widget_type && WIDGET_TYPES.has(turn.widget.widget_type);
   return (
-    <div data-testid="dock-turn" data-state={turn.state} className="flex flex-col" style={{ gap: 12, flex: "none" }}>
+    <div data-testid="dock-turn" data-state={turn.state} className="flex flex-col" style={{ gap: 14, flex: "none" }}>
       {turn.question && (
-        <div data-testid="dock-question" className="self-end" style={{ maxWidth: "88%", padding: "10px 14px", borderRadius: "14px 14px 4px 14px", background: "var(--bg-3)", border: "1px solid var(--line-2)", fontSize: 13.5, lineHeight: 1.45, overflowWrap: "anywhere" }}>
+        <div data-testid="dock-question" className="self-end" style={{ maxWidth: "86%", padding: "10px 14px", borderRadius: "14px 14px 4px 14px", background: "var(--bg-3)", border: "1px solid var(--line-2)", fontSize: page ? 13 : 13.5, lineHeight: 1.45, overflowWrap: "anywhere" }}>
           {turn.question}
         </div>
       )}
       {turn.state !== "unanswered" && (
         <div className="flex items-start" style={{ gap: 10 }}>
-          <span className="nv-mark" aria-hidden style={{ flex: "none", width: 24, height: 24, fontSize: 14, marginTop: 2 }}>न</span>
-          <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 8 }}>
+          <span style={{ marginTop: 2 }}><Mark size={24} /></span>
+          <div className="flex min-w-0 flex-1 flex-col" style={{ gap: 10 }}>
             {turn.text && (
-              <div data-testid="dock-answer" className="cp-prose min-w-0" style={{ fontSize: 13.5 }}>
+              <div data-testid="dock-answer" className="cp-prose cp-dock-prose min-w-0">
                 <Markdown caret={working}>{turn.text}</Markdown>
               </div>
             )}
-            {working && !turn.text && (
-              <span role="status" className="cp-running cp-mono-note" style={{ color: "var(--cp-ink-3)" }}>Reading the desk…</span>
-            )}
+            {working && !turn.text && <Typing />}
             {card && (
               <button type="button" onClick={onOpenThread} style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", fontSize: 12, color: "var(--mint)", cursor: "pointer" }}>
                 This answer has a result card — open the full thread ›
               </button>
             )}
             {(turn.state === "error" || turn.state === "stopped") && (
-              <div data-testid="dock-problem" role="alert" className="flex flex-wrap items-center" style={{ gap: "6px 10px", padding: "8px 10px", borderRadius: 10, border: `1px solid ${turn.state === "error" ? "var(--danger-line)" : "var(--amber-line)"}`, fontSize: 12.5, color: "var(--cp-ink-2)" }}>
+              <div data-testid="dock-problem" role="alert" className="flex flex-wrap items-center" style={{ gap: "6px 10px", padding: "8px 10px", borderRadius: 10, border: `1px solid ${turn.state === "error" ? "var(--danger-line)" : "var(--amber-line)"}`, background: turn.state === "error" ? "var(--cp-danger-soft)" : "transparent", fontSize: 12.5, color: "var(--cp-ink-2)" }}>
                 <span style={{ flex: "1 1 160px" }}>{turn.state === "error" ? (turn.errorText || "The Copilot could not finish this answer.") : "You stopped this answer."}</span>
                 {!busy && <button type="button" onClick={() => onRetry(turn.question)} style={{ padding: 0, border: 0, background: "none", fontSize: 12.5, color: "var(--cp-ink)", cursor: "pointer" }}>Retry ›</button>}
               </div>
@@ -81,14 +122,21 @@ function DockTurn({ turn, busy, onRetry, onOpenThread }: { turn: Turn; busy: boo
   );
 }
 
-/** The docked panel. `chips` are questions about what the desk is showing now. */
-export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; height: string }>(function CopilotDock({ chips, height }, ref) {
+/**
+ * The Copilot panel. `chips` are questions about what the desk is showing now.
+ * variant "dock" = the card beside the desk; "page" = full height in the page on a phone.
+ */
+export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; height: string; variant?: "dock" | "page" }>(function CopilotDock({ chips, height, variant = "dock" }, ref) {
   const { go } = useCopilotShell();
+  const { persona } = useDesk();
   const engine = useThreadEngine();
   const [sid, setSid] = useState<string | undefined>(readStored);
   const [draft, setDraft] = useState("");
   const { turns, session } = useThreadTurns(sid, engine);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const page = variant === "page";
 
   const ask = (question: string) => {
     const q = question.trim();
@@ -97,9 +145,9 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
     void engine.send(q, sid, (id) => {
       setSid(id);
       writeStored(id);
-    }, { persona: "trader" });
+    }, { persona });
   };
-  useImperativeHandle(ref, () => ({ ask }));
+  useImperativeHandle(ref, () => ({ ask, focus: () => inputRef.current?.focus() }));
 
   const reset = () => {
     engine.clearLocal();
@@ -107,75 +155,138 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
     writeStored(undefined);
   };
 
-  // Follow the newest text while it streams.
+  // Follow the newest text while it streams: the dock scrolls itself; on a phone the page scrolls.
   const lastText = turns[turns.length - 1]?.text.length ?? 0;
   useEffect(() => {
+    if (page) {
+      if (turns.length) endRef.current?.scrollIntoView({ block: "nearest" });
+      return;
+    }
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [turns.length, lastText, engine.busy]);
+  }, [page, turns.length, lastText, engine.busy]);
 
   // A thread created before the stream failed has no saved copy yet; the failed
   // answer still shows from the engine's local copy.
   const loadingHistory = !!sid && session.isPending && turns.length === 0;
   const openThread = () => { if (sid) go(threadView(sid)); };
 
-  return (
-    <aside data-testid="desk-dock" aria-label="Nivesh Copilot" className="cp-card flex flex-col" style={{ height, minHeight: 420, overflow: "hidden" }}>
-      <div className="flex items-center" style={{ gap: 10, padding: "12px 14px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
-        <span className="nv-mark" aria-hidden style={{ width: 26, height: 26, fontSize: 15 }}>न</span>
-        <div className="flex min-w-0 flex-col" style={{ gap: 2 }}>
-          <span style={{ fontFamily: "var(--display)", fontSize: 18, lineHeight: 1 }}>Nivesh Copilot</span>
-          <span className="cp-eyebrow" style={{ fontSize: 9 }}>Asked as a trader</span>
+  const thread: ReactNode = (
+    <>
+      {sid && (
+        <div className="flex items-center justify-end" style={{ marginBottom: -8 }}>
+          <button type="button" data-testid="dock-open-thread" onClick={openThread} className="cp-mono-note" style={{ padding: 0, border: 0, background: "none", cursor: "pointer", color: "var(--cp-ink-3)" }}>Open the full thread ›</button>
         </div>
-        <span style={{ flex: 1 }} />
-        {sid && (
-          <>
-            <button type="button" data-testid="dock-open-thread" onClick={openThread} className="cp-btn" data-variant="ghost" style={{ padding: "5px 9px", fontSize: 12 }}>Full thread ›</button>
-            <button type="button" data-testid="dock-new" onClick={reset} disabled={engine.busy} className="cp-btn" data-variant="ghost" style={{ padding: "5px 9px", fontSize: 12 }} aria-label="Start a new conversation">New</button>
-          </>
-        )}
-      </div>
-
-      <div ref={scrollRef} data-testid="dock-thread" className="cp-scroll flex flex-col" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 14, gap: 18 }}>
-        {loadingHistory && <span role="status" className="cp-mono-note cp-running">Loading the conversation…</span>}
-        {!sid && turns.length === 0 && (
-          <div className="flex flex-col" style={{ gap: 8 }}>
-            <span style={{ fontFamily: "var(--display)", fontSize: 20, lineHeight: 1.2 }}>Ask about anything on the desk.</span>
-            <span style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
+      )}
+      {loadingHistory && <span role="status" className="cp-mono-note cp-running">Loading the conversation…</span>}
+      {!sid && turns.length === 0 && (
+        <div data-testid="dock-empty" className="flex items-start" style={{ gap: 10 }}>
+          <span style={{ marginTop: 2 }}><Mark size={24} /></span>
+          <div className="flex min-w-0 flex-col" style={{ gap: 8 }}>
+            <span style={{ fontFamily: "var(--display)", fontSize: page ? 19 : 21, lineHeight: 1.2, letterSpacing: "-0.02em" }}>Ask about anything on the desk.</span>
+            <span style={{ fontSize: page ? 12.5 : 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
               Answers come from the same data the desk shows, with sources. The Copilot explains evidence and risk; it does not tell you to buy or sell, and it cannot place orders.
             </span>
           </div>
+        </div>
+      )}
+      {turns.map((t) => (
+        <DockTurn key={t.key} turn={t} busy={engine.busy} page={page} onRetry={(q) => { engine.clearLocal(); ask(q); }} onOpenThread={openThread} />
+      ))}
+      <div ref={endRef} aria-hidden style={{ scrollMarginBottom: page ? 140 : 0 }} />
+    </>
+  );
+
+  const sendButton = (size: number, radius: number) => (engine.busy ? (
+    <button type="button" data-testid="dock-stop" onClick={engine.stop} aria-label="Stop the answer" className="cp-btn grid place-items-center" style={{ flex: "none", width: size, height: size, padding: 0, borderRadius: radius, fontSize: 12 }}>■</button>
+  ) : (
+    <button type="submit" data-testid="dock-send" disabled={!draft.trim()} aria-label="Send" className="cp-btn grid place-items-center" data-variant="primary" style={{ flex: "none", width: size, height: size, padding: 0, borderRadius: radius, fontSize: 15 }}>↗</button>
+  ));
+
+  const input = (placeholder: string) => (
+    <input
+      ref={inputRef}
+      data-testid="dock-input"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      placeholder={placeholder}
+      aria-label="Ask the Copilot"
+      style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13.5 }}
+    />
+  );
+
+  if (page) {
+    return (
+      <section data-testid="desk-dock" data-variant="page" aria-label="Nivesh Copilot" className="cp-dock-page flex flex-col" style={{ minHeight: height, gap: 18 }}>
+        <style>{DOCK_STYLE}</style>
+        <div data-testid="dock-thread" className="flex flex-col" style={{ flex: 1, gap: 20 }}>{thread}</div>
+        {chips.length > 0 && (
+          <div data-testid="dock-chips" className="flex flex-col" style={{ gap: 8 }}>
+            <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>Suggested questions</span>
+            {chips.slice(0, 4).map((c) => (
+              <button key={c} type="button" className="cp-chip" disabled={engine.busy} onClick={() => ask(c)} style={{ padding: "9px 13px", fontSize: 12.5, borderRadius: 12, width: "100%" }}>{c}</button>
+            ))}
+          </div>
         )}
-        {turns.map((t) => (
-          <DockTurn key={t.key} turn={t} busy={engine.busy} onRetry={(q) => { engine.clearLocal(); ask(q); }} onOpenThread={openThread} />
-        ))}
+        <div style={{ position: "sticky", bottom: 0, paddingTop: 8, paddingBottom: 10, background: "var(--bg-0)", display: "flex", flexDirection: "column", gap: 8 }}>
+          <form onSubmit={(e) => { e.preventDefault(); ask(draft); }} className="flex items-center" style={{ gap: 8 }}>
+            {sid && (
+              <button type="button" data-testid="dock-new" onClick={reset} disabled={engine.busy} aria-label="Start a new conversation" className="grid place-items-center" style={{ flex: "none", width: 36, height: 36, borderRadius: 999, border: "1px solid var(--line-2)", background: "transparent", color: "var(--cp-ink-2)", fontSize: 16, cursor: "pointer" }}>＋</button>
+            )}
+            <div className="flex items-center" style={{ flex: 1, minWidth: 0, height: 44, padding: "0 4px 0 16px", gap: 8, borderRadius: 999, border: "1px solid var(--line-2)", background: "var(--bg-2)" }}>
+              {input("Ask Nivesh AI anything…")}
+              {sendButton(36, 999)}
+            </div>
+          </form>
+          <span data-testid="dock-note" style={{ fontSize: 10, lineHeight: 1.4, color: "var(--cp-ink-3)", textAlign: "center" }}>For education and research only. Not a buy or sell recommendation.</span>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <aside data-testid="desk-dock" data-variant="dock" aria-label="Nivesh Copilot" className="cp-card flex flex-col" style={{ height, minHeight: 420, overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
+      <style>{DOCK_STYLE}</style>
+      <div data-testid="dock-header" className="flex items-center" style={{ gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
+        <Mark size={28} />
+        <div className="flex min-w-0 flex-col" style={{ gap: 4 }}>
+          <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1 }}>Nivesh Copilot</span>
+          <span className="cp-eyebrow" style={{ fontSize: 9.5, whiteSpace: "nowrap" }}><span style={{ color: "var(--mint)" }}>06</span> · Conversational intelligence</span>
+        </div>
+        <span style={{ flex: 1 }} />
+        <span className="cp-pill" data-tone="mint" title="Answers read the Nivesh data platform (NIDP), the same data the desk shows" style={{ background: "var(--mint-soft)" }}>
+          <span className="nv-dot" style={{ background: "var(--mint)" }} />NIDP
+        </span>
+      </div>
+
+      <div ref={scrollRef} data-testid="dock-thread" className="cp-scroll flex flex-col" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 18, gap: 20 }}>
+        {thread}
       </div>
 
       {chips.length > 0 && (
-        <div data-testid="dock-chips" className="flex flex-wrap" style={{ gap: 6, padding: "10px 14px 0", borderTop: "1px solid var(--cp-line)" }}>
+        <div data-testid="dock-chips" className="flex flex-wrap" style={{ gap: 6, padding: "12px 18px 0", borderTop: "1px solid var(--cp-line)" }}>
           {chips.slice(0, 4).map((c) => (
             <button key={c} type="button" className="cp-chip" disabled={engine.busy} onClick={() => ask(c)} style={{ padding: "6px 11px", fontSize: 12 }}>{c}</button>
           ))}
         </div>
       )}
-      <form
-        onSubmit={(e) => { e.preventDefault(); ask(draft); }}
-        className="flex items-center"
-        style={{ gap: 8, margin: 12, padding: "6px 6px 6px 12px", borderRadius: 12, border: "1px solid var(--line-2)", background: "var(--bg-2)" }}
-      >
-        <input
-          data-testid="dock-input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask about a stock, setup or your positions"
-          aria-label="Ask the Copilot"
-          style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13.5 }}
-        />
-        {engine.busy ? (
-          <button type="button" data-testid="dock-stop" onClick={engine.stop} className="cp-btn" style={{ padding: "6px 10px", fontSize: 12 }}>Stop</button>
-        ) : (
-          <button type="submit" data-testid="dock-send" disabled={!draft.trim()} className="cp-btn" data-variant="primary" style={{ padding: "6px 12px", fontSize: 13 }} aria-label="Send">↗</button>
-        )}
+      <form onSubmit={(e) => { e.preventDefault(); ask(draft); }} style={{ padding: "12px 18px 18px" }}>
+        <div className="flex items-center" style={{ gap: 8, padding: "6px 6px 6px 8px", borderRadius: 14, border: "1px solid var(--line-2)", background: "var(--bg-glass)", WebkitBackdropFilter: "blur(14px)", backdropFilter: "blur(14px)" }}>
+          <button
+            type="button"
+            data-testid="dock-new"
+            onClick={reset}
+            disabled={!sid || engine.busy}
+            aria-label="Start a new conversation"
+            title="Start a new conversation"
+            className="grid place-items-center"
+            style={{ flex: "none", width: 28, height: 28, borderRadius: 8, border: 0, background: "transparent", color: "var(--cp-ink-3)", fontSize: 16, cursor: sid && !engine.busy ? "pointer" : "default" }}
+          >
+            ＋
+          </button>
+          {input("Ask about a stock, sector or your portfolio")}
+          {sendButton(34, 10)}
+        </div>
       </form>
     </aside>
   );

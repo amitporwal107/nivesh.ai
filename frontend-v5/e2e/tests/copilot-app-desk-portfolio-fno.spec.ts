@@ -15,10 +15,10 @@
  * (GET /api/desk/paper-trades, Close → POST …/{id}/close) and price alerts (GET
  * /api/desk/alerts, Delete → DELETE …/{id}) with their confirmations; TC-29 an
  * empty portfolio's connect button; the paper evaluation's 403 note and its
- * forward / replay calibration; TC-30 the NIFTY and BANKNIFTY cards; TC-31 the
- * ATM / R / S / MP tags; TC-32 a stock loaded by ticker and a ticker with no F&O
- * rows; TC-33 OI build-up from GET /api/fno/scan/buildup (counts, sort, filter,
- * a row opens its chain); TC-7 no sideways scroll at 390px on both tabs.
+ * forward / replay calibration; TC-7 no sideways scroll at 390px on the
+ * Portfolio & risk tab. The Options & futures lab (FnoTab.tsx: TC-30 … TC-33,
+ * its paper strategies and its 390px pass) is covered by
+ * copilot-app-desk-lab.spec.ts.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
@@ -329,95 +329,118 @@ const amberColour = (page: Page) => page.evaluate(() => {
   return c;
 });
 
+/** Shares of the portfolio the market-cap route valued: direct stocks (total_value_rs) + the funds it leaves out. */
+const capShare = (m: { total_value_rs: number; excluded: { funds_value_rs: number } }, v: number) => (v / (m.total_value_rs + m.excluded.funds_value_rs)) * 100;
+const pct1 = (n: number, signed = false) => `${n < 0 ? MINUS : signed && n > 0 ? "+" : ""}${Math.abs(n).toFixed(1)}%`;
+/** The seven risk checks of design-spec §7, in order. */
+const RISK_ROWS = [
+  ["overall", "Overall risk"], ["position", "Position concentration"], ["sector", "Sector concentration"], ["correlation", "Correlated positions"],
+  ["gap", "Gap risk"], ["volatility", "Volatility · 1Y"], ["liquidity", "Liquidity"],
+] as const;
+type Bucket = { n: number; lo: number; hi: number; predicted_mean?: number; model_label_rate?: number };
+/** Predicted vs realised over the selected buckets, each weighted by its predictions (portfolio-data.ts :: recordTiles). */
+function tilesOf(buckets: Bucket[]) {
+  const used = buckets.filter((b) => b.n > 0 && b.predicted_mean != null && b.model_label_rate != null);
+  const n = used.reduce((a, b) => a + b.n, 0);
+  const hits = used.reduce((a, b) => a + b.n * (b.model_label_rate as number), 0);
+  return { n, predicted: (used.reduce((a, b) => a + b.n * (b.predicted_mean as number), 0) / n) * 100, realised: (hits / n) * 100, misses: Math.round(n - hits) };
+}
+
 test.describe("Smart trading desk — Portfolio & risk", () => {
   test.beforeEach(async ({ page }) => {
     await deskBase(page);
   });
 
-  test("TC-28 positions with weights, a stock above 25% in amber, sector concentration, beta and VaR", async ({ page }) => {
+  test("TC-28 broker hub: sources, value and P&L, the market-cap donut, positions (>25% amber) and the seven risk checks", async ({ page }) => {
     await mockPaper(page, { status: 403, body: { detail: "Feature not enabled" } });
     await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio`);
 
     const hub = page.getByTestId("desk-portfolio-hub");
-    await expect(hub).toContainText("Portfolio · broker hub");
-    await expect(hub).toContainText("Read-only");
+    await expect(page.getByTestId("desk-portfolio-hub-title")).toHaveText("Portfolio · broker hub");
+    await expect(hub.getByTestId("desk-portfolio-readonly")).toHaveText("Read-only");
     // copilot-trader-broker-accounts.json: Zerodha, last read 2026-10-12T10:12Z = 12 Oct 3:42 pm IST
     await expect(page.getByTestId("desk-portfolio-sources")).toHaveText(/^Zerodha · last read 12 Oct, 3:42\s?pm$/i);
     await expect(hub.locator('[data-testid="entity-icon"][data-kind="broker"]')).toHaveCount(1);
     await expect(page.getByTestId("desk-portfolio-value")).toHaveText("₹10.00 L");
     await expect(page.getByTestId("desk-portfolio-pnl")).toHaveText("+₹1.40 L · +16.3%");
-    await expect(hub).toContainText("3 holdings on record · direct stocks ₹4.00 L (40.0% of the value)");
 
-    // positions: the two direct stocks, largest first, each with its company icon; the fund is not listed
-    const positions = page.getByTestId("desk-portfolio-positions");
+    // Donut: 2 direct stocks in the centre; legend Large / Mid / Small / Not split yet / Funds & other / Cash, as shares of
+    // the ₹10.00 L the route valued (₹4.00 L stocks + ₹6.00 L funds). Mid and small lists are not on record: "—".
+    await expect(page.getByTestId("desk-portfolio-donut-count")).toHaveText("2");
+    const legend = page.getByTestId("desk-mcap-row");
+    expect(await legend.evaluateAll((els) => els.map((e) => e.getAttribute("data-bucket")))).toEqual(["large", "mid", "small", "unsplit", "funds", "cash"]);
+    const weight = (b: string) => page.locator(`[data-testid="desk-mcap-row"][data-bucket="${b}"]`).getByTestId("desk-mcap-weight");
+    await expect(weight("large")).toHaveText(pct1(capShare(MCAP_PARTIAL, 300000)));
+    await expect(weight("mid")).toHaveText("—");
+    await expect(weight("unsplit")).toHaveText(pct1(capShare(MCAP_PARTIAL, MCAP_PARTIAL.unsplit.value_rs)));
+    await expect(weight("funds")).toHaveText(pct1(capShare(MCAP_PARTIAL, MCAP_PARTIAL.excluded.funds_value_rs)));
+    await expect(weight("cash")).toHaveText("—");
+    await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="cash"]')).toHaveAttribute("title", "Broker cash balances are not read");
+
+    // Positions: the two direct stocks, largest first, icon + symbol; the fund is not listed.
+    const positions = page.getByTestId("desk-portfolio-position");
     await expect(page.getByTestId("desk-portfolio-stock-count")).toHaveText("2");
-    await expect(positions).not.toContainText("Fixture Flexi Cap Fund");
-    await expect(positions.locator('[data-testid="entity-icon"][data-kind="stock"]')).toHaveCount(2);
-    const heavy = positions.getByRole("row").filter({ hasText: "FIXHEAVY" });
-    await expect(heavy).toContainText("Fixture Heavy Ltd");
+    expect(await positions.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).toEqual(["FIXHEAVY", "FIXLIGHT"]);
+    await expect(page.getByTestId("desk-portfolio-positions")).not.toContainText("Fixture Flexi Cap Fund");
+    const heavy = positions.nth(0);
+    await expect(heavy.locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "FIXHEAVY");
+    await expect(heavy.getByRole("cell").nth(0)).toHaveAttribute("title", "Fixture Heavy Ltd");
     await expect(heavy).toContainText("₹3.00 L");
-    await expect(heavy).toContainText("+20.0%");
-    const heavyWeight = heavy.getByTestId("desk-portfolio-weight");
-    await expect(heavyWeight).toHaveText("30.0%");
-    await expect(heavyWeight).toHaveAttribute("data-over", "true");
-    await expect(heavyWeight).toHaveCSS("color", await amberColour(page));
-    const light = positions.getByRole("row").filter({ hasText: "FIXLIGHT" });
-    await expect(light).toContainText("−9.1%");
-    await expect(light.getByTestId("desk-portfolio-weight")).toHaveText("10.0%");
-    await expect(light.getByTestId("desk-portfolio-weight")).toHaveAttribute("data-over", "false");
-    await expect(positions).toContainText("single-stock limit");
+    await expect(heavy.getByTestId("desk-portfolio-pnl-pct")).toHaveText("+20.0%");
+    await expect(heavy.getByTestId("desk-portfolio-weight")).toHaveText("30.0%");
+    await expect(heavy.getByTestId("desk-portfolio-weight")).toHaveAttribute("data-over", "true");
+    await expect(heavy.getByTestId("desk-portfolio-weight")).toHaveCSS("color", await amberColour(page));
+    await expect(positions.nth(1).getByTestId("desk-portfolio-pnl-pct")).toHaveText("−9.1%");
+    await expect(positions.nth(1).getByTestId("desk-portfolio-weight")).toHaveAttribute("data-over", "false");
 
-    // the sector ring: five listed sectors that add to 100%, so no "Other sectors" slice
-    const sectors = page.getByTestId("desk-portfolio-sector-row");
-    await expect(sectors).toHaveCount(5);
-    await expect(sectors.nth(0)).toContainText("Financial");
-    await expect(sectors.nth(0)).toContainText("48.0%");
-    await expect(page.getByTestId("desk-portfolio-mcap-note")).toHaveCount(0);
-    await expect(page.getByTestId("desk-portfolio-mcap")).toBeVisible();
-
-    // risk checks, in order: beta, largest stock, sector, volatility, VaR, then the route's drivers
+    // Risk checks · linked holdings: seven rows in the design's order.
     const risk = page.getByTestId("desk-portfolio-risk");
-    await expect(risk.locator('li[data-testid^="desk-risk-"]')).toHaveCount(8);
-    await expect(page.getByTestId("desk-risk-beta-value")).toHaveText("1.32");
-    await expect(page.getByTestId("desk-risk-beta")).toHaveAttribute("data-level", "High");
-    await expect(page.getByTestId("desk-risk-single-stock-value")).toHaveText("30.0%");
-    await expect(page.getByTestId("desk-risk-single-stock")).toHaveAttribute("data-level", "Above limit");
-    await expect(page.getByTestId("desk-risk-single-stock").locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "FIXHEAVY");
-    await expect(page.getByTestId("desk-risk-sector")).toContainText("Financial is 48.0% of sector exposure, above the 35% cap · HHI 3,138 · 3.2 effective sectors");
-    await expect(page.getByTestId("desk-risk-sector")).toHaveAttribute("data-level", "Over-concentrated");
-    await expect(page.getByTestId("desk-risk-volatility-value")).toHaveText("18.5%");
-    await expect(page.getByTestId("desk-risk-volatility")).toHaveAttribute("data-level", "High");
+    await expect(risk).toContainText("Risk checks · linked holdings");
+    const checks = risk.locator("ul[data-testid=desk-risk-list] > li");
+    expect(await checks.evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")))).toEqual(RISK_ROWS.map(([id]) => `desk-risk-${id}`));
+    for (const [id, label] of RISK_ROWS) await expect(page.getByTestId(`desk-risk-${id}`)).toContainText(label);
+    // Overall: the route's rating (HIGH from 18.5% volatility), its 0–10 score, beta and 1-day VaR.
+    await expect(page.getByTestId("desk-risk-overall")).toHaveAttribute("data-value", "High");
+    await expect(page.getByTestId("desk-risk-overall")).toContainText(`score ${RISK.risk_score} of 10`);
+    await expect(page.getByTestId("desk-risk-beta-value")).toHaveText(RISK.weighted_beta.toFixed(2));
     await expect(page.getByTestId("desk-risk-var-value")).toHaveText("₹19,171 (1.92%)");
-    await expect(page.getByTestId("desk-risk-var")).toContainText("95% confidence");
-    await expect(page.getByTestId("desk-risk-driver-smallcap-weight")).toContainText("Smallcap weight");
-    await expect(page.getByTestId("desk-risk-driver-smallcap-weight")).toContainText("30.0% of the portfolio’s value");
+    await expect(page.getByTestId("desk-risk-overall")).toContainText("95% confidence");
+    // The drivers sit under Details.
+    await page.getByTestId("desk-risk-overall-toggle").click();
+    await expect(page.getByTestId("desk-risk-driver-smallcap-weight")).toContainText("Smallcap weight · 30.0% of the portfolio’s value");
     await expect(page.getByTestId("desk-risk-driver-smallcap-weight")).toHaveAttribute("data-level", "Medium");
     await expect(page.getByTestId("desk-risk-driver-debt-gold-buffer")).toHaveAttribute("data-level", "High");
-    await expect(page.getByTestId("desk-portfolio-risk-note")).toContainText("cover 100.0% of the portfolio’s value");
+    await expect(page.getByTestId("desk-risk-overall-more")).toContainText("cover 100.0% of the portfolio’s value");
+    // Position: the largest stock against the 25% limit.
+    await expect(page.getByTestId("desk-risk-position")).toHaveAttribute("data-value", "30.0%");
+    await expect(page.getByTestId("desk-risk-position")).toHaveAttribute("data-level", "high");
+    await expect(page.getByTestId("desk-risk-single-stock-value")).toHaveText("30.0%");
+    await expect(page.getByTestId("desk-risk-position").locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "FIXHEAVY");
+    // Sector: Financial 48.0% above the 35% caution level → over-concentrated; HHI and effective N from the payload.
+    await expect(page.getByTestId("desk-risk-sector")).toContainText("Financial is 48.0% of sector exposure, above the 35% cap · HHI 3,138 · 3.2 effective sectors");
+    await expect(page.getByTestId("desk-risk-sector")).toHaveAttribute("data-level", "high");
+    // Correlated: the route's count of pairs at 0.70 or above.
+    await expect(page.getByTestId("desk-risk-correlation")).toHaveAttribute("data-value", `${CORRELATION.high_pairs} pair`);
+    // No source: "—" with the reason.
+    await expect(page.getByTestId("desk-risk-gap")).toHaveAttribute("data-value", "—");
+    await expect(page.getByTestId("desk-risk-gap")).toContainText("No overnight-gap figure is on record");
+    await expect(page.getByTestId("desk-risk-liquidity")).toHaveAttribute("data-value", "—");
+    await expect(page.getByTestId("desk-risk-volatility-value")).toHaveText("18.5%");
 
-    // correlated positions: from GET /api/portfolio/correlation (its own test below); nothing says "not connected"
-    const corr = page.getByTestId("desk-portfolio-correlation");
-    await expect(corr).toBeVisible();
-    await expect(corr).toContainText("Correlated positions");
-    await expect(corr).not.toContainText("Not connected yet");
-    await expect(corr.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
-
-    // right card: the journal summary, and the paper record's 403 as "not enabled"
-    await expect(page.getByTestId("desk-journal-open")).toHaveText("1");
-    await expect(page.getByTestId("desk-journal-closed")).toHaveText("2");
-    await expect(page.getByTestId("desk-journal-win-rate")).toHaveText("50.0%");
-    await expect(page.getByTestId("desk-journal-realised")).toHaveText("+₹600");
+    // Right card: the paper record's 403 says "not enabled"; your desk trades still show; the meta counts your closed trades.
+    await expect(page.getByTestId("desk-portfolio-record-title")).toHaveText("Paper trades · predicted vs actual");
+    await expect(page.getByTestId("desk-paper-card-closed")).toHaveText(`${summarize(paperTrades()).closed} closed`);
     await expect(page.getByTestId("desk-paper-no-access")).toContainText("not enabled for this account");
-    await expect(page.getByTestId("desk-calibration")).toHaveCount(0);
+    await expect(page.getByTestId("desk-record-predicted")).toHaveCount(0);
 
-    // the broker block from the Trader desk is mounted below
+    // The broker block (live holdings and positions per account) stays in the tab.
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     await expect(page.getByTestId("trader-broker-account")).toContainText("Zerodha");
   });
 
-  test("TC-28 over the shared fixtures: equity rows only, weights from the route, sector split with the rest folded", async ({ page }) => {
+  test("TC-28 over the shared fixtures: positions from the route, within the limit; the model's record forward then replay, tiles and calibration from the payload", async ({ page }) => {
     await mockPaper(page);
     await mockDeskLists(page);
     await portfolioData(page);
@@ -427,49 +450,49 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     const fx = load("holdings-enriched.json") as { holdings: Array<{ asset_type: string; value_rs: number | null; weight_pct: number | null; nse_symbol: string | null; name: string }>; totals: { value_rs: number } };
     const stocks = fx.holdings.filter((h) => ["equity", "stock"].includes(h.asset_type)).sort((a, b) => (b.value_rs ?? -1) - (a.value_rs ?? -1));
     await expect(page.getByTestId("desk-portfolio-stock-count")).toHaveText(String(stocks.length));
-    // totals.value_rs 1,03,06,772.40 → ₹1.03 Cr
     expect((fx.totals.value_rs / 1e7).toFixed(2)).toBe("1.03");
     await expect(page.getByTestId("desk-portfolio-value")).toHaveText("₹1.03 Cr");
-    const first = page.getByTestId("desk-portfolio-positions").getByRole("row").nth(1);
-    await expect(first).toContainText(stocks[0].nse_symbol ?? stocks[0].name);
+    const first = page.getByTestId("desk-portfolio-position").nth(0);
+    await expect(first).toHaveAttribute("data-symbol", stocks[0].nse_symbol ?? stocks[0].name);
     await expect(first.getByTestId("desk-portfolio-weight")).toHaveText(`${(stocks[0].weight_pct ?? 0).toFixed(1)}%`);
     await expect(page.getByTestId("desk-portfolio-weight").and(page.locator('[data-over="true"]'))).toHaveCount(0);
-    await expect(page.getByTestId("desk-risk-single-stock")).toHaveAttribute("data-level", "Within limit");
+    await expect(page.getByTestId("desk-risk-position")).toHaveAttribute("data-level", "low");
 
-    // concentration.json: the five largest sectors by name, then 100 − their sum as "Other sectors"
+    // concentration.json: the largest classified sector ("Unclassified" and "Other" are not judged) under the cap → low.
     const conc = load("concentration.json") as { sector: { items: Array<{ name: string; pct: number }>; caution_pct: number } };
-    const top5 = [...conc.sector.items].sort((a, b) => b.pct - a.pct).slice(0, 5);
-    const rest = 100 - top5.reduce((s, x) => s + x.pct, 0);
-    const rows = page.getByTestId("desk-portfolio-sector-row");
-    await expect(rows).toHaveCount(6);
-    await expect(rows.nth(0)).toContainText(top5[0].name);
-    await expect(rows.nth(5)).toContainText("Other sectors");
-    await expect(rows.nth(5)).toContainText(`${rest.toFixed(1)}%`);
-    // largest classified sector ("Unclassified" and "Other" are not judged) under the caution level → Balanced
     const classified = conc.sector.items.find((i) => !/unclassified|other/i.test(i.name));
     await expect(page.getByTestId("desk-risk-sector")).toContainText(`${classified?.name} is ${classified?.pct.toFixed(1)}% of sector exposure, under the ${conc.sector.caution_pct}% cap`);
-    await expect(page.getByTestId("desk-risk-sector")).toHaveAttribute("data-level", "Balanced");
+    await expect(page.getByTestId("desk-risk-sector")).toHaveAttribute("data-level", "low");
 
-    // the paper record: forward first and named; the forward fixture has no outcomes yet
+    // The model's record: forward first and named; the forward fixture has no outcomes yet, so every tile is "—".
     await expect(page.getByTestId("desk-paper-sample-forward")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("desk-paper-sample-note")).toContainText("Forward sample");
     await expect(page.getByTestId("desk-paper-statement")).toContainText("Not established: 0 counted sessions");
+    for (const id of ["predicted", "realised", "net", "false"]) await expect(page.getByTestId(`desk-record-${id}`)).toHaveText("—");
     await expect(page.getByTestId("desk-calibration-none")).toBeVisible();
 
-    // replay, every eligible stock (paper-evaluation-replay-P5-NEXT.json buckets.universe): five buckets
+    // Replay: tiles and calibration over the selected five a session (paper-evaluation-replay-P5-NEXT.json).
     await page.getByTestId("desk-paper-sample-replay").click();
     await expect(page.getByTestId("desk-paper-sample-note")).toContainText("Replay sample");
-    const ev = load("paper-evaluation-replay-P5-NEXT.json").data.evaluation as { buckets: { universe: Array<{ lo: number; predicted_mean: number; model_label_rate: number }>; selected: Array<{ n: number }> } };
+    const ev = load("paper-evaluation-replay-P5-NEXT.json").data.evaluation as {
+      headline_mode: string; costs: { base: number }; modes: Array<{ mode: string; net_mean: number | null; closed_trades: number }>; buckets: { selected: Bucket[] };
+    };
+    const t = tilesOf(ev.buckets.selected);
+    await expect(page.getByTestId("desk-record-predicted")).toHaveText(pct1(t.predicted));
+    await expect(page.getByTestId("desk-record-realised")).toHaveText(pct1(t.realised));
+    await expect(page.getByTestId("desk-record-false")).toHaveText(t.misses.toLocaleString("en-IN"));
+    const head = ev.modes.find((m) => m.mode === ev.headline_mode);
+    const net = (head?.net_mean as number) * 100;
+    await expect(page.getByTestId("desk-record-net")).toHaveText(`${net < 0 ? MINUS : "+"}${Math.abs(net).toFixed(2)}%`);
+    await expect(page.getByTestId("desk-portfolio-record")).toContainText(`after ${ev.costs.base.toFixed(2)}% costs · ${head?.closed_trades.toLocaleString("en-IN")} trades`);
+    const used = ev.buckets.selected.filter((b) => b.n > 0);
     const bars = page.getByTestId("desk-calibration-row");
-    await expect(bars).toHaveCount(ev.buckets.universe.length);
-    const b10 = ev.buckets.universe.find((b) => b.lo === 0.1)!;
+    await expect(bars).toHaveCount(used.length);
+    const b10 = used.find((b) => b.lo === 0.1) as Bucket;
     const row10 = page.locator('[data-testid="desk-calibration-row"][data-lo="10"]');
-    await expect(row10.getByTestId("desk-calibration-realised")).toHaveText(`${(b10.model_label_rate * 100).toFixed(1)}%`);
-    await expect(row10.getByTestId("desk-calibration-predicted")).toHaveText(`${(b10.predicted_mean * 100).toFixed(1)}%`);
-    // selected five: the 0–10% bucket has no trades (n 0), so it has no bar
-    await page.getByTestId("desk-paper-set-selected").click();
-    await expect(bars).toHaveCount(ev.buckets.selected.filter((b) => b.n > 0).length);
-    await expect(page.locator('[data-testid="desk-calibration-row"][data-lo="0"]')).toHaveCount(0);
+    await expect(row10.getByTestId("desk-calibration-predicted")).toHaveText(`${((b10.predicted_mean as number) * 100).toFixed(0)}%`);
+    await expect(row10.getByTestId("desk-calibration-realised")).toHaveText(`${((b10.model_label_rate as number) * 100).toFixed(0)}%`);
+    await expect(row10).toContainText(`n ${b10.n}`);
   });
 
   test("TC-29 an empty portfolio shows the empty state, and its button opens broker connections", async ({ page }) => {
@@ -481,6 +504,8 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     // Paper trades and alerts do not depend on holdings: their empty states show.
     await expect(page.getByTestId("desk-paper-trades-empty")).toContainText("No paper trades yet");
     await expect(page.getByTestId("desk-alerts-empty")).toContainText("No price alerts");
+    await expect(page.getByTestId("desk-paper-today-none")).toHaveText("No paper trade added today.");
+    await expect(page.getByTestId("desk-paper-last5-none")).toHaveText("No closed paper trades yet.");
 
     const empty = page.getByTestId("desk-portfolio-empty");
     await expect(empty).toContainText("No holdings on record yet");
@@ -497,38 +522,39 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
     await mockPaper(page);
   });
 
-  test("correlated positions: the route's pairs with both icons, values, the 0.70 flag, method, sessions and skips", async ({ page }) => {
+  test("correlated positions: the route's count and top pair in the row; Details lists the pairs with both icons, the 0.70 flag, method and skips", async ({ page }) => {
     await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio`);
-    const block = page.getByTestId("desk-portfolio-correlation");
-    const pairs = block.getByTestId("desk-corr-pair");
-    await expect(pairs).toHaveCount(CORRELATION.pairs.length);
-    for (let i = 0; i < CORRELATION.pairs.length; i += 1) {
-      const p = CORRELATION.pairs[i];
-      const row = pairs.nth(i);
-      const high = p.corr >= CORRELATION.high_threshold;
-      await expect(row).toHaveAttribute("data-pair", `${p.a}-${p.b}`);
-      await expect(row).toHaveAttribute("data-high", String(high));
-      await expect(row.getByTestId("desk-corr-value")).toHaveText(dec2(p.corr));
-      await expect(row.getByTestId("desk-corr-flag")).toHaveCount(high ? 1 : 0);
-      const icons = row.locator('[data-testid="entity-icon"]');
-      await expect(icons).toHaveCount(2);
-      await expect(icons.nth(0)).toHaveAttribute("data-key", p.a);
-      await expect(icons.nth(1)).toHaveAttribute("data-key", p.b);
-      await expect(row).toContainText(`${p.weight_a_pct.toFixed(1)}% and ${p.weight_b_pct.toFixed(1)}% of the portfolio · ${p.common_sessions} common sessions`);
-    }
+    const row = page.getByTestId("desk-risk-correlation");
     // The route's own counts over every pair; the average worked out here matches its figure.
     const avg = CORRELATION.pairs.reduce((a, p) => a + p.corr, 0) / CORRELATION.pairs.length;
     expect(avg.toFixed(2)).toBe(CORRELATION.avg_corr.toFixed(2));
     expect(CORRELATION.pairs.filter((p) => p.corr >= CORRELATION.high_threshold).length).toBe(CORRELATION.high_pairs);
-    await expect(block.getByTestId("desk-corr-summary")).toHaveText(
-      `${CORRELATION.high_pairs} pair at ${CORRELATION.high_threshold.toFixed(2)} or above of ${CORRELATION.pairs_total} pairs · average ${avg.toFixed(2)} · ${CORRELATION.holdings_used} stocks compared`,
-    );
-    await expect(block.getByTestId("desk-corr-method")).toContainText(
+    const top = CORRELATION.pairs[0];
+    await expect(row.getByTestId("desk-corr-summary")).toHaveText(`${top.a} ↔ ${top.b} ${dec2(top.corr)} · average ${avg.toFixed(2)} of ${CORRELATION.pairs_total} pairs · ${CORRELATION.sessions} sessions`);
+    await expect(row.getByTestId("desk-corr-pair")).toHaveCount(0);
+    await page.getByTestId("desk-risk-correlation-toggle").click();
+    const pairs = row.getByTestId("desk-corr-pair");
+    await expect(pairs).toHaveCount(CORRELATION.pairs.length);
+    for (let i = 0; i < CORRELATION.pairs.length; i += 1) {
+      const p = CORRELATION.pairs[i];
+      const r = pairs.nth(i);
+      const high = p.corr >= CORRELATION.high_threshold;
+      await expect(r).toHaveAttribute("data-pair", `${p.a}-${p.b}`);
+      await expect(r).toHaveAttribute("data-high", String(high));
+      await expect(r.getByTestId("desk-corr-value")).toHaveText(dec2(p.corr));
+      await expect(r.getByTestId("desk-corr-flag")).toHaveCount(high ? 1 : 0);
+      const icons = r.locator('[data-testid="entity-icon"]');
+      await expect(icons).toHaveCount(2);
+      await expect(icons.nth(0)).toHaveAttribute("data-key", p.a);
+      await expect(icons.nth(1)).toHaveAttribute("data-key", p.b);
+      await expect(r).toContainText(`${p.weight_a_pct.toFixed(1)}% and ${p.weight_b_pct.toFixed(1)}% of the portfolio · ${p.common_sessions} common sessions`);
+    }
+    await expect(row.getByTestId("desk-corr-method")).toContainText(
       `${CORRELATION.method} over ${CORRELATION.sessions} sessions (a stock needs at least ${CORRELATION.min_sessions}) · ${CORRELATION.source} · end of day ${dayY(CORRELATION.as_of)}`,
     );
-    await expect(block.getByTestId("desk-corr-skipped")).toHaveText(`Not compared: ${CORRELATION.holdings_skipped[0].symbol} (${CORRELATION.holdings_skipped[0].reason}).`);
+    await expect(row.getByTestId("desk-corr-skipped")).toHaveText(`Not compared: ${CORRELATION.holdings_skipped[0].symbol} (${CORRELATION.holdings_skipped[0].reason}).`);
   });
 
   test("correlated positions: fewer than two usable stocks, and a failed read with retry", async ({ page }) => {
@@ -536,68 +562,61 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, correlation: { status: 200, body: { ...CORRELATION, holdings_used: 1, high_pairs: 0, avg_corr: null, pairs_total: 0, pairs: [] } } });
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("desk-corr-none")).toContainText(`Fewer than two of your stocks have enough daily prices to compare over ${CORRELATION.sessions} sessions.`);
-    await expect(page.getByTestId("desk-corr-none")).toContainText("Not compared: FIXNEW");
+    await expect(page.getByTestId("desk-risk-correlation")).toHaveAttribute("data-value", "—");
+    await page.getByTestId("desk-risk-correlation-toggle").click();
+    await expect(page.getByTestId("desk-corr-skipped")).toContainText("Not compared: FIXNEW");
 
     let reads = 0;
     await page.route("**/api/portfolio/correlation*", (route) => { reads += 1; return route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "upstream_unavailable" }) }); });
     await page.reload();
     const err = page.getByTestId("desk-corr-error");
-    await expect(err.getByRole("alert")).toContainText("Correlated positions didn’t load", { timeout: 15_000 });
+    await expect(err).toContainText("Correlated positions didn’t load", { timeout: 15_000 });
     const before = reads;
     await err.getByRole("button", { name: /Retry/ }).click();
     await expect.poll(() => reads).toBeGreaterThan(before);
   });
 
-  test("market-cap split as the route answers today: large cap split, the rest named as not split yet with the route's reason", async ({ page }) => {
+  test("market-cap donut as the route answers today: large cap split, the rest named as not split yet with the route's reason, funds and cash", async ({ page }) => {
     await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio`);
     const block = page.getByTestId("desk-portfolio-mcap");
-    const rows = block.getByTestId("desk-mcap-row");
-    await expect(rows).toHaveCount(MCAP_PARTIAL.buckets.length);
-    for (const b of MCAP_PARTIAL.buckets) {
-      const row = block.locator(`[data-testid="desk-mcap-row"][data-bucket="${b.bucket}"]`);
-      await expect(row).toHaveAttribute("data-available", String(b.available));
-      if (b.available) {
-        // Each weight is its value over the direct stocks' total.
-        expect(((b.value_rs as number) / MCAP_PARTIAL.total_value_rs) * 100).toBeCloseTo(b.weight_pct as number, 6);
-        await expect(row.getByTestId("desk-mcap-weight")).toHaveText(`${(b.weight_pct as number).toFixed(1)}%`);
-        await expect(row.getByTestId("desk-mcap-value")).toHaveText(lakh(b.value_rs as number));
-        await expect(row.getByTestId("desk-mcap-count")).toHaveText(`${b.count} stock`);
-      } else {
-        await expect(row.getByTestId("desk-mcap-weight")).toHaveText("Not available");
-      }
+    const row = (b: string) => block.locator(`[data-testid="desk-mcap-row"][data-bucket="${b}"]`);
+    for (const b of MCAP_PARTIAL.buckets.filter((x) => x.bucket === "large" || x.bucket === "mid" || x.bucket === "small")) {
+      await expect(row(b.bucket)).toHaveAttribute("data-available", String(b.available));
+      await expect(row(b.bucket).getByTestId("desk-mcap-weight")).toHaveText(b.available ? pct1(capShare(MCAP_PARTIAL, b.value_rs as number)) : "—");
+      if (!b.available) await expect(row(b.bucket)).toHaveAttribute("title", b.reason as string);
     }
-    // large + unsplit = the equity total
+    // Micro and unclassified are not on record and hold nothing drawn: not listed.
+    await expect(row("micro")).toHaveCount(0);
+    await expect(row("unclassified")).toHaveCount(0);
+    // large + unsplit = the equity total; with the funds the shares add to 100%.
     const u = MCAP_PARTIAL.unsplit;
     expect((MCAP_PARTIAL.buckets[0].value_rs as number) + u.value_rs).toBe(MCAP_PARTIAL.total_value_rs);
-    await expect(block.getByTestId("desk-mcap-unsplit")).toContainText(`Outside Nifty 100 — not split yet: ${lakh(u.value_rs)} (${u.weight_pct.toFixed(1)}%) · ${u.count} stock`);
+    await expect(row("unsplit").getByTestId("desk-mcap-weight")).toHaveText(pct1(capShare(MCAP_PARTIAL, u.value_rs)));
+    await expect(row("unsplit")).toHaveAttribute("title", u.reason);
+    await expect(row("funds").getByTestId("desk-mcap-weight")).toHaveText(pct1(capShare(MCAP_PARTIAL, MCAP_PARTIAL.excluded.funds_value_rs)));
     await expect(block.getByTestId("desk-mcap-reason")).toHaveText(`${u.reason}.`);
-    // The bar: the large-cap share and the not-split share.
-    await expect(block.getByTestId("desk-mcap-bar").locator("span")).toHaveCount(2);
-    await expect(block.getByTestId("desk-mcap-bar-unsplit")).toHaveCount(1);
-    // Method, each list's date and size (or "not on record"), the total and the funds left out.
-    const note = block.getByTestId("desk-mcap-note");
-    await expect(note).toContainText(MCAP_PARTIAL.method);
-    await expect(note).toContainText(`Lists: ${MCAP_PARTIAL.indices.map((ix) => (ix.available ? `${ix.index} (${ix.members} members, ${dayY(ix.as_of as string)})` : `${ix.index} (not on record)`)).join(" · ")}.`);
-    await expect(note).toContainText(`(${lakh(MCAP_PARTIAL.total_value_rs)})`);
-    await expect(note).toContainText(`Funds and other holdings (${lakh(MCAP_PARTIAL.excluded.funds_value_rs)}) are not split.`);
+    await expect(block.getByTestId("desk-mcap-total")).toHaveText(lakh(MCAP_PARTIAL.total_value_rs + MCAP_PARTIAL.excluded.funds_value_rs));
+    // The donut: a track and one arc per drawn share (large, not split yet, funds).
+    await expect(block.locator('[data-testid="desk-portfolio-donut"] circle')).toHaveCount(1 + 3);
+    expect(await block.getByTestId("desk-portfolio-donut").getAttribute("width")).toBe("120");
   });
 
-  test("market-cap split once every list is on record: five buckets, no not-split line; a failed read says so", async ({ page }) => {
+  test("market-cap donut once every list is on record: four buckets drawn, no not-split share; a failed read says so", async ({ page }) => {
     await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, mcap: { status: 200, body: MCAP_FULL } });
     await page.goto(`${DESK}?tab=portfolio`);
     const block = page.getByTestId("desk-portfolio-mcap");
-    for (const b of MCAP_FULL.buckets) {
-      const row = block.locator(`[data-testid="desk-mcap-row"][data-bucket="${b.bucket}"]`);
-      await expect(row).toHaveAttribute("data-available", "true");
-      await expect(row.getByTestId("desk-mcap-weight")).toHaveText(`${(b.weight_pct as number).toFixed(1)}%`);
+    const drawn = MCAP_FULL.buckets.filter((b) => (b.value_rs as number) > 0);
+    await expect(block.getByTestId("desk-mcap-row")).toHaveCount(drawn.length + 2);
+    expect(await block.getByTestId("desk-mcap-row").evaluateAll((els) => els.map((e) => e.getAttribute("data-bucket")))).toEqual([...drawn.map((b) => b.bucket), "funds", "cash"]);
+    for (const b of drawn) {
+      await expect(block.locator(`[data-testid="desk-mcap-row"][data-bucket="${b.bucket}"]`).getByTestId("desk-mcap-weight")).toHaveText(pct1(capShare(MCAP_FULL, b.value_rs as number)));
     }
-    expect(MCAP_FULL.buckets.reduce((a, b) => a + (b.weight_pct as number), 0)).toBeCloseTo(100, 6);
-    // A zero bucket is listed but not drawn.
-    await expect(block.getByTestId("desk-mcap-bar").locator("span")).toHaveCount(MCAP_FULL.buckets.filter((b) => (b.weight_pct as number) > 0).length);
-    await expect(block.getByTestId("desk-mcap-unsplit")).toHaveCount(0);
+    const shares = [...drawn.map((b) => b.value_rs as number), MCAP_FULL.excluded.funds_value_rs].map((v) => capShare(MCAP_FULL, v));
+    expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(100, 6);
+    await expect(block.locator('[data-testid="desk-mcap-row"][data-bucket="unsplit"]')).toHaveCount(0);
     await expect(block.getByTestId("desk-mcap-reason")).toHaveCount(0);
 
     await page.route("**/api/portfolio/market-cap-split*", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "upstream_unavailable" }) }));
@@ -760,396 +779,20 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
   });
 });
 
-// ── F&O payloads ─────────────────────────────────────────────────────────
-
-/** The synthetic NIFTY chains (copilot-app-options.spec.ts): 27 Oct (future), 24 Nov (put-call parity), 30 Mar 2027. */
-const NIFTY_CHAINS: Record<string, string> = {
-  "2026-10-27": "copilot-options-chain.json",
-  "2026-11-24": "copilot-options-chain-parity.json",
-  "2027-03-30": "copilot-options-chain-carried.json",
-};
-
-const side = (close: number, oi: number, change_in_oi: number, iv: number | null = null) => ({
-  close, settle: close, oi, change_in_oi, volume: Math.round(oi / 4), iv, iv_price: iv == null ? null : "settle",
-  delta: null, gamma: null, theta: null, vega: null, change: null, change_pct: null, oi_buildup: null,
-});
-
-/**
- * BANKNIFTY in the shape of GET /api/fno/{symbol}/chain (backend/routes/fno.py :: chain), 11 strikes, all of the expiry.
- * Spot 52,040 → ATM 52,000. Call OI peaks at 52,500 (9.00 L) = R; put OI peaks at 51,500 (11.00 L) = S.
- * Totals: call 68,50,000, put 54,90,000 → PCR 0.8015 → 0.80.
- * Max pain = the strike K minimising Σ call OI × max(0, K − strike) + Σ put OI × max(0, strike − K):
- *   51,700 → 836.0 Cr, 51,800 → 716.0 Cr, 51,900 → 724.0 Cr → 51,800.
- * ATM straddle 690.20 + 520.20 = 1,210.40 = 2.33% of 52,040. ATM IV (14.10 + 14.40) / 2 = 14.25.
- */
-const BN_STRIKES = [51500, 51600, 51700, 51800, 51900, 52000, 52100, 52200, 52300, 52400, 52500];
-const BN_CALL = { oi: [400000, 450000, 500000, 520000, 560000, 600000, 640000, 700000, 760000, 820000, 900000], close: [1050.0, 975.5, 903.0, 823.4, 755.0, 690.2, 628.6, 570.5, 516.0, 465.3, 418.0], chg: [-5000, 0, 5000, 10000, 20000, 30000, 40000, 50000, 60000, 70000, 90000] };
-const BN_PUT = { oi: [1100000, 980000, 860000, 760000, 600000, 450000, 300000, 200000, 120000, 80000, 40000], close: [335.0, 362.4, 392.0, 424.1, 459.4, 520.2, 560.0, 603.3, 650.1, 700.0, 752.5], chg: [80000, 60000, 50000, 40000, 20000, 10000, 0, -10000, -20000, -20000, -10000] };
-const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
-const BN_CHAIN = {
-  symbol: "BANKNIFTY",
-  summary: {
-    as_of: "2026-10-12", expiry: "2026-10-28", spot: 52040.0, atm_strike: 52000,
-    total_call_oi: sum(BN_CALL.oi), total_put_oi: sum(BN_PUT.oi), total_call_oi_change: sum(BN_CALL.chg), total_put_oi_change: sum(BN_PUT.chg),
-    pcr: 0.8015, max_pain: 51800, max_call_oi: { strike: 52500, oi: 900000 }, max_put_oi: { strike: 51500, oi: 1100000 },
-    days_to_expiry: 16, forward: 52160.0, forward_basis: "future", rate_pct: 5.75, atm_iv: 14.25, expected_move: 1210.4, expected_move_pct: 2.33,
-  },
-  strikes: BN_STRIKES.map((strike, i) => ({
-    strike,
-    call: side(BN_CALL.close[i], BN_CALL.oi[i], BN_CALL.chg[i], strike === 52000 ? 14.1 : null),
-    put: side(BN_PUT.close[i], BN_PUT.oi[i], BN_PUT.chg[i], strike === 52000 ? 14.4 : null),
-  })),
-  strike_count: 11, strikes_returned: 11, lot_size: 30,
-};
-const BN_EXPIRIES = { symbol: "BANKNIFTY", as_of: "2026-10-12", expiries: [{ expiry: "2026-10-28", days_to_expiry: 16 }], count: 1 };
-/** GET /api/fno/{symbol}/futures: settle 52,160 − spot 52,040 = +120.00 premium; OI change +84,000. */
-const BN_FUTURES = { symbol: "BANKNIFTY", as_of: "2026-10-12", spot: 52040.0, lot_size: 30, futures: [{ expiry: "2026-10-28", close: 52161.0, settle: 52160.0, oi: 2100000, change_in_oi: 84000, volume: 900000, basis: 120.0 }], count: 1 };
-
-/**
- * FIXFNO, a made-up F&O stock: five strikes, spot 1,502.50 → ATM 1,500. Totals call 16,00,000, put 15,00,000 → PCR 0.9375 → 0.94.
- * Max pain: 1,480 → 1.98 Cr, 1,500 → 1.32 Cr, 1,520 → 1.96 Cr → 1,500. Straddle 31.50 + 27.60 = 59.10 = 3.93% of 1,502.50.
- */
-const FIX_STRIKES = [1460, 1480, 1500, 1520, 1540];
-const FIX_CALL = { oi: [100000, 150000, 300000, 450000, 600000], close: [52.0, 41.2, 31.5, 23.1, 16.4], chg: [0, 10000, 20000, 30000, 40000] };
-const FIX_PUT = { oi: [500000, 420000, 350000, 150000, 80000], close: [12.1, 18.9, 27.6, 39.0, 52.3], chg: [30000, 20000, 10000, 0, -5000] };
-const FIX_CHAIN = {
-  symbol: "FIXFNO",
-  summary: {
-    as_of: "2026-10-12", expiry: "2026-10-27", spot: 1502.5, atm_strike: 1500,
-    total_call_oi: sum(FIX_CALL.oi), total_put_oi: sum(FIX_PUT.oi), total_call_oi_change: sum(FIX_CALL.chg), total_put_oi_change: sum(FIX_PUT.chg),
-    pcr: 0.9375, max_pain: 1500, max_call_oi: { strike: 1540, oi: 600000 }, max_put_oi: { strike: 1460, oi: 500000 },
-    days_to_expiry: 15, forward: 1509.6, forward_basis: "future", rate_pct: 5.75, atm_iv: 26.4, expected_move: 59.1, expected_move_pct: 3.93,
-  },
-  strikes: FIX_STRIKES.map((strike, i) => ({ strike, call: side(FIX_CALL.close[i], FIX_CALL.oi[i], FIX_CALL.chg[i]), put: side(FIX_PUT.close[i], FIX_PUT.oi[i], FIX_PUT.chg[i]) })),
-  strike_count: 5, strikes_returned: 5, lot_size: 500,
-};
-const FIX_EXPIRIES = { symbol: "FIXFNO", as_of: "2026-10-12", expiries: [{ expiry: "2026-10-27", days_to_expiry: 15 }], count: 1 };
-const FIX_FUTURES = { symbol: "FIXFNO", as_of: "2026-10-12", spot: 1502.5, lot_size: 500, futures: [{ expiry: "2026-10-27", close: 1510.0, settle: 1509.6, oi: 5400000, change_in_oi: -120000, volume: 2100000, basis: 7.1 }], count: 1 };
-
-/**
- * GET /api/fno/scan/buildup (backend/nidp/services/daas_api/routers/desk_market.py :: fno_buildup, via routes/fno.py).
- * Rows come largest |OI chg %| first; the label is null when a change is missing (counted as no_data). FIXFNO is the
- * stock the lab can load (fnoData), so its row opens a real chain.
- */
-const bu = (symbol: string, price: number | null, oiPct: number | null, label: string | null, extra: Record<string, unknown> = {}) => ({
-  symbol, near_expiry: "2026-10-27", close: price == null ? null : 1000 * (1 + price / 100), prev_close: price == null ? null : 1000,
-  price_chg_pct: price, oi: 1_000_000, oi_chg: oiPct == null ? null : Math.round((1_000_000 * oiPct) / (100 + oiPct)), oi_chg_pct: oiPct, expiries: 3, label, ...extra,
-});
-const BUILDUP_ROWS = [
-  bu("FIXFNO", 2.03, 12.5, "long_buildup", { close: 1510.0, prev_close: 1480.0, oi: 5_400_000, oi_chg: 600_000 }),
-  bu("FIXSHORT", -1.8, 9.2, "short_buildup"),
-  bu("FIXCOVER", 0.9, -7.4, "short_covering"),
-  bu("FIXUNWIND", -2.4, -5.1, "long_unwinding"),
-  bu("FIXLONG2", 0.4, 3.3, "long_buildup", { expiries: 2 }),
-  bu("FIXFLAT", 0.0, 1.0, "neutral"),
-  bu("FIXNODATA", null, null, null, { expiries: 1 }),
-];
-const countBy = (label: string | null) => BUILDUP_ROWS.filter((r) => r.label === label).length;
-const BUILDUP = {
-  as_of: "2026-10-13", source: "NSE F&O bhavcopy (nidp.fno_bhavcopy), stock futures", universe: BUILDUP_ROWS.length,
-  counts: { long_buildup: countBy("long_buildup"), short_buildup: countBy("short_buildup"), short_covering: countBy("short_covering"), long_unwinding: countBy("long_unwinding"), neutral: countBy("neutral"), no_data: countBy(null) },
-  rows: BUILDUP_ROWS,
-};
-
-/** Every /api/fno/* route. Returns the paths (with query) the page asked for. */
-async function fnoData(page: Page): Promise<string[]> {
-  const asked: string[] = [];
-  page.on("request", (r) => {
-    const u = new URL(r.url());
-    if (u.pathname.startsWith("/api/fno/")) asked.push(u.pathname + u.search);
-  });
-  await json(page, "**/api/fno/NIFTY/expiries", load("copilot-options-expiries.json"));
-  await json(page, "**/api/fno/NIFTY/futures", load("copilot-options-futures.json"));
-  await page.route("**/api/fno/NIFTY/chain*", (route) => {
-    const expiry = new URL(route.request().url()).searchParams.get("expiry") ?? "2026-10-27";
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(load(NIFTY_CHAINS[expiry] ?? NIFTY_CHAINS["2026-10-27"])) });
-  });
-  await json(page, "**/api/fno/BANKNIFTY/expiries", BN_EXPIRIES);
-  await json(page, "**/api/fno/BANKNIFTY/futures", BN_FUTURES);
-  await json(page, "**/api/fno/BANKNIFTY/chain*", BN_CHAIN);
-  await json(page, "**/api/fno/FIXFNO/expiries", FIX_EXPIRIES);
-  await json(page, "**/api/fno/FIXFNO/futures", FIX_FUTURES);
-  await json(page, "**/api/fno/FIXFNO/chain*", FIX_CHAIN);
-  // backend/routes/fno.py answers 404 with no_data(sym) when the bhavcopy has no rows for the underlying
-  await json(page, "**/api/fno/NOFNO/**", { detail: "No F&O data for NOFNO" }, 404);
-  await json(page, "**/api/fno/scan/buildup*", BUILDUP);
-  return asked;
-}
-
-const chainRow = (page: Page, strike: number) => page.locator(`[data-testid="desk-fno-chain-row"][data-strike="${strike}"]`);
-const tagsOf = async (page: Page, strike: number) => (await chainRow(page, strike).locator('[data-testid^="desk-fno-tag-"]').allTextContents()).join(" ");
-
-test.describe("Smart trading desk — Options & futures lab", () => {
-  test.beforeEach(async ({ page }) => {
-    await deskBase(page);
-  });
-
-  test("header, expiry choice and the eight stats come from the NIFTY chain and futures", async ({ page }) => {
-    const asked = await fnoData(page);
-    await page.goto(`${DESK}?tab=fno`);
-
-    const tab = page.getByTestId("desk-fno");
-    await expect(tab).toContainText("Options & futures lab · NSE F&O");
-    await expect(tab).toContainText("Analysis only");
-    await expect(tab).toContainText("End of day");
-    // copilot-options-chain.json: spot 25,010, data day 12 Oct 2026
-    await expect(page.getByTestId("desk-fno-spot")).toHaveText("25,010.00");
-    await expect(page.getByTestId("desk-fno-asof")).toHaveText("bhavcopy · 12 Oct 2026 · end of day");
-    await expect(page.getByTestId("desk-fno-symbol-nifty")).toHaveAttribute("aria-pressed", "true");
-
-    // expiries nearest first; 27 Oct is monthly because a future expires that day (copilot-options-futures.json)
-    await expect(page.getByTestId("desk-fno-expiry").locator("option")).toHaveText([
-      "27 Oct 2026 · 15 days · monthly",
-      "24 Nov 2026 · 43 days",
-      "30 Mar 2027 · 169 days",
-    ]);
-    await expect(page.getByTestId("desk-fno-expiry")).toHaveValue("2026-10-27");
-
-    await expect(page.getByTestId("desk-fno-atm-iv")).toHaveText("12.00%");
-    // 273.45 + 213.60 = 487.05, 1.95% of 25,010
-    await expect(page.getByTestId("desk-fno-expected-move")).toHaveText("±487.05");
-    await expect(page.getByTestId("desk-fno-stats")).toContainText("1.95% of spot");
-    // nearest future 27 Oct: settle 25,060, basis +50.00, change in OI −2,50,000
-    await expect(page.getByTestId("desk-fno-futures")).toHaveText("25,060.00");
-    await expect(page.getByTestId("desk-fno-stats")).toContainText("27 Oct 2026 · +50.00 premium to spot");
-    await expect(page.getByTestId("desk-fno-days")).toHaveText("15");
-    // 1,23,00,000 ÷ 1,27,51,300 = 0.9646
-    await expect(page.getByTestId("desk-fno-pcr")).toHaveText("0.96");
-    await expect(page.getByTestId("desk-fno-max-pain")).toHaveText("25,000");
-    await expect(page.getByTestId("desk-fno-oi-range")).toHaveText("24,700 – 25,300");
-    await expect(page.getByTestId("desk-fno-fut-oi-change")).toHaveText("−2.50 L");
-    await expect(page.getByTestId("desk-fno-model-note")).toContainText("Model estimate from end-of-day prices (Black-76), at an interest rate of 5.75% a year. They are estimates, not quotes");
-    await expect(page.getByTestId("desk-fno-sebi")).toContainText("9 out of 10 individual traders in equity F&O incurred net losses");
-
-    // another expiry: 24 Nov (copilot-options-chain-parity.json): 43 days, straddle 550.85 + 322.40
-    await page.getByTestId("desk-fno-expiry").selectOption("2026-11-24");
-    await expect(page.getByTestId("desk-fno-days")).toHaveText("43");
-    await expect(page.getByTestId("desk-fno-expected-move")).toHaveText("±873.25");
-    expect(asked).toContain("/api/fno/NIFTY/chain?expiry=2026-11-24");
-  });
-
-  test("TC-31 the chain table tags ATM, R, S and MP on the right strikes, with a read from the figures", async ({ page }) => {
-    await fnoData(page);
-    await page.goto(`${DESK}?tab=fno`);
-
-    // NIFTY: ATM 25,000 is also max pain; R (most call OI) 25,300; S (most put OI) 24,700
-    await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(7);
-    await expect(chainRow(page, 25000)).toHaveAttribute("data-atm", "true");
-    expect(await tagsOf(page, 25000)).toBe("ATM MP");
-    expect(await tagsOf(page, 25300)).toBe("R");
-    expect(await tagsOf(page, 24700)).toBe("S");
-    await expect(page.getByTestId("desk-fno-tag-r")).toHaveCount(1);
-    await expect(page.getByTestId("desk-fno-tag-s")).toHaveCount(1);
-    // the 25,300 call: OI 30,00,000 = 30.00 L, change +2,40,000 = +2.40 L, close 131.30
-    await expect(chainRow(page, 25300).locator('[data-col="call-oi"]')).toHaveText("30.00 L");
-    await expect(chainRow(page, 25300).locator('[data-col="call-oi-change"]')).toHaveText("+2.40 L");
-    await expect(chainRow(page, 25300).locator('[data-col="call-close"]')).toHaveText("131.30");
-    const read = page.getByTestId("desk-fno-chain-read");
-    await expect(read).toContainText("the most call open interest is at 25,300 (30.00 L), the most put open interest at 24,700 (30.00 L), the put-call ratio on open interest is 0.96, max pain is 25,000.");
-    await expect(read).toContainText("The end-of-day spot of 25,010.00 is between the two.");
-    await expect(read).toContainText("not price targets");
-
-    // BANKNIFTY: four different strikes — ATM 52,000, MP 51,800, R 52,500, S 51,500
-    await page.getByTestId("desk-fno-symbol-banknifty").click();
-    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(11);
-    await expect(chainRow(page, 52000)).toHaveAttribute("data-atm", "true");
-    expect(await tagsOf(page, 52000)).toBe("ATM");
-    expect(await tagsOf(page, 51800)).toBe("MP");
-    expect(await tagsOf(page, 52500)).toBe("R");
-    expect(await tagsOf(page, 51500)).toBe("S");
-    await expect(page.getByTestId("desk-fno-pcr")).toHaveText("0.80");
-  });
-
-  test("TC-30 NIFTY and BANKNIFTY cards show each chain's PCR, max pain, walls and expected move", async ({ page }) => {
-    await fnoData(page);
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-indices").click();
-
-    const n = "desk-fno-card-NIFTY";
-    await expect(page.getByTestId(`${n}-spot`)).toHaveText("25,010.00");
-    await expect(page.getByTestId(`${n}-pcr`)).toHaveText("0.96");
-    await expect(page.getByTestId(`${n}-max-pain`)).toHaveText("25,000");
-    await expect(page.getByTestId(`${n}-put-wall`)).toHaveText("24,700");
-    await expect(page.getByTestId(`${n}-call-wall`)).toHaveText("25,300");
-    await expect(page.getByTestId(`${n}-move`)).toHaveText("12.00% · ±487.05 (1.95%)");
-    await expect(page.getByTestId(`${n}-futures`)).toHaveText("25,060.00 · +50.00 premium");
-    await expect(page.getByTestId(`${n}-fut-oi-change`)).toHaveText("−2.50 L");
-    // expected-move band: 25,010 ± 487.05
-    await expect(page.getByTestId(n)).toContainText("24,522.95–25,497.05");
-
-    const b = "desk-fno-card-BANKNIFTY";
-    await expect(page.getByTestId(`${b}-spot`)).toHaveText("52,040.00");
-    await expect(page.getByTestId(`${b}-pcr`)).toHaveText("0.80");
-    await expect(page.getByTestId(`${b}-max-pain`)).toHaveText("51,800");
-    await expect(page.getByTestId(`${b}-put-wall`)).toHaveText("51,500");
-    await expect(page.getByTestId(`${b}-call-wall`)).toHaveText("52,500");
-    await expect(page.getByTestId(`${b}-move`)).toHaveText("14.25% · ±1,210.40 (2.33%)");
-    await expect(page.getByTestId(`${b}-futures`)).toHaveText("52,160.00 · +120.00 premium");
-    await expect(page.getByTestId(`${b}-fut-oi-change`)).toHaveText("+84,000");
-    // 52,040 ± 1,210.40
-    await expect(page.getByTestId(b)).toContainText("50,829.60–53,250.40");
-
-    // the link opens that chain
-    await page.getByTestId(`${b}-open`).click();
-    await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("desk-fno-symbol-banknifty")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(11);
-  });
-
-  test("TC-32 a ticker loads that stock's chain; a ticker with no F&O rows says so", async ({ page }) => {
-    const asked = await fnoData(page);
-    await page.goto(`${DESK}?tab=fno`);
-    await expect(page.getByTestId("desk-fno-pcr")).toHaveText("0.96");
-
-    await page.getByTestId("desk-fno-symbol-input").fill("fixfno ");
-    await page.getByTestId("desk-fno-symbol-load").click();
-    await expect(page.getByTestId("desk-fno-spot")).toHaveText("1,502.50");
-    await expect.poll(() => asked.some((p) => p.startsWith("/api/fno/FIXFNO/chain"))).toBe(true);
-    expect(asked).toContain("/api/fno/FIXFNO/expiries");
-    expect(asked).toContain("/api/fno/FIXFNO/futures");
-    // the loaded stock sits beside the indices with its company icon
-    const chip = page.getByTestId("desk-fno-symbol-fixfno");
-    await expect(chip).toHaveAttribute("aria-pressed", "true");
-    await expect(chip.locator('[data-testid="entity-icon"][data-kind="stock"]')).toHaveAttribute("data-key", "FIXFNO");
-    await expect(page.getByTestId("desk-fno-pcr")).toHaveText("0.94");
-    await expect(page.getByTestId("desk-fno-expected-move")).toHaveText("±59.10");
-    await expect(page.getByTestId("desk-fno-futures")).toHaveText("1,509.60");
-    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(5);
-    expect(await tagsOf(page, 1500)).toBe("ATM MP");
-    expect(await tagsOf(page, 1540)).toBe("R");
-    expect(await tagsOf(page, 1460)).toBe("S");
-
-    await page.getByTestId("desk-fno-symbol-input").fill("NOFNO");
-    await page.getByTestId("desk-fno-symbol-load").click();
-    const none = page.getByTestId("desk-fno-stats-none");
-    await expect(none).toContainText("No F&O rows for NOFNO on the latest day");
-    await expect(none).toContainText("No F&O data for NOFNO");
-    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(0);
-    expect(asked).toContain("/api/fno/NOFNO/expiries");
-
-    // a malformed ticker is refused before any request
-    await page.getByTestId("desk-fno-symbol-input").fill("BAD TICKER!");
-    await page.getByTestId("desk-fno-symbol-load").click();
-    await expect(page.getByTestId("desk-fno-symbol-error")).toBeVisible();
-  });
-
-  test("TC-33 OI build-up: the route's quadrant counts, a sortable table, a quadrant filter, and a row opens that stock's chain", async ({ page }) => {
-    const asked = await fnoData(page);
-    await page.goto(`${DESK}?tab=fno`);
-    await expect(page.getByTestId("desk-fno-pcr")).toHaveText("0.96");
-    // Not read until the view is open.
-    expect(asked.some((a) => a.startsWith("/api/fno/scan/buildup"))).toBe(false);
-    await page.getByTestId("desk-fno-view-buildup").click();
-    await expect(page.getByTestId("desk-fno-buildup-not-connected")).toHaveCount(0);
-
-    // The four counts are the route's, and agree with its rows.
-    for (const k of ["long_buildup", "short_buildup", "short_covering", "long_unwinding"] as const) {
-      expect(BUILDUP.counts[k]).toBe(countBy(k));
-      await expect(page.getByTestId(`desk-buildup-count-${k}`)).toHaveText(String(BUILDUP.counts[k]));
-    }
-    await expect(page.getByTestId("desk-buildup-neutral")).toHaveText(
-      `${BUILDUP.counts.neutral} neutral (price or OI unchanged) · ${BUILDUP.counts.no_data} without a label (a change is missing) · ${BUILDUP.universe} F&O stocks scanned`,
-    );
-
-    // Default: the route's order (largest |OI chg %| first, missing last).
-    const order = () => page.getByTestId("desk-buildup-row").evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")));
-    expect(await order()).toEqual(BUILDUP_ROWS.map((r) => r.symbol));
-    const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
-    const pctTxt = (v: number | null) => (v == null ? "—" : `${sign(v)}${Math.abs(v).toFixed(2)}%`);
-    const META: Record<string, string> = { long_buildup: "Long build-up", short_buildup: "Short build-up", short_covering: "Short covering", long_unwinding: "Long unwinding", neutral: "Neutral" };
-    for (const r of BUILDUP_ROWS) {
-      const row = page.locator(`[data-testid="desk-buildup-row"][data-symbol="${r.symbol}"]`);
-      await expect(row.getByTestId("desk-buildup-symbol")).toHaveText(r.symbol);
-      await expect(row.locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", r.symbol);
-      await expect(row.getByTestId("desk-buildup-price")).toHaveText(pctTxt(r.price_chg_pct));
-      await expect(row.getByTestId("desk-buildup-oi")).toHaveText(pctTxt(r.oi_chg_pct));
-      await expect(row.getByTestId("desk-buildup-label")).toHaveText(r.label ? META[r.label] : "—");
-      await expect(row).toContainText(`${r.expiries} ${r.expiries === 1 ? "expiry" : "expiries"}`);
-    }
-    // FIXFNO's figures agree with its close / previous close and OI.
-    const f = BUILDUP_ROWS[0];
-    expect(((f.close as number) / (f.prev_close as number) - 1) * 100).toBeCloseTo(f.price_chg_pct as number, 2);
-    expect(((f.oi_chg as number) / (f.oi - (f.oi_chg as number))) * 100).toBeCloseTo(f.oi_chg_pct as number, 6);
-
-    // Sort by price change: high to low, then low to high; missing last both ways.
-    const byPrice = (dir: 1 | -1) => [...BUILDUP_ROWS].sort((a, b) => {
-      if (a.price_chg_pct == null) return 1;
-      if (b.price_chg_pct == null) return -1;
-      return dir * (a.price_chg_pct - b.price_chg_pct) || a.symbol.localeCompare(b.symbol);
-    }).map((r) => r.symbol);
-    await page.getByTestId("desk-buildup-sort-price").click();
-    expect(await order()).toEqual(byPrice(-1));
-    await expect(page.getByRole("columnheader").filter({ has: page.getByTestId("desk-buildup-sort-price") })).toHaveAttribute("aria-sort", "descending");
-    await page.getByTestId("desk-buildup-sort-price").click();
-    expect(await order()).toEqual(byPrice(1));
-    await expect(page.getByRole("columnheader").filter({ has: page.getByTestId("desk-buildup-sort-price") })).toHaveAttribute("aria-sort", "ascending");
-    await page.getByTestId("desk-buildup-sort-symbol").click();
-    expect(await order()).toEqual(BUILDUP_ROWS.map((r) => r.symbol).sort((a, b) => a.localeCompare(b)));
-
-    // A quadrant filters the table (aria-pressed), and again shows every row.
-    await page.getByTestId("desk-buildup-q-long_buildup").click();
-    await expect(page.getByTestId("desk-buildup-q-long_buildup")).toHaveAttribute("aria-pressed", "true");
-    expect((await order()).sort()).toEqual(BUILDUP_ROWS.filter((r) => r.label === "long_buildup").map((r) => r.symbol).sort());
-    await page.getByTestId("desk-buildup-q-long_buildup").click();
-    await expect(page.getByTestId("desk-buildup-row")).toHaveCount(BUILDUP_ROWS.length);
-
-    const src = page.getByTestId("desk-buildup-source");
-    await expect(src).toContainText(`Source: ${BUILDUP.source}`);
-    await expect(src).toContainText("end of day 13 Oct 2026");
-
-    // A row opens that stock's option chain in the lab.
-    await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').click();
-    await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("desk-fno-symbol-fixfno")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(5);
-    await expect(page.getByTestId("desk-fno-spot")).toHaveText("1,502.50");
-  });
-
-  test("TC-33 OI build-up: a failed scan shows an error with retry; the keyboard opens a row", async ({ page }) => {
-    await fnoData(page);
-    // 502 (the route's upstream_unavailable) until Retry is pressed; the client's own retries also see 502.
-    let failing = true;
-    await page.route("**/api/fno/scan/buildup*", (route) => (failing
-      ? route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "upstream_unavailable" }) })
-      : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(BUILDUP) })));
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-buildup").click();
-    const err = page.getByTestId("desk-buildup-error");
-    await expect(err.getByRole("alert")).toContainText("OI build-up across F&O stocks didn’t load", { timeout: 15_000 });
-    failing = false;
-    await err.getByRole("button", { name: /Retry/ }).click();
-    await expect(page.getByTestId("desk-buildup-row")).toHaveCount(BUILDUP_ROWS.length);
-    await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').focus();
-    await page.keyboard.press("Enter");
-    await expect(page.getByTestId("desk-fno-symbol-fixfno")).toHaveAttribute("aria-pressed", "true");
-  });
-
-  test("TC-33 strategies link to the Options lab and say one-click paper strategies are not connected", async ({ page }) => {
-    await fnoData(page);
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-strategies").click();
-    await expect(page.getByTestId("desk-fno-strategies-not-connected")).toContainText("One-click paper strategies");
-    await page.getByTestId("desk-fno-open-optlab").click();
-    await expect(page).toHaveURL(/\/v5\/app\/tool\/optlab/);
-  });
-});
-
-test.describe("Smart trading desk — Portfolio & risk and F&O at 390px", () => {
+test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("TC-7 no sideways scroll on the Portfolio & risk tab or the Options & futures lab", async ({ page }) => {
+  test("TC-7 no sideways scroll on the Portfolio & risk tab", async ({ page }) => {
     await deskBase(page);
     await mockPaper(page);
     await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await fnoData(page);
 
     await page.goto(`${DESK}?tab=portfolio`);
-    await expect(page.getByTestId("desk-risk-beta")).toBeVisible();
-    await expect(page.getByTestId("desk-portfolio-correlation")).toBeVisible();
-    await expect(page.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
-    await expect(page.getByTestId("desk-mcap-unsplit")).toBeVisible();
+    // The phone composition (design §11 M5) is checked in "Portfolio & risk · design fidelity" below.
+    await expect(page.getByTestId("desk-portfolio")).toHaveAttribute("data-layout", "phone");
+    await expect(page.getByTestId("desk-risk-overall")).toBeVisible();
+    await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="unsplit"]')).toBeVisible();
     await expect(page.getByTestId("desk-paper-open-table")).toBeVisible();
     await expect(page.getByTestId("desk-alert-row")).toHaveCount(3);
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
@@ -1157,33 +800,172 @@ test.describe("Smart trading desk — Portfolio & risk and F&O at 390px", () => 
     const weightBox = await page.getByTestId("desk-portfolio-weight").first().boundingBox();
     expect(weightBox).not.toBeNull();
     expect((weightBox?.x ?? 0) + (weightBox?.width ?? 0)).toBeLessThanOrEqual(390);
-    let o = await sideways(page);
-    expect(o.doc).toBeLessThanOrEqual(1);
-    expect(o.scroll).toBeLessThanOrEqual(1);
-
-    await page.goto(`${DESK}?tab=fno`);
-    await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(7);
-    // the chain scrolls inside its own box, opened on the strike column
-    const strikeBox = await chainRow(page, 25000).locator('[data-col="strike"]').boundingBox();
-    expect(strikeBox).not.toBeNull();
-    expect(strikeBox?.x ?? -1).toBeGreaterThanOrEqual(0);
-    expect((strikeBox?.x ?? 0) + (strikeBox?.width ?? 0)).toBeLessThanOrEqual(390);
-    o = await sideways(page);
-    expect(o.doc).toBeLessThanOrEqual(1);
-    expect(o.scroll).toBeLessThanOrEqual(1);
-
-    await page.getByTestId("desk-fno-view-indices").click();
-    await expect(page.getByTestId("desk-fno-card-BANKNIFTY-pcr")).toHaveText("0.80");
-    o = await sideways(page);
-    expect(o.doc).toBeLessThanOrEqual(1);
-    expect(o.scroll).toBeLessThanOrEqual(1);
-
-    // OI build-up: the table scrolls inside its own box.
-    await page.getByTestId("desk-fno-view-buildup").click();
-    await expect(page.getByTestId("desk-buildup-row")).toHaveCount(BUILDUP_ROWS.length);
-    o = await sideways(page);
+    const o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
 
+
+// ── Portfolio & risk · design fidelity (design-spec §7, §10, §11 M5) ────
+
+/** Screenshots for the design comparison land in test-results/ (git-ignored); they assert nothing on their own. */
+const SHOTS = "test-results/fidelity-shots";
+
+test.describe("Smart trading desk — Portfolio & risk · design fidelity", () => {
+  test("§7 at 1440 with the dock: two equal cards with header bars; tiles, calibration, open-today and last-5-closed in the right card", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await deskBase(page);
+    await mockPaper(page);
+    // One trade opened today (it is listed under "Open · added today"); the rest as the fixture.
+    const now = new Date().toISOString();
+    const trades = [trade({ id: "pt-new", symbol: "FIXNEWT", quantity: 40, entry_price: 250, stop_price: 240, target_price: 270, opened_at: now, last_close: 251, last_close_date: "2026-10-13", unrealized_pnl_rs: 40 }), ...paperTrades()];
+    await mockDeskLists(page, { paperList: { status: 200, body: { as_of: "2026-10-13", checked_through: "2026-10-13", marks_error: null, trades, summary: summarize(trades) } } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-portfolio")).toHaveAttribute("data-layout", "desktop");
+
+    // Two equal columns, side by side.
+    const hub = page.getByTestId("desk-portfolio-hub");
+    const record = page.getByTestId("desk-portfolio-record");
+    const [hb, rb] = [await hub.boundingBox(), await record.boundingBox()];
+    expect(Math.abs((hb?.width ?? 0) - (rb?.width ?? 0))).toBeLessThanOrEqual(2);
+    expect(Math.abs((hb?.y ?? 0) - (rb?.y ?? 0))).toBeLessThanOrEqual(2);
+    expect((rb?.x ?? 0)).toBeGreaterThan((hb?.x ?? 0) + (hb?.width ?? 0));
+    // Header bars: bg-0, 13px 18px, the title left and the meta right.
+    const bar = page.getByTestId("desk-portfolio-hub-title").locator("xpath=..");
+    expect(await bar.evaluate((e) => getComputedStyle(e).padding)).toBe("13px 18px");
+    await expect(page.getByTestId("desk-portfolio-record-title")).toHaveText("Paper trades · predicted vs actual");
+    await expect(page.getByTestId("desk-paper-card-closed")).toHaveText(`${summarize(trades).closed} closed`);
+    await expect(hub.getByTestId("desk-portfolio-readonly")).toHaveAttribute("data-tone", "indigo");
+    // Value serif 34px; donut 120px; positions grid 1fr 78px 64px 44px.
+    expect(await page.getByTestId("desk-portfolio-value").evaluate((e) => getComputedStyle(e).fontSize)).toBe("34px");
+    expect(await page.getByTestId("desk-portfolio-donut").getAttribute("width")).toBe("120");
+    const cols = await page.getByTestId("desk-portfolio-position").first().evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").slice(1));
+    expect(cols).toEqual(["78px", "64px", "44px"]);
+    // Section order inside the hub card: sources, value, donut, positions, risk checks.
+    const order = await hub.evaluate((root) => ["desk-portfolio-sources", "desk-portfolio-value", "desk-portfolio-donut", "desk-portfolio-positions", "desk-portfolio-risk"]
+      .map((id) => root.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? -1));
+    expect(order.every((t, i) => t >= 0 && (i === 0 || t > order[i - 1]))).toBe(true);
+    // Right card: the four tiles in the design's order, then Calibration, Open · added today, Last 5 closed.
+    await page.getByTestId("desk-paper-sample-replay").click();
+    await expect(record.getByTestId("desk-record-predicted")).not.toHaveText("—");
+    const tileLabels = await record.locator('[data-testid^="desk-record-"]').evaluateAll((els) => els.map((e) => e.parentElement?.firstElementChild?.textContent));
+    expect(tileLabels).toEqual(["Predicted", "Realised", "Net after costs", "False positives"]);
+    await expect(record).toContainText("Calibration");
+    // Open · added today: the trade opened today, with its levels and P shown as "—" (no probability is stored with a trade).
+    const today = record.getByTestId("desk-paper-today-row");
+    await expect(today).toHaveCount(1);
+    await expect(today).toHaveAttribute("data-id", "pt-new");
+    await expect(today.getByTestId("desk-paper-today-levels")).toHaveText(`Entry ${paise(250)} · Stop ${paise(240)} · Target ${paise(270)}`);
+    await expect(today.getByTestId("desk-paper-today-p")).toHaveText("P —");
+    // Last 5 closed: grid 1fr 40px 84px 48px; setup · days · exit, P "—", outcome = exit vs entry, R = (exit − entry) ÷ (entry − stop).
+    const closed = trades.filter((t) => t.status === "closed").slice(0, 5);
+    const last = record.getByTestId("desk-paper-last5-row");
+    await expect(last).toHaveCount(closed.length);
+    expect(await last.first().evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").slice(1))).toEqual(["40px", "84px", "48px"]);
+    for (let i = 0; i < closed.length; i += 1) {
+      const t = closed[i];
+      const ret = (((t.exit_price as number) - t.entry_price) / t.entry_price) * 100;
+      const r = ((t.exit_price as number) - t.entry_price) / (t.entry_price - (t.stop_price as number));
+      const days = Math.round((Date.parse((t.closed_at as string).slice(0, 10)) - Date.parse((t.opened_at as string).slice(0, 10))) / 86_400_000);
+      await expect(last.nth(i)).toHaveAttribute("data-id", t.id);
+      await expect(last.nth(i).getByTestId("desk-paper-last5-setup")).toHaveText(`Breakout confirmed · ${days} days · ${t.exit_reason}`);
+      await expect(last.nth(i).getByTestId("desk-paper-last5-pred")).toHaveText("—");
+      await expect(last.nth(i).getByTestId("desk-paper-last5-outcome")).toHaveText(pct1(ret, true));
+      await expect(last.nth(i).getByTestId("desk-paper-last5-r")).toHaveText(`${r < 0 ? MINUS : "+"}${Math.abs(r).toFixed(1)}R`);
+    }
+    // Close and delete stay reachable in the full lists below, and the broker block stays in the tab.
+    await expect(page.getByTestId("desk-paper-close").first()).toBeVisible();
+    await expect(page.getByTestId("desk-alert-delete").first()).toBeVisible();
+    await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
+  });
+
+  test("§11 M5 at 390: portfolio card with donut, Risk dashboard with 5-segment level bars, Positions table, the read-only note; no sideways scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await deskBase(page);
+    await mockPaper(page);
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const root = page.getByTestId("desk-portfolio");
+    await expect(root).toHaveAttribute("data-layout", "phone");
+    // Order: portfolio card, risk dashboard, positions, the read-only note (then the paper card, broker block and lists).
+    const order = await root.evaluate((r) => ["desk-portfolio-hub", "desk-portfolio-risk", "desk-portfolio-positions", "desk-portfolio-readonly-note", "desk-portfolio-record", "trader-broker-positions", "desk-portfolio-paper"]
+      .map((id) => r.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? -1));
+    expect(order.every((t, i) => t >= 0 && (i === 0 || t > order[i - 1]))).toBe(true);
+
+    await expect(page.getByTestId("desk-portfolio-hub-title")).toHaveText("Your portfolio");
+    await expect(page.getByTestId("desk-portfolio-hub").getByTestId("desk-portfolio-readonly")).toHaveText("Read-only");
+    await expect(page.getByTestId("desk-portfolio-sources")).toHaveText("Zerodha");
+    expect(await page.getByTestId("desk-portfolio-value").evaluate((e) => getComputedStyle(e).fontSize)).toBe("34px");
+    expect(await page.getByTestId("desk-portfolio-donut").getAttribute("width")).toBe("112");
+
+    // Risk dashboard: the overall pill and seven rows, each with five 9×5 segments filled by its level.
+    await expect(page.getByTestId("desk-portfolio-risk-title")).toHaveText("Risk dashboard");
+    await expect(page.getByTestId("desk-risk-overall-pill")).toHaveText("High risk");
+    const expected: Record<string, { filled: number; text: string }> = {
+      overall: { filled: 4, text: "High" },
+      position: { filled: 4, text: "Above limit" },
+      sector: { filled: 4, text: "Over-concentrated" },
+      correlation: { filled: 4, text: `${CORRELATION.high_pairs} pair ≥ ${CORRELATION.high_threshold.toFixed(2)}` },
+      gap: { filled: 0, text: "—" },
+      volatility: { filled: 4, text: "High" },
+      liquidity: { filled: 0, text: "—" },
+    };
+    for (const [id, label] of RISK_ROWS) {
+      const row = page.getByTestId(`desk-risk-${id}`);
+      await expect(row).toContainText(label);
+      const barEl = row.getByTestId("desk-risk-bar");
+      await expect(barEl).toHaveAttribute("data-filled", String(expected[id].filled));
+      await expect(barEl.locator("span")).toHaveCount(5);
+      expect(await barEl.locator("span").first().evaluate((e) => [getComputedStyle(e).width, getComputedStyle(e).height])).toEqual(["9px", "5px"]);
+      await expect(row.getByTestId("desk-risk-level")).toHaveText(expected[id].text);
+    }
+
+    // Positions: header STOCK · VALUE ₹ · P&L · WEIGHT, grid 1fr 72px 64px 46px, weights to the whole percent.
+    const positions = page.getByTestId("desk-portfolio-positions");
+    await expect(positions.getByRole("columnheader")).toHaveText(["Stock", "Value ₹", "P&L", "Weight"]);
+    expect(await positions.getByTestId("desk-portfolio-position").first().evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").slice(1))).toEqual(["72px", "64px", "46px"]);
+    await expect(positions.getByTestId("desk-portfolio-weight")).toHaveText(["30%", "10%"]);
+    await expect(page.getByTestId("desk-portfolio-synced")).toHaveText(/^Last read 12 Oct, 3:42\s?pm$/i);
+    await expect(page.getByTestId("desk-portfolio-readonly-note")).toHaveText("● Read-only view from connected brokers. No trading or order execution in Nivesh.");
+
+    let o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+    await page.getByTestId("desk-risk-correlation-toggle").click();
+    await expect(page.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
+    await page.getByTestId("desk-paper-sample-replay").click();
+    await expect(page.getByTestId("desk-calibration-row").first()).toBeVisible();
+    o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+
+  test("fidelity screenshots: desktop 1440 with the dock, and 390", async ({ page }) => {
+    const phase = "after";
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await deskBase(page);
+    await mockPaper(page);
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-portfolio-hub")).toBeVisible();
+    await page.getByTestId("desk-paper-sample-replay").click();
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-1440.png` });
+    await page.setViewportSize({ width: 1440, height: 2000 });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-1440-tall.png` });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-portfolio-hub")).toBeVisible();
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-390.png` });
+    await page.setViewportSize({ width: 390, height: 4200 });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-390-full.png` });
+  });
+});

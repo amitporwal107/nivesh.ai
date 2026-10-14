@@ -13,8 +13,12 @@
  *                                           sector-index tile when the two sector names match exactly
  *
  * GET /api/markets/home (index tape, breadth and the universe it counted, FII /
- * DII, USD / INR, Brent, the deploy verdict) is read through useMarketOverview
- * (screens/markets/hooks.ts).
+ * DII, USD / INR, Brent, the deploy verdict, `market_state` and `is_live`) is
+ * read through useMarketOverview (screens/markets/hooks.ts).
+ *
+ * The market-status pill and the Overview's headline are worked out here from
+ * those reads (marketStatus, deskHeadline): no figure is made up, and a part
+ * with no data is left out of the sentence rather than guessed.
  *
  * Nothing here trusts the response shape: a missing or non-numeric field is
  * null, never 0, and a body without the field the route always sends throws a
@@ -22,10 +26,12 @@
  * sends an "uninitialised" payload with `_reason` instead, which is read as
  * "not available", never as a regime.
  */
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import type { GlobalQuote, MarketBreadth, MarketIndex, MarketsHome } from "@/services/contracts/markets.contract";
+import type { DeskPersona } from "./context";
 import { num } from "./desk-data";
 
 type Raw = Record<string, unknown>;
@@ -291,4 +297,184 @@ export function readBreadth(b: MarketBreadth): BreadthRead | null {
     universe: count,
     scope,
   };
+}
+
+
+// ── IST clock and market status ──────────────────────────────────────────
+
+const IST = "Asia/Kolkata";
+
+export interface IstParts {
+  /** "Wed" */
+  weekday: string;
+  /** "14 Oct" */
+  day: string;
+  /** "11:32" (24-hour) */
+  time: string;
+  /** "2026-10-14" — the IST calendar day. */
+  iso: string;
+  /** Minutes since IST midnight. */
+  minutes: number;
+  /** 0 = Sunday … 6 = Saturday, in IST. */
+  dow: number;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** The IST calendar day and time of a moment. */
+export function istParts(at: Date): IstParts {
+  const f = new Intl.DateTimeFormat("en-GB", {
+    timeZone: IST, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", weekday: "short",
+  });
+  const p: Record<string, string> = {};
+  for (const x of f.formatToParts(at)) p[x.type] = x.value;
+  const iso = `${p.year}-${p.month}-${p.day}`;
+  const hh = Number(p.hour) % 24;
+  const mm = Number(p.minute);
+  const day = new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+  const dow = WEEKDAYS.indexOf(p.weekday ?? "");
+  return { weekday: p.weekday ?? "", day, time: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`, iso, minutes: hh * 60 + mm, dow };
+}
+
+/** The IST calendar day of a response date: a bare "2026-10-13" as it is, a date-time in IST. */
+export function istDay(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const t = new Date(iso);
+  return Number.isFinite(t.getTime()) ? istParts(t).iso : null;
+}
+
+/** The current time, refreshed every 30 seconds (the status pill shows minutes). */
+export function useNow(intervalMs = 30_000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+/** NSE cash-market hours by the clock: Monday to Friday, 09:15–15:30 IST (exchange holidays are not known here). */
+export function inNseHours(p: IstParts): boolean {
+  return p.dow >= 1 && p.dow <= 5 && p.minutes >= 9 * 60 + 15 && p.minutes <= 15 * 60 + 30;
+}
+
+export interface MarketStatus {
+  /** "NSE hours" inside the session window, else "Market closed". */
+  label: string;
+  /** "live" = the route's live tape; "delayed" = in hours, delayed quotes; "closed"; "clock" = no response, read from the clock. */
+  feed: "live" | "delayed" | "closed" | "clock";
+  open: boolean;
+  /** Tooltip: where the status comes from. */
+  why: string;
+}
+
+/**
+ * The session state. GET /api/markets/home sends `market_state` (open / closed)
+ * and `is_live`; both follow NSE hours by the IST clock on the server
+ * (nse_live._is_market_open_ist) and do not know exchange holidays, so the pill
+ * says "NSE hours", never "market open", and never "live" for delayed or
+ * end-of-day figures. Before the route answers, or when it fails, the same rule
+ * is read from this device's clock.
+ */
+export function marketStatus(home: MarketsHome | undefined, now: IstParts): MarketStatus {
+  if (home) {
+    const open = home.market_state === "open";
+    if (!open) return { label: "Market closed", feed: "closed", open, why: "Outside NSE hours (Mon–Fri 09:15–15:30 IST), per GET /api/markets/home" };
+    return home.is_live
+      ? { label: "NSE hours", feed: "live", open, why: "Inside NSE hours; the index tape is the live feed (GET /api/markets/home). Exchange holidays are not checked." }
+      : { label: "NSE hours", feed: "delayed", open, why: "Inside NSE hours; quotes are delayed (GET /api/markets/home). Exchange holidays are not checked." };
+  }
+  const open = inNseHours(now);
+  return {
+    label: open ? "NSE hours" : "Market closed",
+    feed: "clock",
+    open,
+    why: "Read from this device’s clock: NSE hours are Mon–Fri 09:15–15:30 IST. Exchange holidays are not checked.",
+  };
+}
+
+/** The pill's data-feed words for the index tape: live only when the route says so. */
+export function feedWords(s: MarketStatus): string {
+  if (s.feed === "live") return "live";
+  if (s.feed === "delayed") return "delayed";
+  return s.open ? "delayed" : "end of day";
+}
+
+// ── the Overview headline (design: H1 with one phrase in mint) ───────────
+
+export interface Headline {
+  lead: string;
+  emph: string | null;
+  tail: string;
+}
+
+/** Breadth bands by the share of advancing stocks, strongest first. */
+const BANDS = [60, 52, 48, 40] as const;
+function band(advancingPct: number): number {
+  const i = BANDS.findIndex((b) => advancingPct >= b);
+  return i === -1 ? BANDS.length : i;
+}
+
+const TRADER_BREADTH = ["strong", "positive", "even", "soft", "weak"];
+const INVESTOR_NOW = [
+  "Most stocks are rising today",
+  "More stocks are rising than falling today",
+  "About as many stocks are rising as falling today",
+  "More stocks are falling than rising today",
+  "Most stocks are falling today",
+];
+const INVESTOR_PAST = [
+  "Most stocks rose",
+  "More stocks rose than fell",
+  "About as many stocks rose as fell",
+  "More stocks fell than rose",
+  "Most stocks fell",
+];
+
+/**
+ * The Overview's headline, from real reads only:
+ *   breadth   advancing share (GET /api/markets/home), on its session day — "today" only when that day is today in IST
+ *   sector    the strongest sector index over 1 day (GET /api/markets/sector-returns); "no sector index rose" when none did
+ *   setups    confirmed of all scanner setups (GET /api/positional/watchlist + picks)
+ * A part with no data is left out. With nothing at all it is a plain title.
+ */
+export function deskHeadline(input: {
+  persona: DeskPersona;
+  advancingPct: number | null;
+  /** The session the breadth counts are for (YYYY-MM-DD, IST). */
+  breadthDay: string | null;
+  todayIso: string;
+  /** The strongest sector over 1 day and its return (percent); null when the read has none. */
+  topSector: { name: string; pct: number } | null;
+  setups: { confirmed: number; total: number } | null;
+}): Headline {
+  const { persona, advancingPct, breadthDay, todayIso, topSector, setups } = input;
+  const investor = persona === "investor";
+  let lead = "";
+  if (advancingPct != null) {
+    const b = band(advancingPct);
+    const today = breadthDay === todayIso;
+    const on = !today && breadthDay ? ` on ${new Date(`${breadthDay}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}` : "";
+    let sector = "";
+    if (topSector) {
+      if (topSector.pct > 0) sector = investor ? `, led by ${topSector.name}` : ` and ${topSector.name} ${today ? "leads" : "led"}`;
+      else sector = investor ? `, and no sector ${today ? "is up" : "rose"}` : `, and no sector index ${today ? "is up" : "rose"}`;
+    }
+    const first = investor
+      ? (today ? INVESTOR_NOW[b] : `${INVESTOR_PAST[b]}${on}`)
+      : `Breadth ${today ? "is" : "was"} ${TRADER_BREADTH[b]}${today ? "" : on}`;
+    lead = `${first}${sector}.`;
+  }
+  if (setups && setups.total > 0) {
+    const c = setups.confirmed;
+    const space = lead ? " " : "";
+    if (investor) {
+      if (c === 0) return { lead: `${lead}${space}`, emph: "No ideas", tail: " have confirmed yet." };
+      return { lead: `${lead}${space}`, emph: `${c} ${c === 1 ? "idea" : "ideas"}`, tail: ` ${c === 1 ? "has" : "have"} confirmed, each with its evidence shown.` };
+    }
+    return { lead: `${lead}${space}`, emph: `${c} of ${setups.total} setups`, tail: ` ${c === 1 ? "has" : "have"} confirmed.` };
+  }
+  if (lead) return { lead, emph: null, tail: "" };
+  return { lead: "Your smart ", emph: "trading desk", tail: "." };
 }

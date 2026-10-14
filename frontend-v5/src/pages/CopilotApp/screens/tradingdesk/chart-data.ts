@@ -19,7 +19,7 @@ import { ApiError } from "@/services/api/errors";
 import { moveOddsService, type MoveStock } from "@/services/adapters/moveOdds.adapter";
 import type { Tone } from "../../components/ui";
 import { fmtDay } from "../trading/parts";
-import { BUCKET_LABEL, type DeskSetup, type SetupStatus } from "./desk-data";
+import { BUCKET_LABEL, type DeskSetup, type SetupBucket, type SetupStatus } from "./desk-data";
 import type { DailyBar } from "./indicators";
 
 const isStatus = (e: unknown, status: number) => e instanceof ApiError && e.status === status;
@@ -127,10 +127,49 @@ export const STATUS_LABEL: Record<SetupStatus, { label: string; tone: Tone }> = 
   forming: { label: "Forming", tone: "ink" },
 };
 
-/** The bucket's name, or "Scanner pick · early breakout" for a stock only the picks route has. */
-export function setupLabel(s: DeskSetup): string {
-  if (s.bucket) return BUCKET_LABEL[s.bucket];
-  return s.stage ? `Scanner pick · ${s.stage.replace(/_/g, " ").toLowerCase()}` : "Scanner pick";
+/** The same setups in plain words (the design's investor wording, design-spec §10). */
+export const BUCKET_PLAIN: Record<SetupBucket, string> = {
+  breakout_confirmed: "Broke above a recent high",
+  pre_breakout: "Just under a recent high",
+  trend_continuation: "Dipped in an uptrend",
+  true_accumulation: "Tight sideways range",
+};
+
+const STAGE_PLAIN: Record<string, string> = {
+  BREAKOUT: "broke out",
+  EARLY_BREAKOUT: "about to break out",
+  ACCUMULATION: "building a base",
+};
+
+/**
+ * The bucket's name, or "Scanner pick · early breakout" for a stock only the picks route has.
+ * `plain` gives the investor wording ("Broke above a recent high").
+ */
+export function setupLabel(s: DeskSetup, plain = false): string {
+  if (s.bucket) return plain ? BUCKET_PLAIN[s.bucket] : BUCKET_LABEL[s.bucket];
+  if (!s.stage) return "Scanner pick";
+  const stage = s.stage.replace(/_/g, " ").toLowerCase();
+  return `Scanner pick · ${plain ? STAGE_PLAIN[s.stage.toUpperCase()] ?? stage : stage}`;
+}
+
+/** The two up-move heads of the move-odds model the scanner ranks by. */
+export type UpHead = "p_up5_1d" | "p_up10_1d";
+
+/**
+ * The model's probability in the design's slot, worded truthfully: it is a next-session
+ * estimate (the session's high reaches the previous close plus the move), never a 20-session one.
+ */
+export function oddsLabel(head: UpHead, plain: boolean): string {
+  const move = head === "p_up10_1d" ? 10 : 5;
+  return plain ? `Chance +${move}% next day` : `P(+${move}% next session)`;
+}
+
+/** Last close and the change from the one before, from a stock's daily closes (oldest first); null without two. */
+export function lastMove(closes: number[]): { close: number; change: number; changePct: number } | null {
+  const n = closes.length;
+  if (n < 2 || !(closes[n - 2] > 0)) return null;
+  const change = closes[n - 1] - closes[n - 2];
+  return { close: closes[n - 1], change, changePct: (change / closes[n - 2]) * 100 };
 }
 
 /** "13 Oct 2026", or both dates when the two scanner routes are on different sessions. */

@@ -48,8 +48,8 @@ one-click option paper strategies.
 | B-14 | SEBI ingest | parse the real feed copy; only /legal/circulars/ and /legal/master-circulars/ kept; enforcement notices (PAN) dropped; upsert idempotent | unit | as stated | |
 | B-15 | circulars route | days/limit; empty table → 200 rows [] with as_of | unit | as stated | |
 | B-16 | DaaS down | each backend proxy → 502/503 with a code, never an empty success | unit (failure) | as stated | |
-| B-17 | staging API | every new GET on staging returns real data with the session token; POST/DELETE round-trip on a test trade/alert, then cleaned up | staging API | 200/201/204 with real figures | |
-| B-18 | staging data | sector-returns, deals, buildup, circulars equal direct read-only SQL on the warehouse for the same day | data | equal | |
+| B-17 | staging API | every new GET on staging returns real data with the session token; POST/DELETE round-trip on a test trade/alert, then cleaned up | staging API | 200/201/204 with real figures || PENDING — session token |
+| B-18 | staging data | sector-returns, deals, buildup, circulars equal direct read-only SQL on the warehouse for the same day | data | equal || PASS (staging, 2026-10-14) |
 | F-1 | desk UI | Overview sector 1D/1W/1M toggle; breadth universe named | e2e (mocked) | as stated | |
 | F-2 | desk UI | Intel: deals list; SEBI circulars under Regulatory; exchange from the row | e2e | as stated | |
 | F-3 | desk UI | Scanner sparkline + liquid-only toggle; Chart next support/resistance | e2e | as stated | |
@@ -79,17 +79,64 @@ vite build ok
 ```
 Covers F-1…F-6 as wired (sector 1D/1W/1M, deals, circulars, exchange, scanner sparkline + liquid-only, levels,
 paper-trade and alert POST bodies and errors, correlation, market-cap split, F&O build-up, 390px).
-Design-fidelity pass against the re-sent design: not started (scratchpad design-spec.md).
+**Design-fidelity pass** (4 agents; desktop tab order follows the PRD, docs/smart_trader §3.1). Re-run by me on the combined tree, 2026-10-14 ~16:50 IST:
+- `desk-run.sh tsc` → `TSC CLEAN`.
+- `desk-run.sh pw` over every `e2e/tests/copilot-app*.spec.ts` except the shots and live specs (21 files: production build, then `npx playwright test`, all /api calls route-mocked):
+```
+vite build ok
+  14 skipped
+  436 passed (4.8m)
+```
+- The 14 skipped tests are all opt-in screenshot captures (account, contract-chart, desk-lab, ops, options, research and statements "shots"/"pictures").
 
 ## API / Endpoint Tests (staging)
-_Pending — needs the merge to dev (auto-deploy), NIDP migrations 162 and 163, and a session token for user routes._
+**What is deployed (2026-10-14):**
+- **App VM:** PR #220 merged to dev and auto-deployed. The backend container has `routes/desk_trading.py`, `markets_desk.py` and `portfolio_desk.py`, dated 10:02 UTC.
+- **Warehouse (NIDP) VM:** deployed with migrations, the step the user approved: `deploy/cloudpe/nidp/deploy.sh dev --migrate`, with no cron change. Log, verbatim:
+```
+[nidp-deploy] Deploying 801d0000 Merge pull request #220 from amitporwal107/feat/trading-desk-backend
+  ✅ 162_sourced_fundamentals.sql applied
+  ✅ 163_sebi_circulars.sql applied
+[nidp-deploy] OK  DaaS API :8084/health
+[nidp-deploy] OK  nginx /daas/health
+[nidp-deploy] Done.
+```
+
+**App routes without a session (backend container, 172.18.0.5:8001).** Auth is enforced:
+```
+/api/desk/paper-trades -> 401
+/api/desk/alerts       -> 401
+/api/broker/positions  -> 401
+```
+
+**Desk DaaS routes on the warehouse VM (internal key, read on the VM, never printed):**
+```
+GET /v1/desk/sector-returns    HTTP 200  as_of 2026-10-13  sectors list[20]  first: Nifty Auto close 25391.85 ret_1d 1.23 ret_1w -0.59 ret_1m -7.8
+GET /v1/desk/deals?days=10     HTTP 200  as_of 2026-10-13  from 2026-10-04  count 431
+GET /v1/desk/fno-buildup       HTTP 200  as_of 2026-10-13  universe 213  long_buildup 116 short_buildup 20 short_covering 73 long_unwinding 4 neutral 0 no_data 0
+GET /v1/circulars/sebi?days=60 HTTP 200  count 0 (table created by 163; the SEBI ingest job is not installed — not approved)
+```
+
+**B-17 (the /api/desk/* user routes with a real session: GET, then a POST/DELETE round-trip) is still pending.** It needs a staging session token from the user.
 
 ## Data Correctness (staging)
 Read-only checks done during the build (agents' reports): sector returns vs NSE pct_change (Nifty IT 5.22%),
 build-up counts, deal values, correlation vs Postgres corr(), paper-trade/alert price read vs direct SQL, SEBI
-listing parse. The B-18 comparison through the deployed routes is pending.
+listing parse. **B-18 on staging, 2026-10-14: each route figure equals direct read-only SQL on the warehouse:**
+```
+deals_10d (bulk + block, 2026-10-04..13)            SQL 431            route count 431
+STF underlyings 2026-10-13                          SQL 213            route universe 213
+build-up long/short/covering/unwinding              SQL 116/20/73/4    route 116/20/73/4
+Nifty Auto 1d / 1m (index_eod, own series)          SQL 1.23 / -7.80   route 1.23 / -7.8
+nidp.sebi_circulars rows                            SQL 0              route count 0
+```
 
 ## Inputs required from user
-- Merge to dev when ready; approval to run NIDP migration 163 and install the two cron entries on staging; a staging session token for the user-route checks.
+- **Done:**
+  - Merged to dev (PR #220).
+  - Migrations 162 and 163 applied with the user's approval.
+- **Still needed:**
+  - A staging session token for B-17. The user was asked to save it to /home/deploy/.nivesh-staging-session (mode 600).
+  - Cron entries (SEBI ingest and desk alerts): the user did not select them on 2026-10-14, so they are not installed.
 
 ## Verdict: BLOCKED

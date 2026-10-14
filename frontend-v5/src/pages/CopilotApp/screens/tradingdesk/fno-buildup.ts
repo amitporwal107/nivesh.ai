@@ -30,12 +30,13 @@ export const BUILDUP_LABELS = ["long_buildup", "short_buildup", "short_covering"
 export type BuildupQuadrant = (typeof BUILDUP_LABELS)[number];
 export type BuildupLabel = BuildupQuadrant | "neutral";
 
-export const BUILDUP_META: Record<BuildupLabel, { label: string; rule: string; tone: Tone }> = {
-  long_buildup: { label: "Long build-up", rule: "Price up, OI up", tone: "mint" },
-  short_buildup: { label: "Short build-up", rule: "Price down, OI up", tone: "danger" },
-  short_covering: { label: "Short covering", rule: "Price up, OI down", tone: "indigo" },
-  long_unwinding: { label: "Long unwinding", rule: "Price down, OI down", tone: "amber" },
-  neutral: { label: "Neutral", rule: "Price or OI unchanged", tone: "ink" },
+/** `rule` is the trader's wording, `plain` the investor's (design: the TRADER / INVESTOR switch). */
+export const BUILDUP_META: Record<BuildupLabel, { label: string; rule: string; plain: string; tone: Tone }> = {
+  long_buildup: { label: "Long build-up", rule: "Price up, OI up", plain: "Price rose and new bets were opened", tone: "mint" },
+  short_buildup: { label: "Short build-up", rule: "Price down, OI up", plain: "Price fell and new bets were opened", tone: "danger" },
+  short_covering: { label: "Short covering", rule: "Price up, OI down", plain: "Price rose as bets were closed", tone: "indigo" },
+  long_unwinding: { label: "Long unwinding", rule: "Price down, OI down", plain: "Price fell as bets were closed", tone: "amber" },
+  neutral: { label: "Neutral", rule: "Price or OI unchanged", plain: "Price or open bets unchanged", tone: "ink" },
 };
 
 const isLabel = (v: string): v is BuildupLabel => v === "neutral" || (BUILDUP_LABELS as readonly string[]).includes(v);
@@ -104,7 +105,16 @@ async function fetchBuildup(signal?: AbortSignal): Promise<Buildup> {
   };
 }
 
-/** GET /api/fno/scan/buildup — read when the OI build-up view is open. */
+/** The scan's row for one stock; null when the scan has none (an index, or not in NSE's stock futures that day). */
+export function buildupRowFor(data: Buildup | undefined, symbol: string): BuildupRow | null {
+  return data?.rows.find((r) => r.symbol === symbol) ?? null;
+}
+
+/**
+ * GET /api/fno/scan/buildup — read as soon as the lab opens: the stats' build-up
+ * tile, the ticker check against the F&O list, the OI build-up view and the
+ * paper strategies all use it.
+ */
 export function useBuildup(enabled: boolean) {
   return useQuery<Buildup>({
     queryKey: ["copilot", "desk", "fno-buildup"],

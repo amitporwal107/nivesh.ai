@@ -15,6 +15,11 @@
  * (avg_traded_value_cr_20d ≥ 10), next resistance / support in the setup
  * check, and the risk desk's two writes — POST /api/desk/paper-trades and POST
  * /api/desk/alerts — with their exact bodies, pending, success and error states.
+ *
+ * Design fidelity (design-spec §4, §5, §10, §11 M2 / M4): section titles and
+ * numbering, column headers in the design's order, control labels, the
+ * trader → investor wording switch, the phone compositions and their order,
+ * and no sideways scroll at 390px.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
@@ -98,11 +103,18 @@ const ODDS_ROWS = [
   { symbol: "FIXBRK", company_name: "Fixture Breakout Ltd", sector: "Capital Goods", p: 0.1834, p_opposite: 0.05, events_on_record: 3 },
   { symbol: "FIXACC", company_name: "Fixture Accumulation Ltd", sector: "Textiles", p: 0.0412, p_opposite: 0.03, events_on_record: 1 },
 ];
+// The +10% head ranks the stocks differently, so "Rank by P(+10% next session)" is a different order.
+const ODDS10_ROWS = [
+  { symbol: "FIXACC", company_name: "Fixture Accumulation Ltd", sector: "Textiles", p: 0.0912, p_opposite: 0.01, events_on_record: 1 },
+  { symbol: "FIXBRK", company_name: "Fixture Breakout Ltd", sector: "Capital Goods", p: 0.0312, p_opposite: 0.01, events_on_record: 3 },
+  { symbol: "FIXPRE", company_name: "Fixture Pre Ltd", sector: "Chemicals", p: 0.0205, p_opposite: 0.01, events_on_record: 0 },
+];
+const ROWS_BY_HEAD: Record<string, typeof ODDS_ROWS> = { p_up10_1d: ODDS10_ROWS };
 const RECORD = { window_label: "Jan–Aug 2025", sessions: 165, base_rate: 0.0812, top10_hit_rate: 0.3103, bands: [] };
 const BASE_RATE: Record<string, number> = { p_up5_1d: 0.0758, p_down5_1d: 0.0611, p_up10_1d: 0.0153, p_down10_1d: 0.0088 };
 const latest = (head: string) => ({
   data: {
-    status: "final", head, expected_session: "2026-10-14", base_rate: BASE_RATE[head], run: RUN, rows: ODDS_ROWS, record: RECORD,
+    status: "final", head, expected_session: "2026-10-14", base_rate: BASE_RATE[head], run: RUN, rows: ROWS_BY_HEAD[head] ?? ODDS_ROWS, record: RECORD,
     live_record: { sessions: 0, top10_hits: null, touched: null, graded_rows: null, last_target: null, last_top10_hits: null, last_touched: null, last_graded_rows: null },
     limits: { not_used: ["analyst estimates"] },
   },
@@ -110,7 +122,7 @@ const latest = (head: string) => ({
 
 // move_odds.py :: stock
 const EVENT = (ord: number) => ({
-  ord, event_time: "2026-10-13T12:35:20+05:30", source_label: "NSE filing", is_media: false, event_type: "CORPORATE", event_subtype: "update",
+  ord, event_time: `2026-10-1${ord}T12:35:20+05:30`, source_label: "NSE filing", is_media: false, event_type: "CORPORATE", event_subtype: "update",
   direction: "neutral", title: `Fixture filing ${ord}`, url: null, method: "rules",
 });
 const STOCK_FIXBRK = {
@@ -301,6 +313,37 @@ function rvolLast(bars: Bar[], n = 20): number {
   return bars[bars.length - 1][5] / (prev.reduce((s, b) => s + b[5], 0) / n);
 }
 
+const signedPct = (v: number, d = 1) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(d)}%`;
+const enIN = (v: number, d = 2) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d }).format(v);
+
+/** The daily closes a row draws: the watchlist's line when it has one, else the pick's; only positive numbers. */
+function lineOf(sym: string): number[] {
+  const clean = (xs: unknown[]) => xs.map((v) => (v == null ? NaN : Number(v))).filter((n) => Number.isFinite(n) && n > 0);
+  for (const b of BUCKETS) {
+    const w = (WATCHLIST.buckets[b] as Array<{ nse_symbol: string; spark_closes: unknown[] }>).find((x) => x.nse_symbol === sym);
+    if (w && clean(w.spark_closes).length > 1) return clean(w.spark_closes);
+  }
+  return clean(PICKS.picks.find((x) => x.nse_symbol === sym)?.spark_closes ?? []);
+}
+
+/** Traded value per stock: the watchlist's when it has one, else the pick's. */
+function tradedOf(sym: string): number | null {
+  for (const b of BUCKETS) {
+    const w = (WATCHLIST.buckets[b] as Array<{ nse_symbol: string; avg_traded_value_cr_20d: number | null }>).find((x) => x.nse_symbol === sym);
+    if (w && w.avg_traded_value_cr_20d != null) return w.avg_traded_value_cr_20d;
+  }
+  return PICKS.picks.find((x) => x.nse_symbol === sym)?.avg_traded_value_cr_20d ?? null;
+}
+
+/** Top of an element, to check the order blocks are stacked in. */
+async function topOf(page: Page, testId: string): Promise<number> {
+  const box = await page.getByTestId(testId).first().boundingBox();
+  if (!box) throw new Error(`${testId} has no box`);
+  return box.y;
+}
+
+const texts = (page: Page, selector: string) => page.locator(selector).allTextContents();
+
 // ── AI scanner ───────────────────────────────────────────────────────────
 
 test.describe("Smart trading desk · AI scanner", () => {
@@ -312,17 +355,26 @@ test.describe("Smart trading desk · AI scanner", () => {
     const exp = expectedRows();
     const byScore = [...exp].sort((a, b) => b.score - a.score).map((r) => r.symbol);
     expect(await rowOrder(page)).toEqual(byScore);
-    await expect(page.getByTestId("desk-scan-eyebrow")).toHaveText(`NSE · end of day · ${exp.length} of ${exp.length} shown`);
-    await expect(page.getByTestId("desk-scan-date")).toHaveText("Scan · 13 Oct 2026");
+    await expect(page.getByTestId("desk-scan-eyebrow")).toHaveText(`NSE · end of day 13 Oct 2026 · next-session odds · ${exp.length} of ${exp.length} shown`);
 
-    for (const r of exp) {
+    for (const [i, r] of [...exp].sort((a, b) => b.score - a.score).entries()) {
       const row = page.getByTestId(`desk-scan-row-${r.symbol}`);
+      await expect(row.getByTestId("desk-scan-rank")).toHaveText(String(i + 1).padStart(2, "0"));
       await expect(row.getByTestId("desk-scan-status")).toHaveAttribute("data-status", r.status);
       await expect(row.getByTestId("desk-scan-score")).toHaveText(String(Math.round(r.score)));
       // To target: from the close (else the entry) to the pick's target; "—" without a target.
       const base = r.close ?? r.entry;
       const to = r.target != null && base != null ? `+${(((r.target - base) / base) * 100).toFixed(1)}%` : "—";
       await expect(row.getByTestId("desk-scan-target")).toHaveText(to);
+      // No per-setup back-tested record is published: the hit-rate cell is "—".
+      await expect(row.getByTestId("desk-scan-hit")).toHaveText("—");
+      // The stock's last close and its change, from its own daily closes.
+      const line = lineOf(r.symbol);
+      if (line.length > 1) {
+        const [a, b] = line.slice(-2);
+        await expect(row).toContainText(inr2(b));
+        await expect(row.getByTestId("desk-scan-change")).toHaveText(signedPct(((b - a) / a) * 100));
+      }
     }
     // FIXBRK is in both routes: one row, the pick's score (86, not the watchlist's 79) and its target (555 from the 510 close).
     await expect(page.locator('[data-testid="desk-scan-row-FIXBRK"]')).toHaveCount(1);
@@ -331,14 +383,12 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(brk.getByTestId("desk-scan-setup")).toHaveText("Breakout confirmed");
     await expect(brk.getByTestId("desk-scan-why")).toHaveText(WATCHLIST.buckets.breakout_confirmed[0].why);
     await expect(brk.getByTestId("desk-scan-symbol")).toHaveText("FIXBRK");
-    // A pick the watchlist does not have: no close, so its row names the entry, and its status comes from the stage.
-    const pick = page.getByTestId("desk-scan-row-FIXPICK");
-    await expect(pick).toContainText(`Entry ${inr2(PICKS.picks[1].entry_price)}`);
-    await expect(pick.getByTestId("desk-scan-setup")).toHaveText("Scanner pick · early breakout");
+    // A pick the watchlist does not have: its status comes from the stage.
+    await expect(page.getByTestId("desk-scan-row-FIXPICK").getByTestId("desk-scan-setup")).toHaveText("Scanner pick · early breakout");
     await expect(page.getByTestId("desk-scan-footnote")).toContainText("it is not a probability");
   });
 
-  test("TC-14 group chips filter the list and Reward:risk re-ranks it", async ({ page }) => {
+  test("TC-14 group chips filter the list and P(+10% next session) re-ranks it and switches the column", async ({ page }) => {
     await deskMocks(page);
     await page.goto(`${DESK}?tab=scanner`);
     const exp = expectedRows();
@@ -346,40 +396,47 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId("desk-scan-group-breakout_confirmed").click();
     await expect(page.getByTestId("desk-scan-group-breakout_confirmed")).toHaveAttribute("aria-pressed", "true");
     expect(await rowOrder(page)).toEqual(exp.filter((r) => r.bucket === "breakout_confirmed").map((r) => r.symbol));
-    await expect(page.getByTestId("desk-scan-eyebrow")).toHaveText(`NSE · end of day · 1 of ${exp.length} shown`);
+    await expect(page.getByTestId("desk-scan-eyebrow")).toHaveText(`NSE · end of day 13 Oct 2026 · next-session odds · 1 of ${exp.length} shown`);
 
-    await page.getByTestId("desk-scan-group-picks").click();
-    const picks = PICKS.picks.map((p) => p.nse_symbol);
-    expect((await rowOrder(page)).sort()).toEqual([...picks].sort());
-
+    await page.getByTestId("desk-scan-group-trend_continuation").click();
+    expect(await rowOrder(page)).toEqual(exp.filter((r) => r.bucket === "trend_continuation").map((r) => r.symbol));
     await page.getByTestId("desk-scan-group-true_accumulation").click();
     expect(await rowOrder(page)).toEqual(exp.filter((r) => r.bucket === "true_accumulation").map((r) => r.symbol));
 
     await page.getByTestId("desk-scan-group-all").click();
-    await page.getByTestId("desk-scan-rank-rr").click();
-    await expect(page.getByTestId("desk-scan-rank-rr")).toHaveAttribute("aria-pressed", "true");
-    const byRr = [...exp].sort((a, b) => desc(a.rr, b.rr) || b.score - a.score).map((r) => r.symbol);
-    expect(await rowOrder(page)).toEqual(byRr);
-    expect(byRr[0]).toBe("FIXPICK"); // the 3.0 reward-to-risk pick moves above the higher-scored FIXBRK (2.0)
+    await page.getByTestId("desk-scan-rank-p10").click();
+    await expect(page.getByTestId("desk-scan-rank-p10")).toHaveAttribute("aria-pressed", "true");
+    const p10 = new Map(ODDS10_ROWS.map((r) => [r.symbol, r.p]));
+    const byP10 = [...exp].sort((a, b) => desc(p10.get(a.symbol) ?? null, p10.get(b.symbol) ?? null) || b.score - a.score).map((r) => r.symbol);
+    expect(await rowOrder(page)).toEqual(byP10);
+    expect(byP10[0]).toBe("FIXACC"); // the +10% head puts FIXACC first, above the higher-scored FIXBRK
+    for (const r of exp) {
+      const p = p10.get(r.symbol);
+      await expect(page.getByTestId(`desk-scan-row-${r.symbol}`).getByTestId("desk-scan-odds")).toHaveText(p != null ? pct1(p) : "—");
+      await expect(page.getByTestId(`desk-scan-row-${r.symbol}`).getByTestId("desk-scan-odds")).toHaveAttribute("data-head", "p_up10_1d");
+    }
+    await expect(page.getByTestId("desk-scan-footnote")).toContainText("previous close plus 10%, one session only");
   });
 
   test("TC-15 published odds: P(+5% next session) and events per row, the model's record, and ranking by it", async ({ page }) => {
     await deskMocks(page);
     await page.goto(`${DESK}?tab=scanner`);
     await expect(page.getByTestId("desk-scan-record")).toHaveAttribute("data-state", "final");
+    await expect(page.getByTestId("desk-scan-record")).toHaveText(`Move-odds ${RUN.model} · out-of-sample ${RECORD.window_label}`);
     const bySym = new Map(ODDS_ROWS.map((r) => [r.symbol, r]));
     for (const r of expectedRows()) {
       const row = page.getByTestId(`desk-scan-row-${r.symbol}`);
       const o = bySym.get(r.symbol);
       await expect(row.getByTestId("desk-scan-odds")).toHaveText(o ? pct1(o.p) : "—");
-      await expect(row.getByTestId("desk-scan-events")).toHaveText(o ? String(o.events_on_record) : "—");
+      // Events on record ride on the pattern line as the catalyst; none → no catalyst text.
+      if (o && o.events_on_record > 0) await expect(row.getByTestId("desk-scan-catalyst")).toHaveText(`+ ${o.events_on_record} ${o.events_on_record === 1 ? "event" : "events"} · `);
+      else await expect(row.getByTestId("desk-scan-catalyst")).toHaveCount(0);
     }
-    await expect(page.getByTestId("desk-scan-record")).toContainText(
-      `Out-of-sample ${RECORD.window_label}: top-10 hit rate ${pct1(RECORD.top10_hit_rate)} over ${RECORD.sessions} sessions vs base rate ${pct1(RECORD.base_rate)}.`,
+    await expect(page.getByTestId("desk-scan-model-note")).toHaveText(
+      `Out-of-sample ${RECORD.window_label}: top-10 hit rate ${pct1(RECORD.top10_hit_rate)} over ${RECORD.sessions} sessions vs base rate ${pct1(RECORD.base_rate)}. Run on data of 13 Oct 2026, for the session of 14 Oct 2026.`,
     );
-    await expect(page.getByTestId("desk-scan-record")).toContainText("Run on data of 13 Oct 2026, for the session of 14 Oct 2026.");
 
-    await page.getByTestId("desk-scan-rank-odds").click();
+    await page.getByTestId("desk-scan-rank-p5").click();
     const exp = expectedRows();
     const byP = [...exp].sort((a, b) => desc(bySym.get(a.symbol)?.p ?? null, bySym.get(b.symbol)?.p ?? null) || b.score - a.score).map((r) => r.symbol);
     expect(await rowOrder(page)).toEqual(byP);
@@ -389,38 +446,25 @@ test.describe("Smart trading desk · AI scanner", () => {
     await deskMocks(page, { oddsStatus: 403 });
     await page.goto(`${DESK}?tab=scanner`);
     await expect(page.getByTestId("desk-scan-record")).toHaveAttribute("data-state", "no_access");
-    await expect(page.getByTestId("desk-scan-record")).toContainText("Move probabilities are not enabled for this account");
+    await expect(page.getByTestId("desk-scan-record")).toHaveText("Move-odds · not enabled for this account");
+    await expect(page.getByTestId("desk-scan-model-note")).toContainText("Move probabilities are not enabled for this account");
     for (const r of expectedRows()) {
       const row = page.getByTestId(`desk-scan-row-${r.symbol}`);
       await expect(row.getByTestId("desk-scan-odds")).toHaveText("—");
-      await expect(row.getByTestId("desk-scan-events")).toHaveText("—");
+      await expect(row.getByTestId("desk-scan-catalyst")).toHaveCount(0);
     }
-    await expect(page.getByTestId("desk-scan-rank-odds")).toBeDisabled();
+    await expect(page.getByTestId("desk-scan-rank-p5")).toBeDisabled();
+    await expect(page.getByTestId("desk-scan-rank-p10")).toBeDisabled();
   });
 
   test("each row draws its last daily closes from spark_closes and names its 20-session traded value", async ({ page }) => {
     await deskMocks(page);
     await page.goto(`${DESK}?tab=scanner`);
-    await expect(page.getByTestId("desk-scan-table")).toBeVisible();
-    // The watchlist's line is used for a stock both routes have; a pick-only stock uses its own.
-    const lineOf = (sym: string): unknown[] => {
-      for (const b of BUCKETS) {
-        const w = (WATCHLIST.buckets[b] as Array<{ nse_symbol: string; spark_closes: unknown[] }>).find((x) => x.nse_symbol === sym);
-        if (w && w.spark_closes.length > 1) return w.spark_closes;
-      }
-      return PICKS.picks.find((x) => x.nse_symbol === sym)?.spark_closes ?? [];
-    };
-    const tradedOf = (sym: string): number | null => {
-      for (const b of BUCKETS) {
-        const w = (WATCHLIST.buckets[b] as Array<{ nse_symbol: string; avg_traded_value_cr_20d: number | null }>).find((x) => x.nse_symbol === sym);
-        if (w && w.avg_traded_value_cr_20d != null) return w.avg_traded_value_cr_20d;
-      }
-      return PICKS.picks.find((x) => x.nse_symbol === sym)?.avg_traded_value_cr_20d ?? null;
-    };
+    await expect(page.getByTestId("desk-scanner")).toBeVisible();
     for (const r of expectedRows()) {
       const row = page.getByTestId(`desk-scan-row-${r.symbol}`);
       // Only positive numbers are drawn: a null in the series is dropped, a numeric string is read.
-      const pts = lineOf(r.symbol).map((v) => (v == null ? NaN : Number(v))).filter((n) => Number.isFinite(n) && n > 0);
+      const pts = lineOf(r.symbol);
       if (pts.length > 1) {
         await expect(row.getByTestId("desk-scan-spark")).toHaveAttribute("data-points", String(pts.length));
         const tone = pts[pts.length - 1] > pts[0] ? "mint" : pts[pts.length - 1] < pts[0] ? "danger" : "ink";
@@ -442,22 +486,18 @@ test.describe("Smart trading desk · AI scanner", () => {
     const exp = expectedRows();
     const toggle = page.getByTestId("desk-scan-liquid");
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await expect(toggle).toHaveText("Liquid only · ₹10 Cr+ a day");
+    await expect(toggle).toHaveText("Liquid only · ADV ≥ ₹10 Cr");
     await expect(page.getByTestId("desk-scan-liquid-note")).toHaveCount(0);
 
-    // Traded value per stock: the watchlist's when it has one, else the pick's.
-    const traded = new Map<string, number | null>();
-    for (const b of BUCKETS) for (const w of WATCHLIST.buckets[b] as Array<{ nse_symbol: string; avg_traded_value_cr_20d: number | null }>) traded.set(w.nse_symbol, w.avg_traded_value_cr_20d);
-    for (const p of PICKS.picks) if (traded.get(p.nse_symbol) == null) traded.set(p.nse_symbol, p.avg_traded_value_cr_20d);
-    const liquid = exp.filter((r) => (traded.get(r.symbol) ?? -1) >= 10);
-    const lacking = exp.filter((r) => traded.get(r.symbol) == null);
+    const liquid = exp.filter((r) => (tradedOf(r.symbol) ?? -1) >= 10);
+    const lacking = exp.filter((r) => tradedOf(r.symbol) == null);
     expect(liquid.map((r) => r.symbol).sort()).toEqual(["FIXACC", "FIXBRK", "FIXPICK"]); // FIXPICK sits exactly at 10
     expect(lacking.map((r) => r.symbol)).toEqual(["FIXTRD"]);
 
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(await rowOrder(page)).toEqual([...liquid].sort((a, b) => b.score - a.score).map((r) => r.symbol));
-    await expect(page.getByTestId("desk-scan-eyebrow")).toHaveText(`NSE · end of day · ${liquid.length} of ${exp.length} shown`);
+    await expect(page.getByTestId("desk-scan-eyebrow")).toHaveText(`NSE · end of day 13 Oct 2026 · next-session odds · ${liquid.length} of ${exp.length} shown`);
     const note = page.getByTestId("desk-scan-liquid-note");
     await expect(note).toContainText("average daily traded value (close × volume) over the last 20 sessions of at least ₹10 Cr");
     await expect(note).toContainText(`${lacking.length} stock has no traded-value figure and is not shown while this is on.`);
@@ -524,8 +564,10 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     const candles = page.getByTestId("desk-candle");
     await expect(page.getByTestId("desk-chart-tf-3M")).toHaveAttribute("aria-pressed", "true");
     await expect(candles).toHaveCount(63);
+    await expect(page.getByTestId("desk-chart-span")).toHaveText("Daily · 3 months");
     await page.getByTestId("desk-chart-tf-1M").click();
     await expect(candles).toHaveCount(22);
+    await expect(page.getByTestId("desk-chart-span")).toHaveText("Daily · 1 month");
     await page.getByTestId("desk-chart-tf-6M").click();
     await expect(candles).toHaveCount(126);
     await expect(candles.last()).toHaveAttribute("data-day", BARS[BARS.length - 1][0]);
@@ -540,12 +582,15 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await page.keyboard.press("ArrowLeft");
     await expect(readout).toContainText(`O ${inr2(prev[1])} · H ${inr2(prev[2])} · L ${inr2(prev[3])} · C ${inr2(prev[4])}`);
     await expect(page.getByTestId("desk-chart-svg")).toHaveAttribute("aria-label", /126 daily candles/);
+    // The last-price tag carries the last close.
+    await expect(page.getByTestId("desk-last-tag")).toHaveAttribute("data-value", String(last[4]));
 
-    // Overlays toggle (aria-pressed) and leave the chart.
+    // Overlays toggle (aria-pressed) and leave the chart and the legend.
     await expect(page.getByTestId("desk-line-ema20")).toHaveCount(1);
     await page.getByTestId("desk-chart-ov-ema").click();
     await expect(page.getByTestId("desk-chart-ov-ema")).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("desk-line-ema20")).toHaveCount(0);
+    await expect(page.getByTestId("desk-chart-legend")).not.toContainText("EMA 20");
     await expect(page.getByTestId("desk-line-vwap")).toHaveCount(1);
   });
 
@@ -563,8 +608,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     const side = (v: number) => (close > v ? "Price above" : close < v ? "Price below" : "Price at");
 
     await expect(page.getByTestId("desk-ind-ema20")).toHaveText(inr2(e20));
-    await expect(page.getByTestId("desk-ind-ema50")).toHaveText(inr2(e50));
-    await expect(page.getByTestId("desk-ind-ema20-sub")).toContainText(side(e20));
+    await expect(page.getByTestId("desk-ind-ema20-sub")).toHaveText(side(e20));
     await expect(page.getByTestId("desk-ind-rsi")).toHaveText(rsi.toFixed(1));
     await expect(page.getByTestId("desk-ind-rsi-sub")).toHaveText(rsi >= 70 ? "Overbought" : rsi >= 55 ? "Healthy" : "Neutral");
     await expect(page.getByTestId("desk-ind-atr")).toHaveText(inr2(atr));
@@ -574,16 +618,19 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-ind-rvol")).toHaveText(`${rv.toFixed(2)}×`);
     expect(rv).toBeGreaterThanOrEqual(1.5); // the fixture's last session is a volume spike
     await expect(page.getByTestId("desk-ind-rvol-sub")).toHaveText("Volume expansion");
-    await expect(page.getByTestId("desk-indicators")).toContainText("not the intraday VWAP");
+    await expect(page.getByTestId("desk-chart-source")).toContainText("not the intraday VWAP");
+    // The trend row names both averages.
+    await expect(page.getByTestId("desk-why-trend")).toContainText(`the 20-day EMA ${inr2(e20)}`);
+    await expect(page.getByTestId("desk-why-trend")).toContainText(`EMA 50 ${inr2(e50)}`);
 
-    // Header: last close and the day's change from the bars.
+    // Head row: last close and the day's change in rupees and percent, from the bars.
     const prev = closes[closes.length - 2];
-    const ch = ((close - prev) / prev) * 100;
+    const ch = close - prev;
     await expect(page.getByTestId("desk-chart-close")).toHaveText(inr2(close));
-    await expect(page.getByTestId("desk-chart-change")).toHaveText(`${ch > 0 ? "+" : ch < 0 ? "−" : ""}${Math.abs(ch).toFixed(2)}%`);
+    await expect(page.getByTestId("desk-chart-change")).toHaveText(`${ch > 0 ? "+" : ch < 0 ? "−" : ""}${enIN(Math.abs(ch))} (${signedPct((ch / prev) * 100, 2)})`);
   });
 
-  test("TC-20 levels and reward : risk come from the pick, not the watchlist", async ({ page }) => {
+  test("TC-20 levels and reward / risk come from the pick, not the watchlist; the gate counts only real passes", async ({ page }) => {
     await deskMocks(page);
     // No ?sym: the Chart tab opens on the scanner's first setup.
     await page.goto(`${DESK}?tab=chart`);
@@ -595,72 +642,97 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-level-target")).toContainText(`Target ${inr2(p.target_price)}`);
     await expect(page.getByTestId("desk-level-entry")).toContainText(`Entry ${inr2(p.entry_price)}`);
     await expect(page.getByTestId("desk-level-stop")).toContainText(`Stop ${inr2(p.stoploss)}`);
+    await expect(page.getByTestId("desk-level-target")).toHaveAttribute("data-value", String(p.target_price));
     await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Entry ${inr2(p.entry_price)}`);
     await expect(page.getByTestId("desk-risk-stop")).toHaveText(`Stop ${inr2(p.stoploss)}`);
     await expect(page.getByTestId("desk-risk-target")).toHaveText(`Target ${inr2(p.target_price)}`);
     const rr = (p.target_price - p.entry_price) / (p.entry_price - p.stoploss);
     expect(rr).toBeCloseTo(p.risk_reward, 9);
-    await expect(page.getByTestId("desk-risk-rr")).toHaveText(`${p.risk_reward.toFixed(2)} : 1`);
+    await expect(page.getByTestId("desk-risk-rr")).toHaveText(`${p.risk_reward.toFixed(1)} : 1`);
+    await expect(page.getByTestId("desk-hist-rr")).toHaveText(`${p.risk_reward.toFixed(1)} : 1`);
+    await expect(page.getByTestId("desk-hist-conf")).toHaveText("High");
+    await expect(page.getByTestId("desk-hist-hit")).toHaveText("—");
+    await expect(page.getByTestId("desk-hist-move")).toHaveText("—");
+    await expect(page.getByTestId("desk-risk-winrate")).toHaveText("—");
     await expect(page.getByTestId("desk-risk-scenario")).toHaveText("Breakout confirmed");
     await expect(page.getByTestId("desk-risk-status")).toHaveAttribute("data-status", "confirmed");
     await expect(page.getByTestId("desk-chart-pills")).toContainText(`Volume ${WATCHLIST.buckets.breakout_confirmed[0].signals.volume_spike_3v20.toFixed(1)}×`);
+    // The last close sits between the entry's left edge and the target: marked on the range bar.
+    await expect(page.getByTestId("desk-risk-ltp")).toContainText(`Close ${inr2(BARS[BARS.length - 1][4])}`);
 
-    // Levels toggle off removes the lines.
+    // Levels toggle off removes the lines; the gutter then shows the price axis.
+    await expect(page.getByTestId("desk-axis-label")).toHaveCount(0);
     await page.getByTestId("desk-chart-ov-levels").click();
     await expect(page.getByTestId("desk-level-target")).toHaveCount(0);
+    expect(await page.getByTestId("desk-axis-label").count()).toBeGreaterThan(1);
 
-    // Risk desk probability and gate: FIXBRK has 3 events on record, a record, and a run that counts → 5 of 5.
+    // Probability and gate: FIXBRK is in the run with 3 events, the record beats its base rate, and it trades ₹42.6 Cr a day → 5 of 5.
     const o = ODDS_ROWS.find((r) => r.symbol === "FIXBRK")!;
     await expect(page.getByTestId("desk-risk-p5")).toHaveText(pct1(o.p));
     await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("5 of 5 passed");
-    await expect(page.getByTestId("desk-risk-check-events")).toContainText(`Events on record for FIXBRK: ${o.events_on_record}`);
-    await expect(page.getByTestId("desk-risk-record")).toHaveText(pct1(RECORD.top10_hit_rate));
+    await expect(page.getByTestId("desk-risk-check-events-value")).toHaveText(String(o.events_on_record));
+    await expect(page.getByTestId("desk-risk-check-edge-value")).toHaveText(`${pct1(RECORD.top10_hit_rate)} vs ${pct1(RECORD.base_rate)}`);
+    await expect(page.getByTestId("desk-risk-check-liquidity-value")).toHaveText(`₹${tradedOf("FIXBRK")!.toFixed(1)} Cr a day`);
+    await expect(page.getByTestId("desk-risk-check-published-value")).toHaveText("14 Oct 2026");
+    await expect(page.getByTestId("desk-risk-record")).toContainText(`top-10 hit rate ${pct1(RECORD.top10_hit_rate)} over ${RECORD.sessions} sessions`);
 
-    // Model block: the stock route's four estimates beside each head's base rate.
-    for (const [head, v] of Object.entries(STOCK_FIXBRK.data.estimates)) {
-      await expect(page.getByTestId(`desk-model-${head}-p`)).toHaveText(pct1(v));
-      await expect(page.getByTestId(`desk-model-${head}-base`)).toHaveText(`Base rate ${pct1(BASE_RATE[head])}`);
-    }
-
-    // Setup check and why: from the scanner payload. Next resistance / support from the watchlist row, with the distance
-    // from the scan-day close.
+    // Setup check (seven rows at most) and why: from the scanner payload. Next resistance / support from the watchlist row,
+    // with the distance from the scan-day close.
     const w = WATCHLIST.buckets.breakout_confirmed[0];
-    const from = (lvl: number) => { const d = ((lvl - w.close_price) / w.close_price) * 100; return `${d > 0 ? "+" : d < 0 ? "−" : ""}${Math.abs(d).toFixed(1)}%`; };
-    await expect(page.getByTestId("desk-check-resistance")).toContainText(`Next resistance${inr2(w.resistance_level)} · ${from(w.resistance_level)} from the close`);
-    await expect(page.getByTestId("desk-check-support")).toContainText(`Next support${inr2(w.support_level)} · ${from(w.support_level)} from the close`);
+    const from = (lvl: number) => signedPct(((lvl - w.close_price) / w.close_price) * 100);
+    await expect(page.getByTestId("desk-check-resistance")).toHaveText(`Next resistance${inr2(w.resistance_level)} · ${from(w.resistance_level)}`);
+    await expect(page.getByTestId("desk-check-support")).toHaveText(`Next support${inr2(w.support_level)} · ${from(w.support_level)}`);
     await expect(page.getByTestId("desk-check-volume")).toContainText("1.8×");
+    await expect(page.getByTestId("desk-setup-check").locator('[data-testid^="desk-check-"]')).toHaveCount(7);
     await expect(page.getByTestId("desk-why")).toContainText(PICKS.picks[0].reasons[0]);
     await expect(page.getByTestId("desk-why")).toContainText(WATCHLIST.buckets.breakout_confirmed[0].why);
+    // Catalyst: the events on record, and the latest one from the stock route.
+    await expect(page.getByTestId("desk-why-catalyst")).toContainText(`${o.events_on_record} events on record; latest: Fixture filing 3 (NSE filing, 13 Oct 2026)`);
+    // Risk: the stop's distance below the entry.
+    await expect(page.getByTestId("desk-why-risk")).toContainText(`Stop ${inr2(p.stoploss)} is ${(((p.entry_price - p.stoploss) / p.entry_price) * 100).toFixed(1)}% below the entry`);
   });
 
-  test("a stock with no events on record fails one gate check and its estimate is withheld from high-confidence display", async ({ page }) => {
+  test("a stock with no events and a thin traded value fails two gate checks; its estimate is not shown as high-confidence", async ({ page }) => {
     await deskMocks(page);
     await page.goto(`${DESK}?tab=chart&sym=FIXPRE`);
     const o = ODDS_ROWS.find((r) => r.symbol === "FIXPRE")!;
-    await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("4 of 5 passed");
+    // published ✓, record ✓, top-10 above base ✓, events 0 ✕, ₹3.2 Cr a day ✕
+    const passed = [true, true, RECORD.top10_hit_rate > RECORD.base_rate, o.events_on_record > 0, (tradedOf("FIXPRE") ?? 0) >= 10].filter(Boolean).length;
+    expect(passed).toBe(3);
+    await expect(page.getByTestId("desk-risk-gate-count")).toHaveText(`${passed} of 5 passed`);
     await expect(page.getByTestId("desk-risk-check-events")).toHaveAttribute("data-ok", "false");
+    await expect(page.getByTestId("desk-risk-check-liquidity")).toHaveAttribute("data-ok", "false");
     await expect(page.getByTestId("desk-risk-p5")).toHaveText(pct1(o.p));
-    await expect(page.getByTestId("desk-risk-p5-note")).toHaveText("Withheld from high-confidence display: 4 of 5 checks passed.");
-    // The stock route has no estimate for it (404): said in words.
-    await expect(page.getByTestId("desk-model-none")).toContainText("not in the model’s published run");
+    await expect(page.getByTestId("desk-risk-p5-note")).toHaveText(`P(+5% next session). Not shown as high-confidence: ${passed} of 5 gate checks passed.`);
+    await expect(page.getByTestId("desk-why-catalyst")).toContainText("No filing or news event on record in the model’s run.");
+  });
+
+  test("odds 403: the gate's model checks show “—” and are not counted; only the liquidity check can pass", async ({ page }) => {
+    await deskMocks(page, { oddsStatus: 403 });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    for (const k of ["published", "record", "edge", "events"]) {
+      await expect(page.getByTestId(`desk-risk-check-${k}`)).toHaveAttribute("data-ok", "na");
+      await expect(page.getByTestId(`desk-risk-check-${k}-value`)).toHaveText("—");
+    }
+    await expect(page.getByTestId("desk-risk-check-liquidity")).toHaveAttribute("data-ok", "true");
+    await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("1 of 5 passed");
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText("—");
+    await expect(page.getByTestId("desk-risk-p5-note")).toHaveText("Move probabilities are not enabled for this account.");
   });
 
   test("a symbol that is not on the scanner shows the chart and indicators, and no levels", async ({ page }) => {
     await deskMocks(page);
-    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
-    await page.getByTestId("desk-chart-symbol-input").fill("bad sym!");
-    await page.getByTestId("desk-chart-symbol-load").click();
-    await expect(page.getByTestId("desk-chart-symbol-error")).toBeVisible();
-    await page.getByTestId("desk-chart-symbol-input").fill("othersym");
-    await page.getByTestId("desk-chart-symbol-load").click();
-    await expect(page).toHaveURL(/[?&]sym=OTHERSYM(&|$)/);
+    await page.goto(`${DESK}?tab=chart&sym=OTHERSYM`);
     await expect(page.getByTestId("desk-chart-symbol")).toHaveText("OTHERSYM");
     await expect(page.getByTestId("desk-candle")).toHaveCount(63);
     await expect(page.getByTestId("desk-not-on-scanner")).toContainText("Not on today’s scanner — no levels");
+    await expect(page.getByTestId("desk-chart-pills")).toHaveText("Not on today’s scanner");
     await expect(page.getByTestId("desk-risk-nolevels")).toBeVisible();
     await expect(page.getByTestId("desk-risk-nosize")).toBeVisible();
     await expect(page.getByTestId("desk-chart-ov-levels")).toBeDisabled();
     await expect(page.getByTestId("desk-risk-rr")).toHaveText("—");
+    // Without levels the gutter shows the price axis.
+    expect(await page.getByTestId("desk-axis-label").count()).toBeGreaterThan(1);
   });
 
   test("TC-21 chart-live 403 → charting locked for the account", async ({ page }) => {
@@ -669,8 +741,9 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-chart-locked")).toContainText("Charting is not enabled for this account");
     await expect(page.getByTestId("desk-candle")).toHaveCount(0);
     await expect(page.getByTestId("desk-indicators")).toHaveCount(0);
-    // The scanner's levels still drive the risk desk.
-    await expect(page.getByTestId("desk-risk-rr")).toHaveText(`${PICKS.picks[0].risk_reward.toFixed(2)} : 1`);
+    // The scanner's levels still drive the risk desk; gap risk needs the bars and says so.
+    await expect(page.getByTestId("desk-risk-rr")).toHaveText(`${PICKS.picks[0].risk_reward.toFixed(1)} : 1`);
+    await expect(page.getByTestId("desk-risk-chk-gap")).toHaveText(/Needs the stock’s daily bars/);
   });
 
   test("TC-21 chart-live 404 → no prices on record", async ({ page }) => {
@@ -680,7 +753,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-candle")).toHaveCount(0);
   });
 
-  test("TC-22 position size: the worked example from the pick, toggles recompute, and the 25% warning", async ({ page }) => {
+  test("TC-22 position size: the worked example from the pick, toggles recompute, and the concentration check", async ({ page }) => {
     await deskMocks(page);
     await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
     const { entry_price: entry, stoploss: stop, target_price: target } = PICKS.picks[0];
@@ -689,6 +762,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
       const used = qty * entry;
       return { qty, used, usedPct: (used / capital) * 100, maxLoss: qty * (entry - stop), atTarget: qty * (target - entry), limit: Math.floor((capital * 0.25) / entry) };
     };
+    const conc = page.getByTestId("desk-risk-chk-concentration");
     const check = async (capital: number, riskPct: number) => {
       const s = size(capital, riskPct);
       await expect(page.getByTestId("desk-risk-qty")).toHaveText(new Intl.NumberFormat("en-IN").format(s.qty));
@@ -697,9 +771,11 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
       await expect(page.getByTestId("desk-risk-maxloss")).toHaveText(inr0(s.maxLoss));
       await expect(page.getByTestId("desk-risk-attarget")).toHaveText(`+${inr0(s.atTarget)}`);
       if (s.used > capital * 0.25) {
-        await expect(page.getByTestId("desk-risk-warn")).toHaveText(`Capital used is above a 25% single-stock limit; ${s.limit} shares keeps you inside it.`);
+        await expect(conc).toHaveAttribute("data-tone", "amber");
+        await expect(conc).toContainText(`${s.usedPct.toFixed(1)}% of capital in one stock, above the 25% single-stock limit; ${s.limit} shares keeps it inside.`);
       } else {
-        await expect(page.getByTestId("desk-risk-warn")).toHaveCount(0);
+        await expect(conc).toHaveAttribute("data-tone", "mint");
+        await expect(conc).toContainText(`${s.usedPct.toFixed(1)}% of capital, within the 25% single-stock limit.`);
       }
       return s;
     };
@@ -708,6 +784,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-pct-1")).toHaveAttribute("aria-pressed", "true");
     expect((await check(500_000, 1)).qty).toBe(200);
     await expect(page.getByTestId("desk-risk-size")).toContainText("before brokerage and taxes");
+    await expect(page.getByTestId("desk-risk-chk-size")).toContainText(`${inr0(5_000)} at risk (1% of ${inr0(500_000)}); max loss ${inr0(5_000)} at the stop.`);
 
     await page.getByTestId("desk-risk-capital-2l").click();
     await page.getByTestId("desk-risk-pct-2").click();
@@ -717,6 +794,16 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await page.getByTestId("desk-risk-capital-10l").click();
     await page.getByTestId("desk-risk-pct-0-5").click();
     await check(1_000_000, 0.5);
+
+    // Gap risk: the largest opening gap over the last 63 sessions of the bars, against the stop's distance.
+    const recent = BARS.slice(-64);
+    let best = { pct: 0, day: "" };
+    for (let i = 1; i < recent.length; i++) {
+      const g = (recent[i][1] / recent[i - 1][4] - 1) * 100;
+      if (Math.abs(g) > Math.abs(best.pct)) best = { pct: g, day: recent[i][0] };
+    }
+    await expect(page.getByTestId("desk-risk-chk-gap")).toContainText(`Largest opening gap in the last 63 sessions: ${signedPct(best.pct)}`);
+    await expect(page.getByTestId("desk-risk-chk-correlation")).toHaveAttribute("data-tone", "na");
   });
 
   test("TC-23 Add to paper trades posts the calculator's quantity at the pick's levels; it is pending, then confirmed, and says no order is placed", async ({ page }) => {
@@ -770,22 +857,23 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page).toHaveURL(/[?&]tab=portfolio/);
   });
 
-  test("TC-23 Alert on trigger posts the watchlist trigger as an 'above' level; a pick without a trigger uses its entry and sends no bucket", async ({ page }) => {
+  test("TC-23 Alert on trigger posts the watchlist trigger as an 'above' level and turns into “Alert set ✓”; a pick without a trigger uses its entry and sends no bucket", async ({ page }) => {
     await deskMocks(page);
     const posted = await mockDeskWrites(page);
     await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
     const w = WATCHLIST.buckets.breakout_confirmed[0];
+    const alertBtn = page.getByTestId("desk-risk-alert");
+    await expect(alertBtn).toHaveText("Alert on trigger");
     await expect(page.getByTestId("desk-risk-alert-note")).toContainText(`reaches ${inr2(w.trigger_price)} (the trigger)`);
-    await page.getByTestId("desk-risk-alert").click();
+    await alertBtn.click();
     await expect(page.getByTestId("desk-risk-alert-done")).toContainText(`Alert set: FIXBRK above ${inr2(w.trigger_price)}`);
+    await expect(alertBtn).toHaveText("Alert set ✓");
+    await expect(alertBtn).toBeDisabled();
     expect(posted).toEqual([{ method: "POST", path: "/api/desk/alerts", body: { symbol: "FIXBRK", condition: "above", level: w.trigger_price } }]);
 
     // FIXPICK is only in the picks: no trigger (the alert uses the entry), no bucket in the trade's source.
-    await page.getByTestId("desk-chart-symbol-input").fill("FIXPICK");
-    await page.getByTestId("desk-chart-symbol-load").click();
+    await page.goto(`${DESK}?tab=chart&sym=FIXPICK`);
     await expect(page.getByTestId("desk-chart-symbol")).toHaveText("FIXPICK");
-    // The FIXBRK outcome does not carry over to another stock.
-    await expect(page.getByTestId("desk-risk-alert-done")).toHaveCount(0);
     const fp = PICKS.picks[1];
     await page.getByTestId("desk-risk-alert").click();
     await expect.poll(() => posted.length).toBe(2);
@@ -820,8 +908,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     expect(posted).toHaveLength(2);
 
     // A symbol off the scanner: both buttons are disabled with the reason, and a forced click sends nothing.
-    await page.getByTestId("desk-chart-symbol-input").fill("OTHERSYM");
-    await page.getByTestId("desk-chart-symbol-load").click();
+    await page.goto(`${DESK}?tab=chart&sym=OTHERSYM`);
     await expect(page.getByTestId("desk-chart-symbol")).toHaveText("OTHERSYM");
     await expect(page.getByTestId("desk-risk-paper")).toBeDisabled();
     await expect(page.getByTestId("desk-risk-alert")).toBeDisabled();
@@ -829,7 +916,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-alert-note")).toHaveText("Needs a trigger or an entry level; this stock has neither on today’s scanner.");
     await page.getByTestId("desk-risk-paper").click({ force: true });
     await page.getByTestId("desk-risk-alert").click({ force: true });
-    await expect(page.getByTestId("desk-risk")).toContainText("Nivesh reads broker positions and cannot place orders.");
+    await expect(page.getByTestId("desk-risk-note")).toHaveText("Paper trade only. Nivesh reads broker positions and cannot place orders.");
     await page.waitForTimeout(500);
     expect(writes).toHaveLength(3);
     expect(writes.every((w) => /^POST .*\/api\/desk\/(paper-trades|alerts)$/.test(w))).toBe(true);
@@ -862,7 +949,139 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
   });
 });
 
-// ── phone width ──────────────────────────────────────────────────────────
+// ── design fidelity: titles, order, labels, persona (desktop) ────────────
+
+test.describe("Smart trading desk · design fidelity (desktop)", () => {
+  test.use({ viewport: { width: 1360, height: 900 } });
+
+  test("scanner: the 02 card header, the controls row in order, and the nine columns in the design's order", async ({ page }) => {
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=scanner`);
+    await expect(page.getByTestId("desk-scan-table")).toBeVisible();
+    await expect(page.getByTestId("desk-scan-title")).toHaveText("02 · AI Opportunity scanner");
+    expect(await texts(page, '[data-testid^="desk-scan-col-"]')).toEqual([
+      "#", "Stock", "Score", "P(+5% next session)", "Hit rate · n", "Pattern / catalyst", "To target", "24 sessions", "Status",
+    ]);
+    expect(await texts(page, '[data-testid^="desk-scan-rank-"]:not([data-testid="desk-scan-rank"])')).toEqual(["Score", "P(+5% next session)", "P(+10% next session)"]);
+    expect(await texts(page, '[data-testid^="desk-scan-group-"]')).toEqual(["All", "Breakouts", "Near breakout", "Pullbacks", "Accumulation"]);
+    // Controls row order: Rank by → chips → the Liquid-only switch at the right.
+    const rankBox = (await page.getByTestId("desk-scan-rank-score").boundingBox())!;
+    const chipBox = (await page.getByTestId("desk-scan-group-all").boundingBox())!;
+    const liquidBox = (await page.getByTestId("desk-scan-liquid").boundingBox())!;
+    expect(rankBox.x).toBeLessThan(chipBox.x);
+    expect(chipBox.x).toBeLessThan(liquidBox.x);
+    // Rank is zero-padded; the selected row's rank is mint.
+    await expect(page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-rank")).toHaveText("01");
+  });
+
+  test("scanner: the investor wording switches labels, the probability wording and the pattern text", async ({ page }) => {
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=scanner`);
+    await expect(page.getByTestId("desk-scan-col-odds")).toHaveText("P(+5% next session)");
+    await page.getByTestId("desk-persona-investor").click();
+    await expect(page).toHaveURL(/[?&]persona=investor/);
+    expect(await texts(page, '[data-testid^="desk-scan-col-"]')).toEqual([
+      "#", "Stock", "Score", "Chance +5% next day", "Past record", "Why it shows up", "To target", "24 sessions", "Status",
+    ]);
+    expect(await texts(page, '[data-testid^="desk-scan-rank-"]:not([data-testid="desk-scan-rank"])')).toEqual(["Score", "Chance +5% next day", "Chance +10% next day"]);
+    await expect(page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-setup")).toHaveText("Broke above a recent high");
+    await expect(page.getByTestId("desk-scan-row-FIXTRD").getByTestId("desk-scan-setup")).toHaveText("Dipped in an uptrend");
+    await expect(page.getByTestId("desk-scan-footnote")).toContainText("one day only");
+    // Same data, other words: the figures do not change.
+    await expect(page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-odds")).toHaveText(pct1(ODDS_ROWS[1].p));
+  });
+
+  test("chart: 03 card with the overlay chips then the timeframe, the head row, indicators, setup check, why rows and history tiles; 05 risk desk beside it", async ({ page }) => {
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await expect(page.getByTestId("desk-candle")).toHaveCount(63);
+    await expect(page.getByTestId("desk-chart-title")).toHaveText("03 · AI Chart intelligence");
+    await expect(page.getByTestId("desk-risk-title")).toHaveText("05 · AI Risk desk");
+    await expect(page.getByTestId("desk-chart-tab")).toHaveAttribute("data-layout", "desk");
+    // 7 : 5 side by side, tops aligned.
+    const card = (await page.getByTestId("desk-chart-card").boundingBox())!;
+    const risk = (await page.getByTestId("desk-risk").boundingBox())!;
+    expect(Math.abs(card.y - risk.y)).toBeLessThanOrEqual(1);
+    expect(risk.x).toBeGreaterThan(card.x + card.width);
+    expect(card.width / risk.width).toBeGreaterThan(1.25);
+    // Header: EMA · VWAP · Levels, then 1M · 3M · 6M.
+    const order = await page.locator('[data-testid="desk-chart-card"] [data-testid^="desk-chart-ov-"], [data-testid="desk-chart-card"] [data-testid^="desk-chart-tf-"]').allTextContents();
+    expect(order).toEqual(["EMA", "VWAP", "Levels", "1M", "3M", "6M"]);
+    // Legend keys and span, design order.
+    await expect(page.getByTestId("desk-chart-legend")).toHaveText("EMA 20EMA 50VWAP 20DTargetEntryStopDaily · 3 months");
+    // Indicator tiles in order, five across.
+    await expect(page.getByTestId("desk-indicators")).toHaveAttribute("data-cols", "5");
+    expect(await page.getByTestId("desk-indicators").locator(".cp-eyebrow").allTextContents()).toEqual(["EMA 20", "RSI 14", "ATR 14", "VWAP 20D", "RVOL"]);
+    await expect(page.getByTestId("desk-setup-check")).toContainText("Setup check");
+    expect(await page.locator('[data-testid^="desk-why-"] > .cp-eyebrow').allTextContents()).toEqual(["Trend", "Momentum", "Catalyst", "Risk"]);
+    await expect(page.getByTestId("desk-why-ask")).toHaveText("Ask Copilot ›");
+    expect(await page.getByTestId("desk-history").locator(".cp-eyebrow").allTextContents()).toEqual(["Hit rate", "Average move", "Reward : risk", "Scanner confidence"]);
+    // The head row: label · company, price, change, then the pattern pills (first mint).
+    await expect(page.getByTestId("desk-chart-header")).toContainText(`FIXBRK · ${STOCK_FIXBRK.data.company_name}`);
+    await expect(page.getByTestId("desk-chart-pills").locator(".cp-pill").first()).toHaveAttribute("data-tone", "mint");
+  });
+
+  test("risk desk: scenario and reward / risk, range bar, two probability tiles, the gate, position size, four checks, two buttons and the note — in that order", async ({ page }) => {
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("5 of 5 passed");
+    const ids = ["desk-risk-scenario", "desk-risk-bar", "desk-risk-p5", "desk-risk-explain", "desk-risk-gate", "desk-risk-size", "desk-risk-checks", "desk-risk-actions", "desk-risk-note"];
+    const tops: number[] = [];
+    for (const id of ids) tops.push(await topOf(page, id));
+    expect([...tops].sort((a, b) => a - b)).toEqual(tops);
+    const risk = page.getByTestId("desk-risk");
+    await expect(risk).toContainText("Reward / risk");
+    await expect(risk).toContainText("Move probability");
+    await expect(risk).toContainText("Trade win rate");
+    await expect(risk).toContainText("Validation gate");
+    expect(await risk.locator('[data-testid^="desk-risk-chk-"] .cp-eyebrow').allTextContents()).toEqual(["Position size", "Concentration", "Correlation", "Gap risk"]);
+    expect(await texts(page, '[data-testid^="desk-risk-capital-"]')).toEqual(["₹2L", "₹5L", "₹10L"]);
+    expect(await texts(page, '[data-testid^="desk-risk-pct-"]')).toEqual(["0.5%", "1%", "2%"]);
+    expect(await page.getByTestId("desk-risk-size").locator(".cp-eyebrow").allTextContents()).toEqual(["Position size", "Quantity", "Capital used", "Max loss", "At target"]);
+    await expect(page.getByTestId("desk-risk-paper")).toHaveText("Add to paper trades");
+    await expect(page.getByTestId("desk-risk-alert")).toHaveText("Alert on trigger");
+    await expect(page.getByTestId("desk-risk-gate").locator("li")).toHaveCount(5);
+  });
+
+  test("chart and risk desk: the investor wording swaps every design label and keeps the figures", async ({ page }) => {
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK&persona=investor`);
+    await expect(page.getByTestId("desk-candle")).toHaveCount(63);
+    await expect(page.getByTestId("desk-chart-legend")).toHaveText("20-day avg50-day avgMonth’s avgTargetBuy aboveExitDaily · 3 months");
+    expect(await page.getByTestId("desk-indicators").locator(".cp-eyebrow").allTextContents()).toEqual(["Trend", "Momentum", "Daily swing", "Month’s avg", "Activity"]);
+    await expect(page.getByTestId("desk-setup-check")).toContainText("What the chart shows");
+    expect(await page.locator('[data-testid^="desk-why-"] > .cp-eyebrow').allTextContents()).toEqual(["Trend", "Strength", "News", "Watch"]);
+    expect(await page.getByTestId("desk-history").locator(".cp-eyebrow").allTextContents()).toEqual(["Worked before", "Typical rise", "Reward for risk", "Scanner’s confidence"]);
+    const risk = page.getByTestId("desk-risk");
+    await expect(risk).toContainText("Reward for risk");
+    await expect(risk).toContainText("Chance of +5%");
+    await expect(risk).toContainText("Past trades that worked");
+    expect(await page.getByTestId("desk-risk-size").locator(".cp-eyebrow").allTextContents()).toEqual(["How much to buy", "Shares", "Money used", "If wrong", "If right"]);
+    expect(await risk.locator('[data-testid^="desk-risk-chk-"] .cp-eyebrow').allTextContents()).toEqual(["Size", "One-stock share", "Moves with", "Sudden jumps"]);
+    const p = PICKS.picks[0];
+    await expect(page.getByTestId("desk-risk-stop")).toHaveText(`Exit if wrong ${inr2(p.stoploss)}`);
+    await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Buy above ${inr2(p.entry_price)}`);
+    await expect(page.getByTestId("desk-risk-scenario")).toHaveText("Broke above a recent high");
+    // The figures are the same as the trader's.
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText(pct1(ODDS_ROWS[1].p));
+    await expect(page.getByTestId("desk-risk-qty")).toHaveText("200");
+  });
+
+  test("at 1440 with the Copilot docked the chart and the risk desk still sit side by side", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await expect(page.getByTestId("desk-candle")).toHaveCount(63);
+    await expect(page.getByTestId("desk-chart-tab")).toHaveAttribute("data-layout", "desk");
+    const card = (await page.getByTestId("desk-chart-card").boundingBox())!;
+    const risk = (await page.getByTestId("desk-risk").boundingBox())!;
+    expect(risk.x).toBeGreaterThan(card.x + card.width);
+    const o = await sidewaysOverflow(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+  });
+});
+
+// ── phone width (design-spec §11 M2 / M4) ────────────────────────────────
 
 test.describe("Smart trading desk · scanner and chart at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
@@ -872,16 +1091,122 @@ test.describe("Smart trading desk · scanner and chart at 390px", () => {
       await deskMocks(page);
       await page.goto(`${DESK}?tab=${tab}&sym=FIXBRK`);
       if (tab === "scanner") {
-        await expect(page.getByTestId("desk-scan-cards")).toBeVisible();
+        await expect(page.getByTestId("desk-scan-table")).toHaveAttribute("data-layout", "phone");
         await expect(page.getByTestId("desk-scan-row-FIXBRK")).toBeVisible();
       } else {
         await expect(page.getByTestId("desk-candle")).toHaveCount(63);
-        await expect(page.getByTestId("desk-risk")).toBeVisible();
-        await expect(page.getByTestId("desk-model-p_up5_1d-p")).toBeVisible();
+        await expect(page.getByTestId("desk-risk")).toHaveAttribute("data-layout", "phone");
+        await expect(page.getByTestId("desk-risk-p5")).toBeVisible();
       }
       const o = await sidewaysOverflow(page);
       expect(o.doc).toBeLessThanOrEqual(1);
       expect(o.scroll).toBeLessThanOrEqual(1);
     });
+  }
+
+  test("M2: chips with Liquid only → Rank by → the five-column table → Scanner insights, in that order", async ({ page }) => {
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=scanner`);
+    await expect(page.getByTestId("desk-scanner")).toHaveAttribute("data-layout", "phone");
+    expect(await texts(page, '[data-testid^="desk-scan-group-"], [data-testid="desk-scan-liquid"]')).toEqual(["All", "Breakouts", "Near breakout", "Pullbacks", "Accumulation", "Liquid only"]);
+    expect(await texts(page, '[data-testid^="desk-scan-col-"]')).toEqual(["#", "Stock", "Score", "Upside", "Pattern"]);
+    const tops = [await topOf(page, "desk-scan-group-all"), await topOf(page, "desk-scan-rank-score"), await topOf(page, "desk-scan-table"), await topOf(page, "desk-scan-insights")];
+    expect([...tops].sort((a, b) => a - b)).toEqual(tops);
+    // Each row: score chip with P under it, upside, pattern with its status.
+    const brk = page.getByTestId("desk-scan-row-FIXBRK");
+    await expect(brk.getByTestId("desk-scan-score")).toHaveText("86");
+    await expect(brk.getByTestId("desk-scan-odds")).toHaveText(`${Math.round(ODDS_ROWS[1].p * 100)}%`);
+    await expect(brk.getByTestId("desk-scan-target")).toHaveText(`+${(((555 - 510) / 510) * 100).toFixed(1)}%`);
+    await expect(brk.getByTestId("desk-scan-status")).toHaveText("Confirmed");
+    // Insights from the payload: 5 setups, 1 confirmed, the highest next-session estimate.
+    const exp = expectedRows();
+    const confirmed = exp.filter((r) => r.status === "confirmed").length;
+    const awaiting = exp.filter((r) => r.status === "awaiting").length;
+    const best = [...ODDS_ROWS].sort((a, b) => b.p - a.p)[0];
+    const insights = page.getByTestId("desk-scan-insights");
+    await expect(insights).toContainText(`${exp.length} setups on the 13 Oct 2026 scan: ${confirmed} confirmed, ${awaiting} awaiting a trigger, ${exp.length - confirmed - awaiting} forming.`);
+    await expect(insights).toContainText(`Highest P(+5% next session): ${best.symbol} at ${pct1(best.p)}.`);
+    // The definitions sit behind a disclosure, and say the score is not a probability.
+    await page.getByTestId("desk-scan-footnote-toggle").click();
+    await expect(page.getByTestId("desk-scan-footnote")).toContainText("it is not a probability");
+    // Liquid only works on the phone too.
+    await page.getByTestId("desk-scan-liquid").click();
+    expect((await rowOrder(page)).sort()).toEqual(["FIXACC", "FIXBRK", "FIXPICK"]);
+    const o = await sidewaysOverflow(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+  });
+
+  test("M4: stock head → controls → chart → 03 analysis → historical performance → 05 trade scenario with a full-width button", async ({ page }) => {
+    await deskMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await expect(page.getByTestId("desk-chart-tab")).toHaveAttribute("data-layout", "phone");
+    await expect(page.getByTestId("desk-candle")).toHaveCount(63);
+    await expect(page.getByTestId("desk-chart-svg")).toHaveAttribute("viewBox", "0 0 330 194");
+    const ids = ["desk-chart-header", "desk-chart-tf-3M", "desk-chart-card", "desk-analysis", "desk-history", "desk-risk"];
+    const tops: number[] = [];
+    for (const id of ids) tops.push(await topOf(page, id));
+    expect([...tops].sort((a, b) => a - b)).toEqual(tops);
+    await expect(page.getByTestId("desk-analysis")).toContainText("03 · AI chart analysis");
+    await expect(page.getByTestId("desk-analysis").locator('[data-testid^="desk-check-"]')).toHaveCount(7);
+    await expect(page.getByTestId("desk-chart-pills")).toContainText("Scanner confidence · High");
+    expect(await page.getByTestId("desk-history").locator(".cp-eyebrow").allTextContents()).toEqual(["Hit rate", "Average move", "Reward : risk"]);
+    await expect(page.getByTestId("desk-risk-title")).toHaveText("05 · Trade scenario");
+    await expect(page.getByTestId("desk-risk-rr")).toHaveText("2.0 : 1");
+    await expect(page.getByTestId("desk-chart-status")).toHaveAttribute("data-status", "confirmed");
+    // Only the paper-trade button, full width of the card's body.
+    await expect(page.getByTestId("desk-risk-alert")).toHaveCount(0);
+    const btn = (await page.getByTestId("desk-risk-paper").boundingBox())!;
+    const card = (await page.getByTestId("desk-risk").boundingBox())!;
+    expect(btn.width).toBeGreaterThanOrEqual(card.width - 2 * 14 - 2);
+  });
+
+  test("M4: Add to paper trades posts the default sizing (₹5L at 1%) and says so", async ({ page }) => {
+    await deskMocks(page);
+    const posted = await mockDeskWrites(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    const p = PICKS.picks[0];
+    const qty = Math.floor(5_000 / (p.entry_price - p.stoploss));
+    await expect(page.getByTestId("desk-risk-paper-note")).toContainText(`Simulated: ${qty} shares at ${inr2(p.entry_price)}`);
+    await expect(page.getByTestId("desk-risk-paper-note")).toContainText(`(sized at ${inr0(500_000)} with 1% risk)`);
+    await page.getByTestId("desk-risk-paper").click();
+    await expect(page.getByTestId("desk-risk-paper-done")).toContainText(`Paper trade added: ${qty} FIXBRK`);
+    expect(posted).toHaveLength(1);
+    expect(posted[0].body).toEqual({
+      symbol: "FIXBRK", quantity: qty, entry_price: p.entry_price, stop_price: p.stoploss, target_price: p.target_price,
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date },
+    });
+  });
+});
+
+// ── fidelity screenshots (design-spec §4, §5, §11 M2 / M4) ────────────────
+// Written to e2e/screenshots/ (git-ignored) for a visual check against the design; they assert only that the tab rendered.
+// "-tall" sets a viewport tall enough to show the whole tab (the shell scrolls inside its own box).
+
+const SHOT = "after";
+
+test.describe("Smart trading desk · fidelity screenshots", () => {
+  // 1440 has the Copilot docked (the scanner box is too narrow for the nine columns: cards); 1360 is not docked (the table).
+  for (const vp of [{ width: 1440, height: 900, name: "1440" }, { width: 1360, height: 900, name: "1360" }, { width: 390, height: 844, name: "390" }]) {
+    for (const tab of ["scanner", "chart"] as const) {
+      test(`SHOT ${tab} at ${vp.name}`, async ({ page }) => {
+        await page.setViewportSize({ width: vp.width, height: vp.height });
+        await deskMocks(page);
+        await page.goto(`${DESK}?tab=${tab}&sym=FIXBRK`);
+        const ready = async () => {
+          if (tab === "scanner") await expect(page.getByTestId("desk-scan-row-FIXBRK")).toBeVisible();
+          else {
+            await expect(page.getByTestId("desk-candle")).toHaveCount(63);
+            await expect(page.getByTestId("desk-risk-p5")).not.toHaveText("…");
+          }
+        };
+        await ready();
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: `e2e/screenshots/fidelity-${tab}-${SHOT}-${vp.name}.png` });
+        await page.setViewportSize({ width: vp.width, height: vp.width > 700 ? 2400 : 3600 });
+        await ready();
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: `e2e/screenshots/fidelity-${tab}-${SHOT}-${vp.name}-tall.png` });
+      });
+    }
   }
 });

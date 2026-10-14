@@ -20,7 +20,7 @@
  * Read through shared hooks (see PortfolioTab.tsx):
  *   GET /api/portfolio/holdings-enriched         holdings, weights and totals   (useHoldingsEnriched)
  *   GET /api/portfolio/exposure/concentration    sector look-through            (usePortfolioConcentration)
- *   GET /api/paper-trades/evaluation             calibration buckets            (usePaperEvaluation)
+ *   GET /api/paper-trades/evaluation             calibration buckets, modes     (usePaperEvaluation)
  *
  * Nothing here trusts the response shape: a missing or non-numeric field is
  * null, never 0, and a body without the list the route always sends
@@ -63,6 +63,8 @@ export interface RiskAnalytics {
   empty: boolean;
   /** LOW | MEDIUM | HIGH | VERY_HIGH from the route's volatility bands; null for UNKNOWN or none. */
   rating: string | null;
+  /** The route's 0–10 risk score (annual volatility ÷ 4%, capped at 10); null when it sent none. */
+  score: number | null;
   /** Value-weighted 1-year beta of the holdings that have one. */
   beta: number | null;
   /** Value-weighted 1-year volatility, percent a year. */
@@ -93,6 +95,7 @@ export async function fetchRiskAnalytics(signal?: AbortSignal): Promise<RiskAnal
   return {
     empty: d.empty === true,
     rating: rating === "UNKNOWN" ? null : rating,
+    score: num(d.risk_score),
     beta: num(d.weighted_beta),
     volatilityPct: vol == null ? null : vol * 100,
     var1dRs: num(d.var_1d_rs),
@@ -433,4 +436,62 @@ export function useMarketCapSplit() {
     retry,
     queryFn: ({ signal }) => fetchCapSplit(signal),
   });
+}
+
+// ── the portfolio donut (design-spec §7: split by market cap, with cash) ─
+
+export type DonutKey = CapBucket | "unsplit" | "funds";
+
+export interface DonutSlice {
+  key: DonutKey;
+  valueRs: number;
+  /** Share of the whole portfolio the route valued (direct stocks + funds and other holdings), percent. */
+  pct: number;
+}
+
+/**
+ * The donut's slices from GET /api/portfolio/market-cap-split: each market-cap
+ * bucket the route could split, then what it could not split yet, then the funds
+ * and other holdings it leaves out. Shares are of direct stocks + funds as the
+ * route states them, so the slices add to 100%. null when nothing has a value.
+ */
+export function capDonut(d: CapSplit): { slices: DonutSlice[]; totalRs: number } | null {
+  const split = d.slices.filter((sl) => sl.available && sl.valueRs != null && sl.valueRs > 0);
+  const unsplit = d.unsplit?.valueRs != null && d.unsplit.valueRs > 0 ? d.unsplit.valueRs : 0;
+  const stocks = d.totalValueRs ?? split.reduce((a, sl) => a + (sl.valueRs ?? 0), 0) + unsplit;
+  const funds = d.fundsValueRs != null && d.fundsValueRs > 0 ? d.fundsValueRs : 0;
+  const totalRs = stocks + funds;
+  if (!(totalRs > 0)) return null;
+  const slices: DonutSlice[] = split.map((sl) => ({ key: sl.bucket, valueRs: sl.valueRs as number, pct: ((sl.valueRs as number) / totalRs) * 100 }));
+  if (unsplit > 0) slices.push({ key: "unsplit", valueRs: unsplit, pct: (unsplit / totalRs) * 100 });
+  if (funds > 0) slices.push({ key: "funds", valueRs: funds, pct: (funds / totalRs) * 100 });
+  return { slices, totalRs };
+}
+
+// ── the model's paper record (GET /api/paper-trades/evaluation) ──────────
+
+export interface RecordTiles {
+  /** Predictions with an outcome in the bucket set. */
+  n: number;
+  /** n-weighted mean of the model's probability, percent. */
+  predictedPct: number | null;
+  /** n-weighted share where the move happened, percent. */
+  realisedPct: number | null;
+  /** Predictions where the move did not happen. */
+  misses: number | null;
+}
+
+/** Predicted vs realised over a bucket set, weighting each bucket by its predictions. */
+export function recordTiles(buckets: PaperBucket[]): RecordTiles {
+  let n = 0;
+  let p = 0;
+  let r = 0;
+  for (const b of buckets) {
+    if (!(b.n > 0) || b.predicted_mean == null || b.model_label_rate == null) continue;
+    n += b.n;
+    p += b.n * b.predicted_mean;
+    r += b.n * b.model_label_rate;
+  }
+  if (n === 0) return { n: 0, predictedPct: null, realisedPct: null, misses: null };
+  return { n, predictedPct: (p / n) * 100, realisedPct: (r / n) * 100, misses: Math.round(n - r) };
 }
