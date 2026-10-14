@@ -32,6 +32,9 @@ import Home from "./views/Home";
 import Thread from "./views/Thread";
 import "./copilot-app.css";
 
+/** Views that dock a Copilot panel of their own on wide screens (see TradingDesk). */
+const DOCKED_ASK_VIEWS = new Set(["trader/desk"]);
+
 function useViewportWidth(): number {
   const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1440));
   useEffect(() => {
@@ -66,6 +69,8 @@ export default function CopilotAppPage() {
   const mobile = width < 700;
   const compact = width < 980;
   const narrow = width < 1200;
+  // Rail (252) + padding + a 360px dock still leaves a ~710px screen from here.
+  const wide = width >= 1400;
 
   const view = viewOf(location.pathname);
   const threadId = threadIdOf(location.pathname);
@@ -123,9 +128,13 @@ export default function CopilotAppPage() {
   }, [view, threadId]);
 
   const shell = useMemo<CopilotShell>(
-    () => ({ mode, mobile, compact, ask, go, isAdmin, isAdvisorWorkspace, firstName }),
-    [mode, mobile, compact, ask, go, isAdmin, isAdvisorWorkspace, firstName],
+    () => ({ mode, mobile, compact, wide, ask, go, isAdmin, isAdvisorWorkspace, firstName }),
+    [mode, mobile, compact, wide, ask, go, isAdmin, isAdvisorWorkspace, firstName],
   );
+
+  // Screens that dock their own Copilot panel from 1400px; the shell's ask box
+  // would be a second input for the same thing, so it is hidden there.
+  const ownAskBox = wide && DOCKED_ASK_VIEWS.has(view);
 
   // Thread bar: label and question of the latest turn.
   const { turns } = useThreadTurns(threadId, engine);
@@ -228,7 +237,7 @@ export default function CopilotAppPage() {
               </div>
             </div>
           )}
-          <Composer
+          {!ownAskBox && <Composer
             ref={composerRef}
             busy={engine.busy}
             mode={mode}
@@ -239,7 +248,7 @@ export default function CopilotAppPage() {
             // Statement import (CAS upload, Gmail) lives on the connections screen.
             onAttach={() => go("page/brokers")}
             onGo={go}
-          />
+          />}
         </main>
 
         {(evColumn || evSheet) && (

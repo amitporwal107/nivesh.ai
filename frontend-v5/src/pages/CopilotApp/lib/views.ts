@@ -50,6 +50,8 @@ const ADVISOR_TOOLS: NavItem[] = [
 ];
 
 const TRADER_TOOLS: NavItem[] = [
+  // Six modules on tabs with the Copilot docked: scanner, chart and risk desk, filings, portfolio, F&O.
+  { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
   { view: "trader", label: "Trader desk", tag: "F&O" },
   { view: "tool/optlab", label: "Options lab", tag: "F&O" },
   // The original strategy builder (screen → backtest → save), mounted inside the shell.
