@@ -1,8 +1,12 @@
 /**
  * Smart trading desk — the data every tab shares: the opportunity list.
  *
- *   GET /api/positional/watchlist?limit=30   four setup buckets with a trigger and a stop  (stock_technical_features + 60 daily bars)
- *   GET /api/positional/picks?limit=30       scored scanner signals with entry, stop, target (positional_signals)
+ *   GET /api/positional/watchlist?limit=30   four setup buckets with a trigger and a stop  (stock_technical_features + 60 daily bars),
+ *                                            the next resistance / support, and per row the last 24 daily closes
+ *                                            (spark_closes, spark_end) and the 20-session average traded value
+ *                                            (avg_traded_value_cr_20d, ₹ crore a day) from stock_ohlcv
+ *   GET /api/positional/picks?limit=30       scored scanner signals with entry, stop, target (positional_signals),
+ *                                            with the same spark and traded-value fields
  *   GET /api/move-odds/latest?head=…         the move-odds model's next-session estimates   (DaaS nidp.tpd_*, flag move_odds)
  *
  * All three are end of day. The two scanner routes are merged by symbol: a
@@ -37,6 +41,20 @@ export function num(v: unknown): number | null {
 const price = (v: unknown): number | null => {
   const n = num(v);
   return n != null && n > 0 ? n : null;
+};
+
+/** The last daily closes, oldest first; only positive numbers are kept (a missing bar is dropped, not drawn as 0). */
+function closes(v: unknown): number[] {
+  return arr(v).flatMap((x) => {
+    const n = price(x);
+    return n == null ? [] : [n];
+  });
+}
+
+/** A non-negative figure (a traded value), or null. */
+const nonNeg = (v: unknown): number | null => {
+  const n = num(v);
+  return n != null && n >= 0 ? n : null;
 };
 
 /** A list of strings that may arrive as an array or as a JSON-encoded array (JSONB read without a codec). */
@@ -119,6 +137,15 @@ export interface DeskSetup {
   scans: string[];
   /** The structural signals the watchlist gate measured (range, volume slope, …), as stored. */
   signals: Record<string, number | null>;
+  /** The watchlist's next resistance above / support below the close (watchlist only). */
+  resistance: number | null;
+  support: number | null;
+  /** The last daily closes (up to 24), oldest first; empty when the route sent none. */
+  spark: number[];
+  /** Session of the last close in `spark`. */
+  sparkEnd: string | null;
+  /** Mean of close × volume over the last 20 sessions, ₹ crore a day; null when the route sent none. */
+  avgTradedCr: number | null;
   /** Which routes have this stock. */
   inPicks: boolean;
   inWatchlist: boolean;
@@ -147,12 +174,14 @@ function statusOf(bucket: SetupBucket | null, stage: string | null): SetupStatus
 interface WatchItem {
   symbol: string; bucket: SetupBucket; sector: string | null; stage: string | null; confidence: string | null; score: number | null;
   close: number | null; trigger: number | null; stop: number | null; atrPct: number | null; rsi14: number | null; ema20: number | null;
-  sma50: number | null; why: string | null; signals: Record<string, number | null>;
+  sma50: number | null; why: string | null; signals: Record<string, number | null>; resistance: number | null; support: number | null;
+  spark: number[]; sparkEnd: string | null; avgTradedCr: number | null;
 }
 
 interface PickItem {
   symbol: string; stage: string | null; confidence: string | null; score: number | null; entry: number | null; stop: number | null;
   target: number | null; riskReward: number | null; daysMin: number | null; daysMax: number | null; reasons: string[]; scans: string[];
+  spark: number[]; sparkEnd: string | null; avgTradedCr: number | null;
 }
 
 async function fetchWatch(signal?: AbortSignal): Promise<{ asOf: string | null; items: WatchItem[] }> {
@@ -176,7 +205,8 @@ async function fetchWatch(signal?: AbortSignal): Promise<{ asOf: string | null; 
         score: score != null ? score * 100 : null,
         close: price(r.close_price), trigger: price(r.trigger_price), stop: price(r.stop_price),
         atrPct: num(r.atr_pct), rsi14: num(r.rsi_14), ema20: price(r.ema_20), sma50: price(r.sma_50),
-        why: str(r.why), signals,
+        why: str(r.why), signals, resistance: price(r.resistance_level), support: price(r.support_level),
+        spark: closes(r.spark_closes), sparkEnd: str(r.spark_end), avgTradedCr: nonNeg(r.avg_traded_value_cr_20d),
       });
     }
   }
@@ -197,10 +227,14 @@ async function fetchPicks(signal?: AbortSignal): Promise<{ signalDate: string | 
       symbol, stage: str(p.stage), confidence: str(p.confidence), score: score != null ? score * 100 : null,
       entry: price(p.entry_price), stop: price(p.stoploss), target: price(p.target_price), riskReward: num(p.risk_reward),
       daysMin: num(p.timeframe_days_min), daysMax: num(p.timeframe_days_max), reasons: strList(p.reasons), scans: strList(p.source_scans),
+      spark: closes(p.spark_closes), sparkEnd: str(p.spark_end), avgTradedCr: nonNeg(p.avg_traded_value_cr_20d),
     });
   }
   return { signalDate: str(d.signal_date), items };
 }
+
+/** "Liquid only": a 20-session average traded value of at least this many ₹ crore a day. */
+export const LIQUID_MIN_CR = 10;
 
 /** Reward to risk from three levels, or null when it cannot be worked out (no target, or the stop is not below the entry). */
 export function rewardToRisk(entry: number | null, stop: number | null, target: number | null): number | null {
@@ -220,6 +254,7 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       score: w.score, confidence: w.confidence, close: w.close, trigger: w.trigger, entry: w.trigger, stop: w.stop, target: null,
       riskReward: null, daysMin: null, daysMax: null, atrPct: w.atrPct, rsi14: w.rsi14, ema20: w.ema20, sma50: w.sma50,
       why: w.why, reasons: [], scans: [], signals: w.signals, inPicks: false, inWatchlist: true,
+      resistance: w.resistance, support: w.support, spark: w.spark, sparkEnd: w.sparkEnd, avgTradedCr: w.avgTradedCr,
     });
   }
   for (const p of picks) {
@@ -228,7 +263,7 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       symbol: p.symbol, sector: null, bucket: null, stage: p.stage, status: statusOf(null, p.stage), score: p.score,
       confidence: p.confidence, close: null, trigger: null, entry: null, stop: null, target: null, riskReward: null,
       daysMin: null, daysMax: null, atrPct: null, rsi14: null, ema20: null, sma50: null, why: null, reasons: [], scans: [],
-      signals: {}, inPicks: true, inWatchlist: false,
+      signals: {}, inPicks: true, inWatchlist: false, resistance: null, support: null, spark: [], sparkEnd: null, avgTradedCr: null,
     };
     // The pick's plan wins when it has one; the bucket keeps saying where the setup stands.
     const entry = p.entry ?? base.entry;
@@ -242,6 +277,10 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       entry, stop, target,
       riskReward: p.riskReward ?? rewardToRisk(entry, stop, target),
       daysMin: p.daysMin, daysMax: p.daysMax, reasons: p.reasons, scans: p.scans, inPicks: true,
+      // Both routes read the same daily bars; the watchlist's figures are used when it has the stock.
+      spark: base.spark.length > 1 ? base.spark : p.spark,
+      sparkEnd: base.spark.length > 1 ? base.sparkEnd : p.sparkEnd,
+      avgTradedCr: base.avgTradedCr ?? p.avgTradedCr,
     });
   }
   for (const s of bySym.values()) {

@@ -153,6 +153,18 @@ def _fmt_metric(m: Optional[Dict[str, Any]]) -> Optional[str]:
     return f"{label}: {value} {unit}".strip()
 
 
+def _exchange(source: Any) -> Optional[str]:
+    """The exchange a filing came from, read from its stored source
+    (nidp.corporate_announcements.source, which the articles feed sends as `source`:
+    NSE_ANN / BSE_ANN). Any other source, or none, is None — never guessed from the URL."""
+    s = str(source or "").strip().upper()
+    if s.startswith("NSE_"):
+        return "NSE"
+    if s.startswith("BSE_"):
+        return "BSE"
+    return None
+
+
 def _row(a: Dict[str, Any], ins: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """One feed row. `one`/`period`/`metric`/`hasInsights` come from a generated
     insight when one exists (else null/false — the honest step-3 seam)."""
@@ -163,6 +175,7 @@ def _row(a: Dict[str, Any], ins: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "code":       a.get("symbol"),   # spec §5 Q2 → the NSE symbol/ticker
         "name":       a.get("company"),
         "date":       a.get("when"),
+        "exchange":   _exchange(a.get("source")),
         "category":   a.get("category"),
         "impact":     a.get("impact"),
         "sentiment":  a.get("sentiment"),

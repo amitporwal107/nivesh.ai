@@ -46,6 +46,7 @@ announcement_classifier=2
 document_parser=2
 amfi_nav=24
 amfi_circulars=48
+sebi_circulars=840
 mf_disclosure_snapshot=840
 mf_holdings=840
 event_calendar=24

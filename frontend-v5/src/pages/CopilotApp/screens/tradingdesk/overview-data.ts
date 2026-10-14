@@ -5,12 +5,16 @@
  *   GET /api/macro/today                    the macro regime: `market` BULL / NEUTRAL / BEAR is the Nifty 50
  *                                           against its 50-day average (services/macro_engine.py), plus `risk`
  *                                           and the engine's own `insight` line
- *   GET /api/positional/market-dashboard    `sector_heatmap`: today's sector-index change when a row says
- *                                           `source: "nse_live"`, otherwise the mean 5-session return of the
- *                                           sector's stocks from end-of-day bars (positional_engine/market_dashboard.py)
+ *   GET /api/markets/sector-returns         NSE sectoral indices' end-of-day close and their 1-day, 1-week and
+ *                                           1-month returns (close vs the close N sessions earlier for that index;
+ *                                           DaaS nidp.index_eod), with the route's own source and as-of date
+ *   GET /api/positional/market-dashboard    `sector_heatmap` leaders only: each sector's best 5-session stock from
+ *                                           end-of-day bars (positional_engine/market_dashboard.py), shown on a
+ *                                           sector-index tile when the two sector names match exactly
  *
- * GET /api/markets/home (index tape, breadth, FII / DII, USD / INR, Brent, the
- * deploy verdict) is read through useMarketOverview (screens/markets/hooks.ts).
+ * GET /api/markets/home (index tape, breadth and the universe it counted, FII /
+ * DII, USD / INR, Brent, the deploy verdict) is read through useMarketOverview
+ * (screens/markets/hooks.ts).
  *
  * Nothing here trusts the response shape: a missing or non-numeric field is
  * null, never 0, and a body without the field the route always sends throws a
@@ -145,7 +149,7 @@ async function fetchSectors(signal?: AbortSignal): Promise<SectorStrength> {
   return { kind: "ready", tiles, period, asOf: str(d.as_of_date), fetchedAt: str(d.fetched_at), isLive: d.is_live === true };
 }
 
-/** GET /api/positional/market-dashboard — the sector heatmap. */
+/** GET /api/positional/market-dashboard — the sector heatmap (the desk reads its leaders). */
 export function useSectorStrength() {
   return useQuery<SectorStrength>({
     queryKey: ["copilot", "desk", "market-dashboard"],
@@ -154,6 +158,75 @@ export function useSectorStrength() {
     retry: noRetry4xx,
     queryFn: ({ signal }) => fetchSectors(signal),
   });
+}
+
+// ── sector returns (GET /api/markets/sector-returns) ─────────────────────
+
+export const SECTOR_PERIODS = ["1d", "1w", "1m"] as const;
+export type SectorPeriodKey = (typeof SECTOR_PERIODS)[number];
+
+export interface SectorReturn {
+  /** The NSE index ("Nifty Bank"). */
+  index: string;
+  /** The sector it stands for ("Banks"); the index name when the row has none. */
+  sector: string;
+  close: number | null;
+  /** That index's own latest close day (it can trail the response's as-of). */
+  date: string | null;
+  /** Percent; null when that index's history is too short for the period. */
+  ret: Record<SectorPeriodKey, number | null>;
+}
+
+export interface SectorReturns {
+  asOf: string | null;
+  source: string | null;
+  /** Sessions each period spans, as the route states them (1, 5, 21). */
+  sessions: Record<SectorPeriodKey, number | null>;
+  sectors: SectorReturn[];
+}
+
+async function fetchSectorReturns(signal?: AbortSignal): Promise<SectorReturns> {
+  const res = await http({ path: "/api/markets/sector-returns", signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.sectors)) throw drift("markets.sector-returns: no sectors list");
+  const sectors: SectorReturn[] = d.sectors.flatMap((v): SectorReturn[] => {
+    const r = rec(v);
+    const index = str(r.index);
+    const sector = str(r.sector) ?? index;
+    if (!index || !sector) return [];
+    return [{ index, sector, close: num(r.close), date: str(r.date), ret: { "1d": num(r.ret_1d_pct), "1w": num(r.ret_1w_pct), "1m": num(r.ret_1m_pct) } }];
+  });
+  const s = rec(d.sessions);
+  return {
+    asOf: str(d.as_of),
+    source: str(d.source),
+    sessions: { "1d": num(s["1d"]), "1w": num(s["1w"]), "1m": num(s["1m"]) },
+    sectors,
+  };
+}
+
+/** GET /api/markets/sector-returns — end of day, so it changes once a session. */
+export function useSectorReturns() {
+  return useQuery<SectorReturns>({
+    queryKey: ["copilot", "desk", "sector-returns"],
+    staleTime: 10 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchSectorReturns(signal),
+  });
+}
+
+/** "Oil & Gas" and "oil gas" → "oilgas": sector names compared without case, spaces or punctuation. */
+export const sectorKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * The market dashboard's 5-session leader for a sector-index row: only when the
+ * dashboard's sector name equals the row's sector, or its index name without
+ * "Nifty" (IT = Nifty IT). No partial match: "Bank" must not lend its leader to
+ * "PSU Bank".
+ */
+export function leaderFor(row: SectorReturn, tiles: SectorTile[]): SectorTile["leader"] {
+  const keys = new Set([sectorKey(row.sector), sectorKey(row.index.replace(/^nifty\s+/i, ""))]);
+  return tiles.find((t) => t.leader && keys.has(sectorKey(t.sector)))?.leader ?? null;
 }
 
 // ── /markets/home derivations ────────────────────────────────────────────
@@ -179,13 +252,13 @@ export function findQuote(home: MarketsHome, name: string): GlobalQuote | null {
 }
 
 /**
- * Which stocks the breadth counts cover. The route prefers the full end-of-day
- * count (every NSE stock with 21+ sessions of daily bars) and falls back to a
- * live count over the Nifty 50 constituents. The response does not name the
- * universe, so it is read from its size: 60 stocks or fewer can only be the
- * Nifty 50 fallback.
+ * Which stocks the breadth counts cover, as the route names them in
+ * `breadth.universe_kind` beside the count in `breadth.universe`: "bhavcopy" =
+ * every NSE stock in the end-of-day file, "nifty50_live" = the live fallback
+ * over the Nifty 50 constituents. No kind, or one this screen does not know, is
+ * "unnamed": the count is shown and nothing is guessed from its size.
  */
-export type BreadthScope = "eod" | "nifty50" | "unknown";
+export type BreadthScope = "eod" | "nifty50" | "unnamed";
 
 export interface BreadthRead {
   advances: number;
@@ -195,23 +268,27 @@ export interface BreadthRead {
   total: number;
   /** advances ÷ total × 100. */
   advancingPct: number;
+  /** Stocks counted, as the route states it; null when it sent none. */
   universe: number | null;
   scope: BreadthScope;
 }
+
 
 export function readBreadth(b: MarketBreadth): BreadthRead | null {
   if (b.advances == null || b.declines == null) return null;
   const unchanged = b.unchanged ?? null;
   const total = b.advances + b.declines + (unchanged ?? 0);
   if (total <= 0) return null;
-  const universe = b.universe ?? null;
+  const count = num(b.universe);
+  const k = str(b.universe_kind)?.toLowerCase() ?? null;
+  const scope: BreadthScope = k === "bhavcopy" ? "eod" : k === "nifty50_live" ? "nifty50" : "unnamed";
   return {
     advances: b.advances,
     declines: b.declines,
     unchanged,
     total,
     advancingPct: (b.advances / total) * 100,
-    universe,
-    scope: universe == null ? "unknown" : universe <= 60 ? "nifty50" : "eod",
+    universe: count,
+    scope,
   };
 }

@@ -9,13 +9,16 @@
  * pw.copilot-app.config.ts.
  *
  * Covers screens/tradingdesk/OverviewTab.tsx (+ overview-data.ts) and
- * IntelTab.tsx (+ intel-data.ts): index tiles and breadth from GET
- * /api/markets/home, the regime from GET /api/macro/today (and its
- * "uninitialised" answer), sector strength from GET
- * /api/positional/market-dashboard and its period label, a failed market
- * overview, the filings event list with its category chips and the selected
- * filing's read, the linked stock against the scanner, FII / DII sessions, an
- * empty and a failed feed, and a 390px pass on both tabs.
+ * IntelTab.tsx (+ intel-data.ts): index tiles and breadth (with the universe
+ * the route names in breadth.universe_kind) from GET /api/markets/home, the
+ * regime from GET /api/macro/today (and its "uninitialised" answer), sector
+ * strength from GET /api/markets/sector-returns with its 1D / 1W / 1M toggle
+ * and the 5-session leaders from GET /api/positional/market-dashboard, a failed
+ * market overview, the filings event list with its category chips, the row's
+ * exchange and the selected filing's read, bulk and block deals from GET
+ * /api/markets/deals, SEBI circulars from GET /api/markets/circulars, the
+ * linked stock against the scanner, FII / DII sessions, empty / failed / 403
+ * states, and a 390px pass on both tabs.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockApi } from "../helpers/api-mock";
@@ -53,7 +56,7 @@ const HOME = {
     { name: "Nifty 500", value: 23000, change: 20, change_pct: 0.09, is_vix: false, trend: null, spark: [22980, 23000] },
     { name: "India VIX", value: 11.82, change: -0.31, change_pct: -2.56, is_vix: true, trend: "FALLING", spark: [12.4, 12.13, 11.82] },
   ],
-  breadth: { advances: 2428, declines: 1142, unchanged: 72, universe: 3642, tone: "POSITIVE", pct_above_20ema: 41.0, pct_above_50ema: 47.2, new_52w_highs: 61, new_52w_lows: 22 },
+  breadth: { advances: 2428, declines: 1142, unchanged: 72, universe: 3642, universe_kind: "bhavcopy", tone: "POSITIVE", pct_above_20ema: 41.0, pct_above_50ema: 47.2, new_52w_highs: 61, new_52w_lows: 22 },
   gainers: [], losers: [], movers_as_of: null, sectors: [],
   fii_dii: { as_of: "2026-10-13", fii_net_cr: -1523.4, dii_net_cr: 2210.75 },
   news: [],
@@ -89,12 +92,33 @@ const DASH = (rows: unknown[]) => ({
   deploy_verdict: "NORMAL", verdict_reason: "Fixture", nifty: {}, vix: {}, breadth: {}, macro: { risk: "LOW", multiplier: 1.1 },
   sector_heatmap: rows,
 });
+// Only the leaders are read from it now. "IT" matches the Nifty IT row by sector; "Bank" matches Nifty Bank by its
+// index name, and must not lend its leader to Nifty PSU Bank; "Chemicals" has no sector-index row.
 const DASH_LIVE = DASH([
   sector("Metal", -0.85, -1.33, { tone: "COLD", source: "nse_live" }),
   sector("IT", 1.42, 0.94, { tone: "WARM", source: "nse_live", leader: { nse_symbol: "TESTIT", ret_5d_pct: 6.1, close: 1500 } }),
-  sector("Bank", 0.3, -0.18, { source: "nse_live" }),
+  sector("Bank", 0.3, -0.18, { source: "nse_live", leader: { nse_symbol: "TESTBANK", ret_5d_pct: 3.25, close: 800 } }),
+  sector("Chemicals", -1.1, -1.6, { tone: "COLD", leader: { nse_symbol: "TESTCHEM", ret_5d_pct: 1.0, close: 90 } }),
 ]);
-const DASH_EOD = { ...DASH([sector("Capital Goods", 2.4, 1.9, { tone: "WARM" }), sector("Chemicals", -1.1, -1.6, { tone: "COLD" })]), is_live: false };
+
+// backend/nidp/services/daas_api/routers/desk_market.py :: sector_returns, via backend/routes/markets_desk.py.
+// Nifty Realty's own latest close is a session older than the response's as-of; Nifty Metal has no 1-month history.
+const SECTOR_RETURNS = {
+  as_of: "2026-10-13", source: "NSE index close (nidp.index_eod)", sessions: { "1d": 1, "1w": 5, "1m": 21 },
+  sectors: [
+    { index: "Nifty Bank", sector: "Banks", date: "2026-10-13", close: 56000.0, ret_1d_pct: 0.3, ret_1w_pct: 1.9, ret_1m_pct: -2.2 },
+    { index: "Nifty IT", sector: "IT", date: "2026-10-13", close: 35210.5, ret_1d_pct: 1.42, ret_1w_pct: -0.8, ret_1m_pct: 3.1 },
+    { index: "Nifty Metal", sector: "Metals", date: "2026-10-13", close: 9100.25, ret_1d_pct: -0.85, ret_1w_pct: 2.6, ret_1m_pct: null },
+    { index: "Nifty PSU Bank", sector: "PSU Banks", date: "2026-10-13", close: 7010.0, ret_1d_pct: 0.95, ret_1w_pct: -1.4, ret_1m_pct: 0.5 },
+    { index: "Nifty Realty", sector: "Realty", date: "2026-10-10", close: 980.4, ret_1d_pct: -1.6, ret_1w_pct: -3.05, ret_1m_pct: 4.4 },
+  ],
+};
+type SectorRow = (typeof SECTOR_RETURNS.sectors)[number];
+const PERIOD_KEY = { "1d": "ret_1d_pct", "1w": "ret_1w_pct", "1m": "ret_1m_pct" } as const;
+/** The tiles' order for a period: highest return first, missing last. */
+const sectorOrder = (period: keyof typeof PERIOD_KEY) =>
+  [...SECTOR_RETURNS.sectors].sort((a, b) => ((b[PERIOD_KEY[period]] as number | null) ?? -Infinity) - ((a[PERIOD_KEY[period]] as number | null) ?? -Infinity));
+const pctOrDash = (v: number | null) => (v == null ? "—" : pct(v));
 
 // backend/routes/positional.py (get_watchlist, get_picks): three setups; only TESTPICK carries a score.
 const WATCHLIST = { as_of_date: "2026-10-13", buckets: {
@@ -103,28 +127,30 @@ const WATCHLIST = { as_of_date: "2026-10-13", buckets: {
   true_accumulation: [], trend_continuation: [] } };
 const PICKS = { signal_date: "2026-10-13", count: 1, picks: [{ nse_symbol: "TESTPICK", signal_date: "2026-10-13", final_score: 0.812, confidence: "HIGH", stage: "BREAKOUT", timeframe_days_min: 5, timeframe_days_max: 15, entry_price: 505.0, stoploss: 480.0, target_price: 555.0, risk_reward: 2.0, source_scans: ["btst.breakout_confirmation"], reasons: ["Fixture scanner reason"] }] };
 
-// backend/routes/filings.py :: _row (feed rows) and filings_feed (total, facets).
+// backend/routes/filings.py :: _row (feed rows, with `exchange` from the stored source) and filings_feed (total, facets).
 const row = (id: string, o: Record<string, unknown>) => ({
   id, ticker: null, code: null, name: null, date: "2026-10-12T10:00:00+05:30", category: "Other", impact: null, sentiment: null,
-  docLabel: "Fixture filing", url: null, one: null, period: null, metric: null, hasInsights: false, ...o,
+  docLabel: "Fixture filing", url: null, one: null, period: null, metric: null, hasInsights: false, exchange: null, ...o,
 });
 const R_EARN = row("ann-001", {
   ticker: "TESTPICK", code: "TESTPICK", name: "Test Pick Industries Ltd", date: "2026-10-13T09:12:00+05:30", category: "Earnings", impact: "high",
   sentiment: "positive", docLabel: "Financial results for the quarter ended September 2026", url: "https://nsearchives.nseindia.com/corporate/fixture-001.pdf",
-  one: "Fixture read: revenue grew on new orders.", period: "Q2 FY27", metric: "Revenue: 1,234 Cr", hasInsights: true,
+  one: "Fixture read: revenue grew on new orders.", period: "Q2 FY27", metric: "Revenue: 1,234 Cr", hasInsights: true, exchange: "NSE",
 });
+// No `exchange` on this row: the detail falls back to the document link's host (bseindia.com).
 const R_ORDER = row("ann-002", {
   ticker: "TESTORD", code: "TESTORD", name: "Test Orders Ltd", date: "2026-10-12T15:40:00+05:30", category: "Orders", impact: "medium",
-  sentiment: "neutral", docLabel: "Bagging of an order", url: "https://www.bseindia.com/xml-data/fixture-002.pdf",
+  sentiment: "neutral", docLabel: "Bagging of an order", url: "https://www.bseindia.com/xml-data/fixture-002.pdf", exchange: null,
 });
 const R_LIT = row("ann-003", {
   ticker: "TESTLIT", code: "TESTLIT", name: "Test Litigation Ltd", date: "2026-10-11T11:00:00+05:30", category: "Litigation", impact: "high",
   sentiment: "negative", docLabel: "Disclosure of a tax demand", url: "https://nsearchives.nseindia.com/corporate/fixture-003.pdf",
   one: "Fixture read: a tax demand was raised.", hasInsights: true,
 });
+// No document link at all: the exchange comes from the row alone.
 const R_MNA = row("ann-010", {
   ticker: "TESTMNA", code: "TESTMNA", name: "Test Mergers Ltd", date: "2026-10-10T12:00:00+05:30", category: "Mna", impact: "high",
-  sentiment: "positive", docLabel: "Acquisition of a subsidiary",
+  sentiment: "positive", docLabel: "Acquisition of a subsidiary", exchange: "BSE",
 });
 const FACETS = { earnings: 21, orders: 9, mna: 2, capex: 4, management: 6, dividend: 3, buyback: 1, qip: 0, rating: 2, litigation: 1 };
 const feed = (rows: unknown[], total = rows.length) => ({ ok: true, total, facets: FACETS, rows });
@@ -155,11 +181,37 @@ const FLOWS = {
   }),
 };
 
-interface Calls { feed: URL[]; insights: string[]; home: number }
+// backend/nidp/services/daas_api/routers/desk_market.py :: deals, via backend/routes/markets_desk.py. value_cr = quantity ×
+// avg_price ÷ 1e7, to 2 decimals; newest day first, largest value first within a day.
+const DEALS = {
+  as_of: "2026-10-13", from: "2026-10-09", days: 5, kind: "all", symbol: null,
+  source: "NSE bulk and block deals (nidp.bulk_deals, nidp.block_deals)", count: 3, total: 3,
+  rows: [
+    { date: "2026-10-13", kind: "block", symbol: "TESTPICK", client_name: "FIXTURE CAPITAL LLP", side: "SELL", quantity: 250000, avg_price: 1210.25, value_cr: 30.26 },
+    { date: "2026-10-13", kind: "bulk", symbol: "TESTORD", client_name: "FIXTURE FUND A", side: "BUY", quantity: 120000, avg_price: 410.5, value_cr: 4.93 },
+    { date: "2026-10-10", kind: "bulk", symbol: "TESTLIT", client_name: "FIXTURE TRADER", side: "BUY", quantity: 85000, avg_price: 98.4, value_cr: 0.84 },
+  ],
+};
+
+// backend/nidp/services/daas_api/routers/circulars.py :: sebi, via backend/routes/circulars.py. The third row carries a
+// link that is not http(s): it must not become a link.
+const CIRCULARS = {
+  as_of: "2026-10-14", source: "SEBI RSS (sebi.gov.in) — circulars and master circulars", count: 3,
+  rows: [
+    { title: "Fixture circular on cyber resilience of intermediaries", url: "https://www.sebi.gov.in/legal/circulars/oct-2026/fixture-1.html", kind: "circular", issued_on: "2026-10-13" },
+    { title: "Fixture master circular for stock brokers", url: "https://www.sebi.gov.in/legal/master-circulars/oct-2026/fixture-2.html", kind: "master_circular", issued_on: "2026-10-10" },
+    { title: "Fixture circular with an unsafe link", url: "javascript:alert(1)", kind: "circular", issued_on: null },
+  ],
+};
+
+type Reply = { status: number; body: unknown };
+interface Calls { feed: URL[]; insights: string[]; home: number; sectors: number; deals: URL[]; circulars: URL[] }
 
 /** Everything the desk header, the docked Copilot and these two tabs read. */
-async function deskApi(page: Page, over: { home?: { status: number; body: unknown }; macro?: unknown; dash?: unknown; feed?: { status: number; body: unknown } } = {}): Promise<Calls> {
-  const calls: Calls = { feed: [], insights: [], home: 0 };
+async function deskApi(page: Page, over: {
+  home?: Reply; macro?: unknown; dash?: unknown; feed?: Reply; sectors?: Reply; deals?: Reply; circulars?: Reply;
+} = {}): Promise<Calls> {
+  const calls: Calls = { feed: [], insights: [], home: 0, sectors: 0, deals: [], circulars: [] };
   await mockApi(page, "populated");
   await page.route("**/api/chat/sessions", (route) => json(route, []));
   await page.route("**/api/positional/watchlist*", (route) => json(route, WATCHLIST));
@@ -172,6 +224,18 @@ async function deskApi(page: Page, over: { home?: { status: number; body: unknow
   });
   await page.route("**/api/macro/today", (route) => json(route, over.macro ?? MACRO_BULL));
   await page.route("**/api/positional/market-dashboard", (route) => json(route, over.dash ?? DASH_LIVE));
+  await page.route("**/api/markets/sector-returns", (route) => {
+    calls.sectors += 1;
+    return over.sectors ? json(route, over.sectors.body, over.sectors.status) : json(route, SECTOR_RETURNS);
+  });
+  await page.route("**/api/markets/deals*", (route) => {
+    calls.deals.push(new URL(route.request().url()));
+    return over.deals ? json(route, over.deals.body, over.deals.status) : json(route, DEALS);
+  });
+  await page.route("**/api/markets/circulars*", (route) => {
+    calls.circulars.push(new URL(route.request().url()));
+    return over.circulars ? json(route, over.circulars.body, over.circulars.status) : json(route, CIRCULARS);
+  });
   await page.route("**/api/filings/feed*", (route) => {
     const u = new URL(route.request().url());
     calls.feed.push(u);
@@ -237,15 +301,28 @@ test.describe("Smart trading desk — Overview", () => {
     const share = (b.advances / (b.advances + b.declines + b.unchanged)) * 100; // 2428 / 3642 = 66.67
     await expect(page.getByTestId("desk-breadth-pct")).toHaveText(`${share.toFixed(1)}%`);
     await expect(page.getByTestId("desk-breadth-counts")).toHaveText(`${int(b.advances)} advances · ${int(b.declines)} declines · ${int(b.unchanged)} unchanged`);
-    await expect(page.getByTestId("desk-breadth-scope")).toHaveText(`Across ${int(b.universe)} NSE stocks · end of day ${day(HOME.as_of, true)}`);
+    // breadth.universe_kind "bhavcopy": the route counted every NSE stock in the end-of-day file.
+    await expect(page.getByTestId("desk-breadth-scope")).toHaveAttribute("data-scope", "eod");
+    await expect(page.getByTestId("desk-breadth-scope")).toHaveText(`Across ${int(b.universe)} NSE stocks in the end-of-day bhavcopy · ${day(HOME.as_of, true)}`);
     await expect(page.getByTestId("desk-breadth-bar")).toHaveAttribute("aria-label", `${int(b.advances)} advances, ${int(b.unchanged)} unchanged, ${int(b.declines)} declines`);
 
-    // The route's fallback: a live count over the Nifty 50 constituents.
-    const live = { advances: 31, declines: 17, unchanged: 2, universe: 50, tone: "POSITIVE" };
+    // The route's fallback, named "nifty50_live": a live count over the Nifty 50 constituents.
+    const live = { advances: 31, declines: 17, unchanged: 2, universe: 50, universe_kind: "nifty50_live", tone: "POSITIVE" };
     await page.route("**/api/markets/home", (route) => json(route, { ...HOME, breadth: live }));
     await page.reload();
     await expect(page.getByTestId("desk-breadth-pct")).toHaveText(`${((31 / 50) * 100).toFixed(1)}%`);
+    await expect(page.getByTestId("desk-breadth-scope")).toHaveAttribute("data-scope", "nifty50");
     await expect(page.getByTestId("desk-breadth-scope")).toHaveText("Across the 50 Nifty 50 stocks · delayed quotes");
+
+    // No kind (an older backend) or one this screen does not know: the count is shown and nothing is guessed from its
+    // size — 50 stocks is not called the Nifty 50.
+    for (const kind of [undefined, null, "zzz_unknown"]) {
+      const unnamed = { advances: 31, declines: 17, unchanged: 2, universe: 50, tone: "POSITIVE", ...(kind === undefined ? {} : { universe_kind: kind }) };
+      await page.route("**/api/markets/home", (route) => json(route, { ...HOME, breadth: unnamed }));
+      await page.reload();
+      await expect(page.getByTestId("desk-breadth-scope")).toHaveAttribute("data-scope", "unnamed");
+      await expect(page.getByTestId("desk-breadth-scope")).toHaveText("Across 50 stocks · the response does not say which");
+    }
   });
 
   test("TC-10: regime BULL reads Bullish with its definition; flows, rupee, crude and the rules-based read come from the backend", async ({ page }) => {
@@ -288,33 +365,92 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-verdict-reason")).toHaveText(HOME.verdict_reason);
   });
 
-  test("TC-11: sector strength says Today for live sector-index rows and 5 days for end-of-day rows", async ({ page }) => {
-    await deskApi(page);
+  test("TC-11: sector strength: 1D / 1W / 1M from /markets/sector-returns, source and as-of named, leaders by exact sector match", async ({ page }) => {
+    const calls = await deskApi(page);
     await page.goto(`${DESK}?tab=overview`);
-    await expect(page.getByTestId("desk-sector-period")).toHaveText("Today · sector indices");
     const tiles = page.getByTestId("desk-sector-tile");
-    // Strongest first: IT +1.42, Bank +0.30, Metal −0.85.
-    await expect(tiles).toHaveCount(3);
-    await expect(tiles.nth(0)).toHaveAttribute("data-sector", "IT");
-    await expect(tiles.nth(0).getByTestId("desk-sector-pct")).toHaveText(pct(1.42));
-    await expect(tiles.nth(2)).toHaveAttribute("data-sector", "Metal");
-    await expect(tiles.nth(2).getByTestId("desk-sector-pct")).toHaveText(pct(-0.85));
+    await expect(tiles).toHaveCount(SECTOR_RETURNS.sectors.length);
+    // The old "periods not connected" gap is gone.
+    await expect(page.getByTestId("desk-sector-periods-gap")).toHaveCount(0);
+
+    const checkPeriod = async (period: "1d" | "1w" | "1m", words: string, sessions: number) => {
+      await expect(page.getByTestId(`desk-sector-period-${period}`)).toHaveAttribute("aria-pressed", "true");
+      for (const other of (["1d", "1w", "1m"] as const).filter((p) => p !== period)) {
+        await expect(page.getByTestId(`desk-sector-period-${other}`)).toHaveAttribute("aria-pressed", "false");
+      }
+      await expect(page.getByTestId("desk-sector-period")).toHaveText(`${words} · ${sessions} ${sessions === 1 ? "session" : "sessions"} · end of day`);
+      const order = sectorOrder(period);
+      for (let i = 0; i < order.length; i += 1) {
+        const r: SectorRow = order[i];
+        await expect(tiles.nth(i)).toHaveAttribute("data-index", r.index);
+        await expect(tiles.nth(i).getByTestId("desk-sector-pct")).toHaveText(pctOrDash(r[PERIOD_KEY[period]] as number | null));
+      }
+      await expect(page.getByTestId("desk-sector-source")).toContainText(`${words} = the index close vs its close ${sessions} ${sessions === 1 ? "session" : "sessions"} earlier`);
+    };
+
+    // 1D by default: IT +1.42, PSU Bank +0.95, Bank +0.30, Metal −0.85, Realty −1.60.
+    await checkPeriod("1d", "1 day", SECTOR_RETURNS.sessions["1d"]);
+    const it = page.locator('[data-testid="desk-sector-tile"][data-index="Nifty IT"]');
+    await expect(it.getByTestId("desk-sector-index")).toHaveText(`Nifty IT · ${level(35210.5)}`);
     // Tint by sign.
     expect(await tiles.nth(0).getAttribute("style")).toContain("var(--mint)");
-    expect(await tiles.nth(2).getAttribute("style")).toContain("var(--cp-danger)");
-    // No toggle is faked: the missing periods say they are not connected.
-    await expect(page.getByTestId("desk-sector-periods-gap")).toContainText("Not connected yet");
+    expect(await tiles.nth(SECTOR_RETURNS.sectors.length - 1).getAttribute("style")).toContain("var(--cp-danger)");
+    // Source and as-of from the response.
+    await expect(page.getByTestId("desk-sector-source")).toContainText(`Source: ${SECTOR_RETURNS.source}`);
+    await expect(page.getByTestId("desk-sector-source")).toContainText(`end of day ${day(SECTOR_RETURNS.as_of, true)}`);
+    // Nifty Realty's own close is older than the as-of, and says so.
+    await expect(page.locator('[data-testid="desk-sector-tile"][data-index="Nifty Realty"]').getByTestId("desk-sector-index")).toHaveText(`Nifty Realty · ${level(980.4)} · close of ${day("2026-10-10")}`);
+
+    // 1W re-ranks: Metal +2.6 first, Realty −3.05 last.
+    await page.getByTestId("desk-sector-period-1w").click();
+    await checkPeriod("1w", "1 week", SECTOR_RETURNS.sessions["1w"]);
+    // 1M: Metal has no 1-month history — "—", listed last, and the source line counts it.
+    await page.getByTestId("desk-sector-period-1m").click();
+    await checkPeriod("1m", "1 month", SECTOR_RETURNS.sessions["1m"]);
+    await expect(page.locator('[data-testid="desk-sector-tile"][data-index="Nifty Metal"]').getByTestId("desk-sector-pct")).toHaveText("—");
+    await expect(page.getByTestId("desk-sector-source")).toContainText("1 with too little history for this period show “—”");
+    // One read: the toggle re-sorts the same response.
+    expect(calls.sectors).toBe(1);
+
+    // Leaders: IT matches by sector, Bank by index name; PSU Bank does not borrow Bank's leader; Metals ≠ Metal (no leader sent).
+    await expect(it.getByTestId("desk-sector-leader-label")).toHaveText(`TESTIT ${pct(6.1, 1)} · 5 sessions`);
+    await expect(it.getByTestId("desk-sector-leader").locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "TESTIT");
+    await expect(page.locator('[data-testid="desk-sector-tile"][data-index="Nifty Bank"]').getByTestId("desk-sector-leader")).toContainText("TESTBANK");
+    await expect(page.locator('[data-testid="desk-sector-tile"][data-index="Nifty PSU Bank"]').getByTestId("desk-sector-leader")).toHaveCount(0);
+    await expect(page.locator('[data-testid="desk-sector-tile"][data-index="Nifty Metal"]').getByTestId("desk-sector-leader")).toHaveCount(0);
+    await expect(page.getByTestId("desk-sector-leader")).toHaveCount(2);
+    await expect(page.getByTestId("desk-sector-source")).toContainText("leader = the sector’s best stock over 5 sessions");
 
     // The leader opens its chart.
-    await tiles.nth(0).getByTestId("desk-sector-leader").click();
+    await it.getByTestId("desk-sector-leader").click();
     await expect(page).toHaveURL(/[?&]tab=chart/);
     await expect(page).toHaveURL(/[?&]sym=TESTIT/);
+  });
 
-    await page.route("**/api/positional/market-dashboard", (route) => json(route, DASH_EOD));
+  test("TC-11: sector returns — a failed read shows an error with retry, 403 says not enabled, an empty list says so; a failed leader read only drops the leaders", async ({ page }) => {
+    const calls = await deskApi(page, { sectors: { status: 502, body: { detail: "upstream_unavailable" } } });
+    await page.route("**/api/positional/market-dashboard", (route) => json(route, { detail: "fixture failure" }, 500));
     await page.goto(`${DESK}?tab=overview`);
-    await expect(page.getByTestId("desk-sector-period")).toHaveText("5 days · end of day");
-    await expect(page.getByTestId("desk-sector-tile")).toHaveCount(2);
-    await expect(page.getByTestId("desk-sector-source")).toContainText("Mean 5-session return");
+    const err = page.getByTestId("desk-sectors-error");
+    await expect(err.getByRole("alert")).toContainText("Sector strength didn’t load", SLOW);
+    const before = calls.sectors;
+    await err.getByRole("button", { name: /Retry/ }).click();
+    await expect.poll(() => calls.sectors).toBeGreaterThan(before);
+
+    await page.route("**/api/markets/sector-returns", (route) => json(route, { detail: "feature_not_enabled" }, 403));
+    await page.reload();
+    await expect(page.getByTestId("desk-sectors-error")).toContainText("Sector strength is not enabled for this account");
+
+    await page.route("**/api/markets/sector-returns", (route) => json(route, { ...SECTOR_RETURNS, sectors: [] }));
+    await page.reload();
+    await expect(page.getByTestId("desk-sectors-empty")).toContainText("No sector figures yet");
+
+    // Tiles without leaders when the dashboard fails (it answers 500 throughout this test).
+    await page.route("**/api/markets/sector-returns", (route) => json(route, SECTOR_RETURNS));
+    await page.reload();
+    await expect(page.getByTestId("desk-sector-tile")).toHaveCount(SECTOR_RETURNS.sectors.length);
+    await expect(page.getByTestId("desk-sector-leaders-error")).toBeVisible(SLOW);
+    await expect(page.getByTestId("desk-sector-leader")).toHaveCount(0);
   });
 
   test("TC-12: a failed market overview shows an error with retry while the regime and sectors still render", async ({ page }) => {
@@ -324,7 +460,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(problem.getByRole("alert")).toBeVisible(SLOW);
     await expect(page.getByTestId("desk-index-tile")).toHaveCount(0);
     await expect(page.getByTestId("desk-regime-label")).toHaveText("Bullish");
-    await expect(page.getByTestId("desk-sector-tile")).toHaveCount(3);
+    await expect(page.getByTestId("desk-sector-tile")).toHaveCount(SECTOR_RETURNS.sectors.length);
     await expect(page.getByTestId("desk-flows-unavailable")).toBeVisible();
     const before = calls.home;
     await problem.getByRole("button", { name: /Retry/ }).click();
@@ -402,17 +538,129 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await expect(rows.nth(0)).toHaveAttribute("data-id", "ann-010");
     await expect(rows.nth(0).getByTestId("desk-event-type")).toHaveText("M&A");
     await expect(rows.nth(1)).toHaveAttribute("data-id", "ann-002");
-    await expect(page.getByTestId("desk-intel-deals-gap")).toContainText("Not connected yet");
+    // The M&A filing has no document link; its exchange comes from the row's own `exchange`.
+    await rows.nth(0).click();
+    await expect(detail.getByTestId("desk-event-sources")).toContainText("Filed with BSE");
+    await expect(detail.getByTestId("desk-event-doc")).toHaveCount(0);
+    // The deals list sits under the filings; the old "not connected" gaps are gone.
+    await expect(page.getByTestId("desk-deals")).toBeVisible();
+    await expect(page.getByTestId("desk-intel-deals-gap")).toHaveCount(0);
 
-    // Regulatory is asked for by name (the default feed leaves it out); SEBI circulars are not connected.
+    // Regulatory is asked for by name (the default feed leaves it out), with SEBI's own circulars under it.
     await page.getByTestId("desk-intel-chip-regulatory").click();
     await expect.poll(() => calls.feed.map((u) => u.searchParams.get("category"))).toContain("regulatory");
-    await expect(page.getByTestId("desk-intel-sebi-gap")).toContainText("SEBI circulars");
+    await expect(page.getByTestId("desk-circulars")).toBeVisible();
+    await expect(page.getByTestId("desk-intel-sebi-gap")).toHaveCount(0);
 
     // Latest-first ordering is a query parameter too.
     await page.getByTestId("desk-intel-chip-all").click();
     await page.getByTestId("desk-intel-sort-latest").click();
     await expect.poll(() => calls.feed.some((u) => u.searchParams.get("sort") === "latest" && !u.searchParams.get("category"))).toBe(true);
+  });
+
+  test("Orders & deals lists bulk and block deals from /markets/deals; figures, window and source from the payload; a row opens its chart", async ({ page }) => {
+    const calls = await deskApi(page);
+    await page.goto(`${DESK}?tab=intel`);
+    // Not read until the chip is open.
+    await expect(page.getByTestId("desk-event-row")).toHaveCount(3);
+    expect(calls.deals).toHaveLength(0);
+    await page.getByTestId("desk-intel-chip-orders").click();
+
+    const table = page.getByTestId("desk-deals-table");
+    const deals = table.getByRole("row").filter({ has: page.getByTestId("desk-deal-symbol") });
+    await expect(deals).toHaveCount(DEALS.rows.length);
+    const q = calls.deals[0].searchParams;
+    expect([q.get("days"), q.get("kind"), q.get("limit")]).toEqual(["5", "all", "200"]);
+
+    const qty = (n: number) => (n >= 1e5 ? `${(n / 1e5).toFixed(2)} L` : int(n));
+    for (let i = 0; i < DEALS.rows.length; i += 1) {
+      const d = DEALS.rows[i];
+      const r = deals.nth(i);
+      await expect(r.getByTestId("desk-deal-date")).toHaveText(day(d.date));
+      await expect(r.getByTestId("desk-deal-kind")).toHaveText(d.kind === "bulk" ? "Bulk" : "Block");
+      await expect(r.getByTestId("desk-deal-symbol")).toHaveText(d.symbol);
+      await expect(r.locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", d.symbol);
+      await expect(r.getByTestId("desk-deal-client")).toHaveText(d.client_name);
+      await expect(r.getByTestId("desk-deal-side")).toHaveText(d.side);
+      expect(await r.getByTestId("desk-deal-side").getAttribute("style")).toContain(d.side === "BUY" ? "var(--mint)" : "var(--cp-danger)");
+      await expect(r.getByTestId("desk-deal-qty")).toHaveText(qty(d.quantity));
+      await expect(r.getByTestId("desk-deal-price")).toHaveText(`₹${level(d.avg_price)}`);
+      // ₹ crore = quantity × price ÷ 1e7, worked out here and checked against the route's figure.
+      const cr = (d.quantity * d.avg_price) / 1e7;
+      expect(Number(cr.toFixed(2))).toBe(d.value_cr);
+      await expect(r.getByTestId("desk-deal-value")).toHaveText(cr.toFixed(2));
+    }
+    const src = page.getByTestId("desk-deals-source");
+    await expect(src).toContainText(`Source: ${DEALS.source}`);
+    await expect(src).toContainText(`end of day ${day(DEALS.as_of, true)}`);
+    await expect(src).toContainText(`${day(DEALS.from)} to ${day(DEALS.as_of)}, the sessions on record`);
+    await expect(page.getByTestId("desk-deals-count")).toContainText(`${DEALS.rows.length} of ${DEALS.rows.length} loaded`);
+
+    await deals.nth(1).click();
+    await expect(page).toHaveURL(/[?&]tab=chart/);
+    await expect(page).toHaveURL(new RegExp(`[?&]sym=${DEALS.rows[1].symbol}(&|$)`));
+  });
+
+  test("Deals: empty, failed (with retry) and 403 states", async ({ page }) => {
+    const calls = await deskApi(page, { deals: { status: 200, body: { ...DEALS, count: 0, total: 0, rows: [] } } });
+    await page.goto(`${DESK}?tab=intel`);
+    await page.getByTestId("desk-intel-chip-orders").click();
+    await expect(page.getByTestId("desk-deals-empty")).toContainText(`No bulk or block deals are on record in the 5 calendar days to ${day(DEALS.as_of, true)}`);
+
+    await page.route("**/api/markets/deals*", (route) => { calls.deals.push(new URL(route.request().url())); return json(route, { detail: "upstream_unavailable" }, 502); });
+    await page.reload();
+    await page.getByTestId("desk-intel-chip-orders").click();
+    const err = page.getByTestId("desk-deals-error");
+    await expect(err.getByRole("alert")).toContainText("Bulk and block deals didn’t load", SLOW);
+    const before = calls.deals.length;
+    await err.getByRole("button", { name: /Retry/ }).click();
+    await expect.poll(() => calls.deals.length).toBeGreaterThan(before);
+
+    await page.route("**/api/markets/deals*", (route) => json(route, { detail: "feature_not_enabled" }, 403));
+    await page.reload();
+    await page.getByTestId("desk-intel-chip-orders").click();
+    await expect(page.getByTestId("desk-deals-error")).toContainText("Bulk and block deals is not enabled for this account");
+  });
+
+  test("Regulatory lists SEBI circulars from /markets/circulars: title link, kind, issue date, source; a non-web link is not a link", async ({ page }) => {
+    const calls = await deskApi(page);
+    await page.goto(`${DESK}?tab=intel`);
+    await page.getByTestId("desk-intel-chip-regulatory").click();
+    const items = page.getByTestId("desk-circular");
+    await expect(items).toHaveCount(CIRCULARS.rows.length);
+    expect([calls.circulars[0].searchParams.get("days"), calls.circulars[0].searchParams.get("limit")]).toEqual(["30", "50"]);
+    for (let i = 0; i < CIRCULARS.rows.length; i += 1) {
+      const c = CIRCULARS.rows[i];
+      const it = items.nth(i);
+      await expect(it.getByTestId("desk-circular-kind")).toHaveText(c.kind === "master_circular" ? "Master circular" : "Circular");
+      await expect(it.getByTestId("desk-circular-date")).toHaveText(c.issued_on ? `Issued ${day(c.issued_on, true)}` : "Issue date not stated");
+      if (c.url.startsWith("https://")) {
+        await expect(it.getByTestId("desk-circular-title")).toHaveText(`${c.title} ↗`);
+        await expect(it.getByTestId("desk-circular-title")).toHaveAttribute("href", c.url);
+        await expect(it.getByTestId("desk-circular-title")).toHaveAttribute("target", "_blank");
+      } else {
+        await expect(it.getByTestId("desk-circular-title")).toHaveText(c.title);
+        await expect(it.locator("a")).toHaveCount(0);
+      }
+    }
+    await expect(page.getByTestId("desk-circulars-source")).toContainText(`Source: ${CIRCULARS.source}`);
+    await expect(page.getByTestId("desk-circulars-source")).toContainText(`as of ${day(CIRCULARS.as_of, true)}`);
+  });
+
+  test("Circulars: empty and failed states", async ({ page }) => {
+    const calls = await deskApi(page, { circulars: { status: 200, body: { ...CIRCULARS, count: 0, rows: [] } } });
+    await page.goto(`${DESK}?tab=intel`);
+    await page.getByTestId("desk-intel-chip-regulatory").click();
+    await expect(page.getByTestId("desk-circulars-empty")).toContainText("No SEBI circulars on record");
+
+    await page.route("**/api/markets/circulars*", (route) => { calls.circulars.push(new URL(route.request().url())); return json(route, { detail: "upstream_unavailable" }, 502); });
+    await page.reload();
+    await page.getByTestId("desk-intel-chip-regulatory").click();
+    const err = page.getByTestId("desk-circulars-error");
+    await expect(err.getByRole("alert")).toContainText("SEBI circulars didn’t load", SLOW);
+    const before = calls.circulars.length;
+    await err.getByRole("button", { name: /Retry/ }).click();
+    await expect.poll(() => calls.circulars.length).toBeGreaterThan(before);
   });
 
   test("TC-25: a linked stock in today's scanner shows its rank and opens its chart", async ({ page }) => {
@@ -477,9 +725,14 @@ test.describe("Smart trading desk — Overview and Market intelligence at 390px"
     await deskApi(page);
     await page.goto(`${DESK}?tab=overview`);
     await expect(page.getByTestId("desk-index-tile")).toHaveCount(4);
-    await expect(page.getByTestId("desk-sector-tile")).toHaveCount(3);
+    await expect(page.getByTestId("desk-sector-tile")).toHaveCount(SECTOR_RETURNS.sectors.length);
     await expect(page.getByTestId("desk-regime-label")).toHaveText("Bullish");
     let o = await overflow(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+    await page.getByTestId("desk-sector-period-1m").click();
+    await expect(page.getByTestId("desk-sector-period-1m")).toHaveAttribute("aria-pressed", "true");
+    o = await overflow(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
 
@@ -493,6 +746,18 @@ test.describe("Smart trading desk — Overview and Market intelligence at 390px"
 
     await page.getByTestId("desk-intel-chip-flows").click();
     await expect(page.getByTestId("desk-flow-date")).toHaveCount(10);
+    o = await overflow(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+
+    // The deals table scrolls inside its own box; the circulars wrap.
+    await page.getByTestId("desk-intel-chip-orders").click();
+    await expect(page.getByTestId("desk-deal-symbol")).toHaveCount(DEALS.rows.length);
+    o = await overflow(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+    await page.getByTestId("desk-intel-chip-regulatory").click();
+    await expect(page.getByTestId("desk-circular")).toHaveCount(CIRCULARS.rows.length);
     o = await overflow(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);

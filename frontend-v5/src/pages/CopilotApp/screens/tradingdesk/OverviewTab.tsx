@@ -3,30 +3,32 @@
  * market pulse (regime, institutional flows, rupee, crude and the rules-based
  * read) and sector strength.
  *
- *   GET /api/markets/home                   index tiles with their daily closes, breadth, FII / DII cash,
- *                                           USD / INR and Brent, the deploy verdict and its reason
+ *   GET /api/markets/home                   index tiles with their daily closes, breadth and the universe it
+ *                                           counted, FII / DII cash, USD / INR and Brent, the deploy verdict
  *   GET /api/macro/today                    the regime (Nifty 50 against its 50-day average), macro risk, the engine's read
- *   GET /api/positional/market-dashboard    sector strength: today's sector-index change, or the 5-session mean (end of day)
+ *   GET /api/markets/sector-returns         sector strength: NSE sectoral indices, 1 day / 1 week / 1 month (end of day)
+ *   GET /api/positional/market-dashboard    each sector's best 5-session stock, shown on a tile whose sector name matches
  *
  * Each block loads and fails on its own: a failed market overview leaves the
- * regime and the sectors on screen. The 1-week / 1-month sector toggle of the
- * design has no endpoint behind it; the tab shows the one period the route
- * serves and says the rest is not connected.
+ * regime and the sectors on screen, and a failed leader read leaves the
+ * sector tiles without leaders.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { MarketIndex, MarketsHome } from "@/services/contracts/markets.contract";
 import { StockIcon } from "../../components/EntityIcon";
 import {
-  EmptyBlock, ErrorBlock, LoadingBlock, NotConnected, Pill, Section, TONE_COLOR, fmtNum, fmtPct, signTone, type Tone,
+  EmptyBlock, ErrorBlock, LoadingBlock, Pill, Section, TONE_COLOR, fmtNum, fmtPct, signTone, type Tone,
 } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
 import { dayLabel, fmtCr, fmtLevel, fmtPoints } from "../markets/format";
 import { useMarketOverview } from "../markets/hooks";
 import { LoadError, SourceLine, Sparkline } from "../markets/parts";
+import { QueryProblem } from "../trading/parts";
 import { useDesk } from "./context";
 import {
-  DESK_INDICES, REGIME_LABEL, REGIME_MEANING, findIndex, findQuote, readBreadth, useMacroToday, useSectorStrength,
-  type MacroToday, type Regime, type SectorStrength, type SectorTile,
+  DESK_INDICES, REGIME_LABEL, REGIME_MEANING, SECTOR_PERIODS, findIndex, findQuote, leaderFor, readBreadth, useMacroToday,
+  useSectorReturns, useSectorStrength,
+  type BreadthRead, type MacroToday, type Regime, type SectorPeriodKey, type SectorReturn, type SectorReturns, type SectorTile,
 } from "./overview-data";
 
 const REGIME_TONE: Record<Regime, Tone> = { BULL: "mint", NEUTRAL: "ink", BEAR: "danger" };
@@ -46,7 +48,7 @@ type HomeQuery = ReturnType<typeof useMarketOverview>;
 export default function OverviewTab() {
   const home = useMarketOverview();
   const macro = useMacroToday();
-  const sectors = useSectorStrength();
+  const sectors = useSectorReturns();
   const { mobile } = useCopilotShell();
   const { askDesk } = useDesk();
 
@@ -163,17 +165,21 @@ function BreadthTile({ home }: { home: MarketsHome }) {
             <span style={{ color: "var(--mint)" }}>{fmtNum(b.advances)}</span> advances · <span style={{ color: "var(--cp-danger)" }}>{fmtNum(b.declines)}</span> declines
             {b.unchanged != null && <> · {fmtNum(b.unchanged)} unchanged</>}
           </span>
-          <span data-testid="desk-breadth-scope" className="cp-mono-note" style={{ lineHeight: 1.6 }}>
-            {b.scope === "eod"
-              ? `Across ${fmtNum(b.universe)} NSE stocks · end of day${home.as_of ? ` ${dayLabel(home.as_of, { year: true })}` : ""}`
-              : b.scope === "nifty50"
-                ? `Across the ${fmtNum(b.universe)} Nifty 50 stocks · delayed quotes`
-                : "The response does not say which stocks were counted"}
+          <span data-testid="desk-breadth-scope" data-scope={b.scope} className="cp-mono-note" style={{ lineHeight: 1.6 }}>
+            {breadthScope(b, home.as_of ?? null)}
           </span>
         </>
       )}
     </div>
   );
+}
+
+/** The stocks the counts cover, in the route's own terms; nothing is guessed from the count. */
+function breadthScope(b: BreadthRead, asOf: string | null): string {
+  const n = b.universe != null ? fmtNum(b.universe) : null;
+  if (b.scope === "eod") return `${n ? `Across ${n} NSE stocks` : "Across the NSE stocks"} in the end-of-day bhavcopy${asOf ? ` · ${dayLabel(asOf, { year: true })}` : ""}`;
+  if (b.scope === "nifty50") return `${n ? `Across the ${n} Nifty 50 stocks` : "Across the Nifty 50 stocks"} · delayed quotes`;
+  return n ? `Across ${n} stocks · the response does not say which` : "The response does not say which stocks were counted";
 }
 
 // ── market pulse ─────────────────────────────────────────────────────────
@@ -337,111 +343,132 @@ function InsightBox({ home, macro }: { home: MarketsHome | undefined; macro: Mac
 
 // ── sector strength ──────────────────────────────────────────────────────
 
-const PERIOD_LABEL = { today: "Today · sector indices", "5d": "5 days · end of day", mixed: "Today or 5 days · see each tile" } as const;
+const PERIOD_LABEL: Record<SectorPeriodKey, string> = { "1d": "1D", "1w": "1W", "1m": "1M" };
+const PERIOD_WORDS: Record<SectorPeriodKey, string> = { "1d": "1 day", "1w": "1 week", "1m": "1 month" };
 
-function SectorCard({ q }: { q: ReturnType<typeof useSectorStrength> }) {
-  const s = q.data;
+function sessionsText(n: number | null): string {
+  return n == null ? "" : `${fmtNum(n)} ${n === 1 ? "session" : "sessions"}`;
+}
+
+function SectorCard({ q }: { q: ReturnType<typeof useSectorReturns> }) {
+  const [period, setPeriod] = useState<SectorPeriodKey>("1d");
+  const d = q.data;
   return (
     <Section
       title="Sector strength"
-      note={s?.kind === "ready" && s.tiles.length > 0 ? <span data-testid="desk-sector-period">{PERIOD_LABEL[s.period]}</span> : undefined}
+      note={d && d.sectors.length > 0 ? (
+        <span data-testid="desk-sector-period">{PERIOD_WORDS[period]}{d.sessions[period] != null ? ` · ${sessionsText(d.sessions[period])}` : ""} · end of day</span>
+      ) : undefined}
     >
       <div data-testid="desk-sectors" className="flex flex-col" style={{ gap: 12 }}>
+        <div role="group" aria-label="Sector return period" className="inline-flex self-start" style={{ gap: 2, padding: 2, borderRadius: 10, border: "1px solid var(--line-2)" }}>
+          {SECTOR_PERIODS.map((p) => {
+            const on = p === period;
+            return (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={on}
+                data-testid={`desk-sector-period-${p}`}
+                title={`${PERIOD_WORDS[p]}${d?.sessions[p] != null ? `: close vs the close ${sessionsText(d.sessions[p])} earlier` : ""}`}
+                onClick={() => setPeriod(p)}
+                style={{
+                  padding: "5px 12px", borderRadius: 8, fontSize: 12, border: 0, cursor: "pointer", fontFamily: "var(--mono)",
+                  background: on ? "var(--bg-3)" : "transparent", color: on ? "var(--cp-ink)" : "var(--cp-ink-2)",
+                }}
+              >
+                {PERIOD_LABEL[p]}
+              </button>
+            );
+          })}
+        </div>
         {q.isPending ? (
           <LoadingBlock label="Loading sector strength" rows={4} />
         ) : q.isError ? (
-          <LoadError title="Sector strength didn’t load" error={q.error} onRetry={() => q.refetch()} />
+          <div data-testid="desk-sectors-error"><QueryProblem what="Sector strength" error={q.error} onRetry={() => q.refetch()} /></div>
         ) : (
-          <SectorBody s={q.data} />
+          <SectorBody d={q.data} period={period} />
         )}
       </div>
     </Section>
   );
 }
 
-function SectorBody({ s }: { s: SectorStrength }) {
-  const { isAdmin } = useCopilotShell();
-  if (s.kind === "unavailable") {
-    return (
-      <div data-testid="desk-sectors-unavailable">
-        <EmptyBlock
-          title="Sector figures are not available"
-          body={<>The sector table could not be built right now.{isAdmin && s.reason ? ` Route said: ${s.reason}.` : ""}</>}
-        />
-      </div>
-    );
+function SectorBody({ d, period }: { d: SectorReturns; period: SectorPeriodKey }) {
+  // The leaders are an extra: the tiles never wait for them, and a failed read only drops them.
+  const leaders = useSectorStrength();
+  if (d.sectors.length === 0) {
+    return <div data-testid="desk-sectors-empty"><EmptyBlock title="No sector figures yet" body="The route returned no sector indices for the latest session." /></div>;
   }
-  if (s.tiles.length === 0) {
-    return <div data-testid="desk-sectors-empty"><EmptyBlock title="No sector figures yet" body="The route returned no sectors for the latest session." /></div>;
-  }
-  const max = Math.max(0.01, ...s.tiles.map((t) => Math.abs(t.pct ?? 0)));
+  const tiles: SectorTile[] = leaders.data?.kind === "ready" ? leaders.data.tiles : [];
+  const rows = [...d.sectors].sort((a, b) => (b.ret[period] ?? -Infinity) - (a.ret[period] ?? -Infinity));
+  const max = Math.max(0.01, ...rows.map((r) => Math.abs(r.ret[period] ?? 0)));
+  const missing = rows.filter((r) => r.ret[period] == null).length;
+  const leaderOf = new Map(rows.map((r) => [r.index, leaderFor(r, tiles)]));
+  const anyLeader = [...leaderOf.values()].some(Boolean);
+  const n = d.sessions[period];
   return (
     <>
       <div className="grid" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
-        {s.tiles.map((t) => <SectorTileView key={t.sector} t={t} max={max} mixed={s.period === "mixed"} />)}
+        {rows.map((r) => <SectorTileView key={r.index} r={r} period={period} max={max} leader={leaderOf.get(r.index) ?? null} asOf={d.asOf} />)}
       </div>
       <SourceLine
         testId="desk-sector-source"
-        source={s.period === "5d" ? "end-of-day price bars" : "Yahoo Finance sector indices"}
-        asOf={s.period === "5d" ? s.asOf : s.fetchedAt ?? s.asOf}
-        asOfLabel={s.period === "5d" ? "end of day" : "updated"}
-        note={s.period === "5d"
-          ? "Mean 5-session return of each sector’s stocks · leader = best 5-session stock"
-          : `Sector-index change, delayed${s.isLive ? "" : " · market closed: the last session’s change"} · leader = best 5-session stock (end of day)`}
+        source={d.source}
+        asOf={d.asOf}
+        asOfLabel="end of day"
+        note={[
+          `${PERIOD_WORDS[period]} = the index close vs its close ${n != null ? sessionsText(n) : "the period's sessions"} earlier`,
+          missing > 0 ? `${fmtNum(missing)} with too little history for this period show “—”` : "",
+          anyLeader ? "leader = the sector’s best stock over 5 sessions (end-of-day bars)" : "",
+        ].filter(Boolean).join(" · ")}
       />
-      <NotConnected
-        testId="desk-sector-periods-gap"
-        title={s.period === "today" ? "1-week and 1-month sector views" : "1-day and 1-month sector views"}
-        body={s.period === "today"
-          ? "Only today’s sector-index change is served while the live index feed answers. No endpoint serves a 1-week or 1-month sector return yet."
-          : "These are 5-session figures (about one week) from end-of-day bars. Today’s change appears only while the live sector-index feed answers, and no endpoint serves a 1-month sector return yet."}
-        needs={[
-          "Sector returns for 1 day, 1 week and 1 month side by side — e.g. add ret_1d_pct and ret_20d_pct to sector_heatmap in GET /api/positional/market-dashboard (positional_engine/market_dashboard.py), computed from the same end-of-day bars",
-        ]}
-      />
+      {leaders.isError && <span data-testid="desk-sector-leaders-error" className="cp-mono-note">The 5-session sector leaders didn’t load, so none are shown.</span>}
     </>
   );
 }
 
-function SectorTileView({ t, max, mixed }: { t: SectorTile; max: number; mixed: boolean }) {
+function SectorTileView({ r, period, max, leader, asOf }: { r: SectorReturn; period: SectorPeriodKey; max: number; leader: SectorTile["leader"]; asOf: string | null }) {
   const { openChart } = useDesk();
-  const tone = signTone(t.pct);
+  // An index whose latest close is older than the response's as-of says so.
+  const stale = !!r.date && !!asOf && r.date !== asOf;
+  const pct = r.ret[period];
+  const tone = signTone(pct);
   // The tint grows with the size of the move: 6% to 26% of the colour over the card.
-  const share = t.pct == null ? 0 : Math.min(1, Math.abs(t.pct) / max);
+  const share = pct == null ? 0 : Math.min(1, Math.abs(pct) / max);
   const mixIn = Math.round(6 + share * 20);
   const background = tone === "mint"
     ? `color-mix(in oklab, var(--mint) ${mixIn}%, var(--bg-1))`
     : tone === "danger"
       ? `color-mix(in oklab, var(--cp-danger) ${mixIn}%, var(--bg-1))`
       : "var(--bg-1)";
-  const leader = t.leader;
   return (
     <div
       data-testid="desk-sector-tile"
-      data-sector={t.sector}
+      data-sector={r.sector}
+      data-index={r.index}
       className="flex min-w-0 flex-col"
       style={{ gap: 4, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--line-2)", background }}
     >
-      <span style={{ fontSize: 12.5, color: "var(--cp-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.sector}</span>
+      <span style={{ fontSize: 12.5, color: "var(--cp-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.sector}</span>
       <span data-testid="desk-sector-pct" style={{ fontFamily: "var(--display)", fontSize: 22, lineHeight: 1.1, color: tone === "ink" ? "var(--cp-ink)" : TONE_COLOR[tone] }}>
-        {fmtPct(t.pct, { signed: true, digits: 2 })}
+        {fmtPct(pct, { signed: true, digits: 2 })}
       </span>
-      <span className="cp-num" style={{ fontSize: 10.5, color: "var(--cp-ink-3)" }}>
-        {t.rsPp != null ? `vs Nifty ${t.rsPp > 0 ? "+" : t.rsPp < 0 ? "−" : ""}${Math.abs(t.rsPp).toFixed(2)} pp` : "vs Nifty —"}
-        {mixed ? ` · ${t.live ? "today" : "5 days"}` : ""}
+      <span data-testid="desk-sector-index" className="cp-num" style={{ fontSize: 10.5, color: "var(--cp-ink-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {r.index} · {fmtLevel(r.close)}{stale ? ` · close of ${dayLabel(r.date)}` : ""}
       </span>
       {leader && (
         <button
           type="button"
           data-testid="desk-sector-leader"
           onClick={() => openChart(leader.symbol)}
-          title={`Open the ${leader.symbol} chart`}
+          title={`Best 5-session stock in this sector (end of day). Open the ${leader.symbol} chart`}
           className="flex min-w-0 items-center"
           style={{ gap: 6, padding: 0, marginTop: 2, border: 0, background: "none", cursor: "pointer", color: "var(--cp-ink-2)", fontFamily: "var(--mono)", fontSize: 10.5, textAlign: "left" }}
         >
           <StockIcon symbol={leader.symbol} size={16} />
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {leader.symbol}{leader.ret5dPct != null ? ` ${fmtPct(leader.ret5dPct, { signed: true })}` : ""}
+          <span data-testid="desk-sector-leader-label" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {leader.symbol}{leader.ret5dPct != null ? ` ${fmtPct(leader.ret5dPct, { signed: true })} · 5 sessions` : ""}
           </span>
         </button>
       )}

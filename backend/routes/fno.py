@@ -3,6 +3,10 @@
     GET /api/fno/{symbol}/expiries               option expiries still listed on the latest day, nearest first
     GET /api/fno/{symbol}/chain?expiry=&around=  one expiry's chain by strike, plus a summary of the whole chain
     GET /api/fno/{symbol}/futures                the latest day's futures contracts, each with its basis
+    GET /api/fno/scan/buildup?date=              every F&O stock's futures OI build-up on the latest (or given) day,
+                                                 passed through from DaaS /v1/desk/fno-buildup (definitions in
+                                                 nidp/services/daas_api/routers/desk_market.py). It lives under /desk
+                                                 there because the data platform's /fno/{symbol} would catch /fno/scan
 
 The rows live in nidp.fno_bhavcopy, which only the data platform can read (DaaS /v1/fno/*,
 nidp/services/daas_api/routers/fno.py), so each route forwards to it and shapes the answer. The data is end of
@@ -613,3 +617,19 @@ async def futures(
     spot = find_spot(rows)
     contracts = shape_futures(rows, spot)
     return {"symbol": sym, "as_of": as_of, "spot": spot, "lot_size": find_lot_size(rows), "futures": contracts, "count": len(contracts)}
+
+
+@router.get("/scan/buildup")
+async def scan_buildup(
+    request: Request,
+    day: Optional[date] = Query(None, alias="date", description="Trading day YYYY-MM-DD; default = the latest"),
+) -> Dict[str, Any]:
+    """Every F&O stock's futures on one day, one row per underlying: the nearest expiry's price change, open interest
+    and its change summed over all expiries, and the build-up label (long_buildup, short_buildup, short_covering,
+    long_unwinding, neutral). Passed through unchanged; a day with no rows is 200 with `rows: []`."""
+    await get_current_user(request)
+    body = await _daas("/desk/fno-buildup", {"date": day.isoformat()} if day else {}, "stock futures")
+    if not isinstance(body.get("rows"), list):
+        logger.warning("fno DaaS /desk/fno-buildup answered without rows")
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    return body

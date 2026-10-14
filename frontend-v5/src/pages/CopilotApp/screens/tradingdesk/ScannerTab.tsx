@@ -3,25 +3,30 @@
  *
  *   GET /api/positional/watchlist?limit=30   setup buckets, close, trigger, stop      (useDeskScanner, desk-data.ts)
  *   GET /api/positional/picks?limit=30       scored picks with entry, stop, target    (useDeskScanner)
+ *                                            both: spark_closes (last 24 daily closes, end of day) for the row's
+ *                                            line, avg_traded_value_cr_20d for "Liquid only" (≥ ₹10 Cr a day)
  *   GET /api/move-odds/latest?head=p_up5_1d  next-session estimate per stock, events
  *                                            on record, the model's own record        (useDeskOdds)
  *
  * The score is the scanner's rules-based score (final_score × 100), not a
  * probability. "P(+5% next session)" is the move-odds model's estimate that
  * the next session's high reaches the previous close + 5% — one session only.
- *
- * Not drawn (no data in these routes): the design's per-row 24-session
- * sparkline and its "liquid only" toggle.
+ * "Liquid only" keeps the stocks whose average daily traded value (close ×
+ * volume) over the last 20 sessions is at least ₹10 Cr; a stock the routes
+ * sent no traded value for cannot pass, and the tab says how many those are.
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Pill, TONE_COLOR, fmtNum, fmtPct, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
-import { FilterChips } from "../markets/parts";
+import { FilterChips, Sparkline } from "../markets/parts";
 import { SymbolCell } from "../desk/parts";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { STATUS_LABEL, scanDateLabel, setupLabel } from "./chart-data";
 import { useDesk } from "./context";
-import { BUCKET_LABEL, BUCKET_RULE, SETUP_BUCKETS, useDeskOdds, useDeskScanner, type DeskOdds, type DeskSetup, type SetupBucket, type SetupStatus } from "./desk-data";
+import {
+  BUCKET_LABEL, BUCKET_RULE, LIQUID_MIN_CR, SETUP_BUCKETS, useDeskOdds, useDeskScanner,
+  type DeskOdds, type DeskSetup, type SetupBucket, type SetupStatus,
+} from "./desk-data";
 
 type RankBy = "score" | "odds" | "rr";
 type Group = "all" | SetupBucket | "picks";
@@ -132,13 +137,28 @@ function stockSub(s: DeskSetup): string | undefined {
 
 const eventsText = (n: number | null) => (n == null ? "—" : fmtNum(n));
 
+/** "₹12.4 Cr a day" — the 20-session average traded value. */
+const tradedText = (cr: number | null) => (cr == null ? "No traded value" : `₹${fmtNum(cr, cr >= 100 ? 0 : 1)} Cr a day`);
+
+/** The last daily closes as a line, coloured by where the last close sits against the first. */
+function SparkCell({ s, width }: { s: DeskSetup; width: number }) {
+  const n = s.spark.length;
+  if (n < 2) return <span data-testid="desk-scan-spark-none" className="cp-mono-note">No line</span>;
+  const tone: Tone = s.spark[n - 1] > s.spark[0] ? "mint" : s.spark[n - 1] < s.spark[0] ? "danger" : "ink";
+  return (
+    <span data-testid="desk-scan-spark" data-points={n} data-tone={tone} title={`Last ${n} daily closes${s.sparkEnd ? ` to ${fmtDay(s.sparkEnd)}` : ""} (end of day)`} style={{ display: "block", width }}>
+      <Sparkline values={s.spark} tone={tone} height={18} />
+    </span>
+  );
+}
+
 // ── table (wide) and cards (phone) ───────────────────────────────────────
 
-const COLS = "36px minmax(150px,1.3fr) 60px 128px 64px minmax(200px,2fr) 86px 110px";
+const COLS = "36px minmax(130px,1.3fr) 80px 60px 104px 60px minmax(140px,2fr) 82px 104px";
 const cellStyle: CSSProperties = { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
 /** Width the table's columns need; a narrower box (a phone, or the desk beside the docked Copilot) shows the rows as cards. */
-const TABLE_MIN_WIDTH = 920;
+const TABLE_MIN_WIDTH = 930;
 
 /** True while the observed box is narrower than `below` px. Starts from `initial` until the box is measured. */
 function useNarrowBox(box: HTMLElement | null, below: number, initial: boolean): boolean {
@@ -157,7 +177,7 @@ function useNarrowBox(box: HTMLElement | null, below: number, initial: boolean):
 
 function ScanTable({ rows, selected, onOpen }: { rows: Row[]; selected: string | null; onOpen: (sym: string) => void }) {
   const head: Array<[string, ReactNode, "left" | "right"]> = [
-    ["rank", "#", "left"], ["stock", "Stock", "left"], ["score", "Score", "right"], ["odds", "P(+5% next session)", "left"],
+    ["rank", "#", "left"], ["stock", "Stock", "left"], ["spark", "24 sessions", "left"], ["score", "Score", "right"], ["odds", "P(+5% next session)", "left"],
     ["events", "Events n", "right"], ["setup", "Setup", "left"], ["target", "To target", "right"], ["status", "Status", "left"],
   ];
   return (
@@ -188,6 +208,10 @@ function ScanTable({ rows, selected, onOpen }: { rows: Row[]; selected: string |
             >
               <span role="cell" data-testid="desk-scan-rank" className="cp-num" style={{ ...cellStyle, color: "var(--cp-ink-3)" }}>{i + 1}</span>
               <span role="cell" style={cellStyle}><SymbolCell symbol={r.s.symbol} sub={stockSub(r.s)} testId="desk-scan-symbol" /></span>
+              <span role="cell" className="flex flex-col" style={{ ...cellStyle, gap: 3 }}>
+                <SparkCell s={r.s} width={72} />
+                <span data-testid="desk-scan-traded" className="cp-num" style={{ fontSize: 10, color: "var(--cp-ink-3)", overflow: "hidden", textOverflow: "ellipsis" }}>{tradedText(r.s.avgTradedCr)}</span>
+              </span>
               <span role="cell" style={{ ...cellStyle, textAlign: "right" }}><ScoreText score={r.s.score} /></span>
               <span role="cell" style={cellStyle}><OddsCell p={r.p} /></span>
               <span role="cell" data-testid="desk-scan-events" className="cp-num" style={{ ...cellStyle, textAlign: "right" }}>{eventsText(r.events)}</span>
@@ -231,6 +255,10 @@ function ScanCards({ rows, selected, onOpen }: { rows: Row[]; selected: string |
               <span className="flex w-full items-center justify-between" style={{ gap: 10, minWidth: 0 }}>
                 <span style={{ minWidth: 0, flex: "1 1 auto" }}><SetupCell s={r.s} /></span>
                 <span style={{ flex: "none" }}><StatusPill status={r.s.status} /></span>
+              </span>
+              <span className="flex w-full items-center" style={{ gap: 10, minWidth: 0, fontSize: 12 }}>
+                <span style={{ flex: "0 1 120px", minWidth: 0 }}><SparkCell s={r.s} width={120} /></span>
+                <span data-testid="desk-scan-traded" className="cp-num" style={{ flex: "none", color: "var(--cp-ink-3)" }}>{tradedText(r.s.avgTradedCr)}</span>
               </span>
               <span className="flex flex-wrap items-center" style={{ gap: "4px 14px", fontSize: 12 }}>
                 <span className="inline-flex items-center" style={{ gap: 6 }}><span className="cp-mono-note">P(+5% next session)</span><OddsCell p={r.p} /></span>
@@ -295,6 +323,26 @@ function ModelRecordLine({ odds, isError, onRetry }: { odds: DeskOdds | undefine
   );
 }
 
+function LiquidToggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      data-testid="desk-scan-liquid"
+      title={`Average daily traded value (close × volume) over the last 20 sessions of at least ₹${LIQUID_MIN_CR} Cr`}
+      onClick={() => onChange(!on)}
+      style={{
+        padding: "6px 12px", borderRadius: 999, fontSize: 12, cursor: "pointer", fontFamily: "var(--sans)",
+        border: `1px solid ${on ? "var(--mint-line)" : "var(--line-2)"}`,
+        color: on ? "var(--mint)" : "var(--cp-ink-2)",
+        background: on ? "var(--mint-soft)" : "transparent",
+      }}
+    >
+      Liquid only · ₹{LIQUID_MIN_CR} Cr+ a day
+    </button>
+  );
+}
+
 function PartialNote({ which }: { which: "watchlist" | "picks" }) {
   return (
     <span data-testid="desk-scan-partial" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>
@@ -312,6 +360,7 @@ export default function ScannerTab() {
   const oddsQ = useDeskOdds("p_up5_1d");
   const [rankBy, setRankBy] = useState<RankBy>("score");
   const [group, setGroup] = useState<Group>("all");
+  const [liquid, setLiquid] = useState(false);
   const [listBox, setListBox] = useState<HTMLDivElement | null>(null);
   const asCards = useNarrowBox(listBox, TABLE_MIN_WIDTH, mobile);
 
@@ -329,14 +378,16 @@ export default function ScannerTab() {
   // Ranking by the model needs its figures; without them the list stays ranked by score.
   const rank: RankBy = rankBy === "odds" && !bySymbol ? "score" : rankBy;
   const rows = useMemo(() => {
-    const kept = all.filter((r) => group === "all" || (group === "picks" ? r.s.inPicks : r.s.bucket === group));
+    const kept = all.filter((r) =>
+      (group === "all" || (group === "picks" ? r.s.inPicks : r.s.bucket === group))
+      && (!liquid || (r.s.avgTradedCr != null && r.s.avgTradedCr >= LIQUID_MIN_CR)));
     const byScore = (a: Row, b: Row) => desc(a.s.score, b.s.score);
     return [...kept].sort((a, b) => {
       if (rank === "odds") return desc(a.p, b.p) || byScore(a, b);
       if (rank === "rr") return desc(a.s.riskReward, b.s.riskReward) || byScore(a, b);
       return byScore(a, b);
     });
-  }, [all, group, rank]);
+  }, [all, group, rank, liquid]);
 
   if (scan.isPending) return <LoadingBlock label="Loading the scanner" rows={5} />;
   if (scan.isError) {
@@ -363,6 +414,10 @@ export default function ScannerTab() {
   }
 
   const count = (g: Group) => all.filter((r) => (g === "picks" ? r.s.inPicks : r.s.bucket === g)).length;
+  // Stocks in the chosen group the routes sent no traded value for: "Liquid only" cannot judge them.
+  const inGroup = all.filter((r) => group === "all" || (group === "picks" ? r.s.inPicks : r.s.bucket === group));
+  const noTraded = inGroup.filter((r) => r.s.avgTradedCr == null).length;
+  const sparkEnd = all.find((r) => r.s.sparkEnd)?.s.sparkEnd ?? null;
   const chips: Array<{ key: Group; label: string }> = [
     { key: "all", label: `All · ${all.length}` },
     ...SETUP_BUCKETS.map((b) => ({ key: b as Group, label: `${BUCKET_LABEL[b]} · ${count(b)}` })),
@@ -383,8 +438,19 @@ export default function ScannerTab() {
       </header>
 
       <div className="flex flex-col" style={{ gap: 10, padding: "0 16px 14px" }}>
-        <RankBySwitch value={rank} onChange={setRankBy} oddsReady={!!bySymbol} />
+        <div className="flex flex-wrap items-center justify-between" style={{ gap: "8px 12px" }}>
+          <RankBySwitch value={rank} onChange={setRankBy} oddsReady={!!bySymbol} />
+          <LiquidToggle on={liquid} onChange={setLiquid} />
+        </div>
         <FilterChips<Group> items={chips} value={group} onChange={setGroup} label="Setup group" idPrefix="desk-scan-group" />
+        {liquid && (
+          <span data-testid="desk-scan-liquid-note" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+            Liquid only: average daily traded value (close × volume) over the last 20 sessions of at least ₹{LIQUID_MIN_CR} Cr.
+            {noTraded > 0
+              ? ` ${fmtNum(noTraded)} ${noTraded === 1 ? "stock has" : "stocks have"} no traded-value figure and ${noTraded === 1 ? "is" : "are"} not shown while this is on.`
+              : " Every stock here has a traded-value figure."}
+          </span>
+        )}
         {data.partial.map((p) => <PartialNote key={p} which={p} />)}
       </div>
 
@@ -392,7 +458,7 @@ export default function ScannerTab() {
         <ModelRecordLine odds={odds} isError={oddsQ.isError} onRetry={() => oddsQ.refetch()} />
         {rows.length === 0 ? (
           <div data-testid="desk-scan-group-empty" style={{ padding: 16, fontSize: 13, color: "var(--cp-ink-3)" }}>
-            No setup in this group on this scan.
+            {liquid ? `No setup in this group trades ₹${LIQUID_MIN_CR} Cr or more a day on average.` : "No setup in this group on this scan."}
           </div>
         ) : asCards ? (
           <ScanCards rows={rows} selected={symbol} onOpen={openChart} />
@@ -407,6 +473,9 @@ export default function ScannerTab() {
         </Footnote>
         <Footnote>
           P(+5% next session): the move-odds model’s estimate that the next session’s high reaches the previous close plus 5%. It covers one session only. Events n: filings and news items on record for the stock in that model run.
+        </Footnote>
+        <Footnote>
+          24 sessions: each stock’s last daily closes{sparkEnd ? ` to ${fmtDay(sparkEnd)}` : ""}, end of day; green when the last close is above the first. Traded value: the average of close × volume over the last 20 sessions, ₹ crore a day.
         </Footnote>
         <Footnote>Sources: GET /api/positional/watchlist and /picks (end of day) · GET /api/move-odds/latest. Open a row for its chart.</Footnote>
       </div>

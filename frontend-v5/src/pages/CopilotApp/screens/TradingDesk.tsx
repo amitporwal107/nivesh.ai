@@ -24,7 +24,7 @@ import { SafeWidget } from "@/components/shared/SafeWidget";
 import { LoadingBlock, Pill, fmtNum } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
 import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
-import { DESK_TABS, DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskState, type DeskTab } from "./tradingdesk/context";
+import { DESK_TABS, DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskPersona, type DeskState, type DeskTab } from "./tradingdesk/context";
 import { useDeskScanner } from "./tradingdesk/desk-data";
 
 const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
@@ -124,14 +124,17 @@ export default function TradingDeskScreen() {
   const tab: DeskTab = isDeskTab(rawTab) ? rawTab : "overview";
   const rawSym = (params.get("sym") || "").toUpperCase();
   const symbol = SYM_RE.test(rawSym) ? rawSym : null;
+  const persona: DeskPersona = params.get("persona") === "investor" ? "investor" : "trader";
   const docked = wide;
   const dockRef = useRef<CopilotDockHandle>(null);
 
-  const update = useCallback((next: { tab?: DeskTab; sym?: string }) => {
+  const update = useCallback((next: { tab?: DeskTab; sym?: string; persona?: DeskPersona }) => {
     setParams((prev) => {
       const p = new URLSearchParams(prev);
       if (next.tab) p.set("tab", next.tab);
       if (next.sym) p.set("sym", next.sym.toUpperCase());
+      if (next.persona === "investor") p.set("persona", "investor");
+      else if (next.persona === "trader") p.delete("persona");
       return p;
     }, { replace: true });
   }, [setParams]);
@@ -149,7 +152,9 @@ export default function TradingDeskScreen() {
     setSymbol: (s) => update({ sym: s }),
     askDesk,
     docked,
-  }), [tab, symbol, update, askDesk, docked]);
+    persona,
+    setPersona: (p) => update({ persona: p }),
+  }), [tab, symbol, update, askDesk, docked, persona]);
 
   const chips = useDockChips(tab, symbol);
   const TabScreen = TAB_SCREENS[tab];

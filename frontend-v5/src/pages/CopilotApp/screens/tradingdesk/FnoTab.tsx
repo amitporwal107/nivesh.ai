@@ -8,6 +8,8 @@
  *   stats, option chain OI,        GET /api/fno/{symbol}/chain?expiry=         (useOptionChain)
  *   NIFTY & BANKNIFTY cards
  *   futures price, basis, OI chg   GET /api/fno/{symbol}/futures               (useFnoFutures)
+ *   OI build-up, every F&O stock   GET /api/fno/scan/buildup                   (useBuildup, FnoBuildup.tsx); a row opens
+ *                                                                              that stock's chain here
  *
  * Implied volatility and the expected move are the chain route's model
  * estimates (Black-76 on end-of-day prices, backend/services/option_pricing.py),
@@ -16,10 +18,8 @@
  * expiries show their date and days to expiry, with no weekly label guessed.
  *
  * Not connected:
- *   OI build-up across F&O stocks  futures rows carry no previous close (so no price change and no
- *                                  build-up label), and no route scans every F&O stock at once
- *   one-click paper strategies     no route generates rule-based strategies, and the paper engine
- *                                  records only its own selections; the Options lab's builder is linked
+ *   one-click paper strategies     no route generates rule-based strategies, and the desk's paper
+ *                                  trades are long stock positions only; the Options lab's builder is linked
  */
 import { useState, type FormEvent, type ReactNode } from "react";
 import { StockIcon, StockName } from "../../components/EntityIcon";
@@ -30,6 +30,7 @@ import { fmtIv, fmtMove, modelLabel } from "../trading/ModelViews";
 import { fmtLevel } from "../trading/PayoffResult";
 import { FNO_INDICES, cleanSymbol, isIndexUnderlying, useFnoFutures, useOptionChain, type ChainState, type FnoFutures, type FnoResult } from "../trading/fno";
 import { Choices, INPUT_STYLE, QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
+import { BuildupView } from "./FnoBuildup";
 import { CardRow, ChainOiTable, FnoGate, OiRangeBar, StatGrid, basisWords, chainTiles, nearFutureOf } from "./fno-parts";
 
 type FnoView = "chain" | "indices" | "buildup" | "strategies";
@@ -41,15 +42,9 @@ const VIEWS: Array<{ key: FnoView; label: string }> = [
   { key: "strategies", label: "Strategies" },
 ];
 
-const BUILDUP_NEEDS = [
-  "The day’s price change on futures rows: the data platform’s futures read (nidp/services/daas_api/routers/fno.py) sends the close and the change in OI but no previous close, so neither the price change nor a build-up label can be worked out.",
-  "An all-stocks scan: the F&O routes (GET /api/fno/{symbol}/…) read one underlying at a time; nothing returns the ~180 F&O stocks with their nearest future in one call.",
-  "The four build-up labels exist today only on option legs, one underlying at a time (oi_buildup on GET /api/fno/{symbol}/chain), and only once the previous close is sent.",
-];
-
 const STRATEGY_NEEDS = [
   "A rules engine that turns the chain (IV, OI walls, expected move) into candidate structures, served by a read route. None exists.",
-  "A way to record a user-chosen paper options trade. The paper engine (GET /api/paper-trades/*) records only its own frozen equity selections; there is no create route, and this screen adds no write calls.",
+  "A way to record a user-chosen paper options trade. The desk's paper trades (POST /api/desk/paper-trades) are long stock positions only; there is no route for an options leg or a multi-leg structure.",
 ];
 
 // ── header ───────────────────────────────────────────────────────────────
@@ -217,7 +212,7 @@ function Strategies() {
       <NotConnected
         testId="desk-fno-strategies-not-connected"
         title="One-click paper strategies"
-        body="The design lists strategies generated from rules, each with a paper-trade button. Nothing generates them yet, and paper trades are chosen by the model engine alone, so there is no way to open one from here."
+        body="The design lists strategies generated from rules, each with a paper-trade button. Nothing generates them yet, and the desk’s paper trades cover long stock positions only, so there is no way to open an options strategy from here."
         needs={STRATEGY_NEEDS}
       />
     </div>
@@ -286,14 +281,7 @@ export default function FnoTab() {
             {FNO_INDICES.map((i) => <IndexCard key={i.symbol} symbol={i.symbol} onOpen={openChain} />)}
           </div>
         )}
-        {view === "buildup" && (
-          <NotConnected
-            testId="desk-fno-buildup-not-connected"
-            title="OI build-up across F&O stocks"
-            body="The design plots every F&O stock by its price change and open-interest change, as long build-up, short build-up, short covering or long unwinding. That needs each stock’s futures price change for the day and a scan of all F&O stocks; neither reaches the app yet, so nothing is drawn."
-            needs={BUILDUP_NEEDS}
-          />
-        )}
+        {view === "buildup" && <BuildupView onOpen={openChain} />}
         {view === "strategies" && <Strategies />}
       </div>
 

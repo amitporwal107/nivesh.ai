@@ -1,7 +1,11 @@
 /**
  * Smart trading desk · Market intelligence — the event list's data.
  *
- *   GET /api/filings/feed?days=&category=&sort=&limit=   classified NSE / BSE filings (backend/routes/filings.py, filings_feed)
+ *   GET /api/filings/feed?days=&category=&sort=&limit=   classified NSE / BSE filings (backend/routes/filings.py, filings_feed);
+ *                                                         each row's `exchange` names where it was filed
+ *   GET /api/markets/deals?days=5&kind=all&limit=200     NSE bulk and block deals over the last 5 calendar days to the latest
+ *                                                         deal date (nidp.bulk_deals, nidp.block_deals via DaaS)
+ *   GET /api/markets/circulars?days=30&limit=50          SEBI circulars and master circulars (SEBI RSS, nidp.sebi_circulars)
  *
  * The route takes ONE `category` (an exact match on the classifier's
  * event_category). A chip that groups several categories therefore makes one
@@ -11,9 +15,18 @@
  * is the only way to list regulatory filings. The query keys are the same as
  * useFilingsFeed (screens/markets/hooks.ts), so both share one cache.
  */
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { http } from "@/services/api/http";
+import { ApiError } from "@/services/api/errors";
 import { filingsService, type FeedParams, type FeedResp, type FilingRow } from "@/services/adapters/filings.adapter";
 import type { Tone } from "../../components/ui";
+import { num } from "./desk-data";
+
+type Raw = Record<string, unknown>;
+const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
+const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+const noRetry4xx = (count: number, e: unknown) =>
+  !(e instanceof ApiError && (e.kind === "contract_drift" || (e.status != null && e.status >= 400 && e.status < 500))) && count < 1;
 
 /** The classifier's window is 30 days; a trading desk reads the last week. */
 export const FEED_DAYS = 7;
@@ -102,7 +115,7 @@ export function eventWhen(iso: string | null | undefined): { short: string; full
   };
 }
 
-/** The exchange a filing was made on, read from its document link (the feed row does not carry it). */
+/** The exchange a filing was made on, read from its document link (for a row that does not name it). */
 export function exchangeOf(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
@@ -113,6 +126,12 @@ export function exchangeOf(url: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/** Where a filing was made: the row's own `exchange` (from the stored source), else read from the document link. */
+export function filingExchange(r: FilingRow): string | null {
+  const named = str(r.exchange);
+  return named ? named.toUpperCase() : exchangeOf(r.url);
 }
 
 const filedAt = (r: FilingRow) => {
@@ -184,3 +203,132 @@ export function useEventFeed(chip: IntelChip, sort: FeedSort): EventFeed {
   const total = done.reduce((n, d) => n + (d.total ?? d.rows.length), 0);
   return { status: "ready", rows, total, facets, partial: failed.length > 0, error: failed[0]?.error ?? null, refetch };
 }
+
+// ── bulk and block deals (GET /api/markets/deals) ────────────────────────
+
+/** Calendar days of deals the Orders & deals chip lists, ending at the latest deal date on record. */
+export const DEAL_DAYS = 5;
+/** Deals asked for; the route says how many matched (`total`). */
+const DEAL_LIMIT = 200;
+
+export interface DealRow {
+  date: string | null;
+  /** "bulk" | "block", as sent. */
+  kind: string | null;
+  symbol: string;
+  client: string | null;
+  /** "BUY" | "SELL", as sent (upper case). */
+  side: string | null;
+  quantity: number | null;
+  /** Average traded price of the deal, rupees. */
+  price: number | null;
+  /** Deal value, ₹ crore. */
+  valueCr: number | null;
+}
+
+export interface DealsFeed {
+  /** The latest deal date on record, and the first calendar day of the window ending there. */
+  asOf: string | null;
+  from: string | null;
+  /** Calendar days in the window. */
+  days: number | null;
+  source: string | null;
+  /** Rows sent, and deals matching in the window before the route's limit. */
+  count: number | null;
+  total: number | null;
+  rows: DealRow[];
+}
+
+async function fetchDeals(days: number, signal?: AbortSignal): Promise<DealsFeed> {
+  const res = await http({ path: "/api/markets/deals", query: { days, kind: "all", limit: DEAL_LIMIT }, signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.rows)) throw ApiError.contractDrift("markets.deals: no rows list");
+  const rows: DealRow[] = d.rows.flatMap((v): DealRow[] => {
+    const r = rec(v);
+    const symbol = str(r.symbol)?.toUpperCase();
+    if (!symbol) return [];
+    const q = num(r.quantity);
+    const p = num(r.avg_price);
+    return [{
+      date: str(r.date),
+      kind: str(r.kind)?.toLowerCase() ?? null,
+      symbol,
+      client: str(r.client_name),
+      side: str(r.side)?.toUpperCase() ?? null,
+      quantity: q != null && q > 0 ? q : null,
+      price: p != null && p > 0 ? p : null,
+      valueCr: num(r.value_cr),
+    }];
+  });
+  return { asOf: str(d.as_of), from: str(d.from), days: num(d.days), source: str(d.source), count: num(d.count), total: num(d.total), rows };
+}
+
+/** GET /api/markets/deals — read when the Orders & deals chip is open. */
+export function useDeals(enabled: boolean, days = DEAL_DAYS) {
+  return useQuery<DealsFeed>({
+    queryKey: ["copilot", "desk", "deals", days],
+    enabled,
+    staleTime: 10 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchDeals(days, signal),
+  });
+}
+
+// ── SEBI circulars (GET /api/markets/circulars) ──────────────────────────
+
+export const CIRCULAR_DAYS = 30;
+const CIRCULAR_LIMIT = 50;
+
+export interface Circular {
+  title: string;
+  /** The circular on sebi.gov.in; null when the row has no http(s) link. */
+  url: string | null;
+  /** "circular" | "master_circular", as sent. */
+  kind: string | null;
+  issuedOn: string | null;
+}
+
+export interface CircularsFeed {
+  asOf: string | null;
+  source: string | null;
+  count: number | null;
+  rows: Circular[];
+}
+
+/** Only an http(s) link is rendered as a link; the text comes from an outside feed. */
+function webUrl(v: unknown): string | null {
+  const s = str(v);
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCirculars(signal?: AbortSignal): Promise<CircularsFeed> {
+  const res = await http({ path: "/api/markets/circulars", query: { days: CIRCULAR_DAYS, limit: CIRCULAR_LIMIT }, signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.rows)) throw ApiError.contractDrift("markets.circulars: no rows list");
+  const rows: Circular[] = d.rows.flatMap((v): Circular[] => {
+    const r = rec(v);
+    const title = str(r.title);
+    if (!title) return [];
+    return [{ title, url: webUrl(r.url), kind: str(r.kind)?.toLowerCase() ?? null, issuedOn: str(r.issued_on) }];
+  });
+  return { asOf: str(d.as_of), source: str(d.source), count: num(d.count), rows };
+}
+
+/** GET /api/markets/circulars — read when the Regulatory chip is open. */
+export function useCirculars(enabled: boolean) {
+  return useQuery<CircularsFeed>({
+    queryKey: ["copilot", "desk", "circulars"],
+    enabled,
+    staleTime: 30 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchCirculars(signal),
+  });
+}
+
+export const CIRCULAR_KIND_LABEL: Record<string, string> = { circular: "Circular", master_circular: "Master circular" };
