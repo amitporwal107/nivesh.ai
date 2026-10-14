@@ -50,18 +50,25 @@ async function mockAsk(page: Page): Promise<string[]> {
   return sent;
 }
 
-/** As `mockAsk`, but keeps each whole request: the question and the persona it was asked in. */
-async function mockAskBodies(page: Page): Promise<Array<{ message: string; persona?: string }>> {
-  const bodies: Array<{ message: string; persona?: string }> = [];
+/** One POST /api/chat/stream as the app sent it. `position` is present only when the request carried one. */
+type AskBody = { message: string; persona?: string; position?: unknown };
+
+/**
+ * As `mockAsk`, but keeps each whole request: the question, the persona it was
+ * asked in and, for a futures or options row, the reference to its contract.
+ * `frame` is the stream's one frame; the default is a finished answer.
+ */
+async function mockAskBodies(page: Page, frame: Record<string, unknown> = { type: "done", content: "ok" }): Promise<AskBody[]> {
+  const bodies: AskBody[] = [];
   await page.route("**/api/chat/sessions", (route) =>
     route.request().method() === "POST"
       ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ session_id: "asked1" }) })
       : route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
   await page.route("**/api/chat/messages*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
   await page.route("**/api/chat/stream", (route) => {
-    const body = route.request().postDataJSON() as { message: string; persona?: string };
-    bodies.push({ message: body.message, persona: body.persona });
-    return route.fulfill({ status: 200, contentType: "text/event-stream", body: `data: ${JSON.stringify({ type: "done", content: "ok" })}\n\n` });
+    const body = route.request().postDataJSON() as AskBody;
+    bodies.push({ message: body.message, persona: body.persona, ...("position" in body ? { position: body.position } : {}) });
+    return route.fulfill({ status: 200, contentType: "text/event-stream", body: `data: ${JSON.stringify(frame)}\n\n` });
   });
   return bodies;
 }
@@ -291,6 +298,62 @@ test.describe("Trader desk — broker block", () => {
     }
     expect(asked.map((a) => a.message)).toEqual(expected);
     expect(asked.map((a) => a.persona)).toEqual(["trader", "trader", "trader", "trader"]);
+
+    // A share row sends the question alone. An option or a future also sends a reference to
+    // its contract — the account, the row's own symbol and exchange, the contract's details,
+    // and the signed quantity and average as the broker gave them — so the answer can chart
+    // the contract itself (POST /api/chat/stream `position`, backend/routes/chat.py).
+    expect(asked[0]).not.toHaveProperty("position");
+    expect(asked[1]).not.toHaveProperty("position");
+    expect(asked[2].position).toEqual({ account_id: "ba_fixture00001", symbol: "FIXIDX26OCT25000CE", exchange: "NFO", instrument_type: "CE", expiry: "2026-10-27", strike: 25000, quantity: 65, avg_price: 240.25 });
+    // A future has no strike, and a short keeps its sign.
+    expect(asked[3].position).toEqual({ account_id: "ba_fixture00001", symbol: "FIXGAMMA", exchange: "NFO", instrument_type: "FUT", expiry: "2026-10-27", strike: null, quantity: -275, avg_price: 1770 });
+  });
+
+  test("an F&O row the broker did not describe fully asks without a contract reference", async ({ page }) => {
+    // Some brokers send no expiry or strike for a derivative (services/brokers/groww.py), and a
+    // row can lack its exchange. Such a row cannot name one contract, so it asks as a share row does.
+    const base = { name: null, quantity: 10, avg_price: 12, last_price: 13, pnl: 10, product: "carryforward", product_raw: "NRML", segment: "fno", is_intraday: false, kind: "net" };
+    const rows = [
+      { ...base, symbol: "FIXNOEXP", exchange: "NFO", instrument_type: "CE", expiry: null, strike: null },
+      { ...base, symbol: "FIXNOSTRIKE", exchange: "NFO", instrument_type: "PE", expiry: "2026-10-27", strike: null },
+      { ...base, symbol: "FIXNOEXCH", exchange: null, instrument_type: "FUT", expiry: "2026-10-27", strike: null },
+    ];
+    const book = { ...POSITIONS, accounts: [{ ...POSITIONS.accounts[0], counts: { total: 3, fno: 3, intraday: 0 }, positions: rows }] };
+    const asked = await mockAskBodies(page);
+    await brokerData(page, { positions: book });
+
+    for (let i = 0; i < rows.length; i += 1) {
+      await page.goto(`${APP}/trader`);
+      await page.getByTestId("trader-positions-account").nth(0).getByTestId("broker-position-row").nth(i).click();
+      await expect.poll(() => asked.length).toBe(i + 1);
+    }
+    expect(asked.map((a) => a.message.split(" chart ")[0])).toEqual(["Show the FIXNOEXP", "Show the FIXNOSTRIKE", "Show the FIXNOEXCH"]);
+    for (const a of asked) expect(a).not.toHaveProperty("position");
+  });
+
+  test("an answer that failed for a contract row is asked again about the same contract", async ({ page }) => {
+    // The stream ends in an error, so the thread offers a retry. The retry is the same
+    // question about the same position, and must not fall back to the share.
+    const asked = await mockAskBodies(page, { type: "error", content: "fixture: the answer could not be finished" });
+    await brokerData(page, { positions: POSITIONS });
+    await page.goto(`${APP}/trader`);
+    await page.getByTestId("trader-positions-account").nth(0).getByTestId("broker-position-row").nth(2).click();
+    await expect.poll(() => asked.length).toBe(1);
+
+    await page.getByTestId("answer-retry").click();
+    await expect.poll(() => asked.length).toBe(2);
+    const contract = { account_id: "ba_fixture00001", symbol: "FIXIDX26OCT25000CE", exchange: "NFO", instrument_type: "CE", expiry: "2026-10-27", strike: 25000, quantity: 65, avg_price: 240.25 };
+    expect(asked[0].position).toEqual(contract);
+    expect(asked[1].position).toEqual(contract);
+    expect(asked[1].message).toBe(asked[0].message);
+
+    // A different question typed into the same thread afterwards is not about that position.
+    await expect(page.getByTestId("answer-retry")).toBeVisible();
+    await page.getByTestId("composer-input").fill("What is the lot size?");
+    await page.getByTestId("composer-input").press("Enter");
+    await expect.poll(() => asked.length).toBe(3);
+    expect(asked[2]).not.toHaveProperty("position");
   });
 
   test("open positions: an account with none, the feature switched off, a failed read and a wrong-shaped answer each say so", async ({ page }) => {

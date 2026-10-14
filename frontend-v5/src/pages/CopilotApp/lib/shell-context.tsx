@@ -3,10 +3,19 @@
  *
  *   const { ask, go, mobile, mode } = useCopilotShell();
  *   ask("Which funds overlap most?");   // opens a thread and streams the answer
+ *   ask(question, { position });        // the same, about one futures / options position
  *   go("tool/screener");                // moves to another screen in the shell
  */
 import { createContext, useContext } from "react";
+import type { PositionRef } from "@/services/adapters/chat.adapter";
 import type { Mode } from "./views";
+
+/** What may go with a question besides its text. */
+export interface AskOptions {
+  /** The futures or options position the question is asked from. The answer
+   *  then carries a chart of that contract itself. Leave it out for anything else. */
+  position?: PositionRef;
+}
 
 export interface CopilotShell {
   mode: Mode;
@@ -15,7 +24,7 @@ export interface CopilotShell {
   /** Viewport under 980px — the rail is a drawer. */
   compact: boolean;
   /** Ask the Copilot. Starts a new thread, or continues the open one. */
-  ask: (question: string) => void;
+  ask: (question: string, opts?: AskOptions) => void;
   /** Go to a view below the app base ("" = home). See lib/views.ts. */
   go: (view: string) => void;
   isAdmin: boolean;

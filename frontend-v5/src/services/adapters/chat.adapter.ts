@@ -27,6 +27,27 @@ export type StreamEvent =
   | { type: "done"; content?: string; follow_ups?: string[] }
   | { type: "error"; content?: string };
 
+/**
+ * The futures or options position a question was asked from (the optional
+ * `position` of POST /api/chat/stream). The server answers such a question
+ * with a card that charts that contract itself, not the underlying share.
+ * Values are the position row's own, as the broker reported them.
+ */
+export interface PositionRef {
+  account_id: string;
+  symbol: string;
+  exchange: string;
+  instrument_type: "FUT" | "CE" | "PE";
+  /** YYYY-MM-DD */
+  expiry: string;
+  /** null for a future. */
+  strike: number | null;
+  /** Signed: negative is a short position. */
+  quantity: number;
+  /** null when the broker sent no average. */
+  avg_price: number | null;
+}
+
 export const ChatMessageC = z.object({
   id: z.string().optional(),
   role: z.enum(["user", "assistant", "system"]).or(z.string()),
@@ -63,7 +84,9 @@ export interface ChatAdapter {
     // bypassing intent routing — used by the filings-first /research surface.
     // `persona` is the Copilot app's mode (investor | trader | advisor): in
     // investor and trader an advisor is answered from their own portfolio.
-    opts?: { page?: string; signal?: AbortSignal; agent?: string; persona?: string },
+    // `position` is sent only when the question was asked from a futures or
+    // options position; a share row and a typed question send none.
+    opts?: { page?: string; signal?: AbortSignal; agent?: string; persona?: string; position?: PositionRef },
   ): Promise<void>;
   listSessions(): Promise<ChatSession[]>;
   createSession(title?: string): Promise<{ id: string }>;
@@ -120,6 +143,7 @@ export const realChatAdapter: ChatAdapter = {
         page: opts?.page,
         ...(opts?.agent ? { agent: opts.agent } : {}),
         ...(opts?.persona ? { persona: opts.persona } : {}),
+        ...(opts?.position ? { position: opts.position } : {}),
       }),
       signal: opts?.signal,
     });

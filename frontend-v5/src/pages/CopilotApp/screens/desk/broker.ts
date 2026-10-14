@@ -13,6 +13,11 @@
  *                                 own page, read live from the broker and not stored
  *                                 (backend/routes/broker_connect.py :: get_all_positions).
  *
+ *   GET /api/broker/accounts/{account_id}/contract-chart
+ *                                 the price history and latest quote of one futures or options
+ *                                 contract the account holds, read live and not stored
+ *                                 (backend/routes/broker_connect.py :: get_contract_chart).
+ *
  * Read-only throughout. No route returns a broker's funds or its day P&L, so
  * nothing here stands in for them.
  *
@@ -21,15 +26,25 @@
  *
  * Units: prices and P&L are RUPEES; pnlPct is in percent units.
  */
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { http } from "@/services/api/http";
+import { apiFetch } from "@/services/api/authed-fetch";
 import { ApiError } from "@/services/api/errors";
+import type { PositionRef } from "@/services/adapters/chat.adapter";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { isForbidden } from "../trading/queries";
 
 const optStr = z.string().nullish();
 const optNum = z.number().nullish();
+
+/** "13 Oct, 3:42 pm" in India time — a broker read is an India-market timestamp wherever it is viewed. Takes an ISO string or epoch milliseconds. */
+export function fmtStamp(at: string | number | null | undefined): string {
+  if (at == null || at === "") return "—";
+  const d = new Date(at);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return d.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
+}
 
 /** A stored holding that a broker read wrote. Fields as the holdings route returns them. */
 const BrokerRowC = z.object({
@@ -196,6 +211,8 @@ const PositionsC = z.object({ as_of: optStr, accounts: z.array(PositionsAccountC
 export interface BrokerPosition {
   /** Stable within one account's list. */
   key: string;
+  /** The broker account the position is held in. */
+  accountId: string;
   symbol: string;
   name: string | null;
   exchange: string | null;
@@ -250,6 +267,7 @@ export function readPositions(body: unknown): PositionsBook {
       asOf: text(a.as_of),
       positions: a.positions.map((p, i) => ({
         key: `${a.account_id}:${i}:${p.symbol}`,
+        accountId: a.account_id,
         symbol: p.symbol.trim().toUpperCase(),
         name: text(p.name),
         exchange: text(p.exchange),
@@ -287,5 +305,321 @@ export function useBrokerPositions(enabled: boolean) {
     refetchOnWindowFocus: false,
     retry: (count, e) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
     queryFn: ({ signal }) => fetchPositions(signal),
+  });
+}
+
+// ── a futures or options contract ────────────────────────────────────────────
+
+const CONTRACT_KINDS = ["FUT", "CE", "PE"] as const;
+export type ContractKind = (typeof CONTRACT_KINDS)[number];
+
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * What a futures or options row sends with its question so the answer can chart
+ * the contract itself (POST /api/chat/stream `position`). Null for a share, and
+ * for a derivative the broker did not describe fully — no exchange, no expiry
+ * date, or an option with no strike. Such a row cannot name one contract, so it
+ * asks the way a share row does.
+ */
+export function positionRefOf(p: BrokerPosition): PositionRef | null {
+  const kind = CONTRACT_KINDS.find((k) => k === p.instrument);
+  if (!kind || !p.exchange || !p.expiry || !CALENDAR_DAY.test(p.expiry)) return null;
+  if (kind !== "FUT" && p.strike == null) return null;
+  return {
+    account_id: p.accountId,
+    symbol: p.symbol,
+    exchange: p.exchange,
+    instrument_type: kind,
+    expiry: p.expiry,
+    strike: kind === "FUT" ? null : p.strike,
+    quantity: p.qty,
+    avg_price: p.avg,
+  };
+}
+
+/** `data` of a `broker_contract_chart` widget (backend/routes/chat.py :: _position_chart_widget). It holds no prices. */
+const ContractWidgetC = z.object({
+  account_id: z.string().min(1),
+  broker: optStr,
+  broker_display: optStr,
+  symbol: z.string().min(1),
+  exchange: z.string().min(1),
+  instrument_type: z.enum(CONTRACT_KINDS),
+  expiry: z.string().regex(CALENDAR_DAY),
+  strike: optNum,
+  /** Signed, as the position row gave it. */
+  quantity: optNum,
+  avg_price: optNum,
+});
+
+/** One contract in one broker account, with the position's own quantity and average. */
+export interface ContractPosition {
+  accountId: string;
+  /** Broker slug ("icicidirect"); null when the card does not say. */
+  broker: string | null;
+  /** The broker's name as the server writes it ("ICICI Direct"). */
+  brokerName: string | null;
+  symbol: string;
+  exchange: string;
+  kind: ContractKind;
+  /** YYYY-MM-DD */
+  expiry: string;
+  /** Null for a future. */
+  strike: number | null;
+  /** Signed; negative is short. Null when the card carries none. */
+  qty: number | null;
+  avg: number | null;
+}
+
+/** The contract a `broker_contract_chart` widget is about; null when its data does not name one. */
+export function readContractWidget(data: unknown): ContractPosition | null {
+  const parsed = ContractWidgetC.safeParse(data);
+  if (!parsed.success) return null;
+  const d = parsed.data;
+  const strike = d.instrument_type === "FUT" ? null : positive(d.strike);
+  if (d.instrument_type !== "FUT" && strike == null) return null;
+  return {
+    accountId: d.account_id,
+    broker: text(d.broker),
+    brokerName: text(d.broker_display),
+    symbol: d.symbol.trim().toUpperCase(),
+    exchange: d.exchange.trim().toUpperCase(),
+    kind: d.instrument_type,
+    expiry: d.expiry,
+    strike,
+    qty: num(d.quantity),
+    avg: positive(d.avg_price),
+  };
+}
+
+// ── a contract's own chart, read live ────────────────────────────────────────
+//
+//   GET /api/broker/accounts/{account_id}/contract-chart
+//       ?symbol&exchange&instrument_type&expiry[&strike]&interval
+//
+// The contract's own price — an option's premium, a future's price — not the
+// underlying share's. Each call is a read at the broker.
+
+/** The views the route serves: five-minute bars (about seven days) and thirty-minute bars (about 45 days). */
+export const CHART_INTERVALS = ["5m", "30m"] as const;
+export type ChartInterval = (typeof CHART_INTERVALS)[number];
+
+const CandleC = z.object({
+  /** When the bar starts: an ISO timestamp with its UTC offset (India time, +05:30). */
+  time: z.string().min(1),
+  open: z.number(),
+  high: z.number(),
+  low: z.number(),
+  close: z.number(),
+  volume: optNum,
+  open_interest: optNum,
+});
+
+const QuoteC = z.object({
+  last_price: optNum,
+  last_traded_at: optStr,
+  high: optNum,
+  low: optNum,
+  previous_close: optNum,
+  /** The underlying's price. */
+  spot_price: optNum,
+});
+
+const ContractChartC = z.object({
+  interval: z.enum(CHART_INTERVALS),
+  as_of: z.string().min(1),
+  /** Oldest first; empty when the broker has no bars for the view. */
+  candles: z.array(CandleC),
+  /** Null when the broker's quote call failed, which happens while the bars still come back. */
+  quote: QuoteC.nullish(),
+});
+
+export interface ContractCandle {
+  /** When the bar starts, in epoch milliseconds. */
+  at: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  /** 0 is a bar with no trades; null when the broker sent no volume. */
+  volume: number | null;
+  /** Contracts open at this bar. A level, not a flow: never add bars together. */
+  openInterest: number | null;
+}
+
+/** The broker's latest quote. Each field is null when the broker did not send it. */
+export interface ContractQuote {
+  last: number | null;
+  /** When the last trade happened, in epoch milliseconds. */
+  lastTradedAt: number | null;
+  high: number | null;
+  low: number | null;
+  previousClose: number | null;
+  spot: number | null;
+}
+
+export interface ContractChart {
+  interval: ChartInterval;
+  /** When the server read the broker (ISO). */
+  asOf: string;
+  /** Oldest first, each later than the one before it. */
+  candles: ContractCandle[];
+  /** Bars the broker sent that were not later than the bar before them. They are left out of `candles`, and the card says how many. */
+  outOfOrder: number;
+  /** Null when the broker returned no quote with this read. */
+  quote: ContractQuote | null;
+}
+
+const HAS_UTC_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/;
+
+/** The instant an ISO timestamp names; null without a UTC offset, since the same clock time is a different instant in each time zone. */
+function instantOf(iso: string | null | undefined): number | null {
+  if (!iso || !HAS_UTC_OFFSET.test(iso.trim())) return null;
+  const t = Date.parse(iso.trim());
+  return Number.isFinite(t) ? t : null;
+}
+
+/** Why a chart could not be shown. */
+export type ChartFailure =
+  | "session_ended" // 409 BROKER_SESSION_EXPIRED: the user must sign in at the broker again
+  | "not_supported" // 400 BROKER_READ_NOT_SUPPORTED: this broker or kind of account has no contract chart
+  | "not_enabled" // 403: reading from a broker is switched off for the user
+  | "no_account" // 404: the account is not the caller's
+  | "broker_failed" // 502 BROKER_READ_FAILED: the broker did not answer the read
+  | "read_failed" // any other refusal
+  | "unreachable" // no answer: offline, or the read took too long
+  | "wrong_shape"; // a 200 that is not the documented body
+
+export class ContractChartError extends Error {
+  readonly kind: ChartFailure;
+
+  constructor(kind: ChartFailure) {
+    super(`contract chart: ${kind}`);
+    this.name = "ContractChartError";
+    this.kind = kind;
+  }
+}
+
+export function readContractChart(body: unknown): ContractChart {
+  const parsed = ContractChartC.safeParse(body);
+  if (!parsed.success || !Number.isFinite(Date.parse(parsed.data.as_of))) throw new ContractChartError("wrong_shape");
+  const d = parsed.data;
+  const candles: ContractCandle[] = [];
+  let outOfOrder = 0;
+  let previous = -Infinity;
+  for (const c of d.candles) {
+    const at = instantOf(c.time);
+    // A bar that cannot be placed in time is not drawn somewhere plausible; the body is refused.
+    if (at == null) throw new ContractChartError("wrong_shape");
+    // The route sends bars oldest first. A repeated or misplaced bar is dropped here, once, so the
+    // chart and the figures read the same list; it is counted, not moved to where it might fit.
+    const second = Math.floor(at / 1000);
+    if (second <= previous) {
+      outOfOrder += 1;
+      continue;
+    }
+    previous = second;
+    candles.push({ at, open: c.open, high: c.high, low: c.low, close: c.close, volume: num(c.volume), openInterest: num(c.open_interest) });
+  }
+  const q = d.quote;
+  return {
+    interval: d.interval,
+    asOf: d.as_of,
+    candles,
+    outOfOrder,
+    quote: q
+      ? { last: positive(q.last_price), lastTradedAt: instantOf(q.last_traded_at), high: positive(q.high), low: positive(q.low), previousClose: positive(q.previous_close), spot: positive(q.spot_price) }
+      : null,
+  };
+}
+
+/**
+ * Which failure an error answer is. Keyed on the `code` of the app's error
+ * envelope (backend/core/error_handlers.py), also read from a bare
+ * `{ detail: { code } }` body; 403 and 404 are told by status.
+ */
+function chartFailureOf(status: number, body: unknown): ChartFailure {
+  const env = body !== null && typeof body === "object" ? (body as { code?: unknown; detail?: unknown }) : {};
+  const detail = env.detail !== null && typeof env.detail === "object" ? (env.detail as { code?: unknown }) : {};
+  const code = typeof env.code === "string" ? env.code : typeof detail.code === "string" ? detail.code : null;
+  if (code === "BROKER_SESSION_EXPIRED") return "session_ended";
+  if (code === "BROKER_READ_NOT_SUPPORTED") return "not_supported";
+  if (code === "BROKER_READ_FAILED") return "broker_failed";
+  if (status === 403) return "not_enabled";
+  if (status === 404) return "no_account";
+  return "read_failed";
+}
+
+/** A read at the broker can take a while; past this the card reports it instead of waiting on. */
+const CHART_TIMEOUT_MS = 30_000;
+
+/**
+ * One read of a contract's chart. Resolves with the typed chart or rejects with
+ * a ContractChartError.
+ *
+ * It uses a plain request, not http(): http() repeats a 5xx, and its ApiError
+ * drops the envelope's `code`. A repeat here is a second read at the broker,
+ * and the code is what tells an ended session from a failed read.
+ */
+export async function fetchContractChart(c: ContractPosition, interval: ChartInterval): Promise<ContractChart> {
+  const query = new URLSearchParams({ symbol: c.symbol, exchange: c.exchange, instrument_type: c.kind, expiry: c.expiry });
+  // A future has no strike, and the route takes none for it.
+  if (c.strike != null) query.set("strike", String(c.strike));
+  query.set("interval", interval);
+
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), CHART_TIMEOUT_MS);
+  let status: number;
+  let ok: boolean;
+  let raw: string;
+  try {
+    const res = await apiFetch(`/api/broker/accounts/${encodeURIComponent(c.accountId)}/contract-chart?${query.toString()}`, {
+      headers: { Accept: "application/json" },
+      signal: timeout.signal,
+    });
+    status = res.status;
+    ok = res.ok;
+    raw = await res.text();
+  } catch {
+    throw new ContractChartError("unreachable");
+  } finally {
+    clearTimeout(timer);
+  }
+
+  let body: unknown = null;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    // Not JSON: an error answer is then told by its status alone, and a 200 is the wrong shape.
+    body = null;
+  }
+  if (!ok) throw new ContractChartError(chartFailureOf(status, body));
+  return readContractChart(body);
+}
+
+/**
+ * A contract's chart for one view. A live read at the broker each time, so it
+ * does not poll, does not re-run on window focus or reconnect, and is not
+ * retried: the card offers "Read again".
+ *
+ * A read that is under way is not cancelled when the card unmounts. A streamed
+ * answer is replaced by its saved copy a moment after it arrives; cancelling
+ * there would send the same read to the broker twice. The second card picks up
+ * the first one's read instead.
+ *
+ * While another view is being read, the previous view's chart stays as
+ * `data` with `isPlaceholderData` set.
+ */
+export function useContractChart(c: ContractPosition, interval: ChartInterval) {
+  const profile = useImpersonationStore((s) => s.profileId);
+  return useQuery<ContractChart, Error>({
+    queryKey: ["copilot", "desk", "broker-contract-chart", profile ?? "self", c.accountId, c.exchange, c.symbol, c.kind, c.expiry, c.strike, interval],
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: false,
+    placeholderData: keepPreviousData,
+    queryFn: () => fetchContractChart(c, interval),
   });
 }

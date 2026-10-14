@@ -49,12 +49,20 @@ unit-tested with stubbed HTTP; **not yet verified against a live broker or on st
 | `GET /snapshots/{snapshot_id}` | one snapshot in full: the list fields plus `broker_account_id, broker, broker_display, broker_user_masked, holdings[]` (`name, ticker, isin, asset_type, quantity, buy_price, current_price, sector, source_id`). 404 unless it is the caller's |
 | `GET /accounts/{id}/positions?kind=net\|day&segment=all\|fno\|intraday` | `{account_id, broker, kind, segment, as_of, positions[], counts{total,fno,intraday}}`; live, not stored |
 | `GET /positions?kind=&segment=` | the same per connected account: `accounts[]` with `ok`, `error{code,message}`, `as_of` |
+| `GET /accounts/{id}/contract-chart?symbol=&exchange=&instrument_type=FUT\|CE\|PE&expiry=YYYY-MM-DD&strike=&interval=5m\|30m` | `{account_id, broker, broker_display, contract{symbol,exchange,instrument_type,expiry,strike}, interval, as_of, candles[], quote}` — the price of the futures or options contract itself; live, not stored |
 | `DELETE /accounts/{id}` | removes the account, its token, its holdings and its sync snapshots |
 
 - `broker_error` codes: `denied, missing_params, unknown_broker, invalid_state, state_expired, token_exchange_failed, server_error` (the broker signed the user in but Nivesh could not save the session).
 - The server must have `PII_ENCRYPTION_KEY` to store a session token. Without it `supported` reports nothing as `configured` or `connectable`, and `start` answers 503.
 - Position fields: `symbol, exchange, quantity (signed), avg_price, last_price, pnl, product, product_raw, segment (equity|fno|commodity|currency), is_intraday, instrument_type (FUT|CE|PE), expiry, strike, kind, name`. A field the broker does not return is null.
 - Read errors carry a stable `code`: `BROKER_SESSION_EXPIRED` (409, reconnect needed), `BROKER_READ_NOT_SUPPORTED` (400), `BROKER_READ_FAILED` (502).
+- Contract chart: the contract is named by its position row's own `symbol`, `exchange`, `instrument_type`, `expiry` and
+  `strike` (omit `strike` for a future); anything else is a 422. `candles[]` are oldest first:
+  `time` (ISO, exchange offset), `open, high, low, close, volume, open_interest` (the last two may be null).
+  `quote` is null when the broker's quote could not be read, else `last_price, last_traded_at, open, high, low,
+  previous_close, change_pct, spot_price, volume`, each null when not sent. Views: `5m` (about 7 days) and `30m`
+  (about 45 days); there is no daily view. ICICI Direct only today — any other broker answers
+  `BROKER_READ_NOT_SUPPORTED`. Same `broker_hub` flag as positions.
 - Feature flag `broker_hub` (default everyone): off gives 403 `feature_not_enabled` on start, native sync and positions. Listing and disconnecting are not gated.
 - A session ends at the broker's expiry, when the broker rejects the token, or when the user logs out of Nivesh on their last device. The account stays listed with `needs_reconnect`.
 - Holdings sync runs on connect, on demand, and daily at 17:30 IST for live sessions (`BROKER_DAILY_SYNC_ENABLED=0` switches the job off).
@@ -115,7 +123,15 @@ Server-sent events. Body: `message` (required), `session_id`, `page`, `agent`, `
   tools. With `advisor`, no value or any other value they are answered from the cross-client book, as
   before. For every other caller the field changes nothing, and no value can reach a client book the
   caller does not own.
-- `POST /api/chat/send` (the older dock) takes no `persona` and is unchanged.
+- `position` (optional) says the question was asked from a broker futures / options position:
+  `{account_id, symbol, exchange, instrument_type, expiry, strike, quantity, avg_price}`. When the account is
+  the caller's own redirect-connected account and its broker can serve a contract chart, the answer's card is
+  `broker_contract_chart` — sent as the first `widget` frame and saved with the answer — and the engine's own
+  card (for the underlying share) is not sent. Its `data` is the reference only
+  (`account_id, broker, broker_display, symbol, exchange, instrument_type, expiry, strike, quantity, avg_price`);
+  the card reads prices itself from `GET /api/broker/accounts/{id}/contract-chart`. A missing, malformed or
+  foreign reference is ignored and the question is answered as usual.
+- `POST /api/chat/send` (the older dock) takes no `persona` or `position` and is unchanged.
 
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.

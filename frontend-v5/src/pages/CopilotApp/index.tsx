@@ -18,7 +18,7 @@ import { useMe } from "@/hooks/use-auth";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { LoadingBlock } from "./components/ui";
 import { classifyAgent } from "./lib/answer";
-import { CopilotShellProvider, type CopilotShell } from "./lib/shell-context";
+import { CopilotShellProvider, type AskOptions, type CopilotShell } from "./lib/shell-context";
 import { useCopilotPrefs } from "./lib/store";
 import { useThreadEngine } from "./lib/use-thread-engine";
 import { useThreadTurns } from "./lib/use-thread-turns";
@@ -86,12 +86,13 @@ export default function CopilotAppPage() {
     navigate(viewPath(v));
   }, [navigate]);
 
-  const ask = useCallback((question: string) => {
+  const ask = useCallback((question: string, opts?: AskOptions) => {
     setNavOpen(false);
     setSheetOpen(false);
     // The persona goes with every question: in investor and trader an advisor
     // is answered from their own holdings and positions, not the client book.
-    void send(question, threadId, (sid) => navigate(viewPath(threadView(sid))), { persona: mode });
+    // A futures or options row also sends which contract it is.
+    void send(question, threadId, (sid) => navigate(viewPath(threadView(sid))), { persona: mode, position: opts?.position });
   }, [send, threadId, navigate, mode]);
 
   const newQuestion = useCallback(() => {

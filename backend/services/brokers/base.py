@@ -127,3 +127,52 @@ class HubPosition:
     strike: Optional[float] = None
     kind: str = "net"                  # "net" | "day"
     name: Optional[str] = None         # broker's instrument / company name, when given
+
+
+@dataclass(frozen=True)
+class ContractRef:
+    """One futures or options contract, in the terms a `HubPosition` row
+    carries it: the row's own `symbol` and `exchange`, plus its contract
+    details."""
+    symbol: str                      # as the broker's position row gives it
+    exchange: str                    # NFO | BFO | MCX | CDS ...
+    instrument_type: str             # "FUT" | "CE" | "PE"
+    expiry: str                      # ISO date
+    strike: Optional[float] = None   # None for a future
+
+
+@dataclass
+class Candle:
+    """One bar of a contract's own price. `time` is the bar's start as an ISO
+    timestamp with the exchange's UTC offset."""
+    time: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: Optional[float] = None
+    open_interest: Optional[float] = None
+
+
+@dataclass
+class ContractQuote:
+    """The latest quote of a contract. Every field is None when the broker
+    did not send it — never a guess."""
+    last_price: Optional[float] = None
+    last_traded_at: Optional[str] = None   # ISO timestamp with offset
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    previous_close: Optional[float] = None
+    change_pct: Optional[float] = None
+    spot_price: Optional[float] = None     # the underlying's price, when given
+    volume: Optional[float] = None
+
+
+@dataclass
+class ContractChart:
+    """A contract's price history (oldest bar first) and its latest quote.
+    Returned by an adapter's optional `fetch_contract_chart(token, contract,
+    interval)`; `interval` is one of `hub_reads.CHART_INTERVALS`."""
+    candles: List[Candle] = field(default_factory=list)
+    quote: Optional[ContractQuote] = None
