@@ -105,6 +105,18 @@ Broker sign-in as of 2026-10-14 (from each broker's official documentation):
   middleware rejects ICICI's POST before the route runs.
 - ICICI Direct and Motilal Oswal both require the server's static IP to be registered on the app.
 
+## Copilot chat (`POST /api/chat/stream`)
+Server-sent events. Body: `message` (required), `session_id`, `page`, `agent`, `persona`.
+
+- `agent` pins one specialist; only `stocks_insights` may be pinned (400 for anything else).
+- `persona` is the Copilot app's mode: `investor`, `trader` or `advisor`. It matters only for a caller
+  who owns an advisory workspace and is at its root (not viewing a client). In `investor` and `trader`
+  that caller is answered from their **own** holdings and positions by the investor engine and its
+  tools. With `advisor`, no value or any other value they are answered from the cross-client book, as
+  before. For every other caller the field changes nothing, and no value can reach a client book the
+  caller does not own.
+- `POST /api/chat/send` (the older dock) takes no `persona` and is unchanged.
+
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.
 

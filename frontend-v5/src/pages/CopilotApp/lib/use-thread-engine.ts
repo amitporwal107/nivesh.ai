@@ -81,7 +81,7 @@ export interface ThreadEngine {
   busy: boolean;
   /** Send a question. Creates a thread when `sessionId` is undefined and
    *  reports its id through `onSession` before the answer starts. */
-  send: (question: string, sessionId: string | undefined, onSession?: (id: string) => void) => Promise<void>;
+  send: (question: string, sessionId: string | undefined, onSession?: (id: string) => void, opts?: { persona?: string }) => Promise<void>;
   stop: () => void;
   /** Meta for a saved answer, by its message id; falls back to the last answer
    *  of the thread when `isLast` is set. Undefined for history. */
@@ -119,7 +119,7 @@ export function useThreadEngine(): ThreadEngine {
   // Abort an in-flight answer if the shell unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const send = useCallback<ThreadEngine["send"]>(async (question, sessionId, onSession) => {
+  const send = useCallback<ThreadEngine["send"]>(async (question, sessionId, onSession, opts) => {
     const q = question.replace(/\s+/g, " ").trim();
     if (!q || busyRef.current) return;
     busyRef.current = true;
@@ -186,7 +186,7 @@ export function useThreadEngine(): ThreadEngine {
             return;
         }
         setLive((cur) => (cur && cur.sessionId === threadId ? { ...cur, text, steps, agent, confidence, widget } : cur));
-      }, { signal: ac.signal });
+      }, { signal: ac.signal, persona: opts?.persona });
     } catch (e) {
       if (!ac.signal.aborted) {
         errorText = errorSentence(e) || "Connection interrupted. Please try again.";

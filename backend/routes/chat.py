@@ -84,6 +84,28 @@ def _resolve_pinned_agent(raw: Any) -> Optional[Any]:
     return _AgentName(key)
 
 
+# Personas of the Copilot app in which the caller works on their OWN portfolio.
+# An advisor who switches to one of them is asking about their own holdings
+# and positions, so the chat answers from those with the investor engine and
+# its tools. The cross-client book belongs to the advisor persona.
+_OWN_PORTFOLIO_PERSONAS = frozenset({"investor", "trader"})
+
+
+def _advisor_mode_for(advisor_caller: bool, persona: Any) -> bool:
+    """Whether this request is answered from the advisor's client book.
+
+    `advisor_caller` is `_is_advisor_caller`'s answer; `persona` is the
+    optional `persona` field of the chat request body. Only "investor" and
+    "trader" change anything, and only for an advisor: they move the request
+    to the caller's own portfolio. A missing or unknown value is ignored, so a
+    chat surface that sends no persona behaves as it always has, and no value
+    can put a caller on a client book they do not own.
+    """
+    if not advisor_caller:
+        return False
+    return not (isinstance(persona, str) and persona.strip().lower() in _OWN_PORTFOLIO_PERSONAS)
+
+
 # Advisor-mode system prompt — replaces FINANCIAL_ADVISOR_SYSTEM (which is
 # tuned for a single user's portfolio + Plan Board) when the caller is an
 # advisor asking cross-client questions. Mirrors the contract used in
@@ -1243,8 +1265,10 @@ async def stream_chat(request: Request):
     user = await get_current_user(request)
     user_id = user["user_id"]
     session_user_id = user.get("_session_user_id") or user_id
-    advisor_mode = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
+    advisor_caller = await _is_advisor_caller(session_user_id, user.get("_active_profile_id"))
     body = await request.json()
+    # An advisor in the investor or trader persona is on their own portfolio.
+    advisor_mode = _advisor_mode_for(advisor_caller, body.get("persona"))
     message = body.get("message", "").strip()
     session_id = body.get("session_id")
     pinned_agent = _resolve_pinned_agent(body.get("agent"))

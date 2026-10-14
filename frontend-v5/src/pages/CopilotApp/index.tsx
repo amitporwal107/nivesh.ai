@@ -89,8 +89,10 @@ export default function CopilotAppPage() {
   const ask = useCallback((question: string) => {
     setNavOpen(false);
     setSheetOpen(false);
-    void send(question, threadId, (sid) => navigate(viewPath(threadView(sid))));
-  }, [send, threadId, navigate]);
+    // The persona goes with every question: in investor and trader an advisor
+    // is answered from their own holdings and positions, not the client book.
+    void send(question, threadId, (sid) => navigate(viewPath(threadView(sid))), { persona: mode });
+  }, [send, threadId, navigate, mode]);
 
   const newQuestion = useCallback(() => {
     go("");

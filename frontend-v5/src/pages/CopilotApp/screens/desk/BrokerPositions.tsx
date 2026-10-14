@@ -157,6 +157,24 @@ function contractOf(p: BrokerPosition): string | null {
   return [expiry, [p.strike != null ? fmtNum(p.strike, Number.isInteger(p.strike) ? 0 : 2) : null, side].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
 }
 
+/** What a position row asks the Copilot. A future or an option says which
+ *  contract it is and calls an option's average a premium, so that figure is
+ *  not read as the share's own price. */
+function positionQuestion(p: BrokerPosition): string {
+  const qty = fmtNum(Math.abs(p.qty), Number.isInteger(p.qty) ? 0 : 2);
+  const held = `${p.qty < 0 ? "a short position of" : "an open position of"} ${qty}`;
+  const option = p.instrument === "CE" || p.instrument === "PE";
+  const expiry = p.expiry ? ` expiring ${fmtDate(p.expiry)}` : "";
+  const strike = option && p.strike != null ? `${fmtNum(p.strike, Number.isInteger(p.strike) ? 0 : 2)} ` : "";
+  const contract = option
+    ? ` in a ${strike}${p.instrument === "CE" ? "call" : "put"} option${expiry}`
+    : p.instrument ? ` in a ${p.instrument === "FUT" ? "future" : p.instrument}${expiry}` : "";
+  const avg = p.avg != null
+    ? `${contract ? "," : ""} at an average ${option ? "premium " : ""}of ${fmtPrice(p.avg)}`
+    : "";
+  return `Show the ${p.symbol} chart with support and resistance. My broker account has ${held}${contract}${avg}.`;
+}
+
 /** Why one account could not be read, in plain words. The server's own sentence goes to admins only. */
 function readFailure(a: PositionsAccount, broker: string): string {
   if (a.errorCode === "BROKER_SESSION_EXPIRED") return `Your ${broker} session has ended. Sign in again from Broker connections to read its positions.`;
@@ -218,7 +236,7 @@ function AccountPositions({ account, filter }: { account: PositionsAccount; filt
           rows={rows}
           rowKey={(p) => p.key}
           minWidth={760}
-          onRowClick={(p) => ask(`Show the ${p.symbol} chart with support and resistance. My broker account has ${p.qty < 0 ? "a short position of" : "an open position of"} ${fmtNum(Math.abs(p.qty), Number.isInteger(p.qty) ? 0 : 2)}${p.avg != null ? ` at an average of ${fmtPrice(p.avg)}` : ""}.`)}
+          onRowClick={(p) => ask(positionQuestion(p))}
         />
       )}
     </div>
