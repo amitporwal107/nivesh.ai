@@ -96,6 +96,14 @@ re-walks the chain and reports the first row whose content or link doesn't recon
 - **No authentication on the admin/dashboard routes.** Anyone who can reach the port can move
   the exam window.
 
+## Where the public demo runs
+
+Since staging moved to CloudPe (October 2026), the demo at `staging.niveshcopilot.com/suraksha/`
+runs from the `Dockerfile` here, as its own container behind the staging edge nginx. The
+`Dockerfile` header has the build and run commands. `demo-entrypoint.sh` reopens the exam window
+every 30 minutes, because the pages have no control to reopen it once it closes.
+`deploy_staging.sh` below targets the retired GCP host.
+
 ## Deploying it somewhere else
 
 `./deploy_staging.sh` ships this directory to a host over SSH, builds an isolated venv there, and
