@@ -16,6 +16,10 @@ Routes (all under /api/broker, all authenticated):
                                                 account (never stored)
     GET    /api/broker/positions              — live positions, all of the
                                                 user's native accounts
+    GET    /api/broker/accounts/{id}/snapshots — history of an account's
+                                                holdings syncs
+    GET    /api/broker/snapshots/{id}         — one sync snapshot, with the
+                                                holdings as they were stored
     DELETE /api/broker/accounts/{id}          — disconnect (delete + audit)
 
 The sync endpoint imports holdings into the same `db.holdings` collection
@@ -39,7 +43,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from core.exceptions import (
@@ -54,6 +58,7 @@ from services import audit as _audit
 from services import pii_security as _pii
 from services.brokers import hub_reads as _hub
 from services.brokers import sessions as _sessions
+from services.brokers import sync_snapshots as _snapshots
 from services.openalgo_client import (
     SUPPORTED_BROKERS,
     OpenAlgoClient,
@@ -582,7 +587,7 @@ async def _sync_native_account(
 ) -> Dict[str, Any]:
     account_id = doc["account_id"]
     try:
-        result = await _hub.sync_account(db, doc)
+        result = await _hub.sync_account(db, doc, trigger="manual")
     except Exception as e:  # noqa: BLE001
         err = _read_error(e, doc, "holdings")
         await _audit.record(
@@ -604,7 +609,15 @@ async def _sync_native_account(
         ua=request.headers.get("user-agent", ""),
         details={"broker": doc.get("broker"), "native": True, "count": result["count"]},
     )
-    return {"ok": True, "count": result["count"], "holdings": result["holdings"]}
+    return {
+        "ok": True,
+        "count": result["count"],
+        "holdings": result["holdings"],
+        # The snapshot kept of this sync (null if it could not be written)
+        # and what the duplicate check found.
+        "snapshot_id": result["snapshot_id"],
+        "duplicates": result["duplicates"],
+    }
 
 
 def _position_counts(rows: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -707,6 +720,37 @@ async def get_all_positions(
     }
 
 
+# ── Sync snapshots ───────────────────────────────────────────────────────
+# Reading one's own sync history needs a signed-in user but not the
+# `broker_hub` flag: it must survive the flag being switched off.
+@router.get("/accounts/{account_id}/snapshots")
+async def list_account_snapshots(
+    request: Request,
+    account_id: str,
+    limit: int = Query(30, ge=1, le=_snapshots.MAX_PER_ACCOUNT),
+):
+    """The holdings syncs of one of the user's accounts, newest first, each
+    without its holdings rows (`GET /snapshots/{id}` has those)."""
+    user = await get_current_user(request)
+    doc = await _get_owned_account(user["user_id"], account_id)
+    return {
+        "account_id": account_id,
+        "broker": doc.get("broker"),
+        "snapshots": await _snapshots.list_for_account(db, user["user_id"], account_id, limit),
+    }
+
+
+@router.get("/snapshots/{snapshot_id}")
+async def get_snapshot(request: Request, snapshot_id: str):
+    """One sync snapshot with the holdings as they were stored, for the user
+    it belongs to."""
+    user = await get_current_user(request)
+    snapshot = await _snapshots.get_for_owner(db, user["user_id"], snapshot_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Broker sync snapshot not found")
+    return snapshot
+
+
 @router.delete("/accounts/{account_id}")
 async def disconnect_broker(request: Request, account_id: str):
     user = await get_current_user(request)
@@ -718,6 +762,8 @@ async def disconnect_broker(request: Request, account_id: str):
     await db.holdings.delete_many(
         {"user_id": user_id, "broker_account_id": account_id},
     )
+    # The sync snapshots are copies of those holdings: they go with them.
+    await _snapshots.delete_for_account(db, user_id, account_id)
     await db.broker_accounts.delete_one({"account_id": account_id})
 
     # Stop the per-account OpenAlgo instance (if this account had one)

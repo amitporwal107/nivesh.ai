@@ -393,6 +393,15 @@ async def startup_seed():
         await _db.otp_codes.create_index("email", unique=True, background=True)
     except Exception as e:
         logger.warning("otp_codes index ensure failed: %s", e)
+    # Broker sync snapshots — listed per account, newest first; fetched by id.
+    try:
+        from deps import db as _db
+        await _db.broker_sync_snapshots.create_index(
+            [("user_id", 1), ("broker_account_id", 1), ("synced_at", -1)], background=True
+        )
+        await _db.broker_sync_snapshots.create_index("snapshot_id", unique=True, background=True)
+    except Exception as e:
+        logger.warning("broker_sync_snapshots index ensure failed: %s", e)
     # Datastore isolation — refuse to start production when Postgres /
     # Redis / Mongo are shared with the preview environment. Preview
     # deploys log a warning and continue.

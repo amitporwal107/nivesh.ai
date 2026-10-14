@@ -12,6 +12,7 @@ for real too; only its re-read of the persisted flags is stubbed.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from datetime import datetime, timezone
 
@@ -21,7 +22,7 @@ from fastapi.testclient import TestClient
 
 from tests.test_broker_hub_reads import (  # noqa: F401  (`sib` is a fixture)
     broker_rows_as_given,  # autouse: rows stored as the broker gave them
-    CLIENT_ID, GOLDBEES, INFY, SECRET, FakeDB, holding_row, hub, hub_position, native_account, sib,
+    CLIENT_ID, GOLDBEES, INFY, SECRET, ZERO_DUPLICATES, FakeDB, holding_row, hub, hub_position, native_account, sib,
 )
 
 import feature_flags as ff  # noqa: E402
@@ -207,11 +208,16 @@ def test_native_sync_goes_through_the_hub_and_never_builds_an_openalgo_client(h,
     res = h.post("/api/broker/accounts/ba_z/sync")          # `_client_from` raises AssertionError if reached
     assert res.status_code == 200
     body = res.json()
-    assert set(body) == {"ok", "count", "holdings"} and body["ok"] is True and body["count"] == 2
+    # Every key the response had before, plus the snapshot of this sync and its duplicate check.
+    assert set(body) == {"ok", "count", "holdings", "snapshot_id", "duplicates"}
+    assert body["ok"] is True and body["count"] == 2 and body["duplicates"] == ZERO_DUPLICATES
     assert [set(r) for r in body["holdings"]] == [{"holding_id", "name", "ticker", "asset_type", "quantity"}] * 2
     assert [(r["name"], r["ticker"], r["asset_type"], r["quantity"]) for r in body["holdings"]] == [
         ("Infosys Ltd", "INFY", "equity", 10.0), ("GOLDBEES", "GOLDBEES", "etf", 100.0)]
     assert sib.reads() == [("fenix.read_holdings", "zerodha", "ba_z")]
+    (snap,) = h.db.broker_sync_snapshots.docs
+    assert (snap["snapshot_id"], snap["trigger"], snap["broker_account_id"], snap["broker"], snap["count"]) == (
+        body["snapshot_id"], "manual", "ba_z", "zerodha", 2)
 
     written = [r for r in h.db.holdings.docs if r.get("broker_account_id") == "ba_z"]
     assert sorted(r["ticker"] for r in written) == ["GOLDBEES", "INFY"]
@@ -555,6 +561,145 @@ def test_disconnecting_a_native_account_removes_only_its_row_and_holdings(h, sib
     assert h.audits[0]["action"] == "broker_disconnect" and h.audits[0]["details"] == {
         "broker": "zerodha", "instance_stopped": False}
     assert h.delete("/api/broker/accounts/ba_u2", who="u1").status_code == 404
+
+
+def test_disconnecting_an_account_removes_its_sync_snapshots_too(h, sib):
+    mine = _seed_snapshots(h.db, "ba_z", n=3)
+    other = _seed_snapshots(h.db, "ba_i", n=2, broker="icicidirect")
+    theirs = _seed_snapshots(h.db, "ba_u2", user="u2", n=1)
+
+    assert h.delete("/api/broker/accounts/ba_z").json() == {"ok": True}
+    assert [s["snapshot_id"] for s in h.db.broker_sync_snapshots.docs] == other + theirs
+    _error(h.get(f"/api/broker/snapshots/{mine[0]}"), 404, "RES-001", "Broker sync snapshot not found")
+    _error(h.get("/api/broker/accounts/ba_z/snapshots"), 404, "RES-001", "Broker account not found")
+
+
+# ── POST /accounts/{id}/sync — the duplicate check and the snapshot ───────
+def test_sync_response_shows_what_the_duplicate_check_found(h, sib):
+    h.db.holdings.docs.append(holding_row("Z2-INFY", source="broker_native", broker="zerodha",
+                                          broker_account_id="ba_z2", ticker="INFY", isin="INE009A01021"))
+    sib.reconcile_result = {"statement_rows_removed": 4, "export_rows_removed": 3}
+    sib.holdings["ba_z"] = [INFY, INFY, GOLDBEES, dataclasses.replace(GOLDBEES, quantity=40)]
+    body = h.post("/api/broker/accounts/ba_z/sync").json()
+
+    assert body["duplicates"] == {"repeated_in_broker_reply": 1, "same_instrument_lines": 1,
+                                  "broker_file_rows_replaced": 3, "statement_rows_replaced": 4,
+                                  "also_in_other_accounts": 1}
+    assert body["count"] == 3 and [r["ticker"] for r in body["holdings"]] == ["INFY", "GOLDBEES", "GOLDBEES"]
+    assert h.db.holdings.one(name="Z2-INFY")                   # the other login's row is only counted
+    snap = h.db.broker_sync_snapshots.one(snapshot_id=body["snapshot_id"])
+    assert snap["duplicates"] == body["duplicates"] and snap["count"] == 3
+
+
+def test_sync_still_succeeds_with_a_null_snapshot_id_when_the_snapshot_cannot_be_written(h, sib, monkeypatch):
+    async def write_fails(_doc):
+        raise RuntimeError(f"mongo write failed {SECRET}")
+    monkeypatch.setattr(h.db.broker_sync_snapshots, "insert_one", write_fails)
+    sib.holdings["ba_z"] = [INFY]
+    res = h.post("/api/broker/accounts/ba_z/sync")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["snapshot_id"] is None and body["ok"] is True and body["count"] == 1
+    assert body["duplicates"] == ZERO_DUPLICATES
+    assert h.db.holdings.one(ticker="INFY")["broker_account_id"] == "ba_z"
+    assert h.audits[0]["outcome"] == "success"
+    _no_secret(res.text)
+
+
+# ── GET /accounts/{id}/snapshots · GET /snapshots/{id} ───────────────────
+SNAPSHOT_SUMMARY_KEYS = {"snapshot_id", "synced_at", "trigger", "count", "total_value_rs", "total_invested_rs",
+                         "priced", "duplicates"}
+
+
+def _seed_snapshots(db, account, n, user="u1", broker="zerodha", trigger="daily"):
+    """`n` snapshots of one account, a minute apart; returns their ids oldest first."""
+    rows = [{"name": "Infosys Ltd", "ticker": "INFY", "isin": "INE009A01021", "asset_type": "equity",
+             "quantity": 10.0, "buy_price": 1400.5, "current_price": 1525.0, "sector": "IT", "source_id": "NSE:INFY",
+             "holding_id": "hold_x", "user_id": user}]
+    return [
+        asyncio.run(bc._snapshots.record(
+            db, native_account(account, user_id=user, broker=broker), rows, trigger=trigger,
+            duplicates=ZERO_DUPLICATES, synced_at=f"2026-10-14T04:{i:02d}:00+00:00", broker_display=broker.title()))
+        for i in range(n)
+    ]
+
+
+def test_snapshots_of_an_account_are_listed_newest_first_without_their_holdings(h, sib):
+    ids = _seed_snapshots(h.db, "ba_z", n=3)
+    _seed_snapshots(h.db, "ba_i", n=2, broker="icicidirect")
+    _seed_snapshots(h.db, "ba_u2", n=1, user="u2")
+
+    res = h.get("/api/broker/accounts/ba_z/snapshots")
+    assert res.status_code == 200
+    body = res.json()
+    assert set(body) == {"account_id", "broker", "snapshots"}
+    assert (body["account_id"], body["broker"]) == ("ba_z", "zerodha")
+    assert [s["snapshot_id"] for s in body["snapshots"]] == ids[::-1]
+    assert all(set(s) == SNAPSHOT_SUMMARY_KEYS for s in body["snapshots"])           # no holdings, no user id
+    assert body["snapshots"][0] == {
+        "snapshot_id": ids[2], "synced_at": "2026-10-14T04:02:00+00:00", "trigger": "daily", "count": 1,
+        "total_value_rs": 15250.0, "total_invested_rs": 14005.0, "priced": 1, "duplicates": ZERO_DUPLICATES}
+    _no_secret(res.text)
+
+
+def test_a_sync_shows_up_in_the_accounts_snapshot_list(h, sib):
+    sib.holdings["ba_i"] = [INFY, GOLDBEES]
+    synced = h.post("/api/broker/accounts/ba_i/sync").json()
+    listed = h.get("/api/broker/accounts/ba_i/snapshots").json()
+    assert (listed["broker"], [s["snapshot_id"] for s in listed["snapshots"]]) == ("icicidirect", [synced["snapshot_id"]])
+    assert (listed["snapshots"][0]["trigger"], listed["snapshots"][0]["count"]) == ("manual", 2)
+
+
+def test_snapshot_list_limit_defaults_to_30_and_is_bounded_at_90(h, sib):
+    ids = _seed_snapshots(h.db, "ba_z", n=35)
+    assert [s["snapshot_id"] for s in h.get("/api/broker/accounts/ba_z/snapshots").json()["snapshots"]] == ids[:4:-1]
+    assert len(h.get("/api/broker/accounts/ba_z/snapshots?limit=1").json()["snapshots"]) == 1
+    assert len(h.get("/api/broker/accounts/ba_z/snapshots?limit=90").json()["snapshots"]) == 35
+    for bad in ("0", "91", "-1", "many"):
+        assert h.get(f"/api/broker/accounts/ba_z/snapshots?limit={bad}").status_code == 422
+
+
+def test_snapshot_list_is_for_the_owner_of_the_account(h, sib):
+    _seed_snapshots(h.db, "ba_u2", n=2, user="u2")
+    _error(h.get("/api/broker/accounts/ba_u2/snapshots", who="u1"), 404, "RES-001", "Broker account not found")
+    _error(h.get("/api/broker/accounts/ba_nope/snapshots"), 404, "RES-001", "Broker account not found")
+    assert h.http.get("/api/broker/accounts/ba_z/snapshots").status_code == 401
+    assert len(h.get("/api/broker/accounts/ba_u2/snapshots", who="u2").json()["snapshots"]) == 2
+    # An OpenAlgo account is never snapshotted: an empty history, not an error.
+    assert h.get("/api/broker/accounts/ba_oa/snapshots").json() == {
+        "account_id": "ba_oa", "broker": "upstox", "snapshots": []}
+
+
+def test_one_snapshot_is_returned_in_full_to_its_owner_only(h, sib):
+    (mine,) = _seed_snapshots(h.db, "ba_z", n=1, trigger="connect")
+    (theirs,) = _seed_snapshots(h.db, "ba_u2", n=1, user="u2")
+
+    res = h.get(f"/api/broker/snapshots/{mine}")
+    assert res.status_code == 200
+    snap = res.json()
+    assert set(snap) == SNAPSHOT_SUMMARY_KEYS | {"broker_account_id", "broker", "broker_display",
+                                                  "broker_user_masked", "holdings"}
+    assert (snap["snapshot_id"], snap["broker_account_id"], snap["broker"], snap["broker_display"],
+            snap["broker_user_masked"], snap["trigger"]) == (mine, "ba_z", "zerodha", "Zerodha", "••••71", "connect")
+    assert snap["holdings"] == [{"name": "Infosys Ltd", "ticker": "INFY", "isin": "INE009A01021",
+                                 "asset_type": "equity", "quantity": 10.0, "buy_price": 1400.5,
+                                 "current_price": 1525.0, "sector": "IT", "source_id": "NSE:INFY"}]
+    _no_secret(res.text)
+
+    _error(h.get(f"/api/broker/snapshots/{theirs}", who="u1"), 404, "RES-001", "Broker sync snapshot not found")
+    _error(h.get("/api/broker/snapshots/bsnap_000000000000"), 404, "RES-001", "Broker sync snapshot not found")
+    assert h.http.get(f"/api/broker/snapshots/{mine}").status_code == 401
+    assert h.get(f"/api/broker/snapshots/{theirs}", who="u2").status_code == 200
+
+
+@pytest.mark.parametrize("state", ["flag_off", "flag_unreadable"])
+def test_reading_snapshots_does_not_depend_on_the_flag(h, sib, request, state):
+    (mine,) = _seed_snapshots(h.db, "ba_z", n=1)
+    request.getfixturevalue(state)                  # off, or unreadable: a gated route would answer 403 / 503
+    listed = h.get("/api/broker/accounts/ba_z/snapshots")
+    assert listed.status_code == 200 and [s["snapshot_id"] for s in listed.json()["snapshots"]] == [mine]
+    assert h.get(f"/api/broker/snapshots/{mine}").json()["snapshot_id"] == mine
 
 
 # ── broker_hub feature flag ──────────────────────────────────────────────

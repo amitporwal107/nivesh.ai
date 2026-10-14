@@ -31,6 +31,13 @@ fund_category_rank, 4 materialized views) · `portfolio` (bridged user snapshots
 `portfolio_intelligence_signals`, `pg_mirror_*` (WORM mirrors for post-deploy restore),
 `fund_holdings_cache`, `system_config` (secrets + flags).
 
+Broker hub: `broker_accounts` (one row per connected broker login; the session token is stored
+encrypted in `api_key_encrypted` / `extras_encrypted`, the client id only as a hash and a masked
+form), `broker_oauth_states` (sign-in attempts, 10-minute life), `broker_sync_snapshots` (one
+immutable record per holdings sync, at most 90 per account; indexes on `snapshot_id` unique and
+`(user_id, broker_account_id, synced_at desc)`). Holdings rows read from a broker carry
+`broker_account_id`, `broker`, `source` (`broker_native` | `openalgo` | `broker_export`) and `isin`.
+
 ## Conventions
 snake_case tables/columns · UUID PKs (`uuid-ossp`) on app PG · timestamps UTC · money as
 `NUMERIC`, never float · NAV `NUMERIC(12,4)`.

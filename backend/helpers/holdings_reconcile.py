@@ -13,11 +13,16 @@ uploaded broker export, and all three land in `db.holdings`. Product rule
     and a live connection to a broker supersedes that broker's export for the
     instruments it holds.
 
-Matching is by ISIN only. Statement rows keep the ISIN in `ticker`; broker rows
+Matching is by ISIN. Statement rows keep the ISIN in `ticker`; broker rows
 carry it in `isin`, or it is resolved from the trading symbol through
-masterdata. A row whose ISIN cannot be established is never matched, so it is
-never removed on a guess — at the cost that such an instrument can still be
-counted twice.
+masterdata. A statement row whose ISIN cannot be established is never matched,
+so it is never removed on a guess — at the cost that such an instrument can
+still be counted twice.
+
+One exception, for a broker's own export only: when a live connection to that
+broker syncs, an export row of the SAME broker is also matched by an exact,
+case-insensitive `ticker` when either row states no ISIN. Both rows then come
+from one broker and use its symbols, so the symbol is not a guess.
 
 Known limit: the rule cannot tell two demat accounts apart. The same company
 held at a connected broker and at a second, unconnected one shows only the
@@ -121,6 +126,38 @@ def _isin_match(isins: List[str]) -> Dict[str, Any]:
     return {"$or": [{"isin": {"$in": isins}}, {"ticker": {"$in": isins}}]}
 
 
+def _same_ticker(tickers: Iterable[str]) -> Dict[str, Any]:
+    """`ticker` equals one of `tickers`, ignoring case — the whole value, not
+    a part of it."""
+    return {
+        "$regex": "^(?:" + "|".join(re.escape(t) for t in sorted(tickers)) + ")$",
+        "$options": "i",
+    }
+
+
+def _same_broker_export_match(rows: List[Dict[str, Any]], isins: List[str]) -> List[Dict[str, Any]]:
+    """`$or` clauses for the export rows of the same broker that `rows` (a
+    live sync) supersede: the same ISIN, or — when either row states no ISIN —
+    the same ticker. Empty when `rows` can match nothing."""
+    clauses: List[Dict[str, Any]] = []
+    if isins:
+        clauses += _isin_match(isins)["$or"]
+    symbols: Set[str] = set()
+    symbols_without_isin: Set[str] = set()
+    for r in rows:
+        ticker = str(r.get("ticker") or "").strip()
+        if not ticker or _as_isin(ticker):
+            continue
+        symbols.add(ticker)
+        if not row_isin(r):
+            symbols_without_isin.add(ticker)
+    if symbols_without_isin:
+        clauses.append({"ticker": _same_ticker(symbols_without_isin)})
+    if symbols:
+        clauses.append({"ticker": _same_ticker(symbols), "isin": {"$in": [None, ""]}})
+    return clauses
+
+
 # ── Statement import ─────────────────────────────────────────────────────
 async def broker_held_isins(db, user_id: str) -> Set[str]:
     """ISINs this user holds through any broker source."""
@@ -176,25 +213,26 @@ async def apply_broker_wins(
     db, user_id: str, rows: List[Dict[str, Any]], *, broker: str, live: bool,
 ) -> Dict[str, int]:
     """Call after broker-sourced `rows` were stored for `broker`. Removes the
-    statement copies they supersede and, for a live connection, that broker's
-    export rows for the same instruments."""
+    statement copies they supersede (same ISIN only) and, for a live
+    connection, that broker's export rows for the same instruments (same
+    ISIN, or the same ticker when either row states no ISIN)."""
     out = {"statement_rows_removed": 0, "export_rows_removed": 0}
     isins = _isins(rows)
-    if not isins:
-        return out
-    res = await db.holdings.delete_many({
-        "user_id": user_id,
-        "broker_account_id": {"$in": [None, ""]},
-        "source": {"$in": list(STATEMENT_SOURCES)},
-        **_isin_match(isins),
-    })
-    out["statement_rows_removed"] = res.deleted_count
-    if live:
+    if isins:
+        res = await db.holdings.delete_many({
+            "user_id": user_id,
+            "broker_account_id": {"$in": [None, ""]},
+            "source": {"$in": list(STATEMENT_SOURCES)},
+            **_isin_match(isins),
+        })
+        out["statement_rows_removed"] = res.deleted_count
+    same = _same_broker_export_match(rows, isins) if live else []
+    if same:
         res = await db.holdings.delete_many({
             "user_id": user_id,
             "source": BROKER_EXPORT_SOURCE,
             "broker": broker,
-            **_isin_match(isins),
+            "$or": same,
         })
         out["export_rows_removed"] = res.deleted_count
     if any(out.values()):
