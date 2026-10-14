@@ -32,7 +32,8 @@ import {
   type Column, type Tone,
 } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
-import { BrokerPositions, fmtStamp } from "../desk/BrokerPositions";
+import { fmtStamp } from "../desk/broker";
+import { BrokerPositions } from "../desk/BrokerPositions";
 import { VERDICT_META, lensOf, readConcentration } from "../portfolio/concentration-data";
 import { loadError } from "../portfolio/data";
 import { Choices, QueryProblem, fmtDay, fmtSigned } from "../trading/parts";
