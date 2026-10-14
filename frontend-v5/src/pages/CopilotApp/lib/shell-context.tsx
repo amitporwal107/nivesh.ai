@@ -14,6 +14,8 @@ export interface CopilotShell {
   mobile: boolean;
   /** Viewport under 980px — the rail is a drawer. */
   compact: boolean;
+  /** Viewport 1400px or wider — room beside the rail for a screen and a docked Copilot panel (the trading desk). */
+  wide: boolean;
   /** Ask the Copilot. Starts a new thread, or continues the open one. */
   ask: (question: string) => void;
   /** Go to a view below the app base ("" = home). See lib/views.ts. */
