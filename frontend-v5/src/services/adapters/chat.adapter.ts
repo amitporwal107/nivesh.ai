@@ -61,7 +61,9 @@ export interface ChatAdapter {
     onEvent: (ev: StreamEvent) => void,
     // `agent` pins the copilot to one specialist (backend _PINNABLE_AGENTS),
     // bypassing intent routing — used by the filings-first /research surface.
-    opts?: { page?: string; signal?: AbortSignal; agent?: string },
+    // `persona` is the Copilot app's mode (investor | trader | advisor): in
+    // investor and trader an advisor is answered from their own portfolio.
+    opts?: { page?: string; signal?: AbortSignal; agent?: string; persona?: string },
   ): Promise<void>;
   listSessions(): Promise<ChatSession[]>;
   createSession(title?: string): Promise<{ id: string }>;
@@ -117,6 +119,7 @@ export const realChatAdapter: ChatAdapter = {
         session_id: sessionId,
         page: opts?.page,
         ...(opts?.agent ? { agent: opts.agent } : {}),
+        ...(opts?.persona ? { persona: opts.persona } : {}),
       }),
       signal: opts?.signal,
     });

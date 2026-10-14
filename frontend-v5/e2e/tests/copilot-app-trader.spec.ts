@@ -50,6 +50,22 @@ async function mockAsk(page: Page): Promise<string[]> {
   return sent;
 }
 
+/** As `mockAsk`, but keeps each whole request: the question and the persona it was asked in. */
+async function mockAskBodies(page: Page): Promise<Array<{ message: string; persona?: string }>> {
+  const bodies: Array<{ message: string; persona?: string }> = [];
+  await page.route("**/api/chat/sessions", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ session_id: "asked1" }) })
+      : route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/chat/messages*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
+  await page.route("**/api/chat/stream", (route) => {
+    const body = route.request().postDataJSON() as { message: string; persona?: string };
+    bodies.push({ message: body.message, persona: body.persona });
+    return route.fulfill({ status: 200, contentType: "text/event-stream", body: `data: ${JSON.stringify({ type: "done", content: "ok" })}\n\n` });
+  });
+  return bodies;
+}
+
 // Shapes: backend/routes/positional_journal.py (list_trades, trade_summary), backend/routes/positional.py (get_watchlist, get_picks).
 const JOURNAL_SUMMARY = { open_count: 1, closed_count: 2, gross_long_rs: 10000, invested_rs: 10000, realized_pnl_rs: 600, win_count: 1, loss_count: 1, win_rate_pct: 50.0, needs_hedge: false, suggested_hedge: null };
 const JOURNAL = { count: 3, live: true, trades: [
@@ -247,6 +263,34 @@ test.describe("Trader desk — broker block", () => {
     await expect.poll(() => reads).toBe(before + 1);
     // Read-only: nothing here offers to place, change or close a position.
     await expect(page.getByTestId("trader-broker-positions").getByRole("button", { name: /place|square off|exit position|buy|sell|close position/i })).toHaveCount(0);
+  });
+
+  test("a position row asks for its chart in the trader persona; an option or a future names its contract", async ({ page }) => {
+    // The persona the question is asked in travels with it: the server answers an advisor
+    // in the trader or investor persona from their own holdings and positions.
+    await page.addInitScript(() => localStorage.setItem("nivesh.copilot", JSON.stringify({ state: { mode: "trader", evidenceOpen: null }, version: 0 })));
+    const future = { symbol: "FIXGAMMA", name: null, exchange: "NFO", quantity: -275, avg_price: 1770, last_price: 1765, pnl: 1375, product: "carryforward", product_raw: "NRML", segment: "fno", is_intraday: false, instrument_type: "FUT", expiry: "2026-10-27", strike: null, kind: "net" };
+    const withFuture = { ...POSITIONS, accounts: [{ ...POSITIONS.accounts[0], counts: { total: 4, fno: 2, intraday: 1 }, positions: [...POSITIONS.accounts[0].positions, future] }] };
+    const asked = await mockAskBodies(page);
+    await brokerData(page);
+    await page.route("**/api/broker/positions*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(withFuture) }));
+
+    const expected = [
+      // A share: quantity and average, as before.
+      "Show the FIXALPHA chart with support and resistance. My broker account has an open position of 50 at an average of ₹200.00.",
+      "Show the FIXBETA chart with support and resistance. My broker account has a short position of 20 at an average of ₹100.00.",
+      // An option: its strike, side and expiry, and the average is called a premium — it is not the share's price.
+      "Show the FIXIDX26OCT25000CE chart with support and resistance. My broker account has an open position of 65 in a 25,000 call option expiring 27 Oct 2026, at an average premium of ₹240.25.",
+      // A future: named as one, with its expiry.
+      "Show the FIXGAMMA chart with support and resistance. My broker account has a short position of 275 in a future expiring 27 Oct 2026, at an average of ₹1,770.00.",
+    ];
+    for (let i = 0; i < expected.length; i += 1) {
+      await page.goto(`${APP}/trader`);
+      await page.getByTestId("trader-positions-account").nth(0).getByTestId("broker-position-row").nth(i).click();
+      await expect.poll(() => asked.length).toBe(i + 1);
+    }
+    expect(asked.map((a) => a.message)).toEqual(expected);
+    expect(asked.map((a) => a.persona)).toEqual(["trader", "trader", "trader", "trader"]);
   });
 
   test("open positions: an account with none, the feature switched off, a failed read and a wrong-shaped answer each say so", async ({ page }) => {
