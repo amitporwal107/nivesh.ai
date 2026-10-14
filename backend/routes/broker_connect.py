@@ -12,10 +12,15 @@ Routes (all under /api/broker, all authenticated):
     POST   /api/broker/accounts/{id}/sync     — fetch holdings (OpenAlgo, or
                                                 the broker session for a
                                                 native account)
+    GET    /api/broker/accounts/{id}/holdings — live holdings, one native
+                                                account (never stored)
+    GET    /api/broker/holdings               — live holdings, every account
+                                                of the user (an OpenAlgo one
+                                                is listed as not readable)
     GET    /api/broker/accounts/{id}/positions — live positions, one native
                                                 account (never stored)
-    GET    /api/broker/positions              — live positions, all of the
-                                                user's native accounts
+    GET    /api/broker/positions              — live positions, every account
+                                                of the user (as /holdings)
     GET    /api/broker/accounts/{id}/snapshots — history of an account's
                                                 holdings syncs
     GET    /api/broker/snapshots/{id}         — one sync snapshot, with the
@@ -31,8 +36,8 @@ CAS rows: `source = "openalgo"`, `source_id = "{exchange}:{symbol}"`,
 Accounts connected on the broker's own page (`native: True`, written by
 `routes.broker_native`) are read through `services.brokers.hub_reads`;
 their holdings rows carry `source = "broker_native"`. Syncing such an
-account and the two positions routes need the `broker_hub` feature flag;
-nothing else here does.
+account and the live holdings and positions routes need the `broker_hub`
+feature flag; nothing else here does.
 """
 from __future__ import annotations
 
@@ -124,12 +129,7 @@ def _public_account(doc: Dict[str, Any]) -> Dict[str, Any]:
     """Strip encrypted secrets before returning to the client."""
     hosted = bool(doc.get("openalgo_hosted"))
     broker = doc.get("broker")
-    if doc.get("native"):
-        # Native rows use adapter slugs — the registry names them, the
-        # OpenAlgo map does not cover them all.
-        broker_display = _hub.display_name(broker or "") or broker
-    else:
-        broker_display = SUPPORTED_BROKERS.get(broker or "", broker)
+    broker_display = _broker_display(doc)
     return {
         # Session state (native, needs_reconnect, expiry, …). Spread first
         # so it can never displace one of the keys below.
@@ -149,6 +149,15 @@ def _public_account(doc: Dict[str, Any]) -> Dict[str, Any]:
         "last_error": doc.get("last_error"),
         "created_at": doc.get("created_at"),
     }
+
+
+def _broker_display(doc: Dict[str, Any]) -> Optional[str]:
+    broker = doc.get("broker")
+    if doc.get("native"):
+        # Native rows use adapter slugs — the registry names them, the
+        # OpenAlgo map does not cover them all.
+        return _hub.display_name(broker or "") or broker
+    return SUPPORTED_BROKERS.get(broker or "", broker)
 
 
 async def _get_owned_account(user_id: str, account_id: str) -> Dict[str, Any]:
@@ -620,6 +629,110 @@ async def _sync_native_account(
     }
 
 
+# Why an OpenAlgo account has no live read: its stored key is an OpenAlgo API
+# key, not a broker session (`hub_reads._live_token`).
+_NOT_NATIVE_HOLDINGS = (
+    "Live holdings are available only for accounts connected by signing in on the broker's own page."
+)
+_NOT_NATIVE_POSITIONS = (
+    "Live positions are available only for accounts connected by signing in on the broker's own page."
+)
+
+
+def _not_native(doc: Dict[str, Any], message: str) -> ValidationException:
+    return ValidationException(message, code=_hub.CODE_NOT_SUPPORTED, details=_account_details(doc))
+
+
+async def _user_accounts(user_id: str) -> List[Dict[str, Any]]:
+    """Every broker account of the user, newest first (as GET /accounts)."""
+    cursor = db.broker_accounts.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1)
+    return await cursor.to_list(length=50)
+
+
+def _account_entry(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """The fields that name an account in an all-accounts live read."""
+    return {
+        "account_id": doc["account_id"],
+        "broker": doc.get("broker"),
+        "broker_display": _broker_display(doc),
+        "label": doc.get("label"),
+    }
+
+
+_NO_HOLDINGS_TOTALS: Dict[str, Optional[float]] = {
+    "invested_rs": None, "value_rs": None, "pnl_rs": None, "pnl_pct": None,
+}
+
+
+@router.get("/accounts/{account_id}/holdings")
+async def get_account_holdings(request: Request, account_id: str):
+    """Current holdings of one natively connected account, read live from
+    the broker on every call and never stored (the rows the last sync stored
+    are not touched). Each row carries its value, cost and P&L, null when
+    the broker gave no price or average; `totals` are null when any row
+    lacks the figure.
+    """
+    user = await _hub_user(request)
+    doc = await _get_owned_account(user["user_id"], account_id)
+    if not doc.get("native"):
+        raise _not_native(doc, _NOT_NATIVE_HOLDINGS)
+    try:
+        rows = await _hub.read_account_holdings(db, doc)
+    except Exception as e:  # noqa: BLE001
+        raise _read_error(e, doc, "holdings") from None
+    return {
+        **_account_entry(doc),
+        "as_of": _now_iso(),
+        "holdings": rows,
+        "counts": {"total": len(rows)},
+        "totals": _hub.holdings_totals(rows),
+    }
+
+
+@router.get("/holdings")
+async def get_all_holdings(request: Request):
+    """Current holdings across every broker account of the user, read live.
+    Each account is read on its own, a few at a time: one failing — or
+    needing a reconnect — is reported in its entry (`ok: false`, `error`)
+    and never fails the others. An OpenAlgo account is listed with the
+    not-supported error and is not read. Nothing is stored.
+    """
+    user = await _hub_user(request)
+    docs = await _user_accounts(user["user_id"])
+    gate = asyncio.Semaphore(_hub.LIVE_READ_CONCURRENCY)
+
+    async def _read_one(doc: Dict[str, Any]) -> Dict[str, Any]:
+        entry: Dict[str, Any] = {
+            **_account_entry(doc),
+            "ok": False,
+            "error": None,
+            "as_of": None,
+            "holdings": [],
+            # Not read: how many there are is not known.
+            "counts": {"total": None},
+            "totals": dict(_NO_HOLDINGS_TOTALS),
+        }
+        if not doc.get("native"):
+            entry["error"] = {"code": _hub.CODE_NOT_SUPPORTED, "message": _NOT_NATIVE_HOLDINGS}
+        else:
+            try:
+                async with gate:
+                    rows = await _hub.read_account_holdings(db, doc)
+            except Exception as e:  # noqa: BLE001
+                code, message = _hub.describe_failure(e, doc.get("broker") or "", "holdings")
+                entry["error"] = {"code": code, "message": message}
+            else:
+                entry.update(
+                    ok=True, holdings=rows, counts={"total": len(rows)},
+                    totals=_hub.holdings_totals(rows),
+                )
+        entry["as_of"] = _now_iso()
+        return entry
+
+    accounts = await asyncio.gather(*(_read_one(d) for d in docs))
+    return {"as_of": _now_iso(), "accounts": list(accounts)}
+
+
 def _position_counts(rows: List[Dict[str, Any]]) -> Dict[str, int]:
     return {
         "total": len(rows),
@@ -650,11 +763,7 @@ async def get_account_positions(
     user = await _hub_user(request)
     doc = await _get_owned_account(user["user_id"], account_id)
     if not doc.get("native"):
-        raise ValidationException(
-            "Live positions are available only for accounts connected by signing in on the broker's own page.",
-            code=_hub.CODE_NOT_SUPPORTED,
-            details=_account_details(doc),
-        )
+        raise _not_native(doc, _NOT_NATIVE_POSITIONS)
     try:
         rows = await _hub.read_account_positions(db, doc, kind)
     except Exception as e:  # noqa: BLE001
@@ -724,29 +833,31 @@ async def get_all_positions(
     kind: Literal["net", "day"] = "net",
     segment: Literal["all", "fno", "intraday"] = "all",
 ):
-    """Current positions across all of the user's natively connected
-    accounts. Each account is read on its own: one failing — or needing a
-    reconnect — is reported in its entry and never fails the others.
+    """Current positions across every broker account of the user. Each
+    account is read on its own, a few at a time: one failing — or needing a
+    reconnect — is reported in its entry and never fails the others. An
+    OpenAlgo account is listed with the not-supported error and is not read.
     """
     user = await _hub_user(request)
-    cursor = db.broker_accounts.find(
-        {"user_id": user["user_id"], "native": True}, {"_id": 0},
-    ).sort("created_at", -1)
-    docs = await cursor.to_list(length=50)
+    docs = await _user_accounts(user["user_id"])
+    gate = asyncio.Semaphore(_hub.LIVE_READ_CONCURRENCY)
 
     async def _read_one(doc: Dict[str, Any]) -> Dict[str, Any]:
         entry: Dict[str, Any] = {
-            "account_id": doc["account_id"],
-            "broker": doc.get("broker"),
-            "label": doc.get("label"),
+            **_account_entry(doc),
             "ok": False,
             "error": None,
             "as_of": None,
             "positions": [],
             "counts": _position_counts([]),
         }
+        if not doc.get("native"):
+            entry["error"] = {"code": _hub.CODE_NOT_SUPPORTED, "message": _NOT_NATIVE_POSITIONS}
+            entry["as_of"] = _now_iso()
+            return entry
         try:
-            rows = await _hub.read_account_positions(db, doc, kind)
+            async with gate:
+                rows = await _hub.read_account_positions(db, doc, kind)
         except Exception as e:  # noqa: BLE001
             code, message = _hub.describe_failure(
                 e, doc.get("broker") or "", f"{kind} positions",

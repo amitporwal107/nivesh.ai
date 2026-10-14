@@ -35,8 +35,32 @@ const json = (page: Page, pattern: string | RegExp, body: unknown, status = 200)
 const WATCHLIST = { as_of_date: "2026-10-12", buckets: { breakout_confirmed: [{ nse_symbol: "TESTBRK", sector: "Capital Goods", close_price: 510.0, trigger_price: 500.0, stop_price: 477.5, atr_pct: 2.94, why: "Fixture reason" }], pre_breakout: [], true_accumulation: [], trend_continuation: [] } };
 const PICKS = { signal_date: "2026-10-12", count: 1, picks: [{ nse_symbol: "TESTPICK", signal_date: "2026-10-12", final_score: 0.812, confidence: "HIGH", stage: "BREAKOUT", timeframe_days_min: 5, timeframe_days_max: 15, entry_price: 505.0, stoploss: 480.0, target_price: 555.0, risk_reward: 2.0, source_scans: ["btst.breakout_confirmation"], reasons: ["Fixture scanner reason"] }] };
 const JOURNAL_SUMMARY = { open_count: 1, closed_count: 2, gross_long_rs: 10000, invested_rs: 10000, realized_pnl_rs: 600, win_count: 1, loss_count: 1, win_rate_pct: 50.0, needs_hedge: false, suggested_hedge: null };
-/** GET /api/broker/positions with no account signed in (broker_connect.py :: get_all_positions). */
-const NO_LIVE_ACCOUNT = { as_of: "2026-10-12T10:15:00+00:00", kind: "net", segment: "all", accounts: [] };
+// ── the broker block's live reads (MOCK — not real data) ────────────────
+// GET /api/broker/holdings (broker_connect.py :: get_all_holdings) and GET /api/broker/positions (get_all_positions)
+// list every account of the user. The fixture account (copilot-trader-broker-accounts.json) is connected through
+// OpenAlgo, so both list it as not read live.
+const AS_OF = "2026-10-12T10:15:00+00:00"; // 12 Oct 3:45 pm IST
+const FIXTURE_ACCOUNT = { account_id: "ba_fixture00001", broker: "zerodha", broker_display: "Zerodha", label: "Zerodha" };
+const NOT_SUPPORTED = { code: "BROKER_READ_NOT_SUPPORTED", message: "fixture: not read live" };
+const NOT_LIVE_HOLDINGS = { as_of: AS_OF, accounts: [{ ...FIXTURE_ACCOUNT, ok: false, error: NOT_SUPPORTED, as_of: AS_OF, holdings: [], counts: { total: null }, totals: { invested_rs: null, value_rs: null, pnl_rs: null, pnl_pct: null } }] };
+const NOT_LIVE_POSITIONS = { as_of: AS_OF, kind: "net", segment: "all", accounts: [{ ...FIXTURE_ACCOUNT, ok: false, error: NOT_SUPPORTED, as_of: AS_OF, positions: [], counts: { total: 0, fno: 0, intraday: 0 } }] };
+
+/** The same account connected on the broker's own page and read live: two holdings, a share position and a future. */
+const LIVE_ACCOUNTS = { accounts: [{ ...load("copilot-trader-broker-accounts.json").accounts[0], openalgo_hosted: false, native: true }] };
+const LIVE_HOLDINGS = { as_of: AS_OF, accounts: [{ ...FIXTURE_ACCOUNT, ok: true, error: null, as_of: AS_OF, counts: { total: 2 },
+  holdings: [
+    // 10 at 100, last 120: cost 1,000, value 1,200, +200, +20.0%
+    { isin: null, symbol: "FIXHEAVY", name: "Fixture Heavy Ltd", exchange: "NSE", asset_type: "equity", sector: null, quantity: 10, avg_price: 100, current_price: 120, price_source: "broker", invested_rs: 1000, value_rs: 1200, pnl_rs: 200, pnl_pct: 20, source_id: "NSE:FIXHEAVY" },
+    // 5 at 200, last 180: cost 1,000, value 900, −100, −10.0%
+    { isin: null, symbol: "FIXLIGHT", name: "Fixture Light Ltd", exchange: "NSE", asset_type: "equity", sector: null, quantity: 5, avg_price: 200, current_price: 180, price_source: "broker", invested_rs: 1000, value_rs: 900, pnl_rs: -100, pnl_pct: -10, source_id: "NSE:FIXLIGHT" },
+  ],
+  // 1,000 + 1,000 = 2,000; 1,200 + 900 = 2,100; +100; 100 / 2,000 = +5.0%
+  totals: { invested_rs: 2000, value_rs: 2100, pnl_rs: 100, pnl_pct: 5 } }] };
+const LIVE_POSITIONS = { as_of: AS_OF, kind: "net", segment: "all", accounts: [{ ...FIXTURE_ACCOUNT, ok: true, error: null, as_of: AS_OF, counts: { total: 2, fno: 1, intraday: 0 },
+  positions: [
+    { symbol: "FIXHEAVY", name: "Fixture Heavy Ltd", exchange: "NSE", quantity: 5, avg_price: 118, last_price: 120, pnl: 10, product: "delivery", product_raw: "CNC", segment: "equity", is_intraday: false, instrument_type: null, expiry: null, strike: null, kind: "net" },
+    { symbol: "FIXIDX26OCTFUT", name: "Fixture Index", exchange: "NFO", quantity: -75, avg_price: 25100, last_price: 25050, pnl: 3750, product: "carryforward", product_raw: "NRML", segment: "fno", is_intraday: false, instrument_type: "FUT", expiry: "2026-10-27", strike: null, kind: "net" },
+  ] }] };
 
 async function deskBase(page: Page) {
   await mockApi(page, "populated");
@@ -46,8 +70,9 @@ async function deskBase(page: Page) {
   await json(page, "**/api/positional/picks*", PICKS);
   await json(page, "**/api/move-odds/latest*", { detail: "Feature not enabled for this account" }, 403);
   await json(page, "**/api/positional/journal/summary/portfolio", JOURNAL_SUMMARY);
-  // The broker block (desk/BrokerPositions): accounts, the holdings a broker read stored, live positions.
-  await json(page, "**/api/broker/positions*", NO_LIVE_ACCOUNT);
+  // The broker block (desk/BrokerPositions): accounts, live holdings and positions, the holdings a sync stored.
+  await json(page, "**/api/broker/positions*", NOT_LIVE_POSITIONS);
+  await json(page, "**/api/broker/holdings*", NOT_LIVE_HOLDINGS);
   await json(page, "**/api/broker/accounts", load("copilot-trader-broker-accounts.json"));
   await json(page, "**/api/portfolio/holdings", load("copilot-trader-holdings.json"));
 }
@@ -241,9 +266,11 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-paper-no-access")).toContainText("not enabled for this account");
     await expect(page.getByTestId("desk-calibration")).toHaveCount(0);
 
-    // the broker block from the Trader desk is mounted below
+    // the broker block from the Trader desk is mounted below; this account is not read live, so its stored rows say so
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     await expect(page.getByTestId("trader-broker-account")).toContainText("Zerodha");
+    await expect(page.getByTestId("broker-live-status")).toHaveText("Not read live");
+    await expect(page.getByTestId("broker-stored-asof")).toHaveText(/^3 holdings · as of last sync 12 Oct, 3:42\s?pm$/i);
   });
 
   test("TC-28 over the shared fixtures: equity rows only, weights from the route, sector split with the rest folded", async ({ page }) => {
@@ -312,6 +339,48 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-portfolio-risk")).toHaveCount(0);
     await page.getByTestId("desk-portfolio-connect").click();
     await expect(page).toHaveURL(/\/v5\/app\/page\/brokers/);
+  });
+
+  test("the broker block reads holdings and positions live; the F&O switch narrows to the contract; Refresh reads both again", async ({ page }) => {
+    await mockPaper(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    const reads = { holdings: 0, positions: 0 };
+    await json(page, "**/api/broker/accounts", LIVE_ACCOUNTS);
+    await page.route("**/api/broker/holdings*", (route) => {
+      reads.holdings += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIVE_HOLDINGS) });
+    });
+    await page.route("**/api/broker/positions*", (route) => {
+      reads.positions += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIVE_POSITIONS) });
+    });
+    await page.goto(`${DESK}?tab=portfolio`);
+
+    const block = page.getByTestId("trader-broker-positions");
+    await expect(block.getByTestId("broker-live-status")).toHaveText(/^Live · read 12 Oct, 3:45\s?pm$/i);
+    const rows = block.getByTestId("broker-live-row");
+    await expect(rows).toHaveCount(2);
+    await expect(block.locator('[data-testid="broker-live-row"] [data-testid="entity-icon"][data-kind="stock"]')).toHaveCount(2);
+    await expect(block.getByRole("row").filter({ hasText: "FIXLIGHT" }).getByTestId("broker-live-pnl-pct")).toHaveText("−10.0%");
+    // totals from the payload: value ₹2,100, invested ₹2,000, +₹100, +5.0%
+    await expect(block.getByTestId("broker-live-total-value")).toHaveText("₹2,100");
+    await expect(block.getByTestId("broker-live-total-invested")).toHaveText("₹2,000");
+    await expect(block.getByTestId("broker-live-total-pnl")).toHaveText("+₹100 · +5.0%");
+    // Every account was read live: no stored rows are shown.
+    await expect(block.getByTestId("broker-stored-holdings")).toHaveCount(0);
+
+    // positions: All · 2, F&O · 1; the F&O view keeps the contract's expiry
+    await expect(block.getByTestId("trader-positions-filter-all")).toHaveText("All · 2");
+    await expect(block.getByTestId("trader-positions-filter-fno")).toHaveText("F&O · 1");
+    await block.getByTestId("trader-positions-filter-fno").click();
+    await expect(block.getByTestId("broker-position-row")).toHaveCount(1);
+    await expect(block.getByTestId("broker-position-row")).toContainText("27 Oct 2026 future");
+    await expect(block.getByTestId("broker-position-qty")).toHaveText("Short 75");
+
+    await page.waitForLoadState("networkidle");
+    const before = { ...reads };
+    await block.getByTestId("trader-broker-refresh").click();
+    await expect.poll(() => reads).toEqual({ holdings: before.holdings + 1, positions: before.positions + 1 });
   });
 });
 
@@ -586,6 +655,10 @@ test.describe("Smart trading desk — Portfolio & risk and F&O at 390px", () => 
 
   test("TC-7 no sideways scroll on the Portfolio & risk tab or the Options & futures lab", async ({ page }) => {
     await deskBase(page);
+    // the broker block with live holdings and positions, so their tables are on the page too
+    await json(page, "**/api/broker/accounts", LIVE_ACCOUNTS);
+    await json(page, "**/api/broker/holdings*", LIVE_HOLDINGS);
+    await json(page, "**/api/broker/positions*", LIVE_POSITIONS);
     await mockPaper(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await fnoData(page);
@@ -594,6 +667,8 @@ test.describe("Smart trading desk — Portfolio & risk and F&O at 390px", () => 
     await expect(page.getByTestId("desk-risk-beta")).toBeVisible();
     await expect(page.getByTestId("desk-portfolio-correlation")).toBeVisible();
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
+    await expect(page.getByTestId("broker-live-row")).toHaveCount(2);
+    await expect(page.getByTestId("broker-position-row")).toHaveCount(2);
     // the weight column (where the 25% limit shows) fits on a phone without scrolling the table
     const weightBox = await page.getByTestId("desk-portfolio-weight").first().boundingBox();
     expect(weightBox).not.toBeNull();

@@ -503,10 +503,12 @@ def test_all_accounts_positions_report_each_account_on_its_own(h, sib):
     assert (body["kind"], body["segment"]) == ("net", "fno")
 
     accounts = body["accounts"]
-    assert [a["account_id"] for a in accounts] == ["ba_z", "ba_i", "ba_fail", "ba_ended"]   # native only, never u2's
-    assert all(set(a) == {"account_id", "broker", "label", "ok", "error", "as_of", "positions", "counts"}
-               for a in accounts)
-    z, i, fail, ended = accounts
+    # Every account of the user (the OpenAlgo one is listed as not readable), never u2's.
+    assert [a["account_id"] for a in accounts] == ["ba_z", "ba_i", "ba_fail", "ba_ended", "ba_oa"]
+    assert all(set(a) == {"account_id", "broker", "broker_display", "label", "ok", "error", "as_of", "positions",
+                          "counts"} for a in accounts)
+    z, i, fail, ended, oa = accounts
+    assert (oa["ok"], oa["positions"], oa["error"]["code"]) == (False, [], "BROKER_READ_NOT_SUPPORTED")
 
     assert (z["ok"], z["error"], z["broker"], z["label"]) == (True, None, "zerodha", "Zerodha")
     assert [p["symbol"] for p in z["positions"]] == ["NIFTY26OCTFUT", "BANKNIFTY26OCT52000CE"]
