@@ -85,6 +85,7 @@ NSE_MIN_REQUEST_INTERVAL_S: Final[float] = float(
 # `nsearchives.nseindia.com`. We keep the constant name `NSE_ARCHIVES`
 # for clarity at call sites but point it at the live host.
 NSE_ARCHIVES: Final[str] = "https://nsearchives.nseindia.com"
+NIFTYINDICES_WWW: Final[str] = "https://www.niftyindices.com"
 NSE_NSEARCHIVES: Final[str] = "https://nsearchives.nseindia.com"
 NSE_WWW: Final[str] = "https://www.nseindia.com"
 BSE_WWW: Final[str] = "https://www.bseindia.com"
@@ -129,6 +130,28 @@ INDEX_CONSTITUENT_URLS: Final[dict[str, str]] = {
     # Market-cap tiers for the trading desk's portfolio split (Large = Nifty 100).
     "Nifty Midcap 150":   f"{NSE_ARCHIVES}/content/indices/ind_niftymidcap150list.csv",
     "Nifty Smallcap 250": f"{NSE_ARCHIVES}/content/indices/ind_niftysmallcap250list.csv",
+    # The sector indices the trading desk shows (desk_market.SECTOR_INDICES). Keys are the
+    # nidp.index_eod index names exactly: the desk joins on them. Verified 200 + CSV on 2026-10-19.
+    "Nifty Auto":               f"{NSE_ARCHIVES}/content/indices/ind_niftyautolist.csv",
+    "Nifty Financial Services": f"{NSE_ARCHIVES}/content/indices/ind_niftyfinancelist.csv",
+    "Nifty FMCG":               f"{NSE_ARCHIVES}/content/indices/ind_niftyfmcglist.csv",
+    "Nifty Media":              f"{NSE_ARCHIVES}/content/indices/ind_niftymedialist.csv",
+    "Nifty Metal":              f"{NSE_ARCHIVES}/content/indices/ind_niftymetallist.csv",
+    "Nifty Pharma":             f"{NSE_ARCHIVES}/content/indices/ind_niftypharmalist.csv",
+    "Nifty PSU Bank":           f"{NSE_ARCHIVES}/content/indices/ind_niftypsubanklist.csv",
+    "Nifty Realty":             f"{NSE_ARCHIVES}/content/indices/ind_niftyrealtylist.csv",
+    "Nifty Energy":             f"{NSE_ARCHIVES}/content/indices/ind_niftyenergylist.csv",
+    "Nifty Oil & Gas":          f"{NSE_ARCHIVES}/content/indices/ind_niftyoilgaslist.csv",
+    "Nifty Healthcare Index":   f"{NSE_ARCHIVES}/content/indices/ind_niftyhealthcarelist.csv",
+    "Nifty Consumer Durables":  f"{NSE_ARCHIVES}/content/indices/ind_niftyconsumerdurableslist.csv",
+    # These six are not on nsearchives; NSE Indices publishes them on niftyindices.com (same CSV layout).
+    # That host answers a wrong filename with an HTML page and status 200, so the parser rejects non-CSV.
+    "Nifty Private Bank":       f"{NIFTYINDICES_WWW}/IndexConstituent/ind_nifty_privatebanklist.csv",
+    "Nifty Capital Goods":      f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftycapitalgoods_list.csv",
+    "Nifty Cement":             f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftycement_list.csv",
+    "Nifty Chemicals":          f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftychemicals_list.csv",
+    "Nifty Power":              f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftypower_list.csv",
+    "Nifty Telecommunications": f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftytelecommunications_list.csv",
 }
 
 # 2.1 FII/DII cash daily — NSE moved from XLS archive to JSON API.
