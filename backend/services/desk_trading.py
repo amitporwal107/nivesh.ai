@@ -30,6 +30,23 @@ A session whose high or low is missing ends the scan: later sessions are not che
 readable, so an exit is never found by skipping a session that could have held an earlier one.
 Exits and firings are written with the status in the update filter, so running the check twice (the GET,
 the evening script, two tabs) never closes or fires anything twice and never overwrites a manual close.
+
+Paper trades carry the DaaS paper_trades field set (PRD §13.4; rules version `RULES_VERSION`):
+    entry rule    at_once (filled at the reference entry when recorded, the first version's behaviour),
+                  break_above (filled when a later session's high reaches the entry) or pullback_to (when its
+                  low does). A conditional entry waits `entry_window_sessions` sessions, then closes as
+                  "entry_not_reached" with no P&L. The fill is the reference entry; a session that opened
+                  beyond it is flagged (a real order would have filled near the open).
+    entry session conditional entries are checked for exits on their own session too, conservatively:
+                  break_above counts a stop on that session (the low may have come first, flagged);
+                  pullback_to does not count a target on that session (the high may have come first, flagged).
+    exit rule     stop / target as above; with `max_hold_sessions`, the close of the last session held
+                  ("time"). A gap through the stop is flagged; the paper fill stays the stop.
+    costs         strategy_engine's cost model (services/strategy_engine/backtest.py): DEFAULT_SLIPPAGE_PCT of
+                  the traded value plus DEFAULT_BROKERAGE_INR, per side. Snapshotted on each trade.
+    path          observations = eligible sessions read since the trade was recorded; MFE / MAE = the highest
+                  high / lowest low from the first session held through the exit session, against the fill.
+Nothing here can create a broker order: there is no broker import and no order call.
 """
 from __future__ import annotations
 
@@ -43,6 +60,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
 from services.copilot_tools import daas_client
+from services.strategy_engine.backtest import DEFAULT_BROKERAGE_INR, DEFAULT_SLIPPAGE_PCT
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +88,35 @@ FIRING_RULE = (
 )
 BOTH_IN_RANGE_NOTE = "The stop and the target were both inside this session's range; counted as the stop (conservative)."
 
+# ── paper trades: the DaaS paper_trades field set (PRD §13.4) ────────────────
+RULES_VERSION = "desk-paper-v2"
+ENTRY_RULES = ("at_once", "break_above", "pullback_to")
+ENTRY_RULE_TEXT = {
+    "at_once": "Filled at the reference entry price when the trade was recorded (assumed, not checked against a bar).",
+    "break_above": ("Filled at the reference entry on the first session after it was recorded whose high reaches it; "
+                    "a session that opened above it is flagged."),
+    "pullback_to": ("Filled at the reference entry on the first session after it was recorded whose low reaches it; "
+                    "a session that opened below it is flagged."),
+}
+DEFAULT_ENTRY_WINDOW = 5          # sessions a conditional entry waits before it closes as "entry_not_reached"
+MAX_ENTRY_WINDOW = 20
+MAX_HOLD_SESSIONS = 250
+SIGNAL_SKEW = timedelta(minutes=5)  # a signal time this far ahead of the server clock is still accepted
+STRATEGY_VERSION_MAX = 60
+COST_MODEL = {
+    "name": "strategy_engine default",
+    "slippage_pct_per_side": round(DEFAULT_SLIPPAGE_PCT * 100, 4),
+    "brokerage_rs_per_side": float(DEFAULT_BROKERAGE_INR),
+    "source": "services/strategy_engine/backtest.py",
+}
+ORDERS_NOTE = "Paper trades are simulated and never create a broker order."
+TIME_EXIT_NOTE = "Held for the most sessions the exit rule allows; closed at that session's close."
+NOT_REACHED_NOTE = "The entry level was not reached within the entry window; no position was taken."
+CANCELLED_NOTE = "Closed by you before the entry level was reached; no position was taken."
+# Exit reasons a stored trade can carry.
+EXIT_REASONS = ("stop", "target", "time", "manual", "entry_not_reached", "cancelled")
+_STRATEGY_VERSION_RE = re.compile(r"^[A-Za-z0-9 ._:+/#()-]{1,60}$")
+
 # Normal-market equity series, most preferred first. BL (block-deal window) and debt series are not used.
 SERIES_PREFERENCE = ("EQ", "BE", "BZ", "SM", "ST", "IV", "RR")
 _SERIES_RANK = {s: i for i, s in enumerate(SERIES_PREFERENCE)}
@@ -91,7 +138,8 @@ _SYMBOL_RE = re.compile(r"^[A-Z0-9&-]{1,20}$")
 _KIND_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-_TRADE_FIELDS = {"symbol", "quantity", "entry_price", "stop_price", "target_price", "note", "source"}
+_TRADE_FIELDS = {"symbol", "quantity", "entry_price", "stop_price", "target_price", "note", "source",
+                 "entry_rule", "entry_window_sessions", "max_hold_sessions", "signal_at", "strategy_version", "rationale"}
 _ALERT_FIELDS = {"symbol", "condition", "level", "note"}
 _SOURCE_FIELDS = {"kind", "bucket", "signal_date"}
 
@@ -206,9 +254,63 @@ def _object(body: Any, allowed: Iterable[str]) -> Dict[str, Any]:
     return body
 
 
+def _whole(value: Any, low: int, high: int, code: str) -> int:
+    number = _number(value)
+    if number is None or not number.is_integer() or not low <= number <= high:
+        raise DeskInputError(code)
+    return int(number)
+
+
+def clean_entry_rule(raw: Any) -> str:
+    if raw is None:
+        return "at_once"
+    if not isinstance(raw, str) or raw not in ENTRY_RULES:
+        raise DeskInputError("invalid_entry_rule")
+    return raw
+
+
+def clean_signal_at(raw: Any, now: datetime) -> Optional[str]:
+    """When the signal was generated: an ISO date ("2026-10-09") or date-time; never after now."""
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not 10 <= len(raw.strip()) <= 40:
+        raise DeskInputError("invalid_signal_at")
+    text = raw.strip()
+    try:
+        if len(text) == 10:
+            day = date.fromisoformat(text)
+            if day > now.astimezone(IST).date():
+                raise DeskInputError("invalid_signal_at")
+            return day.isoformat()
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        raise DeskInputError("invalid_signal_at") from None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    if moment > now + SIGNAL_SKEW:
+        raise DeskInputError("invalid_signal_at")
+    return _iso(moment)
+
+
+def clean_strategy_version(raw: Any) -> Optional[str]:
+    if raw is None:
+        return None
+    if not isinstance(raw, str) or not _STRATEGY_VERSION_RE.match(raw.strip() or "\n"):
+        raise DeskInputError("invalid_strategy_version")
+    return raw.strip()
+
+
+def clean_rationale(raw: Any) -> Optional[str]:
+    try:
+        return clean_note(raw)
+    except DeskInputError:
+        raise DeskInputError("invalid_rationale") from None
+
+
 def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[str, Any]:
     """A paper-trade document from a request body (long only); raises DeskInputError."""
     body = _object(body, _TRADE_FIELDS)
+    moment = now or utcnow()
     symbol = clean_symbol(body.get("symbol"))
     quantity = clean_quantity(body.get("quantity"))
     entry = clean_price(body.get("entry_price"), "invalid_entry_price")
@@ -220,7 +322,21 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
         target = clean_price(body.get("target_price"), "invalid_target_price")
         if target <= entry:
             raise DeskInputError("target_not_above_entry")
-    stamp = _iso(now or utcnow())
+    entry_rule = clean_entry_rule(body.get("entry_rule"))
+    window = None
+    if body.get("entry_window_sessions") is not None:
+        if entry_rule == "at_once":
+            raise DeskInputError("invalid_entry_window")          # only a conditional entry waits
+        window = _whole(body.get("entry_window_sessions"), 1, MAX_ENTRY_WINDOW, "invalid_entry_window")
+    elif entry_rule != "at_once":
+        window = DEFAULT_ENTRY_WINDOW
+    max_hold = None
+    if body.get("max_hold_sessions") is not None:
+        max_hold = _whole(body.get("max_hold_sessions"), 1, MAX_HOLD_SESSIONS, "invalid_max_hold")
+    signal_at = clean_signal_at(body.get("signal_at"), moment)
+    strategy_version = clean_strategy_version(body.get("strategy_version"))
+    rationale = clean_rationale(body.get("rationale"))
+    stamp = _iso(moment)
     return {
         "_id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -231,6 +347,14 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
         "target_price": target,
         "note": clean_note(body.get("note")),
         "source": clean_source(body.get("source")),
+        "entry_rule": entry_rule,
+        "entry_window_sessions": window,
+        "max_hold_sessions": max_hold,
+        "signal_at": signal_at,
+        "strategy_version": strategy_version,
+        "rationale": rationale,
+        "rules_version": RULES_VERSION,
+        "cost_model": dict(COST_MODEL),
         "opened_at": stamp,
         "status": "open",
         "closed_at": None,
@@ -311,9 +435,12 @@ def session_bars(rows: Iterable[Any]) -> List[Dict[str, Any]]:
     return [
         {
             "date": day,
+            "open": _positive(row.get("open_price")),
             "high": _positive(row.get("high_price")),
             "low": _positive(row.get("low_price")),
             "close": _positive(row.get("close_price")),
+            # Shares traded that session (the volume alert, services/desk_alerts.py); None when not sent.
+            "volume": _positive(row.get("volume")),
             "series": SERIES_PREFERENCE[rank],
         }
         for day, (rank, row) in sorted(best.items())
@@ -395,21 +522,146 @@ def _eligible(bars: List[Dict[str, Any]], after: date):
         yield bar
 
 
+def _flag(code: str, text: str, session: Optional[date] = None, price: Optional[float] = None) -> Dict[str, Any]:
+    return {"code": code, "text": text, "session": session.isoformat() if session else None, "price": price}
+
+
+def _rupees(value: float) -> str:
+    return f"₹{value:,.2f}"
+
+
+def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Run the trade's entry and exit rules over end-of-day bars (oldest first).
+
+    Returns {entry_status: assumed | reached | waiting | not_reached, entry_session, sim_entry_price,
+    observations, held_sessions, checked_through, max_high, min_low, flags, exit (or None)}; `exit` is
+    {exit_reason, exit_price, exit_session, exit_note} as close_trade takes it. Never writes."""
+    rule = trade.get("entry_rule") or "at_once"
+    entry = float(trade["entry_price"])
+    stop = float(trade["stop_price"])
+    target = float(trade["target_price"]) if trade.get("target_price") is not None else None
+    window = int(trade.get("entry_window_sessions") or DEFAULT_ENTRY_WINDOW)
+    max_hold = trade.get("max_hold_sessions")
+    opened = ist_date(trade["opened_at"])
+    flags: List[Dict[str, Any]] = []
+    out: Dict[str, Any] = {"entry_status": "waiting", "entry_session": None, "sim_entry_price": None,
+                           "observations": 0, "held_sessions": 0, "checked_through": None,
+                           "max_high": None, "min_low": None, "flags": flags, "exit": None}
+    entered = rule == "at_once"
+    if entered:
+        out.update(entry_status="assumed", sim_entry_price=entry)
+        day = next((b for b in bars if b["date"] == opened), None)
+        if day and day["high"] is not None and day["low"] is not None and not day["low"] <= entry <= day["high"]:
+            flags.append(_flag("entry_outside_day_range",
+                               f"The entry {_rupees(entry)} is outside the {opened.isoformat()} range "
+                               f"({_rupees(day['low'])}–{_rupees(day['high'])}): that fill could not have happened that day.",
+                               opened))
+    waited = 0
+    for bar in bars:
+        if bar["date"] <= opened:
+            continue
+        if bar["high"] is None or bar["low"] is None:
+            logger.warning("desk_trading: the %s bar has no high/low; later sessions wait until it does", bar["date"])
+            flags.append(_flag("bar_missing_high_low",
+                               "This session has no high or low on record; later sessions are not checked until it does.",
+                               bar["date"]))
+            break
+        out["observations"] += 1
+        out["checked_through"] = bar["date"]
+        entry_session = False
+        if not entered:
+            waited += 1
+            reached = bar["high"] >= entry if rule == "break_above" else bar["low"] <= entry
+            if not reached:
+                if waited >= window:
+                    out["entry_status"] = "not_reached"
+                    out["exit"] = {"exit_reason": "entry_not_reached", "exit_price": None, "exit_session": bar["date"],
+                                   "exit_note": NOT_REACHED_NOTE}
+                    return out
+                continue
+            entered, entry_session = True, True
+            out.update(entry_status="reached", entry_session=bar["date"], sim_entry_price=entry)
+            opened_beyond = bar["open"] is not None and (bar["open"] > entry if rule == "break_above" else bar["open"] < entry)
+            if opened_beyond:
+                flags.append(_flag("entry_gap",
+                                   f"The session opened at {_rupees(bar['open'])}, beyond the entry; a real order would "
+                                   "have filled near the open, not at the entry.", bar["date"], bar["open"]))
+        out["held_sessions"] += 1
+        out["max_high"] = bar["high"] if out["max_high"] is None else max(out["max_high"], bar["high"])
+        out["min_low"] = bar["low"] if out["min_low"] is None else min(out["min_low"], bar["low"])
+        hit_stop = bar["low"] <= stop
+        hit_target = target is not None and bar["high"] >= target
+        if entry_session and rule == "pullback_to" and hit_target:
+            hit_target = False
+            flags.append(_flag("entry_session_ambiguous",
+                               "The target was inside the entry session's range, but its high may have come before the "
+                               "fill; the target is counted from the next session.", bar["date"]))
+        if entry_session and rule == "break_above" and hit_stop:
+            flags.append(_flag("entry_session_ambiguous",
+                               "The stop was inside the entry session's range and its low may have come before the fill; "
+                               "counted as the stop (conservative).", bar["date"]))
+        exit_: Optional[Dict[str, Any]] = None
+        if hit_stop:
+            exit_ = {"exit_reason": "stop", "exit_price": stop, "exit_session": bar["date"],
+                     "exit_note": BOTH_IN_RANGE_NOTE if hit_target else None}
+            if hit_target:
+                flags.append(_flag("both_in_range", BOTH_IN_RANGE_NOTE, bar["date"]))
+            if bar["open"] is not None and bar["open"] < stop:
+                flags.append(_flag("gap_through_stop",
+                                   f"The session opened at {_rupees(bar['open'])}, below the stop: a real stop order would "
+                                   "have filled near the open. The paper fill is the stop.", bar["date"], bar["open"]))
+        elif hit_target:
+            exit_ = {"exit_reason": "target", "exit_price": target, "exit_session": bar["date"], "exit_note": None}
+        elif max_hold and out["held_sessions"] >= int(max_hold) and bar["close"] is not None:
+            exit_ = {"exit_reason": "time", "exit_price": bar["close"], "exit_session": bar["date"], "exit_note": TIME_EXIT_NOTE}
+        if exit_ is not None:
+            out["exit"] = exit_
+            return out
+    return out
+
+
 def find_trade_exit(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Optional[date]]:
     """(the exit the end-of-day bars show, or None; the last session checked, or None)."""
-    stop = float(trade["stop_price"])
+    sim = simulate(trade, bars)
+    return sim["exit"], sim["checked_through"]
+
+
+def trade_costs(trade: Dict[str, Any], entry_price: float, exit_price: float) -> float:
+    """Round-trip estimated cost in rupees under the trade's cost model (the current one for older trades)."""
+    model = trade.get("cost_model") or COST_MODEL
+    slip = float(model.get("slippage_pct_per_side", COST_MODEL["slippage_pct_per_side"])) / 100.0
+    brokerage = float(model.get("brokerage_rs_per_side", COST_MODEL["brokerage_rs_per_side"]))
+    qty = int(trade["quantity"])
+    entry_side = entry_price * qty * slip + brokerage
+    exit_side = exit_price * qty * slip + brokerage
+    return round(entry_side + exit_side, 2)
+
+
+def estimated_costs(trade: Dict[str, Any]) -> Dict[str, Optional[float]]:
+    """What a round trip would cost at the stop and at the target, from the reference entry."""
+    entry = float(trade["entry_price"])
     target = trade.get("target_price")
-    checked: Optional[date] = None
-    for bar in _eligible(bars, ist_date(trade["opened_at"])):
-        hit_stop = bar["low"] <= stop
-        hit_target = target is not None and bar["high"] >= float(target)
-        if hit_stop:
-            return {"exit_reason": "stop", "exit_price": stop, "exit_session": bar["date"],
-                    "exit_note": BOTH_IN_RANGE_NOTE if hit_target else None}, bar["date"]
-        if hit_target:
-            return {"exit_reason": "target", "exit_price": float(target), "exit_session": bar["date"], "exit_note": None}, bar["date"]
-        checked = bar["date"]
-    return None, checked
+    return {"at_target": trade_costs(trade, entry, float(target)) if target is not None else None,
+            "at_stop": trade_costs(trade, entry, float(trade["stop_price"]))}
+
+
+def path_figures(trade: Dict[str, Any], sim: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """MFE / MAE against the fill (percent and rupees) and the counts, from a simulate() result; all None
+    when the trade was never entered or nothing was read."""
+    none = {"mfe_pct": None, "mae_pct": None, "mfe_rs": None, "mae_rs": None}
+    if not sim:
+        return {**none, "observations": None, "held_sessions": None, "entry_status": None, "entry_session": None,
+                "sim_entry_price": None, "flags": []}
+    fill = sim["sim_entry_price"]
+    qty = int(trade["quantity"])
+    out = {"observations": sim["observations"], "held_sessions": sim["held_sessions"],
+           "entry_status": sim["entry_status"],
+           "entry_session": sim["entry_session"].isoformat() if sim["entry_session"] else None,
+           "sim_entry_price": fill, "flags": list(sim["flags"]), **none}
+    if fill and sim["max_high"] is not None and sim["min_low"] is not None:
+        out.update(mfe_pct=round((sim["max_high"] / fill - 1) * 100, 2), mae_pct=round((sim["min_low"] / fill - 1) * 100, 2),
+                   mfe_rs=round((sim["max_high"] - fill) * qty, 2), mae_rs=round((sim["min_low"] - fill) * qty, 2))
+    return out
 
 
 def find_alert_fire(alert: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Optional[date]]:
@@ -429,11 +681,20 @@ def realized_pnl(trade: Dict[str, Any], exit_price: float) -> float:
 
 
 # ── writes (idempotent: the status is part of the filter) ────────────────────
-async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price: float,
+async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price: Optional[float],
                       exit_session: Optional[date], exit_note: Optional[str] = None,
-                      now: Optional[datetime] = None) -> Tuple[Optional[Dict[str, Any]], bool]:
-    """(the trade as stored afterwards, True when THIS call closed it). Never touches a trade that is not open."""
+                      now: Optional[datetime] = None,
+                      sim: Optional[Dict[str, Any]] = None) -> Tuple[Optional[Dict[str, Any]], bool]:
+    """(the trade as stored afterwards, True when THIS call closed it). Never touches a trade that is not open.
+    `sim` (a simulate() result) records the entry, the path (MFE / MAE, observations) and the flags with the exit;
+    gross P&L, estimated costs and net P&L are worked out from the fill and the exit price. A trade closed without
+    an exit price (entry never reached, or cancelled) has no P&L and no costs."""
     stamp = _iso(now or utcnow())
+    path = path_figures(trade, sim)
+    if sim is None and (trade.get("entry_rule") or "at_once") == "at_once":
+        path.update(entry_status="assumed", sim_entry_price=float(trade["entry_price"]))
+    gross = realized_pnl(trade, exit_price) if exit_price is not None else None
+    costs = trade_costs(trade, float(trade["entry_price"]), exit_price) if exit_price is not None else None
     change = {
         "status": "closed",
         "closed_at": stamp,
@@ -441,7 +702,11 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
         "exit_reason": exit_reason,
         "exit_session": exit_session.isoformat() if exit_session else None,
         "exit_note": exit_note,
-        "realized_pnl_rs": realized_pnl(trade, exit_price),
+        "realized_pnl_rs": gross,
+        "costs_rs": costs,
+        "net_pnl_rs": round(gross - costs, 2) if gross is not None and costs is not None else None,
+        **path,
+        "checked_through": sim["checked_through"].isoformat() if sim and sim["checked_through"] else None,
         "updated_at": stamp,
     }
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
@@ -474,13 +739,16 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
     """Run the exit rule over open trades whose bars were read. (trades as they now stand, counts and the
     last session checked per trade id). With persist=False nothing is written (the script's dry run)."""
     out: List[Dict[str, Any]] = []
-    counts: Dict[str, Any] = {"stop": 0, "target": 0, "already_closed": 0, "checked_through": {}}
+    counts: Dict[str, Any] = {"stop": 0, "target": 0, "time": 0, "entry_not_reached": 0, "already_closed": 0,
+                              "checked_through": {}, "paths": {}}
     for trade in trades:
         if trade.get("status") != "open" or trade["symbol"] not in bars:
             out.append(trade)
             continue
-        exit_, checked = find_trade_exit(trade, bars[trade["symbol"]])
-        counts["checked_through"][trade["_id"]] = checked
+        sim = simulate(trade, bars[trade["symbol"]])
+        exit_ = sim["exit"]
+        counts["checked_through"][trade["_id"]] = sim["checked_through"]
+        counts["paths"][trade["_id"]] = sim
         if exit_ is None:
             out.append(trade)
             continue
@@ -488,7 +756,7 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
             counts[exit_["exit_reason"]] += 1
             out.append(trade)
             continue
-        stored, mine = await close_trade(db, trade, **exit_)
+        stored, mine = await close_trade(db, trade, **exit_, sim=sim)
         if mine:
             counts[exit_["exit_reason"]] += 1
             logger.info("desk_trading: trade %s (%s) closed at the %s on %s", trade["_id"], trade["symbol"],
@@ -549,10 +817,61 @@ def mark_for(symbol: str, bars: Dict[str, List[Dict[str, Any]]], errors: Dict[st
     return bar, (None if bar else NO_PRICES)
 
 
+ENTERED = ("assumed", "reached")
+
+
+def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The §13.4 fields of one trade. An open trade's path comes from this read's simulate(); a closed trade's
+    from what was stored when it closed (null when it closed before these fields existed, never 0)."""
+    rule = doc.get("entry_rule") or "at_once"
+    is_open = doc.get("status") == "open"
+    if is_open:
+        path = path_figures(doc, sim)
+        if sim is None:
+            path.update(entry_status="assumed" if rule == "at_once" else "waiting",
+                        sim_entry_price=float(doc["entry_price"]) if rule == "at_once" else None)
+        entered = path["entry_status"] in ENTERED
+        fill = path["sim_entry_price"]
+        gross = round((close - fill) * int(doc["quantity"]), 2) if entered and close is not None and fill else None
+        costs = trade_costs(doc, fill, close) if gross is not None else None
+        basis = "exit side estimated at the last close" if costs is not None else None
+    else:
+        keys = ("observations", "held_sessions", "entry_session", "mfe_pct", "mae_pct", "mfe_rs", "mae_rs")
+        path = {k: doc.get(k) for k in keys}
+        exit_price = doc.get("exit_price")
+        status = doc.get("entry_status") or ("assumed" if rule == "at_once" and exit_price is not None else None)
+        path.update(entry_status=status, flags=list(doc.get("flags") or []),
+                    sim_entry_price=doc.get("sim_entry_price") if "sim_entry_price" in doc
+                    else (float(doc["entry_price"]) if status in ENTERED else None))
+        gross = doc.get("realized_pnl_rs")
+        costs = doc.get("costs_rs")
+        if costs is None and exit_price is not None and gross is not None:
+            costs = trade_costs(doc, float(doc["entry_price"]), float(exit_price))
+        basis = "entry and exit at the fill prices" if costs is not None else None
+    net = round(gross - costs, 2) if gross is not None and costs is not None else None
+    return {
+        "entry_rule": rule,
+        "entry_window_sessions": doc.get("entry_window_sessions"),
+        "max_hold_sessions": doc.get("max_hold_sessions"),
+        "signal_at": doc.get("signal_at"),
+        "strategy_version": doc.get("strategy_version"),
+        "rationale": doc.get("rationale"),
+        "rules_version": doc.get("rules_version"),
+        "cost_model": doc.get("cost_model") or dict(COST_MODEL),
+        "est_costs_rs": estimated_costs(doc),
+        **path,
+        "gross_pnl_rs": gross,
+        "costs_rs": costs,
+        "costs_basis": basis,
+        "net_pnl_rs": net,
+    }
+
+
 def public_trade(doc: Dict[str, Any], mark: Optional[Dict[str, Any]] = None, mark_error: Optional[str] = None,
-                 checked_through: Optional[date] = None) -> Dict[str, Any]:
+                 checked_through: Optional[date] = None, sim: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     is_open = doc.get("status") == "open"
     close = mark["close"] if (is_open and mark) else None
+    paper = _paper_fields(doc, close, sim)
     return {
         "id": doc["_id"],
         "symbol": doc["symbol"],
@@ -571,10 +890,11 @@ def public_trade(doc: Dict[str, Any], mark: Optional[Dict[str, Any]] = None, mar
         "exit_note": doc.get("exit_note"),
         "last_close": close,
         "last_close_date": _day_str(mark["date"]) if (is_open and mark) else None,
-        "unrealized_pnl_rs": round((close - float(doc["entry_price"])) * int(doc["quantity"]), 2) if close is not None else None,
+        "unrealized_pnl_rs": paper["gross_pnl_rs"] if is_open else None,
         "realized_pnl_rs": None if is_open else doc.get("realized_pnl_rs"),
-        "checked_through": _day_str(checked_through) if is_open else None,
+        "checked_through": _day_str(checked_through) if is_open else doc.get("checked_through"),
         "mark_error": mark_error if is_open else None,
+        **paper,
     }
 
 
@@ -604,17 +924,27 @@ def summarize(trades: List[Dict[str, Any]], *, partial: bool) -> Dict[str, Any]:
     every open trade has a mark (a partial sum would read as the whole)."""
     open_ = [t for t in trades if t["status"] == "open"]
     closed = [t for t in trades if t["status"] == "closed"]
+    # A paper position exists only once its entry is assumed or reached; a waiting entry holds nothing.
+    held = [t for t in open_ if t.get("entry_status", "assumed") in ENTERED]
     realized = [t["realized_pnl_rs"] for t in closed if t["realized_pnl_rs"] is not None]
-    unmarked = sum(1 for t in open_ if t["unrealized_pnl_rs"] is None)
+    net_realized = [t["net_pnl_rs"] for t in closed if t.get("net_pnl_rs") is not None]
+    costs_realized = [t["costs_rs"] for t in closed if t.get("costs_rs") is not None]
+    unmarked = sum(1 for t in held if t["unrealized_pnl_rs"] is None)
+    whole = bool(held) and not unmarked
     return {
         "open": len(open_),
         "closed": len(closed),
         "wins": sum(1 for r in realized if r > 0),
         "losses": sum(1 for r in realized if r < 0),
         "realized_pnl_rs": round(sum(realized), 2) if realized else None,
-        "unrealized_pnl_rs": round(sum(t["unrealized_pnl_rs"] for t in open_), 2) if open_ and not unmarked else None,
+        "unrealized_pnl_rs": round(sum(t["unrealized_pnl_rs"] for t in held), 2) if whole else None,
         "unmarked_open": unmarked,
         "partial": partial,
+        "net_realized_pnl_rs": round(sum(net_realized), 2) if net_realized else None,
+        "costs_realized_rs": round(sum(costs_realized), 2) if costs_realized else None,
+        "net_unrealized_pnl_rs": round(sum(t["net_pnl_rs"] for t in held), 2) if whole else None,
+        "entry_pending": sum(1 for t in open_ if t.get("entry_status") == "waiting"),
+        "not_entered": sum(1 for t in closed if t.get("exit_reason") in ("entry_not_reached", "cancelled")),
     }
 
 

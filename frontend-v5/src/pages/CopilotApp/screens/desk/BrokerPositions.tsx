@@ -6,6 +6,8 @@
  *   GET /api/broker/accounts      which broker accounts the user has connected (useBrokerAccounts)
  *   GET /api/broker/holdings      each account's holdings, read live from the broker (useLiveHoldings)
  *   GET /api/broker/positions     each account's open positions, read live (useBrokerPositions)
+ *   GET /api/broker/funds         each account's cash and margin, read live through the broker's read-only funds
+ *                                 call (useBrokerFunds); "Cash not read" with the reason when an account was not read
  *   GET /api/portfolio/holdings   the holdings the last sync stored (useBrokerHoldings). Fetched only
  *                                 when an account's live read failed, and shown for that account
  *                                 labelled "as of last sync" — never as live.
@@ -20,8 +22,8 @@
  *                   contract (FUT / CE / PE, expiry, strike) and asks about that contract's chart
  * One "Refresh" reads holdings and positions again. Nothing polls: brokers rate-limit.
  *
- * Not connected, in every state: the broker's funds and its day P&L, and a
- * stop or target per position. No route returns them, so the block says so.
+ * Not connected, in every state: the broker's day P&L and a stop or target per
+ * position. No route returns them, so the block says so.
  */
 import { useState, type ReactNode } from "react";
 import {
@@ -34,9 +36,10 @@ import { useCopilotShell } from "../../lib/shell-context";
 import { Labeled, QueryProblem, fmtPrice } from "../trading/parts";
 import { isForbidden, useBrokerAccounts, type BrokerAccount } from "../trading/queries";
 import {
-  fmtStamp, positionRefOf, totalsOf, useBrokerHoldings, useBrokerPositions, useLiveHoldings,
-  type BrokerHolding, type BrokerPosition, type LiveHolding, type LiveHoldingsAccount, type PositionsAccount,
+  fmtStamp, positionRefOf, totalsOf, useBrokerFunds, useBrokerHoldings, useBrokerPositions, useLiveHoldings,
+  type BrokerHolding, type BrokerPosition, type FundsAccount, type LiveHolding, type LiveHoldingsAccount, type PositionsAccount,
 } from "./broker";
+import { TrustLine } from "../tradingdesk/trust";
 
 const TITLE = "Broker account · read-only";
 
@@ -365,9 +368,30 @@ function AccountPositions({ account, name }: { account: PositionsAccount; name: 
 
 type ReadState = "pending" | "error" | "done";
 
-function AccountCard({ id, name, live, liveState, positions, positionsState, stored, onRefresh, refreshing }: {
+/** The account's cash and margin as its broker reports them (read live, read-only), or why they were not read. */
+function FundsLine({ funds, state, name }: { funds: FundsAccount | undefined; state: ReadState; name: string }) {
+  let text: ReactNode;
+  if (state === "pending") text = "Reading cash…";
+  else if (funds?.ok && funds.cashRs != null) {
+    text = (
+      <>
+        Cash available <span data-testid="broker-funds-cash" className="cp-num" style={{ color: "var(--cp-ink)" }}>{fmtINR(funds.cashRs)}</span>
+        {funds.usedMarginRs != null ? <> · margin used <span className="cp-num">{fmtINR(funds.usedMarginRs)}</span></> : null}
+        {funds.collateralRs ? <> · collateral <span className="cp-num">{fmtINR(funds.collateralRs)}</span></> : null}
+        {" "}· as {name} reports it, read {fmtReadTime(funds.asOf)}
+      </>
+    );
+  } else if (funds?.errorCode === SESSION_ENDED) text = "Cash not read: the session ended";
+  else if (funds?.errorCode === NOT_SUPPORTED) text = "Cash not read: this connection cannot be read live";
+  else text = state === "error" ? "Cash didn’t load" : "Cash not read";
+  return <div data-testid="broker-funds" data-ok={funds?.ok ? "true" : "false"} className="cp-mono-note" style={{ padding: "0 16px", lineHeight: 1.6, textTransform: "none", letterSpacing: 0 }}>{text}</div>;
+}
+
+function AccountCard({ id, name, live, liveState, positions, positionsState, funds, fundsState, stored, onRefresh, refreshing }: {
   id: string;
   name: string;
+  funds: FundsAccount | undefined;
+  fundsState: ReadState;
   /** This account's entry in the live holdings read; undefined while reading, or when the whole read failed. */
   live: LiveHoldingsAccount | undefined;
   liveState: ReadState;
@@ -423,6 +447,7 @@ function AccountCard({ id, name, live, liveState, positions, positionsState, sto
       <div style={{ padding: "0 16px", minWidth: 0 }}>
         <BrokerName testId="trader-broker-account" name={name} sub={<span data-testid="broker-live-status">{status}</span>} size={28} />
       </div>
+      <FundsLine funds={funds} state={fundsState} name={name} />
       {holdings}
       {positionsSlot}
     </section>
@@ -435,8 +460,10 @@ function Connected({ accounts }: { accounts: BrokerAccount[] }) {
   const { go } = useCopilotShell();
   const live = useLiveHoldings(true);
   const pos = useBrokerPositions(true);
+  const funds = useBrokerFunds(true);
   const liveById = new Map((live.data?.accounts ?? []).map((a) => [a.id, a]));
   const posById = new Map((pos.data?.accounts ?? []).map((a) => [a.id, a]));
+  const fundsById = new Map((funds.data?.accounts ?? []).map((a) => [a.id, a]));
 
   // An account the connections list does not have yet (connected since it loaded) still gets its card.
   const cards = accounts.map((a) => ({ id: a.id, name: a.name }));
@@ -448,10 +475,11 @@ function Connected({ accounts }: { accounts: BrokerAccount[] }) {
   const needStored = live.isError || (live.isSuccess && cards.some((c) => !liveById.get(c.id)?.ok));
   const stored = useBrokerHoldings(needStored);
 
-  const refreshing = live.isFetching || pos.isFetching;
+  const refreshing = live.isFetching || pos.isFetching || funds.isFetching;
   const refresh = () => {
     void live.refetch();
     void pos.refetch();
+    void funds.refetch();
   };
   const stateOf = (q: { isPending: boolean; isError: boolean }): ReadState => (q.isPending ? "pending" : q.isError ? "error" : "done");
   const readAt = latest([live.data?.asOf ?? null, pos.data?.asOf ?? null]);
@@ -500,6 +528,8 @@ function Connected({ accounts }: { accounts: BrokerAccount[] }) {
           liveState={stateOf(live)}
           positions={posById.get(c.id)}
           positionsState={stateOf(pos)}
+          funds={fundsById.get(c.id)}
+          fundsState={stateOf(funds)}
           stored={stored}
           onRefresh={refresh}
           refreshing={refreshing}
@@ -510,8 +540,16 @@ function Connected({ accounts }: { accounts: BrokerAccount[] }) {
         Read live from each broker when this block opened, not streamed: “Refresh” reads again. Quantity, average and last price are the broker’s own;
         a price marked “not live” is the latest stored exchange close or NAV, used only where the broker sent none. Value = last price × quantity;
         P&amp;L = (last price − average) × quantity. Positions show the broker’s own P&amp;L. Rows marked “as of last sync” were stored by the last sync and are not live.
-        Nivesh only reads; it cannot place, change or close a position.
+        Nivesh only reads; it cannot place, change or close a position. Cash is each broker’s own available-funds figure from its read-only funds call.
       </Footnote>
+      <TrustLine
+        testId="broker-trust"
+        source="Your broker accounts, read-only (holdings, positions, funds)"
+        asOf={readAt ? `read ${fmtReadTime(readAt)}` : null}
+        maker="reported"
+        method="Read on open and on Refresh; never stored"
+        status={live.isError && pos.isError ? "failed" : null}
+      />
     </Labeled>
   );
 }
@@ -521,10 +559,10 @@ function PositionBookMissing() {
   return (
     <NotConnected
       testId="trader-positions-not-connected"
-      title="Broker funds and day P&L are not read yet"
-      body="Holdings and open positions are read live from a connected broker. Its funds (available and used margin) and its day P&L are not, and a broker’s book has no stop or target, so none of those are shown and nothing else is used to fill them in. Trades you log yourself are in the journal below. Nivesh only reads from a broker; it cannot place orders."
+      title="Day P&L and a stop or target per position are not read"
+      body="Holdings, open positions and cash are read live from a connected broker. Its day P&L is not, and a broker’s book has no stop or target, so none of those are shown and nothing else is used to fill them in. Trades you log yourself are in the journal below. Nivesh only reads from a broker; it cannot place orders."
       needs={[
-        "A read-only GET route for broker funds, for trading capital and day P&L. services/brokers/*.fetch_funds() exists; no route returns it.",
+        "A read-only day P&L figure: the adapters' funds readers send a day M2M on some brokers only, and it is not wired.",
         "Day positions (kind=day) work only where the broker has a day book; this desk reads the net book.",
         "A stop and a target for each position; a broker’s book has neither.",
       ]}

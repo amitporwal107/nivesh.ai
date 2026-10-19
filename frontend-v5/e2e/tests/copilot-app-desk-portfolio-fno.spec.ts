@@ -16,7 +16,14 @@
  * /api/desk/alerts, Delete → DELETE …/{id}) with their confirmations; TC-29 an
  * empty portfolio's connect button; the paper evaluation's 403 note and its
  * forward / replay calibration; TC-7 no sideways scroll at 390px on the
- * Portfolio & risk tab. The Options & futures lab (FnoTab.tsx: TC-30 … TC-33,
+ * Portfolio & risk tab. PRD wave (§8.2–§8.4, §8.7, §13.4, §14.3): what every total
+ * covers (GET /api/portfolio/composition/scope), invested / unrealised / realised
+ * (GET /api/portfolio/capital-gains-statement) / cash (GET /api/broker/funds), live
+ * vs stored, the ten risk rows from GET /api/portfolio/holding-risk with each
+ * level's rule, the import preview (POST /api/portfolio/upload/preview, then
+ * …/{id}/commit only on confirm), the paper-trade record (costs, net, MFE / MAE,
+ * entry rule, flags), investor wording and the trust lines.
+ * The Options & futures lab (FnoTab.tsx: TC-30 … TC-33,
  * its paper strategies and its 390px pass) is covered by
  * copilot-app-desk-lab.spec.ts.
  */
@@ -48,6 +55,10 @@ const FIXTURE_ACCOUNT = { account_id: "ba_fixture00001", broker: "zerodha", brok
 const NOT_SUPPORTED = { code: "BROKER_READ_NOT_SUPPORTED", message: "fixture: not read live" };
 const NOT_LIVE_HOLDINGS = { as_of: AS_OF, accounts: [{ ...FIXTURE_ACCOUNT, ok: false, error: NOT_SUPPORTED, as_of: AS_OF, holdings: [], counts: { total: null }, totals: { invested_rs: null, value_rs: null, pnl_rs: null, pnl_pct: null } }] };
 const NOT_LIVE_POSITIONS = { as_of: AS_OF, kind: "net", segment: "all", accounts: [{ ...FIXTURE_ACCOUNT, ok: false, error: NOT_SUPPORTED, as_of: AS_OF, positions: [], counts: { total: 0, fno: 0, intraday: 0 } }] };
+/** GET /api/broker/funds (broker_connect.py :: get_all_funds): the OpenAlgo fixture account is not read live. */
+const NOT_LIVE_FUNDS = { as_of: AS_OF, source: "broker", basis: "As each broker reports it, read live from its funds call; never stored.", accounts: [{ ...FIXTURE_ACCOUNT, ok: false, error: NOT_SUPPORTED, as_of: AS_OF, funds: null }] };
+/** The same account read live: ₹1,25,000.50 available, ₹10,000 margin used. */
+const LIVE_FUNDS = { ...NOT_LIVE_FUNDS, accounts: [{ ...FIXTURE_ACCOUNT, ok: true, error: null, as_of: AS_OF, funds: { available_cash_rs: 125000.5, collateral_rs: 0, used_margin_rs: 10000 } }] };
 
 /** The same account connected on the broker's own page and read live: two holdings, a share position and a future. */
 const LIVE_ACCOUNTS = { accounts: [{ ...load("copilot-trader-broker-accounts.json").accounts[0], openalgo_hosted: false, native: true }] };
@@ -77,6 +88,7 @@ async function deskBase(page: Page) {
   // The broker block (desk/BrokerPositions): accounts, live holdings and positions, the holdings a sync stored.
   await json(page, "**/api/broker/positions*", NOT_LIVE_POSITIONS);
   await json(page, "**/api/broker/holdings*", NOT_LIVE_HOLDINGS);
+  await json(page, "**/api/broker/funds", NOT_LIVE_FUNDS);
   await json(page, "**/api/broker/accounts", load("copilot-trader-broker-accounts.json"));
   await json(page, "**/api/portfolio/holdings", load("copilot-trader-holdings.json"));
 }
@@ -229,6 +241,84 @@ const MCAP_FULL = {
   indices: MCAP_PARTIAL.indices.map((ix) => ({ ...ix, as_of: "2026-10-13", available: true, members: ix.members ?? (ix.index === "Nifty Midcap 150" ? 150 : 250) })),
 };
 
+/**
+ * GET /api/portfolio/composition/scope (backend/routes/portfolio_composition.py): what the ₹10.00 L of HOLDINGS is made of.
+ * The Zerodha account's two stocks (₹4.00 L, stored at its last sync) and a CAS statement's fund (₹6.00 L); every row has a
+ * price and a cost; nothing is in two sources.
+ */
+const SCOPE = {
+  as_of: "2026-10-14T10:00:00+00:00",
+  source: "Stored holdings (db.holdings), valued at quantity × current price as /api/portfolio/holdings-enriched",
+  accounts: [
+    { key: "account:ba_fixture00001", kind: "broker_account", name: "Zerodha", broker: "zerodha", account_id: "ba_fixture00001", holdings: 2, value_rs: 400000,
+      invested_rs: 360000, weight_pct: 40.0, instrument_types: { equity: 2 }, unpriced: 0, no_cost: 0, last_updated: "2026-10-12T10:12:00+00:00",
+      last_sync_at: "2026-10-12T10:12:00+00:00", lines: [{ isin: null, symbol: "FIXHEAVY", quantity: 10 }, { isin: null, symbol: "FIXLIGHT", quantity: 5 }] },
+    { key: "statement", kind: "statement", name: "CAS statement", broker: null, account_id: null, holdings: 1, value_rs: 600000, invested_rs: 500000,
+      weight_pct: 60.0, instrument_types: { mutual_fund: 1 }, unpriced: 0, no_cost: 0, last_updated: "2026-09-30T09:00:00+00:00", last_sync_at: null, lines: null },
+  ],
+  instrument_types: { equity: 2, mutual_fund: 1 },
+  asset_allocation: [{ asset_class: "Equity", value_rs: 1000000, weight_pct: 100.0 }],
+  totals: { holdings: 3, value_rs: 1000000, invested_rs: 860000, unpriced_rows: 0, no_cost_rows: 0 },
+  last_updated: "2026-10-12T10:12:00+00:00", oldest_updated: "2026-09-30T09:00:00+00:00",
+  reconciliation: { rule: "Broker wins (helpers.holdings_reconcile): a broker account or a broker's own file replaces a statement's copy of the same ISIN.", duplicates: [] },
+};
+/** The same with Infosys in two sources and one row without a price. */
+const SCOPE_DUP = {
+  ...SCOPE,
+  totals: { ...SCOPE.totals, unpriced_rows: 1 },
+  reconciliation: { ...SCOPE.reconciliation, duplicates: [{ isin: "INE009A01021", name: "Infosys", sources: ["CAS statement", "Zerodha"], rows: 2 }] },
+};
+
+/**
+ * GET /api/portfolio/holding-risk?sessions=250 (backend/routes/portfolio_desk.py). FIXHEAVY ₹3,00,000 and FIXLIGHT ₹1,00,000:
+ *   gap rate, value-weighted: (2.0 × 3,00,000 + 12.0 × 1,00,000) ÷ 4,00,000 = 4.5% → under 5% → low
+ *   liquidity: FIXLIGHT trades ₹0.6 Cr a day (under ₹10 Cr) and needs 1.67 days → medium; 1,00,000 ÷ 4,00,000 = 25.0% of value
+ *   today's stocks held together (FIXLIGHT left out: stale): drawdown −14.8% → medium; 1-month volatility 14.2% → medium
+ */
+const RULE_TEXT = {
+  liquidity: "Average traded value (close × volume) over the last 20 sessions, and the days to sell the position at 10% of the average daily volume. High: a holding needs more than 5 days. Medium: a holding needs more than 1 day, or trades under ₹10 Cr a day. Low: otherwise.",
+  gap: "An overnight gap is a session that opened 2% or more away from the previous close (split-adjusted). Rate = the share of sessions with one, value-weighted over the stocks. Low under 5%, medium 5–15%, high above 15%.",
+  volatility: "Annualised standard deviation of the daily returns of today's stocks held together over the last 21 sessions. Low under 10%, medium under 18%, high under 28%, very high above (the bands of the overall risk rating).",
+  drawdown: "The largest fall from a peak in the value of today's stocks held together over the window (split-adjusted closes, today's quantities). Low above −10%, medium −10% to −20%, high below −20%.",
+};
+const HOLDING_RISK = {
+  as_of: "2026-10-13", sessions: 250, source: "nidp.prices_eod_adjusted via DaaS",
+  method: "Per stock held: split-adjusted daily bars (nidp.prices_eod_adjusted via DaaS).",
+  rules: {
+    liquidity: { min_adv_cr: 10.0, adv_sessions: 20, participation_pct: 10.0, days_low: 1.0, days_high: 5.0, text: RULE_TEXT.liquidity },
+    gap: { gap_pct: 2.0, low_below_pct: 5.0, high_above_pct: 15.0, text: RULE_TEXT.gap },
+    volatility: { bands_pct: [10, 18, 28], sessions: 21, text: RULE_TEXT.volatility },
+    drawdown: { low_above_pct: -10.0, high_below_pct: -20.0, text: RULE_TEXT.drawdown },
+  },
+  holdings: [
+    { symbol: "FIXHEAVY", isin: null, name: "Fixture Heavy Ltd", value_rs: 300000, weight_pct: 30.0, quantity: 100, last_session: "2026-10-13", stale: false, bars: 251,
+      adv_rs: 250000000, adv_cr: 25.0, avg_volume: 83333.33, days_to_exit: 0.01, below_threshold: false, liquidity_level: "low", gap_sessions: 5, gap_rate_pct: 2.0,
+      largest_gap_down_pct: -2.4, largest_gap_down_date: "2026-08-04", largest_gap_up_pct: 2.2, volatility_1m_pct: 18.0, drawdown_pct: -12.0 },
+    { symbol: "FIXLIGHT", isin: null, name: "Fixture Light Ltd", value_rs: 100000, weight_pct: 10.0, quantity: 50, last_session: "2026-10-09", stale: true, bars: 248,
+      adv_rs: 6000000, adv_cr: 0.6, avg_volume: 3000, days_to_exit: 1.67, below_threshold: true, liquidity_level: "medium", gap_sessions: 30, gap_rate_pct: 12.0,
+      largest_gap_down_pct: -6.5, largest_gap_down_date: "2026-09-14", largest_gap_up_pct: 3.1, volatility_1m_pct: 35.0, drawdown_pct: -28.0 },
+  ],
+  portfolio: {
+    liquidity: { level: "medium", below_threshold_value_pct: 25.0, slowest: { symbol: "FIXLIGHT", days_to_exit: 1.67 } },
+    gap: { level: "low", rate_pct: 4.5, largest: { symbol: "FIXLIGHT", pct: -6.5, date: "2026-09-14" } },
+    volatility_1m: { pct: 14.2, level: "medium" },
+    drawdown: { max_pct: -14.8, peak_date: "2026-06-02", trough_date: "2026-08-14", current_pct: -3.1, level: "medium", sessions: 251 },
+    series: { symbols: ["FIXHEAVY"], excluded: [{ symbol: "FIXLIGHT", reason: "price is stale (last 2026-10-09)" }], start: "2025-10-10", end: "2026-10-13", coverage_pct: 75.0 },
+  },
+  missing: { no_symbol: [], no_prices: [], stale: [{ symbol: "FIXLIGHT", last_session: "2026-10-09" }], latest_session: "2026-10-13" },
+};
+
+/** GET /api/portfolio/capital-gains-statement (backend/routes/portfolio_tax.py): no sale on record this year (as on staging). */
+const cgSection = (rows: Array<{ gain_rs: number }>) => ({ section: "", title: "", rows, total: { purchase_value_rs: 0, sale_value_rs: 0, expenses_rs: 0, gain_rs: rows.reduce((a, r) => a + r.gain_rs, 0) } });
+const GAINS_NONE = {
+  header: { statement: "Capital Gain / (Loss) Statement", fy: "FY 2026-27" },
+  sections: { A_stcg_equity: cgSection([]), B_ltcg_equity: cgSection([]) },
+  summary: [{ particulars: "Total Capital Gain / (Loss)", section: "", amount_rs: 0 }],
+  data_gaps: [],
+};
+/** Two sales: +₹12,500 short term and −₹2,000 long term → +₹10,500 (₹10.5k). */
+const GAINS_SALES = { ...GAINS_NONE, sections: { A_stcg_equity: cgSection([{ gain_rs: 12500 }]), B_ltcg_equity: cgSection([{ gain_rs: -2000 }]) } };
+
 // ── your paper trades and alerts (backend/routes/desk_trading.py) ────────
 
 type Trade = Record<string, unknown> & { id: string; symbol: string; quantity: number; entry_price: number; status: string; last_close: number | null; unrealized_pnl_rs: number | null; realized_pnl_rs: number | null };
@@ -336,12 +426,18 @@ const lakh = (n: number) => `₹${(n / 1e5).toFixed(2)} L`;
 const dec2 = (n: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 const dayY = (iso: string) => new Date(`${iso.slice(0, 10)}T12:00:00+05:30`).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" });
 
-async function portfolioData(page: Page, opts: { holdings?: unknown; concentration?: unknown; risk?: unknown; correlation?: { status: number; body: unknown }; mcap?: { status: number; body: unknown } } = {}) {
+async function portfolioData(page: Page, opts: {
+  holdings?: unknown; concentration?: unknown; risk?: unknown; correlation?: { status: number; body: unknown }; mcap?: { status: number; body: unknown };
+  scope?: { status: number; body: unknown }; holdingRisk?: { status: number; body: unknown }; gains?: unknown;
+} = {}) {
   if (opts.holdings) await json(page, "**/api/portfolio/holdings-enriched*", opts.holdings);
   if (opts.concentration) await json(page, "**/api/portfolio/exposure/concentration", opts.concentration);
   await json(page, "**/api/portfolio/risk-analytics*", opts.risk ?? RISK);
   await json(page, "**/api/portfolio/correlation*", opts.correlation?.body ?? CORRELATION, opts.correlation?.status ?? 200);
   await json(page, "**/api/portfolio/market-cap-split*", opts.mcap?.body ?? MCAP_PARTIAL, opts.mcap?.status ?? 200);
+  await json(page, "**/api/portfolio/composition/scope", opts.scope?.body ?? SCOPE, opts.scope?.status ?? 200);
+  await json(page, "**/api/portfolio/holding-risk*", opts.holdingRisk?.body ?? HOLDING_RISK, opts.holdingRisk?.status ?? 200);
+  await json(page, "**/api/portfolio/capital-gains-statement*", opts.gains ?? GAINS_NONE);
 }
 
 /** The colour var(--amber) resolves to in the page's current theme. */
@@ -357,10 +453,11 @@ const amberColour = (page: Page) => page.evaluate(() => {
 /** Shares of the portfolio the market-cap route valued: direct stocks (total_value_rs) + the funds it leaves out. */
 const capShare = (m: { total_value_rs: number; excluded: { funds_value_rs: number } }, v: number) => (v / (m.total_value_rs + m.excluded.funds_value_rs)) * 100;
 const pct1 = (n: number, signed = false) => `${n < 0 ? MINUS : signed && n > 0 ? "+" : ""}${Math.abs(n).toFixed(1)}%`;
-/** The seven risk checks of design-spec §7, in order. */
+/** The seven risk checks of design-spec §7, in order, then the three PRD §8.4 adds (drawdown, beta, missing data). */
 const RISK_ROWS = [
   ["overall", "Overall risk"], ["position", "Position concentration"], ["sector", "Sector concentration"], ["correlation", "Correlated positions"],
-  ["gap", "Gap risk"], ["volatility", "Volatility · 1Y"], ["liquidity", "Liquidity"],
+  ["gap", "Gap risk"], ["volatility", "Volatility · 1M"], ["liquidity", "Liquidity"], ["drawdown", "Drawdown · 1Y"], ["beta", "Beta"],
+  ["missing", "Missing price or position data"],
 ] as const;
 type Bucket = { n: number; lo: number; hi: number; predicted_mean?: number; model_label_rate?: number };
 /** Predicted vs realised over the selected buckets, each weighted by its predictions (portfolio-data.ts :: recordTiles). */
@@ -401,8 +498,9 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(weight("mid")).toHaveText("—");
     await expect(weight("unsplit")).toHaveText(pct1(capShare(MCAP_PARTIAL, MCAP_PARTIAL.unsplit.value_rs)));
     await expect(weight("funds")).toHaveText(pct1(capShare(MCAP_PARTIAL, MCAP_PARTIAL.excluded.funds_value_rs)));
+    // Cash: the fixture account is connected through OpenAlgo, so GET /api/broker/funds did not read it: "—" with the reason.
     await expect(weight("cash")).toHaveText("—");
-    await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="cash"]')).toHaveAttribute("title", "Broker cash balances are not read");
+    await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="cash"]')).toHaveAttribute("title", "Not read from Zerodha: a live read needs an account signed in on the broker’s own page");
 
     // Positions: the two direct stocks, largest first, icon + symbol; the fund is not listed.
     const positions = page.getByTestId("desk-portfolio-position");
@@ -420,7 +518,7 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(positions.nth(1).getByTestId("desk-portfolio-pnl-pct")).toHaveText("−9.1%");
     await expect(positions.nth(1).getByTestId("desk-portfolio-weight")).toHaveAttribute("data-over", "false");
 
-    // Risk checks · linked holdings: seven rows in the design's order.
+    // Risk checks · linked holdings: the design's seven rows in its order, then drawdown, beta and missing data (PRD §8.4).
     const risk = page.getByTestId("desk-portfolio-risk");
     await expect(risk).toContainText("Risk checks · linked holdings");
     const checks = risk.locator("ul[data-testid=desk-risk-list] > li");
@@ -448,11 +546,14 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-sector")).toHaveAttribute("data-level", "high");
     // Correlated: the route's count of pairs at 0.70 or above.
     await expect(page.getByTestId("desk-risk-correlation")).toHaveAttribute("data-value", `${CORRELATION.high_pairs} pair`);
-    // No source: "—" with the reason.
-    await expect(page.getByTestId("desk-risk-gap")).toHaveAttribute("data-value", "—");
-    await expect(page.getByTestId("desk-risk-gap")).toContainText("No overnight-gap figure is on record");
-    await expect(page.getByTestId("desk-risk-liquidity")).toHaveAttribute("data-value", "—");
+    // Gap risk, liquidity, 1-month volatility and drawdown from GET /api/portfolio/holding-risk (worked out above HOLDING_RISK).
+    await expect(page.getByTestId("desk-risk-gap")).toHaveAttribute("data-value", `${pct1(4.5)} of sessions`);
+    await expect(page.getByTestId("desk-risk-gap")).toHaveAttribute("data-level", "low");
+    await expect(page.getByTestId("desk-risk-liquidity")).toHaveAttribute("data-value", "1.7 days");
+    await expect(page.getByTestId("desk-risk-liquidity")).toHaveAttribute("data-level", "medium");
+    // The 1-year figure from risk-analytics stays beside the 1-month one.
     await expect(page.getByTestId("desk-risk-volatility-value")).toHaveText("18.5%");
+    await expect(page.getByTestId("desk-risk-volatility")).toHaveAttribute("data-value", pct1(14.2));
 
     // Right card: the paper record's 403 says "not enabled"; your desk trades still show; the meta counts your closed trades.
     await expect(page.getByTestId("desk-portfolio-record-title")).toHaveText("Paper trades · predicted vs actual");
@@ -848,6 +949,436 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
   });
 });
 
+/** Screenshots for the design comparison land in test-results/ (git-ignored); they assert nothing on their own. */
+const SHOTS = "test-results/fidelity-shots";
+
+// ── PRD wave: §8.3 overview, §8.4 risk rules, §8.2 import preview, §13.4 paper record ──
+
+/** One trade with the §13.4 field set, as GET /api/desk/paper-trades sends it (services/desk_trading.py :: public_trade). */
+const side = (price: number, qty: number) => price * qty * 0.0005 + 20;          // 0.05% of the traded value + ₹20, per side
+const SIM_COSTS = Math.round((side(100, 20) + side(95, 20)) * 100) / 100;         // 21.00 + 20.95 = 41.95
+const simTrade = (): Trade => trade({
+  id: "pt-sim", symbol: "FIXSIM", quantity: 20, entry_price: 100, stop_price: 95, target_price: 110, status: "closed",
+  opened_at: "2026-10-12T05:00:00+00:00", closed_at: "2026-10-13T15:00:00+00:00", exit_price: 95, exit_reason: "stop", exit_session: "2026-10-13",
+  exit_note: BOTH, realized_pnl_rs: (95 - 100) * 20,
+  entry_rule: "break_above", entry_window_sessions: 3, max_hold_sessions: 10, signal_at: "2026-10-12T03:30:00+00:00",
+  strategy_version: "positional-scanner v2", rationale: "Broke a 20-day high on volume", rules_version: "desk-paper-v2",
+  cost_model: { name: "strategy_engine default", slippage_pct_per_side: 0.05, brokerage_rs_per_side: 20, source: "services/strategy_engine/backtest.py" },
+  est_costs_rs: { at_target: Math.round((side(100, 20) + side(110, 20)) * 100) / 100, at_stop: SIM_COSTS },
+  entry_status: "reached", entry_session: "2026-10-13", sim_entry_price: 100, observations: 1, held_sessions: 1,
+  // high 112, low 94 on the entry session: MFE (112 − 100) / 100 = +12.00%, ₹240; MAE (94 − 100) / 100 = −6.00%, −₹120
+  mfe_pct: 12.0, mae_pct: -6.0, mfe_rs: 240, mae_rs: -120,
+  flags: [
+    { code: "entry_session_ambiguous", text: "The stop was inside the entry session's range and its low may have come before the fill; counted as the stop (conservative).", session: "2026-10-13", price: null },
+    { code: "both_in_range", text: BOTH, session: "2026-10-13", price: null },
+  ],
+  gross_pnl_rs: (95 - 100) * 20, costs_rs: SIM_COSTS, costs_basis: "entry and exit at the fill prices", net_pnl_rs: Math.round(((95 - 100) * 20 - SIM_COSTS) * 100) / 100,
+});
+/** A break-above entry still waiting: no position, so no P&L, costs or MFE. */
+const waitTrade = (): Trade => trade({
+  id: "pt-wait", symbol: "FIXWAIT", quantity: 10, entry_price: 106, stop_price: 100, target_price: 115, last_close: 103, last_close_date: "2026-10-13",
+  unrealized_pnl_rs: null, entry_rule: "break_above", entry_window_sessions: 5, entry_status: "waiting", sim_entry_price: null, observations: 1, held_sessions: 0,
+  gross_pnl_rs: null, costs_rs: null, net_pnl_rs: null, flags: [], rules_version: "desk-paper-v2", est_costs_rs: { at_target: 41.1, at_stop: 41.03 },
+});
+function simBook() {
+  const trades = [waitTrade(), simTrade()];
+  return {
+    as_of: "2026-10-13", checked_through: "2026-10-13", source: "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the data platform)", price_basis: "end of day",
+    exit_rule: "fixture", marks_error: null, status: "all", trades,
+    // As the route counts them: a waiting entry holds nothing, so it is neither marked nor unmarked.
+    summary: { ...summarize(trades), unmarked_open: 0, net_realized_pnl_rs: trades[1].net_pnl_rs, costs_realized_rs: SIM_COSTS, net_unrealized_pnl_rs: null, entry_pending: 1, not_entered: 0 },
+    entry_rules: { at_once: "Filled at the reference entry price when the trade was recorded.", break_above: "Filled at the reference entry on the first session whose high reaches it.", pullback_to: "Filled when a later low reaches it." },
+    rules_version: "desk-paper-v2", cost_model: { name: "strategy_engine default", slippage_pct_per_side: 0.05, brokerage_rs_per_side: 20 },
+    orders: "Paper trades are simulated and never create a broker order.", limits: { max_open: 100 },
+  };
+}
+
+/** POST /api/portfolio/upload/preview (backend/routes/upload.py): four rows, one of each outcome; nothing saved. */
+const PREVIEW_REPLY = {
+  preview_id: "imp_fixture0001", status: "open", created_at: "2026-10-14T06:00:00+00:00", expires_at: "2026-10-14T06:30:00+00:00",
+  file: { name: "holdings.csv", kind: "csv", size_bytes: 412, sha256: "0".repeat(64), format: "generic", broker: null, broker_name: null, header_row: 1, skipped_rows: 0 },
+  account_ref: { broker: null, broker_name: null, note: "Read as a plain sheet: no broker account is named." },
+  currency: "INR", currency_basis: "Indian broker exports and Indian ISINs are in rupees; the file has no currency column.",
+  rows: [
+    { row_no: 1, name: "Infosys", symbol: "INFY", isin: "INE009A01021", isin_source: "nse_list", exchange: null, quantity: 10, avg_cost: 1400, current_price: 1525,
+      instrument_type: "equity", account_ref: null, currency: "INR", status: "ready", include: true, flags: [] },
+    { row_no: 2, name: "HDFC Bank", symbol: "HDFCBANK", isin: "INE040A01034", isin_source: "nse_list", exchange: null, quantity: 5, avg_cost: null, current_price: 1650,
+      instrument_type: "equity", account_ref: null, currency: "INR", status: "review", include: false,
+      flags: [{ code: "no_average_cost", level: "review", text: "No average cost in the file. If you include it, Nivesh records the file's price as the cost, so this row would show no gain or loss." }] },
+    { row_no: 3, name: "Infosys again", symbol: "INFY", isin: "INE009A01021", isin_source: "nse_list", exchange: null, quantity: 4, avg_cost: 1450, current_price: 1525,
+      instrument_type: "equity", account_ref: null, currency: "INR", status: "review", include: false,
+      flags: [{ code: "duplicate_in_file", level: "review", text: "Same instrument as row 1. It is not merged: include it only if it is a separate lot." }] },
+    { row_no: 4, name: "Nifty future", symbol: "NIFTY26OCTFUT", isin: null, isin_source: null, exchange: null, quantity: 75, avg_cost: 25100, current_price: 25050,
+      instrument_type: "equity", account_ref: null, currency: "INR", status: "rejected", include: false,
+      flags: [{ code: "unsupported_instrument", level: "reject", text: "NIFTY26OCTFUT is a futures or options contract; the holdings import takes delivery holdings only." }] },
+  ],
+  counts: { rows: 4, ready: 1, review: 2, rejected: 1 },
+  effects: { broker: null, replaces_export_rows: 0, note: "Rows you include are added to what is on file; nothing on file is replaced." },
+  checks: ["File type checked by its content, not only its name (.csv, .xlsx or .xls).", "At most 5 MB and 5,000 rows.", "Nothing is saved until you confirm."],
+  limits: { max_bytes: 5242880, max_rows: 5000, expires_minutes: 30 }, nothing_saved: true,
+};
+
+async function mockImport(page: Page, previewReply: { status: number; body: unknown } = { status: 200, body: PREVIEW_REPLY }) {
+  const calls = { previews: 0, previewType: "", commits: [] as unknown[] };
+  await page.route("**/api/portfolio/upload/preview", (route) => {
+    calls.previews += 1;
+    calls.previewType = route.request().headers()["content-type"] ?? "";
+    return route.fulfill({ status: previewReply.status, contentType: "application/json", body: JSON.stringify(previewReply.body) });
+  });
+  await page.route("**/api/portfolio/upload/preview/*/commit", (route) => {
+    const body = route.request().postDataJSON() as { rows: number[] };
+    calls.commits.push(body);
+    const left = PREVIEW_REPLY.rows.map((r) => r.row_no).filter((n) => !body.rows.includes(n));
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      message: `${body.rows.length} holdings imported from CSV`, count: body.rows.length, holdings: [], broker: null, broker_name: null, format: "generic",
+      preview_id: "imp_fixture0001", committed_rows: body.rows, left_out_rows: left,
+    }) });
+  });
+  return calls;
+}
+
+const CSV = Buffer.from("Name,Symbol,Quantity,Buy Price\nInfosys,INFY,10,1400\n");
+
+test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.4", () => {
+  test.beforeEach(async ({ page }) => {
+    await deskBase(page);
+    await mockPaper(page);
+  });
+
+  test("§8.3 totals name their accounts and instrument types; invested, unrealised, realised '—' with the reason, cash '—' with the reason; freshness, reconciliation, allocation, trust line", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const o = page.getByTestId("desk-portfolio-overview");
+    // Scope: 3 holdings from the two sources, with the instrument types, stored (not live).
+    await expect(o.getByTestId("desk-portfolio-scope-text")).toHaveText(`Totals cover ${SCOPE.totals.holdings} holdings on record from Zerodha and CAS statement · equity 2 · mutual fund 1. Valued at the last price on file (stored, not live).`);
+    // Invested = holdings-enriched invested_rs ₹8,60,000 = ₹8.60 L; unrealised +₹1.40 L, +16.3%.
+    await expect(o.getByTestId("desk-portfolio-invested")).toHaveText(lakh(HOLDINGS.totals.invested_rs));
+    await expect(o.getByTestId("desk-portfolio-unrealised")).toHaveText(`+${lakh(HOLDINGS.totals.pnl_rs)}`);
+    await expect(o.getByTestId("desk-portfolio-unrealised-sub")).toContainText(`${pct1(HOLDINGS.totals.pnl_pct, true)} on what you paid`);
+    // Realised: no sale on record this year → "—" and why, never ₹0.
+    await expect(o.getByTestId("desk-portfolio-realised")).toHaveText("—");
+    await expect(o.getByTestId("desk-portfolio-realised-sub")).toContainText("No sale on record in FY 2026-27");
+    // Cash: the account was not read live → "—" and why.
+    await expect(o.getByTestId("desk-portfolio-cash")).toHaveText("—");
+    await expect(o.getByTestId("desk-portfolio-cash-sub")).toContainText("Not read from Zerodha");
+    await expect(o.getByTestId("desk-portfolio-allocation")).toHaveText("Asset allocation · Equity 100.0%");
+    await expect(o.getByTestId("desk-portfolio-freshness")).toContainText(/Last updated 12 Oct, 3:42\s?pm · oldest source 30 Sept?, 2:30\s?pm/i);
+    await expect(o.getByTestId("desk-portfolio-unpriced")).toHaveCount(0);
+    // Live vs stored: the account is not read live, so the stored figure is named as stored.
+    await expect(o.getByTestId("desk-portfolio-live-row")).toHaveAttribute("data-state", "not_read");
+    await expect(o.getByTestId("desk-portfolio-live-row")).toContainText(`not read live · stored ${lakh(400000)}`);
+    await expect(o.getByTestId("desk-portfolio-reconcile")).toContainText("Reconciled: no holding is on record from two sources.");
+    await o.getByTestId("desk-portfolio-reconcile-toggle").click();
+    await expect(o.getByTestId("desk-portfolio-reconcile-rule")).toHaveText(SCOPE.reconciliation.rule);
+    // Trust lines on every card of the tab.
+    for (const id of ["desk-portfolio-trust", "desk-risk-trust", "desk-paper-card-trust", "desk-paper-lists-trust", "broker-trust"]) {
+      await expect(page.getByTestId(id)).toBeVisible();
+    }
+    await expect(page.getByTestId("desk-portfolio-trust")).toHaveAttribute("data-mode", "eod");
+    await expect(page.getByTestId("desk-portfolio-trust")).toContainText("Stored holdings in Nivesh");
+    await expect(page.getByTestId("desk-risk-trust")).toHaveAttribute("data-maker", "rules");
+  });
+
+  test("§8.3 read live: cash from the brokers' funds read, live value checked line by line against the last sync; duplicates and a missing price are said", async ({ page }) => {
+    await mockDeskLists(page);
+    await json(page, "**/api/broker/accounts", LIVE_ACCOUNTS);
+    await json(page, "**/api/broker/holdings*", LIVE_HOLDINGS);
+    await json(page, "**/api/broker/positions*", LIVE_POSITIONS);
+    await json(page, "**/api/broker/funds", LIVE_FUNDS);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, scope: { status: 200, body: SCOPE_DUP }, gains: GAINS_SALES });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const o = page.getByTestId("desk-portfolio-overview");
+    // Cash ₹1,25,000.50 = ₹1.25 L, named with its broker and read time.
+    await expect(o.getByTestId("desk-portfolio-cash")).toHaveText(lakh(125000.5));
+    await expect(o.getByTestId("desk-portfolio-cash-sub")).toContainText("Available funds at Zerodha, as each broker reports it · read 12 Oct");
+    // The donut now has a cash slice: ₹1.25 L of (₹4.00 L stocks + ₹6.00 L funds + ₹1.25 L cash).
+    const cashShare = (125000.5 / (400000 + 600000 + 125000.5)) * 100;
+    await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="cash"]').getByTestId("desk-mcap-weight")).toHaveText(pct1(cashShare));
+    // The broker block shows the account's own cash line.
+    await expect(page.getByTestId("broker-funds-cash")).toHaveText("₹1,25,001");
+    // Live FIXHEAVY 10 + FIXLIGHT 5 = the stored lines → match; live value ₹2,100.
+    const live = o.getByTestId("desk-portfolio-live-row");
+    await expect(live).toHaveAttribute("data-state", "match");
+    await expect(live).toContainText("live ₹2.1k read 12 Oct, 3:45");
+    await expect(live).toContainText("quantities match the last sync");
+    // Realised: +₹12,500 − ₹2,000 = +₹10,500 over two sales.
+    await expect(o.getByTestId("desk-portfolio-realised")).toHaveText("+₹10.5k");
+    await expect(o.getByTestId("desk-portfolio-realised-sub")).toContainText("FY 2026-27 · 2 sales · equity, FIFO, before costs");
+    // Reconciliation: Infosys in two sources, counted in each, not merged; one row without a price.
+    await expect(o.getByTestId("desk-portfolio-reconcile")).toContainText("Infosys is in CAS statement and Zerodha — counted in each, not merged.");
+    await expect(o.getByTestId("desk-portfolio-unpriced")).toContainText("1 holding has no price on record");
+
+    // A sync that stored different quantities: the live read says how many lines differ.
+    const differ = { ...SCOPE, accounts: [{ ...SCOPE.accounts[0], lines: [{ isin: null, symbol: "FIXHEAVY", quantity: 12 }, { isin: null, symbol: "FIXOLD", quantity: 1 }] }, SCOPE.accounts[1]] };
+    await json(page, "**/api/portfolio/composition/scope", differ);
+    await page.reload();
+    // FIXHEAVY 10 vs 12 differs; FIXLIGHT only live; FIXOLD only stored → 3 lines.
+    await expect(page.getByTestId("desk-portfolio-live-row")).toHaveAttribute("data-state", "differ");
+    await expect(page.getByTestId("desk-portfolio-live-row")).toContainText("3 lines differ from the last sync");
+  });
+
+  test("§8.4 ten risk rows from the payloads; every coloured level has its rule one tap away and as the level's description", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const list = page.getByTestId("desk-risk-list");
+    await expect(list.locator(":scope > li")).toHaveCount(RISK_ROWS.length);
+    // Gap: 4.5% → low, FIXLIGHT's −6.5% the largest fall; liquidity: FIXLIGHT 1.67 days, 25.0% of value under ₹10 Cr.
+    // (each stock is named with its icon beside it; the icon's own letters sit in the text, so the name and figure are checked apart)
+    await expect(page.getByTestId("desk-gap-summary")).toContainText(`${pct1(-6.5, true)} on ${dayY("2026-09-14")}`);
+    await expect(page.getByTestId("desk-gap-summary").locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "FIXLIGHT");
+    await expect(page.getByTestId("desk-liquidity-summary")).toContainText("FIXLIGHT, 1.7 days at 10% of its daily volume · 25.0% of stock value trades under ₹10 Cr a day");
+    await expect(page.getByTestId("desk-liquidity-summary").locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "FIXLIGHT");
+    // Drawdown of today's stocks −14.8% (medium); FIXLIGHT left out as stale, said under Details.
+    const dd = page.getByTestId("desk-risk-drawdown");
+    await expect(dd).toHaveAttribute("data-value", pct1(-14.8, true));
+    await expect(dd).toHaveAttribute("data-level", "medium");
+    await expect(dd).toContainText(`${dayY("2026-06-02")} peak to ${dayY("2026-08-14")} low · now ${pct1(-3.1, true)} from the peak · covers 75.0% of stock value`);
+    await dd.getByTestId("desk-risk-drawdown-toggle").click();
+    await expect(page.getByTestId("desk-drawdown-excluded")).toContainText("FIXLIGHT (price is stale (last 2026-10-09))");
+    // Beta: a figure without a level, and it says why.
+    const beta = page.getByTestId("desk-risk-beta");
+    await expect(beta).toHaveAttribute("data-value", RISK.weighted_beta.toFixed(2));
+    await expect(beta).toHaveAttribute("data-level", "none");
+    // Missing data: FIXLIGHT's price is older than the newest session → incomplete (medium), named.
+    const miss = page.getByTestId("desk-risk-missing");
+    await expect(miss).toHaveAttribute("data-level", "medium");
+    await expect(miss.getByTestId("desk-missing-list")).toContainText(`Price older than ${dayY("2026-10-13")}: FIXLIGHT (${dayY("2026-10-09")})`);
+
+    // Every row: a rule button (aria-controls the rule), the rule hidden until asked, and the level described by it.
+    for (const [id] of RISK_ROWS) {
+      const row = page.getByTestId(`desk-risk-${id}`);
+      const btn = row.getByTestId(`desk-risk-${id}-rule-toggle`);
+      const rule = row.getByTestId(`desk-risk-${id}-rule`);
+      await expect(btn).toHaveAttribute("aria-expanded", "false");
+      await expect(btn).toHaveAttribute("aria-controls", `desk-risk-${id}-rule`);
+      await expect(rule).toBeHidden();
+      await expect(row.locator(`[aria-describedby="desk-risk-${id}-rule"]`)).toHaveCount(1);
+      await btn.click();
+      await expect(btn).toHaveAttribute("aria-expanded", "true");
+      await expect(rule).toBeVisible();
+      await expect(rule).toContainText("Rule: ");
+    }
+    // The route's own rule texts, word for word.
+    await expect(page.getByTestId("desk-risk-gap-rule")).toHaveText(`Rule: ${RULE_TEXT.gap}`);
+    await expect(page.getByTestId("desk-risk-liquidity-rule")).toHaveText(`Rule: ${RULE_TEXT.liquidity}`);
+    await expect(page.getByTestId("desk-risk-volatility-rule")).toHaveText(`Rule: ${RULE_TEXT.volatility}`);
+    await expect(page.getByTestId("desk-risk-drawdown-rule")).toHaveText(`Rule: ${RULE_TEXT.drawdown}`);
+    await expect(page.getByTestId("desk-risk-position-rule")).toContainText("More than 25% of the whole portfolio in one stock is high");
+    // The level is said in words as well as colour.
+    await expect(page.getByTestId("desk-risk-gap").getByTestId("desk-risk-level")).toHaveText("Low");
+  });
+
+  test("§8.4 a failed holding-risk read: those rows say so with a retry, nothing made up", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, holdingRisk: { status: 502, body: { detail: "upstream_unavailable" } } });
+    await page.goto(`${DESK}?tab=portfolio`);
+    for (const id of ["gap", "liquidity", "drawdown"]) {
+      await expect(page.getByTestId(`desk-risk-${id}`)).toHaveAttribute("data-value", "—", { timeout: 15_000 });
+      await expect(page.getByTestId(`desk-risk-${id}`).getByTestId("desk-holding-risk-error")).toContainText("didn’t load");
+    }
+    await expect(page.getByTestId("desk-risk-trust")).toHaveAttribute("data-status", "failed");
+  });
+
+  test("§8.2 import: the preview shows every row's fields and flags, saves nothing; only the confirmed rows are committed", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    const calls = await mockImport(page);
+    await page.goto(`${DESK}?tab=portfolio`);
+    await page.getByTestId("desk-portfolio-import-open").click();
+    const card = page.getByTestId("desk-portfolio-import-card");
+    await expect(card).toContainText("Import a portfolio · preview before saving");
+    await expect(card.getByTestId("desk-import-preview")).toBeDisabled();
+    await card.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
+    await expect(card.getByTestId("desk-import-file-name")).toHaveText("holdings.csv");
+    await card.getByTestId("desk-import-preview").click();
+
+    const result = card.getByTestId("desk-import-preview-result");
+    await expect(result).toBeVisible();
+    expect(calls.previews).toBe(1);
+    expect(calls.previewType).toContain("multipart/form-data");
+    expect(calls.commits).toHaveLength(0);                                   // nothing applied until confirm
+    await expect(result.getByTestId("desk-import-nothing-saved")).toContainText("Nothing has been saved yet");
+    await expect(result.getByTestId("desk-import-counts")).toHaveText("4 rows · 1 ready · 2 to review · 1 not imported");
+    await expect(result.getByTestId("desk-import-trust")).toHaveAttribute("data-maker", "rules");
+    const rows = result.getByTestId("desk-import-row");
+    await expect(rows).toHaveCount(4);
+    expect(await rows.evaluateAll((els) => els.map((e) => e.getAttribute("data-status")))).toEqual(["ready", "review", "review", "rejected"]);
+    // Row 1: the PRD's fields — symbol, ISIN (and where it came from), exchange, quantity, cost, type, account, currency.
+    await expect(rows.nth(0).getByTestId("desk-import-row-fields")).toHaveText(
+      `Symbol INFY · ISIN INE009A01021 (from the NSE list) · Exchange — not in the file · Qty 10 · Avg cost ${paise(1400)} · Type equity · Account — none named · INR`);
+    // Defaults: ready ticked, review unticked, rejected cannot be ticked; flags shown, never merged.
+    await expect(rows.nth(0).getByTestId("desk-import-row-include")).toBeChecked();
+    await expect(rows.nth(1).getByTestId("desk-import-row-include")).not.toBeChecked();
+    await expect(rows.nth(3).getByTestId("desk-import-row-include")).toBeDisabled();
+    await expect(rows.nth(2).getByTestId("desk-import-flag")).toHaveAttribute("data-code", "duplicate_in_file");
+    await expect(rows.nth(2)).toContainText("Same instrument as row 1. It is not merged");
+    await expect(rows.nth(3).getByTestId("desk-import-flag")).toContainText("Not imported: NIFTY26OCTFUT is a futures or options contract");
+    await result.getByTestId("desk-import-checks-toggle").click();
+    await expect(result.getByTestId("desk-import-checks")).toContainText("Nothing is saved until you confirm.");
+
+    // Tick the duplicate (a separate lot), confirm: only rows 1 and 3 are sent.
+    await rows.nth(2).getByTestId("desk-import-row-include").check();
+    await expect(result.getByTestId("desk-import-commit")).toHaveText("Import 2 rows");
+    await result.getByTestId("desk-import-commit").click();
+    await expect.poll(() => calls.commits.length).toBe(1);
+    expect(calls.commits[0]).toEqual({ rows: [1, 3] });
+    await expect(result.getByTestId("desk-import-done")).toContainText("2 holdings imported (rows 1, 3). Left out: rows 2, 4.");
+    await expect(result.getByTestId("desk-import-nothing-saved")).toHaveCount(0);
+  });
+
+  test("§14.3 a refused file says the server's words; Cancel discards the preview without saving", async ({ page }) => {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    const calls = await mockImport(page, { status: 415, body: { detail: "The workbook contains macros or other active content; save it as a plain .xlsx or .csv." } });
+    await page.goto(`${DESK}?tab=portfolio`);
+    await page.getByTestId("desk-portfolio-import-open").click();
+    const card = page.getByTestId("desk-portfolio-import-card");
+    await card.getByTestId("desk-import-file").setInputFiles({ name: "book.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from("PK\u0003\u0004") });
+    await card.getByTestId("desk-import-preview").click();
+    await expect(card.getByTestId("desk-import-error")).toContainText("The workbook contains macros or other active content");
+    expect(calls.commits).toHaveLength(0);
+    // A wrong extension is stopped in the browser too.
+    await card.getByTestId("desk-import-file").setInputFiles({ name: "statement.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4") });
+    await expect(card.getByTestId("desk-import-type")).toHaveText("Choose a .csv, .xlsx or .xls file.");
+    await expect(card.getByTestId("desk-import-preview")).toBeDisabled();
+
+    // A good preview, then Cancel: back to the chooser, no commit.
+    await page.unroute("**/api/portfolio/upload/preview");
+    const ok = await mockImport(page);
+    await card.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
+    await card.getByTestId("desk-import-preview").click();
+    await expect(card.getByTestId("desk-import-preview-result")).toBeVisible();
+    await card.getByTestId("desk-import-cancel").click();
+    await expect(card.getByTestId("desk-import-preview-result")).toHaveCount(0);
+    await expect(card.getByTestId("desk-import-choose")).toBeVisible();
+    expect(ok.commits).toHaveLength(0);
+  });
+
+  test("§13.4 paper trades: entry rule and status, costs, gross and net, MFE / MAE, flags and versions in each trade's record; a waiting entry cancels", async ({ page }) => {
+    await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-paper-trades");
+    const sim = simTrade();
+    // Tiles: realised gross −₹100, net −₹141.95 → −₹142; one entry waiting.
+    await expect(block.getByTestId("desk-paper-realised")).toHaveText(rupees(sim.realized_pnl_rs as number, true));
+    await expect(block.getByTestId("desk-paper-net-realised")).toHaveText(rupees(sim.net_pnl_rs as number, true));
+    await expect(block.getByTestId("desk-paper-open")).toHaveText("1");
+    await expect(block).toContainText("1 waiting for the entry");
+    // Open: the waiting trade has a last close but no P&L, no costs (no position yet).
+    const openRow = block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXWAIT" });
+    await expect(openRow.getByTestId("desk-paper-entry-status")).toHaveAttribute("data-status", "waiting");
+    await expect(openRow.getByTestId("desk-paper-entry-status")).toContainText("Waiting for entry");
+    await expect(openRow.getByTestId("desk-paper-unrealised-row")).toHaveText("—");
+    await expect(openRow.getByTestId("desk-paper-net-row")).toHaveText("—");
+    // Closed: net after costs and MFE / MAE.
+    const closedRow = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXSIM" });
+    await expect(closedRow.getByTestId("desk-paper-net-row")).toHaveText(rupees(sim.net_pnl_rs as number, true));
+    await expect(closedRow.getByTestId("desk-paper-excursion")).toHaveText(`+12.00% / ${MINUS}6.00%`);
+    // The record: every §13.4 field.
+    await closedRow.getByTestId("desk-paper-record-toggle").click();
+    const rec = block.getByTestId("desk-paper-record");
+    await expect(rec).toHaveAttribute("data-id", "pt-sim");
+    await expect(rec.getByTestId("desk-paper-record-signal")).toHaveText(/^12 Oct, 9:00\s?am$/i);
+    await expect(rec.getByTestId("desk-paper-record-rule")).toContainText(`Break above ${paise(100)} · waits 3 sessions`);
+    await expect(rec.getByTestId("desk-paper-record-entry")).toHaveText(`Entry reached · ${dayY("2026-10-13")} · simulated at ${paise(100)}`);
+    await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Stop ${paise(95)}, target ${paise(110)}, or the close of session 10 held`);
+    await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText(`${rupees(42.1)} at the target · ${rupees(SIM_COSTS)} at the stop`);
+    await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText("0.05% of the traded value + ₹20 a side (strategy_engine default)");
+    await expect(rec.getByTestId("desk-paper-record-strategy")).toHaveText("positional-scanner v2");
+    await expect(rec.getByTestId("desk-paper-record-rationale")).toHaveText("Broke a 20-day high on volume");
+    await expect(rec.getByTestId("desk-paper-record-obs")).toHaveText("1 session read · 1 held");
+    await expect(rec.getByTestId("desk-paper-record-exit")).toHaveText(`Stop · ${dayY("2026-10-13")} · ${paise(95)}`);
+    await expect(rec.getByTestId("desk-paper-record-net")).toHaveText(rupees(sim.net_pnl_rs as number, true));
+    await expect(rec.getByTestId("desk-paper-record-excursion")).toHaveText(`+12.00% (+₹240) · ${MINUS}6.00% (${MINUS}₹120)`);
+    await expect(rec.getByTestId("desk-paper-record-version")).toHaveText("desk-paper-v2");
+    const flags = rec.getByTestId("desk-paper-flag");
+    expect(await flags.evaluateAll((els) => els.map((e) => e.getAttribute("data-code")))).toEqual(["entry_session_ambiguous", "both_in_range"]);
+    // The rules sentence: the route's no-order statement, and the cost model.
+    await expect(block.getByTestId("desk-paper-rules")).toContainText("Paper trades are simulated and never create a broker order.");
+    await expect(block.getByTestId("desk-paper-cost-model")).toHaveText("0.05% of the traded value + ₹20 a side");
+
+    // Closing the waiting trade cancels it: the confirmation says there is no position.
+    await openRow.getByTestId("desk-paper-close").click();
+    await expect(block.getByTestId("desk-paper-confirm")).toContainText("Its entry has not been reached, so there is no position and no P&L.");
+    await expect(block.getByTestId("desk-paper-confirm-yes")).toHaveText("Cancel paper trade");
+  });
+
+  test("investor wording: plain labels for the risk rows, the paper-trade columns and the record", async ({ page }) => {
+    await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio&persona=investor`);
+    await expect(page.getByTestId("desk-risk-liquidity")).toContainText("How easy to sell");
+    await expect(page.getByTestId("desk-risk-gap")).toContainText("Sudden overnight jumps");
+    await expect(page.getByTestId("desk-risk-drawdown")).toContainText("Biggest fall · 1 year");
+    const o = page.getByTestId("desk-portfolio-overview");
+    await expect(o).toContainText("These totals add up");
+    await expect(o).toContainText("Gain on paper");
+    const block = page.getByTestId("desk-paper-trades");
+    await expect(block.getByTestId("desk-paper-closed-table").getByRole("columnheader")).toContainText(["After costs", "Best point / Worst point"]);
+    const closedRow = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXSIM" });
+    await expect(closedRow.getByTestId("desk-paper-reason")).toContainText("Exit if wrong");
+    await closedRow.getByTestId("desk-paper-record-toggle").click();
+    await expect(block.getByTestId("desk-paper-record")).toContainText("When it buys");
+    await expect(block.getByTestId("desk-paper-record-rule")).toContainText(`Buy above ${paise(100)}`);
+  });
+
+  test("390px: the overview, the import preview and a trade record fit without sideways scroll", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, scope: { status: 200, body: SCOPE_DUP } });
+    await mockImport(page);
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-portfolio")).toHaveAttribute("data-layout", "phone");
+    await expect(page.getByTestId("desk-portfolio-overview")).toBeVisible();
+    await page.getByTestId("desk-portfolio-import-open").click();
+    const card = page.getByTestId("desk-portfolio-import-card");
+    await card.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
+    await card.getByTestId("desk-import-preview").click();
+    await expect(card.getByTestId("desk-import-row")).toHaveCount(4);
+    await page.getByTestId("desk-risk-liquidity-rule-toggle").click();
+    await page.getByTestId("desk-risk-liquidity-toggle").click();
+    await page.getByTestId("desk-paper-closed-table").getByTestId("desk-paper-record-toggle").click();
+    await expect(page.getByTestId("desk-paper-record")).toBeVisible();
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+
+  test("PRD screenshots: before/after comparison shots at 1440 with the dock and at 390", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mockDeskLists(page, { paperList: { status: 200, body: { ...simBook(), trades: [...simBook().trades, ...paperTrades()] } } });
+    await json(page, "**/api/broker/accounts", LIVE_ACCOUNTS);
+    await json(page, "**/api/broker/holdings*", LIVE_HOLDINGS);
+    await json(page, "**/api/broker/positions*", LIVE_POSITIONS);
+    await json(page, "**/api/broker/funds", LIVE_FUNDS);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION, scope: { status: 200, body: SCOPE_DUP }, gains: GAINS_SALES });
+    await mockImport(page);
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-portfolio-overview")).toBeVisible();
+    await page.getByTestId("desk-risk-gap-rule-toggle").click();
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${SHOTS}/prd-portfolio-after-1440.png` });
+    await page.getByTestId("desk-portfolio-import-open").click();
+    await page.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
+    await page.getByTestId("desk-import-preview").click();
+    await page.getByTestId("desk-paper-closed-table").getByTestId("desk-paper-record-toggle").first().click();
+    await page.setViewportSize({ width: 1440, height: 4200 });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${SHOTS}/prd-portfolio-after-1440-tall.png` });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-portfolio-overview")).toBeVisible();
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${SHOTS}/prd-portfolio-after-390.png` });
+    await page.setViewportSize({ width: 390, height: 6400 });
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${SHOTS}/prd-portfolio-after-390-full.png` });
+  });
+});
+
 test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -884,8 +1415,6 @@ test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
 
 // ── Portfolio & risk · design fidelity (design-spec §7, §10, §11 M5) ────
 
-/** Screenshots for the design comparison land in test-results/ (git-ignored); they assert nothing on their own. */
-const SHOTS = "test-results/fidelity-shots";
 
 test.describe("Smart trading desk — Portfolio & risk · design fidelity", () => {
   test("§7 at 1440 with the dock: two equal cards with header bars; tiles, calibration, open-today and last-5-closed in the right card", async ({ page }) => {
@@ -976,7 +1505,7 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     expect(await page.getByTestId("desk-portfolio-value").evaluate((e) => getComputedStyle(e).fontSize)).toBe("34px");
     expect(await page.getByTestId("desk-portfolio-donut").getAttribute("width")).toBe("112");
 
-    // Risk dashboard: the overall pill and seven rows, each with five 9×5 segments filled by its level.
+    // Risk dashboard: the overall pill and ten rows, each with five 9×5 segments filled by its level.
     await expect(page.getByTestId("desk-portfolio-risk-title")).toHaveText("Risk dashboard");
     await expect(page.getByTestId("desk-risk-overall-pill")).toHaveText("High risk");
     const expected: Record<string, { filled: number; text: string }> = {
@@ -984,9 +1513,12 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
       position: { filled: 4, text: "Above limit" },
       sector: { filled: 4, text: "Over-concentrated" },
       correlation: { filled: 4, text: `${CORRELATION.high_pairs} pair ≥ ${CORRELATION.high_threshold.toFixed(2)}` },
-      gap: { filled: 0, text: "—" },
-      volatility: { filled: 4, text: "High" },
-      liquidity: { filled: 0, text: "—" },
+      gap: { filled: 2, text: "Low" },
+      volatility: { filled: 3, text: "Medium" },
+      liquidity: { filled: 3, text: "Medium" },
+      drawdown: { filled: 3, text: "Medium" },
+      beta: { filled: 0, text: "No band" },
+      missing: { filled: 3, text: "Incomplete" },
     };
     for (const [id, label] of RISK_ROWS) {
       const row = page.getByTestId(`desk-risk-${id}`);

@@ -390,8 +390,12 @@ def test_list_marks_open_trades_at_the_last_end_of_day_close(api, world):
     assert row["mark_error"] is None
     assert body["as_of"] == "2026-10-12" and body["checked_through"] == "2026-10-12"
     assert body["marks_error"] is None and body["price_basis"] == "end of day"
+    # Net of the strategy_engine cost model: 100 × 10 × 0.05% + ₹20 and 101 × 10 × 0.05% + ₹20 → ₹41.00; 10 − 41 = −31.
+    costs = round((100 * 10 * 0.0005 + 20.0) + (101 * 10 * 0.0005 + 20.0), 2)
     assert body["summary"] == {"open": 1, "closed": 0, "wins": 0, "losses": 0, "realized_pnl_rs": None,
-                               "unrealized_pnl_rs": 10.0, "unmarked_open": 0, "partial": False}
+                               "unrealized_pnl_rs": 10.0, "unmarked_open": 0, "partial": False,
+                               "net_realized_pnl_rs": None, "costs_realized_rs": None,
+                               "net_unrealized_pnl_rs": round(10.0 - costs, 2), "entry_pending": 0, "not_entered": 0}
     # The 2026-10-12 bar's low (94) is below the stop, but the trade was opened that day: not an exit.
     assert world.db.trades.docs[0]["status"] == "open"
     # One read for the symbol, from 14 days before the open date.

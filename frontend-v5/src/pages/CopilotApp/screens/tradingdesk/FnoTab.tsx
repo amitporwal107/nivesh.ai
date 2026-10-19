@@ -24,11 +24,16 @@
  * nearest other expiry before the farthest listed future (long-dated quarterly
  * options lie beyond it). Stocks have no weekly expiry, so that choice is off.
  *
+ * Index futures build-up comes from the scan's `indices` rows (the near future's
+ * price change × OI summed over every expiry, with the index close as the cash
+ * side). F&O eligibility of a loaded stock is the NSE F&O master's (the scan row's
+ * `fno_eligible`); a ticker not in the scan is refused before any read.
+ *
  * Not available from the data (shown as "—" with the reason):
- *   index futures build-up         the futures route sends no previous close for a future, and the build-up scan
- *                                  covers stock futures only
  *   an index card's day change     the bhavcopy has no previous spot; the markets tape's change is shown only when
- *                                  it is for the same session as the bhavcopy
+ *                                  it is for the same session as the bhavcopy (the scan's index close and change is
+ *                                  shown on the card as the cash side of the build-up)
+ *   15-minute confirmation         no intraday OI is collected (FnoBuildup.tsx shows the route's reason)
  */
 import { useState, type FormEvent, type ReactNode } from "react";
 import { StockIcon } from "../../components/EntityIcon";
@@ -42,7 +47,9 @@ import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../tradi
 import { useDesk } from "./context";
 import { BuildupView } from "./FnoBuildup";
 import { StrategiesView } from "./FnoStrategies";
-import { buildupRowFor, useBuildup } from "./fno-buildup";
+import { BUILDUP_META, buildupRowFor, indexRowFor, useBuildup } from "./fno-buildup";
+import { HEURISTIC_NOTE } from "./FnoBuildup";
+import { TrustLine } from "./trust";
 import {
   CardHead, CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
   basisWords, buildupWhy, chainTiles, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
@@ -169,6 +176,7 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
             <span data-testid="desk-fno-loaded-sym">{symbol} loaded</span>
           </span>
         )}
+        {!isIndexUnderlying(symbol) && <Eligibility symbol={symbol} />}
         <div className="flex flex-wrap items-center" style={{ gap: 8, marginLeft: mobile ? 0 : "auto", minWidth: 0, maxWidth: "100%" }}>
           <span className="cp-eyebrow">Expiry</span>
           {expiry}
@@ -182,6 +190,23 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
         </span>
       )}
     </div>
+  );
+}
+
+/** PRD §10.2: whether the NSE F&O master lists the loaded stock (never assumed from a cash listing). */
+function Eligibility({ symbol }: { symbol: string }) {
+  const scan = useBuildup(true);
+  const row = buildupRowFor(scan.data, symbol);
+  if (scan.isPending || scan.isError) return null;
+  const text = row?.fnoEligible === true
+    ? `F&O eligible · NSE F&O master${row.masterDate ? ` ${shortDay(row.masterDate)}` : ""}`
+    : row?.fnoEligible === false
+      ? "Not on the NSE F&O master, though the bhavcopy has its futures"
+      : row ? "In the bhavcopy's stock futures; the F&O master has no row for it" : "Not in the scan's F&O list";
+  return (
+    <span data-testid="desk-fno-eligible" data-eligible={row?.fnoEligible == null ? "" : String(row.fnoEligible)} className="cp-mono-note" title={scan.data.sources.master ?? undefined}>
+      {text}
+    </span>
   );
 }
 
@@ -261,12 +286,18 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
   const home = useMarketOverview();
   const { state } = useOptionChain(symbol, null);
   const fq = useFnoFutures(symbol);
+  const scan = useBuildup(true);
   const near = nearFutureOf(fq.data);
   const id = `desk-fno-card-${symbol}`;
   const futuresLine = fq.isPending ? "Loading" : fq.isError ? "Didn’t load" : fq.data.kind === "none" ? "No futures rows" : "No contract listed";
+  const ix = indexRowFor(scan.data, symbol);
+  const meta = ix?.label ? BUILDUP_META[ix.label] : null;
+  const pill = meta
+    ? <span data-testid={`${id}-buildup`} className="cp-pill" data-tone={meta.tone === "ink" ? undefined : meta.tone} title={`${meta.rule} · index futures, ${scan.data?.asOf ? shortDay(scan.data.asOf) : "end of day"}`}>{meta.label}</span>
+    : <span data-testid={`${id}-buildup`} className="cp-pill" title={scan.isPending ? "Reading the build-up scan" : scan.isError ? "The build-up scan didn’t load" : ix ? "A price or OI change is missing" : "The scan has no index futures row for it"}>Build-up —</span>;
   return (
     <section data-testid={id} className="cp-card flex flex-col min-w-0" style={{ overflow: "hidden" }}>
-      <CardHead testId={`${id}-head`} meta={<span className="cp-pill" title={buildupWhy({ status: "index" }, null)}>Build-up —</span>}>
+      <CardHead testId={`${id}-head`} meta={pill}>
         {symbol}
         {state.status === "ok" && <span style={{ color: "var(--cp-ink-4)" }}>{fmtDay(state.chain.summary.expiry)} expiry</span>}
       </CardHead>
@@ -302,6 +333,9 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
                       : futuresLine}
                   </CardRow>
                   <CardRow k={investor ? "Open bets (OI) change · futures" : "Futures OI change"} testId={`${id}-fut-oi-change`}>{near ? fmtQty(near.future.change_in_oi, { signed: true }) : futuresLine}</CardRow>
+                  <CardRow k={investor ? "Futures price vs the index" : "Futures chg · cash check"} testId={`${id}-fut-chg`}>
+                    {ix ? `${ix.priceChgPct == null ? "—" : `${fmtSigned(ix.priceChgPct)}%`} · ${ix.cashConfirmation === "confirms" ? "same way as the index" : ix.cashConfirmation === "diverges" ? "opposite to the index" : "no index move to compare"}` : "—"}
+                  </CardRow>
                   <CardRow k="Put-call ratio · OI" testId={`${id}-pcr`}>{s.pcr == null ? "—" : fmtNum(s.pcr, 2)}</CardRow>
                   <CardRow k="Max pain" testId={`${id}-max-pain`}>{s.max_pain == null ? "—" : fmtLevel(s.max_pain)}</CardRow>
                   <CardRow k={investor ? "Expected volatility · swing" : "ATM IV · expected move"} testId={`${id}-move`}>
@@ -348,8 +382,8 @@ export default function FnoTab() {
   };
   const chain = oc.state.status === "ok" ? oc.state.chain : null;
 
-  const row = isIndexUnderlying(symbol) ? null : buildupRowFor(scan.data, symbol);
-  const bu: UnderlyingBuildup = isIndexUnderlying(symbol)
+  const row = isIndexUnderlying(symbol) ? indexRowFor(scan.data, symbol) : buildupRowFor(scan.data, symbol);
+  const bu: UnderlyingBuildup = isIndexUnderlying(symbol) && !row && !scan.isPending && !scan.isError
     ? { status: "index" }
     : scan.isPending ? { status: "loading" }
       : scan.isError ? { status: "error" }
@@ -403,6 +437,8 @@ export default function FnoTab() {
               }
             />
             {fq.isError && <QueryProblem what={`${symbol} futures`} error={fq.error} onRetry={() => fq.refetch()} />}
+            <span data-testid="desk-fno-heuristic" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{HEURISTIC_NOTE} Research and hypothetical scenarios only.</span>
+            <TrustLine testId="desk-fno-trust" source="NSE F&O bhavcopy" asOf={c.summary.as_of ? shortDay(c.summary.as_of) : null} mode="eod" maker="model" method={`IV and expected move: ${modelLabel(c.summary)}`} />
           </div>
         )}
       </FnoGate>

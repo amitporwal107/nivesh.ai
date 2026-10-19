@@ -22,8 +22,12 @@
  *                                 contract the account holds, read live and not stored
  *                                 (backend/routes/broker_connect.py :: get_contract_chart).
  *
- * Read-only throughout. No route returns a broker's funds or its day P&L, so
- * nothing here stands in for them.
+ *   GET /api/broker/funds         each account's cash and margin, read live through the broker's read-only
+ *                                 funds call and never stored; entries as for holdings
+ *                                 (backend/routes/broker_connect.py :: get_all_funds).
+ *
+ * Read-only throughout: nothing here moves money or places an order. No route
+ * returns a broker's day P&L, so nothing here stands in for it.
  *
  * The fetcher returns a complete typed list or throws ApiError("contract_drift")
  * — a `200 {}` is an error on screen, never "no holdings".
@@ -345,6 +349,85 @@ export function useLiveHoldings(enabled: boolean) {
     refetchOnWindowFocus: false,
     retry: (count, e) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
     queryFn: ({ signal }) => fetchLiveHoldings(signal),
+  });
+}
+
+// ── funds, read live (cash balance) ──────────────────────────────────────────
+
+const FundsAccountC = z.object({
+  account_id: z.string().min(1),
+  broker: optStr,
+  broker_display: optStr,
+  label: optStr,
+  ok: z.boolean(),
+  error: ReadErrorC,
+  as_of: optStr,
+  funds: z.object({ available_cash_rs: optNum, collateral_rs: optNum, used_margin_rs: optNum }).nullish(),
+});
+const FundsBookC = z.object({ as_of: optStr, basis: optStr, accounts: z.array(FundsAccountC) });
+
+export interface FundsAccount {
+  id: string;
+  broker: string | null;
+  brokerName: string | null;
+  label: string | null;
+  ok: boolean;
+  errorCode: string | null;
+  asOf: string | null;
+  /** As the broker reports it; null when the account was not read. */
+  cashRs: number | null;
+  collateralRs: number | null;
+  usedMarginRs: number | null;
+}
+
+export interface FundsBook {
+  asOf: string | null;
+  basis: string | null;
+  accounts: FundsAccount[];
+}
+
+export function readFunds(body: unknown): FundsBook {
+  const parsed = FundsBookC.safeParse(body);
+  if (!parsed.success) throw ApiError.contractDrift(`broker.funds: ${parsed.error.message}`);
+  return {
+    asOf: text(parsed.data.as_of),
+    basis: text(parsed.data.basis),
+    accounts: parsed.data.accounts.map((a) => ({
+      id: a.account_id,
+      broker: text(a.broker),
+      brokerName: text(a.broker_display),
+      label: text(a.label),
+      ok: a.ok,
+      errorCode: text(a.error?.code),
+      asOf: text(a.as_of),
+      cashRs: a.ok ? finite(a.funds?.available_cash_rs) : null,
+      collateralRs: a.ok ? finite(a.funds?.collateral_rs) : null,
+      usedMarginRs: a.ok ? finite(a.funds?.used_margin_rs) : null,
+    })),
+  };
+}
+
+/** Cash across the accounts read: the sum and the accounts it covers; null when no account was read. */
+export function cashOf(book: FundsBook): { totalRs: number | null; names: string[]; notRead: string[] } {
+  const read = book.accounts.filter((a) => a.ok && a.cashRs != null);
+  const name = (a: FundsAccount) => a.brokerName ?? a.label ?? a.broker ?? a.id;
+  return {
+    totalRs: read.length ? read.reduce((s, a) => s + (a.cashRs as number), 0) : null,
+    names: read.map(name),
+    notRead: book.accounts.filter((a) => !(a.ok && a.cashRs != null)).map(name),
+  };
+}
+
+/** Funds, read live from every connected account when asked; like holdings it does not poll (brokers rate-limit). */
+export function useBrokerFunds(enabled: boolean) {
+  const profile = useImpersonationStore((s) => s.profileId);
+  return useQuery<FundsBook>({
+    queryKey: ["copilot", "desk", "broker-funds", profile ?? "self"],
+    enabled,
+    staleTime: LIVE_STALE_MS,
+    refetchOnWindowFocus: false,
+    retry: (count, e) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
+    queryFn: async ({ signal }) => readFunds((await http({ path: "/api/broker/funds", signal })).data),
   });
 }
 

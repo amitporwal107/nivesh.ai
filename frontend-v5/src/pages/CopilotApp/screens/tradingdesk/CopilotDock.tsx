@@ -4,11 +4,15 @@
  * same Copilot full height on a phone (design §11 M6: More · AI Copilot).
  *
  * It is the same Copilot as the rest of the app — POST /api/chat/stream, asked
- * in the desk's persona (the TRADER / INVESTOR switch in the desk header) —
- * with its own thread, so the desk stays on screen while an answer streams.
- * Answers are the real streamed Markdown, styled like the design's answer
- * (serif headings, mint emphasis, "›" bullets); nothing is restructured or
- * made up. The thread id is kept for the browser tab (sessionStorage), so
+ * in the desk's persona (the TRADER / INVESTOR switch in the desk header) and
+ * with `surface: "trading_desk"` — with its own thread, so the desk stays on
+ * screen while an answer streams. The surface tells the server to ask the model
+ * for the desk PRD's answer structure (§9.4: direct answer, evidence, as-of
+ * times, bull and bear factors, uncertainties, invalidation, sources, where to
+ * look), where it applies (backend persona_framing.py). That is an instruction
+ * to the model: answers are the real streamed Markdown, styled like the
+ * design's answer (serif headings, mint emphasis, "›" bullets); nothing is
+ * restructured or made up here. The thread id is kept for the browser tab (sessionStorage), so
  * moving between tabs or screens keeps the conversation; "Open the full
  * thread" shows it in the app's normal thread view, with the evidence panel
  * and any result card.
@@ -23,6 +27,9 @@ import { threadView } from "../../lib/views";
 import { useDesk } from "./context";
 
 const STORE_KEY = "nv.copilot.desk.thread";
+
+/** The Copilot surface the server allowlists for the desk's answer structure (routes/chat.py _desk_persona_for). */
+const DESK_SURFACE = "trading_desk";
 
 function readStored(): string | undefined {
   try {
@@ -145,7 +152,7 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
     void engine.send(q, sid, (id) => {
       setSid(id);
       writeStored(id);
-    }, { persona });
+    }, { persona, surface: DESK_SURFACE });
   };
   useImperativeHandle(ref, () => ({ ask, focus: () => inputRef.current?.focus() }));
 
@@ -228,7 +235,8 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
             ))}
           </div>
         )}
-        <div style={{ position: "sticky", bottom: 0, paddingTop: 8, paddingBottom: 10, background: "var(--bg-0)", display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* Above the phone's bottom navigation bar (TradingDesk sets --desk-bottom-bar); 0 elsewhere. */}
+        <div style={{ position: "sticky", bottom: "var(--desk-bottom-bar, 0px)", paddingTop: 8, paddingBottom: 10, background: "var(--bg-0)", display: "flex", flexDirection: "column", gap: 8 }}>
           <form onSubmit={(e) => { e.preventDefault(); ask(draft); }} className="flex items-center" style={{ gap: 8 }}>
             {sid && (
               <button type="button" data-testid="dock-new" onClick={reset} disabled={engine.busy} aria-label="Start a new conversation" className="grid place-items-center" style={{ flex: "none", width: 36, height: 36, borderRadius: 999, border: "1px solid var(--line-2)", background: "transparent", color: "var(--cp-ink-2)", fontSize: 16, cursor: "pointer" }}>＋</button>

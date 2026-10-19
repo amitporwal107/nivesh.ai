@@ -3,8 +3,8 @@
  *
  *   GET /api/positional/journal?live=true          the user's logged trades, with a last price when Yahoo answers
  *   GET /api/positional/journal/summary/portfolio  open / closed counts, realised P&L, win rate
- *   GET /api/positional/watchlist                  four buckets of setups with trigger and stop levels
- *   GET /api/positional/picks                      the scanner's scored signals for the latest signal date
+ *   GET /api/positional/watchlist?limit=30         four buckets of setups with trigger and stop levels      } one shared read with the
+ *   GET /api/positional/picks?limit=30             the scanner's scored signals for the latest signal date } trading desk (useScannerRoutes)
  *   GET /api/broker/accounts                       the user's broker connections (holdings sync only)
  *
  * Paper trades reuse the existing adapter (services/adapters/paperTrades.adapter.ts),
@@ -196,6 +196,59 @@ export function heldDays(t: JournalTrade): number | null {
   return Number.isFinite(ms) && ms >= 0 ? Math.round(ms / 86_400_000) : null;
 }
 
+// ── the scanner's two routes, read once ──────────────────────────────────
+//
+// One fetch and one cache entry for GET /api/positional/watchlist and /picks, shared by the Trader screens
+// (useWatchLevels, useScannerPicks) and the Smart trading desk (useDeskScanner, tradingdesk/desk-data.ts). Each screen
+// reads its own view through `select`, so the parse stays beside the screen while the network and the cache are one.
+
+/** The bodies as the routes sent them, after the one shape check each route always meets. */
+export interface ScannerRoutes {
+  /** GET /api/positional/watchlist?limit=30 — has `buckets`; null when the route failed or broke its shape. */
+  watch: Record<string, unknown> | null;
+  watchError: unknown;
+  /** GET /api/positional/picks?limit=30 — has a `picks` list; null when the route failed or broke its shape. */
+  picks: Record<string, unknown> | null;
+  picksError: unknown;
+}
+
+/** Rows asked of each route. The desk shows up to this many; the Trader screens show the first few (see below). */
+export const SCANNER_ROUTE_LIMIT = 30;
+const SCANNER_ROUTES_KEY = ["copilot", "scanner", "routes"] as const;
+
+async function fetchScannerRoutes(signal?: AbortSignal): Promise<ScannerRoutes> {
+  const [w, p] = await Promise.allSettled([
+    // The watchlist re-reads 60 bars for ~80 candidates, so it can be slow on a cold cache.
+    http({ path: "/api/positional/watchlist", query: { limit: SCANNER_ROUTE_LIMIT }, timeoutMs: 30_000, signal }),
+    http({ path: "/api/positional/picks", query: { limit: SCANNER_ROUTE_LIMIT }, signal }),
+  ]);
+  const out: ScannerRoutes = { watch: null, watchError: null, picks: null, picksError: null };
+  if (w.status === "fulfilled") {
+    const d = rec(w.value.data);
+    if (d.buckets && typeof d.buckets === "object" && !Array.isArray(d.buckets)) out.watch = d;
+    else out.watchError = drift("positional.watchlist: no buckets");
+  } else out.watchError = w.reason;
+  if (p.status === "fulfilled") {
+    const d = rec(p.value.data);
+    if (Array.isArray(d.picks)) out.picks = d;
+    else out.picksError = drift("positional.picks: no picks list");
+  } else out.picksError = p.reason;
+  // Both routes failing is the query's error; one failing is the reading screen's to judge.
+  if (!out.watch && !out.picks) throw out.watchError ?? out.picksError;
+  return out;
+}
+
+/** The shared read. `select` turns the two bodies into a screen's own view and may throw that screen's error. */
+export function useScannerRoutes<T>(select: (r: ScannerRoutes) => T) {
+  return useQuery<ScannerRoutes, Error, T>({
+    queryKey: SCANNER_ROUTES_KEY,
+    staleTime: 5 * 60_000,
+    retry,
+    queryFn: ({ signal }) => fetchScannerRoutes(signal),
+    select,
+  });
+}
+
 // ── watch levels ─────────────────────────────────────────────────────────
 
 export const WATCH_BUCKETS = ["breakout_confirmed", "pre_breakout", "true_accumulation", "trend_continuation"] as const;
@@ -222,15 +275,18 @@ export interface Watchlist {
   rows: WatchRow[];
 }
 
-export async function fetchWatchLevels(signal?: AbortSignal): Promise<Watchlist> {
-  // The route re-reads 60 bars for ~80 candidates, so it can be slow on a cold cache.
-  const res = await http({ path: "/api/positional/watchlist", query: { limit: 12 }, timeoutMs: 30_000, signal });
-  const d = rec(res.data);
-  if (!d.buckets || typeof d.buckets !== "object" || Array.isArray(d.buckets)) throw drift("positional.watchlist: no buckets");
-  const buckets = rec(d.buckets);
+/**
+ * The levels the Trader screens list: the first WATCH_PER_BUCKET rows of each bucket. The route caps each bucket at
+ * max(4, limit ÷ 3 or ÷ 4) from one score-ordered candidate list, so these are exactly the rows it sends for
+ * limit=12 — the limit these screens used to ask for.
+ */
+const WATCH_PER_BUCKET = 4;
+
+export function parseWatchLevels(body: Record<string, unknown>): Watchlist {
+  const buckets = rec(body.buckets);
   const rows: WatchRow[] = [];
   for (const bucket of WATCH_BUCKETS) {
-    for (const item of arr(buckets[bucket])) {
+    for (const item of arr(buckets[bucket]).slice(0, WATCH_PER_BUCKET)) {
       const r = rec(item);
       const symbol = str(r.nse_symbol);
       if (!symbol) continue;
@@ -246,16 +302,16 @@ export async function fetchWatchLevels(signal?: AbortSignal): Promise<Watchlist>
       });
     }
   }
-  return { asOf: str(d.as_of_date), rows };
+  return { asOf: str(body.as_of_date), rows };
+}
+
+function toWatchLevels(r: ScannerRoutes): Watchlist {
+  if (!r.watch) throw r.watchError;
+  return parseWatchLevels(r.watch);
 }
 
 export function useWatchLevels() {
-  return useQuery<Watchlist>({
-    queryKey: ["copilot", "trading", "watch-levels"],
-    staleTime: 5 * 60_000,
-    retry,
-    queryFn: ({ signal }) => fetchWatchLevels(signal),
-  });
+  return useScannerRoutes(toWatchLevels);
 }
 
 // ── scanner signals ──────────────────────────────────────────────────────
@@ -283,12 +339,12 @@ export interface ScannerPicks {
   picks: ScannerPick[];
 }
 
-export async function fetchScannerPicks(signal?: AbortSignal): Promise<ScannerPicks> {
-  const res = await http({ path: "/api/positional/picks", query: { limit: 6 }, signal });
-  const d = rec(res.data);
-  if (!Array.isArray(d.picks)) throw drift("positional.picks: no picks list");
+/** The signals the Trader screens list: the route's first rows (it orders by score, then reward to risk). */
+const PICKS_SHOWN = 6;
+
+export function parseScannerPicks(body: Record<string, unknown>): ScannerPicks {
   const picks: ScannerPick[] = [];
-  for (const item of d.picks) {
+  for (const item of arr(body.picks).slice(0, PICKS_SHOWN)) {
     const p = rec(item);
     const symbol = str(p.nse_symbol);
     if (!symbol) continue;
@@ -307,16 +363,16 @@ export async function fetchScannerPicks(signal?: AbortSignal): Promise<ScannerPi
       scans: strList(p.source_scans),
     });
   }
-  return { signalDate: str(d.signal_date), picks };
+  return { signalDate: str(body.signal_date), picks };
+}
+
+function toScannerPicks(r: ScannerRoutes): ScannerPicks {
+  if (!r.picks) throw r.picksError;
+  return parseScannerPicks(r.picks);
 }
 
 export function useScannerPicks() {
-  return useQuery<ScannerPicks>({
-    queryKey: ["copilot", "trading", "scanner-picks"],
-    staleTime: 5 * 60_000,
-    retry,
-    queryFn: ({ signal }) => fetchScannerPicks(signal),
-  });
+  return useScannerRoutes(toScannerPicks);
 }
 
 // ── broker connections ───────────────────────────────────────────────────

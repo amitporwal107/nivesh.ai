@@ -6,16 +6,25 @@ every other /api write; nothing here is exempt.
 
 Endpoints (all under /api/desk):
     POST   /paper-trades               — open a paper trade (long only)  → 201 {trade}
-             {symbol, quantity, entry_price, stop_price, target_price|null, note?, source?: {kind, bucket?, signal_date?}}
+             {symbol, quantity, entry_price, stop_price, target_price|null, note?, source?: {kind, bucket?, signal_date?},
+              entry_rule?: "at_once"|"break_above"|"pullback_to", entry_window_sessions?, max_hold_sessions?,
+              signal_at?, strategy_version?, rationale?}       — PRD §13.4; costs, MFE / MAE and net P&L come back on reads
     GET    /paper-trades?status=open|closed|all
                                        — {as_of, checked_through, trades, summary, ...}; applies the exit rule first
-    POST   /paper-trades/{id}/close    — {exit_price?}: close at that price, or at the last end-of-day close ("manual")
-    POST   /alerts                     — {symbol, condition: "above"|"below", level, note?} → 201 {alert}
+    POST   /paper-trades/{id}/close    — {exit_price?}: close at that price, or at the last end-of-day close ("manual");
+                                         a trade whose conditional entry was not reached is "cancelled" (no P&L)
+    POST   /alerts                     — {condition, ...the condition's fields, note?} → 201 {alert}
+             above | below  {symbol, level}            filing    {symbol, impact?: "any"|"high"}
+             category       {category, symbol?}        volume    {symbol, multiple}
+             scanner        {symbol, stage?}           sector    {index, threshold_pct, direction?}
+             risk           {symbol, level}            (rules and sources: services/desk_alerts.py)
     GET    /alerts?status=active|fired|all
-                                       — {as_of, checked_through, alerts, ...}; applies the firing rule first
+                                       — {as_of, checked_through, alerts, conditions, check_errors, ...}; checks every
+                                         active alert first. A fired alert carries `reason` and `evidence`
     DELETE /alerts/{id}                — 204
 
-Limits: 100 open paper trades and 50 active alerts per user (409 open_trade_limit / active_alert_limit).
+Limits: 100 open paper trades and 50 active alerts per user (409 open_trade_limit / active_alert_limit). An active
+alert identical to one the user already has (same condition, stock, level and settings) is 409 duplicate_alert.
 Errors are HTTPException with a short code in `detail` (invalid_symbol, stop_not_below_entry, trade_not_found,
 trade_already_closed, no_close_available, prices_unavailable, ...).
 
@@ -34,6 +43,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from deps import db, get_current_user
+from services import desk_alerts as alerts_svc
 from services import desk_trading as svc
 
 logger = logging.getLogger(__name__)
@@ -116,7 +126,8 @@ async def list_paper_trades(request: Request, status_filter: str = Query("all", 
     for doc in sorted((d for d in evaluated if d.get("status") == "open" and d["_id"] not in closed_ids),
                       key=_sort_key("opened_at"), reverse=True):
         mark, mark_error = svc.mark_for(doc["symbol"], bars, errors)
-        trades.append(svc.public_trade(doc, mark, mark_error, counts["checked_through"].get(doc["_id"])))
+        trades.append(svc.public_trade(doc, mark, mark_error, counts["checked_through"].get(doc["_id"]),
+                                       sim=counts["paths"].get(doc["_id"])))
     trades.extend(svc.public_trade(d) for d in closed_docs)
 
     as_of, checked_through = _as_of(bars)
@@ -125,6 +136,10 @@ async def list_paper_trades(request: Request, status_filter: str = Query("all", 
         "checked_through": checked_through.isoformat() if checked_through else None,
         **_price_context(),
         "exit_rule": svc.EXIT_RULE,
+        "entry_rules": svc.ENTRY_RULE_TEXT,
+        "rules_version": svc.RULES_VERSION,
+        "cost_model": svc.COST_MODEL,
+        "orders": svc.ORDERS_NOTE,
         "marks_error": svc.marks_error(errors, len(starts)),
         "status": status_filter,
         "trades": [t for t in trades if status_filter == "all" or t["status"] == status_filter],
@@ -164,51 +179,63 @@ async def close_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
         bars: Optional[List[Dict[str, Any]]] = await svc.fetch_bars(doc["symbol"], start)
     except svc.PricesUnavailable as exc:
         logger.warning("desk: no end-of-day bars for %s while closing %s: %s", doc["symbol"], trade_id, exc)
-        if exit_price is None:
+        # A conditional entry cannot be closed blind: without bars nobody knows whether it was filled.
+        if exit_price is None or (doc.get("entry_rule") or "at_once") != "at_once":
             raise HTTPException(status_code=503, detail="prices_unavailable")
         bars = None             # the user gave the price; the close does not need a mark
 
     session = None
     note = None
+    sim: Optional[Dict[str, Any]] = None
+    reason = "manual"
     if bars is not None:
-        exit_, _ = svc.find_trade_exit(doc, bars)
-        if exit_ is not None:
-            await svc.close_trade(db, doc, **exit_)
+        sim = svc.simulate(doc, bars)
+        if sim["exit"] is not None:
+            await svc.close_trade(db, doc, **sim["exit"], sim=sim)
             raise HTTPException(status_code=409, detail="trade_already_closed")
-        if exit_price is None:
+        if sim["entry_status"] not in svc.ENTERED:
+            # Never filled: closing it cancels the plan; there is no position, so no price and no P&L.
+            sim["entry_status"] = "not_reached"
+            reason, exit_price, note = "cancelled", None, svc.CANCELLED_NOTE
+        elif exit_price is None:
             bar = svc.last_close(bars)
             if bar is None:
                 raise HTTPException(status_code=409, detail="no_close_available")
             exit_price, session = bar["close"], bar["date"]
             note = f"Closed at the last end-of-day close ({bar['date'].isoformat()})."
 
-    stored, mine = await svc.close_trade(db, doc, exit_reason="manual", exit_price=exit_price,
-                                         exit_session=session, exit_note=note)
+    stored, mine = await svc.close_trade(db, doc, exit_reason=reason, exit_price=exit_price,
+                                         exit_session=session, exit_note=note, sim=sim)
     if not mine or stored is None:
         raise HTTPException(status_code=409, detail="trade_already_closed")
     logger.info("desk: user %s closed paper trade %s at %s", uid, trade_id, exit_price)
     return {"trade": svc.public_trade(stored), **_price_context()}
 
 
-# ── price alerts ─────────────────────────────────────────────────────────────
+# ── alerts (price, filings, categories, volume, scanner, sector, risk — services/desk_alerts.py) ──────────────
 @router.post("/alerts", status_code=201)
 async def create_alert(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     uid = user["user_id"]
     try:
-        doc = svc.new_alert(uid, await _body(request))
+        doc = alerts_svc.new_alert(uid, await _body(request))
     except svc.DeskInputError as exc:
         raise _input_error(exc)
     await svc.ensure_indexes(db)
     active_filter = {"user_id": uid, "status": "active"}
-    if await db[svc.ALERTS].count_documents(active_filter) >= svc.MAX_ACTIVE_ALERTS:
+    # Deduplicated: the same condition on the same stock with the same level and settings is one alert.
+    key = alerts_svc.dedupe_key(doc)
+    mine = await db[svc.ALERTS].find(active_filter).to_list(svc.MAX_ACTIVE_ALERTS * 2)
+    if any(alerts_svc.dedupe_key(d) == key for d in mine):
+        raise HTTPException(status_code=409, detail="duplicate_alert")
+    if len(mine) >= svc.MAX_ACTIVE_ALERTS or await db[svc.ALERTS].count_documents(active_filter) >= svc.MAX_ACTIVE_ALERTS:
         raise HTTPException(status_code=409, detail="active_alert_limit")
     await db[svc.ALERTS].insert_one(doc)
     if await db[svc.ALERTS].count_documents(active_filter) > svc.MAX_ACTIVE_ALERTS:
         await db[svc.ALERTS].delete_one({"_id": doc["_id"], "user_id": uid})
         raise HTTPException(status_code=409, detail="active_alert_limit")
-    logger.info("desk: user %s set alert %s (%s %s %s)", uid, doc["_id"], doc["symbol"], doc["condition"], doc["level"])
-    return {"alert": svc.public_alert(doc), **_price_context()}
+    logger.info("desk: user %s set alert %s (%s)", uid, doc["_id"], alerts_svc.describe(doc))
+    return {"alert": alerts_svc.public_alert(doc), **_price_context()}
 
 
 @router.get("/alerts")
@@ -220,9 +247,9 @@ async def list_alerts(request: Request, status_filter: str = Query("all", alias=
     await svc.ensure_indexes(db)
 
     active_docs = await db[svc.ALERTS].find({"user_id": uid, "status": "active"}).sort("created_at", -1).to_list(svc.MAX_ACTIVE_ALERTS * 2)
-    starts = svc.fetch_starts(active_docs, "created_at")
+    starts = alerts_svc.bar_starts(active_docs)
     bars, errors = await svc.fetch_bars_many(starts) if starts else ({}, {})
-    evaluated, counts = await svc.apply_alert_fires(db, active_docs, bars)
+    evaluated, counts = await alerts_svc.evaluate(db, active_docs, bars)
 
     fired_docs = await db[svc.ALERTS].find({"user_id": uid, "status": "fired"}).sort("fired_at", -1).to_list(svc.MAX_FIRED_LISTED)
     fired_ids = {d["_id"] for d in fired_docs}
@@ -230,9 +257,10 @@ async def list_alerts(request: Request, status_filter: str = Query("all", alias=
     alerts: List[Dict[str, Any]] = []
     for doc in sorted((d for d in evaluated if d.get("status") == "active" and d["_id"] not in fired_ids),
                       key=_sort_key("created_at"), reverse=True):
-        mark, mark_error = svc.mark_for(doc["symbol"], bars, errors)
-        alerts.append(svc.public_alert(doc, mark, mark_error, counts["checked_through"].get(doc["_id"])))
-    alerts.extend(svc.public_alert(d) for d in fired_docs)
+        mark, mark_error = svc.mark_for(doc["symbol"], bars, errors) if doc.get("symbol") in starts else (None, None)
+        alerts.append(alerts_svc.public_alert(doc, mark, mark_error, counts["checked_through"].get(doc["_id"]),
+                                              counts["check_errors"].get(doc["_id"])))
+    alerts.extend(alerts_svc.public_alert(d) for d in fired_docs)
 
     as_of, checked_through = _as_of(bars)
     return {
@@ -241,6 +269,7 @@ async def list_alerts(request: Request, status_filter: str = Query("all", alias=
         **_price_context(),
         "firing_rule": svc.FIRING_RULE,
         "marks_error": svc.marks_error(errors, len(starts)),
+        "check_errors": sorted(set(counts["check_errors"].values())),
         "status": status_filter,
         "alerts": [a for a in alerts if status_filter == "all" or a["status"] == status_filter],
         "counts": {
@@ -248,6 +277,7 @@ async def list_alerts(request: Request, status_filter: str = Query("all", alias=
             "fired": sum(1 for a in alerts if a["status"] == "fired"),
         },
         "limits": {"max_active": svc.MAX_ACTIVE_ALERTS},
+        **alerts_svc.catalogue(),
         "evaluated_at": svc.utcnow().isoformat(),
     }
 

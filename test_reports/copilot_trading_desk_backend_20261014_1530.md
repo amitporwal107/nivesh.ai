@@ -131,6 +131,31 @@ Nifty Auto 1d / 1m (index_eod, own series)          SQL 1.23 / -7.80   route 1.2
 nidp.sebi_circulars rows                            SQL 0              route count 0
 ```
 
+
+## PRD wave (2026-10-19): the gaps from docs/smart_trader, closed by wiring existing routes and screens
+Five agents (frame + Overview + regimes + phone bottom bar; AI Scanner; Chart + opportunity detail + scenario calculator; Intel + alerts + F&O; Portfolio + paper trading + import). Re-run by me on the combined tree:
+- **Backend, whole suite** (`py-run.sh tests nidp/tests/services`, staging backend image, no network): `618 failed, 4598 passed, 577 skipped, 165 errors`.
+  - The identical command on a clean copy of origin/dev gave `618 failed, 4299 passed, 577 skipped, 165 errors`. The failure and error sets are identical (diffed): they are old tests that call a live server (REACT_APP_BACKEND_URL) or need files the container lacks. None is new and none is from the desk.
+  - The desk, broker and PRD tests are among the 299 additional passes.
+- **`desk-run.sh tsc`** → `TSC CLEAN`.
+- **Playwright**, every `e2e/tests/copilot-app*.spec.ts` except shots and live (production build, then `npx playwright test`, all /api calls route-mocked, labelled MOCK):
+```
+vite build ok
+  12 skipped
+  488 passed (5.9m)
+```
+- The 12 skipped tests are opt-in screenshot captures.
+
+New or changed routes (each has unit tests): `/api/positional/scan-universe`, `/api/positional/scenario`, `/api/positional/backtest/calibration` (CIs, MFE/MAE, not_measured), `/api/research/chart/live/{symbol}/indicators` and `/patterns`, `/api/macro/today` (five regimes), `/api/markets/home` (holiday-aware session), `/api/markets/sector-constituents`, `/api/filings/feed?provenance=1`, `/api/markets/deals` (% of shares, prices), `/api/fno/scan/buildup` (cash check, vol_z20, master, indices), `/api/desk/alerts` (six condition types), `/api/desk/paper-trades` (entry rule, costs, MFE/MAE, net), `/api/portfolio/holding-risk`, `/api/portfolio/composition/scope`, `/api/portfolio/upload/preview` and `/commit`, `/api/broker/funds` (read-only), DaaS `/v1/features/scan-snapshot`, `/v1/desk/filings`, `/v1/desk/event-sources`, `/v1/desk/sector-constituents`.
+
+**UNVERIFIED on staging (not deployed):** none of the PRD-wave routes has been called on staging.
+- The app VM and warehouse VM both need a redeploy.
+- The pattern route also needs the repo-root `research/` package mounted into the staging backend container; until then it answers 503, and the screen says "not deployed".
+- The /api/desk/* user routes still need a session token from the user (B-17).
+- Whether the Copilot follows the PRD §9.4 answer structure needs a real question on staging.
+
+Known gaps, each shown on screen as "—" or disabled with its reason: intraday charts and 15-minute OI, F&O ban and ASM/GSM, macro events feed, insider/SAST trades, model probabilities (withheld: no calibration flag, move-odds is preview-only), multi-session horizon, market-cap filter and split (bucket empty on staging; Midcap 150 / Smallcap 250 lists not loaded), reversal-candidates rule, historical reactions to events, setup quality, realised P&L (no transactions), manual portfolio entry, Learning and methodology view.
+
 ## Inputs required from user
 - **Done:**
   - Merged to dev (PR #220).

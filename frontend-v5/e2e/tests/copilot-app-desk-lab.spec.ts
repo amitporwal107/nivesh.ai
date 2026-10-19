@@ -151,9 +151,15 @@ const GEN = Array.from({ length: 20 }, (_, i) => {
   return bu(`FIXGEN${String(i + 1).padStart(2, "0")}`, p, o, labelFor(p, o));
 });
 const BUILDUP_ROWS = [
-  bu("FIXFNO", 2.03, 12.5, "long_buildup", { close: 1510.0, prev_close: 1480.0, oi: 5_400_000, oi_chg: 600_000 }),
-  bu("FIXSHORT", -1.8, 9.2, "short_buildup"),
-  bu("FIXCOVER", 0.9, -7.4, "short_covering"),
+  // The PRD §10.6 fields on three rows (the rest send none, so they read "—"): cash close and change, the cash check,
+  // vol_z20 with its date, futures contracts, the F&O master, days to expiry and the risk flags.
+  bu("FIXFNO", 2.03, 12.5, "long_buildup", {
+    close: 1510.0, prev_close: 1480.0, oi: 5_400_000, oi_chg: 600_000, days_to_expiry: 14, fut_contracts: 36223, fut_turnover_cr: 2734.5,
+    cash_close: 1502.5, cash_prev_close: 1475.0, cash_chg_pct: 1.86, cash_volume: 4_100_000, cash_confirmation: "confirms",
+    vol_z20: 1.42, vol_z20_date: "2026-10-12", fno_eligible: true, master_date: "2026-10-13", risk_flags: [],
+  }),
+  bu("FIXSHORT", -1.8, 9.2, "short_buildup", { cash_close: 99.1, cash_prev_close: 98.0, cash_chg_pct: 1.12, cash_confirmation: "diverges", fno_eligible: false, master_date: "2026-10-13", risk_flags: [] }),
+  bu("FIXCOVER", 0.9, -7.4, "short_covering", { near_expiry: "2026-10-16", days_to_expiry: 3, risk_flags: ["expiry_week", "rollover", "no_cash_price"] }),
   bu("FIXUNWIND", -2.4, -5.1, "long_unwinding"),
   bu("FIXLONG2", 0.4, 4.9, "long_buildup", { expiries: 2 }),
   ...GEN.filter((r) => Math.abs(r.oi_chg_pct as number) >= 1).sort((a, b) => Math.abs(b.oi_chg_pct as number) - Math.abs(a.oi_chg_pct as number)),
@@ -162,10 +168,32 @@ const BUILDUP_ROWS = [
   bu("FIXNODATA", null, null, null, { expiries: 1 }),
 ];
 const countBy = (label: string | null) => BUILDUP_ROWS.filter((r) => r.label === label).length;
+const RISK_FLAG_TEXT = {
+  expiry_week: "The nearest contract expires within 7 calendar days: price and OI moves are distorted by expiry.",
+  rollover: "Rollover: the next expiry now holds more open interest than the nearest, so positions are moving between contracts.",
+  no_cash_price: "No cash-market close for the day, so the futures move cannot be checked against the cash market.",
+};
+const INTRADAY_REASON = "No intraday open interest is collected: the F&O data is the end-of-day bhavcopy, and the intraday bar collector stores no OI and no NFO contracts. A 15-minute confirmation cannot be worked out.";
+/** NIFTY's index-futures row: its near future −0.82 % (22,648.50 vs 22,834.80), OI +0.69 %, the Nifty 50 close −0.44 %. */
+const NIFTY_FUT = bu("NIFTY", -0.82, 0.69, "short_buildup", {
+  close: 22648.5, prev_close: 22834.8, cash_close: 22622.7, cash_prev_close: 22721.95, cash_chg_pct: -0.44, cash_confirmation: "confirms",
+  index_name: "Nifty 50", fno_eligible: true, risk_flags: [],
+});
 const BUILDUP = {
   as_of: "2026-10-13", source: "NSE F&O bhavcopy (nidp.fno_bhavcopy), stock futures", universe: BUILDUP_ROWS.length,
   counts: { long_buildup: countBy("long_buildup"), short_buildup: countBy("short_buildup"), short_covering: countBy("short_covering"), long_unwinding: countBy("long_unwinding"), neutral: countBy("neutral"), no_data: countBy(null) },
   rows: BUILDUP_ROWS,
+  indices: [NIFTY_FUT],
+  index_source: "NSE F&O bhavcopy (nidp.fno_bhavcopy), index futures; index close from nidp.index_eod",
+  sources: {
+    cash: "NSE equity bhavcopy (nidp.prices_eod) for the cash close and volume",
+    rvol: "vol_z20 from nidp.stock_features_daily (technical indicator engine)",
+    master: "NSE F&O lot-size master fo_mktlots.csv (nidp.security_reference_daily.fno_eligible)",
+  },
+  master: { as_of: "2026-10-13", eligible: 1, not_eligible: 1, unknown: BUILDUP_ROWS.length - 2 },
+  risk_flag_text: RISK_FLAG_TEXT,
+  setup_quality: "not_validated",
+  intraday: { status: "unavailable", reason: INTRADAY_REASON },
 };
 
 /** Every /api/fno/* route. Returns the paths (with query) the page asked for. */
@@ -277,10 +305,12 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-pcr")).toHaveText(n2(s.pcr));
     await expect(page.getByTestId("desk-fno-max-pain")).toHaveText(n0(s.max_pain));
     await expect(page.getByTestId("desk-fno-oi-range")).toHaveText(`${n0(s.max_put_oi.strike)} – ${n0(s.max_call_oi.strike)}`);
-    // An index has no build-up reading: "—" with the reason, and the futures' OI change beside it.
-    await expect(page.getByTestId("desk-fno-buildup-tile")).toHaveText("—");
-    await expect(page.getByTestId("desk-fno-stats")).toContainText(`Index futures: the futures route sends no previous close, so the price side of the build-up is unknown · OI ${MINUS}2.50 L`);
-    expect(near.change_in_oi).toBe(-250000);
+    // An index's build-up comes from the scan's index-futures row: price −0.82 %, OI +0.69 % → short build-up.
+    await expect(page.getByTestId("desk-fno-buildup-tile")).toHaveText(LABEL[NIFTY_FUT.label as string]);
+    await expect(page.getByTestId("desk-fno-stats")).toContainText(`Price ${signedPct(NIFTY_FUT.price_chg_pct)} · OI ${signedPct(NIFTY_FUT.oi_chg_pct)} · ${dayS(BUILDUP.as_of)}`);
+    await expect(page.getByTestId("desk-fno-heuristic")).toContainText("heuristic readings of two figures, not proof of what traders intended");
+    await expect(page.getByTestId("desk-fno-trust")).toContainText("NSE F&O bhavcopy · End of day");
+    await expect(page.getByTestId("desk-fno-trust")).toHaveAttribute("data-mode", "eod");
     await expect(page.getByTestId("desk-fno-model-note")).toContainText(`Model estimate from end-of-day prices (Black-76), at an interest rate of ${n2(s.rate_pct)}% a year`);
     await expect(page.getByTestId("desk-fno-read-first")).toHaveCount(0);
 
@@ -339,7 +369,10 @@ test.describe("Smart trading desk — Options & futures lab", () => {
 
     const n = "desk-fno-card-NIFTY";
     await expect(page.getByTestId(`${n}-head`)).toHaveText("NIFTY27 Oct 2026 expiry");
-    await expect(page.getByTestId(n)).toContainText("Build-up —");
+    // Index futures build-up from the scan's index row; BANKNIFTY has none in the scan, so "—".
+    await expect(page.getByTestId(`${n}-buildup`)).toHaveText(LABEL[NIFTY_FUT.label as string]);
+    await expect(page.getByTestId(`${n}-fut-chg`)).toHaveText(`${signedPct(NIFTY_FUT.price_chg_pct)} · same way as the index`);
+    await expect(page.getByTestId("desk-fno-card-BANKNIFTY-buildup")).toHaveText("Build-up —");
     await expect(page.getByTestId(`${n}-spot`)).toHaveText("25,010.00");
     // markets-home.json is for 13 Oct; the bhavcopy is 12 Oct — no same-session change.
     await expect(page.getByTestId(`${n}-change`)).toHaveText("change —");
@@ -466,7 +499,8 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.locator('[data-testid="desk-buildup-dot"][data-selected="true"]')).toHaveCount(0);
 
     // Table: the design's columns in order, the route's order, count and sort note.
-    await expect(page.getByTestId("desk-buildup-table").getByRole("columnheader")).toHaveText(["Stock", "Price", "Futures OI", "Volume", "PCR", "IV", "Build-up"]);
+    await expect(page.getByTestId("desk-buildup-table").getByRole("columnheader")).toHaveText(
+      ["Stock", "Price", "Futures OI", "Cash", "Cash check", "RVOL z", "Volume", "PCR", "IV", "Expiry · flags", "Quality", "Build-up"]);
     await expect(page.getByTestId("desk-buildup-table-head")).toContainText("Stock futures · OI build-up");
     await expect(page.getByTestId("desk-buildup-count")).toHaveText(`${BUILDUP_ROWS.length} stocks`);
     await expect(page.getByTestId("desk-buildup-sorted")).toHaveText("Sorted by OI change");
@@ -482,8 +516,11 @@ test.describe("Smart trading desk — Options & futures lab", () => {
       await expect(row.getByTestId("desk-buildup-label")).toHaveText(r.label ? LABEL[r.label] : "—");
       await expect(row.getByTestId("desk-buildup-oi-cell")).toHaveAttribute("title", `Open interest ${(r.oi / 1e5).toFixed(2)} L, summed over ${r.expiries} ${r.expiries === 1 ? "expiry" : "expiries"}`);
       if (r.label) await expect(row.getByTestId("desk-buildup-desc")).toHaveText(QUAD_RULE[r.label]);
-      // NIFTY is loaded: no stock has its own chain figures on screen.
-      for (const c of ["volume", "pcr", "iv"]) await expect(row.getByTestId(`desk-buildup-${c}`)).toHaveText("—");
+      // NIFTY is loaded: no stock has its own chain figures on screen. Volume is the scan's futures contracts.
+      for (const c of ["pcr", "iv"]) await expect(row.getByTestId(`desk-buildup-${c}`)).toHaveText("—");
+      const contracts = (r as { fut_contracts?: number }).fut_contracts;
+      await expect(row.getByTestId("desk-buildup-volume")).toHaveText(contracts == null ? "—" : n0(contracts));
+      await expect(row.getByTestId("desk-buildup-quality")).toHaveText("—");
     }
 
     // Sort by price change: high to low, then low to high; missing last both ways.
@@ -518,15 +555,58 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(FIX_STRIKES.length);
     expect(asked.some((a) => a.startsWith("/api/fno/FIXFNO/chain"))).toBe(true);
 
-    // Back on the build-up: FIXFNO's dot is ringed and its row carries its own volume, PCR and IV.
+    // Back on the build-up: FIXFNO's dot is ringed and its row carries its own PCR and IV (volume is the scan's).
     await page.getByTestId("desk-fno-view-buildup").click();
     await expect(page.locator('[data-testid="desk-buildup-dot"][data-selected="true"]')).toHaveAttribute("data-symbol", "FIXFNO");
     const fixRow = page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]');
-    // FIX_FUTURES volume 21,00,000 = 21.00 L; FIX_CHAIN PCR 0.9375 → 0.94; ATM IV 26.4 → 26.4%
-    await expect(fixRow.getByTestId("desk-buildup-volume")).toHaveText("21.00 L");
+    // the scan's 36,223 contracts; FIX_CHAIN PCR 0.9375 → 0.94; ATM IV 26.4 → 26.4%
+    await expect(fixRow.getByTestId("desk-buildup-volume")).toHaveText(n0(36223));
     await expect(fixRow.getByTestId("desk-buildup-pcr")).toHaveText("0.94");
     await expect(fixRow.getByTestId("desk-buildup-iv")).toHaveText("26.4%");
     await expect(page.getByTestId("desk-buildup-shown")).toContainText("(FIXFNO)");
+  });
+
+  test("PRD §10.2–§10.7: F&O master eligibility, cash check, RVOL, expiry and rollover flags, quality not validated, the 15-minute state unavailable", async ({ page }) => {
+    await fnoData(page);
+    await page.goto(`${DESK}?tab=fno`);
+    const row = (sym: string) => page.locator(`[data-testid="desk-buildup-row"][data-symbol="${sym}"]`);
+    const fix = BUILDUP_ROWS.find((r) => r.symbol === "FIXFNO") as (typeof BUILDUP_ROWS)[number] & Record<string, unknown>;
+    // Cash close and change, the same-way check, vol_z20 with its date, contracts, the expiry and the flags.
+    await expect(row("FIXFNO").getByTestId("desk-buildup-cash")).toContainText(n2(fix.cash_close as number));
+    await expect(row("FIXFNO").getByTestId("desk-buildup-cash-chg")).toHaveText(signedPct(fix.cash_chg_pct as number));
+    await expect(row("FIXFNO").getByTestId("desk-buildup-confirm")).toHaveText("Confirms");
+    await expect(row("FIXFNO").getByTestId("desk-buildup-rvol")).toHaveText(`+${n2(fix.vol_z20 as number)}`);
+    await expect(row("FIXFNO").getByTestId("desk-buildup-rvol")).toHaveAttribute("title", `vol_z20 for ${dayS("2026-10-12")} (the scan is for ${dayS(BUILDUP.as_of)})`);
+    await expect(row("FIXFNO").getByTestId("desk-buildup-expiry")).toHaveText(`${dayS("2026-10-27")} · 14d`);
+    // Futures down and cash up: the cash market does not confirm.
+    await expect(row("FIXSHORT").getByTestId("desk-buildup-confirm")).toHaveText("Diverges");
+    await expect(row("FIXSHORT").getByTestId("desk-buildup-confirm")).toHaveAttribute("data-state", "diverges");
+    // Expiry week and rollover are disclosed with the route's own words (no-cash is said by the "—" cash check).
+    const flags = row("FIXCOVER").getByTestId("desk-buildup-flag");
+    await expect(flags).toHaveText(["Expiry week", "Rollover"]);
+    await expect(flags.nth(0)).toHaveAttribute("title", RISK_FLAG_TEXT.expiry_week);
+    await expect(row("FIXCOVER").getByTestId("desk-buildup-expiry")).toContainText(`${dayS("2026-10-16")} · 3d`);
+    await expect(row("FIXCOVER").getByTestId("desk-buildup-confirm")).toHaveText("—");
+    // Missing is not zero.
+    await expect(row("FIXGEN01").getByTestId("desk-buildup-rvol")).toHaveText("—");
+    await expect(row("FIXGEN01").getByTestId("desk-buildup-cash")).toContainText("—");
+    // Quality: no validated model, so "—" with the reason; the §10.4 heuristic caveat; the master's count.
+    await expect(row("FIXFNO").getByTestId("desk-buildup-quality")).toHaveAttribute("title", /no model of these readings has been tested/);
+    await expect(page.getByTestId("desk-buildup-heuristic")).toHaveText(
+      "These are heuristic readings of two figures, not proof of what traders intended. Rollovers, expiry, intraday noise and changes in who trades a contract can distort them.");
+    await expect(page.getByTestId("desk-buildup-master")).toContainText(`F&O eligibility: 1 of ${BUILDUP.universe} scanned stocks are on the NSE F&O master (${dayS("2026-10-13")}) · 1 in the bhavcopy but not on the master`);
+    // 15-minute confirmation: the route's state (unavailable) and its reason; never a made-up confirmed state.
+    const intraday = page.getByTestId("desk-fno-intraday");
+    await expect(intraday).toHaveAttribute("data-state", "unavailable");
+    await expect(page.getByTestId("desk-fno-intraday-reason")).toContainText(INTRADAY_REASON);
+    await expect(page.getByTestId("desk-fno-intraday-unavailable")).toContainText("current");
+    await expect(page.getByTestId("desk-fno-intraday-confirmed")).not.toContainText("current");
+    await expect(page.getByTestId("desk-buildup-trust")).toHaveAttribute("data-maker", "rules");
+    await expect(page.getByTestId("desk-buildup-trust")).toContainText("End of day");
+    // §10.2: a loaded stock says what the NSE F&O master says.
+    await row("FIXFNO").click();
+    await expect(page.getByTestId("desk-fno-eligible")).toHaveText(`F&O eligible · NSE F&O master ${dayS("2026-10-13")}`);
+    await expect(page.getByTestId("desk-fno-eligible")).toHaveAttribute("data-eligible", "true");
   });
 
   test("TC-33 OI build-up: a failed scan shows an error with retry; the keyboard opens a row", async ({ page }) => {
@@ -716,7 +796,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(rf).toContainText("Read first");
     await expect(rf).toContainText("9 out of 10 individual traders in equity F&O incurred net losses (SEBI study).");
     await expect(page.getByTestId("desk-buildup-q-long_buildup")).toContainText("Price rose and new bets were opened");
-    await expect(page.getByTestId("desk-buildup-table").getByRole("columnheader")).toHaveText(["Stock", "Price", "Open bets (OI)", "Volume", "PCR", "IV", "Build-up"]);
+    await expect(page.getByTestId("desk-buildup-table").getByRole("columnheader")).toHaveText(["Stock", "Price", "Open bets (OI)", "Share price", "Agree?", "Activity", "Volume", "PCR", "IV", "Expiry · flags", "Quality", "Build-up"]);
     await page.getByTestId("desk-fno-view-indices").click();
     await expect(page.getByTestId("desk-fno-card-NIFTY-headline")).toHaveText("Most open bets sit between 24,700 and 25,300.");
     await expect(page.getByTestId("desk-fno-card-NIFTY")).toContainText("Expected volatility · swing");

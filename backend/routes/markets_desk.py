@@ -1,6 +1,10 @@
 """Smart trading desk — market reads, forwarded to the data platform's /v1/desk/* (nidp/services/daas_api/routers/desk_market.py).
 
-    GET /api/markets/sector-returns                       NSE sectoral indices: latest close and 1-day / 1-week / 1-month returns
+    GET /api/markets/sector-returns                       NSE sectoral indices: latest close and 1-day / 1-week / 1-month returns,
+                                                          and breadth within each index that has a constituent list
+    GET /api/markets/sector-constituents?index=           one sector index's constituents with their move on its latest
+                                                          close day, and the breadth within it (`available: false` and a
+                                                          `reason` for an index with no constituent list)
     GET /api/markets/deals?days=5&kind=all&symbol=&limit= NSE bulk and block deals over the last `days` calendar days (1–30)
 
 The rows live in nidp.index_eod, nidp.bulk_deals and nidp.block_deals, which only the data platform can read, so each
@@ -25,6 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/markets", tags=["markets-desk"])
 
 SYMBOL_PATTERN = r"^[A-Za-z0-9&\-]+$"
+INDEX_PATTERN = r"^[A-Za-z0-9 &\-]+$"
 _UNAVAILABLE = "upstream_unavailable"
 
 
@@ -49,6 +54,17 @@ async def sector_returns(request: Request) -> Dict[str, Any]:
     that index's own earlier close; null where the index's history is too short."""
     await get_current_user(request)
     return await _daas("/desk/sector-returns", {}, "sectors")
+
+
+@router.get("/sector-constituents")
+async def sector_constituents(
+    request: Request,
+    index: str = Query(..., min_length=3, max_length=60, pattern=INDEX_PATTERN, description="e.g. 'Nifty Bank'"),
+) -> Dict[str, Any]:
+    """A sector index's latest constituent list, each stock's close vs its previous close on the index's latest close
+    day, and the advances / declines / unchanged within the sector. Passed through unchanged."""
+    await get_current_user(request)
+    return await _daas("/desk/sector-constituents", {"index": index.strip()}, "rows")
 
 
 @router.get("/deals")

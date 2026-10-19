@@ -1,8 +1,10 @@
 /**
  * Daily candlesticks with traded volume in a strip underneath, and optional
- * overlays: 20- and 50-day EMA, a 20-day volume-weighted average price, and
- * the scanner's levels (target, entry, stop) as dashed lines. Inline SVG, no
- * chart library (house style: screens/research/PriceChart.tsx).
+ * overlays: 20-, 50- and 200-day EMA, a 20-day volume-weighted average price,
+ * the scanner's levels (target, entry, stop) as dashed lines, and a marker
+ * under each session with an exchange filing. Inline SVG, no chart library
+ * (house style: screens/research/PriceChart.tsx). This is the desk's preview;
+ * the full chart with drawing tools is the Research chart workspace.
  *
  * Design (design-spec §5 / §11 M4): viewBox 540 × 272 on the desk (price 230,
  * volume 36) and 330 × 194 on a phone, with a right-hand gutter that carries
@@ -23,6 +25,8 @@ const UP = "var(--mint)";
 const DOWN = "var(--cp-danger)";
 const EMA20 = "var(--cp-indigo)";
 const EMA50 = "var(--amber)";
+const EMA200 = "var(--cp-ink-3)";
+const EVENT = "var(--cp-indigo)";
 const VWAP = "var(--rose)";
 const ENTRY = "var(--cp-ink-2)";
 const VOLUME = "var(--ink-5)";
@@ -37,22 +41,32 @@ export interface ChartOverlays {
   /** Aligned to `bars`. */
   ema20?: Series;
   ema50?: Series;
+  ema200?: Series;
   vwap20?: Series;
   levels?: ChartLevels | null;
+}
+
+/** Exchange filings on a session of the chart (one marker per session, however many filings it had). */
+export interface ChartEvent {
+  day: string;
+  count: number;
+  /** What the marker's tooltip and screen-reader text say. */
+  title: string;
 }
 
 /** What the legend and the level lines are called (trader or plain wording, design-spec §10). */
 export interface ChartWords {
   ema20: string;
   ema50: string;
+  ema200: string;
   vwap: string;
   target: string;
   entry: string;
   stop: string;
 }
 
-export const TRADER_CHART_WORDS: ChartWords = { ema20: "EMA 20", ema50: "EMA 50", vwap: "VWAP 20D", target: "Target", entry: "Entry", stop: "Stop" };
-export const PLAIN_CHART_WORDS: ChartWords = { ema20: "20-day avg", ema50: "50-day avg", vwap: "Month’s avg", target: "Target", entry: "Buy above", stop: "Exit" };
+export const TRADER_CHART_WORDS: ChartWords = { ema20: "EMA 20", ema50: "EMA 50", ema200: "EMA 200", vwap: "VWAP 20D", target: "Target", entry: "Entry", stop: "Stop" };
+export const PLAIN_CHART_WORDS: ChartWords = { ema20: "20-day avg", ema50: "50-day avg", ema200: "200-day avg", vwap: "Month’s avg", target: "Target", entry: "Buy above", stop: "Exit" };
 
 /** Round tick values covering [min, max], about `count` of them. */
 function niceTicks(min: number, max: number, count: number): number[] {
@@ -97,10 +111,12 @@ function spread<T extends { y: number; h: number }>(items: T[], top: number, bot
   return out;
 }
 
-export function CandleChart({ bars, name, overlays, compact = false, words = TRADER_CHART_WORDS }: {
+export function CandleChart({ bars, name, overlays, events = [], compact = false, words = TRADER_CHART_WORDS }: {
   bars: DailyBar[];
   name: string;
   overlays: ChartOverlays;
+  /** Sessions with an exchange filing; days outside the bars are ignored. */
+  events?: ChartEvent[];
   /** The phone chart (330 × 194). */
   compact?: boolean;
   words?: ChartWords;
@@ -124,7 +140,7 @@ export function CandleChart({ bars, name, overlays, compact = false, words = TRA
   if (levels?.entry != null) levelList.push({ key: "entry", label: words.entry, value: levels.entry, color: ENTRY });
   if (levels?.stop != null) levelList.push({ key: "stop", label: words.stop, value: levels.stop, color: DOWN });
 
-  const lineValues = [overlays.ema20, overlays.ema50, overlays.vwap20].flatMap((s) => (s ?? []).filter((v): v is number => v != null && Number.isFinite(v)));
+  const lineValues = [overlays.ema20, overlays.ema50, overlays.ema200, overlays.vwap20].flatMap((s) => (s ?? []).filter((v): v is number => v != null && Number.isFinite(v)));
   const lo = Math.min(...bars.map((b) => b.low), ...lineValues, ...levelList.map((l) => l.value));
   const hi = Math.max(...bars.map((b) => b.high), ...lineValues, ...levelList.map((l) => l.value));
   const room = (hi - lo || hi || 1) * 0.06;
@@ -167,6 +183,7 @@ export function CandleChart({ bars, name, overlays, compact = false, words = TRA
   };
 
   const shown = bars[active ?? n - 1];
+  const shownEvent = events.find((e) => e.day === shown.day) ?? null;
   const highest = Math.max(...bars.map((b) => b.high));
   const lowest = Math.min(...bars.map((b) => b.low));
   const gutterText = { fontFamily: "var(--mono)", fontSize: font } as const;
@@ -175,6 +192,7 @@ export function CandleChart({ bars, name, overlays, compact = false, words = TRA
     <div className="flex min-w-0 flex-col" style={{ gap: 6 }} data-testid="desk-chart">
       <span data-testid="desk-chart-readout" aria-live="polite" className="cp-num" style={{ fontSize: compact ? 10 : 10.5, color: "var(--cp-ink-3)", lineHeight: 1.5 }}>
         {fmtDay(shown.day)} · O {fmtPrice(shown.open)} · H {fmtPrice(shown.high)} · L {fmtPrice(shown.low)} · C {fmtPrice(shown.close)} · Vol {fmtShares(shown.volume)}
+        {shownEvent ? ` · ${shownEvent.count} ${shownEvent.count === 1 ? "filing" : "filings"}` : ""}
       </span>
       <svg
         data-testid="desk-chart-svg"
@@ -216,6 +234,7 @@ export function CandleChart({ bars, name, overlays, compact = false, words = TRA
 
         {/* overlays */}
         {overlays.vwap20 && <path data-testid="desk-line-vwap" d={seriesPath(overlays.vwap20, x, y)} fill="none" style={{ stroke: VWAP }} strokeWidth={1.3} strokeDasharray="4 3" />}
+        {overlays.ema200 && <path data-testid="desk-line-ema200" d={seriesPath(overlays.ema200, x, y)} fill="none" style={{ stroke: EMA200 }} strokeWidth={1.2} strokeDasharray="1 2" />}
         {overlays.ema50 && <path data-testid="desk-line-ema50" d={seriesPath(overlays.ema50, x, y)} fill="none" style={{ stroke: EMA50 }} strokeWidth={1.3} />}
         {overlays.ema20 && <path data-testid="desk-line-ema20" d={seriesPath(overlays.ema20, x, y)} fill="none" style={{ stroke: EMA20 }} strokeWidth={1.3} />}
 
@@ -244,6 +263,20 @@ export function CandleChart({ bars, name, overlays, compact = false, words = TRA
           </text>
         </g>
 
+        {/* filings: a small diamond at the foot of the price pane, under the session */}
+        {events.map((ev) => {
+          const i = bars.findIndex((b) => b.day === ev.day);
+          if (i < 0) return null;
+          const cx = x(i);
+          const cy = priceH - 5;
+          return (
+            <g key={`e-${ev.day}`} data-testid="desk-event-marker" data-day={ev.day} data-count={ev.count}>
+              <title>{ev.title}</title>
+              <path d={`M ${cx} ${cy - 4} L ${cx + 4} ${cy} L ${cx} ${cy + 4} L ${cx - 4} ${cy} Z`} style={{ fill: EVENT, stroke: "var(--bg-1)" }} strokeWidth={1} />
+            </g>
+          );
+        })}
+
         {/* cursor */}
         {active != null && <line x1={x(active)} y1={0} x2={x(active)} y2={H} style={{ stroke: "var(--line-3)" }} strokeWidth={1} />}
       </svg>
@@ -266,7 +299,9 @@ function LegendKey({ color, dash, children }: { color: string; dash?: string; ch
 const SPAN_WORDS: Record<string, string> = { "1M": "1 month", "3M": "3 months", "6M": "6 months" };
 
 /** The legend under the chart (only the overlays that are drawn), with the span on the right: "DAILY · 3 MONTHS". */
-export function CandleLegend({ ema, vwap, levels, words = TRADER_CHART_WORDS, span }: { ema: boolean; vwap: boolean; levels: boolean; words?: ChartWords; span: string }) {
+export function CandleLegend({ ema, ema200 = false, vwap, levels, events = 0, words = TRADER_CHART_WORDS, span }: {
+  ema: boolean; ema200?: boolean; vwap: boolean; levels: boolean; events?: number; words?: ChartWords; span: string;
+}) {
   return (
     <div
       data-testid="desk-chart-legend"
@@ -275,10 +310,17 @@ export function CandleLegend({ ema, vwap, levels, words = TRADER_CHART_WORDS, sp
     >
       {ema && <LegendKey color={EMA20}>{words.ema20}</LegendKey>}
       {ema && <LegendKey color={EMA50}>{words.ema50}</LegendKey>}
+      {ema200 && <LegendKey color={EMA200} dash="1 2">{words.ema200}</LegendKey>}
       {vwap && <LegendKey color={VWAP} dash="4 2">{words.vwap}</LegendKey>}
       {levels && <LegendKey color={UP} dash="3 3">{words.target}</LegendKey>}
       {levels && <LegendKey color={ENTRY} dash="3 3">{words.entry}</LegendKey>}
       {levels && <LegendKey color={DOWN} dash="3 3">{words.stop}</LegendKey>}
+      {events > 0 && (
+        <span data-testid="desk-chart-legend-events" className="inline-flex items-center" style={{ gap: 6 }}>
+          <svg width={10} height={10} aria-hidden><path d="M 5 1 L 9 5 L 5 9 L 1 5 Z" style={{ fill: EVENT }} /></svg>
+          Filing
+        </span>
+      )}
       <span data-testid="desk-chart-span" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>Daily · {SPAN_WORDS[span] ?? span}</span>
     </div>
   );

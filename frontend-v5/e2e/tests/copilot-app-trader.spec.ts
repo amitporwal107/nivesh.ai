@@ -303,7 +303,8 @@ test.describe("Trader desk — broker block", () => {
     await expect(zerodha.getByTestId("trader-positions-account-error")).toContainText("Open positions cannot be read live from this Zerodha connection.");
     await expect(zerodha.getByTestId("broker-position-row")).toHaveCount(0);
     // What is still not read from a broker is named.
-    await expect(page.getByTestId("trader-positions-not-connected")).toContainText("Broker funds and day P&L are not read yet");
+    // Cash is now read (GET /api/broker/funds); day P&L and a stop or target per position still are not.
+    await expect(page.getByTestId("trader-positions-not-connected")).toContainText("Day P&L and a stop or target per position are not read");
     await expect(page.getByTestId("trader-broker-none")).toHaveCount(0);
     expect(calls.live.length).toBe(1);
 

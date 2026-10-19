@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""check_desk_alerts.py — the evening check of every user's desk paper trades and price alerts.
+"""check_desk_alerts.py — the evening check of every user's desk paper trades and alerts.
 
-Applies the same end-of-day rules as GET /api/desk/paper-trades and GET /api/desk/alerts
-(services/desk_trading.py) to ALL users, so a stop, a target or an alert is recorded even when nobody
+Applies the same rules as GET /api/desk/paper-trades and GET /api/desk/alerts (services/desk_trading.py,
+services/desk_alerts.py) to ALL users, so a stop, a target or an alert is recorded even when nobody
 opens the desk: open paper trades whose bars show the stop or the target are closed at that level, and
-active alerts whose level was reached are marked fired. Notification is in-app only (the alerts list).
+active alerts whose condition was met (price, a new filing, a category, unusual volume, a scanner entry, a
+sector move, a risk level) are marked fired with the reason. Notification is in-app only (the alerts list).
 Nothing here places an order or talks to a broker.
 
 Idempotent: each write has the trade's / alert's current status in its filter, so a second run (or a GET
@@ -41,6 +42,7 @@ log = logging.getLogger("check_desk_alerts")
 async def run(db=None, *, dry_run: bool = False) -> Dict[str, Any]:
     """Check every open paper trade and active alert. Returns the counts that are logged; `ok` is False
     only when there was something to check and no prices could be read for any of it."""
+    from services import desk_alerts as alerts_svc  # noqa: E402
     from services import desk_trading as svc  # noqa: E402
 
     if db is None:
@@ -51,14 +53,16 @@ async def run(db=None, *, dry_run: bool = False) -> Dict[str, Any]:
     trades = await db[svc.TRADES].find({"status": "open"}).to_list(None)
     alerts = await db[svc.ALERTS].find({"status": "active"}).to_list(None)
 
+    # One bar read per symbol for the trades and every bar-based alert (price, volume, risk), from the earliest
+    # day any of them needs.
     starts = svc.fetch_starts(trades, "opened_at")
-    for symbol, start in svc.fetch_starts(alerts, "created_at").items():
+    for symbol, start in alerts_svc.bar_starts(alerts).items():
         if symbol not in starts or start < starts[symbol]:
             starts[symbol] = start
     bars, errors = await svc.fetch_bars_many(starts) if starts else ({}, {})
 
     _, trade_counts = await svc.apply_trade_exits(db, trades, bars, persist=not dry_run)
-    _, alert_counts = await svc.apply_alert_fires(db, alerts, bars, persist=not dry_run)
+    _, alert_counts = await alerts_svc.evaluate(db, alerts, bars, persist=not dry_run)
 
     no_prices = sorted(s for s, b in bars.items() if svc.last_close(b) is None)
     latest = svc.latest_day(b["date"] for b in (svc.last_close(v) for v in bars.values()) if b)
@@ -74,7 +78,9 @@ async def run(db=None, *, dry_run: bool = False) -> Dict[str, Any]:
         "exits_target": trade_counts["target"],
         "exits_already_recorded": trade_counts["already_closed"],
         "alerts_fired": alert_counts["fired"],
+        "alerts_fired_by_condition": dict(alert_counts["by_condition"]),
         "alerts_already_recorded": alert_counts["already_fired"],
+        "alerts_not_checked": len(alert_counts["check_errors"]),
         "latest_session": latest.isoformat() if latest else None,
     }
     out["ok"] = not starts or len(errors) < len(starts)
@@ -104,6 +110,8 @@ def main() -> int:
         log.warning("no prices could be read for: %s", ", ".join(result["symbols_failed"]))
     if result["symbols_without_prices"]:
         log.warning("the data platform has no end-of-day prices for: %s", ", ".join(result["symbols_without_prices"]))
+    if result["alerts_not_checked"]:
+        log.warning("%d alert(s) were not checked: a source could not be read", result["alerts_not_checked"])
     if not result["ok"]:
         log.error("no symbol's prices could be read; nothing was checked")
         return 1

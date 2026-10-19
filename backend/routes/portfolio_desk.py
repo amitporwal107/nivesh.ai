@@ -1,7 +1,10 @@
-"""Smart trading desk — portfolio reads: holdings correlation and the large/mid/small-cap split.
+"""Smart trading desk — portfolio reads: holdings correlation, the large/mid/small-cap split and holding risk.
 
     GET /api/portfolio/correlation?sessions=120&limit=10   → DaaS /prices/adjusted/{symbol}, one read per stock held
     GET /api/portfolio/market-cap-split                    → DaaS /indices/{index}/constituents
+    GET /api/portfolio/holding-risk?sessions=250           → DaaS /prices/adjusted/{symbol}, one read per stock held:
+        liquidity and the days to sell each position, overnight gaps, and today's stocks held together over the
+        window (drawdown, 1-month volatility), each level with its rule (`rules`) — PRD §8.4, backend addition B15
 
 Holdings are the signed-in user's, read exactly as GET /api/portfolio/holdings-enriched reads them
 (services.portfolio_enrichment.build_enriched_portfolio, same 5-minute cache): value = quantity × current price,
@@ -68,6 +71,47 @@ CAP_SOURCE = ("Holdings and values as in /api/portfolio/holdings-enriched; index
               "nidp.index_constituents (NSE index lists) via DaaS")
 FUNDS_NOTE = "Mutual funds, ETFs and other non-stock holdings are not split by market cap"
 
+# ── holding risk (B15) ───────────────────────────────────────────────────
+# Every rule the levels use, in one place, returned with the answer so the screen shows the rule beside the level.
+ADV_SESSIONS = 20
+SHORT_VOL_SESSIONS = 21
+TRADING_DAYS = 252
+LIQUIDITY_RULE = {
+    "min_adv_cr": 10.0,           # the desk's liquidity threshold (scanner "Liquid only": ₹10 Cr a day)
+    "adv_sessions": ADV_SESSIONS,
+    "participation_pct": 10.0,    # a position is sold at no more than this share of the average daily volume
+    "days_low": 1.0,
+    "days_high": 5.0,
+    "text": ("Average traded value (close × volume) over the last 20 sessions, and the days to sell the position at "
+             "10% of the average daily volume. High: a holding needs more than 5 days. Medium: a holding needs more "
+             "than 1 day, or trades under ₹10 Cr a day. Low: otherwise."),
+}
+GAP_RULE = {
+    "gap_pct": 2.0,
+    "low_below_pct": 5.0,
+    "high_above_pct": 15.0,
+    "text": ("An overnight gap is a session that opened 2% or more away from the previous close (split-adjusted). "
+             "Rate = the share of sessions with one, value-weighted over the stocks. Low under 5%, medium 5–15%, "
+             "high above 15%."),
+}
+VOL_RULE = {
+    "bands_pct": [10.0, 18.0, 28.0],
+    "sessions": SHORT_VOL_SESSIONS,
+    "text": ("Annualised standard deviation of the daily returns of today's stocks held together over the last 21 "
+             "sessions. Low under 10%, medium under 18%, high under 28%, very high above (the bands of the overall "
+             "risk rating)."),
+}
+DRAWDOWN_RULE = {
+    "low_above_pct": -10.0,
+    "high_below_pct": -20.0,
+    "text": ("The largest fall from a peak in the value of today's stocks held together over the window "
+             "(split-adjusted closes, today's quantities). Low above −10%, medium −10% to −20%, high below −20%."),
+}
+HOLDING_RISK_METHOD = ("Per stock held: split-adjusted daily bars (nidp.prices_eod_adjusted via DaaS). Today's stocks "
+                       "held together: today's value of each stock carried back on its adjusted closes, on the dates "
+                       "every included stock has a close. A stock whose last bar is older than the newest is left "
+                       "out of the series and listed as stale; nothing is filled in.")
+
 
 # ── holdings (shared) ────────────────────────────────────────────────────
 async def _holdings(user_id: str) -> List[Dict[str, Any]]:
@@ -108,15 +152,16 @@ def split_holdings(holdings: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]]
         sym = str(h.get("nse_symbol") or "").strip().upper() or None
         isin = str(h.get("isin") or "").strip().upper() or None
         key = sym or isin or f"id:{h.get('holding_id')}"
-        value, weight = _num(h.get("value_rs")), _num(h.get("weight_pct"))
+        value, weight, qty = _num(h.get("value_rs")), _num(h.get("weight_pct")), _num(h.get("quantity"))
         p = positions.get(key)
         if p is None:
             positions[key] = {"symbol": sym, "isin": isin, "name": h.get("name"),
-                              "value_rs": value, "weight_pct": weight}
+                              "value_rs": value, "weight_pct": weight, "quantity": qty}
             continue
         p["isin"] = p["isin"] or isin
         p["value_rs"] = None if p["value_rs"] is None or value is None else p["value_rs"] + value
         p["weight_pct"] = None if p["weight_pct"] is None or weight is None else p["weight_pct"] + weight
+        p["quantity"] = None if p["quantity"] is None or qty is None else p["quantity"] + qty
     return list(positions.values()), others
 
 
@@ -249,6 +294,103 @@ def split_by_cap(stocks: List[Dict[str, Any]], lists: Dict[str, Optional[Dict[st
     return {"total_value_rs": round(total, 2), "available": not missing, "buckets": buckets, "unsplit": unsplit}
 
 
+# ── holding-risk maths (pure) ────────────────────────────────────────────
+def gap_stats(opens: Dict[str, float], closes: Dict[str, float], calendar: List[str], gap_pct: float) -> Dict[str, Any]:
+    """Overnight gaps of one stock: open on a calendar session vs. the close on the calendar session before it (both
+    must exist). {sessions, gap_sessions, rate_pct, largest_down_pct, largest_down_date, largest_up_pct}."""
+    gaps: List[Tuple[str, float]] = []
+    for prev, day in zip(calendar, calendar[1:]):
+        c, o = closes.get(prev), opens.get(day)
+        if c is not None and o is not None and c > 0 and o > 0:
+            gaps.append((day, (o / c - 1) * 100))
+    big = [g for g in gaps if abs(g[1]) >= gap_pct - 1e-9]
+    down = min(gaps, key=lambda g: g[1]) if gaps else None
+    up = max(gaps, key=lambda g: g[1]) if gaps else None
+    return {
+        "sessions": len(gaps),
+        "gap_sessions": len(big),
+        "rate_pct": round(len(big) / len(gaps) * 100, 1) if gaps else None,
+        "largest_down_pct": round(down[1], 2) if down and down[1] < 0 else (0.0 if down else None),
+        "largest_down_date": down[0] if down and down[1] < 0 else None,
+        "largest_up_pct": round(up[1], 2) if up and up[1] > 0 else (0.0 if up else None),
+    }
+
+
+def liquidity_of(rows: List[Dict[str, Any]], quantity: Optional[float]) -> Dict[str, Any]:
+    """Liquidity of one position from its newest ADV_SESSIONS bars (raw close × raw volume)."""
+    pairs = [(_num(r.get("raw_close")), _num(r.get("raw_volume"))) for r in rows[:ADV_SESSIONS]]
+    pairs = [(c, v) for c, v in pairs if c is not None and v is not None and c > 0 and v >= 0]
+    if not pairs:
+        return {"adv_rs": None, "adv_cr": None, "avg_volume": None, "days_to_exit": None, "below_threshold": None,
+                "level": None, "sessions": 0}
+    adv = sum(c * v for c, v in pairs) / len(pairs)
+    avg_vol = sum(v for _, v in pairs) / len(pairs)
+    rule = LIQUIDITY_RULE
+    days = (quantity / (avg_vol * rule["participation_pct"] / 100)) if quantity and avg_vol > 0 else None
+    below = adv / 1e7 < rule["min_adv_cr"]
+    if days is not None and days > rule["days_high"]:
+        level = "high"
+    elif (days is not None and days > rule["days_low"]) or below:
+        level = "medium"
+    else:
+        level = "low" if days is not None else ("medium" if below else None)
+    return {"adv_rs": round(adv, 2), "adv_cr": round(adv / 1e7, 2), "avg_volume": round(avg_vol, 2),
+            "days_to_exit": round(days, 2) if days is not None else None, "below_threshold": below, "level": level,
+            "sessions": len(pairs)}
+
+
+def value_series(closes: Dict[str, Dict[str, float]], values: Dict[str, float], calendar: List[str]) -> Tuple[List[str], List[float]]:
+    """Today's value of each stock carried back on its adjusted closes (shares = value ÷ latest adjusted close), summed
+    on the calendar dates where every stock has a close."""
+    shares = {}
+    for sym, series in closes.items():
+        last = series.get(max(series)) if series else None
+        if last and values.get(sym):
+            shares[sym] = values[sym] / last
+    dates = [d for d in calendar if shares and all(d in closes[s] for s in shares)]
+    return dates, [sum(shares[s] * closes[s][d] for s in shares) for d in dates]
+
+
+def drawdown_of(values: List[float], dates: List[str]) -> Dict[str, Any]:
+    """Largest fall from a running peak, percent (≤ 0), its peak and trough dates, and the fall from the peak now."""
+    if not values:
+        return {"max_pct": None, "peak_date": None, "trough_date": None, "current_pct": None}
+    peak_i, best, best_peak, best_trough = 0, 0.0, None, None
+    for i, v in enumerate(values):
+        if v > values[peak_i]:
+            peak_i = i
+        dd = v / values[peak_i] - 1
+        if dd < best:
+            best, best_peak, best_trough = dd, dates[peak_i], dates[i]
+    top = max(values)
+    return {"max_pct": round(best * 100, 2), "peak_date": best_peak, "trough_date": best_trough,
+            "current_pct": round((values[-1] / top - 1) * 100, 2)}
+
+
+def annualised_vol(values: List[float], last: int) -> Optional[float]:
+    """Annualised standard deviation of the last `last` daily log returns, percent; None under 2 returns."""
+    rets = [math.log(b / a) for a, b in zip(values, values[1:]) if a > 0 and b > 0][-last:]
+    if len(rets) < 2:
+        return None
+    m = sum(rets) / len(rets)
+    sd = math.sqrt(sum((r - m) ** 2 for r in rets) / (len(rets) - 1))
+    return round(sd * math.sqrt(TRADING_DAYS) * 100, 2)
+
+
+def level_for(kind: str, value: Optional[float]) -> Optional[str]:
+    """The level a figure sits at under its rule (GAP_RULE, VOL_RULE, DRAWDOWN_RULE); None without a figure."""
+    if value is None:
+        return None
+    if kind == "gap":
+        return "low" if value < GAP_RULE["low_below_pct"] else "high" if value > GAP_RULE["high_above_pct"] else "medium"
+    if kind == "volatility":
+        a, b, c = VOL_RULE["bands_pct"]
+        return "low" if value < a else "medium" if value < b else "high" if value < c else "very_high"
+    if kind == "drawdown":
+        return "low" if value > DRAWDOWN_RULE["low_above_pct"] else "high" if value < DRAWDOWN_RULE["high_below_pct"] else "medium"
+    raise ValueError(kind)
+
+
 # ── DaaS reads ───────────────────────────────────────────────────────────
 def _closes_from_rows(rows: List[Any]) -> Dict[str, float]:
     """{date: adj_close} from DaaS /prices/adjusted rows (newest first); a row without a usable close is dropped."""
@@ -262,26 +404,33 @@ def _closes_from_rows(rows: List[Any]) -> Dict[str, float]:
     return out
 
 
-async def _adjusted_closes(symbols: List[str], bars: int) -> Tuple[Dict[str, Dict[str, float]], List[str]]:
-    """(symbol → {date: adjusted close}, symbols whose read failed). At most PRICE_READS_AT_ONCE reads in flight."""
+async def _adjusted_rows(symbols: List[str], bars: int) -> Tuple[Dict[str, List[Dict[str, Any]]], List[str]]:
+    """(symbol → DaaS /prices/adjusted rows, newest first; symbols whose read failed). At most PRICE_READS_AT_ONCE
+    reads in flight."""
     gate = asyncio.Semaphore(PRICE_READS_AT_ONCE)
 
-    async def one(sym: str) -> Tuple[str, Optional[Dict[str, float]]]:
+    async def one(sym: str) -> Tuple[str, Optional[List[Dict[str, Any]]]]:
         async with gate:
             try:
                 status, body = await daas_client.get_raw(
                     f"/prices/adjusted/{urllib.parse.quote(sym, safe='')}", {"limit": bars})
             except daas_client.DaasError as e:
-                logger.warning("portfolio correlation: DaaS prices %s failed: %s", sym, e)
+                logger.warning("portfolio desk: DaaS prices %s failed: %s", sym, e)
                 return sym, None
         rows = body.get("data") if status == 200 and isinstance(body, dict) else None
         if not isinstance(rows, list):
-            logger.warning("portfolio correlation: DaaS prices %s answered HTTP %s", sym, status)
+            logger.warning("portfolio desk: DaaS prices %s answered HTTP %s", sym, status)
             return sym, None
-        return sym, _closes_from_rows(rows)
+        return sym, [r for r in rows if isinstance(r, dict)]
 
     results = await asyncio.gather(*(one(s) for s in symbols))
-    return ({s: c for s, c in results if c is not None}, [s for s, c in results if c is None])
+    return ({s: r for s, r in results if r is not None}, [s for s, r in results if r is None])
+
+
+async def _adjusted_closes(symbols: List[str], bars: int) -> Tuple[Dict[str, Dict[str, float]], List[str]]:
+    """(symbol → {date: adjusted close}, symbols whose read failed)."""
+    rows, failed = await _adjusted_rows(symbols, bars)
+    return {s: _closes_from_rows(r) for s, r in rows.items()}, failed
 
 
 async def _constituents(index_name: str) -> Tuple[Optional[str], List[Dict[str, Any]]]:
@@ -385,4 +534,128 @@ async def market_cap_split(request: Request) -> Dict[str, Any]:
         "indices": indices,
         "excluded": {"funds_value_rs": round(sum(_num(h.get("value_rs")) or 0.0 for h in others), 2),
                      "holdings": len(others), "note": FUNDS_NOTE},
+    }
+
+
+@router.get("/holding-risk")
+async def holding_risk(request: Request, sessions: int = Query(250, ge=60, le=250)) -> Dict[str, Any]:
+    """Liquidity, gap risk, volatility and drawdown of the user's direct stocks (PRD §8.4, B15), with the rules."""
+    user = await get_current_user(request)
+    stocks, _ = split_holdings(await _holdings(user["user_id"]))
+    no_symbol = [_label(p) for p in stocks if not p["symbol"] or not SYMBOL_RE.match(p["symbol"])]
+    by_symbol = {p["symbol"]: p for p in stocks if p["symbol"] and SYMBOL_RE.match(p["symbol"])}
+
+    rows_by: Dict[str, List[Dict[str, Any]]] = {}
+    failed: List[str] = []
+    if by_symbol:
+        if not daas_client.is_configured():
+            raise HTTPException(status_code=502, detail=UNAVAILABLE)
+        rows_by, failed = await _adjusted_rows(sorted(by_symbol), sessions + 1)
+        if failed and not rows_by:
+            raise HTTPException(status_code=502, detail=UNAVAILABLE)
+
+    closes = {s: _closes_from_rows(r) for s, r in rows_by.items()}
+    opens: Dict[str, Dict[str, float]] = {}
+    for s, rows in rows_by.items():
+        o: Dict[str, float] = {}
+        for r in rows:
+            d, v = str(r.get("as_of_date") or "")[:10], _num(r.get("adj_open"))
+            if len(d) == 10 and v is not None and v > 0 and d not in o:
+                o[d] = v
+        opens[s] = o
+    calendar = session_calendar(closes, sessions)
+    latest = calendar[-1] if calendar else None
+    no_prices = sorted(s for s in rows_by if not closes[s]) + sorted(failed)
+
+    holdings: List[Dict[str, Any]] = []
+    for sym in sorted(by_symbol):
+        p = by_symbol[sym]
+        rows = rows_by.get(sym) or []
+        last = max(closes[sym]) if closes.get(sym) else None
+        raw_last = next((_num(r.get("raw_close")) for r in rows if _num(r.get("raw_close"))), None)
+        qty = p["quantity"] if p.get("quantity") else ((p["value_rs"] / raw_last) if p.get("value_rs") and raw_last else None)
+        liq = liquidity_of(rows, qty)
+        gaps = gap_stats(opens.get(sym, {}), closes.get(sym, {}), calendar, GAP_RULE["gap_pct"])
+        own = sorted(closes.get(sym, {}))
+        holdings.append({
+            "symbol": sym, "isin": p.get("isin"), "name": p.get("name"),
+            "value_rs": round(p["value_rs"], 2) if p.get("value_rs") is not None else None,
+            "weight_pct": round(p["weight_pct"], 2) if p.get("weight_pct") is not None else None,
+            "quantity": round(qty, 4) if qty is not None else None,
+            "last_session": last, "stale": bool(last and latest and last < latest), "bars": len(own),
+            "adv_rs": liq["adv_rs"], "adv_cr": liq["adv_cr"], "avg_volume": liq["avg_volume"],
+            "days_to_exit": liq["days_to_exit"], "below_threshold": liq["below_threshold"], "liquidity_level": liq["level"],
+            "gap_sessions": gaps["gap_sessions"], "gap_rate_pct": gaps["rate_pct"],
+            "largest_gap_down_pct": gaps["largest_down_pct"], "largest_gap_down_date": gaps["largest_down_date"],
+            "largest_gap_up_pct": gaps["largest_up_pct"],
+            "volatility_1m_pct": annualised_vol([closes[sym][d] for d in own], SHORT_VOL_SESSIONS) if own else None,
+            "drawdown_pct": drawdown_of([closes[sym][d] for d in own], own)["max_pct"] if own else None,
+        })
+
+    priced = [h for h in holdings if h["last_session"] and h["value_rs"]]
+    priced_value = sum(h["value_rs"] for h in priced)
+    stock_value = sum(p["value_rs"] or 0.0 for p in stocks)
+
+    # Liquidity: the worst holding decides; the share of value under the ₹10 Cr threshold says how much.
+    liq_rows = [h for h in priced if h["liquidity_level"]]
+    order = {"low": 0, "medium": 1, "high": 2}
+    liq_level = max((h["liquidity_level"] for h in liq_rows), key=order.get) if liq_rows else None
+    slow = max((h for h in liq_rows if h["days_to_exit"] is not None), key=lambda h: h["days_to_exit"], default=None)
+    below_value = sum(h["value_rs"] for h in liq_rows if h["below_threshold"])
+    # Gaps: value-weighted rate over the stocks with gap observations.
+    gap_rows = [h for h in priced if h["gap_rate_pct"] is not None]
+    gap_value = sum(h["value_rs"] for h in gap_rows)
+    gap_rate = round(sum(h["gap_rate_pct"] * h["value_rs"] for h in gap_rows) / gap_value, 1) if gap_value > 0 else None
+    worst_gap = min((h for h in gap_rows if h["largest_gap_down_pct"] is not None), key=lambda h: h["largest_gap_down_pct"], default=None)
+
+    # Today's stocks held together: current (not stale) stocks with at least MIN_SESSIONS closes in the window.
+    excluded: List[Dict[str, str]] = []
+    series_closes: Dict[str, Dict[str, float]] = {}
+    window = set(calendar)
+    for h in priced:
+        sym = h["symbol"]
+        in_window = {d: c for d, c in closes[sym].items() if d in window}
+        if h["stale"]:
+            excluded.append({"symbol": sym, "reason": f"price is stale (last {h['last_session']})"})
+        elif len(in_window) < MIN_SESSIONS:
+            excluded.append({"symbol": sym, "reason": f"fewer than {MIN_SESSIONS} sessions of prices"})
+        else:
+            series_closes[sym] = in_window
+    dates, values = value_series(series_closes, {s: by_symbol[s]["value_rs"] or 0.0 for s in series_closes}, calendar)
+    if len(dates) < MIN_SESSIONS:
+        dates, values = [], []
+    dd = drawdown_of(values, dates)
+    vol = annualised_vol(values, SHORT_VOL_SESSIONS) if values else None
+    series_value = sum(by_symbol[s]["value_rs"] or 0.0 for s in series_closes) if values else 0.0
+
+    return {
+        "as_of": latest,
+        "sessions": sessions,
+        "method": HOLDING_RISK_METHOD,
+        "source": CORR_SOURCE,
+        "rules": {"liquidity": LIQUIDITY_RULE, "gap": GAP_RULE, "volatility": VOL_RULE, "drawdown": DRAWDOWN_RULE},
+        "holdings": holdings,
+        "portfolio": {
+            "liquidity": {
+                "level": liq_level,
+                "below_threshold_value_pct": round(below_value / priced_value * 100, 1) if liq_rows and priced_value > 0 else None,
+                "slowest": {"symbol": slow["symbol"], "days_to_exit": slow["days_to_exit"]} if slow else None,
+            },
+            "gap": {
+                "level": level_for("gap", gap_rate), "rate_pct": gap_rate,
+                "largest": ({"symbol": worst_gap["symbol"], "pct": worst_gap["largest_gap_down_pct"],
+                             "date": worst_gap["largest_gap_down_date"]} if worst_gap else None),
+            },
+            "volatility_1m": {"pct": vol, "level": level_for("volatility", vol)},
+            "drawdown": {**dd, "level": level_for("drawdown", dd["max_pct"]), "sessions": len(dates)},
+            "series": {
+                "symbols": sorted(series_closes) if values else [],
+                "excluded": excluded,
+                "start": dates[0] if dates else None, "end": dates[-1] if dates else None,
+                "coverage_pct": round(series_value / stock_value * 100, 1) if values and stock_value > 0 else None,
+            },
+        },
+        "missing": {"no_symbol": no_symbol, "no_prices": no_prices,
+                    "stale": [{"symbol": h["symbol"], "last_session": h["last_session"]} for h in holdings if h["stale"]],
+                    "latest_session": latest},
     }

@@ -135,9 +135,13 @@ export default function CopilotAppPage() {
   // Screens that dock their own Copilot panel from 1400px; the shell's ask box
   // would be a second input for the same thing, so it is hidden there. Below
   // 1400px the trading desk shows its Copilot full height under More · AI
-  // Copilot (?tab=more), and the ask box is hidden on that view too.
+  // Copilot (?tab=more), and the ask box is hidden on that view too. On a
+  // phone the desk has a bottom navigation bar and its ask box lives in More ·
+  // AI Copilot (desk PRD §3.1; the user's decision of 2026-10-14), so the
+  // shell's ask box is hidden on every desk view there: never two ask boxes.
   const deskCopilotView = !wide && view === "trader/desk" && new URLSearchParams(location.search).get("tab") === "more";
-  const ownAskBox = (wide && DOCKED_ASK_VIEWS.has(view)) || deskCopilotView;
+  const deskPhoneView = mobile && view === "trader/desk";
+  const ownAskBox = (wide && DOCKED_ASK_VIEWS.has(view)) || deskCopilotView || deskPhoneView;
 
   // Thread bar: label and question of the latest turn.
   const { turns } = useThreadTurns(threadId, engine);

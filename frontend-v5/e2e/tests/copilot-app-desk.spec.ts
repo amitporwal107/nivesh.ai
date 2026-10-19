@@ -7,18 +7,22 @@
  * copied from the screen. Mocked APIs, production build — see
  * pw.copilot-app.config.ts.
  *
- * Covers screens/TradingDesk.tsx, screens/tradingdesk/CopilotDock.tsx and the
- * design-fidelity pass on the Overview (OverviewTab.tsx): the Trader rail
- * entry; the desk header (search, TRADER / INVESTOR switch, market status);
- * the tab row in the PRD's order (Overview · AI Scanner · Market Intelligence
- * · Chart Analysis · Portfolio & Risk · More) and its URL (?tab=&sym=&persona=);
- * More's destinations (the lab under More, so ?tab=fno still opens it); the
- * docked Copilot from 1400px (384px card, asked in the desk's persona, its own
- * thread); More · AI Copilot below that and on a phone (the shell's ask box
- * hidden there); the disclaimer footer; the Overview's headline, index row,
- * pulse and sector card against design §3; the phone's M1 Overview and M6
- * More · AI Copilot; a failed answer; and 390px passes. Each tab's own blocks
- * are covered by copilot-app-desk-*.spec.ts.
+ * Covers screens/TradingDesk.tsx, screens/tradingdesk/CopilotDock.tsx,
+ * screens/tradingdesk/BottomBar.tsx and the Overview frame (OverviewTab.tsx):
+ * the Trader rail entry; the desk header (search, TRADER / INVESTOR switch,
+ * market status from GET /api/markets/home's holiday-aware `session`); the tab
+ * row in the PRD's order (Overview · AI Scanner · Market Intelligence · Chart
+ * Analysis · Portfolio & Risk · More) and its URL (?tab=&sym=&persona=); More's
+ * destinations (the lab under More, so ?tab=fno still opens it) and the
+ * "Learning and methodology" gap line; the docked Copilot from 1400px (384px
+ * card, asked in the desk's persona with surface "trading_desk", its own
+ * thread); More · AI Copilot below that; on a phone the bottom navigation bar
+ * (PRD §3.1, §3.3: Overview · Scanner · Intel · Chart · Portfolio · More, fixed,
+ * keyboard reachable, aria labels) with the app's ask box only in More · AI
+ * Copilot, never twice; the disclaimer footer; the Overview's headline, index
+ * row, five-regime pulse and sector card; the phone's M1 Overview; a failed
+ * answer; and 390px passes. Each tab's own blocks are covered by
+ * copilot-app-desk-*.spec.ts.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
@@ -30,6 +34,9 @@ const TABS = ["overview", "scanner", "intel", "chart", "portfolio", "more"];
 const LABELS = ["Overview", "AI Scanner", "Market Intelligence", "Chart Analysis", "Portfolio & Risk", "More"];
 // The phone's chips (design §11): the same order, shorter names, no numbers.
 const MOBILE_LABELS = ["Overview", "AI Scanner", "Market Intel", "Chart Analysis", "Portfolio & Risk", "More"];
+// The phone's bottom bar (PRD §3.1 / §3.3, the user's decision of 2026-10-14): same order, short names.
+const BOTTOM = ["overview", "scanner", "intel", "chart", "portfolio", "more"];
+const BOTTOM_LABELS = ["Overview", "Scanner", "Intel", "Chart", "Portfolio", "More"];
 const MORE_ITEMS = ["copilot", "fno", "watchlist", "saved", "paper", "settings"];
 const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
 
@@ -54,7 +61,7 @@ const FRAMES: Frame[] = [
   { type: "done", content: ANSWER, follow_ups: [] },
 ];
 
-interface ChatMock { streams: Array<{ message: string; session_id?: string; persona?: string }>; created: number }
+interface ChatMock { streams: Array<{ message: string; session_id?: string; persona?: string; surface?: string }>; created: number }
 
 /**
  * Chat routes, stateful like the real backend: a stream saves the question and the answer to that
@@ -77,7 +84,7 @@ async function mockChat(page: Page, opts: { streamStatus?: number } = {}): Promi
   await page.route("**/api/chat/messages*", (route) => json(route, messages[new URL(route.request().url()).searchParams.get("session_id") ?? ""] ?? []));
   await page.route("**/api/chat/suggest-queries*", (route) => json(route, { suggestions: [] }));
   await page.route("**/api/chat/stream", (route) => {
-    const body = route.request().postDataJSON() as { message: string; session_id?: string; persona?: string };
+    const body = route.request().postDataJSON() as { message: string; session_id?: string; persona?: string; surface?: string };
     state.streams.push(body);
     if (opts.streamStatus) return json(route, { detail: "fixture failure" }, opts.streamStatus);
     const sid = body.session_id ?? "desk1";
@@ -130,11 +137,30 @@ const HOME = {
   global_indices: { us: [], europe: [], asia: [] },
   commodities: [],
 };
-// backend/routes/macro.py :: macro_today.
+// backend/routes/macro.py :: macro_today, with `regime` from services/macro_engine.py :: classify_desk_regime.
+// Nifty 25,100 vs its 50-day average 25,000 (up), India VIX 12.4 (< 20), breadth 2,428 up / 1,142 down = 68.0% (≥ 52%: up) → bullish.
+const RULE = { version: "desk-regime-v1", vix_high: 20.0, trend_average_sessions: 50, breadth_up_pct: 52.0, breadth_down_pct: 48.0 };
 const MACRO = {
   date: "2026-10-13", market_open_today: false, is_holiday_view: true, days_stale: 1, market: "BULL", inflation: "STABLE", liquidity: "EASY",
   risk: "LOW", multiplier: 1.1, insight: "Fixture insight: the trend is intact and risk gauges are quiet.", values: {}, features: {}, sources: {},
+  regime: {
+    key: "bullish", label: "Bullish", date: "2026-10-13", rule: RULE,
+    inputs: { nifty_close: 25100.0, nifty_average: 25000.0, nifty_vs_average_pct: 0.4, trend: "up", india_vix: 12.4, volatility_high: false,
+      advances: 2428, declines: 1142, unchanged: 72, breadth_universe: 3642, advancing_share_pct: 68.0, breadth: "up", breadth_date: "2026-10-13",
+      breadth_source: "stock_ohlcv end-of-day bars (NSE bhavcopy)" },
+    skipped: [],
+    invalidation: [
+      { input: "nifty_close", condition: "below", level: 25000.0, then: "mixed" },
+      { input: "india_vix", condition: "at_or_above", level: 20.0, then: "high_volatility" },
+      { input: "advancing_share_pct", condition: "at_or_below", level: 48.0, then: "mixed" },
+    ],
+    reason: null,
+  },
 };
+// routes/markets.py :: session_state — an NSE holiday (2026-10-20, Dussehra), a normal open session, and an unread calendar.
+const SESSION_HOLIDAY = { date: "2026-10-20", state: "closed", trading_day: false, reason: "holiday", holiday: "Dussehra", hours: "09:15–15:30 IST", calendar: "ok", calendar_source: "NSE trading holidays (nidp.nse_holidays, segment CM)" };
+const SESSION_OPEN = { ...SESSION_HOLIDAY, date: "2026-10-14", state: "open", trading_day: true, reason: "in_hours", holiday: null };
+const SESSION_UNREAD = { ...SESSION_OPEN, trading_day: null, calendar: "unavailable" };
 // backend/routes/markets_desk.py :: sector_returns.
 const SECTORS = {
   as_of: "2026-10-13", source: "NSE index close (nidp.index_eod)", sessions: { "1d": 1, "1w": 5, "1m": 21 },
@@ -182,7 +208,7 @@ function breadthLead(persona: "trader" | "investor", share: number, dayIso: stri
   return `Breadth was ${BAND_WORD[band(share)]}${on}${topSector ? ` and ${topSector} led` : ""}.`;
 }
 const shareOf = (b: { advances: number; declines: number; unchanged: number }) => (b.advances / (b.advances + b.declines + b.unchanged)) * 100;
-const STATUS_TEXT = /^(NSE hours|Market closed) · \d{2}:\d{2} IST$/;
+const STATUS_TEXT = /^(NSE hours|Market open|Market closed) · \d{2}:\d{2} IST$/;
 
 async function overflow(page: Page) {
   return page.evaluate(() => {
@@ -326,7 +352,8 @@ test.describe("Smart trading desk — shell", () => {
     const q = "What are the key market risks this week?";
     await page.getByTestId("dock-chips").getByRole("button", { name: q }).click();
     await expect.poll(() => chat.streams.length).toBe(1);
-    expect(chat.streams[0]).toMatchObject({ message: q, session_id: "desk1", persona: "trader" });
+    // The desk's own surface: the server adds the PRD §9.4 answer structure for it (backend persona_framing.py).
+    expect(chat.streams[0]).toMatchObject({ message: q, session_id: "desk1", persona: "trader", surface: "trading_desk" });
 
     await expect(dock.getByTestId("dock-question")).toHaveText(q);
     await expect(dock.getByTestId("dock-answer")).toHaveText(ANSWER);
@@ -340,7 +367,7 @@ test.describe("Smart trading desk — shell", () => {
     await page.getByTestId("dock-input").fill("And for banks?");
     await page.getByTestId("dock-send").click();
     await expect.poll(() => chat.streams.length).toBe(2);
-    expect(chat.streams[1]).toMatchObject({ message: "And for banks?", session_id: "desk1", persona: "investor" });
+    expect(chat.streams[1]).toMatchObject({ message: "And for banks?", session_id: "desk1", persona: "investor", surface: "trading_desk" });
     await expect(dock.getByTestId("dock-turn")).toHaveCount(2);
     expect(chat.created).toBe(1);
     await page.getByTestId("desk-persona-trader").click();
@@ -361,6 +388,9 @@ test.describe("Smart trading desk — shell", () => {
       await expect(list.getByTestId(`desk-more-item-${MORE_ITEMS[i]}`)).toContainText(MORE_LABELS[i]);
     }
     await expect(page.getByTestId("desk-dock")).toHaveCount(1);
+    // PRD "Learning and methodology" has no view: a line of text, not a button that goes nowhere.
+    await expect(page.getByTestId("desk-more-learning-gap")).toHaveText("Learning and methodology: not in the app yet.");
+    await expect(page.getByRole("button", { name: /Learning/ })).toHaveCount(0);
     await list.getByTestId("desk-more-item-copilot").click();
     await expect(page.getByTestId("dock-input")).toBeFocused();
 
@@ -425,13 +455,14 @@ test.describe("Smart trading desk — shell", () => {
     expect(chat.streams[chat.streams.length - 1]).toMatchObject({ message: "Is breadth improving?", persona: "trader" });
   });
 
-  test("TC-7: at 390px — the phone frame (design §11), chips in order, More's destinations, no sideways scroll", async ({ page }) => {
+  test("TC-7: at 390px — the bottom bar replaces the chip row: six items in order, each opens its tab, one ask box (More · AI Copilot), no sideways scroll", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const chat = await mockChat(page);
     await page.goto(DESK);
     await expect(desk(page)).toBeVisible();
     await expect(page.getByTestId("desk-dock")).toHaveCount(0);
-    await expect(page.getByTestId("composer-input")).toBeVisible();
+    // The desk's own ask box lives in More · AI Copilot on a phone: the shell's ask box is not on any desk view.
+    await expect(page.getByTestId("composer-input")).toHaveCount(0);
     await noSideScroll(page);
 
     const head = page.getByTestId("desk-mobile-header");
@@ -439,44 +470,75 @@ test.describe("Smart trading desk — shell", () => {
     await expect(head).toContainText("AI SMART TRADING DESK");
     await expect(page.getByTestId("desk-persona-pill")).toHaveText("Trader");
     await expect(page.getByTestId("desk-topbar")).toHaveCount(0);
+    // The top chip row is gone on phones (the desktop tab row stays; TC-1).
+    await expect(page.getByRole("tablist", { name: "Desk modules" })).toHaveCount(0);
 
-    const strip = page.getByRole("tablist", { name: "Desk modules" });
-    const chips = strip.getByRole("tab");
-    await expect(chips).toHaveCount(6);
-    for (let i = 0; i < MOBILE_LABELS.length; i += 1) {
-      await expect(chips.nth(i)).toHaveText(MOBILE_LABELS[i]);
-      await expect(chips.nth(i)).toHaveAttribute("data-testid", `desk-tab-${TABS[i]}`);
+    // The bar: a navigation landmark, six buttons in the PRD's order, fixed to the bottom edge of the screen.
+    const bar = page.getByRole("navigation", { name: "Desk sections" });
+    await expect(bar).toBeVisible();
+    const items = bar.getByRole("button");
+    await expect(items).toHaveCount(6);
+    for (let i = 0; i < BOTTOM.length; i += 1) {
+      await expect(items.nth(i)).toHaveAttribute("data-testid", `desk-bottom-${BOTTOM[i]}`);
+      await expect(items.nth(i)).toHaveText(BOTTOM_LABELS[i]);
+      await expect(items.nth(i)).toHaveAttribute("aria-label", /.+/);
     }
-    // Six chips do not fit in 390px: the strip scrolls, and the last one is reachable.
-    const fits = await strip.evaluate((el) => el.scrollWidth <= el.clientWidth);
-    expect(fits).toBe(false);
+    const box = await page.getByTestId("desk-bottom-bar").boundingBox();
+    expect(Math.round((box?.y ?? 0) + (box?.height ?? 0))).toBe(844);
+    expect(Math.round(box?.width ?? 0)).toBe(390);
+    await expect(page.getByTestId("desk-bottom-overview")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("desk-bottom-scanner")).not.toHaveAttribute("aria-current", "page");
 
-    // M6 More · AI Copilot: the desk's Copilot full height; the shell's ask box does not show twice.
-    await page.getByTestId("desk-tab-more").scrollIntoViewIfNeeded();
-    await page.getByTestId("desk-tab-more").click();
+    // Each item opens its tab; the current one says so (aria-current and its label), not only by colour.
+    for (const t of ["scanner", "intel", "chart", "portfolio", "overview"]) {
+      await page.getByTestId(`desk-bottom-${t}`).click();
+      await expect(page).toHaveURL(new RegExp(`[?&]tab=${t}(&|$)`));
+      await expect(desk(page)).toHaveAttribute("data-tab", t);
+      await expect(page.getByTestId(`desk-bottom-${t}`)).toHaveAttribute("aria-current", "page");
+      await expect(page.getByTestId(`desk-bottom-${t}`)).toHaveAttribute("aria-label", /\(current\)$/);
+      await expect(page.getByTestId("composer-input")).toHaveCount(0);
+      await expect(page.getByTestId("desk-bottom-bar")).toBeVisible();
+      await noSideScroll(page);
+    }
+
+    // The last content clears the bar: the disclaimer ends above it once scrolled to the bottom.
+    await page.getByTestId("desk-disclaimer").scrollIntoViewIfNeeded();
+    await page.getByTestId("copilot-scroll").evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+    const foot = await page.getByTestId("desk-disclaimer").boundingBox();
+    const barNow = await page.getByTestId("desk-bottom-bar").boundingBox();
+    expect((foot?.y ?? 0) + (foot?.height ?? 0)).toBeLessThanOrEqual((barNow?.y ?? 0) + 1);
+
+    // More · AI Copilot: the desk's Copilot full height with the ONE ask box, sitting above the bar.
+    await page.getByTestId("desk-bottom-more").click();
     await expect(desk(page)).toHaveAttribute("data-tab", "more");
+    await expect(page.getByTestId("desk-bottom-more")).toHaveAttribute("aria-current", "page");
     const sub = page.getByTestId("desk-more-chips").getByRole("button");
     await expect(sub).toHaveCount(MORE_LABELS.length);
     for (let i = 0; i < MORE_LABELS.length; i += 1) await expect(sub.nth(i)).toHaveText(MORE_LABELS[i]);
+    await expect(page.getByTestId("desk-more-learning-gap")).toHaveText("Learning and methodology: not in the app yet.");
     await expect(page.getByTestId("desk-more-copilot")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("desk-dock")).toHaveAttribute("data-variant", "page");
     await expect(page.getByTestId("composer-input")).toHaveCount(0);
+    await expect(page.getByTestId("dock-input")).toHaveCount(1);
     await expect(page.getByTestId("dock-input")).toHaveAttribute("placeholder", "Ask Nivesh AI anything…");
     await expect(page.getByTestId("dock-note")).toHaveText("For education and research only. Not a buy or sell recommendation.");
     await expect(page.getByTestId("dock-chips")).toContainText("Suggested questions");
+    const input = await page.getByTestId("dock-input").boundingBox();
+    const barMore = await page.getByTestId("desk-bottom-bar").boundingBox();
+    expect((input?.y ?? 0) + (input?.height ?? 0)).toBeLessThanOrEqual(barMore?.y ?? 0);
     await noSideScroll(page);
     await page.getByTestId("dock-input").fill("What moved banks?");
     await page.getByTestId("dock-send").click();
     await expect.poll(() => chat.streams.length).toBe(1);
-    expect(chat.streams[0]).toMatchObject({ message: "What moved banks?", persona: "trader" });
+    expect(chat.streams[0]).toMatchObject({ message: "What moved banks?", persona: "trader", surface: "trading_desk" });
     await expect(page.getByTestId("dock-answer")).toHaveText(ANSWER);
     await noSideScroll(page);
 
-    // The lab, under More.
+    // The lab, under More: More stays current on the bar, and there is still no second ask box.
     await page.getByTestId("desk-more-fno").click();
     await expect(desk(page)).toHaveAttribute("data-tab", "fno");
-    await expect(page.getByTestId("desk-tab-more")).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("composer-input")).toBeVisible();
+    await expect(page.getByTestId("desk-bottom-more")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("composer-input")).toHaveCount(0);
     await noSideScroll(page);
 
     // Paper trading is the Portfolio & Risk tab's paper desk; the rest leave the desk for their own views.
@@ -485,12 +547,35 @@ test.describe("Smart trading desk — shell", () => {
     await page.goto(`${DESK}?tab=more`);
     await page.getByTestId("desk-more-watchlist").click();
     await expect(page).toHaveURL(/\/v5\/app\/page\/watchlist$/);
+    // Off the desk the bar is gone and the app's own ask box is back.
+    await expect(page.getByTestId("desk-bottom-bar")).toHaveCount(0);
+    await expect(page.getByTestId("composer-input")).toBeVisible();
     await page.goto(`${DESK}?tab=more`);
     await page.getByTestId("desk-more-saved").click();
     await expect(page).toHaveURL(/\/v5\/app\/page\/saved$/);
     await page.goto(`${DESK}?tab=more`);
     await page.getByTestId("desk-more-settings").click();
     await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
+  });
+
+  test("TC-9: the bottom bar is keyboard reachable — Tab reaches its items and Enter opens one", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockChat(page);
+    await page.goto(DESK);
+    await expect(page.getByTestId("desk-bottom-bar")).toBeVisible();
+    // Focus the item before Intel, then Tab once: the next stop is Intel; Enter opens it.
+    await page.getByTestId("desk-bottom-scanner").focus();
+    await page.keyboard.press("Tab");
+    await expect(page.getByTestId("desk-bottom-intel")).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(desk(page)).toHaveAttribute("data-tab", "intel");
+    await page.getByTestId("desk-bottom-more").focus();
+    await page.keyboard.press("Space");
+    await expect(desk(page)).toHaveAttribute("data-tab", "more");
+    // Wider than a phone the bar is not drawn and the numbered tab row is back.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId("desk-bottom-bar")).toHaveCount(0);
+    await expect(page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab")).toHaveCount(6);
   });
 
   test("TC-8: on a phone the search selects a scanner stock, or asks More · AI Copilot; the persona pill switches the wording", async ({ page }) => {
@@ -511,8 +596,9 @@ test.describe("Smart trading desk — shell", () => {
     await page.getByTestId("desk-search").press("Enter");
     await expect(desk(page)).toHaveAttribute("data-tab", "more");
     await expect.poll(() => chat.streams.length).toBe(1);
-    expect(chat.streams[0]).toMatchObject({ message: "Is this a good week for banks?", persona: "investor" });
+    expect(chat.streams[0]).toMatchObject({ message: "Is this a good week for banks?", persona: "investor", surface: "trading_desk" });
     await expect(page.getByTestId("composer-input")).toHaveCount(0);
+    await expect(page.getByTestId("desk-bottom-more")).toHaveAttribute("aria-current", "page");
   });
 });
 
@@ -564,6 +650,24 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await page.goto(DESK);
     await expect(status).toHaveAttribute("data-feed", "delayed");
     await expect(page.getByTestId("desk-intro-feed")).toHaveText("NSE · BSE delayed");
+
+    // PRD §12.5: the server's session reads the NSE holiday list. "Market open" only when the list was read for today.
+    await page.route("**/api/markets/home", (route) => json(route, { ...HOME, market_state: "open", is_live: true, session: SESSION_OPEN }));
+    await page.goto(DESK);
+    await expect(status).toHaveText(/^Market open · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("title", /not an NSE holiday/);
+    // The list could not be read: the clock's word, and the tooltip says why.
+    await page.route("**/api/markets/home", (route) => json(route, { ...HOME, market_state: "open", is_live: false, session: SESSION_UNREAD }));
+    await page.goto(DESK);
+    await expect(status).toHaveText(/^NSE hours · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("title", /holiday list could not be read/);
+    // An NSE holiday on a weekday: closed, with the holiday's name, never live.
+    await page.route("**/api/markets/home", (route) => json(route, { ...HOME, market_state: "closed", is_live: false, session: SESSION_HOLIDAY }));
+    await page.goto(DESK);
+    await expect(status).toHaveText(/^NSE holiday · Dussehra · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("data-feed", "closed");
+    await expect(page.getByTestId("desk-intro-holiday")).toHaveText("NSE holiday · Dussehra");
+    await expect(page.getByTestId("desk-intro-feed")).toHaveText("NSE · BSE end of day");
   });
 
   test("header search: a symbol not in the scan opens the Chart tab with ?sym= (PRD §7.2); on the Chart tab it switches the stock; words go to the Copilot", async ({ page }) => {
@@ -624,7 +728,7 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
 
     // Pulse card.
     await expect(page.getByTestId("desk-pulse-title")).toHaveText("01 · AI Market pulse");
-    await expect(page.getByTestId("desk-pulse-meta")).toHaveText(`Macro engine · ${dayShort(MACRO.date)} · end of day`);
+    await expect(page.getByTestId("desk-pulse-meta")).toHaveText(`Regime rule · ${dayShort(MACRO.regime.date)} · end of day`);
     await expect(page.getByTestId("desk-regime-label")).toHaveText("Bullish");
     await expect(page.getByTestId("desk-regime-since")).toHaveText(`As of ${dayShort(MACRO.date)} · end of day`);
     const statLabels = ["FII · cash", "DII · cash", "USD / INR", "Crude oil"];
@@ -654,7 +758,7 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await page.getByTestId("desk-persona-investor").click();
     await expect(h1).toHaveText(`${breadthLead("investor", share, "2026-10-13", "IT")} 2 ideas have confirmed, each with its evidence shown.`);
     await expect(h1.locator("em")).toHaveText("2 ideas");
-    await expect(page.getByTestId("desk-regime-meaning")).toHaveText("The Nifty 50 is above its average of the last 50 sessions, so the broad trend is up.");
+    await expect(page.getByTestId("desk-regime-meaning")).toHaveText("The Nifty 50 is above its average of the last 50 sessions, so the broad trend is up, and the other checks do not contradict it.");
     await expect(page.getByTestId("desk-breadth-adv")).toHaveText("2,428 advances");
 
     // Beside the dock (1440) the desk is 728px: breadth moves under the four index cards.
@@ -706,6 +810,16 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
       last = y;
     }
     expect(Math.round((await page.getByTestId("desk-m-risk").boundingBox())?.y ?? 0)).toBe(Math.round((await page.getByTestId("desk-m-portfolio").boundingBox())?.y ?? 1));
+    // PRD §4.2 puts Key market events on the Overview: the phone shows the three newest key events under the tiles.
+    expect((await page.getByTestId("desk-events-card").boundingBox())?.y ?? 0).toBeGreaterThan(last);
+    await expect(page.getByTestId("desk-events-title")).toHaveText("03 · Key market events");
+    // Every card carries its trust line (PRD §3.2, §16.3).
+    for (const id of ["desk-index-trust", "desk-pulse-trust", "desk-top-opps-trust", "desk-m-portfolio-trust", "desk-m-risk-trust", "desk-events-trust"]) {
+      await expect(page.getByTestId(id)).toHaveCount(1);
+    }
+    await expect(page.getByTestId("desk-pulse-trust")).toContainText("Rules-based");
+    await expect(page.getByTestId("desk-index-trust")).toContainText("End of day");
+    await expect(page.getByTestId("desk-bottom-bar")).toBeVisible();
 
     // 2×2 index tiles, values from HOME.
     const tiles = page.getByTestId("desk-index-tile");
@@ -734,8 +848,9 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
     const rows = page.getByTestId("desk-top-opp");
     await expect(rows).toHaveCount(3);
     const want = [
-      // TESTPICK: picks only — price is the entry 505; upside (555 − 505) ÷ 505 = +9.9%; stage BREAKOUT.
-      { sym: "TESTPICK", price: "₹505.00", score: "81", up: `+${(((555 - 505) / 505) * 100).toFixed(1)}%`, pattern: "Breakout", plain: "Broke above a recent high" },
+      // TESTPICK: picks only, no close and no daily-close line in the rows — the price is "—" (the plan's entry 505 is not a price);
+      // upside (555 − 505) ÷ 505 = +9.9%; stage BREAKOUT.
+      { sym: "TESTPICK", price: "—", score: "81", up: `+${(((555 - 505) / 505) * 100).toFixed(1)}%`, pattern: "Breakout", plain: "Broke above a recent high" },
       { sym: "TESTBRK", price: "₹510.00", score: "—", up: "—", pattern: "Breakout confirmed", plain: "Broke above a recent high" },
       { sym: "TESTPRE", price: "₹98.00", score: "—", up: "—", pattern: "Near breakout", plain: "Close to a recent high" },
     ];
@@ -793,49 +908,39 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
 const SHOTS = "test-results/fidelity-shots";
 
 test.describe("Smart trading desk — frame · fidelity screenshots", () => {
-  test("fidelity screenshots: overview at 1440 with the dock, and at 390", async ({ page }) => {
+  test("fidelity screenshots: overview at 1440 with the dock, and at 390 with the bottom bar", async ({ page }) => {
     const phase = "after";
     await overviewApi(page);
     await page.route("**/api/portfolio/risk-analytics", (route) => json(route, RISK));
+    await page.route("**/api/broker/accounts", (route) => json(route, { accounts: [{ account_id: "acc1", broker: "zerodha", broker_display: "Zerodha", status: "active", last_sync_at: "2026-10-14T05:30:00+00:00", last_sync_count: 12 }] }));
     await mockChat(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(DESK);
     await expect(page.getByTestId("desk-index-tile").first()).toBeVisible();
     await page.waitForTimeout(800);
-    await page.screenshot({ path: `${SHOTS}/fidelity-area1-${phase}-1440.png` });
-    await page.setViewportSize({ width: 1440, height: 1900 });
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: `${SHOTS}/fidelity-area1-${phase}-1440-full.png` });
-    await page.getByTestId("desk-dock").getByTestId("dock-chips").getByRole("button").first().click();
-    await expect(page.getByTestId("dock-answer")).toBeVisible();
+    await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-1440.png` });
+    await page.setViewportSize({ width: 1440, height: 3400 });
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-1440-full.png` });
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.getByTestId("desk-tab-more").click();
     await page.waitForTimeout(400);
-    await page.screenshot({ path: `${SHOTS}/fidelity-area1-${phase}-1440-more.png` });
-
-    await page.setViewportSize({ width: 1280, height: 1500 });
-    await page.goto(DESK);
-    await expect(page.getByTestId("desk-index-tile").first()).toBeVisible();
-    await page.waitForTimeout(800);
-    await page.screenshot({ path: `${SHOTS}/fidelity-area1-${phase}-1280-full.png` });
+    await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-1440-more.png` });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(DESK);
     await expect(page.getByTestId("desk-index-tile").first()).toBeVisible();
     await page.waitForTimeout(800);
-    await page.screenshot({ path: `${SHOTS}/fidelity-area1-${phase}-390.png` });
-    await page.setViewportSize({ width: 390, height: 2000 });
+    await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-390.png` });
+    await page.setViewportSize({ width: 390, height: 3000 });
     await page.waitForTimeout(400);
-    await page.screenshot({ path: `${SHOTS}/fidelity-area1-${phase}-390-full.png` });
+    await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-390-full.png` });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByTestId("desk-tab-more").click();
-    // The thread from the 1440 step is restored first; the new question adds a second turn.
-    await expect(page.getByTestId("dock-turn")).toHaveCount(1);
+    await page.getByTestId("desk-bottom-more").click();
     await page.getByTestId("dock-input").fill("What moved banks?");
     await page.getByTestId("dock-send").click();
-    await expect(page.getByTestId("dock-turn")).toHaveCount(2);
     await expect(page.getByTestId("dock-answer").last()).toBeVisible();
     await page.waitForTimeout(400);
-    await page.screenshot({ path: `${SHOTS}/fidelity-area1-${phase}-390-more.png` });
+    await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-390-more.png` });
   });
 });

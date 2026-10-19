@@ -233,7 +233,7 @@ export type UnderlyingBuildup =
 
 export function buildupWhy(b: UnderlyingBuildup, asOf: string | null): string {
   switch (b.status) {
-    case "index": return "Index futures: the futures route sends no previous close, so the price side of the build-up is unknown";
+    case "index": return "The build-up scan has no index futures row for this index";
     case "loading": return "Reading the build-up scan";
     case "error": return "The build-up scan didn’t load";
     case "absent": return `Not in the stock-futures scan${asOf ? ` for ${fmtDay(asOf)}` : ""}`;

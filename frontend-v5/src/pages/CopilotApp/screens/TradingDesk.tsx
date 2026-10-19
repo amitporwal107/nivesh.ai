@@ -28,24 +28,30 @@
  * the disclaimer footer. There is no page headline: the headline is the
  * Overview's.
  *
- * Phone (design §11, under 700px): the title block with search and the
- * persona pill, then the chips Overview · AI Scanner · Market Intel · Chart
- * Analysis · Portfolio & Risk · More.
+ * Phone (under 700px): the title block with search and the persona pill (design
+ * §11), and a persistent bottom navigation bar (PRD §3.1, §3.3; the user's
+ * decision of 2026-10-14): Overview · Scanner · Intel · Chart · Portfolio · More
+ * (tradingdesk/BottomBar). The top chip row is gone on phones. On desk pages the
+ * app's ask box is hidden on a phone (index.tsx): the desk's Copilot is More ·
+ * AI Copilot, so there is one ask box, never two.
  *
  * More (?tab=more) lists real destinations only. Its AI Copilot is the desk's
  * Copilot full height wherever it is not docked (a phone, or a desktop under
  * 1400px; the shell's ask box is hidden on that view, index.tsx); with the
  * dock showing, More lists the destinations and "AI Copilot" moves focus to
  * the dock. `?tab=fno` opens the lab under More, so old links keep working.
+ * PRD "Learning and methodology" has no view in the app yet: More says so in
+ * a line of text, not with a button that goes nowhere.
  *
  * The tab, the selected stock and the wording live in the URL (?tab=&sym=&persona=).
  */
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { LoadingBlock } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
 import { useMarketOverview } from "./markets/hooks";
+import { BOTTOM_BAR_SPACE, DeskBottomBar, type BottomKey } from "./tradingdesk/BottomBar";
 import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
 import { DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskPersona, type DeskState, type DeskTab } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
@@ -63,13 +69,13 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
 /** Symbols the URL may carry: the F&O routes' own rule (letters, digits, & and -). */
 const SYM_RE = /^[A-Z0-9&-]{1,20}$/;
 
-/** The primary tabs before More, in the PRD's order (§3.1), with the phone's shorter names (design §11). */
-const NAV: Array<{ key: Exclude<DeskTab, "fno">; mobile: string }> = [
-  { key: "overview", mobile: "Overview" },
-  { key: "scanner", mobile: "AI Scanner" },
-  { key: "intel", mobile: "Market Intel" },
-  { key: "chart", mobile: "Chart Analysis" },
-  { key: "portfolio", mobile: "Portfolio & Risk" },
+/** The primary tabs before More, in the PRD's order (§3.1). Phones use the bottom bar's own short names (BottomBar.tsx). */
+const NAV: Array<{ key: Exclude<DeskTab, "fno"> }> = [
+  { key: "overview" },
+  { key: "scanner" },
+  { key: "intel" },
+  { key: "chart" },
+  { key: "portfolio" },
 ];
 
 /** The shell's side padding (index.tsx): the header, tab row and footer run edge to edge across it. */
@@ -164,7 +170,7 @@ function StatusPill() {
       style={{ flex: "none", background: tone === "mint" ? "var(--mint-soft)" : undefined }}
     >
       <span className="nv-dot" style={{ background: dot }} />
-      {s.label} · {now.time} IST
+      {s.label}{s.holiday ? ` · ${s.holiday}` : ""} · {now.time} IST
     </span>
   );
 }
@@ -232,6 +238,15 @@ function SubChip({ id, on, onClick, children }: { id: MoreKey; on?: boolean; onC
     >
       {children}
     </button>
+  );
+}
+
+/** PRD §3.1 lists "Learning and methodology" under More; the app has no such view yet, so it is a line of text, not a button. */
+function LearningGap({ phone }: { phone?: boolean }) {
+  return (
+    <p data-testid="desk-more-learning-gap" className="m-0" style={{ paddingBottom: phone ? 12 : 0, fontSize: phone ? 11.5 : 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+      Learning and methodology: not in the app yet.
+    </p>
   );
 }
 
@@ -455,9 +470,12 @@ export default function TradingDeskScreen() {
   const dataTab = more ? "more" : tab;
 
   if (mobile) {
+    const bottomKey: BottomKey = moreOn ? "more" : tab;
+    // Room under the content for the fixed bottom bar; the phone Copilot's ask box sits above it (CopilotDock).
+    const phoneStyle = { paddingTop: 4, paddingBottom: BOTTOM_BAR_SPACE, ["--desk-bottom-bar" as string]: BOTTOM_BAR_SPACE } as CSSProperties;
     return (
       <DeskProvider value={desk}>
-        <div data-testid="screen-trading-desk" data-tab={dataTab} data-symbol={symbol ?? ""} data-persona={persona} className="flex min-w-0 flex-col" style={{ paddingTop: 4 }}>
+        <div data-testid="screen-trading-desk" data-tab={dataTab} data-symbol={symbol ?? ""} data-persona={persona} className="flex min-w-0 flex-col" style={phoneStyle}>
           <header data-testid="desk-mobile-header" className="flex flex-col" style={{ gap: 10, paddingBottom: 12 }}>
             <div className="flex items-center" style={{ gap: 10 }}>
               <span className="nv-mark" aria-hidden style={{ flex: "none", width: 32, height: 32, fontSize: 19 }}>न</span>
@@ -493,16 +511,12 @@ export default function TradingDeskScreen() {
             {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           </header>
 
-          <div role="tablist" aria-label="Desk modules" className="cp-scroll flex overflow-x-auto" style={{ gap: 6, ...bleed, paddingBottom: 12 }}>
-            {NAV.map((t) => (
-              <TabChip key={t.key} id={t.key} label={t.mobile} on={!moreOn && t.key === tab} onClick={() => update({ tab: t.key })} small />
-            ))}
-            <TabChip id="more" label="More" on={moreOn} onClick={() => update({ tab: "more" })} small />
-          </div>
           {moreChips}
+          {moreOn && <LearningGap phone />}
 
           <div style={{ paddingBottom: 18 }}>{content}</div>
           {!pageCopilot && footer}
+          <DeskBottomBar active={bottomKey} onPick={(k) => update({ tab: k })} />
         </div>
       </DeskProvider>
     );
@@ -549,6 +563,7 @@ export default function TradingDeskScreen() {
         >
           <div className="flex min-w-0 flex-col" style={{ gap: 20 }}>
             {moreChips}
+            {moreOn && <LearningGap />}
             {content}
           </div>
           {docked && (

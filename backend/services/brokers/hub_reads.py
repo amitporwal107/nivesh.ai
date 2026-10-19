@@ -13,6 +13,8 @@ is the one read path for such an account:
                 Also read live (`read_account_holdings`): the same lines,
                 returned and never stored.
   * positions — fetched on demand only; read live and never stored.
+  * funds     — cash and margin, on demand only (`read_account_funds`), through the
+                adapter's `fetch_funds`; read live and never stored.
 
 Strictly read-only: nothing here places, modifies or cancels an order.
 
@@ -605,6 +607,53 @@ async def read_account_holdings(db, doc: dict) -> list[dict]:
         raise
     # The masterdata fill reads files on its first call: off the event loop.
     return await to_thread(_live_rows, holdings)
+
+
+# ── Funds (read-only) ────────────────────────────────────────────────────
+def _funds_figure(value: Any) -> Optional[float]:
+    """A funds figure as the broker reported it (rupees, 2 dp); None when it is not a finite number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(number, 2) if math.isfinite(number) else None
+
+
+async def read_account_funds(db, doc: dict) -> Dict[str, Optional[float]]:
+    """Cash and margin of one native account, read live from the broker on every call and never stored.
+
+    Strictly read-only: the broker's own adapter `fetch_funds` is the only call made (Fenix serves holdings and
+    positions, not funds). Nothing places, modifies or cancels an order or moves money. A broker that refuses the
+    session ends it here (the only write on this path); an account with no live session raises `SessionEnded`
+    without a broker call. The figures are as the broker states them; an adapter that defaults a missing field to 0
+    cannot be told apart from a real 0 here.
+    """
+    slug = doc.get("broker") or ""
+    try:
+        token = _live_token(doc)
+        adapter = _adapter_for(slug, "funds")
+        fetch = getattr(adapter, "fetch_funds", None)
+        if not callable(fetch):
+            raise BrokerNotSupported(f"{adapter.DISPLAY} has no funds reader")
+        funds = await _adapter_call(adapter, "funds", fetch, token)
+    except BrokerSessionExpired:
+        await sessions.end_session(db, doc["account_id"], "broker_rejected")
+        raise
+    except (sessions.SessionEnded, BrokerNotSupported):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "broker funds read failed account=%s broker=%s error=%s",
+            doc.get("account_id"), doc.get("broker"), _error_label(exc),
+        )
+        raise
+    return {
+        "available_cash_rs": _funds_figure(getattr(funds, "available_cash", None)),
+        "collateral_rs": _funds_figure(getattr(funds, "collateral", None)),
+        "used_margin_rs": _funds_figure(getattr(funds, "used_margin", None)),
+    }
 
 
 # ── Positions ────────────────────────────────────────────────────────────

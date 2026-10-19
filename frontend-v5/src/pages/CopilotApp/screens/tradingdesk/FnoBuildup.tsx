@@ -6,8 +6,12 @@
  *   GET /api/fno/scan/buildup   one row per F&O stock on the latest bhavcopy day: the nearest future's close and price
  *                               change, the open interest and its change summed over every expiry, and the route's
  *                               build-up label (useBuildup, fno-buildup.ts). End of day.
- *   Volume, PCR and IV          the loaded stock's own futures and chain (FnoTab passes them); the scan does not send
- *                               them per stock, so other rows show "—"
+ *                               Per row also: the cash close and change and whether the cash market moved the same way
+ *                               (cash check), vol_z20 (relative volume), futures contracts traded, days to the near
+ *                               expiry with the risk flags, and setup quality ("—": no validated model)
+ *   PCR and IV                  the loaded stock's own chain (FnoTab passes them); the scan does not send them per
+ *                               stock, so other rows show "—"
+ *   15-minute confirmation      the scan's `intraday` state: unavailable (no intraday OI is collected), never faked
  *
  * The four quadrant counts are the route's own, over every stock it scanned;
  * each also filters the table. The scatter plots the 24 stocks with the largest
@@ -22,8 +26,9 @@ import { useCopilotShell } from "../../lib/shell-context";
 import { SourceLine } from "../markets/parts";
 import { QueryProblem, fmtQty } from "../trading/parts";
 import { useDesk } from "./context";
-import { BUILDUP_LABELS, BUILDUP_META, useBuildup, type BuildupQuadrant, type BuildupRow } from "./fno-buildup";
-import { CardHead, Dot, TONE_LINE, TONE_SOFT } from "./fno-parts";
+import { BUILDUP_LABELS, BUILDUP_META, RISK_FLAG_LABEL, useBuildup, type Buildup, type BuildupQuadrant, type BuildupRow } from "./fno-buildup";
+import { CardHead, Dot, TONE_LINE, TONE_SOFT, shortDay } from "./fno-parts";
+import { TrustLine } from "./trust";
 
 type SortKey = "symbol" | "price" | "oi";
 type SortDir = "asc" | "desc";
@@ -37,7 +42,13 @@ const SCATTER_N = 24;
 /** Dots named on the scatter (the biggest moves), besides the loaded stock. */
 const SCATTER_LABELS = 6;
 
-const TEMPLATE = "minmax(0,1.2fr) 72px minmax(0,1.3fr) 56px 56px 56px minmax(0,1.6fr)";
+/** Stock · Fut chg · Futures OI · Cash · Cash check · RVOL · Volume · PCR · IV · Expiry · Quality · Build-up. */
+const TEMPLATE = "minmax(0,1.1fr) 64px minmax(0,1.1fr) 96px 78px 58px 66px 46px 46px 104px 54px minmax(0,1.5fr)";
+const TABLE_MIN = 1180;
+
+/** The PRD §10.4 caveat, word for word in substance, under the build-up readings. */
+export const HEURISTIC_NOTE =
+  "These are heuristic readings of two figures, not proof of what traders intended. Rollovers, expiry, intraday noise and changes in who trades a contract can distort them.";
 const cell: CSSProperties = { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 const headStyle: CSSProperties = { fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--cp-ink-3)" };
 
@@ -56,7 +67,35 @@ const SORT_LABEL: Record<SortKey, string> = { symbol: "stock", price: "price cha
 
 const toneOf = (r: BuildupRow): Tone => (r.label ? BUILDUP_META[r.label].tone : "ink");
 
-/** The loaded stock's own figures for the Volume, PCR and IV columns. */
+const CONFIRM_TEXT: Record<"confirms" | "diverges", { label: string; plain: string; tone: Tone }> = {
+  confirms: { label: "Confirms", plain: "Same way", tone: "mint" },
+  diverges: { label: "Diverges", plain: "Opposite", tone: "amber" },
+};
+
+/** The 15-minute confirmation (PRD §10.5): the route's own state; today always unavailable, with its reason. */
+function IntradayState({ d, investor }: { d: Buildup; investor: boolean }) {
+  const states = ["candidate", "confirmed", "invalidated", "unavailable"];
+  const status = d.intraday.status ?? "unavailable";
+  return (
+    <section data-testid="desk-fno-intraday" data-state={status} className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
+      <CardHead testId="desk-fno-intraday-head" meta={investor ? "Checks a move over the day" : "Futures vs cash, OI vs price"}>15-minute confirmation</CardHead>
+      <div className="flex flex-col" style={{ gap: 8, padding: "12px 18px" }}>
+        <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
+          {states.map((st) => (
+            <span key={st} data-testid={`desk-fno-intraday-${st}`} className="cp-pill" data-tone={st === status ? "amber" : undefined} style={{ opacity: st === status ? 1 : 0.45 }}>
+              {st === status ? `${st} · current` : st}
+            </span>
+          ))}
+        </span>
+        <span data-testid="desk-fno-intraday-reason" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+          {d.intraday.reason ?? "The route did not say why."} No setup is marked confirmed from a single end-of-day reading.
+        </span>
+      </div>
+    </section>
+  );
+}
+
+/** The loaded stock's own figures for the PCR and IV columns (the Volume column now comes from the scan). */
 export interface LoadedFigures {
   symbol: string;
   volume: number | null;
@@ -294,7 +333,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
           <span data-testid="desk-buildup-count" style={{ color: "var(--cp-ink-4)" }}>{fmtNum(rows.length)} {rows.length === 1 ? "stock" : "stocks"}</span>
         </CardHead>
         <div data-testid="desk-buildup-table" className="cp-scroll overflow-x-auto" role="table" aria-label="OI build-up by F&O stock" aria-rowcount={rows.length + 1}>
-          <div style={{ minWidth: 740 }}>
+          <div style={{ minWidth: TABLE_MIN }}>
             <div role="row" className="grid" style={{ gridTemplateColumns: TEMPLATE, gap: 12, padding: "10px 18px", borderBottom: "1px solid var(--cp-line)" }}>
               {(["symbol", "price", "oi"] as const).map((k) => {
                 const on = sort?.key === k;
@@ -312,9 +351,14 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
                   </span>
                 );
               })}
-              <span role="columnheader" style={{ ...cell, ...headStyle, textAlign: "right" }}>Volume</span>
+              <span role="columnheader" style={{ ...cell, ...headStyle, textAlign: "right" }}>{investor ? "Share price" : "Cash"}</span>
+              <span role="columnheader" title="Did the futures and the cash market move the same way that day?" style={{ ...cell, ...headStyle }}>{investor ? "Agree?" : "Cash check"}</span>
+              <span role="columnheader" title="vol_z20: the day's cash volume against its 20-session history, in standard deviations" style={{ ...cell, ...headStyle, textAlign: "right" }}>{investor ? "Activity" : "RVOL z"}</span>
+              <span role="columnheader" title="Futures contracts traded over every expiry" style={{ ...cell, ...headStyle, textAlign: "right" }}>Volume</span>
               <span role="columnheader" style={{ ...cell, ...headStyle, textAlign: "right" }}>PCR</span>
               <span role="columnheader" style={{ ...cell, ...headStyle, textAlign: "right" }}>IV</span>
+              <span role="columnheader" style={{ ...cell, ...headStyle }}>Expiry · flags</span>
+              <span role="columnheader" title="Setup quality needs a validated model of these readings; none exists" style={{ ...cell, ...headStyle }}>Quality</span>
               <span role="columnheader" style={{ ...cell, ...headStyle }}>Build-up</span>
             </div>
             {shown.length === 0 && (
@@ -360,9 +404,26 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
                     </span>
                     <span data-testid="desk-buildup-oi" className="cp-num" style={{ flex: "none", fontSize: 11.5, color: TONE_COLOR[oiTone] }}>{fmtPct(r.oiChgPct, { signed: true, digits: 2 })}</span>
                   </span>
-                  <span role="cell" data-testid="desk-buildup-volume" className="cp-num" style={{ ...cell, fontSize: 11.5, textAlign: "right", color: "var(--cp-ink-2)" }}>{figure(r.symbol, loaded?.volume ?? null, (n) => fmtQty(n))}</span>
+                  <span role="cell" data-testid="desk-buildup-cash" className="flex min-w-0 flex-col items-end" style={{ gap: 1 }}>
+                    <span className="cp-num" style={{ ...cell, fontSize: 11.5, color: "var(--cp-ink-2)" }}>{r.cashClose == null ? "—" : fmtNum(r.cashClose, 2)}</span>
+                    <span data-testid="desk-buildup-cash-chg" className="cp-num" style={{ ...cell, fontSize: 11, color: TONE_COLOR[signTone(r.cashChgPct)] }}>{fmtPct(r.cashChgPct, { signed: true, digits: 2 })}</span>
+                  </span>
+                  <span role="cell" data-testid="desk-buildup-confirm" data-state={r.cashConfirmation ?? ""} title={r.cashConfirmation ? `The near future moved ${r.cashConfirmation === "confirms" ? "the same way as" : "opposite to"} the cash close that day` : "A move is missing or flat, so there is nothing to compare"} style={{ ...cell, fontSize: 11.5, color: r.cashConfirmation ? TONE_COLOR[CONFIRM_TEXT[r.cashConfirmation].tone] : "var(--cp-ink-3)" }}>
+                    {r.cashConfirmation ? CONFIRM_TEXT[r.cashConfirmation][investor ? "plain" : "label"] : "—"}
+                  </span>
+                  <span role="cell" data-testid="desk-buildup-rvol" className="cp-num" title={r.volZ20Date ? `vol_z20 for ${shortDay(r.volZ20Date)}${d.asOf && r.volZ20Date !== d.asOf ? ` (the scan is for ${shortDay(d.asOf)})` : ""}` : "No vol_z20 within a week of the scan day"} style={{ ...cell, fontSize: 11.5, textAlign: "right", color: "var(--cp-ink-2)" }}>
+                    {r.volZ20 == null ? "—" : `${r.volZ20 > 0 ? "+" : r.volZ20 < 0 ? "−" : ""}${fmtNum(Math.abs(r.volZ20), 2)}`}
+                  </span>
+                  <span role="cell" data-testid="desk-buildup-volume" className="cp-num" title={r.futTurnoverCr != null ? `₹${fmtNum(r.futTurnoverCr, 2)} Cr traded` : undefined} style={{ ...cell, fontSize: 11.5, textAlign: "right", color: "var(--cp-ink-2)" }}>{fmtQty(r.futContracts)}</span>
                   <span role="cell" data-testid="desk-buildup-pcr" className="cp-num" style={{ ...cell, fontSize: 11.5, textAlign: "right", color: "var(--cp-ink-2)" }}>{figure(r.symbol, loaded?.pcr ?? null, (n) => fmtNum(n, 2))}</span>
                   <span role="cell" data-testid="desk-buildup-iv" className="cp-num" style={{ ...cell, fontSize: 11.5, textAlign: "right", color: "var(--cp-ink-2)" }}>{figure(r.symbol, loaded?.iv ?? null, (n) => `${fmtNum(n, 1)}%`)}</span>
+                  <span role="cell" data-testid="desk-buildup-expiry" className="flex min-w-0 flex-col" style={{ gap: 2 }}>
+                    <span className="cp-num" style={{ ...cell, fontSize: 11 }}>{r.nearExpiry ? `${shortDay(r.nearExpiry)}${r.daysToExpiry != null ? ` · ${fmtNum(r.daysToExpiry)}d` : ""}` : "—"}</span>
+                    {r.riskFlags.filter((f) => f !== "no_cash_price").map((f) => (
+                      <span key={f} data-testid="desk-buildup-flag" data-flag={f} title={d.riskFlagText[f] ?? f} className="cp-pill" data-tone="amber" style={{ fontSize: 8.5, padding: "1px 5px", alignSelf: "flex-start" }}>{RISK_FLAG_LABEL[f] ?? f}</span>
+                    ))}
+                  </span>
+                  <span role="cell" data-testid="desk-buildup-quality" title="Not validated: no model of these readings has been tested, so no quality or probability is shown" style={{ ...cell, fontSize: 11.5, color: "var(--cp-ink-3)" }}>—</span>
                   <span role="cell" className="flex min-w-0 flex-col items-start" style={{ gap: 3 }}>
                     <span data-testid="desk-buildup-label" data-label={r.label ?? ""}>{m ? <Pill tone={m.tone}>{m.label}</Pill> : "—"}</span>
                     {m && <span data-testid="desk-buildup-desc" style={{ ...cell, maxWidth: "100%", fontSize: 11.5, color: "var(--cp-ink-3)" }}>{investor ? m.plain : m.rule}</span>}
@@ -374,7 +435,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
         </div>
         <div className="flex flex-wrap items-center justify-between" style={{ gap: 8, padding: "12px 18px", borderTop: "1px solid var(--cp-line)" }}>
           <span data-testid="desk-buildup-shown" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)", flex: "1 1 320px", minWidth: 0 }}>
-            {fmtNum(shown.length)} of {fmtNum(rows.length)} shown. Open a row for its option chain. Volume, PCR and IV are each stock’s own chain figures, which the scan does not send, so they show for the loaded stock only{loaded && !/^(NIFTY|BANKNIFTY)$/.test(loaded.symbol) ? ` (${loaded.symbol})` : ""}.
+            {fmtNum(shown.length)} of {fmtNum(rows.length)} shown. Open a row for its option chain. Volume is futures contracts traded over every expiry. PCR and IV are each stock’s own chain figures, which the scan does not send, so they show for the loaded stock only{loaded && !/^(NIFTY|BANKNIFTY)$/.test(loaded.symbol) ? ` (${loaded.symbol})` : ""}. Cash check compares the near future’s move with the cash close; RVOL z is vol_z20; Quality is “—” because no model of these readings has been validated.
           </span>
           {rows.length > PAGE && (
             <button type="button" className="cp-chip" data-testid="desk-buildup-all" aria-expanded={all} onClick={() => setAll(!all)}>
@@ -384,6 +445,16 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
         </div>
       </section>
 
+      <IntradayState d={d} investor={investor} />
+
+      <span data-testid="desk-buildup-heuristic" role="note" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{HEURISTIC_NOTE}</span>
+      <span data-testid="desk-buildup-master" className="cp-mono-note" style={{ lineHeight: 1.6 }}>
+        F&amp;O eligibility: {d.master.eligible != null ? `${fmtNum(d.master.eligible)} of ${fmtNum(universe)} scanned stocks are on the NSE F&O master` : "—"}
+        {d.master.asOf ? ` (${shortDay(d.master.asOf)})` : ""}
+        {d.master.notEligible ? ` · ${fmtNum(d.master.notEligible)} in the bhavcopy but not on the master` : ""}
+        {d.master.unknown ? ` · ${fmtNum(d.master.unknown)} not on the master’s file` : ""}
+        {" · "}{d.sources.master ?? "NSE F&O master"}
+      </span>
       <SourceLine
         testId="desk-buildup-source"
         source={d.source}
@@ -391,6 +462,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
         asOfLabel="end of day"
         note="price change = the nearest future’s close vs its previous close · OI change = summed over every expiry, so a roll does not read as unwinding"
       />
+      <TrustLine testId="desk-buildup-trust" source={[d.source, d.sources.cash, d.sources.rvol].filter(Boolean).join(" · ") || "NSE F&O bhavcopy"} asOf={d.asOf ? shortDay(d.asOf) : null} mode="eod" maker="rules" method="price × OI build-up (heuristic) · cash check" />
     </div>
   );
 }

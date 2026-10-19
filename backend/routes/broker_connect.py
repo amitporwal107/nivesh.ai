@@ -21,6 +21,10 @@ Routes (all under /api/broker, all authenticated):
                                                 account (never stored)
     GET    /api/broker/positions              — live positions, every account
                                                 of the user (as /holdings)
+    GET    /api/broker/funds                  — live cash and margin, every
+                                                account of the user (as
+                                                /holdings); read-only, never
+                                                stored
     GET    /api/broker/accounts/{id}/snapshots — history of an account's
                                                 holdings syncs
     GET    /api/broker/snapshots/{id}         — one sync snapshot, with the
@@ -731,6 +735,49 @@ async def get_all_holdings(request: Request):
 
     accounts = await asyncio.gather(*(_read_one(d) for d in docs))
     return {"as_of": _now_iso(), "accounts": list(accounts)}
+
+
+_NOT_NATIVE_FUNDS = (
+    "Live funds are available only for accounts connected by signing in on the broker's own page."
+)
+
+
+@router.get("/funds")
+async def get_all_funds(request: Request):
+    """Cash and margin across every broker account of the user, read live
+    through each broker's read-only funds call and never stored. Each account
+    is read on its own, a few at a time: one failing — or needing a
+    reconnect — is reported in its entry (`ok: false`, `error`) and never
+    fails the others. An OpenAlgo account is listed as not supported and not
+    read. Nothing here moves money or places an order.
+    """
+    user = await _hub_user(request)
+    docs = await _user_accounts(user["user_id"])
+    gate = asyncio.Semaphore(_hub.LIVE_READ_CONCURRENCY)
+
+    async def _read_one(doc: Dict[str, Any]) -> Dict[str, Any]:
+        entry: Dict[str, Any] = {**_account_entry(doc), "ok": False, "error": None, "as_of": None, "funds": None}
+        if not doc.get("native"):
+            entry["error"] = {"code": _hub.CODE_NOT_SUPPORTED, "message": _NOT_NATIVE_FUNDS}
+        else:
+            try:
+                async with gate:
+                    funds = await _hub.read_account_funds(db, doc)
+            except Exception as e:  # noqa: BLE001
+                code, message = _hub.describe_failure(e, doc.get("broker") or "", "funds")
+                entry["error"] = {"code": code, "message": message}
+            else:
+                entry.update(ok=True, funds=funds)
+        entry["as_of"] = _now_iso()
+        return entry
+
+    accounts = await asyncio.gather(*(_read_one(d) for d in docs))
+    return {
+        "as_of": _now_iso(),
+        "source": "broker",
+        "basis": "As each broker reports it, read live from its funds call; never stored.",
+        "accounts": list(accounts),
+    }
 
 
 def _position_counts(rows: List[Dict[str, Any]]) -> Dict[str, int]:
