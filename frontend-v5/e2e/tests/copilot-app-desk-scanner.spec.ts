@@ -1310,6 +1310,7 @@ interface ChartOver extends Over {
   cal?: unknown;
   holdings?: unknown;
   filings?: unknown;
+  company?: unknown;
 }
 
 /** deskMocks plus every read the Chart tab, the opportunity detail and the risk desk make. Returns the scenario queries sent. */
@@ -1331,7 +1332,7 @@ async function chartMocks(page: Page, over: ChartOver = {}): Promise<{ scenario:
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIVE_PAT) });
   });
   await json(page, "**/api/positional/backtest/calibration*", over.cal ?? CAL);
-  await json(page, "**/api/copilot/widgets/company_financials", COMPANY);
+  await json(page, "**/api/copilot/widgets/company_financials", over.company ?? COMPANY);
   await json(page, "**/api/filings/feed*", over.filings ?? FILINGS);
   await page.route("**/api/watchlists", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CHART_LISTS) }));
   if (over.holdings) await json(page, "**/api/portfolio/holdings-enriched*", over.holdings);
@@ -1997,6 +1998,34 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     await expect(page.getByTestId("desk-fresh-reference")).toContainText("14 Oct 2026");
     await expect(page.getByTestId("desk-fresh-missing")).toContainText("Intraday bars, F&O ban list, ASM / GSM lists");
     await expect(page.getByTestId("desk-detail-trust")).toContainText("End of day");
+  });
+
+  test("fundamentals and ownership: a blank figure says why, and a pledge-only quarter does not hide the last full one", async ({ page }) => {
+    // MOCK — not real data: the shape of the staging reply on 2026-10-19 (feature row present but unfilled,
+    // newest shareholding quarter carrying only a pledge figure).
+    await chartMocks(page, {
+      company: {
+        kind: "company_financials",
+        data: {
+          v3_score: { pe_ttm: null, pb: null, roe_pct: null, debt_to_equity: null, market_cap_cr: null, as_of_date: "2026-10-19", fundamentals_source: null, fundamentals_as_of: null },
+          rows: [
+            { quarter: "Q1 FY27", period_end: "2026-06-30", revenue_cr: 48211, pat_cr: 7775, revenue_yoy_pct: 14.0, pat_yoy_pct: 12.3 },
+            { _type: "shareholding", period: "Mar 2026", period_end: "2026-03-31", promoter_pct: 50.3, promoter_pledged_pct: null, fii_pct: 19.0, dii_pct: 17.0, mf_pct: null },
+            { _type: "shareholding", period: "Jun 2026", period_end: "2026-06-30", promoter_pct: null, promoter_pledged_pct: 6.0, fii_pct: null, dii_pct: null, mf_pct: null },
+          ],
+        },
+      },
+    });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await page.getByTestId("desk-detail-all").click();
+    await expect(page.getByTestId("desk-fund-valuation")).toContainText("not filled on the 19 Oct 2026 feature row");
+    await expect(page.getByTestId("desk-fund-quality")).toContainText("No source figure was loaded for that date");
+    await expect(page.getByTestId("desk-fund-mcap")).toContainText("Market cap: not filled");
+    await expect(page.getByTestId("desk-fund-promoter")).toContainText("Promoter · Mar 2026");
+    await expect(page.getByTestId("desk-fund-promoter")).toContainText("50.3%");
+    await expect(page.getByTestId("desk-fund-promoter")).toContainText("Pledged 6.0% (Jun 2026)");
+    await expect(page.getByTestId("desk-fund-institutions")).toContainText("19.0%");
+    await expect(page.getByTestId("desk-fund-institutions")).toContainText("mutual-fund line is not loaded");
   });
 
   test("honest states: the pattern engine not deployed (503) and an empty historical record show “—” with the reason", async ({ page }) => {
