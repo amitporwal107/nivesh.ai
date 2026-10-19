@@ -219,6 +219,8 @@ const LiveIndicatorsC = z.object({
   source: z.string(),
   mode: z.string(),
   method: z.string().nullish(),
+  adjustment_break: z.object({ date: z.string(), prev_close: z.number(), close: z.number(), ratio: z.number() }).nullish(),
+  series_notes: z.record(z.string()).nullish(),
   values: IndicatorValuesC,
   series: z.object({
     days: z.array(z.string()),

@@ -244,6 +244,10 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
         NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · end of day · last session {fmtDay(bars[bars.length - 1].day)}
         {n < SESSIONS[tf] ? ` · only ${n} sessions on record, all shown` : ""}
         {ok?.partial ? " · the data platform dropped some incomplete sessions from this series" : ""}
+        {live?.adjustment_break
+          ? ` · the price series jumps ${fmtPrice(live.adjustment_break.prev_close)} to ${fmtPrice(live.adjustment_break.close)} on ${fmtDay(live.adjustment_break.date)}, a split or bonus the data platform has not adjusted: indicators use only the ${live.sessions} sessions from that day`
+          : ""}
+        {live?.series_notes?.ema200 && ov.ema ? ` · no EMA 200 line: ${live.series_notes.ema200}` : ""}
         {live
           ? " · lines and indicators from the server’s feature engine on these bars; VWAP 20D is a 20-day volume-weighted average of daily prices, not the intraday VWAP"
           : " · no indicator lines: the indicator route did not answer"}

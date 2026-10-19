@@ -175,6 +175,8 @@ interface Over {
   watchStatus?: number;
   picksStatus?: number;
   oddsStatus?: number;
+  /** MOCK — not real data: the move-odds model has not published for the next session. */
+  oddsPending?: boolean;
   barsStatus?: number;
 }
 
@@ -215,6 +217,7 @@ async function deskMocks(page: Page, over: Over = {}) {
   await page.route("**/api/move-odds/latest*", (route) => {
     const head = new URL(route.request().url()).searchParams.get("head") ?? "p_up5_1d";
     if (over.oddsStatus) return route.fulfill({ status: over.oddsStatus, contentType: "application/json", body: JSON.stringify({ detail: "Feature not enabled" }) });
+    if (over.oddsPending) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { status: "not_published", head, expected_session: "2026-10-21", last_published_for: "2026-10-19", rows: [] } }) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(latest(head)) });
   });
   await page.route("**/api/move-odds/stocks/*", (route) => {
@@ -1581,11 +1584,23 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-nosize")).toBeVisible();
     await expect(page.getByTestId("desk-chart-ov-levels")).toBeDisabled();
     await expect(page.getByTestId("desk-risk-rr")).toHaveText("—");
-    // Empty levels do not force the editor open; opening it shows what to enter.
-    await expect(page.getByTestId("desk-scn-editor")).toHaveCount(0);
-    await page.getByTestId("desk-risk-editor-toggle").click();
+    // No scanner levels: the calculator is open for the user's own levels, and the card says why none are suggested.
+    await expect(page.getByTestId("desk-risk-nolevels")).toContainText("nothing is made up");
+    await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
     await expect(page.getByTestId("desk-scn-problems")).toContainText("Enter an entry price.");
     expect(await page.getByTestId("desk-axis-label").count()).toBeGreaterThan(1);
+  });
+
+  test("not on the scanner and the model has not published: no gate check applies, the count is “—”, not “0 of 5 passed”", async ({ page }) => {
+    await chartMocks(page, { oddsPending: true });
+    await page.goto(`${DESK}?tab=chart&sym=OTHERSYM`);
+    await expect(page.getByTestId("desk-risk-p5-note")).toHaveText("The model has not published for 21 Oct 2026 yet.");
+    for (const k of ["published", "record", "edge", "events", "liquidity"]) await expect(page.getByTestId(`desk-risk-check-${k}`)).toHaveAttribute("data-ok", "na");
+    await expect(page.getByTestId("desk-risk-check-published-value")).toHaveText("Not published yet");
+    await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("—");
+    await expect(page.getByTestId("desk-risk-gate-none")).toContainText("not judged, not failed");
+    // the calculator is open and works on the user's own levels
+    await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
   });
 
   test("TC-21 chart-live 403 → charting locked for the account; indicators and patterns are locked too", async ({ page }) => {
@@ -1644,7 +1659,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-chk-concentration")).toContainText(`${a1.portfolio!.stock_weight_after_pct.toFixed(1)}% of your portfolio after the buy (0.0% now), within the 25% limit.`);
 
     // Every input is editable: levels, capital, risk, cap, costs, max shares and lot size.
-    await page.getByTestId("desk-risk-editor-toggle").click();
+    if ((await page.getByTestId("desk-risk-editor-toggle").getAttribute("aria-expanded")) !== "true") await page.getByTestId("desk-risk-editor-toggle").click();
     await page.getByTestId("desk-scn-entry").fill("510");
     await page.getByTestId("desk-scn-stop").fill("490");
     await page.getByTestId("desk-scn-target").fill("560");

@@ -183,12 +183,13 @@ function useRiskFigures(symbol: string, setup: DeskSetup | null) {
   const loading = oddsQ.isPending || stockQ.isPending;
 
   // A check is judged only when its source answered; otherwise it is "—" and not counted.
-  const publishedOk: boolean | null = run ? true : odds?.kind === "not_published" || withheld ? false : null;
+  // A run that is not out yet is "not applicable", not a failed check: it says nothing about this stock's setup.
+  const publishedOk: boolean | null = run ? true : withheld ? false : null;
   const checks: GateCheck[] = [
     {
       key: "published",
       label: plain ? "Model ran for the next day" : "Model run for the next session",
-      value: run ? fmtDay(run.target_session) : odds?.kind === "not_published" ? "Not published" : withheld ? "Withheld" : "—",
+      value: run ? fmtDay(run.target_session) : odds?.kind === "not_published" ? "Not published yet" : withheld ? "Withheld" : "—",
       ok: publishedOk,
     },
     {
@@ -643,11 +644,12 @@ function CheckList({ checks }: { checks: RiskCheck[] }) {
 
 function Gate({ checks, passed }: { checks: GateCheck[]; passed: number }) {
   const all = passed === checks.length;
+  const judged = checks.filter((c) => c.ok != null).length;
   return (
     <div data-testid="desk-risk-gate" style={{ borderRadius: 12, border: "1px solid var(--cp-line)", overflow: "hidden" }}>
       <div className="flex items-center justify-between" style={{ gap: 8, padding: "9px 14px", background: "var(--bg-0)", borderBottom: "1px solid var(--cp-line)" }}>
         <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>Validation gate · model checks</span>
-        <span data-testid="desk-risk-gate-count" className="cp-num" style={{ fontSize: 11, color: all ? "var(--mint)" : "var(--cp-danger)" }}>{passed} of {checks.length} passed</span>
+        <span data-testid="desk-risk-gate-count" className="cp-num" style={{ fontSize: 11, color: judged === 0 ? "var(--cp-ink-3)" : all ? "var(--mint)" : "var(--cp-danger)" }}>{judged === 0 ? "—" : `${passed} of ${checks.length} passed`}</span>
       </div>
       <ul className="m-0 flex flex-col" style={{ padding: "4px 14px", listStyle: "none" }}>
         {checks.map((c, i) => (
@@ -676,6 +678,11 @@ function Gate({ checks, passed }: { checks: GateCheck[]; passed: number }) {
           </li>
         ))}
       </ul>
+      {judged === 0 && (
+        <span data-testid="desk-risk-gate-none" className="cp-mono-note" style={{ display: "block", padding: "0 14px 9px", lineHeight: 1.5 }}>
+          None of these checks applies yet: the model has not published a run and the stock is not on the scanner. “—” means not judged, not failed.
+        </span>
+      )}
     </div>
   );
 }
@@ -857,7 +864,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           <RangeBar entry={entry} stop={stop} target={target} ltp={ltp} plain={plain} />
         ) : (
           <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-            {setup ? "This setup has no entry with a stop below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. Enter your own under “Edit the scenario” to size one."}
+            {setup ? "This setup has no entry with a stop below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. The scanner suggests an entry, stop and target only for stocks that pass its end-of-day rules, and nothing is made up for the rest. Enter your own under “Edit the scenario” and the calculator sizes them."}
           </span>
         )}
         {setup && target == null && entry != null && (
@@ -900,7 +907,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           {(st.q.data?.caveats ?? [STOP_NOTE])[0]}
         </span>
 
-        <EditorDisclosure st={st} setup={setup} symbol={sym} />
+        <EditorDisclosure st={st} setup={setup} symbol={sym} defaultOpen={!setup} />
 
         <PortfolioIdeaBlock st={st} symbol={sym} plain={plain} />
 

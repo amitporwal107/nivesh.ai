@@ -308,8 +308,27 @@ def _ema_masked(c: np.ndarray, n: int) -> list:
     return [float(x) if i >= n - 1 else None for i, x in enumerate(full)]
 
 
+BREAK_MOVE = 0.4           # a one-session close move this large is not a market move (NSE circuits stop at 20%)
+
+
+def _adjustment_break(bars: list) -> Optional[dict]:
+    """The latest session whose close is >= 40% away from the one before it, or None.
+
+    Such a jump in bars labelled "adjusted" is a split or bonus the warehouse never applied (e.g. KOTAKBANK's
+    5:1 split of 2026-01-14 has no row in nidp.corporate_actions). Bars from before it are on another price scale.
+    """
+    for i in range(len(bars) - 1, 0, -1):
+        prev, cur = bars[i - 1][4], bars[i][4]
+        if prev > 0 and abs(cur / prev - 1) >= BREAK_MOVE:
+            return {"date": bars[i][0], "prev_close": prev, "close": cur, "ratio": cur / prev}
+    return None
+
+
 def _indicator_values(bars: list, bench: Optional[dict]) -> tuple:
-    """(values, series) for the bars, oldest first. A figure without enough history is None, never 0."""
+    """(values, series) for the bars, oldest first. A figure without enough history is None, never 0.
+
+    With an adjustment break the caller passes only the bars from the break on.
+    """
     days = [b[0] for b in bars]
     o, h, l, c, v = (np.array([b[i] for b in bars], dtype=float) for i in range(1, 6))
     n = len(c)
@@ -349,6 +368,18 @@ def _indicator_values(bars: list, bench: Optional[dict]) -> tuple:
     return values, series
 
 
+def _series_notes(n: int, brk: Optional[dict]) -> dict:
+    """Why a line is absent: fewer sessions than its lookback, and the unadjusted split that cut the history."""
+    notes = {}
+    for key, need in (("ema20", 20), ("ema50", 50), ("ema200", 200)):
+        if n < need:
+            cut = (f", because the bars before the {brk['date']} price break (close {brk['prev_close']:g} to "
+                   f"{brk['close']:g}, a split or bonus the warehouse has not adjusted) are on another price scale and are left out"
+                   if brk else "")
+            notes[key] = f"EMA {need} needs {need} sessions; only {n} are usable{cut}."
+    return notes
+
+
 async def _analysis_inputs(symbol: str) -> tuple:
     """Bars (required), the benchmark and the reference row (each optional, with the reason when missing)."""
     bars_t = asyncio.ensure_future(_live_bars(symbol))
@@ -385,7 +416,9 @@ def _provenance(bars: list) -> dict:
 @router.get("/live/{symbol}/indicators")
 async def live_indicators(symbol: str = SymbolPath, user: dict = Depends(require_feature(FLAG))):
     bars, bench, bench_reason, ref, ref_reason = await _analysis_inputs(symbol)
-    values, series = _indicator_values(bars, bench)
+    brk = _adjustment_break(bars)
+    used = [b for b in bars if brk is None or b[0] >= brk["date"]]
+    values, series = _indicator_values(used, bench)
     if bench and values["rs63"] is None and not bench_reason:
         bench_reason = f"Needs {RS_SESSIONS + 1} sessions of the stock and {BENCHMARK} closes on both dates."
     tradability = None
@@ -402,11 +435,14 @@ async def live_indicators(symbol: str = SymbolPath, user: dict = Depends(require
         }
     return {
         "symbol": symbol,
-        **_provenance(bars),
+        **{**_provenance(bars), "sessions": len(used),
+           **({"adjustment_status": "UNADJUSTED_BREAK_IN_HISTORY"} if brk else {})},
+        "adjustment_break": brk,
         "method": ("backend/nidp/services/technical_indicator_engine/calculator.py (the engine behind "
                    "stock_features_daily), run on the adjusted daily bars above"),
         "values": values,
         "series": series,
+        "series_notes": _series_notes(len(used), brk),
         "definitions": INDICATOR_DEFINITIONS,
         "benchmark": {"name": BENCHMARK, "source": "nidp.index_eod",
                       "as_of": max(bench) if bench else None, "reason": bench_reason},
