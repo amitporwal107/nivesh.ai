@@ -363,7 +363,7 @@ const texts = (page: Page, selector: string) => page.locator(selector).allTextCo
 
 // setup_rules.public_rules(), as GET /api/positional/watchlist and /scan-universe send it.
 const RULES = {
-  version: "scan-rules.v1 (2026-10-14)",
+  version: "scan-rules.v2 (2026-10-20)",
   watchlist: {
     classifier: "smart_v2",
     candidates: { min_close: 5.0, excluded_stages: ["WEAK", "EXTENDED"], top_by_score: 80, min_bars: 30 },
@@ -381,7 +381,7 @@ const RULES = {
     exclusion_order: ["missing_price", "no_traded_value", "no_reference", "series", "etf", "price_band", "at_band_limit", "illiquid"],
   },
   categories: {
-    momentum: { return_20d_min_pct: 5.0, close_above_sma50: true, sma50_slope_above: 0.0, rank_by: "return_20d_pct" },
+    momentum: { return_20d_min_pct: 5.0, close_above_sma50: true, sma50_slope_above: 0.0, rsi14_min: 55.0, rsi14_max: 75.0, rank_by: "return_20d_pct" },
     unusual_volume: { vol_z20_min: 2.0, rank_by: "vol_z20" },
     results_day: { event_type: "quarterly_results", window_calendar_days: 7, return_5d_min_pct: 3.0, vol_z20_min: 1.0, rank_by: "return_5d_pct" },
     fno: { requires_fno_eligible: true, rank_by: "traded_value_cr_20d" },
@@ -627,7 +627,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await scanMocks(page);
     await page.goto(`${DESK_SCAN}&sc_cat=momentum`);
     const rule = page.getByTestId("desk-scan-cat-rule");
-    await expect(rule).toContainText("20-day return of at least 5%, close above the 50-day average, and the 50-day average rising (slope above 0% a day). Ranked by 20-day return. Eligible universe only.");
+    await expect(rule).toContainText("20-day return of at least 5%, RSI(14) between 55 and 75, close above the 50-day average, and the 50-day average rising (slope above 0% a day). Ranked by 20-day return. Eligible universe only.");
     await expect(page.getByTestId("desk-scan-cat-count")).toHaveText(`${UCATS.momentum.total} match; ${UCATS.momentum.missing} could not be judged for missing figures.`);
     await expect(page.getByTestId("desk-scan-rules-version")).toHaveText(` · ${RULES.version}`);
     await page.getByTestId("desk-scan-cat-unusual_volume").click();
