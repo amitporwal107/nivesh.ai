@@ -57,9 +57,42 @@ def _vix_tone(vix: Optional[float]) -> Optional[str]:
     return "fearful"
 
 
+# Every block of the snapshot is a published end-of-day figure (nidp.market_daily_snapshot is built from NSE/RBI
+# daily files); none of the sources is intraday. The word comes from that fact, the date from each source's own column.
+DATA_MODE = "end of day"
+
+
+def _date_str(v: Any) -> Optional[str]:
+    """A source date as text, or None. Never fabricated: an absent date stays absent."""
+    if v is None or v == "":
+        return None
+    return str(v)[:10]
+
+
+def build_sectors(sector_body: Any, unavailable: Optional[str] = None) -> Dict[str, Any]:
+    """Ranked sector block from the DaaS /desk/sector-returns body (name, close, 1d/1w/1m %), best 1-day first.
+    No usable rows → {"unavailable": reason}; never an empty block without a reason."""
+    if unavailable:
+        return {"unavailable": unavailable}
+    rows = (sector_body or {}).get("sectors") if isinstance(sector_body, dict) else None
+    ranked = [
+        {"sector": r.get("sector"), "index": r.get("index"), "close": _num(r, "close"),
+         "ret_1d_pct": _num(r, "ret_1d_pct"), "ret_1w_pct": _num(r, "ret_1w_pct"),
+         "ret_1m_pct": _num(r, "ret_1m_pct"), "date": _date_str(r.get("date"))}
+        for r in (rows or []) if isinstance(r, dict) and _num(r, "close") is not None
+    ]
+    if not ranked:
+        return {"unavailable": "the sector-returns route returned no sector rows"}
+    # Rank by 1-day return; a sector with no 1-day figure goes last.
+    ranked.sort(key=lambda r: (r["ret_1d_pct"] is None, -(r["ret_1d_pct"] or 0.0)))
+    return {"as_of": _date_str(sector_body.get("as_of")), "source": sector_body.get("source"),
+            "mode": DATA_MODE, "ranked": ranked}
+
+
 def build_market_widget(snapshot: Optional[Dict[str, Any]],
-                        movers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Pure builder: NIDP market snapshot (+ optional movers) → market_detail widget.
+                        movers: Optional[Dict[str, Any]] = None,
+                        sectors: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Pure builder: NIDP market snapshot (+ optional movers, sectors) → market_detail widget.
     Every field is gated on real data — missing inputs are simply omitted."""
     s = snapshot or {}
 
@@ -104,6 +137,10 @@ def build_market_widget(snapshot: Optional[Dict[str, Any]],
 
     return {
         "as_of": s.get("as_of_date"),
+        "mode": DATA_MODE,
+        "indices_as_of": _date_str(s.get("index_as_of")),
+        "breadth_as_of": _date_str(s.get("prices_as_of")),
+        "sectors": sectors,
         "indices": indices,
         "vix": vix,
         "vix_tone": _vix_tone(vix),
@@ -118,17 +155,26 @@ def build_market_widget(snapshot: Optional[Dict[str, Any]],
 
 def market_summary(widget: Dict[str, Any]) -> str:
     """One-line LLM context line from the built widget (the only thing the LLM sees)."""
+    mode = widget.get("mode") or DATA_MODE
+
+    def _asof(d: Any) -> str:
+        return f"[{mode}, as of {d}]" if d else f"[{mode}, date not provided by source]"
+
     parts: List[str] = []
+    idx_bits = []
     for i in widget.get("indices") or []:
         seg = f"{i['label']} {i['value']:,.0f}"
         if i.get("change_pct") is not None:
             seg += f" ({i['change_pct']:+.2f}%)"
-        parts.append(seg)
+        idx_bits.append(seg)
     if widget.get("vix") is not None:
-        parts.append(f"India VIX {widget['vix']} ({widget.get('vix_tone')})")
+        idx_bits.append(f"India VIX {widget['vix']} ({widget.get('vix_tone')})")
+    if idx_bits:
+        parts.append(", ".join(idx_bits) + " " + _asof(widget.get("indices_as_of") or widget.get("as_of")))
     b = widget.get("breadth")
     if b:
-        parts.append(f"breadth {b['advances']} adv / {b['declines']} decl")
+        parts.append(f"breadth {b['advances']} adv / {b['declines']} decl "
+                     + _asof(widget.get("breadth_as_of") or widget.get("as_of")))
     f = widget.get("flows")
     if f:
         bits = []
@@ -137,14 +183,27 @@ def market_summary(widget: Dict[str, Any]) -> str:
         if f.get("dii_cr") is not None:
             bits.append(f"DII ₹{f['dii_cr']:,.0f}cr")
         if bits:
-            parts.append(", ".join(bits))
+            parts.append(", ".join(bits) + " " + _asof(f.get("as_of")))
     y = widget.get("yields")
     if y:
-        parts.append(f"10Y G-Sec {y['g10y']}%")
+        parts.append(f"10Y G-Sec {y['g10y']}% " + _asof(y.get("as_of")))
     m = widget.get("movers")
     if m and m.get("gainers"):
         top = m["gainers"][0]
-        parts.append(f"top gainer {top.get('symbol')} {top.get('change_pct'):+.1f}%")
+        if top.get("change_pct") is not None:
+            parts.append(f"top gainer {top.get('symbol')} {top['change_pct']:+.1f}% " + _asof(m.get("as_of")))
+    sec = widget.get("sectors")
+    if isinstance(sec, dict):
+        if sec.get("unavailable"):
+            parts.append(f"sector data unavailable: {sec['unavailable']}")
+        elif sec.get("ranked"):
+            def _r(v: Any) -> str:
+                return "n/a" if v is None else f"{v:+.2f}%"
+            rows = "; ".join(
+                f"{r['sector']} {r['close']:,.0f} (1d {_r(r['ret_1d_pct'])}, 1w {_r(r['ret_1w_pct'])}, "
+                f"1m {_r(r['ret_1m_pct'])})" for r in sec["ranked"])
+            parts.append(f"sectors ranked by 1-day return, best first: {rows} "
+                         + _asof(sec.get("as_of")) + f" source: {sec.get('source') or 'not stated'}")
     return " · ".join(parts) if parts else "Market snapshot unavailable"
 
 
@@ -168,7 +227,18 @@ async def get_market_research() -> MarketResult:
     except Exception as exc:  # noqa: BLE001
         logger.debug("market movers fetch failed: %s", exc)
 
-    widget = build_market_widget(snapshot, movers if isinstance(movers, dict) else None)
+    sector_body: Any = None
+    sector_err: Optional[str] = None
+    try:
+        sector_body = await daas_client._get("/desk/sector-returns")
+        if sector_body is None:
+            sector_err = "the sector-returns route was not found (HTTP 404)"
+    except Exception as exc:  # noqa: BLE001 — a missing block must be said, not silent
+        logger.warning("sector returns fetch failed: %s", exc)
+        sector_err = str(exc)[:200]
+
+    widget = build_market_widget(snapshot, movers if isinstance(movers, dict) else None,
+                                 build_sectors(sector_body, sector_err))
     ok = bool(widget.get("indices") or widget.get("breadth"))
     return MarketResult(
         ok=ok,
