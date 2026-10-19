@@ -42,6 +42,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional
 
+import asyncpg
+
 from nidp.shared.storage.pg import get_pool
 
 from . import parse
@@ -137,8 +139,14 @@ async def _learn_labels(pool, client: TrendlyneClient, ledger: list, parameters:
             raise TrendlyneError(f"parameter {parameter!r} answered {len(blocks)} blocks, expected 1")
         label = next(iter(blocks))
         async with pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO nidp.trendlyne_param_labels (parameter, label) VALUES ($1, $2)", parameter, label)
+            try:
+                await conn.execute(
+                    "INSERT INTO nidp.trendlyne_param_labels (parameter, label) VALUES ($1, $2)", parameter, label)
+            except asyncpg.UniqueViolationError:
+                # The provider answered two tokens with one label (staging: opqmq6 and opqmq5 both
+                # "Operating Profit 6Qtr Ago"), so a block cannot be tied to its token.
+                raise TrendlyneError(
+                    f"parameter {parameter!r} answers the label {label!r}, already used by another parameter") from None
         known[parameter] = label
         logger.info("trendlyne: learned %s = %r", parameter, label)
         await asyncio.sleep(DELAY_S)
@@ -497,18 +505,28 @@ async def daily() -> dict:
     whatever calls are left. A pass that is already staged costs no calls until its
     values are due a refresh, so this is safe to run every day."""
     out: dict = {}
+    # One pass failing (a provider label clash, "not subscribed") must not stop the builds:
+    # the staged values keep, so the ratios are still built from them. The first failure is
+    # raised at the end so the job log shows it rather than a quiet success.
+    first_error: Optional[TrendlyneError] = None
     for pass_name in parse.DAILY_ORDER:
-        out[pass_name] = await fetch(pass_name)
+        try:
+            out[pass_name] = await fetch(pass_name)
+        except TrendlyneError as exc:
+            logger.error("trendlyne fetch %s: failed — %s", pass_name, exc)
+            first_error = first_error or exc
     out["build"] = await build()
-    ratios_error: Optional[TrendlyneError] = None
     try:
         out["ratios"] = await build_ratios()
     except TrendlyneError as exc:
-        # Migration 162 not applied yet. The staged values keep; finish the sectors, then
-        # fail the run so the job log shows it rather than a quiet success.
-        ratios_error = exc
+        # Migration 162 not applied yet. The staged values keep; finish the sectors, then fail.
         logger.error("trendlyne ratios: not built — %s", exc)
-    out["sectors"] = await sectors()
-    if ratios_error:
-        raise ratios_error
+        first_error = first_error or exc
+    try:
+        out["sectors"] = await sectors()
+    except TrendlyneError as exc:
+        logger.error("trendlyne sectors: failed — %s", exc)
+        first_error = first_error or exc
+    if first_error:
+        raise first_error
     return out

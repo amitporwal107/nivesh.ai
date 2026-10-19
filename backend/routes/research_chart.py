@@ -308,8 +308,27 @@ def _ema_masked(c: np.ndarray, n: int) -> list:
     return [float(x) if i >= n - 1 else None for i, x in enumerate(full)]
 
 
+BREAK_MOVE = 0.4           # a one-session close move this large is not a market move (NSE circuits stop at 20%)
+
+
+def _adjustment_break(bars: list) -> Optional[dict]:
+    """The latest session whose close is >= 40% away from the one before it, or None.
+
+    Such a jump in bars labelled "adjusted" is a split or bonus the warehouse never applied (e.g. KOTAKBANK's
+    5:1 split of 2026-01-14 has no row in nidp.corporate_actions). Bars from before it are on another price scale.
+    """
+    for i in range(len(bars) - 1, 0, -1):
+        prev, cur = bars[i - 1][4], bars[i][4]
+        if prev > 0 and abs(cur / prev - 1) >= BREAK_MOVE:
+            return {"date": bars[i][0], "prev_close": prev, "close": cur, "ratio": cur / prev}
+    return None
+
+
 def _indicator_values(bars: list, bench: Optional[dict]) -> tuple:
-    """(values, series) for the bars, oldest first. A figure without enough history is None, never 0."""
+    """(values, series) for the bars, oldest first. A figure without enough history is None, never 0.
+
+    With an adjustment break the caller passes only the bars from the break on.
+    """
     days = [b[0] for b in bars]
     o, h, l, c, v = (np.array([b[i] for b in bars], dtype=float) for i in range(1, 6))
     n = len(c)
@@ -349,6 +368,59 @@ def _indicator_values(bars: list, bench: Optional[dict]) -> tuple:
     return values, series
 
 
+# The one config of the hypothetical-levels rule. Change a constant here and bump VERSION.
+HYPOTHETICAL_RULE = {"name": "ATR_2X_STOP", "version": "1",
+                     "atr_multiple": 2.0, "min_stop_atr": 0.5, "reward_multiple": 2.0, "atr_period": 14}
+HYPOTHETICAL_LABEL = "Rule-based hypothetical levels, not a scanner pick and not a recommendation"
+
+
+def _hypothetical_levels(bars: list) -> dict:
+    """Entry, stop and target for ANY stock with bars, by one deterministic rule on the chart's own engine figures.
+
+    entry  = the last close.
+    stop   = entry - 2 x ATR(14), or the 20-session low (support) when that is closer to the entry than the ATR
+             stop but at least 0.5 x ATR away (a stop tighter than that is noise).
+    target = entry + 2 x (entry - stop).
+    A figure that cannot be derived is None with the reason; nothing is filled in.
+    """
+    r = HYPOTHETICAL_RULE
+    out = {"rule": r["name"], "version": r["version"], "label": HYPOTHETICAL_LABEL,
+           "constants": {k: r[k] for k in ("atr_multiple", "min_stop_atr", "reward_multiple", "atr_period")},
+           "entry": None, "stop": None, "target": None, "risk_reward": None, "stop_basis": None, "reason": None,
+           "source": "nidp.prices_eod_adjusted via calculator.py (atr, swing_high_low)"}
+    h, l, c = (np.array([b[i] for b in bars], dtype=float) for i in (2, 3, 4))
+    atr = _flt(_calc.atr(h, l, c, r["atr_period"]))
+    if atr is None or atr <= 0:
+        out["reason"] = (f"ATR({r['atr_period']}) needs {r['atr_period'] + 1} sessions and "
+                         f"{len(bars)} are usable, so no stop can be derived.")
+        return out
+    entry = float(c[-1])
+    stop, basis = entry - r["atr_multiple"] * atr, "atr"
+    _hi, support = _calc.swing_high_low(h, l, 20)
+    support = _flt(support)
+    if support is not None and stop < support <= entry - r["min_stop_atr"] * atr:
+        stop, basis = support, "support20"
+    if stop <= 0:
+        out["reason"] = "The ATR stop would be at or below zero, so no levels are derived."
+        return out
+    risk = entry - stop
+    out.update(entry=entry, stop=stop, target=entry + r["reward_multiple"] * risk, stop_basis=basis,
+               risk_reward=float(r["reward_multiple"]))
+    return out
+
+
+def _series_notes(n: int, brk: Optional[dict]) -> dict:
+    """Why a line is absent: fewer sessions than its lookback, and the unadjusted split that cut the history."""
+    notes = {}
+    for key, need in (("ema20", 20), ("ema50", 50), ("ema200", 200)):
+        if n < need:
+            cut = (f", because the bars before the {brk['date']} price break (close {brk['prev_close']:g} to "
+                   f"{brk['close']:g}, a split or bonus the warehouse has not adjusted) are on another price scale and are left out"
+                   if brk else "")
+            notes[key] = f"EMA {need} needs {need} sessions; only {n} are usable{cut}."
+    return notes
+
+
 async def _analysis_inputs(symbol: str) -> tuple:
     """Bars (required), the benchmark and the reference row (each optional, with the reason when missing)."""
     bars_t = asyncio.ensure_future(_live_bars(symbol))
@@ -385,7 +457,9 @@ def _provenance(bars: list) -> dict:
 @router.get("/live/{symbol}/indicators")
 async def live_indicators(symbol: str = SymbolPath, user: dict = Depends(require_feature(FLAG))):
     bars, bench, bench_reason, ref, ref_reason = await _analysis_inputs(symbol)
-    values, series = _indicator_values(bars, bench)
+    brk = _adjustment_break(bars)
+    used = [b for b in bars if brk is None or b[0] >= brk["date"]]
+    values, series = _indicator_values(used, bench)
     if bench and values["rs63"] is None and not bench_reason:
         bench_reason = f"Needs {RS_SESSIONS + 1} sessions of the stock and {BENCHMARK} closes on both dates."
     tradability = None
@@ -402,11 +476,15 @@ async def live_indicators(symbol: str = SymbolPath, user: dict = Depends(require
         }
     return {
         "symbol": symbol,
-        **_provenance(bars),
+        **{**_provenance(bars), "sessions": len(used),
+           **({"adjustment_status": "UNADJUSTED_BREAK_IN_HISTORY"} if brk else {})},
+        "adjustment_break": brk,
         "method": ("backend/nidp/services/technical_indicator_engine/calculator.py (the engine behind "
                    "stock_features_daily), run on the adjusted daily bars above"),
         "values": values,
         "series": series,
+        "series_notes": _series_notes(len(used), brk),
+        "hypothetical_levels": _hypothetical_levels(used),
         "definitions": INDICATOR_DEFINITIONS,
         "benchmark": {"name": BENCHMARK, "source": "nidp.index_eod",
                       "as_of": max(bench) if bench else None, "reason": bench_reason},
