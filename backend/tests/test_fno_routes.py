@@ -465,7 +465,7 @@ def test_the_router_is_read_only():
     methods = {m for r in route.router.routes for m in r.methods}
     assert methods == {"GET"}
     assert sorted(r.path for r in route.router.routes) == [
-        "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures"]
+        "/api/fno/scan/buildup", "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures"]
 
 
 # ── GET /expiries ────────────────────────────────────────────────────────────
@@ -507,6 +507,22 @@ def _envelope(rows: List[Dict[str, Any]], as_of: Optional[str] = DAY) -> Dict[st
             "symbol": "TESTCO", "as_of": as_of}
 
 
+NO_DAY = {"prev_close": None, "change": None, "change_pct": None, "oi_buildup": None}
+
+
+def test_futures_carry_their_day_change_and_build_up_once_the_previous_close_is_sent(monkeypatch):
+    """Index futures build-up (PRD §10.4): copied from the staging warehouse 2026-10-14 (nidp.fno_bhavcopy, IDF NIFTY
+    near month): close 22,648.50 vs previous close 22,834.80 → −186.30 = −0.82 %; OI change +3,900 → short build-up."""
+    rows = [{**_future("IDF", "2026-10-27", 22648.5, 22648.5, 18451355, 3900, 53505), "option_type": "FUT",
+             "prev_close_price": 22834.8, "underlying_price": 22622.7},
+            {**_future("IDF", "2026-11-24", 22756.0, 22756.0, 2574910, 117780, 5237), "option_type": "FUT",
+             "prev_close_price": None, "underlying_price": 22622.7}]
+    c, _ = _client(monkeypatch, lambda path, params: (200, _envelope(rows if params["instrument_type"] == "IDF" else [])))
+    near, nxt = c.get("/api/fno/NIFTY/futures").json()["futures"]
+    assert (near["prev_close"], near["change"], near["change_pct"], near["oi_buildup"]) == (22834.8, -186.3, -0.82, "short build-up")
+    assert (nxt["prev_close"], nxt["change"], nxt["oi_buildup"]) == (None, None, None)
+
+
 def test_futures_route_returns_each_contract_with_its_basis_nearest_first(monkeypatch):
     stock_rows = [
         _future("FUTSTK", "2026-11-24", 107.6, 107.5, 900, -30, 400),
@@ -520,12 +536,12 @@ def test_futures_route_returns_each_contract_with_its_basis_nearest_first(monkey
     r = c.get("/api/fno/testco/futures")
     assert r.status_code == 200
     assert r.json() == {"symbol": "TESTCO", "as_of": DAY, "spot": 108.0, "lot_size": None, "count": 3, "futures": [
-        # 108.75 − 108 = +0.75
-        {"expiry": "2026-10-27", "close": 108.7, "settle": 108.75, "oi": 5000, "change_in_oi": 120, "volume": 2500, "basis": 0.75},
+        # 108.75 − 108 = +0.75; no previous close sent → no day change (null, never 0)
+        {"expiry": "2026-10-27", "close": 108.7, "settle": 108.75, "oi": 5000, "change_in_oi": 120, "volume": 2500, "basis": 0.75, **NO_DAY},
         # 107.50 − 108 = −0.50
-        {"expiry": "2026-11-24", "close": 107.6, "settle": 107.5, "oi": 900, "change_in_oi": -30, "volume": 400, "basis": -0.5},
+        {"expiry": "2026-11-24", "close": 107.6, "settle": 107.5, "oi": 900, "change_in_oi": -30, "volume": 400, "basis": -0.5, **NO_DAY},
         # no settle price → no basis, never close − spot in its place
-        {"expiry": "2026-12-29", "close": 109.0, "settle": None, "oi": 10, "change_in_oi": 0, "volume": 0, "basis": None},
+        {"expiry": "2026-12-29", "close": 109.0, "settle": None, "oi": 10, "change_in_oi": 0, "volume": 0, "basis": None, **NO_DAY},
     ]}
     # every futures kind is asked for, in both of the exchange's naming vintages: the route cannot know index
     # from stock, or which vintage the day's rows use, without a read

@@ -4,6 +4,11 @@ The framing string is a 1–3 line preamble that tells the LLM how to adapt tone
 depth, and reference points for the user. Specialist nodes (portfolio, mf, risk,
 goal, stock, market, recommendation) call `frame_for_persona(state.persona)` and
 prepend the result to their base system prompt.
+
+A question asked from the Smart trading desk's own Copilot (chat.py: body `surface: "trading_desk"`)
+carries `state.desk_persona` ("trader" or "investor", the desk's wording switch). For those, the
+framing adds the answer structure of the desk PRD §9.4 (docs/smart_trader) and, for "investor",
+plain wording. It is an instruction to the model, not a template: a part with no data is left out.
 """
 from __future__ import annotations
 
@@ -90,15 +95,50 @@ _FRAMING: dict[str, str] = {
 _DEFAULT_FRAMING = _FRAMING["retail_investor"]
 
 
-def frame_for_persona(persona: Optional[str]) -> str:
+# The desk's two wordings (TRADER / INVESTOR switch in the desk header).
+DESK_PERSONAS = ("trader", "investor")
+
+# Smart trading desk PRD §9.4: the answer structure, "where applicable".
+DESK_ANSWER_STRUCTURE = (
+    "This question was asked from the Smart trading desk. Where it applies, answer in this order, "
+    "each part under a short bold label: "
+    "1) Direct answer: one or two sentences. "
+    "2) Evidence: the figures the tools returned, each with its source. "
+    "3) As of: the date or time of those figures; say 'end of day' or 'delayed' where true, and never call a figure live unless the tool says it is. "
+    "4) Bullish factors and bearish factors. "
+    "5) Key uncertainties. "
+    "6) What would invalidate this view. "
+    "7) Sources: only the sources the tools returned; never invent a citation. "
+    "8) Where to look: the desk tab with the underlying analysis (Overview, AI Scanner, Market Intelligence, "
+    "Chart Analysis or Portfolio & Risk), naming the stock where there is one. "
+    "Leave out a part that does not apply or has no data, and say plainly when data is missing or stale; "
+    "never fill a part with a guess. Keep facts and your interpretation apart. "
+    "A rules-based scanner score is not a probability, and the move-odds model's probabilities are for the next session only. "
+    "Explain evidence and risk; do not tell the user to buy or sell, and Nivesh cannot place orders."
+)
+
+DESK_PLAIN_WORDING = (
+    "The user chose plain wording on the desk: avoid jargon, explain any technical term in a few words, "
+    "and prefer everyday phrases (for example '50-day average' rather than 'SMA 50')."
+)
+
+
+def frame_for_persona(persona: Optional[str], desk_persona: Optional[str] = None) -> str:
     """Return the framing preamble for a persona code.
 
     Unknown or None personas fall back to the retail-investor framing so the
-    LLM still receives a sensible tone instruction.
+    LLM still receives a sensible tone instruction. `desk_persona` ("trader" or
+    "investor") is set only for questions from the Smart trading desk's Copilot;
+    it adds the desk's answer structure (PRD §9.4), and plain wording for "investor".
+    Any other value is ignored.
     """
-    if not persona:
-        return _DEFAULT_FRAMING
-    return _FRAMING.get(persona, _DEFAULT_FRAMING)
+    base = _FRAMING.get(persona, _DEFAULT_FRAMING) if persona else _DEFAULT_FRAMING
+    if desk_persona not in DESK_PERSONAS:
+        return base
+    parts = [base, DESK_ANSWER_STRUCTURE]
+    if desk_persona == "investor":
+        parts.append(DESK_PLAIN_WORDING)
+    return "\n\n".join(parts)
 
 
 def known_personas() -> list[str]:

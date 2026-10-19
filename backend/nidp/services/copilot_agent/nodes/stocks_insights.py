@@ -200,7 +200,7 @@ async def stocks_insights_node(state: CopilotState) -> dict:
                 result.as_llm_context() if result else "recent_filings: UNAVAILABLE")
             llm = make_chat_llm(temperature_for(0.1))
             resp = await llm.ainvoke([
-                {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+                {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
                 {"role": "user", "content": user_msg},
             ])
             answer_text = text_of(resp).strip()

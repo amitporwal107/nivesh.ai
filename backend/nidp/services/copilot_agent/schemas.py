@@ -219,6 +219,12 @@ class CopilotState(BaseModel):
 
     # persona / profile context (hydrated by graph entry from `profiles` collection)
     persona: Optional[str] = None           # PersonaType.value (e.g. "beginner_investor")
+    # "trader" | "investor" for a question asked from the Smart trading desk's own
+    # Copilot (chat.py, body `surface: "trading_desk"`); None everywhere else. The
+    # specialist nodes pass it to frame_for_persona, which adds the desk's answer
+    # structure (PRD §9.4). chat.py ALWAYS sends it, None included, for the same
+    # checkpoint-merge reason as `pinned_agent`.
+    desk_persona: Optional[str] = None
     risk_profile: Optional[str] = None      # "aggressive" | "moderate" | "conservative" | ...
     age_band: Optional[str] = None          # "20s" | "30s" | "40s" | "50s" | "60s+"
     journey_type: Optional[str] = None      # onboarding journey tag from V2 flow

@@ -2,8 +2,22 @@
 
 Public (auth-required):
   GET  /api/positional/picks?date=&min_score=&stage=&limit=
+  GET  /api/positional/watchlist?limit=
+       Rows of both carry spark_closes (last 24 daily closes up to the signal / features date, oldest first, from
+       stock_ohlcv), spark_end (date of the last one) and avg_traded_value_cr_20d (mean close × volume over the last
+       20 sessions, ₹ crore; null with fewer than 20 sessions or a missing volume). Watchlist rows also carry
+       resistance_level and support_level from stock_technical_features.
   GET  /api/positional/picks/{symbol}?date=
   GET  /api/positional/picks/mine          — portfolio-aware filtered picks
+  GET  /api/positional/scenario?entry=&stop=&target=&capital=&risk_pct=… — trade scenario calculator (PRD §8.5/§8.6);
+       pure, read-only, nothing is sent to a broker
+  GET  /api/positional/backtest/calibration?metric=&horizon_days=&symbol= — the accumulation detector's historical
+       record with outcome definitions, Wilson intervals and the labelled period (PRD §7.6)
+  GET  /api/positional/scan-universe?setups=&symbols=
+       The opportunity scanner's universe categories (momentum, unusual volume, results-day momentum, F&O
+       candidates), the eligible universe with every exclusion counted, and the move-odds model's rank percentile
+       within that universe. Rules and thresholds: services/positional_engine/setup_rules.py (versioned, sent back
+       as `rules`). Watchlist and picks also send the rules / engine versions behind their rows.
 
 Admin:
   POST /api/positional/run?date=YYYY-MM-DD
@@ -15,13 +29,17 @@ from __future__ import annotations
 import json
 import logging
 import asyncio
+import re
+import time
 from datetime import date, datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 
 from deps import db, get_current_user, require_admin
+from feature_gate import require_feature
 from services import pg_client
+from services.copilot_tools import daas_client
 from services.positional_engine import (
     backtest,
     bhavcopy_ingester,
@@ -31,6 +49,7 @@ from services.positional_engine import (
     pipeline,
     portfolio_filter,
     scan_config,
+    setup_rules,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +64,58 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
         return datetime.strptime(s, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid date: {s}, expected YYYY-MM-DD")
+
+
+SPARK_SESSIONS = 24        # daily closes in a row's sparkline
+ATV_SESSIONS = 20          # sessions in the average traded value
+_CRORE = 1e7
+
+# The last SPARK_SESSIONS bars per symbol up to a date, for every symbol of a request in one query.
+_SPARK_SQL = """
+    SELECT nse_symbol, bar_date, close_price, volume
+      FROM (SELECT nse_symbol, bar_date, close_price, volume,
+                   row_number() OVER (PARTITION BY nse_symbol ORDER BY bar_date DESC) AS rn
+              FROM stock_ohlcv
+             WHERE nse_symbol = ANY($1::text[])
+               AND bar_date <= $2
+               AND bar_date > $2 - INTERVAL '90 days') t
+     WHERE rn <= $3
+     ORDER BY nse_symbol, bar_date
+"""
+
+
+def _bar_fields(bars: Optional[list]) -> dict:
+    """spark_closes / spark_end / avg_traded_value_cr_20d from (bar_date, close, volume) bars, oldest first.
+    bars None (the read failed) → every field null; no bars → an empty spark and nulls."""
+    if bars is None:
+        return {"spark_closes": None, "spark_end": None, "avg_traded_value_cr_20d": None}
+    spark = [(d, float(c)) for d, c, _ in bars if c is not None][-SPARK_SESSIONS:]
+    tail = bars[-ATV_SESSIONS:]
+    atv = None
+    if len(tail) == ATV_SESSIONS and all(c is not None and v is not None for _, c, v in tail):
+        atv = round(sum(float(c) * int(v) for _, c, v in tail) / ATV_SESSIONS / _CRORE, 2)
+    return {"spark_closes": [round(c, 2) for _, c in spark],
+            "spark_end": str(spark[-1][0]) if spark else None,
+            "avg_traded_value_cr_20d": atv}
+
+
+async def _spark_bars(symbols: List[str], through: date) -> Optional[dict]:
+    """symbol → [(bar_date, close, volume)] oldest first, up to `through`; None when the read failed."""
+    if not symbols:
+        return {}
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(_SPARK_SQL, symbols, through, SPARK_SESSIONS)
+    except Exception as e:  # noqa: BLE001 — the picks still answer, with the bar fields null
+        logger.warning("positional: spark bars read failed (%s)", e)
+        return None
+    out: dict = {s: [] for s in symbols}
+    for r in rows:
+        out.setdefault(r["nse_symbol"], []).append((r["bar_date"], r["close_price"], r["volume"]))
+    return out
 
 
 async def _latest_signal_date() -> Optional[date]:
@@ -77,7 +148,7 @@ async def _fetch_picks(signal_date: date,
         "SELECT ps.nse_symbol, ps.signal_date, ps.final_score, ps.confidence, ps.stage, "
         "       ps.timeframe_days_min, ps.timeframe_days_max, "
         "       ps.entry_price, ps.stoploss, ps.target_price, ps.risk_reward, "
-        "       ps.source_scans, ps.reasons, "
+        "       ps.source_scans, ps.reasons, ps.engine_version, "
         "       stf.components->'pre_breakout' AS pre_breakout, "
         "       stf.components->'raw' AS features_raw "
         "FROM positional_signals ps "
@@ -122,12 +193,19 @@ async def get_picks(request: Request,
     await get_current_user(request)
     sig_date = _parse_date(date) or await _latest_signal_date()
     if sig_date is None:
-        return {"signal_date": None, "picks": [], "message": "no signals available yet"}
+        return {"signal_date": None, "picks": [], "message": "no signals available yet",
+                "rules_version": setup_rules.RULES_VERSION, "engine_versions": []}
     picks = await _fetch_picks(sig_date, min_score, stage, limit)
+    bars = await _spark_bars(sorted({p["nse_symbol"] for p in picks}), sig_date)
+    for p in picks:
+        p.update(_bar_fields(None if bars is None else bars.get(p["nse_symbol"], [])))
     return {
         "signal_date": str(sig_date),
         "count": len(picks),
         "picks": picks,
+        # PRD §5.8: the rules and engine versions behind these rows.
+        "rules_version": setup_rules.RULES_VERSION,
+        "engine_versions": sorted({p["engine_version"] for p in picks if p.get("engine_version")}),
     }
 
 
@@ -160,9 +238,11 @@ async def get_watchlist(request: Request, limit: int = 30):
     "why this stock is here".
     """
     await get_current_user(request)
+    rules = setup_rules.public_rules()
+    cand = setup_rules.WATCHLIST["candidates"]
     pool = await pg_client.get_pool()
     if pool is None:
-        return {"as_of_date": None, "buckets": {}, "_reason": "no pg pool"}
+        return {"as_of_date": None, "buckets": {}, "_reason": "no pg pool", "rules": rules}
 
     try:
         async with pool.acquire() as conn:
@@ -173,6 +253,7 @@ async def get_watchlist(request: Request, limit: int = 30):
                 return {
                     "as_of_date": None, "buckets": {},
                     "_reason": "no technical features yet — run the engine first",
+                    "rules": rules,
                 }
             d = latest["d"]
             # First pass — narrow candidates by score so we only do the
@@ -184,26 +265,29 @@ async def get_watchlist(request: Request, limit: int = 30):
                        stf.close_price, stf.sma_50, stf.sma_200,
                        stf.rsi_14, stf.atr_14,
                        stf.breakout_level, stf.support_level, stf.resistance_level,
+                       stf.engine_version,
                        sm.sector
                 FROM stock_technical_features stf
                 LEFT JOIN stock_master sm ON sm.nse_symbol = stf.nse_symbol
                 WHERE stf.as_of_date = $1
                   AND stf.stage IS NOT NULL
-                  AND stf.stage NOT IN ('WEAK', 'EXTENDED')
-                  AND stf.close_price > 5
+                  AND stf.stage <> ALL($2::text[])
+                  AND stf.close_price > $3
                 ORDER BY stf.final_score DESC NULLS LAST
-                LIMIT 80
+                LIMIT $4
                 """,
-                d,
+                d, cand["excluded_stages"], cand["min_close"], cand["top_by_score"],
             )
             candidate_syms = [r["nse_symbol"] for r in cand_rows]
             # Second pass — bulk-load last 60 bars for each candidate
             # symbol from stock_ohlcv. One query.
             bars_by_sym: dict = {}
+            raw_bars_by_sym: dict = {}   # (bar_date, close, volume) as stored, for the spark / traded-value fields
             if candidate_syms:
                 ohlcv_rows = await conn.fetch(
                     """
-                    SELECT nse_symbol, bar_date, open, high, low, close, volume,
+                    SELECT nse_symbol, bar_date, open_price AS open, high_price AS high,
+                           low_price AS low, close_price AS close, volume,
                            delivery_qty, delivery_pct
                     FROM stock_ohlcv
                     WHERE nse_symbol = ANY($1::text[])
@@ -214,6 +298,7 @@ async def get_watchlist(request: Request, limit: int = 30):
                     candidate_syms, d,
                 )
                 for r in ohlcv_rows:
+                    raw_bars_by_sym.setdefault(r["nse_symbol"], []).append((r["bar_date"], r["close"], r["volume"]))
                     bars_by_sym.setdefault(r["nse_symbol"], []).append({
                         "date":         r["bar_date"],
                         "open":         float(r["open"]) if r["open"] is not None else 0.0,
@@ -227,7 +312,7 @@ async def get_watchlist(request: Request, limit: int = 30):
     except Exception as e:  # noqa: BLE001
         logger.warning("watchlist query failed: %s", e, exc_info=True)
         return {"as_of_date": None, "buckets": {},
-                "_reason": f"{type(e).__name__}: {str(e)[:200]}"}
+                "_reason": f"{type(e).__name__}: {str(e)[:200]}", "rules": rules}
 
     # Smart-money classifier — uses helpers from feature_calculator.
     from services.positional_engine import feature_calculator as fc
@@ -240,7 +325,7 @@ async def get_watchlist(request: Request, limit: int = 30):
     for r in cand_rows:
         sym = r["nse_symbol"]
         bars = bars_by_sym.get(sym) or []
-        if len(bars) < 30:
+        if len(bars) < cand["min_bars"]:
             continue   # not enough history to evaluate structure
         close = float(r["close_price"]) if r["close_price"] is not None else None
         bo = float(r["breakout_level"]) if r["breakout_level"] is not None else None
@@ -274,7 +359,11 @@ async def get_watchlist(request: Request, limit: int = 30):
             "dist_ema20_pct":       dist_ema20,
         }
 
-        def _stop(entry, mult=1.5):
+        # PRD §5.6 gap gate: the scan session's open against the previous close.
+        gap_pct = setup_rules.gap_up_pct(bars[-1]["open"], bars[-2]["close"]) if len(bars) >= 2 else None
+        signals["gap_up_pct"] = round(gap_pct, 2) if gap_pct is not None else None
+
+        def _stop(entry, mult=setup_rules.WATCHLIST["stop_atr_multiple"]):
             if entry is None or atr is None:
                 return None
             return round(entry - mult * atr, 2)
@@ -294,58 +383,45 @@ async def get_watchlist(request: Request, limit: int = 30):
             "sma_200": sma200,
             "ema_20": ema20,
             "signals": signals,
+            "resistance_level": float(r["resistance_level"]) if r["resistance_level"] is not None else None,
+            "support_level": float(r["support_level"]) if r["support_level"] is not None else None,
+            "engine_version": r.get("engine_version"),
+            **_bar_fields(raw_bars_by_sym.get(sym, [])),
         }
 
-        # ── Bucket gates (precedence: confirmed → pre → continuation → accum) ──
-        # 1) BREAKOUT CONFIRMED — close just above the breakout level on
-        #    elevated volume. The most actionable bucket.
-        if (dist_pct is not None and 0 <= dist_pct <= 3
-                and vol_spike is not None and vol_spike >= 1.5
-                and r["stage"] in ("BREAKOUT", "EARLY_BREAKOUT")):
+        # ── Bucket gates: services/positional_engine/setup_rules.py (thresholds and precedence, versioned) ──
+        bucket = setup_rules.classify_setup(
+            stage=r["stage"], close=close, sma50=sma50, ema20=ema20,
+            dist_breakout_pct=dist_pct, dist_ema20_pct=dist_ema20, volume_spike=vol_spike,
+            volume_slope=vol_dry_10, range_15d=rng_15, higher_lows=hl_count, upper_wick=wick, gap_pct=gap_pct,
+        )
+        if bucket == "breakout_confirmed":
+            # Close just above the breakout level on elevated volume, not made on a gap. The most actionable bucket.
             it = {**base_item, "stop_price": _stop(bo)}
             it["why"] = (f"Broke above ₹{bo:.2f} ({dist_pct:+.1f}%) on "
                          f"{vol_spike:.1f}× avg volume")
             confirmed.append(it)
-            continue
-
-        # 2) PRE_BREAKOUT — within 2% below resistance, volume building.
-        if (dist_pct is not None and -2 <= dist_pct < 0
-                and vol_spike is not None and vol_spike >= 1.2
-                and (vol_dry_10 is None or vol_dry_10 > -3)):
+        elif bucket == "pre_breakout":
+            # Just below resistance, volume building.
             it = {**base_item, "stop_price": _stop(bo)}
             it["why"] = (f"{abs(dist_pct):.1f}% below ₹{bo:.2f} resistance · "
                          f"volume {vol_spike:.1f}× avg")
             pre_break.append(it)
-            continue
-
-        # 3) TRUE ACCUMULATION — tight range + volume drying + higher
-        #    lows + small upper wicks. This is the "real" accumulation
-        #    rather than just stage='ACCUMULATION'.
-        if (rng_15 is not None and rng_15 < 8.0                     # tight base
-                and vol_dry_10 is not None and vol_dry_10 < 0       # volume contracting
-                and hl_count >= 1                                    # higher-lows structure
-                and (wick is None or wick < 0.5)                     # no heavy upper-wick selling
-                and (sma50 is None or close > sma50 * 0.97)          # price not far below 50DMA
-                ):
+        elif bucket == "true_accumulation":
+            # Tight range + volume drying + higher lows + small upper wicks — the "real" accumulation rather than
+            # just stage='ACCUMULATION'.
             it = {**base_item, "stop_price": _stop(close)}
             wick_msg = "" if wick is None else f", wick {wick:.0%}"
             dlv_msg = "" if delivery_t is None else f", delivery {delivery_t:+.0f}%"
             it["why"] = (f"Tight {rng_15:.1f}% range, vol drying "
                          f"{vol_dry_10:+.1f}%/d, {hl_count} higher lows{wick_msg}{dlv_msg}")
             true_accum.append(it)
-            continue
-
-        # 4) TREND CONTINUATION — close > 20EMA > 50EMA (ascending),
-        #    within ~3% of the 20EMA (pullback zone), no fresh weakness.
-        if (sma50 is not None and ema20 is not None
-                and close > ema20 > sma50
-                and dist_ema20 is not None and 0 <= dist_ema20 <= 4
-                and (wick is None or wick < 0.5)):
+        elif bucket == "trend_continuation":
+            # close > 20EMA > 50-day average, in the pullback zone above the 20EMA, no fresh weakness.
             it = {**base_item, "stop_price": _stop(ema20)}
             it["why"] = (f"Trend intact (close > 20EMA ₹{ema20:.2f} > 50EMA), "
                          f"{dist_ema20:.1f}% above 20EMA — pullback zone")
             continuation.append(it)
-            continue
 
     # Cap each bucket so the UI stays readable. Confirmed gets the most.
     buckets = {
@@ -371,7 +447,169 @@ async def get_watchlist(request: Request, limit: int = 30):
         "total_count": total_count,
         "bucket_counts": {k: len(v) for k, v in buckets.items()},
         "buckets": buckets,
-        "_classifier_version": "smart_v2",
+        "_classifier_version": setup_rules.WATCHLIST["classifier"],
+        # PRD §5.6 / §5.8: the thresholds these buckets used, with their version, and the engine that wrote the rows.
+        "rules": rules,
+        "engine_versions": sorted({r.get("engine_version") for r in cand_rows if r.get("engine_version")}),
+    }
+
+
+# ── GET /api/positional/scan-universe ───────────────────────────────────
+# The data platform's scan snapshot is end of day: one read serves every caller for _SNAPSHOT_TTL seconds. The model's
+# published run is per session, cached the same way. Neither cache ever serves a failed read.
+_SNAPSHOT_TTL = 600.0
+_snapshot_cache: Dict[str, Any] = {"at": float("-inf"), "body": None}
+_model_cache: Dict[str, Any] = {}
+_MODEL_HEADS = ("p_up5_1d", "p_up10_1d")
+_SCAN_SYMBOLS_MAX = 150
+_SCAN_SYM_RE = re.compile(r"^[A-Z0-9&\-]{1,20}$")
+_UNAVAILABLE = "upstream_unavailable"
+
+
+def _symbol_list(raw: Optional[str], field: str) -> List[str]:
+    out: List[str] = []
+    for part in (raw or "").split(","):
+        sym = part.strip().upper()
+        if not sym:
+            continue
+        if not _SCAN_SYM_RE.match(sym):
+            raise HTTPException(status_code=422, detail=f"invalid_symbol: {field}")
+        if sym not in out:
+            out.append(sym)
+    if len(out) > _SCAN_SYMBOLS_MAX:
+        raise HTTPException(status_code=422, detail=f"too_many_symbols: {field} (max {_SCAN_SYMBOLS_MAX})")
+    return out
+
+
+async def _scan_snapshot() -> Dict[str, Any]:
+    """DaaS GET /v1/features/scan-snapshot, cached; 502 upstream_unavailable on any failure (never an empty universe)."""
+    now = time.monotonic()
+    if _snapshot_cache["body"] is not None and now - _snapshot_cache["at"] < _SNAPSHOT_TTL:
+        return _snapshot_cache["body"]
+    if not daas_client.is_configured():
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    try:
+        status, body = await daas_client.get_raw("/features/scan-snapshot", None, timeout=30.0)
+    except daas_client.DaasError as e:
+        logger.warning("scan-universe: snapshot read failed: %s", e)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if status != 200 or not isinstance(body, dict) or not isinstance(body.get("rows"), list) or not body.get("as_of"):
+        logger.warning("scan-universe: snapshot answered HTTP %s", status)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    _snapshot_cache.update(at=now, body=body)
+    return body
+
+
+async def _move_odds_denied(request: Request) -> Optional[str]:
+    """None when the account may see the move-odds model (the same gate as /api/move-odds), else the reason."""
+    try:
+        await require_feature("move_odds")(request)
+    except HTTPException as e:
+        return "no_access" if e.status_code == 403 else "unavailable"
+    return None
+
+
+async def _model_head(head: str) -> Dict[str, Any]:
+    """One head of the published move-odds run: {status, reason?, run?, p: {symbol: p}}. Never raises."""
+    now = time.monotonic()
+    hit = _model_cache.get(head)
+    if hit and now - hit[0] < _SNAPSHOT_TTL:
+        return hit[1]
+    try:
+        status, body = await daas_client.get_raw("/move-odds/latest", {"head": head, "model": "v4"})
+    except daas_client.DaasError as e:
+        logger.warning("scan-universe: move-odds %s failed: %s", head, e)
+        return {"status": "unavailable", "reason": "The model's run could not be read.", "p": {}}
+    data = (body or {}).get("data") if isinstance(body, dict) else None
+    data = data if isinstance(data, dict) else {}
+    if status == 200 and data.get("status") == "final" and isinstance(data.get("rows"), list):
+        run = data.get("run") or {}
+        p = {str(r.get("symbol") or "").upper(): float(r["p"]) for r in data["rows"]
+             if isinstance(r, dict) and isinstance(r.get("p"), (int, float))}
+        out = {"status": "final", "p": p,
+               "run": {k: run.get(k) for k in ("model", "refit", "data_as_of", "target_session", "universe_size",
+                                               "scored", "train_end")}}
+    elif status == 200 and data.get("status") == "not_published":
+        out = {"status": "not_published", "p": {}, "expected_session": data.get("expected_session"),
+               "reason": f"Not published for the session of {data.get('expected_session')} yet."}
+    elif status == 503 and data.get("status") == "withheld":
+        out = {"status": "withheld", "p": {}, "reason": f"Run withheld: {data.get('reason')}"}
+    else:
+        return {"status": "unavailable", "reason": f"The model's run answered HTTP {status}.", "p": {}}
+    _model_cache[head] = (now, out)
+    return out
+
+
+@router.get("/scan-universe")
+async def scan_universe(request: Request,
+                        setups: Optional[str] = Query(None, max_length=4000,
+                                                      description="The scanner's own setups, comma-separated: returned "
+                                                                  "and counted toward F&O candidates"),
+                        symbols: Optional[str] = Query(None, max_length=4000,
+                                                       description="Other stocks to return (e.g. a watchlist)")):
+    """Universe categories, eligibility and model rank for the opportunity scanner (PRD §5.2, §5.3, §5.8).
+
+    `rows` holds every stock in a category (up to MAX_ROWS_PER_CATEGORY each, best first by the category's rank_by
+    figure) plus every stock asked for in `setups` / `symbols`. Each row: the snapshot's figures (end of day, as of
+    `as_of`), eligible + exclusion (the first gate it fails), risk_class, liquidity_class, categories, and
+    model_rank_pct per head: the stock's move-odds estimate as a percentile among the ELIGIBLE stocks the model
+    scored (setup_rules.rank_percentiles); null when the stock is not eligible, not scored, or the model is not
+    available to this account (`model.status` says which). A probability itself is not sent here.
+    """
+    await get_current_user(request)
+    want_setups = _symbol_list(setups, "setups")
+    want_symbols = _symbol_list(symbols, "symbols")
+    snap = await _scan_snapshot()
+    try:
+        as_of = date.fromisoformat(str(snap["as_of"])[:10])
+    except ValueError:
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    ev = setup_rules.evaluate(snap["rows"], as_of, setup_symbols=want_setups)
+    rows = ev["rows"]
+
+    denied = await _move_odds_denied(request)
+    heads: Dict[str, Any] = {}
+    ranks: Dict[str, Dict[str, Optional[float]]] = {}
+    if denied is None:
+        for head in _MODEL_HEADS:
+            h = await _model_head(head)
+            eligible_p = {s: h["p"].get(s) for s, r in rows.items() if r["eligible"] and s in h["p"]}
+            ranks[head] = setup_rules.rank_percentiles(eligible_p)
+            heads[head] = {k: v for k, v in h.items() if k != "p"}
+            heads[head]["ranked_eligible"] = sum(1 for v in eligible_p.values() if v is not None)
+        status = heads[_MODEL_HEADS[0]]["status"]
+        model = {"status": status, "reason": heads[_MODEL_HEADS[0]].get("reason"), "heads": heads}
+    else:
+        model = {"status": denied, "heads": {},
+                 "reason": ("Move probabilities are not enabled for this account." if denied == "no_access"
+                            else "The feature state could not be read.")}
+
+    wanted: List[str] = []
+    for cat in ev["categories"].values():
+        wanted += cat["symbols"]
+    wanted += want_setups + want_symbols
+    out_rows: List[Dict[str, Any]] = []
+    seen: set = set()
+    for sym in wanted:
+        if sym in seen or sym not in rows:
+            continue
+        seen.add(sym)
+        r = dict(rows[sym])
+        r["model_rank_pct"] = {head: ranks.get(head, {}).get(sym) for head in _MODEL_HEADS}
+        out_rows.append(r)
+    return {
+        "as_of": str(snap["as_of"])[:10],
+        "reference_as_of": snap.get("reference_as_of"),
+        "sessions": snap.get("sessions"),
+        "source": snap.get("source"),
+        "mode": "eod",
+        "rules": setup_rules.public_rules(),
+        "results_window": setup_rules.results_window(as_of),
+        "universe": ev["universe"],
+        "categories": ev["categories"],
+        "model": model,
+        "rows": out_rows,
+        "not_found": [s for s in want_setups + want_symbols if s not in rows],
     }
 
 
@@ -945,28 +1183,179 @@ async def admin_backtest_calibrate(request: Request):
     return await backtest.calibrate()
 
 
+# ── Historical validation table (PRD §7.6, matrix B13) ───────────────────
+# What each calibration figure is, worded from the constants the labeller uses
+# (services/positional_engine/backtest.py), so the definition follows the code.
+# Every metric is a TOUCH outcome — an intraday high within the horizon — and is
+# shown on its own row; the three are never blended into one hit rate.
+_CALIBRATION_METRICS = {
+    "broke_high": {
+        "label": "Broke its 20-session high",
+        "outcome_type": "touch",
+        "rule": ("Within the horizon, any session's intraday high went above the 20-session high the stock had "
+                 "on the scan day (the level it had not yet broken)."),
+    },
+    "moved_scaled": {
+        "label": "Rose by its scaled threshold",
+        "outcome_type": "touch",
+        "rule": (f"Within the horizon, the highest intraday high was at least max({backtest.MIN_SCALED_MOVE_PCT:g}%, "
+                 f"{backtest.SCALED_MOVE_ATR_MULT:g} × ATR% of the scan day) above the scan-day close."),
+    },
+    "moved_5pct": {
+        "label": f"Rose {backtest.MOVE_THRESHOLD_PCT:g}%",
+        "outcome_type": "touch",
+        "rule": (f"Within the horizon, the highest intraday high was at least {backtest.MOVE_THRESHOLD_PCT:g}% above "
+                 "the scan-day close (the v1 label, kept for comparison)."),
+    },
+}
+_CALIBRATION_MEASURES = {
+    "probability": "Hit rate: the share of labelled scans in the bucket where the outcome happened within the horizon.",
+    "avg_fwd_return": ("Mean maximum favourable excursion: the highest intraday high within the horizon against the "
+                       "scan-day close, in percent, averaged over the bucket. It is not an average realised return."),
+    "avg_fwd_drawdown": ("Mean maximum adverse excursion: the lowest intraday low within the horizon against the "
+                         "scan-day close, in percent, averaged over the bucket."),
+    "horizon_days": "Holding period: the number of sessions after the scan day that are checked.",
+    "ci95": "95% Wilson interval for the hit rate, from sample_count and moves_count.",
+}
+_CALIBRATION_NOT_MEASURED = {
+    "median_return": "Not stored: the labeller keeps each scan's maximum excursion, not a realised exit return.",
+    "costs": "None applied: the labels are price-only, with no brokerage, slippage or taxes.",
+    "benchmark": "None: the labels are not compared with an index over the same sessions.",
+    "out_of_sample": ("None: the buckets are fitted on every labelled scan; no later period is held out. "
+                      "Treat the hit rates as in-sample."),
+}
+
+
+def _wilson_ci(moves: int, n: int, z: float = 1.96) -> tuple:
+    """95% Wilson score interval for `moves` hits in `n` trials, as (lo, hi) fractions; (None, None) without a sample."""
+    import math
+    if not n:
+        return (None, None)
+    p = moves / n
+    d = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return (round(max(0.0, centre - half), 4), round(min(1.0, centre + half), 4))
+
+
+def _num(v):
+    """A NUMERIC column as a float (asyncpg returns Decimal), None kept."""
+    return None if v is None else float(v)
+
+
 @router.get("/backtest/calibration")
-async def get_calibration(request: Request):
-    """Public (auth): returns the bucketed hit-rate table the UI uses
-    to convert accumulation_score → probability of move."""
+async def get_calibration(request: Request,
+                          metric: Optional[str] = Query(None, pattern=r"^(broke_high|moved_scaled|moved_5pct)$"),
+                          horizon_days: Optional[int] = Query(None),
+                          symbol: Optional[str] = Query(None, pattern=r"^[A-Za-z0-9&\-]{1,32}$")):
+    """Public (auth): the accumulation detector's bucketed historical record (accumulation_calibration).
+
+    Each row: one score bucket × one horizon × one outcome metric, with its sample size, hit rate and a 95% Wilson
+    interval, mean favourable and adverse excursions. `metrics` defines every outcome (all are intraday touches),
+    `measures` says what each column is, `not_measured` names what this table does not hold and why, and `sample`
+    is the labelled period. `?symbol=` adds the stock's latest accumulation score and marks the bucket rows it
+    falls in (`matched`). Filters: `metric`, `horizon_days` (5, 10 or 20).
+    """
     await get_current_user(request)
+    if horizon_days is not None and horizon_days not in backtest.HORIZONS:
+        raise HTTPException(status_code=422, detail=f"horizon_days must be one of {backtest.HORIZONS}")
+    base = {
+        "metrics": _CALIBRATION_METRICS,
+        "measures": _CALIBRATION_MEASURES,
+        "not_measured": _CALIBRATION_NOT_MEASURED,
+        "source": "accumulation_calibration (positional engine Postgres), from POST /api/positional/backtest/calibrate",
+        "method": ("services/positional_engine/backtest.py: each (symbol, scan date) is replayed with the bars known "
+                   "that day, then the next 5 / 10 / 20 sessions are checked; scans are bucketed by accumulation score."),
+    }
     pool = await pg_client.get_pool()
     if pool is None:
-        return {"buckets": [], "_reason": "no_pg_pool"}
+        return {**base, "buckets": [], "count": 0, "_reason": "no_pg_pool"}
+    where, args = [], []
+    if metric:
+        args.append(metric)
+        where.append(f"metric = ${len(args)}")
+    if horizon_days is not None:
+        args.append(horizon_days)
+        where.append(f"horizon_days = ${len(args)}")
+    sql = ("SELECT metric, bucket_lo, bucket_hi, horizon_days, sample_count, moves_count, probability, "
+           "avg_fwd_return, avg_fwd_drawdown, refreshed_at FROM accumulation_calibration "
+           + (("WHERE " + " AND ".join(where) + " ") if where else "")
+           + "ORDER BY metric, horizon_days, bucket_lo")
     try:
         async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT metric, bucket_lo, bucket_hi, horizon_days,
-                       sample_count, moves_count, probability,
-                       avg_fwd_return, avg_fwd_drawdown
-                FROM accumulation_calibration
-                ORDER BY metric, horizon_days, bucket_lo
-                """
-            )
-        return {"buckets": [dict(r) for r in rows], "count": len(rows)}
+            rows = await conn.fetch(sql, *args)
     except Exception as e:  # noqa: BLE001
-        return {"buckets": [], "_reason": str(e)[:200]}
+        return {**base, "buckets": [], "count": 0, "_reason": str(e)[:200]}
+
+    out = {**base, "sample": None, "symbol_score": None}
+
+    # The labelled period behind the table.
+    try:
+        async with pool.acquire() as conn:
+            s = await conn.fetchrow(
+                "SELECT MIN(scan_date) AS first_scan, MAX(scan_date) AS last_scan, COUNT(*) AS n, "
+                "ARRAY_AGG(DISTINCT engine_version) FILTER (WHERE engine_version IS NOT NULL) AS versions "
+                "FROM positional_backtest_labels"
+            )
+        if s and s["n"]:
+            out["sample"] = {
+                "first_scan_date": s["first_scan"].isoformat() if s["first_scan"] else None,
+                "last_scan_date": s["last_scan"].isoformat() if s["last_scan"] else None,
+                "labelled_rows": int(s["n"]),
+                "engine_versions": sorted(s["versions"] or []),
+            }
+        else:
+            out["sample_reason"] = "No labelled scans on record (positional_backtest_labels is empty)."
+    except Exception as e:  # noqa: BLE001
+        out["sample_reason"] = f"The labelled period could not be read: {str(e)[:120]}"
+
+    # The stock's latest accumulation score, when asked.
+    score = None
+    if symbol:
+        sym = symbol.upper()
+        try:
+            async with pool.acquire() as conn:
+                r = await conn.fetchrow(
+                    "SELECT as_of_date, (components->'pre_breakout'->>'accumulation_score')::float AS score "
+                    "FROM stock_technical_features WHERE nse_symbol = $1 "
+                    "AND components->'pre_breakout'->>'accumulation_score' IS NOT NULL "
+                    "ORDER BY as_of_date DESC LIMIT 1",
+                    sym,
+                )
+            if r and r["score"] is not None:
+                score = float(r["score"])
+                out["symbol_score"] = {"symbol": sym, "as_of_date": r["as_of_date"].isoformat(),
+                                       "accumulation_score": score}
+            else:
+                out["symbol_reason"] = f"No accumulation score on record for {sym} (stock_technical_features)."
+        except Exception as e:  # noqa: BLE001
+            out["symbol_reason"] = f"The accumulation score could not be read: {str(e)[:120]}"
+
+    buckets = []
+    for r in rows:
+        d = dict(r)
+        lo_b, hi_b = _num(d.get("bucket_lo")), _num(d.get("bucket_hi"))
+        n, k = int(d.get("sample_count") or 0), int(d.get("moves_count") or 0)
+        ci_lo, ci_hi = _wilson_ci(k, n)
+        refreshed = d.get("refreshed_at")
+        buckets.append({
+            "metric": d.get("metric"),
+            "bucket_lo": lo_b, "bucket_hi": hi_b,
+            "horizon_days": d.get("horizon_days"),
+            "sample_count": n, "moves_count": k,
+            "probability": _num(d.get("probability")),
+            "avg_fwd_return": _num(d.get("avg_fwd_return")),
+            "avg_fwd_drawdown": _num(d.get("avg_fwd_drawdown")),
+            "ci95_lo": ci_lo, "ci95_hi": ci_hi,
+            "refreshed_at": refreshed.isoformat() if hasattr(refreshed, "isoformat") else refreshed,
+            "matched": bool(score is not None and lo_b is not None and hi_b is not None and lo_b <= score < hi_b),
+        })
+    out["buckets"] = buckets
+    out["count"] = len(buckets)
+    if not buckets:
+        out["empty_reason"] = ("No calibration rows on record: the accumulation backtest (POST "
+                               "/api/positional/backtest/label, then /backtest/calibrate) has not been run here.")
+    return out
 
 
 # ── Market Dashboard (gating layer) + default ChartInk scan seeding ─────
@@ -1154,6 +1543,212 @@ def _size_position(
     risk_rs = round(qty * risk_per_share, 2)
     risk_pct = round(risk_rs / capital_rs * 100, 2) if capital_rs > 0 else 0.0
     return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_pct": risk_pct}
+
+
+# ── Trade scenario calculator (PRD §8.5 and §8.6; desk default D6) ────────
+# The one sizing rule the Smart trading desk uses for a single idea, beside the
+# basket's `_size_position` above (that one splits capital over a basket; this
+# one sizes one trade from a risk budget). Pure: nothing is stored, nothing is
+# sent to a broker. Costs use the strategy_engine backtest's own defaults so a
+# scenario and a backtest charge the same: slippage per side + flat brokerage per side.
+
+from services.strategy_engine.backtest import (  # noqa: E402
+    DEFAULT_BROKERAGE_INR as _SE_BROKERAGE_INR,
+    DEFAULT_SLIPPAGE_PCT as _SE_SLIPPAGE_FRACTION,
+)
+
+_SCENARIO_CAVEATS = (
+    "A stop price does not guarantee the exit price: a gap or thin trading can fill the exit beyond the stop, "
+    "so the loss can be larger than shown.",
+    "Costs are estimates from the strategy_engine model (slippage per side plus a flat brokerage per side); "
+    "taxes and exchange charges are not included.",
+    "Illustrative only: nothing is sent to a broker and no order is placed.",
+)
+_SCENARIO_METHOD = (
+    "PRD §8.5, long only: risk per share = entry − stop; reward per share = target − entry; reward : risk = reward ÷ "
+    "risk; quantity = floor(risk budget ÷ risk per share), then capped by floor(capital × max allocation % ÷ entry) "
+    "and the maximum quantity, and rounded down to the lot size. Costs per side = traded value × slippage % + "
+    "brokerage; net loss at the stop = gross loss + entry and stop-exit costs; net profit at the target = gross "
+    "profit − entry and target-exit costs. Portfolio weights assume the buy is new money added to the portfolio."
+)
+
+
+def _scenario_problem(field: str, code: str, message: str) -> dict:
+    return {"field": field, "code": code, "message": message}
+
+
+def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None,
+                    capital: Optional[float] = None, risk_pct: Optional[float] = None,
+                    risk_budget: Optional[float] = None, max_alloc_pct: float = 25.0,
+                    slippage_pct: Optional[float] = None, brokerage_per_side: Optional[float] = None,
+                    max_qty: Optional[int] = None, lot_size: int = 1,
+                    portfolio_value: Optional[float] = None, existing_value: Optional[float] = None,
+                    sector_value: Optional[float] = None) -> dict:
+    """One long trade scenario. Prices in rupees; `risk_pct`, `max_alloc_pct` and `slippage_pct` in percent units.
+
+    Direction problems (a stop at or above the entry, a target at or below it) and a missing risk budget come back
+    as `valid: false` with `problems` — never a division by zero and never a partial figure.
+    """
+    import math
+
+    slip_pct = _SE_SLIPPAGE_FRACTION * 100 if slippage_pct is None else float(slippage_pct)
+    brokerage = _SE_BROKERAGE_INR if brokerage_per_side is None else float(brokerage_per_side)
+    cost_model = {
+        "slippage_pct_per_side": slip_pct,
+        "brokerage_inr_per_side": brokerage,
+        "default": slippage_pct is None and brokerage_per_side is None,
+        "source": "services/strategy_engine/backtest.py (DEFAULT_SLIPPAGE_PCT, DEFAULT_BROKERAGE_INR)",
+    }
+    budget = risk_budget if risk_budget is not None else (
+        capital * risk_pct / 100.0 if capital is not None and risk_pct is not None else None)
+    base = {
+        "side": "long",
+        "inputs": {
+            "entry": entry, "stop": stop, "target": target, "capital": capital, "risk_pct": risk_pct,
+            "risk_budget": risk_budget, "max_alloc_pct": max_alloc_pct, "slippage_pct": slip_pct,
+            "brokerage_per_side": brokerage, "max_qty": max_qty, "lot_size": lot_size,
+            "portfolio_value": portfolio_value, "existing_value": existing_value, "sector_value": sector_value,
+        },
+        "cost_model": cost_model,
+        "method": _SCENARIO_METHOD,
+        "caveats": list(_SCENARIO_CAVEATS),
+        "sent_to_broker": False,
+    }
+
+    problems = []
+    if not (entry > 0):
+        problems.append(_scenario_problem("entry", "entry_not_positive", "The entry must be a price above zero."))
+    if not (stop > 0):
+        problems.append(_scenario_problem("stop", "stop_not_positive", "The stop must be a price above zero."))
+    if entry > 0 and stop > 0 and not (stop < entry):
+        problems.append(_scenario_problem(
+            "stop", "stop_not_below_entry",
+            f"For a long position the stop (₹{stop:,.2f}) must be below the entry (₹{entry:,.2f})."))
+    if target is not None and not (target > entry):
+        problems.append(_scenario_problem(
+            "target", "target_not_above_entry",
+            f"For a long position the target (₹{target:,.2f}) must be above the entry (₹{entry:,.2f})."))
+    if budget is None or not (budget > 0):
+        problems.append(_scenario_problem(
+            "risk", "needs_capital_or_risk_budget",
+            "Give a risk budget in rupees, or a capital with a risk per trade."))
+    if problems:
+        return {**base, "valid": False, "problems": problems, "warnings": [],
+                "per_share": None, "sizing": None, "costs": None, "outcomes": None, "portfolio": None}
+
+    eps = 1e-9   # absorbs float noise in a quotient that should be whole, so floor never drops a share
+    risk_ps = entry - stop
+    reward_ps = (target - entry) if target is not None else None
+    per_share = {
+        "risk": round(risk_ps, 4),
+        "reward": round(reward_ps, 4) if reward_ps is not None else None,
+        "reward_to_risk": round(reward_ps / risk_ps, 4) if reward_ps is not None else None,
+    }
+
+    qty_risk = math.floor(budget / risk_ps + eps)
+    qty_alloc = math.floor(capital * max_alloc_pct / 100.0 / entry + eps) if capital is not None else None
+    limits = [("risk_budget", qty_risk), ("max_allocation", qty_alloc), ("max_qty", max_qty)]
+    binding, qty = min(((k, q) for k, q in limits if q is not None), key=lambda kq: kq[1])
+    if lot_size > 1:
+        lots = (qty // lot_size) * lot_size
+        if lots != qty:
+            binding, qty = "lot_size", lots
+    gross = qty * entry
+    sizing = {
+        "risk_budget": round(budget, 2),
+        "qty_by_risk": qty_risk,
+        "qty_by_allocation": qty_alloc,
+        "qty_by_max": max_qty,
+        "lot_size": lot_size,
+        "quantity": qty,
+        "binding": binding,
+        "gross_exposure": round(gross, 2),
+        "allocation_pct": round(gross / capital * 100.0, 6) if capital else None,
+        "max_alloc_pct": max_alloc_pct,
+    }
+
+    warnings = []
+    costs = outcomes = None
+    if qty == 0:
+        warnings.append(_scenario_problem(
+            "risk", "no_whole_share",
+            f"The risk budget (₹{budget:,.2f}) is smaller than one share's risk (₹{risk_ps:,.2f}), so no whole share fits."))
+    else:
+        s = slip_pct / 100.0
+        entry_cost = qty * entry * s + brokerage
+        exit_stop = qty * stop * s + brokerage
+        exit_target = (qty * target * s + brokerage) if target is not None else None
+        rt_stop = entry_cost + exit_stop
+        rt_target = (entry_cost + exit_target) if exit_target is not None else None
+        costs = {
+            "entry": round(entry_cost, 2),
+            "exit_at_stop": round(exit_stop, 2),
+            "exit_at_target": round(exit_target, 2) if exit_target is not None else None,
+            "round_trip_at_stop": round(rt_stop, 2),
+            "round_trip_at_target": round(rt_target, 2) if rt_target is not None else None,
+        }
+        loss = qty * risk_ps
+        profit = qty * reward_ps if reward_ps is not None else None
+        outcomes = {
+            "loss_at_stop": round(loss, 2),
+            "loss_at_stop_net": round(loss + rt_stop, 2),
+            "profit_at_target": round(profit, 2) if profit is not None else None,
+            "profit_at_target_net": round(profit - rt_target, 2) if profit is not None else None,
+        }
+
+    portfolio = None
+    if portfolio_value is not None and portfolio_value > 0:
+        ex = existing_value or 0.0
+        after_total = portfolio_value + gross
+        portfolio = {
+            "portfolio_value": round(portfolio_value, 2),
+            "stock_weight_before_pct": round(ex / portfolio_value * 100.0, 6),
+            "stock_weight_after_pct": round((ex + gross) / after_total * 100.0, 6),
+            "stock_weight_change_pct": round((ex + gross) / after_total * 100.0 - ex / portfolio_value * 100.0, 6),
+            "sector_weight_before_pct": round(sector_value / portfolio_value * 100.0, 6) if sector_value is not None else None,
+            "sector_weight_after_pct": (round((sector_value + gross) / after_total * 100.0, 6)
+                                        if sector_value is not None else None),
+            "impact_at_stop_pct": (round(-outcomes["loss_at_stop_net"] / portfolio_value * 100.0, 6)
+                                   if outcomes else None),
+            "impact_at_target_pct": (round(outcomes["profit_at_target_net"] / portfolio_value * 100.0, 6)
+                                     if outcomes and outcomes["profit_at_target_net"] is not None else None),
+            "assumption": "The buy is new money added to the portfolio; weights are of the portfolio after the buy.",
+        }
+
+    return {**base, "valid": True, "problems": [], "warnings": warnings, "per_share": per_share,
+            "sizing": sizing, "costs": costs, "outcomes": outcomes, "portfolio": portfolio}
+
+
+@router.get("/scenario")
+async def trade_scenario(request: Request,
+                         entry: float = Query(..., gt=0, description="Reference entry price, ₹"),
+                         stop: float = Query(..., gt=0, description="Stop-loss price, ₹ (below the entry)"),
+                         target: Optional[float] = Query(None, gt=0, description="Target price, ₹ (above the entry)"),
+                         capital: Optional[float] = Query(None, gt=0, description="Available capital, ₹"),
+                         risk_pct: Optional[float] = Query(None, gt=0, le=100, description="Risk per trade, % of capital"),
+                         risk_budget: Optional[float] = Query(None, gt=0, description="Risk budget, ₹ (instead of capital × risk %)"),
+                         max_alloc_pct: float = Query(25.0, gt=0, le=100, description="Largest share of capital in this stock, %"),
+                         slippage_pct: Optional[float] = Query(None, ge=0, le=5, description="Slippage per side, %"),
+                         brokerage_per_side: Optional[float] = Query(None, ge=0, le=100_000, description="Brokerage per side, ₹"),
+                         max_qty: Optional[int] = Query(None, ge=1, description="Most shares allowed"),
+                         lot_size: int = Query(1, ge=1, description="Shares per lot; the quantity is a whole number of lots"),
+                         portfolio_value: Optional[float] = Query(None, gt=0, description="Portfolio value, ₹ (§8.6)"),
+                         existing_value: Optional[float] = Query(None, ge=0, description="Value already held in this stock, ₹"),
+                         sector_value: Optional[float] = Query(None, ge=0, description="Value already held in its sector, ₹"),
+                         side: str = Query("long", pattern=r"^long$", description="Long only: the desk has no short trades")):
+    """GET /api/positional/scenario — the trade scenario calculator (PRD §8.5) with its portfolio impact (§8.6).
+
+    A read: it computes from the query and stores nothing; nothing is sent to a broker (`sent_to_broker: false`).
+    Malformed numbers are 422; a price in the wrong direction is a 200 with `valid: false` and `problems`, so the
+    screen can say which field is wrong.
+    """
+    await get_current_user(request)
+    return _trade_scenario(
+        entry=entry, stop=stop, target=target, capital=capital, risk_pct=risk_pct, risk_budget=risk_budget,
+        max_alloc_pct=max_alloc_pct, slippage_pct=slippage_pct, brokerage_per_side=brokerage_per_side,
+        max_qty=max_qty, lot_size=lot_size, portfolio_value=portfolio_value, existing_value=existing_value,
+        sector_value=sector_value,
+    )
 
 
 @router.post("/basket")

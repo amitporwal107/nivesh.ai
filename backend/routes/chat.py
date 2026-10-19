@@ -107,6 +107,22 @@ def _advisor_mode_for(advisor_caller: bool, persona: Any) -> bool:
     return not (isinstance(persona, str) and persona.strip().lower() in _OWN_PORTFOLIO_PERSONAS)
 
 
+# The Smart trading desk's own Copilot (frontend CopilotDock) asks with `surface: "trading_desk"`.
+# Its answers follow the desk PRD's answer structure (§9.4), in the desk's wording switch
+# (persona "trader" or "investor"); see nidp/services/copilot_agent/persona_framing.py.
+# An allowlist: any other surface is ignored, so no client value reaches the prompt as text.
+_DESK_SURFACE = "trading_desk"
+
+
+def _desk_persona_for(surface: Any, persona: Any) -> Optional[str]:
+    """"trader" | "investor" for a question from the trading desk's Copilot; None for any other surface.
+    The desk always sends its persona; a missing or unknown one reads as "trader" (the desk's default)."""
+    if not (isinstance(surface, str) and surface.strip().lower() == _DESK_SURFACE):
+        return None
+    p = persona.strip().lower() if isinstance(persona, str) else ""
+    return p if p in ("trader", "investor") else "trader"
+
+
 def _number_or_none(raw: Any) -> Optional[float]:
     if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
         return None
@@ -1450,6 +1466,7 @@ async def stream_chat(request: Request):
     message = body.get("message", "").strip()
     session_id = body.get("session_id")
     pinned_agent = _resolve_pinned_agent(body.get("agent"))
+    desk_persona = _desk_persona_for(body.get("surface"), body.get("persona"))
 
     if not message:
         raise HTTPException(status_code=400, detail="Message required")
@@ -1608,6 +1625,10 @@ async def stream_chat(request: Request):
                         # pins the rest of the session to that agent. Writing None
                         # explicitly is what clears it.
                         "pinned_agent": engine_pin,
+                        # Sent on every turn, None included, for the same checkpoint
+                        # reason as the pin: a desk question must not shape a later
+                        # question asked elsewhere in the same thread.
+                        "desk_persona": desk_persona,
                         **persona_ctx,
                     }
                     prose = ""

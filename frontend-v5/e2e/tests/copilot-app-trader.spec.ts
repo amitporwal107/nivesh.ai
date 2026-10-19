@@ -91,8 +91,63 @@ async function deskData(page: Page) {
   await json(page, "**/api/positional/picks*", PICKS);
 }
 
-/** GET /api/broker/positions with no account signed in on a broker's own page (broker_connect.py :: get_all_positions). */
-const NO_LIVE_ACCOUNT = { as_of: "2026-10-12T10:15:00+00:00", kind: "net", segment: "all", accounts: [] };
+// ── broker routes (MOCK — not real data) ────────────────────────────────
+// GET /api/broker/holdings (broker_connect.py :: get_all_holdings, rows from hub_reads._live_rows) and
+// GET /api/broker/positions (get_all_positions) list every account of the user, each with ok / error.
+
+/** When every live read below was made: 2026-10-12T10:15Z = 12 Oct 3:45 pm IST. */
+const AS_OF = "2026-10-12T10:15:00+00:00";
+
+type Acct = { account_id: string; broker: string; broker_display: string; label: string };
+const ZERODHA: Acct = { account_id: "ba_fixture00001", broker: "zerodha", broker_display: "Zerodha", label: "Zerodha" };
+const UPSTOX: Acct = { account_id: "ba_fixture00002", broker: "upstox", broker_display: "Upstox", label: "Upstox" };
+const ICICI: Acct = { account_id: "ba_fixture00003", broker: "icicidirect", broker_display: "ICICI Direct", label: "ICICI Direct" };
+
+/** A GET /api/broker/accounts row (broker_connect.py :: _public_account) for one of the accounts above, connected on the broker's own page. */
+const accountRow = (a: Acct, over: Record<string, unknown> = {}) => ({
+  ...load("copilot-trader-broker-accounts.json").accounts[0], ...a, openalgo_hosted: false, api_key_masked: null, native: true, needs_reconnect: false, ...over,
+});
+
+const readError = (code: string) => ({ code, message: `fixture: ${code}` });
+const UNKNOWN_TOTALS = { invested_rs: null, value_rs: null, pnl_rs: null, pnl_pct: null };
+/** An account the live holdings read could not (or, connected through OpenAlgo, cannot) read. */
+const holdingsNotRead = (a: Acct, code: string) => ({ ...a, ok: false, error: readError(code), as_of: AS_OF, holdings: [], counts: { total: null }, totals: UNKNOWN_TOTALS });
+const positionsNotRead = (a: Acct, code: string) => ({ ...a, ok: false, error: readError(code), as_of: AS_OF, positions: [], counts: { total: 0, fno: 0, intraday: 0 } });
+
+type LiveRow = { symbol: string; invested_rs: number | null; value_rs: number | null; pnl_rs: number | null; [k: string]: unknown };
+/** One live holding row, its value, cost and P&L worked out from quantity, average and price as the server does (null when an input is missing). */
+function liveRow(symbol: string, name: string | null, quantity: number, avg: number | null, price: number | null, priceSource: "broker" | "masterdata" = "broker"): LiveRow {
+  const invested = avg != null ? quantity * avg : null;
+  const value = price != null ? quantity * price : null;
+  const both = invested != null && value != null && avg != null && price != null;
+  return {
+    isin: null, symbol, name, exchange: "NSE", asset_type: "equity", sector: null, quantity, avg_price: avg, current_price: price,
+    price_source: price != null ? priceSource : null, invested_rs: invested, value_rs: value, pnl_rs: both ? value - invested : null,
+    pnl_pct: both ? Math.round(((price - avg) / avg) * 10_000) / 100 : null, source_id: `NSE:${symbol}`,
+  };
+}
+/** The account totals as hub_reads.holdings_totals adds them up: null when any row lacks the figure. */
+function totalsOf(rows: LiveRow[]) {
+  const sum = (k: "invested_rs" | "value_rs" | "pnl_rs") => (rows.some((r) => r[k] == null) ? null : rows.reduce((s, r) => s + (r[k] as number), 0));
+  const invested = sum("invested_rs");
+  const pnl = sum("pnl_rs");
+  return { invested_rs: invested, value_rs: sum("value_rs"), pnl_rs: pnl, pnl_pct: pnl != null && invested ? Math.round((pnl / invested) * 10_000) / 100 : null };
+}
+const liveAccount = (a: Acct, rows: LiveRow[]) => ({ ...a, ok: true, error: null, as_of: AS_OF, holdings: rows, counts: { total: rows.length }, totals: totalsOf(rows) });
+
+const ALPHA = liveRow("FIXALPHA", "Fixture Alpha Ltd", 10, 100, 120); //            1,000 → 1,200: +₹200, +20.0%
+const DELTA = liveRow("FIXDELTA", null, 4, 250, 225); //                             1,000 → 900: −₹100, −10.0%
+const ECHO = liveRow("FIXECHO", "Fixture Echo Ltd", 2.5, 400, 410, "masterdata"); // 1,000 → 1,025: +₹25, +2.5%; the broker sent no price
+const FOXTROT = liveRow("FIXFOXTROT", "Fixture Foxtrot Ltd", 100, null, 50); //       no average: value 5,000, no cost, no P&L
+const GOLF = liveRow("FIXGOLF", "Fixture Golf Ltd", 10, 20, 30); //                  200 → 300: +₹100, +50.0%
+
+/** Zerodha and ICICI Direct, both read live. */
+const TWO_ACCOUNTS = { accounts: [accountRow(ZERODHA), accountRow(ICICI, { created_at: "2026-09-01T05:00:00+00:00" })] };
+const TWO_LIVE = { as_of: AS_OF, accounts: [liveAccount(ZERODHA, [ALPHA, DELTA, ECHO]), liveAccount(ICICI, [FOXTROT, GOLF])] };
+
+/** The fixture account (copilot-trader-broker-accounts.json) is connected through OpenAlgo: listed, not read live. */
+const OPENALGO_HOLDINGS = { as_of: AS_OF, accounts: [holdingsNotRead(ZERODHA, "BROKER_READ_NOT_SUPPORTED")] };
+const OPENALGO_POSITIONS = { as_of: AS_OF, kind: "net", segment: "all", accounts: [positionsNotRead(ZERODHA, "BROKER_READ_NOT_SUPPORTED")] };
 
 /**
  * Two accounts read live. Zerodha: a delivery holding, an intraday short the broker sent no price or P&L for,
@@ -107,17 +162,48 @@ const POSITIONS = { as_of: "2026-10-12T10:15:00+00:00", kind: "net", segment: "a
   { account_id: "ba_fixture00002", broker: "upstox", label: "Upstox", ok: false, error: { code: "BROKER_SESSION_EXPIRED", message: "fixture: the broker rejected the stored session" }, as_of: "2026-10-12T10:15:00+00:00", counts: { total: 0, fno: 0, intraday: 0 }, positions: [] },
 ] };
 
-/** Broker routes: GET /api/broker/accounts (broker_connect.py :: _public_account), GET /api/portfolio/holdings (portfolio.py :: get_holdings) and GET /api/broker/positions. */
-async function brokerData(page: Page, opts: { accounts?: unknown; holdings?: unknown; holdingsStatus?: number; positions?: unknown; positionsStatus?: number } = {}) {
-  const holdingsCalls: string[] = [];
-  await json(page, "**/api/broker/positions*", opts.positions ?? NO_LIVE_ACCOUNT, opts.positionsStatus ?? 200);
+/** Zerodha (Upstox's session ended): accounts, live holdings and the stored rows, one of them Upstox's from its last sync. */
+const ZU_ACCOUNTS = { accounts: [accountRow(ZERODHA), accountRow(UPSTOX, { status: "expired", needs_reconnect: true, session_ended_reason: "broker_rejected", created_at: "2026-09-01T05:00:00+00:00" })] };
+const ZU_LIVE = { as_of: AS_OF, accounts: [liveAccount(ZERODHA, [ALPHA]), holdingsNotRead(UPSTOX, "BROKER_SESSION_EXPIRED")] };
+/** Upstox's last sync stored one row: 7 × (60 − 50) = +₹70, +20.0%; read 2026-10-11T09:00Z = 11 Oct 2:30 pm IST. */
+const UPSTOX_STORED = {
+  holding_id: "hold_fixtureupx01", user_id: "user_fixture", portfolio_id: "", name: "Fixture Hotel Ltd", ticker: "FIXHOTEL", asset_type: "equity",
+  quantity: 7.0, buy_price: 50.0, current_price: 60.0, sector: "Other", buy_date: null, source: "broker_native", source_id: "NSE:FIXHOTEL",
+  broker: "upstox", broker_account_id: "ba_fixture00002", uploaded_at: "2026-10-11T09:00:00+00:00", created_at: "2026-10-11T09:00:00+00:00",
+};
+
+type Reply = unknown | ((call: number) => unknown);
+const replyOf = (r: Reply, call: number) => (typeof r === "function" ? (r as (n: number) => unknown)(call) : r);
+
+/**
+ * Broker routes: GET /api/broker/accounts (broker_connect.py :: _public_account), GET /api/broker/holdings (live),
+ * GET /api/broker/positions (live) and GET /api/portfolio/holdings (portfolio.py :: get_holdings — the stored rows).
+ * A body may be a function of the call number (0 for the first). Returns the URLs each route was called with.
+ */
+async function brokerData(page: Page, opts: {
+  accounts?: unknown; live?: Reply; liveStatus?: number; positions?: Reply; positionsStatus?: number; holdings?: unknown; holdingsStatus?: number;
+} = {}) {
+  const calls = { live: [] as string[], positions: [] as string[], stored: [] as string[] };
+  await page.route("**/api/broker/positions*", (route) => {
+    const body = replyOf(opts.positions ?? OPENALGO_POSITIONS, calls.positions.length);
+    calls.positions.push(route.request().url());
+    return route.fulfill({ status: opts.positionsStatus ?? 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await page.route("**/api/broker/holdings*", (route) => {
+    const body = replyOf(opts.live ?? OPENALGO_HOLDINGS, calls.live.length);
+    calls.live.push(route.request().url());
+    return route.fulfill({ status: opts.liveStatus ?? 200, contentType: "application/json", body: JSON.stringify(body) });
+  });
   await json(page, "**/api/broker/accounts", opts.accounts ?? load("copilot-trader-broker-accounts.json"));
   await page.route("**/api/portfolio/holdings", (route) => {
-    holdingsCalls.push(route.request().url());
+    calls.stored.push(route.request().url());
     return route.fulfill({ status: opts.holdingsStatus ?? 200, contentType: "application/json", body: JSON.stringify(opts.holdings ?? load("copilot-trader-holdings.json")) });
   });
-  return holdingsCalls;
+  return calls;
 }
+
+/** One account's card in the broker block. */
+const card = (page: Page, a: Acct) => page.locator(`[data-testid="broker-account-card"][data-account-id="${a.account_id}"]`);
 
 /** Sideways overflow of the document and of the shell's scroll area, in px. */
 async function sidewaysOverflow(page: Page) {
@@ -163,113 +249,251 @@ test.describe("Trader desk — broker block", () => {
     await deskData(page);
   });
 
-  test("holdings a broker read stored are listed with quantity, average, last price, P&L and as-of time", async ({ page }) => {
+  test("an account that is not read live says why; its holdings stored at the last sync are listed as such, never as live", async ({ page }) => {
     const sent = await mockAsk(page);
-    await brokerData(page);
+    const calls = await brokerData(page);
     await page.goto(`${APP}/trader`);
 
-    const block = page.getByTestId("trader-broker-positions");
     await expect(page.getByTestId("trader-broker-status")).toHaveText("1 account connected");
-    // copilot-trader-broker-accounts.json: active, 3 holdings, last read 2026-10-12T10:12Z = 12 Oct 3:42 pm IST
-    const account = page.getByTestId("trader-broker-account");
-    await expect(account).toHaveCount(1);
-    await expect(account).toContainText("Zerodha");
-    await expect(account).toContainText(/Connected · 3 holdings read 12 Oct, 3:42\s?pm/i);
-    await expect(account.locator('[data-testid="entity-icon"][data-kind="broker"]')).toHaveCount(1);
+    // copilot-trader-broker-accounts.json: one Zerodha account, connected through OpenAlgo, so the live read lists it as not readable
+    const zerodha = card(page, ZERODHA);
+    await expect(page.getByTestId("broker-account-card")).toHaveCount(1);
+    await expect(zerodha.getByTestId("trader-broker-account")).toContainText("Zerodha");
+    await expect(zerodha.locator('[data-testid="trader-broker-account"] [data-testid="entity-icon"][data-kind="broker"]')).toHaveCount(1);
+    await expect(zerodha.getByTestId("broker-live-status")).toHaveText("Not read live");
+    await expect(zerodha.getByTestId("broker-live-holdings-error")).toContainText("Holdings cannot be read live from this Zerodha connection");
+    await expect(zerodha.getByTestId("broker-reconnect")).toHaveCount(0);
+    await expect(zerodha.getByTestId("broker-live-retry")).toHaveCount(0);
+    await expect(zerodha.getByTestId("broker-live-row")).toHaveCount(0);
 
-    // copilot-trader-holdings.json: three rows carry a broker account, two statement rows do not
-    const rows = page.getByTestId("broker-holding-row");
+    // copilot-trader-holdings.json: three rows carry this broker account, two statement rows do not
+    const stored = zerodha.getByTestId("broker-stored-holdings");
+    await expect(stored).toContainText("Stored at the last sync · not live");
+    await expect(zerodha.getByTestId("broker-stored-asof")).toHaveText(/^3 holdings · as of last sync 12 Oct, 3:42\s?pm$/i);
+    const rows = zerodha.getByTestId("broker-stored-row");
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(0)).toContainText("Fixture Alpha Ltd");
     await expect(rows.nth(0)).toContainText("FIXALPHA");
-    await expect(block).not.toContainText("FIXSTATEMENT");
-    await expect(block).not.toContainText("Fixture Flexi Cap Fund");
+    await expect(zerodha).not.toContainText("FIXSTATEMENT");
+    await expect(zerodha).not.toContainText("Fixture Flexi Cap Fund");
     // every row names a stock, so every row has the company icon
-    await expect(block.locator('[data-testid="broker-holding-row"] [data-testid="entity-icon"][data-kind="stock"]')).toHaveCount(3);
+    await expect(zerodha.locator('[data-testid="broker-stored-row"] [data-testid="entity-icon"][data-kind="stock"]')).toHaveCount(3);
     await expect(rows.nth(0).locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "FIXALPHA");
 
-    // FIXALPHA: 10 × (120 − 100) = +₹200, +20.0%; price as of the read
-    const alpha = block.getByRole("row").filter({ hasText: "FIXALPHA" });
+    // FIXALPHA: 10 × (120 − 100) = +₹200, +20.0%; price as of the sync
+    const alpha = stored.getByRole("row").filter({ hasText: "FIXALPHA" });
     await expect(alpha).toContainText("₹100.00");
     await expect(alpha).toContainText("₹120.00");
-    await expect(alpha.getByTestId("broker-holding-pnl")).toHaveText("+₹200 · +20.0%");
-    await expect(alpha.getByTestId("broker-holding-asof")).toHaveText(/^12 Oct, 3:42\s?pm$/i);
+    await expect(alpha.getByTestId("broker-stored-pnl")).toHaveText("+₹200 · +20.0%");
+    await expect(alpha.getByTestId("broker-stored-price-asof")).toHaveText(/^12 Oct, 3:42\s?pm$/i);
     // FIXBRAVO: 5 × (380 − 400) = −₹100, −5.0%; price refreshed 2026-10-13T04:30Z = 13 Oct 10:00 am IST
-    const bravo = block.getByRole("row").filter({ hasText: "FIXBRAVO" });
-    await expect(bravo.getByTestId("broker-holding-pnl")).toHaveText("−₹100 · −5.0%");
-    await expect(bravo.getByTestId("broker-holding-asof")).toHaveText(/^13 Oct, 10:00\s?am$/i);
+    const bravo = stored.getByRole("row").filter({ hasText: "FIXBRAVO" });
+    await expect(bravo.getByTestId("broker-stored-pnl")).toHaveText("−₹100 · −5.0%");
+    await expect(bravo.getByTestId("broker-stored-price-asof")).toHaveText(/^13 Oct, 10:00\s?am$/i);
     // FIXCHARLIE: the import had no average (stored 0), so no average and no P&L are shown
-    const charlie = block.getByRole("row").filter({ hasText: "FIXCHARLIE" });
+    const charlie = stored.getByRole("row").filter({ hasText: "FIXCHARLIE" });
     await expect(charlie).toContainText("₹250.00");
-    await expect(charlie.getByTestId("broker-holding-pnl")).toHaveText("—");
-
+    await expect(charlie.getByTestId("broker-stored-pnl")).toHaveText("—");
     // totals over the two priced rows: 10×120 + 5×380 = ₹3,100; +200 − 100 = +₹100
-    await expect(page.getByTestId("broker-holdings-value")).toHaveText("₹3,100");
-    await expect(page.getByTestId("broker-holdings-pnl")).toHaveText("+₹100");
-    await expect(block).toContainText("2 of 3 priced");
-    await expect(page.getByTestId("trader-broker-asof")).toHaveText(/^3 holdings · read 12 Oct, 3:42\s?pm$/i);
+    await expect(zerodha.getByTestId("broker-stored-value")).toHaveText("₹3,100");
+    await expect(zerodha.getByTestId("broker-stored-total-pnl")).toHaveText("+₹100");
+    await expect(stored).toContainText("2 of 3 priced");
 
-    // No account here is signed in on the broker's own page, so there are no live positions to read, and the block says so.
-    await expect(page.getByTestId("trader-positions-no-live")).toContainText("None of your connected accounts is");
+    // Positions are not read from this connection either, and the block says so.
+    await expect(zerodha.getByTestId("trader-positions-account-error")).toContainText("Open positions cannot be read live from this Zerodha connection.");
+    await expect(zerodha.getByTestId("broker-position-row")).toHaveCount(0);
     // What is still not read from a broker is named.
-    await expect(page.getByTestId("trader-positions-not-connected")).toContainText("Broker funds and day P&L are not read yet");
+    // Cash is now read (GET /api/broker/funds); day P&L and a stop or target per position still are not.
+    await expect(page.getByTestId("trader-positions-not-connected")).toContainText("Day P&L and a stop or target per position are not read");
     await expect(page.getByTestId("trader-broker-none")).toHaveCount(0);
+    expect(calls.live.length).toBe(1);
 
     await alpha.click();
     await expect.poll(() => sent).toEqual(["Show the FIXALPHA chart with support and resistance. My broker account holds 10 at an average of ₹100.00."]);
   });
 
-  test("open positions are read live per account: instrument, how it is held, signed quantity and the broker's own P&L", async ({ page }) => {
-    let reads = 0;
-    await brokerData(page);
-    await page.route("**/api/broker/positions*", (route) => {
-      reads += 1;
-      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(POSITIONS) });
-    });
+  test("holdings are read live per account: quantity, average, last price, value, P&L and P&L %, with the read time and the account's totals", async ({ page }) => {
+    const sent = await mockAsk(page);
+    const positions = { as_of: AS_OF, kind: "net", segment: "all", accounts: [POSITIONS.accounts[0], { ...ICICI, ok: true, error: null, as_of: AS_OF, positions: [], counts: { total: 0, fno: 0, intraday: 0 } }] };
+    const calls = await brokerData(page, { accounts: TWO_ACCOUNTS, live: TWO_LIVE, positions });
     await page.goto(`${APP}/trader`);
 
-    const block = page.getByTestId("trader-open-positions");
-    // 2026-10-12T10:15Z = 12 Oct 3:45 pm IST
-    await expect(page.getByTestId("trader-positions-asof")).toHaveText(/Read 12 Oct, 3:45\s?pm/i);
-    const accounts = block.getByTestId("trader-positions-account");
-    await expect(accounts).toHaveCount(2);
+    await expect(page.getByTestId("trader-broker-status")).toHaveText("2 accounts connected");
+    await expect(page.getByTestId("broker-account-card")).toHaveCount(2);
+    const zerodha = card(page, ZERODHA);
+    const icici = card(page, ICICI);
+    // the broker's icon and name, and when it was read: 2026-10-12T10:15Z = 12 Oct 3:45 pm IST
+    await expect(zerodha.getByTestId("trader-broker-account")).toContainText("Zerodha");
+    await expect(icici.getByTestId("trader-broker-account")).toContainText("ICICI Direct");
+    await expect(page.locator('[data-testid="trader-broker-account"] [data-testid="entity-icon"][data-kind="broker"]')).toHaveCount(2);
+    await expect(zerodha.getByTestId("broker-live-status")).toHaveText(/^Live · read 12 Oct, 3:45\s?pm$/i);
+    await expect(icici.getByTestId("broker-live-status")).toHaveText(/^Live · read 12 Oct, 3:45\s?pm$/i);
 
-    const zerodha = accounts.nth(0);
-    const rows = zerodha.getByTestId("broker-position-row");
+    // Zerodha: three live rows, each with the company icon
+    const rows = zerodha.getByTestId("broker-live-row");
+    await expect(rows).toHaveCount(3);
+    await expect(zerodha.locator('[data-testid="broker-live-row"] [data-testid="entity-icon"][data-kind="stock"]')).toHaveCount(3);
+    await expect(rows.nth(0).locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", "FIXALPHA");
+    await expect(rows.nth(0)).toContainText("Fixture Alpha Ltd");
+    await expect(rows.nth(1)).toContainText("FIXDELTA");                    // no company name: the symbol alone
+    // FIXALPHA: 10 at 100, last 120 → value 1,200, +₹200, +20.0%
+    const alpha = zerodha.getByRole("row").filter({ hasText: "FIXALPHA" });
+    await expect(alpha.getByTestId("broker-live-qty")).toHaveText("10");
+    await expect(alpha).toContainText("₹100.00");
+    await expect(alpha.getByTestId("broker-live-last")).toHaveText("₹120.00");
+    await expect(alpha.getByTestId("broker-live-value")).toHaveText("₹1,200");
+    await expect(alpha.getByTestId("broker-live-pnl")).toHaveText("+₹200");
+    await expect(alpha.getByTestId("broker-live-pnl-pct")).toHaveText("+20.0%");
+    // FIXDELTA: 4 at 250, last 225 → −₹100, −10.0%
+    const delta = zerodha.getByRole("row").filter({ hasText: "FIXDELTA" });
+    await expect(delta.getByTestId("broker-live-pnl")).toHaveText("−₹100");
+    await expect(delta.getByTestId("broker-live-pnl-pct")).toHaveText("−10.0%");
+    // FIXECHO: a fractional quantity, and a price the broker did not send (the stored close stands in, and says so)
+    const echo = zerodha.getByRole("row").filter({ hasText: "FIXECHO" });
+    await expect(echo.getByTestId("broker-live-qty")).toHaveText("2.50");
+    await expect(echo.getByTestId("broker-live-last")).toHaveText("₹410.00 · not live");
+    await expect(echo.getByTestId("broker-live-value")).toHaveText("₹1,025");
+    // The account's totals, from the payload: invested 3 × 1,000 = ₹3,000; value 1,200 + 900 + 1,025 = ₹3,125;
+    // P&L 200 − 100 + 25 = +₹125, 125 / 3,000 = +4.17% (shown to one place).
+    expect(TWO_LIVE.accounts[0].totals).toEqual({ invested_rs: 3000, value_rs: 3125, pnl_rs: 125, pnl_pct: 4.17 });
+    await expect(zerodha.getByTestId("broker-live-total-value")).toHaveText("₹3,125");
+    await expect(zerodha.getByTestId("broker-live-total-invested")).toHaveText("₹3,000");
+    await expect(zerodha.getByTestId("broker-live-total-pnl")).toHaveText("+₹125 · +4.2%");
+    await expect(zerodha.getByTestId("broker-live-totals-note")).toHaveCount(0);
+
+    // ICICI Direct: FIXFOXTROT has no average, so its cost and P&L are not known — shown as such, never as zero.
+    const foxtrot = icici.getByRole("row").filter({ hasText: "FIXFOXTROT" });
+    await expect(foxtrot.getByTestId("broker-live-value")).toHaveText("₹5,000");
+    await expect(foxtrot.getByTestId("broker-live-pnl")).toHaveText("—");
+    await expect(foxtrot.getByTestId("broker-live-pnl-pct")).toHaveText("—");
+    // A total needs every row: value 5,000 + 300 = ₹5,300 is known; cost and P&L are not.
+    expect(TWO_LIVE.accounts[1].totals).toEqual({ invested_rs: null, value_rs: 5300, pnl_rs: null, pnl_pct: null });
+    await expect(icici.getByTestId("broker-live-total-value")).toHaveText("₹5,300");
+    await expect(icici.getByTestId("broker-live-total-invested")).toHaveText("—");
+    await expect(icici.getByTestId("broker-live-total-pnl")).toHaveText("—");
+    // The one row with both (FIXGOLF: 10 × 30 = 300, +₹100) is summed apart and labelled.
+    await expect(icici.getByTestId("broker-live-totals-note")).toHaveText(
+      "1 of 2 holdings has no price or no average from ICICI Direct, so the account totals are not added up. The 1 holding with both: value ₹300 · P&L +₹100.");
+    await expect(icici.getByTestId("trader-positions-none")).toHaveText("No open positions in this account.");
+
+    // Every account was read live, so nothing stored is fetched or shown.
+    await page.waitForLoadState("networkidle");
+    expect(calls.stored).toEqual([]);
+    await expect(page.getByTestId("broker-stored-holdings")).toHaveCount(0);
+    await expect(page.getByTestId("trader-broker-live-asof")).toHaveText(/^Holdings and positions read live 12 Oct, 3:45\s?pm$/i);
+
+    // Read-only: nothing offers to place, change or close anything.
+    await expect(page.getByTestId("trader-broker-positions").getByRole("button", { name: /place|square off|exit position|buy|sell|close position|order/i })).toHaveCount(0);
+
+    await alpha.click();
+    await expect.poll(() => sent).toEqual(["Show the FIXALPHA chart with support and resistance. My broker account holds 10 at an average of ₹100.00."]);
+  });
+
+  test("open positions are read live per account, with an All / F&O switch; F&O rows keep their contract", async ({ page }) => {
+    await brokerData(page, { accounts: ZU_ACCOUNTS, live: ZU_LIVE, positions: POSITIONS, holdings: [...load("copilot-trader-holdings.json"), UPSTOX_STORED] });
+    await page.goto(`${APP}/trader`);
+
+    const zerodha = card(page, ZERODHA);
+    const positions = zerodha.getByTestId("trader-positions-account");
+    await expect(positions).toContainText("Open positions · live");
+    const rows = positions.getByTestId("broker-position-row");
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(0)).toContainText("Fixture Alpha Ltd");
-    await expect(zerodha.locator('[data-testid="broker-position-row"] [data-testid="entity-icon"][data-kind="stock"]')).toHaveCount(3);
+    await expect(positions.locator('[data-testid="broker-position-row"] [data-testid="entity-icon"][data-kind="stock"]')).toHaveCount(3);
     // A short is said in words, and a field the broker did not send is not turned into a number.
-    await expect(zerodha.getByTestId("broker-position-qty").nth(1)).toHaveText("Short 20");
-    await expect(zerodha.getByTestId("broker-position-pnl").nth(1)).toHaveText("Not sent");
+    await expect(positions.getByTestId("broker-position-qty").nth(1)).toHaveText("Short 20");
+    await expect(positions.getByTestId("broker-position-pnl").nth(1)).toHaveText("Not sent");
     // The option contract is described from its expiry, strike and side.
     await expect(rows.nth(2)).toContainText("27 Oct 2026 · 25,000 call");
-    await expect(zerodha.getByTestId("broker-position-qty").nth(2)).toHaveText("65");
+    await expect(positions.getByTestId("broker-position-qty").nth(2)).toHaveText("65");
     // The broker's own P&L: +500 and +650; the short carries none.
-    await expect(zerodha.getByTestId("broker-positions-pnl")).toHaveText("+₹1,150");
-    await expect(zerodha).toContainText("2 of 3 positions carry one");
+    await expect(positions.getByTestId("broker-positions-pnl")).toHaveText("+₹1,150");
+    await expect(positions).toContainText("2 of 3 positions carry one");
 
-    // The account whose session ended is reported; the other is still listed.
-    const upstox = accounts.nth(1);
+    // The switch counts the account's positions: 3 in all, 1 F&O, 1 intraday.
+    await expect(positions.getByTestId("trader-positions-filter-all")).toHaveText("All · 3");
+    await expect(positions.getByTestId("trader-positions-filter-fno")).toHaveText("F&O · 1");
+    await expect(positions.getByTestId("trader-positions-filter-intraday")).toHaveText("Intraday · 1");
+    await positions.getByTestId("trader-positions-filter-fno").click();
+    await expect(positions.getByTestId("trader-positions-filter-fno")).toHaveAttribute("aria-pressed", "true");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.nth(0)).toContainText("Fixture Index");
+    await expect(rows.nth(0)).toContainText("27 Oct 2026 · 25,000 call");
+    await positions.getByTestId("trader-positions-filter-intraday").click();
+    await expect(positions.getByTestId("broker-position-qty")).toHaveText(["Short 20"]);
+    await positions.getByTestId("trader-positions-filter-all").click();
+    await expect(rows).toHaveCount(3);
+
+    // The account whose session ended is reported in its own card; the other is still listed.
+    const upstox = card(page, UPSTOX);
     await expect(upstox.getByTestId("trader-positions-account-error")).toContainText("Your Upstox session has ended. Sign in again from Broker connections");
     await expect(upstox.getByTestId("broker-position-row")).toHaveCount(0);
+  });
 
-    // Filters count and narrow the readable accounts' positions.
-    await expect(page.getByTestId("trader-positions-filter-all")).toHaveText("All · 3");
-    await expect(page.getByTestId("trader-positions-filter-fno")).toHaveText("F&O · 1");
-    await expect(page.getByTestId("trader-positions-filter-intraday")).toHaveText("Intraday · 1");
-    await page.getByTestId("trader-positions-filter-fno").click();
-    await expect(zerodha.getByTestId("broker-position-row")).toHaveCount(1);
-    await expect(zerodha.getByTestId("broker-position-row")).toContainText("Fixture Index");
-    await page.getByTestId("trader-positions-filter-intraday").click();
-    await expect(zerodha.getByTestId("broker-position-qty")).toHaveText(["Short 20"]);
+  test("an account whose session ended says so, offers Reconnect, and lists its stored rows as of the last sync", async ({ page }) => {
+    const calls = await brokerData(page, { accounts: ZU_ACCOUNTS, live: ZU_LIVE, positions: POSITIONS, holdings: [...load("copilot-trader-holdings.json"), UPSTOX_STORED] });
+    await page.goto(`${APP}/trader`);
 
-    // "Read again" is a new read at the broker; nothing polls on its own.
-    const before = reads;
-    await page.getByTestId("trader-positions-refresh").click();
-    await expect.poll(() => reads).toBe(before + 1);
-    // Read-only: nothing here offers to place, change or close a position.
-    await expect(page.getByTestId("trader-broker-positions").getByRole("button", { name: /place|square off|exit position|buy|sell|close position/i })).toHaveCount(0);
+    const upstox = card(page, UPSTOX);
+    await expect(upstox.getByTestId("trader-broker-account")).toContainText("Upstox");
+    await expect(upstox.getByTestId("broker-live-status")).toHaveText("Session ended · reconnect to read live");
+    await expect(upstox.getByTestId("broker-live-holdings-error")).toContainText("Your Upstox session has ended, so this account’s holdings and positions cannot be read live.");
+    await expect(upstox.getByTestId("broker-live-row")).toHaveCount(0);
+    // Its stored row, labelled with the time of the last sync (2026-10-11T09:00Z = 11 Oct 2:30 pm IST) and as not live.
+    await expect(upstox.getByTestId("broker-stored-holdings")).toContainText("Stored at the last sync · not live");
+    await expect(upstox.getByTestId("broker-stored-asof")).toHaveText(/^1 holding · as of last sync 11 Oct, 2:30\s?pm$/i);
+    await expect(upstox.getByTestId("broker-stored-row")).toHaveCount(1);
+    await expect(upstox.getByTestId("broker-stored-row")).toContainText("Fixture Hotel Ltd");
+    // 7 × (60 − 50) = +₹70, +20.0%
+    await expect(upstox.getByTestId("broker-stored-pnl")).toHaveText("+₹70 · +20.0%");
+    expect(calls.stored.length).toBeGreaterThan(0);
+
+    // The account read live shows only its live rows; another account's stored rows are not mixed in.
+    const zerodha = card(page, ZERODHA);
+    await expect(zerodha.getByTestId("broker-live-status")).toHaveText(/^Live · read 12 Oct, 3:45\s?pm$/i);
+    await expect(zerodha.getByTestId("broker-live-row")).toHaveCount(1);
+    await expect(zerodha.getByTestId("broker-stored-holdings")).toHaveCount(0);
+    await expect(zerodha).not.toContainText("FIXHOTEL");
+    await expect(zerodha).not.toContainText("FIXBRAVO");
+
+    await upstox.getByTestId("broker-reconnect").click();
+    await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
+  });
+
+  test("a failed live read says why with Try again; Refresh reads holdings and positions again, together, and nothing polls", async ({ page }) => {
+    const failed = { as_of: AS_OF, accounts: [holdingsNotRead(ZERODHA, "BROKER_READ_FAILED")] };
+    const ok = { as_of: AS_OF, accounts: [liveAccount(ZERODHA, [ALPHA])] };
+    const positions = { ...POSITIONS, accounts: [POSITIONS.accounts[0]] };
+    const calls = await brokerData(page, { accounts: { accounts: [accountRow(ZERODHA)] }, live: (n: number) => (n === 0 ? failed : ok), positions });
+    await page.goto(`${APP}/trader`);
+
+    const zerodha = card(page, ZERODHA);
+    await expect(zerodha.getByTestId("broker-live-status")).toHaveText("Live read failed");
+    await expect(zerodha.getByTestId("broker-live-holdings-error")).toContainText("Zerodha did not return its holdings just now. Try again in a little while.");
+    // Until it is read, the rows stored at the last sync are shown, labelled as such.
+    await expect(zerodha.getByTestId("broker-stored-asof")).toHaveText(/^3 holdings · as of last sync 12 Oct, 3:42\s?pm$/i);
+    await expect(zerodha.getByTestId("broker-live-row")).toHaveCount(0);
+    await page.waitForLoadState("networkidle");
+    expect([calls.live.length, calls.positions.length]).toEqual([1, 1]);
+
+    // Try again reads the account again: now it answers, and the stored rows give way to the live ones.
+    await zerodha.getByTestId("broker-live-retry").click();
+    await expect.poll(() => [calls.live.length, calls.positions.length]).toEqual([2, 2]);
+    await expect(zerodha.getByTestId("broker-live-row")).toHaveCount(1);
+    await expect(zerodha.getByTestId("broker-stored-holdings")).toHaveCount(0);
+    await expect(zerodha.getByTestId("broker-live-status")).toHaveText(/^Live · read 12 Oct, 3:45\s?pm$/i);
+
+    // One Refresh reads both routes again.
+    await expect(page.getByTestId("trader-broker-refresh")).toHaveText("Refresh");
+    await page.getByTestId("trader-broker-refresh").click();
+    await expect.poll(() => [calls.live.length, calls.positions.length]).toEqual([3, 3]);
+    await expect(page.getByTestId("trader-broker-refresh")).toBeEnabled();
+
+    // Nothing reads on its own: no polling, no re-read on focus.
+    await page.waitForTimeout(2_500);
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await page.waitForTimeout(500);
+    expect([calls.live.length, calls.positions.length]).toEqual([3, 3]);
   });
 
   test("a position row asks for its chart in the trader persona; an option or a future names its contract", async ({ page }) => {
@@ -358,57 +582,99 @@ test.describe("Trader desk — broker block", () => {
 
   test("open positions: an account with none, the feature switched off, a failed read and a wrong-shaped answer each say so", async ({ page }) => {
     const empty = { ...POSITIONS, accounts: [{ ...POSITIONS.accounts[0], positions: [], counts: { total: 0, fno: 0, intraday: 0 } }] };
-    await brokerData(page, { positions: empty });
+    await brokerData(page, { accounts: { accounts: [accountRow(ZERODHA)] }, live: { as_of: AS_OF, accounts: [liveAccount(ZERODHA, [ALPHA])] }, positions: empty });
     await page.goto(`${APP}/trader`);
     await expect(page.getByTestId("trader-positions-none")).toHaveText("No open positions in this account.");
+    await expect(page.getByTestId("trader-positions-filter-fno")).toHaveText("F&O · 0");
 
-    // Switched off for the account: 403 from the server.
+    // Switched off for the account: 403 from the server. The holdings read live are still shown.
     await page.unroute("**/api/broker/positions*");
     await json(page, "**/api/broker/positions*", { status: 403, error: "FORBIDDEN", code: "AUTH-003", message: "feature_not_enabled", details: [] }, 403);
     await page.reload();
     await expect(page.getByTestId("trader-positions-off")).toContainText("not switched on for this account");
     await expect(page.getByTestId("broker-position-row")).toHaveCount(0);
+    await expect(page.getByTestId("broker-live-row")).toHaveCount(1);
 
     // The read fails: an error with a retry, never an empty book.
     await page.unroute("**/api/broker/positions*");
     await json(page, "**/api/broker/positions*", { detail: "boom" }, 500);
     await page.reload();
-    await expect(page.getByTestId("trader-open-positions")).toContainText("Open positions", SLOW);
-    await expect(page.getByTestId("trader-open-positions").getByRole("button", { name: /retry|again/i }).first()).toBeVisible(SLOW);
+    const problem = page.getByTestId("trader-positions-problem");
+    await expect(problem).toContainText("Open positions didn’t load", SLOW);
+    await expect(problem.getByRole("button", { name: /retry|again/i }).first()).toBeVisible(SLOW);
     await expect(page.getByTestId("trader-positions-none")).toHaveCount(0);
 
     // A 200 that is not the documented shape is an error too.
     await page.unroute("**/api/broker/positions*");
     await json(page, "**/api/broker/positions*", {});
     await page.reload();
+    await expect(page.getByTestId("trader-positions-problem")).toContainText("unexpected response shape", SLOW);
     await expect(page.getByTestId("trader-positions-none")).toHaveCount(0);
-    await expect(page.getByTestId("trader-positions-no-live")).toHaveCount(0);
     await expect(page.getByTestId("broker-position-row")).toHaveCount(0);
   });
 
-  test("no broker account: says so, links to Broker connections, and does not fetch holdings", async ({ page }) => {
-    const holdingsCalls = await brokerData(page, { accounts: { accounts: [] } });
+  test("live holdings: the feature switched off, a failed read and a wrong-shaped answer each say so, and the stored rows stay labelled", async ({ page }) => {
+    await brokerData(page, { live: { status: 403, error: "FORBIDDEN", code: "AUTH-003", message: "feature_not_enabled", details: [] }, liveStatus: 403 });
+    await page.goto(`${APP}/trader`);
+    const zerodha = card(page, ZERODHA);
+    await expect(page.getByTestId("trader-holdings-off")).toContainText("Reading holdings live from a broker is not switched on for this account.");
+    // The stored rows are shown, as of the last sync — never as live.
+    await expect(zerodha.getByTestId("broker-stored-asof")).toHaveText(/^3 holdings · as of last sync 12 Oct, 3:42\s?pm$/i);
+    await expect(zerodha.getByTestId("broker-live-status")).toHaveText("Live read failed");
+    await expect(page.getByTestId("broker-live-row")).toHaveCount(0);
+
+    // The read fails: an error with a retry, and still the stored rows.
+    await page.unroute("**/api/broker/holdings*");
+    await json(page, "**/api/broker/holdings*", { detail: "boom" }, 500);
+    await page.reload();
+    const problem = page.getByTestId("trader-holdings-problem");
+    await expect(problem).toContainText("Live holdings didn’t load", SLOW);
+    await expect(problem.getByRole("button", { name: /retry|again/i }).first()).toBeVisible(SLOW);
+    await expect(zerodha.getByTestId("broker-stored-row")).toHaveCount(3);
+
+    // A 200 that is not the documented shape is an error too, never "no holdings".
+    await page.unroute("**/api/broker/holdings*");
+    await json(page, "**/api/broker/holdings*", {});
+    await page.reload();
+    await expect(page.getByTestId("trader-holdings-problem")).toContainText("unexpected response shape", SLOW);
+    await expect(page.getByTestId("broker-live-holdings-empty")).toHaveCount(0);
+    await expect(page.getByTestId("broker-live-row")).toHaveCount(0);
+  });
+
+  test("no broker account: says so, links to Broker connections, and reads nothing", async ({ page }) => {
+    const calls = await brokerData(page, { accounts: { accounts: [] } });
     await page.goto(`${APP}/trader`);
     await expect(page.getByTestId("trader-broker-status")).toHaveText("No broker connected");
     const none = page.getByTestId("trader-broker-none");
     await expect(none).toContainText("No broker account is connected");
-    await expect(page.getByTestId("broker-holding-row")).toHaveCount(0);
+    await expect(page.getByTestId("broker-account-card")).toHaveCount(0);
     await expect(page.getByTestId("trader-positions-not-connected")).toBeVisible();
     await page.waitForLoadState("networkidle");
-    expect(holdingsCalls).toEqual([]);
+    expect(calls).toEqual({ live: [], positions: [], stored: [] });
     await none.getByRole("button", { name: "Broker connections" }).click();
     await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
   });
 
-  test("account connected but nothing read yet: empty state names the broker", async ({ page }) => {
-    const pending = { accounts: [{ ...load("copilot-trader-broker-accounts.json").accounts[0], status: "pending", last_sync_at: null, last_sync_count: 0 }] };
-    // only statement rows come back: nothing from the broker is stored
+  test("an account read live that holds nothing says so; an account not read with nothing stored says so too", async ({ page }) => {
+    const accounts = { accounts: [accountRow(ZERODHA), accountRow(UPSTOX, { native: false, openalgo_hosted: true, status: "pending", last_sync_at: null, last_sync_count: 0, created_at: "2026-09-01T05:00:00+00:00" })] };
+    const live = { as_of: AS_OF, accounts: [liveAccount(ZERODHA, []), holdingsNotRead(UPSTOX, "BROKER_READ_NOT_SUPPORTED")] };
+    const positions = { ...POSITIONS, accounts: [{ ...POSITIONS.accounts[0], positions: [], counts: { total: 0, fno: 0, intraday: 0 } }, positionsNotRead(UPSTOX, "BROKER_READ_NOT_SUPPORTED")] };
+    // only statement rows come back: nothing from either broker is stored
     const statementOnly = (load("copilot-trader-holdings.json") as Array<{ broker_account_id?: string }>).filter((h) => !h.broker_account_id);
-    await brokerData(page, { accounts: pending, holdings: statementOnly });
+    await brokerData(page, { accounts, live, positions, holdings: statementOnly });
     await page.goto(`${APP}/trader`);
-    await expect(page.getByTestId("trader-broker-account")).toContainText("Sign-in not finished · Nothing read yet");
-    await expect(page.getByTestId("trader-broker-holdings-empty")).toContainText("Nothing has been read from Zerodha yet");
-    await expect(page.getByTestId("broker-holding-row")).toHaveCount(0);
+
+    const zerodha = card(page, ZERODHA);
+    await expect(zerodha.getByTestId("broker-live-holdings-empty")).toHaveText("No holdings at Zerodha.");
+    // Read, and nothing held: no totals line made of zeros.
+    await expect(zerodha.getByTestId("broker-live-totals")).toHaveCount(0);
+    await expect(zerodha.getByTestId("trader-positions-none")).toHaveText("No open positions in this account.");
+
+    const upstox = card(page, UPSTOX);
+    await expect(upstox.getByTestId("broker-live-holdings-error")).toContainText("Holdings cannot be read live from this Upstox connection");
+    await expect(upstox.getByTestId("broker-stored-none")).toHaveText("No holdings from this account are stored from an earlier sync either.");
+    await expect(page.getByTestId("broker-live-row")).toHaveCount(0);
+    await expect(page.getByTestId("broker-stored-row")).toHaveCount(0);
     await expect(page.getByTestId("trader-positions-not-connected")).toBeVisible();
   });
 
@@ -417,23 +683,24 @@ test.describe("Trader desk — broker block", () => {
     await page.goto(`${APP}/trader`);
     const block = page.getByTestId("trader-broker-positions");
     await expect(block.getByRole("alert")).toContainText("Broker connections didn’t load", SLOW);
-    await expect(page.getByTestId("broker-holding-row")).toHaveCount(0);
+    await expect(page.getByTestId("broker-account-card")).toHaveCount(0);
     await expect(page.getByTestId("trader-positions-not-connected")).toBeVisible();
   });
 
-  test("holdings fail or come back in the wrong shape: error, never an empty list", async ({ page }) => {
+  test("stored rows fail or come back in the wrong shape: error, never an empty list", async ({ page }) => {
     await brokerData(page, { holdings: { detail: "fixture failure" }, holdingsStatus: 500 });
     await page.goto(`${APP}/trader`);
-    const block = page.getByTestId("trader-broker-positions");
-    await expect(block.getByRole("alert")).toContainText("Holdings read from your broker didn’t load", SLOW);
-    await expect(page.getByTestId("trader-broker-holdings-empty")).toHaveCount(0);
+    const zerodha = card(page, ZERODHA);
+    await expect(zerodha.getByRole("alert").filter({ hasText: "didn’t load" })).toContainText("Holdings stored at the last sync didn’t load", SLOW);
+    await expect(zerodha.getByTestId("broker-stored-none")).toHaveCount(0);
 
-    // a 200 {} is not "no holdings"
-    await brokerData(page, { holdings: {} });
+    // a 200 {} is not "nothing stored"
+    await page.unroute("**/api/portfolio/holdings");
+    await json(page, "**/api/portfolio/holdings", {});
     await page.reload();
-    await expect(block.getByRole("alert")).toContainText("unexpected response shape", SLOW);
-    await expect(page.getByTestId("trader-broker-holdings-empty")).toHaveCount(0);
-    await expect(page.getByTestId("broker-holding-row")).toHaveCount(0);
+    await expect(zerodha.getByRole("alert").filter({ hasText: "didn’t load" })).toContainText("unexpected response shape", SLOW);
+    await expect(zerodha.getByTestId("broker-stored-none")).toHaveCount(0);
+    await expect(zerodha.getByTestId("broker-stored-row")).toHaveCount(0);
   });
 
   test("journal, watch-level and scanner rows carry the company icon; risk limits stay declared missing", async ({ page }) => {
@@ -552,20 +819,32 @@ test.describe("Trader desk and Paper trades — phone (390×844)", () => {
 
   test.beforeEach(async ({ page }) => { await populated(page); });
 
-  test("the desk with broker holdings does not scroll sideways; the table scrolls inside itself", async ({ page }) => {
+  test("the desk with live holdings, positions and stored rows does not scroll sideways; each table scrolls inside itself", async ({ page }) => {
     await deskData(page);
-    await brokerData(page);
+    const accounts = { accounts: [...TWO_ACCOUNTS.accounts, accountRow(UPSTOX, { status: "expired", created_at: "2026-08-01T05:00:00+00:00" })] };
+    const live = { as_of: AS_OF, accounts: [...TWO_LIVE.accounts, holdingsNotRead(UPSTOX, "BROKER_SESSION_EXPIRED")] };
+    const positions = { ...POSITIONS, accounts: [POSITIONS.accounts[0], positionsNotRead(ICICI, "BROKER_READ_FAILED"), POSITIONS.accounts[1]] };
+    await brokerData(page, { accounts, live, positions, holdings: [...load("copilot-trader-holdings.json"), UPSTOX_STORED] });
     await page.goto(`${APP}/trader`);
-    await expect(page.getByTestId("broker-holding-row")).toHaveCount(3);
+    await expect(page.getByTestId("broker-live-row")).toHaveCount(5);
+    await expect(page.getByTestId("broker-position-row")).toHaveCount(3);
+    await expect(page.getByTestId("broker-stored-row")).toHaveCount(1);
     await page.waitForLoadState("networkidle");
     const over = await sidewaysOverflow(page);
     expect(over.doc, "page scrolls sideways").toBeLessThanOrEqual(1);
     expect(over.scroll, "content area scrolls sideways").toBeLessThanOrEqual(1);
-    // the holdings table is wider than the phone and scrolls in its own container
-    const table = page.getByTestId("trader-broker-positions").getByRole("table");
-    const inner = await table.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
-    expect(inner.scroll).toBeGreaterThan(inner.client);
-    expect(inner.client).toBeLessThanOrEqual(390);
+    // every table (live holdings, positions, stored rows) is wider than the phone and scrolls in its own container
+    const tables = page.getByTestId("trader-broker-positions").getByRole("table");
+    expect(await tables.count()).toBe(4);
+    for (const inner of await tables.evaluateAll((els) => els.map((el) => ({ scroll: el.scrollWidth, client: el.clientWidth })))) {
+      expect(inner.scroll).toBeGreaterThan(inner.client);
+      expect(inner.client).toBeLessThanOrEqual(390);
+    }
+    // The Refresh button and the F&O switch stay on screen.
+    const refresh = await page.getByTestId("trader-broker-refresh").boundingBox();
+    expect((refresh?.x ?? 0) + (refresh?.width ?? 0)).toBeLessThanOrEqual(390);
+    const fno = await card(page, ZERODHA).getByTestId("trader-positions-filter-fno").boundingBox();
+    expect((fno?.x ?? 0) + (fno?.width ?? 0)).toBeLessThanOrEqual(390);
   });
 
   test("paper trades, summary and full record, do not scroll sideways", async ({ page }) => {

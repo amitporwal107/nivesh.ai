@@ -51,6 +51,10 @@ NIDP_HOME=/opt/nidp-staging
 
 # ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+# NSE posts the F&O file after 19:30 (404 at 19:30 on 16 and 19 Oct 2026; present by 22:20). Retry
+# twice; the writer upserts on its key, so a run on an already-loaded day changes nothing.
+0  21 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+15 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
 30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials
 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_shareholding
 
@@ -100,6 +104,12 @@ NIDP_HOME=/opt/nidp-staging
 0  9  * * *    nidp-staging  /opt/nidp-staging/run_service.sh amfi_circulars
 0  10 12 * *   nidp-staging  /opt/nidp-staging/run_service.sh mf_disclosure_snapshot
 0  11 12 * *   nidp-staging  /opt/nidp-staging/run_service.sh mf_holdings
+
+# ── Regulator: SEBI circulars (trading desk) ──────────────────────
+# The SEBI RSS feed holds only about the latest 30 items of every kind (2026-10-14: 30 enforcement
+# items from 12-13 Oct, no circular), so it is read every 3 h to keep a circular from scrolling out.
+# Needs migration 163. One-off backfill: run_service.sh sebi_circulars --source listing
+15 9-21/3 * * 1-6  nidp-staging  /opt/nidp-staging/run_service.sh sebi_circulars
 
 # ── MF derived analytics refresh ──────────────────────────────────
 50 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_derived_refresh

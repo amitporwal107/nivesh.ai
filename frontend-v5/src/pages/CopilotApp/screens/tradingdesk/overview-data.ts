@@ -2,15 +2,31 @@
  * Smart trading desk · Overview — the reads the Overview tab needs that had no
  * hook yet, and the small derivations it shows.
  *
- *   GET /api/macro/today                    the macro regime: `market` BULL / NEUTRAL / BEAR is the Nifty 50
- *                                           against its 50-day average (services/macro_engine.py), plus `risk`
- *                                           and the engine's own `insight` line
- *   GET /api/positional/market-dashboard    `sector_heatmap`: today's sector-index change when a row says
- *                                           `source: "nse_live"`, otherwise the mean 5-session return of the
- *                                           sector's stocks from end-of-day bars (positional_engine/market_dashboard.py)
+ *   GET /api/macro/today                    the macro state (`market` BULL / NEUTRAL / BEAR = the Nifty 50 against
+ *                                           its 50-day average, `risk`, the engine's `insight`) and `regime`: the
+ *                                           desk's five-regime reading of the same session (macro_engine.
+ *                                           classify_desk_regime — the rule, its thresholds, the inputs it read,
+ *                                           the checks it could not make and what would change it)
+ *   GET /api/markets/sector-returns         NSE sectoral indices' end-of-day close and their 1-day, 1-week and
+ *                                           1-month returns (close vs the close N sessions earlier for that index;
+ *                                           DaaS nidp.index_eod), with the route's own source and as-of date, and
+ *                                           `in_sector_breadth` for the indices with a constituent list
+ *   GET /api/markets/sector-constituents?index=   one sector index's constituents and each one's move on the index's
+ *                                           latest close day (nidp.index_constituents, nidp.prices_eod)
+ *   GET /api/positional/picks/mine?live=true      the scanner's picks with a delayed live price, readiness and the
+ *                                           conviction check's penalties (the "against" side of a setup)
+ *   GET /api/positional/market-dashboard    `sector_heatmap` leaders only: each sector's best 5-session stock from
+ *                                           end-of-day bars (positional_engine/market_dashboard.py), shown on a
+ *                                           sector-index tile when the two sector names match exactly
  *
- * GET /api/markets/home (index tape, breadth, FII / DII, USD / INR, Brent, the
- * deploy verdict) is read through useMarketOverview (screens/markets/hooks.ts).
+ * GET /api/markets/home (index tape, breadth and the universe it counted, FII /
+ * DII, USD / INR, Brent, the deploy verdict, `market_state`, `is_live` and
+ * `session` — the NSE session by the IST clock and the NSE holiday list) is
+ * read through useMarketOverview (screens/markets/hooks.ts).
+ *
+ * The market-status pill and the Overview's headline are worked out here from
+ * those reads (marketStatus, deskHeadline): no figure is made up, and a part
+ * with no data is left out of the sentence rather than guessed.
  *
  * Nothing here trusts the response shape: a missing or non-numeric field is
  * null, never 0, and a body without the field the route always sends throws a
@@ -18,11 +34,15 @@
  * sends an "uninitialised" payload with `_reason` instead, which is read as
  * "not available", never as a regime.
  */
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import type { GlobalQuote, MarketBreadth, MarketIndex, MarketsHome } from "@/services/contracts/markets.contract";
+import type { EnrichedHoldingsRes } from "@/services/contracts/portfolio.contract";
+import type { DeskPersona } from "./context";
 import { num } from "./desk-data";
+import type { IntelEvent } from "./intel-data";
 
 type Raw = Record<string, unknown>;
 const isRec = (v: unknown): v is Raw => !!v && typeof v === "object" && !Array.isArray(v);
@@ -37,10 +57,118 @@ const noRetry4xx = (count: number, e: unknown) =>
 
 export type Regime = "BULL" | "NEUTRAL" | "BEAR";
 
+/** The desk's five regimes (PRD OV-003), as GET /api/macro/today sends them in `regime.key`. */
+export const DESK_REGIME_KEYS = ["bearish", "sideways", "bullish", "mixed", "high_volatility"] as const;
+export type DeskRegimeKey = (typeof DESK_REGIME_KEYS)[number];
+
+export const DESK_REGIME_LABEL: Record<DeskRegimeKey, string> = {
+  bearish: "Bearish",
+  sideways: "Sideways",
+  bullish: "Bullish",
+  mixed: "Mixed",
+  high_volatility: "High volatility",
+};
+
+/** The rule's thresholds, as the route sends them (macro_engine.DESK_REGIME_RULE). */
+export interface RegimeRule {
+  version: string | null;
+  vixHigh: number | null;
+  averageSessions: number | null;
+  breadthUpPct: number | null;
+  breadthDownPct: number | null;
+}
+
+/** One single change that would move the reading to another regime. */
+export interface RegimeFlip {
+  input: "nifty_close" | "india_vix" | "advancing_share_pct";
+  condition: "below" | "above" | "at_or_above" | "at_or_below";
+  level: number;
+  then: DeskRegimeKey;
+}
+
+export interface DeskRegime {
+  /** null = the rule could not classify the session (`reason` says why). */
+  key: DeskRegimeKey | null;
+  date: string | null;
+  rule: RegimeRule;
+  niftyClose: number | null;
+  niftyAverage: number | null;
+  /** Percent above (+) or below (−) the average. */
+  gapPct: number | null;
+  trend: "up" | "down" | "flat" | null;
+  vix: number | null;
+  vixHigh: boolean | null;
+  advances: number | null;
+  declines: number | null;
+  unchanged: number | null;
+  breadthUniverse: number | null;
+  /** advances ÷ (advances + declines) × 100. */
+  sharePct: number | null;
+  breadth: "up" | "down" | "even" | null;
+  breadthDate: string | null;
+  breadthSource: string | null;
+  /** Checks the rule could not make, each with the route's reason. */
+  skipped: Array<{ check: string; reason: string }>;
+  invalidation: RegimeFlip[];
+  reason: string | null;
+}
+
+const FLIP_INPUTS = ["nifty_close", "india_vix", "advancing_share_pct"] as const;
+const FLIP_CONDITIONS = ["below", "above", "at_or_above", "at_or_below"] as const;
+const isOneOf = <T extends string>(list: readonly T[], v: unknown): v is T => typeof v === "string" && (list as readonly string[]).includes(v);
+
+function readDeskRegime(v: unknown): DeskRegime | null {
+  if (!isRec(v)) return null;
+  const rule = rec(v.rule);
+  const i = rec(v.inputs);
+  const trend = str(i.trend);
+  const breadth = str(i.breadth);
+  return {
+    key: isOneOf(DESK_REGIME_KEYS, v.key) ? v.key : null,
+    date: str(v.date),
+    rule: {
+      version: str(rule.version),
+      vixHigh: num(rule.vix_high),
+      averageSessions: num(rule.trend_average_sessions),
+      breadthUpPct: num(rule.breadth_up_pct),
+      breadthDownPct: num(rule.breadth_down_pct),
+    },
+    niftyClose: num(i.nifty_close),
+    niftyAverage: num(i.nifty_average),
+    gapPct: num(i.nifty_vs_average_pct),
+    trend: trend === "up" || trend === "down" || trend === "flat" ? trend : null,
+    vix: num(i.india_vix),
+    vixHigh: typeof i.volatility_high === "boolean" ? i.volatility_high : null,
+    advances: num(i.advances),
+    declines: num(i.declines),
+    unchanged: num(i.unchanged),
+    breadthUniverse: num(i.breadth_universe),
+    sharePct: num(i.advancing_share_pct),
+    breadth: breadth === "up" || breadth === "down" || breadth === "even" ? breadth : null,
+    breadthDate: str(i.breadth_date),
+    breadthSource: str(i.breadth_source),
+    skipped: (Array.isArray(v.skipped) ? v.skipped : []).flatMap((x) => {
+      const r = rec(x);
+      const check = str(r.check);
+      const reason = str(r.reason);
+      return check && reason ? [{ check, reason }] : [];
+    }),
+    invalidation: (Array.isArray(v.invalidation) ? v.invalidation : []).flatMap((x): RegimeFlip[] => {
+      const r = rec(x);
+      const level = num(r.level);
+      if (!isOneOf(FLIP_INPUTS, r.input) || !isOneOf(FLIP_CONDITIONS, r.condition) || level == null || !isOneOf(DESK_REGIME_KEYS, r.then)) return [];
+      return [{ input: r.input, condition: r.condition, level, then: r.then }];
+    }),
+    reason: str(v.reason),
+  };
+}
+
 export type MacroToday =
   | {
       kind: "ready";
       regime: Regime;
+      /** The desk's five-regime reading; null when the route sent none (an older backend). */
+      desk: DeskRegime | null;
       /** LOW | MEDIUM | HIGH, as the engine stores it. */
       risk: string | null;
       /** The engine's own one-line read (rules-based). */
@@ -63,6 +191,7 @@ async function fetchMacro(signal?: AbortSignal): Promise<MacroToday> {
   return {
     kind: "ready",
     regime: market,
+    desk: readDeskRegime(d.regime),
     risk: str(d.risk)?.toUpperCase() ?? null,
     insight: str(d.insight),
     date: str(d.date),
@@ -145,7 +274,7 @@ async function fetchSectors(signal?: AbortSignal): Promise<SectorStrength> {
   return { kind: "ready", tiles, period, asOf: str(d.as_of_date), fetchedAt: str(d.fetched_at), isLive: d.is_live === true };
 }
 
-/** GET /api/positional/market-dashboard — the sector heatmap. */
+/** GET /api/positional/market-dashboard — the sector heatmap (the desk reads its leaders). */
 export function useSectorStrength() {
   return useQuery<SectorStrength>({
     queryKey: ["copilot", "desk", "market-dashboard"],
@@ -154,6 +283,166 @@ export function useSectorStrength() {
     retry: noRetry4xx,
     queryFn: ({ signal }) => fetchSectors(signal),
   });
+}
+
+// ── sector returns (GET /api/markets/sector-returns) ─────────────────────
+
+export const SECTOR_PERIODS = ["1d", "1w", "1m"] as const;
+export type SectorPeriodKey = (typeof SECTOR_PERIODS)[number];
+
+export interface SectorReturn {
+  /** The NSE index ("Nifty Bank"). */
+  index: string;
+  /** The sector it stands for ("Banks"); the index name when the row has none. */
+  sector: string;
+  close: number | null;
+  /** That index's own latest close day (it can trail the response's as-of). */
+  date: string | null;
+  /** Percent; null when that index's history is too short for the period. */
+  ret: Record<SectorPeriodKey, number | null>;
+}
+
+/** Advances / declines among one sector index's constituents on that index's latest close day. */
+export interface SectorBreadth {
+  listDate: string | null;
+  date: string | null;
+  members: number;
+  advances: number;
+  declines: number;
+  unchanged: number;
+  /** Constituents with no bar that day: never counted as unchanged. */
+  noPrice: number;
+}
+
+export interface SectorReturns {
+  asOf: string | null;
+  source: string | null;
+  /** Sessions each period spans, as the route states them (1, 5, 21). */
+  sessions: Record<SectorPeriodKey, number | null>;
+  sectors: SectorReturn[];
+  /** Breadth within each index that has a constituent list, by index name; absent = no list on record. */
+  inSector: { source: string | null; rule: string | null; byIndex: Map<string, SectorBreadth> } | null;
+}
+
+function readSectorBreadth(v: unknown): SectorBreadth | null {
+  const r = rec(v);
+  const members = num(r.members);
+  const adv = num(r.advances);
+  const dec = num(r.declines);
+  if (members == null || adv == null || dec == null) return null;
+  return { listDate: str(r.list_date), date: str(r.date), members, advances: adv, declines: dec, unchanged: num(r.unchanged) ?? 0, noPrice: num(r.no_price) ?? 0 };
+}
+
+async function fetchSectorReturns(signal?: AbortSignal): Promise<SectorReturns> {
+  const res = await http({ path: "/api/markets/sector-returns", signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.sectors)) throw drift("markets.sector-returns: no sectors list");
+  const sectors: SectorReturn[] = d.sectors.flatMap((v): SectorReturn[] => {
+    const r = rec(v);
+    const index = str(r.index);
+    const sector = str(r.sector) ?? index;
+    if (!index || !sector) return [];
+    return [{ index, sector, close: num(r.close), date: str(r.date), ret: { "1d": num(r.ret_1d_pct), "1w": num(r.ret_1w_pct), "1m": num(r.ret_1m_pct) } }];
+  });
+  const s = rec(d.sessions);
+  let inSector: SectorReturns["inSector"] = null;
+  if (isRec(d.in_sector_breadth)) {
+    const b = d.in_sector_breadth;
+    const byIndex = new Map<string, SectorBreadth>();
+    for (const [name, v] of Object.entries(rec(b.indices))) {
+      const sb = readSectorBreadth(v);
+      if (sb) byIndex.set(name, sb);
+    }
+    inSector = { source: str(b.source), rule: str(b.rule), byIndex };
+  }
+  return {
+    asOf: str(d.as_of),
+    source: str(d.source),
+    sessions: { "1d": num(s["1d"]), "1w": num(s["1w"]), "1m": num(s["1m"]) },
+    sectors,
+    inSector,
+  };
+}
+
+/** GET /api/markets/sector-returns — end of day, so it changes once a session. */
+export function useSectorReturns() {
+  return useQuery<SectorReturns>({
+    queryKey: ["copilot", "desk", "sector-returns"],
+    staleTime: 10 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchSectorReturns(signal),
+  });
+}
+
+// ── one sector's constituents (GET /api/markets/sector-constituents) ─────
+
+export interface Constituent {
+  symbol: string;
+  name: string | null;
+  close: number | null;
+  changePct: number | null;
+  move: "advance" | "decline" | "unchanged" | null;
+}
+
+export type SectorConstituents =
+  | { kind: "ready"; index: string; listDate: string | null; date: string | null; source: string | null; rule: string | null; breadth: SectorBreadth | null; rows: Constituent[] }
+  /** The route answered `available: false` (no list on record, or not a desk sector index), with its reason. */
+  | { kind: "unavailable"; index: string; reason: string | null; source: string | null };
+
+async function fetchConstituents(index: string, signal?: AbortSignal): Promise<SectorConstituents> {
+  const res = await http({ path: "/api/markets/sector-constituents", query: { index }, signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.rows)) throw drift("markets.sector-constituents: no rows list");
+  if (d.available !== true) return { kind: "unavailable", index: str(d.index) ?? index, reason: str(d.reason), source: str(d.source) };
+  const rows = d.rows.flatMap((v): Constituent[] => {
+    const r = rec(v);
+    const symbol = str(r.symbol);
+    if (!symbol) return [];
+    const move = str(r.move);
+    return [{
+      symbol: symbol.toUpperCase(),
+      name: str(r.company_name),
+      close: num(r.close),
+      changePct: num(r.change_pct),
+      move: move === "advance" || move === "decline" || move === "unchanged" ? move : null,
+    }];
+  });
+  const b = rec(d.breadth);
+  return {
+    kind: "ready",
+    index: str(d.index) ?? index,
+    listDate: str(d.list_date),
+    date: str(d.date),
+    source: str(d.source),
+    rule: str(d.rule),
+    breadth: readSectorBreadth({ ...b, list_date: d.list_date, date: d.date }),
+    rows,
+  };
+}
+
+/** GET /api/markets/sector-constituents?index= — fetched when a sector is opened. */
+export function useSectorConstituents(index: string | null) {
+  return useQuery<SectorConstituents>({
+    queryKey: ["copilot", "desk", "sector-constituents", index],
+    enabled: !!index,
+    staleTime: 10 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchConstituents(index ?? "", signal),
+  });
+}
+
+/** "Oil & Gas" and "oil gas" → "oilgas": sector names compared without case, spaces or punctuation. */
+export const sectorKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * The market dashboard's 5-session leader for a sector-index row: only when the
+ * dashboard's sector name equals the row's sector, or its index name without
+ * "Nifty" (IT = Nifty IT). No partial match: "Bank" must not lend its leader to
+ * "PSU Bank".
+ */
+export function leaderFor(row: SectorReturn, tiles: SectorTile[]): SectorTile["leader"] {
+  const keys = new Set([sectorKey(row.sector), sectorKey(row.index.replace(/^nifty\s+/i, ""))]);
+  return tiles.find((t) => t.leader && keys.has(sectorKey(t.sector)))?.leader ?? null;
 }
 
 // ── /markets/home derivations ────────────────────────────────────────────
@@ -179,13 +468,13 @@ export function findQuote(home: MarketsHome, name: string): GlobalQuote | null {
 }
 
 /**
- * Which stocks the breadth counts cover. The route prefers the full end-of-day
- * count (every NSE stock with 21+ sessions of daily bars) and falls back to a
- * live count over the Nifty 50 constituents. The response does not name the
- * universe, so it is read from its size: 60 stocks or fewer can only be the
- * Nifty 50 fallback.
+ * Which stocks the breadth counts cover, as the route names them in
+ * `breadth.universe_kind` beside the count in `breadth.universe`: "bhavcopy" =
+ * every NSE stock in the end-of-day file, "nifty50_live" = the live fallback
+ * over the Nifty 50 constituents. No kind, or one this screen does not know, is
+ * "unnamed": the count is shown and nothing is guessed from its size.
  */
-export type BreadthScope = "eod" | "nifty50" | "unknown";
+export type BreadthScope = "eod" | "nifty50" | "unnamed";
 
 export interface BreadthRead {
   advances: number;
@@ -195,23 +484,424 @@ export interface BreadthRead {
   total: number;
   /** advances ÷ total × 100. */
   advancingPct: number;
+  /** Stocks counted, as the route states it; null when it sent none. */
   universe: number | null;
   scope: BreadthScope;
 }
+
 
 export function readBreadth(b: MarketBreadth): BreadthRead | null {
   if (b.advances == null || b.declines == null) return null;
   const unchanged = b.unchanged ?? null;
   const total = b.advances + b.declines + (unchanged ?? 0);
   if (total <= 0) return null;
-  const universe = b.universe ?? null;
+  const count = num(b.universe);
+  const k = str(b.universe_kind)?.toLowerCase() ?? null;
+  const scope: BreadthScope = k === "bhavcopy" ? "eod" : k === "nifty50_live" ? "nifty50" : "unnamed";
   return {
     advances: b.advances,
     declines: b.declines,
     unchanged,
     total,
     advancingPct: (b.advances / total) * 100,
-    universe,
-    scope: universe == null ? "unknown" : universe <= 60 ? "nifty50" : "eod",
+    universe: count,
+    scope,
   };
+}
+
+
+// ── IST clock and market status ──────────────────────────────────────────
+
+const IST = "Asia/Kolkata";
+
+export interface IstParts {
+  /** "Wed" */
+  weekday: string;
+  /** "14 Oct" */
+  day: string;
+  /** "11:32" (24-hour) */
+  time: string;
+  /** "2026-10-14" — the IST calendar day. */
+  iso: string;
+  /** Minutes since IST midnight. */
+  minutes: number;
+  /** 0 = Sunday … 6 = Saturday, in IST. */
+  dow: number;
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** The IST calendar day and time of a moment. */
+export function istParts(at: Date): IstParts {
+  const f = new Intl.DateTimeFormat("en-GB", {
+    timeZone: IST, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", weekday: "short",
+  });
+  const p: Record<string, string> = {};
+  for (const x of f.formatToParts(at)) p[x.type] = x.value;
+  const iso = `${p.year}-${p.month}-${p.day}`;
+  const hh = Number(p.hour) % 24;
+  const mm = Number(p.minute);
+  const day = new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+  const dow = WEEKDAYS.indexOf(p.weekday ?? "");
+  return { weekday: p.weekday ?? "", day, time: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`, iso, minutes: hh * 60 + mm, dow };
+}
+
+/** The IST calendar day of a response date: a bare "2026-10-13" as it is, a date-time in IST. */
+export function istDay(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const t = new Date(iso);
+  return Number.isFinite(t.getTime()) ? istParts(t).iso : null;
+}
+
+/** The current time, refreshed every 30 seconds (the status pill shows minutes). */
+export function useNow(intervalMs = 30_000): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(new Date()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+/** NSE cash-market hours by the clock: Monday to Friday, 09:15–15:30 IST (used only until the route answers). */
+export function inNseHours(p: IstParts): boolean {
+  return p.dow >= 1 && p.dow <= 5 && p.minutes >= 9 * 60 + 15 && p.minutes <= 15 * 60 + 30;
+}
+
+export interface MarketStatus {
+  /** "Market open" (holiday list checked), "NSE hours" (clock only), "NSE holiday", "Market closed". */
+  label: string;
+  /** "live" = the route's live tape; "delayed" = in hours, delayed quotes; "closed"; "clock" = no response, read from the clock. */
+  feed: "live" | "delayed" | "closed" | "clock";
+  open: boolean;
+  /** The holiday's name on an NSE holiday. */
+  holiday: string | null;
+  /** True when the NSE holiday list was read for today. */
+  calendarChecked: boolean;
+  /** Tooltip: where the status comes from. */
+  why: string;
+}
+
+/**
+ * The session state. GET /api/markets/home sends `market_state`, `is_live` and
+ * `session`: NSE hours by the IST clock AND the NSE holiday list (routes/markets.py
+ * session_state). "Market open" is said only when the holiday list was read;
+ * with the list unread, or from an older backend without `session`, the pill
+ * says "NSE hours" (the clock's word), never "market open", and never "live"
+ * for delayed or end-of-day figures. Before the route answers, or when it
+ * fails, the clock rule is read from this device.
+ */
+export function marketStatus(home: MarketsHome | undefined, now: IstParts): MarketStatus {
+  if (home) {
+    const open = home.market_state === "open";
+    const s = home.session ?? null;
+    const checked = s?.calendar === "ok";
+    const unread = s ? "The NSE holiday list could not be read, so the status follows the clock." : "Exchange holidays are not checked by this server.";
+    if (!open) {
+      if (s?.reason === "holiday") {
+        return { label: "NSE holiday", feed: "closed", open, holiday: s.holiday ?? null, calendarChecked: true, why: `NSE holiday${s.holiday ? `: ${s.holiday}` : ""} (NSE holiday list, GET /api/markets/home)` };
+      }
+      const when = s?.reason === "weekend" ? "Weekend" : "Outside NSE hours (Mon–Fri 09:15–15:30 IST)";
+      return { label: "Market closed", feed: "closed", open, holiday: null, calendarChecked: checked, why: `${when}, per GET /api/markets/home${checked ? "" : `. ${unread}`}` };
+    }
+    const label = checked ? "Market open" : "NSE hours";
+    const tail = checked ? "Today is not an NSE holiday (NSE holiday list)." : unread;
+    return home.is_live
+      ? { label, feed: "live", open, holiday: null, calendarChecked: checked, why: `Inside NSE hours; the index tape is the live feed (GET /api/markets/home). ${tail}` }
+      : { label, feed: "delayed", open, holiday: null, calendarChecked: checked, why: `Inside NSE hours; quotes are delayed (GET /api/markets/home). ${tail}` };
+  }
+  const open = inNseHours(now);
+  return {
+    label: open ? "NSE hours" : "Market closed",
+    feed: "clock",
+    open,
+    holiday: null,
+    calendarChecked: false,
+    why: "Read from this device’s clock: NSE hours are Mon–Fri 09:15–15:30 IST. Exchange holidays are not checked.",
+  };
+}
+
+/** The pill's data-feed words for the index tape: live only when the route says so. */
+export function feedWords(s: MarketStatus): string {
+  if (s.feed === "live") return "live";
+  if (s.feed === "delayed") return "delayed";
+  return s.open ? "delayed" : "end of day";
+}
+
+// ── the Overview headline (design: H1 with one phrase in mint) ───────────
+
+export interface Headline {
+  lead: string;
+  emph: string | null;
+  tail: string;
+}
+
+/** Breadth bands by the share of advancing stocks, strongest first. */
+const BANDS = [60, 52, 48, 40] as const;
+function band(advancingPct: number): number {
+  const i = BANDS.findIndex((b) => advancingPct >= b);
+  return i === -1 ? BANDS.length : i;
+}
+
+const TRADER_BREADTH = ["strong", "positive", "even", "soft", "weak"];
+const INVESTOR_NOW = [
+  "Most stocks are rising today",
+  "More stocks are rising than falling today",
+  "About as many stocks are rising as falling today",
+  "More stocks are falling than rising today",
+  "Most stocks are falling today",
+];
+const INVESTOR_PAST = [
+  "Most stocks rose",
+  "More stocks rose than fell",
+  "About as many stocks rose as fell",
+  "More stocks fell than rose",
+  "Most stocks fell",
+];
+
+/**
+ * The Overview's headline, from real reads only:
+ *   breadth   advancing share (GET /api/markets/home), on its session day — "today" only when that day is today in IST
+ *   sector    the strongest sector index over 1 day (GET /api/markets/sector-returns); "no sector index rose" when none did
+ *   setups    confirmed of all scanner setups (GET /api/positional/watchlist + picks)
+ * A part with no data is left out. With nothing at all it is a plain title.
+ */
+export function deskHeadline(input: {
+  persona: DeskPersona;
+  advancingPct: number | null;
+  /** The session the breadth counts are for (YYYY-MM-DD, IST). */
+  breadthDay: string | null;
+  todayIso: string;
+  /** The strongest sector over 1 day and its return (percent); null when the read has none. */
+  topSector: { name: string; pct: number } | null;
+  setups: { confirmed: number; total: number } | null;
+}): Headline {
+  const { persona, advancingPct, breadthDay, todayIso, topSector, setups } = input;
+  const investor = persona === "investor";
+  let lead = "";
+  if (advancingPct != null) {
+    const b = band(advancingPct);
+    const today = breadthDay === todayIso;
+    const on = !today && breadthDay ? ` on ${new Date(`${breadthDay}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}` : "";
+    let sector = "";
+    if (topSector) {
+      if (topSector.pct > 0) sector = investor ? `, led by ${topSector.name}` : ` and ${topSector.name} ${today ? "leads" : "led"}`;
+      else sector = investor ? `, and no sector ${today ? "is up" : "rose"}` : `, and no sector index ${today ? "is up" : "rose"}`;
+    }
+    const first = investor
+      ? (today ? INVESTOR_NOW[b] : `${INVESTOR_PAST[b]}${on}`)
+      : `Breadth ${today ? "is" : "was"} ${TRADER_BREADTH[b]}${today ? "" : on}`;
+    lead = `${first}${sector}.`;
+  }
+  if (setups && setups.total > 0) {
+    const c = setups.confirmed;
+    const space = lead ? " " : "";
+    if (investor) {
+      if (c === 0) return { lead: `${lead}${space}`, emph: "No ideas", tail: " have confirmed yet." };
+      return { lead: `${lead}${space}`, emph: `${c} ${c === 1 ? "idea" : "ideas"}`, tail: ` ${c === 1 ? "has" : "have"} confirmed, each with its evidence shown.` };
+    }
+    return { lead: `${lead}${space}`, emph: `${c} of ${setups.total} setups`, tail: ` ${c === 1 ? "has" : "have"} confirmed.` };
+  }
+  if (lead) return { lead, emph: null, tail: "" };
+  return { lead: "Your smart ", emph: "trading desk", tail: "." };
+}
+
+// ── the scanner's picks with the live overlay (GET /api/positional/picks/mine?live=true) ──
+
+/** One pick's live read: a delayed price, where it stands against the plan, and what the conviction check holds against it. */
+export interface LivePick {
+  symbol: string;
+  /** Delayed last price (Yahoo Finance via the route); null when the route could not fetch one. */
+  livePrice: number | null;
+  /** Percent from the plan's entry. */
+  fromEntryPct: number | null;
+  /** LATE | TRIGGERED | NEAR | WAIT | FAR | STOPPED | UNKNOWN (routes/positional.py _readiness). */
+  readiness: string | null;
+  /** HIGH_CONVICTION | SETUP_FORMING | AVOID_LATE (positional_engine/conviction.py). */
+  verdict: string | null;
+  /** The conviction check's penalties: RSI overbought, already past entry, a 5-session spike, … */
+  against: string[];
+  /** Overlap with the caller's own holdings (portfolio_filter). */
+  portfolioWarnings: string[];
+}
+
+export interface PicksLive {
+  signalDate: string | null;
+  /** When this browser received the answer (the route sends no time for its live prices). */
+  receivedAt: number;
+  bySymbol: Map<string, LivePick>;
+}
+
+/** Drop the route's leading "⚠ " and trailing "(−15)" points: the words only. */
+const cleanReason = (t: string) => t.replace(/^⚠\s*/, "").replace(/\s*\([+−-]?\d+\)\s*$/, "").trim();
+
+async function fetchPicksLive(signal?: AbortSignal): Promise<PicksLive> {
+  // yfinance can take several seconds on a cold cache (the route caps it at 8s).
+  const res = await http({ path: "/api/positional/picks/mine", query: { live: "true", limit: 30 }, timeoutMs: 30_000, signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.picks)) throw drift("positional.picks/mine: no picks list");
+  const bySymbol = new Map<string, LivePick>();
+  for (const v of d.picks) {
+    const p = rec(v);
+    const symbol = str(p.nse_symbol)?.toUpperCase();
+    if (!symbol) continue;
+    const c = rec(p.conviction);
+    const penalties = Array.isArray(c.penalties) ? c.penalties : [];
+    const live = num(p.live_price);
+    bySymbol.set(symbol, {
+      symbol,
+      livePrice: live != null && live > 0 ? live : null,
+      fromEntryPct: num(p.live_pct_from_entry),
+      readiness: str(p.readiness)?.toUpperCase() ?? null,
+      verdict: str(c.verdict)?.toUpperCase() ?? null,
+      against: penalties.flatMap((x) => {
+        const reason = str(rec(x).reason);
+        return reason ? [cleanReason(reason)] : [];
+      }),
+      portfolioWarnings: (Array.isArray(p.portfolio_warning) ? p.portfolio_warning : []).flatMap((x) => (typeof x === "string" && x.trim() ? [x.trim()] : [])),
+    });
+  }
+  return { signalDate: str(d.signal_date), receivedAt: Date.now(), bySymbol };
+}
+
+/** GET /api/positional/picks/mine?live=true — refreshed every two minutes (its prices are delayed quotes). */
+export function usePicksLive() {
+  return useQuery<PicksLive>({
+    queryKey: ["copilot", "desk", "picks-mine-live"],
+    staleTime: 60_000,
+    refetchInterval: 2 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchPicksLive(signal),
+  });
+}
+
+/** Readiness words: what the live price says about the plan (routes/positional.py _readiness). */
+export const READINESS_WORDS: Record<string, { text: string; against: boolean }> = {
+  LATE: { text: "already more than 8% past the entry", against: true },
+  STOPPED: { text: "at or below the stop", against: true },
+  TRIGGERED: { text: "crossed the entry", against: false },
+  NEAR: { text: "within 2% of the entry", against: false },
+  WAIT: { text: "2–5% below the entry", against: false },
+  FAR: { text: "more than 5% below the entry", against: true },
+};
+
+// ── risk class (the user's default of 2026-10-14) ───────────────────────
+
+/** Risk class from ATR(14) as a percent of the close: Low under 2%, Medium 2–4%, High over 4%. One config; cards show it. */
+export const RISK_ATR_BANDS = { lowBelowPct: 2, highAbovePct: 4 } as const;
+export type RiskClass = "low" | "medium" | "high";
+export const RISK_CLASS_LABEL: Record<RiskClass, string> = { low: "Low", medium: "Medium", high: "High" };
+
+export function riskClass(atrPct: number | null): RiskClass | null {
+  if (atrPct == null || !Number.isFinite(atrPct) || atrPct < 0) return null;
+  if (atrPct < RISK_ATR_BANDS.lowBelowPct) return "low";
+  if (atrPct > RISK_ATR_BANDS.highAbovePct) return "high";
+  return "medium";
+}
+
+export const RISK_BANDS_TEXT = `ATR(14) % of the close: Low < ${RISK_ATR_BANDS.lowBelowPct}%, Medium ${RISK_ATR_BANDS.lowBelowPct}–${RISK_ATR_BANDS.highAbovePct}%, High > ${RISK_ATR_BANDS.highAbovePct}%`;
+
+// ── key market events (from the Market Intelligence feed) ───────────────
+
+const IMPACT_RANK: Record<string, number> = { high: 0, medium: 1, low: 2 };
+const impactRank = (e: IntelEvent) => IMPACT_RANK[(e.impact ?? "").toLowerCase()] ?? 3;
+const timeOf = (e: IntelEvent) => (Number.isFinite(e.sortAt) ? e.sortAt : -8.64e15);
+
+/** How many filings the Overview takes, ranked by the classifier's impact, then newest. */
+export const KEY_FILINGS = 3;
+
+/**
+ * The Overview's key events from Market Intelligence · All (same reads, same cache):
+ * the three highest-impact filings (newest first within an impact level), the
+ * newest of the five largest bulk or block deals (All takes the five largest),
+ * the latest SEBI circular and the latest FII / DII session — then newest first.
+ * A source with nothing to give is skipped.
+ */
+export function keyEvents(events: IntelEvent[]): IntelEvent[] {
+  const filings = events.filter((e) => e.filing).sort((a, b) => impactRank(a) - impactRank(b) || timeOf(b) - timeOf(a)).slice(0, KEY_FILINGS);
+  const deal = events.find((e) => e.group === "deals" && !e.filing) ?? null;
+  const circular = events.filter((e) => e.group === "regulatory" && !e.filing).sort((a, b) => timeOf(b) - timeOf(a))[0] ?? null;
+  const flow = events.filter((e) => e.group === "flows").sort((a, b) => timeOf(b) - timeOf(a))[0] ?? null;
+  return [...filings, ...[deal, circular, flow].filter((e): e is IntelEvent => e != null)].sort((a, b) => timeOf(b) - timeOf(a));
+}
+
+// ── portfolio snapshot (GET /api/portfolio/holdings-enriched) ───────────
+
+export const ASSET_LABEL: Record<string, string> = {
+  equity: "Stocks", stock: "Stocks", mutual_fund: "Mutual funds", etf: "ETFs", bond: "Bonds", gold: "Gold", fd: "Fixed deposits", other: "Other",
+};
+
+export interface AllocationSlice {
+  key: string;
+  label: string;
+  valueRs: number;
+  /** Share of the holdings' summed value, percent. */
+  pct: number;
+}
+
+/** Value by asset type, largest first; shares of the summed value of the holdings that have one. null with no values. */
+export function allocationOf(d: EnrichedHoldingsRes): { slices: AllocationSlice[]; totalRs: number; unvalued: number } | null {
+  const by = new Map<string, number>();
+  let unvalued = 0;
+  for (const h of d.holdings) {
+    const v = num(h.value_rs);
+    if (v == null || v < 0) {
+      unvalued += 1;
+      continue;
+    }
+    const t = h.asset_type.trim().toLowerCase();
+    const key = t === "stock" ? "equity" : ASSET_LABEL[t] ? t : "other";
+    by.set(key, (by.get(key) ?? 0) + v);
+  }
+  const totalRs = [...by.values()].reduce((a, b) => a + b, 0);
+  if (totalRs <= 0) return null;
+  const slices = [...by.entries()]
+    .map(([key, valueRs]) => ({ key, label: ASSET_LABEL[key] ?? "Other", valueRs, pct: (valueRs / totalRs) * 100 }))
+    .sort((a, b) => b.valueRs - a.valueRs);
+  return { slices, totalRs, unvalued };
+}
+
+export interface TopHolding {
+  id: string;
+  name: string;
+  symbol: string | null;
+  assetType: string;
+  valueRs: number;
+  /** The route's share of the whole portfolio, percent. */
+  weightPct: number | null;
+  pnlPct: number | null;
+}
+
+/** The largest holdings of any type by value. */
+export function topHoldings(d: EnrichedHoldingsRes, n = 5): TopHolding[] {
+  return d.holdings
+    .flatMap((h): TopHolding[] => {
+      const v = num(h.value_rs);
+      return v == null ? [] : [{ id: h.holding_id, name: h.name, symbol: str(h.nse_symbol), assetType: h.asset_type.trim().toLowerCase(), valueRs: v, weightPct: num(h.weight_pct), pnlPct: num(h.pnl_pct) }];
+    })
+    .sort((a, b) => b.valueRs - a.valueRs)
+    .slice(0, n);
+}
+
+// ── index card stamps (OV-001: every card says when and how fresh) ──────
+
+export type IndexMode = "live" | "delayed" | "eod";
+
+/** Live only when the route says the tape is live; in hours otherwise delayed; after the close end of day. */
+export function indexMode(home: MarketsHome): IndexMode {
+  if (home.is_live && home.market_state === "open") return "live";
+  return home.market_state === "open" ? "delayed" : "eod";
+}
+
+/** "14 Oct, 11:32 IST" for a time stamp in IST; the bare day for a date. */
+export function stampIst(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+  }
+  const t = new Date(iso);
+  if (!Number.isFinite(t.getTime())) return null;
+  const p = istParts(t);
+  return `${p.day}, ${p.time} IST`;
 }

@@ -83,8 +83,10 @@ export interface ThreadEngine {
   /** Send a question. Creates a thread when `sessionId` is undefined and
    *  reports its id through `onSession` before the answer starts.
    *  `opts.position` is the futures or options position the question was asked
-   *  from; the server then answers with that contract's own chart. */
-  send: (question: string, sessionId: string | undefined, onSession?: (id: string) => void, opts?: { persona?: string; position?: PositionRef }) => Promise<void>;
+   *  from; the server then answers with that contract's own chart.
+   *  `opts.surface` names a dedicated Copilot surface ("trading_desk": the desk's
+   *  own Copilot, whose answers follow the desk's answer structure). */
+  send: (question: string, sessionId: string | undefined, onSession?: (id: string) => void, opts?: { persona?: string; position?: PositionRef; surface?: string }) => Promise<void>;
   stop: () => void;
   /** Meta for a saved answer, by its message id; falls back to the last answer
    *  of the thread when `isLast` is set. Undefined for history. */
@@ -199,7 +201,7 @@ export function useThreadEngine(): ThreadEngine {
             return;
         }
         setLive((cur) => (cur && cur.sessionId === threadId ? { ...cur, text, steps, agent, confidence, widget } : cur));
-      }, { signal: ac.signal, persona: opts?.persona, position });
+      }, { signal: ac.signal, persona: opts?.persona, position, surface: opts?.surface });
     } catch (e) {
       if (!ac.signal.aborted) {
         errorText = errorSentence(e) || "Connection interrupted. Please try again.";

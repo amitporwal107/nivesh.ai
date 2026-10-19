@@ -3,6 +3,16 @@
 Read endpoints over the classified corporate-filings feed:
 
   GET /api/filings/feed                     — the feed + facets + pagination
+        &family=calls|ownership|exchange      filings whose EXCHANGE subject line is in one family (earnings calls and
+                                              guidance, promoter / ownership disclosures, exchange surveillance notices),
+                                              read from DaaS /v1/desk/filings instead of the classified articles
+        &provenance=1                         each row also carries its source records and times (PRD §6.3): published_at
+                                              (the exchange's dissemination stamp), ingested_at (when Nivesh last fetched
+                                              it — the store keeps the latest fetch only, so there is no first-seen time),
+                                              broadcast_at, the resolved NSE symbol, market timing (v_event_asof), sector
+                                              with its source, same-industry peers, and the classifier's version and time
+                                              (DaaS /v1/desk/event-sources). A failed lookup leaves those fields null and
+                                              says so in `provenance.error`; the rows still answer
   GET /api/filings/signals                  — today's top-3 impact-ordered filings
   GET /api/filings/{announcement_id}/insights — the generated insight for one filing
 
@@ -30,6 +40,7 @@ from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
 
 from deps import db, get_current_user
+from services.copilot_tools import daas_client
 
 # Reuse the single, verified articles implementation + the DaaS-first helper and
 # the app-PG insight fallback (see module docstring).
@@ -153,6 +164,18 @@ def _fmt_metric(m: Optional[Dict[str, Any]]) -> Optional[str]:
     return f"{label}: {value} {unit}".strip()
 
 
+def _exchange(source: Any) -> Optional[str]:
+    """The exchange a filing came from, read from its stored source
+    (nidp.corporate_announcements.source, which the articles feed sends as `source`:
+    NSE_ANN / BSE_ANN). Any other source, or none, is None — never guessed from the URL."""
+    s = str(source or "").strip().upper()
+    if s.startswith("NSE_"):
+        return "NSE"
+    if s.startswith("BSE_"):
+        return "BSE"
+    return None
+
+
 def _row(a: Dict[str, Any], ins: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """One feed row. `one`/`period`/`metric`/`hasInsights` come from a generated
     insight when one exists (else null/false — the honest step-3 seam)."""
@@ -163,6 +186,7 @@ def _row(a: Dict[str, Any], ins: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "code":       a.get("symbol"),   # spec §5 Q2 → the NSE symbol/ticker
         "name":       a.get("company"),
         "date":       a.get("when"),
+        "exchange":   _exchange(a.get("source")),
         "category":   a.get("category"),
         "impact":     a.get("impact"),
         "sentiment":  a.get("sentiment"),
@@ -175,6 +199,77 @@ def _row(a: Dict[str, Any], ins: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "metric":     _fmt_metric(ins.get("metric")),
         "hasInsights": bool(ins),
     }
+
+
+# The PRD §6.2 categories the classifier has no label for; DaaS /v1/desk/filings holds each family's subject patterns.
+_FAMILIES = ("calls", "ownership", "exchange")
+_UNAVAILABLE = "upstream_unavailable"
+# Fields a provenance lookup adds to a row; all null when the lookup failed or knows nothing of the filing.
+_PROVENANCE_FIELDS = ("published_at", "ingested_at", "broadcast_at", "nse_symbol", "resolution", "timing_type",
+                      "known_at_open_session", "known_by_close_session", "primary_row", "sector", "sector_source",
+                      "peers", "classifier_version", "classified_at", "records")
+
+
+async def _daas_get(path: str, params: Dict[str, Any], key: str) -> Dict[str, Any]:
+    """The data platform's answer for `path` (a dict carrying `key`), cached like the feed; raises DaasError-style
+    failures as HTTPException 502 so a caller can decide whether to fail or degrade."""
+    async def build() -> Dict[str, Any]:
+        if not daas_client.is_configured():
+            raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+        try:
+            status, body = await daas_client.get_raw(path, params)
+        except daas_client.DaasError as e:
+            logger.warning("filings DaaS %s failed: %s", path, e)
+            raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+        if status != 200 or not isinstance(body, dict) or key not in body:
+            logger.warning("filings DaaS %s answered HTTP %s", path, status)
+            raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+        return body
+    cache_key = f"filings:daas:{path}:{sorted(params.items())}"
+    return await _aux_cached(cache_key, build)
+
+
+async def _family_feed(family: str, days: int, limit: int, offset: int) -> Dict[str, Any]:
+    """The articles-shaped payload for one subject family. A failed read is 502, never an empty list."""
+    body = await _daas_get("/desk/filings", {"family": family, "days": days, "limit": limit, "offset": offset}, "articles")
+    if not isinstance(body.get("articles"), list):
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    return body
+
+
+async def _provenance_for(ids: List[str]) -> Dict[str, Any]:
+    """{events: {id: {...}}, error: None} or {events: {}, error: "upstream_unavailable"}: never raises."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return {"events": {}, "error": None, "source": None}
+    try:
+        body = await _daas_get("/desk/event-sources", {"ids": ",".join(sorted(set(ids)))}, "events")
+    except HTTPException:
+        return {"events": {}, "error": _UNAVAILABLE, "source": None}
+    events = body.get("events") if isinstance(body.get("events"), dict) else {}
+    return {"events": events, "error": None, "source": body.get("source")}
+
+
+def _with_provenance(row: Dict[str, Any], source: Any, ev: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The row plus its provenance fields: the record of the exchange the row came from, the event's timing, sector
+    and peers, and every record. Null fields when nothing is known."""
+    out = {**row, **{k: None for k in _PROVENANCE_FIELDS}}
+    if not ev:
+        return out
+    records = [r for r in (ev.get("records") or []) if isinstance(r, dict)]
+    mine = next((r for r in records if r.get("source") == source), records[0] if records else {})
+    out.update({
+        "published_at": mine.get("published_at"),
+        "ingested_at": mine.get("ingested_at"),
+        "broadcast_at": mine.get("broadcast_at"),
+        "classifier_version": mine.get("classifier_version"),
+        "classified_at": mine.get("classified_at"),
+        "records": records,
+    })
+    for k in ("nse_symbol", "resolution", "timing_type", "known_at_open_session", "known_by_close_session",
+              "primary_row", "sector", "sector_source", "peers"):
+        out[k] = ev.get(k)
+    return out
 
 
 def _clamp_common(days: Any, limit: Any, offset: Any, sort: Any):
@@ -201,28 +296,45 @@ async def filings_feed(
     offset: int = 0,
     sort: str = "material",
     symbol: Optional[str] = None,
+    family: Optional[str] = None,
+    provenance: bool = False,
 ):
     """The Filings Home feed (spec §3.1).
 
     `total` is the full count for the same predicate (NOT len(rows)), so the
     client can paginate. `facets` are the per-category counts for that predicate.
+    `family` and `provenance` are described in the module docstring.
     """
     await get_current_user(request)
     days, limit, offset, sort = _clamp_common(days, limit, offset, sort)
     category = category.lower() if category else None
     impact = impact.lower() if impact else None
     sentiment = sentiment.lower() if sentiment else None
+    family = family.lower() if family else None
+    if family is not None and family not in _FAMILIES:
+        raise HTTPException(status_code=400, detail="family must be 'calls', 'ownership' or 'exchange'")
 
-    data = await _feed(days, category, impact, sentiment, q, limit, offset, sort,
-                       (symbol or "").strip().upper() or None)
+    if family:
+        data = await _family_feed(family, days, limit, offset)
+    else:
+        data = await _feed(days, category, impact, sentiment, q, limit, offset, sort,
+                           (symbol or "").strip().upper() or None)
     articles = data.get("articles") or []
     ins_map = await _insights_for([a.get("id") for a in articles])
-    return {
+    rows = [_row(a, ins_map.get(a.get("id"))) for a in articles]
+    out: Dict[str, Any] = {
         "ok": True,
         "total": int(data.get("total") or 0),
         "facets": data.get("categories") or {},
-        "rows": [_row(a, ins_map.get(a.get("id"))) for a in articles],
+        "rows": rows,
     }
+    if family:
+        out["family"] = {"key": family, "patterns": data.get("patterns"), "source": data.get("source")}
+    if provenance:
+        prov = await _provenance_for([a.get("id") for a in articles])
+        out["rows"] = [_with_provenance(r, a.get("source"), prov["events"].get(a.get("id"))) for r, a in zip(rows, articles)]
+        out["provenance"] = {"source": prov["source"], "error": prov["error"]}
+    return out
 
 
 @router.get("/signals")

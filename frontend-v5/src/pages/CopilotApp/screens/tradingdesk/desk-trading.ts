@@ -1,0 +1,612 @@
+/**
+ * Smart trading desk — the user's own paper trades and price alerts. These are
+ * the desk's only writes, and both are simulated: nothing here places an order
+ * or reaches a broker.
+ *
+ *   GET    /api/desk/paper-trades?status=all          open and closed paper trades with their end-of-day marks
+ *                                                     and a summary (backend/routes/desk_trading.py); each trade
+ *                                                     carries the DaaS paper_trades field set (PRD §13.4): entry rule
+ *                                                     and whether it was reached, observations, MFE / MAE, estimated
+ *                                                     costs, gross and net P&L, rule version and flags
+ *   POST   /api/desk/paper-trades                     { symbol, quantity, entry_price, stop_price, target_price, source,
+ *                                                       entry_rule?, entry_window_sessions?, max_hold_sessions?,
+ *                                                       signal_at?, strategy_version?, rationale? }
+ *   POST   /api/desk/paper-trades/{id}/close          {} — closes at the last close (exit reason "manual"); a trade
+ *                                                     whose entry was not reached is cancelled with no P&L
+ *   GET    /api/desk/alerts?status=all                every alert (price, a new filing, a category, unusual volume, a scanner
+ *                                                     entry, a sector move, a risk level), active and fired with the reason it
+ *                                                     fired, the session they were checked through and the route's catalogue
+ *   POST   /api/desk/alerts                           { condition, ...that condition's fields } (NewDeskAlert); 409
+ *                                                     duplicate_alert for an alert the user already has active
+ *   DELETE /api/desk/alerts/{id}                      204
+ *
+ * Marks, exits and alert checks use end-of-day daily bars (high, low, close of
+ * the raw traded price). When those cannot be read the lists still answer,
+ * with marks null and `marks_error` set; a mark is never made up. A trade whose stop and target are both touched in one
+ * session is closed at the stop. Writes go through the app's http client (the
+ * session cookie rides along) with no retry, and a failure keeps the server's
+ * own words (a 409 limit, a 422 validation message) for the screen to show.
+ *
+ * Reads trust nothing: a missing or non-numeric field is null, never 0, and a
+ * body without the list the route always sends throws a contract error.
+ */
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { http } from "@/services/api/http";
+import { ApiError } from "@/services/api/errors";
+import { useImpersonationStore } from "@/stores/impersonation.store";
+import { num } from "./desk-data";
+
+type Raw = Record<string, unknown>;
+const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
+const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+const price = (v: unknown): number | null => {
+  const n = num(v);
+  return n != null && n > 0 ? n : null;
+};
+
+const isForbidden = (e: unknown) => e instanceof ApiError && (e.kind === "forbidden" || e.status === 403);
+const retry = (count: number, e: unknown) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1;
+
+const PAPER_KEY = ["copilot", "desk", "paper-trades"] as const;
+const ALERTS_KEY = ["copilot", "desk", "alerts"] as const;
+
+/** The route's error codes (backend/routes/desk_trading.py) in plain words; the code itself is shown beside them. */
+const CODE_TEXT: Record<string, string> = {
+  open_trade_limit: "You have the most open paper trades allowed (100). Close one first.",
+  active_alert_limit: "You have the most active alerts allowed (50). Delete one first.",
+  invalid_symbol: "The symbol is not a valid NSE symbol.",
+  invalid_quantity: "The quantity must be a whole number from 1 to 10,00,000.",
+  stop_not_below_entry: "The stop must be below the entry.",
+  target_not_above_entry: "The target must be above the entry.",
+  invalid_source: "The setup details sent with the trade were not accepted.",
+  invalid_note: "The note was not accepted.",
+  invalid_condition: "That alert type is not one the desk knows.",
+  duplicate_alert: "You already have this alert, and it is still active.",
+  invalid_level: "The level is not a number the alert can use.",
+  invalid_impact: "A filing alert is for every filing or for high-impact ones only.",
+  invalid_category: "That category is not one an alert can follow.",
+  invalid_multiple: "The volume multiple must be from 1.5 to 20.",
+  invalid_stage: "That scanner stage is not one the scanner writes.",
+  invalid_index: "That sector index is not one the desk follows.",
+  invalid_threshold: "The sector threshold must be from 0.5% to 10%.",
+  invalid_direction: "The direction must be up, down or either.",
+  invalid_body: "The request was not in the expected form.",
+  unknown_field: "The request carried a field the server does not take.",
+  trade_not_found: "That paper trade is no longer on record.",
+  alert_not_found: "That alert is no longer on record.",
+  trade_already_closed: "That paper trade is already closed.",
+  invalid_entry_rule: "The entry rule is not one the desk knows (at once, break above, pull back to).",
+  invalid_entry_window: "The entry window must be 1 to 20 sessions, and only for an entry that waits for a level.",
+  invalid_max_hold: "The most sessions to hold must be a whole number from 1 to 250.",
+  invalid_signal_at: "The signal time must be a date or time, not in the future.",
+  invalid_strategy_version: "The strategy version was not accepted.",
+  invalid_rationale: "The rationale was not accepted.",
+  no_close_available: "There is no end-of-day close for this stock yet, so it cannot be closed at the last close.",
+  prices_unavailable: "Prices could not be read from the data platform right now.",
+  upstream_unavailable: "The data platform could not be reached right now.",
+};
+
+/** The server's own words for a failed write: its code in plain words with the code beside it, else its text. */
+export function writeProblem(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.detail) return CODE_TEXT[e.detail] ? `${CODE_TEXT[e.detail]} (${e.detail})` : e.detail;
+    if (e.kind === "network") return "The network request failed.";
+    if (e.kind === "timeout") return "The request took too long.";
+    return e.message || `HTTP ${e.status ?? "error"}`;
+  }
+  return e instanceof Error && e.message ? e.message : "The request failed.";
+}
+
+// ── paper trades ─────────────────────────────────────────────────────────
+
+export type ExitReason = "stop" | "target" | "time" | "manual" | "entry_not_reached" | "cancelled";
+const EXIT_REASONS: readonly string[] = ["stop", "target", "time", "manual", "entry_not_reached", "cancelled"];
+
+export type EntryRule = "at_once" | "break_above" | "pullback_to";
+const ENTRY_RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
+/** assumed: filled when recorded (at once) · reached: the level traded · waiting: not yet · not_reached: never filled. */
+export type EntryStatus = "assumed" | "reached" | "waiting" | "not_reached";
+const ENTRY_STATUSES: readonly string[] = ["assumed", "reached", "waiting", "not_reached"];
+
+/** A rule violation or missing data the route found on the trade's price path. */
+export interface PaperFlag {
+  code: string;
+  text: string;
+  session: string | null;
+  price: number | null;
+}
+
+export interface CostModel {
+  name: string | null;
+  slippagePctPerSide: number | null;
+  brokerageRsPerSide: number | null;
+}
+
+export interface PaperTrade {
+  id: string;
+  symbol: string;
+  quantity: number | null;
+  entry: number | null;
+  stop: number | null;
+  target: number | null;
+  note: string | null;
+  /** Where the plan came from (`source.kind`, e.g. "scanner"), with its bucket and signal date when sent. */
+  source: { kind: string | null; bucket: string | null; signalDate: string | null } | null;
+  openedAt: string | null;
+  status: "open" | "closed";
+  closedAt: string | null;
+  exitPrice: number | null;
+  exitReason: ExitReason | null;
+  /** The session the trade was closed on, and the route's note on it (e.g. both levels in one session). */
+  exitSession: string | null;
+  exitNote: string | null;
+  /** Why an open trade has no mark ("no_prices_for_symbol", "prices_unavailable"). */
+  markError: string | null;
+  /** The last end-of-day close the trade was marked at, and its session. */
+  lastClose: number | null;
+  lastCloseDate: string | null;
+  unrealizedRs: number | null;
+  realizedRs: number | null;
+  // ── PRD §13.4 field set (null when the route did not send it or the trade predates it) ──
+  entryRule: EntryRule;
+  entryWindowSessions: number | null;
+  maxHoldSessions: number | null;
+  signalAt: string | null;
+  strategyVersion: string | null;
+  rationale: string | null;
+  rulesVersion: string | null;
+  costModel: CostModel | null;
+  /** Estimated round-trip costs at the target and at the stop, ₹. */
+  estCostsAtTarget: number | null;
+  estCostsAtStop: number | null;
+  entryStatus: EntryStatus | null;
+  entrySession: string | null;
+  simEntryPrice: number | null;
+  /** Eligible sessions read since the trade was recorded, and sessions held. */
+  observations: number | null;
+  heldSessions: number | null;
+  mfePct: number | null;
+  maePct: number | null;
+  mfeRs: number | null;
+  maeRs: number | null;
+  /** Gross P&L (unrealised while open), estimated costs and net P&L, ₹. */
+  grossRs: number | null;
+  costsRs: number | null;
+  costsBasis: string | null;
+  netRs: number | null;
+  flags: PaperFlag[];
+}
+
+export interface PaperSummary {
+  open: number | null;
+  closed: number | null;
+  wins: number | null;
+  losses: number | null;
+  realizedRs: number | null;
+  unrealizedRs: number | null;
+  /** Open trades without a mark (then the unrealised total is not given). */
+  unmarkedOpen: number | null;
+  /** More closed trades are on record than were listed. */
+  partial: boolean;
+  netRealizedRs: number | null;
+  costsRealizedRs: number | null;
+  netUnrealizedRs: number | null;
+  /** Open trades whose entry level has not traded yet. */
+  entryPending: number | null;
+  /** Closed without a position: the entry was not reached, or it was cancelled. */
+  notEntered: number | null;
+}
+
+export interface PaperBook {
+  asOf: string | null;
+  checkedThrough: string | null;
+  /** The price source and basis as the route names them. */
+  source: string | null;
+  priceBasis: string | null;
+  /** "prices_unavailable" | "prices_partially_unavailable" when marks could not all be read. */
+  marksError: string | null;
+  exitRule: string | null;
+  trades: PaperTrade[];
+  summary: PaperSummary | null;
+  /** entry rule → the route's sentence for it. */
+  entryRules: Partial<Record<EntryRule, string>>;
+  rulesVersion: string | null;
+  costModel: CostModel | null;
+  /** The route's own statement that paper trades never create a broker order. */
+  orders: string | null;
+}
+
+function readCostModel(v: unknown): CostModel | null {
+  const m = rec(v);
+  if (!Object.keys(m).length) return null;
+  return { name: str(m.name), slippagePctPerSide: num(m.slippage_pct_per_side), brokerageRsPerSide: num(m.brokerage_rs_per_side) };
+}
+
+function readTrade(v: unknown): PaperTrade | null {
+  const t = rec(v);
+  const id = str(t.id);
+  const symbol = str(t.symbol)?.toUpperCase();
+  const status = str(t.status)?.toLowerCase();
+  if (!id || !symbol || (status !== "open" && status !== "closed")) return null;
+  const src = rec(t.source);
+  const reason = str(t.exit_reason)?.toLowerCase();
+  const q = num(t.quantity);
+  const rule = str(t.entry_rule);
+  const entryStatus = str(t.entry_status);
+  const est = rec(t.est_costs_rs);
+  return {
+    id, symbol, status,
+    quantity: q != null && q > 0 ? q : null,
+    entry: price(t.entry_price),
+    stop: price(t.stop_price),
+    target: price(t.target_price),
+    note: str(t.note),
+    source: Object.keys(src).length ? { kind: str(src.kind), bucket: str(src.bucket), signalDate: str(src.signal_date) } : null,
+    openedAt: str(t.opened_at),
+    closedAt: str(t.closed_at),
+    exitPrice: price(t.exit_price),
+    exitReason: reason && EXIT_REASONS.includes(reason) ? (reason as ExitReason) : null,
+    exitSession: str(t.exit_session),
+    exitNote: str(t.exit_note),
+    markError: str(t.mark_error),
+    lastClose: price(t.last_close),
+    lastCloseDate: str(t.last_close_date),
+    unrealizedRs: num(t.unrealized_pnl_rs),
+    realizedRs: num(t.realized_pnl_rs),
+    entryRule: rule && ENTRY_RULES.includes(rule) ? (rule as EntryRule) : "at_once",
+    entryWindowSessions: num(t.entry_window_sessions),
+    maxHoldSessions: num(t.max_hold_sessions),
+    signalAt: str(t.signal_at),
+    strategyVersion: str(t.strategy_version),
+    rationale: str(t.rationale),
+    rulesVersion: str(t.rules_version),
+    costModel: readCostModel(t.cost_model),
+    estCostsAtTarget: num(est.at_target),
+    estCostsAtStop: num(est.at_stop),
+    entryStatus: entryStatus && ENTRY_STATUSES.includes(entryStatus) ? (entryStatus as EntryStatus) : null,
+    entrySession: str(t.entry_session),
+    simEntryPrice: price(t.sim_entry_price),
+    observations: num(t.observations),
+    heldSessions: num(t.held_sessions),
+    mfePct: num(t.mfe_pct),
+    maePct: num(t.mae_pct),
+    mfeRs: num(t.mfe_rs),
+    maeRs: num(t.mae_rs),
+    grossRs: num(t.gross_pnl_rs),
+    costsRs: num(t.costs_rs),
+    costsBasis: str(t.costs_basis),
+    netRs: num(t.net_pnl_rs),
+    flags: (Array.isArray(t.flags) ? t.flags : []).flatMap((x): PaperFlag[] => {
+      const f = rec(x);
+      const code = str(f.code);
+      const text = str(f.text);
+      return code && text ? [{ code, text, session: str(f.session), price: num(f.price) }] : [];
+    }),
+  };
+}
+
+async function fetchPaperBook(signal?: AbortSignal): Promise<PaperBook> {
+  const res = await http({ path: "/api/desk/paper-trades", query: { status: "all" }, signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.trades)) throw ApiError.contractDrift("desk.paper-trades: no trades list");
+  const trades = d.trades.flatMap((v) => {
+    const t = readTrade(v);
+    return t ? [t] : [];
+  });
+  const s = rec(d.summary);
+  const summary: PaperSummary | null = Object.keys(s).length
+    ? {
+        open: num(s.open), closed: num(s.closed), wins: num(s.wins), losses: num(s.losses),
+        realizedRs: num(s.realized_pnl_rs), unrealizedRs: num(s.unrealized_pnl_rs), unmarkedOpen: num(s.unmarked_open), partial: s.partial === true,
+        netRealizedRs: num(s.net_realized_pnl_rs), costsRealizedRs: num(s.costs_realized_rs), netUnrealizedRs: num(s.net_unrealized_pnl_rs),
+        entryPending: num(s.entry_pending), notEntered: num(s.not_entered),
+      }
+    : null;
+  const rules = rec(d.entry_rules);
+  const entryRules: Partial<Record<EntryRule, string>> = {};
+  for (const r of ENTRY_RULES) {
+    const text = str(rules[r]);
+    if (text) entryRules[r as EntryRule] = text;
+  }
+  return {
+    asOf: str(d.as_of), checkedThrough: str(d.checked_through), source: str(d.source), priceBasis: str(d.price_basis),
+    marksError: str(d.marks_error), exitRule: str(d.exit_rule), trades, summary,
+    entryRules, rulesVersion: str(d.rules_version), costModel: readCostModel(d.cost_model), orders: str(d.orders),
+  };
+}
+
+export function usePaperTrades() {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<PaperBook>({
+    queryKey: [...PAPER_KEY, profile ?? "self"],
+    staleTime: 60_000,
+    retry,
+    queryFn: ({ signal }) => fetchPaperBook(signal),
+  });
+}
+
+/** POST /api/desk/paper-trades — the body exactly as the route takes it. */
+export interface NewPaperTrade {
+  symbol: string;
+  quantity: number;
+  entry_price: number;
+  stop_price: number;
+  target_price: number | null;
+  source: { kind: "scanner"; bucket?: string; signal_date?: string };
+  /** PRD §13.4, all optional: how the entry fills, how long it waits, the most sessions to hold, when the signal was
+   *  generated, the strategy's version and why. */
+  entry_rule?: EntryRule;
+  entry_window_sessions?: number;
+  max_hold_sessions?: number;
+  signal_at?: string;
+  strategy_version?: string;
+  rationale?: string;
+}
+
+export function useAddPaperTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: NewPaperTrade): Promise<PaperTrade | null> => {
+      const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, noRetry: true });
+      // The trade is created once the route answers 2xx; its echo is only used for the id.
+      return readTrade(rec(res.data).trade);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: PAPER_KEY }),
+  });
+}
+
+export function useClosePaperTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string): Promise<void> => {
+      await http({ method: "POST", path: `/api/desk/paper-trades/${encodeURIComponent(id)}/close`, body: {}, noRetry: true });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: PAPER_KEY }),
+  });
+}
+
+// ── alerts (PRD §6.7): price, filings, categories, volume, scanner, sector, risk ──
+
+/** Every condition the route takes (backend/services/desk_alerts.py). */
+export type AlertCondition = "above" | "below" | "filing" | "category" | "volume" | "scanner" | "sector" | "risk";
+const CONDITIONS: readonly AlertCondition[] = ["above", "below", "filing", "category", "volume", "scanner", "sector", "risk"];
+
+/** A price alert (above / below a level): the shape the Portfolio and Chart tabs use. */
+export interface DeskAlert {
+  id: string;
+  symbol: string;
+  condition: "above" | "below";
+  level: number | null;
+  note: string | null;
+  createdAt: string | null;
+  status: "active" | "fired";
+  firedAt: string | null;
+  /** The session whose high (above) or low (below) reached the level. */
+  firedSession: string | null;
+  firedPrice: number | null;
+  /** An active alert's last end-of-day close, or why there is none. */
+  lastClose: number | null;
+  lastCloseDate: string | null;
+  markError: string | null;
+  /** Why it fired, in the route's words (null while active). */
+  reason: string | null;
+}
+
+/** Any alert, whatever its condition (the Market intelligence list). */
+export interface AnyAlert {
+  id: string;
+  /** null for an alert on every company (a category) or on a sector index. */
+  symbol: string | null;
+  condition: AlertCondition;
+  level: number | null;
+  /** The condition's settings as stored: impact, category, multiple, stage, index, threshold_pct, direction. */
+  params: Record<string, string | number | null>;
+  /** The alert in one plain line, from the route ("RELIANCE: a new exchange filing"). */
+  label: string | null;
+  /** The rule it is checked by, from the route. */
+  rule: string | null;
+  note: string | null;
+  createdAt: string | null;
+  status: "active" | "fired";
+  firedAt: string | null;
+  firedSession: string | null;
+  firedPrice: number | null;
+  /** Why it fired, and what it fired on (a filing's id and link, a session's volume…). */
+  reason: string | null;
+  evidence: Record<string, unknown> | null;
+  /** A source this alert reads could not be read on the last check (it stays active, unchecked). */
+  checkError: string | null;
+  checkedThrough: string | null;
+}
+
+export interface AlertBook {
+  asOf: string | null;
+  /** The last session the alerts were checked against. */
+  checkedThrough: string | null;
+  source: string | null;
+  marksError: string | null;
+  firingRule: string | null;
+  /** Price alerts only (above / below). */
+  alerts: DeskAlert[];
+  /** Every alert, every condition, newest first as the route sends them. */
+  all: AnyAlert[];
+  /** Codes of the sources that could not be read on this check. */
+  checkErrors: string[];
+  /** How and when alerts are checked, and where they show (in-app), in the route's words. */
+  checkNote: string | null;
+  delivery: string | null;
+  conditions: Array<{ condition: AlertCondition; rule: string }>;
+}
+
+const isCondition = (v: string | null | undefined): v is AlertCondition => !!v && (CONDITIONS as readonly string[]).includes(v);
+
+function readAny(v: unknown): AnyAlert | null {
+  const a = rec(v);
+  const id = str(a.id);
+  const condition = str(a.condition)?.toLowerCase() ?? null;
+  const status = str(a.status)?.toLowerCase();
+  if (!id || !isCondition(condition) || (status !== "active" && status !== "fired")) return null;
+  const params: Record<string, string | number | null> = {};
+  for (const [k, val] of Object.entries(rec(a.params))) {
+    if (typeof val === "string" || (typeof val === "number" && Number.isFinite(val)) || val === null) params[k] = val;
+  }
+  const ev = rec(a.evidence);
+  return {
+    id, condition, status,
+    symbol: str(a.symbol)?.toUpperCase() ?? null,
+    level: num(a.level),
+    params,
+    label: str(a.label),
+    rule: str(a.rule),
+    note: str(a.note),
+    createdAt: str(a.created_at),
+    firedAt: str(a.fired_at),
+    firedSession: str(a.fired_session),
+    firedPrice: price(a.fired_price),
+    reason: str(a.reason),
+    evidence: Object.keys(ev).length ? ev : null,
+    checkError: str(a.check_error),
+    checkedThrough: str(a.checked_through),
+  };
+}
+
+function readAlert(v: unknown): DeskAlert | null {
+  const a = rec(v);
+  const id = str(a.id);
+  const symbol = str(a.symbol)?.toUpperCase();
+  const condition = str(a.condition)?.toLowerCase();
+  const status = str(a.status)?.toLowerCase();
+  if (!id || !symbol || (condition !== "above" && condition !== "below") || (status !== "active" && status !== "fired")) return null;
+  return {
+    id, symbol, condition, status,
+    level: price(a.level),
+    note: str(a.note),
+    createdAt: str(a.created_at),
+    firedAt: str(a.fired_at),
+    firedSession: str(a.fired_session),
+    firedPrice: price(a.fired_price),
+    lastClose: price(a.last_close),
+    lastCloseDate: str(a.last_close_date),
+    markError: str(a.mark_error),
+    reason: str(a.reason),
+  };
+}
+
+async function fetchAlerts(signal?: AbortSignal): Promise<AlertBook> {
+  const res = await http({ path: "/api/desk/alerts", query: { status: "all" }, signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.alerts)) throw ApiError.contractDrift("desk.alerts: no alerts list");
+  const alerts = d.alerts.flatMap((v) => {
+    const a = readAlert(v);
+    return a ? [a] : [];
+  });
+  const all = d.alerts.flatMap((v) => {
+    const a = readAny(v);
+    return a ? [a] : [];
+  });
+  const conditions = (Array.isArray(d.conditions) ? d.conditions : []).flatMap((v): AlertBook["conditions"] => {
+    const c = rec(v);
+    const k = str(c.condition);
+    return isCondition(k) ? [{ condition: k, rule: str(c.rule) ?? "" }] : [];
+  });
+  return {
+    asOf: str(d.as_of), checkedThrough: str(d.checked_through), source: str(d.source), marksError: str(d.marks_error),
+    firingRule: str(d.firing_rule), alerts, all,
+    checkErrors: (Array.isArray(d.check_errors) ? d.check_errors : []).flatMap((v) => (str(v) ? [str(v) as string] : [])),
+    checkNote: str(d.check_note), delivery: str(d.delivery), conditions,
+  };
+}
+
+export function useDeskAlerts() {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<AlertBook>({
+    queryKey: [...ALERTS_KEY, profile ?? "self"],
+    staleTime: 60_000,
+    retry,
+    queryFn: ({ signal }) => fetchAlerts(signal),
+  });
+}
+
+/** POST /api/desk/alerts — a price alert, the body exactly as the route takes it. */
+export interface NewAlert {
+  symbol: string;
+  condition: "above" | "below";
+  level: number;
+}
+
+/** POST /api/desk/alerts — any condition, the body exactly as the route takes it. */
+export type NewDeskAlert =
+  | NewAlert
+  | { condition: "filing"; symbol: string; impact?: "any" | "high" }
+  | { condition: "category"; category: string; symbol?: string }
+  | { condition: "volume"; symbol: string; multiple: number }
+  | { condition: "scanner"; symbol: string; stage?: string }
+  | { condition: "sector"; index: string; threshold_pct: number; direction?: "up" | "down" | "either" }
+  | { condition: "risk"; symbol: string; level: number };
+
+export function useAddAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: NewAlert): Promise<DeskAlert | null> => {
+      const res = await http({ method: "POST", path: "/api/desk/alerts", body, noRetry: true });
+      return readAlert(rec(res.data).alert);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ALERTS_KEY }),
+  });
+}
+
+/** Any condition; the answer's alert is read whatever its kind. */
+export function useCreateAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: NewDeskAlert): Promise<AnyAlert | null> => {
+      const res = await http({ method: "POST", path: "/api/desk/alerts", body, noRetry: true });
+      return readAny(rec(res.data).alert);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ALERTS_KEY }),
+  });
+}
+
+export function useDeleteAlert() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string): Promise<void> => {
+      await http({ method: "DELETE", path: `/api/desk/alerts/${encodeURIComponent(id)}`, noRetry: true });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ALERTS_KEY }),
+  });
+}
+
+// ── per-trade figures the Portfolio tab shows (worked out from the trade) ─
+
+const IST = "Asia/Kolkata";
+const istDay = (iso: string | null): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-CA", { timeZone: IST }) : null;
+};
+
+/** True when the trade was opened today, India time. */
+export function openedToday(t: PaperTrade, now: Date = new Date()): boolean {
+  return istDay(t.openedAt) === now.toLocaleDateString("en-CA", { timeZone: IST });
+}
+
+/** Calendar days from opening to closing (India time); null without both stamps. */
+export function heldDays(t: PaperTrade): number | null {
+  const a = istDay(t.openedAt);
+  const b = istDay(t.closedAt);
+  if (!a || !b) return null;
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/** A closed trade's return on its entry, percent: (exit − entry) ÷ entry. */
+export function tradeReturnPct(t: PaperTrade): number | null {
+  if (t.exitPrice == null || t.entry == null) return null;
+  return ((t.exitPrice - t.entry) / t.entry) * 100;
+}
+
+/** A closed trade's result in R: (exit − entry) ÷ (entry − stop); null without a stop below the entry. */
+export function tradeR(t: PaperTrade): number | null {
+  if (t.exitPrice == null || t.entry == null || t.stop == null || !(t.entry > t.stop)) return null;
+  return (t.exitPrice - t.entry) / (t.entry - t.stop);
+}
