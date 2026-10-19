@@ -290,6 +290,42 @@ def test_ema200_with_fewer_than_200_bars_is_null_with_the_reason(monkeypatch):
     assert "150" in b["series_notes"]["ema200"] and "split" in b["series_notes"]["ema200"].lower()
 
 
+def test_hypothetical_levels_follow_the_documented_rule(monkeypatch):
+    c, _ = _client(monkeypatch)
+    b = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()
+    h = b["hypothetical_levels"]
+    atr = calc.atr(HIGHS, LOWS, CLOSES, 14)
+    sup = float(LOWS[-20:].min())
+    close = float(CLOSES[-1])
+    assert h["rule"] == "ATR_2X_STOP" and h["version"] == "1" and "not a scanner pick" in h["label"]
+    assert h["constants"] == {"atr_multiple": 2.0, "min_stop_atr": 0.5, "reward_multiple": 2.0, "atr_period": 14}
+    assert h["entry"] == pytest.approx(close)
+    atr_stop = close - 2.0 * atr
+    # the nearest support wins only when it is closer than 2 x ATR and at least 0.5 x ATR away
+    expect_stop, basis = (sup, "support20") if atr_stop < sup <= close - 0.5 * atr else (atr_stop, "atr")
+    assert h["stop"] == pytest.approx(expect_stop) and h["stop_basis"] == basis
+    assert h["target"] == pytest.approx(close + 2.0 * (close - expect_stop))
+    assert h["risk_reward"] == pytest.approx(2.0) and h["reason"] is None
+
+
+def test_hypothetical_stop_uses_the_closer_support(monkeypatch):
+    # MOCK -- not real data: a flat 100-close series, ATR 10 (range 95..105 around it), support 94 is closer than 2 x ATR
+    n = 40
+    days = _weekdays(n)
+    bars = [(d, 100.0, 104.0, 94.0 + (1 if i < n - 5 else 0), 100.0, 1e5) for i, d in enumerate(days)]
+    c, _ = _client(monkeypatch, prices=(200, _price_rows(bars)))
+    h = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()["hypothetical_levels"]
+    assert h["stop_basis"] == "support20" and h["stop"] == 94.0
+    assert h["target"] == pytest.approx(100.0 + 2 * 6.0)
+
+
+def test_hypothetical_levels_with_too_few_bars_are_null_with_the_reason(monkeypatch):
+    c, _ = _client(monkeypatch, prices=(200, _price_rows(BARS[-10:])))
+    h = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()["hypothetical_levels"]
+    assert h["entry"] is None and h["stop"] is None and h["target"] is None and h["risk_reward"] is None
+    assert "15" in h["reason"] and "10" in h["reason"]
+
+
 def test_no_bars_is_404_and_flag_is_403(monkeypatch):
     c, _ = _client(monkeypatch, prices=(200, {"data": []}))
     assert c.get("/api/research/chart/live/NOSUCH/indicators", headers=H).status_code == 404

@@ -368,6 +368,47 @@ def _indicator_values(bars: list, bench: Optional[dict]) -> tuple:
     return values, series
 
 
+# The one config of the hypothetical-levels rule. Change a constant here and bump VERSION.
+HYPOTHETICAL_RULE = {"name": "ATR_2X_STOP", "version": "1",
+                     "atr_multiple": 2.0, "min_stop_atr": 0.5, "reward_multiple": 2.0, "atr_period": 14}
+HYPOTHETICAL_LABEL = "Rule-based hypothetical levels, not a scanner pick and not a recommendation"
+
+
+def _hypothetical_levels(bars: list) -> dict:
+    """Entry, stop and target for ANY stock with bars, by one deterministic rule on the chart's own engine figures.
+
+    entry  = the last close.
+    stop   = entry - 2 x ATR(14), or the 20-session low (support) when that is closer to the entry than the ATR
+             stop but at least 0.5 x ATR away (a stop tighter than that is noise).
+    target = entry + 2 x (entry - stop).
+    A figure that cannot be derived is None with the reason; nothing is filled in.
+    """
+    r = HYPOTHETICAL_RULE
+    out = {"rule": r["name"], "version": r["version"], "label": HYPOTHETICAL_LABEL,
+           "constants": {k: r[k] for k in ("atr_multiple", "min_stop_atr", "reward_multiple", "atr_period")},
+           "entry": None, "stop": None, "target": None, "risk_reward": None, "stop_basis": None, "reason": None,
+           "source": "nidp.prices_eod_adjusted via calculator.py (atr, swing_high_low)"}
+    h, l, c = (np.array([b[i] for b in bars], dtype=float) for i in (2, 3, 4))
+    atr = _flt(_calc.atr(h, l, c, r["atr_period"]))
+    if atr is None or atr <= 0:
+        out["reason"] = (f"ATR({r['atr_period']}) needs {r['atr_period'] + 1} sessions and "
+                         f"{len(bars)} are usable, so no stop can be derived.")
+        return out
+    entry = float(c[-1])
+    stop, basis = entry - r["atr_multiple"] * atr, "atr"
+    _hi, support = _calc.swing_high_low(h, l, 20)
+    support = _flt(support)
+    if support is not None and stop < support <= entry - r["min_stop_atr"] * atr:
+        stop, basis = support, "support20"
+    if stop <= 0:
+        out["reason"] = "The ATR stop would be at or below zero, so no levels are derived."
+        return out
+    risk = entry - stop
+    out.update(entry=entry, stop=stop, target=entry + r["reward_multiple"] * risk, stop_basis=basis,
+               risk_reward=float(r["reward_multiple"]))
+    return out
+
+
 def _series_notes(n: int, brk: Optional[dict]) -> dict:
     """Why a line is absent: fewer sessions than its lookback, and the unadjusted split that cut the history."""
     notes = {}
@@ -443,6 +484,7 @@ async def live_indicators(symbol: str = SymbolPath, user: dict = Depends(require
         "values": values,
         "series": series,
         "series_notes": _series_notes(len(used), brk),
+        "hypothetical_levels": _hypothetical_levels(used),
         "definitions": INDICATOR_DEFINITIONS,
         "benchmark": {"name": BENCHMARK, "source": "nidp.index_eod",
                       "as_of": max(bench) if bench else None, "reason": bench_reason},

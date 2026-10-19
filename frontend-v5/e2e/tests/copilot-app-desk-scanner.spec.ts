@@ -1081,6 +1081,12 @@ function liveIndicators(symbol: string, bars: Bar[] = BARS) {
   };
 }
 const LIVE = liveIndicators("FIXBRK");
+// MOCK — not real data: the server's rule-based hypothetical levels (ATR 2x stop, 2R target).
+const HYPO = {
+  rule: "ATR_2X_STOP", version: "1", label: "Rule-based hypothetical levels, not a scanner pick and not a recommendation",
+  constants: { atr_multiple: 2, min_stop_atr: 0.5, reward_multiple: 2, atr_period: 14 },
+  entry: 500, stop: 480, target: 540, risk_reward: 2, stop_basis: "atr", reason: null, source: "fixture",
+};
 
 type CritStatus = "pass" | "fail" | "pending" | "na";
 const crit = (key: string, label: string, status: CritStatus, extra: Record<string, unknown> = {}) => ({ key, label, status, judged_by: null, observed: null, reason: null, ...extra });
@@ -1315,7 +1321,10 @@ async function chartMocks(page: Page, over: ChartOver = {}): Promise<{ scenario:
   await page.route("**/api/research/chart/live/*/indicators", (route) => {
     const sym = new URL(route.request().url()).pathname.split("/").slice(-2)[0];
     if (indStatus) return route.fulfill({ status: indStatus, contentType: "application/json", body: JSON.stringify({ detail: "fixture failure" }) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(liveIndicators(sym)) });
+    // MOCK — not real data: the server's rule-based levels for one symbol only; every other symbol has none.
+    const body: Record<string, unknown> = { ...liveIndicators(sym) };
+    if (sym === "HYPOSYM") body.hypothetical_levels = HYPO;
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await page.route("**/api/research/chart/live/*/patterns", (route) => {
     if (patStatus) return route.fulfill({ status: patStatus, contentType: "application/json", body: JSON.stringify({ detail: over.patDetail ?? "fixture failure" }) });
@@ -1601,6 +1610,27 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-gate-none")).toContainText("not judged, not failed");
     // the calculator is open and works on the user's own levels
     await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
+  });
+
+  test("not on the scanner: the rule's levels fill the section, the calculator and the full-chart link, labelled; the scanner's win when present", async ({ page }) => {
+    await chartMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=HYPOSYM`);
+    await expect(page.getByTestId("desk-risk-rule")).toContainText("Rule-based hypothetical levels, not a scanner pick and not a recommendation");
+    await expect(page.getByTestId("desk-risk-rule")).toContainText("ATR_2X_STOP v1");
+    await expect(page.getByTestId("desk-risk-rr")).toHaveText("2.0 : 1");
+    await expect(page.getByTestId("desk-scn-entry")).toHaveValue("500");
+    await expect(page.getByTestId("desk-scn-stop")).toHaveValue("480");
+    await expect(page.getByTestId("desk-scn-target")).toHaveValue("540");
+    await page.getByTestId("desk-detail-levels-toggle").click();
+    await expect(page.getByTestId("desk-lvl-source")).toContainText("ATR_2X_STOP v1");
+    await expect(page.getByTestId("desk-lvl-entry")).toContainText(inr2(500));
+    await expect(page.getByTestId("desk-lvl-stop")).toContainText(inr2(480));
+    await expect(page.getByTestId("desk-lvl-target")).toContainText(inr2(540));
+    await expect(page.getByTestId("desk-lvl-full")).toHaveAttribute("href", /entry=500.*stop=480.*t1=540/);
+    // a stock the scanner has: its own levels, and the source says so
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await page.getByTestId("desk-detail-levels-toggle").click();
+    await expect(page.getByTestId("desk-lvl-source")).toContainText("AI scanner pick");
   });
 
   test("TC-21 chart-live 403 → charting locked for the account; indicators and patterns are locked too", async ({ page }) => {

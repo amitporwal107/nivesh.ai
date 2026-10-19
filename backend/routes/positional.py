@@ -1327,7 +1327,8 @@ async def get_calibration(request: Request,
                 out["symbol_score"] = {"symbol": sym, "as_of_date": r["as_of_date"].isoformat(),
                                        "accumulation_score": score}
             else:
-                out["symbol_reason"] = f"No accumulation score on record for {sym} (stock_technical_features)."
+                out["symbol_reason"] = (f"No accumulation score on record for {sym} (stock_technical_features is empty for it). "
+                                        "It is filled by the positional engine: python -m scripts.run_positional_engine.")
         except Exception as e:  # noqa: BLE001
             out["symbol_reason"] = f"The accumulation score could not be read: {str(e)[:120]}"
 
@@ -1354,7 +1355,9 @@ async def get_calibration(request: Request,
     out["count"] = len(buckets)
     if not buckets:
         out["empty_reason"] = ("No calibration rows on record: the accumulation backtest (POST "
-                               "/api/positional/backtest/label, then /backtest/calibrate) has not been run here.")
+                               "/api/positional/backtest/label, then /backtest/calibrate) has not been run here. It replays "
+                               "stock_ohlcv, which the positional engine's bhavcopy step fills (python -m "
+                               "scripts.run_positional_engine, one date at a time).")
     return out
 
 

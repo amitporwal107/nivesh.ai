@@ -37,7 +37,7 @@ import { useHoldingsEnriched } from "@/hooks/use-portfolio";
 import { StockName } from "../../components/EntityIcon";
 import { Btn, ErrorBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, type Tone } from "../../components/ui";
 import { fmtDay, fmtPrice } from "../trading/parts";
-import { setupLabel, useScenario, useStockOdds, type Scenario, type ScenarioInputs } from "./chart-data";
+import { setupLabel, useDeskLevels, useScenario, useStockOdds, type DeskLevels, type Scenario, type ScenarioInputs } from "./chart-data";
 import { useDesk } from "./context";
 import { LIQUID_MIN_CR, useDeskOdds, useDeskScanner, type DeskSetup, type SetupStatus } from "./desk-data";
 import { useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
@@ -322,8 +322,8 @@ type FieldKey = keyof Fields;
 
 const priceText = (v: number | null) => (v != null ? String(v) : "");
 
-function levelFields(setup: DeskSetup | null): Pick<Fields, "entry" | "stop" | "target"> {
-  return { entry: priceText(setup?.entry ?? null), stop: priceText(setup?.stop ?? null), target: priceText(setup?.target ?? null) };
+function levelFields(lv: DeskLevels): Pick<Fields, "entry" | "stop" | "target"> {
+  return { entry: priceText(lv.entry), stop: priceText(lv.stop), target: priceText(lv.target) };
 }
 
 /** A typed number: null when blank, NaN when not a number (shown as an input problem). */
@@ -379,18 +379,18 @@ function readFields(f: Fields): { inputs: Omit<ScenarioInputs, "portfolioValue" 
 }
 
 /** One scenario per stock: editable fields (levels from the setup), the portfolio, and the route's answer. */
-function useScenarioState(symbol: string, setup: DeskSetup | null) {
+function useScenarioState(symbol: string, setup: DeskSetup | null, lv: DeskLevels) {
   const [fields, setFields] = useState<Fields>(() => ({
-    ...levelFields(setup), capital: DEFAULT_CAPITAL, riskPct: DEFAULT_RISK_PCT, maxAllocPct: DEFAULT_MAX_ALLOC,
+    ...levelFields(lv), capital: DEFAULT_CAPITAL, riskPct: DEFAULT_RISK_PCT, maxAllocPct: DEFAULT_MAX_ALLOC,
     slippagePct: DEFAULT_SLIPPAGE, brokerage: DEFAULT_BROKERAGE, maxQty: "", lotSize: "1",
   }));
   // A new stock (or new levels for it) starts from its own levels; the sizing choices carry over.
-  const levelKey = `${symbol}|${setup?.entry ?? ""}|${setup?.stop ?? ""}|${setup?.target ?? ""}`;
+  const levelKey = `${symbol}|${lv.source ?? ""}|${lv.entry ?? ""}|${lv.stop ?? ""}|${lv.target ?? ""}`;
   useEffect(() => {
-    setFields((f) => ({ ...f, ...levelFields(setup) }));
+    setFields((f) => ({ ...f, ...levelFields(lv) }));
   }, [levelKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k: FieldKey, v: string) => setFields((f) => ({ ...f, [k]: v }));
-  const reset = () => setFields((f) => ({ ...f, ...levelFields(setup) }));
+  const reset = () => setFields((f) => ({ ...f, ...levelFields(lv) }));
 
   const portfolio = usePortfolioIdea(symbol, setup?.sector ?? null);
   const read = readFields(fields);
@@ -407,7 +407,7 @@ function useScenarioState(symbol: string, setup: DeskSetup | null) {
   const debounced = useMemo<ScenarioInputs | null>(() => (key ? (JSON.parse(key) as ScenarioInputs) : null), [key]);
   const q = useScenario(debounced);
   const current = !!debounced && !!withPortfolio && JSON.stringify(withPortfolio) === key && !q.isPlaceholderData;
-  return { fields, set, reset, read, portfolio, q, sent: debounced, current };
+  return { fields, set, reset, read, portfolio, q, sent: debounced, current, levels: lv };
 }
 
 type ScenarioState = ReturnType<typeof useScenarioState>;
@@ -451,7 +451,8 @@ function ScenarioEditor({ st, setup }: { st: ScenarioState; setup: DeskSetup | n
   const fieldProblem = (k: FieldKey) =>
     st.read.problems.find((p) => p.field === k)?.message ?? (st.current && s ? s.problems.find((p) => p.field === k)?.message : undefined);
   const f = st.fields;
-  const levelsEdited = setup && (f.entry !== priceText(setup.entry) || f.stop !== priceText(setup.stop) || f.target !== priceText(setup.target));
+  const base = st.levels;
+  const levelsEdited = base.source && (f.entry !== priceText(base.entry) || f.stop !== priceText(base.stop) || f.target !== priceText(base.target));
   const grid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 112px), 1fr))", gap: 8 } as const;
   const serverProblems = st.current && s && !s.valid ? s.problems : [];
   return (
@@ -474,7 +475,7 @@ function ScenarioEditor({ st, setup }: { st: ScenarioState; setup: DeskSetup | n
       </div>
       {levelsEdited && (
         <button type="button" data-testid="desk-scn-reset" onClick={st.reset} style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", color: "var(--mint)", fontSize: 12, cursor: "pointer", fontFamily: "var(--sans)" }}>
-          Back to the scanner’s levels
+          {base.source === "rule" ? "Back to the rule’s levels" : "Back to the scanner’s levels"}
         </button>
       )}
       {(st.read.problems.length > 0 || serverProblems.length > 0) && (
@@ -829,14 +830,15 @@ function EditorDisclosure({ st, setup, symbol, defaultOpen = false, withPortfoli
 export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskSetup | null; bars: DailyBar[] | null }) {
   const f = useRiskFigures(symbol, setup);
   const { plain } = f;
-  const st = useScenarioState(symbol, setup);
+  const lv = useDeskLevels(symbol, setup);
+  const st = useScenarioState(symbol, setup, lv);
   const sym = symbol.toUpperCase();
   const scan = useDeskScanner();
 
-  const entry = setup?.entry ?? null;
-  const stop = setup?.stop ?? null;
-  const target = setup?.target ?? null;
-  const rr = setup?.riskReward ?? null;
+  const entry = lv.entry;
+  const stop = lv.stop;
+  const target = lv.target;
+  const rr = lv.riskReward;
   const ltp = bars?.length ? bars[bars.length - 1].close : setup?.close ?? null;
   const record = f.record;
   const capitalOpt = CAPITALS.find((c) => c.value === st.fields.capital)?.value ?? ("" as string);
@@ -860,11 +862,16 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           </div>
         </div>
 
-        {setup && entry != null && stop != null && entry > stop ? (
+        {lv.source && entry != null && stop != null && entry > stop ? (
           <RangeBar entry={entry} stop={stop} target={target} ltp={ltp} plain={plain} />
         ) : (
           <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-            {setup ? "This setup has no entry with a stop below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. The scanner suggests an entry, stop and target only for stocks that pass its end-of-day rules, and nothing is made up for the rest. Enter your own under “Edit the scenario” and the calculator sizes them."}
+            {setup ? "This setup has no entry with a stop below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. The scanner suggests an entry, stop and target only for stocks that pass its end-of-day rules, and nothing is made up for the rest. Enter your own under “Edit the scenario” and the calculator sizes them."}{lv.reason ? ` (${lv.reason})` : ""}
+          </span>
+        )}
+        {lv.source === "rule" && lv.rule && (
+          <span data-testid="desk-risk-rule" className="cp-mono-note" style={{ lineHeight: 1.5 }}>
+            {lv.rule.label}. Rule {lv.rule.name} v{lv.rule.version}: entry = last close; stop = {plainNum(lv.rule.constants.atr_multiple)} × ATR({lv.rule.constants.atr_period}) below it, or the 20-session low when that is closer; target = entry + {plainNum(lv.rule.constants.reward_multiple)} × the risk. These levels are in the calculator below.
           </span>
         )}
         {setup && target == null && entry != null && (
@@ -934,12 +941,13 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
 export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: DeskSetup | null }) {
   const f = useRiskFigures(symbol, setup);
   const { plain } = f;
-  const st = useScenarioState(symbol, setup);
+  const lv = useDeskLevels(symbol, setup);
+  const st = useScenarioState(symbol, setup, lv);
   const sym = symbol.toUpperCase();
-  const entry = setup?.entry ?? null;
-  const stop = setup?.stop ?? null;
-  const target = setup?.target ?? null;
-  const rr = setup?.riskReward ?? null;
+  const entry = lv.entry;
+  const stop = lv.stop;
+  const target = lv.target;
+  const rr = lv.riskReward;
   return (
     <section data-testid="desk-risk" data-layout="phone" className="cp-card flex min-w-0 flex-col">
       <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--cp-line)" }}>
@@ -953,7 +961,7 @@ export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: De
           <StatTile k={plain ? "Chance of +5%" : "Move probability"} v={f.pValue} s={f.pNote} tone={f.pTone} size={28} testId="desk-risk-p5" />
           <StatTile k={plain ? "Past trades that worked" : "Trade win rate"} v="—" s="No back-tested win rate is published." size={28} testId="desk-risk-winrate" />
         </div>
-        {setup && entry != null && stop != null ? (
+        {lv.source && entry != null && stop != null ? (
           <div data-testid="desk-risk-levels" className="flex flex-wrap items-baseline justify-between" style={{ gap: "4px 10px" }}>
             <span data-testid="desk-risk-stop" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-danger)" }}>{plain ? "Exit if wrong" : "Stop"} {fmtPrice(stop)}</span>
             <span data-testid="desk-risk-entry" className="cp-eyebrow" style={{ fontSize: 9.5, color: "var(--cp-ink-2)" }}>{plain ? "Buy above" : "Entry"} {fmtPrice(entry)}</span>
@@ -961,6 +969,9 @@ export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: De
           </div>
         ) : (
           <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>{setup ? "No entry with a stop below it on this setup." : "Not on today’s scanner — no levels."}</span>
+        )}
+        {lv.source === "rule" && lv.rule && (
+          <span data-testid="desk-risk-rule" className="cp-mono-note" style={{ lineHeight: 1.5 }}>{lv.rule.label}. Rule {lv.rule.name} v{lv.rule.version}.</span>
         )}
         <span data-testid="desk-risk-stopnote" style={{ fontSize: 11.5, lineHeight: 1.45, color: "var(--cp-ink-3)" }}>{(st.q.data?.caveats ?? [STOP_NOTE])[0]}</span>
         <EditorDisclosure st={st} setup={setup} symbol={sym} withPortfolio />
