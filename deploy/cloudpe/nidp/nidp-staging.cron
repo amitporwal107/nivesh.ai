@@ -51,6 +51,10 @@ NIDP_HOME=/opt/nidp-staging
 
 # ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+# NSE posts the F&O file after 19:30 (404 at 19:30 on 16 and 19 Oct 2026; present by 22:20). Retry
+# twice; the writer upserts on its key, so a run on an already-loaded day changes nothing.
+0  21 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+15 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
 30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials
 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_shareholding
 
