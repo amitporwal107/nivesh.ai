@@ -297,6 +297,10 @@ const FeaturesC = z.object({
   /** ₹ crore. */
   market_cap_cr: num,
   market_cap_bucket: z.string().nullish(),
+  /** The feature row's date, and where its ROE, P/B and market cap came from (nidp migration 162). */
+  as_of_date: z.string().nullish(),
+  fundamentals_source: z.string().nullish(),
+  fundamentals_as_of: z.string().nullish(),
 });
 export type CompanyFeatures = z.infer<typeof FeaturesC>;
 

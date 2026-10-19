@@ -30,7 +30,7 @@ import {
   EmptyBlock, ErrorBlock, LoadingBlock, NotConnected, Pill, TONE_COLOR, fmtNum, fmtPct, humaniseTag, signTone, type Tone,
 } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
-import { useCompanyNumbers, useFilingsFeed } from "../markets/hooks";
+import { useCompanyNumbers, useFilingsFeed, type CompanyFeatures, type HoldingRow } from "../markets/hooks";
 import { fmtDay, fmtPrice, fmtSigned } from "../trading/parts";
 import { AddToList } from "../workspace/PersonalLists";
 import { CandleChart, CandleLegend, PLAIN_CHART_WORDS, TRADER_CHART_WORDS, type ChartEvent } from "./CandleChart";
@@ -926,8 +926,13 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   const fin = finQ.data ?? null;
   const quarter = fin?.quarters[0] ?? null;
   const holdings = fin ? [...fin.holdings].sort((a, b) => (b.period_end ?? "").localeCompare(a.period_end ?? "")) : [];
-  const own = holdings[0] ?? null;
-  const ownPrev = holdings[1] ?? null;
+  // The newest quarter that has any ownership figure: a quarter with only a pledge figure must not
+  // hide the previous quarter's holdings (the pledge row is still shown through `newest`).
+  const hasShares = (h: HoldingRow) => h.promoter_pct != null || h.fii_pct != null || h.dii_pct != null || h.mf_pct != null;
+  const newest = holdings[0] ?? null;
+  const ownIdx = holdings.findIndex(hasShares);
+  const own = ownIdx >= 0 ? holdings[ownIdx] : newest;
+  const ownPrev = ownIdx >= 0 ? holdings[ownIdx + 1] ?? null : holdings[1] ?? null;
   const filings = filQ.data?.rows ?? [];
   const tr = live?.tradability ?? null;
   // One traded-value figure on the page: the scanner's (the risk desk's gate reads it too), else the daily bars'.
@@ -1004,20 +1009,34 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   );
 
   // ── 4 · fundamentals ──
+  const featureGap = (f: CompanyFeatures, what: string) =>
+    `${what}: not filled on the ${fmtDay(f.as_of_date ?? null)} feature row (stock_features_daily). ${f.fundamentals_source ? `Figures there come from ${f.fundamentals_source}, as of ${fmtDay(f.fundamentals_as_of ?? null)}, and this one is missing.` : "No source figure was loaded for that date, and the filings give none."}`;
+  const ownershipWhy = (o: HoldingRow | null, latest: HoldingRow | null) => {
+    if (!o) return "No shareholding pattern on record.";
+    const pledge = latest?.promoter_pledged_pct ?? o.promoter_pledged_pct;
+    const pledgeNote = pledge != null ? ` Pledged ${fmtPct(pledge, { digits: 1 })}${latest && latest !== o ? ` (${latest.period ?? fmtDay(latest.period_end ?? null)})` : ""}.` : "";
+    if (!hasShares(o)) return `Only a pledge figure is loaded for ${o.period ?? fmtDay(o.period_end ?? null)}; the exchange’s shareholding filing for that quarter is not in the warehouse.${pledgeNote}`;
+    if (o.promoter_pct == null) return `The ${o.period ?? fmtDay(o.period_end ?? null)} filing gives no promoter holding.${pledgeNote}`;
+    return pledgeNote.trim() || undefined;
+  };
   const ownDelta = (a: number | null | undefined, b: number | null | undefined) => (a != null && b != null ? ` (${fmtPct(a - b, { signed: true, digits: 1 })} vs ${ownPrev?.period ?? "previous"})` : "");
   const s4 = finQ.isPending ? <span style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>Loading results and shareholding…</span>
     : finQ.isError ? <ErrorBlock title="Results and shareholding didn’t load" error={finQ.error} onRetry={() => finQ.refetch()} />
       : (
         <>
-          <KV testId="desk-fund-valuation" k="P/E · P/B" v={`${fmtNum(fin?.features?.pe_ttm ?? null, 1)} · ${fmtNum(fin?.features?.pb ?? null, 1)}`} why={fin?.features ? undefined : "No feature row for this stock (stock_features_daily)."} />
-          <KV testId="desk-fund-quality" k="ROE · debt to equity" v={`${fmtPct(fin?.features?.roe_pct ?? null, { digits: 1 })} · ${fmtNum(fin?.features?.debt_to_equity ?? null, 2)}`} />
-          <KV testId="desk-fund-mcap" k="Market cap" v={fin?.features?.market_cap_cr != null ? `₹${fmtNum(fin.features.market_cap_cr, 0)} Cr` : dash} why={fin?.features?.market_cap_cr == null ? "Not filled for this stock." : undefined} />
+          <KV testId="desk-fund-valuation" k="P/E · P/B" v={`${fmtNum(fin?.features?.pe_ttm ?? null, 1)} · ${fmtNum(fin?.features?.pb ?? null, 1)}`}
+            why={!fin?.features ? "No feature row for this stock (stock_features_daily)." : fin.features.pe_ttm != null && fin.features.pb != null ? undefined : `${featureGap(fin.features, "P/E and P/B")}`} />
+          <KV testId="desk-fund-quality" k="ROE · debt to equity" v={`${fmtPct(fin?.features?.roe_pct ?? null, { digits: 1 })} · ${fmtNum(fin?.features?.debt_to_equity ?? null, 2)}`}
+            why={fin?.features && (fin.features.roe_pct == null || fin.features.debt_to_equity == null) ? featureGap(fin.features, "ROE and debt to equity") : undefined} />
+          <KV testId="desk-fund-mcap" k="Market cap" v={fin?.features?.market_cap_cr != null ? `₹${fmtNum(fin.features.market_cap_cr, 0)} Cr` : dash}
+            why={fin?.features?.market_cap_cr == null ? (fin?.features ? featureGap(fin.features, "Market cap") : "No feature row for this stock (stock_features_daily).") : undefined} />
           <KV testId="desk-fund-quarter" k={quarter ? `Latest quarter · ${quarter.quarter ?? fmtDay(quarter.period_end ?? null)}` : "Latest quarter"}
             v={quarter ? `Revenue ₹${fmtNum(quarter.revenue_cr ?? null, 0)} Cr · profit ₹${fmtNum(quarter.pat_cr ?? null, 0)} Cr` : dash}
             why={quarter ? `Year on year: revenue ${fmtPct(quarter.revenue_yoy_pct ?? null, { signed: true, digits: 1 })}, profit ${fmtPct(quarter.pat_yoy_pct ?? null, { signed: true, digits: 1 })}.` : "No quarterly results on record (nse_financials_quarterly)."} />
           <KV testId="desk-fund-promoter" k={own ? `Promoter · ${own.period ?? fmtDay(own.period_end ?? null)}` : "Promoter"} v={own ? `${fmtPct(own.promoter_pct ?? null, { digits: 1 })}${ownDelta(own.promoter_pct, ownPrev?.promoter_pct)}` : dash}
-            why={own ? `Pledged ${fmtPct(own.promoter_pledged_pct ?? null, { digits: 1 })}.` : "No shareholding pattern on record."} />
-          <KV testId="desk-fund-institutions" k="FII · DII · mutual funds" v={own ? `${fmtPct(own.fii_pct ?? null, { digits: 1 })} · ${fmtPct(own.dii_pct ?? null, { digits: 1 })} · ${fmtPct(own.mf_pct ?? null, { digits: 1 })}` : dash} />
+            why={ownershipWhy(own, newest)} />
+          <KV testId="desk-fund-institutions" k="FII · DII · mutual funds" v={own ? `${fmtPct(own.fii_pct ?? null, { digits: 1 })} · ${fmtPct(own.dii_pct ?? null, { digits: 1 })} · ${fmtPct(own.mf_pct ?? null, { digits: 1 })}` : dash}
+            why={own && hasShares(own) && own.mf_pct == null ? "Mutual funds: the filing’s mutual-fund line is not loaded for this quarter." : undefined} />
           <TrustLine testId="desk-fund-trust" source="NSE quarterly results · shareholding pattern · stock_features_daily" maker="reported" mode="historical" />
         </>
       );
