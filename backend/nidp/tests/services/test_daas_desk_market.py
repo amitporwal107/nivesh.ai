@@ -35,12 +35,13 @@ class _Conn:
 
     async def fetch(self, q, *a):
         self.calls.append((q, a))
+        # The build-up query also reads nidp.index_eod (the index futures' cash side), so it is matched first.
+        if "nidp.fno_bhavcopy" in q:
+            return self.db.get("fno_rows", [])
         if "nidp.index_eod" in q:
             return self.db.get("index_rows", [])
         if "nidp.bulk_deals" in q:
             return self.db.get("deal_rows", [])
-        if "nidp.fno_bhavcopy" in q:
-            return self.db.get("fno_rows", [])
         return []
 
     async def fetchval(self, q, *a):
@@ -187,12 +188,19 @@ def test_deals_shape_value_side_and_window(make_client):
     assert d["source"] == "NSE bulk and block deals (nidp.bulk_deals, nidp.block_deals)"
     assert (d["count"], d["total"]) == (3, 3)
     assert d["rows"][0] == {"date": "2026-10-13", "kind": "bulk", "symbol": "CMLL", "client_name": "MICROCURVES TRADING PRIVATE LIMITED",
-                            "side": "SELL", "quantity": 2099164, "avg_price": 633.54, "value_cr": 132.99}
+                            "side": "SELL", "quantity": 2099164, "avg_price": 633.54, "value_cr": 132.99,
+                            # no enrichment columns on these rows: every one is null, never 0 (worked examples in
+                            # test_daas_desk_intel.py)
+                            "total_shares": None, "shares_period_end": None, "pct_of_shares": None, "close_on_day": None,
+                            "prev_close": None, "next_date": None, "next_close": None, "price_vs_close_pct": None,
+                            "ingested_at": None, "disclosure": "exchange"}
     assert d["rows"][1]["value_cr"] == 100.65 and d["rows"][1]["kind"] == "block"
     # an unknown side and a missing price stay null; the value is not worked out from half a deal
     assert d["rows"][2]["side"] is None and d["rows"][2]["value_cr"] is None and d["rows"][2]["avg_price"] is None
     q, args = pool.conn.calls[-1]
-    assert "nidp.block_deals" in q and args == (date(2026, 10, 13), 5, "all", "CMLL", 50)
+    # the one deals reader in flows.py: first day, last day, kind, symbol, client, limit, offset, price series
+    assert "nidp.block_deals" in q and args == (date(2026, 10, 9), date(2026, 10, 13), "all", "CMLL", None, 50, 0,
+                                                ["EQ", "BE", "BZ", "SM", "ST"])
 
 
 def test_deals_one_day_window_starts_on_the_latest_day(make_client):
@@ -202,7 +210,7 @@ def test_deals_one_day_window_starts_on_the_latest_day(make_client):
     d = r.json()
     # no block deals on the latest day is a real empty answer with its date, not an older day
     assert (d["as_of"], d["from"], d["count"], d["total"], d["rows"]) == ("2026-10-13", "2026-10-13", 0, 0, [])
-    assert pool.conn.calls[-1][1] == (date(2026, 10, 13), 1, "block", None, 500)
+    assert pool.conn.calls[-1][1][:7] == (date(2026, 10, 13), date(2026, 10, 13), "block", None, None, 500, 0)
 
 
 def test_deals_with_no_deals_on_record(make_client):
@@ -255,7 +263,13 @@ def test_fno_buildup_labels_counts_and_percents(make_client):
     by = {x["symbol"]: x for x in d["rows"]}
     assert by["UJJIVANSFB"] == {"symbol": "UJJIVANSFB", "near_expiry": "2026-10-27", "close": 65.46, "prev_close": 62.56,
                                 "price_chg_pct": 4.64, "oi": 37184000, "oi_chg": 5736000, "oi_chg_pct": 18.24,
-                                "expiries": 3, "label": "long_buildup"}
+                                "expiries": 3, "label": "long_buildup",
+                                # the B20 fields: 27 Oct − 13 Oct = 14 days; no cash row here, so no confirmation and the
+                                # no_cash_price flag (worked cash examples in test_daas_desk_intel.py)
+                                "days_to_expiry": 14, "fut_contracts": None, "fut_turnover_cr": None, "cash_close": None,
+                                "cash_prev_close": None, "cash_chg_pct": None, "cash_volume": None, "cash_confirmation": None,
+                                "vol_z20": None, "vol_z20_date": None, "fno_eligible": None, "master_date": None,
+                                "risk_flags": ["no_cash_price"], "setup_quality": None}
     assert by["HYUNDAI"]["oi_chg_pct"] == 10.03 and by["HYUNDAI"]["price_chg_pct"] == 1.45
     assert [by[s]["label"] for s in ("SHORTB", "COVER", "UNWIND", "FLATP", "FLATOI")] == \
         ["short_buildup", "short_covering", "long_unwinding", "neutral", "neutral"]
@@ -266,7 +280,8 @@ def test_fno_buildup_labels_counts_and_percents(make_client):
     assert [x["symbol"] for x in d["rows"]][:4] == ["UJJIVANSFB", "HYUNDAI", "COVER", "SHORTB"]   # 18.24, 10.03, −10.00, 10.00 (tie → symbol)
     assert [x["symbol"] for x in d["rows"]][-1] == "NOOI"
     q, args = pool.conn.calls[-1]
-    assert "instrument_type = 'STF'" in q and args == (date(2026, 10, 13),)
+    assert "instrument_type IN ('STF', 'IDF')" in q and args[0] == date(2026, 10, 13)
+    assert d["indices"] == [] and d["intraday"]["status"] == "unavailable" and d["setup_quality"] == "not_validated"
 
 
 def test_fno_buildup_for_a_given_day_with_no_rows(make_client):
@@ -276,7 +291,7 @@ def test_fno_buildup_for_a_given_day_with_no_rows(make_client):
     d = r.json()
     assert (d["as_of"], d["universe"], d["rows"]) == ("2026-10-02", 0, [])
     assert sum(d["counts"].values()) == 0
-    assert len(pool.conn.calls) == 1 and pool.conn.calls[0][1] == (date(2026, 10, 2),)   # the latest-day read is skipped
+    assert len(pool.conn.calls) == 1 and pool.conn.calls[0][1][0] == date(2026, 10, 2)   # the latest-day read is skipped
 
 
 def test_fno_buildup_with_no_futures_on_record(make_client):

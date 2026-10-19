@@ -1,16 +1,20 @@
 /**
- * Trader desk — what the server holds from a connected broker account.
+ * Trader desk — what the server reads from, or holds for, a connected broker account.
  *
  *   GET /api/broker/accounts      the user's broker connections (useBrokerAccounts in trading/queries)
+ *   GET /api/broker/holdings      the holdings of every account of the user, read live from the
+ *                                 broker and not stored; an account that could not be read (or,
+ *                                 connected through OpenAlgo, cannot be) says why in its entry
+ *                                 (backend/routes/broker_connect.py :: get_all_holdings).
  *   GET /api/portfolio/holdings   every stored holding of the user. The rows written by a broker
- *                                 read carry `broker_account_id` and `broker`
- *                                 (backend/routes/broker_connect.py :: _persist_broker_holdings).
+ *                                 sync carry `broker_account_id` and `broker`
+ *                                 (backend/routes/broker_connect.py :: _persist_broker_holdings,
+ *                                 services/brokers/hub_reads.py :: _persist_holdings). They are
+ *                                 the holdings as of the last sync, shown only for an account whose
+ *                                 live read failed, and never as live.
  *
- * Those rows are the delivery holdings the broker reported the last time the
- * account was read.
- *
- *   GET /api/broker/positions     the open positions of every account signed in on the broker's
- *                                 own page, read live from the broker and not stored
+ *   GET /api/broker/positions     the open positions of every account of the user, read live from
+ *                                 the broker and not stored; entries as for holdings
  *                                 (backend/routes/broker_connect.py :: get_all_positions).
  *
  *   GET /api/broker/accounts/{account_id}/contract-chart
@@ -18,8 +22,12 @@
  *                                 contract the account holds, read live and not stored
  *                                 (backend/routes/broker_connect.py :: get_contract_chart).
  *
- * Read-only throughout. No route returns a broker's funds or its day P&L, so
- * nothing here stands in for them.
+ *   GET /api/broker/funds         each account's cash and margin, read live through the broker's read-only
+ *                                 funds call and never stored; entries as for holdings
+ *                                 (backend/routes/broker_connect.py :: get_all_funds).
+ *
+ * Read-only throughout: nothing here moves money or places an order. No route
+ * returns a broker's day P&L, so nothing here stands in for it.
  *
  * The fetcher returns a complete typed list or throws ApiError("contract_drift")
  * — a `200 {}` is an error on screen, never "no holdings".
@@ -136,9 +144,10 @@ export async function fetchBrokerHoldings(signal?: AbortSignal): Promise<BrokerH
 }
 
 /**
- * Holdings a broker read has stored. Pass `enabled` only when the user has a
- * broker account: without one there is nothing to look for, and the full
- * holdings list is not fetched for it.
+ * Holdings a broker sync has stored. Pass `enabled` only when an account was
+ * not read live (the broker block shows its stored rows, labelled as of the
+ * last sync): otherwise there is nothing to look for, and the full holdings
+ * list is not fetched for it.
  */
 export function useBrokerHoldings(enabled: boolean) {
   const profile = useImpersonationStore((s) => s.profileId);
@@ -174,6 +183,254 @@ export function totalsOf(rows: BrokerHolding[]): HoldingsTotals {
   return { priced, valueRs: priced ? value : null, pnlRs: priced ? pnl : null };
 }
 
+// ── holdings, read live ──────────────────────────────────────────────────────
+
+/** Where a live row's last price came from: the broker, or (only when the broker sent none) the latest stored close or NAV. */
+const PRICE_SOURCES = ["broker", "masterdata"] as const;
+export type PriceSource = (typeof PRICE_SOURCES)[number];
+
+const LiveHoldingC = z.object({
+  isin: optStr,
+  /** The broker's own symbol (ICICI sends its stock code). */
+  symbol: optStr,
+  name: optStr,
+  exchange: optStr,
+  asset_type: optStr,
+  sector: optStr,
+  quantity: z.number(),
+  /** Null when the broker sent no average. */
+  avg_price: optNum,
+  /** Null when neither the broker nor masterdata has a price. */
+  current_price: optNum,
+  price_source: z.enum(PRICE_SOURCES).nullish(),
+  /** Worked out by the server from quantity, average and price; null when an input is missing. */
+  invested_rs: optNum,
+  value_rs: optNum,
+  pnl_rs: optNum,
+  pnl_pct: optNum,
+});
+
+const TotalsC = z.object({ invested_rs: optNum, value_rs: optNum, pnl_rs: optNum, pnl_pct: optNum });
+
+const ReadErrorC = z.object({ code: optStr, message: optStr }).nullish();
+
+const HoldingsAccountC = z.object({
+  account_id: z.string().min(1),
+  broker: optStr,
+  broker_display: optStr,
+  label: optStr,
+  ok: z.boolean(),
+  error: ReadErrorC,
+  as_of: optStr,
+  holdings: z.array(LiveHoldingC),
+  /** Null when the account was not read. */
+  counts: z.object({ total: z.number().nullish() }),
+  /** Each null when any row lacks what it needs, or the account was not read. */
+  totals: TotalsC,
+});
+
+const HoldingsBookC = z.object({ as_of: optStr, accounts: z.array(HoldingsAccountC) });
+
+export interface LiveHolding {
+  /** Stable within one account's list. */
+  key: string;
+  accountId: string;
+  symbol: string;
+  /** Company name when it differs from the symbol. */
+  name: string | null;
+  isin: string | null;
+  exchange: string | null;
+  qty: number;
+  avg: number | null;
+  last: number | null;
+  /** "masterdata" when the broker sent no price and the latest stored close or NAV stands in; null when there is no price. */
+  priceSource: PriceSource | null;
+  investedRs: number | null;
+  valueRs: number | null;
+  pnlRs: number | null;
+  pnlPct: number | null;
+}
+
+export interface LiveTotals {
+  investedRs: number | null;
+  valueRs: number | null;
+  pnlRs: number | null;
+  pnlPct: number | null;
+}
+
+export interface LiveHoldingsAccount {
+  id: string;
+  broker: string | null;
+  /** The broker's name as the server writes it ("ICICI Direct"). */
+  brokerName: string | null;
+  label: string | null;
+  /** False when this account could not be read live; the others are still listed. */
+  ok: boolean;
+  errorCode: string | null;
+  /** The server's sentence. For admins only. */
+  errorMessage: string | null;
+  asOf: string | null;
+  holdings: LiveHolding[];
+  totals: LiveTotals;
+}
+
+export interface LiveHoldingsBook {
+  asOf: string | null;
+  accounts: LiveHoldingsAccount[];
+}
+
+const finite = (v: number | null | undefined): number | null => (v != null && Number.isFinite(v) ? v : null);
+
+export function readLiveHoldings(body: unknown): LiveHoldingsBook {
+  const parsed = HoldingsBookC.safeParse(body);
+  if (!parsed.success) throw ApiError.contractDrift(`broker.holdings: ${parsed.error.message}`);
+  return {
+    asOf: text(parsed.data.as_of),
+    accounts: parsed.data.accounts.map((a) => ({
+      id: a.account_id,
+      broker: text(a.broker),
+      brokerName: text(a.broker_display),
+      label: text(a.label),
+      ok: a.ok,
+      errorCode: text(a.error?.code),
+      errorMessage: text(a.error?.message),
+      asOf: text(a.as_of),
+      holdings: a.holdings.map((h, i) => {
+        const symbol = text(h.symbol) ?? text(h.name);
+        if (!symbol) throw ApiError.contractDrift("broker.holdings: a row with no symbol or name");
+        const name = text(h.name);
+        const last = positive(h.current_price);
+        return {
+          key: `${a.account_id}:${i}:${symbol}`,
+          accountId: a.account_id,
+          symbol: symbol.toUpperCase(),
+          name: name && name.toUpperCase() !== symbol.toUpperCase() ? name : null,
+          isin: text(h.isin),
+          exchange: text(h.exchange),
+          qty: h.quantity,
+          avg: positive(h.avg_price),
+          last,
+          priceSource: last != null ? h.price_source ?? null : null,
+          investedRs: finite(h.invested_rs),
+          valueRs: finite(h.value_rs),
+          pnlRs: finite(h.pnl_rs),
+          pnlPct: finite(h.pnl_pct),
+        };
+      }),
+      totals: {
+        investedRs: finite(a.totals.invested_rs),
+        valueRs: finite(a.totals.value_rs),
+        pnlRs: finite(a.totals.pnl_rs),
+        pnlPct: finite(a.totals.pnl_pct),
+      },
+    })),
+  };
+}
+
+export async function fetchLiveHoldings(signal?: AbortSignal): Promise<LiveHoldingsBook> {
+  const res = await http({ path: "/api/broker/holdings", signal });
+  return readLiveHoldings(res.data);
+}
+
+/** A live read at the broker is not repeated within this long by a remount; brokers rate-limit. */
+const LIVE_STALE_MS = 60_000;
+
+/**
+ * Holdings, read live from every connected account when asked. Each call is a
+ * read at each broker, so the query does not poll and does not re-run on
+ * window focus; the block offers "Refresh".
+ */
+export function useLiveHoldings(enabled: boolean) {
+  const profile = useImpersonationStore((s) => s.profileId);
+  return useQuery<LiveHoldingsBook>({
+    queryKey: ["copilot", "desk", "broker-live-holdings", profile ?? "self"],
+    enabled,
+    staleTime: LIVE_STALE_MS,
+    refetchOnWindowFocus: false,
+    retry: (count, e) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
+    queryFn: ({ signal }) => fetchLiveHoldings(signal),
+  });
+}
+
+// ── funds, read live (cash balance) ──────────────────────────────────────────
+
+const FundsAccountC = z.object({
+  account_id: z.string().min(1),
+  broker: optStr,
+  broker_display: optStr,
+  label: optStr,
+  ok: z.boolean(),
+  error: ReadErrorC,
+  as_of: optStr,
+  funds: z.object({ available_cash_rs: optNum, collateral_rs: optNum, used_margin_rs: optNum }).nullish(),
+});
+const FundsBookC = z.object({ as_of: optStr, basis: optStr, accounts: z.array(FundsAccountC) });
+
+export interface FundsAccount {
+  id: string;
+  broker: string | null;
+  brokerName: string | null;
+  label: string | null;
+  ok: boolean;
+  errorCode: string | null;
+  asOf: string | null;
+  /** As the broker reports it; null when the account was not read. */
+  cashRs: number | null;
+  collateralRs: number | null;
+  usedMarginRs: number | null;
+}
+
+export interface FundsBook {
+  asOf: string | null;
+  basis: string | null;
+  accounts: FundsAccount[];
+}
+
+export function readFunds(body: unknown): FundsBook {
+  const parsed = FundsBookC.safeParse(body);
+  if (!parsed.success) throw ApiError.contractDrift(`broker.funds: ${parsed.error.message}`);
+  return {
+    asOf: text(parsed.data.as_of),
+    basis: text(parsed.data.basis),
+    accounts: parsed.data.accounts.map((a) => ({
+      id: a.account_id,
+      broker: text(a.broker),
+      brokerName: text(a.broker_display),
+      label: text(a.label),
+      ok: a.ok,
+      errorCode: text(a.error?.code),
+      asOf: text(a.as_of),
+      cashRs: a.ok ? finite(a.funds?.available_cash_rs) : null,
+      collateralRs: a.ok ? finite(a.funds?.collateral_rs) : null,
+      usedMarginRs: a.ok ? finite(a.funds?.used_margin_rs) : null,
+    })),
+  };
+}
+
+/** Cash across the accounts read: the sum and the accounts it covers; null when no account was read. */
+export function cashOf(book: FundsBook): { totalRs: number | null; names: string[]; notRead: string[] } {
+  const read = book.accounts.filter((a) => a.ok && a.cashRs != null);
+  const name = (a: FundsAccount) => a.brokerName ?? a.label ?? a.broker ?? a.id;
+  return {
+    totalRs: read.length ? read.reduce((s, a) => s + (a.cashRs as number), 0) : null,
+    names: read.map(name),
+    notRead: book.accounts.filter((a) => !(a.ok && a.cashRs != null)).map(name),
+  };
+}
+
+/** Funds, read live from every connected account when asked; like holdings it does not poll (brokers rate-limit). */
+export function useBrokerFunds(enabled: boolean) {
+  const profile = useImpersonationStore((s) => s.profileId);
+  return useQuery<FundsBook>({
+    queryKey: ["copilot", "desk", "broker-funds", profile ?? "self"],
+    enabled,
+    staleTime: LIVE_STALE_MS,
+    refetchOnWindowFocus: false,
+    retry: (count, e) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
+    queryFn: async ({ signal }) => readFunds((await http({ path: "/api/broker/funds", signal })).data),
+  });
+}
+
 // ── open positions, read live ────────────────────────────────────────────────
 
 const PositionC = z.object({
@@ -199,6 +456,7 @@ const PositionC = z.object({
 const PositionsAccountC = z.object({
   account_id: z.string().min(1),
   broker: optStr,
+  broker_display: optStr,
   label: optStr,
   ok: z.boolean(),
   error: z.object({ code: optStr, message: optStr }).nullish(),
@@ -235,6 +493,8 @@ export interface BrokerPosition {
 export interface PositionsAccount {
   id: string;
   broker: string | null;
+  /** The broker's name as the server writes it ("ICICI Direct"). */
+  brokerName: string | null;
   label: string | null;
   /** False when this account could not be read; the others are still listed. */
   ok: boolean;
@@ -260,6 +520,7 @@ export function readPositions(body: unknown): PositionsBook {
     accounts: parsed.data.accounts.map((a) => ({
       id: a.account_id,
       broker: text(a.broker),
+      brokerName: text(a.broker_display),
       label: text(a.label),
       ok: a.ok,
       errorCode: text(a.error?.code),
@@ -294,14 +555,14 @@ export async function fetchPositions(signal?: AbortSignal): Promise<PositionsBoo
 /**
  * Open positions, read from the broker when asked. Each call is a live read at
  * the broker, so the query does not poll and does not re-run on window focus;
- * the screen offers "Read again".
+ * the block offers "Refresh", which reads holdings and positions again together.
  */
 export function useBrokerPositions(enabled: boolean) {
   const profile = useImpersonationStore((s) => s.profileId);
   return useQuery<PositionsBook>({
     queryKey: ["copilot", "desk", "broker-positions", profile ?? "self"],
     enabled,
-    staleTime: 30_000,
+    staleTime: LIVE_STALE_MS,
     refetchOnWindowFocus: false,
     retry: (count, e) => !isForbidden(e) && !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
     queryFn: ({ signal }) => fetchPositions(signal),

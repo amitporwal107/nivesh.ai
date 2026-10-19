@@ -786,6 +786,9 @@ async def latest_state() -> Optional[Dict[str, Any]]:
             "sp500_overnight_pct":  _f(feats, "sp500_overnight_pct"),
             "nasdaq_overnight_pct": _f(feats, "nasdaq_overnight_pct"),
             "asia_open_pct":        _f(feats, "asia_open_pct"),
+            # The 50-session average the market regime compares the Nifty close with
+            # (compute_features); the desk's regime card shows it as the trend's level.
+            "nifty_50dma":          _f(feats, "nifty_50dma"),
         },
         "sources": {
             "crude":     _s(daily, "source_crude"),
@@ -817,6 +820,189 @@ async def latest_state() -> Optional[Dict[str, Any]]:
             "nikkei":    _f(daily, "confidence_nikkei"),
             "hang_seng": _f(daily, "confidence_hang_seng"),
         },
+    }
+
+
+# ── Desk market regime: five regimes (Smart Trading Desk PRD OV-003) ──
+# The user's rule (2026-10-14), read on ONE end-of-day session, in this order:
+#   1. High volatility   India VIX closed at or above `vix_high`.
+#   2. Mixed             the Nifty 50 trend and market breadth point opposite ways.
+#   3. Otherwise the existing 50-session rule (compute_features): the Nifty 50 close above its
+#      50-session average = Bullish, equal = Sideways, below = Bearish.
+# Breadth points up when advances are at least `breadth_up_pct` % of advances + declines, down when
+# they are at most `breadth_down_pct` %, and is "even" in between (even breadth cannot disagree).
+# Every threshold lives here, and the route sends this dict with each answer so the card can show it.
+DESK_REGIME_RULE: Dict[str, Any] = {
+    "version": "desk-regime-v1",
+    "vix_high": 20.0,
+    "trend_average_sessions": 50,
+    "breadth_up_pct": 52.0,
+    "breadth_down_pct": 48.0,
+}
+
+DESK_REGIMES: Tuple[str, ...] = ("high_volatility", "mixed", "bullish", "sideways", "bearish")
+DESK_REGIME_LABEL: Dict[str, str] = {
+    "high_volatility": "High volatility", "mixed": "Mixed", "bullish": "Bullish",
+    "sideways": "Sideways", "bearish": "Bearish",
+}
+
+_BREADTH_SOURCE = "stock_ohlcv end-of-day bars (NSE bhavcopy)"
+
+# Advances / declines on one session over the stocks with 21+ daily bars in the 80 days to it — the
+# universe market_dashboard.build() counts for GET /api/markets/home — but only stocks with a bar ON
+# that session, so a stock that did not trade is never counted as that day's move.
+_SESSION_BREADTH_SQL = """
+    WITH bars AS (
+        SELECT nse_symbol, bar_date, close_price,
+               LAG(close_price) OVER (PARTITION BY nse_symbol ORDER BY bar_date) AS prev_close,
+               COUNT(close_price) OVER (PARTITION BY nse_symbol) AS sessions
+          FROM stock_ohlcv
+         WHERE bar_date <= $1 AND bar_date > $1 - INTERVAL '80 days'
+    )
+    SELECT COUNT(*) FILTER (WHERE close_price > prev_close) AS advances,
+           COUNT(*) FILTER (WHERE close_price < prev_close) AS declines,
+           COUNT(*) FILTER (WHERE close_price = prev_close) AS unchanged,
+           COUNT(*) AS universe
+      FROM bars
+     WHERE bar_date = $1 AND sessions >= 21
+       AND close_price IS NOT NULL AND prev_close IS NOT NULL
+"""
+
+
+async def session_breadth(session: date) -> Optional[Dict[str, Any]]:
+    """Advances, declines and unchanged on `session` from the end-of-day bars; None when the
+    session has no bars (not loaded yet, or not a trading day) or Postgres is not reachable."""
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(_SESSION_BREADTH_SQL, session)
+    if row is None or not row["universe"]:
+        return None
+    return {
+        "date": session.isoformat(),
+        "advances": int(row["advances"]),
+        "declines": int(row["declines"]),
+        "unchanged": int(row["unchanged"]),
+        "universe": int(row["universe"]),
+        "source": _BREADTH_SOURCE,
+    }
+
+
+def _trend_direction(close: Optional[float], average: Optional[float]) -> Optional[str]:
+    """The existing 50-session rule as a direction; None when either level is missing."""
+    if close is None or average is None:
+        return None
+    if close > average:
+        return "up"
+    if close < average:
+        return "down"
+    return "flat"
+
+
+def _breadth_direction(advances: Optional[int], declines: Optional[int],
+                       rule: Dict[str, Any]) -> Tuple[Optional[str], Optional[float]]:
+    """("up" | "down" | "even", advancing share in percent), or (None, None) with no movers."""
+    if advances is None or declines is None or advances + declines <= 0:
+        return None, None
+    share = advances / (advances + declines) * 100.0
+    if share >= rule["breadth_up_pct"]:
+        return "up", share
+    if share <= rule["breadth_down_pct"]:
+        return "down", share
+    return "even", share
+
+
+def _regime_of(trend: Optional[str], vix_high: Optional[bool], breadth: Optional[str]) -> Optional[str]:
+    """The rule. No trend → no regime. An unknown VIX or breadth skips that check (the caller says so)."""
+    if trend is None:
+        return None
+    if vix_high:
+        return "high_volatility"
+    if trend in ("up", "down") and breadth in ("up", "down") and breadth != trend:
+        return "mixed"
+    return {"up": "bullish", "flat": "sideways", "down": "bearish"}[trend]
+
+
+def classify_desk_regime(
+    *,
+    session: Optional[str],
+    nifty_close: Optional[float],
+    nifty_average: Optional[float],
+    india_vix: Optional[float],
+    breadth: Optional[Dict[str, Any]],
+    rule: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """The desk's regime for one end-of-day session, with the inputs it read, the checks it could not
+    make and the single changes that would move it to another regime (`invalidation`).
+
+    `breadth` is session_breadth()'s answer; one for another session than `session` is not used.
+    Pure: no I/O, so the rule is tested without a database.
+    """
+    r = dict(rule or DESK_REGIME_RULE)
+    trend = _trend_direction(nifty_close, nifty_average)
+    vix_high = None if india_vix is None else india_vix >= r["vix_high"]
+    same_session = bool(breadth) and breadth.get("date") == session
+    b = breadth if same_session else None
+    b_dir, share = _breadth_direction(b.get("advances") if b else None, b.get("declines") if b else None, r)
+
+    skipped: List[Dict[str, str]] = []
+    if india_vix is None:
+        skipped.append({"check": "high_volatility", "reason": "no India VIX close on record for the session"})
+    if breadth and not same_session:
+        skipped.append({"check": "mixed", "reason": f"breadth is for {breadth.get('date')}, not the regime's session"})
+    elif b_dir is None:
+        skipped.append({"check": "mixed", "reason": "no advances and declines on record for the session"})
+
+    key = _regime_of(trend, vix_high, b_dir)
+    reason = None if key else "no Nifty 50 close or 50-session average on record for the session"
+
+    invalidation: List[Dict[str, Any]] = []
+
+    def _flip(inp: str, condition: str, level: float, then: Optional[str]) -> None:
+        if key and then and then != key:
+            invalidation.append({"input": inp, "condition": condition, "level": level, "then": then})
+
+    if trend is not None:
+        if trend in ("up", "flat"):
+            _flip("nifty_close", "below", nifty_average, _regime_of("down", vix_high, b_dir))
+        if trend in ("down", "flat"):
+            _flip("nifty_close", "above", nifty_average, _regime_of("up", vix_high, b_dir))
+    if vix_high is True:
+        _flip("india_vix", "below", r["vix_high"], _regime_of(trend, False, b_dir))
+    elif vix_high is False:
+        _flip("india_vix", "at_or_above", r["vix_high"], _regime_of(trend, True, b_dir))
+    if b_dir in ("up", "even"):
+        _flip("advancing_share_pct", "at_or_below", r["breadth_down_pct"], _regime_of(trend, vix_high, "down"))
+    if b_dir in ("down", "even"):
+        _flip("advancing_share_pct", "at_or_above", r["breadth_up_pct"], _regime_of(trend, vix_high, "up"))
+
+    gap = (round((nifty_close / nifty_average - 1.0) * 100.0, 2)
+           if nifty_close is not None and nifty_average else None)
+    return {
+        "key": key,
+        "label": DESK_REGIME_LABEL.get(key) if key else None,
+        "date": session,
+        "rule": r,
+        "inputs": {
+            "nifty_close": nifty_close,
+            "nifty_average": nifty_average,
+            "nifty_vs_average_pct": gap,
+            "trend": trend,
+            "india_vix": india_vix,
+            "volatility_high": vix_high,
+            "advances": b.get("advances") if b else None,
+            "declines": b.get("declines") if b else None,
+            "unchanged": b.get("unchanged") if b else None,
+            "breadth_universe": b.get("universe") if b else None,
+            "advancing_share_pct": round(share, 1) if share is not None else None,
+            "breadth": b_dir,
+            "breadth_date": breadth.get("date") if breadth else None,
+            "breadth_source": breadth.get("source") if breadth else None,
+        },
+        "skipped": skipped,
+        "invalidation": invalidation,
+        "reason": reason,
     }
 
 

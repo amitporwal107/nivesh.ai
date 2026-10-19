@@ -86,7 +86,9 @@ export interface ChatAdapter {
     // investor and trader an advisor is answered from their own portfolio.
     // `position` is sent only when the question was asked from a futures or
     // options position; a share row and a typed question send none.
-    opts?: { page?: string; signal?: AbortSignal; agent?: string; persona?: string; position?: PositionRef },
+    // `surface` names a dedicated Copilot surface the backend allowlists
+    // ("trading_desk": the Smart trading desk's own Copilot).
+    opts?: { page?: string; signal?: AbortSignal; agent?: string; persona?: string; position?: PositionRef; surface?: string },
   ): Promise<void>;
   listSessions(): Promise<ChatSession[]>;
   createSession(title?: string): Promise<{ id: string }>;
@@ -144,6 +146,7 @@ export const realChatAdapter: ChatAdapter = {
         ...(opts?.agent ? { agent: opts.agent } : {}),
         ...(opts?.persona ? { persona: opts.persona } : {}),
         ...(opts?.position ? { position: opts.position } : {}),
+        ...(opts?.surface ? { surface: opts.surface } : {}),
       }),
       signal: opts?.signal,
     });

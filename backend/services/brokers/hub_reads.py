@@ -10,7 +10,11 @@ is the one read path for such an account:
                 copies of what the account holds are then removed
                 (`helpers.holdings_reconcile`). Each sync leaves a snapshot
                 (`sync_snapshots`) with the result of its duplicate check.
+                Also read live (`read_account_holdings`): the same lines,
+                returned and never stored.
   * positions — fetched on demand only; read live and never stored.
+  * funds     — cash and margin, on demand only (`read_account_funds`), through the
+                adapter's `fetch_funds`; read live and never stored.
 
 Strictly read-only: nothing here places, modifies or cancels an order.
 
@@ -56,6 +60,10 @@ NATIVE_SOURCE = "broker_native"
 
 # How many accounts `daily_sync` reads from brokers at the same time.
 DAILY_SYNC_CONCURRENCY = 4
+
+# How many of one user's accounts the all-accounts live reads
+# (`GET /api/broker/holdings`, `GET /api/broker/positions`) read at once.
+LIVE_READ_CONCURRENCY = DAILY_SYNC_CONCURRENCY
 
 # Error codes shared by the routes and the stored `last_error` text.
 CODE_SESSION_EXPIRED = "BROKER_SESSION_EXPIRED"
@@ -468,6 +476,184 @@ async def _invalidate_user_caches(db, user_id: str) -> None:
         await dashboard_cache.invalidate(user_id)
     except Exception as exc:  # noqa: BLE001
         logger.warning("broker sync: dashboard cache not cleared: %s", type(exc).__name__)
+
+
+# ── Live holdings ────────────────────────────────────────────────────────
+def _positive(value: Any) -> Optional[float]:
+    """`value` as a float when it is a finite number above zero, else None:
+    a price or average the broker sent as 0, or not at all, is not known."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def _rupees(value: float) -> float:
+    return round(value, 2)
+
+
+def _live_rows(holdings: List[Holding]) -> List[Dict[str, Any]]:
+    """The broker's holdings as live rows. The lines are the ones
+    `_persist_holdings` would store — an instrument with no quantity is not a
+    holding, and a line the broker sent twice is kept once — and the company
+    name, sector and a missing price are filled from masterdata exactly as the
+    sync fills them (`_fill_from_masterdata`). Quantity and average are the
+    broker's own and are never changed.
+
+    `current_price` is None when neither the broker nor masterdata has one;
+    `price_source` says which gave it ("broker" | "masterdata" | None).
+    `invested_rs`, `value_rs`, `pnl_rs` and `pnl_pct` are worked out from
+    quantity, average and price, and are None when an input is missing —
+    never 0 for a figure that is not known.
+    """
+    out: List[Dict[str, Any]] = []
+    seen_lines: set = set()
+    for h in holdings:
+        quantity = _positive(h.quantity)
+        if quantity is None:
+            continue
+        avg = _positive(h.avg_price)
+        broker_price = _positive(h.current_price)
+        # The row in the shape `_persist_holdings` builds, so the masterdata
+        # fill sees exactly what it sees during a sync.
+        row: Dict[str, Any] = {
+            "name": h.name or h.symbol or "Unknown",
+            "ticker": h.symbol or "",
+            "asset_type": h.asset_type if h.asset_type in _ASSET_TYPES else "equity",
+            "quantity": quantity,
+            "buy_price": avg or 0.0,
+            "current_price": broker_price or 0.0,
+            "sector": h.sector or "Other",
+            "source_id": h.source_id or "",
+        }
+        isin = str(h.isin or "").strip().upper()
+        if isin:
+            row["isin"] = isin
+        key = _instrument_key(row)
+        if key:
+            line = (key, quantity, row["buy_price"])
+            if line in seen_lines:
+                continue
+            seen_lines.add(line)
+        _fill_from_masterdata(row)
+
+        price = broker_price if broker_price is not None else _positive(row.get("current_price"))
+        invested = _rupees(quantity * avg) if avg is not None else None
+        value = _rupees(quantity * price) if price is not None else None
+        both = avg is not None and price is not None
+        out.append({
+            "isin": str(row.get("isin") or "").strip().upper() or None,
+            "symbol": h.symbol or "",
+            "name": row.get("name") or None,
+            "exchange": h.exchange or None,
+            "asset_type": row["asset_type"],
+            "sector": row.get("sector") or None,
+            "quantity": quantity,
+            "avg_price": avg,
+            "current_price": price,
+            "price_source": "broker" if broker_price is not None else ("masterdata" if price is not None else None),
+            "invested_rs": invested,
+            "value_rs": value,
+            "pnl_rs": _rupees(value - invested) if both else None,
+            "pnl_pct": round((price - avg) / avg * 100, 2) if both else None,
+            "source_id": h.source_id or None,
+        })
+    return out
+
+
+def holdings_totals(rows: List[Dict[str, Any]]) -> Dict[str, Optional[float]]:
+    """Totals of live holding rows (`read_account_holdings`). A total is None
+    when any row lacks what it needs — a sum over only the rows that have it
+    would read as the whole account. No rows is a known zero."""
+    def total(key: str) -> Optional[float]:
+        values = [r.get(key) for r in rows]
+        if any(v is None for v in values):
+            return None
+        return _rupees(sum(values))
+
+    invested, value, pnl = total("invested_rs"), total("value_rs"), total("pnl_rs")
+    return {
+        "invested_rs": invested,
+        "value_rs": value,
+        "pnl_rs": pnl,
+        "pnl_pct": round(pnl / invested * 100, 2) if pnl is not None and invested else None,
+    }
+
+
+async def read_account_holdings(db, doc: dict) -> list[dict]:
+    """Live holdings for one native account as row dicts (`_live_rows`).
+    Read from the broker on every call; nothing is stored, and the rows a
+    sync stored are not touched.
+
+    Raises like `read_account_positions`: a broker that refuses the session
+    ends it (the only write on this path); an account with no live session
+    raises `SessionEnded` without a broker call.
+    """
+    try:
+        holdings = await read_holdings_for(doc)
+    except BrokerSessionExpired:
+        await sessions.end_session(db, doc["account_id"], "broker_rejected")
+        raise
+    except (sessions.SessionEnded, BrokerNotSupported):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "broker holdings read failed account=%s broker=%s error=%s",
+            doc.get("account_id"), doc.get("broker"), _error_label(exc),
+        )
+        raise
+    # The masterdata fill reads files on its first call: off the event loop.
+    return await to_thread(_live_rows, holdings)
+
+
+# ── Funds (read-only) ────────────────────────────────────────────────────
+def _funds_figure(value: Any) -> Optional[float]:
+    """A funds figure as the broker reported it (rupees, 2 dp); None when it is not a finite number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(number, 2) if math.isfinite(number) else None
+
+
+async def read_account_funds(db, doc: dict) -> Dict[str, Optional[float]]:
+    """Cash and margin of one native account, read live from the broker on every call and never stored.
+
+    Strictly read-only: the broker's own adapter `fetch_funds` is the only call made (Fenix serves holdings and
+    positions, not funds). Nothing places, modifies or cancels an order or moves money. A broker that refuses the
+    session ends it here (the only write on this path); an account with no live session raises `SessionEnded`
+    without a broker call. The figures are as the broker states them; an adapter that defaults a missing field to 0
+    cannot be told apart from a real 0 here.
+    """
+    slug = doc.get("broker") or ""
+    try:
+        token = _live_token(doc)
+        adapter = _adapter_for(slug, "funds")
+        fetch = getattr(adapter, "fetch_funds", None)
+        if not callable(fetch):
+            raise BrokerNotSupported(f"{adapter.DISPLAY} has no funds reader")
+        funds = await _adapter_call(adapter, "funds", fetch, token)
+    except BrokerSessionExpired:
+        await sessions.end_session(db, doc["account_id"], "broker_rejected")
+        raise
+    except (sessions.SessionEnded, BrokerNotSupported):
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "broker funds read failed account=%s broker=%s error=%s",
+            doc.get("account_id"), doc.get("broker"), _error_label(exc),
+        )
+        raise
+    return {
+        "available_cash_rs": _funds_figure(getattr(funds, "available_cash", None)),
+        "collateral_rs": _funds_figure(getattr(funds, "collateral", None)),
+        "used_margin_rs": _funds_figure(getattr(funds, "used_margin", None)),
+    }
 
 
 # ── Positions ────────────────────────────────────────────────────────────

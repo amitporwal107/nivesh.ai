@@ -4,8 +4,12 @@
  * an order or reaches a broker.
  *
  *   GET    /api/desk/paper-trades?status=all      open and closed paper trades, marks at the last end-of-day close,
- *                                                 P&L, exit reason, and a summary                (usePaperTrades)
- *   POST   /api/desk/paper-trades/{id}/close      {} — after a confirmation; closes at the last close (reason "manual")
+ *                                                 P&L, exit reason, and a summary                (usePaperTrades);
+ *                                                 each trade's record (PRD §13.4): signal time, entry rule and
+ *                                                 whether it was reached, exit rule, estimated costs, gross and net
+ *                                                 P&L, MFE / MAE, observations, strategy and rules version, flags
+ *   POST   /api/desk/paper-trades/{id}/close      {} — after a confirmation; closes at the last close (reason "manual"),
+ *                                                 or cancels a trade whose entry was not reached
  *   GET    /api/desk/alerts?status=all            price alerts, active and fired, checked through a session (useDeskAlerts)
  *   DELETE /api/desk/alerts/{id}                  after a confirmation
  *
@@ -15,15 +19,18 @@
  * session after it was set whose high (above) or low (below) reaches its level.
  */
 import { useState, type ReactNode } from "react";
-import { Btn, DataTable, EmptyBlock, LoadingBlock, Pill, TONE_COLOR, fmtINR, fmtNum, signTone, type Column, type Tone } from "../../components/ui";
+import { Btn, DataTable, EmptyBlock, LoadingBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone, type Column, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { fmtStamp } from "../desk/broker";
 import { SymbolCell } from "../desk/parts";
 import { QueryProblem, fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk } from "./context";
 import {
   useClosePaperTrade, useDeleteAlert, useDeskAlerts, usePaperTrades, writeProblem,
-  type DeskAlert, type ExitReason, type PaperTrade,
+  type DeskAlert, type EntryRule, type EntryStatus, type ExitReason, type PaperTrade,
 } from "./desk-trading";
+
+const plural = (n: number, one: string, many = `${one}s`) => `${fmtNum(n)} ${n === 1 ? one : many}`;
 
 const quiet = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
 
@@ -77,18 +84,119 @@ function Confirm({ testId, children, yes, onYes, onNo, pending, error }: {
 
 // ── paper trades ─────────────────────────────────────────────────────────
 
-const REASON: Record<ExitReason, { label: string; tone: Tone }> = {
-  stop: { label: "Stop", tone: "danger" },
-  target: { label: "Target", tone: "mint" },
-  manual: { label: "Closed by you", tone: "ink" },
+const REASON: Record<ExitReason, { label: string; investor: string; tone: Tone }> = {
+  stop: { label: "Stop", investor: "Exit if wrong", tone: "danger" },
+  target: { label: "Target", investor: "Exit if right", tone: "mint" },
+  time: { label: "Time exit", investor: "Held long enough", tone: "ink" },
+  manual: { label: "Closed by you", investor: "Closed by you", tone: "ink" },
+  entry_not_reached: { label: "Entry not reached", investor: "Never bought", tone: "amber" },
+  cancelled: { label: "Cancelled", investor: "Cancelled", tone: "ink" },
 };
+
+const ENTRY_STATUS: Record<EntryStatus, { trader: string; investor: string; tone: Tone }> = {
+  assumed: { trader: "Filled when recorded", investor: "Bought when added", tone: "ink" },
+  reached: { trader: "Entry reached", investor: "Bought", tone: "mint" },
+  waiting: { trader: "Waiting for entry", investor: "Waiting to buy", tone: "amber" },
+  not_reached: { trader: "Entry not reached", investor: "Never bought", tone: "amber" },
+};
+
+const RULE_NAME: Record<EntryRule, { trader: string; investor: string }> = {
+  at_once: { trader: "At once", investor: "Buy now" },
+  break_above: { trader: "Break above", investor: "Buy above" },
+  pullback_to: { trader: "Pull back to", investor: "Buy on a dip to" },
+};
+
+/** The words the block uses, trader or investor (design-spec §10). */
+function wordsFor(investor: boolean) {
+  return investor
+    ? { entry: "Buy price", stop: "Exit if wrong", target: "Exit if right", gross: "Before costs", net: "After costs", mfe: "Best point", mae: "Worst point",
+        rule: "When it buys", obs: "Days checked", unrealised: "Gain now", realised: "Gain taken" }
+    : { entry: "Entry", stop: "Stop", target: "Target", gross: "Gross", net: "Net after costs", mfe: "MFE", mae: "MAE",
+        rule: "Entry rule", obs: "Observations", unrealised: "Unrealised P&L", realised: "Realised P&L" };
+}
+
+function signedPct(p: number | null): string {
+  return p == null ? "—" : fmtPct(p, { signed: true, digits: 2 });
+}
+
+/** One trade's whole record (PRD §13.4): plan, entry, exit, costs, path and flags. */
+function TradeRecord({ t, book, investor }: { t: PaperTrade; book: { entryRules: Partial<Record<EntryRule, string>>; exitRule: string | null }; investor: boolean }) {
+  const w = wordsFor(investor);
+  const status = t.entryStatus ? ENTRY_STATUS[t.entryStatus] : null;
+  const exitRule = [
+    `${w.stop} ${fmtPrice(t.stop)}`,
+    t.target != null ? `${w.target.toLowerCase()} ${fmtPrice(t.target)}` : "no target",
+    t.maxHoldSessions != null ? `or the close of session ${fmtNum(t.maxHoldSessions)} held` : null,
+  ].filter(Boolean).join(", ");
+  const rows: Array<[string, ReactNode, string]> = [
+    ["Signal time", t.signalAt ? (t.signalAt.length === 10 ? fmtDay(t.signalAt) : fmtStamp(t.signalAt)) : t.source?.signalDate ? `${fmtDay(t.source.signalDate)} (scan date)` : "— not recorded", "signal"],
+    [w.rule, <>{RULE_NAME[t.entryRule][investor ? "investor" : "trader"]} {fmtPrice(t.entry)}{t.entryWindowSessions != null ? ` · waits ${plural(t.entryWindowSessions, "session")}` : ""}{book.entryRules[t.entryRule] ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{book.entryRules[t.entryRule]}</span> : null}</>, "rule"],
+    ["Entry", <>{status ? status[investor ? "investor" : "trader"] : "—"}{t.entrySession ? ` · ${fmtDay(t.entrySession)}` : ""}{t.simEntryPrice != null ? ` · simulated at ${fmtPrice(t.simEntryPrice)}` : ""}</>, "entry"],
+    ["Exit rule", exitRule, "exit-rule"],
+    ["Quantity", fmtNum(t.quantity), "qty"],
+    ["Estimated costs", <>{t.estCostsAtTarget != null ? `${fmtINR(t.estCostsAtTarget)} at the target · ` : ""}{t.estCostsAtStop != null ? `${fmtINR(t.estCostsAtStop)} at the stop` : "—"}{t.costModel?.slippagePctPerSide != null && t.costModel.brokerageRsPerSide != null ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{fmtNum(t.costModel.slippagePctPerSide, 2)}% of the traded value + {fmtINR(t.costModel.brokerageRsPerSide)} a side{t.costModel.name ? ` (${t.costModel.name})` : ""}</span> : null}</>, "est-costs"],
+    ["Strategy version", t.strategyVersion ?? "— not recorded", "strategy"],
+    ["Rationale", t.rationale ?? t.note ?? "— not recorded", "rationale"],
+    [w.obs, t.observations != null ? `${plural(t.observations, "session")} read${t.heldSessions != null ? ` · ${fmtNum(t.heldSessions)} held` : ""}` : "— not recorded", "obs"],
+    ["Exit", t.status === "closed" ? <>{t.exitReason ? REASON[t.exitReason][investor ? "investor" : "label"] : "—"}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitPrice != null ? ` · ${fmtPrice(t.exitPrice)}` : ""}</> : "Open", "exit"],
+    [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
+    [`${w.mfe} · ${w.mae}`, <>{signedPct(t.mfePct)}{t.mfeRs != null ? ` (${fmtINR(t.mfeRs, { signed: true })})` : ""} · {signedPct(t.maePct)}{t.maeRs != null ? ` (${fmtINR(t.maeRs, { signed: true })})` : ""}</>, "excursion"],
+    ["Rules version", t.rulesVersion ?? "— before versions were recorded", "version"],
+  ];
+  return (
+    <div data-testid="desk-paper-record" data-id={t.id} className="flex flex-col" style={{ gap: 8, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--cp-line)", background: "var(--bg-2)" }}>
+      <span className="cp-eyebrow">{t.symbol} · paper trade record</span>
+      <dl className="m-0 grid" style={{ gridTemplateColumns: "minmax(0,150px) minmax(0,1fr)", gap: "6px 12px", fontSize: 12.5, lineHeight: 1.45 }}>
+        {rows.map(([k, v, id]) => (
+          <div key={id} className="contents">
+            <dt style={{ color: "var(--cp-ink-3)" }}>{k}</dt>
+            <dd data-testid={`desk-paper-record-${id}`} className="m-0" style={{ color: "var(--cp-ink)", minWidth: 0, overflowWrap: "anywhere" }}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div data-testid="desk-paper-record-flags" className="flex flex-col" style={{ gap: 4 }}>
+        <span className="cp-eyebrow">Rule violations or missing data</span>
+        {t.flags.length === 0 ? (
+          <span style={quiet}>{t.observations == null ? "Not recorded for this trade." : "None found."}</span>
+        ) : (
+          <ul className="m-0 flex flex-col" style={{ gap: 4, paddingLeft: 16 }}>
+            {t.flags.map((f, i) => (
+              <li key={`${f.code}-${i}`} data-testid="desk-paper-flag" data-code={f.code} style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+                {f.session ? `${fmtDay(f.session)}: ` : ""}{f.text}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecordToggle({ t, open, onToggle }: { t: PaperTrade; open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="cp-chip"
+      data-testid="desk-paper-record-toggle"
+      aria-expanded={open}
+      aria-label={`${open ? "Hide" : "Show"} the ${t.symbol} paper trade record`}
+      onClick={onToggle}
+      style={{ padding: "3px 10px", fontSize: 12 }}
+    >
+      {open ? "Hide" : "Record"}
+    </button>
+  );
+}
 
 export function PaperTradesBlock() {
   const { mobile } = useCopilotShell();
-  const { openTab } = useDesk();
+  const { openTab, persona } = useDesk();
+  const investor = persona === "investor";
+  const w = wordsFor(investor);
   const q = usePaperTrades();
   const close = useClosePaperTrade();
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [record, setRecord] = useState<string | null>(null);
 
   let body: ReactNode;
   if (q.isPending) body = <LoadingBlock label="Loading your paper trades" rows={3} />;
@@ -106,21 +214,32 @@ export function PaperTradesBlock() {
     const closed = d.trades.filter((t) => t.status === "closed");
     const s = d.summary;
     const picked = open.find((t) => t.id === confirm) ?? null;
-    const tiles: Array<{ k: string; v: ReactNode; sub: string; testId: string }> = [
-      { k: "Open", v: fmtNum(s?.open ?? open.length), sub: "Marked at the last close", testId: "desk-paper-open" },
-      { k: "Closed", v: fmtNum(s?.closed ?? closed.length), sub: s ? `${fmtNum(s.wins)} won · ${fmtNum(s.losses)} lost` : "", testId: "desk-paper-closed" },
-      { k: "Realised P&L", v: <Pnl rs={s?.realizedRs ?? null} />, sub: "On closed trades", testId: "desk-paper-realised" },
+    const shown = d.trades.find((t) => t.id === record) ?? null;
+    const toggle = (t: PaperTrade) => setRecord(record === t.id ? null : t.id);
+    const tiles: Array<{ k: string; v: ReactNode; sub: ReactNode; testId: string }> = [
+      { k: "Open", v: fmtNum(s?.open ?? open.length), sub: s?.entryPending ? `${fmtNum(s.entryPending)} waiting for the entry` : "Marked at the last close", testId: "desk-paper-open" },
+      { k: "Closed", v: fmtNum(s?.closed ?? closed.length), sub: s ? `${fmtNum(s.wins)} won · ${fmtNum(s.losses)} lost${s.notEntered ? ` · ${fmtNum(s.notEntered)} never entered` : ""}` : "", testId: "desk-paper-closed" },
       {
-        k: "Unrealised P&L", v: <Pnl rs={s?.unrealizedRs ?? null} />, testId: "desk-paper-unrealised",
-        sub: s?.unmarkedOpen ? `${fmtNum(s.unmarkedOpen)} open without a mark` : "Open trades, end of day",
+        k: w.realised, v: <Pnl rs={s?.realizedRs ?? null} />, testId: "desk-paper-realised",
+        sub: <>Gross · <span data-testid="desk-paper-net-realised">{s?.netRealizedRs != null ? fmtINR(s.netRealizedRs, { signed: true }) : "—"}</span> after costs</>,
+      },
+      {
+        k: w.unrealised, v: <Pnl rs={s?.unrealizedRs ?? null} />, testId: "desk-paper-unrealised",
+        sub: s?.unmarkedOpen
+          ? `${fmtNum(s.unmarkedOpen)} open without a mark`
+          : <>Gross · <span data-testid="desk-paper-net-unrealised">{s?.netUnrealizedRs != null ? fmtINR(s.netUnrealizedRs, { signed: true }) : "—"}</span> after est. costs</>,
       },
     ];
+    const statusSub = (t: PaperTrade) => {
+      const st = t.entryStatus ? ENTRY_STATUS[t.entryStatus][investor ? "investor" : "trader"] : null;
+      return [t.openedAt ? `Opened ${fmtDay(t.openedAt)}` : null, st].filter(Boolean).join(" · ") || undefined;
+    };
     const openCols: Column<PaperTrade>[] = [
-      { key: "stock", header: "Stock", width: "minmax(110px,1.2fr)", render: (t) => <SymbolCell symbol={t.symbol} size={20} testId="desk-paper-symbol" sub={t.openedAt ? `Opened ${fmtDay(t.openedAt)}` : undefined} /> },
+      { key: "stock", header: "Stock", width: "minmax(130px,1.4fr)", render: (t) => <SymbolCell symbol={t.symbol} size={20} testId="desk-paper-symbol" sub={<span data-testid="desk-paper-entry-status" data-status={t.entryStatus ?? ""}>{statusSub(t)}</span>} /> },
       { key: "qty", header: "Qty", align: "right", num: true, width: "56px", render: (t) => <span data-testid="desk-paper-qty">{fmtNum(t.quantity)}</span> },
-      { key: "entry", header: "Entry", align: "right", num: true, width: "88px", render: (t) => fmtPrice(t.entry) },
-      { key: "stop", header: "Stop", align: "right", num: true, width: "88px", render: (t) => fmtPrice(t.stop) },
-      { key: "target", header: "Target", align: "right", num: true, width: "88px", render: (t) => (t.target != null ? fmtPrice(t.target) : "None") },
+      { key: "entry", header: w.entry, align: "right", num: true, width: "88px", render: (t) => fmtPrice(t.entry) },
+      { key: "stop", header: w.stop, align: "right", num: true, width: "88px", render: (t) => fmtPrice(t.stop) },
+      { key: "target", header: w.target, align: "right", num: true, width: "88px", render: (t) => (t.target != null ? fmtPrice(t.target) : "None") },
       {
         key: "last", header: "Last close", align: "right", num: true, width: "100px",
         render: (t) => (
@@ -129,7 +248,9 @@ export function PaperTradesBlock() {
           </span>
         ),
       },
-      { key: "pnl", header: "Unrealised", align: "right", num: true, width: "96px", render: (t) => <Pnl rs={t.unrealizedRs} testId="desk-paper-unrealised-row" /> },
+      { key: "pnl", header: w.gross, align: "right", num: true, width: "96px", render: (t) => <Pnl rs={t.unrealizedRs} testId="desk-paper-unrealised-row" /> },
+      { key: "net", header: w.net, align: "right", num: true, width: "110px", render: (t) => <Pnl rs={t.netRs} testId="desk-paper-net-row" /> },
+      { key: "rec", header: "", width: "78px", align: "right", render: (t) => <RecordToggle t={t} open={record === t.id} onToggle={() => toggle(t)} /> },
       {
         key: "act", header: "", width: "72px", align: "right",
         render: (t) => (
@@ -150,18 +271,26 @@ export function PaperTradesBlock() {
     const closedCols: Column<PaperTrade>[] = [
       { key: "stock", header: "Stock", width: "minmax(110px,1.2fr)", render: (t) => <SymbolCell symbol={t.symbol} size={20} testId="desk-paper-symbol" sub={t.closedAt ? `Closed ${fmtDay(t.closedAt)}` : undefined} /> },
       { key: "qty", header: "Qty", align: "right", num: true, width: "56px", render: (t) => fmtNum(t.quantity) },
-      { key: "entry", header: "Entry", align: "right", num: true, width: "88px", render: (t) => fmtPrice(t.entry) },
+      { key: "entry", header: w.entry, align: "right", num: true, width: "88px", render: (t) => fmtPrice(t.entry) },
       { key: "exit", header: "Exit", align: "right", num: true, width: "88px", render: (t) => <span data-testid="desk-paper-exit">{fmtPrice(t.exitPrice)}</span> },
       {
-        key: "reason", header: "Exit reason", width: "110px",
+        key: "reason", header: "Exit reason", width: "128px",
         render: (t) => (
           <span data-testid="desk-paper-reason" data-reason={t.exitReason ?? ""} title={t.exitNote ?? undefined}>
-            {t.exitReason ? <Pill tone={REASON[t.exitReason].tone}>{REASON[t.exitReason].label}{t.exitNote ? " *" : ""}</Pill> : "—"}
+            {t.exitReason ? <Pill tone={REASON[t.exitReason].tone}>{REASON[t.exitReason][investor ? "investor" : "label"]}{t.exitNote ? " *" : ""}</Pill> : "—"}
           </span>
         ),
       },
-      { key: "pnl", header: "Realised", align: "right", num: true, width: "96px", render: (t) => <Pnl rs={t.realizedRs} testId="desk-paper-realised-row" /> },
+      { key: "pnl", header: investor ? "Gain before costs" : "Realised", align: "right", num: true, width: "96px", render: (t) => <Pnl rs={t.realizedRs} testId="desk-paper-realised-row" /> },
+      { key: "net", header: w.net, align: "right", num: true, width: "110px", render: (t) => <Pnl rs={t.netRs} testId="desk-paper-net-row" /> },
+      {
+        key: "mfe", header: `${w.mfe} / ${w.mae}`, align: "right", num: true, width: "120px",
+        render: (t) => <span data-testid="desk-paper-excursion">{signedPct(t.mfePct)} / {signedPct(t.maePct)}</span>,
+      },
+      { key: "rec", header: "", width: "78px", align: "right", render: (t) => <RecordToggle t={t} open={record === t.id} onToggle={() => toggle(t)} /> },
     ];
+    const notes = [...new Set(closed.flatMap((t) => (t.exitNote ? [t.exitNote] : [])))];
+    const cost = d.costModel;
     body = (
       <div className="flex flex-col" style={{ gap: 12 }}>
         <div className="grid" style={{ gridTemplateColumns: `repeat(${mobile ? 2 : 4},minmax(0,1fr))`, gap: 8 }}>
@@ -178,7 +307,7 @@ export function PaperTradesBlock() {
           <Head title={<>Open · <span data-testid="desk-paper-open-count">{fmtNum(open.length)}</span></>} note="Marked at the last close · end of day" />
           {open.length ? (
             <div data-testid="desk-paper-open-table" style={{ border: "1px solid var(--cp-line)", borderRadius: 12 }}>
-              <DataTable columns={openCols} rows={open} rowKey={(t) => t.id} minWidth={720} />
+              <DataTable columns={openCols} rows={open} rowKey={(t) => t.id} minWidth={1000} />
             </div>
           ) : (
             <span data-testid="desk-paper-none-open" style={quiet}>No open paper trades.</span>
@@ -186,14 +315,15 @@ export function PaperTradesBlock() {
           {picked && (
             <Confirm
               testId="desk-paper-confirm"
-              yes="Close paper trade"
+              yes={picked.entryStatus === "waiting" ? "Cancel paper trade" : "Close paper trade"}
               pending={close.isPending}
               error={close.isError ? close.error : null}
               onNo={() => { setConfirm(null); close.reset(); }}
               onYes={() => close.mutate(picked.id, { onSuccess: () => setConfirm(null) })}
             >
-              Close the {picked.symbol} paper trade ({fmtNum(picked.quantity)} shares) at its last close
-              {picked.lastClose != null ? `, ${fmtPrice(picked.lastClose)}${picked.lastCloseDate ? ` (end of day ${fmtDay(picked.lastCloseDate)})` : ""}` : ""}? It is simulated: no order is placed.
+              {picked.entryStatus === "waiting"
+                ? <>Cancel the {picked.symbol} paper trade? Its entry has not been reached, so there is no position and no P&amp;L. It is simulated: no order is placed.</>
+                : <>Close the {picked.symbol} paper trade ({fmtNum(picked.quantity)} shares) at its last close{picked.lastClose != null ? `, ${fmtPrice(picked.lastClose)}${picked.lastCloseDate ? ` (end of day ${fmtDay(picked.lastCloseDate)})` : ""}` : ""}? It is simulated: no order is placed.</>}
             </Confirm>
           )}
         </div>
@@ -201,18 +331,19 @@ export function PaperTradesBlock() {
           <div className="flex flex-col" style={{ gap: 8 }}>
             <Head title={<>Closed · <span data-testid="desk-paper-closed-count">{fmtNum(closed.length)}</span></>} />
             <div data-testid="desk-paper-closed-table" style={{ border: "1px solid var(--cp-line)", borderRadius: 12 }}>
-              <DataTable columns={closedCols} rows={closed} rowKey={(t) => t.id} minWidth={620} />
+              <DataTable columns={closedCols} rows={closed} rowKey={(t) => t.id} minWidth={940} />
             </div>
-            {closed.some((t) => t.exitNote) && (
-              <span data-testid="desk-paper-exit-notes" style={quiet}>
-                * {[...new Set(closed.flatMap((t) => (t.exitNote ? [t.exitNote] : [])))].join(" ")}
-              </span>
-            )}
+            {notes.length > 0 && <span data-testid="desk-paper-exit-notes" style={quiet}>* {notes.join(" ")}</span>}
             {s?.partial && <span style={quiet}>Only the most recent closed trades are listed; the counts above cover those listed.</span>}
           </div>
         )}
+        {shown && <TradeRecord t={shown} book={d} investor={investor} />}
         <span data-testid="desk-paper-rules" style={quiet}>
-          Simulated: no order is placed. Marks and exits use end-of-day daily bars{d.checkedThrough ? `, checked through ${fmtDay(d.checkedThrough)}` : d.asOf ? ` through ${fmtDay(d.asOf)}` : ""}{d.source ? ` (${d.source})` : ""}. A session whose low reaches the stop closes the trade at the stop; one whose high reaches the target closes it at the target; one that reaches both closes it at the stop.
+          {d.orders ?? "Simulated: no order is placed."} Marks and exits use end-of-day daily bars{d.checkedThrough ? `, checked through ${fmtDay(d.checkedThrough)}` : d.asOf ? ` through ${fmtDay(d.asOf)}` : ""}{d.source ? ` (${d.source})` : ""}. A session whose low reaches the stop closes the trade at the stop; one whose high reaches the target closes it at the target; one that reaches both closes it at the stop.
+          {cost?.slippagePctPerSide != null && cost.brokerageRsPerSide != null
+            ? <> Net figures take off estimated costs: <span data-testid="desk-paper-cost-model">{fmtNum(cost.slippagePctPerSide, 2)}% of the traded value + {fmtINR(cost.brokerageRsPerSide)} a side</span>{cost.name ? ` (${cost.name})` : ""}.</>
+            : null}
+          {d.rulesVersion ? ` Rules ${d.rulesVersion}.` : ""} MFE and MAE are the best and worst points reached from the fill through the exit session.
         </span>
       </div>
     );

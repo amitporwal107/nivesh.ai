@@ -2,7 +2,9 @@
 
     GET /api/fno/{symbol}/expiries               option expiries still listed on the latest day, nearest first
     GET /api/fno/{symbol}/chain?expiry=&around=  one expiry's chain by strike, plus a summary of the whole chain
-    GET /api/fno/{symbol}/futures                the latest day's futures contracts, each with its basis
+    GET /api/fno/{symbol}/futures                the latest day's futures contracts, each with its basis and, once the
+                                                 data platform sends prev_close_price, its day change and OI build-up
+                                                 (the same rule as an option's `oi_buildup`, below)
     GET /api/fno/scan/buildup?date=              every F&O stock's futures OI build-up on the latest (or given) day,
                                                  passed through from DaaS /v1/desk/fno-buildup (definitions in
                                                  nidp/services/daas_api/routers/desk_market.py). It lives under /desk
@@ -290,7 +292,8 @@ def live_option_expiries(rows: Any) -> Tuple[Optional[str], List[Dict[str, Any]]
 
 
 def shape_futures(rows: Iterable[Any], spot: Optional[float]) -> List[Dict[str, Any]]:
-    """Futures contracts, nearest expiry first, each with its basis to `spot`."""
+    """Futures contracts, nearest expiry first, each with its basis to `spot` and its day change (`day_change`:
+    change, change_pct and oi_buildup, all null until the data platform's /fno/{symbol} sends prev_close_price)."""
     out: List[Dict[str, Any]] = []
     for r in rows:
         # A futures row carries no option side: the current format marks it "FUT", the older one leaves it empty.
@@ -300,7 +303,7 @@ def shape_futures(rows: Iterable[Any], spot: Optional[float]) -> List[Dict[str, 
         if not expiry:
             continue
         settle = _num(r.get("settle_price"))
-        out.append({
+        contract = {
             "expiry": expiry,
             "close": _num(r.get("close_price")),
             "settle": settle,
@@ -308,7 +311,10 @@ def shape_futures(rows: Iterable[Any], spot: Optional[float]) -> List[Dict[str, 
             "change_in_oi": _qty(r.get("change_in_oi")),
             "volume": _qty(r.get("traded_volume")),
             "basis": futures_basis(settle, spot),
-        })
+        }
+        contract["prev_close"] = _positive(r.get("prev_close_price"))
+        contract.update(day_change(r, contract))
+        out.append(contract)
     out.sort(key=lambda f: f["expiry"])
     return out
 

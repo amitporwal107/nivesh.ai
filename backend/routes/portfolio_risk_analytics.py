@@ -129,6 +129,10 @@ async def get_risk_analytics(request: Request, period: Optional[str] = None) -> 
     stock_breakdown: list[dict] = []
     # factor exposure accumulators for bar-chart risk drivers
     smallcap_val = high_beta_val = cyclical_val = 0.0
+    # 1-year drawdown of the stocks held (stock_features_daily.max_drawdown_1y_pct), value-weighted
+    dd_num = dd_den = 0.0
+    dd_worst: Optional[dict] = None
+    dd_dates: list[str] = []
     _CYCLICAL_KW = {"bank", "nbfc", "finance", "metal", "real estate", "auto", "construct", "oil", "chemical"}
 
     for h in holdings:
@@ -182,6 +186,15 @@ async def get_risk_analytics(request: Request, period: Optional[str] = None) -> 
         if has_data:
             covered_value += value
 
+        dd = prim.get("max_drawdown_1y_pct") if atype in {"stock", "equity"} else None
+        if isinstance(dd, (int, float)) and not isinstance(dd, bool):
+            dd_num += float(dd) * value
+            dd_den += value
+            if dd_worst is None or float(dd) < dd_worst["max_drawdown_1y_pct"]:
+                dd_worst = {"name": h.get("name"), "ticker": h.get("ticker"), "max_drawdown_1y_pct": round(float(dd), 2)}
+            if prim.get("as_of_date"):
+                dd_dates.append(str(prim["as_of_date"])[:10])
+
         row = {
             "name": h.get("name"),
             "ticker": h.get("ticker"),
@@ -196,6 +209,7 @@ async def get_risk_analytics(request: Request, period: Optional[str] = None) -> 
             fund_breakdown.append(row)
         else:
             row["sector"] = h.get("sector")
+            row["max_drawdown_1y_pct"] = round(float(dd), 2) if isinstance(dd, (int, float)) and not isinstance(dd, bool) else None
             stock_breakdown.append(row)
 
     weighted_beta = round(beta_num / beta_den, 3) if beta_den > 0 else None
@@ -255,10 +269,12 @@ async def get_risk_analytics(request: Request, period: Optional[str] = None) -> 
         var_1d_pct = round(sigma_1d * 1.645 * 100, 2)
         var_1d_rs = round(total_value * sigma_1d * 1.645, 0)
 
-    # Max drawdown — not yet exposed by NIDP primitives; signal missing
-    # via None so the UI can render "—". Future: pull max_drawdown_1y from
-    # /v1/intelligence/portfolio/{user_id}/snapshot once available.
+    # Max drawdown of the portfolio itself — the PRA engine's figure (pra.portfolio_risk_results) is not
+    # populated on staging (0 rows, 2026-10-14), so it stays None and the UI renders "—". What IS on
+    # record is each stock's own 1-year drawdown (B14): value-weighted below, and labelled as the stocks'
+    # drawdown, not the portfolio's. GET /api/portfolio/holding-risk works out today's holdings' drawdown.
     max_drawdown_pct: Optional[float] = None
+    holdings_drawdown = round(dd_num / dd_den, 2) if dd_den > 0 else None
 
     return {
         "empty": False,
@@ -270,6 +286,14 @@ async def get_risk_analytics(request: Request, period: Optional[str] = None) -> 
         "weighted_volatility": weighted_vol,
         # v4 additions (Modified Endpoint C.3)
         "max_drawdown_pct": max_drawdown_pct,
+        # B14: the stocks' own 1-year drawdowns, value-weighted (null when no stock has one; never 0)
+        "holdings_drawdown_1y_pct": holdings_drawdown,
+        "drawdown_coverage_pct": round(100 * dd_den / total_value, 1) if total_value > 0 else 0,
+        "worst_drawdown_holding": dd_worst,
+        "drawdown_as_of": max(dd_dates) if dd_dates else None,
+        "drawdown_method": ("Value-weighted average of each stock's largest fall from a peak over the last year; "
+                            "the stocks' own drawdowns, not the portfolio's"),
+        "drawdown_source": "nidp.stock_features_daily.max_drawdown_1y_pct via DaaS v3 primitives",
         "var_1d_rs": var_1d_rs,
         "var_1d_pct": var_1d_pct,
         "portfolio_value_rs": round(total_value, 2),

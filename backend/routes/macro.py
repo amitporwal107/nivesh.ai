@@ -1,6 +1,8 @@
 """Macro Intelligence routes — read-only API for the Copilot + UI.
 
-  GET  /api/macro/today                — current regime + values + insight
+  GET  /api/macro/today                — current regime + values + insight, and `regime`: the
+                                          Smart trading desk's five-regime reading of the same
+                                          session (macro_engine.classify_desk_regime)
   POST /api/macro/refresh              — manual trigger (admin / debug)
   POST /api/macro/backfill             — pull last N days of history
                                           (one-shot at first deploy)
@@ -9,7 +11,9 @@
 """
 from __future__ import annotations
 import logging
-from typing import Any, Dict, Optional
+import time
+from datetime import date
+from typing import Any, Dict, Optional, Tuple
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 
@@ -62,7 +66,68 @@ async def macro_today(request: Request):
         return _uninitialised_payload(reason=f"{type(e).__name__}: {str(e)[:200]}")
     if snap is None:
         return _uninitialised_payload(reason="macro_state empty — backfill needed")
+    snap["regime"] = await _desk_regime(snap)
     return snap
+
+
+# The session's advances / declines change only when that day's bars are reloaded, so one read
+# per session is kept for ten minutes (the desk reads /macro/today every ten minutes as well).
+_BREADTH_TTL = 600.0
+_BREADTH_CACHE: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
+
+
+async def _session_breadth(session: date) -> Optional[Dict[str, Any]]:
+    from services import macro_engine
+    key = session.isoformat()
+    now = time.time()
+    hit = _BREADTH_CACHE.get(key)
+    if hit and now - hit[0] < _BREADTH_TTL:
+        return hit[1]
+    data = await macro_engine.session_breadth(session)
+    _BREADTH_CACHE[key] = (now, data)
+    return data
+
+
+def _num(v: Any) -> Optional[float]:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+async def _desk_regime(snap: Dict[str, Any]) -> Dict[str, Any]:
+    """The desk's five-regime reading of the snapshot's session (PRD OV-003). The regime is the
+    rule's answer, never a guess: a missing input skips its check and says so, and a failure here
+    leaves `key` null with the reason instead of failing /macro/today."""
+    from services import macro_engine
+    session = snap.get("date")
+    values = snap.get("values") or {}
+    feats = snap.get("features") or {}
+    breadth: Optional[Dict[str, Any]] = None
+    breadth_error: Optional[str] = None
+    try:
+        if session:
+            breadth = await _session_breadth(date.fromisoformat(session))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("/macro/today session breadth failed: %s", e)
+        breadth_error = f"{type(e).__name__}: {str(e)[:120]}"
+    try:
+        out = macro_engine.classify_desk_regime(
+            session=session,
+            nifty_close=_num(values.get("nifty")),
+            nifty_average=_num(feats.get("nifty_50dma")),
+            india_vix=_num(values.get("india_vix")),
+            breadth=breadth,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("/macro/today desk regime failed: %s", e, exc_info=True)
+        return {"key": None, "label": None, "date": session, "rule": dict(macro_engine.DESK_REGIME_RULE),
+                "inputs": {}, "skipped": [], "invalidation": [],
+                "reason": f"the regime rule failed: {type(e).__name__}"}
+    if breadth_error:
+        out["skipped"] = [c for c in out["skipped"] if c["check"] != "mixed"] + [
+            {"check": "mixed", "reason": f"breadth could not be read ({breadth_error})"}]
+    return out
 
 
 class RefreshRequest(BaseModel):

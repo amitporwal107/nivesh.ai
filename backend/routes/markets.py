@@ -9,6 +9,8 @@ duplicate anything:
   • FII / DII cash flows                  ← nidp.fii_dii_flows         (EQUITY_CASH segment)
   • market news headlines                 ← nidp.corporate_event_signals (post-event AI signals)
   • global cues / world indices / commodities ← positional_engine.nse_live global snapshot (Yahoo)
+  • market_state / is_live / session          ← NSE hours by the IST clock AND the NSE holiday list
+                                                (DaaS /v1/holidays → nidp.nse_holidays, segment CM)
 
 One round of cheap SQL behind a market-hours-adaptive cache (30s open /
 300s closed) — this backs a dashboard, not a ticker.
@@ -17,8 +19,8 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -225,6 +227,90 @@ def _breadth(eod: Dict[str, Any], live_breadth: Dict[str, Any]) -> Dict[str, Any
     }
 
 
+# ── NSE session status (desk PRD §12.5: a maintained exchange calendar, not the weekday alone) ──
+
+IST = timezone(timedelta(hours=5, minutes=30))
+NSE_OPEN = (9, 15)
+NSE_CLOSE = (15, 30)
+CALENDAR_SOURCE = "NSE trading holidays (nidp.nse_holidays, segment CM)"
+# A day's holiday answer is kept for six hours; a failed read is retried after two minutes.
+_HOLIDAY_TTL_OK = 6 * 3600.0
+_HOLIDAY_TTL_FAILED = 120.0
+_HOLIDAY_CACHE: Dict[str, Tuple[float, Tuple[bool, Optional[str]]]] = {}
+
+
+async def _nse_holiday(day: date) -> Tuple[bool, Optional[str]]:
+    """(the calendar was read, the holiday's name or None) for one IST day, from the data platform's
+    NSE holiday list. (False, None) when the data platform is not configured or does not answer."""
+    from services.copilot_tools import daas_client
+    key = day.isoformat()
+    now = time.time()
+    hit = _HOLIDAY_CACHE.get(key)
+    if hit and now - hit[0] < (_HOLIDAY_TTL_OK if hit[1][0] else _HOLIDAY_TTL_FAILED):
+        return hit[1]
+    result: Tuple[bool, Optional[str]] = (False, None)
+    if daas_client.is_configured():
+        try:
+            status, body = await daas_client.get_raw("/holidays", {"segment": "CM", "from": key, "to": key})
+            rows = body.get("data") if status == 200 and isinstance(body, dict) else None
+            if isinstance(rows, list):
+                names = [str(r.get("description") or "NSE holiday").strip() for r in rows
+                         if isinstance(r, dict) and str(r.get("holiday_date") or "")[:10] == key]
+                result = (True, names[0] if names else None)
+            else:
+                logger.warning("markets.home holiday calendar answered HTTP %s", status)
+        except daas_client.DaasError as e:
+            logger.warning("markets.home holiday calendar failed: %s", e)
+    _HOLIDAY_CACHE[key] = (now, result)
+    return result
+
+
+def session_state(now: datetime, *, calendar_read: bool, holiday: Optional[str]) -> Dict[str, Any]:
+    """The NSE cash-market session at `now` (any tz-aware time; read in IST).
+
+    Open only on a weekday that is not an NSE CM holiday, 09:15–15:30 IST. When the holiday list could
+    not be read, `trading_day` is null for a weekday and the state follows the clock, which the caller
+    says ("holidays not checked"). Special sessions (e.g. Muhurat trading) are not in the list.
+    """
+    t = now.astimezone(IST)
+    minutes = t.hour * 60 + t.minute
+    weekend = t.weekday() >= 5
+    if weekend:
+        trading_day: Optional[bool] = False
+    elif holiday:
+        trading_day = False
+    else:
+        trading_day = True if calendar_read else None
+    in_hours = NSE_OPEN[0] * 60 + NSE_OPEN[1] <= minutes <= NSE_CLOSE[0] * 60 + NSE_CLOSE[1]
+    if weekend:
+        reason = "weekend"
+    elif holiday:
+        reason = "holiday"
+    elif minutes < NSE_OPEN[0] * 60 + NSE_OPEN[1]:
+        reason = "before_open"
+    elif minutes > NSE_CLOSE[0] * 60 + NSE_CLOSE[1]:
+        reason = "after_close"
+    else:
+        reason = "in_hours"
+    open_now = trading_day is not False and in_hours
+    return {
+        "date": t.date().isoformat(),
+        "state": "open" if open_now else "closed",
+        "trading_day": trading_day,
+        "reason": reason,
+        "holiday": holiday if not weekend else None,
+        "hours": f"{NSE_OPEN[0]:02d}:{NSE_OPEN[1]:02d}–{NSE_CLOSE[0]:02d}:{NSE_CLOSE[1]:02d} IST",
+        "calendar": "ok" if calendar_read else "unavailable",
+        "calendar_source": CALENDAR_SOURCE,
+    }
+
+
+async def _session_now() -> Dict[str, Any]:
+    now = datetime.now(IST)
+    read, holiday = await _nse_holiday(now.date())
+    return session_state(now, calendar_read=read, holiday=holiday)
+
+
 @router.get("/home")
 async def markets_home(request: Request):
     """Aggregate everything the Markets home dashboard renders, in one call.
@@ -358,12 +444,15 @@ async def markets_home(request: Request):
     fii_dii = await _fii_dii()
     news = await _news()
 
-    is_live = bool(dash.get("is_live") or live.get("is_live"))
+    # The live feeds call any weekday in hours "live"; on an NSE holiday nothing trades, so nothing is.
+    session = await _session_now()
+    is_live = bool(dash.get("is_live") or live.get("is_live")) and session["state"] == "open"
     result = {
         "ok":           True,
         "as_of":        dash.get("as_of_date"),
         "is_live":      is_live,
-        "market_state": "open" if nse_live._is_market_open_ist() else "closed",
+        "market_state": session["state"],
+        "session":      session,
         "fetched_at":   dash.get("fetched_at") or live.get("fetched_at"),
         # Rules-based deploy verdict (macro → breadth → trend) — drives the
         # Markets hero line and the deterministic "Copilot read".

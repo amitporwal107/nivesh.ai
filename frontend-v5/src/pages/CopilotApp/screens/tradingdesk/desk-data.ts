@@ -4,24 +4,30 @@
  *   GET /api/positional/watchlist?limit=30   four setup buckets with a trigger and a stop  (stock_technical_features + 60 daily bars),
  *                                            the next resistance / support, and per row the last 24 daily closes
  *                                            (spark_closes, spark_end) and the 20-session average traded value
- *                                            (avg_traded_value_cr_20d, ₹ crore a day) from stock_ohlcv
+ *                                            (avg_traded_value_cr_20d, ₹ crore a day) from stock_ohlcv; `rules` (every
+ *                                            threshold with its version) and the engine versions behind the rows
  *   GET /api/positional/picks?limit=30       scored scanner signals with entry, stop, target (positional_signals),
- *                                            with the same spark and traded-value fields
+ *                                            with the same spark and traded-value fields, the rules version and engine versions
+ *   GET /api/positional/scan-universe        the universe categories (momentum, unusual volume, results-day momentum, F&O
+ *       ?setups=&symbols=                    candidates), the eligible universe with every exclusion counted, each row's
+ *                                            end-of-day figures, risk and liquidity class, and the move-odds model's rank
+ *                                            percentile within the eligible universe   (useScanUniverse; DaaS feature store)
  *   GET /api/move-odds/latest?head=…         the move-odds model's next-session estimates   (DaaS nidp.tpd_*, flag move_odds)
  *
- * All three are end of day. The two scanner routes are merged by symbol: a
- * stock can be in both, in which case the pick's plan (entry, stop, target)
- * is used and the bucket says where the setup stands. The move-odds model is
- * a separate, validated model; its figure is joined by symbol and is a
- * one-session estimate ("P(+5% next session)"), never a multi-day one.
+ * All are end of day. The two scanner routes are read once for the desk and the Trader screens
+ * (useScannerRoutes, trading/queries.ts) and merged here by symbol: a stock can be in both, in which case the
+ * pick's plan (entry, stop, target) is used and the bucket says where the setup stands. The move-odds model is a
+ * separate model; its figure is joined by symbol and is a one-session estimate ("P(+5% next session)"), never a
+ * multi-day one, and the desk shows it only when the route marks it calibrated (PRD §5.8; see probabilityGate).
  *
- * Nothing here trusts the response shape: a missing or non-numeric field is
- * null, never 0, and a body without the list the route always sends throws.
+ * Nothing here trusts the response shape: a missing or non-numeric field is null, never 0, and a body without the
+ * list the route always sends throws.
  */
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import { moveOddsService, type MoveFinal, type MoveHead } from "@/services/adapters/moveOdds.adapter";
+import { useScannerRoutes, type ScannerRoutes } from "../trading/queries";
 
 type Raw = Record<string, unknown>;
 const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
@@ -85,14 +91,6 @@ export const BUCKET_LABEL: Record<SetupBucket, string> = {
   pre_breakout: "Near breakout",
   trend_continuation: "Trend pullback",
   true_accumulation: "Accumulation",
-};
-
-/** The rule each bucket applies (backend/routes/positional.py, get_watchlist), in one line. */
-export const BUCKET_RULE: Record<SetupBucket, string> = {
-  breakout_confirmed: "Closed 0–3% above the breakout level on at least 1.5× the 20-day average volume.",
-  pre_breakout: "Within 2% below resistance with volume at least 1.2× the 20-day average.",
-  trend_continuation: "Close above the 20-day EMA, which is above the 50-day average, and within 4% of the 20-day EMA.",
-  true_accumulation: "15-day range under 8%, volume contracting, higher lows and small upper wicks.",
 };
 
 /** Where a setup stands. "confirmed" = the breakout has happened; the rest are waiting for a trigger. */
@@ -159,6 +157,12 @@ export interface DeskScanner {
   setups: DeskSetup[];
   /** A route that failed while the other answered: the list is partial. */
   partial: Array<"watchlist" | "picks">;
+  /** The thresholds the watchlist used, with their version (backend setup_rules.py); null when the route sent none. */
+  rules: ScanRules | null;
+  /** The watchlist classifier ("smart_v2"), the rules version the picks route names, and the engine versions behind the rows. */
+  classifierVersion: string | null;
+  rulesVersion: string | null;
+  engineVersions: string[];
 }
 
 function statusOf(bucket: SetupBucket | null, stage: string | null): SetupStatus {
@@ -184,11 +188,8 @@ interface PickItem {
   spark: number[]; sparkEnd: string | null; avgTradedCr: number | null;
 }
 
-async function fetchWatch(signal?: AbortSignal): Promise<{ asOf: string | null; items: WatchItem[] }> {
-  // The route re-reads 60 bars per candidate, so it can be slow on a cold cache.
-  const res = await http({ path: "/api/positional/watchlist", query: { limit: 30 }, timeoutMs: 30_000, signal });
-  const d = rec(res.data);
-  if (!("buckets" in d)) throw drift("positional.watchlist: no buckets");
+/** GET /api/positional/watchlist's body (its `buckets` already checked by the shared read). */
+function parseWatch(d: Raw): { asOf: string | null; items: WatchItem[] } {
   const buckets = rec(d.buckets);
   const items: WatchItem[] = [];
   for (const bucket of SETUP_BUCKETS) {
@@ -213,12 +214,10 @@ async function fetchWatch(signal?: AbortSignal): Promise<{ asOf: string | null; 
   return { asOf: str(d.as_of_date), items };
 }
 
-async function fetchPicks(signal?: AbortSignal): Promise<{ signalDate: string | null; items: PickItem[] }> {
-  const res = await http({ path: "/api/positional/picks", query: { limit: 30 }, signal });
-  const d = rec(res.data);
-  if (!Array.isArray(d.picks)) throw drift("positional.picks: no picks list");
+/** GET /api/positional/picks's body (its `picks` list already checked by the shared read). */
+function parsePicks(d: Raw): { signalDate: string | null; items: PickItem[] } {
   const items: PickItem[] = [];
-  for (const v of d.picks) {
+  for (const v of arr(d.picks)) {
     const p = rec(v);
     const symbol = str(p.nse_symbol);
     if (!symbol) continue;
@@ -233,7 +232,11 @@ async function fetchPicks(signal?: AbortSignal): Promise<{ signalDate: string | 
   return { signalDate: str(d.signal_date), items };
 }
 
-/** "Liquid only": a 20-session average traded value of at least this many ₹ crore a day. */
+/**
+ * ₹10 Cr a day, the desk's liquidity gate (owner decision 2026-10-14). The scanner takes the threshold from the route
+ * (`rules.liquidity.minCr`, backend setup_rules.py LIQUIDITY); this copy is kept for the screens that do not read the
+ * rules yet and must equal that value.
+ */
 export const LIQUID_MIN_CR = 10;
 
 /** Reward to risk from three levels, or null when it cannot be worked out (no target, or the stop is not below the entry). */
@@ -289,25 +292,262 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
   return [...bySym.values()].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 }
 
+/** The desk's view of the shared scanner read. Both routes failing is the shared read's own error. */
+export function toDeskScanner(r: ScannerRoutes): DeskScanner {
+  const watch = r.watch ? parseWatch(r.watch) : { asOf: null, items: [] };
+  const picks = r.picks ? parsePicks(r.picks) : { signalDate: null, items: [] };
+  const partial: DeskScanner["partial"] = [];
+  if (!r.watch) partial.push("watchlist");
+  if (!r.picks) partial.push("picks");
+  const versions = new Set<string>();
+  for (const body of [r.watch, r.picks]) for (const v of arr(rec(body).engine_versions)) if (typeof v === "string" && v) versions.add(v);
+  const rules = parseRules(rec(r.watch).rules);
+  return {
+    watchAsOf: watch.asOf, signalDate: picks.signalDate, setups: mergeSetups(watch.items, picks.items), partial,
+    rules,
+    classifierVersion: str(rec(r.watch)._classifier_version),
+    rulesVersion: rules?.version ?? str(rec(r.picks).rules_version),
+    engineVersions: [...versions].sort(),
+  };
+}
+
 /**
- * The opportunity list. Either route may fail on its own; the other's rows
- * are still shown and `partial` names the one that did not answer. Both
- * failing is an error.
+ * The opportunity list. Either route may fail on its own; the other's rows are still shown and `partial` names the
+ * one that did not answer. Both failing is an error. One read with the Trader screens (D9).
  */
 export function useDeskScanner() {
-  return useQuery<DeskScanner>({
-    queryKey: ["copilot", "desk", "scanner"],
+  return useScannerRoutes(toDeskScanner);
+}
+
+// ── the rules the routes send (backend/services/positional_engine/setup_rules.py) ──
+
+export type RiskClass = "low" | "medium" | "high";
+
+export interface ScanRules {
+  version: string;
+  liquidity: { minCr: number; sessions: number | null; definition: string | null } | null;
+  riskBands: { lowBelowPct: number; highAbovePct: number; basis: string | null } | null;
+  /** Each watchlist bucket's thresholds, as sent (keys as in setup_rules.WATCHLIST). */
+  buckets: Partial<Record<SetupBucket, Record<string, number | string[] | null>>>;
+  candidates: { minClose: number | null; excludedStages: string[]; topByScore: number | null; minBars: number | null } | null;
+  stopAtrMultiple: number | null;
+  universe: { series: string[]; excludeEtf: boolean; minPriceBandPct: number | null; bandLimitTolerancePct: number | null; order: string[] } | null;
+  categories: Partial<Record<UniverseCategory, Record<string, number | string | boolean | null>>>;
+  maxRowsPerCategory: number | null;
+}
+
+const strs = (v: unknown): string[] => arr(v).filter((x): x is string => typeof x === "string");
+
+function flat(v: unknown): Record<string, number | string | boolean | string[] | null> {
+  const out: Record<string, number | string | boolean | string[] | null> = {};
+  for (const [k, x] of Object.entries(rec(v))) {
+    if (typeof x === "number" || typeof x === "string" || typeof x === "boolean") out[k] = x;
+    else if (Array.isArray(x)) out[k] = strs(x);
+    else out[k] = null;
+  }
+  return out;
+}
+
+/** The `rules` block of the scanner routes; null when absent (an older backend) or without a version. */
+export function parseRules(v: unknown): ScanRules | null {
+  const d = rec(v);
+  const version = str(d.version);
+  if (!version) return null;
+  const liq = rec(d.liquidity);
+  const minCr = num(liq.min_traded_value_cr);
+  const rb = rec(d.risk_bands);
+  const lo = num(rb.low_below_pct);
+  const hi = num(rb.high_above_pct);
+  const wl = rec(d.watchlist);
+  const cand = rec(wl.candidates);
+  const uni = rec(d.universe);
+  const buckets: ScanRules["buckets"] = {};
+  for (const b of SETUP_BUCKETS) if (b in wl) buckets[b] = flat(wl[b]) as Record<string, number | string[] | null>;
+  const categories: ScanRules["categories"] = {};
+  for (const c of UNIVERSE_CATEGORIES) if (c in rec(d.categories)) categories[c] = flat(rec(d.categories)[c]) as Record<string, number | string | boolean | null>;
+  return {
+    version,
+    liquidity: minCr != null ? { minCr, sessions: num(liq.sessions), definition: str(liq.definition) } : null,
+    riskBands: lo != null && hi != null ? { lowBelowPct: lo, highAbovePct: hi, basis: str(rb.basis) } : null,
+    buckets,
+    candidates: "candidates" in wl
+      ? { minClose: num(cand.min_close), excludedStages: strs(cand.excluded_stages), topByScore: num(cand.top_by_score), minBars: num(cand.min_bars) }
+      : null,
+    stopAtrMultiple: num(wl.stop_atr_multiple),
+    universe: "series" in uni
+      ? { series: strs(uni.series), excludeEtf: uni.exclude_etf === true, minPriceBandPct: num(uni.min_price_band_pct),
+          bandLimitTolerancePct: num(uni.band_limit_tolerance_pct), order: strs(uni.exclusion_order) }
+      : null,
+    categories,
+    maxRowsPerCategory: num(d.max_rows_per_category),
+  };
+}
+
+/** Low / medium / high from ATR% with the route's bands; null without a figure or without the bands. */
+export function riskClassOf(atrPct: number | null, rules: ScanRules | null): RiskClass | null {
+  const b = rules?.riskBands;
+  if (atrPct == null || atrPct < 0 || !b) return null;
+  if (atrPct < b.lowBelowPct) return "low";
+  if (atrPct > b.highAbovePct) return "high";
+  return "medium";
+}
+
+// ── the eligible universe: GET /api/positional/scan-universe ─────────────
+
+/** The universe categories the route computes (setup_rules.CATEGORIES). */
+export const UNIVERSE_CATEGORIES = ["momentum", "unusual_volume", "results_day", "fno"] as const;
+export type UniverseCategory = (typeof UNIVERSE_CATEGORIES)[number];
+
+export interface UniverseRow {
+  symbol: string;
+  sector: string | null;
+  /** NSE index-constituent industry, where the stock is in an index list. */
+  industry: string | null;
+  close: number | null;
+  prevClose: number | null;
+  open: number | null;
+  high: number | null;
+  return5d: number | null;
+  return20d: number | null;
+  sma50: number | null;
+  sma50Slope: number | null;
+  volZ20: number | null;
+  /** The day's volume ÷ its 20-session average. */
+  rvol20: number | null;
+  atrPct: number | null;
+  volatility1y: number | null;
+  marketCapBucket: string | null;
+  tradedCr: number | null;
+  series: string | null;
+  priceBandPct: number | null;
+  /** The band as NSE writes it ("20", "No Band"). */
+  bandRaw: string | null;
+  fnoEligible: boolean | null;
+  isEtf: boolean | null;
+  hasReference: boolean;
+  lastResults: string | null;
+  nextResults: string | null;
+  eligible: boolean;
+  /** The first eligibility gate the stock fails (setup_rules.UNIVERSE exclusion_order). */
+  exclusion: string | null;
+  riskClass: RiskClass | null;
+  liquidityClass: "liquid" | "thin" | null;
+  categories: UniverseCategory[];
+  /** The move-odds estimate as a percentile among the eligible stocks the model scored; null when not ranked. */
+  modelRank: Record<"p_up5_1d" | "p_up10_1d", number | null>;
+}
+
+export interface CategoryCount {
+  total: number;
+  shown: number;
+  symbols: string[];
+  rankBy: string | null;
+  /** Eligible stocks without a figure the rule needs (not in the category, never counted as passing). */
+  missing: number | null;
+}
+
+export type ModelStatus = "final" | "not_published" | "withheld" | "no_access" | "unavailable";
+
+export interface ScanUniverse {
+  asOf: string;
+  referenceAsOf: string | null;
+  source: string | null;
+  sessions: number | null;
+  rules: ScanRules | null;
+  resultsWindow: { from: string; to: string } | null;
+  universe: { total: number; eligible: number; fnoEligible: number | null; excluded: Record<string, number> };
+  categories: Partial<Record<UniverseCategory, CategoryCount>>;
+  model: { status: ModelStatus; reason: string | null; run: Record<string, string | number | null> | null; rankedEligible: number | null };
+  rows: Map<string, UniverseRow>;
+  notFound: string[];
+}
+
+const bool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+const MODEL_STATUS: readonly ModelStatus[] = ["final", "not_published", "withheld", "no_access", "unavailable"];
+
+function readUniverseRow(v: unknown): UniverseRow | null {
+  const r = rec(v);
+  const symbol = str(r.symbol);
+  if (!symbol) return null;
+  const rank = rec(r.model_rank_pct);
+  const rc = str(r.risk_class);
+  const lc = str(r.liquidity_class);
+  return {
+    symbol: symbol.toUpperCase(), sector: str(r.sector), industry: str(r.industry),
+    close: price(r.close_price) ?? price(r.close), prevClose: price(r.prev_close), open: price(r.open_price), high: price(r.high_price),
+    return5d: num(r.return_5d_pct), return20d: num(r.return_20d_pct), sma50: price(r.sma50), sma50Slope: num(r.sma50_slope),
+    volZ20: num(r.vol_z20), rvol20: nonNeg(r.rvol20), atrPct: nonNeg(r.atr_pct), volatility1y: nonNeg(r.volatility_1y_pct),
+    marketCapBucket: str(r.market_cap_bucket), tradedCr: nonNeg(r.traded_value_cr_20d), series: str(r.series),
+    priceBandPct: nonNeg(r.price_band_pct), bandRaw: str(r.band_raw), fnoEligible: bool(r.fno_eligible), isEtf: bool(r.is_etf),
+    hasReference: r.has_reference === true, lastResults: str(r.last_results_date), nextResults: str(r.next_results_date),
+    eligible: r.eligible === true, exclusion: str(r.exclusion),
+    riskClass: rc === "low" || rc === "medium" || rc === "high" ? rc : null,
+    liquidityClass: lc === "liquid" || lc === "thin" ? lc : null,
+    categories: strs(r.categories).filter((c): c is UniverseCategory => (UNIVERSE_CATEGORIES as readonly string[]).includes(c)),
+    modelRank: { p_up5_1d: num(rank.p_up5_1d), p_up10_1d: num(rank.p_up10_1d) },
+  };
+}
+
+export function parseUniverse(body: unknown): ScanUniverse {
+  const d = rec(body);
+  const asOf = str(d.as_of);
+  if (!asOf || !Array.isArray(d.rows) || !d.universe || typeof d.universe !== "object") throw drift("positional.scan-universe: no rows");
+  const u = rec(d.universe);
+  const excluded: Record<string, number> = {};
+  for (const [k, v] of Object.entries(rec(u.excluded))) {
+    const n = num(v);
+    if (n != null) excluded[k] = n;
+  }
+  const categories: ScanUniverse["categories"] = {};
+  for (const c of UNIVERSE_CATEGORIES) {
+    const x = rec(rec(d.categories)[c]);
+    const total = num(x.total);
+    if (total == null) continue;
+    categories[c] = { total, shown: num(x.shown) ?? 0, symbols: strs(x.symbols).map((s) => s.toUpperCase()), rankBy: str(x.rank_by), missing: num(x.missing) };
+  }
+  const m = rec(d.model);
+  const status = (MODEL_STATUS as readonly string[]).includes(String(m.status)) ? (m.status as ModelStatus) : "unavailable";
+  const head = rec(rec(m.heads).p_up5_1d);
+  const run: Record<string, string | number | null> = {};
+  for (const [k, v] of Object.entries(rec(head.run))) run[k] = typeof v === "string" || typeof v === "number" ? v : null;
+  const rows = new Map<string, UniverseRow>();
+  for (const v of d.rows) {
+    const row = readUniverseRow(v);
+    if (row && !rows.has(row.symbol)) rows.set(row.symbol, row);
+  }
+  const win = rec(d.results_window);
+  return {
+    asOf, referenceAsOf: str(d.reference_as_of), source: str(d.source), sessions: num(d.sessions), rules: parseRules(d.rules),
+    resultsWindow: str(win.from) && str(win.to) ? { from: str(win.from) as string, to: str(win.to) as string } : null,
+    universe: { total: num(u.total) ?? 0, eligible: num(u.eligible) ?? 0, fnoEligible: num(u.fno_eligible), excluded },
+    categories,
+    model: { status, reason: str(m.reason), run: Object.keys(run).length ? run : null, rankedEligible: num(head.ranked_eligible) },
+    rows,
+    notFound: strs(d.not_found),
+  };
+}
+
+/**
+ * The universe categories and the eligible universe. `setups` are the scanner's own setups (they count toward F&O
+ * candidates and get their universe figures and model rank); `symbols` are other stocks to look up (a watchlist).
+ * Waits until `enabled` (the setups are known), so it is asked once per list.
+ */
+export function useScanUniverse(setups: string[], symbols: string[], enabled = true) {
+  const s = [...new Set(setups.map((x) => x.toUpperCase()))].sort();
+  const o = [...new Set(symbols.map((x) => x.toUpperCase()))].filter((x) => !s.includes(x)).sort();
+  return useQuery<ScanUniverse>({
+    queryKey: ["copilot", "desk", "scan-universe", s.join(","), o.join(",")],
+    enabled,
     staleTime: 5 * 60_000,
+    // A new list of stocks to look up keeps the last answer on screen until the new one arrives.
+    placeholderData: keepPreviousData,
     retry,
     queryFn: async ({ signal }) => {
-      const [w, p] = await Promise.allSettled([fetchWatch(signal), fetchPicks(signal)]);
-      if (w.status === "rejected" && p.status === "rejected") throw w.reason;
-      const watch = w.status === "fulfilled" ? w.value : { asOf: null, items: [] };
-      const picks = p.status === "fulfilled" ? p.value : { signalDate: null, items: [] };
-      const partial: DeskScanner["partial"] = [];
-      if (w.status === "rejected") partial.push("watchlist");
-      if (p.status === "rejected") partial.push("picks");
-      return { watchAsOf: watch.asOf, signalDate: picks.signalDate, setups: mergeSetups(watch.items, picks.items), partial };
+      const query: Record<string, string> = {};
+      if (s.length) query.setups = s.join(",");
+      if (o.length) query.symbols = o.join(",");
+      const res = await http({ path: "/api/positional/scan-universe", query, timeoutMs: 30_000, signal });
+      return parseUniverse(res.data);
     },
   });
 }
@@ -350,4 +590,27 @@ export function headLabel(head: MoveHead): string {
   const m = /^p_(up|down)(\d+)_1d$/.exec(head);
   if (!m) return head;
   return `P(${m[1] === "up" ? "+" : "−"}${m[2]}% next session)`;
+}
+
+/**
+ * PRD §5.8: "A probability is displayed only when supported by an appropriate calibration process." The desk shows a
+ * model probability only when its route marks the estimate calibrated. GET /api/move-odds/latest publishes the
+ * model's out-of-sample record (record.bands: how each probability band turned out in its 2025 test window) but no
+ * flag saying the estimates are calibrated, so every figure is withheld here and the model rank — a percentile, not
+ * a probability — is shown instead. Whether that band record counts as calibration is the owner's decision (gap
+ * matrix U4). Until a route sends such a flag the answer is always "not shown", and the type says so.
+ */
+export function probabilityGate(odds: DeskOdds | undefined, plain = false): { shown: false; reason: string } {
+  if (!odds) return { shown: false, reason: plain ? "Loading the model." : "Loading the move-odds model." };
+  if (odds.kind === "final") {
+    return {
+      shown: false,
+      reason: plain
+        ? "Not shown: the model's chances are not marked as checked against real outcomes (calibrated), so they are held back."
+        : "Withheld: GET /api/move-odds/latest does not mark these estimates as calibrated (it sends a 2025 band record, not a calibration flag), so no probability is shown (PRD §5.8).",
+    };
+  }
+  if (odds.kind === "not_published") return { shown: false, reason: `Not published for ${odds.expectedSession} yet.` };
+  if (odds.kind === "withheld") return { shown: false, reason: `The model's run was withheld: ${odds.reason}.` };
+  return { shown: false, reason: "Move probabilities are not enabled for this account." };
 }

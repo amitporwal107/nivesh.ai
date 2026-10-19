@@ -203,7 +203,7 @@ async def risk_node(state: CopilotState) -> dict:
 
     llm = make_chat_llm(temperature_for(0.1))
     resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
     answer_text = text_of(resp)

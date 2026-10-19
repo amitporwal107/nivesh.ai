@@ -81,11 +81,29 @@ export const GlobalIndicesC = z.object({
   asia:   z.array(GlobalQuoteC).default([]),
 });
 
+/**
+ * The NSE cash-market session behind `market_state` (backend routes/markets.py :: session_state): the IST clock
+ * AND the NSE holiday list. `trading_day` is null when the holiday list could not be read (`calendar`
+ * "unavailable"); then the state follows the clock alone.
+ */
+export const MarketSessionC = z.object({
+  date:            z.string(),
+  state:           z.enum(["open", "closed"]),
+  trading_day:     z.boolean().nullable(),
+  reason:          z.string(),
+  holiday:         z.string().nullable().optional(),
+  hours:           z.string().nullable().optional(),
+  calendar:        z.string(),
+  calendar_source: z.string().nullable().optional(),
+});
+
 export const MarketsHomeC = z.object({
   ok:           z.boolean().optional(),
   as_of:        z.string().nullable().optional(),
   is_live:      z.boolean().default(false),
   market_state: z.enum(["open", "closed"]).default("closed"),
+  /** Absent from an older backend: then the state is the clock's alone. */
+  session:      MarketSessionC.nullable().optional().catch(null),
   fetched_at:   z.string().nullable().optional(),
   /** Rules-based deploy verdict (AGGRESSIVE/NORMAL/CAUTIOUS/DEFENSIVE) + reason. */
   verdict:        z.string().nullable().optional(),
@@ -344,6 +362,7 @@ export type SectorDetailResp  = z.infer<typeof SectorDetailRespC>;
 export type GlobalQuote   = z.infer<typeof GlobalQuoteC>;
 export type GlobalIndices = z.infer<typeof GlobalIndicesC>;
 export type MarketsHome   = z.infer<typeof MarketsHomeC>;
+export type MarketSession = z.infer<typeof MarketSessionC>;
 
 // ── Earnings Tracker — per-sector results (GET /api/markets/earnings) ────
 // Growth values are already in percent (e.g. 14.1 = +14.1%); null when no
