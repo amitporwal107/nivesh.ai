@@ -89,7 +89,13 @@ NIDP_HOME=/opt/nidp-staging
 # Weekends too: companies file on Saturdays and Sundays (results season most of all — NSE lists
 # 482 filings for Sat 2026-08-08 and 199 for Sat 2026-10-10). With weekdays only, none were ingested.
 */30 9-23 * * 6,0  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_nse
-# HELD (api.bseindia.com returns 403 to this VM (needs BSE_PROXY_URL)):
+# HELD (api.bseindia.com returns 403 to this VM's cloud IP; needs a rotating proxy).
+# To enable: (1) add ONE line to /opt/nidp-staging/nidp.env (chmod 600, never in git or logs):
+#       BSE_PROXY_URL=http://USER:PASS@HOST:PORT      (http or https endpoint, rotates per request)
+#   (2) test it once by hand (see docs/DEVOPS_ENVIRONMENTS.md, "BSE_PROXY_URL"):
+#       sudo -u nidp-staging /opt/nidp-staging/run_service.sh corporate_announcements_bse
+#   (3) only if that run is green, un-comment the line below and reinstall this cron file.
+# Unset BSE_PROXY_URL = direct fetch, as before. The proxy is used for bseindia.com hosts only.
 # */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_bse
 
 # ── S4: event/impact classifier (every 30 min, all week) ──────────
