@@ -47,7 +47,7 @@ import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvid
 import { GROUP_COLOR, eventWhen, useIntelEvents, type IntelEvent } from "./intel-data";
 import {
   DESK_INDICES, DESK_REGIME_KEYS, DESK_REGIME_LABEL, READINESS_WORDS, RISK_BANDS_TEXT, RISK_CLASS_LABEL, SECTOR_PERIODS,
-  allocationOf, deskHeadline, feedWords, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
+  allocationOf, dataAsOf, deskHeadline, feedWords, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
   readBreadth, riskClass, stampIst, topHoldings, useMacroToday, useNow, usePicksLive, useSectorConstituents, useSectorReturns,
   useSectorStrength,
   type BreadthRead, type DeskRegime, type DeskRegimeKey, type IndexMode, type IstParts, type LivePick, type MacroToday,
@@ -167,11 +167,49 @@ function SubHead({ children, testId }: { children: ReactNode; testId?: string })
 
 const statusDot = (s: MarketStatus) => (s.feed === "live" ? "var(--mint)" : s.feed === "delayed" ? "var(--amber)" : "var(--cp-ink-4)");
 
+// ── data as of (PRD 4.1 issue 1, 6.1, 7) ─────────────────────────────────
+
+/**
+ * One line that dates every feed on the Overview from the routes' own fields: this device's IST clock, the market
+ * state (with the holiday's name), the last completed trading session, and each feed's own update time. A holiday or a
+ * weekend never makes a prior-session figure look current: the line says which session the figures are from.
+ */
+function DataAsOfLine({ home, macro, compact }: { home: HomeQuery; macro: MacroQuery; compact?: boolean }) {
+  const now = istParts(useNow());
+  const status = marketStatus(home.data, now);
+  const a = dataAsOf(home.data, macro.data, now, status);
+  // A value with a reason (no timestamp) shows both; a missing value shows "—" and the reason. `title` is extra detail.
+  const part = (label: string, value: string | null, why: string | null, testId: string, title?: string) => (
+    <span key={testId} data-testid={testId} title={title ?? why ?? undefined}>
+      <span style={{ color: "var(--cp-ink-4)" }}>{label}</span> {value ?? "—"}{why ? ` (${why})` : ""}
+    </span>
+  );
+  return (
+    <div data-testid="desk-asof" data-not-today={a.notToday ? "true" : "false"} className="flex flex-col" style={{ gap: 3, ...quiet, fontSize: compact ? 11 : 11.5 }}>
+      <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>Data as of</span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        {part("Now", `${a.clock} (this device, not a data date)`, null, "desk-asof-clock")}
+        {part("Market", a.state, null, "desk-asof-state", status.why)}
+        {part("Last completed session", a.lastSession ? dayLabel(a.lastSession, { year: true }) : null, a.lastSessionWhy, "desk-asof-session")}
+      </span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        {a.feeds.map((f) => part(f.label, f.value, f.why, `desk-asof-${f.key}`))}
+      </span>
+      {a.notToday && (
+        <span data-testid="desk-asof-note" style={{ color: "var(--amber)" }}>
+          Breadth, FII / DII and the regime are from the last completed session ({dayLabel(a.lastSession, { year: true })}), not today. Each card keeps its own date.
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── intro: eyebrow + pills, headline, paragraph ──────────────────────────
 
 function Intro({ home, sectors }: { home: HomeQuery; sectors: SectorReturns | undefined }) {
   const { persona } = useDesk();
   const scan = useDeskScanner();
+  const macro = useMacroToday();
   const now = istParts(useNow());
   const status = marketStatus(home.data, now);
   const b = home.data ? readBreadth(home.data.breadth) : null;
@@ -202,6 +240,7 @@ function Intro({ home, sectors }: { home: HomeQuery; sectors: SectorReturns | un
         <Pill>Paper trading on</Pill>
         <Pill>Live orders off</Pill>
       </span>
+      <DataAsOfLine home={home} macro={macro} />
       <h1 data-testid="desk-headline" className="cp-display m-0" style={{ fontSize: 40, lineHeight: 1.08, letterSpacing: "-0.02em", maxWidth: 880 }}>
         {h.lead}{h.emph && <em>{h.emph}</em>}{h.tail}
       </h1>
@@ -283,7 +322,7 @@ function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | 
       </span>
       {ix && (
         <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
-          {MODE_WORD[mode]}{stamp ? ` · ${stamp}` : ""}
+          {MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}
         </span>
       )}
     </div>
@@ -364,7 +403,7 @@ function BreadthTile({ home, style }: { home: MarketsHome; style?: CSSProperties
 /** The stocks the counts cover, in the route's own terms; nothing is guessed from the count. */
 function breadthScope(b: BreadthRead, asOf: string | null): string {
   const n = b.universe != null ? fmtNum(b.universe) : null;
-  if (b.scope === "eod") return `${n ? `Across ${n} NSE stocks` : "Across the NSE stocks"} in the end-of-day bhavcopy${asOf ? ` · ${dayLabel(asOf, { year: true })}` : ""}`;
+  if (b.scope === "eod") return `${n ? `Across ${n} NSE stocks` : "Across the NSE stocks"} in the end-of-day bhavcopy · ${asOf ? dayLabel(asOf, { year: true }) : "date not in the response"}`;
   if (b.scope === "nifty50") return `${n ? `Across the ${n} Nifty 50 stocks` : "Across the Nifty 50 stocks"} · delayed quotes`;
   return n ? `Across ${n} stocks · the response does not say which` : "The response does not say which stocks were counted";
 }
@@ -483,7 +522,7 @@ function RegimeBlock({ m }: { m: MacroToday }) {
         </span>
         {m.kind === "ready" && (
           <span data-testid="desk-regime-since" className="cp-num" style={{ fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-ink-3)", textTransform: "uppercase" }}>
-            {day ? `As of ${dayLabel(day)} · end of day` : "End of day"}
+            {day ? `As of ${dayLabel(day)} · end of day` : "End of day · date not in the response"}
           </span>
         )}
       </div>
@@ -703,7 +742,8 @@ function Change({ pct }: { pct: number | null }) {
 
 /** "Net buy · 13 Oct" / "Net sell · 13 Oct" — the sign of the day's net cash flow. */
 function flowSub(net: number | null | undefined, asOf: string | null | undefined): string {
-  if (net == null || !asOf) return "Not available";
+  if (net == null) return "Not available";
+  if (!asOf) return `${net > 0 ? "Net buy" : net < 0 ? "Net sell" : "Net"} · date not in the response`;
   return `${net > 0 ? "Net buy" : net < 0 ? "Net sell" : "Net"} · ${dayLabel(asOf)}`;
 }
 
@@ -1543,6 +1583,7 @@ function MobileOverview({ home, macro }: { home: HomeQuery; macro: MacroQuery })
         </div>
       )}
       <StatusLine home={home.data} now={now} />
+      <DataAsOfLine home={home} macro={macro} compact />
       <MobilePulse home={home} macro={macro} />
       <TopOpportunities />
       <div className="grid" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
@@ -1568,7 +1609,7 @@ function MobileIndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIn
       <span data-testid="desk-index-change" className="cp-num" style={{ fontSize: 10, color: tone === "ink" ? "var(--cp-ink-2)" : TONE_COLOR[tone], whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         {ix ? `${fmtPoints(ix.change)} (${fmtPct(ix.change_pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
-      {ix && <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 8.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : ""}</span>}
+      {ix && <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 8.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp"}</span>}
     </div>
   );
 }

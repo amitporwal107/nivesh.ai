@@ -668,6 +668,36 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await expect(status).toHaveAttribute("data-feed", "closed");
     await expect(page.getByTestId("desk-intro-holiday")).toHaveText("NSE holiday · Dussehra");
     await expect(page.getByTestId("desk-intro-feed")).toHaveText("NSE · BSE end of day");
+
+    // PRD 4.1 issue 1: one "Data as of" line dates every feed from the routes' own fields. On a holiday the prior session's
+    // figures are named as such, never presented as today's.
+    const asof = page.getByTestId("desk-asof");
+    await expect(page.getByTestId("desk-asof-clock")).toContainText(/IST \(this device, not a data date\)$/);
+    await expect(page.getByTestId("desk-asof-state")).toHaveText("Market NSE holiday: Dussehra");
+    await expect(page.getByTestId("desk-asof-session")).toHaveText("Last completed session 13 Oct 2026");
+    await expect(page.getByTestId("desk-asof-tape")).toContainText("Index tape End of day · 13 Oct, 15:35 IST");
+    await expect(page.getByTestId("desk-asof-breadth")).toHaveText("Breadth End of day · session 2026-10-13");
+    await expect(page.getByTestId("desk-asof-flows")).toHaveText("FII / DII End of day · session 2026-10-13");
+    await expect(page.getByTestId("desk-asof-regime")).toHaveText("Regime End of day · session 2026-10-13 (1 day old)");
+    await expect(asof).toHaveAttribute("data-not-today", "true");
+    await expect(page.getByTestId("desk-asof-note")).toContainText("are from the last completed session (13 Oct 2026), not today");
+    // The cards keep their own dates.
+    await expect(page.getByTestId("desk-index-stamp").first()).toContainText("13 Oct, 15:35 IST");
+    await expect(page.getByTestId("desk-breadth-scope")).toContainText("13 Oct 2026");
+    await expect(page.getByTestId("desk-mini-fii")).toContainText("13 Oct");
+  });
+
+  test("Data as of: the live Nifty 50 breadth fallback names no completed session, and a missing timestamp is said, not hidden", async ({ page }) => {
+    await overviewApi(page);
+    await page.route("**/api/markets/home", (route) => json(route, { ...HOME, as_of: null, fetched_at: null, fii_dii: null, market_state: "open", is_live: false, session: SESSION_OPEN,
+      breadth: { ...HOME.breadth, universe: 50, universe_kind: "nifty50_live" } }));
+    await page.goto(DESK);
+    await expect(page.getByTestId("desk-asof-session")).toContainText("Breadth is the live Nifty 50 fallback, which names no completed session.");
+    await expect(page.getByTestId("desk-asof-session")).not.toContainText("2026");
+    await expect(page.getByTestId("desk-asof-tape")).toContainText("The response carries no timestamp for the tape.");
+    await expect(page.getByTestId("desk-asof-flows")).toContainText("The response carries no FII / DII row.");
+    await expect(page.getByTestId("desk-asof-note")).toHaveCount(0);
+    await expect(page.getByTestId("desk-index-stamp").first()).toContainText("no timestamp in the response");
   });
 
   test("header search: a symbol not in the scan opens the Chart tab with ?sym= (PRD §7.2); on the Chart tab it switches the stock; words go to the Copilot", async ({ page }) => {

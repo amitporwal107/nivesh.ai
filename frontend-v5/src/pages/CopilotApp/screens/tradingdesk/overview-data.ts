@@ -622,6 +622,84 @@ export function marketStatus(home: MarketsHome | undefined, now: IstParts): Mark
   };
 }
 
+// ── "Data as of": one place that dates every feed on the Overview ────────
+
+export interface FeedAsOf {
+  key: "tape" | "breadth" | "flows" | "regime";
+  label: string;
+  /** What the feed's own field says, e.g. "End of day · 14 Oct, 15:45 IST" or "session 2026-10-14"; null when it says nothing. */
+  value: string | null;
+  /** The ISO day of the feed's data when it is a session figure, else null. */
+  day: string | null;
+  /** Why value is "—". */
+  why: string | null;
+}
+
+export interface DataAsOf {
+  /** "Wed 14 Oct, 11:32 IST": this device's clock, which is not a data date. */
+  clock: string;
+  /** "Market closed", "NSE holiday: Diwali" ... from GET /api/markets/home `session`. */
+  state: string;
+  /** The last session that has completed, from the breadth's end-of-day bhavcopy; null when the response does not give one. */
+  lastSession: string | null;
+  lastSessionWhy: string | null;
+  /** True when the last completed session is before today's IST day (a holiday, weekend or before the day's file). */
+  notToday: boolean;
+  feeds: FeedAsOf[];
+}
+
+/**
+ * The Overview's dating, from the routes' own fields and nothing else (PRD 4.1 issue 1, 6.1, 7). The last completed
+ * session is the end-of-day breadth's day (`as_of` when the breadth counts the NSE bhavcopy, which exists only for a
+ * finished session). With the live Nifty 50 fallback, or no breadth, no completed-session date is in the response, so
+ * none is shown and the reason says why. Nothing here counts back over a holiday list.
+ */
+export function dataAsOf(home: MarketsHome | undefined, macro: MacroToday | undefined, now: IstParts, status: MarketStatus): DataAsOf {
+  const clock = `${now.weekday} ${now.day}, ${now.time} IST`;
+  const state = status.holiday ? `NSE holiday: ${status.holiday}` : status.label;
+  const b = home ? readBreadth(home.breadth) : null;
+  const homeDay = istDay(home?.as_of);
+  const feeds: FeedAsOf[] = [];
+  const tapeStamp = home ? stampIst(home.fetched_at ?? home.as_of) : null;
+  feeds.push(home
+    ? { key: "tape", label: "Index tape", value: `${indexMode(home) === "live" ? "Live" : indexMode(home) === "delayed" ? "Delayed" : "End of day"}${tapeStamp ? ` · ${tapeStamp}` : ""}`, day: null, why: tapeStamp ? null : "The response carries no timestamp for the tape." }
+    : { key: "tape", label: "Index tape", value: null, day: null, why: "The market overview has not loaded." });
+  let lastSession: string | null = null;
+  let lastSessionWhy: string | null = null;
+  if (!home) {
+    feeds.push({ key: "breadth", label: "Breadth", value: null, day: null, why: "The market overview has not loaded." });
+    lastSessionWhy = "The market overview has not loaded.";
+  } else if (!b) {
+    feeds.push({ key: "breadth", label: "Breadth", value: null, day: null, why: "The response carries no advances and declines." });
+    lastSessionWhy = "The response carries no breadth, which is the source of the session date.";
+  } else if (b.scope === "eod") {
+    lastSession = homeDay;
+    lastSessionWhy = homeDay ? null : "The breadth is end of day, but the response gives no date for it.";
+    feeds.push({ key: "breadth", label: "Breadth", value: homeDay ? `End of day · session ${homeDay}` : null, day: homeDay, why: homeDay ? null : "The response gives no date for the breadth." });
+  } else {
+    const stamp = stampIst(home.fetched_at);
+    feeds.push({ key: "breadth", label: "Breadth", value: `Delayed Nifty 50 quotes${stamp ? ` · ${stamp}` : ""}`, day: null, why: stamp ? null : "The response carries no timestamp for it." });
+    lastSessionWhy = b.scope === "nifty50"
+      ? "Breadth is the live Nifty 50 fallback, which names no completed session."
+      : "The response does not say which stocks the breadth counted, so it names no session.";
+  }
+  const f = home?.fii_dii ?? null;
+  feeds.push(f?.as_of
+    ? { key: "flows", label: "FII / DII", value: `End of day · session ${istDay(f.as_of) ?? f.as_of}`, day: istDay(f.as_of), why: null }
+    : { key: "flows", label: "FII / DII", value: null, day: null, why: home ? "The response carries no FII / DII row." : "The market overview has not loaded." });
+  if (macro?.kind === "ready") {
+    const day = istDay(macro.desk?.date ?? macro.date);
+    feeds.push({
+      key: "regime", label: "Regime",
+      value: day ? `End of day · session ${day}${macro.daysStale != null && macro.daysStale > 0 ? ` (${macro.daysStale} ${macro.daysStale === 1 ? "day" : "days"} old)` : ""}` : null,
+      day, why: day ? null : "The regime response carries no date.",
+    });
+  } else {
+    feeds.push({ key: "regime", label: "Regime", value: null, day: null, why: macro?.kind === "unavailable" ? macro.reason ?? "The macro engine has not produced a regime yet." : "The regime has not loaded." });
+  }
+  return { clock, state, lastSession, lastSessionWhy, notToday: lastSession != null && lastSession < now.iso, feeds };
+}
+
 /** The pill's data-feed words for the index tape: live only when the route says so. */
 export function feedWords(s: MarketStatus): string {
   if (s.feed === "live") return "live";
