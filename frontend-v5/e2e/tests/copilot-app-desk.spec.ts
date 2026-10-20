@@ -687,6 +687,35 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await expect(page.getByTestId("desk-mini-fii")).toContainText("13 Oct");
   });
 
+  test("setup lifecycle: the headline's counts state the scan, the rules, the eligible universe and where each setup stands", async ({ page }) => {
+    await overviewApi(page);
+    // MOCK - not real data: a scan-universe body with only what the line reads (backend/routes/positional.py :: scan_universe).
+    await page.route("**/api/positional/scan-universe*", (route) => json(route, {
+      as_of: "2026-10-12", rows: [], universe: { total: 2469, eligible: 969, fno_eligible: 205, excluded: {} }, categories: {}, model: { status: "unavailable", reason: null, heads: {} },
+    }));
+    await page.route("**/api/positional/watchlist*", (route) => json(route, { ...WATCHLIST, _classifier_version: "smart_v2" }));
+    await page.route("**/api/positional/picks*", (route) => json(route, { ...PICKS, rules_version: "setup-rules-v3" }));
+    await page.goto(DESK);
+    // 3 setups: TESTBRK + TESTPICK confirmed, TESTPRE awaiting (see WATCHLIST / PICKS above); none forming.
+    await expect(page.getByTestId("desk-headline")).toContainText("2 of 3 setups have confirmed.");
+    await expect(page.getByTestId("desk-setups-scope")).toHaveText("End-of-day scan · 12 Oct 2026");
+    await expect(page.getByTestId("desk-setups-rules")).toHaveText("Rules smart_v2 · setup-rules-v3");
+    await expect(page.getByTestId("desk-setups-universe")).toHaveText("Eligible universe 969 stocks · 12 Oct 2026");
+    await expect(page.getByTestId("desk-setups-confirmed")).toHaveText("2 confirmed");
+    await expect(page.getByTestId("desk-setups-awaiting")).toHaveText("1 awaiting");
+    await expect(page.getByTestId("desk-setups-forming")).toHaveText("0 forming");
+    await expect(page.getByTestId("desk-setups-untracked")).toHaveText("Invalidated and expired setups are not tracked yet: the scanner does not send them.");
+  });
+
+  test("setup lifecycle: no scan-universe answer is said, not counted as zero", async ({ page }) => {
+    await overviewApi(page);
+    await page.route("**/api/positional/scan-universe*", (route) => json(route, { detail: "down" }, 500));
+    await page.goto(DESK);
+    await expect(page.getByTestId("desk-setups-universe")).toContainText("Eligible universe — (", { timeout: 15000 });
+    await expect(page.getByTestId("desk-setups-rules")).toHaveText("Rules — (version not in the response)");
+    await expect(page.getByTestId("desk-setups-universe")).not.toContainText("0 stocks");
+  });
+
   test("Data as of: the live Nifty 50 breadth fallback names no completed session, and a missing timestamp is said, not hidden", async ({ page }) => {
     await overviewApi(page);
     await page.route("**/api/markets/home", (route) => json(route, { ...HOME, as_of: null, fetched_at: null, fii_dii: null, market_state: "open", is_live: false, session: SESSION_OPEN,

@@ -43,11 +43,11 @@ import { lensOf, readConcentration } from "../portfolio/concentration-data";
 import { QueryProblem } from "../trading/parts";
 import { useBrokerAccounts } from "../trading/queries";
 import { useDesk, type DeskPersona } from "./context";
-import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup, type SetupBucket } from "./desk-data";
+import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, useScanUniverse, type DeskSetup, type SetupBucket } from "./desk-data";
 import { GROUP_COLOR, eventWhen, useIntelEvents, type IntelEvent } from "./intel-data";
 import {
   DESK_INDICES, DESK_REGIME_KEYS, DESK_REGIME_LABEL, READINESS_WORDS, RISK_BANDS_TEXT, RISK_CLASS_LABEL, SECTOR_PERIODS,
-  allocationOf, dataAsOf, deskHeadline, feedWords, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
+  allocationOf, dataAsOf, deskHeadline, feedWords, setupLifecycle, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
   readBreadth, riskClass, stampIst, topHoldings, useMacroToday, useNow, usePicksLive, useSectorConstituents, useSectorReturns,
   useSectorStrength,
   type BreadthRead, type DeskRegime, type DeskRegimeKey, type IndexMode, type IstParts, type LivePick, type MacroToday,
@@ -167,6 +167,36 @@ function SubHead({ children, testId }: { children: ReactNode; testId?: string })
 
 const statusDot = (s: MarketStatus) => (s.feed === "live" ? "var(--mint)" : s.feed === "delayed" ? "var(--amber)" : "var(--cp-ink-4)");
 
+// ── setup lifecycle (PRD 4.1 issue 2) ────────────────────────────────────
+
+/** Under the headline: which scan "N of M setups" counts, with what rules, over what universe, and where each setup stands. */
+function SetupLifecycleLine() {
+  const scan = useDeskScanner();
+  const setups = scan.data?.setups;
+  const syms = useMemo(() => (setups ?? []).map((s) => s.symbol), [setups]);
+  const uni = useScanUniverse(syms, [], !scan.isPending && syms.length > 0);
+  const why = uni.isError ? "The eligible universe didn’t load." : uni.isPending ? "Loading the eligible universe." : null;
+  const l = setupLifecycle(scan.data, uni.data, why);
+  if (!l) return null;
+  return (
+    <div data-testid="desk-setups-lifecycle" className="flex flex-col" style={{ gap: 3, ...quiet, fontSize: 11.5 }}>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        <span data-testid="desk-setups-scope">{l.scope}</span>
+        <span data-testid="desk-setups-rules">Rules {l.rules ?? "— (version not in the response)"}</span>
+        <span data-testid="desk-setups-universe">
+          Eligible universe {l.eligible != null ? `${fmtNum(l.eligible)} stocks${l.universeDay ? ` · ${dayLabel(l.universeDay, { year: true })}` : ""}` : `— (${l.universeWhy})`}
+        </span>
+      </span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        <span data-testid="desk-setups-confirmed">{fmtNum(l.confirmed)} confirmed</span>
+        <span data-testid="desk-setups-awaiting">{fmtNum(l.awaiting)} awaiting</span>
+        <span data-testid="desk-setups-forming">{fmtNum(l.forming)} forming</span>
+        <span data-testid="desk-setups-untracked">{l.untracked}</span>
+      </span>
+    </div>
+  );
+}
+
 // ── data as of (PRD 4.1 issue 1, 6.1, 7) ─────────────────────────────────
 
 /**
@@ -244,6 +274,7 @@ function Intro({ home, sectors }: { home: HomeQuery; sectors: SectorReturns | un
       <h1 data-testid="desk-headline" className="cp-display m-0" style={{ fontSize: 40, lineHeight: 1.08, letterSpacing: "-0.02em", maxWidth: 880 }}>
         {h.lead}{h.emph && <em>{h.emph}</em>}{h.tail}
       </h1>
+      <SetupLifecycleLine />
       <p data-testid="desk-intro-text" className="m-0 cp-pretty" style={{ fontSize: 15, lineHeight: 1.6, color: "var(--cp-ink-2)", maxWidth: 780 }}>
         {persona === "investor"
           ? "The market, ideas from an end-of-day rules-based scan, company filings and your portfolio in one place, in plain words. Every figure says where it came from and when."

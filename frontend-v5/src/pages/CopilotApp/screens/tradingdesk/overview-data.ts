@@ -41,7 +41,8 @@ import { ApiError } from "@/services/api/errors";
 import type { GlobalQuote, MarketBreadth, MarketIndex, MarketsHome } from "@/services/contracts/markets.contract";
 import type { EnrichedHoldingsRes } from "@/services/contracts/portfolio.contract";
 import type { DeskPersona } from "./context";
-import { num } from "./desk-data";
+import { scanDateLabel } from "./chart-data";
+import { num, type DeskScanner, type DeskSetup, type ScanUniverse } from "./desk-data";
 import type { IntelEvent } from "./intel-data";
 
 type Raw = Record<string, unknown>;
@@ -783,6 +784,47 @@ export function deskHeadline(input: {
   }
   if (lead) return { lead, emph: null, tail: "" };
   return { lead: "Your smart ", emph: "trading desk", tail: "." };
+}
+
+// ── the setup lifecycle behind "N of M setups have confirmed" (PRD 4.1 issue 2) ──
+
+export interface SetupLifecycle {
+  /** "End-of-day scan · 13 Oct 2026": the timeframe the counts are for. */
+  scope: string;
+  /** The rules version the scanner routes name ("smart_v2" classifier, rules version), or null when none is sent. */
+  rules: string | null;
+  /** Stocks in the eligible universe on the scan-universe route's day; null with the reason in `universeWhy`. */
+  eligible: number | null;
+  universeDay: string | null;
+  universeWhy: string | null;
+  confirmed: number;
+  awaiting: number;
+  forming: number;
+  total: number;
+  /** The scanner sends no invalidated or expired state, so it is said and not counted as zero. */
+  untracked: string;
+}
+
+/**
+ * The counts behind the headline, from the scanner's own statuses and the scan-universe route. Setups are the
+ * deduplicated stocks of the watchlist and picks routes; each is confirmed (breakout happened), awaiting (near
+ * breakout or pullback) or forming (accumulation). Invalidated and expired setups are not sent by the scanner, so
+ * they are not counted.
+ */
+export function setupLifecycle(scan: DeskScanner | undefined, universe: ScanUniverse | undefined, universeWhy: string | null): SetupLifecycle | null {
+  if (!scan || scan.setups.length === 0) return null;
+  const n = (st: DeskSetup["status"]) => scan.setups.filter((x) => x.status === st).length;
+  const date = scanDateLabel(scan.watchAsOf, scan.signalDate);
+  const versions = [scan.classifierVersion, scan.rulesVersion ?? scan.rules?.version].filter((v): v is string => !!v);
+  return {
+    scope: `End-of-day scan${date ? ` · ${date}` : " · date not in the response"}`,
+    rules: versions.length ? [...new Set(versions)].join(" · ") : null,
+    eligible: universe ? universe.universe.eligible : null,
+    universeDay: universe?.asOf ?? null,
+    universeWhy: universe ? null : universeWhy ?? "The eligible universe did not load.",
+    confirmed: n("confirmed"), awaiting: n("awaiting"), forming: n("forming"), total: scan.setups.length,
+    untracked: "Invalidated and expired setups are not tracked yet: the scanner does not send them.",
+  };
 }
 
 // ── the scanner's picks with the live overlay (GET /api/positional/picks/mine?live=true) ──
