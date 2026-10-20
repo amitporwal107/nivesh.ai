@@ -119,7 +119,25 @@ export const IdeaSchema = z.object({
 }).passthrough();
 export type Idea = z.infer<typeof IdeaSchema>;
 
+/** How the Chartink part of the board went: any state but "ok" means the ideas are the scanner's alone, and `reason` says why. */
+export const SelectionChartinkSchema = z.object({
+  included: z.boolean().nullable().catch(null),
+  state: strOrNull,
+  reason: strOrNull,
+  scan_date: strOrNull,
+  fetched_at: strOrNull,
+  mode: strOrNull,
+  limit: numOrNull,
+  considered: numOrNull,
+  added: numOrNull,
+  excluded: z.array(z.unknown()).catch([]),
+  note: strOrNull,
+  rule: strOrNull,
+}).passthrough();
+export type SelectionChartink = z.infer<typeof SelectionChartinkSchema>;
+
 export const SelectionSchema = z.object({
+  chartink: SelectionChartinkSchema.nullable().catch(null),
   source: strOrNull,
   scan_date: strOrNull,
   rule: strOrNull,

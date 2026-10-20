@@ -18,7 +18,7 @@ import { stampIst } from "../overview-data";
 import { useDesk } from "../context";
 import { DIRECTION_LABEL } from "../strategy/plan-form";
 import { ChartinkTrust, CHARTINK_SOURCE_LABEL, Switch } from "./ChartinkParts";
-import { DIRECTIONS, type ChartinkHits, type ChartinkRefresh, type ChartinkScan, type ChartinkSourceDoc, type ScanDirection } from "./chartink-contract";
+import { DIRECTIONS, failureText as failureLine, type ChartinkHits, type ChartinkRefresh, type ChartinkScan, type ChartinkSourceDoc, type ScanDirection } from "./chartink-contract";
 import {
   checkDashboardUrl, connectProblems, cooldownSeconds, useChartinkHits, useChartinkRefresh, useChartinkSource, useConnectChartink,
   useDisconnectChartink, useUpdateChartinkScan,
@@ -135,10 +135,10 @@ function Connected({ doc, hitsQ, plain }: { doc: ChartinkSourceDoc; hitsQ: Retur
           <p data-testid="chartink-dashboard" className="m-0" style={{ ...noteStyle, overflowWrap: "anywhere" }}>
             {doc.url} · dashboard read {stampIst(doc.fetched_at) ?? "—"}
           </p>
-          <Actions />
+          <Actions retryAfter={doc.refresh.retry_after_s} />
         </div>
       </Section>
-      <ScanTable doc={doc} hits={hits} hitsQ={hitsQ} plain={plain} />
+      <ScanTable doc={doc} plain={plain} />
       <HitsStatus hits={hits} hitsQ={hitsQ} enabled={enabled} />
       <div className="flex flex-col" style={{ gap: 4 }}>
         {hits ? <ChartinkTrust hits={hits} testId="chartink-trust" /> : <span className="cp-mono-note" data-testid="chartink-trust">{CHARTINK_SOURCE_LABEL} · not validated</span>}
@@ -147,7 +147,7 @@ function Connected({ doc, hitsQ, plain }: { doc: ChartinkSourceDoc; hitsQ: Retur
   );
 }
 
-function Actions() {
+function Actions({ retryAfter }: { retryAfter: number | null }) {
   const refresh = useChartinkRefresh();
   const disconnect = useDisconnectChartink();
   const [confirm, setConfirm] = useState(false);
@@ -161,6 +161,9 @@ function Actions() {
         <Btn data-testid="chartink-refresh" onClick={() => refresh.mutate()} disabled={refresh.isPending} aria-busy={refresh.isPending}>{refresh.isPending ? "Refreshing…" : "Refresh now"}</Btn>
         <Btn variant="ghost" data-testid="chartink-disconnect" onClick={() => setConfirm(true)} disabled={confirm || disconnect.isPending}>Disconnect</Btn>
         <span style={noteStyle}>Runs your enabled scans through Chartink’s page. Allowed once every 10 minutes.</span>
+        {retryAfter != null && retryAfter > 0 && !refresh.isError && (
+          <span data-testid="chartink-next-refresh" style={{ fontSize: 12, color: "var(--amber)" }}>A refresh ran recently: the next is allowed in {Math.max(1, Math.ceil(retryAfter / 60))} {Math.ceil(retryAfter / 60) <= 1 ? "minute" : "minutes"}.</span>
+        )}
       </div>
       <div role="status" aria-live="polite" data-testid="chartink-refresh-live" className="flex flex-col" style={{ gap: 4 }}>
         {refresh.isPending && <span style={noteStyle}>Running your scans…</span>}
@@ -192,8 +195,9 @@ function RefreshResult({ r }: { r: ChartinkRefresh }) {
   return (
     <div data-testid="chartink-refresh-result" className="flex flex-col" style={{ gap: 3 }}>
       <span style={{ fontSize: 12.5 }}>
-        Refreshed {stampIst(r.fetched_at) ?? "just now"}: {r.scans.length - bad} of {r.scans.length} {r.scans.length === 1 ? "scan" : "scans"} ran{bad ? `, ${bad} failed` : ""}.
+        Refreshed {stampIst(r.ran_at) ?? "just now"}: {r.scans.length - bad} of {r.scans.length} {r.scans.length === 1 ? "scan" : "scans"} ran{bad ? `, ${bad} failed` : ""}.
       </span>
+      {r.degraded && <span data-testid="chartink-degraded" role="note" style={{ fontSize: 12.5, color: "var(--amber)" }}>{r.degraded}</span>}
       <ul className="m-0 flex flex-col" style={{ gap: 2, paddingLeft: 18 }}>
         {r.scans.map((s) => (
           <li key={s.id} data-testid="chartink-refresh-scan" data-ok={s.ok} style={{ fontSize: 12.5, color: s.ok ? "var(--cp-ink-2)" : "var(--cp-danger)" }}>
@@ -207,14 +211,13 @@ function RefreshResult({ r }: { r: ChartinkRefresh }) {
 
 // ── the scans ────────────────────────────────────────────────────────────
 
-function ScanTable({ doc, hits, hitsQ, plain }: { doc: ChartinkSourceDoc; hits: ChartinkHits | null; hitsQ: ReturnType<typeof useChartinkHits>; plain: boolean }) {
+function ScanTable({ doc, plain }: { doc: ChartinkSourceDoc; plain: boolean }) {
   const update = useUpdateChartinkScan();
   const [busy, setBusy] = useState<string | null>(null);
   const patch = (id: string, body: { enabled?: boolean; direction?: ScanDirection }) => {
     setBusy(id);
     update.mutate({ id, ...body }, { onSettled: () => setBusy(null) });
   };
-  const hitOf = (id: string) => hits?.scans.find((s) => s.id === id) ?? null;
   const heads = ["Scan", "Kind", "Can run", "Enabled", plain ? "Leans" : "Direction", "Last fetch", "Hits"];
   return (
     <Section title="Your scans" note="Switch a scan on to use its hits as opportunities">
@@ -228,7 +231,7 @@ function ScanTable({ doc, hits, hitsQ, plain }: { doc: ChartinkSourceDoc; hits: 
               <caption className="sr-only">Chartink scans on your dashboard: what each can do, whether it is on, which way it leans, and its last result</caption>
               <thead><tr className="cp-mono-note">{heads.map((h) => <th key={h} scope="col" style={th}>{h}</th>)}</tr></thead>
               <tbody>
-                {doc.scans.map((s) => <ScanRow key={s.id} s={s} hit={hitOf(s.id)} fetchedAt={hits?.fetched_at ?? null} hitsLoading={hitsQ.isFetching && !hits} plain={plain} pending={busy === s.id} onPatch={(b) => patch(s.id, b)} />)}
+                {doc.scans.map((s) => <ScanRow key={s.id} s={s} plain={plain} pending={busy === s.id} onPatch={(b) => patch(s.id, b)} />)}
               </tbody>
             </table>
           </div>
@@ -238,12 +241,13 @@ function ScanTable({ doc, hits, hitsQ, plain }: { doc: ChartinkSourceDoc; hits: 
   );
 }
 
-function ScanRow({ s, hit, fetchedAt, hitsLoading, plain, pending, onPatch }: {
-  s: ChartinkScan; hit: ChartinkHits["scans"][number] | null; fetchedAt: string | null; hitsLoading: boolean; plain: boolean; pending: boolean; onPatch: (b: { enabled?: boolean; direction?: ScanDirection }) => void;
+function ScanRow({ s, plain, pending, onPatch }: {
+  s: ChartinkScan; plain: boolean; pending: boolean; onPatch: (b: { enabled?: boolean; direction?: ScanDirection }) => void;
 }) {
   const stats = s.kind === "market_stats";
   const blocked = stats ? STATS_REASON : !s.supported ? s.unsupported_reason ?? "This scan cannot run on the public endpoint." : null;
   const locked = blocked != null;
+  const run = s.last_run;
   return (
     <tr data-testid={`ck-scan-${s.id}`} data-supported={s.supported} data-kind={s.kind} data-enabled={s.enabled}>
       <th scope="row" style={{ ...td, textAlign: "left", fontWeight: 400, minWidth: 220 }}>
@@ -268,9 +272,9 @@ function ScanRow({ s, hit, fetchedAt, hitsLoading, plain, pending, onPatch }: {
         </select>
       </td>
       <td style={td} data-testid="ck-scan-fetched">
-        {locked || !s.enabled ? "—" : hit ? (hit.ok ? (stampIst(fetchedAt) ?? "—") : <span style={{ color: "var(--cp-danger)" }}>Failed{hit.error ? `: ${hit.error}` : ""}</span>) : hitsLoading ? "Loading…" : "Not fetched yet"}
+        {locked ? "—" : run == null ? "Not fetched yet" : run.ok === false ? <span style={{ color: "var(--cp-danger)" }}>Failed{run.error ? `: ${run.error}` : ""}</span> : (stampIst(run.at) ?? "—")}
       </td>
-      <td className="cp-num" style={td} data-testid="ck-scan-hits">{locked || !s.enabled || !hit || !hit.ok || hit.hits == null ? "—" : fmtNum(hit.hits)}</td>
+      <td className="cp-num" style={td} data-testid="ck-scan-hits">{locked || !run || run.ok === false || run.hits == null ? "—" : fmtNum(run.hits)}</td>
     </tr>
   );
 }
@@ -282,8 +286,12 @@ function HitsStatus({ hits, hitsQ, enabled }: { hits: ChartinkHits | null; hitsQ
   if (!hits) return hitsQ.isFetching ? <LoadingBlock label="Loading the latest hits" rows={2} /> : null;
   const failed = hits.scans.filter((s) => !s.ok);
   const unknown = hits.unknown_symbols;
+  const notInAi = hits.symbols.filter((s) => s.in_ai_scanner === false).length;
+  const alsoAi = hits.symbols.filter((s) => s.in_ai_scanner === true).length;
+  const unsure = hits.symbols.some((s) => s.in_ai_scanner == null);
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 8 }}>
+      {hits.stale_note && <p role="note" data-testid="chartink-stale" className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>{hits.stale_note}</p>}
       {failed.length > 0 && (
         <p role="note" data-testid="chartink-partial" className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>
           {failed.length} of {hits.scans.length} {hits.scans.length === 1 ? "scan" : "scans"} failed on the last fetch: {failed.map((f) => `${f.name}${f.error ? ` (${f.error})` : ""}`).join("; ")}. The others are used.
@@ -291,23 +299,31 @@ function HitsStatus({ hits, hitsQ, enabled }: { hits: ChartinkHits | null; hitsQ
       )}
       {hits.source_failures.length > 0 && (
         <p role="note" data-testid="chartink-source-failures" className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>
-          Source problems: {hits.source_failures.map((f) => (typeof f === "string" ? f : JSON.stringify(f))).join("; ")}
+          Source problems: {hits.source_failures.map(failureLine).join("; ")}
         </p>
       )}
       {hits.symbols.length === 0 && failed.length < hits.scans.length ? (
         <p data-testid="chartink-no-hits" className="m-0" style={noteStyle}>
-          {enabled === 0 ? "No scan is switched on, so there are no hits." : "No hits: none of your enabled scans listed a stock on the latest fetch."}
+          {hits.empty_reason ?? (enabled === 0 ? "No scan is switched on, so there are no hits." : "No hits: none of your enabled scans listed a stock on the latest fetch.")}
         </p>
       ) : (
         <p data-testid="chartink-hit-summary" className="m-0" style={noteStyle}>
-          {fmtNum(hits.symbols.length)} {hits.symbols.length === 1 ? "stock" : "stocks"} across your enabled scans; {fmtNum(hits.symbols.filter((s) => !s.in_ai_scanner).length)} not in the AI scan.
+          {fmtNum(hits.symbols.length)} {hits.symbols.length === 1 ? "stock" : "stocks"} across your enabled scans; {unsure ? "the AI scanner could not be read, so the overlap is not known." : `${fmtNum(alsoAi)} also in the AI scan, ${fmtNum(notInAi)} not.`}
         </p>
       )}
       {unknown.length > 0 && (
-        <div data-testid="chartink-unknown" role="note" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
-          {unknown.length} {unknown.length === 1 ? "symbol was" : "symbols were"} not recognised and left out:{" "}
-          {unknown.map((u) => `${u.symbol}${u.suggestions.length ? ` (did you mean ${u.suggestions.map((x) => x.symbol).join(", ")}?)` : ""}`).join("; ")}.
-        </div>
+        <details data-testid="chartink-unknown" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
+          <summary data-testid="chartink-unknown-toggle" style={{ cursor: "pointer" }}>Not shown as stocks ({fmtNum(unknown.length)})</summary>
+          <ul className="m-0 flex flex-col" style={{ gap: 4, paddingLeft: 18, paddingTop: 6 }}>
+            {unknown.map((u) => (
+              <li key={u.symbol} data-testid="chartink-unknown-row">
+                <span className="cp-num">{u.symbol}</span>: {u.note ?? "Not in the NSE stock symbol master."}
+                {u.scans.length > 0 && <span style={noteStyle}> On {u.scans.map((x) => x.name).join(", ")}.</span>}
+                {u.suggestions.length > 0 && <span> Did you mean {u.suggestions.map((x) => x.symbol).join(", ")}?</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );

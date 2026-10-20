@@ -16,7 +16,7 @@ import { stampIst } from "../overview-data";
 import { useDesk } from "../context";
 import { TrustLine, type DataMode } from "../trust";
 import { alsoOnChartinkText, useChartink } from "./chartink-data";
-import type { ChartinkHits, ChartinkHitSymbol } from "./chartink-contract";
+import { failureText, type ChartinkHits, type ChartinkHitSymbol } from "./chartink-contract";
 
 const line = "1px solid var(--cp-line)";
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)", fontFamily: "var(--sans)", textAlign: "left" };
@@ -33,7 +33,7 @@ export function ChartinkTrust({ hits, testId, pad }: { hits: ChartinkHits; testI
   const asOf = [fetched ? `Chartink fetched ${fetched}` : null, day && hitsMode(hits) === "eod" ? `snapshot of ${day}` : null].filter(Boolean).join(" · ") || null;
   return (
     <div style={{ padding: pad }}>
-      <TrustLine testId={testId} source={CHARTINK_SOURCE_LABEL} mode={hitsMode(hits)} asOf={asOf} method={`${hits.mode === "fetched_at" ? "as of the fetch time · " : ""}your scan rules, not validated signals`} />
+      <TrustLine testId={testId} source={CHARTINK_SOURCE_LABEL} mode={hitsMode(hits)} asOf={asOf} status={hits.stale_note ? "stale" : null} method={`${hits.mode === "fetched_at" ? "as of the fetch time · " : ""}your scan rules, not validated signals`} />
     </div>
   );
 }
@@ -123,7 +123,10 @@ export function ChartinkOnlyList({ compact = false, testId }: { compact?: boolea
       </div>
     );
   }
-  const only = ck.hits.symbols.filter((s) => !s.in_ai_scanner);
+  // Only a stock known NOT to be in the AI scan is Chartink-only; null (the AI scanner could not be read) claims nothing.
+  const only = ck.hits.symbols.filter((s) => s.in_ai_scanner === false);
+  const unsure = ck.hits.symbols.some((s) => s.in_ai_scanner == null);
+  const others = ck.hits.unknown_symbols.length;
   const shown = only.slice(0, CK_ONLY_ROWS);
   const failed = ck.hits.scans.filter((s) => !s.ok);
   const total = ck.hits.symbols.length;
@@ -138,9 +141,15 @@ export function ChartinkOnlyList({ compact = false, testId }: { compact?: boolea
           {failed.length} of {ck.hits.scans.length} {ck.hits.scans.length === 1 ? "scan" : "scans"} didn’t run: {failed.map((f) => `${f.name}${f.error ? ` (${f.error})` : ""}`).join("; ")}. The rest are shown.
         </p>
       )}
+      {ck.hits.stale_note && <p role="note" data-testid={`${testId}-stale`} className="m-0" style={{ padding: `0 ${compact ? 14 : 18}px 8px`, ...quiet, color: "var(--amber)" }}>{ck.hits.stale_note}</p>}
+      {unsure && (
+        <p role="note" data-testid={`${testId}-unsure`} className="m-0" style={{ padding: `0 ${compact ? 14 : 18}px 8px`, ...quiet }}>
+          The AI scanner could not be read, so these stocks are not compared with it{ck.hits.source_failures.length ? `: ${ck.hits.source_failures.map(failureText).join("; ")}` : ""}.
+        </p>
+      )}
       {shown.length === 0 ? (
         <p data-testid={`${testId}-empty`} className="m-0" style={{ padding: `0 ${compact ? 14 : 18}px 10px`, ...quiet }}>
-          {total === 0 ? "No hits in your enabled Chartink scans on the latest fetch." : "Every stock your Chartink scans hit is also in the AI scan (tagged above)."}
+          {total === 0 ? (ck.hits.empty_reason ?? "No hits in your enabled Chartink scans on the latest fetch.") : unsure ? "None can be called Chartink-only while the AI scanner is unreadable." : "Every stock your Chartink scans hit is also in the AI scan (tagged above)."}
         </p>
       ) : (
         <ol className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
@@ -150,6 +159,11 @@ export function ChartinkOnlyList({ compact = false, testId }: { compact?: boolea
       {only.length > shown.length && (
         <p data-testid={`${testId}-more`} className="m-0" style={{ padding: `6px ${compact ? 14 : 18}px 0`, ...quiet }}>
           {fmtNum(only.length - shown.length)} more in AI Scanner · Chartink scans.
+        </p>
+      )}
+      {others > 0 && (
+        <p data-testid={`${testId}-unknown`} className="m-0" style={{ padding: `6px ${compact ? 14 : 18}px 0`, ...quiet }}>
+          {fmtNum(others)} {others === 1 ? "code" : "codes"} from your scans {others === 1 ? "is" : "are"} not shown as stocks (ETFs, fund units): listed under More · Chartink scans.
         </p>
       )}
       <ChartinkTrust hits={ck.hits} testId={`${testId}-trust`} pad={`8px ${compact ? 14 : 18}px 12px`} />

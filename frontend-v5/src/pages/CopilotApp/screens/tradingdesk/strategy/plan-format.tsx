@@ -80,4 +80,4 @@ export const sessions = (n: number | null | undefined) => (n == null ? DASH : `$
 
 /** The cash candidate family built from a Chartink scan hit: its levels are rules, and the scan itself is not validated. */
 export const CHARTINK_FAMILY = "chartink_screen_signal";
-export const CHARTINK_CANDIDATE_NOTE = "Rule-based levels; Chartink scan, not validated.";
+export const CHARTINK_CANDIDATE_NOTE = "Rule-based levels; the scan is the user's Chartink scan, not validated.";

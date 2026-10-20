@@ -1125,7 +1125,7 @@ export default function ScannerTab() {
   const ckHits = ck.kind === "ready" ? ck.hits : null;
   const ckMap = useMemo(() => hitsBySymbol(ckHits), [ckHits]);
   // Chartink-only stocks get a universe row too (liquidity, F&O, sector), asked for with the user's list symbols.
-  const ckSyms = useMemo(() => (ckHits?.symbols ?? []).filter((x) => !x.in_ai_scanner).slice(0, 60).map((x) => x.symbol), [ckHits]);
+  const ckSyms = useMemo(() => (ckHits?.symbols ?? []).filter((x) => x.in_ai_scanner === false).slice(0, 60).map((x) => x.symbol), [ckHits]);
   const { cat, rank, filters: f, set } = st;
   const scan = useDeskScanner();
   const odds5Q = useDeskOdds("p_up5_1d");
@@ -1184,9 +1184,9 @@ export default function ScannerTab() {
   const catDef = catOf(cat);
   const inCategory = useMemo(() => {
     const all = [...rowsAll.values()];
-    if (cat === "all") return all.filter((r) => r.s || (r.ck && !r.ck.in_ai_scanner) || CATS.some((c) => c.ucat && inCat(r, c, uni)));
+    if (cat === "all") return all.filter((r) => r.s || (r.ck && r.ck.in_ai_scanner === false) || CATS.some((c) => c.ucat && inCat(r, c, uni)));
     if (cat === "reversal") return [];
-    if (cat === "chartink") return all.filter((r) => r.ck && !r.ck.in_ai_scanner);
+    if (cat === "chartink") return all.filter((r) => r.ck && r.ck.in_ai_scanner === false);
     if (cat === "watchlist") return listStocks.map((s) => rowsAll.get(s.symbol.toUpperCase())).filter((r): r is Row => !!r);
     return all.filter((r) => inCat(r, catDef, uni));
   }, [rowsAll, cat, catDef, uni, listStocks]);

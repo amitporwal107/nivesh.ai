@@ -213,6 +213,7 @@ function BoardHeader({ board, plain }: { board: Board; plain: boolean }) {
         </p>
       )}
       {sel.rule && <p data-testid="ideas-rule" className="m-0" style={noteStyle}>{plain ? "How they were picked" : "Selection rule"}: {sel.rule}</p>}
+      {sel.chartink && <ChartinkSelection c={sel.chartink} />}
       {board.ranking_note && <p data-testid="ideas-ranking" className="m-0" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{board.ranking_note}</p>}
       {board.inputs.defaults_applied.length > 0 && (
         <p data-testid="ideas-defaults" className="m-0" style={noteStyle}>
@@ -335,6 +336,21 @@ const SOURCE_TAG: Record<string, { label: string; tone: Tone }> = {
   both: { label: "Both", tone: "indigo" },
 };
 
+function ChartinkSelection({ c }: { c: NonNullable<Board["selection"]["chartink"]> }) {
+  const ok = c.state === "ok";
+  if (c.included === false && !c.reason) return null;
+  return (
+    <div data-testid="ideas-ck-state" data-state={c.state ?? ""} className="flex flex-col" style={{ gap: 3 }}>
+      <p role={ok ? undefined : "status"} className="m-0" style={{ fontSize: 12.5, lineHeight: 1.5, color: ok ? "var(--cp-ink-2)" : "var(--amber)" }}>
+        {ok
+          ? `Chartink: ${c.considered ?? DASH} considered, ${c.added ?? DASH} added${c.scan_date ? `, scan ${fmtDay(c.scan_date)}` : ""}${c.limit != null ? ` (up to ${fmtNum(c.limit)})` : ""}.`
+          : <>Chartink scans are not in this board{c.reason ? `: ${c.reason}` : "."} The ideas are the AI scanner's alone.</>}
+      </p>
+      {ok && c.note && <p data-testid="ideas-ck-note" className="m-0" style={noteStyle}>{c.note}</p>}
+    </div>
+  );
+}
+
 function IdeaSourceTag({ idea }: { idea: Idea }) {
   const t = idea.source ? SOURCE_TAG[idea.source] : null;
   if (!t) return null;
@@ -377,7 +393,7 @@ function IdeaCard({ idea, board, persona }: { idea: Idea; board: Board; persona:
           <h2 id={titleId} data-testid="idea-symbol" className="cp-num m-0" style={{ fontSize: 17, fontWeight: 500 }}>{idea.symbol}</h2>
           <span data-testid="idea-name" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{idea.name ?? DASH}</span>
           <IdeaSourceTag idea={idea} />
-          {st ? <span data-testid="idea-scan-status"><Pill tone={st.tone}>{st.label}</Pill></span> : <span data-testid="idea-scan-status" style={noteStyle}>Scanner status {DASH}</span>}
+          {st ? <span data-testid="idea-scan-status"><Pill tone={st.tone}>{st.label}</Pill></span> : idea.source === "chartink" ? <span data-testid="idea-scan-status"><Pill tone="indigo">Chartink scan</Pill></span> : <span data-testid="idea-scan-status" style={noteStyle}>Scanner status {DASH}</span>}
           <StatusPill status={planStatus} plain={plain} testId="idea-plan-status" />
         </span>
         <span data-testid="idea-score" className="cp-num" title="Rules-based scanner score, 0-100 (not a probability)" style={{ fontSize: 12, color: sc.score != null && sc.score >= 80 ? "var(--mint)" : "var(--cp-ink-2)" }}>

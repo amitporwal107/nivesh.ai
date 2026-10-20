@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import {
-  HitsSchema, RefreshSchema, SourceDocSchema, SourceSchema,
+  HitsSchema, RefreshSchema, SourceSchema,
   type ChartinkHitSymbol, type ChartinkHits, type ChartinkRefresh, type ChartinkSource, type ChartinkSourceDoc, type ScanDirection,
 } from "./chartink-contract";
 
@@ -102,8 +102,8 @@ export function useConnectChartink() {
   return useMutation<ChartinkSourceDoc, unknown, string>({
     mutationFn: async (dashboard_url) => {
       const res = await http({ method: "PUT", path: CHARTINK_SOURCE_PATH, body: { dashboard_url }, noRetry: true });
-      const r = SourceDocSchema.safeParse(res.data);
-      if (!r.success) throw drift("source", r.error);
+      const r = SourceSchema.safeParse(res.data);
+      if (!r.success || r.data == null) throw drift("source", r.success ? null : r.error);
       return r.data;
     },
     onSuccess: (doc) => {
@@ -160,14 +160,22 @@ export function checkDashboardUrl(raw: string): string | null {
   return null;
 }
 
-/** The 422's problems (`detail.problems`, or a plain `detail` string), as readable lines. */
+/** The 422's message: `{detail: {code, message}, message}`, or a `detail.problems` list, or a plain `detail` string. */
 export function connectProblems(e: unknown): string[] {
   if (!(e instanceof ApiError) || e.status !== 422) return [];
-  const detail = (e.body as { detail?: unknown } | undefined)?.detail;
-  if (typeof detail === "string") return [detail];
-  const list = detail && typeof detail === "object" ? (detail as { problems?: unknown }).problems : null;
-  if (!Array.isArray(list)) return e.detail ? [e.detail] : [];
-  return list.flatMap((p) => { const m = (p as { message?: unknown })?.message; return typeof m === "string" ? [m] : []; });
+  const b = e.body as { message?: unknown; detail?: unknown } | undefined;
+  const d = b?.detail;
+  if (typeof d === "string") return [d];
+  if (d && typeof d === "object") {
+    const o = d as { message?: unknown; problems?: unknown };
+    if (Array.isArray(o.problems)) {
+      const m = o.problems.flatMap((p) => { const x = (p as { message?: unknown })?.message; return typeof x === "string" ? [x] : []; });
+      if (m.length) return m;
+    }
+    if (typeof o.message === "string") return [o.message];
+  }
+  if (typeof b?.message === "string") return [b.message];
+  return e.detail ? [e.detail] : [];
 }
 
 /** Seconds left of the refresh cooldown from a 429, or null when the error is not one. */
