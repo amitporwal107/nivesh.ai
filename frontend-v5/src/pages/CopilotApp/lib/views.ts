@@ -61,9 +61,21 @@ const TRADER_TOOLS: NavItem[] = [
   { view: "tool/research", label: "Stock research" },
 ];
 
+/** Every tool screen a mode has (the screens stay mounted; the Trader rail lists fewer, see toolsNav). */
+export function allToolsNav(mode: Mode): NavItem[] {
+  return mode === "trader" ? TRADER_TOOLS : mode === "advisor" ? ADVISOR_TOOLS : INVESTOR_TOOLS;
+}
+
+/** The only tools the Trader rail lists. The other Trader screens remain reachable by direct URL. */
+const TRADER_RAIL_TOOLS: NavItem[] = [
+  { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
+  { view: "tool/screener", label: "Screener" },
+  { view: "tool/research", label: "Stock research" },
+];
+
 /** Tools shown in the rail for a mode. */
 export function toolsNav(mode: Mode): NavItem[] {
-  return mode === "trader" ? TRADER_TOOLS : mode === "advisor" ? ADVISOR_TOOLS : INVESTOR_TOOLS;
+  return mode === "trader" ? TRADER_RAIL_TOOLS : allToolsNav(mode);
 }
 
 export const WORKSPACE_NAV: NavItem[] = [
@@ -76,6 +88,11 @@ export const WORKSPACE_NAV: NavItem[] = [
   { view: "page/brokers", label: "Broker connections" },
   { view: "page/settings", label: "Settings" },
 ];
+
+/** Workspace rows the rail lists (Trader: Settings only); the other workspace pages remain reachable by direct URL. */
+export function workspaceNav(mode: Mode): NavItem[] {
+  return mode === "trader" ? WORKSPACE_NAV.filter((n) => n.view === "page/settings") : WORKSPACE_NAV;
+}
 
 /** Internal pages — admins only. */
 export const INTERNAL_NAV: NavItem[] = [
