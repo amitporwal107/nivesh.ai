@@ -9,8 +9,7 @@ Kite names a stock contract by its monthly trading symbol (`RELIANCE26OCT1300CE`
 that is exact for stocks. Index contracts also trade weekly under a different symbol, which is not resolved here, so an index
 underlying is reported as not attempted rather than guessed.
 
-Not yet called by the plan builder itself: the candidates are built after the sources are read (candidates.py / plan.py own that), so
-a caller passes a candidate's `legs` to `read_margin_estimate` and shows `margin_item(...)`.
+Called by live_reads.attach_live_reads on a built plan, only when the plan asked for live broker reads (inputs.live_broker_reads).
 """
 from __future__ import annotations
 
@@ -49,8 +48,8 @@ def kite_symbol(underlying: str, leg: Dict[str, Any]) -> str:
     return f"{stem}{_strike(strike)}{right}"
 
 
-def _result(reason: Optional[str], estimate: Optional[float] = None, before: Optional[float] = None, now: Optional[datetime] = None, n: int = 0) -> Dict[str, Any]:
-    return {"estimate": estimate, "before_offset": before, "broker": "zerodha", "source": SOURCE.format(broker=BROKER), "reason": reason,
+def _result(reason: Optional[str], estimate: Optional[float] = None, before: Optional[float] = None, now: Optional[datetime] = None, n: int = 0, called: bool = False) -> Dict[str, Any]:
+    return {"called": called, "estimate": estimate, "before_offset": before, "broker": "zerodha", "source": SOURCE.format(broker=BROKER), "reason": reason,
             "as_of": (now or datetime.now(timezone.utc)).astimezone(IST).isoformat(timespec="seconds"), "legs": n}
 
 
@@ -85,14 +84,14 @@ async def read_margin_estimate(accounts: List[Dict[str, Any]], underlying: str, 
         res = await asyncio.to_thread(kc.basket_order_margins, params, False)
     except Exception as e:  # noqa: BLE001 — a failed calculator call is a null estimate with the reason; the message never carries a token
         logger.warning("strategy plan margin calculator failed error=%s", type(e).__name__)
-        return _result(f"Zerodha's margin calculator could not be read ({type(e).__name__}: {str(e)[:120]})", now=now, n=len(legs))
+        return _result(f"Zerodha's margin calculator could not be read ({type(e).__name__}: {str(e)[:120]})", now=now, n=len(legs), called=True)
     final = ((res or {}).get("final") or {}) if isinstance(res, dict) else {}
     initial = ((res or {}).get("initial") or {}) if isinstance(res, dict) else {}
     total = final.get("total")
     if isinstance(total, bool) or not isinstance(total, (int, float)):
-        return _result("Zerodha's margin calculator returned no total for these legs", now=now, n=len(legs))
+        return _result("Zerodha's margin calculator returned no total for these legs", now=now, n=len(legs), called=True)
     before = initial.get("total")
-    return _result(None, round(float(total), 2), round(float(before), 2) if isinstance(before, (int, float)) and not isinstance(before, bool) else None, now, len(legs))
+    return _result(None, round(float(total), 2), round(float(before), 2) if isinstance(before, (int, float)) and not isinstance(before, bool) else None, now, len(legs), True)
 
 
 def margin_item(r: Dict[str, Any]) -> Dict[str, Any]:
