@@ -28,7 +28,7 @@ from deps import db, get_current_user
 from services.strategy_plan import PLAN_SCHEMA, build_plan, compute_payoff, explain_plan_context, normalise_inputs
 from services.strategy_plan import ideas as ideas_mod
 from services.strategy_plan.plan import digest
-from services.strategy_plan.sources import collect_snapshots, finish_plan
+from services.strategy_plan.sources import attach_symbol_suggestions, collect_snapshots, finish_plan
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/desk/strategy", tags=["desk"])
@@ -71,6 +71,7 @@ async def strategy_plan(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
     snaps = await collect_snapshots(request, user["user_id"], inputs, today())
     plan = await asyncio.to_thread(build_plan, inputs, snaps, utcnow(), today())
+    plan = await attach_symbol_suggestions(plan)
     return await finish_plan(plan, user["user_id"])
 
 

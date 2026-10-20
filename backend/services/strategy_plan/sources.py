@@ -409,3 +409,43 @@ async def company_name(symbol: str) -> Optional[str]:
         if isinstance(row, dict) and str(row.get("symbol") or "").upper() == symbol and row.get("company_name"):
             return str(row["company_name"])
     return None
+
+
+SUGGESTION_KEYS = ("symbol", "name", "isin", "match", "has_prices", "last_price_date", "fno_eligible")
+
+
+async def attach_symbol_suggestions(plan: Dict[str, Any]) -> Dict[str, Any]:
+    """For an `unknown_symbol` plan: look the symbol up in the symbol universe (services/symbol_lookup.py), put the suggestions on the
+    reason (`suggestions`, `suggested` when exactly one is strong) and at the top level (`symbol_suggestions`), and say it in the
+    message. The user's input is kept as typed: nothing is substituted. If the lookup cannot be read, the plan is returned as built."""
+    reasons = [r for r in plan.get("status_reasons") or [] if r.get("code") == "unknown_symbol"]
+    if not reasons:
+        return plan
+    from services import symbol_lookup as sl
+    sym = plan["inputs"]["underlying"]
+    try:
+        found = await sl.lookup(sym, 5)
+    except Exception as e:  # noqa: BLE001 — suggestions are help; the plan stands without them
+        logger.warning("symbol suggestions for %s unavailable: %s", sym, _why(e))
+        return plan
+    results = [r for r in found["results"] if r["has_prices"] is not False]
+    sugg = [r for r in results if r["match"] != "exact"] or results
+    sugg = [{k: r.get(k) for k in SUGGESTION_KEYS} for r in sugg][:5]
+    strong = sl.strong_suggestion(found["results"])
+    listed = next((r for r in found["results"] if r["match"] == "exact" and r["has_prices"] is False), None)
+    label = lambda r: f"{r['symbol']} ({r['name']})" if r.get("name") else r["symbol"]  # noqa: E731
+    if listed:
+        msg = f"No price history for {sym}: {label(listed)} is on the NSE symbol master, but the data platform holds no end-of-day bars for it."
+    else:
+        msg = f"No price history for {sym}."
+    if sugg:
+        msg += " Did you mean " + (label(sugg[0]) if len(sugg) == 1 else ", ".join(label(s) for s in sugg[:3])) + "?"
+    elif not listed:
+        msg += f" No NSE stock matches {sym}."
+    for r in reasons:
+        r["message"] = msg
+        r["suggestions"] = sugg
+        r["suggested"] = strong["symbol"] if strong and strong["has_prices"] is not False else None
+        r["lookup_source"] = found["source"]
+    plan["symbol_suggestions"] = sugg
+    return plan

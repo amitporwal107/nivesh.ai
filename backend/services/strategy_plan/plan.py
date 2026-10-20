@@ -162,6 +162,12 @@ def build_ctx(inputs: Dict[str, Any], snaps: Dict[str, Any], today: date) -> Dic
 
 # ── gates ────────────────────────────────────────────────────────────────────
 
+def is_unknown_symbol(error: Any) -> bool:
+    """The price source answered 404 no_bars_for_symbol: the symbol has no bars at all (a real outage is a 5xx or a timeout)."""
+    e = str(error or "")
+    return "HTTP 404" in e and "no_bars_for_symbol" in e
+
+
 def global_reasons(inputs: Dict[str, Any], snaps: Dict[str, Any], ctx: Dict[str, Any], ledger: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Plan-level blockers. kind 'data' -> insufficient_data, 'rule' -> no_trade."""
     out: List[Dict[str, Any]] = []
@@ -169,7 +175,9 @@ def global_reasons(inputs: Dict[str, Any], snaps: Dict[str, Any], ctx: Dict[str,
     if inputs["horizon"] == "intraday":
         out.append({**R("intraday_not_supported", "An intraday horizon needs intraday bars and order-book data; this system holds end-of-day data only (PRD §17.2 #2, #3)."), "kind": "data"})
     ind = ev.snap(snaps, "indicators")
-    if not ind["ok"]:
+    if not ind["ok"] and is_unknown_symbol(ind["error"]):
+        out.append({**R("unknown_symbol", f"No price history for {inputs['underlying']}: the data platform holds no end-of-day bars under that symbol."), "kind": "data"})
+    elif not ind["ok"]:
         out.append({**R("required_source_failed", f"The price history (required) could not be read: {ind['error']}"), "kind": "data"})
     elif ctx["as_of"]:
         age = (ctx["today"] - date.fromisoformat(ctx["as_of"])).days
@@ -201,6 +209,7 @@ def global_reasons(inputs: Dict[str, Any], snaps: Dict[str, Any], ctx: Dict[str,
 WOULD_CHANGE = {
     "stale_data": "A price from the last completed session.",
     "required_source_failed": "The price history source answering.",
+    "unknown_symbol": "An NSE symbol with price history on record: use one of the suggestions, or check the ticker.",
     "intraday_not_supported": "A positional horizon, or intraday data being added to the platform.",
     "liquidity_below_gate": "Average traded value rising to at least the gate.",
     "liquidity_unknown": "20 sessions of price and volume on record.",
@@ -346,7 +355,7 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
     ctx = build_ctx(inputs, snaps, today)
     ledger = ev.build_ledger(snaps, inputs, ctx["as_of"], ctx["ref_session"])
     gates = global_reasons(inputs, snaps, ctx, ledger)
-    data_blocked = any(g["kind"] == "data" and g["code"] in ("required_source_failed", "intraday_not_supported") for g in gates)
+    data_blocked = any(g["kind"] == "data" and g["code"] in ("required_source_failed", "unknown_symbol", "intraday_not_supported") for g in gates)
     cands = [] if data_blocked else cd.generate(ctx)
     # plan-level blockers override every candidate that was still alive
     for c in cands:
