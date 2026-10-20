@@ -590,7 +590,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-row-UVOL1")).toBeVisible();
     expect(await texts(page, '[data-testid^="desk-scan-cat-"][aria-pressed]')).toEqual([
       "All", "Breakouts", "Near breakout", "Momentum", "Pullback continuation", "Accumulation", "Reversal candidates",
-      "Unusual volume", "Results-day momentum", "F&O candidates", "User watchlist",
+      "Unusual volume", "Results-day momentum", "F&O candidates", "Chartink scans", "User watchlist",
     ]);
     // The universe is asked once with the scanner's own setups.
     expect(asked[0].setups.split(",").sort()).toEqual([...SETUP_SYMS].sort());
@@ -2173,7 +2173,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     expect(await texts(page, '[data-testid^="desk-scan-rank-"]:not([data-testid="desk-scan-rank"])')).toEqual(["Score", "Model rank +5%", "Model rank +10%"]);
     expect(await texts(page, '[data-testid^="desk-scan-cat-"][aria-pressed]')).toEqual([
       "All", "Breakouts", "Near breakout", "Momentum", "Pullback continuation", "Accumulation", "Reversal candidates",
-      "Unusual volume", "Results-day momentum", "F&O candidates", "User watchlist",
+      "Unusual volume", "Results-day momentum", "F&O candidates", "Chartink scans", "User watchlist",
     ]);
     // Controls row order: Rank by → chips → the Liquid-only switch at the right.
     const rankBox = (await page.getByTestId("desk-scan-rank-score").boundingBox())!;
@@ -2198,7 +2198,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     expect(await texts(page, '[data-testid^="desk-scan-rank-"]:not([data-testid="desk-scan-rank"])')).toEqual(["Score", "Model rank +5% day", "Model rank +10% day"]);
     expect(await texts(page, '[data-testid^="desk-scan-cat-"][aria-pressed]')).toEqual([
       "All", "Broke out", "About to break out", "Rising steadily", "Dip in an uptrend", "Quiet sideways range", "Turning around",
-      "Heavy trading", "Moving after results", "Has futures & options", "Your list",
+      "Heavy trading", "Moving after results", "Has futures & options", "Your Chartink scans", "Your list",
     ]);
     await expect(page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-setup")).toHaveText("Broke above a recent high");
     await expect(page.getByTestId("desk-scan-row-FIXTRD").getByTestId("desk-scan-setup")).toHaveText("Dipped in an uptrend");

@@ -30,7 +30,8 @@ import { PlanInputs } from "./PlanInputs";
 import { PlanSummary } from "./PlanSummary";
 import { SavedPlans } from "./SavedPlans";
 import type { FieldProblem, StrategyPlan } from "./plan-contract";
-import { formFromParams, validateForm, type FormState } from "./plan-form";
+import { SYMBOL_RE, formFromParams, validateForm, type FormState } from "./plan-form";
+import { checkSymbol, type LookupResult } from "../symbol-lookup-data";
 import { isForbiddenPlan, planFailure, planProblems, useBuildPlan, useSavedPlan, useSavedPlans, type BuiltPlan } from "./plan-data";
 import { noteStyle } from "./plan-format";
 import { ApiError } from "@/services/api/errors";
@@ -112,10 +113,33 @@ function StockBuilder() {
     return p;
   }, { replace: true });
 
-  const runBuild = () => {
-    const { request, problems } = validateForm(form);
+  /** Set when the typed symbol is not a stock the lookup knows and it offers others: shown under the box, and nothing is built. */
+  const [symHint, setSymHint] = useState<{ sym: string; suggestions: LookupResult[] } | null>(null);
+  const blurTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(blurTimer.current), []);
+
+  const hintFor = async (text: string): Promise<boolean> => {
+    const sym = text.trim().toUpperCase();
+    if (!sym) { setSymHint(null); return false; }
+    const r = await checkSymbol(sym);
+    setSymHint(r.unknown ? { sym, suggestions: r.suggestions } : null);
+    return r.unknown;
+  };
+  // On leaving the box (after a short pause, so a click on a suggestion lands first) the symbol is checked against the lookup.
+  const onSymbolBlur = (text: string) => {
+    window.clearTimeout(blurTimer.current);
+    blurTimer.current = window.setTimeout(() => { void hintFor(text); }, 300);
+  };
+
+  const runBuild = async (override?: FormState) => {
+    const f = override ?? form;
+    window.clearTimeout(blurTimer.current);
+    const { request, problems } = validateForm(f);
     setClientProblems(problems);
-    if (!request) return;
+    // A symbol the lookup does not know is answered with its suggestions, not a plan request that is bound to fail.
+    // If the lookup itself fails, or finds nothing at all, the build goes on as before.
+    if (!request) { if (f.sym.trim() && !SYMBOL_RE.test(f.sym.trim())) await hintFor(f.sym); return; }
+    if (await hintFor(request.underlying)) return;
     setBuilt(null);
     build.mutate(request, {
       onSuccess: (b) => { setBuilt(b); setSelId(candRef.current); candRef.current = null; },
@@ -125,11 +149,16 @@ function StockBuilder() {
     });
   };
 
+  /** "Use PCJEWELLER" under the box: put the symbol in the box and clear the hint (the user builds when ready). */
+  const useSymbol = (sym: string) => { setSymHint(null); setForm((f) => ({ ...f, sym })); };
+  /** "Rebuild for PCJEWELLER" on an unknown_symbol plan: rewrite ?sym= and build again. */
+  const rebuildFor = (sym: string) => { setSymHint(null); const next = { ...form, sym }; setForm(next); void runBuild(next); };
+
   // A link with ?build=1 builds once on open (a reload keeps the plan on screen).
   useEffect(() => {
     if (autoRan.current || params.get("build") !== "1" || planParam) return;
     autoRan.current = true;
-    runBuild();
+    void runBuild();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -172,7 +201,8 @@ function StockBuilder() {
       </header>
 
       <PlanInputs
-        form={form} onChange={setForm} onBuild={runBuild} pending={build.isPending} problems={problems} persona={persona} plan={plan}
+        form={form} onChange={setForm} onBuild={() => void runBuild()} pending={build.isPending} problems={problems} persona={persona} plan={plan}
+        symbolHint={symHint} onUseSymbol={useSymbol} onSymbolBlur={onSymbolBlur}
         rulesDefaults={(plan?.rules.defaults as Record<string, unknown> | undefined) ?? {}}
       />
 
@@ -183,7 +213,7 @@ function StockBuilder() {
           {isForbiddenPlan(failure) || (failure instanceof ApiError && failure.kind === "auth") ? (
             <EmptyBlock title={failure instanceof ApiError && failure.kind === "auth" ? "Sign in to build a plan" : "The Strategy Builder is not enabled for this account"} body={planFailure(failure, "Not built")} />
           ) : (
-            <ErrorBlock title={planFailure(failure, "The plan was not built")} onRetry={runBuild} />
+            <ErrorBlock title={planFailure(failure, "The plan was not built")} onRetry={() => void runBuild()} />
           )}
         </div>
       )}
@@ -208,7 +238,7 @@ function StockBuilder() {
               <button type="button" className="cp-chip" onClick={clearPlan}>Close it</button>
             </p>
           )}
-          <PlanSummary plan={plan} persona={persona} source={source} />
+          <PlanSummary plan={plan} persona={persona} source={source} onRebuildFor={rebuildFor} />
           <Thesis plan={plan} persona={persona} />
           <EvidenceLedger plan={plan} persona={persona} />
           <Section title={persona === "investor" ? "Shares, futures and options side by side" : "Compare cash, futures and options"} note="Select a row">

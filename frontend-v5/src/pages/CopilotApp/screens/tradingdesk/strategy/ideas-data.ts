@@ -26,6 +26,9 @@ export interface IdeasRequest {
   avoid_events?: boolean;
   allow_multi_leg?: boolean;
   include_combinations: boolean;
+  /** Add the user's Chartink scans to the AI ones. Sent only when a dashboard is connected; the route defaults to true then. */
+  include_chartink?: boolean;
+  chartink_limit?: number;
 }
 
 export const IDEAS_LIMIT = 8;
@@ -61,7 +64,7 @@ function num(out: FieldProblem[], key: string, text: string, hi: number, label: 
 }
 
 /** The ideas request for the inputs panel (same limits as the plan route), or the problems that stop it. */
-export function ideasRequestFromForm(f: FormState, combos: boolean): { request: IdeasRequest | null; problems: FieldProblem[] } {
+export function ideasRequestFromForm(f: FormState, combos: boolean, includeChartink: boolean | null = null): { request: IdeasRequest | null; problems: FieldProblem[] } {
   const out: FieldProblem[] = [];
   const capital = num(out, "capital", f.capital, 1e12, "Capital");
   const risk = f.riskMode === "inr" ? num(out, "risk_budget_inr", f.risk, 1e12, "The risk budget") : num(out, "risk_pct", f.risk, 100, "The risk percentage");
@@ -79,6 +82,7 @@ export function ideasRequestFromForm(f: FormState, combos: boolean): { request: 
       ...(f.avoidEvents != null ? { avoid_events: f.avoidEvents } : {}),
       ...(f.allowMultiLeg != null ? { allow_multi_leg: f.allowMultiLeg } : {}),
       include_combinations: combos,
+      ...(includeChartink != null ? { include_chartink: includeChartink } : {}),
     },
   };
 }

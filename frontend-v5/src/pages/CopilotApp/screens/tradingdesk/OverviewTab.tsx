@@ -56,6 +56,9 @@ import {
 } from "./overview-data";
 import { SINGLE_STOCK_LIMIT_PCT, largestStock, readPortfolio, useRiskAnalytics } from "./portfolio-data";
 import { TrustLine, type TrustLineProps } from "./trust";
+import { ChartinkOnlyList, ChartinkTag } from "./chartink/ChartinkParts";
+import { hitsBySymbol, useChartink } from "./chartink/chartink-data";
+import type { ChartinkHitSymbol } from "./chartink/chartink-contract";
 
 /** Colour per regime; the label always says the regime too (PRD §16.1: colour is never the only signal). */
 const REGIME_TONE: Record<DeskRegimeKey, Tone> = { bearish: "danger", sideways: "ink", bullish: "mint", mixed: "amber", high_volatility: "danger" };
@@ -1208,7 +1211,7 @@ function againstOf(p: LivePick | undefined): string[] {
 }
 
 function TopOpportunitiesCard() {
-  const { openTab, openStrategyIdeas, persona } = useDesk();
+  const { openTab, openStrategyIdeas, openChartink, persona } = useDesk();
   const scan = useDeskScanner();
   const live = usePicksLive();
   const odds = useDeskOdds("p_up5_1d");
@@ -1221,10 +1224,15 @@ function TopOpportunitiesCard() {
   const gate = probabilityGate(o, persona === "investor");
   const evidence = o?.kind === "final" ? modelEvidence(o.data.run, o.data.record, persona === "investor") : null;
   const oddsWhy = odds.isPending ? "Loading the move-odds model." : odds.isError ? "The move-odds model didn’t load." : gate.reason;
+  const ck = useChartink();
+  const ckHits = ck.kind === "ready" ? hitsBySymbol(ck.hits) : null;
   return (
     <Card testId="desk-opps-card">
       <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined}>
-        <button type="button" data-testid="desk-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+        <span className="flex flex-wrap items-center" style={{ gap: "4px 14px" }}>
+          <button type="button" data-testid="desk-opps-chartink" onClick={openChartink} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Chartink scans ›</button>
+          <button type="button" data-testid="desk-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+        </span>
       </CardHead>
       {scan.isPending ? (
         <div style={{ padding: 18 }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
@@ -1238,10 +1246,11 @@ function TopOpportunitiesCard() {
         <ol className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
           {rows.map((s, i) => (
             <OppCardRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} name={names.get(s.symbol.toUpperCase()) ?? null}
-              live={live} probabilityWhy={oddsWhy} />
+              live={live} probabilityWhy={oddsWhy} ckHit={ckHits?.get(s.symbol.toUpperCase()) ?? null} />
           ))}
         </ol>
       )}
+      {!scan.isPending && <ChartinkOnlyList testId="desk-ck" />}
       <div className="flex flex-col" style={{ gap: 6, padding: "10px 18px", borderTop: line }}>
         <span data-testid="desk-opps-legend" style={{ fontSize: 11.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
           <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>Score</b> is the scanner’s rules-based score, 0–100: a rank, not a probability.{" "}
@@ -1259,8 +1268,8 @@ function TopOpportunitiesCard() {
   );
 }
 
-function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy }: {
-  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; probabilityWhy: string;
+function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy, ckHit }: {
+  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; probabilityWhy: string; ckHit: ChartinkHitSymbol | null;
 }) {
   const { openChart, openStrategyIdeas } = useDesk();
   const close = latestClose(s, watchAsOf);
@@ -1296,6 +1305,7 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy }:
             <span data-testid="desk-opp-symbol" className="cp-num" style={{ fontSize: 13, fontWeight: 500 }}>{s.symbol}</span>
             <span data-testid="desk-opp-name" title={name ? undefined : "The scanner routes send the NSE symbol only"} style={{ fontSize: 12, color: "var(--cp-ink-3)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name ?? "—"}</span>
             <span data-testid="desk-opp-status"><Pill tone={status.tone}>{status.label}</Pill></span>
+            <ChartinkTag hit={ckHit} />
           </span>
           <span data-testid="desk-opp-facts" className="flex flex-wrap" style={{ gap: "2px 12px", fontSize: 11.5, color: "var(--cp-ink-2)" }}>
             <span data-testid="desk-opp-setup">{investor ? "Shape" : "Setup"}: {patternText(s, persona)}</span>
@@ -1745,6 +1755,8 @@ function TopOpportunities() {
   const scan = useDeskScanner();
   const rows = (scan.data?.setups ?? []).slice(0, 5);
   const date = scan.data?.watchAsOf ?? scan.data?.signalDate ?? null;
+  const ck = useChartink();
+  const ckHits = ck.kind === "ready" ? hitsBySymbol(ck.hits) : null;
   return (
     <section data-testid="desk-top-opps" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
       <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
@@ -1763,13 +1775,14 @@ function TopOpportunities() {
       ) : (
         <>
           <ol className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
-            {rows.map((s, i) => <OppRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} onOpen={() => openChart(s.symbol)} />)}
+            {rows.map((s, i) => <OppRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} onOpen={() => openChart(s.symbol)} ckHit={ckHits?.get(s.symbol.toUpperCase()) ?? null} />)}
           </ol>
           <span className="cp-mono-note" style={{ padding: "10px 14px 4px", borderTop: line, lineHeight: 1.6 }}>
             Score is rules-based, 0–100, not a probability · upside = close to the pick’s target · price = the latest close in the scan
           </span>
         </>
       )}
+      {!scan.isPending && <ChartinkOnlyList compact testId="desk-top-ck" />}
       <div style={{ padding: "6px 14px 12px" }}>
         <TrustLine testId="desk-top-opps-trust" source="Positional scanner" mode="eod" asOf={date ? dayLabel(date) : null} maker="rules" />
       </div>
@@ -1777,7 +1790,7 @@ function TopOpportunities() {
   );
 }
 
-function OppRow({ s, rank, persona, watchAsOf, onOpen }: { s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; onOpen: () => void }) {
+function OppRow({ s, rank, persona, watchAsOf, onOpen, ckHit }: { s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; onOpen: () => void; ckHit: ChartinkHitSymbol | null }) {
   const up = upsidePct(s);
   const strong = s.score != null && s.score >= 80;
   const close = latestClose(s, watchAsOf);
@@ -1816,6 +1829,7 @@ function OppRow({ s, rank, persona, watchAsOf, onOpen }: { s: DeskSetup; rank: n
           {s.spark.length > 1 ? <Sparkline values={s.spark} tone="mint" height={20} /> : <span className="cp-mono-note">—</span>}
         </span>
       </button>
+      {ckHit && <div style={{ padding: "0 14px 10px 38px" }}><ChartinkTag hit={ckHit} testId="ck-tag" /></div>}
     </li>
   );
 }

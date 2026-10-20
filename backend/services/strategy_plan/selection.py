@@ -21,6 +21,7 @@ from fastapi import HTTPException, Request
 from services.positional_engine import setup_rules
 
 from .evidence import num
+from .rules import RULES
 
 logger = logging.getLogger(__name__)
 
@@ -188,19 +189,121 @@ def scanner_view(s: Dict[str, Any]) -> Dict[str, Any]:
             "liquidity_cr": s["avg_traded_cr"], "atr_pct": s["atr_pct"], "in_watchlist": s["in_watchlist"], "in_picks": s["in_picks"], "sector": s["sector"]}
 
 
-async def select_opportunities(request: Request, limit: int = DEFAULT_LIMIT) -> Dict[str, Any]:
-    """The top `limit` eligible scanner setups, with what was considered and why any were excluded. Never raises on a source failure."""
+def _hit_scans(entry: Optional[Dict[str, Any]], directions: Optional[Tuple[str, ...]] = None) -> List[Dict[str, Any]]:
+    return [x for x in (entry or {}).get("scans") or [] if directions is None or x.get("direction") in directions]
+
+
+def chartink_view(entry: Optional[Dict[str, Any]], index: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """{scans: [{id, name, direction}], count, fetched_at} for the enabled scans that listed the stock, or None when none did."""
+    scans = _hit_scans(entry)
+    return {"scans": scans, "count": len(scans), "fetched_at": index.get("fetched_at")} if scans else None
+
+
+def chartink_setup(sym: str, ch: Dict[str, Any], row: Dict[str, Any], gate_as_of: Optional[str]) -> Dict[str, Any]:
+    """A setup for a stock only Chartink listed: every scanner field is empty (nothing is borrowed from a scanner that does not list it)."""
+    close = _price(row.get("close"))
+    return {"symbol": sym, "bucket": None, "sector": _text(row.get("sector")), "stage": None, "status": None, "score": None, "confidence": None, "close": close,
+            "close_date": gate_as_of if close is not None else None, "entry": None, "stop": None, "target": None, "risk_reward": None, "days_min": None, "days_max": None,
+            "atr_pct": None, "why": None, "reasons": [], "in_watchlist": False, "in_picks": False, "avg_traded_cr": _nonneg(row.get("traded_value_cr_20d")),
+            "spark_last": None, "spark_end": None, "watch_item": None, "pick": None, "source": "chartink", "chartink": ch,
+            "fno_eligible": row.get("fno_eligible") if isinstance(row.get("fno_eligible"), bool) else None, "name": _text(row.get("name")) or _text(row.get("company_name"))}
+
+
+def _tag_scanner_setup(s: Dict[str, Any], index: Dict[str, Any]) -> None:
+    entry = index["symbols"].get(s["symbol"])
+    s["chartink"] = chartink_view(entry, index)
+    s["source"] = "both" if _hit_scans(entry, ("bullish",)) else "ai_scanner"
+
+
+async def _add_chartink_only(out: Dict[str, Any], merged: List[Dict[str, Any]], rows: Optional[Dict[str, Dict[str, Any]]], gate_as_of: Optional[str],
+                             index: Dict[str, Any], cap: int) -> None:
+    """Append the stocks only Chartink listed (enabled bullish scans) after the scanner's: gated like scanner stocks, ranked by scan count, then traded value."""
+    c = out["chartink"]
+    listed = {m["symbol"] for m in merged}
+    cands = [(sym, e) for sym, e in index["symbols"].items() if _hit_scans(e, ("bullish",)) and sym not in listed]
+    c["considered"] = len(cands)
+    if not cands or cap <= 0:
+        return
+    if rows is None:
+        c["note"] = "The scan snapshot could not be read, so the eligibility gates cannot be tested for Chartink-only stocks and none is added."
+        return
+
+    def key(item):
+        row = rows.get(item[0]) or {}
+        return (-len(_hit_scans(item[1], ("bullish",))), -(_nonneg(row.get("traded_value_cr_20d")) or 0.0), item[0])
+
+    floor = setup_rules.LIQUIDITY["min_traded_value_cr"]
+    for sym, e in sorted(cands, key=key):
+        if c["added"] >= cap:
+            break
+        row = rows.get(sym)
+        if row is None:
+            c["excluded"].append({"symbol": sym, "code": "not_in_snapshot", "reason": "not in the scan snapshot, so the eligibility gates cannot be tested (a Chartink-only stock has no scanner liquid flag to fall back on)"})
+            continue
+        code = setup_rules.exclusion(row)
+        if code:
+            c["excluded"].append({"symbol": sym, "code": code, "reason": EXCLUSION_TEXT.get(code, code)})
+            continue
+        ch = chartink_view(e, index)
+        ch["bullish_scans"] = len(_hit_scans(e, ("bullish",)))
+        setup = chartink_setup(sym, ch, row, gate_as_of)
+        setup["close"] = setup["close"] if setup["close"] is not None else _price(e.get("close"))
+        out["setups"].append(setup)
+        c["added"] += 1
+    out["selected"] = len(out["setups"])
+    out["empty_reason"] = None if out["setups"] else out["empty_reason"]
+
+
+def _chartink_block(index: Optional[Dict[str, Any]], cap: int) -> Optional[Dict[str, Any]]:
+    if index is None:
+        return None
+    return {"included": True, "state": index.get("state"), "reason": index.get("reason"), "dashboard_id": index.get("dashboard_id"), "scan_date": index.get("scan_date"),
+            "fetched_at": index.get("fetched_at"), "mode": index.get("mode"), "limit": cap, "considered": 0, "added": 0, "excluded": [], "note": None,
+            "rule": RULES["chartink"]["ranking"], "gates": RULES["chartink"]["gates"]}
+
+
+async def select_opportunities(request: Request, limit: int = DEFAULT_LIMIT, chartink: Optional[Dict[str, Any]] = None,
+                               chartink_limit: int = RULES["chartink"]["limit_default"]) -> Dict[str, Any]:
+    """The top `limit` eligible scanner setups, with what was considered and why any were excluded. Never raises on a source failure.
+
+    `chartink` is the user's Chartink hit index (services/chartink_desk/hits.read_index) when Chartink is included: the scanner's ideas are tagged
+    `source` ai_scanner or both, and up to `chartink_limit` stocks only Chartink listed follow them (source chartink). Without it nothing changes."""
     limit = max(1, min(int(limit), MAX_LIMIT))
+    cap = max(0, min(int(chartink_limit), RULES["chartink"]["limit_max"]))
+    out = await _select_scanner(request, limit)
+    merged, rows, rows_read = out.pop("_merged"), out.pop("_rows"), out.pop("_rows_read")
+    block = out["chartink"] = _chartink_block(chartink, cap)
+    if chartink is None:
+        return out
+    if block["state"] == "ok":
+        for s in out["setups"]:
+            _tag_scanner_setup(s, chartink)
+        if rows is None and not rows_read:
+            rows, gate_as_of, gate_fail = await _gate_rows()
+            out["gate_as_of"] = out["gate_as_of"] or gate_as_of
+            out["gate"] = out["gate"] or ("scan snapshot eligibility gates (as GET /api/positional/scan-universe)" if rows is not None else
+                                          f"the scanner's own liquid flag (the scan snapshot could not be read: {gate_fail})")
+        await _add_chartink_only(out, merged, rows, out["gate_as_of"], chartink, cap)
+    else:
+        for s in out["setups"]:
+            s["chartink"], s["source"] = None, "ai_scanner"
+    return out
+
+
+async def _select_scanner(request: Request, limit: int) -> Dict[str, Any]:
+    """The scanner-only selection (the behaviour before Chartink). Private keys for the Chartink step: _merged (the merged scanner list), _rows (the
+    scan snapshot rows, None when not read or unreadable) and _rows_read (whether the snapshot read was attempted)."""
     watch, picks, fails = await read_scanner(request)
     out: Dict[str, Any] = {"source": "AI scanner (watchlist + picks), end of day", "rule": SELECTION_RULE, "limit": limit, "scan_date": None,
                            "watchlist_as_of": (watch or {}).get("as_of_date"), "watchlist_version": (watch or {}).get("_classifier_version"), "signal_date": (picks or {}).get("signal_date"),
                            "considered": 0, "selected": 0, "excluded": [], "setups": [], "empty_reason": None, "source_failures": fails,
-                           "gate": None, "gate_as_of": None}
+                           "gate": None, "gate_as_of": None, "_merged": [], "_rows": None, "_rows_read": False}
     out["scan_date"] = out["watchlist_as_of"] or out["signal_date"]
     if watch is None and picks is None:
         out["empty_reason"] = "The scanner could not be read (" + "; ".join(fails) + "): no opportunities are shown in its place."
         return out
     merged = merge_setups(watch, picks)
+    out["_merged"] = merged
     out["considered"] = len(merged)
     if not merged:
         why = [m for m in ((watch or {}).get("_reason"), (picks or {}).get("message")) if m]
@@ -210,6 +313,7 @@ async def select_opportunities(request: Request, limit: int = DEFAULT_LIMIT) -> 
     out["gate"] = "scan snapshot eligibility gates (as GET /api/positional/scan-universe)" if rows is not None else \
         f"the scanner's own liquid flag (the scan snapshot could not be read: {gate_fail})"
     out["gate_as_of"] = gate_as_of
+    out["_rows"], out["_rows_read"] = rows, True
     floor = setup_rules.LIQUIDITY["min_traded_value_cr"]
     for s in merged:
         if len(out["setups"]) >= limit:

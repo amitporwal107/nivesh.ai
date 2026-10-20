@@ -77,3 +77,7 @@ export function Fact({ k, v, why, testId }: { k: ReactNode; v: ReactNode; why?: 
 
 /** The word for a number of sessions. */
 export const sessions = (n: number | null | undefined) => (n == null ? DASH : `${n} session${n === 1 ? "" : "s"}`);
+
+/** The cash candidate family built from a Chartink scan hit: its levels are rules, and the scan itself is not validated. */
+export const CHARTINK_FAMILY = "chartink_screen_signal";
+export const CHARTINK_CANDIDATE_NOTE = "Rule-based levels; the scan is the user's Chartink scan, not validated.";

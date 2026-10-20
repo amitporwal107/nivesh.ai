@@ -37,8 +37,8 @@ const MOBILE_LABELS = ["Overview", "AI Scanner", "Market Intel", "Chart Analysis
 // The phone's bottom bar (PRD §3.1 / §3.3, the user's decision of 2026-10-14): same order, short names.
 const BOTTOM = ["overview", "scanner", "intel", "chart", "portfolio", "more"];
 const BOTTOM_LABELS = ["Overview", "Scanner", "Intel", "Chart", "Portfolio", "More"];
-const MORE_ITEMS = ["copilot", "fno", "strategy", "watchlist", "saved", "paper", "settings"];
-const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Strategy Builder", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
+const MORE_ITEMS = ["copilot", "fno", "strategy", "chartink", "watchlist", "saved", "paper", "settings"];
+const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Strategy Builder", "Chartink scans", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
 
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -622,7 +622,7 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await expect(status).toHaveText(/^Market closed/);
     await expect(status).toHaveAttribute("data-feed", "closed");
     await expect(page.getByTestId("desk-intro-feed")).toHaveText("NSE · BSE end of day");
-    const sb = await page.getByTestId("desk-search").locator("xpath=..").boundingBox();
+    const sb = await page.getByRole("search").boundingBox();
     expect(Math.round(sb?.height ?? 0)).toBe(38);
     expect(sb?.width ?? 0).toBeLessThanOrEqual(380);
 
