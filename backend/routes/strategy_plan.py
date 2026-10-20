@@ -2,6 +2,7 @@
 
 POST /api/desk/strategy/payoff            pure payoff calculation (no DB write)
 POST /api/desk/strategy/plan              build a StrategyPlan from live read-only sources; nothing is written
+POST /api/desk/strategy/ideas             strategies for the top AI opportunities (scanner), cash / futures / options / combinations; nothing is written
 POST /api/desk/strategy/plans             save a built plan (Mongo `desk_strategy_plans`), immutable after save: there is no update route
 GET  /api/desk/strategy/plans             the signed-in user's saved plans, newest first (capped)
 GET  /api/desk/strategy/plans/{id}        one saved plan
@@ -25,6 +26,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from deps import db, get_current_user
 from services.strategy_plan import PLAN_SCHEMA, build_plan, compute_payoff, explain_plan_context, normalise_inputs
+from services.strategy_plan import ideas as ideas_mod
 from services.strategy_plan.plan import digest
 from services.strategy_plan.sources import collect_snapshots
 
@@ -69,6 +71,16 @@ async def strategy_plan(request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
     snaps = await collect_snapshots(request, user["user_id"], inputs, today())
     return await asyncio.to_thread(build_plan, inputs, snaps, utcnow(), today())
+
+
+@router.post("/ideas")
+async def strategy_ideas(request: Request) -> Dict[str, Any]:
+    """Strategies for the top AI opportunities. Reads the scanner and the plan sources, writes nothing, sends nothing to a broker."""
+    user = await get_current_user(request)
+    limit, passed, problems, applied = ideas_mod.parse_body(await _body(request))
+    if problems:
+        raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
+    return await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today())
 
 
 def _check_plan(plan: Any) -> Dict[str, Any]:

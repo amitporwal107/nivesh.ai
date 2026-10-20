@@ -21,12 +21,13 @@ from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from services.option_pricing import RISK_FREE_RATE
+from services.positional_engine import setup_rules
 
 from .engine import compute_payoff
-from .evidence import day10, num, snap
+from .evidence import day10, events_in_horizon, num, snap
 from .rules import RULES
 
-SEGMENTS = ("cash", "futures", "options")
+SEGMENTS = ("cash", "futures", "options", "combination")
 
 
 def r2(x: Any) -> Optional[float]:
@@ -212,6 +213,13 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
         return [not_viable("cash", "scanner", "Cash plan", d, "insufficient_data",
                            reason("scanner_unavailable", f"The scanner's setup for this stock could not be read: {sb['error']}"))]
     bucket, it = (sb["data"] or {}).get("bucket"), (sb["data"] or {}).get("item") or {}
+    stage_note = None
+    if bucket is None and (sb["data"] or {}).get("pick_stage"):
+        # A scanner pick that is not in the watchlist has no bucket; its stage says where it stands (the desk's own mapping:
+        # BREAKOUT is confirmed, EARLY_BREAKOUT is awaiting, anything else is forming). The bucket is not invented: the note says so.
+        st = str(sb["data"]["pick_stage"]).upper()
+        bucket = {"BREAKOUT": "breakout_confirmed", "EARLY_BREAKOUT": "pre_breakout"}.get(st, "true_accumulation")
+        stage_note = f"The stock is a scanner pick (stage {st}) that is not in the watchlist buckets; its stage is read as {bucket.replace('_', ' ')}."
     if bucket is None:
         return [not_viable("cash", "scanner", "Cash plan", d, "no_trade",
                            reason("no_setup", "The scanner lists the stock in none of its buckets (breakout confirmed, pre-breakout, true accumulation, trend continuation): no cash setup."))]
@@ -237,7 +245,7 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [linear_candidate(ctx, "cash", family, label, True, spot, stop, stop_basis, None, f"Last close {spot:g} ({ctx['spot_source']})",
                              unit_kind="cash", lot=1, expiry=None, price_source=ctx["spot_source"],
                              why=[f"Scanner bucket {bucket.replace('_', ' ')} (rules {ctx.get('scan_rules_version')}).",
-                                  f"Trigger / reference level {num(it.get('trigger_price'))}."] if it else [])]
+                                  f"Trigger / reference level {num(it.get('trigger_price'))}."] + ([stage_note] if stage_note else []) if it else [])]
 
 
 def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str, up: bool, entry: float, stop: float, stop_basis: str,
@@ -294,6 +302,27 @@ def pick_future(ctx: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
+def buildup_gate(segment: str, fam: str, label: str, ctx: Dict[str, Any], up: bool) -> Optional[Dict[str, Any]]:
+    """The futures build-up rule shared by the futures candidate and the futures + put combination: the right build-up, confirmed
+    by the cash market. A not-viable candidate (with its reason) when it fails, None when it passes."""
+    d = ctx["direction"]
+    bu = snap(ctx["snaps"], "buildup")
+    if not bu["ok"]:
+        return not_viable(segment, fam, label, d, "insufficient_data", reason("buildup_unavailable", f"The F&O build-up row could not be read: {bu['error']}"))
+    row = bu["data"] or {}
+    lab, cc = row.get("label"), row.get("cash_confirmation")
+    want = "long_buildup" if up else "short_buildup"
+    if lab != want:
+        text = {"short_covering": "Short covering is a rise on falling open interest: it is not fresh buying, so it is a wait, not a trade.",
+                "long_unwinding": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade."}.get(lab)
+        if lab in ("short_buildup", "long_buildup"):
+            return not_viable(segment, fam, label, d, "no_trade", reason("buildup_opposes_view", f"The futures build-up is {lab}, the opposite of the {d} view."))
+        return not_viable(segment, fam, label, d, "wait", reason("no_fresh_buildup", text or f"The futures build-up is {lab or 'unavailable'}: no fresh-position signal for a {d} view."))
+    if cc != "confirms":
+        return not_viable(segment, fam, label, d, "wait", reason("cash_not_confirming", "Cash confirmation is " + (f"'{cc}': the cash market did not move with the futures." if cc else "unavailable (a flat or missing cash move).") + " Wait for the cash market to confirm."))
+    return None
+
+
 def futures_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     d = ctx["direction"]
     if d not in ("bullish", "bearish"):
@@ -302,20 +331,11 @@ def futures_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     fam = "long_buildup_continuation" if up else "short_buildup_continuation"
     label = "Long futures: build-up with cash confirmation" if up else "Short futures: build-up with cash confirmation"
     bu, fu = snap(ctx["snaps"], "buildup"), snap(ctx["snaps"], "futures")
-    if not bu["ok"]:
-        return [not_viable("futures", fam, label, d, "insufficient_data", reason("buildup_unavailable", f"The F&O build-up row could not be read: {bu['error']}"))]
+    blocked = buildup_gate("futures", fam, label, ctx, up)
+    if blocked:
+        return [blocked]
     row = bu["data"] or {}
-    lab, cc = row.get("label"), row.get("cash_confirmation")
-    want = "long_buildup" if up else "short_buildup"
-    if lab != want:
-        text = {"short_covering": "Short covering is a rise on falling open interest: it is not fresh buying, so it is a wait, not a trade.",
-                "long_unwinding": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade."}.get(lab)
-        opposite = lab in ("short_buildup", "long_buildup")
-        if opposite:
-            return [not_viable("futures", fam, label, d, "no_trade", reason("buildup_opposes_view", f"The futures build-up is {lab}, the opposite of the {d} view."))]
-        return [not_viable("futures", fam, label, d, "wait", reason("no_fresh_buildup", text or f"The futures build-up is {lab or 'unavailable'}: no fresh-position signal for a {d} view."))]
-    if cc != "confirms":
-        return [not_viable("futures", fam, label, d, "wait", reason("cash_not_confirming", "Cash confirmation is " + (f"'{cc}': the cash market did not move with the futures." if cc else "unavailable (a flat or missing cash move).") + " Wait for the cash market to confirm."))]
+    lab = row.get("label")
     if not fu["ok"]:
         return [not_viable("futures", fam, label, d, "insufficient_data", reason("futures_unavailable", f"The futures contracts could not be read: {fu['error']}"))]
     near = pick_future(ctx)
@@ -729,15 +749,269 @@ FLAG_TEXT = {"low_oi": "open interest is below the chain's typical strike; exits
              "abnormal_iv": "implied volatility is outside the chain's own interquartile fences (Tukey, k=1.5): a rich or cheap contract, or a bad print."}
 
 
+# ── combinations: cash legs together with F&O legs (all defined risk) ─────────
+
+COMBO_ORDER = ("covered_call", "protective_put", "collar", "futures_protective_put")
+COMBO_LABEL = {"covered_call": "Covered call (shares + short call)", "protective_put": "Protective put (shares + long put)",
+               "collar": "Collar (shares + long put + short call)", "futures_protective_put": "Futures + protective put (synthetic long call)"}
+
+
+def results_in_horizon(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [e for e in events_in_horizon(ctx["snaps"], ctx["as_of"], ctx["inputs"]["horizon_days"]) if e.get("event_type") == "quarterly_results"]
+
+
+def hedge_reason(ctx: Dict[str, Any]) -> Tuple[bool, str]:
+    """(needed, why). Insurance needs a reason: results inside the horizon, or high gap risk (the scanner's risk class)."""
+    res = results_in_horizon(ctx)
+    if res:
+        return True, f"Results are scheduled on {day10(res[0]['event_date'])}, inside the {ctx['inputs']['horizon_days']}-day horizon"
+    sr = snap(ctx["snaps"], "scan_row")
+    rc = (sr["data"] or {}).get("risk_class") if sr["ok"] else None
+    if rc is None and ctx["atr"] and ctx["spot"]:
+        pct = ctx["atr"] / ctx["spot"] * 100
+        rc = "high" if pct > setup_rules.RISK_BANDS["high_above_pct"] else "not high"
+    if rc == "high":
+        return True, f"The stock's risk class is high (ATR(14) above {setup_rules.RISK_BANDS['high_above_pct']:g}% of the close): gap risk"
+    return False, "no results date inside the horizon and the risk class is not high"
+
+
+def scanner_stop(ctx: Dict[str, Any]) -> Tuple[Optional[float], Optional[str]]:
+    """The long idea's stop below the last close: the scanner's, else the chart engine's ATR stop. (None, None) when neither exists."""
+    sb, spot = snap(ctx["snaps"], "scanner_bucket"), ctx["spot"]
+    it = ((sb["data"] or {}).get("item") or {}) if sb["ok"] else {}
+    stop = num(it.get("stop_price"))
+    if spot is not None and stop is not None and 0 < stop < spot:
+        return stop, f"the scanner's stop ({stop:g})"
+    stop = num(ctx["hyp"].get("stop")) if ctx["hyp"] else None
+    if spot is not None and stop is not None and 0 < stop < spot:
+        return stop, "the chart engine's ATR stop (2 x ATR(14), or 20-session support when closer)"
+    return None, None
+
+
+def short_call_strike(chain: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """rules.combinations.short_call_strike: the call wall when above the ATM strike, else the first strike at or beyond spot + one expected move."""
+    S, ks = chain["summary"], sorted(r["strike"] for r in chain["strikes"])
+    atm, em = S.get("atm_strike"), S.get("expected_move")
+    spot = S.get("spot") if S.get("spot") is not None else atm
+    cw = (S.get("max_call_oi") or {}).get("strike")
+    if cw is not None and atm is not None and cw > atm and cw in ks:
+        return {"strike": cw, "from": "the call wall"}
+    if em is not None and spot is not None:
+        beyond = [k for k in ks if k >= spot + em]
+        if beyond:
+            return {"strike": beyond[0], "from": "the first strike at or beyond one expected move"}
+    return None
+
+
+def long_put_strike(chain: Dict[str, Any], stop: float) -> Optional[float]:
+    """rules.combinations.long_put_strike: the listed out-of-the-money put strike nearest the stop."""
+    S = chain["summary"]
+    spot = S.get("spot") if S.get("spot") is not None else S.get("atm_strike")
+    otm = sorted(r["strike"] for r in chain["strikes"] if spot is not None and r["strike"] < spot and r.get("put"))
+    return min(otm, key=lambda k: abs(k - stop)) if otm else None
+
+
+def combo_blocker_reasons(blockers: List[str], asof: str) -> List[Dict[str, Any]]:
+    codes = sorted({b.split("@")[0] for b in blockers})
+    txt = ", ".join(blockers)
+    out = []
+    if "missing_premium" in codes:
+        out.append(reason("legs_unpriced", f"A leg has no closing price, so it is not built ({txt}). A premium is never guessed."))
+    if {"zero_open_interest", "no_trades_today"} & set(codes):
+        out.append(reason("illiquid_leg", f"A leg has no open interest or did not trade on {asof} ({txt}): its close is not a market price."))
+    if {"strike_not_listed", "lot_size_unknown", "future_unpriced", "future_expiry_mismatch"} & set(codes):
+        out.append(reason("legs_unpriced", f"The structure cannot be priced reliably ({txt})."))
+    return out
+
+
+NOT_FNO_TEXT = ("The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, "
+                "so only the cash idea applies.")
+
+
+def combo_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    d, C = ctx["direction"], RULES["combinations"]
+    fams = [f for f in COMBO_ORDER if d in C["views"][f]]
+    if not fams:
+        return [not_viable("combination", "none", "No combination strategy", d, "no_trade",
+                           reason("no_combination_for_view", f"A {d} view has no combination strategy: they hold the shares long (bullish or neutral views only)."))]
+    sr = snap(ctx["snaps"], "scan_row")
+    if sr["ok"] and (sr["data"] or {}).get("fno_eligible") is False:
+        return [not_viable("combination", "none", "No combination strategy", d, "no_trade",
+                           reason("not_fno_eligible", NOT_FNO_TEXT))]
+    ch = snap(ctx["snaps"], "chain")
+    if not ch["ok"]:
+        return [not_viable("combination", f, COMBO_LABEL[f], d, "insufficient_data", reason("no_valid_chain", f"No valid option chain: {ch['error']}")) for f in fams]
+    chain = dict(ch["data"] or {})
+    chain["asof"] = ch["as_of"] or (chain.get("summary") or {}).get("as_of")
+    if not chain.get("strikes") or not chain.get("summary"):
+        return [not_viable("combination", f, COMBO_LABEL[f], d, "insufficient_data", reason("no_valid_chain", "The option chain has no strikes.")) for f in fams]
+    return [one_combo_candidate(ctx, chain, f) for f in fams]
+
+
+def _deployed(legs: List[Dict[str, Any]]) -> float:
+    """Capital one structure ties up: shares and futures at their entry value (a future's notional, as for the futures candidate) plus the
+    net premium paid (premium received reduces it)."""
+    tot = 0.0
+    for l in legs:
+        units = l["quantity"] * l["lot_size"]
+        tot += (l["entry_price"] * units) * (1 if l["side"] == "buy" else -1) if l["kind"] == "option" else l["entry_price"] * units
+    return tot
+
+
+def one_combo_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], family: str) -> Dict[str, Any]:
+    d, inputs, C = ctx["direction"], ctx["inputs"], RULES["combinations"]
+    label, S = COMBO_LABEL[family], chain["summary"]
+    snaps = ctx["snaps"]
+    c = base_candidate("combination", family, label, d)
+    c["event_hedged"] = family in C["event_hedged"]
+
+    def fail(status: str, *reasons: Dict[str, Any]) -> Dict[str, Any]:
+        c["status"] = status
+        c["reasons"] += list(reasons)
+        return c
+
+    if family == "futures_protective_put":
+        blocked = buildup_gate("combination", family, label, ctx, True)
+        if blocked:
+            blocked["event_hedged"] = True
+            return blocked
+    need, why_need = hedge_reason(ctx)
+    if family in C["needs_hedge_reason"] and not need:
+        return fail("no_trade", reason("not_indicated", f"{label} is for a stock with event or gap risk, and here there is none ({why_need}): insurance would be a cost without a reason."
+                                       + (" The plain long future carries the idea." if family == "futures_protective_put" else "")))
+    spot = ctx["spot"]
+    if spot is None:
+        return fail("insufficient_data", reason("no_price", "No last close: the shares leg cannot be priced."))
+    stop, stop_basis = scanner_stop(ctx)
+    if stop is None:
+        return fail("insufficient_data", reason("risk_not_calculable", "No stop below the price could be derived (scanner stop and ATR stop are both missing)."))
+    fu = snap(snaps, "futures")
+    lot = chain.get("lot_size") or ((fu["data"] or {}).get("lot_size") if fu["ok"] else None)
+    if not lot:
+        return fail("insufficient_data", reason("lot_size_unknown", "The contract's lot size is not in the data: the position cannot be sized or priced."))
+    lot = int(lot)
+    rows = chain["strikes"]
+    rowmap = {r["strike"]: r for r in rows}
+    fences = iv_fences(rows)
+    plan: Dict[str, Any] = {}
+    specs: List[Tuple[float, str, str]] = []
+    if family in ("covered_call", "collar"):
+        sc = short_call_strike(chain)
+        if sc is None:
+            return fail("no_trade", reason("no_short_strike", "The chain gives no short call strike (no call wall above the ATM strike and no strike beyond one expected move)."))
+        plan["short_call"], plan["short_call_from"] = sc["strike"], sc["from"]
+        specs.append((sc["strike"], "call", "sell"))
+    if family in ("protective_put", "collar", "futures_protective_put"):
+        kp = long_put_strike(chain, stop)
+        if kp is None:
+            return fail("no_trade", reason("no_put_strike", "The chain lists no out-of-the-money put to buy."))
+        plan["long_put"] = kp
+        specs.insert(0, (kp, "put", "buy"))
+    views, blockers, flags = [], [], []
+    for k, otype, side in specs:
+        v = leg_view(rowmap[k], otype, rows, fences)
+        v.update(strike=k, option_type=otype, side=side)
+        views.append(v)
+        blockers += [f"{b}@{k:g}{otype[0].upper()}E" for b in v["blockers"]]
+        flags += [f"{f}@{k:g}{otype[0].upper()}E" for f in v["flags"]]
+    fut = None
+    if family == "futures_protective_put":
+        fut = next((f for f in ((fu["data"] or {}).get("futures") or []) if fu["ok"] and f.get("expiry") == S.get("expiry")), None)
+        if fut is None:
+            blockers.append("future_expiry_mismatch")
+        elif num(fut.get("settle")) is None:
+            blockers.append("future_unpriced")
+        else:
+            if not fut.get("oi"):
+                blockers.append("zero_open_interest@future")
+            if not fut.get("volume"):
+                blockers.append("no_trades_today@future")
+    asof = chain["asof"]
+    if blockers:
+        return fail("no_trade", *combo_blocker_reasons(blockers, asof))
+    levels = scenario_levels(spot, True, stop, ctx["atr"], ctx["resistance"], None)
+    scen = [{"name": "stop", "price": stop}] + levels
+
+    def make_legs(lots: int) -> List[Dict[str, Any]]:
+        if fut is not None:
+            legs = [{"kind": "future", "side": "buy", "quantity": lots, "lot_size": lot, "entry_price": float(fut["settle"]), "expiry": S["expiry"],
+                     "price_source": f"NSE F&O bhavcopy settle, {fu['as_of']}"}]
+        else:
+            legs = [{"kind": "cash", "side": "buy", "quantity": lots * lot, "lot_size": 1, "entry_price": spot, "expiry": None, "price_source": ctx["spot_source"]}]
+        return legs + [_option_leg(asof, S["expiry"], lot, rowmap, v["strike"], v["option_type"], v["side"], lots, v) for v in views]
+
+    legs1 = make_legs(1)
+    res1 = run_payoff(ctx, spot, legs1, scen, asof)
+    if not res1.get("valid"):
+        return fail("insufficient_data", reason("payoff_invalid", "The payoff could not be calculated: " + "; ".join(p["code"] for p in res1.get("problems", []))))
+    st1 = _scn(res1, "stop")
+    loss1 = -st1["net"] if st1 else None
+    basis = "loss of one lot if the price reaches the stop, from the payoff calculation (costs included)"
+    if loss1 is None or loss1 <= 0:
+        loss1, basis = (spot - stop) * lot, "the cash stop distance x lot size (the premium received covers the loss at the stop, so it is not counted against the budget)"
+    sizing = size_position(inputs, risk_per_unit=loss1, value_per_unit=_deployed(legs1), unit="lots", lot_units=1, per_unit_label=basis)
+    lots = sizing["quantity"] if sizing["status"] == "complete" else 1
+    legs = make_legs(lots) if lots != 1 else legs1
+    res = res1 if lots == 1 else run_payoff(ctx, spot, legs, scen, asof)
+    rr = reward_risk(res, True, _gate(levels))
+    delayed = _delay(asof, ctx["ref_session"])
+    cw, pw = (S.get("max_call_oi") or {}).get("strike"), (S.get("max_put_oi") or {}).get("strike")
+    prem = {(v["option_type"], v["side"]): v["close"] for v in views}
+    shares = f"{lots * lot} shares"
+    why_by = {
+        "covered_call": f"Bullish-to-neutral view: sell the {plan.get('short_call', 0):g} call ({plan.get('short_call_from')}) against {shares} to collect {prem.get(('call', 'sell'), 0):g} a share; the upside is capped at that strike.",
+        "protective_put": f"{why_need}: buy the {plan.get('long_put', 0):g} put (nearest the stop, {stop_basis}) so the loss on {shares} cannot go below that strike.",
+        "collar": f"{why_need}: buy the {plan.get('long_put', 0):g} put and sell the {plan.get('short_call', 0):g} call ({plan.get('short_call_from')}); the call premium offsets part of the put's cost, and the upside is capped.",
+        "futures_protective_put": f"The futures build-up is long and confirmed by the cash market, and {why_need[0].lower() + why_need[1:]}: the {plan.get('long_put', 0):g} put limits the future's loss, a synthetic long call.",
+    }
+    c.update(legs=legs, targets=levels, payoff=res, sizing=sizing, risk_reward=rr, why_qualifies=[why_by[family]],
+             entry={"trigger": r2(spot), "zone": None, "logic": f"{'Futures' if fut is not None else 'Shares'} at {r2(fut['settle'] if fut is not None else spot):g} ({legs[0]['price_source']}); premiums are the {asof} closes (end of day, never live); re-price before acting."},
+             invalidation={"technical": {"price": r2(stop), "basis": stop_basis, "meaning": "the thesis is wrong if price closes beyond this level"},
+                           "execution_stop": {"price": None, "note": "A long put defines the downside at its strike; a sold call caps the upside. No stop order is assumed."}},
+             options_selection={"expiry": S["expiry"], "days_to_expiry": S.get("days_to_expiry"), "expiry_why": ctx.get("expiry_why"), "eligible_expiries": None,
+                                "eligible_expiries_note": "See the options candidates for the listed expiries.",
+                                "eligible_strikes": [r["strike"] for r in rows], "strikes_source": f"NSE F&O bhavcopy via /api/fno/{ctx['symbol']}/chain, as of {asof} (end of day)",
+                                "chosen": plan, "why": why_by[family], "rule": "; ".join(f"{k}: {C[k]}" for k in ("short_call_strike", "long_put_strike", "shares", "future") if k in C),
+                                "alternatives": [], "preferred_flags": flags,
+                                "preferred_leg_facts": [{k: v[k] for k in ("strike", "option_type", "side", "close", "oi", "volume", "iv", "delta", "median_oi", "median_volume")} for v in views],
+                                "iv_fences": fences, "liquidity_proxy": "open interest and volume (the end-of-day file has no bid/ask)", "stale": delayed,
+                                "chain_as_of": asof, "reference_session": ctx["ref_session"], "call_wall": cw, "put_wall": pw})
+    c["warnings"].append("Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.")
+    c["warnings"].append("No pre-expiry estimate for combination structures in this release: the expiry payoff applies.")
+    held = [r for r in ((snap(snaps, "portfolio")["data"] or []) if snap(snaps, "portfolio")["ok"] else []) if isinstance(r, dict) and str(r.get("nse_symbol") or "").upper() == ctx["symbol"]]
+    if held:
+        c["warnings"].append(f"Your portfolio already lists {ctx['symbol']}: the shares leg is that position priced at the last close ({spot:g}), not at your cost.")
+    for f in flags:
+        c["warnings"].append(f"Flag {f.split('@')[0]} on {f.split('@')[1]}: " + FLAG_TEXT.get(f.split("@")[0], ""))
+    if sizing["status"] == "incomplete":
+        c["warnings"].append("Sizing is incomplete (" + ", ".join(sizing["missing"]) + "): the payoff is shown for 1 lot.")
+    elif sizing["status"] == "too_small":
+        c["status"] = "no_trade"
+        c["reasons"].append(reason("sizing_zero", sizing["reason"]))
+    stop_s = _scn(res, "stop")
+    if c["status"] == "candidate":
+        if stop_s is not None and stop_s["net"] >= 0:
+            c["warnings"].append("Reward : risk is undefined here: the premium received covers the loss at the stop, so there is no loss to divide by. The gate is not applied; read max loss and capital at risk.")
+        else:
+            apply_rr_gate(c, inputs)
+    if c["status"] == "candidate" and delayed:
+        c["status"] = "wait"
+        c["reasons"].append(reason("stale_chain", f"The chain is from {asof}, before the last completed session {ctx['ref_session']}: delayed/historical, not a current actionable strike. Refresh the F&O data before acting."))
+    return c
+
+
 # ── dispatch ─────────────────────────────────────────────────────────────────
 
 def generate(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     want = ctx["inputs"]["instrument"]
     out: List[Dict[str, Any]] = []
+    sr = snap(ctx["snaps"], "scan_row")
+    no_fno = sr["ok"] and (sr["data"] or {}).get("fno_eligible") is False
     if want in ("cash", "all"):
         out += cash_candidates(ctx)
-    if want in ("futures", "all"):
-        out += futures_candidates(ctx)
-    if want in ("options", "all"):
-        out += options_candidates(ctx)
+    for seg, fn in (("futures", futures_candidates), ("options", options_candidates)):
+        if want in (seg, "all"):
+            out += [not_viable(seg, "none", f"No {seg} strategy", ctx["direction"], "no_trade", reason("not_fno_eligible", NOT_FNO_TEXT))] if no_fno else fn(ctx)
+    if want == "combination" or (want == "all" and ctx["inputs"].get("include_combinations", True)):
+        out += combo_candidates(ctx)
     return out

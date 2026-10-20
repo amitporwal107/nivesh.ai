@@ -292,7 +292,7 @@ def peer_context(peers: Dict[str, Any], own: Dict[str, Any]) -> Tuple[Optional[D
     return ctx, None
 
 
-def fundamental(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
+def fundamental(snaps: Dict[str, Any], d: str, asof: Optional[str] = None) -> List[Dict[str, Any]]:
     g, out = "fundamental", []
     f = snap(snaps, "features")
     row = f["data"] if f["ok"] and isinstance(f["data"], dict) else None
@@ -330,13 +330,134 @@ def fundamental(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
                          "ebitda_margin_pct": latest.get("ebitda_margin_pct"), "quarters": data.get("quarters_count")},
                         f"Latest quarter {data.get('latest_quarter')}: growth trend {data.get('growth_trend')}." + role, "neutral", fin))
     out.append(item(g, "analyst_estimates", None,
-                    "Not available: the data platform holds no analyst estimates or management guidance (PRD §17.2 #1).", "unavailable",
-                    src_fail("no source exists", "none")))
-    out.append(item(g, "cash_flow_quality", None, "Not available: the quarterly financials feed carries no cash-flow statement.",
+                    "Not available: the data platform holds no analyst estimates or management guidance (PRD §17.2 #1). nidp.earnings_estimates "
+                    "(migration 114) exists but no loader in this repository fills it, and it was empty when last checked (2026-10-20).",
                     "unavailable", src_fail("no source exists", "none")))
-    out.append(item(g, "ownership_changes", None, "Not read in this release: shareholding history exists in the platform but is not part of the plan.",
-                    "unavailable", src_fail("not read", "none")))
+    out += cash_flow_items(snaps, d)
+    out += ownership_items(snaps, d, day_of(asof))
     return out
+
+
+# ── cash-flow quality and ownership (fundamental, context) ───────────────────
+
+def day_of(v: Any) -> Optional[date]:
+    s = day10(v)
+    return date.fromisoformat(s) if s else None
+
+
+def cash_flow_items(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
+    """Cash-flow quality from the feature row's cfo_pat_ratio, and the free-cash-flow sign (no source reaches it)."""
+    g, C = "fundamental", RULES["cash_flow"]
+    f = snap(snaps, "features")
+    fcf = unavailable(g, "free_cash_flow", "Free cash flow needs capex: nidp.nse_financials_cashflow (capex_cr) is empty on staging and no data route reads it. "
+                      "Loaders that fill it: python -m nidp.services.nse_financials.yahoo_fundamentals or nse_financials.backfill_screener.",
+                      src_fail("no source reachable", "nidp.nse_financials_cashflow"))
+    if not f["ok"] or not isinstance(f["data"], dict):
+        return [unavailable(g, "cash_flow_quality", f"Cash-flow quality unavailable: {f['error'] or 'no feature row'}", f), fcf]
+    ratio = num(f["data"].get("cfo_pat_ratio"))
+    if ratio is None:
+        return [unavailable(g, "cash_flow_quality",
+                            f"cfo_pat_ratio is empty in the latest feature row ({f['as_of']}): it is the latest year's cash from operations over trailing profit, and "
+                            "nidp.nse_financials_cashflow has no rows to compute it from. Loader: python -m nidp.services.nse_financials.yahoo_fundamentals.", f), fcf]
+    how = (f" CFO / profit after tax {ratio:g} as of {f['as_of']} (latest financial year's CFO over trailing-twelve-month PAT; the financial year end is not in the "
+           f"feature row). Heuristic: at or above {C['strong_at_or_above']:g} the profit is backed by cash, below {C['weak_below']:g} it is not. Shown as context.")
+    if ratio < 0:
+        return [item(g, "cash_flow_quality", {"cfo_pat_ratio": ratio}, "Cash from operations and profit have opposite signs." + how + " No direction is read from a negative ratio.", "neutral", f), fcf]
+    signal = "up" if ratio >= C["strong_at_or_above"] else "down" if ratio < C["weak_below"] else "flat"
+    return [item(g, "cash_flow_quality", {"cfo_pat_ratio": ratio, "strong_at_or_above": C["strong_at_or_above"], "weak_below": C["weak_below"]},
+                 {"up": "Profit is backed by operating cash.", "down": "Profit is poorly backed by operating cash.", "flat": "Cash conversion is in the middle band."}[signal] + how,
+                 rel(signal, d), f), fcf]
+
+
+OWNERSHIP_FIELDS = (
+    ("promoter", "promoter_pct", "Promoter holding", 1),
+    ("pledge", "promoter_pledged_pct", "Promoter pledge", -1),
+    ("fii", "fii_pct", "FII holding", 1),
+    ("dii", "dii_pct", "DII holding", 1),
+    ("mf", "mf_pct", "Mutual-fund holding", 1),
+)
+
+
+def ownership_series(rows: List[Dict[str, Any]], column: str) -> List[Tuple[str, float]]:
+    """(period_end, value), newest first, one per quarter: the first row listed that has the figure (the route lists NSE_SHP first)."""
+    seen: Dict[str, float] = {}
+    for r in rows:
+        p, v = day10(r.get("period_end")), num(r.get(column))
+        if p and v is not None and p not in seen:
+            seen[p] = v
+    return sorted(seen.items(), reverse=True)
+
+
+def ownership_items(snaps: Dict[str, Any], d: str, today: Optional[date]) -> List[Dict[str, Any]]:
+    g, O = "fundamental", RULES["ownership"]
+    out: List[Dict[str, Any]] = []
+    sh = snap(snaps, "shareholding")
+    rows = [r for r in (sh["data"] or []) if isinstance(r, dict)] if sh["ok"] and isinstance(sh["data"], list) else []
+    if not sh["ok"]:
+        out.append(unavailable(g, "ownership_changes", f"Shareholding history unavailable: {sh['error']}", sh))
+    elif not rows:
+        out.append(unavailable(g, "ownership_changes", "No shareholding rows are stored for this stock.", sh))
+    else:
+        for key, column, label, good in OWNERSHIP_FIELDS:
+            k = "ownership_" + key
+            series = ownership_series(rows, column)
+            if not series:
+                extra = " Mutual-fund percentages were fixed in the parser and fill in only after a re-ingest." if key == "mf" else ""
+                out.append(unavailable(g, k, f"{column} is empty in every stored quarter ({len({day10(r.get('period_end')) for r in rows})} read).{extra}", sh))
+                continue
+            if len(series) < 2:
+                out.append(unavailable(g, k, f"Only one quarter has {column} ({series[0][0]}); a change needs two quarters.", {**sh, "as_of": series[0][0]}))
+                continue
+            (p1, v1), (p0, v0) = series[0], series[1]
+            change = round(v1 - v0, 2)
+            band = O["min_change_pp"]
+            move = "up" if change > band else "down" if change < -band else "flat"
+            signal = move if good > 0 else {"up": "down", "down": "up", "flat": "flat"}[move]
+            months = round((date.fromisoformat(p1) - date.fromisoformat(p0)).days / 30.4)
+            gap = f" The two figures are {months} months apart, not consecutive quarters." if months > 4 else ""
+            stale = f" The newest figure is {p1}, older than {O['stale_after_days']} days before the last session." if today and (today - date.fromisoformat(p1)).days > O["stale_after_days"] else ""
+            word = {"up": "rose", "down": "fell", "flat": "moved within the band"}[move]
+            out.append(item(g, k, {"column": column, "latest": {"period_end": p1, "value": v1}, "previous": {"period_end": p0, "value": v0}, "change_pp": change,
+                                   "min_change_pp": band}, f"{label} {word}: {v1:g}% at {p1} against {v0:g}% at {p0} ({change:+g} pp; changes inside +/-{band:g} pp are flat)."
+                            + gap + stale + (" A rising pledge is adverse." if key == "pledge" else ""), rel(signal, d), {**sh, "as_of": p1}))
+    out.append(deal_item(snap(snaps, "deals"), d))
+    out.append(unavailable(g, "insider_sast", "Insider and SAST disclosures are not read: nidp.insider_sast has no rows on staging (loader research/trendlyne/bin/insider_sast_to_pg.py "
+                                              "is on feat/provider-foundations only) and no data route reads it.", src_fail("no source reachable", "nidp.insider_sast")))
+    return out
+
+
+def deal_item(s: Dict[str, Any], d: str) -> Dict[str, Any]:
+    g, O, key = "fundamental", RULES["ownership"], "bulk_block_deals"
+    if not s["ok"]:
+        return unavailable(g, key, f"Bulk and block deals unavailable: {s['error']}", s)
+    data = s["data"] or {}
+    rows = [r for r in data.get("rows") or [] if isinstance(r, dict)]
+    win, cov = data.get("window") or {}, day10(data.get("coverage_from"))
+    partial = ""
+    if cov is None:
+        partial = " The start of the stored deal history is unknown."
+    elif win.get("from") and (date.fromisoformat(cov) - date.fromisoformat(win["from"])).days > O["deal_coverage_tolerance_days"]:
+        partial = f" The stored deal history starts {cov}, so the {win['from']} to {win.get('to')} window is only partly covered."
+    buy = sum(num(r.get("quantity")) or 0 for r in rows if str(r.get("deal_type")).upper() == "BUY")
+    sell = sum(num(r.get("quantity")) or 0 for r in rows if str(r.get("deal_type")).upper() == "SELL")
+    base = {"window": win, "count": len(rows), "coverage_from": cov}
+    if not rows:
+        return item(g, key, {**base, "net_quantity": 0, "buy_quantity": 0, "sell_quantity": 0, "latest_deal_date": None},
+                    f"No bulk or block deal recorded between {win.get('from')} and {win.get('to')}.{partial}", "neutral", s)
+    pcts = [((num(r.get("pct_of_shares")) or 0) * (1 if str(r.get("deal_type")).upper() == "BUY" else -1 if str(r.get("deal_type")).upper() == "SELL" else 0))
+            for r in rows if num(r.get("pct_of_shares")) is not None]
+    latest = max(day10(r.get("as_of_date")) or "" for r in rows) or None
+    value = {**base, "net_quantity": buy - sell, "buy_quantity": buy, "sell_quantity": sell, "latest_deal_date": latest,
+             "net_pct_of_shares": round(sum(pcts), 4) if pcts else None,
+             "deals": [{k: r.get(k) for k in ("as_of_date", "kind", "client_name", "deal_type", "quantity", "avg_price", "pct_of_shares")} for r in rows[:10]]}
+    head = f"{len(rows)} bulk/block deal(s) between {win.get('from')} and {win.get('to')}: bought {buy:,.0f}, sold {sell:,.0f} shares (latest {latest})."
+    if not pcts:
+        return item(g, key, value, head + " The company's share count is missing, so the size against its shares cannot be judged; no direction is read." + partial, "neutral", s)
+    net = value["net_pct_of_shares"]
+    band = O["deal_min_net_pct_of_shares"]
+    signal = "up" if net > band else "down" if net < -band else "flat"
+    return item(g, key, value, f"{head} Net {net:+g}% of the company's shares (deals inside +/-{band:g}% are flat)." + partial, rel(signal, d), s)
+
 
 
 # ── catalysts and event risk ─────────────────────────────────────────────────
@@ -454,8 +575,28 @@ def derivatives(snaps: Dict[str, Any], d: str, ref_session: Optional[str]) -> Li
         liq = {side: {"oi": (atm or {}).get(side, {}).get("oi"), "volume": (atm or {}).get(side, {}).get("volume")} for side in ("call", "put")} if atm else None
         out.append(item(g, "liquidity_proxy", liq, "Liquidity proxy: open interest and volume at the ATM strike. The end-of-day bhavcopy has no bid/ask.", "neutral", ch)
                    if liq else unavailable(g, "liquidity_proxy", "The ATM strike is not in the chain window.", ch))
-        out.append(item(g, "bid_ask", None, "Not available: the end-of-day F&O file carries no bid or ask; OI and volume are the liquidity proxy and fills are not assumed at mid.", "unavailable", ch))
+        out.append(bid_ask_item(snap(snaps, "broker_quotes"), ch))
     return out
+
+
+def bid_ask_item(q: Dict[str, Any], ch: Dict[str, Any]) -> Dict[str, Any]:
+    """Live bid/ask of the chain's ATM call and put from the user's own broker session; unavailable otherwise (the F&O file has none)."""
+    g, Q = "derivatives", RULES["quotes"]
+    eod = "the end-of-day F&O file carries no bid or ask; OI and volume are the liquidity proxy and fills are not assumed at mid."
+    quotes = ((q["data"] or {}).get("quotes") or []) if q["ok"] else []
+    if not quotes:
+        why = q["error"] if not q["ok"] else "; ".join((q["data"] or {}).get("skipped") or []) or "the broker returned no usable quote"
+        return unavailable(g, "bid_ask", f"Not available: {eod} No live broker quote was read ({why}).", q if not q["ok"] else {**q, "ok": False})
+    data = q["data"]
+    modes = {x.get("mode") for x in quotes}
+    mode = "live" if modes == {"live"} else "delayed" if "delayed" in modes else "untimed"
+    at = str(data.get("read_at") or "")[11:16]
+    wide = [x for x in quotes if (num(x.get("spread_pct")) or 0) > Q["wide_spread_pct"]]
+    parts = "; ".join(f"{x.get('label')}: bid {x.get('bid'):g} x ask {x.get('ask'):g} (spread {x.get('spread_pct')}% of mid)" for x in quotes)
+    note = {"live": "Quote is live", "delayed": "Quote is delayed (last trade older than the live limit)", "untimed": "Quote has no trade time"}[mode]
+    flag = f" Wide spread (over {Q['wide_spread_pct']:g}% of mid): expect to pay it; do not assume a fill at mid." if wide else ""
+    return item(g, "bid_ask", {"mode": mode, "broker": data.get("display"), "read_at": data.get("read_at"), "quotes": quotes},
+                f"{note}: read from {data.get('display')} at {at} IST, read-only (no order placed). {parts}.{flag}", "neutral", q)
 
 
 # ── validation ───────────────────────────────────────────────────────────────
@@ -528,7 +669,7 @@ def build_ledger(snaps: Dict[str, Any], inputs: Dict[str, Any], asof: Optional[s
             sector = s["data"]["sector"]
             break
     val_items, val_block = validation(snaps, horizon)
-    items = (market_context(snaps, d) + technical(snaps, d) + fundamental(snaps, d) + catalysts(snaps, d, asof, horizon)
+    items = (market_context(snaps, d) + technical(snaps, d) + fundamental(snaps, d, asof) + catalysts(snaps, d, asof, horizon)
              + derivatives(snaps, d, ref_session) + val_items + portfolio_fit(snaps, inputs["underlying"], sector))
     summary = {grp: {x: sum(1 for i in items if i["group"] == grp and i["direction"] == x) for x in DIRECTIONS} for grp in GROUPS}
     return {"items": items, "summary": summary, "validation": val_block}
