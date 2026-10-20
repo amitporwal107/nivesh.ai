@@ -65,7 +65,7 @@ export const EvidenceItemSchema = z.object({
 }).passthrough();
 export type EvidenceItem = z.infer<typeof EvidenceItemSchema>;
 
-const GroupCountsSchema = z.object({ supports: z.number(), conflicts: z.number(), neutral: z.number(), unavailable: z.number() }).partial().passthrough();
+const GroupCountsSchema = z.object({ supports: z.number(), conflicts: z.number(), neutral: z.number(), unavailable: z.number() }).partial();
 
 const SizingSchema = z.object({
   status: z.string(),
