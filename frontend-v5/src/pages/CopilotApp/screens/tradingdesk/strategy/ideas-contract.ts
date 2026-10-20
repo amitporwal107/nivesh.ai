@@ -87,8 +87,20 @@ export const IdeaStrategySchema = z.object({
 }).passthrough();
 export type IdeaStrategy = z.infer<typeof IdeaStrategySchema>;
 
+/** Where an idea came from: the AI scanner, the user's Chartink scans, or both. Absent on an older route. */
+export const IDEA_SOURCES = ["ai_scanner", "chartink", "both"] as const;
+export type IdeaSource = (typeof IDEA_SOURCES)[number];
+export const IdeaChartinkSchema = z.object({
+  scans: z.array(z.object({ id: z.union([z.string(), z.number()]).transform(String), name: z.string(), direction: strOrNull }).passthrough()).catch([]),
+  count: z.number().catch(0),
+  fetched_at: strOrNull,
+}).passthrough();
+export type IdeaChartink = z.infer<typeof IdeaChartinkSchema>;
+
 export const IdeaSchema = z.object({
   rank: z.number().catch(0),
+  source: z.enum(IDEA_SOURCES).nullable().catch(null),
+  chartink: IdeaChartinkSchema.nullable().catch(null),
   symbol: z.string(),
   name: strOrNull,
   scanner: ScannerSchema.catch(() => ScannerSchema.parse({})),

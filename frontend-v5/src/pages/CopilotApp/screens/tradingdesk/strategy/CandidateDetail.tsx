@@ -13,7 +13,7 @@ import { fmtDay } from "../../trading/parts";
 import type { DeskPersona } from "../context";
 import { TrustLine } from "../trust";
 import type { Candidate, OptionsSelection, StrategyPlan } from "./plan-contract";
-import { CandidatePill, DASH, Fact, SEGMENT_WORD, noteStyle, ratio, rupees, rupeesAbs } from "./plan-format";
+import { CHARTINK_CANDIDATE_NOTE, CHARTINK_FAMILY, CandidatePill, DASH, Fact, SEGMENT_WORD, noteStyle, ratio, rupees, rupeesAbs } from "./plan-format";
 
 const list = { margin: 0, display: "flex", flexDirection: "column" as const, gap: 4, paddingLeft: 18 };
 
@@ -114,6 +114,10 @@ export function CandidateDetail({ plan, c, persona }: { plan: StrategyPlan; c: C
           <CandidatePill status={c.status} testId="cand-status" />
           {c.id === plan.preferred && <span className="cp-pill" data-tone="mint" title="Highest net reward : risk among the viable candidates. A ranking, not a probability.">Preferred</span>}
         </div>
+
+        {c.family === CHARTINK_FAMILY && (
+          <p role="note" data-testid="cand-chartink-note" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>{CHARTINK_CANDIDATE_NOTE}</p>
+        )}
 
         {c.reasons.length > 0 && (
           <div data-testid="cand-reasons" className="flex flex-col" style={{ gap: 4 }}>

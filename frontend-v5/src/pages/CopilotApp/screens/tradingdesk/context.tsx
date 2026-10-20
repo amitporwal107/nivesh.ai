@@ -50,6 +50,8 @@ export interface DeskState {
   openStrategy: (symbol: string, src?: { kind: "scanner" | "chart" | "lab"; bucket?: string | null; date?: string | null }) => void;
   /** Open the Strategy Builder on the AI opportunities board, optionally scrolled to one stock's idea. */
   openStrategyIdeas: (focus?: string) => void;
+  /** Open More · Chartink scans (the settings for using the user's Chartink scans as opportunity sources). */
+  openChartink: () => void;
   /** Ask the Copilot about something on the desk. */
   askDesk: (question: string) => void;
   /** True when the Copilot panel is docked beside the desk (wide screens). */
