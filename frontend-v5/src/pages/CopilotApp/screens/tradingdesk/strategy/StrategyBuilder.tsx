@@ -72,6 +72,7 @@ export default function StrategyBuilder() {
     const { request, problems } = validateForm(form);
     setClientProblems(problems);
     if (!request) return;
+    setBuilt(null);
     build.mutate(request, {
       onSuccess: (b) => { setBuilt(b); setSelId(null); },
     });
@@ -167,6 +168,7 @@ export default function StrategyBuilder() {
           <Thesis plan={plan} persona={persona} />
           <EvidenceLedger plan={plan} persona={persona} />
           <Section title={persona === "investor" ? "Shares, futures and options side by side" : "Compare cash, futures and options"} note="Select a row">
+            {plan.ranking && <p data-testid="compare-ranking" className="m-0" style={{ ...noteStyle, paddingBottom: 8 }}>{plan.ranking}</p>}
             <CompareTable rows={plan.alternatives} selected={sel?.id ?? null} preferred={plan.preferred} onSelect={setSelId} />
           </Section>
           {sel && <CandidateDetail plan={plan} c={sel} persona={persona} />}

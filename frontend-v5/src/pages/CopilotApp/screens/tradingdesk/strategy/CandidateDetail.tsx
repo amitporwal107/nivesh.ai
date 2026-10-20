@@ -112,7 +112,7 @@ export function CandidateDetail({ plan, c, persona }: { plan: StrategyPlan; c: C
         <div className="flex flex-wrap items-center" style={{ gap: "6px 12px" }}>
           <h3 className="m-0" data-testid="cand-title" style={{ fontFamily: "var(--display)", fontSize: 22, fontWeight: 400 }}>{c.label}</h3>
           <CandidatePill status={c.status} testId="cand-status" />
-          {c.id === plan.preferred && <span className="cp-pill" data-tone="mint">Preferred: highest net reward : risk (a ranking, not a probability)</span>}
+          {c.id === plan.preferred && <span className="cp-pill" data-tone="mint" title="Highest net reward : risk among the viable candidates. A ranking, not a probability.">Preferred</span>}
         </div>
 
         {c.reasons.length > 0 && (
