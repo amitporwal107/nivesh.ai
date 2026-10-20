@@ -66,6 +66,9 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
   fno: lazy(() => import("./tradingdesk/FnoTab")),
 };
 
+/** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
+const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
+
 /** Symbols the URL may carry: the F&O routes' own rule (letters, digits, & and -). */
 const SYM_RE = /^[A-Z0-9&-]{1,20}$/;
 
@@ -430,7 +433,13 @@ export default function TradingDeskScreen() {
   );
 
   let content: ReactNode;
-  if (pageCopilot) {
+  if (StrategyGraphsHarness && more && params.get("view") === "strategy-graphs") {
+    content = (
+      <div data-testid="desk-panel-strategy-graphs" className="flex min-w-0 flex-col">
+        <Suspense fallback={<LoadingBlock label="Loading" rows={4} />}><StrategyGraphsHarness /></Suspense>
+      </div>
+    );
+  } else if (pageCopilot) {
     content = (
       <div data-testid="desk-panel-more" role="tabpanel" aria-label="AI Copilot" className="flex min-w-0 flex-col">
         <CopilotDock ref={dockRef} chips={chips} height="calc(100dvh - 250px)" variant="page" />
