@@ -17,10 +17,11 @@
  * control, the underline sub-tabs and the stat tile. Calls are drawn in the
  * danger colour and puts in mint, as on the Options lab.
  */
-import { useEffect, useLayoutEffect, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { EmptyBlock, LoadingBlock, TONE_COLOR, fmtNum, fmtPct, signTone, type Tone } from "../../components/ui";
+import { forwardBasisWords, modelLabel, noModelReason } from "../trading/ModelViews";
 import { fmtLevel } from "../trading/PayoffResult";
-import { nearestFuture, strikesAround, type ChainState, type FnoChain, type FnoFuture, type FnoFutures, type FnoResult, type FnoSide, type FnoSummary } from "../trading/fno";
+import { nearestFuture, strikesAround, type ChainState, type FnoChain, type FnoFuture, type FnoFutures, type FnoResult, type FnoSide, type FnoStrike, type FnoSummary } from "../trading/fno";
 import { QueryProblem, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
 import type { DeskPersona } from "./context";
 import { BUILDUP_META, type BuildupLabel } from "./fno-buildup";
@@ -407,6 +408,98 @@ function sideFigures(side: FnoSide | null) {
 
 const CHAIN_TEMPLATE = "76px minmax(0,1fr) 76px 104px 76px minmax(0,1fr) 76px";
 
+// ── model detail: IV, Greeks and per-option OI build-up ──────────────────
+
+const MODEL_TEMPLATE = "76px repeat(6, minmax(52px, 1fr)) repeat(6, minmax(52px, 1fr))";
+const MODEL_COLS = ["IV %", "Delta", "Gamma", "Theta", "Vega", "Build-up"] as const;
+
+/**
+ * Why a contract has no model figures, from what the chain route sent (never guessed beyond that). The route
+ * leaves every model field null when the forward is missing, the contract is dead (no volume and no open
+ * interest that day), there is no time left, or the price is outside what Black-76 can price.
+ */
+export function modelGap(side: FnoSide, s: FnoSummary): string {
+  const chainWide = noModelReason(s);
+  if (chainWide) return chainWide;
+  if (!side.volume && !side.oi) return "No volume and no open interest that day: the price is the exchange’s placeholder, not a market price";
+  if ((side.settle ?? 0) <= 0 && (side.close ?? 0) <= 0) return "No settle or close price";
+  return "Price at or below intrinsic value, or outside 0.01%–500% volatility: no volatility reproduces it";
+}
+
+function buildupGap(side: FnoSide): string {
+  if (side.change == null) return "No previous close for this contract, so no price change";
+  return side.oi_buildup == null ? "Price or open-interest change is zero or missing" : "";
+}
+
+function modelCells(side: FnoSide | null, s: FnoSummary): Array<{ text: string; why: string }> {
+  if (!side) return MODEL_COLS.map(() => ({ text: DASH, why: "No contract at this strike" }));
+  const gap = side.iv == null ? modelGap(side, s) : "";
+  const num = (v: number | null | undefined, digits: number, signed = false) => (v == null ? { text: DASH, why: gap } : { text: signed ? fmtSigned(v, digits) : fmtNum(v, digits), why: "" });
+  return [
+    side.iv == null ? { text: DASH, why: gap } : { text: fmtNum(side.iv, 2), why: side.iv_price ? `Implied from the ${side.iv_price} price` : "" },
+    num(side.delta, 4, true), num(side.gamma, 6), num(side.theta, 4, true), num(side.vega, 4),
+    side.oi_buildup ? { text: side.oi_buildup, why: `Close ${fmtSigned(side.change)} (${fmtSigned(side.change_pct)}%) against the previous close, change in OI ${fmtSigned(side.change_in_oi, 0)}` } : { text: DASH, why: buildupGap(side) },
+  ];
+}
+
+/** Optional, collapsed by default: each contract's implied volatility, Greeks and OI build-up, with the model's assumptions. */
+function ChainModelDetail({ chain, rows }: { chain: FnoChain; rows: FnoStrike[] }) {
+  const [open, setOpen] = useState(false);
+  const s = chain.summary;
+  const basis = forwardBasisWords(s);
+  const unpriced = rows.flatMap((r) => [r.call, r.put]).filter((x): x is FnoSide => x != null && x.iv == null).length;
+  return (
+    <div data-testid="desk-fno-model" className="flex flex-col" style={{ borderTop: "1px solid var(--cp-line)" }}>
+      <div className="flex flex-wrap items-center" style={{ gap: 10, padding: "10px 18px" }}>
+        <button type="button" className="cp-chip" data-testid="desk-fno-model-toggle" aria-expanded={open} aria-controls="desk-fno-model-body" onClick={() => setOpen(!open)}>
+          {open ? "Hide implied volatility, Greeks and build-up" : "Show implied volatility, Greeks and build-up"}
+        </button>
+        <span className="cp-mono-note">Model estimates, not exchange figures</span>
+      </div>
+      {open && (
+        <div id="desk-fno-model-body" className="flex flex-col" style={{ gap: 8 }}>
+          <div className="cp-scroll overflow-x-auto" role="table" aria-label={`${chain.symbol} implied volatility, Greeks and OI build-up by strike`}>
+            <div style={{ minWidth: 860 }}>
+              <div role="row" className="grid" style={{ gridTemplateColumns: MODEL_TEMPLATE, gap: 8, padding: "6px 18px" }}>
+                <span />
+                <span role="columnheader" style={{ gridColumn: "span 6", textAlign: "center", fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", color: CALL_COLOR }}>Calls</span>
+                <span role="columnheader" style={{ gridColumn: "span 6", textAlign: "center", fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", color: PUT_COLOR }}>Puts</span>
+              </div>
+              <div role="row" data-testid="desk-fno-model-header" className="grid" style={{ gridTemplateColumns: MODEL_TEMPLATE, gap: 8, padding: "4px 18px 8px" }}>
+                <span role="columnheader" className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--cp-ink-3)" }}>Strike</span>
+                {[...MODEL_COLS, ...MODEL_COLS].map((h, i) => (
+                  <span key={i} role="columnheader" className="cp-num" style={{ textAlign: "right", fontSize: 9.5, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--cp-ink-3)" }}>{h}</span>
+                ))}
+              </div>
+              {rows.map((r) => (
+                <div key={r.strike} role="row" data-testid="desk-fno-model-row" data-strike={r.strike} className="grid items-center" style={{ gridTemplateColumns: MODEL_TEMPLATE, gap: 8, padding: "6px 18px", borderTop: "1px solid var(--cp-line)", fontSize: 11.5 }}>
+                  <span role="cell" data-col="strike" className="cp-num" style={{ color: "var(--cp-ink)" }}>{fmtLevel(r.strike)}</span>
+                  {([["call", r.call], ["put", r.put]] as const).flatMap(([name, side]) =>
+                    modelCells(side, s).map((c, i) => (
+                      <span key={`${name}-${i}`} role="cell" data-col={`${name}-${["iv", "delta", "gamma", "theta", "vega", "buildup"][i]}`} title={c.why || undefined} className="cp-num" style={{ textAlign: "right", color: c.text === DASH ? "var(--cp-ink-4)" : "var(--cp-ink)", fontSize: i === 5 ? 10.5 : undefined }}>{c.text}</span>
+                    )),
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col" style={{ gap: 4, padding: "0 18px 12px", fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
+            <span data-testid="desk-fno-model-assumptions">
+              {modelLabel(s)}; as of {fmtDay(s.as_of)} close
+              {s.forward != null ? `; forward ${fmtNum(s.forward, 2)}${basis ? ` (${basis.toLowerCase()})` : ""}` : "; no forward found"}
+              {s.days_to_expiry != null ? `; ${fmtNum(s.days_to_expiry)} calendar days to expiry` : ""}. Volatility is read from each contract’s settle price, else its close.
+            </span>
+            <span data-testid="desk-fno-model-units">
+              Units, per one unit of the underlying{chain.lot_size ? ` (one lot is ${fmtNum(chain.lot_size)} units: multiply by it)` : ""}: IV in percent a year; delta and gamma per one-point move in the forward (not the spot); theta is the price change over one calendar day with the forward and volatility unchanged; vega is the price change per one volatility point (for example 14% to 15%). Build-up is the contract’s own price change against its change in open interest, a heuristic of two figures, not proof of intent.
+            </span>
+            {unpriced > 0 && <span data-testid="desk-fno-model-gaps">{fmtNum(unpriced)} contracts shown cannot be priced; hover a “—” for the reason. Nothing is substituted.</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Design: "Option chain OI · SYM · expiry" — seven columns, OI bars, ATM / R / S / MP tags, a reading under it. */
 export function ChainOiTable({ chain }: { chain: FnoChain }) {
   // On a narrow screen the table scrolls sideways; start it centred on the strike column, so calls sit to the left and puts to the right.
@@ -480,6 +573,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
           })}
         </div>
       </div>
+      <ChainModelDetail chain={chain} rows={rows} />
       <div className="flex flex-col" style={{ gap: 6, padding: "12px 18px", borderTop: "1px solid var(--cp-line)" }}>
         <span data-testid="desk-fno-chain-read" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{chainRead(s)}</span>
         <span style={quiet}>
