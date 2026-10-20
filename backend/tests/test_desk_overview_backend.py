@@ -407,3 +407,73 @@ def test_sector_constituents_upstream_failure_is_502(monkeypatch):
     c, _ = _desk_client(monkeypatch, daas_client.DaasError("down"))
     r = c.get("/api/markets/sector-constituents?index=Nifty%20Bank")
     assert r.status_code == 502 and r.json()["detail"] == "upstream_unavailable"
+
+
+# ── the Nifty 50 closes fall back to the warehouse when macro_daily is short of sessions ──
+
+def _eod(closes, last="2026-10-13"):
+    """MOCK — not real data: `closes` oldest first, one per weekday ending on `last`, in the DaaS /eod row shape."""
+    from datetime import date as _d
+    day, rows = _d.fromisoformat(last), []
+    for c in reversed(closes):
+        while day.weekday() >= 5:
+            day -= timedelta(days=1)
+        rows.append({"as_of_date": day.isoformat(), "close_price": c})
+        day -= timedelta(days=1)
+    return list(reversed(rows))
+
+
+SHORT_SNAP = {"date": "2026-10-13", "market": "NEUTRAL", "risk": "LOW", "insight": "Fixture insight.",
+              "values": {"nifty": 25100.0, "india_vix": 12.4}, "features": {"nifty_50dma": None}}
+
+
+def _fallback_client(monkeypatch, rows, calls=None):
+    async def history(name, start=None, end=None, **k):
+        if calls is not None:
+            calls.append((name, start, end))
+        if isinstance(rows, Exception):
+            raise rows
+        return rows
+
+    monkeypatch.setattr(daas_client, "get_index_eod_history", history)
+    macro_route._NIFTY_CACHE.clear()
+    return _macro_client(monkeypatch, snap=SHORT_SNAP, breadth=_breadth(600, 400))[0]
+
+
+def test_regime_reads_the_nifty_closes_from_the_warehouse_when_macro_has_no_average(monkeypatch):
+    closes = [24000.0 + 10 * i for i in range(50)]                  # 24000 .. 24490 -> average 24245.0 (by hand: 24000 + 10 x 24.5)
+    calls = []
+    c = _fallback_client(monkeypatch, _eod(closes), calls)
+    r = c.get("/api/macro/today").json()["regime"]
+    avg = sum(closes) / 50
+    assert avg == 24245.0
+    assert r["inputs"]["nifty_close"] == closes[-1] and r["inputs"]["nifty_average"] == avg
+    assert r["inputs"]["nifty_source"] == macro_route.NIFTY_WAREHOUSE_SOURCE
+    assert r["inputs"]["trend"] == "up" and r["key"] == "bullish" and r["reason"] is None
+    assert r["rule"] == RULE                                         # the thresholds are untouched
+    assert calls == [("Nifty 50", "2026-06-15", "2026-10-13")]
+
+
+def test_regime_warehouse_average_needs_thirty_sessions(monkeypatch):
+    c = _fallback_client(monkeypatch, _eod([24000.0] * 29))
+    r = c.get("/api/macro/today").json()["regime"]
+    assert r["key"] is None and r["inputs"]["nifty_source"] is None
+    assert any(s["check"] == "trend" and "only 29 of the 50 sessions" in s["reason"] for s in r["skipped"])
+    c = _fallback_client(monkeypatch, _eod([24000.0] * 30))
+    r = c.get("/api/macro/today").json()["regime"]
+    assert r["key"] is not None and r["inputs"]["nifty_average"] == 24000.0
+
+
+def test_regime_warehouse_without_the_session_close_or_unreachable_stays_unavailable(monkeypatch):
+    r = _fallback_client(monkeypatch, _eod([24000.0] * 50, last="2026-10-12")).get("/api/macro/today").json()["regime"]
+    assert r["key"] is None and any("has no close for 2026-10-13" in s["reason"] for s in r["skipped"])
+    r = _fallback_client(monkeypatch, RuntimeError("down")).get("/api/macro/today").json()["regime"]
+    assert r["key"] is None and any("could not be read" in s["reason"] for s in r["skipped"])
+
+
+def test_regime_keeps_the_macro_tables_when_they_hold_the_average(monkeypatch):
+    calls = []
+    c = _fallback_client(monkeypatch, _eod([1.0] * 50), calls)
+    c2, _ = _macro_client(monkeypatch, breadth=_breadth(470, 530))
+    r = c2.get("/api/macro/today").json()["regime"]
+    assert r["inputs"]["nifty_source"] == macro_route.NIFTY_MACRO_SOURCE and r["inputs"]["nifty_average"] == 25000.0 and calls == []

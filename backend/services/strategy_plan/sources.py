@@ -55,6 +55,38 @@ async def _sectors() -> Dict[str, Any]:
     return src_ok(body, "DaaS /v1/desk/sector-returns (NSE sectoral indices, end of day)", body.get("as_of"))
 
 
+SECTOR_LIST_CONCURRENCY = 5
+
+
+async def _sector_members(sym: str, sectors: Dict[str, Any]) -> Dict[str, Any]:
+    """Which desk sector indices list `sym`: each sector index's latest list is read once (DaaS /v1/indices/{index}/constituents,
+    nidp.index_constituents), five at a time, for this plan build only. A list that cannot be read is named in `unreadable`,
+    never taken as "not a member". An empty list is `unreadable` too (no list is not a list without the stock)."""
+    src = "DaaS /v1/indices/{index}/constituents (nidp.index_constituents, each sector index's latest list)"
+    if not sectors["ok"]:
+        return src_fail(f"the sector index names come from /v1/desk/sector-returns, which is unavailable: {sectors['error']}", src)
+    names = [r["index"] for r in (sectors["data"] or {}).get("sectors") or [] if r.get("index")]
+    if not names:
+        return src_fail("/v1/desk/sector-returns listed no sector indices", src)
+    gate = asyncio.Semaphore(SECTOR_LIST_CONCURRENCY)
+
+    async def one(name: str):
+        async with gate:
+            return await daas_client.get_index_constituents(name)
+
+    res = await asyncio.gather(*(one(n) for n in names), return_exceptions=True)
+    member_of: List[str] = []
+    unreadable: Dict[str, str] = {}
+    for name, r in zip(names, res):
+        if isinstance(r, BaseException):
+            unreadable[name] = _why(r)
+        elif not r:
+            unreadable[name] = "no constituent list on record"
+        elif sym in {str(x).upper() for x in r}:
+            member_of.append(name)
+    return src_ok({"symbol": sym, "member_of": member_of, "lists_read": len(names) - len(unreadable), "unreadable": unreadable}, src)
+
+
 async def _indicators(sym: str) -> Dict[str, Any]:
     from routes import research_chart as rc
     out = await rc.live_indicators(sym, user={})
@@ -200,6 +232,7 @@ async def collect_snapshots(request: Request, user_id: str, inputs: Dict[str, An
     keys = ["regime", "sectors", "indicators", "patterns", "scan_row", "features", "financials", "announcements", "events", "corporate_actions",
             "buildup", "futures", "expiries", "calibration", "scanner_bucket", "portfolio"]
     snaps: Dict[str, Any] = dict(zip(keys, first))
+    snaps["sector_members"] = await _safe("sector_members", _sector_members(sym, snaps["sectors"]))
     snaps["peers"] = await _safe("peers", _peers(sym, snaps["scan_row"]["data"] or {})) if snaps["scan_row"]["ok"] else src_fail("the scan snapshot row (industry) is unavailable", "nidp.index_constituents industry")
     # The chain is read for the expiry the rules pick from the listed ones (or the one the user asked for).
     ex = snaps["expiries"]

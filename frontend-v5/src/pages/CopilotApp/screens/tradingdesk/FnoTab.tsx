@@ -47,7 +47,7 @@ import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../tradi
 import { useDesk } from "./context";
 import { BuildupView } from "./FnoBuildup";
 import { StrategiesView } from "./FnoStrategies";
-import { BUILDUP_META, buildupRowFor, indexRowFor, useBuildup } from "./fno-buildup";
+import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
 import { HEURISTIC_NOTE } from "./FnoBuildup";
 import { TrustLine } from "./trust";
 import {
@@ -96,7 +96,18 @@ function SpotBlock({ symbol, state, futures }: { symbol: string; state: ChainSta
 
 // ── underlying and expiry ────────────────────────────────────────────────
 
-type Problem = { kind: "format" } | { kind: "unknown"; symbol: string; day: string | null; count: number };
+type Problem =
+  | { kind: "format" }
+  /** `name` is the company's name when the search found the stock. */
+  | { kind: "unknown"; symbol: string; name: string | null; day: string | null; count: number }
+  | { kind: "nomatch"; query: string }
+  | { kind: "search_failed" }
+  /** Several F&O stocks matched a name: the user picks one. */
+  | { kind: "choose"; query: string; options: StockHit[] };
+
+/** What a company name may contain; a ticker is stricter (cleanSymbol). */
+const NAME_RE = /^[A-Za-z0-9&.' -]{2,40}$/;
+const MAX_OFFERS = 8;
 
 function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s: string) => void; expiry: ReactNode }) {
   const { mobile } = useCopilotShell();
@@ -104,21 +115,59 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
   const [typed, setTyped] = useState("");
   const [problem, setProblem] = useState<Problem | null>(null);
   const indexChip = FNO_INDICES.some((i) => i.symbol === symbol);
-  const submit = (e: FormEvent) => {
+  const [busy, setBusy] = useState(false);
+  const list = scan.data && scan.data.rows.length > 0 ? scan.data : null;
+  // With the F&O list loaded, only its stocks (and the indices) can load; without it the chain route answers for itself.
+  const inFno = (sym: string) => isIndexUnderlying(sym) || list == null || buildupRowFor(list, sym) != null;
+  const unknown = (symbol: string, name: string | null): Problem => ({ kind: "unknown", symbol, name, day: list?.asOf ?? null, count: list ? (list.universe ?? list.rows.length) : 0 });
+  const load = (sym: string) => {
+    setProblem(null);
+    setTyped("");
+    onPick(sym);
+  };
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (busy) return;
+    const query = typed.trim();
     const s = cleanSymbol(typed);
-    if (s == null) {
+    if (s != null && inFno(s)) {
+      load(s);
+      return;
+    }
+    if (s == null && !NAME_RE.test(query)) {
       setProblem({ kind: "format" });
       return;
     }
-    // Checked against the F&O list when the scan has loaded; otherwise the chain route answers for itself.
-    if (!isIndexUnderlying(s) && scan.data && scan.data.rows.length > 0 && !buildupRowFor(scan.data, s)) {
-      setProblem({ kind: "unknown", symbol: s, day: scan.data.asOf, count: scan.data.universe ?? scan.data.rows.length });
-      return;
+    // Not a ticker in the F&O list: it may be a company name ("Tata Motors"), a name that is also a valid ticker
+    // ("Reliance"), or a ticker that is not in F&O. The instrument search tells which.
+    setBusy(true);
+    let hits: StockHit[] | null = null;
+    try {
+      hits = await searchStocks(query);
+    } catch {
+      hits = null;
+    } finally {
+      setBusy(false);
     }
-    setProblem(null);
-    setTyped("");
-    onPick(s);
+    // The F&O list's own tickers containing the text come first (the search knows only some companies), then the
+    // search's hits; one entry per ticker, the search's company name kept when it has one.
+    const names = new Map((hits ?? []).map((h) => [h.symbol, h.name]));
+    const found: StockHit[] = [...matchFnoTickers(query, list ?? undefined).map((symbol) => ({ symbol, name: names.get(symbol) ?? symbol })), ...(hits ?? [])];
+    const seen = new Set<string>();
+    const fno = found.filter((h) => !seen.has(h.symbol) && seen.add(h.symbol) != null && cleanSymbol(h.symbol) != null && inFno(h.symbol));
+    if (fno.length === 1) {
+      load(fno[0].symbol);
+    } else if (fno.length > 1) {
+      setProblem({ kind: "choose", query, options: fno.slice(0, MAX_OFFERS) });
+    } else if (hits == null) {
+      setProblem(s != null ? unknown(s, null) : { kind: "search_failed" });
+    } else if (s != null) {
+      setProblem(unknown(s, hits.find((h) => h.symbol === s)?.name ?? null));
+    } else if (hits.length > 0) {
+      setProblem(unknown(hits[0].symbol, hits[0].name));
+    } else {
+      setProblem({ kind: "nomatch", query });
+    }
   };
   return (
     <div className="flex flex-col" style={{ gap: 8 }}>
@@ -147,16 +196,15 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
         <form
           onSubmit={submit}
           className="flex items-center"
-          style={{ gap: 6, width: mobile ? "100%" : 290, maxWidth: "100%", height: 40, padding: "0 4px 0 12px", borderRadius: 12, background: "var(--bg-2)", border: `1px solid ${problem ? "var(--danger-line)" : "var(--line-2)"}` }}
+          style={{ gap: 6, width: mobile ? "100%" : 290, maxWidth: "100%", height: 40, padding: "0 4px 0 12px", borderRadius: 12, background: "var(--bg-2)", border: `1px solid ${problem && problem.kind !== "choose" ? "var(--danger-line)" : "var(--line-2)"}` }}
         >
           <input
             data-testid="desk-fno-symbol-input"
-            aria-label="Stock ticker"
-            aria-invalid={problem != null}
+            aria-label="Stock name or ticker"
+            aria-invalid={problem != null && problem.kind !== "choose"}
             aria-describedby={problem ? "desk-fno-symbol-problem" : undefined}
-            placeholder="Stock ticker, e.g. RELIANCE"
-            maxLength={20}
-            autoCapitalize="characters"
+            placeholder="Name or ticker, e.g. TCS"
+            maxLength={40}
             spellCheck={false}
             value={typed}
             onChange={(e) => { setTyped(e.target.value); setProblem(null); }}
@@ -165,6 +213,8 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
           <button
             type="submit"
             data-testid="desk-fno-symbol-load"
+            disabled={busy}
+            aria-busy={busy}
             style={{ flex: "none", height: 30, padding: "0 12px", borderRadius: 9, border: "1px solid var(--line-2)", background: "var(--bg-3)", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13, cursor: "pointer" }}
           >
             Load
@@ -182,11 +232,39 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
           {expiry}
         </div>
       </div>
-      {problem && (
-        <span id="desk-fno-symbol-problem" role="alert" data-testid={problem.kind === "format" ? "desk-fno-symbol-error" : "desk-fno-symbol-unknown"} style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-danger)" }}>
+      {problem?.kind === "choose" && (
+        <div id="desk-fno-symbol-problem" role="group" aria-label={`F&O stocks matching ${problem.query}`} className="flex flex-wrap items-center" style={{ gap: 8 }}>
+          <span style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>Several F&O stocks match “{problem.query}”. Pick one:</span>
+          {problem.options.map((o) => (
+            <button
+              key={o.symbol}
+              type="button"
+              data-testid="desk-fno-symbol-suggest"
+              onClick={() => load(o.symbol)}
+              className="flex items-center"
+              style={{ gap: 6, padding: "6px 12px", borderRadius: 999, fontSize: 13, cursor: "pointer", border: "1px solid var(--line-2)", background: "transparent", color: "var(--cp-ink-2)", fontFamily: "var(--sans)" }}
+            >
+              <StockIcon symbol={o.symbol} size={14} />
+              <span style={{ fontFamily: "var(--mono)" }}>{o.symbol}</span>
+              {o.name !== o.symbol && <span style={{ color: "var(--cp-ink-3)" }}>{o.name}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {problem && problem.kind !== "choose" && (
+        <span
+          id="desk-fno-symbol-problem"
+          role="alert"
+          data-testid={{ format: "desk-fno-symbol-error", unknown: "desk-fno-symbol-unknown", nomatch: "desk-fno-symbol-nomatch", search_failed: "desk-fno-symbol-search-error" }[problem.kind]}
+          style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-danger)" }}
+        >
           {problem.kind === "format"
-            ? "A ticker is letters, digits, & or -, up to 20 characters."
-            : `${problem.symbol} is not in NSE’s F&O list${problem.day ? ` for ${fmtDay(problem.day)}` : ""} (${fmtNum(problem.count)} stocks have futures), so it has no option chain to load.`}
+            ? "Type an NSE ticker (letters, digits, & or -) or part of a company name."
+            : problem.kind === "unknown"
+              ? `${problem.name ? `${problem.name} (${problem.symbol})` : problem.symbol} is not in NSE’s F&O list${problem.day ? ` for ${fmtDay(problem.day)}` : ""} (${fmtNum(problem.count)} stocks have futures), so it has no option chain to load.`
+              : problem.kind === "nomatch"
+                ? `No stock matches “${problem.query}”. Try the NSE ticker, e.g. RELIANCE.`
+                : "Stock search is unavailable. Type the NSE ticker instead."}
         </span>
       )}
     </div>
