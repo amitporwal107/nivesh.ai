@@ -79,10 +79,13 @@ async def strategy_plan(request: Request) -> Dict[str, Any]:
 async def strategy_ideas(request: Request) -> Dict[str, Any]:
     """Strategies for the top AI opportunities. Reads the scanner and the plan sources, writes nothing, sends nothing to a broker."""
     user = await get_current_user(request)
-    limit, passed, problems, applied = ideas_mod.parse_body(await _body(request))
+    body = await _body(request)
+    limit, passed, problems, applied = ideas_mod.parse_body(body)
+    chartink_limit, cprobs, capplied = ideas_mod.parse_chartink_limit(body)
+    problems, applied = problems + cprobs, applied + capplied
     if problems:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
-    return await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today())
+    return await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today(), chartink_limit)
 
 
 def _check_plan(plan: Any) -> Dict[str, Any]:

@@ -20,19 +20,35 @@ from . import evidence as ev
 from .engine import CALCULATION_VERSION
 from .plan import build_plan, normalise_inputs
 from .rules import STRATEGY_RULES_VERSION
+from .rules import RULES
 from .selection import DEFAULT_LIMIT, MAX_LIMIT, scanner_view, select_opportunities
-from .sources import collect_snapshots, company_name, scanner_snapshot, shared_for_ideas
+from .sources import chartink_index, collect_snapshots, company_name, scanner_snapshot, shared_for_ideas
 
 logger = logging.getLogger(__name__)
 
 CONCURRENCY = 4
 PASS_KEYS = ("capital", "risk_budget_inr", "risk_pct", "max_allocation_pct", "min_reward_risk", "avoid_events", "allow_multi_leg",
-             "include_combinations", "horizon", "horizon_days", "costs")
+             "include_combinations", "include_chartink", "horizon", "horizon_days", "costs")
 
 RANKING_NOTE = ("Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the "
                 "viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure "
                 "(a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital "
                 "at risk beside it. No probability and no composite score is produced.")
+
+
+CHARTINK_RANKING = (" With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of "
+                    "your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; "
+                    "your Chartink scans are your own screens and have not been validated.")
+
+
+def parse_chartink_limit(body: Any) -> Tuple[int, List[Dict[str, str]], List[str]]:
+    """(chartink_limit, problems, applied defaults): how many Chartink-only ideas may follow the scanner's, 0 to the rules' maximum."""
+    mx, v = RULES["chartink"]["limit_max"], body.get("chartink_limit") if isinstance(body, dict) else None
+    if v is None:
+        return RULES["chartink"]["limit_default"], [], ["chartink_limit"]
+    if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= mx:
+        return RULES["chartink"]["limit_default"], [{"field": "chartink_limit", "code": "bad_chartink_limit", "message": f"chartink_limit must be a whole number from 0 to {mx}."}], []
+    return v, [], []
 
 
 def parse_body(body: Any) -> Tuple[Optional[int], Optional[Dict[str, Any]], List[Dict[str, str]], List[str]]:
@@ -139,11 +155,16 @@ def fno_eligible(snaps: Dict[str, Any]) -> Optional[bool]:
     return True if ex["ok"] and (ex["data"] or {}).get("expiries") else None
 
 
+def chartink_part(setup: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    ch = setup.get("chartink")
+    return {k: ch.get(k) for k in ("scans", "count", "fetched_at")} if ch else None
+
+
 def idea_of(rank: int, setup: Dict[str, Any], plan: Dict[str, Any], snaps: Dict[str, Any], passed: Dict[str, Any], ms: int) -> Dict[str, Any]:
     sym = setup["symbol"]
     sm = plan.get("evidence_summary") or {}
-    return {"rank": rank, "symbol": sym, "name": setup.get("name"), "scanner": scanner_view(setup), "direction": "bullish",
-            "fno_eligible": fno_eligible(snaps), "plan_id": plan["plan_id"], "plan_status": plan["status"], "status_reasons": plan.get("status_reasons") or [],
+    return {"rank": rank, "symbol": sym, "name": setup.get("name"), "source": setup.get("source") or "ai_scanner", "chartink": chartink_part(setup),
+            "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": fno_eligible(snaps), "plan_id": plan["plan_id"], "plan_status": plan["status"], "status_reasons": plan.get("status_reasons") or [],
             "would_change_if": plan.get("would_change_if") or [], "headline": plan.get("headline"),
             "evidence_summary": {g: sm.get(g) for g in ev.GROUPS if g in sm}, "oi_view": oi_view(snaps), "preferred": plan.get("preferred"),
             "strategies": strategies_of(plan, sym), "data_as_of": plan.get("data_as_of"), "plan_inputs": plan_body(sym, passed), "build_ms": ms}
@@ -151,7 +172,8 @@ def idea_of(rank: int, setup: Dict[str, Any], plan: Dict[str, Any], snaps: Dict[
 
 def failed_idea(rank: int, setup: Dict[str, Any], passed: Dict[str, Any], err: BaseException, ms: int) -> Dict[str, Any]:
     msg = f"{type(err).__name__}: {str(err)[:200]}"
-    return {"rank": rank, "symbol": setup["symbol"], "name": setup.get("name"), "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": None,
+    return {"rank": rank, "symbol": setup["symbol"], "name": setup.get("name"), "source": setup.get("source") or "ai_scanner", "chartink": chartink_part(setup),
+            "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": None,
             "plan_id": None, "plan_status": "insufficient_data",
             "status_reasons": [{"code": "idea_build_failed", "message": f"The strategies for this stock could not be built: {msg}"}],
             "would_change_if": ["idea_build_failed: The data sources answering; rebuild the plan from the Strategy Builder."], "headline": None,
@@ -159,17 +181,21 @@ def failed_idea(rank: int, setup: Dict[str, Any], passed: Dict[str, Any], err: B
             "plan_inputs": plan_body(setup["symbol"], passed), "build_ms": ms}
 
 
-async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[str, Any], applied: List[str], now: datetime, today: date) -> Dict[str, Any]:
+async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[str, Any], applied: List[str], now: datetime, today: date,
+                      chartink_limit: int = RULES["chartink"]["limit_default"]) -> Dict[str, Any]:
     t0 = time.monotonic()
-    sel = await select_opportunities(request, limit)
     template, _ = normalise_inputs({"underlying": "TEMPLATE", "direction": "bullish", "instrument": "all", **passed})
+    use_chartink = bool((template or {}).get("include_chartink"))
+    index = await chartink_index(user_id, today) if use_chartink else None
+    sel = await select_opportunities(request, limit, chartink=index, chartink_limit=chartink_limit) if use_chartink else await select_opportunities(request, limit)
     inputs = {k: v for k, v in (template or {}).items() if k not in ("underlying", "expiry")}
     inputs["limit"] = limit
+    inputs["chartink_limit"] = chartink_limit
     inputs["defaults_applied"] = sorted(set(inputs.get("defaults_applied") or []) - {"instrument"} | set(applied))
     setups = sel["setups"]
     ideas: List[Dict[str, Any]] = []
     if setups:
-        shared = await shared_for_ideas(user_id)
+        shared = await shared_for_ideas(user_id, index)
         sem = asyncio.Semaphore(CONCURRENCY)
 
         async def one(rank: int, setup: Dict[str, Any]) -> Dict[str, Any]:
@@ -199,13 +225,14 @@ async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[s
     return {
         "generated_at": now.isoformat(),
         "data_as_of": {"mode": "end_of_day", "scanner_watchlist": sel["watchlist_as_of"], "scanner_picks": sel["signal_date"],
-                       "scan_eligibility": sel["gate_as_of"], "price": max(prices) if prices else None, "fno": max(fnos) if fnos else None},
+                       "scan_eligibility": sel["gate_as_of"],
+                       "chartink": ({k: sel["chartink"].get(k) for k in ("scan_date", "fetched_at", "mode")} if (sel.get("chartink") or {}).get("state") == "ok" else None), "price": max(prices) if prices else None, "fno": max(fnos) if fnos else None},
         "rules_version": STRATEGY_RULES_VERSION, "calculation_version": CALCULATION_VERSION, "sent_to_broker": False,
         "selection": {"source": sel["source"], "scan_date": sel["scan_date"], "rule": sel["rule"], "considered": sel["considered"],
                       "selected": sel["selected"], "excluded": [{"symbol": x["symbol"], "reason": x["reason"], "code": x["code"]} for x in sel["excluded"]],
                       "excluded_note": "Only setups ranked above the last selected one are listed.", "limit": limit, "empty_reason": sel["empty_reason"],
-                      "gate": sel["gate"], "source_failures": sel["source_failures"]},
-        "inputs": inputs, "ranking_note": RANKING_NOTE, "ideas": ideas, "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                      "gate": sel["gate"], "source_failures": sel["source_failures"], "chartink": sel.get("chartink")},
+        "inputs": inputs, "ranking_note": RANKING_NOTE + (CHARTINK_RANKING if use_chartink else ""), "ideas": ideas, "elapsed_ms": int((time.monotonic() - t0) * 1000),
         "caveats": ["Conditional research ideas, not advice and not an instruction to trade.",
                     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
                     "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",

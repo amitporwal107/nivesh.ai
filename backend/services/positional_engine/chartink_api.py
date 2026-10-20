@@ -28,10 +28,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import socket
+import urllib.error
 import urllib.parse
 import urllib.request
 from http.cookiejar import CookieJar
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +91,22 @@ def parse_response(payload: dict) -> List[dict]:
 
 
 # ── Network layer (sync, run via to_thread) ──────────────────────────────
-def _run_scan_sync(clause: str, *, timeout: int = 30) -> Optional[List[dict]]:
-    """Bootstrap session → POST scan clause → parse. Returns None on failure."""
+def run_scan_sync_typed(clause: str, *, timeout: int = 30) -> Tuple[Optional[List[dict]], Optional[str]]:
+    """Bootstrap session → POST scan clause → parse. Returns (rows, None) or (None, error_code).
+
+    Error codes: bootstrap_failed (the screener page did not load; `http_403` / `http_429` / `http_<n>` / `timeout` when the status
+    or the cause is known), no_session (no XSRF cookie), scan_failed (the POST failed; same refinements), non_json, scan_rejected
+    (Chartink answered but refused the clause: an unsupported indicator, a bad universe, a syntax error). The clause is never logged.
+    """
     jar = CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    def why(prefix: str, e: Exception) -> str:
+        if isinstance(e, urllib.error.HTTPError):
+            return f"http_{e.code}"
+        if isinstance(e, (TimeoutError, socket.timeout)) or isinstance(getattr(e, "reason", None), (TimeoutError, socket.timeout)):
+            return "timeout"
+        return prefix
 
     # 1. Bootstrap: GET the screener page to populate cookies.
     try:
@@ -101,7 +115,7 @@ def _run_scan_sync(clause: str, *, timeout: int = 30) -> Optional[List[dict]]:
             resp.read()
     except Exception as e:  # noqa: BLE001
         logger.warning("chartink bootstrap failed: %s", e)
-        return None
+        return None, why("bootstrap_failed", e)
 
     # 2. Find XSRF-TOKEN cookie (URL-encoded by Laravel).
     xsrf = None
@@ -111,7 +125,7 @@ def _run_scan_sync(clause: str, *, timeout: int = 30) -> Optional[List[dict]]:
             break
     if not xsrf:
         logger.warning("chartink: no XSRF-TOKEN cookie returned")
-        return None
+        return None, "no_session"
 
     # 3. POST the scan clause.
     body = urllib.parse.urlencode({"scan_clause": clause}).encode("utf-8")
@@ -125,15 +139,23 @@ def _run_scan_sync(clause: str, *, timeout: int = 30) -> Optional[List[dict]]:
             raw = resp.read().decode("utf-8", errors="replace")
     except Exception as e:  # noqa: BLE001
         logger.warning("chartink scan POST failed: %s", e)
-        return None
+        return None, why("scan_failed", e)
 
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as e:
         logger.warning("chartink: non-JSON response (%s): %.200s", e, raw)
-        return None
+        return None, "non_json"
 
-    return parse_response(payload)
+    if isinstance(payload, dict) and payload.get("scan_error"):
+        logger.warning("chartink: the clause was rejected")
+        return None, "scan_rejected"
+    return parse_response(payload), None
+
+
+def _run_scan_sync(clause: str, *, timeout: int = 30) -> Optional[List[dict]]:
+    """Bootstrap session → POST scan clause → parse. Returns None on failure."""
+    return run_scan_sync_typed(clause, timeout=timeout)[0]
 
 
 async def run_scan(clause: str, *, timeout: int = 30) -> Optional[List[dict]]:

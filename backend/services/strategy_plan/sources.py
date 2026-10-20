@@ -19,7 +19,7 @@ from services.copilot_tools import daas_client
 
 from . import candidates as cd
 from .evidence import num, src_fail, src_ok
-from .rules import RULES
+from .rules import RULES, STRATEGY_RULES_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +267,34 @@ async def _portfolio(user_id: str) -> Dict[str, Any]:
     return src_ok(rows, "portfolio_enrichment.build_enriched_portfolio (holdings-enriched)", date.today().isoformat())
 
 
+CHARTINK_SOURCE = "Chartink scans (the user's dashboard)"
+CHARTINK_READ_TIMEOUT_S = 10.0       # reading the stored hits must never hold up a plan
+
+
+async def chartink_index(user_id: str, today: date) -> Dict[str, Any]:
+    """The user's Chartink hit index (services/chartink_desk/hits.read_index). Never raises: a storage failure is state "failed" with the reason."""
+    try:
+        from deps import db
+        from services.chartink_desk import hits
+        return await asyncio.wait_for(hits.read_index(db, user_id, today), CHARTINK_READ_TIMEOUT_S)
+    except Exception as e:  # noqa: BLE001 — Chartink is optional: the plan degrades to the AI scanner only and says why
+        logger.warning("chartink index unavailable: %s", _why(e))
+        return {"state": "failed", "reason": f"the stored Chartink hits could not be read ({_why(e)})", "symbols": {}, "scans": []}
+
+
+def chartink_snapshot(index: Optional[Dict[str, Any]], sym: str) -> Dict[str, Any]:
+    """The `chartink` source snapshot of one stock from the hit index: ok with the scans that listed it (possibly none), or a failure with the reason."""
+    if index is None:
+        return src_fail("Chartink is switched off for this plan (include_chartink is false).", CHARTINK_SOURCE)
+    if index.get("state") != "ok":
+        return src_fail(index.get("reason") or "No Chartink hits are available.", CHARTINK_SOURCE)
+    e = (index.get("symbols") or {}).get(sym) or {}
+    data = {"dashboard_id": index.get("dashboard_id"), "scan_date": index.get("scan_date"), "fetched_at": index.get("fetched_at"), "mode": index.get("mode"),
+            "enabled_scans": len(index.get("scans") or []), "hits": [dict(x) for x in e.get("scans") or []],
+            "close": e.get("close"), "pct_change": e.get("pct_change"), "volume": e.get("volume")}
+    return src_ok(data, f"Chartink scans (user's dashboard {index.get('dashboard_id')}), fetched {index.get('fetched_at')}", index.get("scan_date"), STRATEGY_RULES_VERSION)
+
+
 async def _shareholding(sym: str) -> Dict[str, Any]:
     body = await daas_client._get(f"/shareholding/{sym}", params={"limit": 24})
     rows = (body or {}).get("data") if isinstance(body, dict) else None
@@ -387,15 +415,20 @@ async def collect_snapshots(request: Request, user_id: str, inputs: Dict[str, An
             snaps["chain"] = src_fail(why, "NSE F&O bhavcopy expiries")
     else:
         snaps["chain"] = src_fail(f"no expiry list: {ex['error']}", "NSE F&O bhavcopy expiries")
+    if inputs.get("include_chartink"):
+        index = shared["chartink_index"] if "chartink_index" in shared else await chartink_index(user_id, today)
+        snaps["chartink"] = chartink_snapshot(index, sym)
+    else:
+        snaps["chartink"] = chartink_snapshot(None, sym)
     snaps["broker_quotes"] = await _safe("broker_quotes", _live_quotes(user_id, sym, snaps["chain"], inputs))
     return snaps
 
 
-async def shared_for_ideas(user_id: str) -> Dict[str, Any]:
-    """What every plan of one ideas request shares, read once: the market regime, the sector returns, the user's holdings, and the
-    memo of sector index lists. Never raises."""
+async def shared_for_ideas(user_id: str, chartink: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """What every plan of one ideas request shares, read once: the market regime, the sector returns, the user's holdings, the memo of sector
+    index lists, and the Chartink hit index when the request included it (None: switched off). Never raises."""
     regime, sectors, portfolio = await asyncio.gather(_safe("regime", _regime()), _safe("sectors", _sectors()), _safe("portfolio", _portfolio(user_id)))
-    return {"regime": regime, "sectors": sectors, "portfolio": portfolio, "sector_lists": {}}
+    return {"regime": regime, "sectors": sectors, "portfolio": portfolio, "sector_lists": {}, "chartink_index": chartink}
 
 
 async def company_name(symbol: str) -> Optional[str]:
