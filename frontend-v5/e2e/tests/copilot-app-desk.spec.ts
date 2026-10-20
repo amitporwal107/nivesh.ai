@@ -622,7 +622,7 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await expect(status).toHaveText(/^Market closed/);
     await expect(status).toHaveAttribute("data-feed", "closed");
     await expect(page.getByTestId("desk-intro-feed")).toHaveText("NSE · BSE end of day");
-    const sb = await page.getByTestId("desk-search").locator("xpath=..").boundingBox();
+    const sb = await page.getByRole("search").boundingBox();
     expect(Math.round(sb?.height ?? 0)).toBe(38);
     expect(sb?.width ?? 0).toBeLessThanOrEqual(380);
 

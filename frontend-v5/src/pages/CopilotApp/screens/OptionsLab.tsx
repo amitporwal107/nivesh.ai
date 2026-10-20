@@ -29,6 +29,7 @@ import { useMarketsHome } from "@/hooks/use-markets";
 import { StockIcon, StockName } from "../components/EntityIcon";
 import { Btn, EmptyBlock, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { SymbolSearch } from "./tradingdesk/SymbolSearch";
 import { LegModel, ModelStrip } from "./trading/ModelViews";
 import { ChainGate, ChainTable, OpenInterestPanel } from "./trading/OptionChainViews";
 import { FNO_INDICES, cleanSymbol, indexNameForSymbol, isIndexUnderlying, legFromChain, useOptionChain, type ChainState, type FnoChain } from "./trading/fno";
@@ -79,18 +80,19 @@ function UnderlyingPicker({ symbol, onPick }: { symbol: string; onPick: (s: stri
       <span className="cp-eyebrow">Underlying</span>
       <Choices label="Underlying" testId="optlab-symbol" value={symbol} onChange={onPick} options={options} />
       <form onSubmit={submit} className="flex items-center" style={{ gap: 6, flex: "0 1 300px", minWidth: 0 }}>
-        <input
-          data-testid="optlab-symbol-input"
-          aria-label="Stock ticker"
-          aria-invalid={bad}
-          placeholder="Stock ticker, e.g. RELIANCE"
-          title="Any NSE F&O underlying: a stock ticker, or an index such as FINNIFTY"
-          maxLength={20}
-          autoCapitalize="characters"
-          spellCheck={false}
+        <SymbolSearch
           value={typed}
-          onChange={(e) => { setTyped(e.target.value); setBad(false); }}
-          style={INPUT_STYLE}
+          onChange={(v) => { setTyped(v); setBad(false); }}
+          onSelect={(sym) => { setTyped(""); setBad(false); onPick(sym); }}
+          persona="trader"
+          fnoOnly
+          testIdPrefix="optlab-symsearch"
+          inputTestId="optlab-symbol-input"
+          ariaLabel="Stock ticker"
+          invalid={bad}
+          placeholder="Stock ticker, e.g. RELIANCE"
+          maxLength={40}
+          inputStyle={INPUT_STYLE}
         />
         <Btn type="submit" data-testid="optlab-symbol-load" style={{ flex: "none" }}>Load</Btn>
       </form>
