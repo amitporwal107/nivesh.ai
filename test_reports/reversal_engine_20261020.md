@@ -5,7 +5,7 @@
 - **Author:** Claude (Full-stack + QA + Domain analyst)
 - **Environment:** staging (nidp_staging read-only for data checks)
 - **Changed areas:** backend routes/services: yes · frontend src: yes
-- **STATUS: IN PROGRESS** — local verification done; staging API tests NOT run (OVERRIDE_reversal_engine.md). No PASS verdict is claimed.
+- **STATUS: IN PROGRESS** — deployed to staging 2026-10-20 (user-approved); authenticated external HTTP call and staging UI run still need a session token (OVERRIDE_reversal_engine.md). No PASS verdict is claimed.
 
 ## Scope (user decisions 2026-10-20)
 Near-52-week-low reversal candidates: default 15 % of the rolling 252-session low, 20 % research threshold,
@@ -50,4 +50,11 @@ Backtest: Nifty 500 primary, point-in-time, >= 5 yrs targeted, costs 0.25 % + 0.
 - Playwright (vite build + preview, mocked APIs): reversal spec `11 passed (7.8s)`; full suite `485 passed (5.6m)`, 10 skipped, 0 failed.
 - Data test: engine vs SQL on nidp.prices_eod_adjusted, 6 stocks, low/low date/close/distance identical (e.g. MSUMI 32.7, 2026-10-05, 35.38, 8.20).
 - Real endpoint function replayed on staging rows: 407 returned of 1,377 within 23 %; 22 sectors.
-- Not done: staging curl of the two endpoints (not deployed); app route with a session token.
+- Not done: see 'Staging' below.
+
+## Staging (real output, 2026-10-20 ~14:25 IST, branch feat/reversal-engine = origin/dev + 1 feature commit, merge b29cf81f)
+Deployed with the user's explicit approval: NIDP VM `deploy/cloudpe/nidp/deploy.sh feat/reversal-engine` (DaaS, Query API, nginx all health OK), app VM `deploy/cloudpe/app/deploy.sh feat/reversal-engine` (`/api/healthz`, `/api/readyz`, `/v2/`, `/v5/` OK). Re-verified after merging 61 dev commits: pytest `203 passed`, `TSC_EXIT=0`, Playwright `550 passed`, 10 skipped, 0 failed.
+- DaaS, called by the deployed app backend: `GET /v1/features/reversal-snapshot?max_dist_pct=25` -> `HTTP 200 in 2.9s as_of 2026-10-19 rows 457 prefilter {within_distance 1527, dropped_illiquid_or_no_traded_value 1070, returned 457} sectors 22`.
+- Public route, no session: `GET https://staging.niveshcopilot.com/api/positional/reversal-candidates` -> `HTTP 401` (same as scan-universe). First attempt returned 404: the 4 uvicorn workers were stale after the deploy; `docker restart nivesh-staging-app-backend` fixed it (finding: the deploy script did not restart the workers on this run).
+- Deployed route code in the staging container, full HTTP stack and real DaaS call, ONLY the login check stubbed: default -> 200 (as_of 2026-10-19, rows 100, status_counts trigger_ready 2 / early_reversal 115 / near_low_no_evidence 140 / excluded 76); near_pct=10 -> 200; near_pct=20&view=all&limit=5 -> 200 (5 rows); near_pct=4 -> 422; view=bogus -> 422. Row 0: MSUMI trigger_ready, 8.2 % above low, score 59.2, coverage 90 %, unknown [catalyst], invalidation "close below 32.27". Same rows as the local replay of the real snapshot.
+- NOT done: an authenticated external HTTP call (needs a session cookie from the user) and a Playwright run against the live staging UI (needs login).

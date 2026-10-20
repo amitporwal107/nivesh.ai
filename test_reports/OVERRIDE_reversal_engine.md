@@ -1,12 +1,9 @@
 # OVERRIDE — reversal engine (feat/reversal-engine)
 
-REASON: The staging API endpoint tests required by .claude/VERIFICATION_PROTOCOL.md cannot be run yet. The new routes
-(GET /api/positional/reversal-candidates on the app, GET /v1/features/reversal-snapshot on the data platform) exist only in
-the worktree /home/deploy/nivesh-reversal-engine; nothing is pushed or deployed, and pushing to `dev` auto-deploys the staging
-app VM, which is an outward-facing action the user has not authorised for this work. Staging therefore has no such endpoint to call.
+REASON: Awaiting a staging session token from the user. The branch is deployed to staging (user-approved 2026-10-20) and the
+data-platform endpoint, the unauthenticated route (401) and the deployed route code with only login stubbed were all exercised
+with real output (test_reports/reversal_engine_20261020.md, section "Staging"). Still not done: an authenticated external call of
+GET /api/positional/reversal-candidates and a Playwright run against the live staging UI, both of which need a logged-in session
+cookie I do not have and will not fabricate.
 
-What WAS run, with real output, is in test_reports/reversal_engine_20261020.md: pytest (203 passed), the real DaaS endpoint
-function replayed on real staging rows, an independent SQL recomputation on staging, tsc, and the full copilot-app Playwright suite.
-
-Needed from the user to close this: permission to push feat/reversal-engine (or to deploy it to staging by the method they choose)
-so the two endpoints can be called on staging, plus a session token for the app route.
+Needed from the user: a staging session token (cookie) for staging.niveshcopilot.com.
