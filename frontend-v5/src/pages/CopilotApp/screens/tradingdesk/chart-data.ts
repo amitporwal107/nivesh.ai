@@ -219,6 +219,14 @@ const LiveIndicatorsC = z.object({
   source: z.string(),
   mode: z.string(),
   method: z.string().nullish(),
+  adjustment_break: z.object({ date: z.string(), prev_close: z.number(), close: z.number(), ratio: z.number() }).nullish(),
+  series_notes: z.record(z.string()).nullish(),
+  hypothetical_levels: z.object({
+    rule: z.string(), version: z.string(), label: z.string(),
+    constants: z.record(z.number()),
+    entry: nn, stop: nn, target: nn, risk_reward: nn,
+    stop_basis: z.string().nullable(), reason: z.string().nullable(), source: z.string().nullish(),
+  }).nullish(),
   values: IndicatorValuesC,
   series: z.object({
     days: z.array(z.string()),
@@ -273,6 +281,32 @@ export function useLiveIndicators(symbol: string | null) {
     queryFn: ({ signal }) =>
       liveGet(`/api/research/chart/live/${encodeURIComponent((symbol ?? "").toUpperCase())}/indicators`, LiveIndicatorsC, "live indicators", signal),
   });
+}
+
+/** The levels the desk shows and sizes: the scanner's when it has any, else the server's rule-based hypothetical ones. */
+export interface DeskLevels {
+  entry: number | null; stop: number | null; target: number | null; riskReward: number | null;
+  source: "scanner" | "rule" | null;
+  /** Rule source: its name, version, the plain label, the constants and the basis of the stop. */
+  rule: { name: string; version: string; label: string; constants: Record<string, number>; stopBasis: string | null } | null;
+  /** Why there are no levels (rule could not derive them, or no indicator read). */
+  reason: string | null;
+}
+
+export function deskLevels(setup: DeskSetup | null, live: LiveIndicators | null): DeskLevels {
+  if (setup && (setup.entry != null || setup.stop != null || setup.target != null)) {
+    return { entry: setup.entry, stop: setup.stop, target: setup.target, riskReward: setup.riskReward, source: "scanner", rule: null, reason: null };
+  }
+  const h = live?.hypothetical_levels ?? null;
+  if (!h) return { entry: null, stop: null, target: null, riskReward: null, source: null, rule: null, reason: live ? "The indicator route did not publish rule-based levels." : "No indicator read, so no rule-based levels." };
+  const rule = { name: h.rule, version: h.version, label: h.label, constants: h.constants, stopBasis: h.stop_basis };
+  if (h.entry == null || h.stop == null) return { entry: null, stop: null, target: null, riskReward: null, source: null, rule, reason: h.reason ?? "The rule could not derive levels." };
+  return { entry: h.entry, stop: h.stop, target: h.target, riskReward: h.risk_reward, source: "rule", rule, reason: null };
+}
+
+export function useDeskLevels(symbol: string, setup: DeskSetup | null): DeskLevels {
+  const q = useLiveIndicators(symbol);
+  return deskLevels(setup, q.data?.kind === "ok" ? q.data.data : null);
 }
 
 /** A server series as a line aligned to the bars the chart draws (null where the server has no value for that day). */

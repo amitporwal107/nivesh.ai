@@ -27,8 +27,23 @@ from .service import compute_for_date, create_pool
 logger = logging.getLogger(__name__)
 
 
-def _yesterday() -> date:
-    return date.today() - timedelta(days=1)
+async def default_target_date(pool, today: date | None = None) -> date:
+    """The date to compute when none is given: the latest date the indicator engine has loaded.
+
+    This engine fills the rows nidp.stock_features_daily already holds, so calendar "yesterday"
+    is wrong after a weekend or holiday (Monday 2026-10-19 targeted Sunday: "no rows", nothing
+    filled, and the 16 and 19 Oct rows stayed blank). Falls back to yesterday when the table is
+    empty or unreadable, and never returns a date after today.
+    """
+    today = today or date.today()
+    try:
+        latest = await pool.fetchval("SELECT MAX(as_of_date) FROM nidp.stock_features_daily")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("fund_engine_default_date_fallback error=%s", type(exc).__name__)
+        latest = None
+    if latest is None or latest > today:
+        return today - timedelta(days=1)
+    return latest
 
 
 async def _main(args: argparse.Namespace) -> int:
@@ -37,11 +52,11 @@ async def _main(args: argparse.Namespace) -> int:
         logger.error("NIDP_POSTGRES_URL not set")
         return 1
 
-    target = args.date or _yesterday()
     only = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
 
     pool = await create_pool(url)
     try:
+        target = args.date or await default_target_date(pool)
         report = await run_with_job_log(
             "fundamental_engine",
             compute_for_date,
@@ -62,7 +77,7 @@ def main() -> None:
     setup_logging(service="fundamental_engine")
     parser = argparse.ArgumentParser(description="Nivesh Fundamental Analytics Engine")
     parser.add_argument("--date", type=date.fromisoformat, default=None,
-                        help="Target date (YYYY-MM-DD). Default: yesterday.")
+                        help="Target date (YYYY-MM-DD). Default: the latest date in nidp.stock_features_daily.")
     parser.add_argument("--symbols", type=str, default=None,
                         help="Comma-separated symbol filter. Default: all.")
     parser.add_argument("--skip-populate", action="store_true",

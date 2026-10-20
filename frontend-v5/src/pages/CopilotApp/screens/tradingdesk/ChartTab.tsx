@@ -30,17 +30,17 @@ import {
   EmptyBlock, ErrorBlock, LoadingBlock, NotConnected, Pill, TONE_COLOR, fmtNum, fmtPct, humaniseTag, signTone, type Tone,
 } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
-import { useCompanyNumbers, useFilingsFeed } from "../markets/hooks";
+import { useCompanyNumbers, useFilingsFeed, type CompanyFeatures, type HoldingRow } from "../markets/hooks";
 import { fmtDay, fmtPrice, fmtSigned } from "../trading/parts";
 import { AddToList } from "../workspace/PersonalLists";
 import { CandleChart, CandleLegend, PLAIN_CHART_WORDS, TRADER_CHART_WORDS, type ChartEvent } from "./CandleChart";
 import {
   INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, fullChartHref, scanDateLabel, setupLabel, useDailyBars,
-  useLiveIndicators, useLivePatterns, useSetupRecord, useStockOdds,
+  deskLevels, useDeskLevels, useLiveIndicators, useLivePatterns, useSetupRecord, useStockOdds,
   type DailyBars, type IndicatorValues, type LiveIndicators, type LivePattern, type LivePatterns, type LiveRead, type RecordRow, type SetupRecord,
 } from "./chart-data";
 import { useDesk } from "./context";
-import { LIQUID_MIN_CR, useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
+import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
 import { largestGap, rsiZone, type DailyBar } from "./indicators";
 import { CardHead, RISK_STATUS, RiskDesk, Segmented, TradeScenarioCard } from "./RiskDesk";
 import { TrustLine } from "./trust";
@@ -129,7 +129,8 @@ function ChartControls({ tf, setTf, ov, setOv, hasLevels, small }: {
 function ChartToolbar({ symbol, company, setup }: { symbol: string; company: string | null; setup: DeskSetup | null }) {
   const { persona } = useDesk();
   const plain = persona === "investor";
-  const href = fullChartHref(symbol, { entry: setup?.entry ?? null, stop: setup?.stop ?? null, target: setup?.target ?? null });
+  const lv = useDeskLevels(symbol, setup);
+  const href = fullChartHref(symbol, lv);
   return (
     <div data-testid="desk-chart-toolbar" className="flex flex-wrap items-center" style={{ gap: "8px 12px" }}>
       <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>{plain ? "Each candle" : "Interval"}</span>
@@ -244,6 +245,10 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
         NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · end of day · last session {fmtDay(bars[bars.length - 1].day)}
         {n < SESSIONS[tf] ? ` · only ${n} sessions on record, all shown` : ""}
         {ok?.partial ? " · the data platform dropped some incomplete sessions from this series" : ""}
+        {live?.adjustment_break
+          ? ` · the price series jumps ${fmtPrice(live.adjustment_break.prev_close)} to ${fmtPrice(live.adjustment_break.close)} on ${fmtDay(live.adjustment_break.date)}, a split or bonus the data platform has not adjusted: indicators use only the ${live.sessions} sessions from that day`
+          : ""}
+        {live?.series_notes?.ema200 && ov.ema ? ` · no EMA 200 line: ${live.series_notes.ema200}` : ""}
         {live
           ? " · lines and indicators from the server’s feature engine on these bars; VWAP 20D is a 20-day volume-weighted average of daily prices, not the intraday VWAP"
           : " · no indicator lines: the indicator route did not answer"}
@@ -823,7 +828,7 @@ function contradictions(args: {
     }
   } else unchecked.push("Pattern failures (the pattern engine did not answer)");
   if (pUp != null && pDown != null) {
-    if (pDown >= pUp) found.push({ key: "odds-down", text: `The move-odds model gives a 5% fall next session (${fmtPct(pDown * 100, { digits: 1 })}) at least the chance of a 5% rise (${fmtPct(pUp * 100, { digits: 1 })}).`, source: "Move-odds model" });
+    if (pDown >= pUp) found.push({ key: "odds-down", text: "The move-odds model puts a 5% fall next session at least as high as a 5% rise (the estimates are not calibrated, so no probability is shown).", source: "Move-odds model" });
   } else unchecked.push("Down-move odds (no published estimate for this stock)");
   if (liquidCr != null) {
     if (liquidCr < LIQUID_MIN_CR) found.push({ key: "illiquid", text: `Trades ₹${fmtNum(liquidCr, 1)} Cr a day, under the desk’s ₹${LIQUID_MIN_CR} Cr liquidity gate.`, source: "Traded value" });
@@ -890,7 +895,9 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   symbol: string; setup: DeskSetup | null; bars: DailyBar[] | null; barsQ: ReturnType<typeof useDailyBars>;
   liveQ: ReturnType<typeof useLiveIndicators>; company: string | null; date: string | null; phone?: boolean;
 }) {
-  const { persona } = useDesk();
+  const { persona, openStrategy } = useDesk();
+  const scanQ = useDeskScanner();
+  const scanIso = setup ? (setup.inPicks ? scanQ.data?.signalDate : scanQ.data?.watchAsOf) ?? null : null;
   const plain = persona === "investor";
   const [open, setOpen] = useState<Set<SectionKey>>(() => new Set());
   const toggle = (k: SectionKey) => setOpen((s) => {
@@ -923,11 +930,19 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
       : stockQ.data?.kind === "withheld" ? `Withheld: ${stockQ.data.reason}.`
         : odds?.kind === "not_published" ? `The model has not published for ${fmtDay(odds.expectedSession)} yet (preview only).`
           : oddsQ.isPending ? "Loading the move-odds model." : oddsQ.isError ? "The move-odds model didn’t load." : `No estimate for ${sym} in the published run.`;
+  // The one probability gate (desk-data.ts): the estimates are not marked calibrated, so no probability prints here.
+  const gate = probabilityGate(odds, plain, stockQ.data?.kind === "ok");
+  const evidence = modelEvidence(run, record, plain);
   const fin = finQ.data ?? null;
   const quarter = fin?.quarters[0] ?? null;
   const holdings = fin ? [...fin.holdings].sort((a, b) => (b.period_end ?? "").localeCompare(a.period_end ?? "")) : [];
-  const own = holdings[0] ?? null;
-  const ownPrev = holdings[1] ?? null;
+  // The newest quarter that has any ownership figure: a quarter with only a pledge figure must not
+  // hide the previous quarter's holdings (the pledge row is still shown through `newest`).
+  const hasShares = (h: HoldingRow) => h.promoter_pct != null || h.fii_pct != null || h.dii_pct != null || h.mf_pct != null;
+  const newest = holdings[0] ?? null;
+  const ownIdx = holdings.findIndex(hasShares);
+  const own = ownIdx >= 0 ? holdings[ownIdx] : newest;
+  const ownPrev = ownIdx >= 0 ? holdings[ownIdx + 1] ?? null : holdings[1] ?? null;
   const filings = filQ.data?.rows ?? [];
   const tr = live?.tradability ?? null;
   // One traded-value figure on the page: the scanner's (the risk desk's gate reads it too), else the daily bars'.
@@ -937,7 +952,8 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   const matched = rec?.buckets.filter((r) => r.matched) ?? [];
   const contra = contradictions({ setup, live: v, patterns, bars, pUp, pDown, liquidCr, patQ: quarter?.pat_yoy_pct ?? null, pledge: own?.promoter_pledged_pct ?? null, plain });
   const pct1 = (p: number | null | undefined) => (p == null ? "—" : fmtPct(p * 100, { digits: 1 }));
-  const href = fullChartHref(symbol, { entry: setup?.entry ?? null, stop: setup?.stop ?? null, target: setup?.target ?? null });
+  const lv = deskLevels(setup, live);
+  const href = fullChartHref(symbol, lv);
 
   // ── 1 · definition ──
   const s1 = (
@@ -959,9 +975,9 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
     <>
       <KV testId="desk-model-score" k={plain ? "Scanner score" : "Scanner score (rules-based, not a probability)"} v={setup?.score != null ? `${fmtNum(setup.score, 0)} / 100` : dash}
         why={setup?.score == null ? "Not on today’s scanner." : setup.confidence ? `Scanner grade ${humaniseTag(setup.confidence.toLowerCase())}.` : undefined} />
-      <KV testId="desk-model-p" k={plain ? "Chance of +5% next day" : "P(+5% next session) · model estimate"} v={pUp != null ? pct1(pUp) : dash} why={pUp == null ? oddsWhy : undefined} />
-      <KV testId="desk-model-pdown" k={plain ? "Chance of −5% next day" : "P(−5% next session) · model estimate"} v={pDown != null ? pct1(pDown) : dash}
-        why={pDown == null ? (stockQ.data?.kind === "ok" ? "Not in the stock’s estimates." : oddsWhy) : undefined} />
+      <KV testId="desk-model-p" k={plain ? "Chance of +5% next day" : "P(+5% next session) · model estimate"} v={pUp != null ? PROBABILITY_WITHHELD : dash} why={pUp != null ? `${gate.reason}${evidence ? ` Evidence, not a probability: ${evidence}.` : ""}` : oddsWhy} />
+      <KV testId="desk-model-pdown" k={plain ? "Chance of −5% next day" : "P(−5% next session) · model estimate"} v={pDown != null ? PROBABILITY_WITHHELD : dash}
+        why={pDown != null ? gate.reason : stockQ.data?.kind === "ok" ? "Not in the stock’s estimates." : oddsWhy} />
       <KV testId="desk-model-version" k="Model version" v={run ? `Move-odds ${run.model}` : dash}
         why={run ? `Refit ${run.refit ?? "—"} · trained to ${run.train_end ? fmtDay(run.train_end) : "—"} · data as of ${fmtDay(run.data_as_of)} · for ${fmtDay(run.target_session)} · build ${run.git_sha}` : oddsWhy} />
       <KV testId="desk-model-eval" k="Evaluation period" v={record ? record.window_label : dash}
@@ -1004,20 +1020,34 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   );
 
   // ── 4 · fundamentals ──
+  const featureGap = (f: CompanyFeatures, what: string) =>
+    `${what}: not filled on the ${fmtDay(f.as_of_date ?? null)} feature row (stock_features_daily). ${f.fundamentals_source ? `Figures there come from ${f.fundamentals_source}, as of ${fmtDay(f.fundamentals_as_of ?? null)}, and this one is missing.` : "No source figure was loaded for that date, and the filings give none."}`;
+  const ownershipWhy = (o: HoldingRow | null, latest: HoldingRow | null) => {
+    if (!o) return "No shareholding pattern on record.";
+    const pledge = latest?.promoter_pledged_pct ?? o.promoter_pledged_pct;
+    const pledgeNote = pledge != null ? ` Pledged ${fmtPct(pledge, { digits: 1 })}${latest && latest !== o ? ` (${latest.period ?? fmtDay(latest.period_end ?? null)})` : ""}.` : "";
+    if (!hasShares(o)) return `Only a pledge figure is loaded for ${o.period ?? fmtDay(o.period_end ?? null)}; the exchange’s shareholding filing for that quarter is not in the warehouse.${pledgeNote}`;
+    if (o.promoter_pct == null) return `The ${o.period ?? fmtDay(o.period_end ?? null)} filing gives no promoter holding.${pledgeNote}`;
+    return pledgeNote.trim() || undefined;
+  };
   const ownDelta = (a: number | null | undefined, b: number | null | undefined) => (a != null && b != null ? ` (${fmtPct(a - b, { signed: true, digits: 1 })} vs ${ownPrev?.period ?? "previous"})` : "");
   const s4 = finQ.isPending ? <span style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>Loading results and shareholding…</span>
     : finQ.isError ? <ErrorBlock title="Results and shareholding didn’t load" error={finQ.error} onRetry={() => finQ.refetch()} />
       : (
         <>
-          <KV testId="desk-fund-valuation" k="P/E · P/B" v={`${fmtNum(fin?.features?.pe_ttm ?? null, 1)} · ${fmtNum(fin?.features?.pb ?? null, 1)}`} why={fin?.features ? undefined : "No feature row for this stock (stock_features_daily)."} />
-          <KV testId="desk-fund-quality" k="ROE · debt to equity" v={`${fmtPct(fin?.features?.roe_pct ?? null, { digits: 1 })} · ${fmtNum(fin?.features?.debt_to_equity ?? null, 2)}`} />
-          <KV testId="desk-fund-mcap" k="Market cap" v={fin?.features?.market_cap_cr != null ? `₹${fmtNum(fin.features.market_cap_cr, 0)} Cr` : dash} why={fin?.features?.market_cap_cr == null ? "Not filled for this stock." : undefined} />
+          <KV testId="desk-fund-valuation" k="P/E · P/B" v={`${fmtNum(fin?.features?.pe_ttm ?? null, 1)} · ${fmtNum(fin?.features?.pb ?? null, 1)}`}
+            why={!fin?.features ? "No feature row for this stock (stock_features_daily)." : fin.features.pe_ttm != null && fin.features.pb != null ? undefined : `${featureGap(fin.features, "P/E and P/B")}`} />
+          <KV testId="desk-fund-quality" k="ROE · debt to equity" v={`${fmtPct(fin?.features?.roe_pct ?? null, { digits: 1 })} · ${fmtNum(fin?.features?.debt_to_equity ?? null, 2)}`}
+            why={fin?.features && (fin.features.roe_pct == null || fin.features.debt_to_equity == null) ? featureGap(fin.features, "ROE and debt to equity") : undefined} />
+          <KV testId="desk-fund-mcap" k="Market cap" v={fin?.features?.market_cap_cr != null ? `₹${fmtNum(fin.features.market_cap_cr, 0)} Cr` : dash}
+            why={fin?.features?.market_cap_cr == null ? (fin?.features ? featureGap(fin.features, "Market cap") : "No feature row for this stock (stock_features_daily).") : undefined} />
           <KV testId="desk-fund-quarter" k={quarter ? `Latest quarter · ${quarter.quarter ?? fmtDay(quarter.period_end ?? null)}` : "Latest quarter"}
             v={quarter ? `Revenue ₹${fmtNum(quarter.revenue_cr ?? null, 0)} Cr · profit ₹${fmtNum(quarter.pat_cr ?? null, 0)} Cr` : dash}
             why={quarter ? `Year on year: revenue ${fmtPct(quarter.revenue_yoy_pct ?? null, { signed: true, digits: 1 })}, profit ${fmtPct(quarter.pat_yoy_pct ?? null, { signed: true, digits: 1 })}.` : "No quarterly results on record (nse_financials_quarterly)."} />
           <KV testId="desk-fund-promoter" k={own ? `Promoter · ${own.period ?? fmtDay(own.period_end ?? null)}` : "Promoter"} v={own ? `${fmtPct(own.promoter_pct ?? null, { digits: 1 })}${ownDelta(own.promoter_pct, ownPrev?.promoter_pct)}` : dash}
-            why={own ? `Pledged ${fmtPct(own.promoter_pledged_pct ?? null, { digits: 1 })}.` : "No shareholding pattern on record."} />
-          <KV testId="desk-fund-institutions" k="FII · DII · mutual funds" v={own ? `${fmtPct(own.fii_pct ?? null, { digits: 1 })} · ${fmtPct(own.dii_pct ?? null, { digits: 1 })} · ${fmtPct(own.mf_pct ?? null, { digits: 1 })}` : dash} />
+            why={ownershipWhy(own, newest)} />
+          <KV testId="desk-fund-institutions" k="FII · DII · mutual funds" v={own ? `${fmtPct(own.fii_pct ?? null, { digits: 1 })} · ${fmtPct(own.dii_pct ?? null, { digits: 1 })} · ${fmtPct(own.mf_pct ?? null, { digits: 1 })}` : dash}
+            why={own && hasShares(own) && own.mf_pct == null ? "Mutual funds: the filing’s mutual-fund line is not loaded for this quarter." : undefined} />
           <TrustLine testId="desk-fund-trust" source="NSE quarterly results · shareholding pattern · stock_features_daily" maker="reported" mode="historical" />
         </>
       );
@@ -1072,14 +1102,23 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   // ── 7 · levels ──
   const s7 = (
     <>
-      <KV testId="desk-lvl-entry" k={plain ? "Buy above" : "Entry"} v={fmtPrice(setup?.entry ?? null)} why={setup?.entry == null ? "No scanner entry for this stock." : undefined} />
-      <KV testId="desk-lvl-stop" k={plain ? "Exit if wrong" : "Stop"} v={fmtPrice(setup?.stop ?? null)} why={setup?.stop == null ? "No scanner stop for this stock." : undefined} />
-      <KV testId="desk-lvl-target" k="Target" v={fmtPrice(setup?.target ?? null)} why={setup?.target == null ? "Only the scanner’s picks carry a target." : undefined} />
-      <KV testId="desk-lvl-rr" k={plain ? "Reward for risk" : "Reward : risk"} v={setup?.riskReward != null ? `${fmtNum(setup.riskReward, 1)} : 1` : dash} />
+      <KV testId="desk-lvl-source" k="Source" v={lv.source === "scanner" ? "AI scanner pick" : lv.source === "rule" ? `Rule ${lv.rule?.name} v${lv.rule?.version}` : dash}
+        why={lv.source === "scanner" ? "The scanner has levels for this stock, so they are shown instead of the rule’s." : lv.source === "rule" ? lv.rule?.label : lv.reason ?? undefined} />
+      <KV testId="desk-lvl-entry" k={plain ? "Buy above" : "Entry"} v={fmtPrice(lv.entry)} why={lv.entry == null ? lv.reason ?? "No entry." : lv.source === "rule" ? "The last close." : undefined} />
+      <KV testId="desk-lvl-stop" k={plain ? "Exit if wrong" : "Stop"} v={fmtPrice(lv.stop)}
+        why={lv.stop == null ? lv.reason ?? "No stop." : lv.source === "rule" ? (lv.rule?.stopBasis === "support20" ? "The 20-session low, closer than the ATR stop." : `${fmtNum(lv.rule?.constants.atr_multiple ?? 0, 1)} × ATR(${lv.rule?.constants.atr_period ?? 14}) below the entry.`) : undefined} />
+      <KV testId="desk-lvl-target" k="Target" v={fmtPrice(lv.target)}
+        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s picks carry a target." : lv.reason ?? "No target.") : lv.source === "rule" ? `Entry plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
+      <KV testId="desk-lvl-rr" k={plain ? "Reward for risk" : "Reward : risk"} v={lv.riskReward != null ? `${fmtNum(lv.riskReward, 1)} : 1` : dash} />
       <span style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)", paddingTop: 4 }}>
-        Hypothetical levels from the scanner. Size them in the {phone ? "trade scenario below" : "risk desk"}; nothing is sent to a broker.{" "}
+        {lv.source === "rule" ? `${lv.rule?.label}. ` : lv.source === "scanner" ? "Hypothetical levels from the scanner. " : ""}
+        Size them in the {phone ? "trade scenario below" : "risk desk"}; nothing is sent to a broker.{" "}
         <a data-testid="desk-lvl-full" href={href} style={{ color: "var(--mint)" }}>Open full chart with these levels ↗</a>
       </span>
+      <button type="button" data-testid="desk-lvl-strategy" onClick={() => openStrategy(symbol, { kind: "chart", bucket: setup?.bucket ?? null, date: scanIso })}
+        style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12.5, color: "var(--mint)", fontFamily: "var(--sans)" }}>
+        Build a strategy for {symbol} ›
+      </button>
     </>
   );
 
@@ -1186,14 +1225,14 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
 
   const summaries: Record<SectionKey, ReactNode> = {
     definition: setup ? `${setupLabel(setup, plain)} · scanner rules · ${run ? `P(+5%) for ${fmtDay(run.target_session)}` : "next-session odds —"}` : "Not on today’s scanner · next-session odds and patterns only",
-    model: `Score ${setup?.score != null ? fmtNum(setup.score, 0) : "—"} (rules) · P(+5% next session) ${pUp != null ? pct1(pUp) : "—"}${record ? ` · ${record.window_label}` : ""}`,
+    model: `Score ${setup?.score != null ? fmtNum(setup.score, 0) : "—"} (rules) · P(+5% next session) ${pUp != null ? PROBABILITY_WITHHELD.toLowerCase() : "—"}${record ? ` · ${record.window_label}` : ""}`,
     technical: v
       ? `${v.ema20 != null ? (v.close > v.ema20 ? "Above" : "Below") : "—"} EMA 20 · RSI ${fmtNum(v.rsi14, 0)} · ${patterns ? `${patterns.patterns.filter((p) => p.state === "confirmed").length} confirmed, ${patterns.patterns.filter((p) => p.state === "awaiting_confirmation").length} awaiting` : "patterns —"}`
       : "Indicators —",
     fundamentals: fin ? `P/E ${fmtNum(fin.features?.pe_ttm ?? null, 1)} · ROE ${fmtPct(fin.features?.roe_pct ?? null, { digits: 0 })} · promoter ${fmtPct(own?.promoter_pct ?? null, { digits: 0 })}` : finQ.isPending ? "Loading…" : "—",
     events: filQ.isPending ? "Loading…" : filings.length ? `${filings.length} ${filings.length === 1 ? "filing" : "filings"} in ${FILING_DAYS} days · latest ${fmtDay((filings[0].date ?? "").slice(0, 10) || null)}` : `No filings in ${FILING_DAYS} days`,
     liquidity: `${liquidCr != null ? `₹${fmtNum(liquidCr, 1)} Cr a day` : "Traded value —"} · ${band ?? "price band —"} · F&O ban list —`,
-    levels: setup?.entry != null ? `Entry ${fmtPrice(setup.entry)} · stop ${fmtPrice(setup.stop)} · target ${fmtPrice(setup.target)}` : "No scanner levels",
+    levels: lv.entry != null ? `${lv.source === "rule" ? "Rule-based · " : ""}Entry ${fmtPrice(lv.entry)} · stop ${fmtPrice(lv.stop)} · target ${fmtPrice(lv.target)}` : "No levels",
     validation: headlineRow(rec) ? `Hit rate ${pct1(headlineRow(rec)?.probability ?? null)} · n ${fmtNum(headlineRow(rec)?.sample_count ?? null)} (touch, ${RECORD_HORIZON} sessions)` : "— No record for this stock’s bucket",
     contra: contra.found.length ? `${contra.found.length} ${contra.found.length === 1 ? "point" : "points"} against` : "None found among the checks",
     freshness: `${fresh.filter((f) => f.asOf).length} of ${fresh.length} sources on record · ${missing.length} missing inputs`,

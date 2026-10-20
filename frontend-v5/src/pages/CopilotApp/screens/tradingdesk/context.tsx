@@ -46,6 +46,10 @@ export interface DeskState {
   openChart: (symbol: string) => void;
   /** Select a stock without changing tab. */
   setSymbol: (symbol: string) => void;
+  /** Open the Strategy Builder (More) on a stock, carrying the signal it started from (shown as "Started from ..."). */
+  openStrategy: (symbol: string, src?: { kind: "scanner" | "chart" | "lab"; bucket?: string | null; date?: string | null }) => void;
+  /** Open the Strategy Builder on the AI opportunities board, optionally scrolled to one stock's idea. */
+  openStrategyIdeas: (focus?: string) => void;
   /** Ask the Copilot about something on the desk. */
   askDesk: (question: string) => void;
   /** True when the Copilot panel is docked beside the desk (wide screens). */

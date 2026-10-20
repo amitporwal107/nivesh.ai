@@ -13,6 +13,13 @@
  *                                                       signal_at?, strategy_version?, rationale? }
  *   POST   /api/desk/paper-trades/{id}/close          {} — closes at the last close (exit reason "manual"); a trade
  *                                                     whose entry was not reached is cancelled with no P&L
+ *                                                     Strategy trades (kind "strategy": futures and option structures, rules desk-paper-v3)
+ *                                                     come back in the same list, read into `PaperBook.strategyTrades`:
+ *                                                     legs with entry and mark, the immutable signal block, the
+ *                                                     lifecycle log, flags, net premium and P&L (StrategyPaperTrade)
+ *   POST   /api/desk/paper-trades                     kind "strategy": NewStrategyPaperTrade (useAddStrategyPaperTrade);
+ *                                                     nothing in the screens creates one yet (the Strategy Builder will)
+ *   GET    /api/desk/paper-trades/{id}                one trade with its lifecycle log and immutable signal (read-only)
  *   GET    /api/desk/alerts?status=all                every alert (price, a new filing, a category, unusual volume, a scanner
  *                                                     entry, a sector move, a risk level), active and fired with the reason it
  *                                                     fired, the session they were checked through and the route's catalogue
@@ -81,7 +88,21 @@ const CODE_TEXT: Record<string, string> = {
   invalid_signal_at: "The signal time must be a date or time, not in the future.",
   invalid_strategy_version: "The strategy version was not accepted.",
   invalid_rationale: "The rationale was not accepted.",
-  no_close_available: "There is no end-of-day close for this stock yet, so it cannot be closed at the last close.",
+  invalid_kind: "That kind of paper trade is not one the desk knows.",
+  invalid_family: "That strategy family is not on the desk's list.",
+  invalid_leg_count: "A strategy has from 1 to 4 legs.",
+  unbounded_loss: "That structure can lose without limit upward. Only defined-risk option structures (and a plain futures leg) are recorded.",
+  naked_short_put: "A sold put needs a bought put of at least the same size. Naked short options are not recorded.",
+  mixed_option_expiries: "All option legs must expire on the same date.",
+  cash_only_use_share_trade: "A strategy needs at least one futures or option leg. Record shares as a share trade.",
+  short_cash_not_supported: "Selling shares is not supported in a strategy.",
+  expiry_in_past: "A leg's expiry has already passed.",
+  entry_rule_not_supported: "A strategy is recorded at the leg prices you give (at once); waiting for a level is not supported.",
+  levels_not_supported_neutral: "A neutral strategy has no stop or target on the underlying.",
+  invalid_signal: "The signal details (time, rule version, evidence) were not accepted.",
+  invalid_evidence_summary: "The evidence summary is required (up to 1000 characters).",
+  invalid_rule_version: "The rule version of the signal is required.",
+  no_close_available:  "There is no end-of-day close for this stock yet, so it cannot be closed at the last close.",
   prices_unavailable: "Prices could not be read from the data platform right now.",
   upstream_unavailable: "The data platform could not be reached right now.",
 };
@@ -177,6 +198,113 @@ export interface PaperTrade {
   flags: PaperFlag[];
 }
 
+// ── strategy paper trades (kind "strategy": futures and option structures, rules desk-paper-v3) ──
+
+export type StrategyExitReason = ExitReason | "expiry";
+const STRATEGY_EXIT_REASONS: readonly string[] = [...EXIT_REASONS, "expiry"];
+export type StrategyDirection = "bullish" | "bearish" | "neutral";
+const DIRECTIONS: readonly string[] = ["bullish", "bearish", "neutral"];
+export type LegKind = "future" | "option" | "cash";
+const LEG_KINDS: readonly string[] = ["future", "option", "cash"];
+export type MarkBasis = "settle" | "close" | "expiry_intrinsic" | "final_settle" | "underlying_close";
+const MARK_BASES: readonly string[] = ["settle", "close", "expiry_intrinsic", "final_settle", "underlying_close"];
+
+/** One contract leg: what was recorded at entry (never edited) and where it is marked now. */
+export interface StrategyLeg {
+  index: number;
+  kind: LegKind;
+  side: "buy" | "sell";
+  /** Lots for a future or option; shares for a cash leg. */
+  lots: number;
+  lotSize: number;
+  entry: number | null;
+  expiry: string | null;
+  strike: number | null;
+  optionType: "call" | "put" | null;
+  priceSource: string | null;
+  /** The route's one-line name for the leg ("Buy 1 lot call 1300 27 Oct"). */
+  label: string;
+  mark: number | null;
+  markDate: string | null;
+  markBasis: MarkBasis | null;
+  markBasisText: string | null;
+  markSource: string | null;
+  /** (mark − entry) × lots × lot size × side, ₹; null while the leg has no mark. */
+  pnlRs: number | null;
+}
+
+/** The signal the trade was opened from: saved with the trade and never changed. */
+export interface StrategySignal {
+  signalAt: string | null;
+  ruleVersion: string | null;
+  modelVersion: string | null;
+  sourceRefs: Array<{ kind: string; ref: string; asOf: string | null }>;
+  evidenceSummary: string | null;
+}
+
+export interface LifecycleEvent {
+  type: string;
+  at: string | null;
+  session: string | null;
+  reason: string | null;
+  text: string;
+}
+
+export interface StrategyFlag extends PaperFlag {
+  /** The leg the flag is about (0-based), null for the whole trade. */
+  leg: number | null;
+}
+
+export interface StrategyPaperTrade {
+  id: string;
+  kind: "strategy";
+  underlying: string;
+  direction: StrategyDirection | null;
+  family: string | null;
+  familyName: string | null;
+  /** "Bull call spread 1300/1360 · 27 Oct · 2 lots", from the route. */
+  summaryText: string;
+  strategyPlanId: string | null;
+  referencePrice: number | null;
+  stopUnderlying: number | null;
+  targetUnderlying: number | null;
+  note: string | null;
+  openedAt: string | null;
+  status: "open" | "closed";
+  closedAt: string | null;
+  exitReason: StrategyExitReason | null;
+  exitSession: string | null;
+  exitNote: string | null;
+  maxHoldSessions: number | null;
+  rulesVersion: string | null;
+  costModel: CostModel | null;
+  /** Futures losses can exceed margin: the route's words, null for an option-only structure. */
+  riskNote: string | null;
+  signal: StrategySignal;
+  /** The fingerprint of the signal and legs saved at entry, and whether the stored record still matches it. */
+  entryRecordHash: string | null;
+  entryRecordIntact: boolean | null;
+  legs: StrategyLeg[];
+  /** Premium the option legs paid (negative) or received (positive) at entry, and at the marks, ₹. */
+  netPremiumRs: number | null;
+  markPremiumRs: number | null;
+  grossRs: number | null;
+  costsRs: number | null;
+  costsBasis: string | null;
+  netRs: number | null;
+  unrealizedRs: number | null;
+  realizedRs: number | null;
+  mfeRs: number | null;
+  maeRs: number | null;
+  observations: number | null;
+  heldSessions: number | null;
+  checkedThrough: string | null;
+  lastMarkDate: string | null;
+  markError: string | null;
+  flags: StrategyFlag[];
+  events: LifecycleEvent[];
+}
+
 export interface PaperSummary {
   open: number | null;
   closed: number | null;
@@ -207,6 +335,8 @@ export interface PaperBook {
   marksError: string | null;
   exitRule: string | null;
   trades: PaperTrade[];
+  /** Futures and option strategies, listed beside the share trades (`trades` holds share trades only). */
+  strategyTrades: StrategyPaperTrade[];
   summary: PaperSummary | null;
   /** entry rule → the route's sentence for it. */
   entryRules: Partial<Record<EntryRule, string>>;
@@ -285,14 +415,95 @@ function readTrade(v: unknown): PaperTrade | null {
   };
 }
 
+function readFlags(v: unknown): StrategyFlag[] {
+  return (Array.isArray(v) ? v : []).flatMap((x): StrategyFlag[] => {
+    const f = rec(x);
+    const code = str(f.code);
+    const text = str(f.text);
+    return code && text ? [{ code, text, session: str(f.session), price: num(f.price), leg: num(f.leg) }] : [];
+  });
+}
+
+/** A strategy row. Unlike a share row, a row of kind "strategy" without its id, legs or signal is a broken contract:
+ *  it throws (the screen shows the contract error) instead of dropping a trade the user has on record. */
+function readStrategyTrade(v: unknown): StrategyPaperTrade {
+  const t = rec(v);
+  const id = str(t.id);
+  const underlying = str(t.underlying)?.toUpperCase();
+  const status = str(t.status)?.toLowerCase();
+  const sig = rec(t.signal);
+  if (!id || !underlying || (status !== "open" && status !== "closed") || !Array.isArray(t.legs) || !t.legs.length || !Object.keys(sig).length) {
+    throw ApiError.contractDrift("desk.paper-trades: a strategy trade without its id, legs or signal");
+  }
+  const legs = t.legs.map((x): StrategyLeg => {
+    const l = rec(x);
+    const side = str(l.side);
+    const kind = str(l.kind);
+    const basis = str(l.mark_basis);
+    const lots = num(l.lots);
+    const lotSize = num(l.lot_size);
+    if ((side !== "buy" && side !== "sell") || !kind || !LEG_KINDS.includes(kind) || lots == null || lotSize == null) {
+      throw ApiError.contractDrift("desk.paper-trades: a strategy leg without its side, kind, lots or lot size");
+    }
+    const type = str(l.option_type);
+    return {
+      index: num(l.index) ?? 0, kind: kind as LegKind, side, lots, lotSize,
+      entry: price(l.entry_price), expiry: str(l.expiry), strike: price(l.strike),
+      optionType: type === "call" || type === "put" ? type : null,
+      priceSource: str(l.price_source), label: str(l.label) ?? kind,
+      mark: price(l.mark), markDate: str(l.mark_date),
+      markBasis: basis && MARK_BASES.includes(basis) ? (basis as MarkBasis) : null,
+      markBasisText: str(l.mark_basis_text), markSource: str(l.mark_source), pnlRs: num(l.pnl_rs),
+    };
+  });
+  const reason = str(t.exit_reason)?.toLowerCase();
+  const direction = str(t.direction);
+  const refs = (Array.isArray(sig.source_refs) ? sig.source_refs : []).flatMap((x) => {
+    const r = rec(x);
+    const kind = str(r.kind);
+    const ref = str(r.ref);
+    return kind && ref ? [{ kind, ref, asOf: str(r.as_of) }] : [];
+  });
+  const risk = rec(t.risk);
+  return {
+    id, kind: "strategy", underlying, status,
+    direction: direction && DIRECTIONS.includes(direction) ? (direction as StrategyDirection) : null,
+    family: str(t.family), familyName: str(t.family_name),
+    summaryText: str(t.summary_text) ?? `${underlying} strategy`,
+    strategyPlanId: str(t.strategy_plan_id),
+    referencePrice: price(t.reference_price), stopUnderlying: price(t.stop_underlying), targetUnderlying: price(t.target_underlying),
+    note: str(t.note), openedAt: str(t.opened_at), closedAt: str(t.closed_at),
+    exitReason: reason && STRATEGY_EXIT_REASONS.includes(reason) ? (reason as StrategyExitReason) : null,
+    exitSession: str(t.exit_session), exitNote: str(t.exit_note), maxHoldSessions: num(t.max_hold_sessions),
+    rulesVersion: str(t.rules_version), costModel: readCostModel(t.cost_model), riskNote: str(risk.note),
+    signal: { signalAt: str(sig.signal_at), ruleVersion: str(sig.rule_version), modelVersion: str(sig.model_version), sourceRefs: refs, evidenceSummary: str(sig.evidence_summary) },
+    entryRecordHash: str(t.entry_record_hash), entryRecordIntact: typeof t.entry_record_intact === "boolean" ? t.entry_record_intact : null,
+    legs,
+    netPremiumRs: num(t.net_premium_rs), markPremiumRs: num(t.mark_premium_rs),
+    grossRs: num(t.gross_pnl_rs), costsRs: num(t.costs_rs), costsBasis: str(t.costs_basis), netRs: num(t.net_pnl_rs),
+    unrealizedRs: num(t.unrealized_pnl_rs), realizedRs: num(t.realized_pnl_rs),
+    mfeRs: num(t.mfe_rs), maeRs: num(t.mae_rs), observations: num(t.observations), heldSessions: num(t.held_sessions),
+    checkedThrough: str(t.checked_through), lastMarkDate: str(t.last_mark_date), markError: str(t.mark_error),
+    flags: readFlags(t.flags),
+    events: (Array.isArray(t.events) ? t.events : []).flatMap((x): LifecycleEvent[] => {
+      const e = rec(x);
+      const type = str(e.type);
+      const text = str(e.text);
+      return type && text ? [{ type, at: str(e.at), session: str(e.session), reason: str(e.reason), text }] : [];
+    }),
+  };
+}
+
 async function fetchPaperBook(signal?: AbortSignal): Promise<PaperBook> {
   const res = await http({ path: "/api/desk/paper-trades", query: { status: "all" }, signal });
   const d = rec(res.data);
   if (!Array.isArray(d.trades)) throw ApiError.contractDrift("desk.paper-trades: no trades list");
-  const trades = d.trades.flatMap((v) => {
+  const isStrategy = (v: unknown) => rec(v).kind === "strategy";
+  const trades = d.trades.filter((v) => !isStrategy(v)).flatMap((v) => {
     const t = readTrade(v);
     return t ? [t] : [];
   });
+  const strategyTrades = d.trades.filter(isStrategy).map(readStrategyTrade);
   const s = rec(d.summary);
   const summary: PaperSummary | null = Object.keys(s).length
     ? {
@@ -310,7 +521,7 @@ async function fetchPaperBook(signal?: AbortSignal): Promise<PaperBook> {
   }
   return {
     asOf: str(d.as_of), checkedThrough: str(d.checked_through), source: str(d.source), priceBasis: str(d.price_basis),
-    marksError: str(d.marks_error), exitRule: str(d.exit_rule), trades, summary,
+    marksError: str(d.marks_error), exitRule: str(d.exit_rule), trades, strategyTrades, summary,
     entryRules, rulesVersion: str(d.rules_version), costModel: readCostModel(d.cost_model), orders: str(d.orders),
   };
 }
@@ -332,7 +543,7 @@ export interface NewPaperTrade {
   entry_price: number;
   stop_price: number;
   target_price: number | null;
-  source: { kind: "scanner"; bucket?: string; signal_date?: string };
+  source: { kind: "scanner" | "strategy_plan"; bucket?: string; signal_date?: string };
   /** PRD §13.4, all optional: how the entry fills, how long it waits, the most sessions to hold, when the signal was
    *  generated, the strategy's version and why. */
   entry_rule?: EntryRule;
@@ -350,6 +561,60 @@ export function useAddPaperTrade() {
       const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, noRetry: true });
       // The trade is created once the route answers 2xx; its echo is only used for the id.
       return readTrade(rec(res.data).trade);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: PAPER_KEY }),
+  });
+}
+
+/** POST /api/desk/paper-trades with kind "strategy" — the body exactly as the route takes it (PRD §17.6). Nothing
+ *  places an order: this records a simulated trade. The signal and the legs are saved as sent and never edited. */
+export interface NewStrategyLeg {
+  kind: LegKind;
+  side: "buy" | "sell";
+  /** Lots for a future or option; shares for a cash leg (lot_size 1). */
+  lots: number;
+  lot_size: number;
+  /** Per unit; an option's premium. */
+  entry_price: number;
+  /** YYYY-MM-DD; null for a cash leg. */
+  expiry: string | null;
+  strike: number | null;
+  option_type: "call" | "put" | null;
+  /** Where the entry price came from, e.g. "NSE F&O bhavcopy close, 2026-10-19" (required). */
+  price_source: string;
+}
+
+export interface NewStrategyPaperTrade {
+  kind: "strategy";
+  underlying: string;
+  direction: StrategyDirection;
+  /** A key of the route's `strategy_families` list (bull_call_spread, iron_condor, long_future, custom ...). */
+  family: string;
+  strategy_plan_id?: string;
+  /** The underlying's last close when the plan was made. */
+  reference_price: number;
+  /** The underlying levels that invalidate / fulfil the plan, on the loss / profit side of the reference; none for neutral. */
+  stop_underlying?: number | null;
+  target_underlying?: number | null;
+  /** 1 to 4 legs; defined-risk structures and a plain futures leg only. */
+  legs: NewStrategyLeg[];
+  signal: {
+    signal_at: string;
+    rule_version: string;
+    model_version?: string | null;
+    source_refs?: Array<{ kind: string; ref: string; as_of?: string | null }>;
+    evidence_summary: string;
+  };
+  max_hold_sessions?: number;
+  note?: string;
+}
+
+export function useAddStrategyPaperTrade() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: NewStrategyPaperTrade): Promise<StrategyPaperTrade> => {
+      const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, noRetry: true });
+      return readStrategyTrade(rec(res.data).trade);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: PAPER_KEY }),
   });

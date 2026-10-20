@@ -12,7 +12,7 @@
 from __future__ import annotations
 import logging
 import time
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, Optional, Tuple
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
@@ -88,6 +88,44 @@ async def _session_breadth(session: date) -> Optional[Dict[str, Any]]:
     return data
 
 
+# The 50-session average needs 50 daily Nifty closes in macro_daily, which fills one row per day from the day the job was
+# first run. When macro_daily is short of them the closes are read from the warehouse (nidp.index_eod, the same NSE index
+# close the desk sector table uses) and the answer names that source. The rule itself is not touched.
+NIFTY_WAREHOUSE_SOURCE = "nidp.index_eod 'Nifty 50' close (DaaS /v1/indices/Nifty 50/eod)"
+NIFTY_MACRO_SOURCE = "macro_daily nifty (macro_engine.compute_features nifty_50dma)"
+_NIFTY_LOOKBACK_DAYS = 120          # calendar days: 50 sessions with room for holidays
+_NIFTY_TTL = 600.0
+_NIFTY_CACHE: Dict[str, Tuple[float, Tuple[Optional[float], Optional[float], Optional[str]]]] = {}
+
+
+async def _warehouse_nifty(session: date) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+    """(Nifty 50 close on `session`, its average over the rule's sessions up to it, why not) from nidp.index_eod. The average
+    uses macro_engine._sma, so the gap tolerance is the one macro_features applies (at least 60% of the sessions present)."""
+    from services import macro_engine
+    from services.copilot_tools import daas_client
+    key = session.isoformat()
+    hit = _NIFTY_CACHE.get(key)
+    if hit and time.time() - hit[0] < _NIFTY_TTL:
+        return hit[1]
+    n = int(macro_engine.DESK_REGIME_RULE["trend_average_sessions"])
+    try:
+        rows = await daas_client.get_index_eod_history(
+            "Nifty 50", start=(session - timedelta(days=_NIFTY_LOOKBACK_DAYS)).isoformat(), end=key)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("desk regime: Nifty 50 warehouse read failed: %s", e)
+        return None, None, f"{NIFTY_WAREHOUSE_SOURCE} could not be read ({type(e).__name__})"
+    series = [(str(r.get("as_of_date"))[:10], _num(r.get("close_price"))) for r in rows if str(r.get("as_of_date"))[:10] <= key]
+    series = [(d, c) for d, c in series if c is not None]
+    close = next((c for d, c in series if d == key), None)
+    if close is None:
+        out: Tuple[Optional[float], Optional[float], Optional[str]] = (None, None, f"{NIFTY_WAREHOUSE_SOURCE} has no close for {key}")
+    else:
+        avg = macro_engine._sma([c for _, c in series], n)
+        out = (close, avg, None if avg is not None else f"{NIFTY_WAREHOUSE_SOURCE} has only {len(series[-n:])} of the {n} sessions to {key}")
+    _NIFTY_CACHE[key] = (time.time(), out)
+    return out
+
+
 def _num(v: Any) -> Optional[float]:
     try:
         return float(v) if v is not None else None
@@ -111,11 +149,17 @@ async def _desk_regime(snap: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         logger.warning("/macro/today session breadth failed: %s", e)
         breadth_error = f"{type(e).__name__}: {str(e)[:120]}"
+    nifty_close, nifty_average = _num(values.get("nifty")), _num(feats.get("nifty_50dma"))
+    nifty_source, nifty_note = NIFTY_MACRO_SOURCE, None
+    if session and (nifty_close is None or nifty_average is None):
+        w_close, w_avg, nifty_note = await _warehouse_nifty(date.fromisoformat(session))
+        if w_close is not None and w_avg is not None:
+            nifty_close, nifty_average, nifty_source, nifty_note = w_close, w_avg, NIFTY_WAREHOUSE_SOURCE, None
     try:
         out = macro_engine.classify_desk_regime(
             session=session,
-            nifty_close=_num(values.get("nifty")),
-            nifty_average=_num(feats.get("nifty_50dma")),
+            nifty_close=nifty_close,
+            nifty_average=nifty_average,
             india_vix=_num(values.get("india_vix")),
             breadth=breadth,
         )
@@ -124,6 +168,9 @@ async def _desk_regime(snap: Dict[str, Any]) -> Dict[str, Any]:
         return {"key": None, "label": None, "date": session, "rule": dict(macro_engine.DESK_REGIME_RULE),
                 "inputs": {}, "skipped": [], "invalidation": [],
                 "reason": f"the regime rule failed: {type(e).__name__}"}
+    out["inputs"]["nifty_source"] = nifty_source if nifty_close is not None and nifty_average is not None else None
+    if nifty_note:
+        out["skipped"] = out["skipped"] + [{"check": "trend", "reason": f"macro_daily has no 50-session Nifty average, and {nifty_note}"}]
     if breadth_error:
         out["skipped"] = [c for c in out["skipped"] if c["check"] != "mixed"] + [
             {"check": "mixed", "reason": f"breadth could not be read ({breadth_error})"}]

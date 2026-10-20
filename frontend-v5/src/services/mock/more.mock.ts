@@ -59,6 +59,7 @@ export const mockChatAdapter: ChatAdapter = {
   async createSession(){ await delay(180); return { id: "sess_mock" }; },
   async getSession()   { await delay(220); return { messages: [] }; },
   async deleteSession(){ await delay(120); },
+  async updateSession(){ await delay(120); },
   async suggestedPrompts() {
     await delay(120);
     return ["Why is my score 74?", "Which funds overlap most?", "How risky is my portfolio?", "What should I reduce first?"];

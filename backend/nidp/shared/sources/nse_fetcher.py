@@ -35,11 +35,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from typing import Optional, Tuple
+from urllib.parse import urlsplit
 
 import aiohttp
 
 from nidp.shared.config import (
+    BSE_MIN_REQUEST_INTERVAL_S,
+    BSE_PROXY_ATTEMPTS,
+    BSE_PROXY_URL,
     DEFAULT_UA,
     HTTP_RETRY_ATTEMPTS,
     HTTP_RETRY_BACKOFF_S,
@@ -56,6 +61,8 @@ _session_lock = asyncio.Lock()
 _primed = False
 _last_nse_request_at: float = 0.0
 _pace_lock = asyncio.Lock()
+_last_bse_request_at: float = 0.0
+_bse_pace_lock = asyncio.Lock()
 
 
 class _TerminalHttpError(aiohttp.ClientError):
@@ -97,6 +104,114 @@ def _proxy_for(url: str) -> Optional[str]:
     if not NSE_HTTPS_PROXY or not _is_nse_host(url):
         return None
     return NSE_HTTPS_PROXY
+
+
+def _is_bse_host(url: str) -> bool:
+    """True for bseindia.com and its subdomains, judged on the parsed host (a lookalike
+    such as evilbseindia.com or a query string that merely mentions the name is not BSE)."""
+    host = (urlsplit(url).hostname or "").lower()
+    return host == "bseindia.com" or host.endswith(".bseindia.com")
+
+
+def _bse_proxy_for(url: str) -> Optional[str]:
+    """BSE_PROXY_URL for bseindia.com hosts when it is set, else None (direct).
+
+    Independent of `_proxy_for`: the NSE proxy is never used for BSE and this one is
+    never used for NSE or anything else.
+    """
+    if not BSE_PROXY_URL or not _is_bse_host(url):
+        return None
+    return BSE_PROXY_URL
+
+
+def _redact(text: object) -> str:
+    """Remove the BSE proxy URL, and its user and password, from any text before it
+    reaches a log line, an exception message or job_log."""
+    out = str(text)
+    parts = urlsplit(BSE_PROXY_URL) if BSE_PROXY_URL else None
+    secrets = [BSE_PROXY_URL]
+    if parts is not None:
+        secrets += [parts.password or "", parts.username or "",
+                    parts.netloc, parts.hostname or ""]
+        if parts.port:
+            secrets.append(f"{parts.hostname}:{parts.port}")
+    for sec in sorted({x for x in secrets if x}, key=len, reverse=True):
+        out = out.replace(sec, "<bse-proxy>")
+    return out
+
+
+async def _bse_pace() -> None:
+    global _last_bse_request_at
+    if BSE_MIN_REQUEST_INTERVAL_S <= 0:
+        return
+    async with _bse_pace_lock:
+        loop = asyncio.get_running_loop()
+        wait = _last_bse_request_at + BSE_MIN_REQUEST_INTERVAL_S - loop.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_bse_request_at = loop.time()
+
+
+async def _fetch_bse_via_proxy(url: str, headers: dict, proxy: str) -> Tuple[bytes, int]:
+    """GET a bseindia.com URL through the rotating proxy.
+
+    Every attempt uses a brand-new session and connector with force_close, so no
+    connection (and no proxy-side sticky IP) is reused: a rotating endpoint hands out a
+    new address per connection. Only 403/429/5xx and connection errors are retried, at
+    most BSE_PROXY_ATTEMPTS times in all, with a short jittered pause; other statuses
+    are terminal. The proxy URL never appears in a log or an exception.
+    """
+    if urlsplit(proxy).scheme not in ("http", "https"):
+        raise aiohttp.ClientError(
+            "BSE_PROXY_URL scheme not supported (use an http:// or https:// endpoint)")
+    h = {
+        "User-Agent": DEFAULT_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+        **headers,
+        "Connection": "close",
+    }
+    last_status = 0
+    last_err: Optional[str] = None
+    for attempt in range(BSE_PROXY_ATTEMPTS):
+        session = None
+        try:
+            await _bse_pace()
+            session = aiohttp.ClientSession(
+                connector=aiohttp.TCPConnector(force_close=True),
+                timeout=aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S),
+            )
+            async with session.get(url, headers=h, proxy=proxy) as resp:
+                last_status = resp.status
+                if resp.status == 200:
+                    return await resp.read(), 200
+                if resp.status in (403, 429, 500, 502, 503, 504):
+                    last_err = f"HTTP {resp.status}"
+                else:
+                    preview = (await resp.read())[:200]
+                    raise _TerminalHttpError(
+                        f"HTTP {resp.status}: {preview!r}", status=resp.status, url=url)
+        except _TerminalHttpError:
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            try:
+                detail = str(e)[:200]
+            except Exception:  # noqa: BLE001 - some aiohttp errors fail to render
+                detail = "(unrenderable)"
+            last_err = _redact(type(e).__name__ + ": " + detail)[:160]
+        finally:
+            if session is not None:
+                await session.close()
+        if attempt < BSE_PROXY_ATTEMPTS - 1:
+            delay = random.uniform(1.0, 2.5)
+            logger.info("BSE via proxy: retry %d/%d for %s in %.1fs (%s)",
+                        attempt + 2, BSE_PROXY_ATTEMPTS, url, delay, last_err)
+            await asyncio.sleep(delay)
+    raise aiohttp.ClientError(
+        f"BSE fetch via proxy failed after {BSE_PROXY_ATTEMPTS} attempts "
+        f"(last status {last_status}, last err {last_err}): {url}"
+    )
 
 
 async def _pace() -> None:
@@ -221,6 +336,10 @@ async def fetch_bytes(
         headers["Referer"] = NSE_WWW + "/"
     if extra_headers:
         headers.update(extra_headers)
+
+    bse_proxy = _bse_proxy_for(url)
+    if bse_proxy:
+        return await _fetch_bse_via_proxy(url, headers, bse_proxy)
 
     proxy = _proxy_for(url)
     last_status = 0

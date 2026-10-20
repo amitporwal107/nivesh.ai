@@ -43,11 +43,11 @@ import { lensOf, readConcentration } from "../portfolio/concentration-data";
 import { QueryProblem } from "../trading/parts";
 import { useBrokerAccounts } from "../trading/queries";
 import { useDesk, type DeskPersona } from "./context";
-import { BUCKET_LABEL, LIQUID_MIN_CR, headLabel, useDeskOdds, useDeskScanner, type DeskSetup, type SetupBucket } from "./desk-data";
+import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, useScanUniverse, type DeskSetup, type SetupBucket } from "./desk-data";
 import { GROUP_COLOR, eventWhen, useIntelEvents, type IntelEvent } from "./intel-data";
 import {
   DESK_INDICES, DESK_REGIME_KEYS, DESK_REGIME_LABEL, READINESS_WORDS, RISK_BANDS_TEXT, RISK_CLASS_LABEL, SECTOR_PERIODS,
-  allocationOf, deskHeadline, feedWords, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
+  allocationOf, dataAsOf, deskHeadline, feedWords, setupLifecycle, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
   readBreadth, riskClass, stampIst, topHoldings, useMacroToday, useNow, usePicksLive, useSectorConstituents, useSectorReturns,
   useSectorStrength,
   type BreadthRead, type DeskRegime, type DeskRegimeKey, type IndexMode, type IstParts, type LivePick, type MacroToday,
@@ -167,11 +167,79 @@ function SubHead({ children, testId }: { children: ReactNode; testId?: string })
 
 const statusDot = (s: MarketStatus) => (s.feed === "live" ? "var(--mint)" : s.feed === "delayed" ? "var(--amber)" : "var(--cp-ink-4)");
 
+// ── setup lifecycle (PRD 4.1 issue 2) ────────────────────────────────────
+
+/** Under the headline: which scan "N of M setups" counts, with what rules, over what universe, and where each setup stands. */
+function SetupLifecycleLine() {
+  const scan = useDeskScanner();
+  const setups = scan.data?.setups;
+  const syms = useMemo(() => (setups ?? []).map((s) => s.symbol), [setups]);
+  const uni = useScanUniverse(syms, [], !scan.isPending && syms.length > 0);
+  const why = uni.isError ? "The eligible universe didn’t load." : uni.isPending ? "Loading the eligible universe." : null;
+  const l = setupLifecycle(scan.data, uni.data, why);
+  if (!l) return null;
+  return (
+    <div data-testid="desk-setups-lifecycle" className="flex flex-col" style={{ gap: 3, ...quiet, fontSize: 11.5 }}>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        <span data-testid="desk-setups-scope">{l.scope}</span>
+        <span data-testid="desk-setups-rules">Rules {l.rules ?? "— (version not in the response)"}</span>
+        <span data-testid="desk-setups-universe">
+          Eligible universe {l.eligible != null ? `${fmtNum(l.eligible)} stocks${l.universeDay ? ` · ${dayLabel(l.universeDay, { year: true })}` : ""}` : `— (${l.universeWhy})`}
+        </span>
+      </span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        <span data-testid="desk-setups-confirmed">{fmtNum(l.confirmed)} confirmed</span>
+        <span data-testid="desk-setups-awaiting">{fmtNum(l.awaiting)} awaiting</span>
+        <span data-testid="desk-setups-forming">{fmtNum(l.forming)} forming</span>
+        <span data-testid="desk-setups-untracked">{l.untracked}</span>
+      </span>
+    </div>
+  );
+}
+
+// ── data as of (PRD 4.1 issue 1, 6.1, 7) ─────────────────────────────────
+
+/**
+ * One line that dates every feed on the Overview from the routes' own fields: this device's IST clock, the market
+ * state (with the holiday's name), the last completed trading session, and each feed's own update time. A holiday or a
+ * weekend never makes a prior-session figure look current: the line says which session the figures are from.
+ */
+function DataAsOfLine({ home, macro, compact }: { home: HomeQuery; macro: MacroQuery; compact?: boolean }) {
+  const now = istParts(useNow());
+  const status = marketStatus(home.data, now);
+  const a = dataAsOf(home.data, macro.data, now, status);
+  // A value with a reason (no timestamp) shows both; a missing value shows "—" and the reason. `title` is extra detail.
+  const part = (label: string, value: string | null, why: string | null, testId: string, title?: string) => (
+    <span key={testId} data-testid={testId} title={title ?? why ?? undefined}>
+      <span style={{ color: "var(--cp-ink-4)" }}>{label}</span> {value ?? "—"}{why ? ` (${why})` : ""}
+    </span>
+  );
+  return (
+    <div data-testid="desk-asof" data-not-today={a.notToday ? "true" : "false"} className="flex flex-col" style={{ gap: 3, ...quiet, fontSize: compact ? 11 : 11.5 }}>
+      <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>Data as of</span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        {part("Now", `${a.clock} (this device, not a data date)`, null, "desk-asof-clock")}
+        {part("Market", a.state, null, "desk-asof-state", status.why)}
+        {part("Last completed session", a.lastSession ? dayLabel(a.lastSession, { year: true }) : null, a.lastSessionWhy, "desk-asof-session")}
+      </span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        {a.feeds.map((f) => part(f.label, f.value, f.why, `desk-asof-${f.key}`))}
+      </span>
+      {a.notToday && (
+        <span data-testid="desk-asof-note" style={{ color: "var(--amber)" }}>
+          Breadth, FII / DII and the regime are from the last completed session ({dayLabel(a.lastSession, { year: true })}), not today. Each card keeps its own date.
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── intro: eyebrow + pills, headline, paragraph ──────────────────────────
 
 function Intro({ home, sectors }: { home: HomeQuery; sectors: SectorReturns | undefined }) {
   const { persona } = useDesk();
   const scan = useDeskScanner();
+  const macro = useMacroToday();
   const now = istParts(useNow());
   const status = marketStatus(home.data, now);
   const b = home.data ? readBreadth(home.data.breadth) : null;
@@ -202,9 +270,11 @@ function Intro({ home, sectors }: { home: HomeQuery; sectors: SectorReturns | un
         <Pill>Paper trading on</Pill>
         <Pill>Live orders off</Pill>
       </span>
+      <DataAsOfLine home={home} macro={macro} />
       <h1 data-testid="desk-headline" className="cp-display m-0" style={{ fontSize: 40, lineHeight: 1.08, letterSpacing: "-0.02em", maxWidth: 880 }}>
         {h.lead}{h.emph && <em>{h.emph}</em>}{h.tail}
       </h1>
+      <SetupLifecycleLine />
       <p data-testid="desk-intro-text" className="m-0 cp-pretty" style={{ fontSize: 15, lineHeight: 1.6, color: "var(--cp-ink-2)", maxWidth: 780 }}>
         {persona === "investor"
           ? "The market, ideas from an end-of-day rules-based scan, company filings and your portfolio in one place, in plain words. Every figure says where it came from and when."
@@ -283,7 +353,7 @@ function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | 
       </span>
       {ix && (
         <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
-          {MODE_WORD[mode]}{stamp ? ` · ${stamp}` : ""}
+          {MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}
         </span>
       )}
     </div>
@@ -364,7 +434,7 @@ function BreadthTile({ home, style }: { home: MarketsHome; style?: CSSProperties
 /** The stocks the counts cover, in the route's own terms; nothing is guessed from the count. */
 function breadthScope(b: BreadthRead, asOf: string | null): string {
   const n = b.universe != null ? fmtNum(b.universe) : null;
-  if (b.scope === "eod") return `${n ? `Across ${n} NSE stocks` : "Across the NSE stocks"} in the end-of-day bhavcopy${asOf ? ` · ${dayLabel(asOf, { year: true })}` : ""}`;
+  if (b.scope === "eod") return `${n ? `Across ${n} NSE stocks` : "Across the NSE stocks"} in the end-of-day bhavcopy · ${asOf ? dayLabel(asOf, { year: true }) : "date not in the response"}`;
   if (b.scope === "nifty50") return `${n ? `Across the ${n} Nifty 50 stocks` : "Across the Nifty 50 stocks"} · delayed quotes`;
   return n ? `Across ${n} stocks · the response does not say which` : "The response does not say which stocks were counted";
 }
@@ -483,7 +553,7 @@ function RegimeBlock({ m }: { m: MacroToday }) {
         </span>
         {m.kind === "ready" && (
           <span data-testid="desk-regime-since" className="cp-num" style={{ fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-ink-3)", textTransform: "uppercase" }}>
-            {day ? `As of ${dayLabel(day)} · end of day` : "End of day"}
+            {day ? `As of ${dayLabel(day)} · end of day` : "End of day · date not in the response"}
           </span>
         )}
       </div>
@@ -703,7 +773,8 @@ function Change({ pct }: { pct: number | null }) {
 
 /** "Net buy · 13 Oct" / "Net sell · 13 Oct" — the sign of the day's net cash flow. */
 function flowSub(net: number | null | undefined, asOf: string | null | undefined): string {
-  if (net == null || !asOf) return "Not available";
+  if (net == null) return "Not available";
+  if (!asOf) return `${net > 0 ? "Net buy" : net < 0 ? "Net sell" : "Net"} · date not in the response`;
   return `${net > 0 ? "Net buy" : net < 0 ? "Net sell" : "Net"} · ${dayLabel(asOf)}`;
 }
 
@@ -1137,7 +1208,7 @@ function againstOf(p: LivePick | undefined): string[] {
 }
 
 function TopOpportunitiesCard() {
-  const { openTab, persona } = useDesk();
+  const { openTab, openStrategyIdeas, persona } = useDesk();
   const scan = useDeskScanner();
   const live = usePicksLive();
   const odds = useDeskOdds("p_up5_1d");
@@ -1146,13 +1217,15 @@ function TopOpportunitiesCard() {
   const o = odds.data;
   const names = new Map<string, string>();
   if (o?.kind === "final") for (const r of o.data.rows) if (r.company_name) names.set(r.symbol.toUpperCase(), r.company_name);
-  const oddsWhy = odds.isPending ? "loading" : odds.isError ? "didn’t load" : !o ? "—"
-    : o.kind === "final" ? `published for ${dayLabel(o.data.expected_session)}`
-    : o.kind === "not_published" ? `not published for ${dayLabel(o.expectedSession)}`
-    : o.kind === "withheld" ? `withheld: ${o.reason}` : "not enabled for this account";
+  // One gate for every place a probability could print (desk-data.ts probabilityGate): none is calibrated, so none is shown.
+  const gate = probabilityGate(o, persona === "investor");
+  const evidence = o?.kind === "final" ? modelEvidence(o.data.run, o.data.record, persona === "investor") : null;
+  const oddsWhy = odds.isPending ? "Loading the move-odds model." : odds.isError ? "The move-odds model didn’t load." : gate.reason;
   return (
     <Card testId="desk-opps-card">
-      <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined} />
+      <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined}>
+        <button type="button" data-testid="desk-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+      </CardHead>
       {scan.isPending ? (
         <div style={{ padding: 18 }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
       ) : scan.isError ? (
@@ -1165,14 +1238,15 @@ function TopOpportunitiesCard() {
         <ol className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
           {rows.map((s, i) => (
             <OppCardRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} name={names.get(s.symbol.toUpperCase()) ?? null}
-              live={live} p={o?.kind === "final" ? o.bySymbol.get(s.symbol.toUpperCase())?.p ?? null : null} />
+              live={live} probabilityWhy={oddsWhy} />
           ))}
         </ol>
       )}
       <div className="flex flex-col" style={{ gap: 6, padding: "10px 18px", borderTop: line }}>
         <span data-testid="desk-opps-legend" style={{ fontSize: 11.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
           <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>Score</b> is the scanner’s rules-based score, 0–100: a rank, not a probability.{" "}
-          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>{headLabel("p_up5_1d")}</b> is the move-odds model’s probability of a +5% move in the next session only ({oddsWhy}); “—” when there is none.{" "}
+          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>{headLabel("p_up5_1d")}</b> is the move-odds model’s estimate for the next session only, and it is {PROBABILITY_WITHHELD.toLowerCase()} on every row: <span data-testid="desk-opps-prob-why">{oddsWhy}</span>
+          {evidence && <> Model evidence, not a probability: <span data-testid="desk-opps-prob-evidence">{evidence}</span>.</>}{" "}
           Horizon = the pick’s planned holding window. Liquidity: 20-session average traded value, liquid at ₹{fmtNum(LIQUID_MIN_CR)} Cr a day or more. Risk: {RISK_BANDS_TEXT}.{" "}
           {persona === "investor" ? "What could go wrong" : "Against"}: the conviction check of GET /api/positional/picks/mine (picks only).{" "}
           Company names come from the move-odds rows when published; the scanner sends symbols only.
@@ -1185,10 +1259,10 @@ function TopOpportunitiesCard() {
   );
 }
 
-function OppCardRow({ s, rank, persona, watchAsOf, name, live, p }: {
-  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; p: number | null;
+function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy }: {
+  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; probabilityWhy: string;
 }) {
-  const { openChart } = useDesk();
+  const { openChart, openStrategyIdeas } = useDesk();
   const close = latestClose(s, watchAsOf);
   const lp = live.data?.bySymbol.get(s.symbol.toUpperCase());
   const against = againstOf(lp);
@@ -1245,12 +1319,15 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, p }: {
           <span data-testid="desk-opp-score" className="cp-num" title="Rules-based scanner score, 0–100 (not a probability)" style={{ fontSize: 11, color: s.score != null && s.score >= 80 ? "var(--mint)" : "var(--cp-ink-2)", whiteSpace: "nowrap" }}>
             Score {s.score == null ? "—" : `${fmtNum(s.score)}/100`}
           </span>
-          <span data-testid="desk-opp-prob" className="cp-num" title={`${headLabel("p_up5_1d")} — the move-odds model, next session only`} style={{ fontSize: 10.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
-            P(+5% next session) {p == null ? "—" : fmtPct(p * 100, { digits: 1 })}
+          <span data-testid="desk-opp-prob" data-state="withheld" className="cp-num" title={`${headLabel("p_up5_1d")}: ${probabilityWhy}`} style={{ fontSize: 10.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
+            P(+5% next session) {PROBABILITY_WITHHELD}
           </span>
           {up != null && <span data-testid="desk-opp-upside" className="cp-num" style={{ fontSize: 10.5, color: up < 0 ? "var(--cp-danger)" : "var(--mint)", whiteSpace: "nowrap" }}>to target {fmtPct(up, { signed: true, digits: 1 })}</span>}
         </span>
       </button>
+      <div style={{ padding: "0 18px 10px 52px" }}>
+        <button type="button" data-testid="desk-opp-strategies" aria-label={`${s.symbol}: strategies for this idea`} onClick={() => openStrategyIdeas(s.symbol)} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 11.5, color: "var(--mint)" }}>Strategies ›</button>
+      </div>
     </li>
   );
 }
@@ -1542,6 +1619,7 @@ function MobileOverview({ home, macro }: { home: HomeQuery; macro: MacroQuery })
         </div>
       )}
       <StatusLine home={home.data} now={now} />
+      <DataAsOfLine home={home} macro={macro} compact />
       <MobilePulse home={home} macro={macro} />
       <TopOpportunities />
       <div className="grid" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
@@ -1567,7 +1645,7 @@ function MobileIndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIn
       <span data-testid="desk-index-change" className="cp-num" style={{ fontSize: 10, color: tone === "ink" ? "var(--cp-ink-2)" : TONE_COLOR[tone], whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         {ix ? `${fmtPoints(ix.change)} (${fmtPct(ix.change_pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
-      {ix && <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 8.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : ""}</span>}
+      {ix && <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 8.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp"}</span>}
     </div>
   );
 }
@@ -1663,7 +1741,7 @@ function BreadthStat({ value, label, color, testId }: { value: string; label: st
 
 /** "02 · Top AI opportunities" (phone): the scanner's five best by score (end of day), each opening its chart. */
 function TopOpportunities() {
-  const { openChart, openTab, persona } = useDesk();
+  const { openChart, openTab, openStrategyIdeas, persona } = useDesk();
   const scan = useDeskScanner();
   const rows = (scan.data?.setups ?? []).slice(0, 5);
   const date = scan.data?.watchAsOf ?? scan.data?.signalDate ?? null;
@@ -1671,7 +1749,10 @@ function TopOpportunities() {
     <section data-testid="desk-top-opps" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
       <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
         <span data-testid="desk-top-opps-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>02</span> · Top AI opportunities</span>
-        <button type="button" data-testid="desk-top-opps-all" onClick={() => openTab("scanner")} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>See all ›</button>
+        <span className="flex items-center" style={{ gap: 12 }}>
+          <button type="button" data-testid="desk-top-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+          <button type="button" data-testid="desk-top-opps-all" onClick={() => openTab("scanner")} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>See all ›</button>
+        </span>
       </div>
       {scan.isPending ? (
         <div style={{ padding: "0 14px 14px" }}><LoadingBlock label="Loading the scanner" rows={3} /></div>

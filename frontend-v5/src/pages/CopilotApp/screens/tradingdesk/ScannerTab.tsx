@@ -701,10 +701,12 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
 }
 
 function ActionPanel({ r, signalDate, onOpen, plain }: { r: Row; signalDate: string | null; onOpen: (sym: string) => void; plain: boolean }) {
+  const { openStrategy } = useDesk();
   return (
     <div data-testid={`desk-scan-actions-${r.symbol}`} className="flex min-w-0 flex-col" style={{ gap: 10, padding: "10px 0 2px" }}>
       <span className="flex min-w-0 flex-wrap items-center" style={{ gap: 12 }}>
         <Btn data-testid="desk-scan-act-open" onClick={() => onOpen(r.symbol)} style={{ padding: "6px 12px", fontSize: 12 }}>{plain ? "See the chart ›" : "Open analysis ›"}</Btn>
+        <Btn data-testid="desk-scan-act-strategy" onClick={() => openStrategy(r.symbol, { kind: "scanner", bucket: r.s?.bucket ?? null, date: signalDate })} style={{ padding: "6px 12px", fontSize: 12 }}>Build a strategy ›</Btn>
         <span data-testid="desk-scan-act-list" className="min-w-0"><AddToList symbol={r.symbol} name={r.name ?? r.symbol} /></span>
       </span>
       <PaperTrade r={r} signalDate={signalDate} />

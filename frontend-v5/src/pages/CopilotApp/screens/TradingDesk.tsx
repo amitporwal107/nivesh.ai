@@ -66,6 +66,14 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
   fno: lazy(() => import("./tradingdesk/FnoTab")),
 };
 
+/** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
+const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
+
+/** Params only the Strategy Builder uses; they are dropped when the desk leaves it. */
+const BUILDER_PARAMS = ["view", "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date", "cand", "mode", "focus", "capital", "risk_inr", "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry"];
+
+const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
+
 /** Symbols the URL may carry: the F&O routes' own rule (letters, digits, & and -). */
 const SYM_RE = /^[A-Z0-9&-]{1,20}$/;
 
@@ -208,7 +216,7 @@ function TabChip({ id, label, num, on, onClick, small }: { id: string; label: st
 
 // ── More ─────────────────────────────────────────────────────────────────
 
-type MoreKey = "copilot" | "fno" | "watchlist" | "saved" | "paper" | "settings";
+type MoreKey = "copilot" | "fno" | "strategy" | "watchlist" | "saved" | "paper" | "settings";
 
 /**
  * More's destinations (PRD §3.1), each a real view. PRD "Learning and
@@ -217,6 +225,7 @@ type MoreKey = "copilot" | "fno" | "watchlist" | "saved" | "paper" | "settings";
 const MORE: Array<{ key: MoreKey; label: string; note: string }> = [
   { key: "copilot", label: "AI Copilot", note: "Ask about anything on the desk, with sources" },
   { key: "fno", label: "Options & futures lab", note: "NSE F&O: open interest, build-up and option chains (end of day)" },
+  { key: "strategy", label: "Strategy Builder", note: "Cash, futures and options plans for one stock, with the evidence and the payoff" },
   { key: "watchlist", label: "Watchlists", note: "Your watchlists and price alerts" },
   { key: "saved", label: "Saved analyses", note: "Copilot threads, screens and questions you kept" },
   { key: "paper", label: "Paper trading", note: "Your paper trades: predicted against actual" },
@@ -316,7 +325,8 @@ export default function TradingDeskScreen() {
   const persona: DeskPersona = params.get("persona") === "investor" ? "investor" : "trader";
   const docked = wide;
   // The desk's Copilot full height in the page: More's AI Copilot wherever it is not docked.
-  const pageCopilot = more && !docked;
+  const strategyView = more && params.get("view") === "strategy";
+  const pageCopilot = more && !docked && !strategyView;
   const moreOn = more || tab === "fno";
   const dockRef = useRef<CopilotDockHandle>(null);
   const pendingAsk = useRef<string | null>(null);
@@ -325,10 +335,15 @@ export default function TradingDeskScreen() {
   const scan = useDeskScanner();
   const padX = padFor(mobile);
 
-  const update = useCallback((next: { tab?: DeskTab | "more"; sym?: string; persona?: DeskPersona }) => {
+  const update = useCallback((next: { tab?: DeskTab | "more"; sym?: string; persona?: DeskPersona; view?: string; extra?: Record<string, string> }) => {
     setParams((prev) => {
       const p = new URLSearchParams(prev);
-      if (next.tab) p.set("tab", next.tab);
+      if (next.tab) {
+        p.set("tab", next.tab);
+        for (const k of BUILDER_PARAMS) p.delete(k);
+        if (next.view) p.set("view", next.view);
+        for (const [k, v] of Object.entries(next.extra ?? {})) p.set(k, v);
+      }
       if (next.sym) p.set("sym", next.sym.toUpperCase());
       if (next.persona === "investor") p.set("persona", "investor");
       else if (next.persona === "trader") p.delete("persona");
@@ -360,6 +375,11 @@ export default function TradingDeskScreen() {
     symbol,
     openChart: (s) => update({ tab: "chart", sym: s }),
     setSymbol: (s) => update({ sym: s }),
+    openStrategy: (s, src) => update({
+      tab: "more", view: "strategy", sym: s,
+      extra: src ? { src_kind: src.kind, ...(src.bucket ? { src_bucket: src.bucket } : {}), ...(src.date ? { src_date: src.date } : {}) } : undefined,
+    }),
+    openStrategyIdeas: (focus) => update({ tab: "more", view: "strategy", extra: { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) } }),
     askDesk,
     docked,
     persona,
@@ -389,6 +409,7 @@ export default function TradingDeskScreen() {
       if (dockRef.current && docked) dockRef.current.focus();
       else update({ tab: "more" });
     } else if (k === "fno") update({ tab: "fno" });
+    else if (k === "strategy") update({ tab: "more", view: "strategy" });
     else if (k === "watchlist") go("page/watchlist");
     else if (k === "saved") go("page/saved");
     else if (k === "paper") openPaper();
@@ -422,7 +443,7 @@ export default function TradingDeskScreen() {
   const moreChips = moreOn && (
     <div data-testid="desk-more-chips" role="group" aria-label="More" className="cp-scroll flex overflow-x-auto" style={{ gap: 6, ...(mobile ? { ...bleed, paddingBottom: 12 } : {}) }}>
       {MORE.map((m) => (
-        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked : m.key === "fno" ? !more && tab === "fno" : undefined} onClick={() => pickMore(m.key)}>
+        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView : m.key === "fno" ? !more && tab === "fno" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
           {m.label}
         </SubChip>
       ))}
@@ -430,7 +451,21 @@ export default function TradingDeskScreen() {
   );
 
   let content: ReactNode;
-  if (pageCopilot) {
+  if (StrategyGraphsHarness && more && params.get("view") === "strategy-graphs") {
+    content = (
+      <div data-testid="desk-panel-strategy-graphs" className="flex min-w-0 flex-col">
+        <Suspense fallback={<LoadingBlock label="Loading" rows={4} />}><StrategyGraphsHarness /></Suspense>
+      </div>
+    );
+  } else if (strategyView) {
+    content = (
+      <div data-testid="desk-panel-strategy" role="tabpanel" aria-label="Strategy Builder" className="flex min-w-0 flex-col">
+        <SafeWidget key="strategy" name="Trading desk · strategy builder">
+          <Suspense fallback={<LoadingBlock label="Loading the Strategy Builder" rows={4} />}><StrategyBuilder /></Suspense>
+        </SafeWidget>
+      </div>
+    );
+  } else if (pageCopilot) {
     content = (
       <div data-testid="desk-panel-more" role="tabpanel" aria-label="AI Copilot" className="flex min-w-0 flex-col">
         <CopilotDock ref={dockRef} chips={chips} height="calc(100dvh - 250px)" variant="page" />

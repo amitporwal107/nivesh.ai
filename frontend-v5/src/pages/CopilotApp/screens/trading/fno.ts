@@ -175,6 +175,13 @@ const FutureC = z.object({
   volume: NumOrNull,
   /** Settle price − spot; null when either is missing. */
   basis: NumOrNull,
+  /** The exchange's previous close for this contract, and close − previous close (rupees and percent). Null when
+   * the previous close is missing: a change is never inferred or shown as zero. */
+  prev_close: Estimate,
+  change: Estimate,
+  change_pct: Estimate,
+  /** Price change × change in this contract's OI (long build-up, short build-up, short covering, long unwinding). */
+  oi_buildup: z.enum(BUILDUPS).nullable().optional(),
 });
 export type FnoFuture = z.infer<typeof FutureC>;
 

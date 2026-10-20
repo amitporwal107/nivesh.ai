@@ -76,11 +76,11 @@ async def shareholding(
                    fii_pct, dii_pct, mf_pct, insurance_pct, bank_fi_pct, govt_holding_pct,
                    public_pct, individual_pct, nri_pct, bodies_corporate_pct,
                    total_shares, promoter_shares, public_shares, pledged_shares,
-                   broadcast_at
+                   broadcast_at, source
               FROM nidp.shareholding_pattern
              WHERE symbol = $1
                AND ($2::date IS NULL OR period_end >= $2)
-             ORDER BY period_end DESC
+             ORDER BY period_end DESC, (source = 'NSE_SHP') DESC, source
              LIMIT $3 OFFSET $4
             """,
             sym, p_from, page["limit"], page["offset"],

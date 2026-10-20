@@ -11,6 +11,11 @@ Endpoints (all under /api/desk):
               signal_at?, strategy_version?, rationale?}       — PRD §13.4; costs, MFE / MAE and net P&L come back on reads
     GET    /paper-trades?status=open|closed|all
                                        — {as_of, checked_through, trades, summary, ...}; applies the exit rule first
+    POST   /paper-trades  with kind "strategy" — a futures / option structure (services/desk_strategy_trades.py, rules
+                                         desk-paper-v3): {kind, underlying, direction, family, reference_price, stop_underlying?,
+                                         target_underlying?, legs[1-4], signal{signal_at, rule_version, evidence_summary, ...},
+                                         strategy_plan_id?, max_hold_sessions?, note?}; the signal and legs are saved once, never edited
+    GET    /paper-trades/{id}          — one trade with its lifecycle log (and, for a strategy, its signal); read-only
     POST   /paper-trades/{id}/close    — {exit_price?}: close at that price, or at the last end-of-day close ("manual");
                                          a trade whose conditional entry was not reached is "cancelled" (no P&L)
     POST   /alerts                     — {condition, ...the condition's fields, note?} → 201 {alert}
@@ -44,6 +49,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from deps import db, get_current_user
 from services import desk_alerts as alerts_svc
+from services import desk_strategy_trades as strat
 from services import desk_trading as svc
 
 logger = logging.getLogger(__name__)
@@ -86,8 +92,16 @@ def _as_of(bars: Dict[str, List[Dict[str, Any]]]):
 async def create_paper_trade(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     uid = user["user_id"]
+    body = await _body(request)
     try:
-        doc = svc.new_trade(uid, await _body(request))
+        if isinstance(body, dict) and body.get("kind") == strat.KIND:
+            doc = strat.new_strategy_trade(uid, body)
+        else:
+            if isinstance(body, dict) and "kind" in body:
+                if body["kind"] != "cash":
+                    raise svc.DeskInputError("invalid_kind")
+                body = {k: v for k, v in body.items() if k != "kind"}
+            doc = svc.new_trade(uid, body)
     except svc.DeskInputError as exc:
         raise _input_error(exc)
     await svc.ensure_indexes(db)
@@ -100,7 +114,11 @@ async def create_paper_trade(request: Request) -> Dict[str, Any]:
         await db[svc.TRADES].delete_one({"_id": doc["_id"], "user_id": uid})
         raise HTTPException(status_code=409, detail="open_trade_limit")
     logger.info("desk: user %s opened paper trade %s (%s)", uid, doc["_id"], doc["symbol"])
-    return {"trade": svc.public_trade(doc), **_price_context()}
+    return {"trade": _public(doc), **_price_context()}
+
+
+def _public(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return strat.public_strategy_trade(doc, detail=True) if doc.get("kind") == strat.KIND else svc.public_trade(doc)
 
 
 @router.get("/paper-trades")
@@ -111,10 +129,13 @@ async def list_paper_trades(request: Request, status_filter: str = Query("all", 
         raise HTTPException(status_code=422, detail="invalid_status")
     await svc.ensure_indexes(db)
 
-    open_docs = await db[svc.TRADES].find({"user_id": uid, "status": "open"}).sort("opened_at", -1).to_list(svc.MAX_OPEN_TRADES * 2)
+    all_open = await db[svc.TRADES].find({"user_id": uid, "status": "open"}).sort("opened_at", -1).to_list(svc.MAX_OPEN_TRADES * 2)
+    open_docs = [d for d in all_open if d.get("kind") != strat.KIND]
+    strategy_open = [d for d in all_open if d.get("kind") == strat.KIND]
     starts = svc.fetch_starts(open_docs, "opened_at")
     bars, errors = await svc.fetch_bars_many(starts) if starts else ({}, {})
     evaluated, counts = await svc.apply_trade_exits(db, open_docs, bars)
+    strategy_evaluated, strategy_sims, strategy_errors = await strat.apply_exits(db, strategy_open) if strategy_open else ([], {}, {})
 
     # Read closed trades after the exits are written, so a trade closed just now is listed once, as closed.
     closed_docs = await db[svc.TRADES].find({"user_id": uid, "status": "closed"}).sort("closed_at", -1).to_list(svc.MAX_CLOSED_LISTED + 1)
@@ -128,7 +149,11 @@ async def list_paper_trades(request: Request, status_filter: str = Query("all", 
         mark, mark_error = svc.mark_for(doc["symbol"], bars, errors)
         trades.append(svc.public_trade(doc, mark, mark_error, counts["checked_through"].get(doc["_id"]),
                                        sim=counts["paths"].get(doc["_id"])))
-    trades.extend(svc.public_trade(d) for d in closed_docs)
+    for doc in sorted((d for d in strategy_evaluated if d.get("status") == "open" and d["_id"] not in closed_ids),
+                      key=_sort_key("opened_at"), reverse=True):
+        trades.append(strat.public_strategy_trade(doc, strategy_sims.get(doc["_id"]), strategy_errors.get(doc["_id"]), detail=True))
+    trades.sort(key=lambda t: str(t.get("opened_at") or ""), reverse=True)        # cash and strategy trades, newest first
+    trades.extend(_public(d) for d in closed_docs)
 
     as_of, checked_through = _as_of(bars)
     return {
@@ -140,7 +165,9 @@ async def list_paper_trades(request: Request, status_filter: str = Query("all", 
         "rules_version": svc.RULES_VERSION,
         "cost_model": svc.COST_MODEL,
         "orders": svc.ORDERS_NOTE,
-        "marks_error": svc.marks_error(errors, len(starts)),
+        "marks_error": svc.marks_error({**errors, **strategy_errors}, len(starts) + len(strategy_open)),
+        "strategy_rules_version": strat.RULES_VERSION,
+        "strategy_families": strat.FAMILIES,
         "status": status_filter,
         "trades": [t for t in trades if status_filter == "all" or t["status"] == status_filter],
         "summary": svc.summarize(trades, partial=partial),
@@ -173,6 +200,8 @@ async def close_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=404, detail="trade_not_found")
     if doc.get("status") != "open":
         raise HTTPException(status_code=409, detail="trade_already_closed")
+    if doc.get("kind") == strat.KIND:
+        return await _close_strategy(doc, body)
 
     start = svc.ist_date(doc["opened_at"]) - timedelta(days=svc.LOOKBACK_DAYS)
     try:
@@ -210,6 +239,82 @@ async def close_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=409, detail="trade_already_closed")
     logger.info("desk: user %s closed paper trade %s at %s", uid, trade_id, exit_price)
     return {"trade": svc.public_trade(stored), **_price_context()}
+
+
+async def _close_strategy(doc: Dict[str, Any], body: Dict[str, Any]) -> Dict[str, Any]:
+    """Close a strategy trade at the last end-of-day marks (reason "manual"), after the exit rules were checked: a
+    trade the data shows already stopped, at target, expired or timed out is closed that way and answers 409."""
+    if body:
+        raise HTTPException(status_code=422, detail="unknown_field")        # a strategy closes at its marks, never at a typed price
+    try:
+        bars, rows = await strat.fetch_inputs(doc)
+    except svc.PricesUnavailable as exc:
+        logger.warning("desk: no prices for strategy trade %s while closing: %s", doc["_id"], exc)
+        raise HTTPException(status_code=503, detail="prices_unavailable")
+    sim = strat.simulate_strategy(doc, bars, rows)
+    if sim["exit"] is not None:
+        await strat.close_strategy_trade(db, doc, **sim["exit"], sim=sim)
+        raise HTTPException(status_code=409, detail="trade_already_closed")
+    last = sim["last_mark_session"]
+    note = (f"Closed at the last end-of-day marks ({last.isoformat()})." if last
+            else "Closed with no end-of-day marks on record for it yet; it has no P&L.")
+    stored, mine = await strat.close_strategy_trade(db, doc, exit_reason="manual", exit_session=last, exit_note=note, sim=sim)
+    if not mine or stored is None:
+        raise HTTPException(status_code=409, detail="trade_already_closed")
+    logger.info("desk: user %s closed strategy paper trade %s", doc["user_id"], doc["_id"])
+    return {"trade": strat.public_strategy_trade(stored, detail=True), **_price_context()}
+
+
+@router.get("/paper-trades/{trade_id}")
+async def get_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
+    """One trade with its lifecycle log. Read-only: nothing is written, even when the data shows an exit that the
+    next list read will record (it is reported as `pending_exit`). A strategy trade carries its immutable `signal`."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    doc = await db[svc.TRADES].find_one({"_id": trade_id, "user_id": uid}) if len(trade_id) <= _ID_MAX else None
+    if not doc:
+        raise HTTPException(status_code=404, detail="trade_not_found")
+    if doc.get("kind") == strat.KIND:
+        sim, error = None, None
+        if doc.get("status") == "open":
+            try:
+                bars, rows = await strat.fetch_inputs(doc)
+                sim = strat.simulate_strategy(doc, bars, rows)
+            except svc.PricesUnavailable:
+                error = svc.PRICES_UNAVAILABLE
+        trade = strat.public_strategy_trade(doc, sim, error, detail=True)
+        pending = sim["exit"] if sim else None
+        trade["pending_exit"] = ({"exit_reason": pending["exit_reason"], "exit_session": pending["exit_session"].isoformat(),
+                                  "exit_note": pending["exit_note"]} if pending else None)
+        return {"trade": trade, **_price_context()}
+    mark = mark_error = sim = None
+    pending = None
+    if doc.get("status") == "open":
+        try:
+            bars = await svc.fetch_bars(doc["symbol"], svc.ist_date(doc["opened_at"]) - timedelta(days=svc.LOOKBACK_DAYS))
+            sim = svc.simulate(doc, bars)
+            mark, mark_error = svc.mark_for(doc["symbol"], {doc["symbol"]: bars}, {})
+            pending = sim["exit"]
+        except svc.PricesUnavailable:
+            mark_error = svc.PRICES_UNAVAILABLE
+    trade = svc.public_trade(doc, mark, mark_error, sim=sim)
+    trade["kind"] = "cash"
+    trade["events"] = _cash_events(trade)
+    trade["pending_exit"] = ({"exit_reason": pending["exit_reason"], "exit_session": pending["exit_session"].isoformat(),
+                              "exit_note": pending["exit_note"]} if pending else None)
+    return {"trade": trade, **_price_context()}
+
+
+def _cash_events(trade: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The lifecycle of a share trade, worked out from its stored fields (state changes only)."""
+    events = [{"type": "created", "at": trade["opened_at"], "session": None, "text": "Paper trade recorded."}]
+    if trade.get("entry_status") in svc.ENTERED:
+        events.append({"type": "entered", "at": trade.get("entry_session") or trade["opened_at"], "session": trade.get("entry_session"),
+                       "text": "Entry assumed when recorded." if trade["entry_status"] == "assumed" else "Entry level reached."})
+    if trade["status"] == "closed":
+        events.append({"type": "closed", "at": trade.get("closed_at"), "session": trade.get("exit_session"), "reason": trade.get("exit_reason"),
+                       "text": trade.get("exit_note") or f"Closed ({trade.get('exit_reason')})."})
+    return events
 
 
 # ── alerts (price, filings, categories, volume, scanner, sector, risk — services/desk_alerts.py) ──────────────

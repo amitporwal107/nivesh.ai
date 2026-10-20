@@ -175,6 +175,8 @@ interface Over {
   watchStatus?: number;
   picksStatus?: number;
   oddsStatus?: number;
+  /** MOCK — not real data: the move-odds model has not published for the next session. */
+  oddsPending?: boolean;
   barsStatus?: number;
 }
 
@@ -215,6 +217,7 @@ async function deskMocks(page: Page, over: Over = {}) {
   await page.route("**/api/move-odds/latest*", (route) => {
     const head = new URL(route.request().url()).searchParams.get("head") ?? "p_up5_1d";
     if (over.oddsStatus) return route.fulfill({ status: over.oddsStatus, contentType: "application/json", body: JSON.stringify({ detail: "Feature not enabled" }) });
+    if (over.oddsPending) return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { status: "not_published", head, expected_session: "2026-10-21", last_published_for: "2026-10-19", rows: [] } }) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(latest(head)) });
   });
   await page.route("**/api/move-odds/stocks/*", (route) => {
@@ -818,6 +821,22 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-row-FIXACC").getByTestId("desk-scan-mrank")).toHaveText("100th pct");
   });
 
+  test("SP-10 the Scanner row's actions open the Strategy Builder with the stock and the scan it came from in the URL", async ({ page }) => {
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await scanMocks(page);
+    await page.goto(DESK_SCAN);
+    await page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-act").click();
+    await page.getByTestId("desk-scan-actions-FIXBRK").getByTestId("desk-scan-act-strategy").click();
+    await expect(page).toHaveURL(/tab=more/);
+    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/sym=FIXBRK/);
+    await expect(page).toHaveURL(/src_kind=scanner/);
+    await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
+    await expect(page).toHaveURL(/src_date=2026-10-13/);
+    await expect(page.getByTestId("in-symbol")).toHaveValue("FIXBRK");
+    await expect(page.getByTestId("builder-source")).toHaveText("Started from the scanner: breakout confirmed, scan 13 Oct 2026");
+  });
+
   test("SP-9 actions: open the analysis, add to a list (POST body), paper trade at the setup's levels (POST body); nothing else is written", async ({ page }) => {
     await page.setViewportSize({ width: 1360, height: 900 });
     const { listWrites } = await scanMocks(page);
@@ -1117,6 +1136,12 @@ function liveIndicators(symbol: string, bars: Bar[] = BARS) {
   };
 }
 const LIVE = liveIndicators("FIXBRK");
+// MOCK — not real data: the server's rule-based hypothetical levels (ATR 2x stop, 2R target).
+const HYPO = {
+  rule: "ATR_2X_STOP", version: "1", label: "Rule-based hypothetical levels, not a scanner pick and not a recommendation",
+  constants: { atr_multiple: 2, min_stop_atr: 0.5, reward_multiple: 2, atr_period: 14 },
+  entry: 500, stop: 480, target: 540, risk_reward: 2, stop_basis: "atr", reason: null, source: "fixture",
+};
 
 type CritStatus = "pass" | "fail" | "pending" | "na";
 const crit = (key: string, label: string, status: CritStatus, extra: Record<string, unknown> = {}) => ({ key, label, status, judged_by: null, observed: null, reason: null, ...extra });
@@ -1340,6 +1365,7 @@ interface ChartOver extends Over {
   cal?: unknown;
   holdings?: unknown;
   filings?: unknown;
+  company?: unknown;
 }
 
 /** deskMocks plus every read the Chart tab, the opportunity detail and the risk desk make. Returns the scenario queries sent. */
@@ -1351,14 +1377,17 @@ async function chartMocks(page: Page, over: ChartOver = {}): Promise<{ scenario:
   await page.route("**/api/research/chart/live/*/indicators", (route) => {
     const sym = new URL(route.request().url()).pathname.split("/").slice(-2)[0];
     if (indStatus) return route.fulfill({ status: indStatus, contentType: "application/json", body: JSON.stringify({ detail: "fixture failure" }) });
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(liveIndicators(sym)) });
+    // MOCK — not real data: the server's rule-based levels for one symbol only; every other symbol has none.
+    const body: Record<string, unknown> = { ...liveIndicators(sym) };
+    if (sym === "HYPOSYM") body.hypothetical_levels = HYPO;
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await page.route("**/api/research/chart/live/*/patterns", (route) => {
     if (patStatus) return route.fulfill({ status: patStatus, contentType: "application/json", body: JSON.stringify({ detail: over.patDetail ?? "fixture failure" }) });
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIVE_PAT) });
   });
   await json(page, "**/api/positional/backtest/calibration*", over.cal ?? CAL);
-  await json(page, "**/api/copilot/widgets/company_financials", COMPANY);
+  await json(page, "**/api/copilot/widgets/company_financials", over.company ?? COMPANY);
   await json(page, "**/api/filings/feed*", over.filings ?? FILINGS);
   await page.route("**/api/watchlists", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CHART_LISTS) }));
   if (over.holdings) await json(page, "**/api/portfolio/holdings-enriched*", over.holdings);
@@ -1573,7 +1602,16 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     expect(await page.getByTestId("desk-axis-label").count()).toBeGreaterThan(1);
 
     const o = ODDS_ROWS.find((r) => r.symbol === "FIXBRK")!;
-    await expect(page.getByTestId("desk-risk-p5")).toHaveText(pct1(o.p));
+    // One probability gate: the route does not mark the estimates calibrated, so the number is withheld even when all five checks pass,
+    // and the tile is not green. The model's version, run date and out-of-sample record stay as evidence.
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText("Withheld");
+    await expect(page.getByTestId("desk-risk-p5")).not.toContainText(pct1(o.p));
+    const note5 = page.getByTestId("desk-risk-p5-note");
+    await expect(note5).toContainText("does not mark these estimates as calibrated");
+    await expect(note5).toContainText(`Move-odds ${RUN.model}`);
+    await expect(note5).toContainText(`data as of 13 Oct 2026`);
+    await expect(note5).toContainText(`out of sample ${RECORD.window_label}`);
+    await expect(note5).toContainText("5 of 5 gate checks passed");
     await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("5 of 5 passed");
     await expect(page.getByTestId("desk-risk-check-liquidity-value")).toHaveText(`₹${tradedOf("FIXBRK")!.toFixed(1)} Cr a day`);
     await expect(page.getByTestId("desk-risk-record")).toContainText(`top-10 hit rate ${pct1(RECORD.top10_hit_rate)} over ${RECORD.sessions} sessions`);
@@ -1595,7 +1633,9 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-gate-count")).toHaveText(`${passed} of 5 passed`);
     await expect(page.getByTestId("desk-risk-check-events")).toHaveAttribute("data-ok", "false");
     await expect(page.getByTestId("desk-risk-check-liquidity")).toHaveAttribute("data-ok", "false");
-    await expect(page.getByTestId("desk-risk-p5-note")).toHaveText(`P(+5% next session). Not shown as high-confidence: ${passed} of 5 gate checks passed.`);
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText("Withheld");
+    await expect(page.getByTestId("desk-risk-p5-note")).toContainText(`${passed} of 5 gate checks passed.`);
+    await expect(page.getByTestId("desk-risk-p5-note")).toContainText("does not mark these estimates as calibrated");
   });
 
   test("odds 403: the gate's model checks show “—” and are not counted; only the liquidity check can pass", async ({ page }) => {
@@ -1620,11 +1660,57 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-nosize")).toBeVisible();
     await expect(page.getByTestId("desk-chart-ov-levels")).toBeDisabled();
     await expect(page.getByTestId("desk-risk-rr")).toHaveText("—");
-    // Empty levels do not force the editor open; opening it shows what to enter.
-    await expect(page.getByTestId("desk-scn-editor")).toHaveCount(0);
-    await page.getByTestId("desk-risk-editor-toggle").click();
+    // No scanner levels: the calculator is open for the user's own levels, and the card says why none are suggested.
+    await expect(page.getByTestId("desk-risk-nolevels")).toContainText("nothing is made up");
+    await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
     await expect(page.getByTestId("desk-scn-problems")).toContainText("Enter an entry price.");
     expect(await page.getByTestId("desk-axis-label").count()).toBeGreaterThan(1);
+  });
+
+  test("not on the scanner and the model has not published: no gate check applies, the count is “—”, not “0 of 5 passed”", async ({ page }) => {
+    await chartMocks(page, { oddsPending: true });
+    await page.goto(`${DESK}?tab=chart&sym=OTHERSYM`);
+    await expect(page.getByTestId("desk-risk-p5-note")).toHaveText("The model has not published for 21 Oct 2026 yet.");
+    for (const k of ["published", "record", "edge", "events", "liquidity"]) await expect(page.getByTestId(`desk-risk-check-${k}`)).toHaveAttribute("data-ok", "na");
+    await expect(page.getByTestId("desk-risk-check-published-value")).toHaveText("Not published yet");
+    await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("—");
+    await expect(page.getByTestId("desk-risk-gate-none")).toContainText("not judged, not failed");
+    // the calculator is open and works on the user's own levels
+    await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
+  });
+
+  test("SP-11 Chart opportunity detail, section 7, links to the Strategy Builder for the symbol with the scan it carries", async ({ page }) => {
+    await chartMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await page.getByTestId("desk-detail-levels-toggle").click();
+    await page.getByTestId("desk-lvl-strategy").click();
+    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/sym=FIXBRK/);
+    await expect(page).toHaveURL(/src_kind=chart/);
+    await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
+    await expect(page).toHaveURL(/src_date=2026-10-13/);
+    await expect(page.getByTestId("builder-source")).toContainText("Started from Chart Analysis: scanner bucket breakout confirmed");
+  });
+
+  test("not on the scanner: the rule's levels fill the section, the calculator and the full-chart link, labelled; the scanner's win when present", async ({ page }) => {
+    await chartMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=HYPOSYM`);
+    await expect(page.getByTestId("desk-risk-rule")).toContainText("Rule-based hypothetical levels, not a scanner pick and not a recommendation");
+    await expect(page.getByTestId("desk-risk-rule")).toContainText("ATR_2X_STOP v1");
+    await expect(page.getByTestId("desk-risk-rr")).toHaveText("2.0 : 1");
+    await expect(page.getByTestId("desk-scn-entry")).toHaveValue("500");
+    await expect(page.getByTestId("desk-scn-stop")).toHaveValue("480");
+    await expect(page.getByTestId("desk-scn-target")).toHaveValue("540");
+    await page.getByTestId("desk-detail-levels-toggle").click();
+    await expect(page.getByTestId("desk-lvl-source")).toContainText("ATR_2X_STOP v1");
+    await expect(page.getByTestId("desk-lvl-entry")).toContainText(inr2(500));
+    await expect(page.getByTestId("desk-lvl-stop")).toContainText(inr2(480));
+    await expect(page.getByTestId("desk-lvl-target")).toContainText(inr2(540));
+    await expect(page.getByTestId("desk-lvl-full")).toHaveAttribute("href", /entry=500.*stop=480.*t1=540/);
+    // a stock the scanner has: its own levels, and the source says so
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await page.getByTestId("desk-detail-levels-toggle").click();
+    await expect(page.getByTestId("desk-lvl-source")).toContainText("AI scanner pick");
   });
 
   test("TC-21 chart-live 403 → charting locked for the account; indicators and patterns are locked too", async ({ page }) => {
@@ -1683,7 +1769,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-chk-concentration")).toContainText(`${a1.portfolio!.stock_weight_after_pct.toFixed(1)}% of your portfolio after the buy (0.0% now), within the 25% limit.`);
 
     // Every input is editable: levels, capital, risk, cap, costs, max shares and lot size.
-    await page.getByTestId("desk-risk-editor-toggle").click();
+    if ((await page.getByTestId("desk-risk-editor-toggle").getAttribute("aria-expanded")) !== "true") await page.getByTestId("desk-risk-editor-toggle").click();
     await page.getByTestId("desk-scn-entry").fill("510");
     await page.getByTestId("desk-scn-stop").fill("490");
     await page.getByTestId("desk-scn-target").fill("560");
@@ -1892,7 +1978,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     }
     // Summaries from the payloads.
     const o = ODDS_ROWS.find((r) => r.symbol === "FIXBRK")!;
-    await expect(page.getByTestId("desk-detail-model-summary")).toHaveText(`Score 86 (rules) · P(+5% next session) ${pct1(o.p)} · ${RECORD.window_label}`);
+    await expect(page.getByTestId("desk-detail-model-summary")).toHaveText(`Score 86 (rules) · P(+5% next session) withheld · ${RECORD.window_label}`);
     await expect(page.getByTestId("desk-detail-technical-summary")).toContainText("1 confirmed, 0 awaiting");
     await expect(page.getByTestId("desk-detail-fundamentals-summary")).toHaveText("P/E 24.1 · ROE 18% · promoter 52%");
     await expect(page.getByTestId("desk-detail-events-summary")).toHaveText("2 filings in 30 days · latest 8 Oct 2026");
@@ -1920,7 +2006,11 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     await expect(page.getByTestId("desk-def-record")).toContainText("An intraday touch, not a close and not a trade");
     // 2 · model score and calibration
     await expect(page.getByTestId("desk-model-score")).toContainText("86 / 100");
-    await expect(page.getByTestId("desk-model-pdown")).toContainText(pct1(STOCK_FIXBRK.data.estimates.p_down5_1d));
+    // One probability gate: neither direction prints a number; the version, run date and record below are the evidence.
+    await expect(page.getByTestId("desk-model-p")).toContainText("Withheld");
+    await expect(page.getByTestId("desk-model-p")).not.toContainText(pct1(ODDS_ROWS.find((r) => r.symbol === "FIXBRK")!.p));
+    await expect(page.getByTestId("desk-model-pdown")).toContainText("Withheld");
+    await expect(page.getByTestId("desk-model-pdown")).not.toContainText(pct1(STOCK_FIXBRK.data.estimates.p_down5_1d));
     await expect(page.getByTestId("desk-model-version")).toContainText(`Move-odds ${RUN.model}`);
     await expect(page.getByTestId("desk-model-version")).toContainText(`build ${RUN.git_sha}`);
     await expect(page.getByTestId("desk-model-eval")).toContainText(RECORD.window_label);
@@ -1991,6 +2081,34 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     await expect(page.getByTestId("desk-fresh-reference")).toContainText("14 Oct 2026");
     await expect(page.getByTestId("desk-fresh-missing")).toContainText("Intraday bars, F&O ban list, ASM / GSM lists");
     await expect(page.getByTestId("desk-detail-trust")).toContainText("End of day");
+  });
+
+  test("fundamentals and ownership: a blank figure says why, and a pledge-only quarter does not hide the last full one", async ({ page }) => {
+    // MOCK — not real data: the shape of the staging reply on 2026-10-19 (feature row present but unfilled,
+    // newest shareholding quarter carrying only a pledge figure).
+    await chartMocks(page, {
+      company: {
+        kind: "company_financials",
+        data: {
+          v3_score: { pe_ttm: null, pb: null, roe_pct: null, debt_to_equity: null, market_cap_cr: null, as_of_date: "2026-10-19", fundamentals_source: null, fundamentals_as_of: null },
+          rows: [
+            { quarter: "Q1 FY27", period_end: "2026-06-30", revenue_cr: 48211, pat_cr: 7775, revenue_yoy_pct: 14.0, pat_yoy_pct: 12.3 },
+            { _type: "shareholding", period: "Mar 2026", period_end: "2026-03-31", promoter_pct: 50.3, promoter_pledged_pct: null, fii_pct: 19.0, dii_pct: 17.0, mf_pct: null },
+            { _type: "shareholding", period: "Jun 2026", period_end: "2026-06-30", promoter_pct: null, promoter_pledged_pct: 6.0, fii_pct: null, dii_pct: null, mf_pct: null },
+          ],
+        },
+      },
+    });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await page.getByTestId("desk-detail-all").click();
+    await expect(page.getByTestId("desk-fund-valuation")).toContainText("not filled on the 19 Oct 2026 feature row");
+    await expect(page.getByTestId("desk-fund-quality")).toContainText("No source figure was loaded for that date");
+    await expect(page.getByTestId("desk-fund-mcap")).toContainText("Market cap: not filled");
+    await expect(page.getByTestId("desk-fund-promoter")).toContainText("Promoter · Mar 2026");
+    await expect(page.getByTestId("desk-fund-promoter")).toContainText("50.3%");
+    await expect(page.getByTestId("desk-fund-promoter")).toContainText("Pledged 6.0% (Jun 2026)");
+    await expect(page.getByTestId("desk-fund-institutions")).toContainText("19.0%");
+    await expect(page.getByTestId("desk-fund-institutions")).toContainText("mutual-fund line is not loaded");
   });
 
   test("honest states: the pattern engine not deployed (503) and an empty historical record show “—” with the reason", async ({ page }) => {
@@ -2169,7 +2287,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Buy above ${inr2(p.entry_price)}`);
     await expect(page.getByTestId("desk-risk-scenario")).toHaveText("Broke above a recent high");
     // The figures are the same as the trader's.
-    await expect(page.getByTestId("desk-risk-p5")).toHaveText(pct1(ODDS_ROWS[1].p));
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText("Withheld");
     await expect(page.getByTestId("desk-risk-qty")).toHaveText("200");
   });
 
