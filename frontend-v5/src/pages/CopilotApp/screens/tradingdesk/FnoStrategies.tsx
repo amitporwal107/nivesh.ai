@@ -468,7 +468,7 @@ function whyLines(symbol: string, label: BuildupLabel | null, price: number | nu
 
 export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { symbol: string; state: ChainState; near: NearFuture | null; futuresNote: string; onLoad: (s: string) => void }) {
   const { mobile } = useCopilotShell();
-  const { persona } = useDesk();
+  const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
   const scan = useBuildup(true);
   const [all, setAll] = useState(false);
@@ -504,7 +504,10 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
           </span>
         </span>
         <BuildupPill label={label} testId="desk-fno-strat-buildup" />
-        <span className="cp-eyebrow" data-testid="desk-fno-strat-kind" style={{ marginLeft: "auto" }}>Rules-based · paper trading only</span>
+        <span className="flex flex-wrap items-center" style={{ marginLeft: "auto", gap: "6px 12px" }}>
+          {!index && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-fno-strat-build" onClick={() => openStrategy(symbol, { kind: "lab", date: chain?.summary.as_of ?? null })}>Build a strategy ›</button>}
+          <span className="cp-eyebrow" data-testid="desk-fno-strat-kind">Rules-based · paper trading only</span>
+        </span>
       </div>
 
       <FnoGate symbol={symbol} state={state} testId="desk-fno-strat">
