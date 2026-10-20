@@ -69,6 +69,7 @@ export function toolsNav(mode: Mode): NavItem[] {
 export const WORKSPACE_NAV: NavItem[] = [
   { view: "page/watchlist", label: "Watchlist & alerts" },
   { view: "page/saved", label: "Saved" },
+  { view: "page/history", label: "Past conversations" },
   { view: "page/plan", label: "Action plan" },
   { view: "page/ledger", label: "Portfolio ledger" },
   { view: "page/paper", label: "Paper trades" },
@@ -96,6 +97,14 @@ export const MODE_HOME: Record<Mode, string> = {
 export function viewPath(view: string): string {
   const v = view.replace(/^\/+/, "");
   return v ? `${APP_BASE}/${v}` : APP_BASE;
+}
+
+/** The rail lists threads touched within this window; older ones live under page/history. */
+export const RECENT_THREAD_MS = 2 * 24 * 60 * 60 * 1000;
+
+export function isRecentThread(updatedAt?: string, now = Date.now()): boolean {
+  const t = updatedAt ? Date.parse(updatedAt) : NaN;
+  return Number.isFinite(t) && now - t <= RECENT_THREAD_MS;
 }
 
 export function threadView(sessionId: string): string {

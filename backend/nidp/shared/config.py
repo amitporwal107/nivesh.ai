@@ -71,6 +71,27 @@ DEFAULT_UA: Final[str] = (
 # unaffected and a broken proxy cannot take them down with it. Unset = direct.
 NSE_HTTPS_PROXY: Final[str] = os.environ.get("NSE_HTTPS_PROXY", "").strip()
 
+# Optional rotating proxy for bseindia.com hosts ONLY (the BSE announcement jobs).
+#
+# api.bseindia.com answers 403 (Akamai "Access Denied") to some cloud IPs even with the
+# right headers, so the only fix is a different egress address. Point this at a
+# per-request ROTATING http/https endpoint and every request to a bseindia.com host made
+# through nse_fetcher.fetch_bytes (the announcement jobs) leaves by it, on a fresh
+# connection, with a bounded retry on 403/429/5xx so each retry gets a new IP.
+# The value carries credentials: it is a secret, lives only in the VM env file, and is
+# redacted from every log line and error. Unset = direct, exactly as before. Never used
+# for NSE or any other host. (BSE bhavcopy/delivery fetches stay direct.)
+BSE_PROXY_URL: Final[str] = os.environ.get("BSE_PROXY_URL", "").strip()
+
+# Total tries per BSE request while a proxy is set (first try + retries). Only 403, 429,
+# 5xx and connection errors are retried.
+BSE_PROXY_ATTEMPTS: Final[int] = max(1, int(os.environ.get("BSE_PROXY_ATTEMPTS", "3") or 3))
+
+# Minimum gap between BSE requests while a proxy is set, seconds. 0 disables.
+BSE_MIN_REQUEST_INTERVAL_S: Final[float] = float(
+    os.environ.get("BSE_MIN_REQUEST_INTERVAL_S", "1.0") or 0
+)
+
 # Minimum gap between NSE requests, seconds. The block was almost certainly
 # earned by request volume, so moving to a new IP without slowing down just
 # burns the new IP too. 0 disables.

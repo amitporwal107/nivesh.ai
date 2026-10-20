@@ -207,7 +207,7 @@ def _row(sym, **over):
     """An eligible, liquid, EQ stock in no category unless `over` puts it in one."""
     r = {"symbol": sym, "close": 100.0, "prev_close": 99.0, "traded_value_cr_20d": 25.0, "has_reference": True,
          "series": "EQ", "is_etf": False, "price_band_pct": 20.0, "fno_eligible": False, "atr_pct": 3.0,
-         "return_20d_pct": 1.0, "sma50": 95.0, "sma50_slope": 0.1, "vol_z20": 0.2, "return_5d_pct": 0.5,
+         "return_20d_pct": 1.0, "rsi14": 60.0, "sma50": 95.0, "sma50_slope": 0.1, "vol_z20": 0.2, "return_5d_pct": 0.5,
          "last_results_date": None}
     r.update(over)
     return r
@@ -364,6 +364,11 @@ def test_scan_universe_categories_exclusions_and_rows(monkeypatch):
     assert d["not_found"] == ["NOPE"]
     assert by["SETUP1"]["risk_class"] == "high" and by["VOLY"]["risk_class"] == "low"
     assert by["MOMO"]["liquidity_class"] == "liquid" and by["MOMO"]["categories"] == ["momentum", "fno"]
+    # scan-rules.v2 fields ride along on every row; the v1 fields above are unchanged.
+    assert by["MOMO"]["matched_filters"] == ["momentum", "fno"] and set(by["MOMO"]["why_matched"]) == {"momentum", "fno"}
+    assert by["PLAIN" if "PLAIN" in by else "WATCH1"]["why_matched"] == {}
+    assert by["MOMO"]["data_status"]["momentum"]["status"] == "match" and by["MOMO"]["risk_flags"] == []
+    assert d["rules"]["risk_flags"]["event_window_days"] == 7 and d["categories"]["momentum"]["insufficient_history"] == 0
     # The snapshot is read once and cached for the next request.
     c.get("/api/positional/scan-universe")
     assert [p for p, _ in daas_calls].count("/features/scan-snapshot") == 1

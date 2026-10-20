@@ -36,7 +36,7 @@ import { AddToList } from "../workspace/PersonalLists";
 import { CandleChart, CandleLegend, PLAIN_CHART_WORDS, TRADER_CHART_WORDS, type ChartEvent } from "./CandleChart";
 import {
   INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, fullChartHref, scanDateLabel, setupLabel, useDailyBars,
-  useLiveIndicators, useLivePatterns, useSetupRecord, useStockOdds,
+  deskLevels, useDeskLevels, useLiveIndicators, useLivePatterns, useSetupRecord, useStockOdds,
   type DailyBars, type IndicatorValues, type LiveIndicators, type LivePattern, type LivePatterns, type LiveRead, type RecordRow, type SetupRecord,
 } from "./chart-data";
 import { useDesk } from "./context";
@@ -129,7 +129,8 @@ function ChartControls({ tf, setTf, ov, setOv, hasLevels, small }: {
 function ChartToolbar({ symbol, company, setup }: { symbol: string; company: string | null; setup: DeskSetup | null }) {
   const { persona } = useDesk();
   const plain = persona === "investor";
-  const href = fullChartHref(symbol, { entry: setup?.entry ?? null, stop: setup?.stop ?? null, target: setup?.target ?? null });
+  const lv = useDeskLevels(symbol, setup);
+  const href = fullChartHref(symbol, lv);
   return (
     <div data-testid="desk-chart-toolbar" className="flex flex-wrap items-center" style={{ gap: "8px 12px" }}>
       <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>{plain ? "Each candle" : "Interval"}</span>
@@ -244,6 +245,10 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
         NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · end of day · last session {fmtDay(bars[bars.length - 1].day)}
         {n < SESSIONS[tf] ? ` · only ${n} sessions on record, all shown` : ""}
         {ok?.partial ? " · the data platform dropped some incomplete sessions from this series" : ""}
+        {live?.adjustment_break
+          ? ` · the price series jumps ${fmtPrice(live.adjustment_break.prev_close)} to ${fmtPrice(live.adjustment_break.close)} on ${fmtDay(live.adjustment_break.date)}, a split or bonus the data platform has not adjusted: indicators use only the ${live.sessions} sessions from that day`
+          : ""}
+        {live?.series_notes?.ema200 && ov.ema ? ` · no EMA 200 line: ${live.series_notes.ema200}` : ""}
         {live
           ? " · lines and indicators from the server’s feature engine on these bars; VWAP 20D is a 20-day volume-weighted average of daily prices, not the intraday VWAP"
           : " · no indicator lines: the indicator route did not answer"}
@@ -942,7 +947,8 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   const matched = rec?.buckets.filter((r) => r.matched) ?? [];
   const contra = contradictions({ setup, live: v, patterns, bars, pUp, pDown, liquidCr, patQ: quarter?.pat_yoy_pct ?? null, pledge: own?.promoter_pledged_pct ?? null, plain });
   const pct1 = (p: number | null | undefined) => (p == null ? "—" : fmtPct(p * 100, { digits: 1 }));
-  const href = fullChartHref(symbol, { entry: setup?.entry ?? null, stop: setup?.stop ?? null, target: setup?.target ?? null });
+  const lv = deskLevels(setup, live);
+  const href = fullChartHref(symbol, lv);
 
   // ── 1 · definition ──
   const s1 = (
@@ -1091,12 +1097,17 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   // ── 7 · levels ──
   const s7 = (
     <>
-      <KV testId="desk-lvl-entry" k={plain ? "Buy above" : "Entry"} v={fmtPrice(setup?.entry ?? null)} why={setup?.entry == null ? "No scanner entry for this stock." : undefined} />
-      <KV testId="desk-lvl-stop" k={plain ? "Exit if wrong" : "Stop"} v={fmtPrice(setup?.stop ?? null)} why={setup?.stop == null ? "No scanner stop for this stock." : undefined} />
-      <KV testId="desk-lvl-target" k="Target" v={fmtPrice(setup?.target ?? null)} why={setup?.target == null ? "Only the scanner’s picks carry a target." : undefined} />
-      <KV testId="desk-lvl-rr" k={plain ? "Reward for risk" : "Reward : risk"} v={setup?.riskReward != null ? `${fmtNum(setup.riskReward, 1)} : 1` : dash} />
+      <KV testId="desk-lvl-source" k="Source" v={lv.source === "scanner" ? "AI scanner pick" : lv.source === "rule" ? `Rule ${lv.rule?.name} v${lv.rule?.version}` : dash}
+        why={lv.source === "scanner" ? "The scanner has levels for this stock, so they are shown instead of the rule’s." : lv.source === "rule" ? lv.rule?.label : lv.reason ?? undefined} />
+      <KV testId="desk-lvl-entry" k={plain ? "Buy above" : "Entry"} v={fmtPrice(lv.entry)} why={lv.entry == null ? lv.reason ?? "No entry." : lv.source === "rule" ? "The last close." : undefined} />
+      <KV testId="desk-lvl-stop" k={plain ? "Exit if wrong" : "Stop"} v={fmtPrice(lv.stop)}
+        why={lv.stop == null ? lv.reason ?? "No stop." : lv.source === "rule" ? (lv.rule?.stopBasis === "support20" ? "The 20-session low, closer than the ATR stop." : `${fmtNum(lv.rule?.constants.atr_multiple ?? 0, 1)} × ATR(${lv.rule?.constants.atr_period ?? 14}) below the entry.`) : undefined} />
+      <KV testId="desk-lvl-target" k="Target" v={fmtPrice(lv.target)}
+        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s picks carry a target." : lv.reason ?? "No target.") : lv.source === "rule" ? `Entry plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
+      <KV testId="desk-lvl-rr" k={plain ? "Reward for risk" : "Reward : risk"} v={lv.riskReward != null ? `${fmtNum(lv.riskReward, 1)} : 1` : dash} />
       <span style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)", paddingTop: 4 }}>
-        Hypothetical levels from the scanner. Size them in the {phone ? "trade scenario below" : "risk desk"}; nothing is sent to a broker.{" "}
+        {lv.source === "rule" ? `${lv.rule?.label}. ` : lv.source === "scanner" ? "Hypothetical levels from the scanner. " : ""}
+        Size them in the {phone ? "trade scenario below" : "risk desk"}; nothing is sent to a broker.{" "}
         <a data-testid="desk-lvl-full" href={href} style={{ color: "var(--mint)" }}>Open full chart with these levels ↗</a>
       </span>
     </>
@@ -1212,7 +1223,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
     fundamentals: fin ? `P/E ${fmtNum(fin.features?.pe_ttm ?? null, 1)} · ROE ${fmtPct(fin.features?.roe_pct ?? null, { digits: 0 })} · promoter ${fmtPct(own?.promoter_pct ?? null, { digits: 0 })}` : finQ.isPending ? "Loading…" : "—",
     events: filQ.isPending ? "Loading…" : filings.length ? `${filings.length} ${filings.length === 1 ? "filing" : "filings"} in ${FILING_DAYS} days · latest ${fmtDay((filings[0].date ?? "").slice(0, 10) || null)}` : `No filings in ${FILING_DAYS} days`,
     liquidity: `${liquidCr != null ? `₹${fmtNum(liquidCr, 1)} Cr a day` : "Traded value —"} · ${band ?? "price band —"} · F&O ban list —`,
-    levels: setup?.entry != null ? `Entry ${fmtPrice(setup.entry)} · stop ${fmtPrice(setup.stop)} · target ${fmtPrice(setup.target)}` : "No scanner levels",
+    levels: lv.entry != null ? `${lv.source === "rule" ? "Rule-based · " : ""}Entry ${fmtPrice(lv.entry)} · stop ${fmtPrice(lv.stop)} · target ${fmtPrice(lv.target)}` : "No levels",
     validation: headlineRow(rec) ? `Hit rate ${pct1(headlineRow(rec)?.probability ?? null)} · n ${fmtNum(headlineRow(rec)?.sample_count ?? null)} (touch, ${RECORD_HORIZON} sessions)` : "— No record for this stock’s bucket",
     contra: contra.found.length ? `${contra.found.length} ${contra.found.length === 1 ? "point" : "points"} against` : "None found among the checks",
     freshness: `${fresh.filter((f) => f.asOf).length} of ${fresh.length} sources on record · ${missing.length} missing inputs`,

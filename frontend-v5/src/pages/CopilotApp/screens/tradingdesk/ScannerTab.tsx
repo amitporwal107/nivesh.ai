@@ -284,7 +284,10 @@ function bucketRule(b: SetupBucket, rules: ScanRules | null): string {
 function universeRule(c: UniverseCategory, rules: ScanRules | null): string {
   const t = rules?.categories[c];
   if (!t) return "The route did not send this rule's thresholds.";
-  if (c === "momentum") return `20-day return of at least ${th(t, "return_20d_min_pct")}%, close above the 50-day average, and the 50-day average rising (slope above ${th(t, "sma50_slope_above")}% a day). Ranked by 20-day return.`;
+  if (c === "momentum") {
+    const rsi = typeof t.rsi14_min === "number" && typeof t.rsi14_max === "number" ? ` RSI(14) between ${th(t, "rsi14_min")} and ${th(t, "rsi14_max")},` : "";
+    return `20-day return of at least ${th(t, "return_20d_min_pct")}%,${rsi} close above the 50-day average, and the 50-day average rising (slope above ${th(t, "sma50_slope_above")}% a day). Ranked by 20-day return.`;
+  }
   if (c === "unusual_volume") return `The day's volume at least ${th(t, "vol_z20_min")} standard deviations above its 20-day average (volume z-score). Ranked by the z-score.`;
   if (c === "results_day") return `Quarterly results (NSE event calendar) dated in the ${th(t, "window_calendar_days")} calendar days up to the scan date, a 5-day return of at least ${th(t, "return_5d_min_pct")}%, and volume at least ${th(t, "vol_z20_min")} standard deviation above normal. Ranked by 5-day return.`;
   return "F&O-eligible (NSE lot-size file) and in another category or a scanner setup. Ranked by traded value.";
