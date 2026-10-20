@@ -25,12 +25,14 @@ export interface FormState {
   /** null: the route's default. */
   avoidEvents: boolean | null;
   allowMultiLeg: boolean | null;
+  /** null: the route's default (combinations included under "all"). */
+  includeCombinations: boolean | null;
   expiry: string;
 }
 
 export const EMPTY_FORM: FormState = {
   sym: "", direction: "", horizon: null, instrument: null, capital: "", riskMode: "inr", risk: "", maxAlloc: "", minRr: "", horizonDays: "",
-  avoidEvents: null, allowMultiLeg: null, expiry: "",
+  avoidEvents: null, allowMultiLeg: null, includeCombinations: null, expiry: "",
 };
 
 /** One number from a text field: a finite number, else null. "1,00,000" is read as 100000. */
@@ -91,6 +93,7 @@ export function validateForm(f: FormState): { request: PlanRequest | null; probl
     ...(minRr != null ? { min_reward_risk: minRr } : {}),
     ...(f.avoidEvents != null ? { avoid_events: f.avoidEvents } : {}),
     ...(f.allowMultiLeg != null ? { allow_multi_leg: f.allowMultiLeg } : {}),
+    ...(f.includeCombinations != null ? { include_combinations: f.includeCombinations } : {}),
     ...(expiry ? { expiry } : {}),
   };
   return { request, problems: [] };
@@ -102,12 +105,26 @@ export function formFromParams(p: URLSearchParams): FormState {
   const direction = p.get("direction");
   const instrument = p.get("instrument");
   const horizon = p.get("horizon");
+  // The inputs an idea of the AI opportunities board carries (see ideas-data paramsFromPlanInputs): only what the URL names.
+  const text = (k: string) => { const v = p.get(k); return v && readNumber(v) != null ? v : ""; };
+  const flag = (k: string) => { const v = p.get(k); return v === "true" ? true : v === "false" ? false : null; };
+  const expiry = p.get("expiry") ?? "";
   return {
     ...EMPTY_FORM,
     sym: SYMBOL_RE.test(sym) ? sym : "",
     direction: (DIRECTIONS as readonly string[]).includes(direction ?? "") ? (direction as Direction) : "",
     instrument: (INSTRUMENTS as readonly string[]).includes(instrument ?? "") ? (instrument as Instrument) : null,
     horizon: (HORIZONS as readonly string[]).includes(horizon ?? "") ? (horizon as Horizon) : null,
+    capital: text("capital"),
+    riskMode: p.get("risk_pct") && !p.get("risk_inr") ? "pct" : "inr",
+    risk: text("risk_inr") || text("risk_pct"),
+    maxAlloc: text("max_alloc"),
+    minRr: text("min_rr"),
+    horizonDays: text("horizon_days"),
+    avoidEvents: flag("avoid_events"),
+    allowMultiLeg: flag("multi_leg"),
+    includeCombinations: flag("combos"),
+    expiry: /^\d{4}-\d{2}-\d{2}$/.test(expiry) ? expiry : "",
   };
 }
 
@@ -119,7 +136,7 @@ export function formFromRequest(r: PlanRequest): FormState {
     capital: r.capital != null ? String(r.capital) : "", riskMode: r.risk_pct != null ? "pct" : "inr",
     risk: r.risk_pct != null ? String(r.risk_pct) : r.risk_budget_inr != null ? String(r.risk_budget_inr) : "",
     maxAlloc: r.max_allocation_pct != null ? String(r.max_allocation_pct) : "", minRr: r.min_reward_risk != null ? String(r.min_reward_risk) : "",
-    horizonDays: r.horizon_days != null ? String(r.horizon_days) : "", avoidEvents: r.avoid_events ?? null, allowMultiLeg: r.allow_multi_leg ?? null,
+    horizonDays: r.horizon_days != null ? String(r.horizon_days) : "", avoidEvents: r.avoid_events ?? null, allowMultiLeg: r.allow_multi_leg ?? null, includeCombinations: r.include_combinations ?? null,
     expiry: r.expiry ?? "",
   };
 }
@@ -145,6 +162,7 @@ export const INSTRUMENT_LABEL: Record<Instrument, { trader: string; plain: strin
   cash: { trader: "Cash", plain: "Shares" },
   futures: { trader: "Futures", plain: "Futures" },
   options: { trader: "Options", plain: "Options" },
+  combination: { trader: "Combination", plain: "Shares plus options" },
 };
 
 export const INTRADAY_REASON = "end-of-day data only";
