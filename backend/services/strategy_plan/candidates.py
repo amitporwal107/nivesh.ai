@@ -824,6 +824,10 @@ def combo_blocker_reasons(blockers: List[str], asof: str) -> List[Dict[str, Any]
     return out
 
 
+NOT_FNO_TEXT = ("The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, "
+                "so only the cash idea applies.")
+
+
 def combo_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     d, C = ctx["direction"], RULES["combinations"]
     fams = [f for f in COMBO_ORDER if d in C["views"][f]]
@@ -833,7 +837,7 @@ def combo_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     sr = snap(ctx["snaps"], "scan_row")
     if sr["ok"] and (sr["data"] or {}).get("fno_eligible") is False:
         return [not_viable("combination", "none", "No combination strategy", d, "no_trade",
-                           reason("not_fno_eligible", "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."))]
+                           reason("not_fno_eligible", NOT_FNO_TEXT))]
     ch = snap(ctx["snaps"], "chain")
     if not ch["ok"]:
         return [not_viable("combination", f, COMBO_LABEL[f], d, "insufficient_data", reason("no_valid_chain", f"No valid option chain: {ch['error']}")) for f in fams]
@@ -1001,12 +1005,13 @@ def one_combo_candidate(ctx: Dict[str, Any], chain: Dict[str, Any], family: str)
 def generate(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
     want = ctx["inputs"]["instrument"]
     out: List[Dict[str, Any]] = []
+    sr = snap(ctx["snaps"], "scan_row")
+    no_fno = sr["ok"] and (sr["data"] or {}).get("fno_eligible") is False
     if want in ("cash", "all"):
         out += cash_candidates(ctx)
-    if want in ("futures", "all"):
-        out += futures_candidates(ctx)
-    if want in ("options", "all"):
-        out += options_candidates(ctx)
+    for seg, fn in (("futures", futures_candidates), ("options", options_candidates)):
+        if want in (seg, "all"):
+            out += [not_viable(seg, "none", f"No {seg} strategy", ctx["direction"], "no_trade", reason("not_fno_eligible", NOT_FNO_TEXT))] if no_fno else fn(ctx)
     if want == "combination" or (want == "all" and ctx["inputs"].get("include_combinations", True)):
         out += combo_candidates(ctx)
     return out

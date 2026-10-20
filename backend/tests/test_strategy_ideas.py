@@ -163,6 +163,9 @@ def test_a_stock_outside_fno_gets_cash_only_with_the_reason():
     cs = [c for c in p["candidates"] if c["segment"] == "combination"]
     assert len(cs) == 1 and cs[0]["status"] == "no_trade" and codes(cs[0]) == ["not_fno_eligible"] and "only the cash idea applies" in cs[0]["reasons"][0]["message"]
     assert cand(p, "cash:breakout_continuation")["status"] == "candidate" and p["status"] == "plan"
+    # futures and options say why they are absent instead of failing on a missing chain
+    assert [(c["id"], c["status"], codes(c)) for c in p["candidates"] if c["segment"] in ("futures", "options")] == [
+        ("futures:none", "no_trade", ["not_fno_eligible"]), ("options:none", "no_trade", ["not_fno_eligible"])]
 
 
 def test_bearish_view_has_no_combination_and_neutral_view_keeps_the_income_structures_only():
@@ -259,6 +262,14 @@ def test_merge_mirrors_the_overview_card_picks_win_for_levels_score_x100_ranked(
     assert h["bucket"] is None and h["status"] == "confirmed" and h["in_picks"] and not h["in_watchlist"] and h["score"] == pytest.approx(90.0)
     v = sel.scanner_view(h)
     assert v["close"] == 2.0 and v["close_date"] == ASOF and v["entry"] == 1010.0 and v["reason"] == "r1; r2"      # the last spark close, never the entry
+
+
+def test_pick_reasons_sent_as_a_json_string_are_read_as_a_list():
+    p = {"signal_date": ASOF, "picks": [pick("HAL", 0.76, reasons='["Strong uptrend (above 50 & 200 DMA)", "RSI 61"]', timeframe_days_min=7.0, timeframe_days_max=20.0)]}
+    s = sel.merge_setups({"buckets": {}}, p)[0]
+    assert s["reasons"] == ["Strong uptrend (above 50 & 200 DMA)", "RSI 61"] and (s["days_min"], s["days_max"]) == (7, 20)
+    assert sel.scanner_view(s)["reason"] == "Strong uptrend (above 50 & 200 DMA); RSI 61"
+    assert sel._strs("not json") == ["not json"] and sel._strs(None) == []
 
 
 def gate_row(sym, **o):
@@ -388,6 +399,10 @@ def client(monkeypatch):
     monkeypatch.setattr(ideas_mod, "shared_for_ideas", fake_shared)
     monkeypatch.setattr(ideas_mod, "collect_snapshots", fake_collect)
 
+    async def fake_name(symbol):
+        return {"TCS": "Tata Consultancy Services Ltd"}.get(symbol)
+    monkeypatch.setattr(ideas_mod, "company_name", fake_name)
+
     async def fake_user(request: Request):
         uid = request.headers.get("X-Test-User")
         if not uid:
@@ -455,6 +470,7 @@ def test_ideas_response_shape_and_ranking(client):
 def test_ideas_numbers_come_from_the_plan_and_plan_inputs_rebuild_the_same_plan(client):
     b = client.post("/api/desk/strategy/ideas", json=IDEAS_BODY, headers=A).json()
     i = b["ideas"][1]
+    assert i["name"] == "Tata Consultancy Services Ltd" and b["ideas"][0]["name"] is None       # from the symbol master; null when it has none
     rebuilt_in, probs = normalise_inputs(i["plan_inputs"])
     assert not probs and i["plan_inputs"] == {"underlying": "TCS", "direction": "bullish", "instrument": "all", "capital": 5_000_000, "risk_budget_inr": 50_000, "costs": COSTS}
     plan = pl.build_plan(rebuilt_in, world(), NOW, TODAY)
@@ -466,6 +482,8 @@ def test_ideas_numbers_come_from_the_plan_and_plan_inputs_rebuild_the_same_plan(
         assert st["breakeven"] == (ex.get("breakevens") or []) and st["reward_risk_net"] == c["risk_reward"].get("net")
     # the covered call row quotes the engine's own max loss
     cc = next(x for x in i["strategies"] if x["id"] == "combination:covered_call")
+    cash = next(x for x in i["strategies"] if x["id"] == "cash:breakout_continuation")
+    assert cash["max_loss"] == -cand(plan, cash["id"])["risk_reward"]["risk_net"] < 0                  # a loss is a negative P&L in every row
     assert cc["max_loss"] == -290500.0 * cc["sizing"]["lots"] and cc["max_profit"] == 22000.0 * cc["sizing"]["lots"]
 
 
@@ -533,8 +551,7 @@ def test_a_stock_outside_fno_is_reported_cash_only(client, monkeypatch):
     monkeypatch.setattr(ideas_mod, "collect_snapshots", collect)
     i = client.post("/api/desk/strategy/ideas", json={**IDEAS_BODY, "limit": 1}, headers=A).json()["ideas"][0]
     assert i["fno_eligible"] is False and i["preferred"] == "cash:breakout_continuation"
-    combo = next(s for s in i["strategies"] if s["segment"] == "combination")
-    assert combo["status"] == "no_trade" and combo["reasons"][0]["code"] == "not_fno_eligible"
+    assert {s["segment"]: s["reasons"][0]["code"] for s in i["strategies"] if s["segment"] != "cash"} == {"futures": "not_fno_eligible", "options": "not_fno_eligible", "combination": "not_fno_eligible"}
     assert i["oi_view"]["buildup"] is None and i["oi_view"]["unavailable"]
 
 
@@ -544,3 +561,64 @@ def test_legs_text_formats():
     assert ideas_mod.legs_text("RELIANCE", legs) == "Buy 250 shares RELIANCE + Sell 1 lot RELIANCE 1250 call, 24 Nov"
     assert ideas_mod.legs_text("X", [{"kind": "future", "side": "buy", "quantity": 2, "lot_size": 10, "expiry": "2026-10-27"}]) == "Buy 2 lots X future, 27 Oct"
     assert ideas_mod.legs_text("X", []) == ""
+
+
+# ── sources: shared reads and the company name ───────────────────────────────
+
+def test_collect_snapshots_uses_the_shared_reads_and_never_re_reads_them(monkeypatch):
+    from services.strategy_plan import sources as src
+    reads: List[str] = []
+
+    async def spy(name):
+        reads.append(name)
+        return src_fail("not under test", name)
+
+    def make(name):
+        async def f(*a, **k):
+            return await spy(name)
+        return f
+    for name in ("_regime", "_sectors", "_indicators", "_patterns", "_scan_snapshot", "_features", "_financials", "_announcements", "_events", "_corporate_actions",
+                 "_buildup", "_futures", "_expiries", "_calibration", "_scanner_bucket", "_portfolio"):
+        monkeypatch.setattr(src, name, make(name))
+    mine = {"regime": src_ok({"key": "bullish"}, "shared"), "sectors": src_fail("shared down", "shared"), "portfolio": src_ok([], "shared"),
+            "scanner_bucket": {"TCS": src_ok({"bucket": "pre_breakout", "item": None}, "shared scanner")}, "sector_lists": {}}
+    i, _ = normalise_inputs({"underlying": "TCS", "direction": "bullish"})
+    snaps = run(src.collect_snapshots(None, "u", i, TODAY, mine))
+    assert snaps["regime"] is mine["regime"] and snaps["sectors"] is mine["sectors"] and snaps["portfolio"] is mine["portfolio"]
+    assert snaps["scanner_bucket"]["data"]["bucket"] == "pre_breakout"
+    assert not {"_regime", "_sectors", "_portfolio", "_scanner_bucket"} & set(reads) and {"_indicators", "_buildup", "_expiries"} <= set(reads)
+    # another symbol's scanner snapshot is not used for this one: it is read as usual
+    reads.clear()
+    run(src.collect_snapshots(None, "u", normalise_inputs({"underlying": "INFY", "direction": "bullish"})[0], TODAY, mine))
+    assert "_scanner_bucket" in reads
+
+
+def test_sector_index_lists_are_read_once_per_request(monkeypatch):
+    from services.strategy_plan import sources as src
+    calls: List[str] = []
+
+    async def lst(name):
+        calls.append(name)
+        return ["TCS", "INFY"]
+    monkeypatch.setattr(src.daas_client, "get_index_constituents", lst)
+    sectors = src_ok({"sectors": [{"index": "Nifty IT"}, {"index": "Nifty Bank"}]}, "x")
+    memo: Dict[str, Any] = {}
+
+    async def both():
+        return await asyncio.gather(src._sector_members("TCS", sectors, memo), src._sector_members("INFY", sectors, memo))
+    a, b = run(both())
+    assert sorted(calls) == ["Nifty Bank", "Nifty IT"] and a["data"]["member_of"] == ["Nifty IT", "Nifty Bank"] and b["ok"]
+
+
+def test_company_name_is_an_exact_symbol_match_or_none(monkeypatch):
+    from services.strategy_plan import sources as src
+
+    async def search(q, limit=8):
+        return {"data": [{"symbol": "TCSEXTRA", "company_name": "Other"}, {"symbol": "TCS", "company_name": "Tata Consultancy Services Ltd"}]}
+    monkeypatch.setattr(src.daas_client, "search_symbols", search)
+    assert run(src.company_name("TCS")) == "Tata Consultancy Services Ltd" and run(src.company_name("TC")) is None
+
+    async def boom(q, limit=8):
+        raise RuntimeError("down")
+    monkeypatch.setattr(src.daas_client, "search_symbols", boom)
+    assert run(src.company_name("TCS")) is None

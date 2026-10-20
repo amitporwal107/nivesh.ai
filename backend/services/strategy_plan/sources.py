@@ -316,3 +316,16 @@ async def shared_for_ideas(user_id: str) -> Dict[str, Any]:
     memo of sector index lists. Never raises."""
     regime, sectors, portfolio = await asyncio.gather(_safe("regime", _regime()), _safe("sectors", _sectors()), _safe("portfolio", _portfolio(user_id)))
     return {"regime": regime, "sectors": sectors, "portfolio": portfolio, "sector_lists": {}}
+
+
+async def company_name(symbol: str) -> Optional[str]:
+    """The company's name from the symbol master (DaaS /v1/symbols/search, exact symbol match), or None; the scanner sends symbols only."""
+    try:
+        res = await daas_client.search_symbols(symbol, limit=5)
+    except Exception as e:  # noqa: BLE001 — a missing name never fails an idea
+        logger.warning("company name for %s unavailable: %s", symbol, _why(e))
+        return None
+    for row in (res or {}).get("data") or []:
+        if isinstance(row, dict) and str(row.get("symbol") or "").upper() == symbol and row.get("company_name"):
+            return str(row["company_name"])
+    return None

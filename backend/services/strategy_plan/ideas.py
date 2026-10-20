@@ -21,7 +21,7 @@ from .engine import CALCULATION_VERSION
 from .plan import build_plan, normalise_inputs
 from .rules import STRATEGY_RULES_VERSION
 from .selection import DEFAULT_LIMIT, MAX_LIMIT, scanner_view, select_opportunities
-from .sources import collect_snapshots, scanner_snapshot, shared_for_ideas
+from .sources import collect_snapshots, company_name, scanner_snapshot, shared_for_ideas
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,11 @@ def _sizing_view(c: Dict[str, Any]) -> Dict[str, Any]:
             "deployed_inr": sz.get("deployed_inr"), "missing": sz.get("missing") or []}
 
 
+def _loss(v: Optional[float]) -> Optional[float]:
+    """A loss as a negative P&L, the engine's convention (the plan's comparison rows give a cash or futures loss as a positive risk figure)."""
+    return None if v is None else -abs(v)
+
+
 def strategies_of(plan: Dict[str, Any], symbol: str) -> List[Dict[str, Any]]:
     rows = {a["id"]: a for a in plan.get("alternatives") or []}
     out = []
@@ -106,7 +111,7 @@ def strategies_of(plan: Dict[str, Any], symbol: str) -> List[Dict[str, Any]]:
         why = (c.get("why_qualifies") or [None])[0] or next((r["message"] for r in c.get("reasons") or []), "")
         out.append({"id": c["id"], "segment": c["segment"], "family": c["family"], "label": c["label"], "status": c["status"],
                     "reasons": [{"code": r.get("code"), "message": r.get("message")} for r in c.get("reasons") or []],
-                    "legs_text": legs_text(symbol, c.get("legs") or []), "max_loss": a.get("max_loss"), "max_loss_basis": a.get("max_loss_basis"),
+                    "legs_text": legs_text(symbol, c.get("legs") or []), "max_loss": _loss(a.get("max_loss")), "max_loss_basis": a.get("max_loss_basis"),
                     "capital_at_risk": a.get("capital_at_risk"), "max_profit": ex.get("max_profit"), "profit_unbounded": bool(ex.get("profit_unbounded")),
                     "breakeven": a.get("breakeven") or [], "reward_risk_net": a.get("reward_risk_net"), "reward_risk_gross": a.get("reward_risk_gross"),
                     "sizing": _sizing_view(c), "liquidity_flags": a.get("liquidity_flags") or [], "why": why, "flags": list(c.get("warnings") or []),
@@ -176,7 +181,9 @@ async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[s
                         raise ValueError("; ".join(p["code"] for p in probs))
                     snap = scanner_snapshot(setup["symbol"], setup["bucket"], setup.get("watch_item"), setup.get("pick"),
                                             sel["watchlist_as_of"] or sel["signal_date"], sel["watchlist_version"])
-                    snaps = await collect_snapshots(request, user_id, plan_in, today, {**shared, "scanner_bucket": {setup["symbol"]: snap}})
+                    snaps, name = await asyncio.gather(collect_snapshots(request, user_id, plan_in, today, {**shared, "scanner_bucket": {setup["symbol"]: snap}}),
+                                                       company_name(setup["symbol"]))
+                    setup = {**setup, "name": setup.get("name") or name}
                     plan = await asyncio.to_thread(build_plan, plan_in, snaps, now, today)
                     return idea_of(rank, setup, plan, snaps, passed, int((time.monotonic() - t1) * 1000))
                 except asyncio.CancelledError:

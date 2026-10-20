@@ -11,6 +11,7 @@ final_score, else the watchlist's, x 100; the order is score descending, ties in
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
@@ -73,6 +74,21 @@ def _rr(entry: Optional[float], stop: Optional[float], target: Optional[float]) 
     return reward / risk if risk > 0 and reward > 0 else None
 
 
+def _strs(v: Any) -> List[str]:
+    """A list of strings from a JSON list or from a JSON-encoded string (the database returns a JSONB column as text in some environments)."""
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except ValueError:
+            return [v] if v.strip() else []
+    return [str(x) for x in v if x] if isinstance(v, list) else []
+
+
+def _days(v: Any) -> Optional[int]:
+    x = num(v)
+    return int(x) if x is not None and x == int(x) else None
+
+
 def _text(v: Any) -> Optional[str]:
     return v.strip() if isinstance(v, str) and v.strip() else None
 
@@ -117,8 +133,8 @@ def merge_setups(watch_body: Optional[Dict[str, Any]], picks_body: Optional[Dict
             confidence=_text(p.get("confidence")) or base["confidence"],
             entry=entry, stop=stop, target=target,
             risk_reward=num(p.get("risk_reward")) if num(p.get("risk_reward")) is not None else _rr(entry, stop, target),
-            days_min=num(p.get("timeframe_days_min")), days_max=num(p.get("timeframe_days_max")),
-            reasons=[str(r) for r in (p.get("reasons") or []) if r], in_picks=True,
+            days_min=_days(p.get("timeframe_days_min")), days_max=_days(p.get("timeframe_days_max")),
+            reasons=_strs(p.get("reasons")), in_picks=True,
             avg_traded_cr=base["avg_traded_cr"] if base["avg_traded_cr"] is not None else _nonneg(p.get("avg_traded_value_cr_20d")),
             spark_last=base["spark_last"] if base["spark_last"] is not None else (num(spark[-1]) if spark else None),
             spark_end=base["spark_end"] or p.get("spark_end"), pick=dict(p))
