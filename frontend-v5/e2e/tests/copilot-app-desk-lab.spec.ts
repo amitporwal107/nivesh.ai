@@ -282,7 +282,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-symbol-nifty")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("desk-fno-symbol-banknifty")).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("desk-fno-loaded")).toHaveCount(0);
-    await expect(page.getByTestId("desk-fno-symbol-input")).toHaveAttribute("placeholder", "Stock ticker, e.g. RELIANCE");
+    await expect(page.getByTestId("desk-fno-symbol-input")).toHaveAttribute("placeholder", "Name or ticker, e.g. TCS");
 
     // Expiry switch from the expiry and futures lists; the nearest (monthly here) is on.
     const sw = expectedSwitch(exp.expiries, fut.futures);
@@ -458,6 +458,97 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await page.getByTestId("desk-fno-symbol-nifty").click();
     await expect(page.getByTestId("desk-fno-loaded")).toHaveCount(0);
     await expect(page.getByTestId("desk-fno-spot")).toHaveText("25,010.00");
+  });
+
+  test("TC-34 a company name is searched, then only F&O stocks load; several matches are listed; an exact ticker skips the search", async ({ page }) => {
+    const asked = await fnoData(page);
+    const searched: string[] = [];
+    // GET /api/search/instruments?q → [{ name, ticker, type, sector }] (backend instrument search; MOCK — not real data)
+    const HITS: Record<string, unknown[]> = {
+      "fixture f&o": [{ name: "Fixture F&O Ltd", ticker: "FIXFNO", type: "equity", sector: "Auto" }],
+      "fixf": [
+        { name: "Fixture F&O Ltd", ticker: "FIXFNO", type: "equity", sector: "Auto" },
+        { name: "Fixture Cash Only Ltd", ticker: "NOFNO", type: "equity", sector: "IT" },
+      ],
+      "cash only": [{ name: "Fixture Cash Only Ltd", ticker: "NOFNO", type: "equity", sector: "IT" }],
+      "zzz corp": [],
+    };
+    await page.route("**/api/search/instruments*", (route) => {
+      const q = (new URL(route.request().url()).searchParams.get("q") ?? "").toLowerCase();
+      searched.push(q);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(HITS[q] ?? []) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-row").first()).toBeVisible();
+    const input = page.getByTestId("desk-fno-symbol-input");
+    const load = page.getByTestId("desk-fno-symbol-load");
+
+    // An exact ticker never calls the search.
+    await input.fill("FIXFNO");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    expect(searched).toEqual([]);
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+    await expect(page.getByTestId("desk-fno-loaded")).toHaveCount(0);
+
+    // A name that matches one F&O stock loads it.
+    await input.fill("Fixture F&O");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    expect(searched).toEqual(["fixture f&o"]);
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+
+    // Several matches: the F&O list's own tickers that contain the text (FIXFLAT) and the search's F&O hits (FIXFNO,
+    // with its name) are offered together, once each; the search's non-F&O hit (NOFNO) is left out. Picking one loads it.
+    await input.fill("fixf");
+    await load.click();
+    const offers = page.getByTestId("desk-fno-symbol-suggest");
+    await expect(offers).toHaveCount(2);
+    await expect(offers.nth(0)).toContainText("FIXFLAT");
+    await expect(offers.nth(1)).toContainText("FIXFNO");
+    await expect(offers.nth(1)).toContainText("Fixture F&O Ltd");
+    await expect(page.locator("#desk-fno-symbol-problem")).not.toContainText("NOFNO");
+    await offers.nth(1).click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    await expect(offers).toHaveCount(0);
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+
+    // Spaces and hyphens do not matter against the F&O list: "fix short" finds FIXSHORT with no help from the search.
+    await input.fill("fix short");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXSHORT loaded");
+    expect(asked).toContain("/api/fno/FIXSHORT/expiries");        // the chain route has no fixture for it; the request is the point
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+
+    // A stock that is not in F&O is named and refused; no chain request is made for it.
+    await input.fill("cash only");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-symbol-unknown")).toHaveText(`Fixture Cash Only Ltd (NOFNO) is not in NSE’s F&O list for ${dayY(BUILDUP.as_of)} (${BUILDUP.universe} stocks have futures), so it has no option chain to load.`);
+    expect(asked.some((a) => a.startsWith("/api/fno/NOFNO"))).toBe(false);
+
+    // No match at all.
+    await input.fill("zzz corp");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-symbol-nomatch")).toHaveText("No stock matches “zzz corp”. Try the NSE ticker, e.g. RELIANCE.");
+  });
+
+  test("TC-34 when the stock search fails, the box says so and a typed ticker still works", async ({ page }) => {
+    const asked = await fnoData(page);
+    await json(page, "**/api/search/instruments*", { detail: "boom" }, 502);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-row").first()).toBeVisible();
+    await page.getByTestId("desk-fno-symbol-input").fill("fixture fno");
+    await page.getByTestId("desk-fno-symbol-load").click();
+    await expect(page.getByTestId("desk-fno-symbol-search-error")).toHaveText("Stock search is unavailable. Type the NSE ticker instead.");
+    // A partial ticker still matches the F&O list itself, so it is offered even though the search failed.
+    await page.getByTestId("desk-fno-symbol-input").fill("fixf");
+    await page.getByTestId("desk-fno-symbol-load").click();
+    await expect(page.getByTestId("desk-fno-symbol-suggest")).toHaveCount(2);
+    await expect(page.getByTestId("desk-fno-symbol-search-error")).toHaveCount(0);
+    await page.getByTestId("desk-fno-symbol-input").fill("FIXFNO");
+    await page.getByTestId("desk-fno-symbol-load").click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    expect(asked).toContain("/api/fno/FIXFNO/expiries");
   });
 
   test("TC-32 with the F&O list unavailable, the chain route answers for an unknown ticker", async ({ page }) => {
