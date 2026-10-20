@@ -974,3 +974,18 @@ def test_real_nifty_weekly_chain_is_priced_on_the_forward_its_own_options_imply(
     assert (round(carried[0], 2), carried[1]) == (22743.44, "carried spot")
     split = route.add_model(route.shape_strikes(NIFTY_WEEKLY["strikes"]), round(carried[0], 2), 6 / 365)[3]
     assert (split["call"]["iv"], split["put"]["iv"]) == (15.91, 10.81)
+
+
+@pytest.mark.parametrize("close,d_oi", [(110.0, 50), (90.0, 50), (110.0, -50), (90.0, -50)])
+def test_futures_build_up_label_is_the_scan_rule(close, d_oi):
+    """PRD 17.2 #8: the futures route reads price change x OI change with the same rule as the build-up scan
+    (nidp desk_market.buildup_label: close vs prev_close_price, sign of change_in_oi). MOCK - not real data."""
+    from nidp.services.daas_api.routers.desk_market import buildup_label
+    fut = route.shape_futures([{**_future("IDF", "2026-10-27", close, close, 1000, d_oi, 10), "option_type": "FUT", "prev_close_price": 100.0}], None)[0]
+    assert fut["oi_buildup"].replace("-", "").replace(" ", "_") == buildup_label(close - 100.0, d_oi)
+    assert fut["change"] == round(close - 100.0, 2) and fut["change_pct"] == round(close - 100.0, 2)
+
+
+def test_futures_without_a_previous_close_keep_the_change_null_never_zero():
+    fut = route.shape_futures([{**_future("IDF", "2026-10-27", 100.0, 100.0, 1000, 5, 10), "option_type": "FUT"}], None)[0]
+    assert (fut["prev_close"], fut["change"], fut["change_pct"], fut["oi_buildup"]) == (None, None, None, None)

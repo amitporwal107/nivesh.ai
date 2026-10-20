@@ -301,6 +301,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-stats")).toContainText(`${n2(s.expected_move_pct)}% of spot · ATM straddle at the close`);
     await expect(page.getByTestId("desk-fno-futures")).toHaveText(n2(near.settle));
     await expect(page.getByTestId("desk-fno-stats")).toContainText(`+${n2(near.basis)} premium to spot`);
+    await expect(page.getByTestId("desk-fno-stats")).toContainText(`day +${n2(near.change)} (+${n2(near.change_pct)}%)`);
     await expect(page.getByTestId("desk-fno-days")).toHaveText(String(s.days_to_expiry));
     await expect(page.getByTestId("desk-fno-pcr")).toHaveText(n2(s.pcr));
     await expect(page.getByTestId("desk-fno-max-pain")).toHaveText(n0(s.max_pain));
@@ -383,6 +384,9 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId(`${n}-band`)).toHaveText(`${n2(25010 - 487.05)}–${n2(25010 + 487.05)}`);
     await expect(page.getByTestId(`${n}-futures`)).toHaveText("25,060.00 · +50.00 premium");
     await expect(page.getByTestId(`${n}-fut-oi-change`)).toHaveText(`${MINUS}2.50 L`);
+    // PRD 17.2 #8: the futures route's previous close (25,020.00 here) gives the day change; BANKNIFTY's has none.
+    await expect(page.getByTestId(`${n}-fut-day`)).toHaveText("+41.50 (+0.17%) · prev 25,020.00");
+    await expect(page.getByTestId("desk-fno-card-BANKNIFTY-fut-day")).toHaveText("— · no previous close");
     await expect(page.getByTestId(`${n}-pcr`)).toHaveText("0.96");
     await expect(page.getByTestId(`${n}-max-pain`)).toHaveText("25,000");
     await expect(page.getByTestId(`${n}-move`)).toHaveText("12.00% · ±487.05 (1.95%)");
@@ -639,17 +643,25 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     });
     await page.goto(`${DESK}?tab=fno`);
 
-    // NIFTY (an index): the view says why no strategy is named.
+    // NIFTY (an index): its build-up is the scan's index-futures row, the same source as the stats tile (short build-up).
     await page.getByTestId("desk-fno-view-strategies").click();
     await expect(page.getByTestId("desk-fno-strat-title")).toHaveText("NIFTY · 27 Oct");
-    await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText("Build-up —");
+    await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText(LABEL[NIFTY_FUT.label as string]);
     await expect(page.getByTestId("desk-fno-strat-kind")).toHaveText("Rules-based · paper trading only");
+    await expect(page.getByTestId("desk-fno-strat-futures-name")).toHaveText("Short futures");
+    await expect(page.getByTestId("desk-fno-strat-options-name")).toHaveText("Bear put spread");
+    await expect(page.getByTestId("desk-fno-strat-cash-name")).toHaveText("No trade suggested");
+    await expect(page.getByTestId("desk-fno-strat-cash-text")).toHaveText("An index has no shares to hold for delivery.");
+    await expect(page.getByTestId("desk-fno-strat-why")).toContainText(`${LABEL[NIFTY_FUT.label as string]} on `);
+    // BANKNIFTY has no index row in the scan: nothing is named, and the view says why.
+    await page.getByTestId("desk-fno-symbol-banknifty").click();
+    await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText("Build-up —");
     for (const k of ["futures", "options", "cash"]) {
       await expect(page.getByTestId(`desk-fno-strat-${k}-name`)).toHaveText("No trade suggested");
       await expect(page.getByTestId(`desk-fno-strat-${k}-add`)).toBeDisabled();
-      await expect(page.getByTestId(`desk-fno-strat-${k}-add`)).toHaveText("No trade suggested");
     }
-    await expect(page.getByTestId("desk-fno-strat-why")).toContainText("NIFTY is an index");
+    await expect(page.getByTestId("desk-fno-strat-why")).toContainText("BANKNIFTY is an index: the build-up scan has no index-futures row");
+    await page.getByTestId("desk-fno-symbol-nifty").click();
 
     // The table: every F&O underlying, names from build-up alone (the rule table, restated here).
     const NAMES: Record<string, [string, string, string]> = {

@@ -214,6 +214,15 @@ export function nearFutureOf(data: FnoResult<FnoFutures> | undefined): NearFutur
   return f ? { future: f, spot: data.data.spot, asOf: data.data.as_of } : null;
 }
 
+/**
+ * The contract's day change from the futures route (close − the exchange's previous close). Without a previous close
+ * it says so: the change is never inferred and never shown as zero.
+ */
+export function futuresDayText(f: FnoFuture): string {
+  if (f.change == null || f.change_pct == null) return "day change — (no previous close)";
+  return `day ${fmtSigned(f.change)} (${fmtSigned(f.change_pct)}%)`;
+}
+
 /** "Premium to" / "Discount to" / "Level with" the spot, from the basis; null without one. */
 export function basisWords(basis: number | null): string | null {
   if (basis == null) return null;
@@ -300,7 +309,7 @@ export function chainTiles(s: FnoSummary, near: NearFuture | null, futuresNote: 
       k: near ? `Futures · ${shortDay(near.future.expiry)}` : "Futures",
       v: near?.future.settle != null ? fmtNum(near.future.settle, 2) : DASH,
       s: near
-        ? words == null ? "No basis to the spot" : words === "level" ? "Level with the spot" : `${fmtSigned(basis)} ${words} to spot`
+        ? `${words == null ? "No basis to the spot" : words === "level" ? "Level with the spot" : `${fmtSigned(basis)} ${words} to spot`} · ${futuresDayText(near.future)}`
         : futuresNote,
       testId: "desk-fno-futures",
     },
