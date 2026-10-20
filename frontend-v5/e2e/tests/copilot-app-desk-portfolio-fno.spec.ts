@@ -1576,3 +1576,176 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-390-full.png` });
   });
 });
+
+// ── Strategy paper trades (PRD §17.2 #7, §17.6, §17.7): futures and option structures beside the share trades ──
+// MOCK — not real data: FIXU is made up. Every figure below is worked by hand (the same example as
+// backend/tests/test_desk_strategy_trades.py): a bull call spread, 1 lot of 250, buy the 1300 call at 40, sell the 1360 call
+// at 15, expiry 27 Oct. Net premium = −40 × 250 + 15 × 250 = −₹6,250. The share's high reached the 1400 target on 15 Oct,
+// when the legs were marked 110 and 60: leg P&L = (110 − 40) × 250 = +17,500 and −(60 − 15) × 250 = −11,250 → gross +6,250;
+// mark premium = −110 × 250 + 60 × 250 = −12,500. Costs: entry 5 + 1.875 + 40 = 46.875, exit 13.75 + 7.5 + 40 = 61.25 →
+// 108.125; net = 6,250 − 108.125 = 6,141.875. An open long future: 1 lot of 250 bought at 1215, settled 1230 →
+// (1230 − 1215) × 250 = +3,750; costs 151.875 + 20 + 153.75 + 20 = 345.625; net 3,404.375.
+const STRATEGY_COST_MODEL = { name: "strategy_engine default", slippage_pct_per_side: 0.05, brokerage_rs_per_side: 20 };
+const STRATEGY_SIGNAL = {
+  signal_at: "2026-10-12T03:30:00+00:00", rule_version: "strategy-rules v1.0", model_version: null,
+  source_refs: [{ kind: "scanner", ref: "FIXU-2026-10-12", as_of: "2026-10-09" }],
+  evidence_summary: "Futures long build-up with the stock above its 20-day high.",
+};
+const stLeg = (o: Record<string, unknown>) => ({
+  kind: "option", lot_size: 250, lots: 1, expiry: "2026-10-27", price_source: "NSE F&O bhavcopy close, 2026-10-09", mark_source: "NSE F&O bhavcopy (nidp.fno_bhavcopy via the data platform), end of day",
+  mark_basis_text: "the contract's end-of-day settle price", flags: [], ...o,
+});
+const spreadTrade = () => ({
+  id: "st-spread", kind: "strategy", symbol: "FIXU", underlying: "FIXU", direction: "bullish", family: "bull_call_spread", family_name: "Bull call spread",
+  summary_text: "Bull call spread 1300/1360 · 27 Oct · 1 lot", strategy_plan_id: null, reference_price: 1215, stop_underlying: 1180, target_underlying: 1400,
+  note: null, opened_at: "2026-10-12T05:00:00+00:00", status: "closed", closed_at: "2026-10-16T10:00:00+00:00", exit_reason: "target", exit_session: "2026-10-15",
+  exit_note: "The underlying's end-of-day bar touched the plan's target level.", entry_rule: "at_once", entry_status: "assumed", max_hold_sessions: null,
+  rules_version: "desk-paper-v3", cost_model: STRATEGY_COST_MODEL, risk: { defined_risk: true, futures_exposure: false, note: null },
+  signal: STRATEGY_SIGNAL, entry_record_hash: "a".repeat(64), entry_record_intact: true,
+  legs: [
+    stLeg({ index: 0, side: "buy", option_type: "call", strike: 1300, entry_price: 40, label: "Buy 1 lot call 1300 27 Oct", mark: 110, mark_date: "2026-10-15", mark_basis: "settle", pnl_rs: 17500 }),
+    stLeg({ index: 1, side: "sell", option_type: "call", strike: 1360, entry_price: 15, label: "Sell 1 lot call 1360 27 Oct", mark: 60, mark_date: "2026-10-15", mark_basis: "settle", pnl_rs: -11250 }),
+  ],
+  net_premium_rs: -6250, mark_premium_rs: -12500, gross_pnl_rs: 6250, costs_rs: 108.13, costs_basis: "entry and exit sides, every leg, at the closing marks", net_pnl_rs: 6141.87,
+  unrealized_pnl_rs: null, realized_pnl_rs: 6250, mfe_rs: 6250, mae_rs: -1250, observations: 3, held_sessions: 3, checked_through: "2026-10-15",
+  last_mark_date: "2026-10-15", mark_error: null, event_count: 4,
+  flags: [{ code: "exit_marked_at_session_marks", text: "The legs are closed at that session's end-of-day marks, not at the underlying's intraday touch price.", session: "2026-10-15", price: null, leg: null }],
+  events: [
+    { type: "created", at: "2026-10-12T05:00:00+00:00", session: null, text: "Strategy paper trade recorded with its signal and legs; saved as they are, never edited." },
+    { type: "entered", at: "2026-10-12T05:00:00+00:00", session: null, text: "Entry assumed at the recorded leg prices (at once); not checked against a bar." },
+    { type: "exit_rule_fired", at: "2026-10-16T10:00:00+00:00", session: "2026-10-15", reason: "target", text: "The underlying's end-of-day bar touched the plan's target level." },
+    { type: "closed", at: "2026-10-16T10:00:00+00:00", session: "2026-10-15", reason: "target", text: "Closed (target) on the 2026-10-15 session." },
+  ],
+});
+const futureTrade = () => ({
+  ...spreadTrade(), id: "st-future", family: "long_future", family_name: "Long future", direction: "bullish", summary_text: "Long future · 27 Oct · 1 lot",
+  stop_underlying: null, target_underlying: null, status: "open", closed_at: null, exit_reason: null, exit_session: null, exit_note: null, opened_at: "2026-10-13T05:00:00+00:00",
+  risk: { defined_risk: true, futures_exposure: true, note: "Futures losses can exceed the margin posted; this record is a simulation and the loss is not capped by the structure." },
+  legs: [stLeg({ index: 0, kind: "future", side: "buy", option_type: null, strike: null, entry_price: 1215, label: "Buy 1 lot future 27 Oct", mark: 1230, mark_date: "2026-10-15", mark_basis: "settle", pnl_rs: 3750 })],
+  net_premium_rs: null, mark_premium_rs: null, gross_pnl_rs: 3750, costs_rs: 345.63, net_pnl_rs: 3404.37, unrealized_pnl_rs: 3750, realized_pnl_rs: null, mfe_rs: 3750, mae_rs: 3750, held_sessions: 2,
+  flags: [{ code: "no_mark", text: "Leg 1: No price for this contract in the bhavcopy this session; it keeps its last mark (₹1,230.00, 2026-10-15). Not filled in from any other price.", session: "2026-10-16", price: 1230, leg: 0 }],
+  events: [
+    { type: "created", at: "2026-10-13T05:00:00+00:00", session: null, text: "Strategy paper trade recorded with its signal and legs; saved as they are, never edited." },
+    { type: "entered", at: "2026-10-13T05:00:00+00:00", session: null, text: "Entry assumed at the recorded leg prices (at once); not checked against a bar." },
+  ],
+});
+function strategyBook(strategies: unknown[]) {
+  const shares = [waitTrade(), simTrade()];
+  return {
+    as_of: "2026-10-15", checked_through: "2026-10-15", source: "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the data platform)", price_basis: "end of day",
+    exit_rule: "fixture", marks_error: null, status: "all", trades: [...strategies, ...shares],
+    // The route's summary counts both kinds: one share trade waiting, one closed share trade (−100 gross), one closed spread (+6,250), one open future (+3,750).
+    summary: { open: 2, closed: 2, wins: 1, losses: 1, realized_pnl_rs: 6150, unrealized_pnl_rs: 3750, unmarked_open: 0, partial: false, net_realized_pnl_rs: 6000, costs_realized_rs: 150,
+               net_unrealized_pnl_rs: 3404.37, entry_pending: 1, not_entered: 0 },
+    entry_rules: {}, rules_version: "desk-paper-v2", strategy_rules_version: "desk-paper-v3", cost_model: STRATEGY_COST_MODEL,
+    orders: "Paper trades are simulated and never create a broker order.", limits: { max_open: 100 },
+  };
+}
+
+test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", () => {
+  test.beforeEach(async ({ page }) => {
+    await deskBase(page);
+    await mockPaper(page);
+  });
+
+  test("a spread and a future are listed beside the share trades with premium, mark, gross and net; share rows are unchanged", async ({ page }) => {
+    await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-paper-trades");
+    const section = block.getByTestId("desk-strategy-trades");
+    await expect(section.getByTestId("desk-strategy-count")).toHaveText("2");
+    // Closed spread: summary text, family, net premium −6,250 (a debit), mark premium −12,500, gross +6,250, net +6,142 (6,250 − 108.13).
+    const spread = section.getByTestId("desk-strategy-closed-table").getByRole("row").filter({ hasText: "Bull call spread 1300/1360" });
+    await expect(spread.getByTestId("desk-strategy-summary")).toHaveText("Bull call spread 1300/1360 · 27 Oct · 1 lot");
+    await expect(spread.getByTestId("desk-strategy-premium")).toHaveText(rupees(-6250, true));
+    await expect(spread.getByTestId("desk-strategy-mark")).toHaveText(rupees(-12500, true));
+    await expect(spread.getByTestId("desk-strategy-gross")).toHaveText(rupees(6250, true));
+    await expect(spread.getByTestId("desk-strategy-net")).toHaveText(rupees(6141.87, true));
+    await expect(spread.getByTestId("desk-strategy-status")).toHaveAttribute("data-reason", "target");
+    await expect(spread.getByTestId("desk-strategy-status")).toContainText("Target");
+    // Open future: no option legs, so no premium and no mark premium (never 0); gross +3,750, net +3,404.
+    const fut = section.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" });
+    await expect(fut.getByTestId("desk-strategy-premium")).toHaveText("—");
+    await expect(fut.getByTestId("desk-strategy-mark")).toHaveText("—");
+    await expect(fut.getByTestId("desk-strategy-gross")).toHaveText(rupees(3750, true));
+    await expect(fut.getByTestId("desk-strategy-net")).toHaveText(rupees(3404.37, true));
+    await expect(fut.getByTestId("desk-strategy-status")).toHaveAttribute("data-status", "open");
+    // The share trades render exactly as before: same tables, same counts.
+    await expect(block.getByTestId("desk-paper-open-count")).toHaveText("1");
+    await expect(block.getByTestId("desk-paper-closed-count")).toHaveText("1");
+    await expect(block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXWAIT" })).toHaveCount(1);
+    await expect(block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXSIM" })).toHaveCount(1);
+    await expect(block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXU" })).toHaveCount(0);
+    // The combined summary tiles come from the route.
+    await expect(block.getByTestId("desk-paper-realised")).toHaveText(rupees(6150, true));
+    await expect(block.getByTestId("desk-paper-unrealised")).toHaveText(rupees(3750, true));
+    await expect(section.getByTestId("desk-strategy-rules")).toContainText("Futures losses can exceed the margin posted");
+  });
+
+  test("the record lists each leg with entry, mark and mark date, the immutable signal, the lifecycle log and the flags", async ({ page }) => {
+    await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-paper-trades");
+    await block.getByTestId("desk-strategy-closed-table").getByRole("row").filter({ hasText: "Bull call spread" }).getByTestId("desk-paper-record-toggle").click();
+    const rec = block.getByTestId("desk-paper-strategy-record");
+    await expect(rec).toHaveAttribute("data-id", "st-spread");
+    const legs = rec.getByTestId("desk-paper-strategy-leg");
+    await expect(legs).toHaveCount(2);
+    await expect(legs.nth(0)).toContainText("Buy 1 lot call 1300 27 Oct");
+    await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-entry")).toHaveText(paise(40));
+    await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-mark")).toContainText(paise(110));
+    await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-date")).toHaveText(/15 Oct/);
+    await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-pnl")).toHaveText(rupees(17500, true));
+    await expect(legs.nth(1).getByTestId("desk-paper-strategy-leg-entry")).toHaveText(paise(15));
+    await expect(legs.nth(1).getByTestId("desk-paper-strategy-leg-pnl")).toHaveText(rupees(-11250, true));
+    await expect(legs.nth(0)).toContainText("Entry from NSE F&O bhavcopy close, 2026-10-09");
+    // The signal block: time (03:30 UTC = 9:00 IST), versions, sources, evidence.
+    await expect(rec.getByTestId("desk-paper-signal-at")).toHaveText(/^12 Oct, 9:00\s?am$/i);
+    await expect(rec.getByTestId("desk-paper-signal-versions")).toHaveText("strategy-rules v1.0 · no model");
+    await expect(rec.getByTestId("desk-paper-signal-sources")).toHaveText("scanner FIXU-2026-10-12 (2026-10-09)");
+    await expect(rec.getByTestId("desk-paper-signal-evidence")).toHaveText("Futures long build-up with the stock above its 20-day high.");
+    await expect(rec.getByTestId("desk-paper-record-tampered")).toHaveCount(0);
+    // Lifecycle: state changes only, in order.
+    const events = rec.getByTestId("desk-paper-event");
+    expect(await events.evaluateAll((els) => els.map((e) => e.getAttribute("data-type")))).toEqual(["created", "entered", "exit_rule_fired", "closed"]);
+    // Costs and the exit.
+    await expect(rec.getByTestId("desk-paper-strategy-record-premium")).toContainText(rupees(-6250, true));
+    await expect(rec.getByTestId("desk-paper-record-net")).toHaveText(rupees(6141.87, true));
+    await expect(rec.getByTestId("desk-paper-strategy-record-exit")).toContainText("Target");
+    await expect(rec.getByTestId("desk-paper-strategy-record-version")).toHaveText("desk-paper-v3");
+    expect(await rec.getByTestId("desk-paper-flag").evaluateAll((els) => els.map((e) => e.getAttribute("data-code")))).toEqual(["exit_marked_at_session_marks"]);
+    // The open future's record shows the no_mark flag and the futures-loss warning.
+    await block.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" }).getByTestId("desk-paper-record-toggle").click();
+    const rec2 = block.getByTestId("desk-paper-strategy-record");
+    await expect(rec2).toHaveAttribute("data-id", "st-future");
+    await expect(rec2.getByTestId("desk-paper-strategy-risk")).toContainText("Futures losses can exceed the margin posted");
+    expect(await rec2.getByTestId("desk-paper-flag").evaluateAll((els) => els.map((e) => e.getAttribute("data-code")))).toEqual(["no_mark"]);
+  });
+
+  test("investor wording and a close confirmation that posts the same close route", async ({ page }) => {
+    const calls = await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio&persona=investor`);
+    const block = page.getByTestId("desk-paper-trades");
+    await expect(block.getByTestId("desk-strategy-open-table").getByRole("columnheader")).toContainText(["Paid or received", "Worth now", "Before costs", "After costs"]);
+    await block.getByTestId("desk-strategy-closed-table").getByRole("row").filter({ hasText: "Bull call spread" }).getByTestId("desk-paper-record-toggle").click();
+    await expect(block.getByTestId("desk-paper-strategy-record")).toContainText("Why it was opened");
+    await expect(block.getByTestId("desk-paper-strategy-record")).toContainText("Parts of the trade");
+    await block.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" }).getByTestId("desk-strategy-close").click();
+    await expect(block.getByTestId("desk-strategy-confirm")).toContainText("Close the FIXU strategy (Long future · 27 Oct · 1 lot) at the last end-of-day marks");
+    await block.getByTestId("desk-strategy-confirm-yes").click();
+    await expect.poll(() => calls.closes.length).toBe(1);
+    expect(calls.closes[0]).toEqual({ path: "/api/desk/paper-trades/st-future/close", body: {} });
+  });
+
+  test("a strategy row without its legs or signal is a loud contract error, not a silently dropped trade", async ({ page }) => {
+    const broken = { ...spreadTrade(), legs: [] };
+    await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([broken]) } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-paper-trades-error")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("desk-strategy-trades")).toHaveCount(0);
+  });
+});
