@@ -26,7 +26,7 @@ from .rules import PLAN_SCHEMA, RULES, STRATEGY_RULES_VERSION
 
 DIRECTIONS = ("bullish", "bearish", "neutral", "vol_expansion", "vol_contraction")
 HORIZONS = ("intraday", "positional", "longer_term")
-INSTRUMENTS = ("cash", "futures", "options", "all")
+INSTRUMENTS = ("cash", "futures", "options", "combination", "all")
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9&\-]{1,20}$")
 
 LIFECYCLE = {"status": "draft", "states": ["draft", "saved", "paper_traded", "reviewed", "expired", "invalidated", "closed"],
@@ -99,7 +99,7 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
     alloc = number("max_allocation_pct", 0, 100, D["max_allocation_pct"])
     min_rr = number("min_reward_risk", 0, 100, D["min_reward_risk"])
     flags = {}
-    for key in ("avoid_events", "allow_multi_leg"):
+    for key in ("avoid_events", "allow_multi_leg", "include_combinations"):
         if body.get(key) is None:
             flags[key] = D[key]
             applied.append(key)
@@ -131,7 +131,7 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
     return {"underlying": sym.strip().upper(), "direction": direction, "horizon": horizon, "horizon_days": hdays, "instrument": instrument,
             "capital": capital, "risk_budget_inr": risk_budget, "risk_pct": risk_pct, "max_allocation_pct": alloc,
             "min_reward_risk": min_rr, "avoid_events": flags["avoid_events"], "allow_multi_leg": flags["allow_multi_leg"],
-            "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
+            "include_combinations": flags["include_combinations"], "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
 
 
 # ── context ──────────────────────────────────────────────────────────────────
@@ -228,7 +228,8 @@ STATUS_RANK = {"candidate": 0, "wait": 1, "no_trade": 2, "avoid": 2, "insufficie
 
 
 def _evidence_quality(ledger: Dict[str, Any], segment: str) -> Dict[str, Any]:
-    groups = {"cash": ("technical", "fundamental"), "futures": ("technical", "derivatives"), "options": ("technical", "derivatives")}[segment]
+    groups = {"cash": ("technical", "fundamental"), "futures": ("technical", "derivatives"), "options": ("technical", "derivatives"),
+              "combination": ("technical", "fundamental", "derivatives")}[segment]
     sm = ledger["summary"]
     tot = {k: sum(sm[g][k] for g in groups) for k in ev.DIRECTIONS}
     n = sum(tot.values()) or 1
@@ -242,12 +243,13 @@ def _comparison(cands: List[Dict[str, Any]], ledger: Dict[str, Any], horizon_day
         res = c.get("payoff") or {}
         ex = res.get("expiry") or {}
         rr = c.get("risk_reward") or {}
-        linear = c["segment"] != "options"
+        linear = c["segment"] in ("cash", "futures")
         flags = (c.get("options_selection") or {}).get("preferred_flags") or []
         rows.append({
             "id": c["id"], "segment": c["segment"], "family": c["family"], "label": c["label"], "status": c["status"],
             "max_loss": rr.get("risk_net") if linear else ex.get("max_loss"),
-            "max_loss_basis": ("loss at the stop (net); gaps can exceed it" + ("; futures losses can exceed margin" if c["segment"] == "futures" else "")) if linear else "defined max loss at expiry (gross)",
+            "max_loss_basis": ("loss at the stop (net); gaps can exceed it" + ("; futures losses can exceed margin" if c["segment"] == "futures" else "")) if linear
+            else "defined max loss at expiry (gross)" + ("; for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put" if c["segment"] == "combination" else ""),
             "capital_at_risk": res.get("capital_at_risk"),
             "breakeven": ex.get("breakevens"), "reward_risk_net": rr.get("net"), "reward_risk_gross": rr.get("gross"),
             "liquidity_flags": flags, "horizon_days": horizon_days, "evidence_quality": _evidence_quality(ledger, c["segment"]),
@@ -329,6 +331,10 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
             if g["kind"] == "data" and c["status"] != "insufficient_data":
                 c["status"] = "insufficient_data"
                 c["reasons"].append(r)
+            elif g["kind"] == "rule" and g["code"] == "event_in_horizon" and c.get("event_hedged"):
+                if c["status"] in ("candidate", "wait"):
+                    c["warnings"].append("Results are scheduled inside the horizon. The long put defines the downside, so the event does not block this structure: "
+                                         "the loss cannot exceed the max loss shown, and the put's premium already reflects the event.")
             elif g["kind"] == "rule" and c["status"] in ("candidate", "wait"):
                 c["status"] = "no_trade"
                 c["reasons"].append(r)
