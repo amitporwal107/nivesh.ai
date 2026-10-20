@@ -65,3 +65,12 @@ export function useDeleteChatSession() {
     },
   });
 }
+
+export function useUpdateChatSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; bookmarked?: boolean; tags?: string[] }) =>
+      chatService.updateSession(args.id, { bookmarked: args.bookmarked, tags: args.tags }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["chat", "sessions"] }); },
+  });
+}
