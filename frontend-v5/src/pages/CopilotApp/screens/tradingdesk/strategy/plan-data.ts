@@ -42,6 +42,7 @@ export interface PlanRequest {
   min_reward_risk?: number;
   avoid_events?: boolean;
   allow_multi_leg?: boolean;
+  include_combinations?: boolean;
   expiry?: string;
 }
 

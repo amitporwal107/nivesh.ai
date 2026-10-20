@@ -21,7 +21,7 @@ import {
 
 const note: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" };
 
-function Field({ label, htmlFor, problems, hint, children, testId }: { label: ReactNode; htmlFor?: string; problems: FieldProblem[]; hint?: ReactNode; children: ReactNode; testId: string }) {
+export function Field({ label, htmlFor, problems, hint, children, testId }: { label: ReactNode; htmlFor?: string; problems: FieldProblem[]; hint?: ReactNode; children: ReactNode; testId: string }) {
   return (
     <div data-testid={`field-${testId}`} className="flex min-w-0 flex-col" style={{ gap: 5 }}>
       <label htmlFor={htmlFor} className="cp-eyebrow" style={{ fontSize: 10 }}>{label}</label>
