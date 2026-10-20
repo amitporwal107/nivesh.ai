@@ -46,6 +46,7 @@ export function sourceNote(p: URLSearchParams): string | null {
   if (kind === "scanner") return `Started from the scanner: ${bucket ? humaniseTag(bucket).toLowerCase() : "a listed setup"}${d ? `, scan ${d}` : ""}`;
   if (kind === "chart") return `Started from Chart Analysis${bucket ? `: scanner bucket ${humaniseTag(bucket).toLowerCase()}` : ""}${d ? `, scan ${d}` : ""}`;
   if (kind === "ideas") return `Started from the AI opportunities: ${bucket ? humaniseTag(bucket).toLowerCase() : "a listed setup"}${d ? `, scan ${d}` : ""}`;
+  if (kind === "chartink_picks") return `Started from your Chartink best picks${d ? `, scan ${d}` : ""}`;
   if (kind === "lab") return `Started from the Options & futures lab${d ? `, chain as of ${d}` : ""}`;
   return `Started from ${humaniseTag(kind).toLowerCase()}${d ? `, ${d}` : ""}`;
 }

@@ -391,6 +391,7 @@ export default function TradingDeskScreen() {
       extra: src ? { src_kind: src.kind, ...(src.bucket ? { src_bucket: src.bucket } : {}), ...(src.date ? { src_date: src.date } : {}) } : undefined,
     }),
     openStrategyIdeas: (focus) => update({ tab: "more", view: "strategy", extra: { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) } }),
+    openStrategyPlan: (params) => update({ tab: "more", view: "strategy", extra: { ...params, mode: "stock", build: "1" } }),
     openChartink: () => update({ tab: "more", view: "chartink" }),
     askDesk,
     docked,

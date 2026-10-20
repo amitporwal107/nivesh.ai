@@ -10,6 +10,9 @@ Endpoints (all under /api/desk/chartink, signed-in user only; every document is 
     POST   /refresh       runs the enabled scans now (2 at a time, >= 1 s apart, 30 s each, 25 at most; one run per user per 10 minutes: 429 with
                           retry_after_s) and stores today's (IST) hits, replacing the same scan and day -> per scan {id, name, ok, hits, error, seconds}
     GET    /hits?date=    the latest scan date's hits grouped by stock, joined with the AI scanner list and the symbol universe
+    GET    /picks?limit=&direction=&capital=&risk_budget_inr=
+                          the best picks out of those hits: a ranked evidence score (not a probability) with its factors, reasons for and against, a Wait / No trade
+                          outcome for thin or conflicting evidence, and the Strategy Builder's strategies for each pick (limit 1-10, default 5; direction all|long|short)
 
 Typed errors: body {"detail": {"code", "message", ...}} (plus status, error, code, message at the top level): invalid_dashboard_url, dashboard_fetch_failed, dashboard_too_large, redirect_off_site,
 dashboard_page_changed, dashboard_empty, no_source, scan_not_found, scan_unsupported, refresh_cooldown. No Chartink credential is stored. Writes pass
@@ -31,6 +34,7 @@ from services.chartink_desk import dashboard as dash
 from services.chartink_desk import hits as hits_mod
 from services.chartink_desk import refresh as refresh_mod
 from services.chartink_desk import store
+from services.strategy_plan import picks as picks_mod
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/desk/chartink", tags=["desk"])
@@ -164,3 +168,25 @@ async def hits(request: Request, date_: Optional[str] = Query(None, alias="date"
     scores, fails = await _scanner_scores(request)
     universe, ufail = await _universe()
     return await hits_mod.hits_view(db, user["user_id"], date_, today(), scores, fails, universe, ufail, _suggest)
+
+
+@router.get("/picks")
+async def picks(request: Request, limit: Optional[str] = Query(None), direction: str = Query("all"), capital: Optional[str] = Query(None),
+                risk_budget_inr: Optional[str] = Query(None)) -> Dict[str, Any]:
+    """Best picks from the user's Chartink scans. Reads the stored hits and the plan sources; writes nothing; sends nothing to a broker."""
+    user = await get_current_user(request)
+    cfg = picks_mod.CFG
+    n = cfg["limit_default"]
+    if limit is not None:
+        try:
+            n = int(limit)
+        except ValueError:
+            n = 0
+        if not 1 <= n <= cfg["limit_max"]:
+            return _answer(_Typed(422, "invalid_limit", f"limit must be a whole number from 1 to {cfg['limit_max']}."))
+    if direction not in picks_mod.DIRECTIONS:
+        return _answer(_Typed(422, "invalid_direction", "direction must be all, long or short."))
+    passed, problems = picks_mod.parse_passed(capital, risk_budget_inr)
+    if problems:
+        return _answer(_Typed(422, "invalid_input", "; ".join(p["message"] for p in problems), problems=problems))
+    return await picks_mod.build_picks(request, user["user_id"], n, direction, passed, store.utcnow(), today())

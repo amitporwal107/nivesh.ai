@@ -29,6 +29,7 @@ import { EMPTY_FORM, type FormState } from "./plan-form";
 import { isForbiddenPlan, planFailure, planProblems } from "./plan-data";
 import { CHARTINK_CANDIDATE_NOTE, CHARTINK_FAMILY, DASH, StatusPill, noteStyle, ratio, rupees, rupeesAbs, valueText } from "./plan-format";
 import { Switch } from "../chartink/ChartinkParts";
+import { ChartinkPicks } from "../chartink/ChartinkPicks";
 import { useChartinkSource } from "../chartink/chartink-data";
 import type { PlanStatus } from "./plan-contract";
 
@@ -62,6 +63,8 @@ export function IdeasBoard() {
   const ckSource = useChartinkSource();
   const ckConnected = ckSource.data != null;
   const [ckOn, setCkOn] = useState(true);
+  // The board's source filter: every idea, or only the best picks out of the user's Chartink scans (the picks route, not the ideas route).
+  const [source, setSource] = useState<"all" | "ck_picks">("all");
   const [clientProblems, setClientProblems] = useState<FieldProblem[]>([]);
   const [run, setRun] = useState<IdeasRun | null>(null);
   const q = useStrategyIdeas(run);
@@ -114,9 +117,22 @@ export function IdeasBoard() {
 
       <IdeasInputs form={form} onChange={setForm} combos={combos} onCombos={setCombos} ck={ckConnected ? { on: ckOn, onChange: (v) => { setCkOn(v); start(v); } } : null} onBuild={() => start()} pending={q.isFetching} problems={[...clientProblems, ...serverProblems]} plain={plain} board={board} />
 
-      {board == null && q.isPending && run != null && <LoadingBlock label="Picking the scanner's top setups and building their strategies" rows={4} />}
+      {ckConnected && (
+        <div role="group" aria-label="Show ideas from" data-testid="ideas-source-filter" className="flex flex-wrap" style={{ gap: 6 }}>
+          {([["all", "All ideas"], ["ck_picks", "Chartink best picks"]] as const).map(([v, label]) => (
+            <button key={v} type="button" className="cp-chip" aria-pressed={source === v} data-testid={`ideas-source-${v}`} onClick={() => setSource(v)}
+              style={source === v ? { borderColor: "var(--mint-line)", color: "var(--mint)", background: "var(--mint-soft)" } : undefined}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {failure != null && (
+      {ckConnected && source === "ck_picks" && <ChartinkPicks variant="full" testId="ideas-ck-picks" />}
+
+      {source === "all" && board == null && q.isPending && run != null && <LoadingBlock label="Picking the scanner's top setups and building their strategies" rows={4} />}
+
+      {source === "all" && failure != null && (
         <div data-testid="ideas-error" className="flex flex-col" style={{ gap: 8 }}>
           {isForbiddenPlan(failure) || (failure instanceof ApiError && failure.kind === "auth") ? (
             <EmptyBlock title={failure instanceof ApiError && failure.kind === "auth" ? "Sign in to see strategies for the AI opportunities" : "The Strategy Builder is not enabled for this account"} body={planFailure(failure, "Not built")} />
@@ -126,7 +142,7 @@ export function IdeasBoard() {
         </div>
       )}
 
-      {board && (
+      {source === "all" && board && (
         <div data-testid="ideas-view" aria-busy={q.isFetching} className="flex min-w-0 flex-col" style={{ gap: 18 }}>
           {q.isFetching && <p role="status" data-testid="ideas-updating" className="m-0" style={noteStyle}>Updating. The ideas below are from the previous run until this one finishes.</p>}
           <BoardHeader board={board} plain={plain} />

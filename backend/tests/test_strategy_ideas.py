@@ -201,7 +201,7 @@ def test_include_combinations_switch_and_all_includes_them_by_default():
     i, _ = normalise_inputs({"underlying": "TCS", "direction": "bullish"})
     assert i["include_combinations"] is True and "include_combinations" in i["defaults_applied"]
     assert normalise_inputs({"underlying": "TCS", "direction": "bullish", "include_combinations": "no"})[1][0]["code"] == "bad_include_combinations"
-    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.4") and set(RULES["combinations"]["views"]) == set(cd.COMBO_ORDER)
+    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.5") and set(RULES["combinations"]["views"]) == set(cd.COMBO_ORDER)
 
 
 def test_a_scanner_pick_without_a_bucket_is_read_by_its_stage_and_says_so():

@@ -18,6 +18,7 @@ import { stampIst } from "../overview-data";
 import { useDesk } from "../context";
 import { DIRECTION_LABEL } from "../strategy/plan-form";
 import { ChartinkTrust, CHARTINK_SOURCE_LABEL, Switch } from "./ChartinkParts";
+import { ChartinkPicks } from "./ChartinkPicks";
 import { DIRECTIONS, failureText as failureLine, type ChartinkHits, type ChartinkRefresh, type ChartinkScan, type ChartinkSourceDoc, type ScanDirection } from "./chartink-contract";
 import {
   checkDashboardUrl, connectProblems, cooldownSeconds, useChartinkHits, useChartinkRefresh, useChartinkSource, useConnectChartink,
@@ -138,6 +139,7 @@ function Connected({ doc, hitsQ, plain }: { doc: ChartinkSourceDoc; hitsQ: Retur
           <Actions retryAfter={doc.refresh.retry_after_s} />
         </div>
       </Section>
+      <ChartinkPicks variant="full" testId="ck-picks" />
       <ScanTable doc={doc} plain={plain} />
       <HitsStatus hits={hits} hitsQ={hitsQ} enabled={enabled} />
       <div className="flex flex-col" style={{ gap: 4 }}>

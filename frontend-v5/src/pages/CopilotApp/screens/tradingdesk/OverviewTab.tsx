@@ -57,6 +57,7 @@ import {
 import { SINGLE_STOCK_LIMIT_PCT, largestStock, readPortfolio, useRiskAnalytics } from "./portfolio-data";
 import { TrustLine, type TrustLineProps } from "./trust";
 import { ChartinkOnlyList, ChartinkTag } from "./chartink/ChartinkParts";
+import { ChartinkPicks } from "./chartink/ChartinkPicks";
 import { hitsBySymbol, useChartink } from "./chartink/chartink-data";
 import type { ChartinkHitSymbol } from "./chartink/chartink-contract";
 
@@ -1251,6 +1252,7 @@ function TopOpportunitiesCard() {
         </ol>
       )}
       {!scan.isPending && <ChartinkOnlyList testId="desk-ck" />}
+      <ChartinkPicks variant="top" testId="desk-ck-picks" />
       <div className="flex flex-col" style={{ gap: 6, padding: "10px 18px", borderTop: line }}>
         <span data-testid="desk-opps-legend" style={{ fontSize: 11.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
           <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>Score</b> is the scanner’s rules-based score, 0–100: a rank, not a probability.{" "}
@@ -1783,6 +1785,7 @@ function TopOpportunities() {
         </>
       )}
       {!scan.isPending && <ChartinkOnlyList compact testId="desk-top-ck" />}
+      <ChartinkPicks variant="top" testId="desk-top-ck-picks" />
       <div style={{ padding: "6px 14px 12px" }}>
         <TrustLine testId="desk-top-opps-trust" source="Positional scanner" mode="eod" asOf={date ? dayLabel(date) : null} maker="rules" />
       </div>
