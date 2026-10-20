@@ -18,6 +18,7 @@ import { ApiError } from "@/services/api/errors";
 import { INPUT_STYLE, fmtDay } from "../../trading/parts";
 import { AddToList } from "../../workspace/PersonalLists";
 import { useDesk, type DeskPersona } from "../context";
+import { stampIst } from "../overview-data";
 import { TrustLine } from "../trust";
 import { Field } from "./PlanInputs";
 import { SEGMENT_ORDER, type EvidenceCounts, type Idea, type IdeaStrategy, type IdeasBoard as Board } from "./ideas-contract";
@@ -26,7 +27,9 @@ import type { FieldProblem } from "./plan-contract";
 import { DIRECTION_LABEL } from "./plan-form";
 import { EMPTY_FORM, type FormState } from "./plan-form";
 import { isForbiddenPlan, planFailure, planProblems } from "./plan-data";
-import { DASH, StatusPill, noteStyle, ratio, rupees, rupeesAbs, valueText } from "./plan-format";
+import { CHARTINK_CANDIDATE_NOTE, CHARTINK_FAMILY, DASH, StatusPill, noteStyle, ratio, rupees, rupeesAbs, valueText } from "./plan-format";
+import { Switch } from "../chartink/ChartinkParts";
+import { useChartinkSource } from "../chartink/chartink-data";
 import type { PlanStatus } from "./plan-contract";
 
 const SEGMENT_TITLE: Record<string, string> = { cash: "Cash", futures: "Futures", options: "Options", combination: "Combination" };
@@ -55,13 +58,17 @@ export function IdeasBoard() {
   const [params] = useSearchParams();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [combos, setCombos] = useState(true);
+  // The user's Chartink scans: the switch exists only with a connected dashboard (the route's default is "include" then).
+  const ckSource = useChartinkSource();
+  const ckConnected = ckSource.data != null;
+  const [ckOn, setCkOn] = useState(true);
   const [clientProblems, setClientProblems] = useState<FieldProblem[]>([]);
   const [run, setRun] = useState<IdeasRun | null>(null);
   const q = useStrategyIdeas(run);
   const board = q.data ?? null;
 
-  const start = () => {
-    const { request, problems } = ideasRequestFromForm(form, combos);
+  const start = (ck: boolean = ckOn) => {
+    const { request, problems } = ideasRequestFromForm(form, combos, ckConnected ? ck : null);
     setClientProblems(problems);
     if (request) setRun((r) => ({ body: request, runId: (r?.runId ?? 0) + 1 }));
   };
@@ -105,7 +112,7 @@ export function IdeasBoard() {
         <p className="m-0" style={noteStyle}>Conditional research plans, not instructions. Nivesh does not place orders; nothing here is sent to a broker.</p>
       </header>
 
-      <IdeasInputs form={form} onChange={setForm} combos={combos} onCombos={setCombos} onBuild={start} pending={q.isFetching} problems={[...clientProblems, ...serverProblems]} plain={plain} board={board} />
+      <IdeasInputs form={form} onChange={setForm} combos={combos} onCombos={setCombos} ck={ckConnected ? { on: ckOn, onChange: (v) => { setCkOn(v); start(v); } } : null} onBuild={() => start()} pending={q.isFetching} problems={[...clientProblems, ...serverProblems]} plain={plain} board={board} />
 
       {board == null && q.isPending && run != null && <LoadingBlock label="Picking the scanner's top setups and building their strategies" rows={4} />}
 
@@ -149,6 +156,13 @@ export function IdeasBoard() {
             asOf={board.data_as_of.price ? fmtDay(board.data_as_of.price) : null} maker="rules"
             method={[board.rules_version ? `rules ${board.rules_version}` : null, board.calculation_version ? `calculation ${board.calculation_version}` : null].filter(Boolean).join(" · ") || null}
           />
+          {board.ideas.some((i) => i.chartink) && (
+            <TrustLine
+              testId="ideas-ck-trust" source="Chartink scans (your dashboard)" mode={null}
+              asOf={(() => { const f = board.ideas.find((i) => i.chartink?.fetched_at)?.chartink?.fetched_at; return f ? `Chartink fetched ${stampIst(f)}` : null; })()}
+              method="your scan rules, not validated signals"
+            />
+          )}
         </div>
       )}
     </div>
@@ -199,6 +213,7 @@ function BoardHeader({ board, plain }: { board: Board; plain: boolean }) {
         </p>
       )}
       {sel.rule && <p data-testid="ideas-rule" className="m-0" style={noteStyle}>{plain ? "How they were picked" : "Selection rule"}: {sel.rule}</p>}
+      {sel.chartink && <ChartinkSelection c={sel.chartink} />}
       {board.ranking_note && <p data-testid="ideas-ranking" className="m-0" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>{board.ranking_note}</p>}
       {board.inputs.defaults_applied.length > 0 && (
         <p data-testid="ideas-defaults" className="m-0" style={noteStyle}>
@@ -232,8 +247,8 @@ function BoardHeader({ board, plain }: { board: Board; plain: boolean }) {
 
 // ── the inputs ───────────────────────────────────────────────────────────
 
-function IdeasInputs({ form, onChange, combos, onCombos, onBuild, pending, problems, plain, board }: {
-  form: FormState; onChange: (f: FormState) => void; combos: boolean; onCombos: (b: boolean) => void; onBuild: () => void; pending: boolean; problems: FieldProblem[]; plain: boolean; board: Board | null;
+function IdeasInputs({ form, onChange, combos, onCombos, ck, onBuild, pending, problems, plain, board }: {
+  form: FormState; onChange: (f: FormState) => void; combos: boolean; onCombos: (b: boolean) => void; ck: { on: boolean; onChange: (v: boolean) => void } | null; onBuild: () => void; pending: boolean; problems: FieldProblem[]; plain: boolean; board: Board | null;
 }) {
   const id = useId();
   const set = (patch: Partial<FormState>) => onChange({ ...form, ...patch });
@@ -288,6 +303,13 @@ function IdeasInputs({ form, onChange, combos, onCombos, onBuild, pending, probl
             {plain ? "Include shares-plus-options combinations" : "Include combinations (covered call, protective put, collar)"}
           </label>
         </div>
+        {ck && (
+          <div className="flex flex-wrap items-center" style={{ gap: "6px 12px" }}>
+            <Switch testId="ideas-in-chartink" label="Include my Chartink scans" on={ck.on} onChange={ck.onChange} />
+            <span style={{ fontSize: 13 }}>Include my Chartink scans</span>
+            <span style={noteStyle}>{ck.on ? "Chartink-only ideas follow the AI scanner’s, ranked by how many of your scans list them." : "Only the AI scanner’s ideas."}</span>
+          </div>
+        )}
         {other.length > 0 && (
           <ul data-testid="ideas-problems-other" className="m-0 flex flex-col" style={{ gap: 4, paddingLeft: 18 }}>
             {other.map((p) => <li key={`${p.field}:${p.code}`} role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>{p.field ? `${p.field}: ` : ""}{p.message}</li>)}
@@ -307,6 +329,37 @@ function IdeasInputs({ form, onChange, combos, onCombos, onBuild, pending, probl
 const countsText = (c: EvidenceCounts | undefined) => (c ? `${c.supports} support · ${c.conflicts} conflict · ${c.neutral} neutral · ${c.unavailable} unavailable` : `${DASH} not in the answer`);
 const plainVal = (v: unknown) => (v == null || v === "" ? DASH : valueText(v));
 const num2 = (n: number | null) => (n == null ? DASH : fmtNum(n, 2));
+
+const SOURCE_TAG: Record<string, { label: string; tone: Tone }> = {
+  ai_scanner: { label: "AI scanner", tone: "mint" },
+  chartink: { label: "Chartink", tone: "indigo" },
+  both: { label: "Both", tone: "indigo" },
+};
+
+function ChartinkSelection({ c }: { c: NonNullable<Board["selection"]["chartink"]> }) {
+  const ok = c.state === "ok";
+  if (c.included === false && !c.reason) return null;
+  return (
+    <div data-testid="ideas-ck-state" data-state={c.state ?? ""} className="flex flex-col" style={{ gap: 3 }}>
+      <p role={ok ? undefined : "status"} className="m-0" style={{ fontSize: 12.5, lineHeight: 1.5, color: ok ? "var(--cp-ink-2)" : "var(--amber)" }}>
+        {ok
+          ? `Chartink: ${c.considered ?? DASH} considered, ${c.added ?? DASH} added${c.scan_date ? `, scan ${fmtDay(c.scan_date)}` : ""}${c.limit != null ? ` (up to ${fmtNum(c.limit)})` : ""}.`
+          : <>Chartink scans are not in this board{c.reason ? `: ${c.reason}` : "."} The ideas are the AI scanner's alone.</>}
+      </p>
+      {ok && c.note && <p data-testid="ideas-ck-note" className="m-0" style={noteStyle}>{c.note}</p>}
+    </div>
+  );
+}
+
+function IdeaSourceTag({ idea }: { idea: Idea }) {
+  const t = idea.source ? SOURCE_TAG[idea.source] : null;
+  if (!t) return null;
+  return (
+    <span data-testid="idea-source" data-source={idea.source} title={idea.source === "both" ? "Listed by the AI scanner and by your Chartink scans" : idea.source === "chartink" ? "From your Chartink scans; the AI scanner does not list it" : "From the AI scanner"}>
+      <Pill tone={t.tone}>{idea.source === "both" ? "AI scanner + Chartink" : t.label}</Pill>
+    </span>
+  );
+}
 
 function IdeaCard({ idea, board, persona }: { idea: Idea; board: Board; persona: DeskPersona }) {
   const plain = persona === "investor";
@@ -339,21 +392,29 @@ function IdeaCard({ idea, board, persona }: { idea: Idea; board: Board; persona:
           <StockIcon symbol={idea.symbol} name={idea.name} size={26} />
           <h2 id={titleId} data-testid="idea-symbol" className="cp-num m-0" style={{ fontSize: 17, fontWeight: 500 }}>{idea.symbol}</h2>
           <span data-testid="idea-name" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{idea.name ?? DASH}</span>
-          {st ? <span data-testid="idea-scan-status"><Pill tone={st.tone}>{st.label}</Pill></span> : <span data-testid="idea-scan-status" style={noteStyle}>Scanner status {DASH}</span>}
+          <IdeaSourceTag idea={idea} />
+          {st ? <span data-testid="idea-scan-status"><Pill tone={st.tone}>{st.label}</Pill></span> : idea.source === "chartink" ? <span data-testid="idea-scan-status"><Pill tone="indigo">Chartink scan</Pill></span> : <span data-testid="idea-scan-status" style={noteStyle}>Scanner status {DASH}</span>}
           <StatusPill status={planStatus} plain={plain} testId="idea-plan-status" />
         </span>
         <span data-testid="idea-score" className="cp-num" title="Rules-based scanner score, 0-100 (not a probability)" style={{ fontSize: 12, color: sc.score != null && sc.score >= 80 ? "var(--mint)" : "var(--cp-ink-2)" }}>
-          Score {sc.score == null ? DASH : `${fmtNum(sc.score)}/100`}
+          {idea.source === "chartink" && sc.score == null ? "No AI score" : `Score ${sc.score == null ? DASH : `${fmtNum(sc.score)}/100`}`}
         </span>
       </div>
 
       <p data-testid="idea-facts" className="m-0 flex flex-wrap" style={{ gap: "2px 14px", fontSize: 12, color: "var(--cp-ink-2)" }}>
-        <span data-testid="idea-setup">{plain ? "Shape" : "Setup"}: {sc.bucket ? humaniseTag(sc.bucket) : sc.stage ? `${humaniseTag(sc.stage.toLowerCase())} (scanner pick)` : DASH}</span>
+        <span data-testid="idea-setup">{plain ? "Shape" : "Setup"}: {sc.bucket ? humaniseTag(sc.bucket) : idea.source === "chartink" ? "Chartink scan (not an AI scanner setup)" : sc.stage ? `${humaniseTag(sc.stage.toLowerCase())} (scanner pick)` : DASH}</span>
         <span data-testid="idea-direction">{plain ? "Expected" : "Direction"}: {dir ? dir[plain ? "plain" : "trader"] : idea.direction || DASH}</span>
         <span data-testid="idea-close">Scan close: {sc.close != null ? rupees(sc.close) : DASH}{sc.close_date ? ` on ${fmtDay(sc.close_date)}` : ""}</span>
         <span data-testid="idea-liquidity">Liquidity: {sc.liquidity_cr != null ? `₹${fmtNum(sc.liquidity_cr, sc.liquidity_cr < 100 ? 1 : 0)} Cr/day` : DASH}</span>
         <span data-testid="idea-risk">{plain ? "Swings" : "Risk"}: {sc.atr_pct != null ? `ATR ${fmtNum(sc.atr_pct, 1)}% of price` : `${DASH} no ATR in the scanner's row for this stock`}</span>
       </p>
+
+      {idea.chartink && idea.chartink.scans.length > 0 && (
+        <p data-testid="idea-ck-scans" className="m-0" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>
+          On your Chartink {idea.chartink.scans.length === 1 ? "scan" : "scans"}: {idea.chartink.scans.map((x) => x.name).join(", ")}
+          {idea.chartink.fetched_at ? <span style={noteStyle}> · fetched {stampIst(idea.chartink.fetched_at)}</span> : null}
+        </p>
+      )}
 
       <div data-testid="idea-reasons" className="flex flex-col" style={{ gap: 4 }}>
         {idea.status_reasons.length > 0 ? (
@@ -474,6 +535,7 @@ function StrategyRow({ s, preferred, onOpen }: { s: IdeaStrategy; preferred: boo
       <th scope="row" style={{ ...td, textAlign: "left", fontWeight: 400, minWidth: 190 }}>
         <span className="flex flex-col" style={{ gap: 3 }}>
           <span style={{ fontSize: 13, fontWeight: 500 }}>{s.label}</span>
+          {s.family === CHARTINK_FAMILY && <span data-testid="idea-strat-ck-note" className="cp-mono-note">{CHARTINK_CANDIDATE_NOTE}</span>}
           {preferred && <span data-testid="idea-preferred" className="cp-mono-note" style={{ color: "var(--mint)" }}>★ Preferred strategy</span>}
           {s.why && <span style={noteStyle}>{s.why}</span>}
           {!viable && s.reasons.length > 0 && (

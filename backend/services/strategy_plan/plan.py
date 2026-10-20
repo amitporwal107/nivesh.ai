@@ -108,6 +108,22 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
         else:
             probs.append(_p(key, "bad_" + key, f"{key} must be true or false."))
             flags[key] = D[key]
+    if body.get("include_chartink") is None:
+        include_chartink = RULES["chartink"]["include_default"]
+        applied.append("include_chartink")
+    elif isinstance(body["include_chartink"], bool):
+        include_chartink = body["include_chartink"]
+    else:
+        probs.append(_p("include_chartink", "bad_include_chartink", "include_chartink must be true or false."))
+        include_chartink = RULES["chartink"]["include_default"]
+    if body.get("live_broker_reads") is None:
+        live_reads_on = False
+        applied.append("live_broker_reads")
+    elif isinstance(body["live_broker_reads"], bool):
+        live_reads_on = body["live_broker_reads"]
+    else:
+        probs.append(_p("live_broker_reads", "bad_live_broker_reads", "live_broker_reads must be true or false."))
+        live_reads_on = False
     expiry = body.get("expiry")
     if expiry is not None and ev.day10(expiry) is None:
         probs.append(_p("expiry", "bad_expiry", "expiry must be YYYY-MM-DD."))
@@ -131,7 +147,7 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
     return {"underlying": sym.strip().upper(), "direction": direction, "horizon": horizon, "horizon_days": hdays, "instrument": instrument,
             "capital": capital, "risk_budget_inr": risk_budget, "risk_pct": risk_pct, "max_allocation_pct": alloc,
             "min_reward_risk": min_rr, "avoid_events": flags["avoid_events"], "allow_multi_leg": flags["allow_multi_leg"],
-            "include_combinations": flags["include_combinations"], "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
+            "include_combinations": flags["include_combinations"], "include_chartink": include_chartink, "live_broker_reads": live_reads_on, "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
 
 
 # ── context ──────────────────────────────────────────────────────────────────
@@ -154,6 +170,12 @@ def build_ctx(inputs: Dict[str, Any], snaps: Dict[str, Any], today: date) -> Dic
 
 # ── gates ────────────────────────────────────────────────────────────────────
 
+def is_unknown_symbol(error: Any) -> bool:
+    """The price source answered 404 no_bars_for_symbol: the symbol has no bars at all (a real outage is a 5xx or a timeout)."""
+    e = str(error or "")
+    return "HTTP 404" in e and "no_bars_for_symbol" in e
+
+
 def global_reasons(inputs: Dict[str, Any], snaps: Dict[str, Any], ctx: Dict[str, Any], ledger: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Plan-level blockers. kind 'data' -> insufficient_data, 'rule' -> no_trade."""
     out: List[Dict[str, Any]] = []
@@ -161,7 +183,9 @@ def global_reasons(inputs: Dict[str, Any], snaps: Dict[str, Any], ctx: Dict[str,
     if inputs["horizon"] == "intraday":
         out.append({**R("intraday_not_supported", "An intraday horizon needs intraday bars and order-book data; this system holds end-of-day data only (PRD §17.2 #2, #3)."), "kind": "data"})
     ind = ev.snap(snaps, "indicators")
-    if not ind["ok"]:
+    if not ind["ok"] and is_unknown_symbol(ind["error"]):
+        out.append({**R("unknown_symbol", f"No price history for {inputs['underlying']}: the data platform holds no end-of-day bars under that symbol."), "kind": "data"})
+    elif not ind["ok"]:
         out.append({**R("required_source_failed", f"The price history (required) could not be read: {ind['error']}"), "kind": "data"})
     elif ctx["as_of"]:
         age = (ctx["today"] - date.fromisoformat(ctx["as_of"])).days
@@ -193,6 +217,7 @@ def global_reasons(inputs: Dict[str, Any], snaps: Dict[str, Any], ctx: Dict[str,
 WOULD_CHANGE = {
     "stale_data": "A price from the last completed session.",
     "required_source_failed": "The price history source answering.",
+    "unknown_symbol": "An NSE symbol with price history on record: use one of the suggestions, or check the ticker.",
     "intraday_not_supported": "A positional horizon, or intraday data being added to the platform.",
     "liquidity_below_gate": "Average traded value rising to at least the gate.",
     "liquidity_unknown": "20 sessions of price and volume on record.",
@@ -307,6 +332,22 @@ def _would_change(reasons: List[Dict[str, Any]]) -> List[str]:
     return out
 
 
+EOD_CAVEAT = "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day."
+LIVE_CAVEAT = ("Prices, the option chain and the F&O data are end of day (one NSE bhavcopy per day). Only the broker bid/ask quotes marked live or delayed "
+               "are read from the user's own broker session, read-only.")
+MARGIN_CAVEAT = "Margin is not estimated (no source exists in this system) and is not the maximum loss."
+MARGIN_LIVE_CAVEAT = ("Margin shown is an estimate from Zerodha's margin calculator, read-only; no order is placed. It covers these legs alone "
+                      "and is not the maximum loss.")
+
+
+def caveats(snaps: Dict[str, Any]) -> List[str]:
+    q = ev.snap(snaps, "broker_quotes")
+    live = q["ok"] and bool((q["data"] or {}).get("quotes"))
+    return ["Conditional research plan, not advice and not an instruction to trade.", LIVE_CAVEAT if live else EOD_CAVEAT,
+            "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
+            MARGIN_CAVEAT, "Nothing is sent to a broker."]
+
+
 def _snapshot_refs(snaps: Dict[str, Any]) -> List[Dict[str, Any]]:
     refs = []
     for k in sorted(snaps):
@@ -318,11 +359,22 @@ def _snapshot_refs(snaps: Dict[str, Any]) -> List[Dict[str, Any]]:
     return refs
 
 
+def plan_sources(snaps: Dict[str, Any]) -> List[str]:
+    """Which opportunity sources list the stock: `ai_scanner` (a scanner bucket or pick) and/or `chartink` (an enabled scan of the user's dashboard)."""
+    out: List[str] = []
+    sb, ck = ev.snap(snaps, "scanner_bucket"), ev.snap(snaps, "chartink")
+    if sb["ok"] and ((sb["data"] or {}).get("bucket") or (sb["data"] or {}).get("pick_stage")):
+        out.append("ai_scanner")
+    if ck["ok"] and (ck["data"] or {}).get("hits"):
+        out.append("chartink")
+    return out
+
+
 def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, today: date) -> Dict[str, Any]:
     ctx = build_ctx(inputs, snaps, today)
     ledger = ev.build_ledger(snaps, inputs, ctx["as_of"], ctx["ref_session"])
     gates = global_reasons(inputs, snaps, ctx, ledger)
-    data_blocked = any(g["kind"] == "data" and g["code"] in ("required_source_failed", "intraday_not_supported") for g in gates)
+    data_blocked = any(g["kind"] == "data" and g["code"] in ("required_source_failed", "unknown_symbol", "intraday_not_supported") for g in gates)
     cands = [] if data_blocked else cd.generate(ctx)
     # plan-level blockers override every candidate that was still alive
     for c in cands:
@@ -385,7 +437,7 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
         "summary": {"underlying": inputs["underlying"], "segment": inputs["instrument"], "direction": inputs["direction"], "horizon": inputs["horizon"],
                     "horizon_days": inputs["horizon_days"], "family": preferred["family"] if preferred else None,
                     "preferred_segment": preferred["segment"] if preferred else None, "status": status, "generated_at": now.isoformat(),
-                    "data_as_of": ctx["as_of"], "end_of_day": True},
+                    "data_as_of": ctx["as_of"], "end_of_day": True, "sources": plan_sources(snaps)},
         "thesis": {"direction": inputs["direction"], "supports": supports, "conflicts": conflicts,
                    "unavailable": [f"{i['group']}.{i['key']}" for i in ledger["items"] if i["direction"] == "unavailable"],
                    "note": "Only the evidence that applies to the chosen direction; fundamentals are context, not a short-horizon trigger (PRD §16.8)."},
@@ -397,11 +449,7 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
         "failure_conditions": _failure_conditions(cands, inputs),
         "validation": ledger["validation"], "scenarios": scenarios, "lifecycle": dict(LIFECYCLE),
         "source_snapshots": refs,
-        "caveats": ["Conditional research plan, not advice and not an instruction to trade.",
-                    "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
-                    "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
-                    "Margin is not estimated (no source exists in this system) and is not the maximum loss.",
-                    "Nothing is sent to a broker."],
+        "caveats": caveats(snaps),
         "sent_to_broker": False,
     }
     return plan

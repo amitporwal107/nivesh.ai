@@ -15,7 +15,7 @@ import type { DeskPersona } from "../context";
 import { PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds } from "../desk-data";
 import { useStockOdds } from "../chart-data";
 import { TrustLine } from "../trust";
-import type { StrategyPlan } from "./plan-contract";
+import { reasonSuggestions, type StrategyPlan } from "./plan-contract";
 import { DIRECTION_LABEL, HORIZON_LABEL, INSTRUMENT_LABEL } from "./plan-form";
 import { DASH, SEGMENT_WORD, StatusPill, noteStyle } from "./plan-format";
 
@@ -40,7 +40,7 @@ function ModelEstimate({ plan, plain }: { plan: StrategyPlan; plain: boolean }) 
   );
 }
 
-export function PlanSummary({ plan, persona, source }: { plan: StrategyPlan; persona: DeskPersona; source: string | null }) {
+export function PlanSummary({ plan, persona, source, onRebuildFor }: { plan: StrategyPlan; persona: DeskPersona; source: string | null; onRebuildFor?: (symbol: string) => void }) {
   const plain = persona === "investor";
   const s = plan.summary;
   const h = plan.headline;
@@ -71,7 +71,27 @@ export function PlanSummary({ plan, persona, source }: { plan: StrategyPlan; per
         <div data-testid="plan-status-reasons" className="flex min-w-0 flex-col" style={{ gap: 8 }}>
           <span className="cp-eyebrow">{plain ? "Why not" : "Status reasons"}</span>
           <ul className="m-0 flex flex-col" style={{ gap: 4, paddingLeft: 18 }}>
-            {plan.status_reasons.map((r) => <li key={`${r.code}:${r.message}`} style={{ fontSize: 13, lineHeight: 1.5 }}><span className="cp-num" style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>{r.code}</span> {r.message}</li>)}
+            {plan.status_reasons.map((r) => {
+              const sugg = r.code === "unknown_symbol" ? reasonSuggestions(r) : [];
+              return (
+                <li key={`${r.code}:${r.message}`} style={{ fontSize: 13, lineHeight: 1.5 }}>
+                  <span className="cp-num" style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>{r.code}</span> {r.message}
+                  {r.code === "unknown_symbol" && (
+                    <span data-testid="unknown-symbol-help" className="flex flex-wrap items-center" style={{ gap: 6, marginTop: 6 }}>
+                      {sugg.length === 0 && <span data-testid="unknown-symbol-none" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{plain ? "Check the spelling, or search by company name." : "Check the ticker, or search by company name."}</span>}
+                      {sugg.map((x) => (
+                        <button
+                          key={x.symbol} type="button" className="cp-chip" data-testid={`rebuild-for-${x.symbol}`} disabled={!onRebuildFor} onClick={() => onRebuildFor?.(x.symbol)}
+                          title={x.name ?? undefined} style={{ minHeight: 36, display: "inline-flex", alignItems: "center", gap: 6 }}
+                        >
+                          <StockIcon symbol={x.symbol} name={x.name} size={18} />Rebuild for {x.symbol}{x.name ? <span style={{ color: "var(--cp-ink-3)" }}> · {x.name}</span> : null}
+                        </button>
+                      ))}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {plan.would_change_if.length > 0 && (
             <div data-testid="plan-would-change" className="flex min-w-0 flex-col" style={{ gap: 4 }}>

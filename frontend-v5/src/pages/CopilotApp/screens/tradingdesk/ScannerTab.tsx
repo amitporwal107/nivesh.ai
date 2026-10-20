@@ -38,11 +38,14 @@ import {
 import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import { TrustLine } from "./trust";
+import { ChartinkTag, ChartinkTrust } from "./chartink/ChartinkParts";
+import { hitsBySymbol, useChartink, type ChartinkState } from "./chartink/chartink-data";
+import type { ChartinkHitSymbol } from "./chartink/chartink-contract";
 
 // ── categories (PRD §5.2) ────────────────────────────────────────────────
 
 type CatKey = "all" | "breakouts" | "near_breakout" | "momentum" | "pullbacks" | "accumulation" | "reversal"
-  | "unusual_volume" | "results_day" | "fno" | "watchlist";
+  | "unusual_volume" | "results_day" | "fno" | "chartink" | "watchlist";
 
 interface Cat { key: CatKey; label: string; plain: string; bucket?: SetupBucket; ucat?: UniverseCategory }
 
@@ -58,6 +61,7 @@ const CATS: readonly Cat[] = [
   { key: "unusual_volume", label: "Unusual volume", plain: "Heavy trading", ucat: "unusual_volume" },
   { key: "results_day", label: "Results-day momentum", plain: "Moving after results", ucat: "results_day" },
   { key: "fno", label: "F&O candidates", plain: "Has futures & options", ucat: "fno" },
+  { key: "chartink", label: "Chartink scans", plain: "Your Chartink scans" },
   { key: "watchlist", label: "User watchlist", plain: "Your list" },
 ];
 const CAT_KEYS = CATS.map((c) => c.key) as readonly string[];
@@ -77,13 +81,14 @@ const REVERSAL_REASON =
 
 const Q = {
   cat: "sc_cat", rank: "sc_rank", liquid: "sc_liq", sector: "sc_sector", cap: "sc_cap", pmin: "sc_pmin", pmax: "sc_pmax",
-  rvol: "sc_rvol", vol: "sc_vol", risk: "sc_risk", inst: "sc_inst", list: "sc_list",
+  rvol: "sc_rvol", vol: "sc_vol", risk: "sc_risk", inst: "sc_inst", ck: "sc_ck", list: "sc_list",
 } as const;
 type QKey = keyof typeof Q;
-const FILTER_KEYS: readonly QKey[] = ["liquid", "sector", "cap", "pmin", "pmax", "rvol", "vol", "risk", "inst"];
+const FILTER_KEYS: readonly QKey[] = ["liquid", "sector", "cap", "pmin", "pmax", "rvol", "vol", "risk", "inst", "ck"];
 
 type RankBy = "score" | "m5" | "m10";
 type Inst = "fno" | "cash" | "eligible";
+type OnChartink = "yes" | "no";
 
 interface Filters {
   liquid: boolean;
@@ -95,6 +100,8 @@ interface Filters {
   vol: number | null;
   risk: RiskClass | null;
   inst: Inst | null;
+  /** "On Chartink": only stocks that are (yes) or are not (no) in the user's Chartink hits. */
+  ck: OnChartink | null;
 }
 
 const posNum = (v: string | null): number | null => {
@@ -110,6 +117,7 @@ function useScanState() {
   const rank = raw("rank");
   const risk = raw("risk");
   const inst = raw("inst");
+  const ckRaw = raw("ck");
   const filters: Filters = {
     liquid: raw("liquid") === "1",
     sector: raw("sector"),
@@ -120,6 +128,7 @@ function useScanState() {
     vol: posNum(raw("vol")),
     risk: risk === "low" || risk === "medium" || risk === "high" ? risk : null,
     inst: inst === "fno" || inst === "cash" || inst === "eligible" ? inst : null,
+    ck: ckRaw === "yes" || ckRaw === "no" ? ckRaw : null,
   };
   const set = (patch: Partial<Record<QKey, string | null>>) =>
     setParams((prev) => {
@@ -160,6 +169,10 @@ interface Row {
   atrPct: number | null;
   risk: RiskClass | null;
   sector: string | null;
+  /** The stock's row in the user's Chartink hits, when Chartink is connected and the stock is in them. */
+  ck: ChartinkHitSymbol | null;
+  /** True once Chartink's hits are loaded: a stock without `ck` is then known not to be on Chartink (else it is unknown). */
+  ckKnown: boolean;
 }
 
 /** Descending, with missing values last. */
@@ -199,7 +212,7 @@ function buildRow(symbol: string, s: DeskSetup | null, u: UniverseRow | null, od
     rank5: u?.modelRank.p_up5_1d ?? null, rank10: u?.modelRank.p_up10_1d ?? null,
     events: odds?.get(symbol)?.events ?? null, toTarget,
     tradedCr: s?.avgTradedCr ?? u?.tradedCr ?? null,
-    atrPct, risk: riskClassOf(atrPct, rules), sector: s?.sector ?? u?.sector ?? u?.industry ?? null,
+    atrPct, risk: riskClassOf(atrPct, rules), sector: s?.sector ?? u?.sector ?? u?.industry ?? null, ck: null, ckKnown: false,
   };
 }
 
@@ -237,6 +250,8 @@ const FILTERS: readonly FilterDef[] = [
       return r.u.eligible;
     },
   },
+  // Not knowing whether the hits loaded hides the row and counts it, as the other filters do for a missing figure.
+  { key: "ck", active: (f) => f.ck != null, lacks: "no Chartink data (not connected or not loaded)", test: (r, f) => (!r.ckKnown ? null : f.ck === "yes" ? r.ck != null : r.ck == null) },
 ];
 
 const RVOL_OPTIONS = [1.5, 2, 3];
@@ -399,9 +414,11 @@ interface FilterPanelProps {
   rules: ScanRules | null;
   gateReason: string;
   phone: boolean;
+  /** Whether Chartink's hits are loaded, for the "On Chartink" filter. */
+  ckReady: boolean;
 }
 
-function FilterPanel({ f, set, sectors, capReady, rules, gateReason, phone }: FilterPanelProps) {
+function FilterPanel({ f, set, sectors, capReady, rules, gateReason, phone, ckReady }: FilterPanelProps) {
   const id = useId();
   const [pmin, setPmin] = useState(f.pmin != null ? String(f.pmin) : "");
   const [pmax, setPmax] = useState(f.pmax != null ? String(f.pmax) : "");
@@ -460,6 +477,13 @@ function FilterPanel({ f, set, sectors, capReady, rules, gateReason, phone }: Fi
           {(Object.keys(INST_LABEL) as Inst[]).map((k) => <option key={k} value={k}>{INST_LABEL[k]}</option>)}
         </select>
       </Field>
+      <Field label="On Chartink" htmlFor={`${id}-ck`} note={ckReady ? undefined : <span data-testid="desk-scan-f-ck-why">Not available: connect your Chartink dashboard (More · Chartink scans) and its hits must load.</span>}>
+        <select id={`${id}-ck`} data-testid="desk-scan-f-ck" disabled={!ckReady} value={f.ck ?? ""} onChange={(e) => set({ ck: e.target.value || null })} style={selectStyle}>
+          <option value="">Any</option>
+          <option value="yes">On Chartink</option>
+          <option value="no">Not on Chartink</option>
+        </select>
+      </Field>
       <Field label="Prediction horizon" htmlFor={`${id}-hz`} note={<span data-testid="desk-scan-f-horizon-why">The model has next-session estimates only; longer horizons need model work.</span>}>
         <select id={`${id}-hz`} data-testid="desk-scan-f-horizon" disabled value="1d" onChange={() => undefined} style={selectStyle}>
           <option value="1d">Next session</option>
@@ -483,6 +507,7 @@ function filterChipText(k: QKey, f: Filters, minCr: number | null): string {
   if (k === "rvol") return `RVOL ≥ ${f.rvol}×`;
   if (k === "vol") return `Volatility ≤ ${f.vol}%`;
   if (k === "risk") return `Risk: ${f.risk ? RISK_LABEL[f.risk] : ""}`;
+  if (k === "ck") return f.ck === "yes" ? "On Chartink" : "Not on Chartink";
   return `Instrument: ${f.inst ? INST_LABEL[f.inst] : ""}`;
 }
 
@@ -630,6 +655,15 @@ function RiskCell({ r, inline }: { r: Row; inline?: boolean }) {
 /** "₹510.00 +3.00 +0.6%": the last close and its change in rupees and percent. */
 function StockSub({ r }: { r: Row }) {
   if (r.price == null) return <>{r.sector ?? ""}</>;
+  if (r.change == null && r.changePct != null) {
+    // A Chartink hit sends the close and the % change but no rupee change.
+    return (
+      <span className="cp-num">
+        {fmtPrice(r.price)}{" "}
+        <span data-testid="desk-scan-change" style={{ color: TONE_COLOR[r.changePct > 0 ? "mint" : r.changePct < 0 ? "danger" : "ink"] }}>{fmtPct(r.changePct, { signed: true, digits: 1 })}</span>
+      </span>
+    );
+  }
   if (r.change == null || r.changePct == null) return <span className="cp-num">{r.s?.close == null && r.s?.entry != null ? "Entry " : "Close "}{fmtPrice(r.price)}</span>;
   const tone = TONE_COLOR[r.change > 0 ? "mint" : r.change < 0 ? "danger" : "ink"];
   return (
@@ -868,6 +902,7 @@ function ScanTable({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
               </span>
             </div>
             {isFno(r, fno) && <div style={{ padding: "0 18px 8px 50px" }}><FnoLine r={r} fno={fno} plain={plain} /></div>}
+            {r.ck && <div style={{ padding: "0 18px 8px 50px" }}><ChartinkTag hit={r.ck} /></div>}
             {expanded && (
               <div id={`desk-scan-actions-${r.symbol}`} style={{ padding: "0 18px 12px 50px" }}>
                 <ActionPanel r={r} signalDate={signalDate(r)} onOpen={onOpen} plain={plain} />
@@ -919,6 +954,7 @@ function ScanCards({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
               ))}
             </span>
             <FnoLine r={r} fno={fno} plain={plain} />
+            {r.ck && <ChartinkTag hit={r.ck} />}
             <span className="flex min-w-0 flex-wrap items-center" style={{ gap: 8 }}>
               <button type="button" data-testid="desk-scan-act" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : r.symbol)}
                 style={{ padding: "4px 10px", borderRadius: 999, border: "1px solid var(--line-2)", background: expanded ? "var(--bg-3)" : "transparent", color: "var(--cp-ink-2)", fontSize: 11.5, cursor: "pointer", fontFamily: "var(--sans)" }}>
@@ -932,6 +968,75 @@ function ScanCards({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
       })}
     </div>
   );
+}
+
+// ── Chartink-only rows ───────────────────────────────────────────────────
+
+const CK_COLS = "22px minmax(0,1.4fr) minmax(0,2fr) 76px 120px";
+
+/**
+ * The "Chartink scans" category: stocks the user's Chartink scans hit that the AI scanner does not list. Each shows its
+ * scan names, the hit's close and % change, and liquidity where the universe knows it. There is no AI score or probability.
+ */
+function CkRows({ rows, selected, onOpen, minCr, plain, cards }: { rows: Row[]; selected: string | null; onOpen: (sym: string) => void; minCr: number | null; plain: boolean; cards: boolean }) {
+  const open = (e: React.KeyboardEvent, sym: string) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onOpen(sym); } };
+  const names = (r: Row) => (r.ck?.scans ?? []).map((x) => x.name).join(", ");
+  const noScore = <span data-testid="desk-scan-ck-noscore" title="The AI scanner does not list this stock, so it has no AI score or probability" className="cp-num" style={{ fontSize: 10.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>No AI score</span>;
+  if (cards) {
+    return (
+      <div role="list" aria-label="Chartink scan hits" data-testid="desk-scan-table" data-layout="ck-cards" className="flex min-w-0 flex-col">
+        {rows.map((r, i) => (
+          <div key={r.symbol} role="listitem" tabIndex={0} data-testid={`desk-scan-row-${r.symbol}`} data-selected={r.symbol === selected} onClick={() => onOpen(r.symbol)} onKeyDown={(e) => open(e, r.symbol)}
+            className="cp-row-link flex min-w-0 flex-col" style={{ cursor: "pointer", gap: 6, padding: "12px 14px", borderTop: i ? "1px solid var(--cp-line)" : undefined }}>
+            <span className="flex min-w-0 items-center justify-between" style={{ gap: 10 }}>
+              <span style={{ minWidth: 0 }}><StockCell r={r} size={22} /></span>
+              {noScore}
+            </span>
+            <span data-testid="desk-scan-ck-scans" style={{ fontSize: 12, lineHeight: 1.45, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>Chartink: {names(r) || "—"}</span>
+            <span className="flex flex-wrap items-center" style={{ gap: "2px 12px", fontSize: 11.5, color: "var(--cp-ink-3)" }}>
+              <span data-testid="desk-scan-ck-liq">{r.tradedCr != null ? `${minCr != null ? (r.tradedCr >= minCr ? (plain ? "Easy to trade" : "Liquid") : (plain ? "Thinly traded" : "Thin")) + " · " : ""}${tradedText(r.tradedCr)}` : "Liquidity —"}</span>
+              {r.u?.fnoEligible && <span data-testid="desk-scan-ck-fno">F&amp;O</span>}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div role="table" aria-label="Chartink scan hits" data-testid="desk-scan-table" data-layout="ck-table">
+      <div role="row" className="grid" style={{ gridTemplateColumns: CK_COLS, gap: COL_GAP, padding: "10px 18px" }}>
+        {["#", "Stock", "Your Chartink scans", "AI score", "Liquidity"].map((h) => (
+          <span key={h} role="columnheader" style={{ minWidth: 0, fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--cp-ink-3)" }}>{h}</span>
+        ))}
+      </div>
+      {rows.map((r, i) => (
+        <div key={r.symbol} role="row" tabIndex={0} data-testid={`desk-scan-row-${r.symbol}`} data-selected={r.symbol === selected} onClick={() => onOpen(r.symbol)} onKeyDown={(e) => open(e, r.symbol)}
+          className="cp-row-link grid items-center" style={{ gridTemplateColumns: CK_COLS, gap: COL_GAP, padding: "10px 18px", fontSize: 13, color: "var(--cp-ink-2)", borderTop: "1px solid var(--cp-line)", cursor: "pointer" }}>
+          <span role="cell" className="cp-num" style={{ ...cellStyle, fontSize: 11, color: "var(--cp-ink-3)" }}>{rankText(i)}</span>
+          <span role="cell" style={cellStyle}><StockCell r={r} /></span>
+          <span role="cell" data-testid="desk-scan-ck-scans" title={names(r)} style={{ fontSize: 12, lineHeight: 1.4, overflowWrap: "anywhere" }}>{names(r) || "—"}</span>
+          <span role="cell">{noScore}</span>
+          <span role="cell" data-testid="desk-scan-ck-liq" className="cp-num" style={{ ...cellStyle, fontSize: 11.5, color: r.tradedCr == null ? "var(--cp-ink-3)" : "var(--cp-ink-2)" }}>{tradedText(r.tradedCr)}{r.u?.fnoEligible ? " · F&O" : ""}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ckBodyState(ck: ChartinkState, openChartink: () => void): ReactNode | null {
+  if (ck.kind === "loading" || ck.kind === "hits_loading") return <div style={{ padding: 18 }}><LoadingBlock label="Loading your Chartink scans" rows={2} /></div>;
+  if (ck.kind === "not_connected") {
+    return (
+      <div data-testid="desk-scan-ck-connect" style={{ padding: "14px 18px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+        Connect your Chartink dashboard to list your scans here.{" "}
+        <button type="button" data-testid="ck-connect-link" onClick={openChartink} style={{ ...linkBtn, color: "var(--mint)" }}>Connect your Chartink dashboard ›</button>
+      </div>
+    );
+  }
+  if (ck.kind === "source_error" || ck.kind === "hits_error") {
+    return <div data-testid="desk-scan-ck-error" style={{ padding: 18 }}><ErrorBlock title="Your Chartink scans didn’t load" error={ck.error} onRetry={ck.retry} /></div>;
+  }
+  return null;
 }
 
 // ── disclosures (PRD §5.4, §5.8) ─────────────────────────────────────────
@@ -1013,9 +1118,14 @@ const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
 
 export default function ScannerTab() {
   const { mobile } = useCopilotShell();
-  const { symbol, openChart, openTab, persona } = useDesk();
+  const { symbol, openChart, openTab, openChartink, persona } = useDesk();
   const plain = persona === "investor";
   const st = useScanState();
+  const ck = useChartink();
+  const ckHits = ck.kind === "ready" ? ck.hits : null;
+  const ckMap = useMemo(() => hitsBySymbol(ckHits), [ckHits]);
+  // Chartink-only stocks get a universe row too (liquidity, F&O, sector), asked for with the user's list symbols.
+  const ckSyms = useMemo(() => (ckHits?.symbols ?? []).filter((x) => x.in_ai_scanner === false).slice(0, 60).map((x) => x.symbol), [ckHits]);
   const { cat, rank, filters: f, set } = st;
   const scan = useDeskScanner();
   const odds5Q = useDeskOdds("p_up5_1d");
@@ -1032,7 +1142,7 @@ export default function ScannerTab() {
 
   const setups = scan.data?.setups;
   const setupSyms = useMemo(() => (setups ?? []).map((s) => s.symbol), [setups]);
-  const listSyms = useMemo(() => listStocks.map((s) => s.symbol), [listStocks]);
+  const listSyms = useMemo(() => [...listStocks.map((s) => s.symbol), ...ckSyms], [listStocks, ckSyms]);
   const uniQ = useScanUniverse(setupSyms, listSyms, !scan.isPending);
   const buildupQ = useBuildup(true);
   const fno: FnoState = { data: buildupQ.data, pending: buildupQ.isPending, error: buildupQ.isError };
@@ -1056,15 +1166,27 @@ export default function ScannerTab() {
     const syms = new Set<string>(setupBy.keys());
     for (const c of Object.values(uni?.categories ?? {})) for (const s of c?.symbols ?? []) syms.add(s);
     for (const s of names.keys()) syms.add(s);
-    for (const sym of syms) out.set(sym, buildRow(sym, setupBy.get(sym) ?? null, uni?.rows.get(sym) ?? null, bySym5, rules, names.get(sym) ?? null));
+    for (const k of ckMap.keys()) syms.add(k);
+    for (const sym of syms) {
+      const row = buildRow(sym, setupBy.get(sym) ?? null, uni?.rows.get(sym) ?? null, bySym5, rules, names.get(sym) ?? ckMap.get(sym)?.name ?? null);
+      if (ckHits) {
+        row.ckKnown = true;
+        row.ck = ckMap.get(sym) ?? null;
+        // The hit's own close and % change stand in only where the scanner and universe have none.
+        if (row.ck && row.price == null) row.price = row.ck.close;
+        if (row.ck && row.changePct == null) row.changePct = row.ck.pct_change;
+      }
+      out.set(sym, row);
+    }
     return out;
-  }, [setups, uni, listStocks, bySym5, rules]);
+  }, [setups, uni, listStocks, bySym5, rules, ckMap, ckHits]);
 
   const catDef = catOf(cat);
   const inCategory = useMemo(() => {
     const all = [...rowsAll.values()];
-    if (cat === "all") return all.filter((r) => r.s || CATS.some((c) => c.ucat && inCat(r, c, uni)));
+    if (cat === "all") return all.filter((r) => r.s || (r.ck && r.ck.in_ai_scanner === false) || CATS.some((c) => c.ucat && inCat(r, c, uni)));
     if (cat === "reversal") return [];
+    if (cat === "chartink") return all.filter((r) => r.ck && r.ck.in_ai_scanner === false);
     if (cat === "watchlist") return listStocks.map((s) => rowsAll.get(s.symbol.toUpperCase())).filter((r): r is Row => !!r);
     return all.filter((r) => inCat(r, catDef, uni));
   }, [rowsAll, cat, catDef, uni, listStocks]);
@@ -1087,12 +1209,14 @@ export default function ScannerTab() {
     const catField = catDef.ucat ? UNIVERSE_FIELD[uni?.categories[catDef.ucat]?.rankBy ?? ""] : undefined;
     const cv = (r: Row) => (catField && r.u ? catField(r.u) : null);
     const byScore = (a: Row, b: Row) => desc(a.s?.score ?? null, b.s?.score ?? null) || desc(cv(a), cv(b)) || desc(a.rank5, b.rank5) || desc(a.tradedCr, b.tradedCr) || a.symbol.localeCompare(b.symbol);
+    const byChartink = (a: Row, b: Row) => desc(a.ck?.count ?? null, b.ck?.count ?? null) || desc(a.ck?.pct_change ?? null, b.ck?.pct_change ?? null) || a.symbol.localeCompare(b.symbol);
     const sorted = [...kept].sort((a, b) => {
+      if (cat === "chartink") return byChartink(a, b);
       if (rankBy === "score") return byScore(a, b);
       return desc(rankBy === "m10" ? a.rank10 : a.rank5, rankBy === "m10" ? b.rank10 : b.rank5) || byScore(a, b);
     });
     return { rows: sorted, lacking: lack };
-  }, [inCategory, f, minCr, rankBy, catDef, uni]);
+  }, [inCategory, f, minCr, rankBy, catDef, uni, cat]);
 
   if (scan.isPending || (scan.isError && uniQ.isPending)) return <LoadingBlock label="Loading the scanner" rows={5} />;
   if (scan.isError && uniError) {
@@ -1123,6 +1247,7 @@ export default function ScannerTab() {
     ? <>Every scanner setup and every stock in a universe category, ranked by {rankBy === "score" ? "score" : "model rank"}.</>
     : cat === "reversal" ? <span data-testid="desk-scan-reversal-why">{REVERSAL_REASON}</span>
       : cat === "watchlist" ? <>Your own list, with each stock’s scanner and universe figures where they exist.</>
+        : cat === "chartink" ? <span data-testid="desk-scan-ck-rule">Stocks your enabled Chartink scans list that the AI scanner does not. They come from your own scan rules, so they have no AI score or probability and are not validated signals. Most hits first.</span>
         : catDef.bucket ? <>{bucketRule(catDef.bucket, rules)}</>
           : (
             <>
@@ -1147,6 +1272,7 @@ export default function ScannerTab() {
   if (cat === "watchlist" && (lists.isPending || (listId && listQ.isPending))) body = <div style={{ padding: 18 }}><LoadingBlock label="Loading your list" rows={2} /></div>;
   else if (cat === "watchlist" && (lists.isError || listQ.isError)) body = <div style={{ padding: 18 }}><ErrorBlock title="Your lists didn’t load" error={lists.error ?? listQ.error} onRetry={() => { lists.refetch(); listQ.refetch(); }} /></div>;
   else if (cat === "watchlist" && !listId) body = <div data-testid="desk-scan-cat-empty" style={emptyStyle}>You have no lists yet. Make one under Watchlist & alerts, then add stocks to it.</div>;
+  else if (cat === "chartink" && ckBodyState(ck, openChartink)) body = ckBodyState(ck, openChartink);
   else if (catDef.ucat && uniError) body = <div data-testid="desk-scan-cat-error" style={{ padding: 18 }}><ErrorBlock title="This category needs the universe scan, which didn’t load" error={uniQ.error} onRetry={() => uniQ.refetch()} /></div>;
   else if (catDef.ucat && !uni) body = <div style={{ padding: 18 }}><LoadingBlock label="Loading the universe scan" rows={3} /></div>;
   else if (rows.length === 0) {
@@ -1155,18 +1281,25 @@ export default function ScannerTab() {
         {cat === "reversal" ? "No reversal list: no rule is defined."
           : inCategory.length === 1 ? "The one stock in this category does not pass the filters."
             : inCategory.length > 1 ? `None of the ${fmtNum(inCategory.length)} stocks in this category passes the filters.`
+            : cat === "chartink" ? (inCategory.length === 0 ? "None of your Chartink hits is outside the AI scan: there is nothing to list here." : "")
             : cat === "all" ? `No setups or universe matches on the ${dayLabel ?? "latest"} scan.`
               : catDef.bucket ? `No setup in this group on the ${dayLabel ?? "latest"} scan.`
                 : cat === "watchlist" ? "This list has no stocks." : "No stock meets this rule on the latest scan."}
       </div>
     );
-  } else body = mobile ? <ScanCards {...listProps} phone /> : asCards ? <ScanCards {...listProps} phone={false} /> : <ScanTable {...listProps} />;
+  } else if (cat === "chartink") body = <CkRows rows={rows} selected={symbol} onOpen={openChart} minCr={minCr} plain={plain} cards={mobile || asCards} />;
+  else body = mobile ? <ScanCards {...listProps} phone /> : asCards ? <ScanCards {...listProps} phone={false} /> : <ScanTable {...listProps} />;
 
   const notes = (
     <>
       {data?.partial.map((p) => <span key={p} data-testid="desk-scan-partial" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{PARTIAL_NOTE[p]}</span>)}
       {scan.isError && <span data-testid="desk-scan-setups-error" role="alert" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-danger)" }}>The scanner’s own setups (GET /api/positional/watchlist, /picks) didn’t load; only the universe categories are listed. <button type="button" onClick={() => scan.refetch()} style={linkBtn}>Retry</button></span>}
       {f.liquid && minCr != null && <span data-testid="desk-scan-liquid-note" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>Liquid only: average daily traded value (close × volume) over the last {fmtNum(rules?.liquidity?.sessions ?? null)} sessions of at least ₹{fmtNum(minCr)} Cr{rules?.version ? ` (${rules.version})` : ""}.</span>}
+      {(ck.kind === "source_error" || ck.kind === "hits_error") && cat !== "chartink" && (
+        <span data-testid="desk-scan-ck-note" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+          Your Chartink scans didn’t load, so the AI scanner is shown alone. <button type="button" onClick={ck.retry} style={linkBtn}>Retry</button>
+        </span>
+      )}
       {hiddenNote && <span data-testid="desk-scan-hidden" role="status" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{hiddenNote}</span>}
     </>
   );
@@ -1204,6 +1337,7 @@ export default function ScannerTab() {
     <span className="flex min-w-0 flex-col" style={{ gap: 2 }}>
       <TrustLine testId="desk-scan-trust" source="NSE end-of-day scanner · NIDP feature store" mode="eod" asOf={dayLabel} maker="rules"
         method={versions || null} status={scan.isError || uniError || (data?.partial.length ?? 0) > 0 ? "failed" : "ok"} />
+      {ckHits && <ChartinkTrust hits={ckHits} testId="desk-scan-trust-ck" />}
       <TrustLine testId="desk-scan-trust-model" source="Move-odds model" mode="eod" asOf={runInfo ? fmtDay(runInfo.run.data_as_of) : null} maker="model"
         method={runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""} · probability withheld, not marked calibrated` : gate.reason}
         status={oddsQ.isError ? "failed" : "ok"} />
@@ -1224,7 +1358,7 @@ export default function ScannerTab() {
     </span>
   );
 
-  const panel = panelOpen && <FilterPanel f={f} set={set} sectors={sectors} capReady={capReady} rules={rules} gateReason={gate.reason} phone={mobile} />;
+  const panel = panelOpen && <FilterPanel f={f} set={set} sectors={sectors} capReady={capReady} rules={rules} gateReason={gate.reason} phone={mobile} ckReady={ckHits != null} />;
   const pickCat = (c: CatKey) => set({ cat: c === "all" ? null : c });
   const pickRank = (v: RankBy) => set({ rank: v === "score" ? null : v });
   const pickLiquid = (v: boolean) => set({ liquid: v ? "1" : null });

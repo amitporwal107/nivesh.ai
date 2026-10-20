@@ -253,6 +253,8 @@ def technical(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
                         (f"The scanner lists it in the {b.replace('_', ' ')} bucket." if b else "It is in none of the scanner's four buckets.")
                         + " A scanner bucket is a rule match, not a probability and not validated.",
                         rel(sg, d) if b in SETUP_BUCKETS else "neutral", sb))
+    if "chartink" in snaps:
+        out.append(chartink_item(snaps, d))
     sr = snap(snaps, "scan_row")
     if not sr["ok"]:
         out.append(unavailable(g, "scanner_gates", f"Scan snapshot unavailable: {sr['error']}", sr))
@@ -262,6 +264,29 @@ def technical(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
                         "Eligible for the scanner universe." if row.get("eligible") else f"Not in the scanner universe: {row.get('exclusion')}.",
                         "neutral", sr))
     return out
+
+
+def chartink_item(snaps: Dict[str, Any], d: str) -> Dict[str, Any]:
+    """The user's Chartink scans as evidence (rules.RULES["chartink"]["evidence"]). A bullish-tagged hit is an up signal and a bearish-tagged hit a down
+    signal; hits of both tags are neutral. A scan is a rule match the user chose, not validated and not a probability. Only for a bullish or bearish view."""
+    g, ck = "technical", snap(snaps, "chartink")
+    if not ck["ok"]:
+        return unavailable(g, "chartink_scans", f"Chartink scans unavailable: {ck['error']}", ck)
+    data = ck["data"] or {}
+    hits = data.get("hits") or []
+    when = f"fetched {data.get('fetched_at')} for {data.get('scan_date')}"
+    names = [h.get("name") for h in hits]
+    up, down = [h for h in hits if h.get("direction") == "bullish"], [h for h in hits if h.get("direction") == "bearish"]
+    value = {"scans": [{k: h.get(k) for k in ("id", "name", "direction")} for h in hits], "count": len(hits), "enabled_scans": data.get("enabled_scans"),
+             "fetched_at": data.get("fetched_at"), "scan_date": data.get("scan_date"), "mode": data.get("mode")}
+    note = " A scan is a rule match the user chose, not validated and not a probability."
+    if not hits:
+        return item(g, "chartink_scans", value, f"None of the {data.get('enabled_scans')} enabled Chartink scans listed it ({when}).", "neutral", ck)
+    text = f"Listed by {len(hits)} Chartink scan(s) ({when}): " + ", ".join(str(n) for n in names) + "." + note
+    if up and down:
+        return item(g, "chartink_scans", value, text + " Bullish-tagged and bearish-tagged scans both listed it, so it points neither way.", "neutral", ck)
+    signal = "up" if up else "down" if down else None
+    return item(g, "chartink_scans", value, text, rel(signal, d) if d in ("bullish", "bearish") else "neutral", ck)
 
 
 # ── fundamental (context) ────────────────────────────────────────────────────

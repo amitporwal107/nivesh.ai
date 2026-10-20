@@ -28,7 +28,7 @@ from deps import db, get_current_user
 from services.strategy_plan import PLAN_SCHEMA, build_plan, compute_payoff, explain_plan_context, normalise_inputs
 from services.strategy_plan import ideas as ideas_mod
 from services.strategy_plan.plan import digest
-from services.strategy_plan.sources import collect_snapshots
+from services.strategy_plan.sources import attach_symbol_suggestions, collect_snapshots, finish_plan
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/desk/strategy", tags=["desk"])
@@ -70,17 +70,22 @@ async def strategy_plan(request: Request) -> Dict[str, Any]:
     if problems:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
     snaps = await collect_snapshots(request, user["user_id"], inputs, today())
-    return await asyncio.to_thread(build_plan, inputs, snaps, utcnow(), today())
+    plan = await asyncio.to_thread(build_plan, inputs, snaps, utcnow(), today())
+    plan = await attach_symbol_suggestions(plan)
+    return await finish_plan(plan, user["user_id"])
 
 
 @router.post("/ideas")
 async def strategy_ideas(request: Request) -> Dict[str, Any]:
     """Strategies for the top AI opportunities. Reads the scanner and the plan sources, writes nothing, sends nothing to a broker."""
     user = await get_current_user(request)
-    limit, passed, problems, applied = ideas_mod.parse_body(await _body(request))
+    body = await _body(request)
+    limit, passed, problems, applied = ideas_mod.parse_body(body)
+    chartink_limit, cprobs, capplied = ideas_mod.parse_chartink_limit(body)
+    problems, applied = problems + cprobs, applied + capplied
     if problems:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
-    return await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today())
+    return await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today(), chartink_limit)
 
 
 def _check_plan(plan: Any) -> Dict[str, Any]:

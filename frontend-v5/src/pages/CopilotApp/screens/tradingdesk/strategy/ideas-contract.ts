@@ -87,8 +87,20 @@ export const IdeaStrategySchema = z.object({
 }).passthrough();
 export type IdeaStrategy = z.infer<typeof IdeaStrategySchema>;
 
+/** Where an idea came from: the AI scanner, the user's Chartink scans, or both. Absent on an older route. */
+export const IDEA_SOURCES = ["ai_scanner", "chartink", "both"] as const;
+export type IdeaSource = (typeof IDEA_SOURCES)[number];
+export const IdeaChartinkSchema = z.object({
+  scans: z.array(z.object({ id: z.union([z.string(), z.number()]).transform(String), name: z.string(), direction: strOrNull }).passthrough()).catch([]),
+  count: z.number().catch(0),
+  fetched_at: strOrNull,
+}).passthrough();
+export type IdeaChartink = z.infer<typeof IdeaChartinkSchema>;
+
 export const IdeaSchema = z.object({
   rank: z.number().catch(0),
+  source: z.enum(IDEA_SOURCES).nullable().catch(null),
+  chartink: IdeaChartinkSchema.nullable().catch(null),
   symbol: z.string(),
   name: strOrNull,
   scanner: ScannerSchema.catch(() => ScannerSchema.parse({})),
@@ -107,7 +119,25 @@ export const IdeaSchema = z.object({
 }).passthrough();
 export type Idea = z.infer<typeof IdeaSchema>;
 
+/** How the Chartink part of the board went: any state but "ok" means the ideas are the scanner's alone, and `reason` says why. */
+export const SelectionChartinkSchema = z.object({
+  included: z.boolean().nullable().catch(null),
+  state: strOrNull,
+  reason: strOrNull,
+  scan_date: strOrNull,
+  fetched_at: strOrNull,
+  mode: strOrNull,
+  limit: numOrNull,
+  considered: numOrNull,
+  added: numOrNull,
+  excluded: z.array(z.unknown()).catch([]),
+  note: strOrNull,
+  rule: strOrNull,
+}).passthrough();
+export type SelectionChartink = z.infer<typeof SelectionChartinkSchema>;
+
 export const SelectionSchema = z.object({
+  chartink: SelectionChartinkSchema.nullable().catch(null),
   source: strOrNull,
   scan_date: strOrNull,
   rule: strOrNull,

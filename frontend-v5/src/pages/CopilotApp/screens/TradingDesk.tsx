@@ -55,6 +55,7 @@ import { BOTTOM_BAR_SPACE, DeskBottomBar, type BottomKey } from "./tradingdesk/B
 import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
 import { DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskPersona, type DeskState, type DeskTab } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
+import { SymbolSearch } from "./tradingdesk/SymbolSearch";
 import { istParts, marketStatus, useNow } from "./tradingdesk/overview-data";
 
 const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
@@ -68,6 +69,7 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
 
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
 const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
+const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
 
 /** Params only the Strategy Builder uses; they are dropped when the desk leaves it. */
 const BUILDER_PARAMS = ["view", "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date", "cand", "mode", "focus", "capital", "risk_inr", "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry"];
@@ -110,24 +112,31 @@ function matchSetup(setups: DeskSetup[], text: string): string | null {
 
 // ── header pieces ────────────────────────────────────────────────────────
 
-function SearchBox({ onSubmit, autoFocus }: { onSubmit: (text: string) => void; autoFocus?: boolean }) {
+function SearchBox({ onSubmit, autoFocus, persona, setups, column }: { onSubmit: (text: string) => void; autoFocus?: boolean; persona: DeskPersona; setups: DeskSetup[]; column?: boolean }) {
   const [text, setText] = useState("");
+  const top = useMemo(() => setups.slice(0, 6).map((s) => ({ symbol: s.symbol, name: null })), [setups]);
   return (
     <form
       role="search"
       onSubmit={(e) => { e.preventDefault(); const t = text.trim(); if (!t) return; setText(""); onSubmit(t); }}
       className="flex items-center"
-      style={{ flex: "1 1 220px", maxWidth: 380, minWidth: 0, height: 38, gap: 8, padding: "0 6px 0 14px", borderRadius: 999, background: "var(--bg-2)", border: "1px solid var(--line-2)" }}
+      style={{ flex: column ? "none" : "1 1 220px", maxWidth: 380, minWidth: 0, height: 38, gap: 8, padding: "0 6px 0 14px", borderRadius: 999, background: "var(--bg-2)", border: "1px solid var(--line-2)", position: "relative" }}
     >
       <span aria-hidden style={{ color: "var(--cp-ink-3)", fontSize: 15 }}>⌕</span>
-      <input
-        data-testid="desk-search"
+      <SymbolSearch
         value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Search a stock or ask Nivesh…"
-        aria-label="Search any NSE stock by symbol, or ask Nivesh"
+        onChange={setText}
+        onSelect={(symbol) => { setText(""); onSubmit(symbol); }}
+        persona={persona}
+        topSetups={top}
+        anchorToParent
+        inputTestId="desk-search"
+        testIdPrefix="desk-search"
+        placeholder={persona === "investor" ? "Search a company, or ask Nivesh…" : "Search a stock or ask Nivesh…"}
+        ariaLabel="Search any NSE stock by symbol, name or ISIN, or ask Nivesh"
         autoFocus={autoFocus}
-        style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13 }}
+        maxLength={200}
+        inputStyle={{ flex: 1, minWidth: 0, width: "100%", background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13 }}
       />
       <span aria-hidden className="cp-num" style={{ flex: "none", fontSize: 9, letterSpacing: "0.1em", padding: "3px 7px", borderRadius: 999, border: "1px solid var(--line-2)", color: "var(--cp-ink-3)" }}>ENTER</span>
     </form>
@@ -216,7 +225,7 @@ function TabChip({ id, label, num, on, onClick, small }: { id: string; label: st
 
 // ── More ─────────────────────────────────────────────────────────────────
 
-type MoreKey = "copilot" | "fno" | "strategy" | "watchlist" | "saved" | "paper" | "settings";
+type MoreKey = "copilot" | "fno" | "strategy" | "chartink" | "watchlist" | "saved" | "paper" | "settings";
 
 /**
  * More's destinations (PRD §3.1), each a real view. PRD "Learning and
@@ -226,6 +235,7 @@ const MORE: Array<{ key: MoreKey; label: string; note: string }> = [
   { key: "copilot", label: "AI Copilot", note: "Ask about anything on the desk, with sources" },
   { key: "fno", label: "Options & futures lab", note: "NSE F&O: open interest, build-up and option chains (end of day)" },
   { key: "strategy", label: "Strategy Builder", note: "Cash, futures and options plans for one stock, with the evidence and the payoff" },
+  { key: "chartink", label: "Chartink scans", note: "Use your Chartink scans as opportunity sources" },
   { key: "watchlist", label: "Watchlists", note: "Your watchlists and price alerts" },
   { key: "saved", label: "Saved analyses", note: "Copilot threads, screens and questions you kept" },
   { key: "paper", label: "Paper trading", note: "Your paper trades: predicted against actual" },
@@ -326,7 +336,8 @@ export default function TradingDeskScreen() {
   const docked = wide;
   // The desk's Copilot full height in the page: More's AI Copilot wherever it is not docked.
   const strategyView = more && params.get("view") === "strategy";
-  const pageCopilot = more && !docked && !strategyView;
+  const chartinkView = more && params.get("view") === "chartink";
+  const pageCopilot = more && !docked && !strategyView && !chartinkView;
   const moreOn = more || tab === "fno";
   const dockRef = useRef<CopilotDockHandle>(null);
   const pendingAsk = useRef<string | null>(null);
@@ -380,6 +391,7 @@ export default function TradingDeskScreen() {
       extra: src ? { src_kind: src.kind, ...(src.bucket ? { src_bucket: src.bucket } : {}), ...(src.date ? { src_date: src.date } : {}) } : undefined,
     }),
     openStrategyIdeas: (focus) => update({ tab: "more", view: "strategy", extra: { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) } }),
+    openChartink: () => update({ tab: "more", view: "chartink" }),
     askDesk,
     docked,
     persona,
@@ -410,6 +422,7 @@ export default function TradingDeskScreen() {
       else update({ tab: "more" });
     } else if (k === "fno") update({ tab: "fno" });
     else if (k === "strategy") update({ tab: "more", view: "strategy" });
+    else if (k === "chartink") update({ tab: "more", view: "chartink" });
     else if (k === "watchlist") go("page/watchlist");
     else if (k === "saved") go("page/saved");
     else if (k === "paper") openPaper();
@@ -443,7 +456,7 @@ export default function TradingDeskScreen() {
   const moreChips = moreOn && (
     <div data-testid="desk-more-chips" role="group" aria-label="More" className="cp-scroll flex overflow-x-auto" style={{ gap: 6, ...(mobile ? { ...bleed, paddingBottom: 12 } : {}) }}>
       {MORE.map((m) => (
-        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView : m.key === "fno" ? !more && tab === "fno" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
+        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView && !chartinkView : m.key === "chartink" ? chartinkView : m.key === "fno" ? !more && tab === "fno" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
           {m.label}
         </SubChip>
       ))}
@@ -462,6 +475,14 @@ export default function TradingDeskScreen() {
       <div data-testid="desk-panel-strategy" role="tabpanel" aria-label="Strategy Builder" className="flex min-w-0 flex-col">
         <SafeWidget key="strategy" name="Trading desk · strategy builder">
           <Suspense fallback={<LoadingBlock label="Loading the Strategy Builder" rows={4} />}><StrategyBuilder /></Suspense>
+        </SafeWidget>
+      </div>
+    );
+  } else if (chartinkView) {
+    content = (
+      <div data-testid="desk-panel-chartink" role="tabpanel" aria-label="Chartink scans" className="flex min-w-0 flex-col">
+        <SafeWidget key="chartink" name="Trading desk · chartink scans">
+          <Suspense fallback={<LoadingBlock label="Loading Chartink scans" rows={4} />}><ChartinkSettings /></Suspense>
         </SafeWidget>
       </div>
     );
@@ -542,7 +563,7 @@ export default function TradingDeskScreen() {
                 {persona === "trader" ? "Trader" : "Investor"}
               </button>
             </div>
-            {searchOpen && <SearchBox onSubmit={onSearch} autoFocus />}
+            {searchOpen && <SearchBox column onSubmit={onSearch} autoFocus persona={persona} setups={scan.data?.setups ?? []} />}
             {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           </header>
 
@@ -571,7 +592,7 @@ export default function TradingDeskScreen() {
           <span className="cp-eyebrow" style={{ whiteSpace: "nowrap" }}>AI Smart Trading Desk</span>
           {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           <span style={{ flex: "1 1 0", minWidth: 0 }} />
-          <SearchBox onSubmit={onSearch} />
+          <SearchBox onSubmit={onSearch} persona={persona} setups={scan.data?.setups ?? []} />
           <PersonaSwitch persona={persona} onPick={desk.setPersona} />
           <StatusPill />
         </div>

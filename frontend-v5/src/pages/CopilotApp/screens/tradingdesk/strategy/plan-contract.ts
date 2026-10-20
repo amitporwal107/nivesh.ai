@@ -34,6 +34,15 @@ export type Instrument = (typeof INSTRUMENTS)[number];
 const ReasonSchema = z.object({ code: z.string(), message: z.string() }).passthrough();
 export type Reason = z.infer<typeof ReasonSchema>;
 
+/** The stocks an `unknown_symbol` reason offers instead (the route's lookup): symbol, name, whether it has prices. Empty for any other reason. */
+export interface ReasonSuggestion { symbol: string; name: string | null }
+export function reasonSuggestions(r: Reason): ReasonSuggestion[] {
+  const raw = (r as { suggestions?: unknown }).suggestions;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((x) => (x && typeof x === "object" && typeof (x as { symbol?: unknown }).symbol === "string"
+    ? [{ symbol: (x as { symbol: string }).symbol, name: typeof (x as { name?: unknown }).name === "string" ? (x as { name: string }).name : null }] : []));
+}
+
 export const PlanInputsSchema = z.object({
   underlying: z.string(),
   direction: z.string(),

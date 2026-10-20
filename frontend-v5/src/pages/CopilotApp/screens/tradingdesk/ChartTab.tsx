@@ -40,6 +40,7 @@ import {
   type DailyBars, type IndicatorValues, type LiveIndicators, type LivePattern, type LivePatterns, type LiveRead, type RecordRow, type SetupRecord,
 } from "./chart-data";
 import { useDesk } from "./context";
+import { suggestionsFor, useDidYouMean } from "./symbol-lookup-data";
 import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
 import { largestGap, rsiZone, type DailyBar } from "./indicators";
 import { CardHead, RISK_STATUS, RiskDesk, Segmented, TradeScenarioCard } from "./RiskDesk";
@@ -99,6 +100,34 @@ function OverlayChip({ on, onClick, disabled, title, testId, children }: { on: b
     >
       {children}
     </button>
+  );
+}
+
+/** Under the "no daily prices" state: stocks the symbol may have meant (the symbol lookup), each switching the chart. */
+function DidYouMean({ symbol }: { symbol: string }) {
+  const { setSymbol, persona } = useDesk();
+  const q = useDidYouMean(symbol, true);
+  if (q.isPending) return <span data-testid="desk-chart-dym-loading" className="cp-mono-note">Looking for a stock like {symbol}…</span>;
+  if (q.isError) return null;                    // the lookup failed: the explanation above stands alone
+  const sugg = suggestionsFor(q.data, symbol);
+  if (sugg.length === 0) {
+    return (
+      <p data-testid="desk-chart-dym-none" role="status" className="m-0" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
+        {q.data.results.length === 0 ? `No NSE stock matches ${symbol}. ` : ""}{persona === "investor" ? "Check the spelling, or search by company name." : "Check the ticker, or search by company name or ISIN in the box above."}
+      </p>
+    );
+  }
+  return (
+    <div data-testid="desk-chart-dym" role="group" aria-label="Did you mean" className="flex flex-wrap items-center" style={{ gap: 8 }}>
+      <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>Did you mean</span>
+      {sugg.map((r) => (
+        <button key={r.symbol} type="button" className="cp-chip" data-testid={`desk-chart-dym-${r.symbol}`} onClick={() => setSymbol(r.symbol)} style={{ minHeight: 40, display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <StockIcon symbol={r.symbol} name={r.name} size={20} />
+          <span className="cp-num">{r.symbol}</span>{r.name ? <span style={{ color: "var(--cp-ink-3)" }}>({r.name})</span> : null}
+        </button>
+      ))}
+      <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>?</span>
+    </div>
   );
 }
 
@@ -216,8 +245,9 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
   }
   if (state.data?.kind === "none" || !bars || !shown) {
     return (
-      <div data-testid="desk-chart-noprices">
+      <div data-testid="desk-chart-noprices" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
         <EmptyBlock title={`No daily prices on record for ${symbol}`} body="The data platform has no adjusted end-of-day bars for this symbol. Pick a stock from the AI scanner." />
+        <DidYouMean symbol={symbol} />
       </div>
     );
   }

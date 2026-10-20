@@ -201,7 +201,7 @@ def test_include_combinations_switch_and_all_includes_them_by_default():
     i, _ = normalise_inputs({"underlying": "TCS", "direction": "bullish"})
     assert i["include_combinations"] is True and "include_combinations" in i["defaults_applied"]
     assert normalise_inputs({"underlying": "TCS", "direction": "bullish", "include_combinations": "no"})[1][0]["code"] == "bad_include_combinations"
-    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.3") and set(RULES["combinations"]["views"]) == set(cd.COMBO_ORDER)
+    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.4") and set(RULES["combinations"]["views"]) == set(cd.COMBO_ORDER)
 
 
 def test_a_scanner_pick_without_a_bucket_is_read_by_its_stage_and_says_so():
@@ -375,11 +375,14 @@ def client(monkeypatch):
     monkeypatch.setattr(route, "today", lambda: TODAY)
     state: Dict[str, Any] = {"selection": fake_selection(), "calls": [], "live": 0, "peak": 0, "fail": set(), "limit": None, "shared": []}
 
-    async def fake_select(request, limit):
+    async def fake_select(request, limit, chartink=None, chartink_limit=4):
         state["limit"] = limit
         return state["selection"]
 
-    async def fake_shared(user_id):
+    async def fake_index(user_id, today):
+        return {"state": "no_source", "reason": "No Chartink dashboard is connected.", "symbols": {}, "scans": []}
+
+    async def fake_shared(user_id, chartink=None):
         state["shared"].append(user_id)
         return {"regime": src_ok({}, "x"), "sectors": src_ok({}, "x"), "portfolio": src_ok([], "x"), "sector_lists": {}}
 
@@ -397,6 +400,7 @@ def client(monkeypatch):
 
     monkeypatch.setattr(ideas_mod, "select_opportunities", fake_select)
     monkeypatch.setattr(ideas_mod, "shared_for_ideas", fake_shared)
+    monkeypatch.setattr(ideas_mod, "chartink_index", fake_index)
     monkeypatch.setattr(ideas_mod, "collect_snapshots", fake_collect)
 
     async def fake_name(symbol):
@@ -581,7 +585,8 @@ def test_collect_snapshots_uses_the_shared_reads_and_never_re_reads_them(monkeyp
                  "_buildup", "_futures", "_expiries", "_calibration", "_scanner_bucket", "_portfolio"):
         monkeypatch.setattr(src, name, make(name))
     mine = {"regime": src_ok({"key": "bullish"}, "shared"), "sectors": src_fail("shared down", "shared"), "portfolio": src_ok([], "shared"),
-            "scanner_bucket": {"TCS": src_ok({"bucket": "pre_breakout", "item": None}, "shared scanner")}, "sector_lists": {}}
+            "scanner_bucket": {"TCS": src_ok({"bucket": "pre_breakout", "item": None}, "shared scanner")}, "sector_lists": {},
+            "chartink_index": {"state": "no_source", "reason": "MOCK: no dashboard", "symbols": {}, "scans": []}}
     i, _ = normalise_inputs({"underlying": "TCS", "direction": "bullish"})
     snaps = run(src.collect_snapshots(None, "u", i, TODAY, mine))
     assert snaps["regime"] is mine["regime"] and snaps["sectors"] is mine["sectors"] and snaps["portfolio"] is mine["portfolio"]

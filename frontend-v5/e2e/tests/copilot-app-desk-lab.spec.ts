@@ -560,7 +560,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await input.fill("fix short");
     await load.click();
     await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXSHORT loaded");
-    expect(asked).toContain("/api/fno/FIXSHORT/expiries");        // the chain route has no fixture for it; the request is the point
+    await expect.poll(() => asked).toContain("/api/fno/FIXSHORT/expiries");        // the chain route has no fixture for it; the request is the point
     await page.getByTestId("desk-fno-symbol-nifty").click();
 
     // A stock that is not in F&O is named and refused; no chain request is made for it.

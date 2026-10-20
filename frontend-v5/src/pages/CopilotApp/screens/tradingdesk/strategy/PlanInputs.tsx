@@ -13,6 +13,8 @@ import { useId, type CSSProperties, type ReactNode } from "react";
 import { StockIcon } from "../../../components/EntityIcon";
 import { Btn, Section } from "../../../components/ui";
 import { INPUT_STYLE } from "../../trading/parts";
+import { SymbolSearch } from "../SymbolSearch";
+import type { LookupResult } from "../symbol-lookup-data";
 import type { DeskPersona } from "../context";
 import { DIRECTIONS, HORIZONS, INSTRUMENTS, type FieldProblem, type StrategyPlan } from "./plan-contract";
 import {
@@ -67,6 +69,12 @@ export interface PlanInputsProps {
   /** The plan on screen, for the defaults it applied. */
   plan: StrategyPlan | null;
   rulesDefaults: Record<string, unknown>;
+  /** The typed symbol is not an NSE stock the lookup knows: what it offers instead (shown under the box; nothing is built). */
+  symbolHint?: { sym: string; suggestions: LookupResult[] } | null;
+  /** A suggestion was taken ("Use PCJEWELLER"). */
+  onUseSymbol?: (symbol: string) => void;
+  /** The symbol box lost focus with this text (the builder checks it against the lookup). */
+  onSymbolBlur?: (text: string) => void;
 }
 
 const FIELD_OF: Record<string, string> = {
@@ -75,7 +83,7 @@ const FIELD_OF: Record<string, string> = {
   allow_multi_leg: "allow_multi_leg", expiry: "expiry",
 };
 
-export function PlanInputs({ form, onChange, onBuild, pending, problems, persona, plan, rulesDefaults }: PlanInputsProps) {
+export function PlanInputs({ form, onChange, onBuild, pending, problems, persona, plan, rulesDefaults, symbolHint, onUseSymbol, onSymbolBlur }: PlanInputsProps) {
   const id = useId();
   const plain = persona === "investor";
   const set = (patch: Partial<FormState>) => onChange({ ...form, ...patch });
@@ -101,12 +109,25 @@ export function PlanInputs({ form, onChange, onBuild, pending, problems, persona
         <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,240px),1fr))", gap: "14px 18px" }}>
           <Field testId="underlying" label={plain ? "Stock" : "Underlying (NSE symbol)"} htmlFor={`${id}-underlying`} problems={by("underlying")}>
             <span className="flex items-center" style={{ gap: 8 }}>
-              {symOk && <StockIcon symbol={form.sym.trim().toUpperCase()} size={26} />}
-              <input
-                id={`${id}-underlying`} data-testid="in-symbol" value={form.sym} placeholder="e.g. RELIANCE" autoCapitalize="characters" autoComplete="off" spellCheck={false}
-                aria-invalid={by("underlying").length > 0 || undefined} onChange={(e) => set({ sym: e.target.value.toUpperCase() })} style={INPUT_STYLE}
+              <SymbolSearch
+                value={form.sym} onChange={(v) => set({ sym: v.toUpperCase() })} onSelect={(sym) => { set({ sym }); onUseSymbol?.(sym); }}
+                persona={persona} inputId={`${id}-underlying`} inputTestId="in-symbol" testIdPrefix="in-symbol" placeholder="e.g. RELIANCE, or a company name"
+                ariaLabel={plain ? "Stock" : "Underlying (NSE symbol, company name or ISIN)"} inputStyle={INPUT_STYLE} invalid={by("underlying").length > 0}
+                maxLength={40} onBlurText={onSymbolBlur} leading={symOk ? <StockIcon symbol={form.sym.trim().toUpperCase()} size={26} /> : undefined}
               />
             </span>
+            {symbolHint && (
+              <span role="status" data-testid="symbol-hint" className="flex flex-wrap items-center" style={{ gap: 6, fontSize: 12.5, color: "var(--cp-ink-2)" }}>
+                <span data-testid="symbol-hint-text">
+                  {plain ? `We could not find “${symbolHint.sym}”. Did you mean` : `${symbolHint.sym} is not a known NSE symbol. Did you mean`}
+                </span>
+                {symbolHint.suggestions.map((x) => (
+                  <button key={x.symbol} type="button" className="cp-chip" data-testid={`symbol-hint-use-${x.symbol}`} title={x.name ?? undefined} onClick={() => onUseSymbol?.(x.symbol)} style={{ minHeight: 36 }}>
+                    Use {x.symbol}{x.name ? <span style={{ color: "var(--cp-ink-3)" }}> · {x.name}</span> : null}
+                  </button>
+                ))}
+              </span>
+            )}
           </Field>
           <Field testId="expiry" label={plain ? "Option expiry (optional)" : "Expiry (optional)"} htmlFor={`${id}-expiry`} problems={by("expiry")} hint="YYYY-MM-DD. Blank lets the rules pick one.">
             {textInput("expiry", { placeholder: "2026-11-24", inputMode: "text", testId: "in-expiry", fieldId: "expiry" })}

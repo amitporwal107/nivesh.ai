@@ -4,7 +4,7 @@ Change a constant here and bump STRATEGY_RULES_VERSION: a saved plan carries the
 """
 from __future__ import annotations
 
-STRATEGY_RULES_VERSION = "strategy-rules.v1.3 (2026-10-20)"
+STRATEGY_RULES_VERSION = "strategy-rules.v1.4 (2026-10-20)"
 PLAN_SCHEMA = "strategy-plan.v1"
 
 RULES = {
@@ -96,5 +96,24 @@ RULES = {
     },
     "sizing": {"formula": "units = floor(risk budget / risk per unit), capped by floor(capital x max allocation % / "
                           "entry value per unit), rounded down to whole lots"},
+    # The user's Chartink dashboard as a second source of opportunities (services/chartink_desk). A Chartink scan is the user's own screen: a rule
+    # match, not validated, not a probability. Chartink-only stocks (hits that the AI scanner does not list) follow the scanner's ideas, ranked by the
+    # number of enabled bullish scans that listed them, then by 20-session traded value, and pass the same eligibility gates as scanner stocks.
+    "chartink": {
+        "include_default": True,
+        "limit_default": 4, "limit_max": 8,
+        "stale_after_calendar_days": 4,
+        "eod_after_ist": "15:40",
+        "ranking": "Chartink-only ideas follow the AI scanner's ideas; they are ranked by the number of enabled bullish Chartink scans that listed the stock, "
+                   "then by 20-session traded value. That is a count of the user's own scans, not a probability and not a score.",
+        "gates": "the same eligibility gates as scanner stocks (the scan snapshot: price, 20-session traded value, reference data, series EQ or BE, not an ETF, "
+                 "price band, not at its band limit, traded value of at least the liquidity gate); a stock that is not in the snapshot cannot be tested and is excluded",
+        "evidence": "technical.chartink_scans: a bullish-tagged scan hit supports a bullish view and conflicts with a bearish one, a bearish-tagged hit the reverse; "
+                    "hits of both tags are neutral; no hit is neutral; no dashboard, a stale or failed refresh is unavailable",
+        "cash_family": "chartink_screen_signal",
+        "cash_rule": "A stock the scanner lists in no bucket, with at least one enabled bullish Chartink hit, gets a cash candidate whose stop, targets and sizing "
+                     "come from the chart engine's ATR rule (ATR_2X_STOP); the same reward : risk, liquidity and event gates as every other candidate apply",
+        "levels_label": "rule-based levels; the scan is the user's Chartink scan, not validated",
+    },
     "model_estimate": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
 }
