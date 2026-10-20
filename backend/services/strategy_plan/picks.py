@@ -341,7 +341,7 @@ def empty(limit: int, direction: str, now: datetime, index: Dict[str, Any]) -> D
             "dashboard_id": index.get("dashboard_id"), "rules_version": STRATEGY_RULES_VERSION, "calculation_version": CALCULATION_VERSION, "ranking_note": RANKING_NOTE,
             "data_as_of": {"mode": "end_of_day", "chartink": ({k: index.get(k) for k in ("scan_date", "fetched_at", "mode")} if ok else None), "price": None, "fno": None,
                            "scan_eligibility": None},
-            "considered": 0, "evaluated": 0, "not_evaluated": 0, "qualified": 0, "returned": 0, "picks": [], "wait": [], "excluded": [], "empty_reason": index.get("reason"),
+            "considered": 0, "evaluated": 0, "not_evaluated": 0, "qualified": 0, "returned": 0, "coverage_note": None, "picks": [], "wait": [], "excluded": [], "empty_reason": index.get("reason"),
             "shortfall_reason": None, "source_failures": [], "caveats": CAVEATS, "sent_to_broker": False}
 
 
@@ -427,6 +427,8 @@ async def build_picks(request: Request, user_id: str, limit: int, direction: str
     prices = [p["data_as_of"]["price"] for p in results if p.get("data_as_of") and p["data_as_of"].get("price")]
     fnos = [p["data_as_of"]["fno"] for p in results if p.get("data_as_of") and p["data_as_of"].get("fno")]
     out["data_as_of"].update(price=max(prices) if prices else None, fno=max(fnos) if fnos else None)
+    out["coverage_note"] = (f"Scored {out['evaluated']} of the {out['considered']} Chartink stocks with a bullish or bearish scan hit (the most scans first, then the highest traded value; "
+                            f"at most {CFG['evaluate_max']} per request): {out['not_evaluated']} were not scored and {len(excluded)} failed the eligibility gates.")
     out["shortfall_reason"] = shortfall(out, limit)
     out["empty_reason"] = None if out["picks"] else (out["shortfall_reason"] or "No evaluated stock qualified.")
     out["elapsed_ms"] = int((time.monotonic() - t0) * 1000)

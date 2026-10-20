@@ -347,6 +347,7 @@ def test_only_the_evaluation_cap_is_evaluated(monkeypatch):
     out = picks(limit=10)
     assert len(calls["collect"]) == cap == out["evaluated"] and out["not_evaluated"] == 3 and out["considered"] == cap + 3
     assert len(out["picks"]) == 10 and out["qualified"] == cap and out["shortfall_reason"] is None
+    assert out["coverage_note"].startswith(f"Scored {cap} of the {cap + 3} Chartink stocks") and "3 were not scored" in out["coverage_note"]
 
 
 # ── direction ────────────────────────────────────────────────────────────────
