@@ -108,6 +108,14 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
         else:
             probs.append(_p(key, "bad_" + key, f"{key} must be true or false."))
             flags[key] = D[key]
+    if body.get("live_broker_reads") is None:
+        live_reads_on = False
+        applied.append("live_broker_reads")
+    elif isinstance(body["live_broker_reads"], bool):
+        live_reads_on = body["live_broker_reads"]
+    else:
+        probs.append(_p("live_broker_reads", "bad_live_broker_reads", "live_broker_reads must be true or false."))
+        live_reads_on = False
     expiry = body.get("expiry")
     if expiry is not None and ev.day10(expiry) is None:
         probs.append(_p("expiry", "bad_expiry", "expiry must be YYYY-MM-DD."))
@@ -131,7 +139,7 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
     return {"underlying": sym.strip().upper(), "direction": direction, "horizon": horizon, "horizon_days": hdays, "instrument": instrument,
             "capital": capital, "risk_budget_inr": risk_budget, "risk_pct": risk_pct, "max_allocation_pct": alloc,
             "min_reward_risk": min_rr, "avoid_events": flags["avoid_events"], "allow_multi_leg": flags["allow_multi_leg"],
-            "include_combinations": flags["include_combinations"], "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
+            "include_combinations": flags["include_combinations"], "live_broker_reads": live_reads_on, "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
 
 
 # ── context ──────────────────────────────────────────────────────────────────
@@ -307,6 +315,22 @@ def _would_change(reasons: List[Dict[str, Any]]) -> List[str]:
     return out
 
 
+EOD_CAVEAT = "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day."
+LIVE_CAVEAT = ("Prices, the option chain and the F&O data are end of day (one NSE bhavcopy per day). Only the broker bid/ask quotes marked live or delayed "
+               "are read from the user's own broker session, read-only.")
+MARGIN_CAVEAT = "Margin is not estimated (no source exists in this system) and is not the maximum loss."
+MARGIN_LIVE_CAVEAT = ("Margin shown is an estimate from Zerodha's margin calculator, read-only; no order is placed. It covers these legs alone "
+                      "and is not the maximum loss.")
+
+
+def caveats(snaps: Dict[str, Any]) -> List[str]:
+    q = ev.snap(snaps, "broker_quotes")
+    live = q["ok"] and bool((q["data"] or {}).get("quotes"))
+    return ["Conditional research plan, not advice and not an instruction to trade.", LIVE_CAVEAT if live else EOD_CAVEAT,
+            "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
+            MARGIN_CAVEAT, "Nothing is sent to a broker."]
+
+
 def _snapshot_refs(snaps: Dict[str, Any]) -> List[Dict[str, Any]]:
     refs = []
     for k in sorted(snaps):
@@ -397,11 +421,7 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
         "failure_conditions": _failure_conditions(cands, inputs),
         "validation": ledger["validation"], "scenarios": scenarios, "lifecycle": dict(LIFECYCLE),
         "source_snapshots": refs,
-        "caveats": ["Conditional research plan, not advice and not an instruction to trade.",
-                    "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
-                    "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
-                    "Margin is not estimated (no source exists in this system) and is not the maximum loss.",
-                    "Nothing is sent to a broker."],
+        "caveats": caveats(snaps),
         "sent_to_broker": False,
     }
     return plan

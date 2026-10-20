@@ -179,6 +179,7 @@ async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[s
                     plan_in, probs = normalise_inputs(plan_body(setup["symbol"], passed))
                     if probs:
                         raise ValueError("; ".join(p["code"] for p in probs))
+                    plan_in["live_broker_reads"] = False      # ideas never call a broker: 8 plans, no quotes, no margin
                     snap = scanner_snapshot(setup["symbol"], setup["bucket"], setup.get("watch_item"), setup.get("pick"),
                                             sel["watchlist_as_of"] or sel["signal_date"], sel["watchlist_version"])
                     snaps, name = await asyncio.gather(collect_snapshots(request, user_id, plan_in, today, {**shared, "scanner_bucket": {setup["symbol"]: snap}}),

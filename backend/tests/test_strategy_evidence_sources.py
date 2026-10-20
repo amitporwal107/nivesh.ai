@@ -529,3 +529,146 @@ def test_rules_version_was_bumped_for_the_new_constants():
     assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.3")
     for k in ("ownership", "cash_flow", "quotes"):
         assert k in RULES
+
+
+# ── live broker reads in the plan (flag, margin on candidates, leg bid/ask, ideas stay off) ──────────────
+
+import copy
+
+from services.strategy_plan import live_reads as lr
+from services.strategy_plan import plan as pl
+from services.strategy_plan import sources as srcs
+
+
+def test_live_broker_reads_is_off_by_default_and_disclosed():
+    base = {"underlying": "RELIANCE", "direction": "bullish"}
+    i, probs = pl.normalise_inputs(base)
+    assert not probs and i["live_broker_reads"] is False and "live_broker_reads" in i["defaults_applied"]
+    i, _ = pl.normalise_inputs({**base, "live_broker_reads": True})
+    assert i["live_broker_reads"] is True and "live_broker_reads" not in i["defaults_applied"]
+    _, probs = pl.normalise_inputs({**base, "live_broker_reads": "yes"})
+    assert any(p["code"] == "bad_live_broker_reads" for p in probs)
+
+
+def test_the_quote_source_is_not_called_when_the_flag_is_off(monkeypatch):
+    called = []
+
+    async def boom(*a, **k):
+        called.append(1)
+        raise AssertionError("a broker read was attempted")
+
+    monkeypatch.setattr(srcs, "_broker_bid_ask", boom)
+    off = run(srcs._live_quotes("u1", "RELIANCE", chain_snap(), {"live_broker_reads": False}))
+    assert not off["ok"] and "live_broker_reads" in off["error"] and called == []
+    on = run(srcs._safe("q", srcs._live_quotes("u1", "RELIANCE", chain_snap(), {"live_broker_reads": True})))
+    assert called == [1] and not on["ok"]          # the double raised; _safe turns it into a failed snapshot, never an exception
+
+
+def test_ideas_force_the_flag_off_and_make_no_broker_call():
+    import inspect
+    from services.strategy_plan import ideas
+    src = inspect.getsource(ideas)
+    assert 'plan_in["live_broker_reads"] = False' in src
+    assert "attach_live_reads" not in src and "read_margin_estimate" not in src and "read_option_bid_ask" not in src
+
+
+def plan_doc():                                                  # MOCK — not real data
+    leg_a = {"kind": "option", "side": "buy", "quantity": 1, "lot_size": 250, "strike": 1300.0, "option_type": "call", "expiry": "2026-10-27"}
+    leg_b = {"kind": "option", "side": "sell", "quantity": 1, "lot_size": 250, "strike": 1360.0, "option_type": "call", "expiry": "2026-10-27"}
+    fut = {"kind": "future", "side": "buy", "quantity": 1, "lot_size": 250, "expiry": "2026-10-27"}
+    flags = ["Low open interest at 1360"]
+    opt = {"id": "opt1", "segment": "options", "status": "candidate", "legs": [leg_a, leg_b], "payoff": {"margin": None, "margin_reason": "none"},
+           "options_selection": {"preferred_flags": flags}, "warnings": []}
+    twin = {"id": "opt2", "segment": "options", "status": "candidate", "legs": [leg_a, leg_b], "payoff": {"margin": None, "margin_reason": "none"},
+            "options_selection": {"preferred_flags": []}, "warnings": []}
+    fx = {"id": "fut1", "segment": "futures", "status": "candidate", "legs": [fut], "payoff": {"margin": None, "margin_reason": "none"}, "options_selection": None,
+          "warnings": ["Futures losses can exceed the initial margin; no margin estimate exists in this system, so the notional is used for the allocation cap."]}
+    blocked = {"id": "opt3", "segment": "options", "status": "no_trade", "legs": [leg_a], "payoff": {"margin": None, "margin_reason": "none"}, "options_selection": None, "warnings": []}
+    cash = {"id": "cash1", "segment": "cash", "status": "candidate", "legs": [{"kind": "cash", "side": "buy", "quantity": 10, "lot_size": 1}], "payoff": {"margin": None}, "options_selection": None, "warnings": []}
+    return {"inputs": {"underlying": "RELIANCE", "live_broker_reads": True}, "preferred": "opt1", "candidates": [opt, twin, fx, blocked, cash],
+            "alternatives": [{"id": "opt1", "liquidity_flags": flags}, {"id": "opt2", "liquidity_flags": []}],
+            "evidence": [], "evidence_summary": {g: {x: 0 for x in ev.DIRECTIONS} for g in ev.GROUPS},
+            "caveats": ["x", pl.EOD_CAVEAT, "y", pl.MARGIN_CAVEAT], "data_as_of": {"mode": "end_of_day"}, "sent_to_broker": False}
+
+
+class CountingKite(FakeKite):
+    pass
+
+
+def attach(plan, accounts, kite=None, readers=None):
+    return run(lr.attach_live_reads(plan, accounts, "INE002A01018", load_token=lambda d: "tok", is_live=lambda d: d.get("status") == "active",
+                                    readers=readers or {}, kite_factory=(lambda t: kite) if kite else None, now=NOW))
+
+
+def test_margin_is_attached_to_viable_fno_candidates_with_one_call_per_distinct_legs():
+    kite, p = FakeKite(KITE_RESULT), plan_doc()
+    stats = attach(p, [account("zerodha")], kite)
+    by = {c["id"]: c for c in p["candidates"]}
+    for k in ("opt1", "opt2", "fut1"):
+        m = by[k]["payoff"]["margin"]
+        assert m["estimate"] == KITE_RESULT["final"]["total"] and "estimate from Zerodha's margin calculator, read-only; no order is placed" in m["source"]
+        assert by[k]["payoff"]["margin_reason"] is None
+    assert by["opt3"]["payoff"]["margin"] is None and by["cash1"]["payoff"]["margin"] is None      # blocked and cash: not asked
+    assert len(kite.seen) == 2 and stats["margin_calls"] == 2                                       # opt1 == opt2 legs: one call (cached); plus the future
+    items = [i for i in p["evidence"] if i["key"] == "margin_estimate"]
+    assert len(items) == 1 and items[0]["direction"] == "neutral" and p["evidence_summary"]["derivatives"]["neutral"] == 1
+    assert pl.EOD_CAVEAT in p["caveats"] and pl.MARGIN_CAVEAT not in p["caveats"] and any("margin calculator" in c for c in p["caveats"])
+    assert "Futures losses can exceed the initial margin" in by["fut1"]["warnings"][0] and "broker's margin estimate" in by["fut1"]["warnings"][0]
+    assert p["sent_to_broker"] is False
+
+
+def test_no_live_session_means_no_call_and_a_null_margin_with_the_reason():
+    kite, p = FakeKite(KITE_RESULT), plan_doc()
+    stats = attach(p, [account("zerodha", live=False)], kite)
+    assert kite.seen == [] and stats["margin_calls"] == 0
+    for c in p["candidates"]:
+        assert c["payoff"]["margin"] is None
+    assert "no connected Zerodha account" in p["candidates"][0]["payoff"]["margin_reason"]
+    assert p["evidence"][0]["key"] == "margin_estimate" and p["evidence"][0]["direction"] == "unavailable"
+    assert pl.MARGIN_CAVEAT in p["caveats"]
+
+
+def test_a_failing_calculator_is_null_with_the_reason_and_the_plan_survives():
+    p = plan_doc()
+    attach(p, [account("zerodha")], FakeKite(boom=RuntimeError("Token invalid")))
+    assert p["candidates"][0]["payoff"]["margin"] is None and "Token invalid" in p["candidates"][0]["payoff"]["margin_reason"]
+
+
+def test_the_flag_off_touches_nothing():
+    kite, quotes_reader, p = FakeKite(KITE_RESULT), FakeDepth(), plan_doc()
+    p["inputs"]["live_broker_reads"] = False
+    before = copy.deepcopy(p)
+    stats = attach(p, [account("zerodha"), account("icicidirect")], kite, {"icicidirect": ("ICICI Direct", quotes_reader)})
+    assert p == before and kite.seen == [] and quotes_reader.calls == [] and stats == {"margin_calls": 0, "quote_calls": 0}
+
+
+def test_leg_bid_ask_is_shown_wide_spreads_are_flagged_and_direction_is_untouched():
+    good = {"bid": 20.0, "ask": 21.0, "bid_qty": 5, "ask_qty": 5, "ltp": 20.5, "last_traded_at": "2026-10-20T10:29:30+05:30"}
+    wide = {"bid": 2.0, "ask": 3.0, "bid_qty": 5, "ask_qty": 5, "ltp": 2.5, "last_traded_at": "2026-10-20T10:29:30+05:30"}
+    depth = FakeDepth({("CE", 1300.0): good, ("CE", 1360.0): wide})
+    p = plan_doc()
+    stats = attach(p, [account("icicidirect")], None, {"icicidirect": ("ICICI Direct", depth)})
+    opt = p["candidates"][0]
+    ba = opt["options_selection"]["bid_ask"]
+    assert ba["mode"] == "live" and ba["broker"] == "ICICI Direct" and [q["strike"] for q in ba["quotes"]] == [1300.0, 1360.0]
+    assert stats["quote_calls"] == 1 and len(depth.calls) == 1 and [c["strike"] for c in depth.calls[0][3]] == [1300.0, 1360.0]
+    spread = round(1.0 / 2.5 * 100, 2)
+    assert any("1360" in f and f"{spread:g}" in f and "wide spread" in f.lower() for f in opt["options_selection"]["preferred_flags"])
+    assert not any("1300" in f and "wide spread" in f.lower() for f in opt["options_selection"]["preferred_flags"])
+    assert p["alternatives"][0]["liquidity_flags"] == opt["options_selection"]["preferred_flags"]
+    assert opt["status"] == "candidate" and p["data_as_of"]["bid_ask"]["mode"] == "live"
+    assert pl.EOD_CAVEAT not in p["caveats"] and any("live" in c and "end of day" in c for c in p["caveats"])
+
+
+def test_leg_bid_ask_failure_leaves_the_end_of_day_caveat_and_says_why():
+    p = plan_doc()
+    attach(p, [account("icicidirect")], None, {"icicidirect": ("ICICI Direct", FakeDepth(boom=RuntimeError("503")))})
+    ba = p["candidates"][0]["options_selection"]["bid_ask"]
+    assert ba["status"] == "unavailable" and "503" in ba["reason"] and pl.EOD_CAVEAT in p["caveats"]
+
+
+def test_plan_caveat_reads_the_quote_snapshot():
+    assert pl.caveats({})[1] == pl.EOD_CAVEAT
+    live = {"broker_quotes": quote_snapshot()}
+    assert pl.EOD_CAVEAT not in pl.caveats(live) and any("live" in c for c in pl.caveats(live))
+    assert pl.EOD_CAVEAT in pl.caveats({"broker_quotes": src_fail("none", "x")})

@@ -319,6 +319,32 @@ async def _broker_bid_ask(user_id: str, sym: str, chain: Dict[str, Any]) -> Dict
     return await quotes.read_option_bid_ask(accounts, sym, isin, contracts, load_token=sessions.load_token, is_live=sessions.is_live)
 
 
+async def _live_quotes(user_id: str, sym: str, chain: Dict[str, Any], inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """The broker quote read, only when the plan asked for live broker reads (default off; the ideas route never does)."""
+    if not inputs.get("live_broker_reads"):
+        return src_fail("live broker reads are off for this plan (live_broker_reads is false)", "broker quote API")
+    return await _broker_bid_ask(user_id, sym, chain)
+
+
+async def finish_plan(plan: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    """Attach the optional live broker reads (margin, leg bid/ask) to a built plan. A no-op unless the plan asked for them; never raises."""
+    if not (plan.get("inputs") or {}).get("live_broker_reads"):
+        return plan
+    try:
+        from deps import db
+        from services.brokers import sessions
+        from . import live_reads, quotes
+        accounts = await db.broker_accounts.find({"user_id": user_id, "native": True}, {"_id": 0}).to_list(length=20)
+        isin = None
+        if any(a.get("broker") in quotes.default_readers() and sessions.is_live(a) for a in accounts):
+            px = await daas_client.get_stock_price_latest(plan["inputs"]["underlying"])
+            isin = (px or {}).get("isin") if isinstance(px, dict) else None
+        await live_reads.attach_live_reads(plan, accounts, isin, load_token=sessions.load_token, is_live=sessions.is_live)
+    except Exception as e:  # noqa: BLE001 — the live reads are optional; the plan stands without them
+        logger.warning("strategy plan live reads failed: %s", _why(e))
+    return plan
+
+
 async def collect_snapshots(request: Request, user_id: str, inputs: Dict[str, Any], today: date, shared: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Every source snapshot for one plan, read concurrently. Never raises.
 
@@ -361,7 +387,7 @@ async def collect_snapshots(request: Request, user_id: str, inputs: Dict[str, An
             snaps["chain"] = src_fail(why, "NSE F&O bhavcopy expiries")
     else:
         snaps["chain"] = src_fail(f"no expiry list: {ex['error']}", "NSE F&O bhavcopy expiries")
-    snaps["broker_quotes"] = await _safe("broker_quotes", _broker_bid_ask(user_id, sym, snaps["chain"]))
+    snaps["broker_quotes"] = await _safe("broker_quotes", _live_quotes(user_id, sym, snaps["chain"], inputs))
     return snaps
 
 
