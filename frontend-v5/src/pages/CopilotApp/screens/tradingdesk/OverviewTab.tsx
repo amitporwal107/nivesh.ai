@@ -43,7 +43,7 @@ import { lensOf, readConcentration } from "../portfolio/concentration-data";
 import { QueryProblem } from "../trading/parts";
 import { useBrokerAccounts } from "../trading/queries";
 import { useDesk, type DeskPersona } from "./context";
-import { BUCKET_LABEL, LIQUID_MIN_CR, headLabel, useDeskOdds, useDeskScanner, type DeskSetup, type SetupBucket } from "./desk-data";
+import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup, type SetupBucket } from "./desk-data";
 import { GROUP_COLOR, eventWhen, useIntelEvents, type IntelEvent } from "./intel-data";
 import {
   DESK_INDICES, DESK_REGIME_KEYS, DESK_REGIME_LABEL, READINESS_WORDS, RISK_BANDS_TEXT, RISK_CLASS_LABEL, SECTOR_PERIODS,
@@ -1146,10 +1146,10 @@ function TopOpportunitiesCard() {
   const o = odds.data;
   const names = new Map<string, string>();
   if (o?.kind === "final") for (const r of o.data.rows) if (r.company_name) names.set(r.symbol.toUpperCase(), r.company_name);
-  const oddsWhy = odds.isPending ? "loading" : odds.isError ? "didn’t load" : !o ? "—"
-    : o.kind === "final" ? `published for ${dayLabel(o.data.expected_session)}`
-    : o.kind === "not_published" ? `not published for ${dayLabel(o.expectedSession)}`
-    : o.kind === "withheld" ? `withheld: ${o.reason}` : "not enabled for this account";
+  // One gate for every place a probability could print (desk-data.ts probabilityGate): none is calibrated, so none is shown.
+  const gate = probabilityGate(o, persona === "investor");
+  const evidence = o?.kind === "final" ? modelEvidence(o.data.run, o.data.record, persona === "investor") : null;
+  const oddsWhy = odds.isPending ? "Loading the move-odds model." : odds.isError ? "The move-odds model didn’t load." : gate.reason;
   return (
     <Card testId="desk-opps-card">
       <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined} />
@@ -1165,14 +1165,15 @@ function TopOpportunitiesCard() {
         <ol className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
           {rows.map((s, i) => (
             <OppCardRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} name={names.get(s.symbol.toUpperCase()) ?? null}
-              live={live} p={o?.kind === "final" ? o.bySymbol.get(s.symbol.toUpperCase())?.p ?? null : null} />
+              live={live} probabilityWhy={oddsWhy} />
           ))}
         </ol>
       )}
       <div className="flex flex-col" style={{ gap: 6, padding: "10px 18px", borderTop: line }}>
         <span data-testid="desk-opps-legend" style={{ fontSize: 11.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
           <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>Score</b> is the scanner’s rules-based score, 0–100: a rank, not a probability.{" "}
-          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>{headLabel("p_up5_1d")}</b> is the move-odds model’s probability of a +5% move in the next session only ({oddsWhy}); “—” when there is none.{" "}
+          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>{headLabel("p_up5_1d")}</b> is the move-odds model’s estimate for the next session only, and it is {PROBABILITY_WITHHELD.toLowerCase()} on every row: <span data-testid="desk-opps-prob-why">{oddsWhy}</span>
+          {evidence && <> Model evidence, not a probability: <span data-testid="desk-opps-prob-evidence">{evidence}</span>.</>}{" "}
           Horizon = the pick’s planned holding window. Liquidity: 20-session average traded value, liquid at ₹{fmtNum(LIQUID_MIN_CR)} Cr a day or more. Risk: {RISK_BANDS_TEXT}.{" "}
           {persona === "investor" ? "What could go wrong" : "Against"}: the conviction check of GET /api/positional/picks/mine (picks only).{" "}
           Company names come from the move-odds rows when published; the scanner sends symbols only.
@@ -1185,8 +1186,8 @@ function TopOpportunitiesCard() {
   );
 }
 
-function OppCardRow({ s, rank, persona, watchAsOf, name, live, p }: {
-  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; p: number | null;
+function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy }: {
+  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; probabilityWhy: string;
 }) {
   const { openChart } = useDesk();
   const close = latestClose(s, watchAsOf);
@@ -1245,8 +1246,8 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, p }: {
           <span data-testid="desk-opp-score" className="cp-num" title="Rules-based scanner score, 0–100 (not a probability)" style={{ fontSize: 11, color: s.score != null && s.score >= 80 ? "var(--mint)" : "var(--cp-ink-2)", whiteSpace: "nowrap" }}>
             Score {s.score == null ? "—" : `${fmtNum(s.score)}/100`}
           </span>
-          <span data-testid="desk-opp-prob" className="cp-num" title={`${headLabel("p_up5_1d")} — the move-odds model, next session only`} style={{ fontSize: 10.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
-            P(+5% next session) {p == null ? "—" : fmtPct(p * 100, { digits: 1 })}
+          <span data-testid="desk-opp-prob" data-state="withheld" className="cp-num" title={`${headLabel("p_up5_1d")}: ${probabilityWhy}`} style={{ fontSize: 10.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
+            P(+5% next session) {PROBABILITY_WITHHELD}
           </span>
           {up != null && <span data-testid="desk-opp-upside" className="cp-num" style={{ fontSize: 10.5, color: up < 0 ? "var(--cp-danger)" : "var(--mint)", whiteSpace: "nowrap" }}>to target {fmtPct(up, { signed: true, digits: 1 })}</span>}
         </span>

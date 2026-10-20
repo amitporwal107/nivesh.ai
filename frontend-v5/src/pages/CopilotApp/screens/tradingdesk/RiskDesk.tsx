@@ -39,7 +39,7 @@ import { Btn, ErrorBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, type Tone } 
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { setupLabel, useDeskLevels, useScenario, useStockOdds, type DeskLevels, type Scenario, type ScenarioInputs } from "./chart-data";
 import { useDesk } from "./context";
-import { LIQUID_MIN_CR, useDeskOdds, useDeskScanner, type DeskSetup, type SetupStatus } from "./desk-data";
+import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup, type SetupStatus } from "./desk-data";
 import { useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
 import { largestGap, type DailyBar } from "./indicators";
 import { TrustLine } from "./trust";
@@ -226,13 +226,12 @@ function useRiskFigures(symbol: string, setup: DeskSetup | null) {
   let pTone: Tone = "ink";
   const head = plain ? "Chance of +5% next day" : "P(+5% next session)";
   if (p != null) {
-    pValue = pct1(p);
-    if (allPassed) {
-      pTone = "mint";
-      pNote = <>{head} · {run ? fmtDay(run.target_session) : "next session"}{odds?.kind === "final" ? <> · base rate {pct1(odds.data.base_rate)}</> : null}</>;
-    } else {
-      pNote = <>{head}. Not shown as high-confidence: {passed} of {checks.length} gate checks passed.</>;
-    }
+    // The one probability gate (desk-data.ts): the estimate is not marked calibrated, so the number is never printed,
+    // whatever the five checks say. The checks still run, and the model's version, run date and record stay on screen.
+    const gate = probabilityGate(odds, plain, stock?.kind === "ok");
+    const evidence = modelEvidence(run, record, plain);
+    pValue = PROBABILITY_WITHHELD;
+    pNote = <>{head} · {gate.reason}{evidence ? <> Evidence, not a probability: {evidence}.</> : null} {passed} of {checks.length} gate checks passed.</>;
   } else if (locked) {
     pNote = "Move probabilities are not enabled for this account.";
   } else if (withheld) {

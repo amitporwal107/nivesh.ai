@@ -28,6 +28,7 @@ import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import { moveOddsService, type MoveFinal, type MoveHead } from "@/services/adapters/moveOdds.adapter";
 import { useScannerRoutes, type ScannerRoutes } from "../trading/queries";
+import { fmtDay } from "../trading/parts";
 
 type Raw = Record<string, unknown>;
 const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
@@ -600,9 +601,11 @@ export function headLabel(head: MoveHead): string {
  * a probability — is shown instead. Whether that band record counts as calibration is the owner's decision (gap
  * matrix U4). Until a route sends such a flag the answer is always "not shown", and the type says so.
  */
-export function probabilityGate(odds: DeskOdds | undefined, plain = false): { shown: false; reason: string } {
+export function probabilityGate(odds: DeskOdds | undefined, plain = false, stockEstimate = false): { shown: false; reason: string } {
   if (!odds) return { shown: false, reason: plain ? "Loading the model." : "Loading the move-odds model." };
-  if (odds.kind === "final") {
+  // `stockEstimate`: the per-stock route (GET /api/move-odds/stocks/{symbol}) answered with an estimate when the run
+  // list did not carry the stock. It has no calibration flag either, so it is withheld for the same reason.
+  if (odds.kind === "final" || (stockEstimate && odds.kind === "not_published")) {
     return {
       shown: false,
       reason: plain
@@ -613,4 +616,19 @@ export function probabilityGate(odds: DeskOdds | undefined, plain = false): { sh
   if (odds.kind === "not_published") return { shown: false, reason: `Not published for ${odds.expectedSession} yet.` };
   if (odds.kind === "withheld") return { shown: false, reason: `The model's run was withheld: ${odds.reason}.` };
   return { shown: false, reason: "Move probabilities are not enabled for this account." };
+}
+
+/** The one word every place prints where a probability would go. */
+export const PROBABILITY_WITHHELD = "Withheld";
+
+/**
+ * The model's evidence, shown in place of a probability: its version, the run date and the out-of-sample record.
+ * It describes the model, not this stock, and it is not a probability. Null when the run is not available.
+ */
+export function modelEvidence(run: MoveFinal["run"] | null | undefined, record: MoveFinal["record"] | null | undefined, plain = false): string | null {
+  if (!run) return null;
+  const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+  const out = [`${plain ? "Model" : "Move-odds"} ${run.model}`, `data as of ${fmtDay(run.data_as_of)}`, `for ${fmtDay(run.target_session)}`];
+  if (record) out.push(`out of sample ${record.window_label}: top-10 hit rate ${pct(record.top10_hit_rate)} vs a base rate of ${pct(record.base_rate)} over ${record.sessions} sessions`);
+  return out.join(" · ");
 }
