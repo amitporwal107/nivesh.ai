@@ -438,7 +438,9 @@ async def attach_symbol_suggestions(plan: Dict[str, Any]) -> Dict[str, Any]:
         msg = f"No price history for {sym}: {label(listed)} is on the NSE symbol master, but the data platform holds no end-of-day bars for it."
     else:
         msg = f"No price history for {sym}."
-    if sugg:
+    if strong and strong["has_prices"] is not False:
+        msg += f" Did you mean {label(strong)}?"
+    elif sugg:
         msg += " Did you mean " + (label(sugg[0]) if len(sugg) == 1 else ", ".join(label(s) for s in sugg[:3])) + "?"
     elif not listed:
         msg += f" No NSE stock matches {sym}."

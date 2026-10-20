@@ -103,8 +103,21 @@ def damerau_ok():
     return sl.damerau("RELIANCE", "RELIANSE", 2) == 1 and sl.damerau("ABCD", "BACD", 2) == 1 and sl.damerau("ABC", "XYZ", 1) == 2
 
 
+def test_name_word_typos_are_tight():
+    assert "HDFCBANK" in syms(find("hdfc")) and find("IDFC", u=universe(ROWS + [row("IDFCFIRSTB", "IDFC First Bank Limited")]))[0]["symbol"] == "IDFCFIRSTB"
+    assert find("jewler") == []                                                          # two edits on an 8-letter word: not offered
+    assert find("BORGLA") == []                                                          # nothing within the rules: no invented neighbour
+    assert find("PCJEWELLERS")[0]["symbol"] == "PCJEWELLER" and syms(find("PCJEWELLERS")) == ["PCJEWELLER"]
+
+
+def test_contains_never_spans_two_words_of_a_name():
+    u = universe(ROWS + [row("FORTIS", "Fortis Healthcare Limited", mc=1)])
+    assert "FORTIS" not in syms(find("rel", u=u, limit=20))                              # "HealthCARE LImited" holds REL only across a word break
+    assert find("jewel")[0]["symbol"] == "PCJEWELLER"
+
+
 def test_typo_in_a_company_word():
-    r = find("jewelery")
+    r = find("jeweler")                                                    # one edit from the name word JEWELLER
     assert r and r[0]["symbol"] == "PCJEWELLER"
 
 
@@ -305,6 +318,26 @@ def test_fallback_to_the_plain_symbol_list_leaves_price_days_unknown(client, mon
     monkeypatch.setattr(sl.daas_client, "get_raw", old_daas)
     b = client.get("/api/markets/symbol-lookup?q=reliance", headers=client.h).json()
     assert b["exact"]["has_prices"] is None and b["exact"]["last_price_date"] is None and "not deployed" in b["source"]
+
+
+def test_fallback_takes_fno_cap_and_price_day_from_the_scan_snapshot_only_for_stocks_in_it(client, monkeypatch):
+    sl.reset_cache()
+
+    async def old_daas(path, params=None, timeout=10.0):
+        if path == "/symbols/universe":
+            return 404, None
+        return 200, {"data": [{"symbol": "RELIANCE", "company_name": "Reliance Industries Limited", "isin": "INE002A01018"},
+                              {"symbol": "ZOMATO", "company_name": "Zomato Limited", "isin": "INE758T01015"}]}
+    monkeypatch.setattr(sl.daas_client, "get_raw", old_daas)
+
+    async def snap():
+        return {"rows": [{"symbol": "RELIANCE", "fno_eligible": True, "market_cap_cr": 1500000, "price_date": "2026-10-19"}]}
+    from routes import positional
+    monkeypatch.setattr(positional, "_scan_snapshot", snap)
+    r = client.get("/api/markets/symbol-lookup?q=reliance", headers=client.h).json()["exact"]
+    assert r["fno_eligible"] is True and r["has_prices"] is True and r["last_price_date"] == "2026-10-19" and r["in_scanner"] is True
+    z = client.get("/api/markets/symbol-lookup?q=zomato", headers=client.h).json()["exact"]
+    assert z["has_prices"] is None and z["in_scanner"] is False        # not in the scan: price history unknown, never "no prices"
 
 
 # ── the plan route ───────────────────────────────────────────────────────────

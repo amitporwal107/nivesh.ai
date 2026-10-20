@@ -33,8 +33,9 @@ ISIN_RE = re.compile(r"^IN[A-Z0-9]{10}$")
 ISIN_PREFIX_MIN = 4                   # "INE0" and longer, starting IN, is read as a partial ISIN
 DEFAULT_LIMIT, MAX_LIMIT = 8, 20
 MAX_EDIT_SHORT, MAX_EDIT_LONG = 1, 2  # Damerau-Levenshtein on the symbol
-SHORT_SYMBOL_LEN = 5                  # a text up to this long is allowed one edit only; under MIN_FUZZY_LEN none
+SHORT_SYMBOL_LEN = 7                  # a text up to this long is allowed one edit only; under MIN_FUZZY_LEN none
 MIN_FUZZY_LEN = 3
+NAME_WORD_LONG = 9                    # a company-name word typo: one edit, two from this length, and the first letter must agree
 STRONG_SUGGESTION_MAX_EDIT = 1        # "exactly one strong suggestion" for the plan route: a variant or one edit
 MAX_RECENT = 8
 # Match classes, best first. The tier decides the order; inside a tier: has prices, bigger market cap, symbol.
@@ -89,10 +90,11 @@ def _words(text: str) -> List[Tuple[str, int, int]]:
 class Universe:
     """The symbol rows with the in-memory maps the search uses (symbol and name-word prefix lists, ISIN map)."""
 
-    def __init__(self, rows: List[Dict[str, Any]], source: str, as_of: Optional[str], scanner: Optional[set]):
+    def __init__(self, rows: List[Dict[str, Any]], source: str, as_of: Optional[str], scanner: Optional[set], prices_complete: Optional[bool] = None):
         self.source, self.as_of = source, as_of
         self.entries: Dict[str, Dict[str, Any]] = {}
-        have_prices = any(r.get("last_price_date") for r in rows)
+        # Is a missing last_price_date a fact (the universe route lists every symbol with bars) or just not known (the fallback)?
+        have_prices = any(r.get("last_price_date") for r in rows) if prices_complete is None else prices_complete
         for r in rows:
             sym = str(r.get("symbol") or "").strip().upper()
             if not sym or sym in self.entries:
@@ -108,7 +110,7 @@ class Universe:
                 "series": r.get("series"), "sector": r.get("sector"), "industry": r.get("industry"),
                 "fno_eligible": r["fno_eligible"] if isinstance(r.get("fno_eligible"), bool) else None,
                 "in_scanner": (sym in scanner) if scanner is not None else None,
-                "last_price_date": last, "has_prices": (last is not None) if have_prices else None, "_mc": mc or 0.0,
+                "last_price_date": last, "has_prices": True if last else (False if have_prices else None), "_mc": mc or 0.0,
                 "_words": _words(r.get("company_name") or ""),
             }
             self.entries[sym]["_joined"] = "".join(w for w, _, _ in self.entries[sym]["_words"])
@@ -205,7 +207,7 @@ def search(u: Universe, q: str, limit: int = DEFAULT_LIMIT, fno_only: bool = Fal
                 add(_hit(u.entries[s], "contains", "symbol", _range(s, compact), []))
         if len(best) < limit * 4:
             for s, e in u.entries.items():
-                if e["name"] and s not in best and compact in e["_joined"]:
+                if e["name"] and s not in best and (any(compact in w for w, _, _ in e["_words"]) if len(tokens) <= 1 else q in " ".join(w for w, _, _ in e["_words"])):
                     add(_hit(e, "name", "name", [], _range(e["name"], q) or _range(e["name"], compact)))
     # typo tolerance: only when the text is not already well served
     if len(best) < limit and len(compact) >= MIN_FUZZY_LEN:
@@ -218,8 +220,8 @@ def search(u: Universe, q: str, limit: int = DEFAULT_LIMIT, fno_only: bool = Fal
                 add(_hit(u.entries[s], "edit_distance", "symbol", [], [], d))
         if len(tokens) == 1 and len(tokens[0]) >= MIN_FUZZY_LEN + 1:
             t = tokens[0]
-            wcap = MAX_EDIT_SHORT if len(t) <= SHORT_SYMBOL_LEN else MAX_EDIT_LONG
-            near = [w for w in u.distinct_words if abs(len(w) - len(t)) <= wcap and damerau(t, w, wcap) <= wcap]
+            wcap = MAX_EDIT_LONG if len(t) >= NAME_WORD_LONG else MAX_EDIT_SHORT
+            near = [w for w in u.distinct_words if w[0] == t[0] and abs(len(w) - len(t)) <= wcap and damerau(t, w, wcap) <= wcap]
             if near:
                 near_set = set(near)
                 for s, e in u.entries.items():
@@ -273,11 +275,17 @@ async def _load() -> Universe:
     try:
         from routes import positional
         snap = await positional._scan_snapshot()
-        scanner = {str(r.get("symbol") or "").upper() for r in snap["rows"]}
+        scan_rows = {str(r.get("symbol") or "").upper(): r for r in snap["rows"]}
+        scanner = set(scan_rows)
+        if source.startswith("DaaS /v1/symbols ("):
+            # The universe route is missing: take the F&O flag, market cap and last price day from the scan snapshot for the stocks in it.
+            rows = [{**r, **{k: scan_rows[str(r.get("symbol") or "").upper()].get(src_k) for k, src_k in
+                             (("fno_eligible", "fno_eligible"), ("market_cap_cr", "market_cap_cr"), ("last_price_date", "price_date"))}}
+                    if str(r.get("symbol") or "").upper() in scan_rows else r for r in rows]
     except Exception as e:  # noqa: BLE001 — the scanner flag is optional: unknown, never "not in scan"
         logger.warning("symbol lookup: scan snapshot unavailable: %s", e)
     dates = [str(r["last_price_date"])[:10] for r in rows if r.get("last_price_date")]
-    return Universe(rows, source, max(dates) if dates else None, scanner)
+    return Universe(rows, source, max(dates) if dates else None, scanner, prices_complete=False if source.startswith("DaaS /v1/symbols (") else None)
 
 
 async def get_universe(force: bool = False) -> Universe:
