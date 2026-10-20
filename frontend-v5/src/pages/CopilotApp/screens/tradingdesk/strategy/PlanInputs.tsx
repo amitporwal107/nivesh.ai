@@ -249,6 +249,7 @@ function DefaultChips({ plan, form, onChange, plain }: { plan: StrategyPlan; for
           </li>
         ))}
       </ul>
+      <span data-testid="defaults-reason" style={note}>Each of these is the default of {plan.rules_version} (rules.defaults) because the input was left blank. Change one here, or in the form above, and build again.</span>
     </div>
   );
 }

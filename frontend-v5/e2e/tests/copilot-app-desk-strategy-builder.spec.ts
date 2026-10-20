@@ -787,9 +787,9 @@ test.describe("MOCK — not real data: Strategy Builder screenshots", () => {
         await page.setViewportSize({ width: w, height: h });
         await open(page, { plan: name }, `&sym=RELIANCE&direction=bullish&instrument=${name === "all" ? "all" : name === "notrade" || name === "wait" || name === "insufficient" ? "all" : name}`);
         await build(page);
+        await page.getByTestId("plan-summary").scrollIntoViewIfNeeded();
         await page.waitForTimeout(600);
         await page.screenshot({ path: path.join(SHOTS as string, `sb-${name}-${tag}.png`), fullPage: false });
-        await page.getByTestId("plan-view").scrollIntoViewIfNeeded();
         const g = page.getByTestId("plan-graphs");
         if (await g.count()) { await g.scrollIntoViewIfNeeded(); await page.waitForTimeout(400); await page.screenshot({ path: path.join(SHOTS as string, `sb-${name}-${tag}-graphs.png`) }); }
         else { await page.getByTestId("plan-status-reasons").scrollIntoViewIfNeeded().catch(() => {}); await page.screenshot({ path: path.join(SHOTS as string, `sb-${name}-${tag}-b.png`) }); }
