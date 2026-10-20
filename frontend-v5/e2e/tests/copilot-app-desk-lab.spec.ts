@@ -761,6 +761,25 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
   });
 
+  test("paper strategies: Build a strategy opens the Strategy Builder for the stock with the chain date as its source; an index has no such button", async ({ page }) => {
+    await fnoData(page);
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-strategies").click();
+    await expect(page.getByTestId("desk-fno-strat-build")).toHaveCount(0);       // NIFTY is an index: plans are for one stock
+    await page.getByTestId("desk-fno-view-buildup").click();
+    await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-fno-strat-build").click();
+    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/sym=FIXFNO/);
+    await expect(page).toHaveURL(/src_kind=lab/);
+    await expect(page).toHaveURL(/src_date=2026-10-12/);
+    await expect(page.getByTestId("in-symbol")).toHaveValue("FIXFNO");
+    await expect(page.getByTestId("builder-source")).toHaveText("Started from the Options & futures lab, chain as of 12 Oct 2026");
+  });
+
   test("paper strategies: rules-based cards from build-up, walls and IV; only Cash · delivery posts a paper trade", async ({ page }) => {
     await fnoData(page);
     const posted: unknown[] = [];

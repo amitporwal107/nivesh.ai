@@ -543,7 +543,7 @@ export interface NewPaperTrade {
   entry_price: number;
   stop_price: number;
   target_price: number | null;
-  source: { kind: "scanner"; bucket?: string; signal_date?: string };
+  source: { kind: "scanner" | "strategy_plan"; bucket?: string; signal_date?: string };
   /** PRD §13.4, all optional: how the entry fills, how long it waits, the most sessions to hold, when the signal was
    *  generated, the strategy's version and why. */
   entry_rule?: EntryRule;

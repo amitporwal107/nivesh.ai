@@ -813,6 +813,22 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-row-FIXACC").getByTestId("desk-scan-mrank")).toHaveText("100th pct");
   });
 
+  test("SP-10 the Scanner row's actions open the Strategy Builder with the stock and the scan it came from in the URL", async ({ page }) => {
+    await page.setViewportSize({ width: 1360, height: 900 });
+    await scanMocks(page);
+    await page.goto(DESK_SCAN);
+    await page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-act").click();
+    await page.getByTestId("desk-scan-actions-FIXBRK").getByTestId("desk-scan-act-strategy").click();
+    await expect(page).toHaveURL(/tab=more/);
+    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/sym=FIXBRK/);
+    await expect(page).toHaveURL(/src_kind=scanner/);
+    await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
+    await expect(page).toHaveURL(/src_date=2026-10-13/);
+    await expect(page.getByTestId("in-symbol")).toHaveValue("FIXBRK");
+    await expect(page.getByTestId("builder-source")).toHaveText("Started from the scanner: breakout confirmed, scan 13 Oct 2026");
+  });
+
   test("SP-9 actions: open the analysis, add to a list (POST body), paper trade at the setup's levels (POST body); nothing else is written", async ({ page }) => {
     await page.setViewportSize({ width: 1360, height: 900 });
     const { listWrites } = await scanMocks(page);
@@ -1653,6 +1669,19 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-gate-none")).toContainText("not judged, not failed");
     // the calculator is open and works on the user's own levels
     await expect(page.getByTestId("desk-scn-editor")).toHaveCount(1);
+  });
+
+  test("SP-11 Chart opportunity detail, section 7, links to the Strategy Builder for the symbol with the scan it carries", async ({ page }) => {
+    await chartMocks(page);
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await page.getByTestId("desk-detail-levels-toggle").click();
+    await page.getByTestId("desk-lvl-strategy").click();
+    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/sym=FIXBRK/);
+    await expect(page).toHaveURL(/src_kind=chart/);
+    await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
+    await expect(page).toHaveURL(/src_date=2026-10-13/);
+    await expect(page.getByTestId("builder-source")).toContainText("Started from Chart Analysis: scanner bucket breakout confirmed");
   });
 
   test("not on the scanner: the rule's levels fill the section, the calculator and the full-chart link, labelled; the scanner's win when present", async ({ page }) => {

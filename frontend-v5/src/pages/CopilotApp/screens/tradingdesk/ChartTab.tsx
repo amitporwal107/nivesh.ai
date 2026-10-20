@@ -895,7 +895,9 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   symbol: string; setup: DeskSetup | null; bars: DailyBar[] | null; barsQ: ReturnType<typeof useDailyBars>;
   liveQ: ReturnType<typeof useLiveIndicators>; company: string | null; date: string | null; phone?: boolean;
 }) {
-  const { persona } = useDesk();
+  const { persona, openStrategy } = useDesk();
+  const scanQ = useDeskScanner();
+  const scanIso = setup ? (setup.inPicks ? scanQ.data?.signalDate : scanQ.data?.watchAsOf) ?? null : null;
   const plain = persona === "investor";
   const [open, setOpen] = useState<Set<SectionKey>>(() => new Set());
   const toggle = (k: SectionKey) => setOpen((s) => {
@@ -1113,6 +1115,10 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
         Size them in the {phone ? "trade scenario below" : "risk desk"}; nothing is sent to a broker.{" "}
         <a data-testid="desk-lvl-full" href={href} style={{ color: "var(--mint)" }}>Open full chart with these levels ↗</a>
       </span>
+      <button type="button" data-testid="desk-lvl-strategy" onClick={() => openStrategy(symbol, { kind: "chart", bucket: setup?.bucket ?? null, date: scanIso })}
+        style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12.5, color: "var(--mint)", fontFamily: "var(--sans)" }}>
+        Build a strategy for {symbol} ›
+      </button>
     </>
   );
 
