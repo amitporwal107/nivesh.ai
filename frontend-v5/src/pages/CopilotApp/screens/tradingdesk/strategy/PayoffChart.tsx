@@ -53,8 +53,6 @@ const MARKER_COLOR: Record<PayoffMarker["kind"], string> = {
 export interface PayoffChartProps {
   expiry: PayoffExpiry | null | undefined;
   preExpiry: PayoffPreExpiry | null | undefined;
-  /** Why the pre-expiry estimate is not in the answer (shown with the disabled tab). */
-  preExpiryReasons?: string[];
   /** The underlying's last close. */
   referencePrice: number;
   markers?: PayoffMarker[];
@@ -78,13 +76,8 @@ function nearestIndex(grid: number[], price: number): number {
   return best;
 }
 
-function greekAt(g: number | Array<number | null> | null | undefined, i: number): number | null {
-  if (g == null) return null;
-  return Array.isArray(g) ? (g[i] ?? null) : g;
-}
-
 export function PayoffChart({
-  expiry, preExpiry, preExpiryReasons = [], referencePrice, markers = [],
+  expiry, preExpiry, referencePrice, markers = [],
   defaultMode = "expiry", defaultBasis = "net", defaultShowLegs = false, compact = false, stale = false, persona = "trader",
 }: PayoffChartProps) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
@@ -94,8 +87,10 @@ export function PayoffChart({
   const [showLegs, setShowLegs] = useState(defaultShowLegs);
   const [active, setActive] = useState<number | null>(null);
 
-  const mode: PayoffMode = modeWanted === "pre" && preExpiry ? "pre" : "expiry";
-  const series: Series | null = mode === "pre" && preExpiry ? preExpiry : expiry ?? null;
+  // The estimate is usable only when it carries a grid: a requested estimate that could not price a leg has none.
+  const preSeries: Series | null = preExpiry && preExpiry.grid && preExpiry.gross && preExpiry.net ? { grid: preExpiry.grid, gross: preExpiry.gross, net: preExpiry.net } : null;
+  const mode: PayoffMode = modeWanted === "pre" && preSeries ? "pre" : "expiry";
+  const series: Series | null = mode === "pre" && preSeries ? preSeries : expiry ?? null;
   const legsAvailable = mode === "expiry" && !!expiry && expiry.per_leg.length > 1;
   const legsOn = showLegs && legsAvailable;
 
@@ -211,8 +206,6 @@ export function PayoffChart({
   };
 
   const g = preExpiry?.greeks ?? null;
-  const showGreeks = mode === "pre" && g != null;
-  const perPoint = g ? Object.values(g).some((v) => Array.isArray(v)) : false;
 
   const maxProfit = expiry ? (expiry.profit_unbounded ? "Unlimited" : expiry.max_profit == null ? DASH : rs(expiry.max_profit, { signed: true })) : DASH;
   const maxLoss = expiry ? (expiry.loss_unbounded ? "Unlimited" : expiry.max_loss == null ? DASH : rs(expiry.max_loss)) : DASH;
@@ -223,8 +216,8 @@ export function PayoffChart({
     `${mode === "expiry" ? "Payoff at expiry" : `Pre-expiry estimate for ${preExpiry?.date ?? "the chosen date"}`}, ${basis === "net" ? "net of costs" : "before costs"}:`,
     `${n} points for an underlying price from ${rs(x0)} to ${rs(x1)}.`,
     `Profit ranges to ${rs(Math.max(...ys), { signed: true })} and loss to ${rs(Math.min(...ys))} on this range.`,
-    mode === "expiry" ? `Maximum profit ${maxProfit}. Maximum loss ${maxLoss}.` : "This is an estimate from a pricing model, not a guarantee.",
-    breakevens.length ? `Breakeven at ${breakevens.map((b) => rs(b)).join(" and ")}.` : "No breakeven on this range.",
+    mode === "expiry" ? `Maximum profit (gross) ${maxProfit}. Maximum loss (gross) ${maxLoss}.` : "This is an estimate from a pricing model, not a guarantee.",
+    breakevens.length ? `Breakeven (gross) at ${breakevens.map((b) => rs(b)).join(" and ")}.` : "No breakeven on this range.",
     `Reference price ${rs(referencePrice)}.`,
     "Use the left and right arrow keys to read a price.",
   ].join(" ");
@@ -235,7 +228,6 @@ export function PayoffChart({
     color: disabled ? "var(--cp-ink-4)" : on ? "var(--mint)" : "var(--cp-ink-2)", opacity: disabled ? 0.6 : 1,
   });
 
-  const preReasons = [...preExpiryReasons];
   const unavailable = preExpiry?.unavailable ?? [];
 
   return (
@@ -246,9 +238,9 @@ export function PayoffChart({
             {investor ? "At expiry" : "Expiry payoff"}
           </button>
           <button
-            type="button" data-testid="payoff-mode-pre" aria-pressed={mode === "pre"} disabled={!preExpiry}
-            title={preExpiry ? undefined : "No pre-expiry estimate in this answer"}
-            onClick={() => setMode("pre")} style={toggleBtn(mode === "pre", !preExpiry)}
+            type="button" data-testid="payoff-mode-pre" aria-pressed={mode === "pre"} disabled={!preSeries}
+            title={preSeries ? undefined : "No pre-expiry estimate in this answer"}
+            onClick={() => setMode("pre")} style={toggleBtn(mode === "pre", !preSeries)}
           >
             {investor ? "Before expiry (estimate)" : "Pre-expiry estimate"}
           </button>
@@ -266,9 +258,9 @@ export function PayoffChart({
         </button>
       </div>
 
-      {!preExpiry && (
+      {!preSeries && (
         <p data-testid="payoff-pre-reasons" className="m-0" style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-          Pre-expiry estimate unavailable.{preReasons.length ? ` ${preReasons.join(" ")}` : " The answer carries no estimate for this position."}
+          Pre-expiry estimate unavailable.{unavailable.length === 0 && (preExpiry ? " The calculation gave no estimate and no reason." : " None was requested: set an evaluation date in the what-if controls.")}
         </p>
       )}
       {unavailable.length > 0 && (
@@ -281,12 +273,12 @@ export function PayoffChart({
         {investor ? "Stock at" : "Underlying"} {rs(px_)}
         {" · "}{investor ? "Before costs" : "Gross"} <span data-testid="payoff-readout-gross">{rs(series.gross[idx], { signed: true })}</span>
         {" · "}{investor ? "After costs" : "Net"} <span data-testid="payoff-readout-net">{rs(series.net[idx], { signed: true })}</span>
-        {showGreeks && g && (
+        {mode === "pre" && g && (
           <span data-testid="payoff-readout-greeks">
-            {" · "}{perPoint ? "" : "position "}Δ {greek(greekAt(g.delta, idx))} · Γ {greek(greekAt(g.gamma, idx))} · Θ {greek(greekAt(g.theta, idx))} · Vega {greek(greekAt(g.vega, idx))} · ρ {greek(greekAt(g.rho, idx))}
+            {" · "}Greeks at {rs(referencePrice)}: Δ {greek(g.delta)} · Γ {greek(g.gamma)} · Θ {greek(g.theta)}/day · Vega {greek(g.vega)} · ρ {greek(g.rho)}
           </span>
         )}
-        {mode === "pre" && !g && " · Greeks: —"}
+        {mode === "pre" && !g && <span data-testid="payoff-readout-greeks">{" · "}Greeks: — (no time value left on the evaluation date, or a leg is unpriced)</span>}
       </span>
 
       <svg
@@ -331,10 +323,10 @@ export function PayoffChart({
         <line data-testid="payoff-zero" x1={left} y1={zeroY} x2={W - right} y2={zeroY} style={{ stroke: "var(--cp-ink-3)" }} strokeWidth={1} />
 
         {/* max profit / max loss (expiry facts) */}
-        {mode === "expiry" && expiry && !expiry.profit_unbounded && expiry.max_profit != null && expiry.max_profit > 0 && expiry.max_profit <= hi && (
+        {mode === "expiry" && basis === "gross" && expiry && !expiry.profit_unbounded && expiry.max_profit != null && expiry.max_profit > 0 && expiry.max_profit <= hi && (
           <line data-testid="payoff-maxprofit-line" x1={left} y1={yOf(expiry.max_profit)} x2={W - right} y2={yOf(expiry.max_profit)} style={{ stroke: PROFIT }} strokeWidth={0.8} strokeDasharray="1 3" />
         )}
-        {mode === "expiry" && expiry && !expiry.loss_unbounded && expiry.max_loss != null && expiry.max_loss < 0 && expiry.max_loss >= lo && (
+        {mode === "expiry" && basis === "gross" && expiry && !expiry.loss_unbounded && expiry.max_loss != null && expiry.max_loss < 0 && expiry.max_loss >= lo && (
           <line data-testid="payoff-maxloss-line" x1={left} y1={yOf(expiry.max_loss)} x2={W - right} y2={yOf(expiry.max_loss)} style={{ stroke: LOSS }} strokeWidth={0.8} strokeDasharray="1 3" />
         )}
 
@@ -413,9 +405,9 @@ export function PayoffChart({
       </div>
 
       <dl data-testid="payoff-facts" className="m-0 grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(110px,1fr))", gap: "6px 12px", fontSize: 11.5 }}>
-        <Fact k="Max profit" id="maxprofit" v={maxProfit} note={expiry?.profit_unbounded ? "no upper limit" : undefined} />
-        <Fact k="Max loss" id="maxloss" v={maxLoss} note={expiry?.loss_unbounded ? "no lower limit" : undefined} />
-        <Fact k={investor ? "Break-even" : "Breakeven"} id="breakeven" v={breakevens.length ? breakevens.map((b) => rs(b)).join(" · ") : DASH} />
+        <Fact k="Max profit (gross)" id="maxprofit" v={maxProfit} note={expiry?.profit_unbounded ? "no upper limit" : undefined} />
+        <Fact k="Max loss (gross)" id="maxloss" v={maxLoss} note={expiry?.loss_unbounded ? "no lower limit" : undefined} />
+        <Fact k={investor ? "Break-even (gross)" : "Breakeven (gross)"} id="breakeven" v={breakevens.length ? breakevens.map((b) => rs(b)).join(" · ") : DASH} />
         <Fact k={investor ? "Stock now" : "Reference"} id="reference" v={rs(referencePrice)} note="last close" />
       </dl>
       {(markers.length > 0 || scenarios.length > 0) && (
@@ -428,11 +420,7 @@ export function PayoffChart({
           ))}
         </ul>
       )}
-      {mode === "pre" && preExpiry && (
-        <p data-testid="payoff-pre-note" className="m-0" style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
-          Estimate for {preExpiry.date} from {preExpiry.model}, not a guarantee. Assumptions: {Object.entries(preExpiry.assumptions).map(([k, v]) => `${k.replace(/_/g, " ")} ${String(v)}`).join(", ") || DASH}.
-        </p>
-      )}
+      {mode === "pre" && preExpiry && <PreNote pre={preExpiry} />}
     </div>
   );
 }
@@ -454,5 +442,18 @@ function LegendKey({ color, dash, children }: { color: string; dash?: string; ch
       <svg width={16} height={6} aria-hidden><line x1={0} y1={3} x2={16} y2={3} style={{ stroke: color }} strokeWidth={2} strokeDasharray={dash} /></svg>
       {children}
     </span>
+  );
+}
+
+/** The model and its assumptions, from the answer: rate and its source, forward basis, IV shift, as-of date, each option leg's days and volatility. */
+function PreNote({ pre }: { pre: PayoffPreExpiry }) {
+  const a = pre.assumptions as Record<string, unknown>;
+  const text = (v: unknown) => (v == null || v === "" ? DASH : String(v));
+  const legs = Array.isArray(a.legs) ? (a.legs as Array<Record<string, unknown>>) : [];
+  return (
+    <p data-testid="payoff-pre-note" className="m-0" style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
+      Estimate for {pre.date} from {pre.model}, not a guarantee. Rate {text(a.rate_pct)}% ({text(a.rate_source)}); forward basis: {text(a.forward_basis)}; volatility shift {text(a.iv_shift_pct)} points; prices as of {text(a.as_of)}.
+      {legs.map((l) => ` Leg ${Number(l.leg) + 1}: ${text(l.time_to_expiry_days)} days to expiry, IV ${l.iv_pct == null ? DASH : `${l.iv_pct}%`} (${text(l.iv_source)}).`).join("")}
+    </p>
   );
 }

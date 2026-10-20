@@ -49,12 +49,6 @@ export function StrategyGraphs({
 }: StrategyGraphsProps) {
   const investor = persona === "investor";
   const asOf = dataDate ? fmtDay(dataDate) : null;
-  const preReasons = response
-    ? [
-        ...response.warnings.filter((w) => /pre_expiry|iv|greek|vol/i.test(w.code)).map((w) => w.message),
-        ...response.problems.filter((p) => /pre_expiry/i.test(p.field ?? "")).map((p) => p.message),
-      ]
-    : [];
   const method = response?.calculation_version ?? undefined;
 
   return (
@@ -74,7 +68,6 @@ export function StrategyGraphs({
                 <PayoffChart
                   expiry={response.expiry}
                   preExpiry={response.pre_expiry ?? null}
-                  preExpiryReasons={preReasons}
                   referencePrice={base.reference_price}
                   markers={markers}
                   defaultMode={defaultMode}
@@ -102,7 +95,7 @@ export function StrategyGraphs({
           <ScenarioControls
             legs={base.legs} referencePrice={base.reference_price} dataDate={dataDate} value={scenario}
             onChange={(n) => onScenarioChange?.(n)} onReset={() => onScenarioChange?.(DEFAULT_SCENARIO)}
-            preExpiryAvailable={!!response?.pre_expiry} persona={persona}
+            persona={persona}
           />
           <TrustLine testId="whatif-trust" source="Inputs you set; nothing is saved" maker="rules" method={method} />
         </div>

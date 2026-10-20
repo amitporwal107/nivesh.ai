@@ -23,14 +23,16 @@ export function PayoffSummary({ response, legs, persona = "trader" }: PayoffSumm
   const ex = response.expiry ?? null;
   const costs = response.costs ?? null;
   const margin = response.margin ?? null;
-  const hasFuture = legs.some((l) => l.kind === "future");
   const hasOption = legs.some((l) => l.kind === "option");
-  const marginWhy = response.warnings.filter((w) => /margin/i.test(w.code)).map((w) => w.message);
+  const net = ex ? ex.net.filter((v) => Number.isFinite(v)) : [];
+  const netRange = net.length ? `${rs(Math.min(...net))} to ${rs(Math.max(...net), { signed: true })}` : DASH;
 
   const maxProfit = !ex ? DASH : ex.profit_unbounded ? "Unlimited" : rs(ex.max_profit, { signed: true });
   const maxLoss = !ex ? DASH : ex.loss_unbounded ? "Unlimited" : rs(ex.max_loss);
   const np = ex?.net_premium ?? null;
-  const premium = np == null ? DASH : np < 0 ? `Debit ${rs(-np)}` : np > 0 ? `Credit ${rs(np)}` : rs(0);
+  // The futures warning is shown above in its own box; do not repeat it in the list.
+  const caveats = response.caveats.filter((c) => !(response.loss_can_exceed_margin && /exceed the initial margin/i.test(c)));
+  const premium = np == null || !hasOption ? DASH : np < 0 ? `Debit ${rs(-np)}` : np > 0 ? `Credit ${rs(np)}` : rs(0);
 
   return (
     <div data-testid="payoff-summary" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
@@ -43,29 +45,33 @@ export function PayoffSummary({ response, legs, persona = "trader" }: PayoffSumm
       )}
 
       <dl className="m-0 grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: "10px 14px" }}>
-        <Stat k="Max profit" id="max-profit" v={maxProfit} tone="profit" />
-        <Stat k="Max loss" id="max-loss" v={maxLoss} tone="loss" />
-        <Stat k={investor ? "Break-even" : "Breakeven"} id="breakevens" v={ex && ex.breakevens.length ? ex.breakevens.map((b) => rs(b)).join(" · ") : DASH} sub={ex && ex.breakevens.length === 0 ? "none on the plotted range" : undefined} />
+        <Stat k="Max profit (gross)" id="max-profit" v={maxProfit} tone="profit" sub="over all prices, before costs" />
+        <Stat k="Max loss (gross)" id="max-loss" v={maxLoss} tone="loss" sub="over all prices, before costs" />
+        <Stat k={investor ? "Break-even (gross)" : "Breakeven (gross)"} id="breakevens" v={ex && ex.breakevens.length ? ex.breakevens.map((b) => rs(b)).join(" · ") : DASH} sub={ex && ex.breakevens.length === 0 ? "none on the plotted range" : undefined} />
+        <Stat k="Net on plotted prices" id="net-range" v={netRange} sub="after costs, lowest to highest on the chart" />
         <Stat k="Net premium" id="net-premium" v={premium} sub={hasOption ? "paid out (debit) or received (credit) for the options" : "no option premium in this position"} />
-        <Stat k="Capital at risk" id="capital-at-risk" v={response.capital_at_risk == null ? DASH : rs(response.capital_at_risk)} sub={response.capital_at_risk == null ? "the calculation did not give one" : undefined} />
+        <Stat
+          k="Capital at risk (worst net loss)" id="capital-at-risk" v={response.capital_at_risk == null ? DASH : rs(response.capital_at_risk)}
+          sub={response.capital_at_risk == null ? (ex?.loss_unbounded ? "the loss has no limit" : "the calculation did not give one") : response.capital_at_risk_basis || undefined}
+        />
         <Stat
           k="Margin (estimate)" id="margin" v={margin?.estimate == null ? DASH : rs(margin.estimate)}
-          sub={margin?.estimate == null ? marginWhy.join(" ") || "no margin source for this position" : margin.source ? `source: ${margin.source}` : "source not given"}
+          sub={margin?.estimate == null ? response.margin_reason || "no margin source for this position" : margin.source ? `source: ${margin.source}` : "source not given"}
         />
       </dl>
 
       <div data-testid="payoff-costs" className="flex flex-col" style={{ gap: 3, fontSize: 12, color: "var(--cp-ink-2)", lineHeight: 1.5 }}>
         <span className="cp-eyebrow">Estimated costs</span>
         <span className="cp-num">
-          Entry <span data-testid="cost-entry">{rs(costs?.entry)}</span> · Exit at expiry <span data-testid="cost-exit">{rs(costs?.exit_at_expiry)}</span> · Round trip <span data-testid="cost-round-trip">{rs(costs?.round_trip)}</span>
+          Entry <span data-testid="cost-entry">{rs(costs?.entry)}</span> · Exit at expiry (at the reference price) <span data-testid="cost-exit">{rs(costs?.exit_at_expiry)}</span> · Round trip <span data-testid="cost-round-trip">{rs(costs?.round_trip)}</span>
         </span>
         <span style={{ color: "var(--cp-ink-3)" }}>
-          {costs?.model ? `Model: ${costs.model}. ` : "Cost model not given. "}
+          {costs?.model ? `Model: ${costs.model}. ` : "Cost model not given. "}{costs?.exit_basis ? `${costs.exit_basis}. ` : ""}
           <span data-testid="cost-excluded">{costs && costs.excluded.length ? `Not included: ${costs.excluded.join(", ")}.` : "What is excluded is not stated."}</span>
         </span>
       </div>
 
-      {hasFuture && (
+      {response.loss_can_exceed_margin && (
         <p data-testid="payoff-futures-warning" role="note" className="m-0" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--amber)", padding: "8px 12px", borderRadius: 8, border: "1px solid var(--amber)" }}>
           Futures losses can exceed the initial margin. The margin is a deposit against the position, not the most you can lose; gaps and daily mark-to-market can take more.
         </p>
@@ -81,11 +87,11 @@ export function PayoffSummary({ response, legs, persona = "trader" }: PayoffSumm
           {response.warnings.map((w, i) => <li key={i}>{w.message} <span className="cp-num" style={{ opacity: 0.75 }}>({w.code})</span></li>)}
         </ul>
       )}
-      {response.caveats.length > 0 && (
+      {caveats.length > 0 && (
         <div className="flex flex-col" style={{ gap: 3 }}>
           <span className="cp-eyebrow">Caveats</span>
           <ul data-testid="payoff-caveats" className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 16, fontSize: 12, color: "var(--cp-ink-3)", lineHeight: 1.5 }}>
-            {response.caveats.map((c, i) => <li key={i}>{c}</li>)}
+            {caveats.map((c, i) => <li key={i}>{c}</li>)}
           </ul>
         </div>
       )}

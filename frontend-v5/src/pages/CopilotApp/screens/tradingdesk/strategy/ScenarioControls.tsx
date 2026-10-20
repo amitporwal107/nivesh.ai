@@ -3,8 +3,8 @@
  * implied volatility, the evaluation date, and the size. They only collect inputs; `buildScenarioRequest`
  * turns the inputs and the base request into the request the payoff route takes, and the chart updates
  * from the answer (usePayoff). An input the legs cannot use is disabled with the reason beside it:
- * cash and futures have no implied volatility, cash has no expiry date, and the date and IV need the
- * pre-expiry estimate.
+ * cash and futures have no implied volatility and cash has no expiry date. The date is what asks the
+ * route for the pre-expiry estimate (it is null unless requested).
  */
 import { useId, type CSSProperties } from "react";
 import type { PayoffLeg, PayoffRequest } from "./strategy-contract";
@@ -50,8 +50,6 @@ export interface ScenarioControlsProps {
   value: ScenarioInputs;
   onChange: (next: ScenarioInputs) => void;
   onReset: () => void;
-  /** False when the answer has no pre-expiry estimate: the date and IV controls stay disabled. */
-  preExpiryAvailable?: boolean;
   persona?: "trader" | "investor";
 }
 
@@ -60,7 +58,7 @@ const field: CSSProperties = {
   background: "var(--bg-2)", color: "var(--cp-ink)", fontFamily: "var(--mono)", fontSize: 13,
 };
 
-export function ScenarioControls({ legs, referencePrice, priceMin, priceMax, dataDate, value, onChange, onReset, preExpiryAvailable = true, persona = "trader" }: ScenarioControlsProps) {
+export function ScenarioControls({ legs, referencePrice, priceMin, priceMax, dataDate, value, onChange, onReset, persona = "trader" }: ScenarioControlsProps) {
   const uid = useId();
   const investor = persona === "investor";
   const hasOption = legs.some((l) => l.kind === "option");
@@ -76,8 +74,8 @@ export function ScenarioControls({ legs, referencePrice, priceMin, priceMax, dat
   const price = value.underlyingPrice ?? referencePrice;
   const single = legs.length === 1;
 
-  const ivReason = !hasOption ? "Implied volatility applies to options only; this position has none." : !preExpiryAvailable ? "The answer has no pre-expiry estimate, so volatility cannot be shifted." : null;
-  const dateReason = !nearest ? "Cash has no expiry date to count down to." : !preExpiryAvailable ? "The answer has no pre-expiry estimate, so no date can be evaluated." : !dataDate ? "The data date is not known." : null;
+  const ivReason = !hasOption ? "Implied volatility applies to options only; this position has none." : null;
+  const dateReason = !nearest ? "Cash has no expiry date to count down to." : !dataDate ? "The data date is not known." : null;
   const set = (patch: Partial<ScenarioInputs>) => onChange({ ...value, ...patch });
   const numOrNull = (v: string): number | null => (v.trim() === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 
@@ -109,7 +107,9 @@ export function ScenarioControls({ legs, referencePrice, priceMin, priceMax, dat
             id={`${uid}-iv`} data-testid="scenario-iv" type="number" inputMode="decimal" step={0.5} value={value.ivShiftPct} disabled={!!ivReason}
             onChange={(e) => set({ ivShiftPct: numOrNull(e.target.value) ?? 0 })} style={{ ...field, opacity: ivReason ? 0.55 : 1 }}
           />
-          {ivReason && <span data-testid="scenario-iv-reason" style={{ fontSize: 11, color: "var(--amber)" }}>{ivReason}</span>}
+          {ivReason
+            ? <span data-testid="scenario-iv-reason" style={{ fontSize: 11, color: "var(--amber)" }}>{ivReason}</span>
+            : <span style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>Applies to the pre-expiry estimate, which needs an evaluation date.</span>}
         </div>
 
         <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
@@ -120,7 +120,7 @@ export function ScenarioControls({ legs, referencePrice, priceMin, priceMax, dat
           />
           {dateReason
             ? <span data-testid="scenario-date-reason" style={{ fontSize: 11, color: "var(--amber)" }}>{dateReason}</span>
-            : <span style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>From the data date {dataDate} to the nearest expiry {nearest}.</span>}
+            : <span style={{ fontSize: 11, color: "var(--cp-ink-3)" }}>From the data date {dataDate} to the nearest expiry {nearest}; setting a date asks for the pre-expiry estimate.</span>}
         </div>
 
         <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>

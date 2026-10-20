@@ -29,6 +29,7 @@ export const PayoffLegSchema = z.object({
   option_type: z.enum(["call", "put"]).nullable().optional(),
   price_source: z.string().nullable().optional(),
   iv_pct: z.number().nullable().optional(),
+  underlying: z.string().optional(),
 });
 export type PayoffLeg = z.infer<typeof PayoffLegSchema>;
 
@@ -42,8 +43,11 @@ export const PayoffRequestSchema = z.object({
   underlying: z.string(),
   /** The underlying's last close. */
   reference_price: z.number(),
+  /** YYYY-MM-DD, the date the entry prices belong to. */
+  as_of: z.string().optional(),
   legs: z.array(PayoffLegSchema).min(1),
   grid: PayoffGridSchema.optional(),
+  /** slippage_pct is in percent (0.05 means 0.05%). */
   costs: z.object({ slippage_pct: z.number().optional(), brokerage_per_side: z.number().optional() }).optional(),
   scenarios: z.array(z.object({ name: z.string(), underlying_price: z.number() })).optional(),
   pre_expiry: z.object({ date: z.string(), iv_shift_pct: z.number().optional(), rate_pct: z.number().optional() }).optional(),
@@ -83,21 +87,27 @@ export const ExpirySchema = z.object({
   loss_unbounded: z.boolean().catch(false),
   net_premium: numOrNull,
   scenarios: z.array(ScenarioPointSchema).catch([]),
+  /** The same extremes over the plotted grid only. */
+  range_max_profit: numOrNull.optional(),
+  range_max_loss: numOrNull.optional(),
+  extremes_basis: z.string().nullable().catch(null).optional(),
 }).passthrough();
 export type PayoffExpiry = z.infer<typeof ExpirySchema>;
 
-/** A Greek is one figure for the position, or one per grid point (aligned to the pre-expiry grid). */
-const GreekSchema = z.union([z.number(), z.array(z.number().nullable())]).nullable().catch(null);
+/** The position's Greeks at the reference price: delta per ₹1, theta per day, vega per vol point, rho per 1 pp of rate. */
+export const GreeksSchema = z.object({ delta: numOrNull, gamma: numOrNull, theta: numOrNull, vega: numOrNull, rho: numOrNull }).passthrough();
+export type Greeks = z.infer<typeof GreeksSchema>;
 
+/** When the estimate was requested but an option leg cannot be priced, grid, gross, net and greeks are all null and `unavailable` says why. */
 export const PreExpirySchema = z.object({
   date: z.string(),
   model: z.string(),
   assumptions: z.record(z.unknown()).catch({}),
-  grid: numList,
-  gross: numList,
-  net: numList,
-  greeks: z.object({ delta: GreekSchema, gamma: GreekSchema, theta: GreekSchema, vega: GreekSchema, rho: GreekSchema }).passthrough().nullable().catch(null),
-  per_leg_greeks: z.array(z.unknown()).catch([]),
+  grid: numList.nullable().catch(null),
+  gross: numList.nullable().catch(null),
+  net: numList.nullable().catch(null),
+  greeks: GreeksSchema.nullable().catch(null),
+  per_leg_greeks: z.array(z.object({ leg: z.number(), label: z.string().optional(), greeks: GreeksSchema.nullable().catch(null) }).passthrough()).catch([]),
   unavailable: z.array(z.object({ leg: z.number(), reason: z.string() }).passthrough()).catch([]),
 }).passthrough();
 export type PayoffPreExpiry = z.infer<typeof PreExpirySchema>;
@@ -108,6 +118,8 @@ export const CostsSchema = z.object({
   exit_at_expiry: numOrNull,
   round_trip: numOrNull,
   excluded: z.array(z.string()).catch([]),
+  exit_basis: z.string().nullable().catch(null).optional(),
+  per_leg: z.array(z.object({ index: z.number(), entry: numOrNull, exit_at_expiry: numOrNull, round_trip: numOrNull }).passthrough()).catch([]).optional(),
 }).passthrough();
 
 export const MarginSchema = z.object({ estimate: numOrNull, source: z.string().nullable().catch(null) }).passthrough();
@@ -122,7 +134,15 @@ export const PayoffResponseSchema = z.object({
   pre_expiry: PreExpirySchema.nullable().optional(),
   costs: CostsSchema.nullable().optional(),
   margin: MarginSchema.nullable().optional(),
+  /** The worst NET loss over all prices (conservative: every leg charged both sides); null when the loss is unbounded. */
   capital_at_risk: numOrNull.optional(),
+  capital_at_risk_basis: z.string().nullable().catch(null).optional(),
+  /** Always null today; why is `margin_reason`. */
+  margin_reason: z.string().nullable().catch(null).optional(),
+  loss_can_exceed_margin: z.boolean().catch(false).optional(),
+  underlying: z.string().optional(),
+  reference_price: z.number().optional(),
+  as_of: z.string().optional(),
   caveats: z.array(z.string()).catch([]),
   sent_to_broker: z.boolean().catch(false),
 }).passthrough().superRefine((v, ctx) => {
