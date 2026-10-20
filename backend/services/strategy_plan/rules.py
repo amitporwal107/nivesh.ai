@@ -4,7 +4,7 @@ Change a constant here and bump STRATEGY_RULES_VERSION: a saved plan carries the
 """
 from __future__ import annotations
 
-STRATEGY_RULES_VERSION = "strategy-rules.v1 (2026-10-20)"
+STRATEGY_RULES_VERSION = "strategy-rules.v1.1 (2026-10-20)"
 PLAN_SCHEMA = "strategy-plan.v1"
 
 RULES = {
@@ -24,6 +24,14 @@ RULES = {
     # A trend/return reading inside this band is "flat".
     "flat_band_pct": 0.5,
     "rsi": {"stretched_above": 70.0, "weak_below": 30.0},
+    # Sector strength: the sector indices that LIST the stock (nidp.index_constituents; a stock can be in several), each ranked by
+    # its 1-month return among all the desk sector indices that have one. Rank 1 is the strongest. With n ranked sectors,
+    # band_n = ceil(n x band_fraction): ranks 1..band_n are "top" (up), the last band_n ranks are "bottom" (down), the rest are
+    # "middle" (flat). Several matching indices: the view's supporting indices against its conflicting ones, the larger count
+    # wins, a tie is neutral.
+    "sector_strength": {"metric": "ret_1m_pct", "band_fraction": 1 / 3, "top": "top third supports a bullish view",
+                        "bottom": "bottom third conflicts with a bullish view", "middle": "neutral",
+                        "several": "majority of the matching indices (supports vs conflicts); a tie is neutral"},
     "rvol_confirm": 1.5,
     "rs_flat_band_pct": 1.0,
     # Conflicting evidence: this many conflicting items, and at least as many as supporting ones, in the directional

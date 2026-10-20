@@ -59,9 +59,19 @@ def regime(key="bullish"):
                   "MOCK macro_engine.classify_desk_regime", ASOF)
 
 
-def sectors():
-    return src_ok({"as_of": ASOF, "sectors": [{"index": "Nifty Energy", "sector": "Energy", "date": ASOF, "close": 40000.0, "ret_1d_pct": 0.4, "ret_1w_pct": 1.2, "ret_1m_pct": 3.0}]},
-                  "MOCK DaaS sector-returns", ASOF)
+def sectors(**ret1m):
+    # MOCK — not real data: six sector indices; 1-month returns (rank, strongest first): Energy 3.0 (1), Oil & Gas 2.0 (2),
+    # Auto 1.0 (3), Pharma -0.5 (4), Bank -2.0 (5), IT -3.0 (6). band_n = ceil(6 / 3) = 2: ranks 1-2 top, 5-6 bottom.
+    r1m = {"Nifty Energy": 3.0, "Nifty Oil & Gas": 2.0, "Nifty Auto": 1.0, "Nifty Pharma": -0.5, "Nifty Bank": -2.0, "Nifty IT": -3.0}
+    r1m.update(ret1m)
+    rows = [{"index": n, "sector": n.replace("Nifty ", ""), "date": ASOF, "close": 40000.0, "ret_1d_pct": 0.4, "ret_1w_pct": 1.2, "ret_1m_pct": v}
+            for n, v in r1m.items()]
+    return src_ok({"as_of": ASOF, "sectors": rows}, "MOCK DaaS sector-returns", ASOF)
+
+
+def sector_members(symbol="RELIANCE", member_of=("Nifty Energy", "Nifty Oil & Gas"), unreadable=None):
+    return src_ok({"symbol": symbol, "member_of": list(member_of), "lists_read": 6 - len(unreadable or {}), "unreadable": unreadable or {}},
+                  "MOCK DaaS /v1/indices/{index}/constituents", ASOF)
 
 
 def scan_row(**o):
@@ -148,7 +158,7 @@ def events(days_ahead_results: Optional[str] = None):
 
 
 def world(**over) -> Dict[str, Any]:
-    s = {"regime": regime(), "sectors": sectors(), "indicators": indicators(), "patterns": src_ok({"patterns": [
+    s = {"regime": regime(), "sectors": sectors(), "sector_members": sector_members(), "indicators": indicators(), "patterns": src_ok({"patterns": [
             {"pattern_type": "flag", "label": "Bull flag", "direction": "bullish", "state": "confirmed", "state_reason": "closed beyond the level", "detected_on": "2026-10-16", "levels": {}}]},
             "MOCK patterns", ASOF, "engine-mock"),
          "scan_row": scan_row(), "scanner_bucket": bucket(), "features": features(), "peers": peers(), "financials": financials(),
@@ -234,12 +244,66 @@ def test_market_context_direction_is_relative_to_the_view():
     assert mixed["desk_regime"] == "neutral"
 
 
-def test_market_context_failed_regime_and_unmatched_sector():
+def test_market_context_failed_regime_is_unavailable():
     items = ev.market_context(world(regime=src_fail("macro_state is empty", "x"), sectors=sectors()), "bullish")
     assert [i["direction"] for i in items if i["key"] in ("desk_regime", "breadth", "nifty_trend", "india_vix")] == ["unavailable"] * 4
-    items = ev.market_context(world(scan_row=scan_row(sector="Bizarre"), features=features(sector="Bizarre")), "bullish")
-    sec = next(i for i in items if i["key"] == "sector_strength")
-    assert sec["direction"] == "unavailable" and "Bizarre" in sec["interpretation"]
+
+
+def _sector_item(view="bullish", **over):
+    return next(i for i in ev.market_context(world(**over), view) if i["key"] == "sector_strength")
+
+
+def test_sector_strength_stock_in_two_sector_indices_lists_both_with_returns_and_ranks():
+    it = _sector_item()
+    v = it["value"]
+    assert [m["index"] for m in v["matches"]] == ["Nifty Energy", "Nifty Oil & Gas"]
+    assert [(m["rank_1m"], m["of"], m["band"]) for m in v["matches"]] == [(1, 6, "top"), (2, 6, "top")]
+    assert [(m["ret_1d_pct"], m["ret_1w_pct"], m["ret_1m_pct"], m["date"]) for m in v["matches"]] == [(0.4, 1.2, 3.0, ASOF), (0.4, 1.2, 2.0, ASOF)]
+    assert v["as_of"] == ASOF and v["rule"] == RULES["sector_strength"]
+    assert it["direction"] == "supports" and "Nifty Energy" in it["interpretation"] and "Nifty Oil & Gas" in it["interpretation"]
+    assert _sector_item("bearish")["direction"] == "conflicts"
+
+
+def test_sector_strength_bands_bottom_middle_and_the_view():
+    bank = sector_members("HDFCBANK", ["Nifty Bank"])
+    assert _sector_item(sector_members=bank)["direction"] == "conflicts"
+    assert _sector_item("bearish", sector_members=bank)["direction"] == "supports"
+    pharma = _sector_item(sector_members=sector_members("SUNPHARMA", ["Nifty Pharma"]))
+    assert pharma["direction"] == "neutral" and pharma["value"]["matches"][0]["band"] == "middle"
+    assert _sector_item("vol_expansion", sector_members=bank)["direction"] == "neutral"
+
+
+def test_sector_strength_several_indices_disagree_is_a_tie_neutral():
+    it = _sector_item(sector_members=sector_members("X", ["Nifty Energy", "Nifty Bank"]))
+    assert [m["band"] for m in it["value"]["matches"]] == ["top", "bottom"] and it["direction"] == "neutral"
+
+
+def test_sector_strength_stock_in_no_sector_list_is_unavailable_with_that_reason():
+    it = _sector_item(sector_members=sector_members("ZOMATO", []))
+    assert it["direction"] == "unavailable" and it["value"] is None
+    assert it["interpretation"] == "ZOMATO is in none of the desk's sector index lists (nidp.index_constituents), so no sector reading is made."
+
+
+def test_sector_strength_unreadable_lists_do_not_pass_as_no_membership():
+    it = _sector_item(sector_members=sector_members("X", [], {"Nifty Bank": "HTTP 500"}))
+    assert it["direction"] == "unavailable" and "could not be read" in it["interpretation"] and "Nifty Bank" in it["interpretation"]
+    failed = _sector_item(sector_members=src_fail("DaaS down", "x"))
+    assert failed["direction"] == "unavailable" and "DaaS down" in failed["interpretation"]
+
+
+def test_sector_strength_missing_return_is_listed_but_not_ranked():
+    it = _sector_item(sectors=sectors(**{"Nifty Energy": None}))
+    ms = {m["index"]: m for m in it["value"]["matches"]}
+    assert ms["Nifty Energy"]["ret_1m_pct"] is None and ms["Nifty Energy"]["rank_1m"] is None and ms["Nifty Energy"]["band"] is None
+    assert (ms["Nifty Oil & Gas"]["rank_1m"], ms["Nifty Oil & Gas"]["of"]) == (1, 5)         # ranks among the 5 that have a return
+    assert it["direction"] == "supports"
+    only = _sector_item(sectors=sectors(**{"Nifty Energy": None, "Nifty Oil & Gas": None}))
+    assert only["direction"] == "unavailable" and "1-month return" in only["interpretation"]
+
+
+def test_sector_strength_member_index_absent_from_sector_returns():
+    it = _sector_item(sector_members=sector_members("X", ["Nifty Realty"]))
+    assert it["direction"] == "unavailable" and "Nifty Realty" in it["interpretation"]
 
 
 def test_technical_group_each_item():
@@ -932,3 +996,26 @@ def test_collect_snapshots_picks_the_chain_expiry_by_rule(monkeypatch):
     monkeypatch.setattr(src, "_chain", ok_chain)
     snaps = asyncio.run(src.collect_snapshots(None, "u", inputs(), TODAY))
     assert seen == [EXPIRY] and snaps["chain"]["ok"] and "nearest listed expiry" in snaps["chain"]["data"]["expiry_why"]
+
+
+def test_sector_members_reads_each_list_once_names_unreadable_ones_and_matches_by_symbol(monkeypatch):
+    import asyncio
+    from services.copilot_tools import daas_client
+    from services.strategy_plan import sources as src
+    seen = []
+    lists = {"Nifty Energy": ["RELIANCE", "ONGC"], "Nifty Oil & Gas": ["reliance"], "Nifty Auto": ["MARUTI"], "Nifty Pharma": [], "Nifty Bank": ["HDFCBANK"]}
+
+    async def constituents(name, **k):
+        seen.append(name)
+        if name == "Nifty IT":
+            raise RuntimeError("DaaS timeout")
+        return lists[name]
+
+    monkeypatch.setattr(daas_client, "get_index_constituents", constituents)
+    out = asyncio.run(src._sector_members("RELIANCE", sectors()))
+    assert sorted(seen) == sorted(r["index"] for r in sectors()["data"]["sectors"]) and len(seen) == 6        # one read per index
+    d = out["data"]
+    assert out["ok"] and d["member_of"] == ["Nifty Energy", "Nifty Oil & Gas"] and d["lists_read"] == 4
+    assert d["unreadable"] == {"Nifty Pharma": "no constituent list on record", "Nifty IT": "RuntimeError: DaaS timeout"}
+    failed = asyncio.run(src._sector_members("RELIANCE", src_fail("HTTP 500", "x")))
+    assert failed["ok"] is False and "HTTP 500" in failed["error"]
