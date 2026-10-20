@@ -28,7 +28,7 @@ export const DIRECTIONS = ["bullish", "bearish", "neutral", "vol_expansion", "vo
 export type Direction = (typeof DIRECTIONS)[number];
 export const HORIZONS = ["intraday", "positional", "longer_term"] as const;
 export type Horizon = (typeof HORIZONS)[number];
-export const INSTRUMENTS = ["all", "cash", "futures", "options"] as const;
+export const INSTRUMENTS = ["all", "cash", "futures", "options", "combination"] as const;
 export type Instrument = (typeof INSTRUMENTS)[number];
 
 const ReasonSchema = z.object({ code: z.string(), message: z.string() }).passthrough();
@@ -167,7 +167,7 @@ export type OptionsSelection = z.infer<typeof OptionsSelectionSchema>;
 
 export const CandidateSchema = z.object({
   id: z.string(),
-  segment: z.enum(["cash", "futures", "options"]),
+  segment: z.enum(["cash", "futures", "options", "combination"]),
   family: z.string(),
   label: z.string(),
   direction: z.string(),

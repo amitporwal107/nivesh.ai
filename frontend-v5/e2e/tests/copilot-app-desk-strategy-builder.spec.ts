@@ -196,6 +196,10 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     await item.click();
     await expect(page).toHaveURL(/tab=more/);
     await expect(page).toHaveURL(/view=strategy/);
+    // With no stock in the URL the Builder opens on the AI opportunities board (spec -strategy-ideas); One stock is the other mode.
+    await expect(page.getByTestId("builder-mode-ideas")).toHaveAttribute("aria-pressed", "true");
+    await page.getByTestId("builder-mode-stock").click();
+    await expect(page).toHaveURL(/mode=stock/);
     await expect(page.getByTestId("strategy-builder")).toBeVisible();
     await expect(page.getByTestId("builder-empty")).toContainText("No plan yet");
     await expect(page.getByTestId("desk-more-strategy")).toHaveAttribute("aria-pressed", "true");
