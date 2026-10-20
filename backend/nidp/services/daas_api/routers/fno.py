@@ -127,6 +127,54 @@ async def options_chain(
     }
 
 
+_FUTURE_TYPES = ["STF", "IDF", "FUTSTK", "FUTIDX"]
+_OPTION_TYPES = ["STO", "IDO", "OPTSTK", "OPTIDX"]
+
+
+@router.get("/{symbol}/history", summary="One contract's daily rows over a date range (marks for paper trades)")
+async def contract_history(
+    symbol: str = Path(...),
+    kind: str = Query(..., description="future | option"),
+    expiry: str = Query(..., description="Expiry date YYYY-MM-DD"),
+    start: str = Query(..., description="First trading day YYYY-MM-DD (inclusive)"),
+    strike: Optional[float] = Query(None, description="Option strike (required for kind=option)"),
+    option_type: Optional[str] = Query(None, description="CE | PE (required for kind=option)"),
+    page: Dict[str, int] = Depends(page_params),
+) -> Dict[str, Any]:
+    """Read-only. One row per trading day for a single contract, oldest first: the prices a paper trade is marked on
+    (settle_price, close_price), the day's underlying_price and prev_close_price. Nothing is derived or filled in."""
+    sym = normalise_symbol(symbol)
+    if kind not in ("future", "option"):
+        raise HTTPException(status_code=400, detail="kind must be future or option")
+    exp_d = parse_date(expiry, field="expiry")
+    start_d = parse_date(start, field="start")
+    if kind == "option" and (strike is None or option_type not in ("CE", "PE")):
+        raise HTTPException(status_code=400, detail="an option needs strike and option_type CE or PE")
+    types = _OPTION_TYPES if kind == "option" else _FUTURE_TYPES
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT as_of_date, ticker_symbol, instrument_type, expiry_date, strike_price, option_type,
+                   close_price, settle_price, prev_close_price, underlying_price,
+                   open_interest, traded_volume, new_board_lot_qty
+              FROM nidp.fno_bhavcopy
+             WHERE ticker_symbol = $1
+               AND instrument_type = ANY($2::text[])
+               AND expiry_date = $3
+               AND as_of_date >= $4
+               AND ($5::numeric IS NULL OR strike_price = $5)
+               AND ($6::text IS NULL OR option_type = $6)
+             ORDER BY as_of_date
+             LIMIT $7 OFFSET $8
+            """,
+            sym, types, exp_d, start_d,
+            strike if kind == "option" else None, option_type if kind == "option" else None,
+            page["limit"], page["offset"],
+        )
+    return envelope([row_to_dict(r) for r in rows], **page, extra={"symbol": sym, "kind": kind, "expiry": exp_d.isoformat()})
+
+
 @router.get("/{symbol}/expiries", summary="Distinct expiries with contract counts")
 async def expiries(symbol: str = Path(...)) -> Dict[str, Any]:
     sym = normalise_symbol(symbol)
