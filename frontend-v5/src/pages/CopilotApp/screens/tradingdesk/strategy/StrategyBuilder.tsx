@@ -21,6 +21,7 @@ import { fmtDay } from "../../trading/parts";
 import { useDesk } from "../context";
 import { CandidateDetail } from "./CandidateDetail";
 import { CompareTable } from "./CompareTable";
+import { IdeasBoard } from "./IdeasBoard";
 import { EvidenceLedger, Thesis } from "./EvidenceLedger";
 import { PlanActions } from "./PlanActions";
 import { FailureConditions, Methodology, ValidationBlock } from "./PlanExtras";
@@ -43,11 +44,52 @@ export function sourceNote(p: URLSearchParams): string | null {
   const d = date ? fmtDay(date) : null;
   if (kind === "scanner") return `Started from the scanner: ${bucket ? humaniseTag(bucket).toLowerCase() : "a listed setup"}${d ? `, scan ${d}` : ""}`;
   if (kind === "chart") return `Started from Chart Analysis${bucket ? `: scanner bucket ${humaniseTag(bucket).toLowerCase()}` : ""}${d ? `, scan ${d}` : ""}`;
+  if (kind === "ideas") return `Started from the AI opportunities: ${bucket ? humaniseTag(bucket).toLowerCase() : "a listed setup"}${d ? `, scan ${d}` : ""}`;
   if (kind === "lab") return `Started from the Options & futures lab${d ? `, chain as of ${d}` : ""}`;
   return `Started from ${humaniseTag(kind).toLowerCase()}${d ? `, ${d}` : ""}`;
 }
 
+/** The two modes: ideas picked from the AI scanner (default without a stock in the URL), or one stock. */
+export type BuilderMode = "ideas" | "stock";
+export function builderMode(p: URLSearchParams): BuilderMode {
+  const m = p.get("mode");
+  if (m === "ideas" || m === "stock") return m;
+  return p.get("sym") || p.get("plan") ? "stock" : "ideas";
+}
+
 export default function StrategyBuilder() {
+  const { persona } = useDesk();
+  const [params, setParams] = useSearchParams();
+  const mode = builderMode(params);
+  const plain = persona === "investor";
+  const pick = (m: BuilderMode) => setParams((prev) => {
+    const p = new URLSearchParams(prev);
+    p.set("mode", m);
+    for (const k of ["build", "plan", "cand", "focus", "src_kind", "src_bucket", "src_date"]) p.delete(k);
+    return p;
+  }, { replace: true });
+  const options: Array<{ value: BuilderMode; label: string }> = [
+    { value: "ideas", label: plain ? "From the AI's ideas" : "From AI opportunities" },
+    { value: "stock", label: "One stock" },
+  ];
+  return (
+    <div className="flex min-w-0 flex-col" style={{ gap: 14 }}>
+      <div role="group" aria-label="Strategy Builder mode" data-testid="builder-modes" className="flex flex-wrap" style={{ gap: 6 }}>
+        {options.map((o) => (
+          <button
+            key={o.value} type="button" className="cp-chip" aria-pressed={mode === o.value} data-testid={`builder-mode-${o.value}`} onClick={() => pick(o.value)}
+            style={mode === o.value ? { borderColor: "var(--mint-line)", color: "var(--mint)", background: "var(--mint-soft)" } : undefined}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {mode === "ideas" ? <IdeasBoard /> : <StockBuilder />}
+    </div>
+  );
+}
+
+function StockBuilder() {
   const { persona, askDesk } = useDesk();
   const { mobile } = useCopilotShell();
   const [params, setParams] = useSearchParams();
@@ -61,6 +103,8 @@ export default function StrategyBuilder() {
   const planParam = params.get("plan");
   const savedQ = useSavedPlan(planParam);
   const autoRan = useRef(false);
+  /** ?cand=<id>: open with that candidate selected ("Open this strategy" of the AI opportunities board); used once. */
+  const candRef = useRef<string | null>(params.get("cand"));
 
   const editParams = (patch: Record<string, string | null>) => setParams((prev) => {
     const p = new URLSearchParams(prev);
@@ -74,10 +118,10 @@ export default function StrategyBuilder() {
     if (!request) return;
     setBuilt(null);
     build.mutate(request, {
-      onSuccess: (b) => { setBuilt(b); setSelId(null); },
+      onSuccess: (b) => { setBuilt(b); setSelId(candRef.current); candRef.current = null; },
     });
     editParams({
-      sym: request.underlying, direction: request.direction, instrument: request.instrument ?? null, horizon: request.horizon ?? null, build: "1", plan: null,
+      sym: request.underlying, direction: request.direction, instrument: request.instrument ?? null, horizon: request.horizon ?? null, build: "1", plan: null, cand: null,
     });
   };
 
@@ -109,8 +153,8 @@ export default function StrategyBuilder() {
   const failure = build.isError && serverProblems.length === 0 ? build.error : null;
   const source = sourceNote(params);
 
-  const openSaved = (id: string, sym: string | null) => { setSelId(null); editParams({ plan: id, build: null, ...(sym ? { sym } : {}) }); };
-  const clearPlan = () => { setBuilt(null); editParams({ plan: null, build: null }); };
+  const openSaved = (id: string, sym: string | null) => { setSelId(null); editParams({ plan: id, build: null, mode: "stock", ...(sym ? { sym } : {}) }); };
+  const clearPlan = () => { setBuilt(null); editParams({ plan: null, build: null, mode: "stock" }); };
 
   return (
     <div data-testid="strategy-builder" data-persona={persona} className="flex min-w-0 flex-col" style={{ gap: mobile ? 14 : 18 }}>

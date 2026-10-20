@@ -36,7 +36,7 @@ export function CandidatePill({ status, testId }: { status: CandidateStatus; tes
   return <span data-testid={testId} data-status={status}><Pill tone={w.tone}><span aria-hidden>{w.glyph} </span>{w.label}</Pill></span>;
 }
 
-export const SEGMENT_WORD = { cash: "Cash", futures: "Futures", options: "Options" } as const;
+export const SEGMENT_WORD = { cash: "Cash", futures: "Futures", options: "Options", combination: "Combination" } as const;
 
 /** A rupee amount with paise ("₹1,234.50"); null is "—". */
 export const rupees = fmtPrice;

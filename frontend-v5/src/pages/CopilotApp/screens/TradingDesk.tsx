@@ -70,7 +70,7 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
 const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
 
 /** Params only the Strategy Builder uses; they are dropped when the desk leaves it. */
-const BUILDER_PARAMS = ["view", "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date"];
+const BUILDER_PARAMS = ["view", "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date", "cand", "mode", "focus", "capital", "risk_inr", "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry"];
 
 const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
 
@@ -379,6 +379,7 @@ export default function TradingDeskScreen() {
       tab: "more", view: "strategy", sym: s,
       extra: src ? { src_kind: src.kind, ...(src.bucket ? { src_bucket: src.bucket } : {}), ...(src.date ? { src_date: src.date } : {}) } : undefined,
     }),
+    openStrategyIdeas: (focus) => update({ tab: "more", view: "strategy", extra: { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) } }),
     askDesk,
     docked,
     persona,

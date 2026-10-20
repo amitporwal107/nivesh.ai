@@ -1208,7 +1208,7 @@ function againstOf(p: LivePick | undefined): string[] {
 }
 
 function TopOpportunitiesCard() {
-  const { openTab, persona } = useDesk();
+  const { openTab, openStrategyIdeas, persona } = useDesk();
   const scan = useDeskScanner();
   const live = usePicksLive();
   const odds = useDeskOdds("p_up5_1d");
@@ -1223,7 +1223,9 @@ function TopOpportunitiesCard() {
   const oddsWhy = odds.isPending ? "Loading the move-odds model." : odds.isError ? "The move-odds model didn’t load." : gate.reason;
   return (
     <Card testId="desk-opps-card">
-      <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined} />
+      <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined}>
+        <button type="button" data-testid="desk-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+      </CardHead>
       {scan.isPending ? (
         <div style={{ padding: 18 }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
       ) : scan.isError ? (
@@ -1260,7 +1262,7 @@ function TopOpportunitiesCard() {
 function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy }: {
   s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; probabilityWhy: string;
 }) {
-  const { openChart } = useDesk();
+  const { openChart, openStrategyIdeas } = useDesk();
   const close = latestClose(s, watchAsOf);
   const lp = live.data?.bySymbol.get(s.symbol.toUpperCase());
   const against = againstOf(lp);
@@ -1323,6 +1325,9 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy }:
           {up != null && <span data-testid="desk-opp-upside" className="cp-num" style={{ fontSize: 10.5, color: up < 0 ? "var(--cp-danger)" : "var(--mint)", whiteSpace: "nowrap" }}>to target {fmtPct(up, { signed: true, digits: 1 })}</span>}
         </span>
       </button>
+      <div style={{ padding: "0 18px 10px 52px" }}>
+        <button type="button" data-testid="desk-opp-strategies" aria-label={`${s.symbol}: strategies for this idea`} onClick={() => openStrategyIdeas(s.symbol)} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 11.5, color: "var(--mint)" }}>Strategies ›</button>
+      </div>
     </li>
   );
 }
@@ -1736,7 +1741,7 @@ function BreadthStat({ value, label, color, testId }: { value: string; label: st
 
 /** "02 · Top AI opportunities" (phone): the scanner's five best by score (end of day), each opening its chart. */
 function TopOpportunities() {
-  const { openChart, openTab, persona } = useDesk();
+  const { openChart, openTab, openStrategyIdeas, persona } = useDesk();
   const scan = useDeskScanner();
   const rows = (scan.data?.setups ?? []).slice(0, 5);
   const date = scan.data?.watchAsOf ?? scan.data?.signalDate ?? null;
@@ -1744,7 +1749,10 @@ function TopOpportunities() {
     <section data-testid="desk-top-opps" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
       <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
         <span data-testid="desk-top-opps-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>02</span> · Top AI opportunities</span>
-        <button type="button" data-testid="desk-top-opps-all" onClick={() => openTab("scanner")} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>See all ›</button>
+        <span className="flex items-center" style={{ gap: 12 }}>
+          <button type="button" data-testid="desk-top-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+          <button type="button" data-testid="desk-top-opps-all" onClick={() => openTab("scanner")} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>See all ›</button>
+        </span>
       </div>
       {scan.isPending ? (
         <div style={{ padding: "0 14px 14px" }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
