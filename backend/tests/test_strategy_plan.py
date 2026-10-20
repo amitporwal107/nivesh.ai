@@ -965,6 +965,10 @@ def test_collect_snapshots_turns_every_failure_into_a_labelled_unavailable_sourc
     for name in ("_regime", "_sectors", "_indicators", "_patterns", "_scan_snapshot", "_features", "_financials", "_announcements", "_events",
                  "_corporate_actions", "_buildup", "_futures", "_expiries", "_calibration", "_scanner_bucket", "_portfolio"):
         monkeypatch.setattr(src, name, boom)
+
+    async def no_hits(user_id, today):                      # the real reader never raises: a storage failure is the "failed" state
+        return {"state": "failed", "reason": "MOCK: storage down", "symbols": {}, "scans": []}
+    monkeypatch.setattr(src, "chartink_index", no_hits)
     i = inputs()
     snaps = asyncio.run(src.collect_snapshots(None, "user_a", i, TODAY))
     assert snaps and all(s["ok"] is False for s in snaps.values()) and "502" in snaps["indicators"]["error"]
@@ -994,6 +998,10 @@ def test_collect_snapshots_picks_the_chain_expiry_by_rule(monkeypatch):
         monkeypatch.setattr(src, name, other)
     monkeypatch.setattr(src, "_expiries", ok_expiries)
     monkeypatch.setattr(src, "_chain", ok_chain)
+
+    async def no_hits(user_id, today):
+        return {"state": "no_source", "reason": "MOCK: no dashboard", "symbols": {}, "scans": []}
+    monkeypatch.setattr(src, "chartink_index", no_hits)
     snaps = asyncio.run(src.collect_snapshots(None, "u", inputs(), TODAY))
     assert seen == [EXPIRY] and snaps["chain"]["ok"] and "nearest listed expiry" in snaps["chain"]["data"]["expiry_why"]
 

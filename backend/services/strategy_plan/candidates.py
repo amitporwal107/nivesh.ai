@@ -221,6 +221,10 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
         bucket = {"BREAKOUT": "breakout_confirmed", "EARLY_BREAKOUT": "pre_breakout"}.get(st, "true_accumulation")
         stage_note = f"The stock is a scanner pick (stage {st}) that is not in the watchlist buckets; its stage is read as {bucket.replace('_', ' ')}."
     if bucket is None:
+        bull = chartink_bullish_hits(ctx)
+        if bull:
+            return [chartink_cash_candidate(ctx, bull)]
+    if bucket is None:
         return [not_viable("cash", "scanner", "Cash plan", d, "no_trade",
                            reason("no_setup", "The scanner lists the stock in none of its buckets (breakout confirmed, pre-breakout, true accumulation, trend continuation): no cash setup."))]
     if bucket in ("pre_breakout", "true_accumulation"):
@@ -246,6 +250,35 @@ def cash_candidates(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
                              unit_kind="cash", lot=1, expiry=None, price_source=ctx["spot_source"],
                              why=[f"Scanner bucket {bucket.replace('_', ' ')} (rules {ctx.get('scan_rules_version')}).",
                                   f"Trigger / reference level {num(it.get('trigger_price'))}."] + ([stage_note] if stage_note else []) if it else [])]
+
+
+def chartink_bullish_hits(ctx: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The enabled bullish Chartink scans that listed the stock (empty when Chartink is off, unavailable or did not list it)."""
+    ck = snap(ctx["snaps"], "chartink")
+    return [h for h in ((ck["data"] or {}).get("hits") or []) if h.get("direction") == "bullish"] if ck["ok"] else []
+
+
+def chartink_cash_candidate(ctx: Dict[str, Any], hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """A cash candidate for a stock the AI scanner lists in no bucket but an enabled bullish Chartink scan listed. The levels come from the chart engine's
+    ATR rule (ATR_2X_STOP), as for any stock without a scanner pick; the scan is the user's own and is not validated. The plan gates still decide the status."""
+    C = RULES["chartink"]
+    d, spot, hyp = ctx["direction"], ctx["spot"], ctx["hyp"]
+    family, label = C["cash_family"], "Chartink screen signal (long)"
+    if spot is None:
+        return not_viable("cash", family, label, d, "insufficient_data", reason("no_price", "No last close: the entry cannot be set."))
+    stop = num(hyp.get("stop")) if hyp else None
+    if stop is None or stop <= 0 or stop >= spot:
+        return not_viable("cash", family, label, d, "insufficient_data", reason("risk_not_calculable", "No stop below the price could be derived (the ATR rule needs 15 usable sessions)."))
+    ck = snap(ctx["snaps"], "chartink")["data"] or {}
+    rule = f"{hyp.get('rule')} v{hyp.get('version')}" if hyp.get("rule") else "ATR_2X_STOP"
+    stop_basis = f"the chart engine's ATR stop (rule {rule}: 2 x ATR(14), or 20-session support when closer but at least 0.5 ATR away); {C['levels_label']}"
+    names = ", ".join(str(h.get("name")) for h in hits)
+    c = linear_candidate(ctx, "cash", family, label, True, spot, stop, stop_basis, None, f"Last close {spot:g} ({ctx['spot_source']})",
+                         unit_kind="cash", lot=1, expiry=None, price_source=ctx["spot_source"],
+                         why=[f"Listed by {len(hits)} enabled bullish Chartink scan(s): {names} (fetched {ck.get('fetched_at')}).",
+                              "The AI scanner lists the stock in none of its buckets; the entry is the last close and the levels follow the ATR rule."])
+    c["warnings"].append(C["levels_label"][0].upper() + C["levels_label"][1:] + ".")
+    return c
 
 
 def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str, up: bool, entry: float, stop: float, stop_basis: str,

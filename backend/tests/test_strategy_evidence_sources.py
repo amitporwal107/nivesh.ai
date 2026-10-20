@@ -526,7 +526,7 @@ def test_ledger_items_are_complete_and_missing_is_never_neutral():
 
 
 def test_rules_version_was_bumped_for_the_new_constants():
-    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.3")
+    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.4")
     for k in ("ownership", "cash_flow", "quotes"):
         assert k in RULES
 

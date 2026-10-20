@@ -108,6 +108,14 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
         else:
             probs.append(_p(key, "bad_" + key, f"{key} must be true or false."))
             flags[key] = D[key]
+    if body.get("include_chartink") is None:
+        include_chartink = RULES["chartink"]["include_default"]
+        applied.append("include_chartink")
+    elif isinstance(body["include_chartink"], bool):
+        include_chartink = body["include_chartink"]
+    else:
+        probs.append(_p("include_chartink", "bad_include_chartink", "include_chartink must be true or false."))
+        include_chartink = RULES["chartink"]["include_default"]
     if body.get("live_broker_reads") is None:
         live_reads_on = False
         applied.append("live_broker_reads")
@@ -139,7 +147,7 @@ def normalise_inputs(body: Any) -> Tuple[Optional[Dict[str, Any]], List[Dict[str
     return {"underlying": sym.strip().upper(), "direction": direction, "horizon": horizon, "horizon_days": hdays, "instrument": instrument,
             "capital": capital, "risk_budget_inr": risk_budget, "risk_pct": risk_pct, "max_allocation_pct": alloc,
             "min_reward_risk": min_rr, "avoid_events": flags["avoid_events"], "allow_multi_leg": flags["allow_multi_leg"],
-            "include_combinations": flags["include_combinations"], "live_broker_reads": live_reads_on, "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
+            "include_combinations": flags["include_combinations"], "include_chartink": include_chartink, "live_broker_reads": live_reads_on, "expiry": expiry, "costs": costs, "defaults_applied": sorted(applied)}, []
 
 
 # ── context ──────────────────────────────────────────────────────────────────
@@ -351,6 +359,17 @@ def _snapshot_refs(snaps: Dict[str, Any]) -> List[Dict[str, Any]]:
     return refs
 
 
+def plan_sources(snaps: Dict[str, Any]) -> List[str]:
+    """Which opportunity sources list the stock: `ai_scanner` (a scanner bucket or pick) and/or `chartink` (an enabled scan of the user's dashboard)."""
+    out: List[str] = []
+    sb, ck = ev.snap(snaps, "scanner_bucket"), ev.snap(snaps, "chartink")
+    if sb["ok"] and ((sb["data"] or {}).get("bucket") or (sb["data"] or {}).get("pick_stage")):
+        out.append("ai_scanner")
+    if ck["ok"] and (ck["data"] or {}).get("hits"):
+        out.append("chartink")
+    return out
+
+
 def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, today: date) -> Dict[str, Any]:
     ctx = build_ctx(inputs, snaps, today)
     ledger = ev.build_ledger(snaps, inputs, ctx["as_of"], ctx["ref_session"])
@@ -418,7 +437,7 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
         "summary": {"underlying": inputs["underlying"], "segment": inputs["instrument"], "direction": inputs["direction"], "horizon": inputs["horizon"],
                     "horizon_days": inputs["horizon_days"], "family": preferred["family"] if preferred else None,
                     "preferred_segment": preferred["segment"] if preferred else None, "status": status, "generated_at": now.isoformat(),
-                    "data_as_of": ctx["as_of"], "end_of_day": True},
+                    "data_as_of": ctx["as_of"], "end_of_day": True, "sources": plan_sources(snaps)},
         "thesis": {"direction": inputs["direction"], "supports": supports, "conflicts": conflicts,
                    "unavailable": [f"{i['group']}.{i['key']}" for i in ledger["items"] if i["direction"] == "unavailable"],
                    "note": "Only the evidence that applies to the chosen direction; fundamentals are context, not a short-horizon trigger (PRD §16.8)."},
