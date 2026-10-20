@@ -27,7 +27,7 @@ import { QueryProblem, fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk } from "./context";
 import {
   useClosePaperTrade, useDeleteAlert, useDeskAlerts, usePaperTrades, writeProblem,
-  type DeskAlert, type EntryRule, type EntryStatus, type ExitReason, type PaperTrade,
+  type DeskAlert, type EntryRule, type EntryStatus, type ExitReason, type PaperTrade, type StrategyExitReason, type StrategyPaperTrade,
 } from "./desk-trading";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${fmtNum(n)} ${n === 1 ? one : many}`;
@@ -110,10 +110,27 @@ const RULE_NAME: Record<EntryRule, { trader: string; investor: string }> = {
 function wordsFor(investor: boolean) {
   return investor
     ? { entry: "Buy price", stop: "Exit if wrong", target: "Exit if right", gross: "Before costs", net: "After costs", mfe: "Best point", mae: "Worst point",
-        rule: "When it buys", obs: "Days checked", unrealised: "Gain now", realised: "Gain taken" }
+        rule: "When it buys", obs: "Days checked", unrealised: "Gain now", realised: "Gain taken",
+        premium: "Paid or received", mark: "Worth now", legs: "Parts of the trade", signal: "Why it was opened", lifecycle: "What happened" }
     : { entry: "Entry", stop: "Stop", target: "Target", gross: "Gross", net: "Net after costs", mfe: "MFE", mae: "MAE",
-        rule: "Entry rule", obs: "Observations", unrealised: "Unrealised P&L", realised: "Realised P&L" };
+        rule: "Entry rule", obs: "Observations", unrealised: "Unrealised P&L", realised: "Realised P&L",
+        premium: "Net premium", mark: "Mark", legs: "Legs", signal: "Signal (saved, never edited)", lifecycle: "Lifecycle" };
 }
+
+const STRATEGY_REASON: Record<StrategyExitReason, { label: string; investor: string; tone: Tone }> = {
+  ...REASON,
+  expiry: { label: "Expired", investor: "Expired", tone: "ink" },
+};
+
+const DIRECTION_WORD: Record<string, { trader: string; investor: string }> = {
+  bullish: { trader: "Bullish", investor: "Expects a rise" },
+  bearish: { trader: "Bearish", investor: "Expects a fall" },
+  neutral: { trader: "Neutral", investor: "Expects little change" },
+};
+
+const BASIS_SHORT: Record<string, string> = {
+  settle: "settle", close: "close", expiry_intrinsic: "expiry value", final_settle: "final settle", underlying_close: "share close",
+};
 
 function signedPct(p: number | null): string {
   return p == null ? "—" : fmtPct(p, { signed: true, digits: 2 });
@@ -172,7 +189,119 @@ function TradeRecord({ t, book, investor }: { t: PaperTrade; book: { entryRules:
   );
 }
 
-function RecordToggle({ t, open, onToggle }: { t: PaperTrade; open: boolean; onToggle: () => void }) {
+const premiumTitle = (rs: number | null) => (rs == null ? undefined : rs < 0 ? "Paid by the option legs (a debit)" : "Received by the option legs (a credit)");
+
+/** One strategy trade's whole record (PRD §17.7): every leg with its entry and mark, the signal it was opened from
+ *  (saved with the trade, never edited), the lifecycle log, costs and flags. */
+function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: boolean }) {
+  const w = wordsFor(investor);
+  const reason = t.exitReason ? STRATEGY_REASON[t.exitReason][investor ? "investor" : "label"] : null;
+  const dir = t.direction ? DIRECTION_WORD[t.direction][investor ? "investor" : "trader"] : "—";
+  const levels = [
+    t.stopUnderlying != null ? `${w.stop} on ${t.underlying} ${fmtPrice(t.stopUnderlying)}` : null,
+    t.targetUnderlying != null ? `${w.target.toLowerCase()} ${fmtPrice(t.targetUnderlying)}` : null,
+    t.maxHoldSessions != null ? `or the close of session ${fmtNum(t.maxHoldSessions)} held` : null,
+    "or when every leg has expired",
+  ].filter(Boolean).join(", ");
+  const rows: Array<[string, ReactNode, string]> = [
+    ["Plan", <>{t.summaryText} · {dir}{t.referencePrice != null ? ` · ${t.underlying} was ${fmtPrice(t.referencePrice)}` : ""}{t.strategyPlanId ? ` · plan ${t.strategyPlanId}` : ""}</>, "plan"],
+    ["Exit rule", levels, "exit-rule"],
+    ["Exit", t.status === "closed" ? <>{reason ?? "—"}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitNote ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{t.exitNote}</span> : null}</> : "Open", "exit"],
+    [w.premium, <><span title={premiumTitle(t.netPremiumRs)}>{t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"}</span>{t.markPremiumRs != null ? ` at entry · ${fmtINR(t.markPremiumRs, { signed: true })} at the marks` : ""}</>, "premium"],
+    [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
+    [`${w.mfe} · ${w.mae}`, <>{t.mfeRs != null ? fmtINR(t.mfeRs, { signed: true }) : "—"} · {t.maeRs != null ? fmtINR(t.maeRs, { signed: true }) : "—"}<span style={{ display: "block", color: "var(--cp-ink-3)" }}>End-of-session P&amp;L of the whole position, not intraday.</span></>, "excursion"],
+    [w.obs, t.observations != null ? `${plural(t.observations, "session")} read${t.heldSessions != null ? ` · ${fmtNum(t.heldSessions)} held` : ""}` : "— not read", "obs"],
+    ["Rules version", t.rulesVersion ?? "—", "version"],
+  ];
+  const sg = t.signal;
+  return (
+    <div data-testid="desk-paper-strategy-record" data-id={t.id} className="flex flex-col" style={{ gap: 10, padding: "12px 14px", borderRadius: 12, border: "1px solid var(--cp-line)", background: "var(--bg-2)" }}>
+      <span className="cp-eyebrow">{t.underlying} · strategy paper trade record</span>
+      <dl className="m-0 grid" style={{ gridTemplateColumns: "minmax(0,150px) minmax(0,1fr)", gap: "6px 12px", fontSize: 12.5, lineHeight: 1.45 }}>
+        {rows.map(([k, v, id]) => (
+          <div key={id} className="contents">
+            <dt style={{ color: "var(--cp-ink-3)" }}>{k}</dt>
+            <dd data-testid={`desk-paper-strategy-record-${id}`} className="m-0" style={{ color: "var(--cp-ink)", minWidth: 0, overflowWrap: "anywhere" }}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+      {t.riskNote && <span data-testid="desk-paper-strategy-risk" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{t.riskNote}</span>}
+      <div className="flex flex-col" style={{ gap: 4 }}>
+        <span className="cp-eyebrow">{w.legs}</span>
+        <div data-testid="desk-paper-strategy-legs" style={{ border: "1px solid var(--cp-line)", borderRadius: 10, overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: 640, borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "var(--cp-ink-3)" }}>
+                <th style={{ padding: "6px 10px", fontWeight: 500 }}>Leg</th>
+                <th style={{ padding: "6px 10px", fontWeight: 500, textAlign: "right" }}>{w.entry}</th>
+                <th style={{ padding: "6px 10px", fontWeight: 500, textAlign: "right" }}>{t.status === "closed" ? "Closing mark" : w.mark}</th>
+                <th style={{ padding: "6px 10px", fontWeight: 500 }}>Mark date</th>
+                <th style={{ padding: "6px 10px", fontWeight: 500, textAlign: "right" }}>P&amp;L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {t.legs.map((leg) => (
+                <tr key={leg.index} data-testid="desk-paper-strategy-leg" data-index={leg.index} style={{ borderTop: "1px solid var(--cp-line)" }}>
+                  <td style={{ padding: "6px 10px" }}>
+                    {leg.label} · {fmtNum(leg.lotSize)} per lot
+                    <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Entry from {leg.priceSource ?? "— source not recorded"}</span>
+                  </td>
+                  <td data-testid="desk-paper-strategy-leg-entry" className="cp-num" style={{ padding: "6px 10px", textAlign: "right" }}>{fmtPrice(leg.entry)}</td>
+                  <td data-testid="desk-paper-strategy-leg-mark" className="cp-num" style={{ padding: "6px 10px", textAlign: "right" }} title={leg.markBasisText ?? undefined}>
+                    {fmtPrice(leg.mark)}{leg.markBasis ? <span style={{ display: "block", fontSize: 11, color: "var(--cp-ink-3)" }}>{BASIS_SHORT[leg.markBasis]}</span> : null}
+                  </td>
+                  <td data-testid="desk-paper-strategy-leg-date" style={{ padding: "6px 10px" }}>{leg.markDate ? fmtDay(leg.markDate) : "— no mark"}</td>
+                  <td style={{ padding: "6px 10px", textAlign: "right" }}><Pnl rs={leg.pnlRs} testId="desk-paper-strategy-leg-pnl" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <span style={quiet}>Marks are end-of-day contract prices from the NSE F&amp;O bhavcopy (settle, else close); an option on its expiry date is valued at intrinsic value against the share's close. A leg with no price keeps its last mark and is flagged; nothing is filled in.</span>
+      </div>
+      <div data-testid="desk-paper-strategy-signal" className="flex flex-col" style={{ gap: 4 }}>
+        <span className="cp-eyebrow">{w.signal}</span>
+        <dl className="m-0 grid" style={{ gridTemplateColumns: "minmax(0,150px) minmax(0,1fr)", gap: "4px 12px", fontSize: 12.5, lineHeight: 1.45 }}>
+          <dt style={{ color: "var(--cp-ink-3)" }}>Signal time</dt>
+          <dd data-testid="desk-paper-signal-at" className="m-0">{sg.signalAt ? (sg.signalAt.length === 10 ? fmtDay(sg.signalAt) : fmtStamp(sg.signalAt)) : "— not recorded"}</dd>
+          <dt style={{ color: "var(--cp-ink-3)" }}>Rule · model version</dt>
+          <dd data-testid="desk-paper-signal-versions" className="m-0">{sg.ruleVersion ?? "—"} · {sg.modelVersion ?? "no model"}</dd>
+          <dt style={{ color: "var(--cp-ink-3)" }}>Sources</dt>
+          <dd data-testid="desk-paper-signal-sources" className="m-0">{sg.sourceRefs.length ? sg.sourceRefs.map((r) => `${r.kind} ${r.ref}${r.asOf ? ` (${r.asOf})` : ""}`).join("; ") : "— none recorded"}</dd>
+          <dt style={{ color: "var(--cp-ink-3)" }}>Evidence</dt>
+          <dd data-testid="desk-paper-signal-evidence" className="m-0" style={{ overflowWrap: "anywhere" }}>{sg.evidenceSummary ?? "— not recorded"}</dd>
+        </dl>
+        {t.entryRecordIntact === false && <span data-testid="desk-paper-record-tampered" role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>The stored legs or signal no longer match what was saved at entry. Treat this record as unreliable.</span>}
+      </div>
+      <div data-testid="desk-paper-strategy-events" className="flex flex-col" style={{ gap: 4 }}>
+        <span className="cp-eyebrow">{w.lifecycle}</span>
+        <ol className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 18 }}>
+          {t.events.map((e, i) => (
+            <li key={`${e.type}-${i}`} data-testid="desk-paper-event" data-type={e.type} style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+              {e.at ? `${fmtStamp(e.at)} · ` : ""}{e.session ? `session ${fmtDay(e.session)} · ` : ""}{e.text}
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div data-testid="desk-paper-record-flags" className="flex flex-col" style={{ gap: 4 }}>
+        <span className="cp-eyebrow">Rule violations or missing data</span>
+        {t.flags.length === 0 ? (
+          <span style={quiet}>{t.observations == null ? "Not read." : "None found."}</span>
+        ) : (
+          <ul className="m-0 flex flex-col" style={{ gap: 4, paddingLeft: 16 }}>
+            {t.flags.map((f, i) => (
+              <li key={`${f.code}-${i}`} data-testid="desk-paper-flag" data-code={f.code} style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+                {f.session ? `${fmtDay(f.session)}: ` : ""}{f.text}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecordToggle({ t, open, onToggle }: { t: { symbol: string }; open: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
@@ -201,7 +330,7 @@ export function PaperTradesBlock() {
   let body: ReactNode;
   if (q.isPending) body = <LoadingBlock label="Loading your paper trades" rows={3} />;
   else if (q.isError) body = <div data-testid="desk-paper-trades-error"><QueryProblem what="Your paper trades" error={q.error} onRetry={() => q.refetch()} /></div>;
-  else if (q.data.trades.length === 0) {
+  else if (q.data.trades.length === 0 && q.data.strategyTrades.length === 0) {
     body = (
       <div data-testid="desk-paper-trades-empty" className="flex flex-col items-start" style={{ gap: 8 }}>
         <span style={quiet}>No paper trades yet. Add one from a scanner setup on the Chart tab: its risk desk sizes it and records it here, with no order placed.</span>
@@ -212,10 +341,56 @@ export function PaperTradesBlock() {
     const d = q.data;
     const open = d.trades.filter((t) => t.status === "open");
     const closed = d.trades.filter((t) => t.status === "closed");
+    const strategyOpen = d.strategyTrades.filter((t) => t.status === "open");
+    const strategyClosed = d.strategyTrades.filter((t) => t.status === "closed");
     const s = d.summary;
     const picked = open.find((t) => t.id === confirm) ?? null;
+    const pickedStrategy = strategyOpen.find((t) => t.id === confirm) ?? null;
     const shown = d.trades.find((t) => t.id === record) ?? null;
-    const toggle = (t: PaperTrade) => setRecord(record === t.id ? null : t.id);
+    const shownStrategy = d.strategyTrades.find((t) => t.id === record) ?? null;
+    const toggle = (t: { id: string }) => setRecord(record === t.id ? null : t.id);
+    const strategyCols = (isOpen: boolean): Column<StrategyPaperTrade>[] => [
+      {
+        key: "stock", header: "Underlying", width: "minmax(190px,1.8fr)",
+        render: (t) => <SymbolCell symbol={t.underlying} size={20} testId="desk-strategy-symbol" sub={<span data-testid="desk-strategy-summary">{t.summaryText}</span>} />,
+      },
+      {
+        key: "family", header: "Strategy", width: "130px",
+        render: (t) => <span data-testid="desk-strategy-family" title={t.direction ?? undefined}>{t.familyName ?? t.family ?? "—"}</span>,
+      },
+      {
+        key: "prem", header: w.premium, align: "right", num: true, width: "104px",
+        render: (t) => <span data-testid="desk-strategy-premium" title={premiumTitle(t.netPremiumRs)} className="cp-num">{t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"}</span>,
+      },
+      {
+        key: "mark", header: w.mark, align: "right", num: true, width: "104px",
+        render: (t) => (
+          <span data-testid="desk-strategy-mark" className="cp-num" title={t.lastMarkDate ? `End of day ${fmtDay(t.lastMarkDate)}` : t.markError ? `No mark: ${t.markError}` : "No mark yet"}>
+            {t.markPremiumRs != null ? fmtINR(t.markPremiumRs, { signed: true }) : "—"}
+          </span>
+        ),
+      },
+      { key: "pnl", header: isOpen ? w.gross : (investor ? "Gain before costs" : "Realised"), align: "right", num: true, width: "100px", render: (t) => <Pnl rs={t.grossRs} testId="desk-strategy-gross" /> },
+      { key: "net", header: w.net, align: "right", num: true, width: "110px", render: (t) => <Pnl rs={t.netRs} testId="desk-strategy-net" /> },
+      {
+        key: "status", header: "Status", width: "120px",
+        render: (t) => (
+          <span data-testid="desk-strategy-status" data-status={t.status} data-reason={t.exitReason ?? ""}>
+            {t.status === "open" ? <Pill tone="mint">Open</Pill> : t.exitReason ? <Pill tone={STRATEGY_REASON[t.exitReason].tone}>{STRATEGY_REASON[t.exitReason][investor ? "investor" : "label"]}</Pill> : <Pill tone="ink">Closed</Pill>}
+          </span>
+        ),
+      },
+      { key: "rec", header: "", width: "78px", align: "right", render: (t) => <RecordToggle t={{ symbol: t.underlying }} open={record === t.id} onToggle={() => toggle(t)} /> },
+      ...(isOpen ? [{
+        key: "act", header: "", width: "72px", align: "right" as const,
+        render: (t: StrategyPaperTrade) => (
+          <button type="button" className="cp-chip" data-testid="desk-strategy-close" aria-label={`Close the ${t.underlying} strategy paper trade`} disabled={close.isPending}
+            onClick={() => { close.reset(); setConfirm(t.id); }} style={{ padding: "3px 10px", fontSize: 12 }}>
+            Close
+          </button>
+        ),
+      }] : []),
+    ];
     const tiles: Array<{ k: string; v: ReactNode; sub: ReactNode; testId: string }> = [
       { k: "Open", v: fmtNum(s?.open ?? open.length), sub: s?.entryPending ? `${fmtNum(s.entryPending)} waiting for the entry` : "Marked at the last close", testId: "desk-paper-open" },
       { k: "Closed", v: fmtNum(s?.closed ?? closed.length), sub: s ? `${fmtNum(s.wins)} won · ${fmtNum(s.losses)} lost${s.notEntered ? ` · ${fmtNum(s.notEntered)} never entered` : ""}` : "", testId: "desk-paper-closed" },
@@ -337,7 +512,38 @@ export function PaperTradesBlock() {
             {s?.partial && <span style={quiet}>Only the most recent closed trades are listed; the counts above cover those listed.</span>}
           </div>
         )}
+        {d.strategyTrades.length > 0 && (
+          <div data-testid="desk-strategy-trades" className="flex flex-col" style={{ gap: 8 }}>
+            <Head title={<>Futures and options · <span data-testid="desk-strategy-count">{fmtNum(d.strategyTrades.length)}</span></>} note="Marked at end-of-day contract prices · simulated" />
+            {strategyOpen.length > 0 && (
+              <div data-testid="desk-strategy-open-table" style={{ border: "1px solid var(--cp-line)", borderRadius: 12 }}>
+                <DataTable columns={strategyCols(true)} rows={strategyOpen} rowKey={(t) => t.id} minWidth={960} />
+              </div>
+            )}
+            {pickedStrategy && (
+              <Confirm
+                testId="desk-strategy-confirm"
+                yes="Close strategy trade"
+                pending={close.isPending}
+                error={close.isError ? close.error : null}
+                onNo={() => { setConfirm(null); close.reset(); }}
+                onYes={() => close.mutate(pickedStrategy.id, { onSuccess: () => setConfirm(null) })}
+              >
+                Close the {pickedStrategy.underlying} strategy ({pickedStrategy.summaryText}) at the last end-of-day marks of its legs? It is simulated: no order is placed.
+              </Confirm>
+            )}
+            {strategyClosed.length > 0 && (
+              <div data-testid="desk-strategy-closed-table" style={{ border: "1px solid var(--cp-line)", borderRadius: 12 }}>
+                <DataTable columns={strategyCols(false)} rows={strategyClosed} rowKey={(t) => t.id} minWidth={900} />
+              </div>
+            )}
+            <span data-testid="desk-strategy-rules" style={quiet}>
+              Each leg is marked on its own contract: a future at its settle price, an option at its settle (else close), on the NSE F&amp;O bhavcopy, end of day. A strategy closes when the share touches its stop or target, when every leg has expired (options at intrinsic value), or after the sessions allowed; the legs close at that session's marks. Futures losses can exceed the margin posted. Rules {d.strategyTrades[0]?.rulesVersion ?? "desk-paper-v3"}.
+            </span>
+          </div>
+        )}
         {shown && <TradeRecord t={shown} book={d} investor={investor} />}
+        {shownStrategy && <StrategyRecord t={shownStrategy} investor={investor} />}
         <span data-testid="desk-paper-rules" style={quiet}>
           {d.orders ?? "Simulated: no order is placed."} Marks and exits use end-of-day daily bars{d.checkedThrough ? `, checked through ${fmtDay(d.checkedThrough)}` : d.asOf ? ` through ${fmtDay(d.asOf)}` : ""}{d.source ? ` (${d.source})` : ""}. A session whose low reaches the stop closes the trade at the stop; one whose high reaches the target closes it at the target; one that reaches both closes it at the stop.
           {cost?.slippagePctPerSide != null && cost.brokerageRsPerSide != null
