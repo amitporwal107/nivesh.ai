@@ -40,7 +40,7 @@ import {
   type DailyBars, type IndicatorValues, type LiveIndicators, type LivePattern, type LivePatterns, type LiveRead, type RecordRow, type SetupRecord,
 } from "./chart-data";
 import { useDesk } from "./context";
-import { LIQUID_MIN_CR, useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
+import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
 import { largestGap, rsiZone, type DailyBar } from "./indicators";
 import { CardHead, RISK_STATUS, RiskDesk, Segmented, TradeScenarioCard } from "./RiskDesk";
 import { TrustLine } from "./trust";
@@ -828,7 +828,7 @@ function contradictions(args: {
     }
   } else unchecked.push("Pattern failures (the pattern engine did not answer)");
   if (pUp != null && pDown != null) {
-    if (pDown >= pUp) found.push({ key: "odds-down", text: `The move-odds model gives a 5% fall next session (${fmtPct(pDown * 100, { digits: 1 })}) at least the chance of a 5% rise (${fmtPct(pUp * 100, { digits: 1 })}).`, source: "Move-odds model" });
+    if (pDown >= pUp) found.push({ key: "odds-down", text: "The move-odds model puts a 5% fall next session at least as high as a 5% rise (the estimates are not calibrated, so no probability is shown).", source: "Move-odds model" });
   } else unchecked.push("Down-move odds (no published estimate for this stock)");
   if (liquidCr != null) {
     if (liquidCr < LIQUID_MIN_CR) found.push({ key: "illiquid", text: `Trades ₹${fmtNum(liquidCr, 1)} Cr a day, under the desk’s ₹${LIQUID_MIN_CR} Cr liquidity gate.`, source: "Traded value" });
@@ -928,6 +928,9 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
       : stockQ.data?.kind === "withheld" ? `Withheld: ${stockQ.data.reason}.`
         : odds?.kind === "not_published" ? `The model has not published for ${fmtDay(odds.expectedSession)} yet (preview only).`
           : oddsQ.isPending ? "Loading the move-odds model." : oddsQ.isError ? "The move-odds model didn’t load." : `No estimate for ${sym} in the published run.`;
+  // The one probability gate (desk-data.ts): the estimates are not marked calibrated, so no probability prints here.
+  const gate = probabilityGate(odds, plain, stockQ.data?.kind === "ok");
+  const evidence = modelEvidence(run, record, plain);
   const fin = finQ.data ?? null;
   const quarter = fin?.quarters[0] ?? null;
   const holdings = fin ? [...fin.holdings].sort((a, b) => (b.period_end ?? "").localeCompare(a.period_end ?? "")) : [];
@@ -970,9 +973,9 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
     <>
       <KV testId="desk-model-score" k={plain ? "Scanner score" : "Scanner score (rules-based, not a probability)"} v={setup?.score != null ? `${fmtNum(setup.score, 0)} / 100` : dash}
         why={setup?.score == null ? "Not on today’s scanner." : setup.confidence ? `Scanner grade ${humaniseTag(setup.confidence.toLowerCase())}.` : undefined} />
-      <KV testId="desk-model-p" k={plain ? "Chance of +5% next day" : "P(+5% next session) · model estimate"} v={pUp != null ? pct1(pUp) : dash} why={pUp == null ? oddsWhy : undefined} />
-      <KV testId="desk-model-pdown" k={plain ? "Chance of −5% next day" : "P(−5% next session) · model estimate"} v={pDown != null ? pct1(pDown) : dash}
-        why={pDown == null ? (stockQ.data?.kind === "ok" ? "Not in the stock’s estimates." : oddsWhy) : undefined} />
+      <KV testId="desk-model-p" k={plain ? "Chance of +5% next day" : "P(+5% next session) · model estimate"} v={pUp != null ? PROBABILITY_WITHHELD : dash} why={pUp != null ? `${gate.reason}${evidence ? ` Evidence, not a probability: ${evidence}.` : ""}` : oddsWhy} />
+      <KV testId="desk-model-pdown" k={plain ? "Chance of −5% next day" : "P(−5% next session) · model estimate"} v={pDown != null ? PROBABILITY_WITHHELD : dash}
+        why={pDown != null ? gate.reason : stockQ.data?.kind === "ok" ? "Not in the stock’s estimates." : oddsWhy} />
       <KV testId="desk-model-version" k="Model version" v={run ? `Move-odds ${run.model}` : dash}
         why={run ? `Refit ${run.refit ?? "—"} · trained to ${run.train_end ? fmtDay(run.train_end) : "—"} · data as of ${fmtDay(run.data_as_of)} · for ${fmtDay(run.target_session)} · build ${run.git_sha}` : oddsWhy} />
       <KV testId="desk-model-eval" k="Evaluation period" v={record ? record.window_label : dash}
@@ -1216,7 +1219,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
 
   const summaries: Record<SectionKey, ReactNode> = {
     definition: setup ? `${setupLabel(setup, plain)} · scanner rules · ${run ? `P(+5%) for ${fmtDay(run.target_session)}` : "next-session odds —"}` : "Not on today’s scanner · next-session odds and patterns only",
-    model: `Score ${setup?.score != null ? fmtNum(setup.score, 0) : "—"} (rules) · P(+5% next session) ${pUp != null ? pct1(pUp) : "—"}${record ? ` · ${record.window_label}` : ""}`,
+    model: `Score ${setup?.score != null ? fmtNum(setup.score, 0) : "—"} (rules) · P(+5% next session) ${pUp != null ? PROBABILITY_WITHHELD.toLowerCase() : "—"}${record ? ` · ${record.window_label}` : ""}`,
     technical: v
       ? `${v.ema20 != null ? (v.close > v.ema20 ? "Above" : "Below") : "—"} EMA 20 · RSI ${fmtNum(v.rsi14, 0)} · ${patterns ? `${patterns.patterns.filter((p) => p.state === "confirmed").length} confirmed, ${patterns.patterns.filter((p) => p.state === "awaiting_confirmation").length} awaiting` : "patterns —"}`
       : "Indicators —",

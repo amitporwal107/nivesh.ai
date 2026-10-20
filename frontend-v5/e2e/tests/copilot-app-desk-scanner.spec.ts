@@ -1578,7 +1578,16 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     expect(await page.getByTestId("desk-axis-label").count()).toBeGreaterThan(1);
 
     const o = ODDS_ROWS.find((r) => r.symbol === "FIXBRK")!;
-    await expect(page.getByTestId("desk-risk-p5")).toHaveText(pct1(o.p));
+    // One probability gate: the route does not mark the estimates calibrated, so the number is withheld even when all five checks pass,
+    // and the tile is not green. The model's version, run date and out-of-sample record stay as evidence.
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText("Withheld");
+    await expect(page.getByTestId("desk-risk-p5")).not.toContainText(pct1(o.p));
+    const note5 = page.getByTestId("desk-risk-p5-note");
+    await expect(note5).toContainText("does not mark these estimates as calibrated");
+    await expect(note5).toContainText(`Move-odds ${RUN.model}`);
+    await expect(note5).toContainText(`data as of 13 Oct 2026`);
+    await expect(note5).toContainText(`out of sample ${RECORD.window_label}`);
+    await expect(note5).toContainText("5 of 5 gate checks passed");
     await expect(page.getByTestId("desk-risk-gate-count")).toHaveText("5 of 5 passed");
     await expect(page.getByTestId("desk-risk-check-liquidity-value")).toHaveText(`₹${tradedOf("FIXBRK")!.toFixed(1)} Cr a day`);
     await expect(page.getByTestId("desk-risk-record")).toContainText(`top-10 hit rate ${pct1(RECORD.top10_hit_rate)} over ${RECORD.sessions} sessions`);
@@ -1600,7 +1609,9 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-gate-count")).toHaveText(`${passed} of 5 passed`);
     await expect(page.getByTestId("desk-risk-check-events")).toHaveAttribute("data-ok", "false");
     await expect(page.getByTestId("desk-risk-check-liquidity")).toHaveAttribute("data-ok", "false");
-    await expect(page.getByTestId("desk-risk-p5-note")).toHaveText(`P(+5% next session). Not shown as high-confidence: ${passed} of 5 gate checks passed.`);
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText("Withheld");
+    await expect(page.getByTestId("desk-risk-p5-note")).toContainText(`${passed} of 5 gate checks passed.`);
+    await expect(page.getByTestId("desk-risk-p5-note")).toContainText("does not mark these estimates as calibrated");
   });
 
   test("odds 403: the gate's model checks show “—” and are not counted; only the liquidity check can pass", async ({ page }) => {
@@ -1930,7 +1941,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     }
     // Summaries from the payloads.
     const o = ODDS_ROWS.find((r) => r.symbol === "FIXBRK")!;
-    await expect(page.getByTestId("desk-detail-model-summary")).toHaveText(`Score 86 (rules) · P(+5% next session) ${pct1(o.p)} · ${RECORD.window_label}`);
+    await expect(page.getByTestId("desk-detail-model-summary")).toHaveText(`Score 86 (rules) · P(+5% next session) withheld · ${RECORD.window_label}`);
     await expect(page.getByTestId("desk-detail-technical-summary")).toContainText("1 confirmed, 0 awaiting");
     await expect(page.getByTestId("desk-detail-fundamentals-summary")).toHaveText("P/E 24.1 · ROE 18% · promoter 52%");
     await expect(page.getByTestId("desk-detail-events-summary")).toHaveText("2 filings in 30 days · latest 8 Oct 2026");
@@ -1958,7 +1969,11 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     await expect(page.getByTestId("desk-def-record")).toContainText("An intraday touch, not a close and not a trade");
     // 2 · model score and calibration
     await expect(page.getByTestId("desk-model-score")).toContainText("86 / 100");
-    await expect(page.getByTestId("desk-model-pdown")).toContainText(pct1(STOCK_FIXBRK.data.estimates.p_down5_1d));
+    // One probability gate: neither direction prints a number; the version, run date and record below are the evidence.
+    await expect(page.getByTestId("desk-model-p")).toContainText("Withheld");
+    await expect(page.getByTestId("desk-model-p")).not.toContainText(pct1(ODDS_ROWS.find((r) => r.symbol === "FIXBRK")!.p));
+    await expect(page.getByTestId("desk-model-pdown")).toContainText("Withheld");
+    await expect(page.getByTestId("desk-model-pdown")).not.toContainText(pct1(STOCK_FIXBRK.data.estimates.p_down5_1d));
     await expect(page.getByTestId("desk-model-version")).toContainText(`Move-odds ${RUN.model}`);
     await expect(page.getByTestId("desk-model-version")).toContainText(`build ${RUN.git_sha}`);
     await expect(page.getByTestId("desk-model-eval")).toContainText(RECORD.window_label);
@@ -2235,7 +2250,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await expect(page.getByTestId("desk-risk-entry")).toHaveText(`Buy above ${inr2(p.entry_price)}`);
     await expect(page.getByTestId("desk-risk-scenario")).toHaveText("Broke above a recent high");
     // The figures are the same as the trader's.
-    await expect(page.getByTestId("desk-risk-p5")).toHaveText(pct1(ODDS_ROWS[1].p));
+    await expect(page.getByTestId("desk-risk-p5")).toHaveText("Withheld");
     await expect(page.getByTestId("desk-risk-qty")).toHaveText("200");
   });
 

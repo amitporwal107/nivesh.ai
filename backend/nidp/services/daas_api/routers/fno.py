@@ -40,7 +40,7 @@ async def fno_for_symbol(
             SELECT as_of_date, ticker_symbol, instrument_type,
                    expiry_date, strike_price, option_type,
                    open_price, high_price, low_price, close_price,
-                   settle_price, underlying_price,
+                   prev_close_price, settle_price, underlying_price,
                    open_interest, change_in_oi,
                    traded_volume, traded_value, num_trades,
                    new_board_lot_qty
