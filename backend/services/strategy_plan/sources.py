@@ -220,6 +220,58 @@ async def _portfolio(user_id: str) -> Dict[str, Any]:
     return src_ok(rows, "portfolio_enrichment.build_enriched_portfolio (holdings-enriched)", date.today().isoformat())
 
 
+async def _shareholding(sym: str) -> Dict[str, Any]:
+    body = await daas_client._get(f"/shareholding/{sym}", params={"limit": 24})
+    rows = (body or {}).get("data") if isinstance(body, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return src_fail(f"no shareholding rows for {sym}", "DaaS /v1/shareholding/{symbol} (nidp.shareholding_pattern)")
+    newest = max((str(r.get("period_end"))[:10] for r in rows if r.get("period_end")), default=None)
+    return src_ok(rows, "DaaS /v1/shareholding/{symbol} (nidp.shareholding_pattern: NSE_SHP first, screener_in)", newest)
+
+
+async def _deals(sym: str, today: date) -> Dict[str, Any]:
+    """Bulk and block deals of the stock in the last `deal_window_days` days, with the first day the stored deal history covers."""
+    start = (today - timedelta(days=RULES["ownership"]["deal_window_days"])).isoformat()
+    window = {"symbol": sym, "start": start, "end": today.isoformat(), "limit": 100}
+    bulk, block = await asyncio.gather(daas_client._get("/flows/bulk-deals", params=window), daas_client._get("/flows/block-deals", params=window))
+    rows: List[Dict[str, Any]] = []
+    for kind, body in (("bulk", bulk), ("block", block)):
+        got = (body or {}).get("data") if isinstance(body, dict) else None
+        if not isinstance(got, list):
+            return src_fail(f"the {kind}-deals route returned no list", "DaaS /v1/flows/bulk-deals, /block-deals")
+        rows += [{**r, "kind": r.get("kind") or kind} for r in got]
+    # The oldest stored bulk-deal day: the market-wide list is newest first, so its last row is the oldest.
+    everything = await daas_client._get("/flows/bulk-deals", params={"start": "2000-01-01", "limit": 1})
+    total = ((everything or {}).get("pagination") or {}).get("total") if isinstance(everything, dict) else None
+    coverage = None
+    if isinstance(total, int) and total > 0:
+        oldest = await daas_client._get("/flows/bulk-deals", params={"start": "2000-01-01", "limit": 1, "offset": total - 1})
+        first = ((oldest or {}).get("data") or [None])[0] if isinstance(oldest, dict) else None
+        coverage = str((first or {}).get("as_of_date") or "")[:10] or None
+    return src_ok({"window": {"from": start, "to": today.isoformat()}, "rows": rows, "coverage_from": coverage},
+                  "DaaS /v1/flows/bulk-deals + /block-deals (NSE bulk and block deal files)", today.isoformat())
+
+
+async def _broker_bid_ask(user_id: str, sym: str, chain: Dict[str, Any]) -> Dict[str, Any]:
+    """Live bid/ask of the chain's ATM call and put from the user's own connected broker, when one can quote. Read only."""
+    from deps import db
+    from services.brokers import sessions
+    from . import quotes
+    if not chain["ok"]:
+        return src_fail(f"no option chain to pick contracts from: {chain['error']}", "broker quote API")
+    summary = (chain["data"] or {}).get("summary") or {}
+    strike, expiry = summary.get("atm_strike"), summary.get("expiry")
+    if strike is None or not expiry:
+        return src_fail("the chain has no ATM strike or expiry", "broker quote API")
+    contracts = [{"label": f"ATM {name} {strike:g}", "instrument_type": kind, "strike": float(strike), "expiry": str(expiry)[:10]} for name, kind in (("call", "CE"), ("put", "PE"))]
+    accounts = await db.broker_accounts.find({"user_id": user_id, "native": True}, {"_id": 0}).to_list(length=20)
+    isin = None
+    if any(a.get("broker") in quotes.default_readers() and sessions.is_live(a) for a in accounts):
+        px = await daas_client.get_stock_price_latest(sym)
+        isin = (px or {}).get("isin") if isinstance(px, dict) else None
+    return await quotes.read_option_bid_ask(accounts, sym, isin, contracts, load_token=sessions.load_token, is_live=sessions.is_live)
+
+
 async def collect_snapshots(request: Request, user_id: str, inputs: Dict[str, Any], today: date) -> Dict[str, Any]:
     """Every source snapshot for one plan, read concurrently. Never raises."""
     sym = inputs["underlying"]
@@ -228,9 +280,10 @@ async def collect_snapshots(request: Request, user_id: str, inputs: Dict[str, An
         _safe("scan_row", _scan_snapshot(sym)), _safe("features", _features(sym)), _safe("financials", _financials(sym)),
         _safe("announcements", _announcements(sym, today)), _safe("events", _events(sym, today)), _safe("corporate_actions", _corporate_actions(sym, today)),
         _safe("buildup", _buildup(sym)), _safe("futures", _futures(request, sym)), _safe("expiries", _expiries(request, sym)),
-        _safe("calibration", _calibration(request, sym)), _safe("scanner_bucket", _scanner_bucket(request, sym)), _safe("portfolio", _portfolio(user_id)))
+        _safe("calibration", _calibration(request, sym)), _safe("scanner_bucket", _scanner_bucket(request, sym)), _safe("portfolio", _portfolio(user_id)),
+        _safe("shareholding", _shareholding(sym)), _safe("deals", _deals(sym, today)))
     keys = ["regime", "sectors", "indicators", "patterns", "scan_row", "features", "financials", "announcements", "events", "corporate_actions",
-            "buildup", "futures", "expiries", "calibration", "scanner_bucket", "portfolio"]
+            "buildup", "futures", "expiries", "calibration", "scanner_bucket", "portfolio", "shareholding", "deals"]
     snaps: Dict[str, Any] = dict(zip(keys, first))
     snaps["sector_members"] = await _safe("sector_members", _sector_members(sym, snaps["sectors"]))
     snaps["peers"] = await _safe("peers", _peers(sym, snaps["scan_row"]["data"] or {})) if snaps["scan_row"]["ok"] else src_fail("the scan snapshot row (industry) is unavailable", "nidp.index_constituents industry")
@@ -246,4 +299,5 @@ async def collect_snapshots(request: Request, user_id: str, inputs: Dict[str, An
             snaps["chain"] = src_fail(why, "NSE F&O bhavcopy expiries")
     else:
         snaps["chain"] = src_fail(f"no expiry list: {ex['error']}", "NSE F&O bhavcopy expiries")
+    snaps["broker_quotes"] = await _safe("broker_quotes", _broker_bid_ask(user_id, sym, snaps["chain"]))
     return snaps

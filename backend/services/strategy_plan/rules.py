@@ -4,7 +4,7 @@ Change a constant here and bump STRATEGY_RULES_VERSION: a saved plan carries the
 """
 from __future__ import annotations
 
-STRATEGY_RULES_VERSION = "strategy-rules.v1.1 (2026-10-20)"
+STRATEGY_RULES_VERSION = "strategy-rules.v1.2 (2026-10-20)"
 PLAN_SCHEMA = "strategy-plan.v1"
 
 RULES = {
@@ -41,6 +41,20 @@ RULES = {
     "targets": {"conservative": "the nearest 20-session resistance (support for a short) at least min_resistance_atr x ATR beyond the entry, else 1 x ATR(14)",
                 "conservative_atr_multiple": 1.0, "min_resistance_atr": 0.5, "base_reward_multiple": 2.0, "optimistic_reward_multiple": 3.0,
                 "stop_atr_multiple": 2.0, "min_stop_atr": 0.5},
+    # Cash-flow quality (nidp.stock_features_daily.cfo_pat_ratio = the latest financial year's cash from operations / trailing-twelve-month
+    # profit after tax). A documented heuristic, not a validated threshold. At or above `strong_at_or_above` the profit is backed by cash
+    # ("up"); below `weak_below` it is not ("down"); in between "flat". Against the view: up supports bullish, down supports bearish.
+    "cash_flow": {"measure": "cfo_pat_ratio (annual CFO / TTM PAT)", "strong_at_or_above": 1.0, "weak_below": 0.7},
+    # Ownership changes (nidp.shareholding_pattern, DaaS /v1/shareholding/{symbol}; bulk and block deals, DaaS /v1/flows/*-deals).
+    # A figure's change is the newest quarter that has it minus the previous quarter that has it (so a quarter with only a pledge row
+    # does not hide the holding split). A change inside +/- min_change_pp is "flat". Promoter, FII, DII and mutual-fund holdings rising
+    # are "up" (bullish); the promoter pledge rising is "down". Deals: net bought minus sold quantity over the last `deal_window_days`
+    # days as a percent of the company's shares; inside +/- deal_min_net_pct_of_shares it is "flat".
+    "ownership": {"min_change_pp": 0.25, "deal_window_days": 30, "deal_min_net_pct_of_shares": 0.1, "stale_after_days": 200,
+                  "deal_coverage_tolerance_days": 3},
+    # Live broker quotes (read-only, the user's own connected broker session). A quote whose last trade is at most this old is live,
+    # older is delayed. A spread wider than wide_spread_pct of the mid price is flagged.
+    "quotes": {"live_max_age_seconds": 120, "wide_spread_pct": 10.0, "read_timeout_seconds": 10.0},
     "valuation_peers": {"min_peers": 5, "max_peers_read": 20},
     "catalysts": {"filings_days": 30},
     "futures": {"min_days_to_expiry": 3},
