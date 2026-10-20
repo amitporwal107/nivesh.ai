@@ -3,11 +3,13 @@
  * pages (admins) and the signed-in user. A fixed column on wide screens, a
  * drawer below 980px.
  */
-import { useChatSessions } from "@/hooks/use-chat";
+import { useState } from "react";
+import { useChatSessions, useDeleteChatSession, useUpdateChatSession } from "@/hooks/use-chat";
 import { useMe } from "@/hooks/use-auth";
 import { usePortfolioContext } from "../lib/use-portfolio-context";
-import { fmtINR, relTime } from "../components/ui";
-import { INTERNAL_NAV, MODE_LABEL, WORKSPACE_NAV, threadView, toolsNav, type Mode, type NavItem } from "../lib/views";
+import { fmtINR } from "../components/ui";
+import { ThreadRow } from "./ThreadRow";
+import { INTERNAL_NAV, MODE_LABEL, WORKSPACE_NAV, isRecentThread, threadView, toolsNav, type Mode, type NavItem } from "../lib/views";
 
 const MODE_TONE: Record<Mode, "ink" | "mint" | "indigo"> = { investor: "ink", trader: "mint", advisor: "indigo" };
 
@@ -52,7 +54,19 @@ export function Rail({ mode, view, drawer, isAdmin, onGo, onNewQuestion, onToggl
   const me = useMe();
   const sessions = useChatSessions();
   const pf = usePortfolioContext();
-  const threads = (sessions.data ?? []).slice(0, 12);
+  const update = useUpdateChatSession();
+  const remove = useDeleteChatSession();
+  const [filter, setFilter] = useState<string | null>(null); // "★" or a tag
+  const everything = sessions.data ?? [];
+  const all = everything.filter((t) => isRecentThread(t.updatedAt));
+  const olderCount = everything.length - all.length;
+  const allTags = Array.from(new Set(all.flatMap((t) => t.tags))).sort();
+  const activeFilter = filter && (filter === "★" || allTags.includes(filter)) ? filter : null;
+  // Bookmarked first (list is already newest-first), then cap the rail.
+  const threads = all
+    .filter((t) => (activeFilter === null ? true : activeFilter === "★" ? t.bookmarked : t.tags.includes(activeFilter)))
+    .sort((a, b) => Number(b.bookmarked) - Number(a.bookmarked))
+    .slice(0, activeFilter ? 50 : 12);
 
   return (
     <aside
@@ -109,18 +123,41 @@ export function Rail({ mode, view, drawer, isAdmin, onGo, onNewQuestion, onToggl
             <span>Threads didn’t load. Retry</span>
           </button>
         )}
-        {!sessions.isPending && !sessions.isError && threads.length === 0 && (
+        {!sessions.isPending && !sessions.isError && everything.length > 0 && !activeFilter && threads.length === 0 && (
+          <span style={{ padding: "6px 10px", fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-4)" }}>Nothing in the last 2 days.</span>
+        )}
+        {!sessions.isPending && !sessions.isError && everything.length === 0 && (
           <span style={{ padding: "6px 10px", fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-4)" }}>Your questions will appear here.</span>
         )}
+        {(allTags.length > 0 || all.some((t) => t.bookmarked)) && (
+          <div className="cp-filter" data-testid="thread-filter">
+            {["★", ...allTags].map((f) => (
+              <button key={f} type="button" aria-pressed={activeFilter === f} onClick={() => setFilter(activeFilter === f ? null : f)}>{f === "★" ? "★ saved" : `#${f}`}</button>
+            ))}
+          </div>
+        )}
+        {activeFilter && threads.length === 0 && <span style={{ padding: "6px 10px", fontSize: 12, color: "var(--cp-ink-4)" }}>No threads match.</span>}
         {threads.map((t) => {
           const v = threadView(t.id);
           return (
-            <button key={t.id} type="button" data-testid="thread-row" className="cp-rail-row" aria-current={view === v ? "page" : undefined} onClick={() => onGo(v)} title={t.title}>
-              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{t.title}</span>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 9, letterSpacing: "0.08em", color: "var(--cp-ink-4)", flex: "none", textTransform: "uppercase" }}>{relTime(t.updatedAt)}</span>
-            </button>
+            <ThreadRow
+              key={t.id}
+              thread={t}
+              active={view === v}
+              busy={update.isPending || remove.isPending}
+              onOpen={() => onGo(v)}
+              onBookmark={() => update.mutate({ id: t.id, bookmarked: !t.bookmarked })}
+              onTags={(tags) => update.mutate({ id: t.id, tags })}
+              onClear={() => remove.mutate(t.id, { onSuccess: () => { if (view === v) onGo(""); } })}
+            />
           );
         })}
+        {olderCount > 0 && (
+          <button type="button" data-testid="past-conversations" className="cp-rail-row" aria-current={view === "page/history" ? "page" : undefined} onClick={() => onGo("page/history")}>
+            <span>Past conversations</span>
+            <span style={{ fontFamily: "var(--mono)", fontSize: 9, color: "var(--cp-ink-4)" }}>{olderCount}</span>
+          </button>
+        )}
       </nav>
 
       <nav aria-label="Tools and workspace" className="flex flex-col" style={{ gap: 2 }}>

@@ -947,6 +947,46 @@ async def warmup_chat_context(request: Request):
     }
 
 
+class SessionPatch(BaseModel):
+    bookmarked: Optional[bool] = None
+    tags: Optional[List[str]] = None
+
+
+_MAX_SESSION_TAGS = 8
+_MAX_TAG_LEN = 24
+
+
+def _clean_tags(raw: List[str]) -> List[str]:
+    """Trim, lower-case, de-duplicate (order kept) and cap a tag list."""
+    out: List[str] = []
+    for t in raw:
+        t = " ".join(str(t).split())[:_MAX_TAG_LEN].lower()
+        if t and t not in out:
+            out.append(t)
+    return out[:_MAX_SESSION_TAGS]
+
+
+@router.patch("/chat/sessions/{session_id}")
+async def update_chat_session(request: Request, session_id: str, patch: SessionPatch):
+    """Bookmark a thread and/or replace its tags. Does not touch updated_at,
+    so organising a thread never reorders the recency list."""
+    user = await get_current_user(request)
+    changes: dict = {}
+    if patch.bookmarked is not None:
+        changes["bookmarked"] = patch.bookmarked
+    if patch.tags is not None:
+        changes["tags"] = _clean_tags(patch.tags)
+    if not changes:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = await db.chat_sessions.update_one(
+        {"session_id": session_id, "user_id": user["user_id"]}, {"$set": changes}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _bust_chat_cache(user["user_id"], session_id)
+    return {"session_id": session_id, **changes}
+
+
 @router.delete("/chat/sessions/{session_id}")
 async def delete_chat_session(request: Request, session_id: str):
     user = await get_current_user(request)
