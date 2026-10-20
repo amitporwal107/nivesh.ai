@@ -683,6 +683,31 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.locator('[data-testid="desk-sector-breadth"][data-has="true"]')).toHaveCount(0);
   });
 
+  test("OV-005b: with a published, uncalibrated move-odds run the Overview withholds the probability and shows the model as evidence", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await deskApi(page);
+    await overviewExtras(page);
+    // MOCK - not real data: the shape of GET /api/move-odds/latest (backend/routes/move_odds.py) with a made-up run; no calibration flag.
+    const run = { model: "v4", refit: "monthly", status: "final", data_as_of: "2026-10-13", target_session: "2026-10-14", frozen_at: "2026-10-13T20:50:22+05:30",
+      git_sha: "0fix000", universe_size: 1000, scored: 994, input_count: 84, train_rows: 1, train_end: "2026-08-31", counts_toward_verdict: true, skipped_holidays: [] };
+    await page.route("**/api/move-odds/latest*", (route) => json(route, { data: {
+      status: "final", head: "p_up5_1d", expected_session: "2026-10-14", base_rate: 0.0758, run,
+      rows: [{ symbol: "TESTPICK", company_name: "Test Pick Ltd", sector: "IT", p: 0.1834, p_opposite: 0.05, events_on_record: 2 }],
+      record: { window_label: "Jan–Aug 2025", sessions: 165, base_rate: 0.0812, top10_hit_rate: 0.3103, bands: [] },
+      live_record: { sessions: 0, top10_hits: null, touched: null, graded_rows: null, last_target: null, last_top10_hits: null, last_touched: null, last_graded_rows: null },
+      limits: { not_used: [] } } }));
+    await page.goto(`${DESK}?tab=overview`);
+    const first = page.getByTestId("desk-opp").first();
+    await expect(first.getByTestId("desk-opp-prob")).toHaveText("P(+5% next session) Withheld");
+    await expect(first).not.toContainText("18.3%");
+    await expect(first.getByTestId("desk-opp-prob")).toHaveAttribute("title", /does not mark these estimates as calibrated/);
+    await expect(page.getByTestId("desk-opps-prob-why")).toContainText("does not mark these estimates as calibrated");
+    const ev = page.getByTestId("desk-opps-prob-evidence");
+    await expect(ev).toContainText("Move-odds v4");
+    await expect(ev).toContainText("data as of 13 Oct 2026");
+    await expect(ev).toContainText("out of sample Jan–Aug 2025: top-10 hit rate 31.0% vs a base rate of 8.1% over 165 sessions");
+  });
+
   test("OV-005: Top AI opportunities — symbol, price and its date, score vs probability labelled, horizon, setup, evidence, against, liquidity, risk class; a row opens the chart", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await deskApi(page);
@@ -738,14 +763,15 @@ test.describe("Smart trading desk — Overview", () => {
       await expect(r.getByTestId("desk-opp-price")).toHaveText(x.price);
       await expect(r.getByTestId("desk-opp-price-stamp")).toHaveText(x.stamp);
       await expect(r.getByTestId("desk-opp-score")).toHaveText(x.score);
-      // The probability is a different thing from the score, labelled as the next-session model; not enabled here → "—".
-      await expect(r.getByTestId("desk-opp-prob")).toHaveText("P(+5% next session) —");
+      // The probability is a different thing from the score; the shared gate withholds it (here: not enabled for the account).
+      await expect(r.getByTestId("desk-opp-prob")).toHaveText("P(+5% next session) Withheld");
+      await expect(r.getByTestId("desk-opp-prob")).toHaveAttribute("title", /Move probabilities are not enabled for this account/);
       if (x.up) await expect(r.getByTestId("desk-opp-upside")).toHaveText(x.up);
       if (x.ltp) await expect(r.getByTestId("desk-opp-ltp")).toHaveText(x.ltp);
       else await expect(r.getByTestId("desk-opp-ltp")).toHaveCount(0);
     }
     await expect(page.getByTestId("desk-opps-legend")).toContainText("a rank, not a probability");
-    await expect(page.getByTestId("desk-opps-legend")).toContainText("next session only (not enabled for this account)");
+    await expect(page.getByTestId("desk-opps-prob-why")).toHaveText("Move probabilities are not enabled for this account.");
     await expect(page.getByTestId("desk-opps-legend")).toContainText("Risk: ATR(14) % of the close: Low < 2%, Medium 2–4%, High > 4%");
     await expect(page.getByTestId("desk-opps-trust")).toContainText(`Positional scanner (watchlist and picks) · End of day · ${day("2026-10-13", true)} · Rules-based`);
     // A row opens its chart analysis (PRD §4.4: every opportunity opens a detailed view).

@@ -332,6 +332,9 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
                       ? `${fmtNum(near.future.settle, 2)}${words === "level" ? " · level with spot" : words ? ` · ${fmtSigned(near.future.basis)} ${words}` : ""}`
                       : futuresLine}
                   </CardRow>
+                  <CardRow k="Futures · day change" testId={`${id}-fut-day`}>
+                    {near ? `${near.future.change == null ? "—" : `${fmtSigned(near.future.change)} (${fmtSigned(near.future.change_pct)}%)`}${near.future.prev_close != null ? ` · prev ${fmtNum(near.future.prev_close, 2)}` : " · no previous close"}` : futuresLine}
+                  </CardRow>
                   <CardRow k={investor ? "Open bets (OI) change · futures" : "Futures OI change"} testId={`${id}-fut-oi-change`}>{near ? fmtQty(near.future.change_in_oi, { signed: true }) : futuresLine}</CardRow>
                   <CardRow k={investor ? "Futures price vs the index" : "Futures chg · cash check"} testId={`${id}-fut-chg`}>
                     {ix ? `${ix.priceChgPct == null ? "—" : `${fmtSigned(ix.priceChgPct)}%`} · ${ix.cashConfirmation === "confirms" ? "same way as the index" : ix.cashConfirmation === "diverges" ? "opposite to the index" : "no index move to compare"}` : "—"}

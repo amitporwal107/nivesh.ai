@@ -12,7 +12,11 @@
    "oi": 14500000,
    "change_in_oi": -250000,
    "volume": 6100000,
-   "basis": 50.0
+   "basis": 50.0,
+   "prev_close": 25020.0,
+   "change": 41.5,
+   "change_pct": 0.17,
+   "oi_buildup": "short covering"
   },
   {
    "expiry": "2026-12-29",
@@ -21,7 +25,11 @@
    "oi": 14500000,
    "change_in_oi": -250000,
    "volume": 6100000,
-   "basis": 280.0
+   "basis": 280.0,
+   "prev_close": null,
+   "change": null,
+   "change_pct": null,
+   "oi_buildup": null
   }
  ],
  "count": 2
