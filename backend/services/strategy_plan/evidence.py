@@ -11,6 +11,7 @@ Groups (PRD §16.3): market_context, technical, fundamental, catalysts, derivati
 """
 from __future__ import annotations
 
+import math
 import statistics
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -97,16 +98,50 @@ def trend_of(values: Dict[str, Any]) -> Optional[str]:
 
 # ── market context ───────────────────────────────────────────────────────────
 
-def _sector_row(sectors: Dict[str, Any], sector: Optional[str]) -> Optional[Dict[str, Any]]:
-    if not sector:
-        return None
-    want = sector.strip().lower()
-    for r in sectors.get("sectors") or []:
-        label = str(r.get("sector") or "").lower()
-        idx = str(r.get("index") or "").lower()
-        if want in (label, idx) or (label and (label in want or want in label)):
-            return r
-    return None
+def sector_strength(snaps: Dict[str, Any], d: str) -> Dict[str, Any]:
+    """Sector strength by index MEMBERSHIP (never by matching a sector label): the desk sector indices whose list holds the
+    stock, each with its 1-day / 1-week / 1-month return and its 1-month rank among the sector indices that have one.
+    The rule is RULES["sector_strength"]."""
+    g, key = "market_context", "sector_strength"
+    sec, mem = snap(snaps, "sectors"), snap(snaps, "sector_members")
+    if not sec["ok"]:
+        return unavailable(g, key, f"Sector returns unavailable: {sec['error']}", sec)
+    if not mem["ok"] or not isinstance(mem["data"], dict):
+        return unavailable(g, key, f"Sector index lists unavailable: {mem['error']}", mem)
+    m = mem["data"]
+    sym, member_of, unreadable = m.get("symbol"), list(m.get("member_of") or []), m.get("unreadable") or {}
+    if not member_of:
+        if unreadable:
+            return unavailable(g, key, f"{sym} was not found in the sector lists that were read, and {len(unreadable)} could not be read "
+                                       f"({', '.join(sorted(unreadable))}), so its sector is unknown.", mem)
+        return unavailable(g, key, f"{sym} is in none of the desk's sector index lists (nidp.index_constituents), so no sector reading is made.", mem)
+    rule = RULES["sector_strength"]
+    by_index = {r.get("index"): r for r in (sec["data"] or {}).get("sectors") or []}
+    ranked = sorted((n for n in (num(r.get("ret_1m_pct")) for r in by_index.values()) if n is not None), reverse=True)
+    n_ranked = len(ranked)
+    band_n = math.ceil(n_ranked * rule["band_fraction"]) if n_ranked else 0
+    matches: List[Dict[str, Any]] = []
+    for idx in member_of:
+        r = by_index.get(idx) or {}
+        ret = num(r.get("ret_1m_pct"))
+        rank = band = None
+        if ret is not None:
+            rank = 1 + sum(1 for x in ranked if x > ret)
+            band = "top" if rank <= band_n else "bottom" if rank > n_ranked - band_n else "middle"
+        matches.append({"index": idx, "date": r.get("date"), "ret_1d_pct": num(r.get("ret_1d_pct")), "ret_1w_pct": num(r.get("ret_1w_pct")),
+                        "ret_1m_pct": ret, "rank_1m": rank, "of": n_ranked if ret is not None else None, "band": band})
+    value = {"symbol": sym, "matches": matches, "as_of": sec["data"].get("as_of") or sec["as_of"], "lists_unreadable": sorted(unreadable), "rule": rule}
+    def text(x: Dict[str, Any]) -> str:
+        if x["ret_1m_pct"] is None:
+            return f"{x['index']}: no 1-month return on record"
+        return f"{x['index']} 1m {x['ret_1m_pct']:g}% (rank {x['rank_1m']} of {x['of']}, {x['band']} third; 1d {x['ret_1d_pct']}%, 1w {x['ret_1w_pct']}%)"
+    ranked_m = [x for x in matches if x["band"]]
+    if not ranked_m:
+        return item(g, key, value, f"{sym} is in {', '.join(member_of)}, but no 1-month return is on record for it, so the sector cannot be ranked.", "unavailable", sec)
+    votes = [rel({"top": "up", "bottom": "down", "middle": "flat"}[x["band"]], d) for x in ranked_m]
+    sup, con = votes.count("supports"), votes.count("conflicts")
+    direction = "supports" if sup > con else "conflicts" if con > sup else "neutral"
+    return item(g, key, value, f"{sym} is in " + "; ".join(text(x) for x in matches) + f". Rule: 1-month rank among the sector indices, top/bottom third.", direction, sec)
 
 
 def market_context(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
@@ -136,7 +171,7 @@ def market_context(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
             out.append(unavailable(g, "nifty_trend", "No Nifty close or 50-session average for the session.", reg))
         else:
             out.append(item(g, "nifty_trend", {"trend": t, "nifty_vs_average_pct": inp.get("nifty_vs_average_pct")},
-                            f"Nifty is {t} against its 50-session average ({inp.get('nifty_vs_average_pct')}%).", rel(t, d), reg))
+                            f"Nifty is {t} against its 50-session average ({inp.get('nifty_vs_average_pct')}%); Nifty closes from {inp.get('nifty_source') or 'an unnamed source'}.", rel(t, d), reg))
         vix = num(inp.get("india_vix"))
         if vix is None:
             out.append(unavailable(g, "india_vix", "No India VIX close on record for the session.", reg))
@@ -144,20 +179,7 @@ def market_context(snaps: Dict[str, Any], d: str) -> List[Dict[str, Any]]:
             out.append(item(g, "india_vix", {"india_vix": vix, "volatility_high": inp.get("volatility_high")},
                             f"India VIX {vix:g} ({'high' if inp.get('volatility_high') else 'not high'} by the desk rule).",
                             "neutral", reg))
-    sec = snap(snaps, "sectors")
-    sector_name = (snap(snaps, "scan_row")["data"] or {}).get("sector") if snap(snaps, "scan_row")["ok"] else None
-    sector_name = sector_name or ((snap(snaps, "features")["data"] or {}).get("sector") if snap(snaps, "features")["ok"] else None)
-    if not sec["ok"]:
-        out.append(unavailable(g, "sector_strength", f"Sector returns unavailable: {sec['error']}", sec))
-    else:
-        row = _sector_row(sec["data"] or {}, sector_name)
-        if row is None:
-            out.append(unavailable(g, "sector_strength", f"No desk sector index matches the stock's sector ({sector_name or 'unknown'}).", sec))
-        else:
-            m = num(row.get("ret_1m_pct"))
-            out.append(item(g, "sector_strength", {k: row.get(k) for k in ("index", "sector", "date", "ret_1d_pct", "ret_1w_pct", "ret_1m_pct")},
-                            f"{row.get('index')} 1-month return {m if m is not None else 'n/a'}%.",
-                            rel(sign(m, RULES["flat_band_pct"]), d) if m is not None else "unavailable", sec))
+    out.append(sector_strength(snaps, d))
     return out
 
 
