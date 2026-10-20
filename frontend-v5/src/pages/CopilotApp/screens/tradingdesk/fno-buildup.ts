@@ -200,6 +200,49 @@ export function indexRowFor(data: Buildup | undefined, symbol: string): BuildupR
   return data?.indices.find((r) => r.symbol === symbol) ?? null;
 }
 
+/** A ticker or name reduced to letters, digits and &, so "bajaj auto", "BAJAJ-AUTO" and "Bajaj Auto" compare equal. */
+const squash = (v: string) => v.toUpperCase().replace(/[^A-Z0-9&]/g, "");
+
+/**
+ * The F&O list's own tickers that contain `query` (spaces and hyphens ignored), tickers that start with it first,
+ * then alphabetical. The list has tickers only, not names, so this finds "tata" in TATASTEEL but not "Tata Motors"
+ * in TMPV; names come from the instrument search. [] for a query under two characters.
+ */
+export function matchFnoTickers(query: string, data: Buildup | undefined): string[] {
+  const q = squash(query);
+  if (q.length < 2 || !data) return [];
+  const hits = data.rows.map((r) => r.symbol).filter((sym) => squash(sym).includes(q));
+  const rank = (sym: string) => (squash(sym).startsWith(q) ? 0 : 1);
+  return hits.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+/** A stock the app's instrument search found: its NSE ticker and company name. */
+export interface StockHit {
+  symbol: string;
+  name: string;
+}
+
+/**
+ * GET /api/search/instruments?q → [{ name, ticker, type, sector }]: stocks whose name or ticker matches `q`
+ * (the search the rest of the app uses). Only equities with a ticker are kept, once each, in the route's order.
+ * The caller decides which of them are F&O underlyings; this list is not the F&O list.
+ */
+export async function searchStocks(q: string, signal?: AbortSignal): Promise<StockHit[]> {
+  const res = await http({ path: "/api/search/instruments", query: { q }, signal });
+  if (!Array.isArray(res.data)) throw ApiError.contractDrift("search.instruments: not a list");
+  const seen = new Set<string>();
+  const out: StockHit[] = [];
+  for (const v of res.data) {
+    const r = rec(v);
+    const symbol = str(r.ticker)?.toUpperCase() ?? null;
+    const type = str(r.type);
+    if (!symbol || (type != null && type !== "equity") || seen.has(symbol)) continue;
+    seen.add(symbol);
+    out.push({ symbol, name: str(r.name) ?? symbol });
+  }
+  return out;
+}
+
 /**
  * GET /api/fno/scan/buildup — read as soon as the lab opens: the stats' build-up
  * tile, the ticker check against the F&O list, the OI build-up view and the
