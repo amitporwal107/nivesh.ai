@@ -234,8 +234,8 @@ test.describe("Smart trading desk — shell", () => {
     const tools = page.getByRole("navigation", { name: "Tools and workspace" }).locator(".cp-rail-row");
     await expect(tools.first()).toContainText("Smart trading desk");
     await expect(tools.first()).toContainText("AI");
-    await expect(tools.nth(1)).toContainText("Trader desk");
-
+    await expect(tools.nth(1)).toContainText("Screener");
+    await expect(tools.nth(2)).toContainText("Stock research");
     await tools.first().click();
     await expect(page).toHaveURL(/\/v5\/app\/trader\/desk$/);
     await expect(desk(page)).toBeVisible();

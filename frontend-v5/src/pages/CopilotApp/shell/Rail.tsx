@@ -9,7 +9,7 @@ import { useMe } from "@/hooks/use-auth";
 import { usePortfolioContext } from "../lib/use-portfolio-context";
 import { fmtINR } from "../components/ui";
 import { ThreadRow } from "./ThreadRow";
-import { INTERNAL_NAV, MODE_LABEL, WORKSPACE_NAV, isRecentThread, threadView, toolsNav, type Mode, type NavItem } from "../lib/views";
+import { INTERNAL_NAV, MODE_LABEL, workspaceNav, isRecentThread, threadView, toolsNav, type Mode, type NavItem } from "../lib/views";
 
 const MODE_TONE: Record<Mode, "ink" | "mint" | "indigo"> = { investor: "ink", trader: "mint", advisor: "indigo" };
 
@@ -165,7 +165,7 @@ export function Rail({ mode, view, drawer, isAdmin, onGo, onNewQuestion, onToggl
         <NavRows items={toolsNav(mode)} view={view} onGo={onGo} />
         <div style={{ height: 14 }} />
         <div className="cp-eyebrow" style={{ padding: "0 10px 8px" }}>Workspace</div>
-        <NavRows items={WORKSPACE_NAV} view={view} onGo={onGo} />
+        <NavRows items={workspaceNav(mode)} view={view} onGo={onGo} />
       </nav>
 
       {isAdmin && (

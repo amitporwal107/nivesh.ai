@@ -510,8 +510,14 @@ test.describe("Copilot app — desktop", () => {
     await pill.click();
     await expect(pill).toContainText("Trader");
     await expect(page).toHaveURL(/\/v5\/app\/trader$/);
-    await expect(rail.getByRole("button", { name: /Trader desk/ })).toBeVisible();
-    await expect(rail.getByRole("button", { name: /Options lab/ })).toBeVisible();
+    // Trader mode lists only the Smart trading desk, the Screener and Stock research.
+    await expect(rail.getByRole("button", { name: /Smart trading desk/ })).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Screener" })).toBeVisible();
+    await expect(rail.getByRole("button", { name: "Stock research" })).toBeVisible();
+    for (const gone of [/Trader desk/, /Options lab/, /Strategy builder/, /Markets/, /Watchlist/, /Paper trades/]) {
+      await expect(rail.getByRole("button", { name: gone })).toHaveCount(0);
+    }
+    await expect(rail.getByRole("button", { name: "Settings" })).toBeVisible();
     await expect(rail.getByRole("button", { name: "Portfolio analysis" })).toHaveCount(0);
     await pill.click(); // not an advisory workspace → back to Investor
     await expect(pill).toContainText("Investor");
