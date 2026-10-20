@@ -4,7 +4,7 @@ Change a constant here and bump STRATEGY_RULES_VERSION: a saved plan carries the
 """
 from __future__ import annotations
 
-STRATEGY_RULES_VERSION = "strategy-rules.v1.4 (2026-10-20)"
+STRATEGY_RULES_VERSION = "strategy-rules.v1.5 (2026-10-20)"
 PLAN_SCHEMA = "strategy-plan.v1"
 
 RULES = {
@@ -114,6 +114,45 @@ RULES = {
         "cash_rule": "A stock the scanner lists in no bucket, with at least one enabled bullish Chartink hit, gets a cash candidate whose stop, targets and sizing "
                      "come from the chart engine's ATR rule (ATR_2X_STOP); the same reward : risk, liquidity and event gates as every other candidate apply",
         "levels_label": "rule-based levels; the scan is the user's Chartink scan, not validated",
+    },
+    # Best picks from the user's Chartink scans (services/strategy_plan/picks.py): a deterministic, explainable evidence score, 0 to 100, over REAL
+    # figures only. Each factor earns `weight x credit`; credit is 1 for a supporting reading, `neutral_credit` for a neutral one, 0 for a conflicting
+    # or an UNAVAILABLE one (a missing figure is never neutral and never positive). The score is 100 x points earned / weight of the factors that apply to
+    # the stock (the OI build-up factor applies to F&O stocks only). It is a rank of evidence, not a probability and not a forecast.
+    "chartink_picks": {
+        "label": "evidence score — not a probability",
+        "limit_default": 5, "limit_max": 10, "evaluate_max": 12, "concurrency": 4,
+        "weights": {"scan_confluence": 25, "trend": 12, "momentum": 10, "relative_volume": 8, "liquidity": 8, "oi_buildup": 10, "fundamentals": 10,
+                    "event_risk": 8, "range_position": 5, "atr_risk": 4},
+        "neutral_credit": 0.5,
+        # Scan confluence: credit = (aligned scans - opposed_scan_penalty x opposed scans) / full_at_aligned_scans, clamped to 0..1. Aligned = enabled scans tagged
+        # with the pick's direction (bullish for a long, bearish for a short); opposed = tagged the other way. Neutral-tagged scans count for nothing.
+        "scan_confluence": {"full_at_aligned_scans": 3, "opposed_scan_penalty": 1.0},
+        # Liquidity: 20-session traded value (Rs crore a day). Below setup_rules.LIQUIDITY min is excluded before scoring; from the gate to full_at_cr is neutral.
+        "liquidity": {"full_at_cr": 50.0},
+        # Relative volume: at or above rules.rvol_confirm supports, from 1.0 up to it is neutral, below 1.0 conflicts.
+        "rvol": {"neutral_from": 1.0},
+        # An RSI past the stretched/weak band in the pick's direction halves the momentum credit.
+        "rsi_haircut": 0.5,
+        # Fundamentals quality, from the feature row: ROE at or above roe_min_pct, debt-to-equity at or below debt_to_equity_max and cash conversion
+        # (cfo_pat_ratio) at or above rules.cash_flow.strong_at_or_above are three tests. At least min_tests must be readable; all readable tests passed is
+        # quality (supports a long, conflicts with a short), none passed is weak (the reverse), otherwise neutral.
+        "fundamentals": {"roe_min_pct": 15.0, "debt_to_equity_max": 1.0, "min_tests": 2},
+        # Distance from the 52-week extremes (feature row dist_52w_high_pct <= 0 and dist_52w_low_pct >= 0). A long is supported within near_pct of the
+        # high and conflicted when more than far_pct below it; a short is supported within near_pct of the low and conflicted within near_pct of the high.
+        "range_position": {"near_pct": 10.0, "far_pct": 40.0},
+        "outcome": {
+            "min_score": 55.0,
+            # at least this share of the applicable weight must be readable, else the evidence is thin: Wait
+            "min_available_weight_pct": 60.0,
+            # this many conflicting factors, at least as many as supporting ones: No trade (mirrors rules.conflict)
+            "min_conflicts": 3,
+        },
+        "rule": "Each Chartink stock that passes the scan-snapshot eligibility gates is scored on scan confluence, trend (EMA), momentum (MACD, 20-day change, RSI), "
+                "relative volume, liquidity, F&O open-interest build-up (F&O stocks), fundamentals quality, event risk (results inside the horizon), distance from "
+                "its 52-week extremes and ATR risk. A figure that could not be read earns nothing and is listed as unavailable. Thin or conflicting evidence, a score "
+                "under the minimum, or a strategy plan that says wait or no trade, is Wait / No trade and the stock is not a pick. Strategies come from the Strategy "
+                "Builder's plan; options are defined risk only and nothing is sent to a broker.",
     },
     "model_estimate": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
 }
