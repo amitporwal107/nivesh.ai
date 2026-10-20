@@ -37,6 +37,7 @@ import {
 } from "./desk-data";
 import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
+import ReversalPanel from "./ReversalPanel";
 import { TrustLine } from "./trust";
 
 // ── categories (PRD §5.2) ────────────────────────────────────────────────
@@ -68,10 +69,6 @@ const UCAT_LABEL: Record<UniverseCategory, [string, string]> = {
   results_day: ["Results-day momentum", "Moving after results"],
   fno: ["F&O candidate", "Has futures & options"],
 };
-
-/** Why there is no reversal list: no rule exists to run (searched: reversal, mean_reversion in backend routes and services). */
-const REVERSAL_REASON =
-  "No reversal rule is defined, so no list is made. The repo has only research-only mean-reversion variants that are not on this branch and not validated; a rule needs the owner's choice.";
 
 // ── URL state (PRD §5.8: criteria are not lost unexpectedly) ─────────────
 
@@ -356,8 +353,7 @@ function CategoryChips({ value, onChange, plain, scroll }: { value: CatKey; onCh
     <div role="group" aria-label="Scanner category" data-testid="desk-scan-cats"
       className={scroll ? "cp-scroll flex overflow-x-auto" : "flex flex-wrap"} style={{ gap: 6, paddingBottom: scroll ? 2 : 0, minWidth: 0, maxWidth: "100%" }}>
       {CATS.map((c) => (
-        <Chip key={c.key} on={c.key === value} onClick={() => onChange(c.key)} testId={`desk-scan-cat-${c.key}`} unavailable={c.key === "reversal"}
-          title={c.key === "reversal" ? REVERSAL_REASON : undefined}>
+        <Chip key={c.key} on={c.key === value} onClick={() => onChange(c.key)} testId={`desk-scan-cat-${c.key}`}>
           {plain ? c.plain : c.label}
         </Chip>
       ))}
@@ -1062,7 +1058,6 @@ export default function ScannerTab() {
   const inCategory = useMemo(() => {
     const all = [...rowsAll.values()];
     if (cat === "all") return all.filter((r) => r.s || CATS.some((c) => c.ucat && inCat(r, c, uni)));
-    if (cat === "reversal") return [];
     if (cat === "watchlist") return listStocks.map((s) => rowsAll.get(s.symbol.toUpperCase())).filter((r): r is Row => !!r);
     return all.filter((r) => inCat(r, catDef, uni));
   }, [rowsAll, cat, catDef, uni, listStocks]);
@@ -1092,6 +1087,12 @@ export default function ScannerTab() {
     return { rows: sorted, lacking: lack };
   }, [inCategory, f, minCr, rankBy, catDef, uni]);
 
+  // Reversal candidates have their own route and row shape (reversal-rules.v1); the category chips stay shared.
+  if (cat === "reversal") {
+    return <ReversalPanel chips={<CategoryChips value={cat} onChange={(c) => set({ cat: c === "all" ? null : c })} plain={plain} scroll={mobile} />}
+      plain={plain} selected={symbol} onOpen={openChart} />;
+  }
+
   if (scan.isPending || (scan.isError && uniQ.isPending)) return <LoadingBlock label="Loading the scanner" rows={5} />;
   if (scan.isError && uniError) {
     return (
@@ -1119,8 +1120,7 @@ export default function ScannerTab() {
   const catCount = catDef.ucat ? uni?.categories[catDef.ucat] : undefined;
   const catRule: ReactNode = cat === "all"
     ? <>Every scanner setup and every stock in a universe category, ranked by {rankBy === "score" ? "score" : "model rank"}.</>
-    : cat === "reversal" ? <span data-testid="desk-scan-reversal-why">{REVERSAL_REASON}</span>
-      : cat === "watchlist" ? <>Your own list, with each stock’s scanner and universe figures where they exist.</>
+    : cat === "watchlist" ? <>Your own list, with each stock’s scanner and universe figures where they exist.</>
         : catDef.bucket ? <>{bucketRule(catDef.bucket, rules)}</>
           : (
             <>
@@ -1150,8 +1150,7 @@ export default function ScannerTab() {
   else if (rows.length === 0) {
     body = (
       <div data-testid="desk-scan-cat-empty" style={emptyStyle}>
-        {cat === "reversal" ? "No reversal list: no rule is defined."
-          : inCategory.length === 1 ? "The one stock in this category does not pass the filters."
+        {inCategory.length === 1 ? "The one stock in this category does not pass the filters."
             : inCategory.length > 1 ? `None of the ${fmtNum(inCategory.length)} stocks in this category passes the filters.`
             : cat === "all" ? `No setups or universe matches on the ${dayLabel ?? "latest"} scan.`
               : catDef.bucket ? `No setup in this group on the ${dayLabel ?? "latest"} scan.`

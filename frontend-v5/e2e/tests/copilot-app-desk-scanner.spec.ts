@@ -543,6 +543,12 @@ const sectorOf = (sym: string) => {
 const signed2 = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${enIN(Math.abs(v), 2)}`;
 const ord = (p: number) => { const n = Math.round(p); const t = n % 100; return `${n}${t >= 11 && t <= 13 ? "th" : n % 10 === 1 ? "st" : n % 10 === 2 ? "nd" : n % 10 === 3 ? "rd" : "th"}`; };
 const DESK_SCAN = `${DESK}?tab=scanner`;
+/** GET /api/positional/reversal-candidates with no candidate (shape only; the reversal spec holds the real payloads). */
+const REVERSAL_EMPTY = {
+  as_of: "2026-10-12", near_low_pct: 15, view: "candidates", rules: { version: "reversal-rules.v1 (fixture)", weights: {} },
+  universe: { evaluated: 0, listed: 0, status_counts: {}, exclusions: {} }, prefilter: null, benchmark: "Nifty 500", source: "fixture",
+  data_limits: [], sectors: [], rows: [], excluded: [], truncated: false, mode: "eod", scope: "research",
+};
 
 test.describe("Smart trading desk · AI scanner", () => {
   test("TC-13 setups are ranked by score with the pick's plan; the universe's stocks follow; status follows the bucket", async ({ page }) => {
@@ -575,7 +581,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-footnote")).toContainText("it is not a probability");
   });
 
-  test("SP-1 the nine PRD categories, in order, each listing the rows its rule gives; Reversal says why it is empty", async ({ page }) => {
+  test("SP-1 the nine PRD categories, in order, each listing the rows its rule gives; Reversal opens its own panel", async ({ page }) => {
     const { asked } = await scanMocks(page);
     await page.goto(DESK_SCAN);
     await expect(page.getByTestId("desk-scan-row-UVOL1")).toBeVisible();
@@ -603,11 +609,13 @@ test.describe("Smart trading desk · AI scanner", () => {
     }
     expect(ordered(UCATS.momentum.symbols, "momentum")).toEqual(["UMOM1", "UMOM2"]); // by 20-day return, 14.2 over 8.1
 
+    // Reversal candidates have their own panel and route (copilot-app-desk-reversal.spec.ts); here the chip is a working category.
+    await json(page, "**/api/positional/reversal-candidates*", REVERSAL_EMPTY);
     await page.getByTestId("desk-scan-cat-reversal").click();
-    await expect(page.getByTestId("desk-scan-cat-reversal")).toHaveAttribute("data-unavailable", "true");
-    await expect(page.getByTestId("desk-scan-reversal-why")).toContainText("No reversal rule is defined");
-    await expect(page.getByTestId("desk-scan-cat-empty")).toHaveText("No reversal list: no rule is defined.");
-    expect(await rowOrder(page)).toEqual([]);
+    await expect(page.getByTestId("desk-scan-cat-reversal")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("desk-scan-cat-reversal")).not.toHaveAttribute("data-unavailable", "true");
+    await expect(page.getByTestId("desk-rev-empty")).toBeVisible(SLOW);
+    await expect(page.getByText("No reversal rule is defined")).toHaveCount(0);
 
     // User watchlist: the first list's stocks, the scanner's figures where it has them, the others looked up in the universe.
     await page.getByTestId("desk-scan-cat-watchlist").click();
