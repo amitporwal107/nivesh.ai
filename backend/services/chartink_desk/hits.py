@@ -108,7 +108,7 @@ async def hits_view(db, user_id: str, scan_date: Optional[str], today: date, sca
     for x in unknown[:MAX_UNKNOWN_LISTED]:
         sg = await suggest(x["symbol"])
         x["suggestions"], x["suggested"] = sg["suggestions"], sg["suggested"]
-        x["note"] = "Not an NSE symbol in the symbol master: Chartink may have sent a code that is not a ticker."
+        x["note"] = "Not in the NSE stock symbol master (an ETF or fund unit, or a code from Chartink that is not a ticker); check the suggestions."
     base.update(symbols=symbols, unknown_symbols=unknown)
     return base
 

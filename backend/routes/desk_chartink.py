@@ -11,7 +11,7 @@ Endpoints (all under /api/desk/chartink, signed-in user only; every document is 
                           retry_after_s) and stores today's (IST) hits, replacing the same scan and day -> per scan {id, name, ok, hits, error, seconds}
     GET    /hits?date=    the latest scan date's hits grouped by stock, joined with the AI scanner list and the symbol universe
 
-Typed errors: detail = {"code", "message", ...}: invalid_dashboard_url, dashboard_fetch_failed, dashboard_too_large, redirect_off_site,
+Typed errors: body {"detail": {"code", "message", ...}} (plus status, error, code, message at the top level): invalid_dashboard_url, dashboard_fetch_failed, dashboard_too_large, redirect_off_site,
 dashboard_page_changed, dashboard_empty, no_source, scan_not_found, scan_unsupported, refresh_cooldown. No Chartink credential is stored. Writes pass
 through the app's CSRF middleware like every other desk write.
 """
@@ -23,7 +23,8 @@ import re
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import JSONResponse
 
 from deps import db, get_current_user
 from services.chartink_desk import dashboard as dash
@@ -42,31 +43,49 @@ def today() -> date:
     return date.fromisoformat(store.ist_date(store.utcnow()))
 
 
+class _Typed(Exception):
+    """A typed error the route answers itself (see _answer): the app's central handler would flatten a dict `detail` into a string."""
+
+    def __init__(self, status: int, code: str, message: str, **extra: Any):
+        super().__init__(message)
+        self.status, self.code, self.message, self.extra = status, code, message, extra
+
+
+def _answer(e: _Typed) -> JSONResponse:
+    """`{detail: {code, message, ...}}` (the FastAPI shape the desk client reads) plus the envelope's status / error / code / message at the top level."""
+    detail = {"code": e.code, "message": e.message, **e.extra}
+    return JSONResponse(status_code=e.status, content={"status": e.status, "error": e.code, "code": e.code, "message": e.message, "detail": detail, **e.extra},
+                        headers={"Retry-After": str(e.extra["retry_after_s"])} if "retry_after_s" in e.extra else None)
+
+
+def _typed(e: Exception) -> _Typed:
+    if isinstance(e, store.ChartinkError):
+        return _Typed(e.status, e.code, e.message, **e.extra)
+    if isinstance(e, dash.DashboardError):
+        return _Typed(e.status, e.code, e.message)
+    raise e
+
+
 async def _body(request: Request) -> Any:
     try:
         return json.loads(await request.body())
     except ValueError:
-        raise HTTPException(status_code=422, detail={"code": "invalid_body", "message": "The request body must be JSON."})
-
-
-def _fail(e: Exception) -> HTTPException:
-    if isinstance(e, (store.ChartinkError,)):
-        return HTTPException(status_code=e.status, detail=e.detail, headers={"Retry-After": str(e.extra["retry_after_s"])} if "retry_after_s" in e.extra else None)
-    if isinstance(e, dash.DashboardError):
-        return HTTPException(status_code=e.status, detail={"code": e.code, "message": e.message})
-    raise e
+        raise _Typed(422, "invalid_body", "The request body must be JSON.")
 
 
 @router.put("/source")
 async def put_source(request: Request, include_clauses: int = Query(0, ge=0, le=1)) -> Dict[str, Any]:
     user = await get_current_user(request)
-    body = await _body(request)
+    try:
+        body = await _body(request)
+    except _Typed as e:
+        return _answer(e)
     if not isinstance(body, dict):
-        raise HTTPException(status_code=422, detail={"code": "invalid_body", "message": "Send {\"dashboard_url\": ...}."})
+        return _answer(_Typed(422, "invalid_body", "Send {\"dashboard_url\": ...}."))
     try:
         doc = await store.put_source(db, user["user_id"], body.get("dashboard_url"))
     except (store.ChartinkError, dash.DashboardError) as e:
-        raise _fail(e)
+        return _answer(_typed(e))
     return {"source": store.public_source(doc, bool(include_clauses))}
 
 
@@ -80,12 +99,12 @@ async def get_source(request: Request, include_clauses: int = Query(0, ge=0, le=
 async def patch_scan(request: Request, scan_id: str) -> Dict[str, Any]:
     user = await get_current_user(request)
     if len(scan_id) > _ID_MAX:
-        raise HTTPException(status_code=404, detail={"code": "scan_not_found", "message": "No such scan on your Chartink dashboard."})
-    body = await _body(request)
+        return _answer(_Typed(404, "scan_not_found", "No such scan on your Chartink dashboard."))
     try:
+        body = await _body(request)
         return {"scan": await store.patch_scan(db, user["user_id"], scan_id, body)}
-    except store.ChartinkError as e:
-        raise _fail(e)
+    except (store.ChartinkError, _Typed) as e:
+        return _answer(e if isinstance(e, _Typed) else _typed(e))
 
 
 @router.delete("/source")
@@ -100,7 +119,7 @@ async def refresh(request: Request) -> Dict[str, Any]:
     try:
         return await refresh_mod.refresh_user(db, user["user_id"])
     except store.ChartinkError as e:
-        raise _fail(e)
+        return _answer(_typed(e))
 
 
 async def _scanner_scores(request: Request) -> tuple:
@@ -141,7 +160,7 @@ async def hits(request: Request, date_: Optional[str] = Query(None, alias="date"
                 raise ValueError
             date.fromisoformat(date_)
         except ValueError:
-            raise HTTPException(status_code=422, detail={"code": "invalid_date", "message": "date must be YYYY-MM-DD."})
+            return _answer(_Typed(422, "invalid_date", "date must be YYYY-MM-DD."))
     scores, fails = await _scanner_scores(request)
     universe, ufail = await _universe()
     return await hits_mod.hits_view(db, user["user_id"], date_, today(), scores, fails, universe, ufail, _suggest)

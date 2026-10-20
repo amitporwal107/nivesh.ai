@@ -957,6 +957,7 @@ def test_refresh_route_cooldown_and_results(client, monkeypatch):
     assert body["ok_count"] == 5 and all(set(s) >= {"id", "name", "ok", "hits", "error", "seconds"} for s in body["scans"])
     r = client.post("/api/desk/chartink/refresh", headers=A)
     assert r.status_code == 429 and r.json()["detail"]["retry_after_s"] == 600 and r.json()["detail"]["code"] == "refresh_cooldown" and r.headers["Retry-After"] == "600"
+    assert r.json()["retry_after_s"] == 600 and r.json()["code"] == "refresh_cooldown" and r.json()["status"] == 429 and "Try again in 600 seconds" in r.json()["message"]
     now["t"] = NOW + timedelta(seconds=240)
     assert client.post("/api/desk/chartink/refresh", headers=A).json()["detail"]["retry_after_s"] == 360
     assert client.post("/api/desk/chartink/refresh", headers=B).status_code == 404            # B has no source: no cooldown shared with A
@@ -1019,7 +1020,7 @@ def test_unknown_symbols_are_listed_with_suggestions_never_dropped(client, monke
     assert [s["symbol"] for s in h["symbols"]] == ["AAA"]
     unk = {u["symbol"]: u for u in h["unknown_symbols"]}
     assert set(unk) == {"AAAA", "12345", "NOTATICKER"} and unk["12345"]["count"] == 2 and [x["id"] for x in unk["12345"]["scans"]] == ["1001", "1002"]
-    assert unk["AAAA"]["suggestions"] and unk["AAAA"]["suggestions"][0]["symbol"] in ("AAA", "AAB") and "not an nse symbol" in unk["AAAA"]["note"].lower()
+    assert unk["AAAA"]["suggestions"] and unk["AAAA"]["suggestions"][0]["symbol"] in ("AAA", "AAB") and "not in the nse stock symbol master" in unk["AAAA"]["note"].lower()
     assert unk["NOTATICKER"]["suggestions"] == [] and unk["NOTATICKER"]["suggested"] is None
     assert unk["12345"]["suggestions"] == [] and unk["12345"]["suggested"] is None              # digits only: the lookup finds nothing, still listed
     total = len(h["symbols"]) + len(h["unknown_symbols"])
