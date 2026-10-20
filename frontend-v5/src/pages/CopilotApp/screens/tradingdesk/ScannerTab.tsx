@@ -7,6 +7,7 @@
  *       ?setups=&symbols=                    eligible universe; every exclusion counted; each row's end-of-day price, change,
  *                                            RVOL, volatility, ATR%, traded value, price band, F&O flag, results dates and
  *                                            the move-odds model's rank percentile within the eligible universe  (useScanUniverse)
+ *   GET /api/fno/scan/buildup                futures OI build-up per F&O stock; every F&O-eligible row carries its line (FnoLine)  (useBuildup)
  *   GET /api/move-odds/latest?head=…         the model's run, its out-of-sample record, events per stock          (useDeskOdds)
  *   GET /api/watchlists, /api/watchlists/{id}  the user's own lists, for the "User watchlist" category  (usePersonalLists)
  *   POST /api/watchlists/{id}/symbols        Add to a list (AddToList, workspace/PersonalLists.tsx)
@@ -35,6 +36,7 @@ import {
   type DeskOdds, type DeskSetup, type RiskClass, type ScanRules, type ScanUniverse, type SetupBucket, type UniverseCategory, type UniverseRow,
 } from "./desk-data";
 import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
+import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import { TrustLine } from "./trust";
 
 // ── categories (PRD §5.2) ────────────────────────────────────────────────
@@ -770,9 +772,58 @@ interface ListProps {
   minCr: number | null;
   rules: ScanRules | null;
   signalDate: (r: Row) => string | null;
+  fno: FnoState;
 }
 
-function ScanTable({ rows, selected, onOpen, head, plain, gate, uni, uniError, minCr, rules, signalDate }: ListProps) {
+/** The F&O build-up scan as the rows need it: its data, and whether it is still loading or failed. */
+interface FnoState {
+  data: Buildup | undefined;
+  pending: boolean;
+  error: boolean;
+}
+
+/**
+ * The F&O analysis of a stock, shown on every row whose stock is F&O-eligible (the universe's NSE lot-size flag, or the
+ * build-up scan's own eligibility) and on no other. End of day, from the futures build-up scan: the build-up reading,
+ * OI change, whether the futures agree with the cash move, the near expiry and the scan's risk flags. A figure the
+ * scan lacks is "—", never 0.
+ */
+const isFno = (r: Row, fno: FnoState) => r.u?.fnoEligible === true || buildupRowFor(fno.data, r.symbol)?.fnoEligible === true;
+
+function FnoLine({ r, fno, plain }: { r: Row; fno: FnoState; plain: boolean }) {
+  if (!isFno(r, fno)) return null;
+  const b = buildupRowFor(fno.data, r.symbol);
+  const meta = b?.label ? BUILDUP_META[b.label] : null;
+  const dim: CSSProperties = { color: "var(--cp-ink-3)" };
+  let body: ReactNode;
+  if (fno.pending) body = <span style={dim}>Loading the futures scan…</span>;
+  else if (fno.error && !fno.data) body = <span style={dim}>The futures scan didn’t load, so this stock’s F&O analysis is not shown.</span>;
+  else if (!b) body = <span style={dim}>Eligible for F&O, but the futures scan has no row for it on {fmtDay(fno.data?.asOf)}.</span>;
+  else {
+    const parts: string[] = [];
+    parts.push(`OI ${fmtPct(b.oiChgPct, { signed: true, digits: 1 })}`);
+    if (b.cashConfirmation) parts.push(b.cashConfirmation === "confirms" ? (plain ? "Futures agree with the cash price" : "Futures confirm cash") : (plain ? "Futures disagree with the cash price" : "Futures diverge from cash"));
+    if (b.nearExpiry) parts.push(`Expiry ${fmtDay(b.nearExpiry)}${b.daysToExpiry != null ? ` (${fmtNum(b.daysToExpiry)}d)` : ""}`);
+    if (b.futTurnoverCr != null) parts.push(`Futures ₹${fmtNum(b.futTurnoverCr)} Cr`);
+    for (const f of b.riskFlags) parts.push(RISK_FLAG_LABEL[f] ?? f);
+    body = (
+      <>
+        <span data-testid="desk-scan-fno-label" data-label={b.label ?? ""} style={{ color: meta ? TONE_COLOR[meta.tone] : "var(--cp-ink-3)" }} title={meta ? (plain ? meta.rule : meta.plain) : undefined}>
+          {meta ? (plain ? meta.plain : meta.label) : "No build-up reading"}
+        </span>
+        <span data-testid="desk-scan-fno-detail" className="cp-num" style={dim}>{parts.join(" · ")}</span>
+      </>
+    );
+  }
+  return (
+    <span data-testid="desk-scan-fno" className="flex min-w-0 flex-wrap items-baseline" style={{ gap: "2px 10px", fontSize: 11.5 }}>
+      <span className="cp-eyebrow" style={{ fontSize: 8.5 }}>F&O{fno.data?.asOf ? ` · ${fmtDay(fno.data.asOf)}` : ""}</span>
+      {body}
+    </span>
+  );
+}
+
+function ScanTable({ rows, selected, onOpen, head, plain, gate, uni, uniError, minCr, rules, signalDate, fno }: ListProps) {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <div role="table" aria-label="Scanner opportunities" data-testid="desk-scan-table" data-layout="table">
@@ -814,6 +865,7 @@ function ScanTable({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
                 </button>
               </span>
             </div>
+            {isFno(r, fno) && <div style={{ padding: "0 18px 8px 50px" }}><FnoLine r={r} fno={fno} plain={plain} /></div>}
             {expanded && (
               <div id={`desk-scan-actions-${r.symbol}`} style={{ padding: "0 18px 12px 50px" }}>
                 <ActionPanel r={r} signalDate={signalDate(r)} onOpen={onOpen} plain={plain} />
@@ -827,7 +879,7 @@ function ScanTable({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
 }
 
 /** The same fields as compact cards: a narrow desk box (beside the docked Copilot) and the phone (PRD §5.3, design §11 M2). */
-function ScanCards({ rows, selected, onOpen, head, plain, gate, uni, uniError, minCr, rules, signalDate, phone }: ListProps & { phone: boolean }) {
+function ScanCards({ rows, selected, onOpen, head, plain, gate, uni, uniError, minCr, rules, signalDate, fno, phone }: ListProps & { phone: boolean }) {
   const [open, setOpen] = useState<string | null>(null);
   const heads = fieldLabels(head, plain);
   return (
@@ -864,6 +916,7 @@ function ScanCards({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
                 </span>
               ))}
             </span>
+            <FnoLine r={r} fno={fno} plain={plain} />
             <span className="flex min-w-0 flex-wrap items-center" style={{ gap: 8 }}>
               <button type="button" data-testid="desk-scan-act" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : r.symbol)}
                 style={{ padding: "4px 10px", borderRadius: 999, border: "1px solid var(--line-2)", background: expanded ? "var(--bg-3)" : "transparent", color: "var(--cp-ink-2)", fontSize: 11.5, cursor: "pointer", fontFamily: "var(--sans)" }}>
@@ -979,6 +1032,8 @@ export default function ScannerTab() {
   const setupSyms = useMemo(() => (setups ?? []).map((s) => s.symbol), [setups]);
   const listSyms = useMemo(() => listStocks.map((s) => s.symbol), [listStocks]);
   const uniQ = useScanUniverse(setupSyms, listSyms, !scan.isPending);
+  const buildupQ = useBuildup(true);
+  const fno: FnoState = { data: buildupQ.data, pending: buildupQ.isPending, error: buildupQ.isError };
   const uni = uniQ.data;
   const uniError = uniQ.isError && !uni;
 
@@ -1085,7 +1140,7 @@ export default function ScannerTab() {
   );
 
   let body: ReactNode;
-  const listProps: ListProps = { rows, selected: symbol, onOpen: openChart, head, plain, gate, uni, uniError, minCr, rules, signalDate: signalDateOf };
+  const listProps: ListProps = { rows, selected: symbol, onOpen: openChart, head, plain, gate, uni, uniError, minCr, rules, signalDate: signalDateOf, fno };
   const emptyStyle: CSSProperties = { padding: "14px 18px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-3)", borderTop: mobile ? undefined : "1px solid var(--cp-line)" };
   if (cat === "watchlist" && (lists.isPending || (listId && listQ.isPending))) body = <div style={{ padding: 18 }}><LoadingBlock label="Loading your list" rows={2} /></div>;
   else if (cat === "watchlist" && (lists.isError || listQ.isError)) body = <div style={{ padding: 18 }}><ErrorBlock title="Your lists didn’t load" error={lists.error ?? listQ.error} onRetry={() => { lists.refetch(); listQ.refetch(); }} /></div>;

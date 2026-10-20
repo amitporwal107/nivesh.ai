@@ -990,6 +990,37 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId("desk-scan-cat-momentum").click();
     await expect.poll(() => rowOrder(page)).toEqual(ordered(UCATS.momentum.symbols, "momentum"));
   });
+
+  // F&O analysis on every F&O-eligible row (GET /api/fno/scan/buildup, nidp.fno_bhavcopy). The universe flags FIXBRK and
+  // UMOM2 as F&O-eligible; the scan has a row for FIXBRK only. MOCK — not real data: synthetic build-up values.
+  const FNO_ROW = {
+    symbol: "FIXBRK", near_expiry: "2026-10-27", close: 512, prev_close: 500, price_chg_pct: 2.4, oi: 3_000_000, oi_chg: 175_000, oi_chg_pct: 6.2,
+    expiries: 3, label: "long_buildup", days_to_expiry: 14, fut_contracts: 900, fut_turnover_cr: 812.4, cash_confirmation: "confirms",
+    fno_eligible: true, risk_flags: ["expiry_week"],
+  };
+  const fnoScan = (rows: unknown[]) => ({ as_of: "2026-10-13", rows, indices: [], counts: {}, sources: {}, master: {}, risk_flag_text: {} });
+
+  test("F&O analysis shows on every F&O-eligible row, and only on those", async ({ page }) => {
+    await scanMocks(page);
+    await json(page, "**/api/fno/scan/buildup*", fnoScan([FNO_ROW]));
+    await page.goto(DESK_SCAN);
+    await expect(page.getByTestId("desk-scan-row-UVOL1")).toBeVisible();
+    // With the scan's row: build-up reading, OI change, cash check, expiry, turnover, risk flag.
+    await expect(page.getByTestId("desk-scan-fno-label").first()).toHaveText("Long build-up");
+    await expect(page.getByTestId("desk-scan-fno-label").first()).toHaveAttribute("data-label", "long_buildup");
+    await expect(page.getByTestId("desk-scan-fno-detail").first()).toHaveText("OI +6.2% · Futures confirm cash · Expiry 27 Oct 2026 (14d) · Futures ₹812 Cr · Expiry week");
+    // Exactly the two F&O-eligible stocks (FIXBRK, UMOM2) carry the line; the other rows (all categories) carry none.
+    await expect(page.getByTestId("desk-scan-fno")).toHaveCount(2);
+    // Eligible but not in the scan: said so, not invented.
+    await expect(page.getByText("Eligible for F&O, but the futures scan has no row for it on 13 Oct 2026.")).toHaveCount(1);
+  });
+
+  test("F&O analysis says so when the futures scan does not load, on eligible rows only", async ({ page }) => {
+    await scanMocks(page);
+    await json(page, "**/api/fno/scan/buildup*", { detail: "upstream_unavailable" }, 502);
+    await page.goto(DESK_SCAN);
+    await expect(page.getByText("The futures scan didn’t load, so this stock’s F&O analysis is not shown.")).toHaveCount(2, SLOW);
+  });
 });
 
 // ── Chart analysis and risk desk ─────────────────────────────────────────
