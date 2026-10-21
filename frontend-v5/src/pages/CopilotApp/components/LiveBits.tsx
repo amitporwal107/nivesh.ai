@@ -25,17 +25,20 @@ function useNow(everyMs: number): number {
 }
 
 /** Admin-only: asks the backend for a fresh single-use Kite login link and goes there. The one human step of the day (Zerodha 2FA). */
+/** Asks the backend for a fresh single-use Kite login link and navigates to it. Throws when none could be made. */
+export async function startKiteLogin(): Promise<void> {
+  const res = await http<{ login_url?: string }>({ method: "POST", path: "/api/live/kite/login-url", noRetry: true });
+  const url = res.data?.login_url;
+  if (!url) throw new Error("no login url");
+  window.location.assign(url);
+}
+
 function KiteLoginLink() {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const go = async () => {
     setBusy(true); setFailed(false);
-    try {
-      const res = await http<{ login_url?: string }>({ method: "POST", path: "/api/live/kite/login-url", noRetry: true });
-      const url = res.data?.login_url;
-      if (!url) throw new Error("no login url");
-      window.location.assign(url);
-    } catch { setFailed(true); setBusy(false); }
+    try { await startKiteLogin(); } catch { setFailed(true); setBusy(false); }
   };
   return (
     <button type="button" data-testid="live-chip-login" onClick={go} disabled={busy} className="cp-pill" style={{ cursor: busy ? "wait" : "pointer", background: "transparent", color: "var(--cp-ink)" }}>
@@ -60,7 +63,7 @@ export function LiveChip({ floating }: { floating?: boolean }) {
       data-testid="live-chip"
       data-mode={m.mode}
       data-transport={m.transport}
-      title={m.mode === "live" ? "Prices from Kite, pushed every 5 seconds. Read only." : m.mode === "closed" ? "The NSE session is closed; screens show the last close." : "Screens show end-of-day figures until the live feed is connected."}
+      title={m.mode === "live" ? `Prices from Kite, refreshed every ${m.cadenceSeconds} seconds. Read only.` : m.mode === "closed" ? "The NSE session is closed; screens show the last close." : "Screens show end-of-day figures until the live feed is connected."}
       className="cp-pill"
       data-tone={TONE[m.mode]}
     >

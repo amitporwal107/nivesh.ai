@@ -181,16 +181,24 @@ def _native_client(monkeypatch, db, exchange):
     return TestClient(app, follow_redirects=False)
 
 
-def test_native_callback_platform_state_redirects_to_dashboard_connected(monkeypatch):
+def test_native_callback_platform_state_redirects_to_the_app_connected(monkeypatch):
     db = FakeDB()
     monkeypatch.setattr(cfg, "get_api_key", lambda: KEY)
     c = _native_client(monkeypatch, db, lambda k, s, r: {"access_token": TOKEN, "user_id": "WVX837"})
     made = run(pt.create_login_state(db, "adm"))
     r = c.get("/api/broker/native/callback", params={"broker": "zerodha", "request_token": REQ_TOKEN, "status": "success", "state": made["state"]})
-    assert r.status_code in (302, 307) and r.headers["location"] == "/dashboard?kite=connected"
+    assert r.status_code in (302, 307) and r.headers["location"] == "/v5/app/trader?kite=connected"
     assert db[pt.COL_TOKEN].docs[pt.TOKEN_DOC_ID]["user_id"] == "WVX837"
     r2 = c.get("/api/broker/native/callback", params={"broker": "zerodha", "request_token": REQ_TOKEN, "status": "success", "state": made["state"]})
-    assert r2.headers["location"] == "/dashboard?kite=error&reason=state_used"      # replay
+    assert r2.headers["location"] == "/v5/app/trader?kite=error&reason=state_used"      # replay
+
+
+def test_return_path_is_configurable_and_same_site_only(monkeypatch):
+    assert pt.success_url() == "/v5/app/trader?kite=connected"
+    monkeypatch.setenv("KITE_LOGIN_RETURN_PATH", "/v5/app/page/brokers")
+    assert pt.error_url("wrong_account") == "/v5/app/page/brokers?kite=error&reason=wrong_account"
+    monkeypatch.setenv("KITE_LOGIN_RETURN_PATH", "//evil.example/x")
+    assert pt.success_url().startswith("/v5/app/trader")
 
 
 def test_native_callback_wrong_account_redirects_with_reason(monkeypatch):
@@ -199,7 +207,7 @@ def test_native_callback_wrong_account_redirects_with_reason(monkeypatch):
     c = _native_client(monkeypatch, db, lambda k, s, r: {"access_token": TOKEN, "user_id": "STRANGER1"})
     made = run(pt.create_login_state(db, "adm"))
     r = c.get("/api/broker/native/callback", params={"broker": "zerodha", "request_token": REQ_TOKEN, "state": made["state"]})
-    assert r.headers["location"] == "/dashboard?kite=error&reason=wrong_account"
+    assert r.headers["location"] == "/v5/app/trader?kite=error&reason=wrong_account"
     assert not db[pt.COL_TOKEN].docs
 
 

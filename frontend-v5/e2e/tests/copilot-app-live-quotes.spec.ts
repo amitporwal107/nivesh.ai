@@ -48,7 +48,7 @@ function payload(mode: string, quotes = true) {
     ltp: close * (1 + LIVE[symbol] / 100), change: 1, change_pct: LIVE[symbol], open: close, high: close, low: close, close, volume: 1000, oi: null, ts: "2026-10-21T11:13:09+05:30",
   }]));
   return {
-    as_of: "2026-10-21T05:43:10+00:00", data_at: "2026-10-21T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 15, mode,
+    as_of: "2026-10-21T05:43:10+00:00", data_at: "2026-10-21T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30, mode,
     session: mode === "closed" ? "closed" : "open", source: "ws", final: mode === "closed", count: quotes ? 4 : 0, missing: [], quotes: quotes ? q : {}, read_only: true,
   };
 }

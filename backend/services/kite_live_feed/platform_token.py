@@ -38,7 +38,21 @@ STATE_PREFIX = "kp."
 STATE_TTL_ENV, STATE_TTL_DEFAULT_MIN = "KITE_LOGIN_STATE_TTL_MIN", 30
 PLATFORM_USER_ENV = "KITE_PLATFORM_USER_ID"
 LOGIN_BASE = "https://kite.zerodha.com/connect/login"
-SUCCESS_REDIRECT = "/dashboard?kite=connected"
+RETURN_PATH_ENV, RETURN_PATH_DEFAULT = "KITE_LOGIN_RETURN_PATH", "/v5/app/trader"
+
+
+def return_path() -> str:
+    """Where the browser lands after Zerodha: the Copilot app (it shows the connected toast / the error reason). Same-site paths only."""
+    v = os.environ.get(RETURN_PATH_ENV, "").strip()
+    return v if v.startswith("/") and not v.startswith("//") and "\\" not in v and all("!" <= ch <= "~" for ch in v) else RETURN_PATH_DEFAULT
+
+
+def success_url() -> str:
+    return f"{return_path()}?kite=connected"
+
+
+def error_url(reason: str) -> str:
+    return f"{return_path()}?kite=error&reason={quote(reason, safe='')}"
 
 # in-process view of the stored token: (token, expires_at). Refreshed from Mongo by the feed each pass and set by the callback.
 _cache: Tuple[str, Optional[datetime]] = ("", None)

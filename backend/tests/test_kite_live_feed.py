@@ -209,8 +209,8 @@ def run(coro):
 
 # ── config ───────────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("raw,want", [(None, 5), ("5", 5), ("1", 2), ("0", 2), ("100", 30), ("12", 12), ("abc", 5), ("2.9", 2)])
-def test_cadence_is_clamped_to_2_30(raw, want):
+@pytest.mark.parametrize("raw,want", [(None, 30), ("5", 5), ("1", 2), ("0", 2), ("1000", 120), ("12", 12), ("abc", 30), ("2.9", 2)])
+def test_cadence_is_clamped_to_2_120_default_30(raw, want):
     env = {} if raw is None else {cfg.CADENCE_ENV: raw}
     assert cfg.cadence_seconds(env) == want
 
@@ -442,7 +442,7 @@ def test_no_read_inside_the_first_minute_after_close_and_none_stops_the_ticker()
 
 def test_gateway_exposes_no_order_surface():
     names = {n for n in dir(gw.ReadOnlyKite) if not n.startswith("_")}
-    assert names == {"instruments", "quote", "profile"}
+    assert names == {"instruments", "quote", "profile", "historical_data"}
 
 
 def test_no_order_method_is_referenced_in_the_package_or_routes():
@@ -483,12 +483,16 @@ def _snap(data_at, quotes=None):
 
 def test_payload_fresh_stale_closed_and_missing():
     now = OPEN_NOW.astimezone(timezone.utc)
-    st = {"state": "live", "session": "open"}
+    st = {"state": "live", "session": "open", "cadence_seconds": 5}
     fresh = live_quotes.build_payload(_snap(now - timedelta(seconds=4)), st, ["AAA", "NOPE"], now)
     assert fresh["mode"] == "live" and fresh["stale"] is False and fresh["age_seconds"] == 4.0
     assert fresh["missing"] == ["NOPE"] and "NOPE" not in fresh["quotes"] and fresh["quotes"]["AAA"]["ltp"] == 10.0
     old = live_quotes.build_payload(_snap(now - timedelta(seconds=40)), st, None, now)
-    assert old["mode"] == "delayed" and old["stale"] is True
+    assert old["mode"] == "delayed" and old["stale"] is True and old["stale_after_seconds"] == 12.5      # 2.5 x 5 s
+    st30 = {"state": "live", "session": "open", "cadence_seconds": 30}
+    mid = live_quotes.build_payload(_snap(now - timedelta(seconds=70)), st30, None, now)
+    assert mid["mode"] == "live" and mid["stale"] is False and mid["stale_after_seconds"] == 75 and mid["cadence_seconds"] == 30
+    assert live_quotes.build_payload(_snap(now - timedelta(seconds=80)), st30, None, now)["mode"] == "delayed"
     closed = live_quotes.build_payload(_snap(now - timedelta(hours=3)), {"state": "market_closed", "session": "closed"}, None, now)
     assert closed["mode"] == "closed" and closed["stale"] is False
     assert live_quotes.build_payload(None, None, None, now)["mode"] in ("not_connected", "disabled")
@@ -555,6 +559,10 @@ def test_sse_stream_emits_snapshot_events(api, monkeypatch):
     assert events
     data = json.loads(events[0].split("data: ", 1)[1])
     assert data["quotes"]["AAA"]["ltp"] == 100.0 and "as_of" in data and "stale" in data
+
+
+def test_lease_outlives_the_gap_between_passes():
+    assert make_feed(cadence=120)._lease_ttl == 255 and make_feed(cadence=5)._lease_ttl == feed_mod.LEASE_TTL_SECONDS
 
 
 def test_universe_helpers():
