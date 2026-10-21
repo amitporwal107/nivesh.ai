@@ -164,6 +164,12 @@ except ImportError:
     pass  # graceful no-op if not installed (local dev without the package)
 
 # Include all routers
+# No personal detail reaches a model provider from any call site: llm_guard wraps the provider
+# SDKs themselves, because there are twelve independent client constructions and no shared
+# factory, so a per-call-site guard would miss the next one someone adds.
+from services import llm_guard as _llm_guard
+_llm_guard.install()
+
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(admin_users_router)
