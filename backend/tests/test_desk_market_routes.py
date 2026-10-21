@@ -230,3 +230,56 @@ def test_feed_rows_carry_the_exchange(monkeypatch):
     r = TestClient(app).get("/api/filings/feed?days=7")
     assert r.status_code == 200
     assert [(x["id"], x["exchange"]) for x in r.json()["rows"]] == [("n1", "NSE"), ("b1", "BSE")]
+
+
+# ── /api/markets/sector-heatmap ──────────────────────────────────────────────
+
+HEATMAP = {"as_of": "2026-10-19", "index": "Nifty 50", "source": "x", "sessions": {"d": 1, "w": 5, "m": 21},
+           "mode": "end_of_day", "sectors": [{"name": "Banks"}], "stocks": [], "breadth": {}, "weighted_change": {},
+           "unavailable": []}
+
+
+def test_sector_heatmap_forwards_the_index_and_passes_the_answer_through(monkeypatch):
+    c, calls = _client(monkeypatch, desk_route, (200, HEATMAP))
+    r = c.get("/api/markets/sector-heatmap?index=%20Nifty%20Bank%20")
+    assert r.status_code == 200 and r.json() == HEATMAP
+    assert calls == [("/desk/sector-heatmap", {"index": "Nifty Bank"})]
+
+
+def test_sector_heatmap_defaults_to_nifty_50(monkeypatch):
+    c, calls = _client(monkeypatch, desk_route, (200, HEATMAP))
+    assert c.get("/api/markets/sector-heatmap").status_code == 200
+    assert calls == [("/desk/sector-heatmap", {"index": "Nifty 50"})]
+
+
+def test_sector_heatmap_needs_a_signed_in_user(monkeypatch):
+    c, calls = _client(monkeypatch, desk_route, (200, HEATMAP), signed_in=False)
+    r = c.get("/api/markets/sector-heatmap")
+    assert (r.status_code, r.json()) == (401, {"detail": "Not authenticated"}) and calls == []
+
+
+@pytest.mark.parametrize("q", ["?index=ab", "?index=Nifty;x", "?index=" + "x" * 61])
+def test_sector_heatmap_rejects_a_bad_index_before_calling_the_data_platform(monkeypatch, q):
+    c, calls = _client(monkeypatch, desk_route, (200, HEATMAP))
+    assert c.get("/api/markets/sector-heatmap" + q).status_code == 422 and calls == []
+
+
+def test_sector_heatmap_unknown_index_is_a_typed_404(monkeypatch):
+    body = {"error": {"status": 404, "message": "unknown_index: 'Nifty Imaginary' (valid: Nifty 50, Nifty Bank)"}}
+    c, _ = _client(monkeypatch, desk_route, (404, body))
+    r = c.get("/api/markets/sector-heatmap?index=Nifty%20Imaginary")
+    assert r.status_code == 404
+    d = r.json()["detail"]
+    assert d["code"] == "unknown_index" and "Nifty 50" in d["message"]
+
+
+@pytest.mark.parametrize("reply", [(500, {"error": {}}), (200, {"nope": 1}), (200, None), daas_client.DaasError("down")])
+def test_sector_heatmap_failure_is_502_never_an_empty_map(monkeypatch, reply):
+    c, _ = _client(monkeypatch, desk_route, reply)
+    r = c.get("/api/markets/sector-heatmap")
+    assert (r.status_code, r.json()) == (502, {"detail": "upstream_unavailable"})
+
+
+def test_sector_heatmap_unconfigured_data_platform_is_502_and_not_called(monkeypatch):
+    c, calls = _client(monkeypatch, desk_route, (200, HEATMAP), configured=False)
+    assert c.get("/api/markets/sector-heatmap").status_code == 502 and calls == []
