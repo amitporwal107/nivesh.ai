@@ -116,7 +116,14 @@ sit on different bases, and `_record_equity` is a no-op, so drawdown ignores ope
 1. Confirm B1–B6 (owner: product owner), especially gate thresholds and risk limits.
 2. Which universe and date range should the first AI backtests use (owner: product owner + domain analyst).
 3. When is the Strategy Builder UI scheduled (owner: DESIGN)?
-4. Position sizing in the shared backtester: option 1, 2 or 3 in section 10c (owner: product owner + domain analyst).
+4. ~~Position sizing in the shared backtester~~ **ANSWERED 2026-10-21 by the product owner: option 1.** Teach
+   `strategy_engine/backtest.py` to size positions. The owner was told that the existing Strategy Builder's reported
+   numbers will change, and that some will look worse once drawdown includes open positions and returns are measured
+   at real position size, and accepted that ("existing Strategy Builder's numbers will that is ok"). Built on
+   `feat/backtest-position-sizing`: equal-weight slots of `equity / max_positions`, cash tracked, entries that cash
+   cannot afford skipped and counted, `pnl_abs` quantity-aware while `pnl_pct` keeps its per-share meaning, a real
+   daily mark-to-market equity curve, `win_rate` and `profit_factor` on one net basis, and
+   `metrics["sizing_basis"] = "portfolio"` so the return and drawdown gates can finally bind.
 5. Should an unknown sector on a held position count against the sector allowance, as the governor now does, refusing
    new orders on a book above 30 per cent of capital with no sectors recorded (owner: product owner)?
 6. Should a proposal's requested symbols drive the backtest universe? Today they configure NiveshConfig only and the
