@@ -166,6 +166,16 @@ test.describe("Sector heatmap — desktop", () => {
     expect(errors).toEqual([]);
   });
 
+  test("the index picker offers Nifty 50, 100 and 500 and asks the route for the one picked", async ({ page }) => {
+    const { urls } = await open(page);
+    const sel = page.getByTestId("hm-index");
+    await expect(sel.locator("option")).toHaveText(["Nifty 50", "Nifty 100", "Nifty 500"]);
+    await sel.selectOption("NIFTY500");
+    await expect.poll(() => urls.some((u) => u.includes("index=NIFTY500"))).toBe(true);
+    await sel.selectOption("NIFTY100");
+    await expect.poll(() => urls.some((u) => u.includes("index=NIFTY100"))).toBe(true);
+  });
+
   test("changing the period recolours the tiles, rewrites the headline and the weighted change", async ({ page }) => {
     const { payload } = await open(page);
     const d = await page.getByTestId("hm-verdict").innerText();
