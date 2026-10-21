@@ -98,3 +98,41 @@ def test_signed_out_is_401(monkeypatch, path):
     c, calls = _client(monkeypatch, (200, CAL), signed_in=False)
     r = c.get(path)
     assert (r.status_code, r.json()) == (401, {"detail": "Not authenticated"}) and calls == []
+
+
+# ── /expectation ─────────────────────────────────────────────────────────────
+
+EXPECT = {"symbol": "TCS", "event_date": "2026-10-08", "status": "declared", "metrics": [{"key": "revenue"}], "gaps": []}
+
+
+def test_expectation_forwards_upper_cased_symbol_and_date_and_passes_through(monkeypatch):
+    c, calls = _client(monkeypatch, (200, EXPECT))
+    r = c.get("/api/markets/events-calendar/expectation?symbol=tcs&date=2026-10-08")
+    assert r.status_code == 200 and r.json() == EXPECT
+    assert calls == [("/desk/events-calendar/expectation", {"symbol": "TCS", "date": "2026-10-08"})]
+
+
+@pytest.mark.parametrize("qs", ["", "?symbol=TCS", "?date=2026-10-08", "?symbol=TCS&date=oct", "?symbol=TCS&date=2026-1-8", "?symbol=T%20CS&date=2026-10-08"])
+def test_expectation_rejects_bad_params_before_calling_upstream(monkeypatch, qs):
+    c, calls = _client(monkeypatch, (200, EXPECT))
+    assert c.get("/api/markets/events-calendar/expectation" + qs).status_code == 422 and calls == []
+
+
+def test_expectation_no_results_meeting_is_404_not_502(monkeypatch):
+    c, _ = _client(monkeypatch, (404, {"detail": "no results meeting"}))
+    r = c.get("/api/markets/events-calendar/expectation?symbol=TCS&date=2026-10-08")
+    assert r.status_code == 404
+
+
+@pytest.mark.parametrize("reply", [pytest.param(daas_client.DaasError("timed out"), id="unreachable"),
+                                   pytest.param((500, {"detail": "x"}), id="upstream-500"),
+                                   pytest.param((200, {"nope": 1}), id="wrong-shape")])
+def test_expectation_upstream_trouble_is_502(monkeypatch, reply):
+    c, _ = _client(monkeypatch, reply)
+    r = c.get("/api/markets/events-calendar/expectation?symbol=TCS&date=2026-10-08")
+    assert (r.status_code, r.json()) == (502, {"detail": "upstream_unavailable"})
+
+
+def test_expectation_signed_out_is_401(monkeypatch):
+    c, calls = _client(monkeypatch, (200, EXPECT), signed_in=False)
+    assert c.get("/api/markets/events-calendar/expectation?symbol=TCS&date=2026-10-08").status_code == 401 and calls == []

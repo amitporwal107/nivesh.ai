@@ -8,6 +8,10 @@
     GET /api/markets/events-calendar/history?symbol=&type=RESULTS|BOARD|DIVIDEND|BONUS|SPLIT|BUYBACK|RIGHTS|AGM|DEMERGER
         the stock's own event-day / next-day / one-week moves around its past occurrences, with average, min and max;
         `n` counts only occurrences the warehouse's prices cover (`coverage_from`)
+    GET /api/markets/events-calendar/expectation?symbol=&date=YYYY-MM-DD
+        for one results meeting: a baseline expectation of revenue, profit and EPS built from the company's own published
+        quarters (not an analyst consensus), the band the method has actually been wrong by, the filed result beside it for a
+        declared meeting, and recent exchange filings as evidence; `method.universe_backtest` shows how it did on every stock
 
 The rows live in nidp.* tables only the data platform reads, so each route validates, forwards and passes the answer
 through unchanged. Signed-in users only. A data platform that is not configured, unreachable or failing is 502
@@ -33,7 +37,7 @@ _UNAVAILABLE = "upstream_unavailable"
 EventType = Literal["RESULTS", "BOARD", "DIVIDEND", "BONUS", "SPLIT", "BUYBACK", "RIGHTS", "AGM", "DEMERGER"]
 
 
-async def _daas(path: str, params: Dict[str, Any], key: str) -> Dict[str, Any]:
+async def _daas(path: str, params: Dict[str, Any], key: str, not_found_ok: bool = False) -> Dict[str, Any]:
     if not daas_client.is_configured():
         raise HTTPException(status_code=502, detail=_UNAVAILABLE)
     try:
@@ -43,6 +47,8 @@ async def _daas(path: str, params: Dict[str, Any], key: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=_UNAVAILABLE)
     if status == 200 and isinstance(body, dict) and isinstance(body.get(key), list):
         return body
+    if not_found_ok and status == 404:
+        raise HTTPException(status_code=404, detail="no results meeting for this symbol on that date")
     logger.warning("events-calendar DaaS %s answered HTTP %s", path, status)
     raise HTTPException(status_code=502, detail=_UNAVAILABLE)
 
@@ -65,3 +71,16 @@ async def events_calendar_history(
 ) -> Dict[str, Any]:
     await get_current_user(request)
     return await _daas("/desk/events-calendar/history", {"symbol": symbol.upper(), "type": type}, "occurrences")
+
+
+DATE_PATTERN = r"^\d{4}-\d{2}-\d{2}$"
+
+
+@router.get("/events-calendar/expectation")
+async def events_calendar_expectation(
+    request: Request,
+    symbol: str = Query(..., min_length=1, max_length=20, pattern=SYMBOL_PATTERN),
+    date: str = Query(..., pattern=DATE_PATTERN, description="YYYY-MM-DD, the results meeting's date"),
+) -> Dict[str, Any]:
+    await get_current_user(request)
+    return await _daas("/desk/events-calendar/expectation", {"symbol": symbol.upper(), "date": date}, "metrics", not_found_ok=True)
