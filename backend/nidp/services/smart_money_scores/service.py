@@ -32,7 +32,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from nidp.shared.logging_setup import bind_context, setup_logging
@@ -49,6 +49,11 @@ CONFIG_VERSION = "sm-component-v1"
 # Default disclosure months to look across. 3 is the shortest window in which "persistence" means
 # anything; the source requirement's 1/3/6/12 lookbacks are served by re-running with --lookback.
 DEFAULT_LOOKBACK = 3
+
+# SEBI requires monthly portfolio disclosure within 10 days of month end, and the sources we
+# discover through lag that by a day or two, so a month is treated as first knowable at
+# month-end + 12 days. Used only by --month to place a historical scoring date.
+DISCLOSURE_LAG_DAYS = 12
 
 # Sub-signal weights within the component. Hypotheses, not tuned — the component itself is in
 # shadow mode precisely so these can be argued with before anything depends on them.
@@ -338,14 +343,32 @@ def main() -> None:
     ap.add_argument("--date", default=None, help="scoring date (default: newest scored date)")
     ap.add_argument("--lookback", type=int, default=DEFAULT_LOOKBACK,
                     help=f"disclosure months to look across (default {DEFAULT_LOOKBACK})")
+    ap.add_argument("--month", default=None, metavar="YYYY-MM",
+                    help="historical mode: score as of this DISCLOSURE month. The scoring date "
+                         "becomes month-end + DISCLOSURE_LAG_DAYS (roughly when the month could "
+                         "first be known) and no later disclosure is visible. This is what makes "
+                         "a multi-date shadow series possible from backfilled data — but it is "
+                         "reporting-date-based, NOT point-in-time: the rows were observed in "
+                         "October 2026, so a historical run still sees them earlier than anyone "
+                         "could have. Treat the series as a stability check, not a backtest.")
     args = ap.parse_args()
     setup_logging(service=SERVICE_NAME)
 
-    d = date.fromisoformat(args.date) if args.date else None
+    if args.month and args.date:
+        raise SystemExit("give either --month or --date, not both")
+
+    cap = None
+    if args.month:
+        y, m = (int(x) for x in args.month.split("-")[:2])
+        cap = date(y, m, 1)
+        month_end = (date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)) - timedelta(days=1)
+        d = month_end + timedelta(days=DISCLOSURE_LAG_DAYS)
+    else:
+        d = date.fromisoformat(args.date) if args.date else None
 
     async def _go() -> None:
         try:
-            await run(d, lookback=args.lookback)
+            await run(d, lookback=args.lookback, as_of_month=cap)
         finally:
             await close_pool()
 
