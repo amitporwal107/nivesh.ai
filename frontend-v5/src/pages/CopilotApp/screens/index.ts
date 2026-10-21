@@ -12,6 +12,8 @@ export const SCREENS: Record<string, Screen> = {
   "tool/research": lazy(() => import("./Research")),
   "tool/screener": lazy(() => import("./Screener")),
   "tool/markets": lazy(() => import("./Markets")),
+  // Not a rail item: opened from the Screener, the desk's sector card, or by URL (see SECTOR_HEATMAP_VIEW).
+  "tool/sector-heatmap": lazy(() => import("./SectorHeatmap")),
   "tool/optlab": lazy(() => import("./OptionsLab")),
   trader: lazy(() => import("./Trader")),
   "trader/desk": lazy(() => import("./TradingDesk")),

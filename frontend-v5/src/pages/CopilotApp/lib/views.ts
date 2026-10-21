@@ -26,6 +26,12 @@ export interface NavItem {
   tag?: string;
 }
 
+/**
+ * The sector rotation heatmap. A reachable screen (screens/index.ts) that no rail lists: the Trader rail is
+ * deliberately limited, so it opens from the Screener, from the desk's sector card, and by URL.
+ */
+export const SECTOR_HEATMAP_VIEW = "tool/sector-heatmap";
+
 const INVESTOR_TOOLS: NavItem[] = [
   { view: "tool/analysis", label: "Portfolio analysis" },
   { view: "tool/recommend", label: "Recommendations" },
