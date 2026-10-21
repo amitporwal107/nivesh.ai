@@ -35,6 +35,7 @@ import {
   Btn, EmptyBlock, ErrorBlock, LoadingBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone, type Tone,
 } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { SECTOR_HEATMAP_VIEW } from "../../lib/views";
 import { fmtStamp } from "../desk/broker";
 import { dayLabel, fmtCr, fmtLevel, fmtPoints, fmtPrice } from "../markets/format";
 import { useMarketOverview } from "../markets/hooks";
@@ -909,6 +910,7 @@ function PeriodSwitch({ period, onPick, d }: { period: SectorPeriodKey; onPick: 
 }
 
 function SectorCard({ q }: { q: ReturnType<typeof useSectorReturns> }) {
+  const { go } = useCopilotShell();
   const [period, setPeriod] = useState<SectorPeriodKey>("1d");
   const [sort, setSort] = useState<SectorSort>("best");
   const [filter, setFilter] = useState("");
@@ -947,6 +949,11 @@ function SectorCard({ q }: { q: ReturnType<typeof useSectorReturns> }) {
         ) : (
           <SectorBody d={q.data} period={period} sort={sort} filter={filter} open={open} onOpen={setOpen} />
         )}
+      </div>
+      <div style={{ padding: "0 14px 12px" }}>
+        <button type="button" data-testid="desk-sector-heatmap-link" onClick={() => go(SECTOR_HEATMAP_VIEW)} style={{ minHeight: 32, padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>
+          Open heatmap ›
+        </button>
       </div>
       <CardTrust
         testId="desk-sector-trust"
