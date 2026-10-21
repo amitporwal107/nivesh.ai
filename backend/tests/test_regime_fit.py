@@ -264,3 +264,20 @@ def test_newest_day_never_returns_something_uncomparable():
     for v in ("2026-10-21", {"x": "2026-10-20"}, {}, None, 17):
         d = rf._newest_day(v)
         assert d is None or d > "2000-01-01"
+
+def test_newest_day_rejects_a_string_that_is_not_a_date():
+    """The ideas engine's data_as_of carries mode: "end_of_day". Taking the max of its values as
+    plain strings preferred "end_of_day" over "2026-10-21" ('e' > '2') and the staleness note read
+    "The option chain is from end_of_day". Only YYYY-MM-DD counts."""
+    assert rf._newest_day("end_of_day") is None
+    assert rf._newest_day({"mode": "end_of_day", "scanner_picks": "2026-10-16",
+                           "scan_eligibility": "2026-10-21"}) == "2026-10-21"
+    assert rf._newest_day({"mode": "end_of_day"}) is None
+    assert rf._newest_day("2026-10-21") == "2026-10-21"
+    assert rf._newest_day("21-10-2026") is None
+
+
+def test_the_cash_class_does_not_claim_a_regime_fit_ranking():
+    note = rf.CASH_RANKING_NOTE.lower()
+    assert "not ranked by regime fit" in note
+    assert "no fit score" in note

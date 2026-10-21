@@ -31,6 +31,7 @@ reuses `candidates.py`'s chain primitives and `payoff.py`'s pricing unchanged.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .candidates import _neighbour, _option_leg, condor_ok, iv_fences, leg_view, spread_strike
@@ -44,6 +45,12 @@ RANKING_NOTE = (
     "option chain, then by reward : risk. This is not a forecast, not a probability, and not a "
     "ranking by past performance: no strategy performance is recorded for options in this system. "
     "Nothing here is an instruction to trade and nothing is sent to a broker."
+)
+
+CASH_RANKING_NOTE = (
+    "The cash class is NOT ranked by regime fit: it is the desk's existing 'From AI opportunities' "
+    "answer, kept unchanged, so it carries the scanner's own evidence rank and its ideas have no "
+    "fit score. The two are shown side by side rather than merged into one ranking."
 )
 
 GAPS = [
@@ -424,15 +431,23 @@ def _net_greeks(views: Sequence[Dict[str, Any]], chain: Dict[str, Any], lot: int
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+_ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
 def _newest_day(value: Any) -> Optional[str]:
     """A single comparable ISO day from a value that may be a day, an object of per-source days, or
-    neither. Returns None rather than something uncomparable: the ideas engine's `data_as_of` is an
-    OBJECT of per-source dates, and comparing it against the regime's date raised
-    TypeError: '>' not supported between instances of 'dict' and 'str'."""
+    neither. Returns None rather than something uncomparable or something that merely looks like a
+    string.
+
+    Two live defects shaped this. The ideas engine's `data_as_of` is an OBJECT of per-source dates,
+    and comparing it to the regime's date raised TypeError: '>' not supported between 'dict' and
+    'str'. That object also carries `mode: "end_of_day"`, which is not a date at all -- taking the
+    max of its values lexicographically preferred "end_of_day" over "2026-10-21" and printed
+    "The option chain is from end_of_day". Only YYYY-MM-DD values are considered."""
     if isinstance(value, str):
-        return value
+        return value if _ISO_DAY.match(value) else None
     if isinstance(value, dict):
-        days = [v for v in value.values() if isinstance(v, str)]
+        days = [v for v in value.values() if isinstance(v, str) and _ISO_DAY.match(v)]
         return max(days) if days else None
     return None
 
@@ -676,6 +691,7 @@ async def build_top(request: Any, user_id: str, *, limit: int = 5,
         "staleness_note": gap,
         "classes": out_classes,
         "ranking_note": RANKING_NOTE,
+        "ranking_note_cash": CASH_RANKING_NOTE,
         "gaps": GAPS,
         "sent_to_broker": False,
     }
