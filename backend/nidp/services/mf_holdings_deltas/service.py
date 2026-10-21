@@ -57,7 +57,20 @@ SELECT count(*) FROM nidp.mf_holdings_monthly
 # FULL OUTER JOIN so a position present in the previous month but gone from the current one
 # (a possible exit) produces a row too, not just the survivors.
 _DELTA_SQL = """
-WITH cur AS (
+WITH
+-- When each scheme's disclosure for a given month became knowable. published_at where the
+-- source's Last-Modified was credible (migration 171), else the time we observed the file.
+-- Taken as the MAX across the scheme's rows: the whole file is knowable only once all of it is.
+scheme_known AS (
+    SELECT scheme_code, as_of_month,
+           max(coalesce(published_at, source_observed_at))  AS known_from,
+           -- 'published' only if every row backing this scheme-month had a real publication date.
+           CASE WHEN count(*) = count(published_at) THEN 'published' ELSE 'observed' END
+               AS known_basis
+      FROM nidp.mf_holdings_monthly
+     GROUP BY scheme_code, as_of_month
+),
+cur AS (
     SELECT scheme_code, security_isin,
            max(security_name)      AS security_name,
            sum(quantity)           AS shares,
@@ -102,19 +115,31 @@ j AS (
            prv.source_url        AS prev_url,
            cur.source_url        AS cur_url,
            -- Was the scheme observed in its comparison month at all?
-           (pm.prev_month IS NOT NULL)                    AS prev_seen
+           (pm.prev_month IS NOT NULL)                    AS prev_seen,
+           -- A change is knowable only once BOTH compared months are published, so take the later.
+           greatest(kc.known_from, kp.known_from)         AS known_from,
+           CASE WHEN kc.known_basis = 'published'
+                 AND coalesce(kp.known_basis, 'published') = 'published'
+                THEN 'published' ELSE 'observed' END      AS known_basis
       FROM cur
       FULL OUTER JOIN prv
         ON prv.scheme_code = cur.scheme_code AND prv.security_isin = cur.security_isin
       LEFT JOIN prev_month pm
         ON pm.scheme_code = coalesce(cur.scheme_code, prv.scheme_code)
+      LEFT JOIN scheme_known kc
+        ON kc.scheme_code = coalesce(cur.scheme_code, prv.scheme_code)
+       AND kc.as_of_month = $1::date
+      LEFT JOIN scheme_known kp
+        ON kp.scheme_code = coalesce(cur.scheme_code, prv.scheme_code)
+       AND kp.as_of_month = pm.prev_month
 )
 INSERT INTO nidp.mf_holdings_deltas (
     scheme_code, security_isin, current_month, previous_month, security_name,
     previous_shares, current_shares, shares_delta, shares_pct_change,
     previous_weight_pct, current_weight_pct, weight_delta_pp,
     previous_market_value_inr, current_market_value_inr,
-    change_class, validation_status, source_references, computed_at)
+    change_class, validation_status, source_references,
+    known_from, known_from_basis, computed_at)
 SELECT
     j.scheme_code,
     j.security_isin,
@@ -143,6 +168,8 @@ SELECT
     END,
     CASE WHEN j.prev_seen THEN 'validated' ELSE 'coverage_gap' END,
     ARRAY(SELECT u FROM unnest(ARRAY[j.cur_url, j.prev_url]) AS u WHERE u IS NOT NULL),
+    j.known_from,
+    j.known_basis,
     now()
 FROM j
 ON CONFLICT (scheme_code, security_isin, current_month) DO UPDATE SET
@@ -160,6 +187,8 @@ ON CONFLICT (scheme_code, security_isin, current_month) DO UPDATE SET
     change_class              = EXCLUDED.change_class,
     validation_status         = EXCLUDED.validation_status,
     source_references         = EXCLUDED.source_references,
+    known_from                = EXCLUDED.known_from,
+    known_from_basis          = EXCLUDED.known_from_basis,
     computed_at               = now()
 """
 

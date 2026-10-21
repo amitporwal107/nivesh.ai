@@ -20,7 +20,7 @@ from typing import Optional
 
 import aiohttp
 
-from . import coverage
+from . import coverage, publication
 from .amc_dispatch import ADAPTERS
 from .writer import upsert_holdings
 
@@ -140,9 +140,25 @@ async def ingest_amc(
     observed_at = datetime.now(timezone.utc)
     payload_sha = hashlib.sha256(
         json.dumps(rows, default=str, sort_keys=True).encode("utf-8")).hexdigest()
+    # The source file's Last-Modified is the only publication signal these AMCs expose. It is an
+    # upper bound, and for ~24% of AMC-months it is a re-upload or a CDN cache touch, so
+    # publication.published_at_from only promotes it where it is credible for this month.
+    published_at = last_modified = None
+    lm_class = publication.CLASS_ABSENT
+    if source_url:
+        raw_lm = await publication.fetch_last_modified(http, source_url)
+        published_at, last_modified, lm_class = publication.published_at_from(
+            raw_lm, as_of_month, observed_at)
+        logger.info("mf_holdings[%s %s]: last_modified=%s class=%s published_at=%s",
+                    amc_id, as_of_month, last_modified, lm_class, published_at)
+
     for r in rows:
         r["source_observed_at"] = observed_at
         r["source_payload_sha256"] = payload_sha
+        r["published_at"] = published_at
+        r["source_last_modified"] = last_modified
+        r["publication_provenance"] = (
+            "published_at_captured" if published_at else "observed_only")
 
     wrong = _url_contradicts_month(source_url, as_of_month)
     if wrong:

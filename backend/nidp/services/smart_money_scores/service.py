@@ -74,6 +74,12 @@ WITH months AS (
     SELECT DISTINCT current_month
       FROM nidp.mf_holdings_deltas
      WHERE validation_status = 'validated' AND current_month <= $2::date
+       -- Point-in-time mode: a month counts only once its comparison was actually knowable, and
+       -- only when both sides carry a real publication date (migration 172). Without this a
+       -- historical scoring date reads changes weeks before anyone could have seen them.
+       AND (NOT $6::bool OR (known_from IS NOT NULL
+                             AND known_from::date <= $1::date
+                             AND known_from_basis = 'published'))
      ORDER BY current_month DESC
      LIMIT $3
 ),
@@ -94,6 +100,9 @@ per_month AS (
       JOIN months m ON m.current_month = d.current_month
       LEFT JOIN nidp.mf_scheme_master sm ON sm.scheme_code = d.scheme_code
      WHERE d.validation_status = 'validated'
+       AND (NOT $6::bool OR (d.known_from IS NOT NULL
+                             AND d.known_from::date <= $1::date
+                             AND d.known_from_basis = 'published'))
      GROUP BY d.security_isin, d.current_month
 ),
 agg AS (
@@ -196,7 +205,7 @@ INSERT INTO nidp.smart_money_scores_daily (
     net_shares_delta, net_shares_pct, weight_delta_pp, months_observed, months_accumulating,
     single_amc_signal, components, proxy_delivery_pct_avg_20, proxy_vol_z20,
     data_confidence, coverage_pct, latest_reporting_date, freshness_status, lookback_months,
-    source_references, config_version, computed_at)
+    source_references, config_version, point_in_time, computed_at)
 SELECT
     $1::date,
     s.symbol,
@@ -240,11 +249,12 @@ SELECT
     $3,
     ARRAY['nidp.mf_holdings_deltas'],
     $5,
+    $6::bool,
     now()
 FROM scored s
 LEFT JOIN nidp.stock_features_daily f
        ON f.symbol = s.symbol AND f.as_of_date = $1::date
-ON CONFLICT (as_of_date, symbol) DO UPDATE SET
+ON CONFLICT (as_of_date, symbol, point_in_time) DO UPDATE SET
     security_isin        = EXCLUDED.security_isin,
     accumulation_score   = EXCLUDED.accumulation_score,
     distribution_score   = EXCLUDED.distribution_score,
@@ -279,6 +289,7 @@ async def run(
     *,
     lookback: int = DEFAULT_LOOKBACK,
     as_of_month: Optional[date] = None,
+    point_in_time: bool = False,
 ) -> dict:
     """Compute the component for target_date (default: the newest scored date).
 
@@ -307,7 +318,7 @@ async def run(
         async with pool.acquire() as conn:
             tag = await conn.execute(
                 _UPSERT_SQL, target_date, cap, lookback,
-                json.dumps(_WEIGHTS), CONFIG_VERSION, timeout=600)
+                json.dumps(_WEIGHTS), CONFIG_VERSION, point_in_time, timeout=600)
             written = int(tag.rsplit(" ", 1)[-1]) if tag.startswith("INSERT") else 0
 
             universe = await conn.fetchval(
@@ -315,17 +326,21 @@ async def run(
                 target_date)
             conf = await conn.fetch(
                 """SELECT data_confidence, count(*) n FROM nidp.smart_money_scores_daily
-                    WHERE as_of_date = $1 GROUP BY 1 ORDER BY 2 DESC""", target_date)
+                    WHERE as_of_date = $1 AND point_in_time = $2
+                    GROUP BY 1 ORDER BY 2 DESC""", target_date, point_in_time)
 
         by_conf = {r["data_confidence"]: r["n"] for r in conf}
-        logger.info("%s %s: wrote %d rows (universe %s, lookback %d months); confidence=%s",
-                    SERVICE_NAME, target_date, written, universe, lookback, by_conf)
+        logger.info("%s %s: wrote %d rows (universe %s, lookback %d months, pit=%s); "
+                    "confidence=%s",
+                    SERVICE_NAME, target_date, written, universe, lookback,
+                    point_in_time, by_conf)
 
         run_.rows_fetched = written
         run_.rows_inserted = written
         run_.metadata.update({
             "universe": universe, "scored": written, "lookback_months": lookback,
             "by_confidence": by_conf, "config_version": CONFIG_VERSION,
+            "point_in_time": point_in_time,
             # Recorded so the gap between universe and scored is never mistaken for zero signal.
             "unscored_no_disclosed_evidence": (universe or 0) - written,
         })
@@ -351,6 +366,11 @@ def main() -> None:
                          "reporting-date-based, NOT point-in-time: the rows were observed in "
                          "October 2026, so a historical run still sees them earlier than anyone "
                          "could have. Treat the series as a stability check, not a backtest.")
+    ap.add_argument("--point-in-time", action="store_true",
+                    help="use only changes that were KNOWABLE by the scoring date, and only where "
+                         "both compared months carry a real publication timestamp. This is what "
+                         "makes a historical series valid for a backtest; without it the series "
+                         "is reporting-date-based and sees the future.")
     args = ap.parse_args()
     setup_logging(service=SERVICE_NAME)
 
@@ -368,7 +388,8 @@ def main() -> None:
 
     async def _go() -> None:
         try:
-            await run(d, lookback=args.lookback, as_of_month=cap)
+            await run(d, lookback=args.lookback, as_of_month=cap,
+                      point_in_time=args.point_in_time)
         finally:
             await close_pool()
 
