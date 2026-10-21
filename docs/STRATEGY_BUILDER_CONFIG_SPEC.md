@@ -1,6 +1,6 @@
 # Nivesh Strategy Builder — Config Specification & Implementation Guide
 
-> **Status:** Requirement captured 2026-10-21 (author: @amit; modelled on Tradomate's `TradomateConfig`). Not yet implemented.
+> **Status:** Requirement captured 2026-10-21 (author: @amit; modelled on Tradomate's `TradomateConfig`). `NiveshConfig` itself is implemented in `backend/services/ai_trader/config.py` (branch `feat/ai-trader-phases-2-5`); the bar engine, `bot_config` table and the three UI screens are not.
 > **Related:** [AI_TRADER_BUSINESS_REQUIREMENT.md](AI_TRADER_BUSINESS_REQUIREMENT.md) (the AI trader writes and runs strategies through this builder, see its §10).
 > **Design reference:** a 3-screen interactive mockup ("Strategy Builder Config.html", supplied by the product owner) covering Bot details, Code and Backtests. Summarised in §8 below. The HTML bundle itself is not stored in the repo.
 
@@ -183,7 +183,25 @@ Three screens inside a "Strategies › EMA Crossover" shell with tabs Bot detail
 2. **Code** — `strategy.py` editor, `config.` autocomplete showing type + source tag + doc, wavy-underline lint on unset key `config.quantity` with a quick-fix, Problems panel, live "Config hints" (read-only / writable / custom keys).
 3. **Backtests** — run list; each run stores its frozen config; states: Completed (net return, drawdown, trades, commission), Halted (`INSUFFICIENT_CAPITAL` with bar/date, links to the line and Bot details), Didn't start (`ConfigFrozenError`, no config frozen); equity curve, engine events with reason codes, and a "Bot details changed since this run" drift panel with *Re-run as frozen* / *New run*.
 
-## 9. Open questions (carried from the spec)
+## 9. Answers taken 2026-10-21 (ASSUMPTIONS, not owner-confirmed)
+
+Taken so Phases 2 to 5 could be built; each is one constant so it can be changed in one place. The product owner has
+not confirmed them. They are recorded as B2 in [prd/AI_TRADER_PHASES_2_5.prd.md](prd/AI_TRADER_PHASES_2_5.prd.md).
+
+1. **Settable in code?** No. Only `initial_capital` is code-writable, as in Tradomate. The other built-ins come from
+   Bot details and raise `ConfigFrozenError` on a write. Implemented in `backend/services/ai_trader/config.py`
+   (`CODE_WRITABLE = {"initial_capital"}`).
+2. **Defaults for an AI strategy:** `commission_pct = 0.05` (percent per side), `pyramiding = 0`,
+   `short_margin_pct = 100.0`, `initial_capital = 1,000,000`. In `config.AI_DEFAULTS`.
+3. **Pyramiding 0** means one entry per direction. A further same-direction entry is refused with
+   `PYRAMIDING_LIMIT`; the run continues.
+4. **Indian charge structure:** not in the bar engine yet. The DSL backtester has its own per-side cost model, so
+   `commission_pct` is applied there, and the dated Indian charge stack (`research/costs/engine.py`) is used by the
+   Phase 1 pattern validation, where the exact paisa matters. Revisit when a bar-level engine exists.
+5. **`cross_over` argument order:** still open, and not needed yet. The AI writes JSON DSL strategies, which have no
+   `cross_over` call. This is only a question for the Python-sandbox path, which was not built.
+
+## 9b. Open questions (still unanswered)
 1. Should `commission_pct`, `pyramiding`, `short_margin_pct` also be settable in code, or UI-only (as in Tradomate)?
 2. Defaults for commission, pyramiding, short margin (Tradomate publishes none).
 3. Does pyramiding 0 mean "one entry only" or "pyramiding off, unlimited re-entries after close"? This doc assumes one entry per direction.
