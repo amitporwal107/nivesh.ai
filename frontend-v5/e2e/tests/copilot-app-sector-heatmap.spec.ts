@@ -408,13 +408,16 @@ test.describe("Sector heatmap — entry points", () => {
     await expect(page.getByTestId("hm-verdict")).toBeVisible();
   });
 
-  test("it is not a rail item in either mode", async ({ page }) => {
+  test("it is a Trader rail item named Sector rotation and opens the heatmap; Investor mode does not list it", async ({ page }) => {
     await open(page, { url: `${APP}/trader/desk` });
-    await expect(page.getByTestId("copilot-rail")).toContainText("Screener");
-    await expect(page.getByTestId("copilot-rail")).not.toContainText(/heatmap/i);
+    const rail = page.getByTestId("copilot-rail");
+    await expect(rail).toContainText("Screener");
+    await expect(rail).not.toContainText(/Sector rotation/);
     await page.getByTestId("mode-pill").click();
-    await expect(page.getByTestId("copilot-rail")).toContainText("Smart trading desk");
-    await expect(page.getByTestId("copilot-rail")).not.toContainText(/heatmap/i);
+    await expect(rail).toContainText("Smart trading desk");
+    await rail.getByRole("button", { name: "Sector rotation" }).click();
+    await expect(page).toHaveURL(/\/app\/tool\/sector-heatmap$/);
+    await expect(page.getByTestId("hm-verdict")).toBeVisible();
   });
 });
 
