@@ -43,6 +43,13 @@ def _age(ts: Any, now: datetime) -> Optional[float]:
     return round((now - d).total_seconds(), 1) if d else None
 
 
+def _cadence(status: Optional[dict]) -> int:
+    try:
+        return int((status or {}).get("cadence_seconds") or cfg.cadence_seconds())
+    except (TypeError, ValueError):
+        return cfg.cadence_seconds()
+
+
 def mode_of(status: Optional[dict], age: Optional[float]) -> str:
     """live | delayed | closed | expired | not_connected | disabled -- what the shell's chip shows."""
     if not status:
@@ -51,7 +58,7 @@ def mode_of(status: Optional[dict], age: Optional[float]) -> str:
     if st in ("expired", "not_connected"):
         return st
     if session == "open":
-        if st == "live" and age is not None and age <= cfg.STALE_AFTER_SECONDS:
+        if st == "live" and age is not None and age <= cfg.stale_after_seconds(_cadence(status)):
             return "live"
         return "delayed"
     return "closed"
@@ -66,11 +73,11 @@ def build_payload(snapshot: Optional[dict], status: Optional[dict], wanted: Opti
     quotes = {s: {k: v for k, v in by_sym[s].items() if k != "symbol"} for s in syms if s in by_sym}
     stale = snapshot is None or mode in ("delayed", "expired", "not_connected", "disabled")
     return {"as_of": snap.get("as_of"), "data_at": snap.get("data_at"), "age_seconds": data_age, "stale": stale,
-            "stale_after_seconds": cfg.STALE_AFTER_SECONDS, "mode": mode, "session": (status or {}).get("session") or snap.get("session"),
+            "stale_after_seconds": cfg.stale_after_seconds(_cadence(status)), "cadence_seconds": _cadence(status), "mode": mode, "session": (status or {}).get("session") or snap.get("session"),
             "source": snap.get("source"), "final": bool(snap.get("final")), "count": len(quotes),
             "missing": [s for s in syms if s not in by_sym] if wanted is not None else [], "quotes": quotes,
             "note": "Prices are null/absent when Kite gave none. `stale` is true when the market is open and the newest data is older than "
-                    f"{cfg.STALE_AFTER_SECONDS}s, or the feed is not connected.", "read_only": True}
+                    f"{cfg.stale_after_seconds(_cadence(status)):g}s (2.5 cadences), or the feed is not connected.", "read_only": True}
 
 
 def _symbols(raw: str) -> List[str]:

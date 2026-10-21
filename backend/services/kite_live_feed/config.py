@@ -18,8 +18,8 @@ IST = timezone(timedelta(hours=5, minutes=30))
 ENABLED_ENV = "KITE_LIVE_FEED_ENABLED"
 CADENCE_ENV = "KITE_LIVE_FEED_CADENCE_SECONDS"
 FORCE_REST_ENV = "KITE_LIVE_FEED_FORCE_REST"
-CADENCE_DEFAULT, CADENCE_MIN, CADENCE_MAX = 5, 2, 30
-STALE_AFTER_SECONDS = 15
+CADENCE_DEFAULT, CADENCE_MIN, CADENCE_MAX = 30, 2, 120
+STALE_FACTOR = 2.5                      # data older than this many cadences is stale
 MAX_INSTRUMENTS = 3000                  # Kite's per-connection WebSocket limit
 REST_BATCH = 500                        # Kite's per-call limit for quote()
 REST_SPACING_SECONDS = 1.1              # quote() is limited to 1 request/second
@@ -32,13 +32,18 @@ def enabled(env: Optional[Dict[str, str]] = None) -> bool:
 
 
 def cadence_seconds(env: Optional[Dict[str, str]] = None) -> int:
-    """KITE_LIVE_FEED_CADENCE_SECONDS clamped to 2-30, default 5 (an unreadable value is the default)."""
+    """KITE_LIVE_FEED_CADENCE_SECONDS clamped to 2-120, default 30 (an unreadable value is the default)."""
     raw = (env if env is not None else os.environ).get(CADENCE_ENV)
     try:
         v = int(float(str(raw).strip()))
     except (TypeError, ValueError):
         return CADENCE_DEFAULT
     return max(CADENCE_MIN, min(CADENCE_MAX, v))
+
+
+def stale_after_seconds(cadence: float) -> float:
+    """Stale = the newest data is older than 2.5 cadences (75 s at the 30 s default)."""
+    return STALE_FACTOR * cadence
 
 
 def force_rest(env: Optional[Dict[str, str]] = None) -> bool:

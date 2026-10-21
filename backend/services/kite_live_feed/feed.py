@@ -3,7 +3,7 @@
 One asyncio task per backend process; ONE process at a time does the work (a Mongo lease, `kite_live_lease`, renewed
 every pass). The leader keeps a quote cache fed by Kite's WebSocket (KiteTicker, 'quote' mode) and, when the socket is
 unavailable or silent, by REST `quote()` in batches of at most 500 with at least 1.1 s between calls. Every cadence
-(KITE_LIVE_FEED_CADENCE_SECONDS, 2-30, default 5) it publishes one consolidated snapshot to Mongo
+(KITE_LIVE_FEED_CADENCE_SECONDS, 2-120, default 30) it publishes one consolidated snapshot to Mongo
 (`kite_live_snapshot`, TTL 72 h) and to this process. Followers and the API read the snapshot; they never call Kite.
 
 It runs the market only during the NSE session (holidays from nidp.nse_holidays through the data platform), plus ONE
@@ -113,6 +113,7 @@ class LiveFeed:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.sleep = sleep
         self.cadence = cadence if cadence is not None else cfg.cadence_seconds()
+        self._lease_ttl = max(LEASE_TTL_SECONDS, int(2 * self.cadence + 15))     # must outlive the gap between passes
         self.token_getter, self.key_getter = token_getter, key_getter
         self.kite_factory, self.ticker_factory = kite_factory, ticker_factory
         self.load_holidays, self.load_nifty500 = load_holidays, load_nifty500
@@ -349,7 +350,7 @@ class LiveFeed:
     async def _tick_inner(self) -> Dict[str, Any]:
         now = self.clock().astimezone(timezone.utc)
         stats: Dict[str, Any] = {"leader": False}
-        if not await try_acquire_lease(self.db[COL_LEASE], LEASE_NAME, self.holder, now, LEASE_TTL_SECONDS):
+        if not await try_acquire_lease(self.db[COL_LEASE], LEASE_NAME, self.holder, now, self._lease_ttl):
             self.leader = False
             self._stop_ticker()
             return stats

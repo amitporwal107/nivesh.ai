@@ -6,10 +6,10 @@
  *   const meta = useLiveMeta();                                         // mode / age for the shell chip
  *
  * Source: the backend's platform-level Kite feed (read-only). GET /api/live/stream is a server-sent-events stream that
- * pushes a `snapshot` event every cadence (5 s). There is exactly ONE connection for every screen: components subscribe to
+ * pushes a `snapshot` event every server cadence (30 s by default). There is exactly ONE connection for every screen: components subscribe to
  * symbols, the store dedupes them (reference-counted) and asks for their union. If the stream cannot be used (the browser
  * has no EventSource, the session is a bearer-token WebView, the proxy buffers it, or it keeps failing) the store falls back
- * to polling GET /api/live/quotes every 5 s. It pauses while the tab is hidden, and while the market is closed or the
+ * to polling GET /api/live/quotes at the server's cadence. It pauses while the tab is hidden, and while the market is closed or the
  * feed is not connected it only checks the status once a minute. Nothing here ever writes anything.
  *
  * A quote the feed did not have is simply absent: a price is a number or null, never 0.
@@ -43,13 +43,15 @@ export interface LiveMeta {
   /** Seconds between the newest data and the server's answer (server clock). */
   ageSeconds: number | null;
   stale: boolean;
+  /** The server's publish interval in seconds; polling follows it. */
+  cadenceSeconds: number;
   final: boolean;
   /** performance.now()-style browser time of the last answer, for "updated Ns ago". */
   receivedAt: number | null;
   transport: "sse" | "poll" | "idle";
 }
 
-const CADENCE_MS = 5_000;
+const DEFAULT_CADENCE_S = 30;       // until the server says otherwise (its `cadence_seconds`, KITE_LIVE_FEED_CADENCE_SECONDS)
 const IDLE_MS = 60_000;
 const SSE_MAX_SYMBOLS = 300;
 const SSE_FAILS_BEFORE_POLL = 2;
@@ -63,7 +65,7 @@ const norm = (s: string) => {
   return ALIASES[t] ?? t;
 };
 
-const EMPTY_META: LiveMeta = { mode: "unknown", source: null, session: null, asOf: null, ageSeconds: null, stale: true, final: false, receivedAt: null, transport: "idle" };
+const EMPTY_META: LiveMeta = { mode: "unknown", source: null, session: null, asOf: null, ageSeconds: null, stale: true, cadenceSeconds: DEFAULT_CADENCE_S, final: false, receivedAt: null, transport: "idle" };
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
@@ -89,7 +91,7 @@ export function parsePayload(body: unknown, receivedAt: number): { quotes: Recor
   const m = MODES.find((x) => x === b.mode) ?? "unknown";
   return {
     quotes,
-    meta: { mode: m, source: str(b.source), session: str(b.session), asOf: str(b.as_of), ageSeconds: num(b.age_seconds), stale: b.stale !== false, final: b.final === true, receivedAt, transport: "idle" },
+    meta: { mode: m, source: str(b.source), session: str(b.session), asOf: str(b.as_of), ageSeconds: num(b.age_seconds), stale: b.stale !== false, cadenceSeconds: Math.min(120, Math.max(2, num(b.cadence_seconds) ?? DEFAULT_CADENCE_S)), final: b.final === true, receivedAt, transport: "idle" },
   };
 }
 
@@ -210,7 +212,7 @@ class LiveStore {
     }
     if (!this.refs.size || ctl.signal.aborted) return;
     const idle = this.meta.mode === "closed" || this.meta.mode === "not_connected" || this.meta.mode === "expired" || this.meta.mode === "disabled";
-    this.timer = setTimeout(() => this.connect(), idle ? IDLE_MS : CADENCE_MS);
+    this.timer = setTimeout(() => this.connect(), idle ? IDLE_MS : Math.max(5_000, this.meta.cadenceSeconds * 1000));
   }
 
   private markDown() {
@@ -224,7 +226,7 @@ class LiveStore {
     this.quotes = { ...this.quotes, ...parsed.quotes };
     this.meta = { ...parsed.meta, transport };
     this.emit();
-    // The market closed or the feed dropped: stop the 5 s stream, check the status once a minute.
+    // The market closed or the feed dropped: stop the stream, check the status once a minute.
     if (transport === "sse" && (["closed", "not_connected", "expired", "disabled"] as LiveMode[]).includes(parsed.meta.mode)) {
       this.closeStream();
       this.timer = setTimeout(() => this.connect(), IDLE_MS);
