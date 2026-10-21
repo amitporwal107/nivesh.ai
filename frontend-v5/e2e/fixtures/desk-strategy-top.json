@@ -115,7 +115,8 @@
       "regime": "2026-10-19"
      },
      "price_source": "NSE F&O bhavcopy close, 2026-10-21",
-     "rank": 1
+     "rank": 1,
+     "reference_price": 54976.9
     },
     {
      "underlying": "NIFTY",
@@ -207,7 +208,8 @@
       "regime": "2026-10-19"
      },
      "price_source": "NSE F&O bhavcopy close, 2026-10-21",
-     "rank": 2
+     "rank": 2,
+     "reference_price": 22811.35
     }
    ],
    "considered": 10,
@@ -330,7 +332,8 @@
       "regime": "2026-10-19"
      },
      "price_source": "NSE F&O bhavcopy close, 2026-10-21",
-     "rank": 1
+     "rank": 1,
+     "reference_price": 2574.99
     },
     {
      "underlying": "ICICIBANK",
@@ -422,7 +425,8 @@
       "regime": "2026-10-19"
      },
      "price_source": "NSE F&O bhavcopy close, 2026-10-21",
-     "rank": 2
+     "rank": 2,
+     "reference_price": 1385.0
     }
    ],
    "considered": 20,

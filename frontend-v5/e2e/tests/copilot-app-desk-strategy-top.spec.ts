@@ -21,6 +21,21 @@ const TOP = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "d
 const DESK = "/v5/app/trader/desk";
 const URL = `${DESK}?tab=more&view=strategy&mode=top`;
 
+/** A minimal valid payoff answer: enough for the chart to render, shaped like the real route's. */
+const PAYOFF = {
+  valid: true, problems: [], warnings: [], calculation_version: "payoff-v1",
+  underlying: "BANKNIFTY", reference_price: 55000, as_of: "2026-10-21",
+  expiry: {
+    grid: [54000, 54500, 55000, 55500, 56000], gross: [900, 400, -100, -100, -100],
+    net: [880, 380, -120, -120, -120], per_leg: [], breakevens: [54707.7],
+    max_profit: 18231, max_loss: -8769, profit_unbounded: false, loss_unbounded: false,
+    range_max_profit: 18231, range_max_loss: -8769, net_premium: -8769, scenarios: [],
+    extremes_basis: "gross, all prices",
+  },
+  pre_expiry: null, costs: null, margin: null, margin_reason: "none", capital_at_risk: 8858,
+  capital_at_risk_basis: "worst net loss", loss_can_exceed_margin: false, caveats: [], sent_to_broker: false,
+};
+
 async function openTop(page: Page, body: unknown = TOP) {
   await mockApi(page, "populated");
   await page.route("**/api/desk/strategy/top", (route) =>
@@ -142,5 +157,85 @@ test.describe("Strategy Builder — Top by regime", () => {
       route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "upstream" }) }));
     await page.goto(URL);
     await expect(page.getByRole("alert")).toBeVisible();
+  });
+});
+
+test.describe("Strategy Builder — Top by regime: payoff and paper trade", () => {
+  test("the payoff chart is not calculated until it is opened", async ({ page }) => {
+    let calls = 0;
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/desk/strategy/payoff", (r) => { calls += 1; return r.fulfill({ status: 200, contentType: "application/json", body: "{}" }); });
+    await page.goto(URL);
+    await expect(page.getByTestId("top-by-regime")).toBeVisible();
+    await page.waitForTimeout(600);
+    // Five cards must not fire five calculations nobody asked for.
+    expect(calls).toBe(0);
+  });
+
+  test("opening the payoff sends the idea's own legs and renders the chart", async ({ page }) => {
+    let body: any = null;
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/desk/strategy/payoff", async (r) => {
+      body = JSON.parse(r.request().postData() || "{}");
+      return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(PAYOFF) });
+    });
+    await page.goto(URL);
+    const card = page.getByTestId("top-class-index_options").locator("article").first();
+    // usePayoff debounces by 250ms, so wait for the request itself rather than racing it.
+    const req = page.waitForRequest((r) => r.url().includes("/api/desk/strategy/payoff"));
+    await card.getByTestId("idea-payoff-toggle").click();
+    await req;
+    await expect(card.getByTestId("idea-payoff")).toBeVisible();
+    const idea = TOP.classes.index_options.ideas[0];
+    expect(body.underlying).toBe(idea.underlying);
+    expect(body.reference_price).toBe(idea.reference_price);
+    expect(body.legs.length).toBe(idea.legs.length);
+    // The legs are the route's own, including the strike it priced.
+    expect(body.legs[0].strike).toBe(idea.legs[0].strike);
+  });
+
+  test("paper trade posts a strategy body the desk route accepts", async ({ page }) => {
+    let body: any = null;
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/desk/paper-trades", async (r) => {
+      body = JSON.parse(r.request().postData() || "{}");
+      return r.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ trade: { id: "t1" } }) });
+    });
+    await page.goto(URL);
+    const card = page.getByTestId("top-class-index_options").locator("article").first();
+    await card.getByTestId("idea-paper-trade").click();
+    await expect(card.getByTestId("idea-paper-trade")).toContainText("Added to paper trades");
+
+    const idea = TOP.classes.index_options.ideas[0];
+    expect(body.kind).toBe("strategy");
+    expect(body.underlying).toBe(idea.underlying);
+    expect(body.family).toBe(idea.structure);
+    expect(["bullish", "bearish", "neutral"]).toContain(body.direction);
+    // `quantity` on an idea leg is `lots` on the route, and an unknown leg field is REFUSED there.
+    expect(body.legs[0].lots).toBe(idea.legs[0].quantity);
+    expect(body.legs[0]).not.toHaveProperty("iv_pct");
+    expect(body.legs[0]).not.toHaveProperty("quantity");
+    // No stop or target is invented: the engine produced neither.
+    expect(body).not.toHaveProperty("stop_underlying");
+    expect(body).not.toHaveProperty("target_underlying");
+  });
+
+  test("a refused paper trade says so and does not claim success", async ({ page }) => {
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/desk/paper-trades", (r) =>
+      r.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "open_trade_limit" }) }));
+    await page.goto(URL);
+    const card = page.getByTestId("top-class-index_options").locator("article").first();
+    await card.getByTestId("idea-paper-trade").click();
+    await expect(card.getByTestId("idea-paper-error")).toBeVisible();
+    await expect(card.getByTestId("idea-paper-trade")).not.toContainText("Added to paper trades");
   });
 });

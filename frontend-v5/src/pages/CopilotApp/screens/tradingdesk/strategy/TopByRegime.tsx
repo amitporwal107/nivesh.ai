@@ -20,9 +20,12 @@
  * a broker.
  */
 import { useMemo, useState } from "react";
-import { EmptyBlock, ErrorBlock, LoadingBlock, Section, fmtINR, fmtNum, fmtPct } from "../../../components/ui";
+import { EmptyBlock, ErrorBlock, LoadingBlock, Section, errorSentence, fmtINR, fmtNum, fmtPct } from "../../../components/ui";
 import { fmtDay } from "../../trading/parts";
 import { DASH, noteStyle } from "./plan-format";
+import { StrategyGraphs } from "./StrategyGraphs";
+import { payoffProblem, usePayoff } from "./usePayoff";
+import { paperTradeBodyFor, payoffRequestFor, usePaperTradeIdea } from "./top-actions";
 import { TOP_LIMIT, useStrategyTop, type TopRun } from "./top-data";
 import type { FitFactor, OptionClass, OptionIdea, Regime } from "./top-contract";
 
@@ -57,6 +60,68 @@ function Fig({ k, v, title }: { k: string; v: string; title?: string }) {
     </div>
   );
 }
+
+/** The two things a ranked idea can do: show its payoff, and be recorded as a paper trade.
+ *
+ * Both go through the desk's existing routes — POST /api/desk/strategy/payoff and
+ * POST /api/desk/paper-trades — so an idea opened here and the same structure built in "One stock"
+ * cannot price or record differently. The payoff is only requested once the chart is opened: five
+ * cards would otherwise fire five calculations nobody asked for. */
+function IdeaActions({ idea }: { idea: OptionIdea }) {
+  const [openChart, setOpenChart] = useState(false);
+  const request = useMemo(() => payoffRequestFor(idea), [idea]);
+  const pay = usePayoff(openChart ? request : null);
+  const paper = usePaperTradeIdea();
+  const body = useMemo(() => paperTradeBodyFor(idea), [idea]);
+  const asOf = idea.data_as_of?.chain ?? null;
+
+  return (
+    <div className="flex min-w-0 flex-col" style={{ gap: 10 }}>
+      <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
+        <button
+          type="button" className="cp-chip" data-testid="idea-payoff-toggle"
+          aria-expanded={openChart} disabled={!request}
+          title={request ? undefined : "This idea has no priced legs to plot."}
+          onClick={() => setOpenChart((v) => !v)}
+        >
+          {openChart ? "Hide payoff" : "Payoff chart"}
+        </button>
+        <button
+          type="button" className="cp-chip" data-testid="idea-paper-trade"
+          disabled={!body || paper.isPending || paper.isSuccess}
+          title={body ? undefined : "This idea cannot be recorded as a paper trade."}
+          onClick={() => body && paper.mutate(body)}
+        >
+          {paper.isSuccess ? "Added to paper trades" : paper.isPending ? "Adding…" : "Paper trade"}
+        </button>
+        {paper.isError ? (
+          <span role="alert" data-testid="idea-paper-error" style={{ ...noteStyle, color: "var(--cp-danger)" }}>
+            {errorSentence(paper.error)}
+          </span>
+        ) : null}
+        {paper.isSuccess ? (
+          <span style={noteStyle}>Recorded at the end-of-day prices shown. Nothing was sent to a broker.</span>
+        ) : null}
+      </div>
+
+      {openChart && request ? (
+        <div data-testid="idea-payoff">
+          <StrategyGraphs
+            base={request}
+            response={pay.data ?? undefined}
+            errorText={pay.error ? payoffProblem(pay.error) : null}
+            pending={pay.isPending}
+            stale={pay.isStale}
+            dataDate={asOf}
+            dataMode="eod"
+            compact
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 
 function IdeaCard({ idea }: { idea: OptionIdea }) {
   const rr = idea.reward_risk;
@@ -102,6 +167,8 @@ function IdeaCard({ idea }: { idea: OptionIdea }) {
       ) : null}
 
       <Why items={idea.fit.because} />
+
+      <IdeaActions idea={idea} />
 
       <footer style={{ ...noteStyle, borderTop: "1px solid var(--cp-line)", paddingTop: 8 }}>
         {idea.price_source ?? "end-of-day prices"}
