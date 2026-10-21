@@ -44,6 +44,10 @@ NIDP_HOME=/opt/nidp-staging
 30 20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh rbi_yields
 # HELD (needs FRED_API_KEY in nidp.env):
 # 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh fred_macro
+# Macro releases for the desk Events calendar (FRED, Fed, MoSPI, RBI; needs FRED_API_KEY in nidp.env, set 2026-10-21).
+# Twice a day, every day: 02:30 IST picks up the US evening releases, 20:30 IST the Indian daytime ones. Idempotent upserts.
+30 2  * * *    nidp-staging  /opt/nidp-staging/run_service.sh macro_calendar
+30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh macro_calendar
 
 # ── Monthly ───────────────────────────────────────────────────────
 0  6  1 * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_calendar
@@ -51,6 +55,10 @@ NIDP_HOME=/opt/nidp-staging
 
 # ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+# NSE posts the F&O file after 19:30 (404 at 19:30 on 16 and 19 Oct 2026; present by 22:20). Retry
+# twice; the writer upserts on its key, so a run on an already-loaded day changes nothing.
+0  21 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+15 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
 30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials
 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_shareholding
 
@@ -85,7 +93,13 @@ NIDP_HOME=/opt/nidp-staging
 # Weekends too: companies file on Saturdays and Sundays (results season most of all — NSE lists
 # 482 filings for Sat 2026-08-08 and 199 for Sat 2026-10-10). With weekdays only, none were ingested.
 */30 9-23 * * 6,0  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_nse
-# HELD (api.bseindia.com returns 403 to this VM (needs BSE_PROXY_URL)):
+# HELD (api.bseindia.com returns 403 to this VM's cloud IP; needs a rotating proxy).
+# To enable: (1) add ONE line to /opt/nidp-staging/nidp.env (chmod 600, never in git or logs):
+#       BSE_PROXY_URL=http://USER:PASS@HOST:PORT      (http or https endpoint, rotates per request)
+#   (2) test it once by hand (see docs/DEVOPS_ENVIRONMENTS.md, "BSE_PROXY_URL"):
+#       sudo -u nidp-staging /opt/nidp-staging/run_service.sh corporate_announcements_bse
+#   (3) only if that run is green, un-comment the line below and reinstall this cron file.
+# Unset BSE_PROXY_URL = direct fetch, as before. The proxy is used for bseindia.com hosts only.
 # */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_bse
 
 # ── S4: event/impact classifier (every 30 min, all week) ──────────

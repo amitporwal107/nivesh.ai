@@ -1,6 +1,8 @@
 """Engineered per-stock features (SMA / RSI / MACD / ATR / Bollinger / volume z).
 
     GET  /v1/features/scan-snapshot   the opportunity scanner's one-row-per-stock snapshot (see _SNAPSHOT_SQL)
+    GET  /v1/features/reversal-snapshot   stocks near their 52-week low with adjusted bars, sector rotation, fundamentals
+                                          and announcements (see _REVERSAL_*; the app applies reversal_rules)
 """
 from __future__ import annotations
 
@@ -286,5 +288,209 @@ async def scan_snapshot() -> Dict[str, Any]:
                    "NSE security reference (nidp.security_reference_daily) · NSE event calendar (nidp.event_calendar) · "
                    "NSE index constituents (nidp.index_constituents, industry)"),
         "count": len(out),
+        "rows": out,
+    }
+
+
+# ── Reversal-candidate snapshot (Smart trading desk, reversal-rules.v1) ───────
+# Pre-filter only: stocks whose stored 52-week-low distance is within max_dist_pct (+ a margin) and whose 20-session
+# traded value clears the liquidity floor. The app re-computes the distance from the adjusted bars and applies every
+# rule; nothing here scores or ranks. Counts of what the pre-filter dropped are returned so no exclusion is silent.
+_REVERSAL_BARS = 260
+_REVERSAL_MARGIN_PCT = 3.0
+_REVERSAL_BENCH = "Nifty 500"
+_REVERSAL_CANDIDATES_SQL = """
+WITH d AS (SELECT MAX(as_of_date) AS d FROM nidp.stock_features_daily),
+f AS (
+    SELECT DISTINCT ON (symbol) * FROM nidp.stock_features_daily
+     WHERE as_of_date = (SELECT d FROM d) ORDER BY symbol, source
+),
+sess AS (
+    SELECT DISTINCT as_of_date FROM nidp.prices_eod
+     WHERE as_of_date <= (SELECT d FROM d) ORDER BY as_of_date DESC LIMIT 20
+),
+tv AS (
+    SELECT symbol, COUNT(*) AS n, COUNT(close_price * volume) AS valued,
+           AVG(close_price * volume) AS avg_tv
+      FROM (SELECT DISTINCT ON (symbol, as_of_date) symbol, as_of_date, close_price, volume
+              FROM nidp.prices_eod WHERE as_of_date IN (SELECT as_of_date FROM sess)
+             ORDER BY symbol, as_of_date, (series = 'EQ') DESC, (series = 'BE') DESC, series, source) x
+     GROUP BY symbol
+),
+ref AS (
+    SELECT r.* FROM nidp.security_reference_daily r
+     WHERE r.as_of_date = (SELECT MAX(as_of_date) FROM nidp.security_reference_daily
+                            WHERE as_of_date <= (SELECT d FROM d))
+),
+ind AS (
+    SELECT DISTINCT ON (symbol) symbol, industry FROM nidp.index_constituents
+     WHERE industry IS NOT NULL ORDER BY symbol, as_of_date DESC
+)
+SELECT f.symbol, f.as_of_date, f.sector, ind.industry, f.close, f.dist_52w_low_pct,
+       CASE WHEN tv.n = 20 AND tv.valued = 20 THEN ROUND((tv.avg_tv / 1e7)::numeric, 2) END AS traded_value_cr_20d,
+       f.roe_pct, f.debt_to_equity, f.interest_coverage AS interest_cover, f.promoter_pledged_pct, f.pe_ttm,
+       f.revenue_growth_yoy_pct, f.pat_growth_yoy_pct, f.profit_margin_pct,
+       ref.symbol IS NOT NULL AS has_reference, ref.series, ref.price_band_pct, ref.fno_eligible, ref.is_etf,
+       (SELECT MIN(e.event_date) FROM nidp.event_calendar e
+         WHERE e.symbol = f.symbol AND e.event_type = 'quarterly_results'
+           AND e.event_date >= f.as_of_date AND e.event_date <= f.as_of_date + 45) AS next_results_date
+  FROM f
+  LEFT JOIN tv ON tv.symbol = f.symbol
+  LEFT JOIN ref ON ref.symbol = f.symbol
+  LEFT JOIN ind ON ind.symbol = f.symbol
+ WHERE f.dist_52w_low_pct IS NOT NULL AND f.dist_52w_low_pct <= $1
+ ORDER BY f.symbol
+"""
+_REVERSAL_BARS_SQL = """
+SELECT symbol, as_of_date, adj_open, adj_high, adj_low, adj_close, adj_volume
+  FROM (SELECT DISTINCT ON (symbol, as_of_date) * FROM nidp.prices_eod_adjusted
+         WHERE symbol = ANY($1::text[]) AND as_of_date <= $2 ORDER BY symbol, as_of_date, source) a
+ WHERE as_of_date >= (SELECT MIN(as_of_date) FROM (SELECT DISTINCT as_of_date FROM nidp.prices_eod_adjusted
+                                                    WHERE as_of_date <= $2 ORDER BY as_of_date DESC LIMIT $3) z)
+ ORDER BY symbol, as_of_date
+"""
+_REVERSAL_INDEX_SQL = """
+SELECT as_of_date, close_price FROM nidp.index_eod
+ WHERE index_name = $1 AND as_of_date <= $2 ORDER BY as_of_date DESC LIMIT $3
+"""
+# Quarterly results of the candidates (consolidated, latest 5 quarters): year-on-year growth and operating margin
+# are derived in Python, so a missing quarter gives an unknown figure, never a zero.
+_REVERSAL_QUARTERS_SQL = """
+SELECT symbol, period_end, revenue_from_ops_cr, ebitda_cr, pat_cr, finance_costs_cr, pbt_cr, broadcast_at
+  FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY period_end DESC) AS rn
+          FROM nidp.nse_financials_quarterly
+         WHERE symbol = ANY($1::text[]) AND period_type = 'quarterly' AND consolidated
+           AND period_end <= $2) q
+ WHERE rn <= 5 ORDER BY symbol, period_end DESC
+"""
+_REVERSAL_CASHFLOW_SQL = """
+SELECT DISTINCT ON (symbol) symbol, period_end, cfo_cr FROM nidp.nse_financials_cashflow
+ WHERE symbol = ANY($1::text[]) AND period_end <= $2 ORDER BY symbol, period_end DESC
+"""
+_REVERSAL_ANN_SQL = """
+SELECT ticker_symbol AS symbol, filed_at, event_category, subject, impact_score, sentiment
+  FROM nidp.corporate_announcements
+ WHERE ticker_symbol = ANY($1::text[]) AND filed_at >= ($2::date - 30) AND filed_at < ($2::date + 1)
+   AND impact_score IS NOT NULL
+ ORDER BY ticker_symbol, filed_at DESC
+"""
+# Sector rotation: per industry (NSE classification) the median 20-session return of its stocks minus the benchmark's,
+# at the latest date and 10 sessions earlier, and the share of its stocks above their 50-day average.
+_REVERSAL_SECTOR_SQL = """
+WITH dts AS (SELECT DISTINCT as_of_date FROM nidp.stock_features_daily ORDER BY as_of_date DESC LIMIT 11),
+ind AS (SELECT DISTINCT ON (symbol) symbol, industry FROM nidp.index_constituents
+         WHERE industry IS NOT NULL ORDER BY symbol, as_of_date DESC),
+bx AS (
+    SELECT as_of_date, (close_price / LAG(close_price, 20) OVER (ORDER BY as_of_date) - 1) * 100 AS idx_ret20
+      FROM nidp.index_eod WHERE index_name = $1
+),
+per AS (
+    SELECT i.industry, f.as_of_date, COUNT(*) AS n,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY f.return_20d_pct) AS med_ret20,
+           100.0 * AVG(CASE WHEN f.close > f.sma50 THEN 1 ELSE 0 END) FILTER (WHERE f.sma50 IS NOT NULL) AS breadth50
+      FROM (SELECT DISTINCT ON (symbol, as_of_date) * FROM nidp.stock_features_daily
+             WHERE as_of_date IN (SELECT as_of_date FROM dts) ORDER BY symbol, as_of_date, source) f
+      JOIN ind i ON i.symbol = f.symbol
+     WHERE f.return_20d_pct IS NOT NULL
+     GROUP BY i.industry, f.as_of_date
+)
+SELECT p.industry, p.as_of_date, p.n, p.med_ret20, p.breadth50, bx.idx_ret20
+  FROM per p LEFT JOIN bx ON bx.as_of_date = p.as_of_date
+ ORDER BY p.industry, p.as_of_date DESC
+"""
+_SECTOR_MIN_STOCKS = 5
+
+
+def _num(v: Any) -> Optional[float]:
+    return None if v is None else float(v)
+
+
+def _yoy(rows: List[Dict[str, Any]], key: str) -> Optional[float]:
+    """Latest quarter against the same quarter a year earlier; None unless both exist and the base is positive."""
+    if not rows:
+        return None
+    latest = rows[0]
+    base = next((r for r in rows[1:] if 360 <= (latest["period_end"] - r["period_end"]).days <= 370), None)
+    a, b = _num(latest.get(key)), _num(base.get(key)) if base else None
+    if a is None or b is None or b <= 0:
+        return None
+    return round((a / b - 1.0) * 100.0, 2)
+
+
+def _sector_contexts(rows: List[Any]) -> Dict[str, Dict[str, Any]]:
+    by: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        by.setdefault(r["industry"], []).append(row_to_dict(r))
+    out: Dict[str, Dict[str, Any]] = {}
+    for ind, items in by.items():
+        items.sort(key=lambda x: x["as_of_date"], reverse=True)
+        now, prev = items[0], items[-1] if len(items) > 1 else None
+
+        def rs(it: Optional[Dict[str, Any]]) -> Optional[float]:
+            if not it or it["med_ret20"] is None or it["idx_ret20"] is None or it["n"] < _SECTOR_MIN_STOCKS:
+                return None
+            return round(float(it["med_ret20"]) - float(it["idx_ret20"]), 2)
+        a, b = rs(now), rs(prev)
+        out[ind] = {"industry": ind, "stocks": now["n"], "as_of_date": now["as_of_date"],
+                    "rs_20d": a, "rs_20d_prev": b,
+                    "rs_change": None if a is None or b is None else round(a - b, 2),
+                    "rs_change_sessions": (len(items) - 1) or None,
+                    "breadth_above_50dma_pct": None if now["breadth50"] is None else round(float(now["breadth50"]), 1)}
+    return out
+
+
+@router.get("/reversal-snapshot", summary="Stocks near their 52-week low: adjusted bars, benchmark, sector rotation, fundamentals, announcements")
+async def reversal_snapshot(max_dist_pct: float = Query(20.0, ge=1.0, le=40.0)) -> Dict[str, Any]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        cands = await conn.fetch(_REVERSAL_CANDIDATES_SQL, max_dist_pct + _REVERSAL_MARGIN_PCT)
+        if not cands:
+            raise HTTPException(status_code=503, detail="feature store is empty")
+        as_of = cands[0]["as_of_date"]
+        rows = [row_to_dict(r) for r in cands]
+        illiquid = sum(1 for r in rows if r["traded_value_cr_20d"] is None or float(r["traded_value_cr_20d"]) < 10.0)
+        syms = [r["symbol"] for r in rows if r["traded_value_cr_20d"] is not None and float(r["traded_value_cr_20d"]) >= 10.0]
+        bars = await conn.fetch(_REVERSAL_BARS_SQL, syms, as_of, _REVERSAL_BARS)
+        idx = await conn.fetch(_REVERSAL_INDEX_SQL, _REVERSAL_BENCH, as_of, _REVERSAL_BARS)
+        quarters = await conn.fetch(_REVERSAL_QUARTERS_SQL, syms, as_of)
+        cash = await conn.fetch(_REVERSAL_CASHFLOW_SQL, syms, as_of)
+        anns = await conn.fetch(_REVERSAL_ANN_SQL, syms, as_of)
+        sectors = await conn.fetch(_REVERSAL_SECTOR_SQL, _REVERSAL_BENCH)
+    bars_by: Dict[str, List[List[Any]]] = {}
+    for b in bars:
+        bars_by.setdefault(b["symbol"], []).append([str(b["as_of_date"]), _num(b["adj_open"]), _num(b["adj_high"]),
+                                                    _num(b["adj_low"]), _num(b["adj_close"]), _num(b["adj_volume"])])
+    q_by: Dict[str, List[Dict[str, Any]]] = {}
+    for q in quarters:
+        q_by.setdefault(q["symbol"], []).append(dict(q))
+    cfo = {c["symbol"]: _num(c["cfo_cr"]) for c in cash}
+    ann_by: Dict[str, List[Dict[str, Any]]] = {}
+    for a in anns:
+        d = row_to_dict(a)
+        ann_by.setdefault(d["symbol"], []).append(d)
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        if r["symbol"] not in bars_by:
+            continue
+        q = q_by.get(r["symbol"], [])
+        ebitda, rev = (_num(q[0]["ebitda_cr"]), _num(q[0]["revenue_from_ops_cr"])) if q else (None, None)
+        r["revenue_growth_yoy_pct"] = _yoy(q, "revenue_from_ops_cr") if q else r["revenue_growth_yoy_pct"]
+        r["pat_growth_yoy_pct"] = _yoy(q, "pat_cr") if q else r["pat_growth_yoy_pct"]
+        r["operating_margin_pct"] = round(ebitda / rev * 100, 2) if ebitda is not None and rev else None
+        r["latest_quarter_end"] = str(q[0]["period_end"]) if q else None
+        r["cfo_cr"] = cfo.get(r["symbol"])
+        r["bars"] = bars_by[r["symbol"]]
+        r["announcements"] = ann_by.get(r["symbol"], [])
+        out.append(r)
+    idx_rows = sorted(((str(i["as_of_date"]), _num(i["close_price"])) for i in idx))
+    return {
+        "as_of": str(as_of), "benchmark": _REVERSAL_BENCH, "bar_fields": ["d", "o", "h", "l", "c", "v"],
+        "benchmark_closes": [{"d": d, "c": c} for d, c in idx_rows],
+        "sectors": _sector_contexts(sectors),
+        "prefilter": {"max_dist_pct": max_dist_pct, "margin_pct": _REVERSAL_MARGIN_PCT,
+                      "within_distance": len(rows), "dropped_illiquid_or_no_traded_value": illiquid,
+                      "returned": len(out)},
+        "source": ("nidp.stock_features_daily · nidp.prices_eod_adjusted · nidp.index_eod · nidp.nse_financials_quarterly · "
+                   "nidp.nse_financials_cashflow · nidp.corporate_announcements · nidp.index_constituents (industry)"),
         "rows": out,
     }

@@ -138,6 +138,36 @@ Server-sent events. Body: `message` (required), `session_id`, `page`, `agent`, `
   would be read as the stock). The thread stores the question as the user asked it.
 - `POST /api/chat/send` (the older dock) takes no `persona` or `position` and is unchanged.
 
+## Live quotes (`/api/live`, read-only, signed-in)
+
+Platform-level Kite feed (`backend/services/kite_live_feed`): one leader process (Mongo lease `kite_live_lease`) keeps a quote cache from
+KiteTicker (REST `quote()` fallback) and publishes a snapshot every cadence to `kite_live_snapshot` (TTL 72 h). The API never calls Kite.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/live/status` | `mode` (live / delayed / closed / expired / not_connected / disabled), `state`, `source` (ws / rest), `instrument_count`, `last_tick_age_seconds`, `session`, `cadence_seconds` |
+| `GET /api/live/quotes?symbols=A,B` | up to 600 symbols; also registers them with the leader (kept 30 min) |
+| `GET /api/live/snapshot?universe=indices\|nifty500\|fno\|all` | a whole set |
+| `GET /api/live/stream?symbols=&universe=` | server-sent events: an immediate `snapshot` event, then one per cadence (`X-Accel-Buffering: no`) |
+
+Body: `as_of`, `data_at`, `age_seconds`, `stale` (market open and data older than 15 s, or not connected), `mode`, `session`, `source`, `final`,
+`quotes{SYMBOL:{ltp,change,change_pct,open,high,low,close,volume,oi,ts}}`, `missing[]`. A price is a number or absent, never 0. Symbols are NSE
+tradingsymbols, upper case (`NIFTY BANK`, `RELIANCE`); `NSE:` prefixes and NSE index spellings (`Nifty Financial Services`) are folded.
+Env: `KITE_LIVE_FEED_ENABLED` (default on; `0` stops the loop), `KITE_LIVE_FEED_CADENCE_SECONDS` (2-30, default 5), `KITE_LIVE_FEED_FORCE_REST`,
+`KITE_ACCESS_TOKEN` / `KITE_ACCESS_TOKEN_FILE`, `KITE_API_KEY` / `KITE_API_KEY_FILE` (line 1 only; the API secret is never read).
+
+### Daily platform Kite login (admin, one human tap per day)
+
+Kite has no supported way to log in without a human (Zerodha 2FA); no headless/TOTP automation exists here. Flow:
+
+1. `POST /api/live/kite/login-url` (admin only) returns `login_url` = `https://kite.zerodha.com/connect/login?v=3&api_key=<key>&redirect_params=state%3Dkp.<nonce>.<sig>`. The `kp.` state is signed, single use and short lived (`KITE_LOGIN_STATE_TTL_MIN`, default 30); only its hash is kept, in Mongo `kite_platform_login_states`.
+2. Zerodha redirects to `GET /api/broker/native/callback?broker=zerodha&request_token=...&state=kp...` (the app's registered redirect URL). A `kp.` state is handled by `services/kite_live_feed/platform_token.py`; every other state keeps the per-user broker flow unchanged.
+3. The request_token is exchanged with the API key and secret (`KITE_API_KEY`/`KITE_API_SECRET`, else `BROKER_ZERODHA_API_KEY`/`SECRET`). The returned Kite user id MUST equal env `KITE_PLATFORM_USER_ID`, otherwise nothing is stored. The access token is stored AES-256-GCM encrypted (`services/pii_security`) in `kite_platform_token` with `expires_at` = next 06:00 IST, and is never returned by any API.
+4. The browser lands on `/dashboard?kite=connected`, or `/dashboard?kite=error&reason=<code>` (`invalid_state`, `state_expired`, `state_used`, `denied`, `missing_params`, `platform_user_not_configured`, `credentials_missing`, `token_exchange_failed`, `wrong_account`, `server_error`).
+5. `default_token()` prefers that stored token while unexpired, then `KITE_ACCESS_TOKEN`, `KITE_ACCESS_TOKEN_FILE`, the kite_bars file. The feed reloads it every pass (any container) and recovers without a restart.
+
+Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days from 08:30 IST until the 15:30 close, while the platform token is missing, expired or refused, an alert goes out every `KITE_TOKEN_ALERT_INTERVAL_MIN` minutes (default 30, 5-240) with a fresh login link and the time to the 09:15 open; when Kite connects, one "Kite connected" message is sent and reminders stop. Channels: `nidp/shared/notify.py` (email via `NIDP_ALERT_SMTP_*` + `NIDP_ALERT_EMAIL_TO`; Telegram via `NIDP_TELEGRAM_BOT_TOKEN` + `NIDP_TELEGRAM_CHAT_ID`), else the app mailer (`SMTP_*` secrets) to `KITE_TOKEN_ALERT_EMAIL_TO`. The channels that fired are logged; a failing channel never affects the feed. One Mongo doc (`kite_live_snapshot/token_alert`) makes it idempotent across containers. `GET /api/live/status` carries `alert_state` (`TOKEN_ALERT` or null), `token_alert{}` and `platform_token{stored, valid_until, expired}`.
+
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.
 

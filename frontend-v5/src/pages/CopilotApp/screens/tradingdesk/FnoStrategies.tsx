@@ -10,6 +10,7 @@
  *   move, option closes                                          put and call OI, the model IV at the ATM strike, the
  *                                                                ATM straddle, each contract's end-of-day close
  *   futures settle                 GET /api/fno/{symbol}/futures (passed in)
+ *   an index's build-up            the scan's `indices` row (indexRowFor): the same source as the stats tile and the index cards
  *   Cash · delivery → paper trade  POST /api/desk/paper-trades  { symbol, quantity, entry_price, stop_price,
  *                                                                target_price, source: { kind: "fno-lab", bucket, signal_date } }
  *
@@ -46,7 +47,7 @@ import { isIndexUnderlying, FNO_INDICES, type ChainState, type FnoChain, type Fn
 import { SEBI_FNO_NOTE, fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk } from "./context";
 import { writeProblem } from "./desk-trading";
-import { BUILDUP_META, buildupRowFor, useBuildup, type BuildupLabel } from "./fno-buildup";
+import { BUILDUP_META, buildupRowFor, indexRowFor, useBuildup, type BuildupLabel } from "./fno-buildup";
 import { CardHead, FnoGate, TONE_LINE, TONE_SOFT, shortDay, type NearFuture } from "./fno-parts";
 
 export type StrategyKind = "futures" | "options" | "cash";
@@ -332,7 +333,7 @@ function cashCard(inp: StrategyInput, name: string | null, investor: boolean): S
 function noTradeText(kind: StrategyKind, inp: StrategyInput, investor: boolean): string {
   if (inp.label == null) {
     return inp.index
-      ? "Index futures have no build-up reading here (the futures route sends no previous close), so the rules suggest nothing."
+      ? "The build-up scan has no index-futures row for this index on the latest day, so the rules suggest nothing."
       : "This stock has no build-up reading on the latest day, so the rules suggest nothing.";
   }
   if (kind === "futures") return investor ? "Open bets fell, so the move is people closing positions, not new ones. No futures idea." : "Open interest fell: the move is positions closing, not fresh ones. The rules take futures only on fresh positions.";
@@ -444,15 +445,15 @@ function Card({ card, symbol }: { card: StrategyCard; symbol: string }) {
 function whyLines(symbol: string, label: BuildupLabel | null, price: number | null, oi: number | null, asOf: string | null, chain: FnoChain, investor: boolean): string[] {
   const s = chain.summary;
   const out: string[] = [];
-  if (isIndexUnderlying(symbol)) {
-    out.push(`${symbol} is an index: the build-up scan covers stock futures, and the futures route sends no previous close for index futures, so no build-up reading names a strategy here.`);
-  } else if (label) {
+  if (label) {
     const m = BUILDUP_META[label];
     out.push(investor
       ? `${m.label}: ${m.plain.toLowerCase()} (price ${fmtPct(price, { signed: true, digits: 2 })}, open bets ${fmtPct(oi, { signed: true, digits: 2 })}${asOf ? `, ${fmtDay(asOf)}` : ""}).`
       : `${m.label}${asOf ? ` on ${fmtDay(asOf)}` : ""}: the future’s price ${fmtPct(price, { signed: true, digits: 2 })}, its open interest ${fmtPct(oi, { signed: true, digits: 2 })} over every expiry.`);
   } else {
-    out.push(`${symbol} has no build-up reading on the latest day, so no strategy is named.`);
+    out.push(isIndexUnderlying(symbol)
+      ? `${symbol} is an index: the build-up scan has no index-futures row for it on the latest day, so no strategy is named.`
+      : `${symbol} has no build-up reading on the latest day, so no strategy is named.`);
   }
   if (s.max_put_oi || s.max_call_oi) {
     out.push(`Walls: the most put open interest is at ${s.max_put_oi ? fmtLevel(s.max_put_oi.strike) : "—"} (stops for rising ideas) and the most call open interest at ${s.max_call_oi ? fmtLevel(s.max_call_oi.strike) : "—"} (targets).`);
@@ -467,12 +468,13 @@ function whyLines(symbol: string, label: BuildupLabel | null, price: number | nu
 
 export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { symbol: string; state: ChainState; near: NearFuture | null; futuresNote: string; onLoad: (s: string) => void }) {
   const { mobile } = useCopilotShell();
-  const { persona } = useDesk();
+  const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
   const scan = useBuildup(true);
   const [all, setAll] = useState(false);
   const index = isIndexUnderlying(symbol);
-  const row = index ? null : buildupRowFor(scan.data, symbol);
+  // An index reads its build-up from the scan's index-futures row: the same source as the stats tile and the index cards.
+  const row = index ? indexRowFor(scan.data, symbol) : buildupRowFor(scan.data, symbol);
   const label = row?.label ?? null;
   const chain = state.status === "ok" ? state.chain : null;
   const cards = useMemo(
@@ -481,7 +483,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
   );
 
   const tableRows: Array<{ symbol: string; label: BuildupLabel | null; index: boolean }> = [
-    ...FNO_INDICES.map((i) => ({ symbol: i.symbol as string, label: null, index: true })),
+    ...FNO_INDICES.map((i) => ({ symbol: i.symbol as string, label: indexRowFor(scan.data, i.symbol)?.label ?? null, index: true })),
     ...(scan.data?.rows ?? []).map((r) => ({ symbol: r.symbol, label: r.label, index: false })),
   ];
   const shown = all ? tableRows : tableRows.slice(0, ROWS_FIRST);
@@ -501,8 +503,11 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
             {symbol} · {chain ? shortDay(chain.summary.expiry) : "—"}
           </span>
         </span>
-        <BuildupPill label={index ? null : label} testId="desk-fno-strat-buildup" />
-        <span className="cp-eyebrow" data-testid="desk-fno-strat-kind" style={{ marginLeft: "auto" }}>Rules-based · paper trading only</span>
+        <BuildupPill label={label} testId="desk-fno-strat-buildup" />
+        <span className="flex flex-wrap items-center" style={{ marginLeft: "auto", gap: "6px 12px" }}>
+          {!index && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-fno-strat-build" onClick={() => openStrategy(symbol, { kind: "lab", date: chain?.summary.as_of ?? null })}>Build a strategy ›</button>}
+          <span className="cp-eyebrow" data-testid="desk-fno-strat-kind">Rules-based · paper trading only</span>
+        </span>
       </div>
 
       <FnoGate symbol={symbol} state={state} testId="desk-fno-strat">
@@ -514,7 +519,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
             <section data-testid="desk-fno-strat-why" className="cp-card flex flex-col" style={{ gap: 10, padding: "16px 18px" }}>
               <span className="cp-eyebrow">Why these</span>
               <ul className="m-0 flex flex-col" style={{ gap: 8, padding: 0, listStyle: "none" }}>
-                {whyLines(symbol, index ? null : label, row?.priceChgPct ?? null, row?.oiChgPct ?? null, scan.data?.asOf ?? null, c, investor).map((l) => (
+                {whyLines(symbol, label, row?.priceChgPct ?? null, row?.oiChgPct ?? null, scan.data?.asOf ?? null, c, investor).map((l) => (
                   <li key={l} className="flex" style={{ gap: 8, fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
                     <span aria-hidden="true" style={{ color: "var(--mint)" }}>›</span>
                     <span>{l}</span>
@@ -579,7 +584,7 @@ export function StrategiesView({ symbol, state, near, futuresNote, onLoad }: { s
         </div>
         <div className="flex flex-wrap items-center justify-between" style={{ gap: 8, padding: "12px 18px", borderTop: "1px solid var(--cp-line)" }}>
           <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)", flex: "1 1 300px", minWidth: 0 }}>
-            Names come from each stock’s build-up alone; the legs and levels above are worked out for the loaded underlying only. Index rows have no build-up reading. Open a row to load it.
+            Names come from each stock’s build-up alone; the legs and levels above are worked out for the loaded underlying only. An index row reads the scan’s index-futures build-up, "—" when the scan has none. Open a row to load it.
           </span>
           {tableRows.length > ROWS_FIRST && (
             <button type="button" className="cp-chip" data-testid="desk-fno-strat-all" aria-expanded={all} onClick={() => setAll(!all)}>

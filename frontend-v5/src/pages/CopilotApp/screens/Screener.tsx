@@ -12,6 +12,8 @@ import {
   Btn, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Screen, ScreenHeader, Section, fmtDate, fmtNum,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { useLiveOverlays } from "../lib/useLiveQuotes";
+import { SECTOR_HEATMAP_VIEW } from "../lib/views";
 import { AskPill, FilterChips, LoadError, type ChipItem } from "./markets/parts";
 import { useScreenRun, type ScreenBucket, type ScreenRun, type ScreenRunRequest } from "./markets/screener-run";
 import { StrategyScreens } from "./markets/StrategyScreens";
@@ -80,6 +82,22 @@ interface RanScreen {
   savedId: string | null;
 }
 
+type Widget = ScreenRun["widget"];
+
+/** The screener widget plus "LTP" and "Day %" columns from the live feed (rows without a live quote show "—"). */
+function withLive(w: Widget, get: (symbol: string) => { ltp: number; changePct: number | null } | null): Widget {
+  return {
+    ...w,
+    columns: [...w.columns,
+      { key: "live_ltp", label: "LTP", unit: "₹", kind: "num", align: "right", decimals: 2 },
+      { key: "live_chg", label: "Day", unit: "%", kind: "num", align: "right", signed: true, decimals: 2 }],
+    universe: w.universe.map((r) => {
+      const q = get(String(r.ticker ?? r.symbol ?? ""));
+      return { ...r, live_ltp: q ? q.ltp : null, live_chg: q ? q.changePct : null };
+    }),
+  };
+}
+
 type ResultState = "idle" | "unrunnable" | "loading" | "error" | "empty" | "ready";
 
 /**
@@ -100,6 +118,9 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
   onAsk: (query: string) => void;
 }) {
   const request = ran?.request ?? null;
+  // Kite's live price and day change join the table as two extra columns while the feed is LIVE; nothing else in the rows changes.
+  const liveRows = data?.ok ? data.widget.universe : [];
+  const live = useLiveOverlays(liveRows.map((r) => String(r.ticker ?? r.symbol ?? "")));
   // The source not answering (ok:false) is a failure, not an empty result.
   const failed = !fetching && (!!error || (!!data && !data.ok));
   const answered = !fetching && !failed && data?.ok ? data : undefined;
@@ -207,7 +228,7 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
         {why ?? (
           <div data-testid="screener-results-widget" className="min-w-0">
             <SafeWidget name="Screener results · stock_screener">
-              <ChatWidget key={`${ran?.seq ?? 0}-${runAt}`} widget={{ widget_type: "stock_screener", data: answered.widget }} onAction={onWidgetAction} />
+              <ChatWidget key={`${ran?.seq ?? 0}-${runAt}`} widget={{ widget_type: "stock_screener", data: live.live ? withLive(answered.widget, live.get) : answered.widget }} onAction={onWidgetAction} />
             </SafeWidget>
           </div>
         )}
@@ -275,7 +296,7 @@ function KeepAsWatchlist({ ran, request }: { ran: RanScreen; request: ScreenRunR
  * as the stocks that pass it today.
  */
 export default function ScreenerScreen() {
-  const { ask, mobile } = useCopilotShell();
+  const { ask, go, mobile } = useCopilotShell();
   const [describe, setDescribe] = useState("");
   const [bucket, setBucket] = useState<Bucket>("");
   const [rules, setRules] = useState<BuilderCondition[]>(() => [newRule("roe"), newRule("pe")]);
@@ -378,7 +399,19 @@ export default function ScreenerScreen() {
     <Screen testId="screen-tool-screener">
       <ScreenHeader
         eyebrow="Stock screener · end-of-day data"
-        pills={<AskPill query="Which sectors are showing improving relative strength, and what is breaking out?" testId="screener-ask" />}
+        pills={
+          <>
+            <AskPill query="Which sectors are showing improving relative strength, and what is breaking out?" testId="screener-ask" />
+            <button
+              type="button"
+              data-testid="screener-heatmap-link"
+              onClick={() => go(SECTOR_HEATMAP_VIEW)}
+              style={{ minHeight: 32, padding: "6px 12px", borderRadius: 999, border: "1px solid var(--line-2)", background: "transparent", color: "var(--cp-ink)", fontSize: 13, cursor: "pointer", fontFamily: "var(--sans)" }}
+            >
+              Sector heatmap ›
+            </button>
+          </>
+        }
         title="Find stocks by rule"
         sub="Run one of the ready-made screens, or build the rules yourself, and the matches show on this page. Or describe what you want and let the Copilot run it in a thread."
       />

@@ -13,7 +13,7 @@
  * rail shows the tool), so a template cannot disagree with the navigation.
  * `gaps` is shown in the builder and is not part of the generated contract.
  */
-import { WORKSPACE_NAV, toolsNav, type Mode } from "../../lib/views";
+import { WORKSPACE_NAV, allToolsNav, type Mode } from "../../lib/views";
 import { sourceById, type SourceId } from "./data-sources";
 import { rowId, type DataNeed, type ToolDraft, type ToolInput, type Trigger } from "./tool-draft";
 
@@ -1131,7 +1131,7 @@ const ALL_MODES: Mode[] = ["investor", "trader", "advisor"];
 /** The modes whose rail shows a view. Workspace pages and the chat are in every mode. */
 function personasFor(view: string): Mode[] {
   if (view === "" || WORKSPACE_NAV.some((n) => n.view === view)) return [...ALL_MODES];
-  return ALL_MODES.filter((m) => toolsNav(m).some((n) => n.view === view));
+  return ALL_MODES.filter((m) => allToolsNav(m).some((n) => n.view === view));
 }
 
 export const TOOL_TEMPLATES: ToolTemplate[] = SPECS.map((t) => ({ ...t, personas: personasFor(t.view) }));

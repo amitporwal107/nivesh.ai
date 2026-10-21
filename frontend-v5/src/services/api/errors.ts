@@ -24,6 +24,8 @@ export interface ApiErrorOptions {
   fields?: Record<string, string>;
   correlationId?: string;
   cause?: unknown;
+  /** The parsed error body, for a caller that needs more than the one-line detail (e.g. a 422's `detail.problems`). */
+  body?: unknown;
 }
 
 export class ApiError extends Error {
@@ -32,6 +34,7 @@ export class ApiError extends Error {
   readonly detail?: string;
   readonly fields?: Record<string, string>;
   readonly correlationId?: string;
+  readonly body?: unknown;
 
   constructor(kind: ApiErrorKind, message: string, opts: ApiErrorOptions = {}) {
     super(message);
@@ -41,6 +44,7 @@ export class ApiError extends Error {
     this.detail = opts.detail;
     this.fields = opts.fields;
     this.correlationId = opts.correlationId;
+    this.body = opts.body;
     if (opts.cause) (this as { cause?: unknown }).cause = opts.cause;
   }
 
@@ -63,6 +67,7 @@ export class ApiError extends Error {
       detail,
       correlationId,
       fields: extractFields(body),
+      body,
     });
   }
 

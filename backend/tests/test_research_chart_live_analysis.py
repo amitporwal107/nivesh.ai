@@ -239,6 +239,93 @@ def test_short_history_gives_nulls_not_zeros(monkeypatch):
     assert v["ema20"] is not None and v["rsi14"] is not None
 
 
+def test_ema_known_answer_on_a_short_series(monkeypatch):
+    # known answer worked by hand: EMA 3 (k = 0.5) seeded with the first close of [10, 20, 30, 40]
+    # -> 10, 15, 22.5, 31.25; the first n-1 values are masked
+    import routes.research_chart as rc
+    assert rc._ema_masked(np.array([10.0, 20.0, 30.0, 40.0]), 3) == [None, None, 22.5, 31.25]
+
+
+def _split_bars(n_before=120, n_after=210, ratio=5.0):
+    """MOCK -- not real data. A 5:1 split the warehouse never adjusted: ~2100 before, ~420 after."""
+    days = _weekdays(n_before + n_after)
+    out = []
+    for i, d in enumerate(days):
+        base = 2100.0 if i < n_before else 420.0
+        c = round(base + 3 * math.sin(i / 5), 2)
+        out.append((d, c - 1, c + 4, c - 4, c, 100_000.0))
+    return out
+
+
+def test_unadjusted_split_in_history_does_not_drag_the_ema(monkeypatch):
+    bars = _split_bars()
+    c, _ = _client(monkeypatch, prices=(200, _price_rows(bars)))
+    b = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()
+    post = np.array([x[4] for x in bars[120:]])
+    brk = b["adjustment_break"]
+    assert brk["date"] == bars[120][0].isoformat() and brk["prev_close"] == bars[119][4] and brk["close"] == bars[120][4]
+    assert b["sessions"] == 210                                # only the bars after the break are used
+    # a consistent line: EMA 200 equals the engine on the post-split bars alone, near the price, not near 2100
+    assert b["values"]["ema200"] == pytest.approx(calc.ema(post, 200))
+    assert 380 < b["values"]["ema200"] < 460
+    assert all(v is None or 380 < v < 460 for v in b["series"]["ema200"] + b["series"]["ema50"] + b["series"]["ema20"])
+
+
+def test_adjusted_split_history_has_no_break_and_a_consistent_line(monkeypatch):
+    bars = _split_bars()
+    adj = [(d, o / 5 if i < 120 else o, h / 5 if i < 120 else h, l / 5 if i < 120 else l, cl / 5 if i < 120 else cl, v)
+           for i, (d, o, h, l, cl, v) in enumerate(bars)]
+    c, _ = _client(monkeypatch, prices=(200, _price_rows(adj)))
+    b = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()
+    assert b["adjustment_break"] is None and b["sessions"] == 330
+    assert b["values"]["ema200"] == pytest.approx(calc.ema(np.array([x[4] for x in adj]), 200))
+
+
+def test_ema200_with_fewer_than_200_bars_is_null_with_the_reason(monkeypatch):
+    bars = _split_bars(n_before=120, n_after=150)
+    c, _ = _client(monkeypatch, prices=(200, _price_rows(bars)))
+    b = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()
+    assert b["values"]["ema200"] is None and all(v is None for v in b["series"]["ema200"])
+    assert b["values"]["ema50"] is not None
+    assert "150" in b["series_notes"]["ema200"] and "split" in b["series_notes"]["ema200"].lower()
+
+
+def test_hypothetical_levels_follow_the_documented_rule(monkeypatch):
+    c, _ = _client(monkeypatch)
+    b = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()
+    h = b["hypothetical_levels"]
+    atr = calc.atr(HIGHS, LOWS, CLOSES, 14)
+    sup = float(LOWS[-20:].min())
+    close = float(CLOSES[-1])
+    assert h["rule"] == "ATR_2X_STOP" and h["version"] == "1" and "not a scanner pick" in h["label"]
+    assert h["constants"] == {"atr_multiple": 2.0, "min_stop_atr": 0.5, "reward_multiple": 2.0, "atr_period": 14}
+    assert h["entry"] == pytest.approx(close)
+    atr_stop = close - 2.0 * atr
+    # the nearest support wins only when it is closer than 2 x ATR and at least 0.5 x ATR away
+    expect_stop, basis = (sup, "support20") if atr_stop < sup <= close - 0.5 * atr else (atr_stop, "atr")
+    assert h["stop"] == pytest.approx(expect_stop) and h["stop_basis"] == basis
+    assert h["target"] == pytest.approx(close + 2.0 * (close - expect_stop))
+    assert h["risk_reward"] == pytest.approx(2.0) and h["reason"] is None
+
+
+def test_hypothetical_stop_uses_the_closer_support(monkeypatch):
+    # MOCK -- not real data: a flat 100-close series, ATR 10 (range 95..105 around it), support 94 is closer than 2 x ATR
+    n = 40
+    days = _weekdays(n)
+    bars = [(d, 100.0, 104.0, 94.0 + (1 if i < n - 5 else 0), 100.0, 1e5) for i, d in enumerate(days)]
+    c, _ = _client(monkeypatch, prices=(200, _price_rows(bars)))
+    h = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()["hypothetical_levels"]
+    assert h["stop_basis"] == "support20" and h["stop"] == 94.0
+    assert h["target"] == pytest.approx(100.0 + 2 * 6.0)
+
+
+def test_hypothetical_levels_with_too_few_bars_are_null_with_the_reason(monkeypatch):
+    c, _ = _client(monkeypatch, prices=(200, _price_rows(BARS[-10:])))
+    h = c.get("/api/research/chart/live/FIXBRK/indicators", headers=H).json()["hypothetical_levels"]
+    assert h["entry"] is None and h["stop"] is None and h["target"] is None and h["risk_reward"] is None
+    assert "15" in h["reason"] and "10" in h["reason"]
+
+
 def test_no_bars_is_404_and_flag_is_403(monkeypatch):
     c, _ = _client(monkeypatch, prices=(200, {"data": []}))
     assert c.get("/api/research/chart/live/NOSUCH/indicators", headers=H).status_code == 404

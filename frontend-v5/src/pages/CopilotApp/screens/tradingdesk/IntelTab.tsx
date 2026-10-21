@@ -843,6 +843,7 @@ function IntelTrust({ feed }: { feed: EventFeed }) {
 }
 
 function DesktopIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: (c: IntelChip) => void; feed: EventFeed; scan: ScanIndex }) {
+  const { openTab } = useDesk();
   const [picked, setPicked] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
@@ -858,7 +859,8 @@ function DesktopIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip:
       <section data-testid="desk-intel" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
         <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
           <span data-testid="desk-intel-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>04</span> · AI Event intelligence</span>
-          <span data-testid="desk-intel-meta" className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>NSE · BSE · SEBI · linked to the scanner</span>
+          <button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ marginLeft: "auto", padding: "4px 11px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>
+          <span data-testid="desk-intel-meta" className="cp-eyebrow" style={{ color: "var(--cp-ink-4)" }}>NSE · BSE · SEBI · linked to the scanner</span>
         </div>
         <TypeChips chip={chip} onPick={pick} mobile={false} />
         {def.alertCategory && feed.status === "ready" && (
@@ -1075,6 +1077,7 @@ function SectorImpact() {
 }
 
 function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: (c: IntelChip) => void; feed: EventFeed; scan: ScanIndex }) {
+  const { openTab } = useDesk();
   const [open, setOpen] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
@@ -1085,6 +1088,7 @@ function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: 
   };
   return (
     <div data-testid="desk-intel" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
+      <button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ alignSelf: "flex-start", padding: "6px 12px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12.5, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>
       <TypeChips chip={chip} onPick={pick} mobile />
       <section data-testid="desk-intel-events" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
         <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>

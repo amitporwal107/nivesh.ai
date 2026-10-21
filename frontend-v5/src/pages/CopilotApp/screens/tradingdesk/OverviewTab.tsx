@@ -27,6 +27,8 @@
  *
  * Each block loads and fails on its own. A figure with no source is "—" with a one-line reason, never 0.
  */
+import { Flash } from "../../components/LiveBits";
+import { useLiveOverlay, useLiveOverlays } from "../../lib/useLiveQuotes";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { MarketIndex, MarketsHome } from "@/services/contracts/markets.contract";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
@@ -35,6 +37,7 @@ import {
   Btn, EmptyBlock, ErrorBlock, LoadingBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, signTone, type Tone,
 } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { SECTOR_HEATMAP_VIEW } from "../../lib/views";
 import { fmtStamp } from "../desk/broker";
 import { dayLabel, fmtCr, fmtLevel, fmtPoints, fmtPrice } from "../markets/format";
 import { useMarketOverview } from "../markets/hooks";
@@ -43,11 +46,11 @@ import { lensOf, readConcentration } from "../portfolio/concentration-data";
 import { QueryProblem } from "../trading/parts";
 import { useBrokerAccounts } from "../trading/queries";
 import { useDesk, type DeskPersona } from "./context";
-import { BUCKET_LABEL, LIQUID_MIN_CR, headLabel, useDeskOdds, useDeskScanner, type DeskSetup, type SetupBucket } from "./desk-data";
+import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, useScanUniverse, type DeskSetup, type SetupBucket } from "./desk-data";
 import { GROUP_COLOR, eventWhen, useIntelEvents, type IntelEvent } from "./intel-data";
 import {
   DESK_INDICES, DESK_REGIME_KEYS, DESK_REGIME_LABEL, READINESS_WORDS, RISK_BANDS_TEXT, RISK_CLASS_LABEL, SECTOR_PERIODS,
-  allocationOf, deskHeadline, feedWords, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
+  allocationOf, dataAsOf, deskHeadline, feedWords, setupLifecycle, findIndex, findQuote, indexMode, istDay, istParts, keyEvents, leaderFor, marketStatus,
   readBreadth, riskClass, stampIst, topHoldings, useMacroToday, useNow, usePicksLive, useSectorConstituents, useSectorReturns,
   useSectorStrength,
   type BreadthRead, type DeskRegime, type DeskRegimeKey, type IndexMode, type IstParts, type LivePick, type MacroToday,
@@ -56,6 +59,10 @@ import {
 } from "./overview-data";
 import { SINGLE_STOCK_LIMIT_PCT, largestStock, readPortfolio, useRiskAnalytics } from "./portfolio-data";
 import { TrustLine, type TrustLineProps } from "./trust";
+import { ChartinkOnlyList, ChartinkTag } from "./chartink/ChartinkParts";
+import { ChartinkPicks } from "./chartink/ChartinkPicks";
+import { hitsBySymbol, useChartink } from "./chartink/chartink-data";
+import type { ChartinkHitSymbol } from "./chartink/chartink-contract";
 
 /** Colour per regime; the label always says the regime too (PRD §16.1: colour is never the only signal). */
 const REGIME_TONE: Record<DeskRegimeKey, Tone> = { bearish: "danger", sideways: "ink", bullish: "mint", mixed: "amber", high_volatility: "danger" };
@@ -167,11 +174,79 @@ function SubHead({ children, testId }: { children: ReactNode; testId?: string })
 
 const statusDot = (s: MarketStatus) => (s.feed === "live" ? "var(--mint)" : s.feed === "delayed" ? "var(--amber)" : "var(--cp-ink-4)");
 
+// ── setup lifecycle (PRD 4.1 issue 2) ────────────────────────────────────
+
+/** Under the headline: which scan "N of M setups" counts, with what rules, over what universe, and where each setup stands. */
+function SetupLifecycleLine() {
+  const scan = useDeskScanner();
+  const setups = scan.data?.setups;
+  const syms = useMemo(() => (setups ?? []).map((s) => s.symbol), [setups]);
+  const uni = useScanUniverse(syms, [], !scan.isPending && syms.length > 0);
+  const why = uni.isError ? "The eligible universe didn’t load." : uni.isPending ? "Loading the eligible universe." : null;
+  const l = setupLifecycle(scan.data, uni.data, why);
+  if (!l) return null;
+  return (
+    <div data-testid="desk-setups-lifecycle" className="flex flex-col" style={{ gap: 3, ...quiet, fontSize: 11.5 }}>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        <span data-testid="desk-setups-scope">{l.scope}</span>
+        <span data-testid="desk-setups-rules">Rules {l.rules ?? "— (version not in the response)"}</span>
+        <span data-testid="desk-setups-universe">
+          Eligible universe {l.eligible != null ? `${fmtNum(l.eligible)} stocks${l.universeDay ? ` · ${dayLabel(l.universeDay, { year: true })}` : ""}` : `— (${l.universeWhy})`}
+        </span>
+      </span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        <span data-testid="desk-setups-confirmed">{fmtNum(l.confirmed)} confirmed</span>
+        <span data-testid="desk-setups-awaiting">{fmtNum(l.awaiting)} awaiting</span>
+        <span data-testid="desk-setups-forming">{fmtNum(l.forming)} forming</span>
+        <span data-testid="desk-setups-untracked">{l.untracked}</span>
+      </span>
+    </div>
+  );
+}
+
+// ── data as of (PRD 4.1 issue 1, 6.1, 7) ─────────────────────────────────
+
+/**
+ * One line that dates every feed on the Overview from the routes' own fields: this device's IST clock, the market
+ * state (with the holiday's name), the last completed trading session, and each feed's own update time. A holiday or a
+ * weekend never makes a prior-session figure look current: the line says which session the figures are from.
+ */
+function DataAsOfLine({ home, macro, compact }: { home: HomeQuery; macro: MacroQuery; compact?: boolean }) {
+  const now = istParts(useNow());
+  const status = marketStatus(home.data, now);
+  const a = dataAsOf(home.data, macro.data, now, status);
+  // A value with a reason (no timestamp) shows both; a missing value shows "—" and the reason. `title` is extra detail.
+  const part = (label: string, value: string | null, why: string | null, testId: string, title?: string) => (
+    <span key={testId} data-testid={testId} title={title ?? why ?? undefined}>
+      <span style={{ color: "var(--cp-ink-4)" }}>{label}</span> {value ?? "—"}{why ? ` (${why})` : ""}
+    </span>
+  );
+  return (
+    <div data-testid="desk-asof" data-not-today={a.notToday ? "true" : "false"} className="flex flex-col" style={{ gap: 3, ...quiet, fontSize: compact ? 11 : 11.5 }}>
+      <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>Data as of</span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        {part("Now", `${a.clock} (this device, not a data date)`, null, "desk-asof-clock")}
+        {part("Market", a.state, null, "desk-asof-state", status.why)}
+        {part("Last completed session", a.lastSession ? dayLabel(a.lastSession, { year: true }) : null, a.lastSessionWhy, "desk-asof-session")}
+      </span>
+      <span className="flex flex-wrap" style={{ gap: "2px 14px" }}>
+        {a.feeds.map((f) => part(f.label, f.value, f.why, `desk-asof-${f.key}`))}
+      </span>
+      {a.notToday && (
+        <span data-testid="desk-asof-note" style={{ color: "var(--amber)" }}>
+          Breadth, FII / DII and the regime are from the last completed session ({dayLabel(a.lastSession, { year: true })}), not today. Each card keeps its own date.
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── intro: eyebrow + pills, headline, paragraph ──────────────────────────
 
 function Intro({ home, sectors }: { home: HomeQuery; sectors: SectorReturns | undefined }) {
   const { persona } = useDesk();
   const scan = useDeskScanner();
+  const macro = useMacroToday();
   const now = istParts(useNow());
   const status = marketStatus(home.data, now);
   const b = home.data ? readBreadth(home.data.breadth) : null;
@@ -202,9 +277,11 @@ function Intro({ home, sectors }: { home: HomeQuery; sectors: SectorReturns | un
         <Pill>Paper trading on</Pill>
         <Pill>Live orders off</Pill>
       </span>
+      <DataAsOfLine home={home} macro={macro} />
       <h1 data-testid="desk-headline" className="cp-display m-0" style={{ fontSize: 40, lineHeight: 1.08, letterSpacing: "-0.02em", maxWidth: 880 }}>
         {h.lead}{h.emph && <em>{h.emph}</em>}{h.tail}
       </h1>
+      <SetupLifecycleLine />
       <p data-testid="desk-intro-text" className="m-0 cp-pretty" style={{ fontSize: 15, lineHeight: 1.6, color: "var(--cp-ink-2)", maxWidth: 780 }}>
         {persona === "investor"
           ? "The market, ideas from an end-of-day rules-based scan, company filings and your portfolio in one place, in plain words. Every figure says where it came from and when."
@@ -262,7 +339,9 @@ function IndexTrust({ d }: { d: MarketsHome }) {
 const indexTone = (ix: MarketIndex | null): Tone => (!ix || ix.is_vix ? "ink" : signTone(ix.change_pct));
 
 function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | null; mode: IndexMode; stamp: string | null }) {
-  const tone = indexTone(ix);
+  const live = useLiveOverlay(ix?.name ?? name);          // the Kite feed, only while it is LIVE; otherwise the response's own figures
+  const pct = live ? live.changePct : ix?.change_pct ?? null;
+  const tone = !ix || ix.is_vix ? "ink" : signTone(pct);
   const color = tone === "ink" ? "var(--cp-ink-2)" : TONE_COLOR[tone];
   return (
     <div data-testid="desk-index-tile" data-index={ix?.name ?? name} className="cp-card flex min-w-0 flex-col" style={{ gap: 6, padding: "14px 16px", boxShadow: "var(--shadow-card)" }}>
@@ -276,14 +355,14 @@ function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | 
         )}
       </div>
       <span data-testid="desk-index-value" style={{ fontFamily: "var(--display)", fontSize: 27, lineHeight: 1.1, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-        {fmtLevel(ix?.value)}
+        <Flash value={live?.ltp}>{fmtLevel(live ? live.ltp : ix?.value)}</Flash>
       </span>
       <span data-testid="desk-index-change" className="cp-num" style={{ fontSize: 11, color }}>
-        {ix ? `${fmtPoints(ix.change)} (${fmtPct(ix.change_pct, { signed: true, digits: 2 })})` : "Not in the response"}
+        {ix ? `${fmtPoints(live ? live.change : ix.change)} (${fmtPct(pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
       {ix && (
-        <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
-          {MODE_WORD[mode]}{stamp ? ` · ${stamp}` : ""}
+        <span data-testid="desk-index-stamp" data-mode={mode} data-live={live ? "true" : undefined} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
+          {live ? `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}` : <>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}</>}
         </span>
       )}
     </div>
@@ -364,7 +443,7 @@ function BreadthTile({ home, style }: { home: MarketsHome; style?: CSSProperties
 /** The stocks the counts cover, in the route's own terms; nothing is guessed from the count. */
 function breadthScope(b: BreadthRead, asOf: string | null): string {
   const n = b.universe != null ? fmtNum(b.universe) : null;
-  if (b.scope === "eod") return `${n ? `Across ${n} NSE stocks` : "Across the NSE stocks"} in the end-of-day bhavcopy${asOf ? ` · ${dayLabel(asOf, { year: true })}` : ""}`;
+  if (b.scope === "eod") return `${n ? `Across ${n} NSE stocks` : "Across the NSE stocks"} in the end-of-day bhavcopy · ${asOf ? dayLabel(asOf, { year: true }) : "date not in the response"}`;
   if (b.scope === "nifty50") return `${n ? `Across the ${n} Nifty 50 stocks` : "Across the Nifty 50 stocks"} · delayed quotes`;
   return n ? `Across ${n} stocks · the response does not say which` : "The response does not say which stocks were counted";
 }
@@ -483,7 +562,7 @@ function RegimeBlock({ m }: { m: MacroToday }) {
         </span>
         {m.kind === "ready" && (
           <span data-testid="desk-regime-since" className="cp-num" style={{ fontSize: 10, letterSpacing: "0.08em", color: "var(--cp-ink-3)", textTransform: "uppercase" }}>
-            {day ? `As of ${dayLabel(day)} · end of day` : "End of day"}
+            {day ? `As of ${dayLabel(day)} · end of day` : "End of day · date not in the response"}
           </span>
         )}
       </div>
@@ -703,7 +782,8 @@ function Change({ pct }: { pct: number | null }) {
 
 /** "Net buy · 13 Oct" / "Net sell · 13 Oct" — the sign of the day's net cash flow. */
 function flowSub(net: number | null | undefined, asOf: string | null | undefined): string {
-  if (net == null || !asOf) return "Not available";
+  if (net == null) return "Not available";
+  if (!asOf) return `${net > 0 ? "Net buy" : net < 0 ? "Net sell" : "Net"} · date not in the response`;
   return `${net > 0 ? "Net buy" : net < 0 ? "Net sell" : "Net"} · ${dayLabel(asOf)}`;
 }
 
@@ -834,6 +914,7 @@ function PeriodSwitch({ period, onPick, d }: { period: SectorPeriodKey; onPick: 
 }
 
 function SectorCard({ q }: { q: ReturnType<typeof useSectorReturns> }) {
+  const { go } = useCopilotShell();
   const [period, setPeriod] = useState<SectorPeriodKey>("1d");
   const [sort, setSort] = useState<SectorSort>("best");
   const [filter, setFilter] = useState("");
@@ -872,6 +953,11 @@ function SectorCard({ q }: { q: ReturnType<typeof useSectorReturns> }) {
         ) : (
           <SectorBody d={q.data} period={period} sort={sort} filter={filter} open={open} onOpen={setOpen} />
         )}
+      </div>
+      <div style={{ padding: "0 14px 12px" }}>
+        <button type="button" data-testid="desk-sector-heatmap-link" onClick={() => go(SECTOR_HEATMAP_VIEW)} style={{ minHeight: 32, padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>
+          Open heatmap ›
+        </button>
       </div>
       <CardTrust
         testId="desk-sector-trust"
@@ -967,11 +1053,13 @@ function SectorTileView({ r, period, max, leader, asOf, breadth, open, onOpen }:
   const { openChart } = useDesk();
   // An index whose latest close is older than the response's as-of says so.
   const stale = !!r.date && !!asOf && r.date !== asOf;
-  const pct = r.ret[period];
+  const live = useLiveOverlay(period === "1d" ? r.index : null);      // the index's own 1-day move from Kite while LIVE; 1W / 1M stay end of day
+  const pct = period === "1d" && live ? live.changePct : r.ret[period];
   const tone = signTone(pct);
   return (
     <div
       data-testid="desk-sector-tile"
+      data-live={live ? "true" : undefined}
       data-sector={r.sector}
       data-index={r.index}
       title={`${r.index} · ${fmtLevel(r.close)}${r.date ? ` · close of ${dayLabel(r.date)}` : ""}`}
@@ -1027,6 +1115,8 @@ function SectorTileView({ r, period, max, leader, asOf, breadth, open, onOpen }:
 function ConstituentsPanel({ index, onClose }: { index: string; onClose: () => void }) {
   const { openChart } = useDesk();
   const q = useSectorConstituents(index);
+  const rowsForLive = q.data && q.data.kind !== "unavailable" ? q.data.rows : [];
+  const live = useLiveOverlays(rowsForLive.map((c) => c.symbol));      // Kite, only while LIVE; else the end-of-day close and change
   return (
     <section data-testid="desk-sector-constituents" data-index={index} aria-label={`${index} constituents`} className="flex min-w-0 flex-col" style={{ gap: 8, padding: "12px 12px 10px", borderRadius: 12, border: "1px solid var(--line-2)", background: "var(--bg-0)" }}>
       <div className="flex items-center justify-between" style={{ gap: 8 }}>
@@ -1050,7 +1140,10 @@ function ConstituentsPanel({ index, onClose }: { index: string; onClose: () => v
             </span>
           )}
           <ul className="m-0 flex flex-col p-0 cp-scroll" style={{ listStyle: "none", maxHeight: 260, overflowY: "auto" }}>
-            {q.data.rows.map((c) => (
+            {q.data.rows.map((c0) => {
+              const lq = live.get(c0.symbol);
+              const c = lq ? { ...c0, close: lq.ltp, changePct: lq.changePct } : c0;
+              return (
               <li key={c.symbol} style={{ borderTop: line }}>
                 <button
                   type="button"
@@ -1073,7 +1166,8 @@ function ConstituentsPanel({ index, onClose }: { index: string; onClose: () => v
                   <span data-testid="desk-sector-constituent-chg" className="cp-num" style={{ fontSize: 11.5, minWidth: 56, textAlign: "right", color: toneColor(signTone(c.changePct)) }}>{fmtPct(c.changePct, { signed: true, digits: 2 })}</span>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
           <TrustLine testId="desk-sector-constituents-trust" source={q.data.source ?? "NSE index lists with bhavcopy closes"} mode="eod" asOf={q.data.date ? `close of ${dayLabel(q.data.date, { year: true })}` : null} maker="reported" method={q.data.listDate ? `index list of ${dayLabel(q.data.listDate)}` : null} />
         </>
@@ -1137,7 +1231,7 @@ function againstOf(p: LivePick | undefined): string[] {
 }
 
 function TopOpportunitiesCard() {
-  const { openTab, persona } = useDesk();
+  const { openTab, openStrategyIdeas, openChartink, persona } = useDesk();
   const scan = useDeskScanner();
   const live = usePicksLive();
   const odds = useDeskOdds("p_up5_1d");
@@ -1146,13 +1240,20 @@ function TopOpportunitiesCard() {
   const o = odds.data;
   const names = new Map<string, string>();
   if (o?.kind === "final") for (const r of o.data.rows) if (r.company_name) names.set(r.symbol.toUpperCase(), r.company_name);
-  const oddsWhy = odds.isPending ? "loading" : odds.isError ? "didn’t load" : !o ? "—"
-    : o.kind === "final" ? `published for ${dayLabel(o.data.expected_session)}`
-    : o.kind === "not_published" ? `not published for ${dayLabel(o.expectedSession)}`
-    : o.kind === "withheld" ? `withheld: ${o.reason}` : "not enabled for this account";
+  // One gate for every place a probability could print (desk-data.ts probabilityGate): none is calibrated, so none is shown.
+  const gate = probabilityGate(o, persona === "investor");
+  const evidence = o?.kind === "final" ? modelEvidence(o.data.run, o.data.record, persona === "investor") : null;
+  const oddsWhy = odds.isPending ? "Loading the move-odds model." : odds.isError ? "The move-odds model didn’t load." : gate.reason;
+  const ck = useChartink();
+  const ckHits = ck.kind === "ready" ? hitsBySymbol(ck.hits) : null;
   return (
     <Card testId="desk-opps-card">
-      <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined} />
+      <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined}>
+        <span className="flex flex-wrap items-center" style={{ gap: "4px 14px" }}>
+          <button type="button" data-testid="desk-opps-chartink" onClick={openChartink} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Chartink scans ›</button>
+          <button type="button" data-testid="desk-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+        </span>
+      </CardHead>
       {scan.isPending ? (
         <div style={{ padding: 18 }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
       ) : scan.isError ? (
@@ -1165,14 +1266,17 @@ function TopOpportunitiesCard() {
         <ol className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
           {rows.map((s, i) => (
             <OppCardRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} name={names.get(s.symbol.toUpperCase()) ?? null}
-              live={live} p={o?.kind === "final" ? o.bySymbol.get(s.symbol.toUpperCase())?.p ?? null : null} />
+              live={live} probabilityWhy={oddsWhy} ckHit={ckHits?.get(s.symbol.toUpperCase()) ?? null} />
           ))}
         </ol>
       )}
+      {!scan.isPending && <ChartinkOnlyList testId="desk-ck" />}
+      <ChartinkPicks variant="top" testId="desk-ck-picks" />
       <div className="flex flex-col" style={{ gap: 6, padding: "10px 18px", borderTop: line }}>
         <span data-testid="desk-opps-legend" style={{ fontSize: 11.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
           <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>Score</b> is the scanner’s rules-based score, 0–100: a rank, not a probability.{" "}
-          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>{headLabel("p_up5_1d")}</b> is the move-odds model’s probability of a +5% move in the next session only ({oddsWhy}); “—” when there is none.{" "}
+          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>{headLabel("p_up5_1d")}</b> is the move-odds model’s estimate for the next session only, and it is {PROBABILITY_WITHHELD.toLowerCase()} on every row: <span data-testid="desk-opps-prob-why">{oddsWhy}</span>
+          {evidence && <> Model evidence, not a probability: <span data-testid="desk-opps-prob-evidence">{evidence}</span>.</>}{" "}
           Horizon = the pick’s planned holding window. Liquidity: 20-session average traded value, liquid at ₹{fmtNum(LIQUID_MIN_CR)} Cr a day or more. Risk: {RISK_BANDS_TEXT}.{" "}
           {persona === "investor" ? "What could go wrong" : "Against"}: the conviction check of GET /api/positional/picks/mine (picks only).{" "}
           Company names come from the move-odds rows when published; the scanner sends symbols only.
@@ -1185,10 +1289,10 @@ function TopOpportunitiesCard() {
   );
 }
 
-function OppCardRow({ s, rank, persona, watchAsOf, name, live, p }: {
-  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; p: number | null;
+function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy, ckHit }: {
+  s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; name: string | null; live: ReturnType<typeof usePicksLive>; probabilityWhy: string; ckHit: ChartinkHitSymbol | null;
 }) {
-  const { openChart } = useDesk();
+  const { openChart, openStrategyIdeas } = useDesk();
   const close = latestClose(s, watchAsOf);
   const lp = live.data?.bySymbol.get(s.symbol.toUpperCase());
   const against = againstOf(lp);
@@ -1222,6 +1326,7 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, p }: {
             <span data-testid="desk-opp-symbol" className="cp-num" style={{ fontSize: 13, fontWeight: 500 }}>{s.symbol}</span>
             <span data-testid="desk-opp-name" title={name ? undefined : "The scanner routes send the NSE symbol only"} style={{ fontSize: 12, color: "var(--cp-ink-3)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name ?? "—"}</span>
             <span data-testid="desk-opp-status"><Pill tone={status.tone}>{status.label}</Pill></span>
+            <ChartinkTag hit={ckHit} />
           </span>
           <span data-testid="desk-opp-facts" className="flex flex-wrap" style={{ gap: "2px 12px", fontSize: 11.5, color: "var(--cp-ink-2)" }}>
             <span data-testid="desk-opp-setup">{investor ? "Shape" : "Setup"}: {patternText(s, persona)}</span>
@@ -1245,12 +1350,15 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, p }: {
           <span data-testid="desk-opp-score" className="cp-num" title="Rules-based scanner score, 0–100 (not a probability)" style={{ fontSize: 11, color: s.score != null && s.score >= 80 ? "var(--mint)" : "var(--cp-ink-2)", whiteSpace: "nowrap" }}>
             Score {s.score == null ? "—" : `${fmtNum(s.score)}/100`}
           </span>
-          <span data-testid="desk-opp-prob" className="cp-num" title={`${headLabel("p_up5_1d")} — the move-odds model, next session only`} style={{ fontSize: 10.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
-            P(+5% next session) {p == null ? "—" : fmtPct(p * 100, { digits: 1 })}
+          <span data-testid="desk-opp-prob" data-state="withheld" className="cp-num" title={`${headLabel("p_up5_1d")}: ${probabilityWhy}`} style={{ fontSize: 10.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
+            P(+5% next session) {PROBABILITY_WITHHELD}
           </span>
           {up != null && <span data-testid="desk-opp-upside" className="cp-num" style={{ fontSize: 10.5, color: up < 0 ? "var(--cp-danger)" : "var(--mint)", whiteSpace: "nowrap" }}>to target {fmtPct(up, { signed: true, digits: 1 })}</span>}
         </span>
       </button>
+      <div style={{ padding: "0 18px 10px 52px" }}>
+        <button type="button" data-testid="desk-opp-strategies" aria-label={`${s.symbol}: strategies for this idea`} onClick={() => openStrategyIdeas(s.symbol)} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 11.5, color: "var(--mint)" }}>Strategies ›</button>
+      </div>
     </li>
   );
 }
@@ -1542,6 +1650,7 @@ function MobileOverview({ home, macro }: { home: HomeQuery; macro: MacroQuery })
         </div>
       )}
       <StatusLine home={home.data} now={now} />
+      <DataAsOfLine home={home} macro={macro} compact />
       <MobilePulse home={home} macro={macro} />
       <TopOpportunities />
       <div className="grid" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
@@ -1567,7 +1676,7 @@ function MobileIndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIn
       <span data-testid="desk-index-change" className="cp-num" style={{ fontSize: 10, color: tone === "ink" ? "var(--cp-ink-2)" : TONE_COLOR[tone], whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         {ix ? `${fmtPoints(ix.change)} (${fmtPct(ix.change_pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
-      {ix && <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 8.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : ""}</span>}
+      {ix && <span data-testid="desk-index-stamp" data-mode={mode} className="cp-num" style={{ fontSize: 8.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp"}</span>}
     </div>
   );
 }
@@ -1663,15 +1772,20 @@ function BreadthStat({ value, label, color, testId }: { value: string; label: st
 
 /** "02 · Top AI opportunities" (phone): the scanner's five best by score (end of day), each opening its chart. */
 function TopOpportunities() {
-  const { openChart, openTab, persona } = useDesk();
+  const { openChart, openTab, openStrategyIdeas, persona } = useDesk();
   const scan = useDeskScanner();
   const rows = (scan.data?.setups ?? []).slice(0, 5);
   const date = scan.data?.watchAsOf ?? scan.data?.signalDate ?? null;
+  const ck = useChartink();
+  const ckHits = ck.kind === "ready" ? hitsBySymbol(ck.hits) : null;
   return (
     <section data-testid="desk-top-opps" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
       <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
         <span data-testid="desk-top-opps-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>02</span> · Top AI opportunities</span>
-        <button type="button" data-testid="desk-top-opps-all" onClick={() => openTab("scanner")} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>See all ›</button>
+        <span className="flex items-center" style={{ gap: 12 }}>
+          <button type="button" data-testid="desk-top-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
+          <button type="button" data-testid="desk-top-opps-all" onClick={() => openTab("scanner")} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>See all ›</button>
+        </span>
       </div>
       {scan.isPending ? (
         <div style={{ padding: "0 14px 14px" }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
@@ -1682,13 +1796,15 @@ function TopOpportunities() {
       ) : (
         <>
           <ol className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
-            {rows.map((s, i) => <OppRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} onOpen={() => openChart(s.symbol)} />)}
+            {rows.map((s, i) => <OppRow key={s.symbol} s={s} rank={i + 1} persona={persona} watchAsOf={scan.data?.watchAsOf ?? null} onOpen={() => openChart(s.symbol)} ckHit={ckHits?.get(s.symbol.toUpperCase()) ?? null} />)}
           </ol>
           <span className="cp-mono-note" style={{ padding: "10px 14px 4px", borderTop: line, lineHeight: 1.6 }}>
             Score is rules-based, 0–100, not a probability · upside = close to the pick’s target · price = the latest close in the scan
           </span>
         </>
       )}
+      {!scan.isPending && <ChartinkOnlyList compact testId="desk-top-ck" />}
+      <ChartinkPicks variant="top" testId="desk-top-ck-picks" />
       <div style={{ padding: "6px 14px 12px" }}>
         <TrustLine testId="desk-top-opps-trust" source="Positional scanner" mode="eod" asOf={date ? dayLabel(date) : null} maker="rules" />
       </div>
@@ -1696,7 +1812,7 @@ function TopOpportunities() {
   );
 }
 
-function OppRow({ s, rank, persona, watchAsOf, onOpen }: { s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; onOpen: () => void }) {
+function OppRow({ s, rank, persona, watchAsOf, onOpen, ckHit }: { s: DeskSetup; rank: number; persona: DeskPersona; watchAsOf: string | null; onOpen: () => void; ckHit: ChartinkHitSymbol | null }) {
   const up = upsidePct(s);
   const strong = s.score != null && s.score >= 80;
   const close = latestClose(s, watchAsOf);
@@ -1735,6 +1851,7 @@ function OppRow({ s, rank, persona, watchAsOf, onOpen }: { s: DeskSetup; rank: n
           {s.spark.length > 1 ? <Sparkline values={s.spark} tone="mint" height={20} /> : <span className="cp-mono-note">—</span>}
         </span>
       </button>
+      {ckHit && <div style={{ padding: "0 14px 10px 38px" }}><ChartinkTag hit={ckHit} testId="ck-tag" /></div>}
     </li>
   );
 }

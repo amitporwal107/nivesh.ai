@@ -178,6 +178,7 @@ def test_symbol_without_a_score(monkeypatch):
     c, _ = _client(monkeypatch, _handler(score=None))
     body = c.get("/api/positional/backtest/calibration", params={"symbol": "NOSCORE"}).json()
     assert body["symbol_score"] is None and body["symbol_reason"]
+    assert "scripts.run_positional_engine" in body["symbol_reason"]      # names the step that fills it
     assert not any(r["matched"] for r in body["buckets"])
 
 
@@ -187,6 +188,7 @@ def test_empty_table_says_so(monkeypatch):
     assert body["buckets"] == [] and body["count"] == 0
     assert body["sample"] is None and body["sample_reason"]
     assert body["empty_reason"]
+    assert "stock_ohlcv" in body["empty_reason"] and "backtest/label" in body["empty_reason"]
 
 
 def test_no_pool(monkeypatch):

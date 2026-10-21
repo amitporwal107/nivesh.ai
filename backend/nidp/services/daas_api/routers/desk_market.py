@@ -4,6 +4,8 @@
                                                         and breadth within each index that has a constituent list
     GET /v1/desk/sector-constituents?index=             one sector index's constituents, each with its move on the
                                                         index's latest close day, and the breadth within it
+    GET /v1/desk/sector-heatmap?index=Nifty 50          an index's stocks grouped by industry: 1d / 1w / 1m returns weighted by
+                                                        weight, index contribution, breadth, traded value, relative volume
     GET /v1/desk/deals?days=5&kind=all&symbol=&limit=   NSE bulk and block deals over the last `days` calendar days
     GET /v1/desk/fno-buildup?date=                      stock-futures open-interest build-up, one row per underlying,
                                                         plus the index futures (`indices`)
@@ -51,7 +53,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
@@ -245,6 +247,235 @@ async def sector_constituents(
     out.update({"available": True, "list_date": jsonify(members[0]["list_date"]), "date": jsonify(day),
                 "breadth": sector_breadth(rows), "count": len(rows), "rows": rows})
     return out
+
+
+# ── sector heatmap ───────────────────────────────────────────────────────────
+
+HEATMAP_DEFAULT_INDEX = "Nifty 50"
+HEATMAP_SESSIONS: Dict[str, int] = {"d": 1, "w": 5, "m": 21}
+HEATMAP_VOL_DAYS = 20
+HEATMAP_SOURCE = ("NSE index list (nidp.index_constituents) with split/bonus-adjusted closes and volumes "
+                  "(nidp.prices_eod_adjusted) and market cap (nidp.stock_features_daily)")
+HEATMAP_RULES: Dict[str, str] = {
+    "returns": ("Return = adjusted close on the as-of session / adjusted close N sessions earlier - 1, N = 1 (d), 5 (w), "
+                "21 (m). Sessions are the warehouse's own trading days (nidp.prices_eod_adjusted), counted back from the "
+                "latest session any constituent has a bar on; a stock with no bar on a session needed is null, never 0. "
+                "Splits and bonuses are adjusted out."),
+    "weight": ("weight_pct = the index list's own weight when every member has one; otherwise each member's share of the "
+               "members' market cap (close x shares outstanding, nidp.stock_features_daily). Normalised to 100 over the "
+               "members that have one."),
+    "sector_return": ("Sector return = the sector's stocks' returns weighted by their weight at the start of the window "
+                      "(end weight / (1 + return)), over the stocks that have both a weight and a return."),
+    "contribution": ("Contribution = a stock's (or sector's) share of the index's return over the window, in percentage "
+                     "points of the index's % move: start weight x return, with start weights normalised over the stocks "
+                     "that have a weight and a return. The contributions sum to weighted_change."),
+    "breadth": "advance = return d above 0, decline = below 0, unchanged = exactly 0, no_price = no return d (never counted as unchanged).",
+    "traded_value_cr": "Raw close x raw volume on the as-of session, in rupees crore (1e7).",
+    "rel_volume": "Volume on the as-of session / the mean volume of the 20 sessions before it (adjusted volume); null unless all 20 exist.",
+    "sector": "The industry the NSE index list gives the stock; a stock with no industry is 'Unclassified'.",
+}
+
+HEATMAP_INDEX_NAMES_SQL = "SELECT DISTINCT index_name FROM nidp.index_constituents ORDER BY index_name"
+HEATMAP_LIST_DATE_SQL = "SELECT MAX(as_of_date) FROM nidp.index_constituents WHERE index_name = $1"
+HEATMAP_MEMBERS_SQL = """
+    SELECT symbol, company_name, industry, weight_pct
+      FROM nidp.index_constituents
+     WHERE index_name = $1 AND as_of_date = $2
+     ORDER BY symbol
+"""
+HEATMAP_ASOF_SQL = "SELECT MAX(as_of_date) FROM nidp.prices_eod_adjusted WHERE symbol = ANY($1::text[])"
+HEATMAP_DATES_SQL = """
+    SELECT DISTINCT as_of_date FROM nidp.prices_eod_adjusted
+     WHERE as_of_date <= $1 ORDER BY as_of_date DESC LIMIT $2
+"""
+HEATMAP_BARS_SQL = """
+    SELECT symbol, as_of_date, adj_close, adj_volume, raw_close, raw_volume
+      FROM nidp.prices_eod_adjusted
+     WHERE symbol = ANY($1::text[]) AND as_of_date = ANY($2::date[])
+"""
+# The latest market cap on or up to 3 calendar days before the as-of session, one row per symbol.
+HEATMAP_MCAP_SQL = """
+    SELECT DISTINCT ON (symbol) symbol, market_cap_cr, as_of_date
+      FROM nidp.stock_features_daily
+     WHERE symbol = ANY($1::text[]) AND as_of_date <= $2 AND as_of_date >= $2 - 3 AND market_cap_cr IS NOT NULL
+     ORDER BY symbol, as_of_date DESC
+"""
+
+
+def _index_key(s: str) -> str:
+    return "".join(ch for ch in s.lower() if ch.isalnum())
+
+
+def _r(v: Optional[float], nd: int = 2) -> Optional[float]:
+    return None if v is None else round(v, nd)
+
+
+def _plural(syms: Sequence[str], limit: int = 12) -> str:
+    shown = ", ".join(syms[:limit])
+    return shown + (f" and {len(syms) - limit} more" if len(syms) > limit else "")
+
+
+def build_heatmap(index_name: str, list_date: Optional[date], members: Sequence[Dict[str, Any]], dates: Sequence[date],
+                  bars: Dict[Tuple[str, date], Dict[str, Any]], mcaps: Dict[str, float]) -> Dict[str, Any]:
+    """The heatmap payload from already-read rows. `dates` are the warehouse sessions, newest first; `bars` maps
+    (symbol, session) to adj_close / adj_volume / raw_close / raw_volume; `mcaps` maps symbol to market cap (₹ crore)."""
+    as_of = dates[0] if dates else None
+    unavailable: List[Dict[str, str]] = []
+    base_day = {k: (dates[n] if len(dates) > n else None) for k, n in HEATMAP_SESSIONS.items()}
+
+    def bar(sym: str, d: Optional[date]) -> Optional[Dict[str, Any]]:
+        return bars.get((sym, d)) if d is not None else None
+
+    # weights: the list's own when every member has one, else market-cap shares, else none
+    raw_w: Dict[str, Optional[float]] = {}
+    basis, note = None, None
+    if members and all(_num(m.get("weight_pct")) is not None for m in members):
+        basis = "index_list"
+        raw_w = {m["symbol"]: _num(m["weight_pct"]) for m in members}
+        note = "The NSE index list's own weights."
+    elif any(mcaps.get(m["symbol"]) for m in members):
+        basis = "market_cap"
+        raw_w = {m["symbol"]: (mcaps.get(m["symbol"]) or None) for m in members}
+        note = ("The index list carries no weights; weights are each stock's share of the members' full market cap "
+                "(close x shares outstanding). NSE's own weights are free-float adjusted, so these differ from them.")
+    total_w = sum(v for v in raw_w.values() if v) or 0.0
+    weight = {s: (100.0 * v / total_w if v and total_w else None) for s, v in raw_w.items()}
+    no_weight = [m["symbol"] for m in members if weight.get(m["symbol"]) is None]
+    if basis is None:
+        unavailable.append({"field": "weight_pct", "reason": "no weight on the index list and no market cap for any member; "
+                                                              "weighted returns and contributions cannot be computed"})
+    elif no_weight:
+        unavailable.append({"field": "weight_pct", "reason": f"no weight for {_plural(no_weight)}: "
+                                                              "left out of weighted returns and contributions"})
+
+    stocks: List[Dict[str, Any]] = []
+    for m in members:
+        sym = m["symbol"]
+        now = bar(sym, as_of)
+        px = _num(now["adj_close"]) if now else None
+        rets: Dict[str, Optional[float]] = {}
+        for k in HEATMAP_SESSIONS:
+            b = bar(sym, base_day[k])
+            base = _num(b["adj_close"]) if b else None
+            rets[k] = (px / base - 1.0) if px is not None and base and base > 0 else None
+        raw_close = _num(now["raw_close"]) if now else None
+        raw_vol = _num(now["raw_volume"]) if now else None
+        traded = raw_close * raw_vol / 1e7 if raw_close is not None and raw_vol is not None else None
+        rel = None
+        vol = _num(now["adj_volume"]) if now else None
+        prior = [_num((bar(sym, d) or {}).get("adj_volume")) for d in dates[1:HEATMAP_VOL_DAYS + 1]]
+        if vol is not None and len(prior) == HEATMAP_VOL_DAYS and all(v is not None for v in prior):
+            mean = sum(prior) / HEATMAP_VOL_DAYS
+            rel = vol / mean if mean > 0 else None
+        stocks.append({"symbol": sym, "name": m.get("company_name"), "sector": m.get("industry") or "Unclassified",
+                       "close": raw_close, "weight": weight.get(sym), "rets": rets, "traded": traded, "rel": rel})
+
+    # start weights s_i = end weight / (1 + r); shares of the index's move
+    start: Dict[str, Dict[str, float]] = {k: {} for k in HEATMAP_SESSIONS}
+    for k in HEATMAP_SESSIONS:
+        for st in stocks:
+            r_, w_ = st["rets"][k], st["weight"]
+            if r_ is not None and w_ is not None and 1.0 + r_ > 0:
+                start[k][st["symbol"]] = (w_ / 100.0) / (1.0 + r_)
+    total_s = {k: sum(v.values()) for k, v in start.items()}
+
+    def contrib(st: Dict[str, Any], k: str) -> Optional[float]:
+        s_ = start[k].get(st["symbol"])
+        return 100.0 * s_ * st["rets"][k] / total_s[k] if s_ is not None and total_s[k] else None
+
+    def agg(group: Sequence[Dict[str, Any]], k: str) -> Tuple[Optional[float], Optional[float]]:
+        """(weighted return %, contribution pp) of a group of stocks."""
+        ids = [st for st in group if st["symbol"] in start[k]]
+        if not ids or not total_s[k]:
+            return None, None
+        ssum = sum(start[k][st["symbol"]] for st in ids)
+        ret = 100.0 * sum(start[k][st["symbol"]] * st["rets"][k] for st in ids) / ssum
+        return ret, 100.0 * sum(start[k][st["symbol"]] * st["rets"][k] for st in ids) / total_s[k]
+
+    def breadth(group: Sequence[Dict[str, Any]]) -> Dict[str, int]:
+        out = {"advances": 0, "declines": 0, "unchanged": 0, "no_price": 0}
+        for st in group:
+            r_ = st["rets"]["d"]
+            out["no_price" if r_ is None else "advances" if r_ > 0 else "declines" if r_ < 0 else "unchanged"] += 1
+        return out
+
+    by_sector: Dict[str, List[Dict[str, Any]]] = {}
+    for st in stocks:
+        by_sector.setdefault(st["sector"], []).append(st)
+    sectors = []
+    for name, grp in by_sector.items():
+        ws = [st["weight"] for st in grp if st["weight"] is not None]
+        ag = {k: agg(grp, k) for k in HEATMAP_SESSIONS}
+        sectors.append({"name": name, "stocks": len(grp), "weight_pct": _r(sum(ws)) if ws else None,
+                        "returns": {k: _r(ag[k][0]) for k in HEATMAP_SESSIONS},
+                        "contribution_pct": {k: _r(ag[k][1], 3) for k in HEATMAP_SESSIONS},
+                        "breadth": breadth(grp)})
+    sectors.sort(key=lambda s: (s["weight_pct"] is None, -(s["weight_pct"] or 0.0), s["name"]))
+
+    out_stocks = []
+    for st in sorted(stocks, key=lambda x: (x["weight"] is None, -(x["weight"] or 0.0), x["symbol"])):
+        out_stocks.append({"symbol": st["symbol"], "name": st["name"], "sector": st["sector"], "close": st["close"],
+                           "weight_pct": _r(st["weight"]), "traded_value_cr": _r(st["traded"]), "returns": {k: _r(v_ * 100.0 if v_ is not None else None) for k, v_ in st["rets"].items()},
+                           "index_impact_pct": {k: _r(contrib(st, k), 3) for k in HEATMAP_SESSIONS},
+                           "rel_volume": _r(st["rel"])})
+
+    weighted = {k: _r(sum(v_ for v_ in (contrib(st, k) for st in stocks) if v_ is not None) if start[k] else None, 3)
+                for k in HEATMAP_SESSIONS}
+    nb = breadth(stocks)
+
+    if not as_of:
+        unavailable.append({"field": "returns", "reason": "no constituent has a bar in nidp.prices_eod_adjusted"})
+    else:
+        nopx = [st["symbol"] for st in stocks if st["rets"]["d"] is None]
+        if nopx:
+            unavailable.append({"field": "returns", "reason": f"no price (or no price on a session needed) for {_plural(nopx)} "
+                                                              f"on {as_of.isoformat()}: their returns are null"})
+        for k, n in HEATMAP_SESSIONS.items():
+            if base_day[k] is None:
+                unavailable.append({"field": f"returns.{k}", "reason": f"the warehouse holds fewer than {n + 1} sessions up to {as_of.isoformat()}"})
+        for field, key, why in (("traded_value_cr", "traded", "no raw close or volume on the as-of session"),
+                                ("rel_volume", "rel", "volume missing on the as-of session or on one of the 20 sessions before it")):
+            miss = [st["symbol"] for st in stocks if st[key] is None]
+            if miss:
+                unavailable.append({"field": field, "reason": f"{why}: {_plural(miss)} ({len(miss)} of {len(stocks)}) are null"})
+    return {"as_of": as_of.isoformat() if as_of else None, "index": index_name, "list_date": jsonify(list_date),
+            "source": HEATMAP_SOURCE, "sessions": dict(HEATMAP_SESSIONS), "mode": "end_of_day",
+            "weight_basis": basis, "weight_note": note, "rules": dict(HEATMAP_RULES),
+            "sectors": sectors, "stocks": out_stocks,
+            "breadth": {"advances": nb["advances"], "declines": nb["declines"], "unchanged": nb["unchanged"],
+                        "no_price": nb["no_price"]},
+            "weighted_change": weighted, "unavailable": unavailable}
+
+
+@router.get("/sector-heatmap", summary="Sector rotation heatmap: an index's stocks grouped by industry, with 1d / 1w / 1m returns")
+async def sector_heatmap(
+    index: str = Query(HEATMAP_DEFAULT_INDEX, min_length=3, max_length=60, pattern=_INDEX_PATTERN,
+                       description="An index name in nidp.index_constituents, e.g. 'Nifty 50' (spaces and case ignored)"),
+) -> Dict[str, Any]:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        names = [r["index_name"] for r in await conn.fetch(HEATMAP_INDEX_NAMES_SQL)]
+        name = next((n for n in names if _index_key(n) == _index_key(index)), None)
+        if name is None:
+            raise HTTPException(status_code=404, detail=f"unknown_index: '{index.strip()}' (valid: {', '.join(names)})")
+        list_date = await conn.fetchval(HEATMAP_LIST_DATE_SQL, name)
+        members = [dict(r) for r in await conn.fetch(HEATMAP_MEMBERS_SQL, name, list_date)]
+        if not members:
+            raise HTTPException(status_code=404, detail=f"no constituent list for {name} in nidp.index_constituents")
+        symbols = [m["symbol"] for m in members]
+        as_of = await conn.fetchval(HEATMAP_ASOF_SQL, symbols)
+        dates: List[date] = []
+        bars: Dict[Tuple[str, date], Dict[str, Any]] = {}
+        mcaps: Dict[str, float] = {}
+        if as_of is not None:
+            dates = [r["as_of_date"] for r in await conn.fetch(HEATMAP_DATES_SQL, as_of, max(HEATMAP_SESSIONS.values()) + 1)]
+            for r in await conn.fetch(HEATMAP_BARS_SQL, symbols, dates):
+                bars[(r["symbol"], r["as_of_date"])] = dict(r)
+            for r in await conn.fetch(HEATMAP_MCAP_SQL, symbols, as_of):
+                v = _num(r["market_cap_cr"])
+                if v:
+                    mcaps[r["symbol"]] = v
+    return build_heatmap(name, list_date, members, dates, bars, mcaps)
 
 
 # ── bulk and block deals ─────────────────────────────────────────────────────
