@@ -107,3 +107,51 @@ def test_home_helpers_no_longer_reference_nidp_tables_in_sql():
     assert "pool" not in src and "conn.fetch" not in src
     for relation in ("analytics.mv_top_momentum", "nidp.fii_dii_flows", "nidp.corporate_announcements"):
         assert relation not in src
+
+
+# ── API-only: no SQL fallback anywhere in the Market Pulse / Filings / Sector paths ──
+
+def test_daas_first_returns_data_and_never_needs_a_pool(daas, monkeypatch):
+    async def movers(cap="large"):
+        return {"as_of": "2026-01-09", "cap": cap, "gainers": [], "losers": []}
+    monkeypatch.setattr(daas_client, "get_market_pulse_movers", movers)
+    out = _run(markets._daas_first("get_market_pulse_movers", {"cap": "mid"}, {"empty": True}))
+    assert out["cap"] == "mid"
+
+
+@pytest.mark.parametrize("failure", ["none", "raises", "unconfigured"])
+def test_daas_first_returns_empty_instead_of_falling_back_to_sql(daas, monkeypatch, failure):
+    async def call(**kw):
+        if failure == "raises":
+            raise RuntimeError("DaaS 502")
+        return None
+    monkeypatch.setattr(daas_client, "get_market_pulse_movers", call)
+    if failure == "unconfigured":
+        monkeypatch.setattr(daas_client, "is_configured", lambda: False)
+    assert _run(markets._daas_first("get_market_pulse_movers", {}, {"empty": True})) == {"empty": True}
+
+
+def test_no_direct_sql_against_nidp_schemas_in_market_filings_or_sector_code():
+    import inspect, re
+    from routes import filings
+    from services import sector_analysis
+    for mod in (markets, filings, sector_analysis):
+        code = "\n".join(ln for ln in inspect.getsource(mod).splitlines() if not ln.lstrip().startswith("#"))
+        assert not re.search(r"(FROM|JOIN|INTO|UPDATE)\s+(nidp|analytics|ref|monitoring)\.", code), mod.__name__
+        assert "pg_client" not in code, mod.__name__
+
+
+def test_sector_index_levels_come_from_the_daas_index_series(daas, monkeypatch):
+    from services import sector_analysis
+    seen = []
+
+    async def history(name, start=None, **kw):
+        seen.append((name, start))
+        if name == "Nifty Missing":
+            return []
+        return [{"as_of_date": "2026-01-08", "close_price": 100.0, "pct_change": 0.5, "pe_ratio": 20.0},
+                {"as_of_date": "2026-01-09", "close_price": 101.5, "pct_change": 1.5, "pe_ratio": 20.3}]
+    monkeypatch.setattr(daas_client, "get_index_eod_history", history)
+    out = _run(sector_analysis._fetch_index_eod(["Nifty Bank", "Nifty Missing", "Nifty Bank"]))
+    assert out == {"Nifty Bank": {"pct_change": 1.5, "pe_ratio": 20.3, "close": 101.5}}
+    assert [n for n, _ in seen] == ["Nifty Bank", "Nifty Missing"]      # de-duplicated, latest row used

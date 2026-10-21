@@ -83,3 +83,37 @@ def test_parse_navall_header_only():
     nav_rows, scheme_rows = parse_nav_all(body)
     assert nav_rows == []
     assert scheme_rows == []
+
+
+# ── Eight-column layout (Plan and Option split out of the scheme name) ──────
+_EIGHT_COL = (
+    "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;Option;Net Asset Value;Date\r\n"
+    " \r\n"
+    "Open Ended Schemes(Equity Scheme - Large Cap Fund)\r\n"
+    " \r\n"
+    "Alpha Mutual Fund\r\n"
+    " \r\n"
+    "900001;INF000A01AA1;-;Alpha Large Cap Fund;Direct Plan;Growth Option;29.0745;09-Oct-2026\r\n"
+    "900002;INF000A01AB9;INF000A01AC7;Alpha Large Cap Fund;Regular Plan;IDCW Option;26.7829;09-Oct-2026\r\n"
+    "900003;-;-;Alpha Legacy Fund;-;-;N.A.;09-Oct-2026\r\n"
+).encode()
+
+
+def test_eight_column_layout_reads_nav_and_date_by_header_name():
+    nav_rows, scheme_rows = parse_nav_all(_EIGHT_COL)
+    assert [(r["scheme_code"], r["nav"], str(r["nav_date"])) for r in nav_rows] == [
+        ("900001", 29.0745, "2026-10-09"),
+        ("900002", 26.7829, "2026-10-09"),
+    ]
+    assert len(scheme_rows) == 2            # the N.A. row has no NAV and is skipped
+
+
+def test_eight_column_layout_rebuilds_the_descriptive_scheme_name():
+    _, scheme_rows = parse_nav_all(_EIGHT_COL)
+    by_code = {s["scheme_code"]: s for s in scheme_rows}
+    assert by_code["900001"]["scheme_name"] == "Alpha Large Cap Fund - Direct Plan - Growth Option"
+    assert by_code["900002"]["scheme_name"] == "Alpha Large Cap Fund - Regular Plan - IDCW Option"
+    assert by_code["900001"]["isin_growth"] == "INF000A01AA1" and by_code["900001"]["isin_idcw"] is None
+    assert by_code["900002"]["isin_idcw"] == "INF000A01AC7"
+    assert by_code["900001"]["amc_name_raw"] == "Alpha Mutual Fund"
+    assert by_code["900001"]["scheme_category"] == "Equity Scheme - Large Cap Fund"

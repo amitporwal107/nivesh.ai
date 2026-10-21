@@ -54,6 +54,7 @@ from routes.upload import router as upload_router
 from routes.analytics import router as analytics_router
 from routes.chat import router as chat_router
 from routes.screeners import router as screeners_router
+from routes.watchlists import router as watchlists_router  # personal watchlists (per-user lists of stocks)
 from routes.user import router as user_router
 from routes.insights import router as insights_router
 from routes.scenarios import router as scenarios_router
@@ -82,6 +83,7 @@ from routes.strategy_builder import router as strategy_builder_router  # Strateg
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
 from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
+from routes.broker_native import short_router as broker_callback_short_router  # /api/b/<broker>: short broker callback address
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
 from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
@@ -90,8 +92,11 @@ from routes.markets import router as markets_router              # Markets home 
 from routes.filings import router as filings_router              # Filings Home — feed + signals (/api/filings/*)
 from routes.move_odds import router as move_odds_router          # Research → Move odds (/api/move-odds/*, allowlist flag)
 from routes.paper_trades import router as paper_trades_router    # Research → Paper (/api/paper-trades/*, move_odds allowlist)
+from routes.fno import router as fno_router                      # Options lab + F&O analyser — end-of-day chain, expiries, futures (/api/fno/*, read-only)
 from routes.sim_lab import router as sim_lab_router            # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 from routes.research_chart import router as research_chart_router        # Research → Charts (/api/research/chart/*, allowlist flag)
+from routes.research_chart_intraday import router as research_chart_intraday_router  # Research → Charts intraday bars from Kite (/api/research/chart-intraday/*)
+from routes.live_quotes import router as live_quotes_router  # Live Kite quotes (/api/live/*)
 from routes.research_chart_live import router as research_chart_live_router  # Research → Charts LIVE bars (/api/research/chart-live/*)
 from routes.research_drawings import router as research_drawings_router  # Research → Charts drawings (/api/research/drawings, allowlist flag)
 from routes.research_chart_layouts import router as research_chart_layouts_router  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
@@ -118,6 +123,16 @@ from routes.grafana_alerts import router as grafana_alerts_router  # Grafana web
 from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
 from routes.release_docs import router as release_docs_router  # Settings → Release Management (versioned release docs in Mongo)
 from routes.research_watchlist import router as research_watchlist_router  # Public, no-auth /watchlist page (personal research, price-tracked)
+from routes.events_calendar import router as events_calendar_router  # Trading desk: /api/markets/events-calendar
+from routes.macro_calendar import router as macro_calendar_router  # Trading desk: /api/markets/macro-calendar
+from routes.symbol_lookup import router as symbol_lookup_router  # /api/markets/symbol-lookup (type-ahead, did-you-mean)
+from routes.markets_desk import router as markets_desk_router  # Trading desk: /api/markets/sector-returns, /api/markets/deals
+from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
+from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
+from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
+from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
+from routes.strategy_plan import router as strategy_plan_router  # Strategy Builder: POST /api/desk/strategy/payoff (pure calculation)
+from routes.circulars import router as circulars_router  # Trading desk: SEBI circulars (/api/markets/circulars)
 
 # ── CAS ingestion module ──────────────────────────────────────────────
 # Used to be a standalone FastAPI service in its own container; now mounted
@@ -149,6 +164,12 @@ except ImportError:
     pass  # graceful no-op if not installed (local dev without the package)
 
 # Include all routers
+# No personal detail reaches a model provider from any call site: llm_guard wraps the provider
+# SDKs themselves, because there are twelve independent client constructions and no shared
+# factory, so a per-call-site guard would miss the next one someone adds.
+from services import llm_guard as _llm_guard
+_llm_guard.install()
+
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(admin_users_router)
@@ -175,6 +196,7 @@ app.include_router(upload_router)
 app.include_router(analytics_router)
 app.include_router(chat_router)
 app.include_router(screeners_router)
+app.include_router(watchlists_router)
 app.include_router(user_router)
 app.include_router(insights_router)
 app.include_router(scenarios_router)
@@ -206,6 +228,7 @@ app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: 
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
 app.include_router(broker_connect_router)          # Secure Portfolio Connect — broker holdings via OpenAlgo
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
+app.include_router(broker_callback_short_router)   # /api/b/<broker> — the same callback at a short address (ICICI Direct's form caps the URL length)
 app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(movers_router)                   # Top Movers dashboard (/api/movers, /{symbol}, /{symbol}/analysis)
@@ -213,8 +236,11 @@ app.include_router(markets_router)                 # Markets home dashboard aggr
 app.include_router(filings_router)                # Filings Home — feed + signals (/api/filings/*)
 app.include_router(move_odds_router)              # Research → Move odds (/api/move-odds/*, allowlist flag)
 app.include_router(paper_trades_router)           # Research → Paper (/api/paper-trades/*, move_odds allowlist)
+app.include_router(fno_router)                    # Options lab + F&O analyser — end-of-day chain, expiries, futures (/api/fno/*, read-only)
 app.include_router(sim_lab_router)                # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 app.include_router(research_chart_router)         # Research → Charts (/api/research/chart/*, allowlist flag)
+app.include_router(research_chart_intraday_router)
+app.include_router(live_quotes_router)             # Live Kite quotes: status / quotes / snapshot / SSE stream (/api/live/*)
 app.include_router(research_chart_live_router)    # Research → Charts LIVE bars (/api/research/chart-live/*, allowlist flag)
 app.include_router(research_drawings_router)      # Research → Charts drawings (/api/research/drawings, allowlist flag)
 app.include_router(research_chart_layouts_router)  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
@@ -247,6 +273,16 @@ app.include_router(cas_health_router)     # GET  /api/healthz, /api/readyz (CAS-
 app.include_router(work_router)           # GET/POST/PATCH /api/work/issues, /api/work/stats
 app.include_router(grafana_alerts_router) # POST /api/internal/grafana-alerts, GET /api/admin/grafana-alerts
 app.include_router(monitoring_actions_router) # POST /api/admin/monitoring/action, GET /api/admin/monitoring/actions
+app.include_router(events_calendar_router)  # /api/markets/events-calendar, /history
+app.include_router(macro_calendar_router)  # /api/markets/macro-calendar, /history
+app.include_router(symbol_lookup_router)     # /api/markets/symbol-lookup
+app.include_router(markets_desk_router)      # /api/markets/sector-returns, /api/markets/deals
+app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
+app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
+app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
+app.include_router(desk_chartink_router)     # /api/desk/chartink/*
+app.include_router(strategy_plan_router)     # /api/desk/strategy/payoff
+app.include_router(circulars_router)         # /api/markets/circulars
 
 
 # Root endpoint
@@ -389,6 +425,15 @@ async def startup_seed():
         await _db.otp_codes.create_index("email", unique=True, background=True)
     except Exception as e:
         logger.warning("otp_codes index ensure failed: %s", e)
+    # Broker sync snapshots — listed per account, newest first; fetched by id.
+    try:
+        from deps import db as _db
+        await _db.broker_sync_snapshots.create_index(
+            [("user_id", 1), ("broker_account_id", 1), ("synced_at", -1)], background=True
+        )
+        await _db.broker_sync_snapshots.create_index("snapshot_id", unique=True, background=True)
+    except Exception as e:
+        logger.warning("broker_sync_snapshots index ensure failed: %s", e)
     # Datastore isolation — refuse to start production when Postgres /
     # Redis / Mongo are shared with the preview environment. Preview
     # deploys log a warning and continue.
@@ -401,10 +446,21 @@ async def startup_seed():
         raise
     except Exception as e:
         logger.warning("datastore isolation audit failed: %s", e)
+    # Live Kite quote feed (read-only, leader-elected, KITE_LIVE_FEED_ENABLED=0 turns it off)
+    try:
+        from services import kite_live_feed
+        await kite_live_feed.start(db)
+    except Exception as e:
+        logger.warning("kite live feed did not start: %s", type(e).__name__)
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        from services import kite_live_feed
+        await kite_live_feed.stop(db)
+    except Exception:
+        pass
     try:
         from services import mf_scheduler, pg_client, redis_client
         mf_scheduler.stop()

@@ -1,0 +1,29 @@
+{
+  "_comment": "MOCK — not real data. What the stand-in for the /api/watchlists routes (backend/routes/watchlists.py) answers with in e2e/tests/copilot-app-watchlists.spec.ts; every company, symbol and price is made up. `starter` is what POST /api/watchlists/starter copies: the three stocks of the latest list in copilot-workspace-research-watchlist.json, in its order. `quotes` holds the `quote` object GET /api/watchlists/{id} sends for each symbol (null = no live and no stored price). `companies` are rows of GET /api/filings/companies/search, the symbol master the add route checks.",
+  "limits": { "max_lists": 20, "max_symbols": 100 },
+  "starter": {
+    "name": "Multibagger",
+    "seeded_from": "2026-10-12",
+    "stocks": [
+      { "symbol": "FIXALPHA", "company_name": "Fixture Alpha Industries Ltd" },
+      { "symbol": "FIXBRAVO", "company_name": "Fixture Bravo Pharma Ltd" },
+      { "symbol": "FIXCHARLIE", "company_name": "Fixture Charlie Power Ltd" }
+    ]
+  },
+  "quotes": {
+    "FIXALPHA": { "price": 213.0, "day_change": 2.5, "day_change_pct": 1.19, "as_of": "2026-10-13T09:50:00+00:00", "is_live": true },
+    "FIXBRAVO": { "price": 480.0, "day_change": -6.0, "day_change_pct": -1.23, "as_of": "2026-10-13T09:50:00+00:00", "is_live": true },
+    "FIXCHARLIE": { "price": 75.4, "day_change": 0.5, "day_change_pct": 0.67, "as_of": "2026-10-10", "is_live": false },
+    "FIXDELTA": null,
+    "FIXECHO": { "price": 1520.0, "day_change": null, "day_change_pct": null, "as_of": "2026-10-12", "is_live": false },
+    "FIX&FOX": { "price": 64.25, "day_change": 0.0, "day_change_pct": 0.0, "as_of": "2026-10-13T09:50:00+00:00", "is_live": true },
+    "FIXNAMELESS": null
+  },
+  "companies": [
+    { "symbol": "FIXALPHA", "name": "Fixture Alpha Industries Limited", "sector": "Capital Goods" },
+    { "symbol": "FIXBRAVO", "name": "Fixture Bravo Pharma Limited", "sector": "Healthcare" },
+    { "symbol": "FIXDELTA", "name": "Fixture Delta Finance Limited", "sector": "Finance" },
+    { "symbol": "FIXECHO", "name": "Fixture Echo Motors Limited", "sector": "Automobile" },
+    { "symbol": "FIX&FOX", "name": "Fixture & Fox Retail Limited", "sector": null }
+  ]
+}

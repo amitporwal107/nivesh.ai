@@ -1,0 +1,31 @@
+{
+ "note": "get_stock_parameter_values reply captured read-only on 2026-10-14 00:01 IST. Includes Vodafone Idea (negative net worth) and the provider's book value per share, used to check P/B = LTP / BVSH.",
+ "tool": "get_stock_parameter_values",
+ "arguments": {
+  "stock_codes": [
+   "RELIANCE",
+   "TCS",
+   "HDFCBANK",
+   "DMART",
+   "INFY",
+   "SWARAJENG",
+   "GSFC",
+   "AFFLE",
+   "IDEA",
+   "ZYDUSWELL"
+  ],
+  "parameters": [
+   "roea",
+   "rocea",
+   "debtcea",
+   "pbva",
+   "mcapq",
+   "bvshq",
+   "currentprice",
+   "pettm",
+   "totalshareholdersfundsq",
+   "ltdea"
+  ]
+ },
+ "text": "{\"status\": \"success\", \"data\": \"1127|Reliance Industries|RELIANCE|500325|2026-10-13\\n1372|TCS|TCS|532540|2026-10-13\\n533|HDFC Bank|HDFCBANK|500180|2026-10-13\\n53208|Avenue Supermarts|DMART|540376|2026-10-13\\n630|Infosys|INFY|500209|2026-10-13\\n1339|Swaraj Engines|SWARAJENG|500407|2026-10-13\\n499|Gujarat State Fertilizer|GSFC|500690|2026-10-13\\n154217|Affle 3I|AFFLE|542752|2026-10-13\\n589|Vodafone Idea|IDEA|532822|2026-10-13\\n1550|Zydus Wellness|ZYDUSWELL|531335|2026-10-13\\n\\nTotal Debt to Total Equity Ann.\\nRELIANCE:0.41\\nTCS:0.00\\nHDFCBANK:1.00\\nDMART:0.04\\nINFY:0.00\\nSWARAJENG:0.00\\nGSFC:0.00\\nAFFLE:0.00\\nIDEA:-4.18\\nZYDUSWELL:0.55\\n\\n---\\n\\nPBV Adjusted\\nRELIANCE:1.69\\nTCS:6.37\\nHDFCBANK:1.81\\nDMART:8.67\\nINFY:4.11\\nSWARAJENG:8.34\\nGSFC:0.48\\nAFFLE:5.30\\nIDEA:-3.47\\nZYDUSWELL:2.63\\n\\n---\\n\\nLT Debt To Equity Ann.\\nRELIANCE:0.30\\nTCS:0.00\\nHDFCBANK:1.00\\nDMART:0.00\\nINFY:0.00\\nSWARAJENG:0.00\\nGSFC:0.00\\nAFFLE:0.00\\nIDEA:-4.08\\nZYDUSWELL:0.52\\n\\n---\\n\\nROCE Ann. %\\nRELIANCE:9.17\\nTCS:58.65\\nHDFCBANK:6.75\\nDMART:16.40\\nINFY:40.23\\nSWARAJENG:53.50\\nGSFC:6.58\\nAFFLE:15.29\\nIDEA:-1.68\\nZYDUSWELL:3.85\\n\\n---\\n\\nTotal ShareHolders Funds Qtr\\nRELIANCE:None\\nTCS:None\\nHDFCBANK:None\\nDMART:None\\nINFY:None\\nSWARAJENG:None\\nGSFC:None\\nAFFLE:None\\nIDEA:None\\nZYDUSWELL:None\\n\\n---\\n\\nBVSH Latest\\nRELIANCE:685.04\\nTCS:333.49\\nHDFCBANK:390.37\\nDMART:388.23\\nINFY:247.97\\nSWARAJENG:448.11\\nGSFC:311.73\\nAFFLE:268.3\\nIDEA:-3.65\\nZYDUSWELL:186.85\\n\\n---\\n\\nPE TTM\\nRELIANCE:20.99\\nTCS:14.90\\nHDFCBANK:13.76\\nDMART:70.43\\nINFY:13.67\\nSWARAJENG:21.35\\nGSFC:8.54\\nAFFLE:41.97\\nIDEA:3.67\\nZYDUSWELL:83.15\\n\\n---\\n\\nROE Ann. %\\nRELIANCE:8.93\\nTCS:45.88\\nHDFCBANK:12.97\\nDMART:12.14\\nINFY:31.70\\nSWARAJENG:40.15\\nGSFC:5.48\\nAFFLE:12.45\\nIDEA:-96.62\\nZYDUSWELL:3.38\\n\\n---\\n\\nLTP\\nRELIANCE:1158.90\\nTCS:2125.00\\nHDFCBANK:704.90\\nDMART:3364.90\\nINFY:1020.00\\nSWARAJENG:3738.40\\nGSFC:148.40\\nAFFLE:1423.10\\nIDEA:12.67\\nZYDUSWELL:491.85\\n\\n---\\n\\nMarket Cap\\nRELIANCE:1568285.91\\nTCS:768843.59\\nHDFCBANK:1086856.92\\nDMART:219495.62\\nINFY:413944.21\\nSWARAJENG:4542.12\\nGSFC:5913.41\\nAFFLE:20053.51\\nIDEA:137270.63\\nZYDUSWELL:15648.73\\n\\n---\"}"
+}

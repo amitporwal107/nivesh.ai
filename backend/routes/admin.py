@@ -725,7 +725,8 @@ async def remove_feature_user(flag: str, email: str, request: Request):
 
 @router.post("/admin/nidp/export-portfolio")
 async def trigger_portfolio_gcs_export(request: Request):
-    """Export Nivesh portfolio holdings to GCS landing zone for NIDP consumption.
+    """Send Nivesh portfolio holdings to NIDP (HTTP push to the NIDP Query API;
+    GCS landing zone only where that API is not configured).
 
     Optional body: {"date": "YYYY-MM-DD"} to export a specific snapshot date.
     Default: latest snapshot per client.
@@ -745,15 +746,14 @@ async def trigger_portfolio_gcs_export(request: Request):
         except ValueError:
             raise ValidationException("Invalid date format, use YYYY-MM-DD", code="VAL-003")
 
-    from services.portfolio_gcs_export import export_portfolio_to_gcs
+    from services.portfolio_direct_push import sync_portfolio_to_nidp
 
-    try:
-        result = await export_portfolio_to_gcs(db, target_date=target_date)
-        logger.info("portfolio GCS export triggered by admin: %s", result)
-        return {"status": "ok", **result}
-    except Exception as exc:
-        logger.error("portfolio GCS export failed: %s", exc, exc_info=True)
-        raise SystemException(str(exc), code="SYS-001", cause=exc)
+    res = await sync_portfolio_to_nidp(db, target_date=target_date, include=("holdings",))
+    holdings = res.get("holdings") or {}
+    logger.info("portfolio sync to NIDP triggered by admin: %s", res)
+    if holdings.get("error"):
+        raise SystemException(holdings["error"], code="SYS-001")
+    return {"status": "ok", "via": res.get("via"), **holdings}
 
 
 @router.post("/admin/nidp/full-portfolio-sync")
@@ -792,32 +792,24 @@ async def trigger_full_portfolio_sync(request: Request):
         except ValueError:
             raise ValidationException("Invalid date format, use YYYY-MM-DD", code="VAL-003")
 
-    from services.portfolio_gcs_export import (
-        export_portfolio_to_gcs,
-        export_cas_transactions_to_gcs,
-        export_user_goals_to_gcs,
-    )
+    from services.portfolio_direct_push import sync_portfolio_to_nidp
     from services import nidp_query_client as _nq
 
     result: dict = {"status": "ok", "date": target_date.isoformat() if target_date else None,
                     "gcs_exports": {}, "nidp_feeds": {}, "errors": []}
 
-    # ── Stage 1: Nivesh → GCS ─────────────────────────────────────────
-    for name, fn in (
-        ("holdings",     export_portfolio_to_gcs),
-        ("transactions", export_cas_transactions_to_gcs),
-        ("goals",        export_user_goals_to_gcs),
-    ):
-        try:
-            res = await fn(db, target_date=target_date)
-            result["gcs_exports"][name] = res
-            logger.info("full-portfolio-sync: %s export → %s", name, res)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("full-portfolio-sync: %s export failed: %s", name, exc, exc_info=True)
-            result["gcs_exports"][name] = {"error": str(exc)}
-            result["errors"].append(f"export:{name}: {exc}")
+    # ── Stage 1: send holdings, transactions and goals to NIDP ──────────────
+    # (response key kept as "gcs_exports" for existing callers; "via" says how)
+    sync = await sync_portfolio_to_nidp(db, target_date=target_date)
+    result["via"] = sync.get("via")
+    for name in ("holdings", "transactions", "goals"):
+        res = sync.get(name) or {}
+        result["gcs_exports"][name] = res
+        logger.info("full-portfolio-sync: %s (%s) → %s", name, sync.get("via"), res)
+        if res.get("error"):
+            result["errors"].append(f"export:{name}: {res['error']}")
 
-    # ── Stage 2: GCS → NIDP TimescaleDB (only if Query API wired) ────
+    # ── Stage 2: NIDP-side jobs (only if Query API wired) ────
     if not _nq.is_configured():
         result["nidp_feeds"]["skipped_reason"] = (
             "NIDP_QUERY_API_URL/TOKEN not configured — Stage 2 skipped"
@@ -826,12 +818,16 @@ async def trigger_full_portfolio_sync(request: Request):
     else:
         date_param = target_date.isoformat() if target_date else None
         # Order is load-bearing — intelligence sync joins the other three.
-        for ingester in (
+        # After a direct push the data is already in NIDP, so only the
+        # intelligence job runs; the three file-reading sync jobs are for the
+        # GCS landing zone.
+        ingesters = ("portfolio_intelligence_sync",) if sync.get("via") == "direct" else (
             "portfolio_holdings_sync",
             "portfolio_transactions_sync",
             "portfolio_goals_sync",
             "portfolio_intelligence_sync",
-        ):
+        )
+        for ingester in ingesters:
             try:
                 resp = await _nq.execute_feed(ingester, target_date=date_param)
                 result["nidp_feeds"][ingester] = {"ok": True, **resp}

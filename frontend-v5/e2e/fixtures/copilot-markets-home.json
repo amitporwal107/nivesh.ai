@@ -1,0 +1,186 @@
+{
+  "ok": true,
+  "as_of": "2026-01-08",
+  "is_live": false,
+  "market_state": "closed",
+  "fetched_at": "2026-01-09T10:00:05+05:30",
+  "verdict": "NORMAL",
+  "verdict_reason": "FIXTURE verdict reason, shown exactly as sent",
+  "indices": [
+    {
+      "name": "Nifty 50",
+      "value": 20000,
+      "change": 200,
+      "change_pct": 1.0,
+      "is_vix": false,
+      "trend": null,
+      "spark": [
+        19500,
+        19700,
+        19800,
+        20000
+      ]
+    },
+    {
+      "name": "Sensex",
+      "value": 66000,
+      "change": -330,
+      "change_pct": -0.5,
+      "is_vix": false,
+      "trend": null,
+      "spark": [
+        66500,
+        66400,
+        66200,
+        66000
+      ]
+    },
+    {
+      "name": "India VIX",
+      "value": 15,
+      "change": -0.6,
+      "change_pct": -3.85,
+      "is_vix": true,
+      "trend": "FALLING",
+      "spark": []
+    }
+  ],
+  "breadth": {
+    "advances": 1500,
+    "declines": 900,
+    "unchanged": 100,
+    "universe": 2500,
+    "tone": "POSITIVE",
+    "pct_above_20ema": 62.4,
+    "pct_above_50ema": 48.2,
+    "new_52w_highs": 34,
+    "new_52w_lows": 12
+  },
+  "gainers": [
+    {
+      "symbol": "FIXTUREUP",
+      "name": "Fixture Gainer Ltd",
+      "price": 101.5,
+      "change_pct": 4.2
+    }
+  ],
+  "losers": [
+    {
+      "symbol": "FIXTUREDN",
+      "name": "Fixture Loser Ltd",
+      "price": 88.25,
+      "change_pct": -3.1
+    }
+  ],
+  "movers_as_of": "2026-01-08",
+  "sectors": [
+    {
+      "name": "Fixture Sector B",
+      "change_pct": -0.75
+    },
+    {
+      "name": "Fixture Sector A",
+      "change_pct": 1.5
+    },
+    {
+      "name": "Fixture Sector C",
+      "change_pct": 0.25
+    }
+  ],
+  "fii_dii": {
+    "as_of": "2026-01-08",
+    "fii_net_cr": -1500.5,
+    "dii_net_cr": 2200.25
+  },
+  "news": [
+    {
+      "title": "Fixture Gainer Ltd — Fixture headline one",
+      "category": "Earnings",
+      "when": "2026-01-08T10:00:00+00:00",
+      "symbol": "FIXTUREUP",
+      "sentiment": "positive"
+    },
+    {
+      "title": "Fixture headline two without a company",
+      "category": "Orders",
+      "when": null,
+      "symbol": null,
+      "sentiment": "negative"
+    }
+  ],
+  "global_cues": [
+    {
+      "name": "Fixture Futures",
+      "sub": "pre-market",
+      "value": 5000.5,
+      "change_pct": 0.25,
+      "region": null,
+      "unit": null,
+      "featured": true
+    },
+    {
+      "name": "Fixture 10Y",
+      "sub": "yield %",
+      "value": 4.25,
+      "change_pct": -1.0,
+      "region": null,
+      "unit": "yield %",
+      "featured": false
+    }
+  ],
+  "global_indices": {
+    "us": [
+      {
+        "name": "Fixture US Index",
+        "sub": "US",
+        "value": 40000,
+        "change_pct": 0.5,
+        "region": "us",
+        "unit": null,
+        "featured": false
+      }
+    ],
+    "europe": [
+      {
+        "name": "Fixture EU Index",
+        "sub": "EU",
+        "value": 8000,
+        "change_pct": -0.2,
+        "region": "europe",
+        "unit": null,
+        "featured": false
+      }
+    ],
+    "asia": [
+      {
+        "name": "Fixture Asia Index",
+        "sub": "JP",
+        "value": 30000,
+        "change_pct": 1.1,
+        "region": "asia",
+        "unit": null,
+        "featured": false
+      }
+    ]
+  },
+  "commodities": [
+    {
+      "name": "Fixture Crude",
+      "sub": null,
+      "value": 80.5,
+      "change_pct": -1.25,
+      "region": null,
+      "unit": "$/bbl",
+      "featured": false
+    },
+    {
+      "name": "Fixture Gold",
+      "sub": null,
+      "value": 2000,
+      "change_pct": 0.4,
+      "region": null,
+      "unit": "$/oz",
+      "featured": false
+    }
+  ]
+}

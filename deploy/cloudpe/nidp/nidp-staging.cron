@@ -44,6 +44,10 @@ NIDP_HOME=/opt/nidp-staging
 30 20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh rbi_yields
 # HELD (needs FRED_API_KEY in nidp.env):
 # 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh fred_macro
+# Macro releases for the desk Events calendar (FRED, Fed, MoSPI, RBI; needs FRED_API_KEY in nidp.env, set 2026-10-21).
+# Twice a day, every day: 02:30 IST picks up the US evening releases, 20:30 IST the Indian daytime ones. Idempotent upserts.
+30 2  * * *    nidp-staging  /opt/nidp-staging/run_service.sh macro_calendar
+30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh macro_calendar
 
 # ── Monthly ───────────────────────────────────────────────────────
 0  6  1 * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_calendar
@@ -51,6 +55,10 @@ NIDP_HOME=/opt/nidp-staging
 
 # ── Phase 1B daily NSE rolling-list ingesters ─────────────────────
 30 19 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+# NSE posts the F&O file after 19:30 (404 at 19:30 on 16 and 19 Oct 2026; present by 22:20). Retry
+# twice; the writer upserts on its key, so a run on an already-loaded day changes nothing.
+0  21 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
+15 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh fno_bhavcopy
 30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials
 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_shareholding
 
@@ -59,8 +67,15 @@ NIDP_HOME=/opt/nidp-staging
 30 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh price_adjuster
 # Universe-wide fundamentals (v_screener_backfill_universe, ~2,400 names): without
 # it only the Nifty 500 had fundamentals. Enabled live 2026-09-11.
-# HELD (not yet run on this VM (weekly Screener scrape)):
+# HELD (Screener.in refuses connections from this VM since 2026-10-12, about 1,250 requests into a backfill):
 # 0  22 * * 0    nidp-staging  /opt/nidp-staging/run_service.sh nse_financials.backfill_screener --concurrency 1 --delay-ms 3000
+# Fundamentals and sectors from the Trendlyne MCP server instead. Runs whatever is still
+# incomplete inside TRENDLYNE_DAILY_CALL_BUDGET and stops, in this order: the ratio pass r1
+# (ROE, ROCE, debt-to-equity, P/B, market cap -> nidp.stock_fundamental_values, source
+# recorded), the quarterly passes p1-p4, then sectors. A completed quarterly pass costs no
+# calls until it is 30 days old; r1 is refreshed every TRENDLYNE_RATIOS_REFRESH_DAYS (7),
+# about 252 calls each time. fundamental_engine (23:05) copies r1 into stock_features_daily.
+10 6  * * *    nidp-staging  /opt/nidp-staging/run_service.sh trendlyne_fundamentals daily
 # Daily price band / F&O / ETF flags → nidp.security_reference_daily. Enabled live 2026-09-11.
 30 7  * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh nse_reference_snapshot
 
@@ -75,11 +90,20 @@ NIDP_HOME=/opt/nidp-staging
 
 # ── S4: corporate announcements (NSE + BSE), every 10 min, 09–23 ──
 */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_nse
-# HELD (api.bseindia.com returns 403 to this VM (needs BSE_PROXY_URL)):
+# Weekends too: companies file on Saturdays and Sundays (results season most of all — NSE lists
+# 482 filings for Sat 2026-08-08 and 199 for Sat 2026-10-10). With weekdays only, none were ingested.
+*/30 9-23 * * 6,0  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_nse
+# HELD (api.bseindia.com returns 403 to this VM's cloud IP; needs a rotating proxy).
+# To enable: (1) add ONE line to /opt/nidp-staging/nidp.env (chmod 600, never in git or logs):
+#       BSE_PROXY_URL=http://USER:PASS@HOST:PORT      (http or https endpoint, rotates per request)
+#   (2) test it once by hand (see docs/DEVOPS_ENVIRONMENTS.md, "BSE_PROXY_URL"):
+#       sudo -u nidp-staging /opt/nidp-staging/run_service.sh corporate_announcements_bse
+#   (3) only if that run is green, un-comment the line below and reinstall this cron file.
+# Unset BSE_PROXY_URL = direct fetch, as before. The proxy is used for bseindia.com hosts only.
 # */10 9-23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh corporate_announcements_bse
 
 # ── S4: event/impact classifier (every 30 min, all week) ──────────
-# HELD (OpenAI key has no credits (429)):
+# HELD (replaced: the Claude Code filing pipeline on the app VM fills event_category, impact_score and sentiment):
 # */30 * * * *    nidp-staging  /opt/nidp-staging/run_service.sh announcement_classifier
 
 # ── S5: document parser (every 15 min, all day) ───────────────────
@@ -99,6 +123,12 @@ NIDP_HOME=/opt/nidp-staging
 # Month-over-month deltas (§20.1). Runs after the catch-up; --all because filling an older
 # month also changes the next month's comparison baseline.
 30 12 12-28 * *  nidp-staging  /opt/nidp-staging/run_service.sh mf_holdings_deltas --all
+
+# ── Regulator: SEBI circulars (trading desk) ──────────────────────
+# The SEBI RSS feed holds only about the latest 30 items of every kind (2026-10-14: 30 enforcement
+# items from 12-13 Oct, no circular), so it is read every 3 h to keep a circular from scrolling out.
+# Needs migration 163. One-off backfill: run_service.sh sebi_circulars --source listing
+15 9-21/3 * * 1-6  nidp-staging  /opt/nidp-staging/run_service.sh sebi_circulars
 
 # ── MF derived analytics refresh ──────────────────────────────────
 50 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_derived_refresh
@@ -123,11 +153,11 @@ NIDP_HOME=/opt/nidp-staging
 30 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh quality_gate
 
 # ── Intelligence layer + per-user portfolio sync ──────────────────
-# HELD (reads a GCS export; no GCP credentials here):
+# HELD (not needed here: the app pushes this data to the Query API /portfolio/ingest-* endpoints; this job only reads the old GCS export):
 # 0  23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_holdings_sync
-# HELD (reads a GCS export; no GCP credentials here):
+# HELD (not needed here: the app pushes this data to the Query API /portfolio/ingest-* endpoints; this job only reads the old GCS export):
 # 10 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_transactions_sync
-# HELD (reads a GCS export; no GCP credentials here):
+# HELD (not needed here: the app pushes this data to the Query API /portfolio/ingest-* endpoints; this job only reads the old GCS export):
 # 15 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_goals_sync
 20 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh intelligence_layer
 30 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh portfolio_intelligence_sync

@@ -23,6 +23,7 @@ SEEDS = [
     # source_name, ingester, url_pattern, source_class, confidence, expected_freq, schedule_cron
     ('AMFI India NAV',                'amfi_nav',                'https://portal.amfiindia.com/spages/NAVAll.txt',                                  'OFFICIAL', 1.00, 'daily',     '30 19 * * 1-5'),
     ('AMFI Circulars',                'amfi_circulars',          'https://www.amfiindia.com/research-information/amfi-circular',                    'OFFICIAL', 1.00, 'daily',     '0 20 * * *'),
+    ('SEBI Circulars',                'sebi_circulars',          'https://www.sebi.gov.in/sebirss.xml',                                              'OFFICIAL', 1.00, 'high-freq', '15 9-21/3 * * 1-6'),
     ('AMFI NAV History',              'amfi_nav_history',        'https://portal.amfiindia.com/DownloadNAVHistoryReport_Po.aspx',                   'OFFICIAL', 1.00, 'manual',     None),
     ('AMFI MF Holdings',              'mf_holdings',             'https://www.amfiindia.com/research-information/mf-holdings',                      'OFFICIAL', 1.00, 'monthly',   '0 8 5 * *'),
     ('AMFI MF Disclosure Snapshot',   'mf_disclosure_snapshot',  'https://www.amfiindia.com/research-information/mutual-fund-data',                 'OFFICIAL', 1.00, 'monthly',   '30 8 5 * *'),

@@ -1,0 +1,39 @@
+{
+  "isin": "INF000FIX002",
+  "name": "Fixture Flexi Cap Fund - Regular Plan - Growth",
+  "category": "Fixture Cap Fund",
+  "returns": {
+    "1m": 1.25,
+    "3m": -2.5,
+    "1y": 12.4,
+    "3y": 15.0
+  },
+  "category_avg": {
+    "1y": 10.0,
+    "3y": null
+  },
+  "risk": {
+    "sharpe": 0.85,
+    "sortino": 1.1,
+    "volatility_1y": 11.2,
+    "max_drawdown": -9.5
+  },
+  "ranking": {
+    "composite_rank": null,
+    "category_size": null,
+    "top_position_pct": null
+  },
+  "top_peers": [
+    {
+      "name": "Fixture Peer Fund One",
+      "return_1y": 14.2,
+      "composite_rank": 1
+    },
+    {
+      "name": "Fixture Peer Fund Two",
+      "return_1y": null,
+      "composite_rank": 2
+    }
+  ],
+  "daas_available": true
+}

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:16px;padding:18px;border-radius:16px;border:1px solid var(--line-2);background:var(--bg-1);box-shadow:var(--shadow-card);font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <span class="nv-eyebrow">F&amp;O analyser · {{ d.kind }} · 30 Oct expiry · 14:30 snapshot</span>
+      <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap"><span style="font-family:var(--display);font-size:30px">{{ d.n }}</span><span class="nv-metric">{{ d.spot }}</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--danger)">{{ d.ch }}</span></div>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.06em;color:var(--ink-3)">{{ d.range }}</span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ idx }}" as="i" hint-placeholder-count="2"><span onClick="{{ i.pick }}" style="padding:8px 14px;border-radius:999px;font-size:13px;cursor:pointer;border:1px solid {{ i.line }};color:{{ i.color }};background:{{ i.bg }}">{{ i.t }}</span></sc-for></div>
+  </div>
+  <div style="display:flex;gap:12px;padding:14px 16px;border-radius:12px;border:1px solid var(--mint-line);background:var(--mint-soft)"><span class="nv-mark" style="flex:none;width:24px;height:24px;font-size:14px">न</span><span style="font-family:var(--display);font-size:19px;line-height:1.3;text-wrap:pretty">{{ d.read }}</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">
+    <sc-for list="{{ tiles }}" as="m" hint-placeholder-count="6"><div style="display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:10px;background:var(--bg-2)"><span class="nv-eyebrow">{{ m.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:21px">{{ m.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ m.s }}</span></div></sc-for>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <span class="nv-eyebrow">Key levels · spot marked</span>
+    <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ levels }}" as="l" hint-placeholder-count="8"><span style="font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:{{ l.c }};background:{{ l.chipBg }}">{{ l.k }} <span class="nv-num" style="color:var(--ink-2)">{{ l.v }}</span></span></sc-for></div>
+    <div style="position:relative;height:56px">
+      <span style="position:absolute;left:0;right:0;top:26px;height:4px;border-radius:2px;background:var(--bg-3)"></span>
+      <sc-for list="{{ levels }}" as="l" hint-placeholder-count="7"><div style="position:absolute;top:{{ l.top }};left:{{ l.x }};transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px"><span style="width:{{ l.w }};height:{{ l.h }};border-radius:3px;background:{{ l.c }};order:{{ l.ord }}"></span><span style="font-family:var(--mono);font-size:9px;color:{{ l.c }};white-space:nowrap">{{ l.k }}</span></div></sc-for>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px">
+    <div style="display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">Open interest by strike · lakh</span><span style="display:flex;gap:10px;font-family:var(--mono);font-size:10px"><span style="color:var(--danger)">● CALLS</span><span style="color:var(--mint)">● PUTS</span></span></div>
+      <sc-for list="{{ oi }}" as="o" hint-placeholder-count="9">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 58px minmax(0,1fr);gap:8px;align-items:center;background:{{ o.bg }};border-radius:4px;padding:2px 0">
+          <div style="display:flex;justify-content:flex-end;align-items:center;gap:6px"><span class="nv-num" style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">{{ o.c }}</span><span style="height:8px;width:{{ o.cw }};background:var(--danger);border-radius:2px"></span></div>
+          <span class="nv-num" style="text-align:center;font-family:var(--mono);font-size:11px;color:{{ o.kc }}">{{ o.k }}</span>
+          <div style="display:flex;align-items:center;gap:6px"><span style="height:8px;width:{{ o.pw }};background:var(--mint);border-radius:2px"></span><span class="nv-num" style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">{{ o.p }}</span></div>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--line)">
+      <span class="nv-eyebrow">{{ midTitle }}</span>
+      <sc-for list="{{ heavy }}" as="h" hint-placeholder-count="6"><div style="display:grid;grid-template-columns:{{ midCols }};gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)"><span>{{ h.n }}</span><span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ h.w }}</span><span class="nv-num" style="text-align:right;color:{{ h.cc }}">{{ h.ch }}</span><span class="nv-num" style="text-align:right;color:{{ h.cc }}">{{ h.pts }}</span></div></sc-for>
+      <span style="font-size:12px;color:var(--ink-3)">{{ d.breadth }}</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px">
+    <div style="display:flex;flex-direction:column;gap:6px;padding:14px 16px;border-radius:12px;border:1px solid var(--line)">
+      <span class="nv-eyebrow">Trend signals · daily</span>
+      <sc-for list="{{ trend }}" as="t" hint-placeholder-count="5"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)"><span style="color:var(--ink-2)">{{ t.k }}</span><span class="nv-num" style="color:{{ t.c }}">{{ t.v }}</span></div></sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:12px;border:1px solid var(--amber-line);background:var(--amber-soft)">
+      <div style="display:flex;justify-content:space-between;gap:8px"><span class="nv-eyebrow" style="color:var(--amber)">Expected move to expiry</span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--amber);border:1px solid var(--amber-line);border-radius:4px;padding:1px 5px">MODEL</span></div>
+      <span style="font-family:var(--display);font-size:24px">{{ d.move }}</span>
+      <span style="font-size:12px;line-height:1.5;color:var(--ink-2)">From the at-the-money straddle price. About two-thirds of expiries have stayed inside this band; it is not a forecast.</span>
+      <span style="font-size:12px;line-height:1.5;color:var(--ink-2);padding-top:6px;border-top:1px solid var(--amber-line)">{{ d.hist }}</span>
+    </div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ asks }}" as="a" hint-placeholder-count="3"><span onClick="{{ a.go }}" style="padding:7px 12px;border-radius:999px;border:1px solid var(--line-2);font-size:12px;color:var(--ink-2);cursor:pointer" style-hover="border-color:var(--mint-line);color:var(--ink)">{{ a.t }}</span></sc-for></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1000,&quot;height&quot;:1100},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { i: 'nifty' };
+  renderVals() {
+    const p = this.props, s = this.state;
+    const ask = (q, k) => () => p.onAsk && p.onAsk(q, k);
+    const D = {
+      nifty: { n: 'Nifty 50', spot: '22,363', ch: '−157.65 · −0.70%', range: 'DAY 22,318–22,540 · PREV CLOSE 22,521 · 16 UP / 34 DOWN', read: 'Range-bound below 22,500. Call writers are stacked at 22,500 and put writers at 22,200, so that is the band the market is defending.', breadth: '16 advancing · 34 declining. Banks took 31 of the 158 points.', move: '±612 pts · ±2.7%', hist: 'The last 60 times PCR fell below 0.9 while VIX rose, the next 5 sessions averaged −0.3% (range −3.1% to +2.6%). Not validated as a signal.', fut: '22,401', basis: '+38 premium', pcr: '0.88', pain: '22,400', vix: '15.25', iv: '13.8%', lv: [['S2', 22220], ['S1', 22300], ['PDL', 22330], ['SPOT', 22363], ['P', 22410], ['R1', 22480], ['PDH', 22540], ['R2', 22560]], step: 100, k0: 22000, calls: [18, 22, 31, 46, 72, 118, 96, 74, 89], puts: [94, 71, 102, 84, 66, 38, 21, 12, 8], heavy: [['HDFC Bank', '13.1%', '−0.9%', '−18'], ['ICICI Bank', '7.9%', '−1.1%', '−13'], ['Infosys', '5.6%', '−0.8%', '−7'], ['Reliance', '8.7%', '−0.4%', '−5'], ['Sun Pharma', '1.9%', '+2.9%', '+6'], ['Bharti Airtel', '4.2%', '+0.6%', '+4']], trend: [['vs 20-day average', '−0.8%'], ['vs 50-day average', '+0.4%'], ['vs 200-day average', '+4.1%'], ['RSI (14)', '46 · neutral'], ['ADX (14)', '14 · no trend']] },
+      bank: { n: 'Bank Nifty', spot: '54,918', ch: '−337.06 · −0.61%', range: 'DAY 54,812–55,310 · PREV CLOSE 55,255 · 3 UP / 9 DOWN', read: 'Weaker than the Nifty and below its 20- and 50-day averages. 55,000 is the line: the heaviest call writing and max pain both sit there.', breadth: '3 advancing · 9 declining. HDFC Bank and ICICI Bank took 287 of the 337 points.', move: '±1,840 pts · ±3.4%', hist: 'The last 41 times Bank Nifty closed below its 50-day average with PCR under 0.8, the next 5 sessions averaged −0.5% (range −4.2% to +3.0%). Too few to validate.', fut: '55,010', basis: '+92 premium', pcr: '0.74', pain: '55,000', vix: '15.25', iv: '15.6%', lv: [['S2', 54520], ['S1', 54760], ['PDL', 54812], ['SPOT', 54918], ['P', 54990], ['R1', 55180], ['PDH', 55310], ['R2', 55420]], step: 250, k0: 54000, calls: [12, 16, 28, 41, 96, 74, 88, 52, 61], puts: [58, 44, 79, 62, 48, 22, 14, 8, 5], heavy: [['ICICI Bank', '24.1%', '−1.1%', '−146'], ['HDFC Bank', '28.4%', '−0.9%', '−141'], ['IndusInd Bank', '3.3%', '−2.6%', '−47'], ['Axis Bank', '8.1%', '−0.7%', '−31'], ['Kotak Bank', '8.8%', '−0.3%', '−15'], ['SBI', '9.6%', '+0.2%', '+11']], trend: [['vs 20-day average', '−1.6%'], ['vs 50-day average', '−0.6%'], ['vs 200-day average', '+3.2%'], ['RSI (14)', '41 · weak'], ['ADX (14)', '19 · weak trend']] },
+      tata: { stock: true, n: 'Tata Motors', spot: '712.40', ch: '−22.80 · −3.10%', range: 'DAY 708–736 · PREV CLOSE 735.20 · LOT 800 · YOU HOLD 200 SHARES', read: 'Short buildup: price fell 3.1% while futures open interest rose 9%. Heavy call writing at 740 caps the upside; put support thins out below 700.', breadth: 'Delivery was 41% of volume, above its 20-day average. Not in the F&O ban list.', move: '±48 · ±6.7%', hist: 'The last 23 short-buildup days with OI up more than 8%, the stock fell further over 5 sessions 57% of the time (average −1.2%). Too few to validate.', fut: '714.10', basis: '+1.70 premium', pcr: '0.62', pain: '730', iv: '41%', lot: '800', ivp: 'IV percentile 71st', lv: [['S2', 690], ['S1', 700], ['PDL', 708], ['SPOT', 712.4], ['P', 718], ['R1', 727], ['PDH', 736], ['R2', 742]], step: 10, k0: 680, calls: [6, 8, 14, 22, 31, 44, 92, 58, 70], puts: [41, 52, 63, 48, 29, 18, 11, 7, 4], fno: [['Open interest today', '+9.2%'], ['Price today', '−3.1%'], ['Read', 'Short buildup'], ['Rollover to November', '38% · 3M avg 71%'], ['Market-wide limit used', '48% · ban at 95%'], ['Cost of carry', '+6.1% annualised'], ['Delivery', '41% of volume']], trend: [['vs 20-day average', '−4.2%'], ['vs 50-day average', '−6.8%'], ['vs 200-day average', '−3.5%'], ['RSI (14)', '34 · weak'], ['ADX (14)', '27 · trending down']] },
+      ril: { stock: true, n: 'Reliance', spot: '2,912', ch: '−11.70 · −0.40%', range: 'DAY 2,898–2,934 · PREV CLOSE 2,923.70 · LOT 500', read: 'Long unwinding: price and open interest both fell. Positioning is light on either side of 2,900–3,000, so there is no strong wall in play.', breadth: 'Delivery was 52% of volume. Not in the F&O ban list.', move: '±138 · ±4.7%', hist: 'The last 31 long-unwinding days were followed by a 5-session average of +0.2% (range −3.8% to +4.1%). No edge.', fut: '2,921.40', basis: '+9.40 premium', pcr: '0.94', pain: '2,920', iv: '22%', lot: '500', ivp: 'IV percentile 38th', lv: [['S2', 2860], ['S1', 2885], ['PDL', 2898], ['SPOT', 2912], ['P', 2918], ['PDH', 2934], ['R1', 2940], ['R2', 2965]], step: 50, k0: 2800, calls: [9, 11, 18, 27, 46, 52, 61, 38, 49], puts: [44, 38, 57, 49, 40, 21, 12, 8, 6], fno: [['Open interest today', '−3.4%'], ['Price today', '−0.4%'], ['Read', 'Long unwinding'], ['Rollover to November', '41% · 3M avg 74%'], ['Market-wide limit used', '22% · ban at 95%'], ['Cost of carry', '+6.4% annualised'], ['Delivery', '52% of volume']], trend: [['vs 20-day average', '+0.6%'], ['vs 50-day average', '+1.9%'], ['vs 200-day average', '+5.2%'], ['RSI (14)', '52 · neutral'], ['ADX (14)', '12 · no trend']] },
+    }[s.i];
+    const lo = D.lv[0][1], hi = D.lv[D.lv.length - 1][1];
+    const mx = Math.max(...D.calls, ...D.puts);
+    const spotN = +String(D.spot).replace(/,/g, '');
+    const tone = (v) => /^\+/.test(v) ? 'var(--mint)' : /^−/.test(v) ? 'var(--danger)' : 'var(--ink)';
+    return {
+      d: { ...D, kind: D.stock ? 'Stock futures and options' : 'Index' },
+      midTitle: D.stock ? 'Futures positioning' : 'What moved the index today · points',
+      midCols: D.stock ? 'minmax(0,1.2fr) minmax(0,1fr) 0px 0px' : 'minmax(0,1.4fr) 54px 60px 56px',
+      idx: [['nifty', 'Nifty 50'], ['bank', 'Bank Nifty'], ['tata', 'Tata Motors F&O'], ['ril', 'Reliance F&O']].map(([k, t]) => ({ t, line: s.i === k ? 'var(--mint-line)' : 'var(--line-2)', color: s.i === k ? 'var(--mint)' : 'var(--ink-2)', bg: s.i === k ? 'var(--mint-soft)' : 'transparent', pick: () => this.setState({ i: k }) })),
+      tiles: [['Futures', D.fut, D.basis], ['PCR (OI)', D.pcr, 'Below 1 = call-heavy'], ['Max pain', D.pain, 'This expiry'], D.stock ? ['Lot size', D.lot, 'Shares per contract'] : ['India VIX', D.vix, '+6.05% today'], ['ATM IV', D.iv, D.ivp || 'Implied volatility'], ['Expected move', D.move.split(' · ')[1], 'To expiry · model']].map(([k, v, sub]) => ({ k, v, s: sub })),
+      levels: D.lv.map(([k, v], i) => { const spot = k === 'SPOT', up = i % 2 === 0; return { k, v: v.toLocaleString('en-IN'), x: (4 + (v - lo) / (hi - lo) * 92) + '%', c: spot ? 'var(--ink)' : /^S|PDL/.test(k) ? 'var(--mint)' : /^R|PDH/.test(k) ? 'var(--danger)' : 'var(--amber)', w: spot ? '3px' : '8px', h: spot ? '16px' : '8px', top: up ? (spot ? '2px' : '6px') : (spot ? '20px' : '24px'), ord: up ? 1 : 0, chipBg: spot ? 'var(--bg-3)' : 'transparent' }; }),
+      oi: D.calls.map((cv, i) => { const k = D.k0 + i * D.step, near = Math.abs(k - spotN) < D.step / 2 + 1; return { k: k.toLocaleString('en-IN'), c: cv, p: D.puts[i], cw: (cv / mx * 100) + '%', pw: (D.puts[i] / mx * 100) + '%', kc: near ? 'var(--ink)' : 'var(--ink-3)', bg: near ? 'var(--bg-3)' : 'transparent' }; }),
+      heavy: D.stock ? D.fno.map(([n, w]) => ({ n, w, ch: '', pts: '', cc: tone(w) })) : D.heavy.map(([n, w, ch, pts]) => ({ n, w, ch, pts, cc: tone(ch) })),
+      trend: D.trend.map(([k, v]) => ({ k, v, c: tone(v) })),
+      asks: [[`Paper trade a ${D.n} iron condor around the expected move`, 'options'], [`Backtest ${D.n} after a PCR below 0.9`, 'backtest'], [`What would a 2% fall do to my positions?`, 'options']].map(([t, k]) => ({ t, go: ask(t, k) })),
+    };
+  }
+}
+</script>
+</body>
+</html>

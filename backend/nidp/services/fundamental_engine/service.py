@@ -4,6 +4,9 @@ and valuation signals for all NSE EQ stocks.
 Flow for each run:
   1. Call nidp.populate_stock_features_extended(target_date) — fills ROE, D/E,
      market_cap_bucket, promoter_pct, sector, shareholding into stock_features_daily.
+  1a. Call nidp.populate_stock_fundamentals_sourced(target_date) — where a named outside
+     source holds ROE, ROCE, D/E, P/B and market cap for a company (migration 162), those
+     replace step 1's values and the row records the source and its date.
   1b. Call nidp.populate_stock_features_v3(target_date) — fills 3Y CAGR metrics
      (revenue_growth_3y_cagr_pct, profit_margin_trend_pct, debt_trend_pct) from
      annual Screener.in P&L data. V3 Health score primitives.
@@ -135,6 +138,29 @@ async def _populate_mf_ownership(conn: asyncpg.Connection, target_date: date) ->
         return rows or 0
     except Exception as exc:  # noqa: BLE001
         logger.error("fund_engine_populate_mf_error date=%s error=%r", target_date, exc)
+        return 0
+
+
+async def _populate_sourced_fundamentals(conn: asyncpg.Connection, target_date: date) -> int:
+    """ROE, ROCE, debt-to-equity, P/B and market cap from a named outside source (migration 162).
+
+    MUST run after _populate_extended, which rewrites those columns from our own filings on
+    every run (NULL where share capital or net worth is missing), and before _populate_v3,
+    which reads market cap for the liquidity score. The SQL function also records on each row
+    where the five figures came from and as of when (fundamentals_source / fundamentals_as_of).
+
+    Non-fatal so it can't block the scores; the columns then keep what the extended pass wrote.
+    """
+    try:
+        rows = await conn.fetchval(
+            "SELECT nidp.populate_stock_fundamentals_sourced($1)",
+            target_date,
+            timeout=_POPULATE_TIMEOUT_S,
+        )
+        logger.info("fund_engine_populate_sourced date=%s rows_updated=%s", target_date, rows)
+        return rows or 0
+    except Exception as exc:  # noqa: BLE001
+        logger.error("fund_engine_populate_sourced_error date=%s error=%r", target_date, exc)
         return 0
 
 
@@ -299,6 +325,7 @@ async def compute_for_date(
             await _populate_extended(conn, target_date)
             await _populate_options(conn, target_date)
             await _populate_mf_ownership(conn, target_date)
+            await _populate_sourced_fundamentals(conn, target_date)
             # Also populate V3-specific 3Y CAGR metrics (revenue growth, margin trend,
             # debt trend) from annual Screener P&L data. Must run after _populate_extended
             # so balance sheet debt columns are current.

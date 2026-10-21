@@ -299,32 +299,23 @@ async def export_cas_transactions_to_gcs(
 
 # ── Goals export (Postgres source) ───────────────────────────────────
 
-async def export_user_goals_to_gcs(
-    db,
-    target_date: Optional[date] = None,
-) -> dict[str, Any]:
-    """Export PG `user_goals` rows → JSONL → GCS for NIDP consumption.
+async def build_goal_records(db) -> dict[str, Any]:
+    """Goal records in the shape NIDP's portfolio_goals_sync upserts, built from
+    PG `user_goals` joined to Mongo `users` for the email key.
 
-    Joins to MongoDB `users` to translate the upstream UUID `user_id`
-    into an email `external_user_id`, which is NIDP's canonical user key.
-    Goals belonging to users without an email are skipped.
-
-    Reads PG via `services.pg_client.get_pool()`. If PG is not
-    configured the function returns a no-op result rather than raising,
-    so it can be wired into pipelines safely.
+    Transport-neutral: used by the GCS export below and by the direct push to
+    the NIDP Query API (services.portfolio_direct_push). Returns
+    ``{records, users, skipped_no_email, skipped_reason?}``.
     """
-    export_date = target_date or date.today()
-    date_str = export_date.isoformat()
-
     try:
         from services import pg_client as _pg
         pool = await _pg.get_pool()
     except Exception as exc:  # noqa: BLE001
         logger.warning("export_user_goals_to_gcs: PG unavailable: %s", exc)
-        return {"exported": 0, "users": 0, "date": date_str, "skipped_reason": "pg_unavailable"}
+        return {"records": [], "users": set(), "skipped_no_email": 0, "skipped_reason": "pg_unavailable"}
     if pool is None:
         logger.info("export_user_goals_to_gcs: PG not configured")
-        return {"exported": 0, "users": 0, "date": date_str, "skipped_reason": "pg_not_configured"}
+        return {"records": [], "users": set(), "skipped_no_email": 0, "skipped_reason": "pg_not_configured"}
 
     # uuid → email map from Mongo
     uid_to_email: dict[str, str] = {}
@@ -347,7 +338,7 @@ async def export_user_goals_to_gcs(
         )
 
     exported_at_iso = datetime.now(timezone.utc).isoformat()
-    lines: list[bytes] = []
+    records: list[dict[str, Any]] = []
     seen_users: set[str] = set()
     skipped_no_email = 0
 
@@ -384,7 +375,34 @@ async def export_user_goals_to_gcs(
             "upstream_created_at": r["created_at"].isoformat() if r["created_at"] else None,
             "upstream_updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
         }
-        lines.append(json.dumps(record, default=str).encode())
+        records.append(record)
+
+    return {"records": records, "users": seen_users, "skipped_no_email": skipped_no_email}
+
+
+async def export_user_goals_to_gcs(
+    db,
+    target_date: Optional[date] = None,
+) -> dict[str, Any]:
+    """Export PG `user_goals` rows → JSONL → GCS for NIDP consumption.
+
+    Joins to MongoDB `users` to translate the upstream UUID `user_id`
+    into an email `external_user_id`, which is NIDP's canonical user key.
+    Goals belonging to users without an email are skipped.
+
+    Reads PG via `services.pg_client.get_pool()`. If PG is not
+    configured the function returns a no-op result rather than raising,
+    so it can be wired into pipelines safely.
+    """
+    export_date = target_date or date.today()
+    date_str = export_date.isoformat()
+
+    built = await build_goal_records(db)
+    if built.get("skipped_reason"):
+        return {"exported": 0, "users": 0, "date": date_str, "skipped_reason": built["skipped_reason"]}
+    lines = [json.dumps(r, default=str).encode() for r in built["records"]]
+    seen_users = built["users"]
+    skipped_no_email = built["skipped_no_email"]
 
     if not lines:
         logger.info(

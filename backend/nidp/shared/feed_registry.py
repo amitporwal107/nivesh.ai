@@ -41,6 +41,10 @@ FEEDS: List[Feed] = [
     # ── mutual funds ──
     Feed("amfi_nav",                    "daily",     True,  30, "ERROR", False),
     Feed("amfi_nav_history",            "manual",    True,  30, "WARN",  False),
+    # ── regulator ──
+    # Not monitored: a SEBI RSS run is SKIPPED whenever the feed (about the latest 30 items)
+    # holds no circular — 0 of 30 on 2026-10-14 — and the detector counts only OK runs.
+    Feed("sebi_circulars",              "high-freq", False,  0, "WARN",  False),
     # ── macro / weekly ──
     Feed("rbi_yields",                  "daily",     True,  72, "WARN",  False),
     Feed("fred_macro",                  "daily",     True,  30, "WARN",  False),

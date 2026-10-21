@@ -1,0 +1,39 @@
+{
+  "count": 2,
+  "snapshots": [
+    {
+      "snapshot_date": "2026-08-31",
+      "allocation": {
+        "equity": 30.0,
+        "mf": 65.0,
+        "gold": 5.0
+      },
+      "created_at": "2026-08-31T05:30:00+00:00",
+      "grade": "B",
+      "health_score": 64.5,
+      "holdings_count": 6,
+      "return_pct": 8.7,
+      "total_invested": 920000.0,
+      "total_value": 1000000.0,
+      "trigger": "cas_upload"
+    },
+    {
+      "snapshot_date": "2026-07-01",
+      "allocation": {
+        "equity": 30.0,
+        "mf": 65.0,
+        "gold": 5.0
+      },
+      "created_at": "2026-07-01T05:30:00+00:00",
+      "grade": "C",
+      "health_score": 60.0,
+      "holdings_count": 5,
+      "return_pct": 6.67,
+      "total_invested": 900000.0,
+      "total_value": 960000.0,
+      "trigger": "eod_cron"
+    }
+  ],
+  "current_snapshot_date": null,
+  "is_default_latest": true
+}

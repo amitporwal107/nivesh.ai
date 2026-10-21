@@ -220,9 +220,9 @@ async def _portfolio_snapshot_job():
 
 
 async def _nidp_gcs_export_job():
-    """Daily NIDP GCS export — runs 22:50 IST. Refreshes holdings,
-    transactions and goals in the GCS landing zone so NIDP's nightly
-    portfolio_*_sync jobs (23:00 onward) see today's state for every
+    """Daily portfolio sync to NIDP — runs 22:50 IST. Sends holdings,
+    transactions and goals (HTTP push to the NIDP Query API; GCS export only
+    where that API is not configured) so NIDP sees today's state for every
     user — not just users who happened to upload a CAS that day.
 
     The CAS-import hook in cas_snapshot_engine.py already triggers an
@@ -230,18 +230,13 @@ async def _nidp_gcs_export_job():
     and idle days.
     """
     try:
-        from services.portfolio_gcs_export import (
-            export_portfolio_to_gcs,
-            export_cas_transactions_to_gcs,
-            export_user_goals_to_gcs,
-        )
+        from services.portfolio_direct_push import sync_portfolio_to_nidp
         from server import db  # avoid circular import at module load
-        h = await export_portfolio_to_gcs(db)
-        t = await export_cas_transactions_to_gcs(db)
-        g = await export_user_goals_to_gcs(db)
+        res = await sync_portfolio_to_nidp(db)
         logger.info(
-            "nidp_gcs_export: holdings=%s txns=%s goals=%s",
-            h.get("exported"), t.get("exported"), g.get("exported"),
+            "nidp portfolio sync (%s): holdings=%s txns=%s goals=%s",
+            res.get("via"),
+            *(res.get(k, {}).get("exported", res.get(k, {}).get("error")) for k in ("holdings", "transactions", "goals")),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("nidp_gcs_export error: %s", e)
@@ -261,6 +256,26 @@ async def _gmail_auto_import_job():
         logger.info("gmail_auto_import: %s", res)
     except Exception as e:  # noqa: BLE001
         logger.warning("gmail_auto_import error: %s", e)
+
+
+async def _broker_daily_sync_job():
+    """Daily broker holdings refresh — runs 17:30 IST, after market close
+    and while the day's broker sessions are still live. Re-reads holdings
+    for every directly connected broker account with a live session;
+    accounts whose session has ended are left for the user to reconnect.
+
+    Off switch (no deploy): set the secret / env `BROKER_DAILY_SYNC_ENABLED`
+    to 0, false, off or no. Unset means on."""
+    try:
+        from services.brokers._helpers import conf
+        if conf("BROKER_DAILY_SYNC_ENABLED").lower() in ("0", "false", "off", "no"):
+            logger.info("broker_daily_sync skipped — BROKER_DAILY_SYNC_ENABLED is off")
+            return
+        from services.brokers import hub_reads
+        res = await hub_reads.daily_sync(db)
+        logger.info("broker_daily_sync %s", res)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("broker_daily_sync error: %s", e)
 
 
 def start():
@@ -341,6 +356,17 @@ def start():
     _scheduler.add_job(
         _gmail_auto_import_job, CronTrigger(day=1, hour=6, minute=30),
         id="gmail_auto_import_monthly", replace_existing=True, max_instances=1,
+    )
+    # Broker holdings: daily 17:30 IST — refresh holdings of every directly
+    # connected broker account whose session is still live. Switched off
+    # with BROKER_DAILY_SYNC_ENABLED=0 (checked on each run). The trigger
+    # names its timezone: a CronTrigger instance does not take the
+    # scheduler's, it defaults to the process's local zone (UTC in the
+    # backend image).
+    _scheduler.add_job(
+        _broker_daily_sync_job,
+        CronTrigger(hour=17, minute=30, timezone="Asia/Kolkata"),
+        id="broker_holdings_sync_daily", replace_existing=True, max_instances=1,
     )
     _scheduler.start()
     logger.info("MF scheduler started (Asia/Kolkata)")

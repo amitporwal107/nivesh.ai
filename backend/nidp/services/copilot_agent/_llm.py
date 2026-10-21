@@ -12,6 +12,53 @@ from __future__ import annotations
 import os
 
 
+# ── Anthropic (Claude) ───────────────────────────────────────────
+# The copilot chat runs on Claude through langchain_anthropic.ChatAnthropic (the
+# LangChain integration over the official Anthropic SDK). It is selected whenever
+# an ANTHROPIC_API_KEY is resolvable, or by COPILOT_LLM_PROVIDER=anthropic.
+_ANTHROPIC_DEFAULT_MODEL = "claude-opus-5-5"
+# Room for the answer plus the model's own reasoning; a low cap truncates mid-thought.
+_ANTHROPIC_MAX_TOKENS = 16000
+
+
+def get_anthropic_api_key() -> str:
+    """Resolve ANTHROPIC_API_KEY the same layered way as the other providers'
+    keys: GSM -> admin (secrets) override -> env, at CALL time. "" when nothing has it."""
+    try:
+        from helpers import gsm as _gsm
+        k = _gsm.get("ANTHROPIC_API_KEY")
+        if k:
+            return k.strip()
+    except Exception:  # noqa: BLE001 — no GCP creds; fall through
+        pass
+    try:
+        from helpers import secrets as _secrets
+        k = _secrets.get("ANTHROPIC_API_KEY")
+        if k:
+            return k.strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("ANTHROPIC_API_KEY", "").strip()
+
+
+# ── Claude Code gateway ───────────────────────────────────
+# Claude without an Anthropic API key: an OpenAI-compatible endpoint on the app VM
+# that runs the Claude Code CLI installed there (deploy/cloudpe/app/claude-gateway).
+# It speaks the OpenAI wire format, so ChatOpenAI is reused with its base_url — the
+# same way Groq is. The gateway replaces Claude Code's own system prompt with the
+# one sent here and runs with every tool switched off, so the model sees exactly
+# the prompts the copilot sends and nothing else.
+_CLAUDE_CODE_DEFAULT_MODEL = "claude-sonnet-5-5"
+
+
+def claude_code_api_url() -> str:
+    return os.environ.get("CLAUDE_CODE_API_URL", "").strip().rstrip("/")
+
+
+def claude_code_api_token() -> str:
+    return os.environ.get("CLAUDE_CODE_API_TOKEN", "").strip()
+
+
 # ── Provider + model ─────────────────────────────────────────────────────────
 # Two OpenAI-wire-compatible providers are wired, selected via env (no code change):
 #   • openai (default) — the OpenAI account; key resolved via nidp.shared.openai_key.
@@ -51,11 +98,22 @@ def get_groq_api_key() -> str:
 
 
 def llm_provider() -> str:
-    """'groq' or 'openai' (default). An explicit COPILOT_LLM_PROVIDER wins; otherwise
-    Groq is auto-selected whenever a GROQ_API_KEY is resolvable (GSM / admin / env)."""
+    """'anthropic', 'claude_code', 'groq' or 'openai'. An explicit
+    COPILOT_LLM_PROVIDER wins; otherwise Claude is used whenever an
+    ANTHROPIC_API_KEY is resolvable, then the Claude Code gateway when its URL and
+    token are set, then Groq whenever a GROQ_API_KEY is (GSM / admin / env), else
+    OpenAI."""
     p = os.environ.get("COPILOT_LLM_PROVIDER", "").strip().lower()
-    if p in ("groq", "openai"):
+    if p == "claude":
+        p = "anthropic"
+    if p in ("claude-code", "claudecode"):
+        p = "claude_code"
+    if p in ("anthropic", "claude_code", "groq", "openai"):
         return p
+    if get_anthropic_api_key():
+        return "anthropic"
+    if claude_code_api_url() and claude_code_api_token():
+        return "claude_code"
     return "groq" if get_groq_api_key() else "openai"
 
 
@@ -66,7 +124,13 @@ def resolve_model() -> str:
     COPILOT_LLM_MODEL — a stale OpenAI id left there (e.g. a `gpt-5.5` pin in the
     deployed env) would be rejected by Groq. On OpenAI, COPILOT_LLM_MODEL pins the
     model, defaulting to the known-good gpt-4o-mini."""
-    if llm_provider() == "groq":
+    provider = llm_provider()
+    if provider == "anthropic":
+        # Same rule as Groq: COPILOT_LLM_MODEL holds an OpenAI id, so it is ignored here.
+        return os.environ.get("COPILOT_ANTHROPIC_MODEL", "").strip() or _ANTHROPIC_DEFAULT_MODEL
+    if provider == "claude_code":
+        return os.environ.get("CLAUDE_CODE_MODEL", "").strip() or _CLAUDE_CODE_DEFAULT_MODEL
+    if provider == "groq":
         return os.environ.get("GROQ_MODEL", "").strip() or _GROQ_DEFAULT_MODEL
     return os.environ.get("COPILOT_LLM_MODEL", "").strip() or _OPENAI_DEFAULT_MODEL
 
@@ -94,10 +158,34 @@ def get_openai_api_key() -> str:
 
 def make_chat_llm(temperature: float, **kwargs):
     """The single chat-model constructor every copilot node uses, so the provider
-    (OpenAI vs Groq) is decided in exactly ONE place. Groq reuses ChatOpenAI against
-    Groq's OpenAI-compatible base_url."""
+    (Claude / Claude Code gateway / Groq / OpenAI) is decided in exactly ONE place.
+    Groq and the Claude Code gateway reuse ChatOpenAI against their
+    OpenAI-compatible base_url.
+
+    On Claude the `temperature` argument is not sent: current Claude models reject
+    non-default sampling parameters with a 400. Read replies with `text_of()` —
+    Claude returns a list of content blocks (reasoning + text), not a bare string.
+    """
+    provider = llm_provider()
+    if provider == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+        kwargs.setdefault("max_tokens", _ANTHROPIC_MAX_TOKENS)
+        return ChatAnthropic(
+            model=resolve_model(),
+            api_key=get_anthropic_api_key(),
+            **kwargs,
+        )
     from langchain_openai import ChatOpenAI
-    if llm_provider() == "groq":
+    if provider == "claude_code":
+        # No temperature: the Claude Code CLI has no sampling controls, and current
+        # Claude models reject non-default values anyway.
+        return ChatOpenAI(
+            model=resolve_model(),
+            api_key=claude_code_api_token(),
+            base_url=claude_code_api_url(),
+            **kwargs,
+        )
+    if provider == "groq":
         return ChatOpenAI(
             model=resolve_model(),
             temperature=temperature,
@@ -111,6 +199,27 @@ def make_chat_llm(temperature: float, **kwargs):
         api_key=get_openai_api_key(),
         **kwargs,
     )
+
+
+def text_of(message) -> str:
+    """The reply text of a chat-model message or stream chunk, on any provider.
+
+    OpenAI and Groq return `content` as a string. Claude returns a list of content
+    blocks — its reasoning blocks followed by the text — so `content` cannot be used
+    as a string directly. Only text blocks are returned; reasoning is never shown.
+    """
+    content = getattr(message, "content", message)
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type") == "text":
+            parts.append(block.get("text") or "")
+    return "".join(parts)
 
 
 # Appended verbatim to every specialist agent's system prompt. Kept

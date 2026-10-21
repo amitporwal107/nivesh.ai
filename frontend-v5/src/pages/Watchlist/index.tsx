@@ -11,12 +11,17 @@
  * hours) — see `is_live` per row. "Since added" tracks the pick against the
  * price on the day it joined this list, independent of today's move.
  *
+ * Lists are dated snapshots: the page opens on the newest, and the list
+ * picker (or `?list=YYYY-MM-DD` in the URL) shows an earlier one.
+ *
  * Standalone page (own header, no AppLayout chrome) — see routes.tsx.
  */
 import { useMemo, useState } from "react";
-import { Loader2, TrendingUp, TrendingDown, Radio } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Loader2, TrendingUp, TrendingDown, Radio, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useResearchWatchlist } from "@/hooks/use-research-watchlist";
+import { ApiError } from "@/services/api/errors";
 import type { WatchlistPick, WatchlistTier } from "@/services/adapters/research-watchlist.adapter";
 
 const TIER_LABEL: Record<WatchlistTier, string> = {
@@ -46,6 +51,12 @@ function fmtDate(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+/** A list date (YYYY-MM-DD) is a calendar day, not an instant — format it in UTC so it never shifts a day. */
+function fmtListDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 }
 function fmtPrice(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";
@@ -78,9 +89,11 @@ function WatchlistRow({ pick }: { pick: WatchlistPick }) {
   const [open, setOpen] = useState(false);
   const peRich = pick.pe_ttm != null && pick.sector_pe_median != null && pick.pe_ttm > pick.sector_pe_median;
   const sincePos = (pick.change_since_published_pct ?? 0) >= 0;
+  // Also in an earlier list: accent edge on the row + a badge naming the most recent one.
+  const carriedFrom = pick.earlier_list_dates?.[0];
 
   return (
-    <div className="border-b border-hairline last:border-b-0">
+    <div className={cn("border-b border-hairline last:border-b-0 border-l-2", carriedFrom ? "border-l-accent" : "border-l-transparent")}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -92,6 +105,15 @@ function WatchlistRow({ pick }: { pick: WatchlistPick }) {
             <span className="font-semibold text-[14.5px]">{pick.symbol}</span>
             <span className="rounded-[3px] bg-surface-2 border-hairline border px-1 py-px text-[9.5px] font-semibold text-ink-3">NSE</span>
             <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", TIER_DOT[pick.tier])} title={TIER_LABEL[pick.tier]} />
+            {carriedFrom && (
+              <span
+                data-testid="carried-over"
+                title={`Also in: ${pick.earlier_list_dates.map(fmtListDate).join(", ")}`}
+                className="rounded-[3px] bg-accent/15 text-accent px-1.5 py-px text-[9.5px] font-semibold"
+              >
+                also in {fmtListDate(carriedFrom)} list
+              </span>
+            )}
           </div>
           <div className="text-[11.5px] text-ink-2 truncate mt-0.5">{pick.company_name}</div>
           <div className="text-[10.5px] text-ink-3 mt-1">
@@ -160,11 +182,27 @@ function WatchlistRow({ pick }: { pick: WatchlistPick }) {
 }
 
 export default function WatchlistPage() {
-  const { data, isPending, isError, error, dataUpdatedAt } = useResearchWatchlist();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const listParam = searchParams.get("list");
+  const listParamValid = listParam !== null && /^\d{4}-\d{2}-\d{2}$/.test(listParam);
+  const { data, isPending, isError, error, dataUpdatedAt } = useResearchWatchlist(listParamValid ? listParam : undefined);
   const [tier, setTier] = useState<"all" | WatchlistTier>("all");
   const [sort, setSort] = useState<SortKey>("rank");
 
+  // `?list=` names a date nothing was published on (or is not a date at all).
+  const noSuchList = (listParam !== null && !listParamValid) || (error instanceof ApiError && error.status === 404);
+  const lists = data?.meta.available_dates ?? [];
+  const shownList = data?.meta.list_date ?? null;
+  const isHistorical = shownList !== null && lists.length > 0 && shownList !== lists[0].list_date;
+  const showList = (listDate: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (listDate === null || listDate === lists[0]?.list_date) next.delete("list");
+    else next.set("list", listDate);
+    setSearchParams(next);
+  };
+
   const items = data?.items ?? [];
+  const carriedOver = data?.meta.carried_over ?? 0;
   const anyLive = items.some((p) => p.is_live);
   const filtered = useMemo(() => {
     let rows = tier === "all" ? items : items.filter((p) => p.tier === tier);
@@ -195,6 +233,25 @@ export default function WatchlistPage() {
           <p className="text-[11px] text-ink-3 mt-1">
             {data?.meta.disclaimer ?? "Personal / internal equity research only. Not investment advice."}
           </p>
+          {lists.length > 0 && shownList !== null && !noSuchList && (
+            <label className="flex items-center gap-2 mt-3 text-[12.5px] text-ink-2">
+              <History className="h-3.5 w-3.5 text-ink-3" />
+              List
+              <select
+                aria-label="Watchlist date"
+                value={listParamValid ? listParam : lists[0].list_date}
+                onChange={(e) => showList(e.target.value)}
+                className="rounded-md border border-hairline bg-surface-1 px-2.5 py-1.5 text-[12.5px] text-ink-1"
+              >
+                {lists.map((l, i) => (
+                  <option key={l.list_date} value={l.list_date}>
+                    {fmtListDate(l.list_date)} · {l.count} picks{i === 0 ? " · latest" : ""}
+                  </option>
+                ))}
+              </select>
+              {isHistorical && <span className="text-ink-3">earlier list — prices are still live</span>}
+            </label>
+          )}
           <div className="flex flex-wrap items-center gap-2 mt-3">
             {(["all", "high", "caveat", "speculative"] as const).map((t) => (
               <button
@@ -224,20 +281,33 @@ export default function WatchlistPage() {
       </header>
 
       <main className="max-w-[720px] mx-auto px-4 sm:px-6 py-5">
-        {isPending && (
+        {noSuchList && (
+          <div className="text-sm py-12 text-center">
+            <p className="text-ink-2">No watchlist was published for {listParamValid ? fmtListDate(listParam) : `“${listParam}”`}.</p>
+            <button
+              type="button"
+              onClick={() => showList(null)}
+              className="mt-3 rounded-full border border-hairline bg-surface-1 hover:bg-surface-2 px-3 py-1.5 text-[12.5px]"
+            >
+              Show the latest list
+            </button>
+          </div>
+        )}
+        {!noSuchList && isPending && (
           <div className="flex items-center gap-2 text-ink-2 py-12 justify-center">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading watchlist…
           </div>
         )}
-        {isError && (
+        {!noSuchList && isError && (
           <div className="text-neg text-sm py-12 text-center">
             Could not load the watchlist{error instanceof Error ? `: ${error.message}` : ""}.
           </div>
         )}
-        {!isPending && !isError && (
+        {!noSuchList && !isPending && !isError && (
           <>
             <p className="text-[12px] text-ink-3 mb-2">
               {filtered.length} of {items.length} picks shown
+              {carriedOver > 0 ? ` · ${carriedOver} also in an earlier list` : ""}
               {dataUpdatedAt ? ` · updated ${new Date(dataUpdatedAt).toLocaleTimeString("en-IN")}` : ""}
             </p>
             <div className="rounded-lg bg-surface-0 border-hairline border divide-y divide-hairline overflow-hidden">

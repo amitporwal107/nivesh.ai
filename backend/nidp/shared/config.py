@@ -71,6 +71,27 @@ DEFAULT_UA: Final[str] = (
 # unaffected and a broken proxy cannot take them down with it. Unset = direct.
 NSE_HTTPS_PROXY: Final[str] = os.environ.get("NSE_HTTPS_PROXY", "").strip()
 
+# Optional rotating proxy for bseindia.com hosts ONLY (the BSE announcement jobs).
+#
+# api.bseindia.com answers 403 (Akamai "Access Denied") to some cloud IPs even with the
+# right headers, so the only fix is a different egress address. Point this at a
+# per-request ROTATING http/https endpoint and every request to a bseindia.com host made
+# through nse_fetcher.fetch_bytes (the announcement jobs) leaves by it, on a fresh
+# connection, with a bounded retry on 403/429/5xx so each retry gets a new IP.
+# The value carries credentials: it is a secret, lives only in the VM env file, and is
+# redacted from every log line and error. Unset = direct, exactly as before. Never used
+# for NSE or any other host. (BSE bhavcopy/delivery fetches stay direct.)
+BSE_PROXY_URL: Final[str] = os.environ.get("BSE_PROXY_URL", "").strip()
+
+# Total tries per BSE request while a proxy is set (first try + retries). Only 403, 429,
+# 5xx and connection errors are retried.
+BSE_PROXY_ATTEMPTS: Final[int] = max(1, int(os.environ.get("BSE_PROXY_ATTEMPTS", "3") or 3))
+
+# Minimum gap between BSE requests while a proxy is set, seconds. 0 disables.
+BSE_MIN_REQUEST_INTERVAL_S: Final[float] = float(
+    os.environ.get("BSE_MIN_REQUEST_INTERVAL_S", "1.0") or 0
+)
+
 # Minimum gap between NSE requests, seconds. The block was almost certainly
 # earned by request volume, so moving to a new IP without slowing down just
 # burns the new IP too. 0 disables.
@@ -85,6 +106,7 @@ NSE_MIN_REQUEST_INTERVAL_S: Final[float] = float(
 # `nsearchives.nseindia.com`. We keep the constant name `NSE_ARCHIVES`
 # for clarity at call sites but point it at the live host.
 NSE_ARCHIVES: Final[str] = "https://nsearchives.nseindia.com"
+NIFTYINDICES_WWW: Final[str] = "https://www.niftyindices.com"
 NSE_NSEARCHIVES: Final[str] = "https://nsearchives.nseindia.com"
 NSE_WWW: Final[str] = "https://www.nseindia.com"
 BSE_WWW: Final[str] = "https://www.bseindia.com"
@@ -126,6 +148,31 @@ INDEX_CONSTITUENT_URLS: Final[dict[str, str]] = {
     # Nifty 500 + Microcap 250: NSE's industry for ~250 stocks outside the
     # Nifty 500, in the same taxonomy as the Nifty 500 list.
     "Nifty Total Market": f"{NSE_ARCHIVES}/content/indices/ind_niftytotalmarket_list.csv",
+    # Market-cap tiers for the trading desk's portfolio split (Large = Nifty 100).
+    "Nifty Midcap 150":   f"{NSE_ARCHIVES}/content/indices/ind_niftymidcap150list.csv",
+    "Nifty Smallcap 250": f"{NSE_ARCHIVES}/content/indices/ind_niftysmallcap250list.csv",
+    # The sector indices the trading desk shows (desk_market.SECTOR_INDICES). Keys are the
+    # nidp.index_eod index names exactly: the desk joins on them. Verified 200 + CSV on 2026-10-19.
+    "Nifty Auto":               f"{NSE_ARCHIVES}/content/indices/ind_niftyautolist.csv",
+    "Nifty Financial Services": f"{NSE_ARCHIVES}/content/indices/ind_niftyfinancelist.csv",
+    "Nifty FMCG":               f"{NSE_ARCHIVES}/content/indices/ind_niftyfmcglist.csv",
+    "Nifty Media":              f"{NSE_ARCHIVES}/content/indices/ind_niftymedialist.csv",
+    "Nifty Metal":              f"{NSE_ARCHIVES}/content/indices/ind_niftymetallist.csv",
+    "Nifty Pharma":             f"{NSE_ARCHIVES}/content/indices/ind_niftypharmalist.csv",
+    "Nifty PSU Bank":           f"{NSE_ARCHIVES}/content/indices/ind_niftypsubanklist.csv",
+    "Nifty Realty":             f"{NSE_ARCHIVES}/content/indices/ind_niftyrealtylist.csv",
+    "Nifty Energy":             f"{NSE_ARCHIVES}/content/indices/ind_niftyenergylist.csv",
+    "Nifty Oil & Gas":          f"{NSE_ARCHIVES}/content/indices/ind_niftyoilgaslist.csv",
+    "Nifty Healthcare Index":   f"{NSE_ARCHIVES}/content/indices/ind_niftyhealthcarelist.csv",
+    "Nifty Consumer Durables":  f"{NSE_ARCHIVES}/content/indices/ind_niftyconsumerdurableslist.csv",
+    # These six are not on nsearchives; NSE Indices publishes them on niftyindices.com (same CSV layout).
+    # That host answers a wrong filename with an HTML page and status 200, so the parser rejects non-CSV.
+    "Nifty Private Bank":       f"{NIFTYINDICES_WWW}/IndexConstituent/ind_nifty_privatebanklist.csv",
+    "Nifty Capital Goods":      f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftycapitalgoods_list.csv",
+    "Nifty Cement":             f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftycement_list.csv",
+    "Nifty Chemicals":          f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftychemicals_list.csv",
+    "Nifty Power":              f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftypower_list.csv",
+    "Nifty Telecommunications": f"{NIFTYINDICES_WWW}/IndexConstituent/ind_niftytelecommunications_list.csv",
 }
 
 # 2.1 FII/DII cash daily — NSE moved from XLS archive to JSON API.
@@ -269,6 +316,7 @@ SOURCE_REGISTRY: Final[list[dict]] = [
     ("NSE_SHP",             "nse_shareholding",    NSE_SHAREHOLDING_LIST_URL,   "B", 0.85, "daily"),
     ("NSE_EQUITY_MASTER",   "nse_equity_master",   NSE_EQUITY_MASTER_URL,       "A", 0.95, "weekly"),
     ("NSE_FO_BHAVCOPY",     "fno_bhavcopy",        NSE_FO_BHAVCOPY_URL_NEW,     "A", 0.95, "daily"),
+    ("SEBI_CIRCULARS",      "sebi_circulars",      "https://www.sebi.gov.in/sebirss.xml", "A", 0.95, "high-freq"),
     # Sector-level FPI custody has no NSE equivalent — it is reported by the
     # depository, not the exchange. Class A: NSDL is the primary custodian record.
     ("NSDL_FPI_FORTNIGHTLY", "fpi_sector_auc",  NSDL_FPI_FORTNIGHTLY_URL,    "A", 0.95, "fortnightly"),

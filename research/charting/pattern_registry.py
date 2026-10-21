@@ -69,7 +69,13 @@ class PatternFamily:
     disabled_reason: Optional[str] = None
 
 
-_NO_DETECTOR = "no detector implemented; specification only"
+# Shown to the user verbatim (backend/routes/research_chart.py serves `disabled_reason`), so it must be
+# true. It used to read "no detector implemented; specification only", which is false for these families:
+# the geometry engines exist and pass their own tests (patterns_p1.evaluate_candidate / select_candidate,
+# patterns_p2, patterns_ni3.detect_ni3_as_of). They are switched off pending certification, not absent.
+# The wording below states the status without claiming either that a detector exists for every family or
+# that none does — certifying the per-family mapping is a separate piece of work.
+_NOT_CERTIFIED = "disabled in this release; not yet certified for alerting"
 
 #: Every family, enabled or not. Order is: the frozen three, then NI-3's three groups.
 FAMILIES: tuple[PatternFamily, ...] = (
@@ -83,41 +89,41 @@ FAMILIES: tuple[PatternFamily, ...] = (
 
     # ── NI-3 P-1 shapes (§2): one shared fitted-line engine ─────────────────────────────────────
     PatternFamily("ASCENDING_TRIANGLE", "TRI-ASC-v1", "Ascending triangle", GEOMETRY_P1,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NOT_CERTIFIED),
     PatternFamily("DESCENDING_TRIANGLE", "TRI-DESC-v1", "Descending triangle", GEOMETRY_P1,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NOT_CERTIFIED),
     PatternFamily("SYMMETRICAL_TRIANGLE", "TRI-SYM-v1", "Symmetrical triangle", GEOMETRY_P1,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NOT_CERTIFIED),
     PatternFamily("RISING_WEDGE", "WEDGE-R-v1", "Rising wedge", GEOMETRY_P1,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NOT_CERTIFIED),
     PatternFamily("FALLING_WEDGE", "WEDGE-F-v1", "Falling wedge", GEOMETRY_P1,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NOT_CERTIFIED),
     PatternFamily("ASCENDING_CHANNEL", "CHANNEL-ASC-v1", "Ascending channel", GEOMETRY_P1,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NOT_CERTIFIED),
     PatternFamily("DESCENDING_CHANNEL", "CHANNEL-DESC-v1", "Descending channel", GEOMETRY_P1,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §2", _NOT_CERTIFIED),
 
     # ── NI-3 P-2 (§3): pole + P-1 shape, so gated behind P-1 ────────────────────────────────────
     PatternFamily("BULL_FLAG", "FLAG-BULL-v1", "Bull flag", GEOMETRY_P2,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NOT_CERTIFIED),
     PatternFamily("BEAR_FLAG", "FLAG-BEAR-v1", "Bear flag", GEOMETRY_P2,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NOT_CERTIFIED),
     PatternFamily("BULL_PENNANT", "PENNANT-BULL-v1", "Bull pennant", GEOMETRY_P2,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NOT_CERTIFIED),
     PatternFamily("BEAR_PENNANT", "PENNANT-BEAR-v1", "Bear pennant", GEOMETRY_P2,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §3", _NOT_CERTIFIED),
 
     # ── NI-3 own rules (§4-§7) ──────────────────────────────────────────────────────────────────
     PatternFamily("DOUBLE_BOTTOM", "DB-v1", "Double bottom", GEOMETRY_OWN,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §4", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §4", _NOT_CERTIFIED),
     PatternFamily("DOUBLE_TOP", "DT-v1", "Double top", GEOMETRY_OWN,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §5", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §5", _NOT_CERTIFIED),
     PatternFamily("HEAD_AND_SHOULDERS", "HS-v1", "Head & shoulders", GEOMETRY_OWN,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §6", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §6", _NOT_CERTIFIED),
     PatternFamily("INVERSE_HEAD_AND_SHOULDERS", "IHS-v1", "Inverse head & shoulders", GEOMETRY_OWN,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §6b", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §6b", _NOT_CERTIFIED),
     PatternFamily("CUP_AND_HANDLE", "CAH-v1", "Cup & handle", GEOMETRY_OWN,
-                  VOLUME_BREAKOUT_BAR, False, "NI-3 §7", _NO_DETECTOR),
+                  VOLUME_BREAKOUT_BAR, False, "NI-3 §7", _NOT_CERTIFIED),
 )
 
 _BY_TYPE: dict[str, PatternFamily] = {f.pattern_type: f for f in FAMILIES}

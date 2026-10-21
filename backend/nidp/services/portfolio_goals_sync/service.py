@@ -36,7 +36,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional
 
 from nidp.shared.storage.pg import get_pool as _get_nidp_pool
@@ -83,6 +83,17 @@ def _load_records(blob_path: str) -> list[dict[str, Any]]:
 
 
 # ── Upserts ──────────────────────────────────────────────────────────
+
+def _ts(value: Any) -> Optional[datetime]:
+    """ISO-8601 string → datetime. Records arrive as JSON (file or HTTP), and
+    asyncpg binds a TIMESTAMPTZ parameter from a datetime object only."""
+    if value is None or isinstance(value, datetime):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
 
 async def _upsert_goal(conn, rec: dict[str, Any]) -> int:
     """Returns 1 if inserted, 0 if updated. Uses upstream goal_id as PK."""
@@ -143,10 +154,10 @@ async def _upsert_goal(conn, rec: dict[str, Any]) -> int:
         bool(rec.get("manual_fund_override") or False),
         rec.get("status", "active"),
         rec.get("on_track_pct"),
-        rec.get("last_simulated_at"),
+        _ts(rec.get("last_simulated_at")),
         json.dumps(rec.get("last_simulation") or {}),
-        rec.get("upstream_created_at"),
-        rec.get("upstream_updated_at"),
+        _ts(rec.get("upstream_created_at")),
+        _ts(rec.get("upstream_updated_at")),
     )
     return int(tag.split()[-1] or 0)
 
@@ -186,6 +197,19 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
         logger.info("portfolio_goals_sync: empty file")
         return {**stats, "sync_run_id": str(sync_run_id)}
 
+    result = await ingest_records(records, target_date=target_date, sync_run_id=sync_run_id)
+    return {**result, "gcs_path": blob_path}
+
+
+async def ingest_records(records: list[dict[str, Any]],
+                         target_date: Optional[date] = None,
+                         sync_run_id: Optional[uuid.UUID] = None) -> dict[str, Any]:
+    """Upsert goal records into NIDP. Shared by the GCS-file path (``run``) and
+    the Query API ingest endpoint."""
+    sync_run_id = sync_run_id or uuid.uuid4()
+    nidp = await _get_nidp_pool()
+    stats = {"users": 0, "goals_seen": 0, "goals_upserted": 0, "errors": 0}
+
     by_user: dict[str, list[dict[str, Any]]] = {}
     for r in records:
         uid = r.get("external_user_id")
@@ -221,4 +245,4 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
                     "ERROR", rows_upserted=upserted, error_detail=str(exc)[:500],
                 )
 
-    return {**stats, "sync_run_id": str(sync_run_id), "gcs_path": blob_path}
+    return {**stats, "sync_run_id": str(sync_run_id)}

@@ -37,6 +37,25 @@
   GCP OAuth token (`/app/.gcp-token`) expires in 1h — refresh if >45 min old.
 - Key GCP secrets: `NIDP_POSTGRES_URL`, `NIDP_KAFKA_BROKERS`, `NIDP_REDIS_URL`,
   `NIDP_SCHEMA_REGISTRY_URL`, `NIDP_DAAS_INTERNAL_TOKEN`, `nidp-tls-cert`, `nidp-tls-key`.
+- `PII_ENCRYPTION_KEY` (base64 of 32 random bytes) encrypts PII and broker session tokens at rest.
+  Staging: set in `/opt/nivesh-staging/.env.staging` on 2026-10-14. Prod: UNVERIFIED whether it is
+  set. Broker connections need it, and losing it makes stored broker sessions unreadable.
+- `BSE_PROXY_URL` (NIDP, optional, secret): rotating http/https proxy used only for `bseindia.com`
+  hosts by the BSE announcement jobs (`corporate_announcements_bse`, `_bse_subcat`), because
+  `api.bseindia.com` returns 403 to the CloudPe VM's IP. Set in `/opt/nidp-staging/nidp.env` as
+  `BSE_PROXY_URL=http://USER:PASS@HOST:PORT`; never in code, logs or git (it is redacted from every
+  log line and job_log). Unset = direct. A 403/429/5xx or connection error is retried up to
+  `BSE_PROXY_ATTEMPTS` (default 3) times, each on a fresh connection, 1 request/s
+  (`BSE_MIN_REQUEST_INTERVAL_S`). Only http/https endpoints (no socks5). Separate from
+  `NSE_HTTPS_PROXY`, which is NSE-only; neither proxy is ever used for the other exchange.
+  BSE bhavcopy/delivery fetches stay direct. The cron line is held in
+  `deploy/cloudpe/nidp/nidp-staging.cron` until this is set.
+- Broker app keys (`BROKER_<NAME>_API_KEY` / `_API_SECRET`) are Nivesh's own developer-app
+  credentials per broker; a broker is connectable only when they are set. Staging has Zerodha's.
+  ICICI Direct: `BROKER_ICICIDIRECT_API_KEY` / `_API_SECRET`. Motilal Oswal: `BROKER_MOTILAL_API_KEY`,
+  `BROKER_MOTILAL_API_SECRET`; `BROKER_MOTILAL_VENDOR_INFO` only for a vendor key (its short name) —
+  for a key a client created themselves it is left unset and the client code read at sign-in is sent. Both brokers also need the server's public IP registered
+  on the app (staging: 45.64.105.88).
 
 ## Infrastructure
 2 GCE VMs (app `e2-standard-4`, NIDP `e2-small`, Debian 12) + 28 Cloud Run jobs + 2 Cloud Run

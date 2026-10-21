@@ -34,13 +34,24 @@ _NSE_ANN_URL_TMPL = (
     NSE_WWW + "/api/corporate-announcements"
     "?index=equities&from_date={d}&to_date={d}"
 )
+# The full-day BSE fetch. Until 2026-10 this was AnnGetData/w; that endpoint now answers
+# "No Record Found!" for every date. The all-categories call on AnnSubCategoryGetData/w returns
+# the whole day (1,110 of 1,110 on 2026-10-09) with CATEGORYNAME and SUBCATNAME on each row.
 _BSE_ANN_URL_TMPL = (
-    "https://api.bseindia.com/BseIndiaAPI/api/AnnGetData/w"
+    "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w"
     "?pageno={page}&strCat=-1&strPrevDate={d}&strToDate={d}"
-    "&strScrip=&strSearch=P&strType=C&subcategory=-1"
+    "&strscrip=&strSearch=P&strType=C&subcategory=-1"
 )
 _BSE_PAGE_SIZE = 50
-_BSE_MAX_PAGES = 20  # safety cap — typical day = 200–800 announcements
+_BSE_MAX_PAGES = 60  # safety cap — busiest day seen is 1,258 filings (26 pages)
+
+# BSE's edge answers 403 "Access Denied" over HTTP/1.1 unless a request carries the site-root
+# Referer, an Origin header AND a Connection header. The old Referer (/corporates/ann.html) is
+# refused outright. aiohttp sends no Connection header by default (urllib and httpx do), which is
+# why the first version of this fix passed with the standalone script and still got 403 here.
+# Measured from both staging VMs on 2026-10-13; no proxy is involved.
+_BSE_REFERER = "https://www.bseindia.com/"
+_BSE_HEADERS = {"Origin": "https://www.bseindia.com", "Connection": "close"}
 
 # Subcategory sweep (adopted from the BSE Announcements API suite). Uses a
 # DIFFERENT endpoint that accepts a `subcategory` filter, letting us capture
@@ -114,7 +125,7 @@ class BseAnnouncementsIngester(BaseIngester):
             with time_fetch(self.SOURCE_NAME):
                 try:
                     body, status = await fetch_bytes(
-                        url, referer="https://www.bseindia.com/corporates/ann.html",
+                        url, referer=_BSE_REFERER, extra_headers=_BSE_HEADERS,
                     )
                     last_status = status
                     SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()
@@ -126,6 +137,7 @@ class BseAnnouncementsIngester(BaseIngester):
             # We let parse() decide truth; this just stops the fetch loop.
             if b'"Table":[]' in body or len(body) < 200:
                 break
+            await asyncio.sleep(_BSE_SUBCAT_THROTTLE_S)   # a full day is ~25 pages; stay at 1 req/s
         # \x1e (record separator) joins pages — parser splits on it.
         joined = b"\x1e".join(all_pages)
         return joined, last_url, last_status
@@ -188,7 +200,7 @@ class BseSubcategoryAnnouncementsIngester(BaseIngester):
                 try:
                     with time_fetch(self.SOURCE_NAME):
                         body, status = await fetch_bytes(
-                            url, referer="https://www.bseindia.com/corporates/ann.html",
+                            url, referer=_BSE_REFERER, extra_headers=_BSE_HEADERS,
                         )
                     last_status = status
                     SOURCE_FETCH.labels(source=self.SOURCE_NAME, status=str(status)).inc()

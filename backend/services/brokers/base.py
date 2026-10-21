@@ -100,3 +100,79 @@ class Broker(Protocol):
 
     async def fetch_funds(self, token: AccessToken) -> Funds:
         ...
+
+
+@dataclass
+class HubPosition:
+    """Broker-hub position shape (one row of a net or day position book).
+
+    Richer than `Position`: carries the normalised product, the segment and
+    the derivative contract details the hub screens need. Produced by
+    `fenix_reader.read_positions` and by `hub_reads` for adapter reads. A
+    field the broker does not give is left at its default (or None) — never
+    filled with a guess.
+    """
+    symbol: str                      # broker trading symbol, upper-case
+    exchange: str                    # NSE | BSE | NFO | BFO | MCX | CDS ...
+    quantity: float                  # signed net quantity (negative = short)
+    avg_price: float
+    last_price: Optional[float] = None  # None when the broker sends no price
+    pnl: float = 0.0
+    product: Optional[str] = None      # normalised: "intraday" | "delivery" | "carryforward" | "margin"; None if unknown
+    product_raw: Optional[str] = None  # the broker's own code (MIS, CNC, NRML, ...)
+    segment: str = "equity"            # "equity" | "fno" | "commodity" | "currency"
+    is_intraday: bool = False
+    instrument_type: Optional[str] = None  # "FUT" | "CE" | "PE"; None for cash
+    expiry: Optional[str] = None       # ISO date, when the broker gives it
+    strike: Optional[float] = None
+    kind: str = "net"                  # "net" | "day"
+    name: Optional[str] = None         # broker's instrument / company name, when given
+
+
+@dataclass(frozen=True)
+class ContractRef:
+    """One futures or options contract, in the terms a `HubPosition` row
+    carries it: the row's own `symbol` and `exchange`, plus its contract
+    details."""
+    symbol: str                      # as the broker's position row gives it
+    exchange: str                    # NFO | BFO | MCX | CDS ...
+    instrument_type: str             # "FUT" | "CE" | "PE"
+    expiry: str                      # ISO date
+    strike: Optional[float] = None   # None for a future
+
+
+@dataclass
+class Candle:
+    """One bar of a contract's own price. `time` is the bar's start as an ISO
+    timestamp with the exchange's UTC offset."""
+    time: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: Optional[float] = None
+    open_interest: Optional[float] = None
+
+
+@dataclass
+class ContractQuote:
+    """The latest quote of a contract. Every field is None when the broker
+    did not send it — never a guess."""
+    last_price: Optional[float] = None
+    last_traded_at: Optional[str] = None   # ISO timestamp with offset
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    previous_close: Optional[float] = None
+    change_pct: Optional[float] = None
+    spot_price: Optional[float] = None     # the underlying's price, when given
+    volume: Optional[float] = None
+
+
+@dataclass
+class ContractChart:
+    """A contract's price history (oldest bar first) and its latest quote.
+    Returned by an adapter's optional `fetch_contract_chart(token, contract,
+    interval)`; `interval` is one of `hub_reads.CHART_INTERVALS`."""
+    candles: List[Candle] = field(default_factory=list)
+    quote: Optional[ContractQuote] = None

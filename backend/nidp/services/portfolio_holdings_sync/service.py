@@ -203,6 +203,27 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
         logger.info("portfolio_holdings_sync: empty file")
         return {**stats, "sync_run_id": str(sync_run_id)}
 
+    result = await ingest_records(records, sync_run_id=sync_run_id)
+    return {
+        **result,
+        "target_date": target_date.isoformat() if target_date else "latest",
+        "gcs_source":  blob_path,
+    }
+
+
+async def ingest_records(records: list[dict[str, Any]],
+                         sync_run_id: Optional[uuid.UUID] = None) -> dict[str, Any]:
+    """Upsert per-client holdings records into NIDP.
+
+    Each record is ``{external_user_id, snapshot_date, client_id, display_name,
+    holdings: [...]}``. Shared by the GCS-file path (``run``) and the Query API
+    ingest endpoint, so both apply the same change detection, upserts and audit
+    rows.
+    """
+    sync_run_id = sync_run_id or uuid.uuid4()
+    nidp = await _get_nidp_pool()
+    stats: dict[str, int] = {"synced": 0, "skipped": 0, "errors": 0, "holdings": 0}
+
     logger.info("portfolio_holdings_sync: %d client records to process", len(records))
 
     for rec in records:
@@ -265,9 +286,4 @@ async def run(target_date: Optional[date] = None) -> dict[str, Any]:
                 pass
             stats["errors"] += 1
 
-    return {
-        **stats,
-        "sync_run_id": str(sync_run_id),
-        "target_date": target_date.isoformat() if target_date else "latest",
-        "gcs_source":  blob_path,
-    }
+    return {**stats, "sync_run_id": str(sync_run_id)}

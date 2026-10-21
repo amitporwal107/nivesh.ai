@@ -1,14 +1,14 @@
 /**
  * Strategy Builder — V5 native port of the 5-step equity strategy wizard.
  *
- *   Universe → Strategy → Screen → Backtest → Save/Export
+ *   Universe → Strategy → Screen → Bot details → Backtest → Save/Export
  *
  * Self-contained: local wizard state + direct calls to the strategyBuilder
  * service (same /api/strategy-builder endpoints the V2 wizard uses). Research
  * & validate only — no live order execution. R1/R2 backend: screens + backtests
  * run on corp-action-adjusted prices via the NIDP DaaS API.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Globe2, Lock, FlaskConical, Play, Save, Download, Copy,
   Check, AlertTriangle, ChevronRight, Sparkles,
@@ -20,13 +20,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { formatINRCompact } from "@/lib/formatters";
 import { useToastStore } from "@/stores/toast.store";
 import {
   listTemplates, listUniverses, createUniverse, screenStrategy,
   createStrategy, updateStrategy, runBacktest, listUniverseCatalog,
+  getStrategyConfig, putStrategyConfig, defaultBotConfig,
   type TemplateItem, type UniverseItem, type ScreenResult,
-  type BacktestResult, type UniverseRef, type CatalogUniverse,
+  type BacktestResult, type UniverseRef, type CatalogUniverse, type BotConfig,
+  type BotConfigSchema,
 } from "@/services/strategyBuilder";
+import BotDetailsPanel from "./BotDetailsPanel";
 
 // ── Types ───────────────────────────────────────────────────────────
 interface Predicate {
@@ -42,8 +46,16 @@ interface StrategyDef {
   [k: string]: unknown;
 }
 
-const STEPS = ["Universe", "Strategy", "Screen", "Backtest", "Save"] as const;
-type StepIdx = 0 | 1 | 2 | 3 | 4;
+const STEPS = ["Universe", "Strategy", "Screen", "Bot details", "Backtest", "Save"] as const;
+type StepIdx = 0 | 1 | 2 | 3 | 4 | 5;
+
+/** The four Bot-details built-ins, as the PUT /config body wants them. */
+const configBody = (c: BotConfig) => ({
+  initial_capital: c.initial_capital,
+  commission_pct: c.commission_pct,
+  pyramiding: c.pyramiding,
+  short_margin_pct: c.short_margin_pct,
+});
 
 // ── Helpers ─────────────────────────────────────────────────────────
 const today = () => new Date().toISOString().slice(0, 10);
@@ -98,6 +110,21 @@ export default function StrategyBuilderPage() {
   const [from, setFrom] = useState(monthsAgo(6));
   const [to, setTo] = useState(today());
 
+  // Bot details config (step 4). Seeded from the offline fallback defaults, re-seeded
+  // from the fetched config schema as soon as the panel reports it (that schema owns
+  // the defaults), then replaced by the stored row once the strategy exists — neither
+  // re-seed ever runs over an edit the user has already made.
+  const [config, setConfig] = useState<BotConfig>(() => defaultBotConfig());
+  const [configErrors, setConfigErrors] = useState(0);
+  const configValid = configErrors === 0;
+  const configTouched = useRef(false);
+  const configStored = useRef(false);
+  const onConfigChange = (next: BotConfig) => { configTouched.current = true; setConfig(next); };
+  const onConfigSchema = (schema: BotConfigSchema) => {
+    if (configTouched.current || configStored.current) return;
+    setConfig((prev) => defaultBotConfig(prev.symbols, schema));
+  };
+
   // Load templates + custom universes once
   useEffect(() => {
     listTemplates().then(setTemplates).catch(() => setTemplates([]));
@@ -119,6 +146,16 @@ export default function StrategyBuilderPage() {
   useEffect(() => {
     setDefinition((prev) => (prev ? { ...prev, universe } : prev));
   }, [universe]);
+
+  // Once the strategy exists, load its stored config — unless the user already
+  // edited the form here (their values are the ones we just saved). A strategy
+  // with no config row yet simply keeps the schema defaults.
+  useEffect(() => {
+    if (!strategyId || configTouched.current) return;
+    getStrategyConfig(strategyId)
+      .then((c) => { configStored.current = true; setConfig(c); })
+      .catch(() => { /* defaults stand */ });
+  }, [strategyId]);
 
   const goto = (s: StepIdx) => {
     setStep(s);
@@ -145,10 +182,11 @@ export default function StrategyBuilderPage() {
     } finally { setScreening(false); }
   };
 
-  // ── Step 4: run backtest (create/save strategy first) ─────────────
+  // ── Step 5: run backtest (create/save strategy + config first) ────
   const doBacktest = async () => {
     if (!definition) return;
     if (!strategyName.trim()) { push({ kind: "warn", title: "Name your strategy first" }); return; }
+    if (!configValid) { push({ kind: "warn", title: "Fix the highlighted Bot details first" }); return; }
     setRunning(true); setResult(null);
     try {
       let id = strategyId;
@@ -161,8 +199,27 @@ export default function StrategyBuilderPage() {
       } else {
         await updateStrategy(id, definition);
       }
+      // Save the config before the run, and abort the run if that save fails. The
+      // backend reads commission_pct from the stored row (it becomes the engine's
+      // per-side cost) while starting_capital rides on the request below, so running
+      // after a failed save would mix this form's capital with the last saved
+      // commission — a config that existed nowhere. Better no run than that one.
+      try {
+        await putStrategyConfig(id, configBody(config));
+      } catch (e) {
+        push({
+          kind: "error",
+          title: "Backtest not run — couldn't save Bot details",
+          description: `${errMsg(e)} Nothing was run: the engine would have mixed these unsaved values with the last saved ones. Try again.`,
+        });
+        return;
+      }
+      // Starting capital is the Bot-details value. `max_positions` is left out on
+      // purpose: it is not a config field (spec §8b.7 names that gap), so the
+      // engine's own default owns it rather than a number pinned in the UI.
       const res = await runBacktest(id, {
-        from_date: from, to_date: to, starting_capital: 1_000_000, max_positions: 10,
+        from_date: from, to_date: to,
+        starting_capital: config.initial_capital,
       });
       setResult(res);
       const n = res.metrics?.trade_count ?? res.trades?.length ?? 0;
@@ -172,18 +229,28 @@ export default function StrategyBuilderPage() {
     } finally { setRunning(false); }
   };
 
-  // ── Step 5: save / export ─────────────────────────────────────────
+  // ── Step 6: save / export ─────────────────────────────────────────
   const doSave = async () => {
     if (!definition) return;
     if (!strategyName.trim()) { push({ kind: "warn", title: "Name your strategy first" }); return; }
+    // An invalid Bot-details field can't be stored, and saving the strategy around it
+    // would drop those edits while reporting success. Fix first (same gate as the run).
+    if (!configValid) { push({ kind: "warn", title: "Fix the highlighted Bot details first" }); return; }
     try {
-      if (strategyId) {
-        await updateStrategy(strategyId, definition);
+      let id = strategyId;
+      if (id) {
+        await updateStrategy(id, definition);
       } else {
         const s = await createStrategy({
           name: strategyName.trim(), description: null, asset_class: "STOCK", definition,
         });
-        setStrategyId(s.id);
+        id = s.id; setStrategyId(id);
+      }
+      try {
+        await putStrategyConfig(id, configBody(config));
+      } catch (e) {
+        push({ kind: "warn", title: "Strategy saved, but Bot details were not", description: errMsg(e) });
+        return;
       }
       push({ kind: "success", title: "Strategy saved" });
     } catch (e) {
@@ -213,6 +280,14 @@ export default function StrategyBuilderPage() {
   };
 
   const entry = definition?.entry?.all_of ?? [];
+  // Symbols shown read-only in Bot details: what the screen actually selected
+  // from the chosen universe (the universe is the symbol source here).
+  const screenSymbols = (screen?.candidates ?? []).map((c) => c.symbol);
+  const universeLabel = universe.type === "index"
+    ? universe.ref
+    : customs.find((u) => u.id === universe.ref)?.name
+      ?? catalog.find((c) => c.id === universe.ref)?.name
+      ?? "custom universe";
   const metrics = result?.metrics ?? {};
   const equity = result?.equity_curve ?? [];
   const trades = result?.trades ?? [];
@@ -247,7 +322,7 @@ export default function StrategyBuilderPage() {
               type="button"
               disabled={!reachable}
               onClick={() => reachable && setStep(i as StepIdx)}
-              data-testid={`step-tab-${label.toLowerCase()}`}
+              data-testid={`step-tab-${label.toLowerCase().replace(/\s+/g, "-")}`}
               className={cn(
                 "flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] transition-colors",
                 active ? "bg-surface-1 text-ink font-medium" : "text-ink-3 hover:text-ink",
@@ -261,6 +336,16 @@ export default function StrategyBuilderPage() {
                 {done ? <Check className="h-3 w-3" /> : i + 1}
               </span>
               {label}
+              {/* §8b.2: while a Bot-details field is invalid the tab carries the error
+                  count, so it stays visible from any step — the panel is unmounted. */}
+              {label === "Bot details" && configErrors > 0 && (
+                <span
+                  data-testid="step-tab-bot-details-errors"
+                  aria-label={`${configErrors} ${configErrors === 1 ? "field needs" : "fields need"} fixing`}
+                  className="flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-neg px-1 text-[10px] font-semibold text-white tabular-nums">
+                  {configErrors}
+                </span>
+              )}
               {i < STEPS.length - 1 && <ChevronRight className="h-3.5 w-3.5 text-ink-4" />}
             </button>
           );
@@ -483,15 +568,32 @@ export default function StrategyBuilderPage() {
                 </div>
               </div>
             )}
-            <Nav onBack={() => setStep(1)} onNext={() => goto(3)} nextLabel="Backtest" />
+            <Nav onBack={() => setStep(1)} onNext={() => goto(3)} nextLabel="Bot details" />
           </div>
         )}
 
-        {/* STEP 4 — BACKTEST */}
+        {/* STEP 4 — BOT DETAILS (config built-ins; must precede a run) */}
         {step === 3 && (
           <div className="flex flex-col gap-4">
+            <BotDetailsPanel
+              strategyId={strategyId}
+              value={config}
+              onChange={onConfigChange}
+              symbols={screenSymbols}
+              universeLabel={universeLabel ?? undefined}
+              onErrorCountChange={setConfigErrors}
+              onSchemaLoaded={onConfigSchema}
+            />
+            <Nav onBack={() => setStep(2)} onNext={() => goto(4)} nextLabel="Backtest"
+              nextDisabled={!configValid} />
+          </div>
+        )}
+
+        {/* STEP 5 — BACKTEST */}
+        {step === 4 && (
+          <div className="flex flex-col gap-4">
             <SectionHead title="Backtest"
-              sub="Slippage 5 bps + ₹20 brokerage per side baked in. Prices are corp-action adjusted." />
+              sub="Per-side cost = the commission % from Bot details, plus ₹20 flat brokerage. Prices are corp-action adjusted." />
             <div className="flex flex-wrap items-end gap-3 rounded-lg border border-hairline bg-surface-1 p-3">
               <div className="flex gap-1">
                 {PRESETS.map((p) => (
@@ -506,10 +608,20 @@ export default function StrategyBuilderPage() {
                 className="px-2 py-1 text-[12px] rounded border border-hairline bg-bg text-ink" /></Field>
               <Field label="To"><input type="date" value={to} onChange={(e) => setTo(e.target.value)}
                 className="px-2 py-1 text-[12px] rounded border border-hairline bg-bg text-ink" /></Field>
-              <Button variant="default" size="sm" onClick={doBacktest} disabled={running || !definition} data-testid="run-backtest">
+              <Button variant="default" size="sm" onClick={doBacktest}
+                disabled={running || !definition || !configValid}
+                title={!configValid ? "Fix the highlighted fields first" : undefined}
+                data-testid="run-backtest">
                 <Play className="h-3.5 w-3.5 mr-1.5" /> {running ? "Running…" : "Run backtest"}
               </Button>
             </div>
+
+            <p className="text-[11px] text-ink-3" data-testid="backtest-config-line">
+              Starting capital {formatINRCompact(config.initial_capital)} · commission {config.commission_pct}% per side,
+              both from Bot details{" "}
+              <button type="button" className="text-accent underline" onClick={() => setStep(3)}>edit</button>.
+              Position sizing uses the engine's own slot count — it isn't a config field yet.
+            </p>
 
             <p className="flex items-start gap-1.5 text-[11px] text-warm">
               <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -578,12 +690,12 @@ export default function StrategyBuilderPage() {
                 )}
               </div>
             ))}
-            <Nav onBack={() => setStep(2)} onNext={() => goto(4)} nextLabel="Save" />
+            <Nav onBack={() => setStep(3)} onNext={() => goto(5)} nextLabel="Save" />
           </div>
         )}
 
-        {/* STEP 5 — SAVE / EXPORT */}
-        {step === 4 && (
+        {/* STEP 6 — SAVE / EXPORT */}
+        {step === 5 && (
           <div className="flex flex-col gap-4">
             <SectionHead title="Save &amp; export"
               sub="Save this strategy for later, or export the backtest. Live alerts & broker order export are a later phase." />
@@ -607,7 +719,7 @@ export default function StrategyBuilderPage() {
               <Sparkles className="h-3.5 w-3.5 mt-0.5 shrink-0 text-accent" />
               Research &amp; validate phase: this wizard builds, screens and backtests strategies. Live alerts and broker order placement ship in a later phase.
             </div>
-            <Nav onBack={() => setStep(3)} />
+            <Nav onBack={() => setStep(4)} />
           </div>
         )}
       </div>

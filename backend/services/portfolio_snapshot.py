@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from deps import db
+from helpers import holdings_reconcile
 
 logger = logging.getLogger(__name__)
 
@@ -292,11 +293,14 @@ async def backfill_snapshot_health(user_id: str, *, only_missing: bool = True) -
                 {**{k: v for k, v in h.items() if k != "_id"},
                  "user_id": user_id, "_backfill_user": user_id}
                 for h in snap_holdings
+                if not holdings_reconcile.is_broker_sourced(h)
             ]
             if stamped:
                 await db.holdings.insert_many(stamped)
             await db.holdings.delete_many({
                 "user_id": user_id, "_backfill_user": {"$ne": user_id},
+                # Broker rows belong to no snapshot; swapping one in must not drop them.
+                **holdings_reconcile.not_broker_sourced_filter(),
             })
             await db.holdings.update_many(
                 {"user_id": user_id, "_backfill_user": user_id},
@@ -348,11 +352,14 @@ async def backfill_snapshot_health(user_id: str, *, only_missing: bool = True) -
                 {**{k: v for k, v in h.items() if k != "_id"},
                  "user_id": user_id, "_backfill_user": user_id}
                 for h in original_snap["holdings"]
+                if not holdings_reconcile.is_broker_sourced(h)
             ]
             if stamped:
                 await db.holdings.insert_many(stamped)
             await db.holdings.delete_many({
                 "user_id": user_id, "_backfill_user": {"$ne": user_id},
+                # Broker rows belong to no snapshot; swapping one in must not drop them.
+                **holdings_reconcile.not_broker_sourced_filter(),
             })
             await db.holdings.update_many(
                 {"user_id": user_id, "_backfill_user": user_id},

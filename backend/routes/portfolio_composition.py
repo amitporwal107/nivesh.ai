@@ -11,11 +11,17 @@ Returns portfolio breakdown segmented by one of four dimensions:
 Each segment carries weight_pct, current_value, invested, pnl_pct,
 and an optional xirr_pct. Concentration breach flags are included
 so the frontend can render warning chips without a second call.
+
+GET /api/portfolio/composition/scope — what the totals are made of (PRD §8.3, the trading desk's Portfolio card):
+the accounts and sources the stored holdings came from (each with its value, invested value, instrument types,
+rows without a price or a cost, last update, and for a broker account its lines for reconciliation), the instrument
+types and asset allocation over all of them, and the instruments held in more than one source.
 """
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Request
@@ -208,4 +214,144 @@ def _empty_response(dimension: str, metric: str, period: Optional[str]) -> dict:
         "totals": {"current_value": 0.0, "invested": None},
         "concentration_breaches": [],
         "threshold": _THRESHOLDS.get(dimension, 35.0),
+    }
+
+
+# ── GET /api/portfolio/composition/scope ─────────────────────────────────
+# What every total on the trading desk's Portfolio card is made of (PRD §8.3): which accounts and sources, which
+# instrument types, how fresh each source is, and what the reconciliation rule left in two places.
+
+SCOPE_RULE = ("Broker wins (helpers.holdings_reconcile): a broker account or a broker's own file replaces a "
+              "statement's copy of the same ISIN. Holdings at two different brokers, or a plain sheet beside a "
+              "statement, both count; such overlaps are listed here, never merged.")
+
+
+def _broker_name(slug: Optional[str]) -> str:
+    if not slug:
+        return "Broker"
+    try:
+        from services.brokers import registry
+        return registry.get(slug).DISPLAY
+    except Exception:  # noqa: BLE001 — an unknown or unregistered slug is still named
+        return slug.replace("_", " ").title()
+
+
+def _segment_of(h: dict, accounts: dict) -> tuple[str, str, str, Optional[str], Optional[str]]:
+    """(key, kind, name, broker, account_id) of the source a stored holding came from."""
+    acct = h.get("broker_account_id")
+    broker = h.get("broker")
+    if acct:
+        doc = accounts.get(acct) or {}
+        broker = broker or doc.get("broker")
+        display = _broker_name(broker)
+        label = (doc.get("label") or "").strip()
+        name = display if not label or label.lower() == display.lower() else f"{display} · {label}"
+        return f"account:{acct}", "broker_account", name, broker, acct
+    if h.get("source") == "broker_export":
+        return f"file:{broker}", "broker_file", f"{_broker_name(broker)} file", broker, None
+    if h.get("source") in ("cas", "snapshot_load"):
+        return "statement", "statement", "CAS statement", None, None
+    return "manual", "manual", "Added by hand or from a plain sheet", None, None
+
+
+def _stamp(h: dict) -> Optional[str]:
+    stamps = [str(h[k]) for k in ("price_updated_at", "uploaded_at", "created_at") if h.get(k)]
+    return max(stamps) if stamps else None
+
+
+@router.get("/composition/scope")
+async def get_scope(request: Request) -> dict[str, Any]:
+    """Accounts / sources, instrument types, asset allocation, freshness and reconciliation of the stored holdings —
+    the same rows /api/portfolio/holdings-enriched values (value = quantity × current price)."""
+    from helpers import holdings_reconcile
+
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    holdings: list[dict] = await db.holdings.find(
+        {"user_id": uid},
+        {"_id": 0, "name": 1, "ticker": 1, "isin": 1, "asset_type": 1, "category": 1, "quantity": 1, "buy_price": 1,
+         "current_price": 1, "source": 1, "broker": 1, "broker_account_id": 1, "uploaded_at": 1, "created_at": 1,
+         "price_updated_at": 1},
+    ).to_list(2000)
+    account_docs: list[dict] = await db.broker_accounts.find(
+        {"user_id": uid}, {"_id": 0, "account_id": 1, "broker": 1, "label": 1, "native": 1, "last_sync_at": 1},
+    ).to_list(50)
+    accounts = {a["account_id"]: a for a in account_docs if a.get("account_id")}
+
+    segments: dict[str, dict] = {}
+    types: dict[str, int] = defaultdict(int)
+    classes: dict[str, float] = defaultdict(float)
+    by_isin: dict[str, dict] = {}
+    total_value = total_invested = 0.0
+    unpriced = no_cost = 0
+    stamps: list[str] = []
+    for h in holdings:
+        key, kind, name, broker, acct = _segment_of(h, accounts)
+        seg = segments.setdefault(key, {
+            "key": key, "kind": kind, "name": name, "broker": broker, "account_id": acct, "holdings": 0,
+            "value_rs": 0.0, "invested_rs": 0.0, "instrument_types": defaultdict(int), "unpriced": 0, "no_cost": 0,
+            "last_updated": None,
+            "last_sync_at": (accounts.get(acct) or {}).get("last_sync_at") if acct else None,
+            "lines": [] if acct else None,
+        })
+        qty = float(h.get("quantity") or 0)
+        bp = float(h.get("buy_price") or 0)
+        cp = float(h.get("current_price") or 0)
+        value = qty * cp
+        at = (h.get("asset_type") or "other").lower()
+        seg["holdings"] += 1
+        seg["value_rs"] += value
+        if bp > 0:
+            seg["invested_rs"] += qty * bp
+            total_invested += qty * bp
+        else:
+            seg["no_cost"] += 1
+            no_cost += 1
+        if cp <= 0:
+            seg["unpriced"] += 1
+            unpriced += 1
+        seg["instrument_types"][at] += 1
+        types[at] += 1
+        classes[_asset_class_for(at, h.get("category") or "")] += value
+        total_value += value
+        stamp = _stamp(h)
+        if stamp:
+            stamps.append(stamp)
+            seg["last_updated"] = max(seg["last_updated"] or stamp, stamp)
+        isin = holdings_reconcile.resolve_isin(h)
+        if acct is not None:
+            seg["lines"].append({"isin": isin or None, "symbol": (h.get("ticker") or "").upper() or None, "quantity": qty})
+        if isin:
+            entry = by_isin.setdefault(isin, {"isin": isin, "name": h.get("name"), "sources": set(), "rows": 0})
+            entry["sources"].add(name)
+            entry["rows"] += 1
+
+    out_segments = []
+    for seg in sorted(segments.values(), key=lambda s: -s["value_rs"]):
+        out_segments.append({
+            **seg,
+            "value_rs": round(seg["value_rs"], 2),
+            "invested_rs": round(seg["invested_rs"], 2) if seg["holdings"] > seg["no_cost"] else None,
+            "weight_pct": round(seg["value_rs"] / total_value * 100, 2) if total_value > 0 else None,
+            "instrument_types": dict(seg["instrument_types"]),
+        })
+    duplicates = [{**d, "sources": sorted(d["sources"])} for d in by_isin.values() if len(d["sources"]) > 1]
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "source": "Stored holdings (db.holdings), valued at quantity × current price as /api/portfolio/holdings-enriched",
+        "accounts": out_segments,
+        "instrument_types": dict(types),
+        "asset_allocation": sorted(
+            [{"asset_class": k, "value_rs": round(v, 2), "weight_pct": round(v / total_value * 100, 2) if total_value > 0 else None}
+             for k, v in classes.items()], key=lambda a: -a["value_rs"]),
+        "totals": {
+            "holdings": len(holdings),
+            "value_rs": round(total_value, 2) if holdings else None,
+            "invested_rs": round(total_invested, 2) if holdings and len(holdings) > no_cost else None,
+            "unpriced_rows": unpriced,
+            "no_cost_rows": no_cost,
+        },
+        "last_updated": max(stamps) if stamps else None,
+        "oldest_updated": min(stamps) if stamps else None,
+        "reconciliation": {"rule": SCOPE_RULE, "duplicates": duplicates},
     }

@@ -30,6 +30,9 @@ ENV_FILE="${STAGING_ROOT}/.env.staging"
 SSL_DIR="${STAGING_ROOT}/ssl"
 DEPLOY_KEY="${STAGING_ROOT}/.ssh/id_ed25519"
 SVC_USER="nivesh-staging"
+# Linux user GitHub Actions logs in as (secrets.STAGING_SSH_USER). It owns
+# downloads/ so the APK publish job can write there without sudo.
+CI_USER="${CI_USER:-ci-deploy}"
 HOSTNAME_PUBLIC="staging.niveshcopilot.com"
 
 REPO_URL="git@github.com:amitporwal107/nivesh.ai.git"
@@ -75,12 +78,30 @@ fi
 usermod -aG docker "$SVC_USER"
 
 log "Ensuring directories under ${STAGING_ROOT}/"
-mkdir -p "${STAGING_ROOT}"/{data/{postgres,mongo,redis,app},logs,ssl,nginx,dumps}
+mkdir -p "${STAGING_ROOT}"/{data/{postgres,mongo,redis,app},logs,ssl,nginx,dumps,downloads}
 # Group-traversable so the cron user can reach logs/; secrets below stay 600 root.
 chown root:"$SVC_USER" "$STAGING_ROOT"
 chmod 750 "$STAGING_ROOT"
 chown "$SVC_USER":"$SVC_USER" "${STAGING_ROOT}/logs"
 chmod 700 "${STAGING_ROOT}/dumps"
+
+# downloads/ holds the staging Android APK, published by the GitHub Actions job
+# in .github/workflows/deploy-android-staging.yml and mounted read-only into the
+# edge nginx (location /downloads/). The CI user owns it so that job can write
+# without sudo: ci-deploy's only sudo right is ci-deploy.sh (see
+# /etc/sudoers.d/91-ci-deploy), so `sudo install` there fails with
+# "sudo: a password is required".
+#
+# o+x on STAGING_ROOT is traversal ONLY (no o+r, so the directory still cannot be
+# listed). Everything sensitive under it is protected by its own mode, not by the
+# parent: .env.staging and ssl/key.pem are 600 root:root and dumps/ is 700.
+chmod o+x "$STAGING_ROOT"
+if id -u "$CI_USER" >/dev/null 2>&1; then
+    chown "$CI_USER":"$CI_USER" "${STAGING_ROOT}/downloads"
+else
+    log "WARN: user ${CI_USER} not found — downloads/ left root-owned; the APK publish job will fail"
+fi
+chmod 755 "${STAGING_ROOT}/downloads"
 
 # ── 3. Repo checkout ─────────────────────────────────────────────────────────
 if [[ "$REPO_URL" != https://* ]]; then

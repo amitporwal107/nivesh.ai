@@ -75,6 +75,9 @@ class IndexConstituentsIngester(BaseIngester):
                             metadata={"index_name": index_name},
                         )
                         rows = parse_constituents(body)
+                        if not rows:
+                            # A header-only or empty file must not look like a successful load.
+                            raise ValueError(f"no constituents parsed (http {status})")
                         total_fetched += len(rows)
                         kept = [r for r in rows if r["symbol"]]
                         total_skipped += (len(rows) - len(kept))

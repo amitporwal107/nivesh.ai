@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="display:flex;flex-direction:column;gap:22px;font-family:var(--sans);color:var(--ink)">
+
+<sc-if value="{{ isEvents }}" hint-placeholder-val="{{ true }}">
+  <div style="display:flex;flex-direction:column;gap:22px">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="nv-synthesis" style="text-wrap:pretty">Two filings today matter for your portfolio: <span style="color:var(--amber)">Bajaj Finance’s results date</span> and a pledge increase at IndusInd Bank. The rest are routine.</div>
+      <p class="nv-prose" style="margin:0;text-wrap:pretty">Nivesh read 142 NSE and BSE filings today and matched 6 to your holdings and watchlist. One RBI draft also touches your financials exposure.</p>
+    </div>
+    <sc-for list="{{ material }}" as="e" hint-placeholder-count="3">
+      <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:14px 18px;border-bottom:1px solid var(--line)">
+          <span class="nv-dot" style="background:{{ e.color }}"></span>
+          <span style="font-size:15px;font-weight:500">{{ e.co }}</span>
+          <span class="nv-pill">{{ e.w }}</span>
+          <span style="flex:1"></span>
+          <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3);text-transform:uppercase">{{ e.type }} · {{ e.time }}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;padding:14px 18px">
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px">
+            <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--mint);padding-top:3px">FACT</span>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+              <span style="font-size:14px;line-height:1.5">{{ e.fact }}</span>
+              <span class="nv-pill" style="color:{{ e.color }};border-color:{{ e.line }};background:{{ e.soft }}">{{ e.fig }}</span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px">
+            <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber);padding-top:3px">IMPACT</span>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <span style="font-size:13px;line-height:1.5;color:var(--ink-2)">{{ e.impact }}</span>
+              <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)">{{ e.conf }}</span>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;padding:0 18px 14px"><a href="#" style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">{{ e.src }} ↗</a></div>
+      </div>
+    </sc-for>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--indigo-line);background:var(--indigo-soft)">
+        <span class="nv-eyebrow" style="color:var(--indigo)">Regulatory · RBI · Financials, you hold 34%</span>
+        <span style="font-size:13px;line-height:1.5;color:var(--ink)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--mint);margin-right:8px">FACT</span>RBI released draft norms capping loan-to-value on gold loans at 75%.</span>
+        <span style="font-size:13px;line-height:1.5;color:var(--ink-2)"><span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--amber);margin-right:8px">INFERRED</span>Most relevant to gold-loan NBFCs. You hold none directly and 0.6% through funds.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Routine · no action needed</span>
+        <sc-for list="{{ routine }}" as="r" hint-placeholder-count="3">
+          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)">
+            <span><span>{{ r.co }}</span> <span style="color:var(--ink-3)">· {{ r.t }}</span></span>
+            <span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">{{ r.time }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isFunds }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;flex-direction:column;gap:22px">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="nv-synthesis" style="text-wrap:pretty">Three of your funds hold the same large banks, so you own <span style="color:var(--amber)">HDFC Bank four times over</span>: 11.2% of your money once funds are looked through.</div>
+      <p class="nv-prose" style="margin:0;text-wrap:pretty">HDFC Flexi Cap and ICICI Bluechip share 68% of their holdings. One switch removes most of that overlap and stays inside this year’s LTCG exemption, so the estimated tax is zero.</p>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">Overlap between your equity funds · common holdings</span><span class="nv-eyebrow">Calculated</span></div>
+      <div style="overflow-x:auto;padding:6px 0 10px">
+        <div style="min-width:440px;display:flex;flex-direction:column">
+          <div style="display:grid;grid-template-columns:minmax(110px,1.4fr) repeat(4,minmax(64px,1fr));gap:6px;padding:8px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3);text-transform:uppercase">
+            <span></span>
+            <sc-for list="{{ fundNames }}" as="fn" hint-placeholder-count="4"><span style="text-align:center">{{ fn }}</span></sc-for>
+          </div>
+          <sc-for list="{{ overlap }}" as="r" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:minmax(110px,1.4fr) repeat(4,minmax(64px,1fr));gap:6px;padding:3px 18px;align-items:center">
+              <span style="font-size:13px;color:var(--ink-2)">{{ r.n }}</span>
+              <sc-for list="{{ r.cells }}" as="cl" hint-placeholder-count="4">
+                <span class="nv-num" style="text-align:center;padding:9px 0;border-radius:8px;font-size:13px;background:{{ cl.bg }};color:{{ cl.color }}">{{ cl.v }}</span>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+      <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;justify-content:space-between;gap:12px"><span class="nv-eyebrow">Real exposure · direct + via funds</span><span class="nv-eyebrow">Look-through</span></div>
+        <sc-for list="{{ lookThrough }}" as="l" hint-placeholder-count="4">
+          <div style="display:grid;grid-template-columns:84px minmax(0,1fr) 44px;gap:10px;align-items:center;font-size:13px">
+            <span style="color:var(--ink-2)">{{ l.k }}</span>
+            <div style="position:relative;display:flex;height:10px;border-radius:3px;overflow:hidden;background:var(--bg-2)">
+              <span style="width:{{ l.dw }};background:var(--indigo)"></span>
+              <span style="width:{{ l.fw }};background:var(--amber)"></span>
+              <span style="position:absolute;left:66.7%;top:0;bottom:0;width:2px;background:var(--ink)"></span>
+            </div>
+            <span class="nv-num" style="text-align:right;color:{{ l.c }}">{{ l.t }}</span>
+          </div>
+        </sc-for>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)"><span style="color:var(--indigo)">● DIRECT</span><span style="color:var(--amber)">● VIA FUNDS</span><span>| 8% LIMIT</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;justify-content:space-between;gap:12px"><span class="nv-eyebrow">Allocation vs your target</span><span class="nv-eyebrow">Band = target</span></div>
+        <sc-for list="{{ alloc }}" as="a" hint-placeholder-count="4">
+          <div style="display:grid;grid-template-columns:84px minmax(0,1fr) 44px;gap:10px;align-items:center;font-size:13px">
+            <span style="color:var(--ink-2)">{{ a.k }}</span>
+            <div style="position:relative;height:10px;border-radius:3px;background:var(--bg-2)">
+              <span style="position:absolute;top:-3px;bottom:-3px;left:{{ a.bl }};width:{{ a.bw }};border:1px solid var(--mint-line);background:var(--mint-soft);border-radius:3px"></span>
+              <span style="position:absolute;top:2px;bottom:2px;left:0;width:{{ a.w }};background:{{ a.color }};border-radius:2px"></span>
+            </div>
+            <span class="nv-num" style="text-align:right;color:{{ a.color }}">{{ a.v }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">Fund quality and fit</span><span class="nv-eyebrow">Reported + calculated</span></div>
+      <div style="overflow-x:auto">
+        <div style="min-width:520px">
+          <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(4,minmax(0,1fr));gap:10px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><span>Fund</span><span>Consistency</span><span>Expense</span><span>Max DD</span><span>Role</span></div>
+          <sc-for list="{{ quality }}" as="q" hint-placeholder-count="4">
+            <div style="display:grid;grid-template-columns:minmax(0,1.6fr) repeat(4,minmax(0,1fr));gap:10px;padding:11px 18px;border-top:1px solid var(--line);font-size:13px">
+              <span>{{ q.f }}</span><span class="nv-num" style="color:var(--ink-2)">{{ q.cons }}</span><span class="nv-num" style="color:{{ q.ec }}">{{ q.exp }}</span><span class="nv-num" style="color:var(--ink-2)">{{ q.dd }}</span><span style="color:{{ q.rc }}">{{ q.role }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="padding:10px 18px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3)">Consistency = share of 3-year rolling periods in the top half of the category.</div>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+      <div style="display:flex;flex-direction:column;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)">
+        <div style="display:flex;justify-content:space-between;gap:12px"><span class="nv-eyebrow">Tax-aware rebalance · 1 switch</span><span class="nv-eyebrow">simulate_rebalance</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ rules }}" as="r" hint-placeholder-count="4"><span style="font-family:var(--mono);font-size:11px;padding:4px 8px;border-radius:6px;background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2)">{{ r }}</span></sc-for></div>
+      </div>
+      <sc-for list="{{ trades }}" as="t" hint-placeholder-count="2">
+        <div style="display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)">
+          <span class="nv-pill" style="color:{{ t.color }};border-color:{{ t.line }};background:{{ t.soft }}">{{ t.side }}</span>
+          <div style="flex:1 1 220px;display:flex;flex-direction:column;gap:3px"><span style="font-size:14px;font-weight:500">{{ t.t }}</span><span style="font-size:12px;color:var(--ink-3)">{{ t.note }}</span></div>
+          <span class="nv-num" style="font-family:var(--display);font-size:20px">{{ t.amt }}</span>
+        </div>
+      </sc-for>
+      <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:12px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><span>Measure</span><span style="text-align:right">Keep both</span><span style="text-align:right">After switch</span></div>
+      <sc-for list="{{ compare }}" as="r" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:12px;padding:11px 18px;border-top:1px solid var(--line);font-size:14px">
+          <span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ r.a }}</span><span class="nv-num" style="text-align:right;color:{{ r.c }}">{{ r.b }}</span>
+        </div>
+      </sc-for>
+      <div style="padding:12px 18px;border-top:1px solid var(--line);background:var(--bg-2);font-size:12px;line-height:1.5;color:var(--ink-3)">Estimated tax, not your final liability. 2 ICICI Bluechip lots have no purchase date and were left untouched.</div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isOptions }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;flex-direction:column;gap:22px">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="nv-synthesis" style="text-wrap:pretty">The spread risks a fixed ₹9,375 to make up to ₹20,625, but it <span style="color:var(--amber)">needs Nifty above 22,525 at expiry</span> just to break even.</div>
+      <p class="nv-prose" style="margin:0;text-wrap:pretty">Buying the index outright gains more in a strong rally but loses more in a fall, and ties up ₹16.8 L against ₹9,375. Prices are from the 30 Oct expiry chain with Nifty at 22,363.</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;border-radius:12px;border:1px solid var(--danger-line);background:var(--danger-soft)">
+      <span class="nv-eyebrow" style="color:var(--danger)">Risk disclosure on derivatives</span>
+      <span style="font-size:13px;line-height:1.5;color:var(--ink)">9 out of 10 individual traders in equity futures and options incurred net losses (SEBI study). Analysis here is paper only: Nivesh has read-only broker access and cannot place orders.</span>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);box-shadow:var(--shadow-card);overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">Payoff at expiry · 30 Oct · 1 lot of 75</span><span class="nv-eyebrow">Calculated</span></div>
+      <div style="padding:16px 18px 8px">
+        <svg viewBox="0 0 600 160" preserveAspectRatio="none" style="width:100%;height:170px;display:block">
+          <line x1="0" y1="80" x2="600" y2="80" stroke="var(--line-3)"></line>
+          <line x1="241" y1="0" x2="241" y2="160" stroke="var(--line-2)" stroke-dasharray="2 4"></line>
+          <line x1="311" y1="0" x2="311" y2="160" stroke="var(--amber)" stroke-dasharray="3 3"></line>
+          <polyline points="{{ etfCurve }}" fill="none" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="5 4"></polyline>
+          <polyline points="{{ spreadCurve }}" fill="none" stroke="var(--mint)" stroke-width="2.2" stroke-linejoin="round"></polyline>
+        </svg>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding-top:8px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)">
+          <span>21,800</span>
+          <span style="display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center"><span style="color:var(--mint)">— SPREAD</span><span>- - NIFTY, 1 LOT</span><span style="color:var(--amber)">┆ BREAKEVEN 22,525</span><span>┆ SPOT 22,363</span></span>
+          <span>23,200</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));border-top:1px solid var(--line)">
+        <sc-for list="{{ optMetrics }}" as="m" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;gap:4px;padding:14px 18px;border-right:1px solid var(--line)"><span class="nv-eyebrow">{{ m.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:22px;color:{{ m.c }}">{{ m.v }}</span><span style="font-size:11px;color:var(--ink-3)">{{ m.s }}</span></div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)"><span class="nv-eyebrow">NIFTY 30 Oct calls · near the money</span><span class="nv-eyebrow">14:30 snapshot</span></div>
+      <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:10px 18px;font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase"><span>Strike</span><span style="text-align:right">Bid</span><span style="text-align:right">Ask</span><span style="text-align:right">OI</span><span style="text-align:right">IV</span><span style="text-align:right">Leg</span></div>
+      <sc-for list="{{ chain }}" as="r" hint-placeholder-count="5">
+        <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;padding:10px 18px;border-top:1px solid var(--line);font-size:13px;background:{{ r.bg }}">
+          <span class="nv-num">{{ r.k }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ r.b }}</span><span class="nv-num" style="text-align:right;color:var(--ink-2)">{{ r.a }}</span><span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ r.oi }}</span><span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ r.iv }}</span><span style="text-align:right;font-family:var(--mono);font-size:11px;color:{{ r.lc }}">{{ r.leg }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:12px">
+      <div style="display:flex;flex-direction:column;gap:12px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Greeks · whole position</span>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+          <sc-for list="{{ greeks }}" as="g" hint-placeholder-count="4"><div style="display:flex;flex-direction:column;gap:2px"><span class="nv-eyebrow">{{ g.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:20px">{{ g.v }}</span></div></sc-for>
+        </div>
+        <span style="font-size:12px;line-height:1.5;color:var(--ink-3);padding-top:8px;border-top:1px solid var(--line)">IV 13.8% sits at the 34th percentile of the last year. Costs ₹126 round trip.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;justify-content:space-between;gap:8px"><span class="nv-eyebrow">If things move</span><span style="font-family:var(--mono);font-size:9px;letter-spacing:0.1em;color:var(--amber);border:1px solid var(--amber-line);border-radius:4px;padding:1px 5px">MODEL</span></div>
+        <sc-for list="{{ sens }}" as="r" hint-placeholder-count="4">
+          <div style="display:flex;justify-content:space-between;gap:10px;font-size:13px;padding-bottom:8px;border-bottom:1px solid var(--line)"><span style="color:var(--ink-2)">{{ r.k }}</span><span class="nv-num" style="color:{{ r.c }}">{{ r.v }}</span></div>
+        </sc-for>
+        <span style="font-size:12px;line-height:1.5;color:var(--ink-2)">Model estimate: 41% chance Nifty closes above 22,525 on 30 Oct. Assumes lognormal prices at IV 13.8%; real moves have fatter tails.</span>
+        <span style="font-size:12px;line-height:1.5;color:var(--ink-3)">Same structure over the last 24 monthly expiries: −₹410 average net per trade. 24 trades is too few to judge.</span>
+      </div>
+    </div>
+  </div>
+</sc-if>
+
+<sc-if value="{{ isClarify }}" hint-placeholder-val="{{ false }}">
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div class="nv-synthesis" style="text-wrap:pretty">Before I rebalance, <span style="color:var(--mint)">which target should I use?</span></div>
+    <p class="nv-prose" style="margin:0;text-wrap:pretty">You haven’t set a target allocation, and the trades change a lot depending on it. Pick one and I’ll continue.</p>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-for list="{{ clarify }}" as="o" hint-placeholder-count="3">
+        <div onClick="{{ o.go }}" style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 16px;border-radius:12px;border:1px solid var(--line-2);background:var(--bg-1);cursor:pointer;transition:all .15s ease" style-hover="border-color:var(--mint-line)">
+          <div style="display:flex;flex-direction:column;gap:3px"><span style="font-size:14px;font-weight:500">{{ o.t }}</span><span style="font-size:12px;color:var(--ink-3)">{{ o.d }}</span></div>
+          <span style="color:var(--ink-3)">›</span>
+        </div>
+      </sc-for>
+    </div>
+    <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-4)">NIVESH ASKS ONLY WHEN THE ANSWER WOULD CHANGE MATERIALLY</span>
+  </div>
+</sc-if>
+
+<sc-if value="{{ hasActions }}" hint-placeholder-val="{{ true }}">
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 12px"><span class="nv-eyebrow">{{ actionsTitle }}</span><span class="nv-eyebrow">You stay in control</span></div>
+    <sc-for list="{{ actions }}" as="a" hint-placeholder-count="2">
+      <div style="border-radius:14px;background:var(--bg-1);border:1px solid var(--line);overflow:hidden">
+        <div onClick="{{ a.toggle }}" style="display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:12px;align-items:center;padding:16px 18px;cursor:pointer">
+          <span style="font-family:var(--mono);font-size:13px;color:{{ a.color }}">{{ a.n }}</span>
+          <div style="display:flex;flex-direction:column;gap:4px;min-width:0"><span style="font-size:15px;font-weight:500;text-wrap:pretty">{{ a.t }}</span><span style="font-size:13px;color:var(--ink-3);text-wrap:pretty">{{ a.d }}</span></div>
+          <div style="display:flex;align-items:center;gap:12px"><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:{{ a.color }};white-space:nowrap">{{ a.impact }}</span><span style="font-family:var(--mono);font-size:12px;color:var(--ink-3)">{{ a.chev }}</span></div>
+        </div>
+        <sc-if value="{{ a.open }}" hint-placeholder-val="{{ false }}">
+          <div style="border-top:1px solid var(--line);padding:6px 18px 16px {{ indent }};display:flex;flex-direction:column">
+            <sc-for list="{{ a.fields }}" as="f" hint-placeholder-count="7">
+              <div style="display:grid;grid-template-columns:{{ fieldCols }};gap:4px 14px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;line-height:1.55">
+                <span style="font-family:var(--mono);font-size:10px;letter-spacing:0.1em;color:var(--ink-3);text-transform:uppercase;padding-top:2px">{{ f.k }}</span>
+                <span style="color:var(--ink-2);text-wrap:pretty">{{ f.v }}</span>
+              </div>
+            </sc-for>
+            <div style="display:flex;gap:8px;padding-top:14px">
+              <button onClick="{{ a.go }}" style="padding:8px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">{{ a.btn }}</button>
+              <button style="padding:8px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Not for me</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:860,&quot;height&quot;:1400},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;events&quot;,&quot;funds&quot;,&quot;options&quot;,&quot;clarify&quot;],&quot;default&quot;:&quot;events&quot;,&quot;tsType&quot;:&quot;'events'|'funds'|'options'|'clarify'&quot;},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;full&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { openAction: 0 };
+  renderVals() {
+    const p = this.props, K = p.kind || 'events', mobile = !!p.mobile, full = !!p.full, s = this.state;
+    const ask = (q, k) => () => p.onAsk && p.onAsk(q, k);
+    const COL = { mint: ['var(--mint)', 'var(--mint-line)', 'var(--mint-soft)'], amber: ['var(--amber)', 'var(--amber-line)', 'var(--amber-soft)'], indigo: ['var(--indigo)', 'var(--indigo-line)', 'var(--indigo-soft)'], danger: ['var(--danger)', 'var(--danger-line)', 'var(--danger-soft)'] };
+    const c = (k) => ({ color: COL[k][0], line: COL[k][1], soft: COL[k][2] });
+    const F = (arr) => ['Observation', 'Evidence', 'Portfolio impact', 'Alternatives', 'Risks', 'Confidence', 'Next step'].map((k, i) => ({ k, v: arr[i] }));
+    const ACT = {
+      events: [
+        { n: '01', k: 'amber', t: 'Decide on Bajaj Finance before 21 Oct', d: 'Your largest holding goes into a volatile results day.', impact: '±₹14K ON THE DAY', btn: 'See my options', go: ['Why is my portfolio underperforming the Nifty 50?', 'perf'], f: ['Results on 21 Oct; the stock is 9.8% of your portfolio.', 'Board meeting filing, 11:42 today (AI read). Median result-day move ±5.8% over 8 quarters (calculated).', 'A ±5.8% move is about ±₹14,000 on your position.', 'Hold through results, trim beforehand, or decide after the numbers.', 'Eight result days is a small sample; the next move could be larger.', 'The date is a fact. The size of the move is a historical range, not a prediction.', 'Review the reduce-to-6% option in your portfolio view.'] },
+        { n: '02', k: 'danger', t: 'Track IndusInd Bank pledge filings', d: 'Get alerted the next time the promoter group pledges more shares.', impact: 'ALERT', btn: 'Create alert', go: ['Alert me on IndusInd Bank pledge changes', 'events'], f: ['Pledged shares rose from 5.2% to 7.4% of the company.', 'SAST disclosure to BSE, 13:05 today (AI read).', '4.1% of your portfolio, and −0.6 pts of this year’s gap already.', 'No action now, or review alongside your other banks (21% of your portfolio).', 'Pledges can be released as quickly as they are added.', 'Low. The link between pledges and price is mixed.', 'Create the alert; nothing else changes.'] },
+      ],
+      funds: [
+        { n: '01', k: 'amber', t: 'Switch HDFC Flexi Cap (Regular) → UTI Nifty Next 50 Index (Direct)', d: '₹2.10 L, long-term lots only, inside your LTCG exemption.', impact: '₹3,400/YR SAVED', btn: 'Simulate the switch', go: ['Simulate switching HDFC Flexi Cap to UTI Nifty Next 50', 'funds'], f: ['68% overlap with ICICI Bluechip; both lean on the same banks.', 'Aug 2026 factsheets (reported). Overlap and look-through weights (calculated).', 'HDFC Bank look-through falls from 11.2% to 8.9%; expenses fall ₹3,400 a year.', 'Keep both funds, or switch ICICI Bluechip instead (estimated tax ₹6,900).', 'Next 50 is more volatile than a flexi-cap fund, and past returns differ.', 'Overlap and costs are exact. Tax is an estimate on the lots available.', 'Simulate, then place the switch with your broker or AMC.'] },
+        { n: '02', k: 'indigo', t: 'Move 3 remaining Regular plans to Direct', d: 'Same portfolios, lower expense ratios. Spread over two financial years to stay tax-free.', impact: '₹6,100/YR SAVED', btn: 'See the 3 schemes', go: ['Which of my funds are Regular plans?', 'funds'], f: ['3 schemes are Regular plans paying about 0.9% a year more than Direct.', 'Scheme codes from your CAS (reported); expense ratios from AMFI (reported).', '₹6,100 a year saved at current values.', 'Switch in one go this year (estimated tax ₹8,300), or keep as is.', 'Switching resets the holding period on the new units.', 'Savings are exact at today’s values. Tax depends on future gains.', 'Review the schemes and pick a schedule.'] },
+      ],
+      options: [
+        { n: '01', k: 'indigo', t: 'Paper trade the spread to 30 Oct expiry', d: 'Simulated with today’s prices, costs and next-open fills.', impact: 'MAX LOSS ₹9,375', btn: 'Start paper trade', go: ['Paper trade the Nifty 22,400/22,800 call spread', 'options'], f: ['A defined-risk bullish position on Nifty for 17 days.', '30 Oct chain, 14:30 snapshot (reported). Greeks and payoff (calculated).', 'You already hold 84% equity, so this adds to the same direction.', 'Buy Nifty BeES, or do nothing and keep equity at target.', 'Time decay of −₹310 a day works against you if Nifty is flat.', 'The payoff is exact. The 41% chance is a model estimate.', 'Start the paper trade. No live order is possible.'] },
+      ],
+      clarify: [],
+    }[K] || [];
+    const actions = ACT.map((a, i) => { const open = full || s.openAction === i; return { ...a, color: COL[a.k][0], open, chev: open ? '−' : '＋', fields: F(a.f), toggle: () => this.setState(x => ({ openAction: x.openAction === i ? null : i })), go: ask(a.go[0], a.go[1]) }; });
+    const M = [[null, 41, 38, 6], [41, null, 68, 9], [38, 68, null, 4], [6, 9, 4, null]];
+    const pc = (fn) => { const pts = []; for (let S = 21800; S <= 23200; S += 20) { const y = Math.max(2, Math.min(158, 80 - fn(S) / 65000 * 70)); pts.push(`${((S - 21800) / 1400 * 600).toFixed(1)},${y.toFixed(1)}`); } return pts.join(' '); };
+    return {
+      isEvents: K === 'events', isFunds: K === 'funds', isOptions: K === 'options', isClarify: K === 'clarify',
+      hasActions: actions.length > 0, actions,
+      actionsTitle: K === 'options' ? 'Next step · paper only' : 'Options to consider · ranked by ₹ impact',
+      indent: mobile ? '18px' : '62px', fieldCols: mobile ? 'minmax(0,1fr)' : '120px minmax(0,1fr)',
+      material: [
+        { co: 'Bajaj Finance', w: 'You hold 9.8%', type: 'Board meeting', time: '11:42 IST', fact: 'The board will meet on 21 Oct to approve Q2 FY27 results.', fig: 'Results date: 21 Oct', impact: 'Result days have moved this stock ±5.8% on average, and it is your largest holding.', conf: 'CALCULATED · n = 8 RESULT DAYS · SMALL SAMPLE', src: 'VIEW FILING ON BSE', ...c('amber') },
+        { co: 'IndusInd Bank', w: 'You hold 4.1%', type: 'Promoter pledge · SAST', time: '13:05 IST', fact: 'The promoter group pledged a further 2.2% of shares; 7.4% of the company is now pledged.', fig: 'Pledged: 5.2% → 7.4%', impact: 'Rising pledges have sometimes preceded selling pressure, but the historical evidence is mixed.', conf: 'INFERRED · LOW CONFIDENCE', src: 'VIEW FILING ON BSE', ...c('danger') },
+        { co: 'Zomato', w: 'Watchlist', type: 'Bulk deal · NSE', time: '14:05 IST', fact: 'A foreign portfolio investor bought 0.9% of the company at ₹268 per share.', fig: 'Deal value: ₹2,140 Cr', impact: 'Large FPI buying often shows up again in the next shareholding filing; that is not a price signal.', conf: 'INFERRED · MODERATE CONFIDENCE', src: 'VIEW DEAL ON NSE', ...c('indigo') },
+      ],
+      routine: [['HDFC Bank', 'Allotment of ESOP shares', '09:10'], ['Infosys', 'Analyst meet schedule', '10:24'], ['ITC', 'Loss of share certificate', '12:51']].map(([co, t, time]) => ({ co, t, time })),
+      fundNames: ['PPFAS', 'HDFC Flexi', 'ICICI Blue', 'Axis Mid'],
+      overlap: ['PPFAS Flexi Cap', 'HDFC Flexi Cap', 'ICICI Bluechip', 'Axis Midcap'].map((n, i) => ({ n, cells: M[i].map(v => v === null ? { v: '—', bg: 'transparent', color: 'var(--ink-4)' } : { v: v + '%', bg: v >= 60 ? 'var(--danger-soft)' : v >= 35 ? 'var(--amber-soft)' : 'var(--bg-2)', color: v >= 60 ? 'var(--danger)' : v >= 35 ? 'var(--amber)' : 'var(--ink-3)' }) })),
+      lookThrough: [['HDFC Bank', 4.9, 6.3], ['ICICI Bank', 2.1, 6.5], ['Reliance', 0, 5.1], ['Infosys', 2.8, 1.6]].map(([k, d, f]) => ({ k, dw: (d / 12 * 100) + '%', fw: (f / 12 * 100) + '%', t: (d + f).toFixed(1) + '%', c: d + f > 8 ? 'var(--danger)' : 'var(--ink)' })),
+      alloc: [['Equity', 84, 85, 90], ['Liquid', 8, 0, 3], ['Gold', 5, 4, 6], ['Debt', 3, 5, 8]].map(([k, v, lo, hi]) => { const ok = v >= lo && v <= hi; return { k, v: v + '%', w: v + '%', bl: lo + '%', bw: Math.max(hi - lo, 1) + '%', color: ok ? 'var(--mint)' : 'var(--amber)' }; }),
+      quality: [['PPFAS Flexi Cap', '81%', '0.63% D', '−21%', 'Core', false], ['HDFC Flexi Cap', '58%', '1.58% R', '−26%', 'Overlaps', true], ['ICICI Bluechip', '64%', '0.91% D', '−24%', 'Overlaps', true], ['Axis Midcap', '42%', '0.56% D', '−31%', 'Satellite', false]].map(([f, cons, exp, dd, role, warn]) => ({ f, cons, exp, dd, role, ec: exp.endsWith('R') ? 'var(--amber)' : 'var(--ink-2)', rc: warn ? 'var(--amber)' : 'var(--ink-2)' })),
+      rules: ['Use LTCG exemption first', 'No short-term lots', 'ELSS units stay locked', 'Max 8% per stock, look-through'],
+      trades: [{ side: 'REDEEM', t: 'HDFC Flexi Cap Fund · Regular', amt: '₹2.10 L', note: 'Long-term lots only. Gain ₹38,200, inside the ₹1.25 L LTCG exemption.', ...c('danger') }, { side: 'INVEST', t: 'UTI Nifty Next 50 Index Fund · Direct', amt: '₹2.10 L', note: 'Low overlap with your large-cap funds. Expense ratio 0.18%.', ...c('mint') }],
+      compare: [['HDFC Bank, look-through', '11.2%', '8.9%', 'var(--mint)'], ['Highest fund-pair overlap', '68%', '38%', 'var(--mint)'], ['Fund expenses a year', '₹14,800', '₹11,400', 'var(--mint)'], ['Estimated tax', '—', '₹0', 'var(--ink)'], ['Exit load', '—', '₹0', 'var(--ink)']].map(([k, a, b, cc]) => ({ k, a, b, c: cc })),
+      spreadCurve: pc(S => S <= 22400 ? -9375 : S >= 22800 ? 20625 : (S - 22400) * 75 - 9375),
+      etfCurve: pc(S => (S - 22363) * 75),
+      optMetrics: [['Net debit', '₹9,375', 'Your maximum loss', 'var(--danger)'], ['Max profit', '₹20,625', 'Nifty ≥ 22,800', 'var(--mint)'], ['Breakeven', '22,525', '+0.7% from spot', 'var(--ink)'], ['Capital', '₹9,375', 'Index route: ₹16.8 L', 'var(--ink)']].map(([k, v, sub, cc]) => ({ k, v, s: sub, c: cc })),
+      chain: [['22,200', '261.50', '264.00', '38.4 L', '14.4%', ''], ['22,300', '211.00', '213.50', '52.1 L', '14.1%', ''], ['22,400', '166.50', '169.00', '71.8 L', '13.8%', 'BUY'], ['22,600', '96.00', '98.50', '63.0 L', '13.4%', ''], ['22,800', '42.00', '44.10', '88.6 L', '13.1%', 'SELL']].map(([k, b, a, oi, iv, leg]) => ({ k, b, a, oi, iv, leg, lc: leg === 'BUY' ? 'var(--mint)' : 'var(--danger)', bg: leg ? 'var(--bg-2)' : 'transparent' })),
+      greeks: [['Delta', '+0.29'], ['Theta', '−₹310/day'], ['Vega', '+₹1,150/pt'], ['Gamma', '+0.0011']].map(([k, v]) => ({ k, v })),
+      sens: [['Nifty +2% in 7 days', '+₹6,900', 'var(--mint)'], ['Flat for 7 days', '−₹2,170', 'var(--danger)'], ['Nifty −2% in 7 days', '−₹6,800', 'var(--danger)'], ['IV falls 3 points', '−₹1,900', 'var(--danger)']].map(([k, v, cc]) => ({ k, v, c: cc })),
+      clarify: [['Use my risk profile default', '85% equity · 10% debt · 5% gold', 'Rebalance toward 85% equity, 10% debt, 5% gold', 'funds'], ['Set a target allocation now', 'Takes about a minute; saved to your profile', 'Help me set a target allocation', 'funds'], ['Only fix single-stock and sector limits', 'Keeps your current mix, trims breaches', 'Which stocks contribute most to my risk?', 'perf']].map(([t, d, q, k]) => ({ t, d, go: ask(q, k) })),
+    };
+  }
+}
+</script>
+</body>
+</html>
