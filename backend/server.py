@@ -123,6 +123,7 @@ from routes.research_watchlist import router as research_watchlist_router  # Pub
 from routes.markets_desk import router as markets_desk_router  # Trading desk: /api/markets/sector-returns, /api/markets/deals
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
+from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.circulars import router as circulars_router  # Trading desk: SEBI circulars (/api/markets/circulars)
 
 # ── CAS ingestion module ──────────────────────────────────────────────
@@ -258,6 +259,7 @@ app.include_router(monitoring_actions_router) # POST /api/admin/monitoring/actio
 app.include_router(markets_desk_router)      # /api/markets/sector-returns, /api/markets/deals
 app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
+app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(circulars_router)         # /api/markets/circulars
 
 

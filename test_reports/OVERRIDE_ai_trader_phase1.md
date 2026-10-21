@@ -1,0 +1,1 @@
+REASON: AI Trader Phase 1 is built and unit-tested (43 passed) on branch feat/ai-trader-phase1 but is not deployed to staging, and no staging session token was provided, so the real-API test cases (TC-2, TC-7, TC-11) have not run. See test_reports/ai_trader_phase1_TESTCASES.md; its verdict stays BLOCKED until they do.
