@@ -166,14 +166,18 @@ test.describe("Sector heatmap — desktop", () => {
     expect(errors).toEqual([]);
   });
 
-  test("the index picker offers Nifty 50, 100 and 500 and asks the route for the one picked", async ({ page }) => {
+  test("the index picker offers the broad and size indices and asks the route for the one picked", async ({ page }) => {
     const { urls } = await open(page);
     const sel = page.getByTestId("hm-index");
-    await expect(sel.locator("option")).toHaveText(["Nifty 50", "Nifty 100", "Nifty 500"]);
+    await expect(sel.locator("option")).toHaveText(["Nifty 50", "Nifty 100", "Nifty 200", "Nifty 500", "Nifty Midcap 150", "Nifty Smallcap 250", "Nifty Total Market"]);
     await sel.selectOption("NIFTY500");
     await expect.poll(() => urls.some((u) => u.includes("index=NIFTY500"))).toBe(true);
     await sel.selectOption("NIFTY100");
     await expect.poll(() => urls.some((u) => u.includes("index=NIFTY100"))).toBe(true);
+    await sel.selectOption("NIFTYMIDCAP150");
+    await expect.poll(() => urls.some((u) => u.includes("index=NIFTYMIDCAP150"))).toBe(true);
+    await sel.selectOption("NIFTYTOTALMARKET");
+    await expect.poll(() => urls.some((u) => u.includes("index=NIFTYTOTALMARKET"))).toBe(true);
   });
 
   test("changing the period recolours the tiles, rewrites the headline and the weighted change", async ({ page }) => {
