@@ -246,3 +246,21 @@ def test_expected_move_price_moves_the_right_way_and_degrades(chain):
     assert rf._expected_move_price("flat", S) == pytest.approx(S["spot"])
     # No expected move published -> no invented one.
     assert rf._expected_move_price("up", {"spot": 100.0, "expected_move": None}) is None
+
+
+# ── the staleness comparison that 500'd on staging, pinned ──────────────────
+
+def test_newest_day_never_returns_something_uncomparable():
+    """POST /api/desk/strategy/top answered 500 on staging with
+    TypeError: '>' not supported between instances of 'dict' and 'str', because the cash class's
+    as_of came from the ideas engine's `data_as_of`, which is an OBJECT of per-source dates."""
+    assert rf._newest_day("2026-10-21") == "2026-10-21"
+    assert rf._newest_day({"chain": "2026-10-19", "scanner": "2026-10-21"}) == "2026-10-21"
+    assert rf._newest_day({}) is None
+    assert rf._newest_day({"a": None, "b": 3}) is None
+    assert rf._newest_day(None) is None
+    assert rf._newest_day(17) is None
+    # Whatever comes back must compare against a day without raising.
+    for v in ("2026-10-21", {"x": "2026-10-20"}, {}, None, 17):
+        d = rf._newest_day(v)
+        assert d is None or d > "2000-01-01"
