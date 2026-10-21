@@ -44,6 +44,10 @@ def _match(doc, flt):
         elif isinstance(v, dict) and any(o.startswith("$") for o in v):
             x = doc.get(k)
             for op, y in v.items():
+                if op == "$ne":
+                    if x == y:
+                        return False
+                    continue
                 if x is None or not {"$gt": x > y, "$gte": x >= y, "$lt": x < y, "$lte": x <= y}[op]:
                     return False
         elif doc.get(k) != v:
@@ -82,6 +86,8 @@ class Coll:
         for d in self.docs.values():
             if _match(d, flt):
                 d.update(upd.get("$set", {}))
+                for k, n in upd.get("$inc", {}).items():
+                    d[k] = d.get(k, 0) + n
                 return Res(matched=1)
         if not upsert:
             return Res()
@@ -90,6 +96,11 @@ class Coll:
             raise DuplicateKeyError("E11000 duplicate key")
         self.docs[_id] = {"_id": _id, **upd.get("$set", {})}
         return Res(upserted=_id)
+
+    async def insert_one(self, doc):
+        if doc["_id"] in self.docs:
+            raise DuplicateKeyError("E11000 duplicate key")
+        self.docs[doc["_id"]] = dict(doc)
 
     async def replace_one(self, flt, doc, upsert=False):
         self.docs[flt["_id"]] = dict(doc)
@@ -105,6 +116,11 @@ class FakeDB:
 
     def __getitem__(self, name):
         return self.cols.setdefault(name, Coll())
+
+    def __getattr__(self, name):
+        if name.startswith("_") or name == "cols":
+            raise AttributeError(name)
+        return self[name]
 
 
 class TokenException(Exception):       # same class name kiteconnect uses -> classify() = AUTH_EXPIRED
@@ -431,10 +447,12 @@ def test_gateway_exposes_no_order_surface():
 
 def test_no_order_method_is_referenced_in_the_package_or_routes():
     bad = re.compile(r"place_order|modify_order|cancel_order|place_gtt|modify_gtt|delete_gtt|convert_position|exit_order|"
-                     r"\.orders\(|\.trades\(|\.positions\(|\.holdings\(|\.margins\(|order_margins|invalidate_access_token|generate_session")
+                     r"\.orders\(|\.trades\(|\.positions\(|\.holdings\(|\.margins\(|order_margins|invalidate_access_token")
     root = Path(feed_mod.__file__).parent
     for p in list(root.glob("*.py")) + [Path(live_quotes.__file__)]:
         assert not bad.search(p.read_text()), p.name
+        # generate_session is the daily login's request_token exchange (no order power); it lives in platform_token.py only
+        assert ("generate_session" in p.read_text()) == (p.name == "platform_token.py"), p.name
 
 
 def test_token_and_key_never_reach_the_logs(caplog):

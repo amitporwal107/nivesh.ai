@@ -26,6 +26,8 @@ from pymongo.errors import DuplicateKeyError
 
 from . import config as cfg
 from . import gateway as gw
+from . import platform_token as pt
+from . import token_alert as ta
 from . import universe as uni
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,7 @@ async def try_acquire_lease(coll, name: str, holder: str, now: datetime, ttl_sec
 async def ensure_indexes(db) -> None:
     await db[COL_SNAP].create_index("updated_at", expireAfterSeconds=SNAPSHOT_TTL_SECONDS, background=True)
     await db[COL_WANTED].create_index("expires_at", expireAfterSeconds=0, background=True)
+    await pt.ensure_indexes(db)
 
 
 def aware(d: Any) -> Optional[datetime]:
@@ -104,7 +107,7 @@ class LiveFeed:
                  sleep=asyncio.sleep, cadence: Optional[int] = None, token_getter=cfg.get_token,
                  key_getter=cfg.get_api_key, kite_factory=gw.default_kite_factory,
                  ticker_factory=gw.default_ticker_factory, load_holidays=cfg.load_holidays,
-                 load_nifty500=uni.nifty500_symbols, force_rest: Optional[bool] = None):
+                 load_nifty500=uni.nifty500_symbols, force_rest: Optional[bool] = None, notifier=None):
         self.db = db
         self.holder = holder or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
         self.clock = clock or (lambda: datetime.now(timezone.utc))
@@ -145,6 +148,7 @@ class LiveFeed:
         self.holiday_checked = True
         self.data_at: Optional[datetime] = None
         self.snapshot: Optional[dict] = None
+        self.alerter = ta.TokenAlerter(db, notifier=notifier or ta.default_notifier)
 
     # ── ticks from the WebSocket thread ──────────────────────────────────────
     def _on_tick(self, token: int, tick: dict) -> None:
@@ -303,7 +307,7 @@ class LiveFeed:
                 "source": self.source, "instrument_count": len(self.ordered), "unresolved_count": len(self.unresolved),
                 "universe": {k: len(v) for k, v in self.sets.items()}, "holiday_checked": self.holiday_checked,
                 "data_at": self.data_at.isoformat() if self.data_at else None, "holder": self.holder,
-                "cadence_seconds": self.cadence, "updated_at": now}
+                "cadence_seconds": self.cadence, "token_alert": self.alerter.state(), "updated_at": now}
 
     async def _publish(self, now: datetime, final: bool = False) -> None:
         syms = set(self.ordered)
@@ -326,6 +330,23 @@ class LiveFeed:
 
     # ── one pass ─────────────────────────────────────────────────────────────
     async def tick(self) -> Dict[str, Any]:
+        stats = await self._tick_inner()
+        if stats.get("leader"):
+            await self._alert_pass()
+        return stats
+
+    async def _alert_pass(self) -> None:
+        """The morning token alert. Valid = the last Kite call worked (live or market_closed); never raises into the feed."""
+        try:
+            if self.state in ("starting", "error"):                  # nothing known about the token yet, or a non-auth failure
+                return
+            out = await self.alerter.run_pass(self.clock(), valid=self.state in ("live", "market_closed"), reason=self.reason)
+            if out.get("sent") or out.get("confirmed"):
+                await self._write_status(self.clock().astimezone(timezone.utc))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("live feed: token alert pass failed (%s)", type(e).__name__)
+
+    async def _tick_inner(self) -> Dict[str, Any]:
         now = self.clock().astimezone(timezone.utc)
         stats: Dict[str, Any] = {"leader": False}
         if not await try_acquire_lease(self.db[COL_LEASE], LEASE_NAME, self.holder, now, LEASE_TTL_SECONDS):
@@ -334,6 +355,10 @@ class LiveFeed:
             return stats
         self.leader = stats["leader"] = True
         self.session, self.reason, self.holiday_checked = await self._session(now)
+        try:
+            await pt.refresh_cache(self.db, now)                    # a token stored by the daily login, on any container
+        except Exception as e:  # noqa: BLE001
+            logger.warning("live feed: platform token cache refresh failed (%s)", type(e).__name__)
         token, key = self.token_getter(), self.key_getter()
         fp = cfg.fingerprint(token)
         if fp != self._fp:                                    # a new (or removed) token: forget the old session and any backoff

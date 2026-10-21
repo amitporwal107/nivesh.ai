@@ -39,8 +39,15 @@ _instrument_cache: Dict[Tuple[str, date], Dict[str, int]] = {}
 
 
 def default_token() -> str:
-    """Today's access token: the secrets store, else the file named by KITE_ACCESS_TOKEN_FILE, else the kite_bars daily token file."""
+    """Today's access token: the platform login stored in Mongo (non-expired), else the secrets store, else the file named by KITE_ACCESS_TOKEN_FILE, else the kite_bars daily token file."""
     from helpers import secrets
+    try:                                                    # the platform session from the daily login (kept fresh by the live feed)
+        from services.kite_live_feed.platform_token import cached_token
+        token = cached_token()
+        if token:
+            return token
+    except Exception:  # noqa: BLE001 — never let the lookup break the other sources
+        pass
     token = (secrets.get("KITE_ACCESS_TOKEN") or "").strip()
     if token:
         return token

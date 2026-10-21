@@ -5,6 +5,8 @@
  *   <Flash value={ltp}>   wraps a number and tints it for a moment when it changes (not animated under reduced motion)
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { http } from "@/services/api/http";
+import { useCopilotShell } from "../lib/shell-context";
 import { useLiveQuotes, type LiveMode } from "../lib/useLiveQuotes";
 
 const LABEL: Record<LiveMode, string> = {
@@ -22,7 +24,28 @@ function useNow(everyMs: number): number {
   return now;
 }
 
+/** Admin-only: asks the backend for a fresh single-use Kite login link and goes there. The one human step of the day (Zerodha 2FA). */
+function KiteLoginLink() {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const go = async () => {
+    setBusy(true); setFailed(false);
+    try {
+      const res = await http<{ login_url?: string }>({ method: "POST", path: "/api/live/kite/login-url", noRetry: true });
+      const url = res.data?.login_url;
+      if (!url) throw new Error("no login url");
+      window.location.assign(url);
+    } catch { setFailed(true); setBusy(false); }
+  };
+  return (
+    <button type="button" data-testid="live-chip-login" onClick={go} disabled={busy} className="cp-pill" style={{ cursor: busy ? "wait" : "pointer", background: "transparent", color: "var(--cp-ink)" }}>
+      {failed ? "Login link failed, retry" : busy ? "Opening Kite…" : "Log in to Kite"}
+    </button>
+  );
+}
+
 export function LiveChip({ floating }: { floating?: boolean }) {
+  const { isAdmin } = useCopilotShell();
   const { meta: m } = useLiveQuotes(CHIP_SYMBOLS);       // the chip keeps the one shared connection open
   const now = useNow(1000);
   const secs = m.receivedAt != null ? Math.max(0, Math.round((now - m.receivedAt) / 1000)) : null;
@@ -45,8 +68,10 @@ export function LiveChip({ floating }: { floating?: boolean }) {
       {text}
     </span>
   );
-  if (!floating) return pill;
-  return <div style={{ position: "absolute", top: 8, right: 14, zIndex: 20 }}>{pill}</div>;
+  const needsLogin = isAdmin && (m.mode === "expired" || m.mode === "not_connected");
+  const body = needsLogin ? <span className="inline-flex items-center" style={{ gap: 6 }}>{pill}<KiteLoginLink /></span> : pill;
+  if (!floating) return body;
+  return <div style={{ position: "absolute", top: 8, right: 14, zIndex: 20 }}>{body}</div>;
 }
 
 /** Tints the number green/red for 700 ms after it ticks up/down. The tint is a CSS animation that is switched off under reduced motion. */

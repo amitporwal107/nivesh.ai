@@ -212,6 +212,11 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "description": "Access token for the Kite market-data adapter (/api/research/providers/kite/*). Expires ~06:00 IST every day; obtain a new one with the login handshake (`python -m nidp.services.kite_bars.auth --login`, then `--exchange`). Uses the BROKER_ZERODHA_API_KEY app.",
         "test_fn": None, "category": "data",
     },
+    "KITE_API_SECRET": {
+        "display_name": "Kite Connect · API secret (daily platform login)",
+        "description": "Secret of the Kite Connect app, used only to exchange the daily login's request_token for the platform access token (POST /api/live/kite/login-url, callback /api/broker/native/callback?broker=zerodha). Falls back to BROKER_ZERODHA_API_SECRET. Never read from a file, logged or returned. The Zerodha account allowed to log in is named by the KITE_PLATFORM_USER_ID environment variable.",
+        "test_fn": None, "category": "data",
+    },
     "KITE_API_KEY": {
         "display_name": "Kite Connect · API key (live quote feed)",
         "description": "Public API key for the platform-level live quote feed (KiteTicker / quote). Falls back to KITE_API_KEY_FILE (line 1 only) then BROKER_ZERODHA_API_KEY. The API secret is never needed by the feed.",

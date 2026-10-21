@@ -19,9 +19,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from deps import get_current_user
+from deps import get_current_user, require_admin
 from services.kite_live_feed import config as cfg
 from services.kite_live_feed import gateway as gw
+from services.kite_live_feed import platform_token as pt
 from services.kite_live_feed.feed import aware, get_feed
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,10 @@ async def status(request: Request) -> Dict[str, Any]:
             "instrument_count": out.get("instrument_count", 0), "unresolved_count": out.get("unresolved_count", 0),
             "session": out.get("session"), "reason": out.get("reason"), "message": out.get("message", ""),
             "cadence_seconds": out.get("cadence_seconds", cfg.cadence_seconds()), "universe": out.get("universe", {}),
-            "holiday_checked": out.get("holiday_checked"), "read_only": True}
+            "holiday_checked": out.get("holiday_checked"), "read_only": True,
+            "token_alert": out.get("token_alert") or {"state": None},
+            "alert_state": (out.get("token_alert") or {}).get("state"),
+            "platform_token": await pt.token_status(feed.db)}
 
 
 @router.get("/quotes")
@@ -165,3 +169,18 @@ async def stream(request: Request, symbols: Optional[str] = Query(None, max_leng
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+@router.post("/kite/login-url")
+async def kite_login_url(request: Request) -> Dict[str, Any]:
+    """Admin only. A fresh single-use login link for the platform Kite session. Opening it is the one human step of the day
+    (Zerodha 2FA); nothing here logs in on anyone's behalf. The link carries the API key (public) and a signed state, never a secret."""
+    user = await require_admin(request)
+    key = cfg.get_api_key()
+    if not key:
+        raise HTTPException(status_code=503, detail="kite_api_key_missing")
+    if not pt.platform_user_id():
+        raise HTTPException(status_code=503, detail="platform_user_not_configured")
+    made = await pt.create_login_state(get_feed().db, str(user.get("user_id") or "admin"))
+    return {"login_url": pt.login_url(key, made["state"]), "expires_at": made["expires_at"].isoformat(),
+            "note": "Single use. Zerodha redirects to /api/broker/native/callback?broker=zerodha, which stores the day's token."}

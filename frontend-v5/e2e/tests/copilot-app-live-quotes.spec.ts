@@ -54,11 +54,15 @@ function payload(mode: string, quotes = true) {
 }
 
 type Feed = "sse" | "poll" | "down";
-async function open(page: Page, feed: Feed, mode = "live") {
+async function open(page: Page, feed: Feed, mode = "live", opts: { admin?: boolean; plain?: boolean } = {}) {
   const live: string[] = [];
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.addInitScript(() => localStorage.setItem("nivesh.copilot", JSON.stringify({ state: { mode: "trader", evidenceOpen: null }, version: 0 })));
   await mockApi(page, "populated");
+  if (opts.plain) await page.route("**/api/auth/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user_id: "u_plain", email: "user@example.test", name: "Fixture User", is_admin: false, onboarding_completed: true }) }));
+  if (opts.admin) {
+    await page.route("**/api/auth/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user_id: "u_admin", email: "admin@example.test", name: "Admin Fixture", is_admin: true, onboarding_completed: true }) }));
+  }
   await page.route("**/api/markets/sector-heatmap*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(heatmap()) }));
   await page.route("**/api/live/**", (route) => {
     const req = route.request();
@@ -70,6 +74,10 @@ async function open(page: Page, feed: Feed, mode = "live") {
       return route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(payload(mode))}\n\n` });
     }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload(mode)) });
+  });
+  if (opts.admin) await page.route("**/api/live/kite/login-url", (route) => {
+    live.push(`${route.request().method()} /api/live/kite/login-url`);
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ login_url: "/v5/kite-login-stub?opened=1", expires_at: "2026-10-21T06:30:00+00:00" }) });
   });
   await page.goto(HEATMAP);
   return live;
@@ -127,5 +135,22 @@ test.describe("Live quotes in the Copilot app", () => {
     await open(page, "sse", "expired");
     await expect(page.getByTestId("live-chip")).toHaveAttribute("data-mode", "expired");
     await expect(page.getByTestId("live-chip")).toContainText("Kite token expired");
+  });
+
+  test("expired token: an admin gets a Log in to Kite link that fetches a fresh login URL; a non-admin does not", async ({ page, browser }) => {
+    const calls = await open(page, "sse", "expired", { admin: true });
+    await expect(page.getByTestId("live-chip")).toHaveAttribute("data-mode", "expired");
+    await expect(page.getByTestId("live-chip-login")).toHaveText("Log in to Kite");
+    await page.route("**/kite-login-stub*", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<title>stub</title>" }));
+    const nav = page.waitForRequest((r) => r.url().includes("/kite-login-stub?opened=1"));
+    await page.getByTestId("live-chip-login").click();
+    await nav;
+    expect(calls).toContain("POST /api/live/kite/login-url");
+
+    const plain = await browser.newPage();
+    await open(plain, "sse", "expired", { plain: true });
+    await expect(plain.getByTestId("live-chip")).toHaveAttribute("data-mode", "expired");
+    await expect(plain.getByTestId("live-chip-login")).toHaveCount(0);
+    await plain.close();
   });
 });

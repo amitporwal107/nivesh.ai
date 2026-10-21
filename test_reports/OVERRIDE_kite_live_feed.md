@@ -28,3 +28,34 @@ Playwright (production build + vite preview, every /api call mocked; MOCK - not 
 - Staging deployment: nothing was deployed; /api/live/* on staging, the lease across two real containers, nginx passing SSE unbuffered (X-Accel-Buffering: no is sent), and the Nifty 500 + holiday reads through the data platform were not exercised with real services.
 - The full 3000-instrument load over a whole session, and behaviour at the 06:00 IST token expiry, ws reconnect after a network drop, and the 15:30 close with real data.
 - Native/WebView clients (bearer token, no cookie): EventSource cannot send Authorization, so they rely on the polling fallback; not exercised.
+
+## Addendum: daily platform token lifecycle + morning alert (2026-10-21)
+
+Real command output (this session):
+- Backend (staging image, tree read-only, no network): test_kite_platform_login.py + test_kite_live_feed.py + test_broker_native_routes.py +
+  test_broker_connect_native_routes.py + test_research_providers.py + test_desk_market_routes.py + nidp/tests/services/kite_bars:
+  see the final run in the hand-off (all passed; the per-user broker_native tests are green and unchanged).
+- tsc --noEmit: TSC CLEAN.
+- Playwright (mocked API): copilot-app-live-quotes.spec.ts 7 passed (new: admin-only "Log in to Kite" link); the wider desk / screener /
+  heatmap / research / trader / markets / screens / threads / workspace / watchlists set: 530 passed, 19 skipped, 549 tests, 8.9m.
+
+Behaviour covered by tests with fakes (MOCK): callback happy path, wrong Zerodha user rejected, replayed / expired / forged state rejected, per-user
+flow unchanged, token encrypted at rest and never logged or returned, default_token() precedence, feed recovery without restart (not_connected
+and expired), alert cadence / link per reminder / countdown / one confirmation / silent on weekends, holidays, before 08:30 and after close /
+two containers send once / a failing notifier never breaks the feed.
+
+No auto-login: Kite offers none (Zerodha 2FA). A test fails the build if TOTP / headless-browser code appears in the package.
+
+Staging environment check (names only, values never read), backend container nivesh-staging-app-backend, 2026-10-21:
+- present: BROKER_ZERODHA_API_KEY, BROKER_ZERODHA_API_SECRET, KITE_API_KEY, KITE_ACCESS_TOKEN, PII_ENCRYPTION_KEY
+- absent: KITE_PLATFORM_USER_ID (the running container predates the env-file edit; it needs a restart/recreate), KITE_API_SECRET (falls back to
+  BROKER_ZERODHA_API_SECRET), NIDP_ALERT_SMTP_HOST, NIDP_ALERT_EMAIL_TO, NIDP_TELEGRAM_BOT_TOKEN, NIDP_TELEGRAM_CHAT_ID, KITE_TOKEN_ALERT_EMAIL_TO
+- so NO alert channel is configured on staging today; the app mailer's SMTP_* secrets live in the secrets store, which I could not read.
+  An alert would currently be logged as "NOT delivered".
+
+UNVERIFIED (addendum):
+- Zerodha's real redirect to /api/broker/native/callback?broker=zerodha with our redirect_params state (the registered redirect URL, and that
+  Kite echoes `state` back, is as documented but was not exercised).
+- A real generate_session exchange for the platform account and the WVX837 match.
+- Real alert delivery over email or Telegram (no channel configured on staging; none was sent).
+- The login link and callback through the staging nginx host, and the /dashboard?kite=connected landing page (no dashboard screen reads `kite=` yet).
