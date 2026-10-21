@@ -120,7 +120,8 @@ class FakeDb:
         # would block every create. Modelling them keeps the fail-closed behaviour under test
         # instead of weakening it.
         self.cols = {svc.TRADES: FakeCollection(), svc.ALERTS: FakeCollection(),
-                     _rc.CONTROLS: FakeCollection(), _rc.AUDIT: FakeCollection()}
+                     _rc.CONTROLS: FakeCollection(), _rc.AUDIT: FakeCollection(),
+                     _rc.DECISIONS: FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"

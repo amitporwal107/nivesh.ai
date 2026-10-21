@@ -183,3 +183,54 @@ def test_a_halt_is_reported_as_its_own_reason():
     d = evaluate(_intent(), halted, Market(vix=12.0), DEFAULT_LIMITS)
     assert any(r.code == "HALTED" for r in d.reasons)
     assert d.approved_qty == 0, d.to_dict()
+
+
+# ── risk DECISIONS are recorded, not just control changes ───────────────────
+
+def test_a_decision_is_appended_with_everything_needed_to_reconstruct_it(db):
+    """The governor's decision used to live only on the ticket document, which is mutable and
+    overwritten in place: it could not be reconstructed or proved afterwards."""
+    eid = run(rc.record_decision(
+        db, "u1", action="ai_trader_ticket", outcome="refused", symbol="TCS",
+        requested_qty=10, approved_qty=0,
+        reasons=[{"code": "KILL_SWITCH", "text": "Trading was stopped by a person."}],
+        limits_version="limits-v1", correlation_id="strat-9"))
+    assert eid
+    rows = run(rc.decision_rows(db, "u1"))
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["event_id"] == eid
+    for field in ("at", "action", "outcome", "symbol", "requested_qty", "approved_qty",
+                  "reasons", "limits_version", "policy_version", "correlation_id"):
+        assert field in r, field
+    assert r["outcome"] == "refused" and r["approved_qty"] == 0
+    assert r["reasons"][0]["code"] == "KILL_SWITCH"
+
+
+def test_decisions_are_appended_never_merged(db):
+    for i in range(3):
+        run(rc.record_decision(db, "u1", action="ai_trader_ticket", outcome="allowed",
+                               symbol="TCS", requested_qty=1, approved_qty=1))
+    assert len(run(rc.decision_rows(db, "u1"))) == 3
+
+
+def test_one_user_s_decisions_are_not_another_s(db):
+    run(rc.record_decision(db, "u1", action="ai_trader_ticket", outcome="allowed", symbol="TCS"))
+    assert run(rc.decision_rows(db, "u2")) == []
+
+
+def test_an_unwritable_log_returns_none_and_does_not_raise():
+    """A failed decision write must not take the request down with it: the caller is already writing
+    its ticket to the same database, so refusing here would add a confusing second error rather than
+    protection. The kill switch is the control that fails closed; this is the record."""
+    out = run(rc.record_decision(BrokenDB(), "u1", action="ai_trader_ticket", outcome="allowed"))
+    assert out is None
+
+
+def test_control_changes_and_decisions_are_separate_streams(db):
+    run(rc.set_control(db, "u1", field="kill_switch", value=True, reason="x", actor="u1"))
+    run(rc.record_decision(db, "u1", action="desk_paper_trade", outcome="blocked"))
+    assert len(run(rc.audit_rows(db, "u1"))) == 1      # the control change
+    assert len(run(rc.decision_rows(db, "u1"))) == 1   # the decision
+    assert run(rc.audit_rows(db, "u1"))[0]["action"] == "set_kill_switch"
+    assert run(rc.decision_rows(db, "u1"))[0]["action"] == "desk_paper_trade"

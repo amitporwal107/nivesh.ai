@@ -167,6 +167,9 @@ async def create_trade(request: Request):
     try:
         await rc.assert_allowed(db, user["user_id"], "journal_trade")
     except rc.RiskBlocked as blocked:
+        await rc.record_decision(db, user["user_id"], action="journal_trade", outcome="blocked",
+                                 reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
+                                 detail=blocked.detail("journal_trade"))
         raise HTTPException(status_code=409, detail=blocked.detail("journal_trade"))
     body = await request.json()
     sym = (body.get("nse_symbol") or "").upper().strip()

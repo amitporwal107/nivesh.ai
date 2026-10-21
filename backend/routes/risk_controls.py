@@ -3,7 +3,8 @@
     GET  /api/risk/status          the signed-in user's controls and what they block
     PUT  /api/risk/kill-switch     set or clear the kill switch; a reason is required
     PUT  /api/risk/halt            set or clear the trading halt; a reason is required
-    GET  /api/risk/audit           the append-only record of every change
+    GET  /api/risk/audit           the append-only record of every control change
+    GET  /api/risk/decisions       the append-only record of every risk decision and denial
 
 Scope, stated because the name invites a bigger reading: this blocks a user's position-CREATING
 paths (AI-trader tickets, desk paper trades, journal trades). It is not an order kill switch — this
@@ -88,4 +89,16 @@ async def audit(request: Request, limit: int = Query(50, ge=1, le=rc.MAX_AUDIT_L
     user = await get_current_user(request)
     rows = await rc.audit_rows(db, _actor(user), limit)
     return {"events": rows, "count": len(rows), "append_only": True,
+            "policy_version": rc.POLICY_VERSION}
+
+
+@router.get("/decisions")
+async def decisions(request: Request, limit: int = Query(50, ge=1, le=rc.MAX_AUDIT_LISTED)) -> Dict[str, Any]:
+    """Every risk decision and denial, newest first.
+
+    Separate from /audit on purpose: "who turned the switch on" and "what the governor decided" are
+    different questions, and one stream would bury the other."""
+    user = await get_current_user(request)
+    rows = await rc.decision_rows(db, _actor(user), limit)
+    return {"decisions": rows, "count": len(rows), "append_only": True,
             "policy_version": rc.POLICY_VERSION}

@@ -99,6 +99,9 @@ async def create_paper_trade(request: Request) -> Dict[str, Any]:
     try:
         await rc.assert_allowed(db, uid, "desk_paper_trade")
     except rc.RiskBlocked as blocked:
+        await rc.record_decision(db, uid, action="desk_paper_trade", outcome="blocked",
+                                 reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
+                                 detail=blocked.detail("desk_paper_trade"))
         raise HTTPException(status_code=409, detail=blocked.detail("desk_paper_trade"))
     body = await _body(request)
     try:
