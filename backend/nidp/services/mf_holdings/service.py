@@ -7,13 +7,18 @@ the previous month's portfolio).
 Concurrency: one AMC at a time. Holdings ingest is monthly, not
 latency-sensitive, and per-AMC sites differ in how fragile they are
 under burst load.
+
+Each AMC is written and ledgered as it is fetched (see ingest.ingest_amc), rather than
+accumulated into one end-of-run batch. That makes a partial month explicit in
+nidp.mf_holdings_coverage instead of hiding behind a single "PARTIAL" job_log row, and lets
+backfill.py reuse exactly the same unit of work.
 """
 from __future__ import annotations
 
 import logging
 import uuid
 from datetime import date
-from typing import Optional
+from typing import Optional, Sequence
 
 import aiohttp
 
@@ -25,12 +30,13 @@ from nidp.shared.metrics import (
 from nidp.shared.storage.job_log import JobRun
 from nidp.shared.validation import run_validation as _run_validation
 
-from .amc_dispatch import ADAPTERS
-from .writer import upsert_holdings
+from .ingest import ingest_amc
 
 logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "mf_holdings"
+
+ALL_AMCS: tuple[str, ...] = (*MF_AMC_TOP10, *MF_AMC_TIER2, *MF_AMC_TIER3)
 
 
 def _previous_month_first(d: date) -> date:
@@ -39,11 +45,16 @@ def _previous_month_first(d: date) -> date:
     return date(d.year, d.month - 1, 1)
 
 
-async def run(target_date: Optional[date] = None) -> uuid.UUID:
+async def run(
+    target_date: Optional[date] = None,
+    amcs: Optional[Sequence[str]] = None,
+) -> uuid.UUID:
     """target_date semantics:
         - None             → last calendar month
         - first-of-month   → that month
         - any other date   → snapped to first-of-month
+
+    amcs: restrict the run to these adapter keys (default: every configured AMC).
     """
     bind_context(service=SERVICE_NAME)
     if target_date is None:
@@ -51,56 +62,38 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
     else:
         as_of_month = date(target_date.year, target_date.month, 1)
 
+    amc_list = list(amcs) if amcs else list(ALL_AMCS)
+
     async with JobRun(ingester=SERVICE_NAME, target_date=as_of_month) as run:
         bind_context(run_id=str(run.run_id))
         timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT_S)
         headers = {"User-Agent": DEFAULT_UA}
 
-        all_rows: list[dict] = []
-        adapters_missing = 0
+        rows_written = 0
+        adapters_empty = 0
         adapters_failed = 0
+        adapters_ok = 0
 
         with time_ingester(SERVICE_NAME):
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                from nidp.shared.archive import archive_raw
-                import json as _json
-                for amc_id in (*MF_AMC_TOP10, *MF_AMC_TIER2, *MF_AMC_TIER3):
-                    fn = ADAPTERS.get(amc_id)
-                    if fn is None:
-                        adapters_missing += 1
-                        logger.warning("no adapter registered for amc_id=%s", amc_id)
-                        continue
-                    try:
-                        rows = await fn(session, as_of_month)
-                    except Exception as e:                              # noqa: BLE001
+                for amc_id in amc_list:
+                    res = await ingest_amc(session, amc_id, as_of_month, run.run_id)
+                    if res.ok:
+                        adapters_ok += 1
+                        rows_written += res.rows_written
+                    elif res.status == "EMPTY":
+                        adapters_empty += 1
+                    else:
                         adapters_failed += 1
-                        logger.warning("amc=%s adapter raised: %s: %s",
-                                       amc_id, type(e).__name__, e)
-                        continue
-                    if not rows:
-                        adapters_missing += 1
-                        continue
-                    # Archive the parsed rows per-AMC. We don't have the
-                    # raw HTML here (multiple AMC websites with different
-                    # shapes), so we persist the canonicalised form so
-                    # ops can re-import without re-scraping.
-                    try:
-                        archive_raw(SERVICE_NAME, as_of_month,
-                                    f"{amc_id}.parsed.json",
-                                    _json.dumps(rows, default=str).encode("utf-8"))
-                    except Exception:                                    # noqa: BLE001
-                        pass
-                    all_rows.extend(rows)
 
-            n = await upsert_holdings(all_rows, run.run_id)
-
-            run.rows_fetched = len(all_rows)
-            run.rows_inserted = n
-            run.metadata["adapters_missing"] = adapters_missing
+            run.rows_fetched = rows_written
+            run.rows_inserted = rows_written
+            run.metadata["adapters_ok"] = adapters_ok
+            run.metadata["adapters_empty"] = adapters_empty
             run.metadata["adapters_failed"] = adapters_failed
 
-            INGESTER_ROWS.labels(service=SERVICE_NAME, kind="fetched").inc(len(all_rows))
-            INGESTER_ROWS.labels(service=SERVICE_NAME, kind="inserted").inc(n)
+            INGESTER_ROWS.labels(service=SERVICE_NAME, kind="fetched").inc(rows_written)
+            INGESTER_ROWS.labels(service=SERVICE_NAME, kind="inserted").inc(rows_written)
 
             # Validation runs against the persisted rows.
             validation = await _run_validation(
@@ -114,22 +107,22 @@ async def run(target_date: Optional[date] = None) -> uuid.UUID:
 
             # Status decision (2026-05-21 reclassification):
             #   OK       — every adapter delivered AND validation green
-            #   PARTIAL  — some adapters delivered, some failed/missing
+            #   PARTIAL  — some adapters delivered, some empty/failed
             #   FAILED   — zero rows produced. Reflects reality instead of
             #              silently saying "PARTIAL/PASSED" while writing 0 rows
             #              (the AMC-URL-rot loophole that hid mf_holdings being
             #              empty for weeks — see project_amc_scrapers_broken.md).
-            total_adapters = len(MF_AMC_TOP10) + len(MF_AMC_TIER2) + len(MF_AMC_TIER3)
-            no_data = len(all_rows) == 0 or n == 0
-            if no_data:
+            # Which AMC-months are absent is now in nidp.mf_holdings_coverage, and
+            # backfill.py --only-missing is what heals them.
+            if rows_written == 0:
                 final = "FAILED"
-            elif adapters_missing > 0 or adapters_failed > 0 or validation.has_block:
+            elif adapters_empty or adapters_failed or validation.has_block:
                 final = "PARTIAL"
             else:
                 final = "OK"
             await run.finalize(final, error_message=(
-                f"missing={adapters_missing}/{total_adapters} "
-                f"failed={adapters_failed} rows={len(all_rows)} "
+                f"ok={adapters_ok}/{len(amc_list)} empty={adapters_empty} "
+                f"failed={adapters_failed} rows={rows_written} "
                 f"validation={validation.status}"
                 if final != "OK" else None
             ))
