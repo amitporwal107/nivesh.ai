@@ -19,6 +19,12 @@
  *        { code, country, source, coverage_from, coverage_to, n, occurrences[], stats, basis }
  *        how the Nifty 50 moved on past releases of the same indicator (release day, next day, a week later).
  *
+ *   GET /api/markets/events-calendar/expectation?symbol=&date=YYYY-MM-DD
+ *        { symbol, event_date, period_end, period_label, basis, status: upcoming|declared, metrics[], method, evidence[], gaps[] }
+ *        A results event only. For an upcoming result: the range the company's own published quarters point to (a baseline
+ *        from published data, not an analyst consensus), with the method's backtested track record. For a declared result:
+ *        the filed figure beside that range. `evidence` is linked filings, `gaps` what could not be filled.
+ *
  * Percent fields are percent points (1.2 = +1.2%). Nothing here is a forecast.
  */
 import { useQuery } from "@tanstack/react-query";
@@ -171,6 +177,116 @@ export function useEventHistory(symbol: string | null, type: EventType | null) {
     retry: noRetry4xx,
     queryFn: ({ signal }) => fetchHistory(symbol as string, type as EventType, signal),
   });
+}
+
+// ── results expectation (a results event only) ───────────────────────────
+
+const Rng = z.object({ low: Num, mid: Num, high: Num }).partial();
+const MetricC = z.object({
+  key: z.string(),
+  unit: z.string().nullable().optional(),
+  expected: Rng.nullable().optional(),
+  same_quarter_last_year: Num,
+  previous_quarter: Num,
+  trend_yoy_pct: Num,
+  filed: z.object({ value: Num, broadcast_at: z.string().nullable().optional(), audit_status: z.string().nullable().optional() }).partial().nullable().optional(),
+  vs_mid_pct: Num,
+  reliable: z.boolean().nullable().optional(),
+  note: z.string().nullable().optional(),
+});
+const BacktestC = z.object({ n_quarters: Num, n: Num, median_abs_err_pct: Num, within_band_pct: Num }).partial();
+const ExpectationC = z.object({
+  symbol: z.string(),
+  event_date: z.string().nullable().optional(),
+  period_end: z.string().nullable().optional(),
+  period_label: z.string().nullable().optional(),
+  basis: z.string().nullable().optional(),
+  status: z.string(),
+  metrics: z.array(MetricC).default([]),
+  method: z.object({
+    name: z.string().nullable().optional(),
+    formula: z.string().nullable().optional(),
+    n_quarters: Num,
+    backtest: BacktestC.nullable().optional(),
+    universe_backtest: BacktestC.nullable().optional(),
+  }).partial().nullable().optional(),
+  evidence: z.array(z.object({
+    date: z.string().nullable().optional(), title: z.string().nullable().optional(), category: z.string().nullable().optional(),
+    source: z.string().nullable().optional(), url: z.string().nullable().optional(),
+  })).default([]),
+  gaps: z.array(z.string()).default([]),
+});
+
+export interface ExpMetric {
+  key: string;
+  unit: string | null;
+  expected: { low: number; mid: number | null; high: number } | null;
+  lastYearQuarter: number | null;
+  previousQuarter: number | null;
+  trendYoy: number | null;
+  filed: { value: number | null; broadcastAt: string | null; auditStatus: string | null } | null;
+  vsMid: number | null;
+  reliable: boolean;
+  note: string | null;
+}
+export interface Track { n: number | null; medianAbsErr: number | null; withinBand: number | null }
+export interface Expectation {
+  symbol: string;
+  eventDate: string | null;
+  periodEnd: string | null;
+  periodLabel: string | null;
+  basis: string | null;
+  status: "upcoming" | "declared";
+  metrics: ExpMetric[];
+  method: { name: string | null; formula: string | null; nQuarters: number | null; stock: Track | null; universe: Track | null };
+  evidence: Array<{ date: string | null; title: string; category: string | null; source: string | null; url: string | null }>;
+  gaps: string[];
+}
+
+const track = (b: z.infer<typeof BacktestC> | null | undefined): Track | null =>
+  b ? { n: b.n_quarters ?? b.n ?? null, medianAbsErr: b.median_abs_err_pct ?? null, withinBand: b.within_band_pct ?? null } : null;
+
+export async function fetchExpectation(symbol: string, date: string, signal?: AbortSignal): Promise<Expectation> {
+  const res = await http({ path: "/api/markets/events-calendar/expectation", query: { symbol, date }, signal });
+  const parsed = ExpectationC.safeParse(res.data);
+  if (!parsed.success) throw ApiError.contractDrift(`events-calendar.expectation: ${parsed.error.issues[0]?.message ?? "unexpected shape"}`, parsed.error);
+  const d = parsed.data;
+  return {
+    symbol: d.symbol, eventDate: d.event_date ?? null, periodEnd: d.period_end ?? null, periodLabel: d.period_label ?? null, basis: d.basis ?? null,
+    status: d.status === "declared" ? "declared" : "upcoming",
+    metrics: d.metrics.map((m) => ({
+      key: m.key, unit: m.unit ?? null,
+      expected: m.expected && m.expected.low != null && m.expected.high != null ? { low: m.expected.low, mid: m.expected.mid ?? null, high: m.expected.high } : null,
+      lastYearQuarter: m.same_quarter_last_year ?? null, previousQuarter: m.previous_quarter ?? null, trendYoy: m.trend_yoy_pct ?? null,
+      filed: m.filed ? { value: m.filed.value ?? null, broadcastAt: m.filed.broadcast_at ?? null, auditStatus: m.filed.audit_status ?? null } : null,
+      vsMid: m.vs_mid_pct ?? null, reliable: m.reliable !== false, note: m.note ?? null,
+    })),
+    method: { name: d.method?.name ?? null, formula: d.method?.formula ?? null, nQuarters: d.method?.n_quarters ?? null, stock: track(d.method?.backtest), universe: track(d.method?.universe_backtest) },
+    evidence: d.evidence.map((e) => ({ date: e.date ? e.date.slice(0, 10) : null, title: e.title || "Filing", category: e.category ?? null, source: e.source ?? null, url: e.url ?? null })),
+    gaps: d.gaps,
+  };
+}
+
+export function useResultsExpectation(symbol: string | null, date: string | null, enabled: boolean) {
+  return useQuery<Expectation>({
+    queryKey: ["copilot", "desk", "events-expectation", symbol, date],
+    enabled: enabled && !!symbol && !!date,
+    staleTime: 30 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchExpectation(symbol as string, date as string, signal),
+  });
+}
+
+/** A figure in the unit the API names: crore of rupees, rupees per share, or a plain number with its unit. */
+export function fmtExpVal(v: number | null | undefined, unit: string | null): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  const u = (unit ?? "").toLowerCase().replace(/[\s_₹]/g, "");
+  const neg = v < 0 ? "−" : "";
+  const a = Math.abs(v);
+  if (u.includes("cr")) return `${neg}₹${a.toLocaleString("en-IN", { maximumFractionDigits: a >= 100 ? 0 : 1 })} cr`;
+  if (u === "" || u === "inr" || u === "rs" || u === "rupees" || u === "pershare") return `${neg}₹${a.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (u === "%" || u === "pct") return `${neg}${a.toFixed(1)}%`;
+  return `${neg}${a.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ${unit}`;
 }
 
 // ── macro releases ────────────────────────────────────────────────────────
