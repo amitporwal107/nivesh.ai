@@ -44,6 +44,10 @@ NIDP_HOME=/opt/nidp-staging
 30 20 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh rbi_yields
 # HELD (needs FRED_API_KEY in nidp.env):
 # 0  21 * * *    nidp-staging  /opt/nidp-staging/run_service.sh fred_macro
+# Macro releases for the desk Events calendar (FRED, Fed, MoSPI, RBI; needs FRED_API_KEY in nidp.env, set 2026-10-21).
+# Twice a day, every day: 02:30 IST picks up the US evening releases, 20:30 IST the Indian daytime ones. Idempotent upserts.
+30 2  * * *    nidp-staging  /opt/nidp-staging/run_service.sh macro_calendar
+30 20 * * *    nidp-staging  /opt/nidp-staging/run_service.sh macro_calendar
 
 # ── Monthly ───────────────────────────────────────────────────────
 0  6  1 * *    nidp-staging  /opt/nidp-staging/run_service.sh nse_calendar
