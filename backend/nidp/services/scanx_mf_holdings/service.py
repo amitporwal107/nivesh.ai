@@ -51,6 +51,10 @@ _NG_STATE_RE = re.compile(
 _F_SYMBOL, _F_NAME, _F_ISIN = 0, 1, 14
 _F_SHARES, _F_WEIGHT, _F_MONTHS = 15, 16, 17
 _F_SECTOR, _F_INDUSTRY = 18, 19
+# The company's own ScanX slug, e.g. 'hdfc-bank-ltd'. Captured because the company page keyed by
+# that slug carries 24 quarters of Promoter/FII/DII/Public holding — and harvesting the slug here
+# is exact, whereas deriving it from the company name (the documented approach) guesses.
+_F_COMPANY_SLUG = 9
 _MIN_ROW_LEN = 20
 
 
@@ -150,6 +154,7 @@ def parse_holdings(html: str, slug: str) -> list[dict]:
                     "asset_class": asset_class,
                     "sector": (str(r[_F_SECTOR]).strip() or None) if len(r) > _F_SECTOR else None,
                     "industry": (str(r[_F_INDUSTRY]).strip() or None) if len(r) > _F_INDUSTRY else None,
+                    "company_slug": (str(r[_F_COMPANY_SLUG]).strip() or None),
                 })
     return out
 
@@ -157,13 +162,14 @@ def parse_holdings(html: str, slug: str) -> list[dict]:
 _UPSERT = """
 INSERT INTO nidp.scanx_mf_holdings
     (scheme_slug, as_of_month, security_isin, symbol, security_name, shares, weight_pct,
-     asset_class, sector, industry, amc, scheme_name, plan_id, source_run_id)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     asset_class, sector, industry, amc, scheme_name, plan_id, company_slug, source_run_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 ON CONFLICT (scheme_slug, as_of_month, security_isin) DO UPDATE SET
     symbol = EXCLUDED.symbol, security_name = EXCLUDED.security_name,
     shares = EXCLUDED.shares, weight_pct = EXCLUDED.weight_pct,
     asset_class = EXCLUDED.asset_class, sector = EXCLUDED.sector, industry = EXCLUDED.industry,
     amc = EXCLUDED.amc, scheme_name = EXCLUDED.scheme_name, plan_id = EXCLUDED.plan_id,
+    company_slug = coalesce(EXCLUDED.company_slug, nidp.scanx_mf_holdings.company_slug),
     retrieved_at = now(), source_run_id = EXCLUDED.source_run_id
 """
 
@@ -227,7 +233,8 @@ async def run(*, limit: Optional[int] = None, amc_filter: Optional[str] = None,
                 if rows:
                     args = [(d["scheme_slug"], d["as_of_month"], d["security_isin"], d["symbol"],
                              d["security_name"], d["shares"], d["weight_pct"], d["asset_class"],
-                             d["sector"], d["industry"], amc, name, plan_id, job.run_id)
+                             d["sector"], d["industry"], amc, name, plan_id,
+                             d.get("company_slug"), job.run_id)
                             for d in rows]
                     async with pool.acquire() as conn:
                         async with conn.transaction():
