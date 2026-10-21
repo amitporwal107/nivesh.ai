@@ -212,6 +212,11 @@ KNOWN_SECRETS: Dict[str, Dict[str, Optional[str]]] = {
         "description": "Access token for the Kite market-data adapter (/api/research/providers/kite/*). Expires ~06:00 IST every day; obtain a new one with the login handshake (`python -m nidp.services.kite_bars.auth --login`, then `--exchange`). Uses the BROKER_ZERODHA_API_KEY app.",
         "test_fn": None, "category": "data",
     },
+    "KITE_API_KEY": {
+        "display_name": "Kite Connect · API key (live quote feed)",
+        "description": "Public API key for the platform-level live quote feed (KiteTicker / quote). Falls back to KITE_API_KEY_FILE (line 1 only) then BROKER_ZERODHA_API_KEY. The API secret is never needed by the feed.",
+        "test_fn": None, "category": "data",
+    },
     "TRENDLYNE_MCP_URL": {
         "display_name": "Trendlyne MCP · server URL (contains the access token)",
         "description": "Full Trendlyne MCP endpoint including its `?token=` query, used by the Trendlyne research adapter (/api/research/providers/trendlyne/*). Treat the whole value as a secret. Data is internal-use only and PIT_UNVERIFIED.",

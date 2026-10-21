@@ -8,7 +8,9 @@
 import { ChatWidget, type WidgetAction } from "@/components/chat/ChatWidget";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { EmptyBlock, LoadingBlock, Section, Tiles, fmtPct, signTone } from "../../components/ui";
+import { Flash } from "../../components/LiveBits";
 import { useCopilotShell } from "../../lib/shell-context";
+import { useLiveOverlay } from "../../lib/useLiveQuotes";
 import { dayLabel, fmtPrice, titleCase } from "../markets/format";
 import { LoadError } from "../markets/parts";
 import { usePriceHistory, useStockBackdrop, useStockCard } from "./data";
@@ -19,6 +21,7 @@ import { PriceChart, fmtShares } from "./PriceChart";
 
 export function StockPrice({ symbol, name }: { symbol: string; name: string }) {
   const q = usePriceHistory(symbol);
+  const live = useLiveOverlay(symbol);        // Kite, only while the feed is LIVE; otherwise the last end-of-day close below
 
   if (q.isPending) return <LoadingBlock label="Loading the price history" rows={5} />;
   if (q.isError) {
@@ -70,9 +73,11 @@ export function StockPrice({ symbol, name }: { symbol: string; name: string }) {
           min={130}
           items={[
             {
-              k: "Last close",
-              v: <span data-testid="research-stock-close">{fmtPrice(s.last.close)}</span>,
-              s: s.dayChangePct != null
+              k: live ? "Live price" : "Last close",
+              v: <span data-testid="research-stock-close" data-live={live ? "true" : undefined}><Flash value={live?.ltp}>{fmtPrice(live ? live.ltp : s.last.close)}</Flash></span>,
+              s: live && live.changePct != null
+                ? <span data-testid="research-stock-day-change">{fmtPct(live.changePct, { signed: true, digits: 2 })} on the day · Kite</span>
+                : s.dayChangePct != null
                 ? <span data-testid="research-stock-day-change">{fmtPct(s.dayChangePct, { signed: true, digits: 2 })} on the day</span>
                 : "Only one session on record",
             },
