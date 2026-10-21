@@ -35,6 +35,7 @@ from pymongo.errors import DuplicateKeyError
 
 from routes import desk_trading as route
 from services import desk_trading as svc
+from services import risk_controls as _rc
 
 TRADES_URL = "/api/desk/paper-trades"
 ALERTS_URL = "/api/desk/alerts"
@@ -114,7 +115,12 @@ class FakeCollection:
 
 class FakeDb:
     def __init__(self):
-        self.cols = {svc.TRADES: FakeCollection(), svc.ALERTS: FakeCollection()}
+        # The paper-trade route now asks the kill switch before it writes (services/risk_controls);
+        # an unreadable store fails CLOSED, so a fake DB that does not model these collections
+        # would block every create. Modelling them keeps the fail-closed behaviour under test
+        # instead of weakening it.
+        self.cols = {svc.TRADES: FakeCollection(), svc.ALERTS: FakeCollection(),
+                     _rc.CONTROLS: FakeCollection(), _rc.AUDIT: FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"

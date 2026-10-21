@@ -51,6 +51,7 @@ from deps import db, get_current_user
 from services import desk_alerts as alerts_svc
 from services import desk_strategy_trades as strat
 from services import desk_trading as svc
+from services import risk_controls as rc
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,13 @@ def _as_of(bars: Dict[str, List[Dict[str, Any]]]):
 async def create_paper_trade(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     uid = user["user_id"]
+    # The kill switch is checked BEFORE the body is parsed or anything is written: this path had no
+    # risk gate of any kind (docs/RISK_CONTROL_INVENTORY.md) and is the one a user actually clicks,
+    # including the Top-5 board's "Paper trade" button. Open positions are untouched.
+    try:
+        await rc.assert_allowed(db, uid, "desk_paper_trade")
+    except rc.RiskBlocked as blocked:
+        raise HTTPException(status_code=409, detail=blocked.detail("desk_paper_trade"))
     body = await _body(request)
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
