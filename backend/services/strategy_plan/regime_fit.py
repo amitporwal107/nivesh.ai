@@ -536,6 +536,10 @@ async def ideas_for_underlying(request: Any, symbol: str, regime: Dict[str, Any]
             strikes = sorted({float(l["strike"]) for l in priced["legs"]})
             built.append({
                 "underlying": symbol,
+                # The spot the legs were priced against. Carried on the idea so a caller can build a
+                # payoff request or a paper trade from the idea alone, without joining back to the
+                # class's `underlyings` list.
+                "reference_price": spot,
                 "structure": family,
                 "name": f"{meta['label']} {'/'.join(f'{k:g}' for k in strikes)}",
                 "view": meta["view"],

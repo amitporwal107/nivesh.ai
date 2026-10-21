@@ -35,6 +35,8 @@ export const LegSchema = z.object({
 export const OptionIdeaSchema = z.object({
   rank: z.number().nullable().optional(),
   underlying: z.string(),
+  /** The spot the legs were priced against; a payoff request and a paper trade both need it. */
+  reference_price: Num,
   structure: z.string(),
   name: z.string(),
   view: z.string().nullable().optional(),
