@@ -190,7 +190,76 @@ not finished. **No Playwright run has happened.** Not asserted, not claimed.
   series has never run on this database. This changes how the rollout must be done — see override.
 - Throwaway DB after the cascade test: `strategy_config` 0 rows, `strategies` 0 rows.
 
+## Final run after the defect-fix round (supersedes the per-case notes above)
+
+An adversarial review found 14 located defects (7 backend, 7 frontend); all were fixed on this
+branch. The numbers below are the state that was committed, and every one is pinned by identical
+file hashes before and after its run.
+
+```
+$ ... python -m pytest tests/test_strategy_config.py tests/test_ai_trader_config_risk.py \
+    tests/test_ai_trader_strategy.py tests/test_ai_trader_execution.py tests/test_ai_trader.py -q
+501 passed, 1 warning in 44.90s
+```
+
+```
+$ npx playwright test e2e/tests/strategy-config-bot-details.spec.ts --project=desktop-chrome
+  9 passed (29.3s)
+```
+Nine, not six: the fix round added TC-31 ("a failed config save abandons the run — it is never run
+half-applied") and TC-32 ("Save with an invalid Bot-details field warns and writes nothing"),
+covering two of the defects.
+
+```
+$ npx tsc --noEmit -p tsconfig.json
+tsc exit=0        (StrategyBuilderPage.tsx 1fc6bcdf3c before AND after)
+```
+
+### Migration re-tested on a FRESH throwaway postgres after the fix round
+
+```
+--- apply #1 ---      DO / CREATE TABLE
+--- apply #2 ---      DO / CREATE TABLE / NOTICE: relation "strategy_config" already exists, skipping
+SHOW search_path ->   "$user", public        (default — the SET no longer leaks, defect D6 fixed)
+pyramiding 40000 ->   ERROR: smallint out of range   (and the class now 422s it before the DB sees it)
+```
+
+### Migration APPLIED TO THE STAGING DB (authorised by the user this turn)
+
+```
+BEFORE:  strategy_config: None | strategies rows: 4
+APPLY :  applied OK                        (024_strategy_config.sql, md5 d951f3a945)
+AFTER (read back from the staging database):
+  strategy_id       uuid            null=NO
+  schema_version    smallint        null=NO
+  symbols           ARRAY           null=YES
+  initial_capital   numeric(18,2)   null=NO
+  commission_pct    numeric(6,4)    null=NO
+  pyramiding        smallint        null=NO
+  short_margin_pct  numeric(5,2)    null=NO
+  updated_at        timestamptz     null=NO
+  strategy_config_commission_pct_check    -> CHECK (commission_pct >= 0 AND commission_pct <= 5)
+  strategy_config_initial_capital_check   -> CHECK (initial_capital > 0 AND initial_capital <= 10000000000)
+  strategy_config_pyramiding_check        -> CHECK (pyramiding >= 0 AND pyramiding <= 32767)
+  strategy_config_short_margin_pct_check  -> CHECK (short_margin_pct > 0 AND short_margin_pct <= 100)
+  strategy_config_strategy_id_fkey        -> FOREIGN KEY (strategy_id) REFERENCES strategies(id) ON DELETE CASCADE
+  strategy_config_pkey                    -> PRIMARY KEY (strategy_id)
+  rows: 0
+  search_path after apply: "$user", public
+```
+Data test: 0 rows written; `strategies` untouched at 4 rows; no other table altered.
+
+### Delivery state
+
+- Commit `9143e0b7`, 13 files, +2932/−43. Pushed as `feat/strategy-config`.
+- **PR #279** open against `dev`, `mergeable: True clean` — https://github.com/amitporwal107/nivesh.ai/pull/279
+- **Not merged.** The merge API call was denied by the Claude Code permission classifier (writes to
+  `dev`). `origin/dev` is still `eb8add52`. Not worked around.
+- **Not deployed.** `/opt/nivesh-staging/repo` still needs a pull + rebuild.
+
 ## Verdict: BLOCKED — see test_reports/OVERRIDE_strategy_config.md
 
-26 of 30 cases verified with real output; 6 NOT RUN (Playwright ×6, staging API). One real defect
-found and fixed. Nothing committed, pushed, or deployed.
+Everything runnable from this session passes: 501 backend tests, 9 Playwright cases, `tsc` clean, and
+the migration verified on a throwaway DB and then applied to staging with its structure read back.
+The one requirement still unmet is exercising the endpoints against the **deployed** staging API,
+which needs the merge, a redeploy, and a session token — none of which I can do from here.

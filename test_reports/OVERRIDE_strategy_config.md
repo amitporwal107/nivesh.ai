@@ -1,68 +1,53 @@
 # OVERRIDE — Strategy config (table + endpoints + Bot details screen)
 
-- **Branch:** feat/strategy-config (worktree, off origin/dev @ eb8add52)
+- **Branch:** feat/strategy-config @ commit `9143e0b7`, pushed. PR **#279** open against `dev`.
 - **Date:** 2026-10-21
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER)
-- **Companion report:** `test_reports/strategy_config_20261021.md`
+- **Companion report:** `test_reports/strategy_config_20261021.md` — every command and its real output.
 
-REASON: A defect-fix round is actively rewriting the implementation as this turn ends, so no
-verification can be pinned to a stable tree; and two of the gate's requirements need something only
-the user can give or authorise. Four blockers, stated precisely:
+REASON: One gate requirement is still genuinely unmet — exercising the endpoints against the
+**deployed** staging API — and it is blocked by two things outside this session, one of them a
+permission denial I will not route around. Everything else now passes and is recorded.
 
-1. **The tree is mid-rewrite — verifying now would produce a false result.** An adversarial review
-   found 14 located defects (7 backend, 7 frontend) and a fix round is in flight: at the moment this
-   file was written, `backend/routes/strategy_builder.py` had been modified seconds earlier
-   (20:59:33), `config.py` at 20:58:51, `024_strategy_config.sql` at 20:59:11,
-   `StrategyBuilderPage.tsx` at 20:59:27, and neither fix agent had returned.
-   This is not hypothetical: earlier this session a `tsc --noEmit` PASS had to be RETRACTED because
-   the file changed during the run (`d21bd986` → `25b9edab`). Every verification run since is pinned
-   with before/after content hashes for that reason. A waiter is armed on both agents returning plus
-   60s of file quiescence; verification runs then, against a settled tree, in the next turn.
+1. **The endpoints are not on staging, because the branch is not merged or deployed.**
+   PR #279 is open and `mergeable: True clean`, but the merge API call was **denied by the Claude Code
+   permission classifier** (writes to `dev`). `origin/dev` is still `eb8add52`. I did not attempt a
+   workaround — no direct push to `dev`, no alternative transport. The user must merge (one click on
+   the PR) or add a permission rule.
+   Then `/opt/nivesh-staging/repo` needs a pull + container rebuild before any route exists to curl.
+   Proof the route is still absent: `GET /api/strategy-builder/config-schema` → **404**, while the
+   existing `GET /api/strategy-builder/templates` → **401** (healthy server, route simply not there).
 
-   The defects being fixed are real and were reproduced against a live postgres and a real run of
-   the suite — they are not style notes. The most serious:
-   - `{"initial_capital": 0.004}` passes `NiveshConfig.validate()`, is rounded to `0.00` by
-     `NUMERIC(18,2)`, trips the CHECK, and reaches the client as a **500 where the contract
-     promises 422**.
-   - `{"pyramiding": 40000}` passes validate() and overflows SMALLINT → 500; the served schema
-     carries no maximum, so the UI will submit it.
-   - `{"pyramiding": "3"}` → **200**, stored as `3`: the same Pydantic coercion hole that was closed
-     for booleans earlier this session, in string shape.
-   - `SET search_path TO public;` in the migration is session-scoped and leaks onto the pooled
-     connection for every later borrower.
-   - A failed config PUT toasts "the run uses the last saved config" and then runs with the
-     **unsaved** value — a configuration that existed nowhere.
-   - The six-step renumbering silently **broke an existing spec**, `strategy-builder-live.spec.ts:36`.
+2. **A staging `session_token` is still needed.** `GET`/`PUT /strategies/{id}/config` both call
+   `get_current_user`, so even after the deploy, every call without a cookie is a 401. ASKED THE USER
+   EXPLICITLY on four consecutive turns. Never fabricated, never stubbed.
 
-2. **Real staging API results — blocked: the branch is not deployed.** Proven, not assumed:
-   `GET /api/strategy-builder/config-schema` returns **404** on staging while the existing
-   `GET /api/strategy-builder/templates` returns **401**, so the server is healthy and the route is
-   simply absent. `/opt/nivesh-staging/repo` is on `dev` @ `eb8add52` — the commit this branch was
-   cut from — and `backend/migrations/024_strategy_config.sql` is not in it. Deploying means pulling
-   and rebuilding the staging containers, which I do not do unasked.
+WHAT IS NOW DONE AND PROVEN (all pinned by identical file hashes before and after each run):
+- **501 backend tests pass** — `test_strategy_config.py` plus every `ai_trader` suite, in a throwaway
+  container from the staging image, code mounted read-only, `--network none`.
+- **9 Playwright cases pass** (29.3s) — route-mocked, offline, no token. Includes two cases the fix
+  round added for defects it closed: a failed config save abandons the run, and Save with an invalid
+  field warns and writes nothing.
+- **`tsc --noEmit` clean.**
+- **Migration verified then applied to the staging DB** (user authorised it this turn): applies on a
+  fresh DB, idempotent on re-apply, FK cascades, all four CHECK bounds reject correctly, `search_path`
+  left at its default, and the structure read back from staging itself. 0 rows written; `strategies`
+  untouched at 4 rows.
+- **14 reviewer-found defects fixed**, several reproduced against a real postgres first — including a
+  500-instead-of-422 on `initial_capital: 0.004` (NUMERIC scale), a SMALLINT overflow on
+  `pyramiding: 40000`, Pydantic coercing `true` and `"3"` past `validate()`, a `search_path` leak onto
+  the pooled connection, a toast that claimed "last saved config" while running the unsaved value, and
+  an existing Playwright spec silently broken by the six-step renumbering.
 
-3. **A staging `session_token` is needed and I do not have one.** `GET`/`PUT /strategies/{id}/config`
-   both call `get_current_user`; without a token every staging call is a 401, so the endpoints cannot
-   be exercised against the deployed API even once it is deployed. ASKED THE USER EXPLICITLY, three
-   turns running. Never fabricated.
+CORRECTIONS MADE THIS SESSION, recorded so the history is not read as cleaner than it was:
+- A `tsc` PASS was **retracted**: the file changed during the run (`d21bd986` → `25b9edab`). Every run
+  since carries before/after hashes, and one later run was discarded for the same reason.
+- An earlier "7 passed" Playwright result was reported with the caveat that the reviewer had shown
+  three of its assertions would also pass against a broken screen; those three were strengthened.
+- A regression I introduced in a **pre-existing** test (`test_ai_trader_config_risk.py:292`, stale
+  expected message after pyramiding gained an upper bound) was found by running the full suite rather
+  than only the new one, and fixed.
 
-4. **Applying the migration to the staging DB needs explicit authorisation.** The user's standing
-   instruction this session is that the staging database is SELECT-only; `CREATE TABLE` is a write.
-   Compounding it: `post_deploy_migrate`'s own `schema_migrations` table does not exist on that
-   database, so the `backend/migrations/` series has never run there and the orchestrator would
-   attempt 20+ unapplied files rather than this one. The safe rollout is the single file, and that is
-   the user's call. ASKED EXPLICITLY.
-
-WHAT IS AND IS NOT CLAIMED:
-- Verified earlier this session with real, unedited output, against the PRE-FIX tree: migration
-  applies and re-applies, all four CHECK bounds reject correctly, FK cascades (real `psql`);
-  `32 passed` on the endpoint suite and `486 passed` across all backend suites; `7 passed (20.9s)`
-  on the new Playwright spec with mocked routes and `--network none`; `tsc --noEmit` exit 0,
-  hash-pinned. Those results describe code that is being changed right now and will be re-run.
-- Three of those Playwright assertions were shown by the reviewer to pass against a broken screen
-  too (TC-25's disabled-check, TC-28's synchronous `expect(calls).toEqual([])`, TC-27's
-  identical-defaults mock). The green run is therefore partly hollow; strengthening them is part of
-  the fix round. Recorded here so the number is not read as stronger than it is.
-- NOT claimed: that the current tree passes anything, that the Bot details screen works, or that any
-  of this is deployed, complete, working or done. Nothing committed; nothing pushed; the branch does
-  not exist on the remote; staging is byte-for-byte unchanged.
+NOT CLAIMED: that this is deployed, merged, or verified against the live staging API. It is committed,
+pushed, and open as PR #279, with the migration applied to the staging database and nothing else on
+staging touched.
