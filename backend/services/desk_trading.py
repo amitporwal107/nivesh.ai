@@ -583,12 +583,18 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
                     return out
                 continue
             entered, entry_session = True, True
-            out.update(entry_status="reached", entry_session=bar["date"], sim_entry_price=entry)
+            # A session that OPENS beyond the trigger never traded at the trigger, so the fill is the open —
+            # worse than the entry, in the same way a gapped stop fills worse than the stop. This used to
+            # record the trigger price and only flag the gap, which made every gapped entry better than it
+            # could have been.
             opened_beyond = bar["open"] is not None and (bar["open"] > entry if rule == "break_above" else bar["open"] < entry)
+            fill = bar["open"] if opened_beyond else entry
+            out.update(entry_status="reached", entry_session=bar["date"], sim_entry_price=fill)
             if opened_beyond:
                 flags.append(_flag("entry_gap",
-                                   f"The session opened at {_rupees(bar['open'])}, beyond the entry; a real order would "
-                                   "have filled near the open, not at the entry.", bar["date"], bar["open"]))
+                                   f"The session opened at {_rupees(bar['open'])}, beyond the entry {_rupees(entry)}: the "
+                                   "price never traded at the entry, so the fill is the open.",
+                                   bar["date"], bar["open"]))
         out["held_sessions"] += 1
         out["max_high"] = bar["high"] if out["max_high"] is None else max(out["max_high"], bar["high"])
         out["min_low"] = bar["low"] if out["min_low"] is None else min(out["min_low"], bar["low"])
@@ -605,14 +611,22 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
                                "counted as the stop (conservative).", bar["date"]))
         exit_: Optional[Dict[str, Any]] = None
         if hit_stop:
-            exit_ = {"exit_reason": "stop", "exit_price": stop, "exit_session": bar["date"],
+            # A session that OPENS below the stop never traded at the stop: a real stop order becomes a
+            # market order and fills at the open, worse than the stop. This used to book the fill at the
+            # stop anyway and merely flag it, which made a paper stop-loss incapable of losing to a gap —
+            # and the promotion gates in ai_trader/strategy.py read these numbers. The flag text said the
+            # right thing while the arithmetic did the opposite.
+            gapped = bar["open"] is not None and bar["open"] < stop
+            fill = bar["open"] if gapped else stop
+            exit_ = {"exit_reason": "stop", "exit_price": fill, "exit_session": bar["date"],
                      "exit_note": BOTH_IN_RANGE_NOTE if hit_target else None}
             if hit_target:
                 flags.append(_flag("both_in_range", BOTH_IN_RANGE_NOTE, bar["date"]))
-            if bar["open"] is not None and bar["open"] < stop:
+            if gapped:
                 flags.append(_flag("gap_through_stop",
-                                   f"The session opened at {_rupees(bar['open'])}, below the stop: a real stop order would "
-                                   "have filled near the open. The paper fill is the stop.", bar["date"], bar["open"]))
+                                   f"The session opened at {_rupees(bar['open'])}, below the stop {_rupees(stop)}: the "
+                                   "price never traded at the stop, so the fill is the open and the loss is larger than "
+                                   "the stop distance.", bar["date"], bar["open"]))
         elif hit_target:
             exit_ = {"exit_reason": "target", "exit_price": target, "exit_session": bar["date"], "exit_note": None}
         elif max_hold and out["held_sessions"] >= int(max_hold) and bar["close"] is not None:

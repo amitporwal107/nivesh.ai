@@ -1188,9 +1188,9 @@ const LIVE_PAT = {
     { pattern_type: "SUPPORT_RESISTANCE", label: "Support / resistance", enabled: true, disabled_reason: null, spec: "docs/charting.md §13.2" },
     { pattern_type: "RECTANGLE", label: "Rectangle", enabled: true, disabled_reason: null, spec: "docs/charting.md §11" },
     { pattern_type: "HH_HL", label: "Higher highs / higher lows", enabled: true, disabled_reason: null, spec: "docs/charting.md §11" },
-    { pattern_type: "ASCENDING_TRIANGLE", label: "Ascending triangle", enabled: false, disabled_reason: "no detector implemented; specification only", spec: "NI-3 §2" },
-    { pattern_type: "DOUBLE_TOP", label: "Double top", enabled: false, disabled_reason: "no detector implemented; specification only", spec: "NI-3 §5" },
-    { pattern_type: "CUP_AND_HANDLE", label: "Cup & handle", enabled: false, disabled_reason: "no detector implemented; specification only", spec: "NI-3 §7" },
+    { pattern_type: "ASCENDING_TRIANGLE", label: "Ascending triangle", enabled: false, disabled_reason: "disabled in this release; not yet certified for alerting", spec: "NI-3 §2" },
+    { pattern_type: "DOUBLE_TOP", label: "Double top", enabled: false, disabled_reason: "disabled in this release; not yet certified for alerting", spec: "NI-3 §5" },
+    { pattern_type: "CUP_AND_HANDLE", label: "Cup & handle", enabled: false, disabled_reason: "disabled in this release; not yet certified for alerting", spec: "NI-3 §7" },
   ],
 };
 
