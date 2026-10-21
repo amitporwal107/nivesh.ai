@@ -140,13 +140,20 @@ jobs:
           echo "▸ streaming $APK ($(stat -c%s "$APK") bytes) over ssh → /tmp/$APK"
           $SSH "$SSH_USER@$SSH_HOST" "cat > /tmp/$APK" < "$APK"
 
-          echo "▸ installing into $WEBROOT (sudo)"
+          # No sudo: this user's ONLY sudo right is ci-deploy.sh
+          # (/etc/sudoers.d/91-ci-deploy), so `sudo install` here dies with
+          # "sudo: a password is required" — run #83's successor failed exactly
+          # that way after the APK had already uploaded fine. The webroot is
+          # owned by this user instead; deploy/cloudpe/app/bootstrap.sh sets that up.
+          echo "▸ installing into $WEBROOT"
           # Drop earlier APKs so only the current build is downloadable.
           REMOTE="set -e; \
             test -s /tmp/$APK; \
-            sudo mkdir -p $WEBROOT; \
-            sudo rm -f $WEBROOT/*.apk; \
-            sudo install -m 644 /tmp/$APK $WEBROOT/$APK; \
+            if [ ! -w $WEBROOT ]; then \
+              echo \"ERROR: $WEBROOT is not writable by \$(id -un) — see bootstrap.sh\"; exit 1; \
+            fi; \
+            rm -f $WEBROOT/*.apk; \
+            install -m 644 /tmp/$APK $WEBROOT/$APK; \
             rm -f /tmp/$APK; \
             ls -l $WEBROOT/$APK; \
             sha256sum $WEBROOT/$APK"
