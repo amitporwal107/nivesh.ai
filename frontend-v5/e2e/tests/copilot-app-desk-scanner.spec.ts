@@ -2546,3 +2546,50 @@ test.describe("Smart trading desk · Chart · intraday interval (MOCK Kite intra
     await expect(page.getByTestId("desk-candle")).toHaveCount(0);
   });
 });
+
+// ── the market-closing snapshot from Kite fills "today" until the warehouse's end-of-day bar lands ──────────
+// MOCK — not real data: /api/live/stream is answered with a closed + final snapshot (invented prices). Proves the date logic on the chart
+// header and the shell chip: shown only when the snapshot is newer than the screen's last end-of-day bar, labelled as a close, never flashing.
+test.describe("Smart trading desk · Chart · Kite closing snapshot (MOCK)", () => {
+  function snapshot(mode: "closed" | "live", quoteDay: string) {
+    return {
+      as_of: `${quoteDay}T11:13:00+00:00`, data_at: `${quoteDay}T11:12:00+00:00`, age_seconds: 600, stale: mode !== "live" && false, cadence_seconds: 30, mode,
+      session: mode === "live" ? "open" : "closed", source: "rest", final: mode === "closed", count: 1, missing: [],
+      quotes: { FIXBRK: { ltp: 105.5, change: 1.25, change_pct: 1.2, open: 104, high: 106, low: 103.8, close: 104.25, volume: 1000, oi: null, ts: `${quoteDay}T16:42:00+05:30` } },
+    };
+  }
+  async function open(page: Page, mode: "closed" | "live", quoteDay: string) {
+    await chartMocks(page);
+    await page.addInitScript(() => localStorage.setItem("nivesh.copilot", JSON.stringify({ state: { mode: "trader", evidenceOpen: null }, version: 0 })));
+    await page.route("**/api/live/**", (route) => {
+      const body = snapshot(mode, quoteDay);
+      if (new URL(route.request().url()).pathname.endsWith("/stream")) return route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(body)}\n\n` });
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+  }
+
+  test("closed + final, newer than the last daily bar: the header shows Close · date · Kite, no flash, and the chip says Kite close", async ({ page }) => {
+    await open(page, "closed", "2026-10-21");
+    const head = page.getByTestId("desk-chart-header");
+    await expect(head).toHaveAttribute("data-live", "close");
+    await expect(head).toContainText("Close · 21 Oct · Kite");
+    await expect(page.getByTestId("desk-chart-close")).toContainText("105.50");
+    await expect(page.getByTestId("desk-chart-change")).toContainText("+1.20%");
+    await expect(page.getByTestId("live-chip")).toContainText("Market closed · Kite close · 21 Oct");
+    await expect(page.locator("[data-flash]")).toHaveCount(0);
+  });
+
+  test("the end-of-day bar for that day has landed: the end-of-day data takes over, nothing is overlaid", async ({ page }) => {
+    await open(page, "closed", "2026-10-13");                                     // the fixture's last daily bar is 2026-10-13
+    await expect(page.getByTestId("desk-chart-header")).toBeVisible();
+    await expect(page.getByTestId("desk-chart-header")).not.toHaveAttribute("data-live", /.+/);
+    await expect(page.getByTestId("desk-chart-close")).not.toContainText("105.50");
+  });
+
+  test("live mode still labels itself live", async ({ page }) => {
+    await open(page, "live", "2026-10-21");
+    await expect(page.getByTestId("desk-chart-header")).toHaveAttribute("data-live", "live");
+    await expect(page.getByTestId("desk-chart-header")).toContainText("Live · Kite");
+  });
+});

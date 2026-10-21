@@ -28,7 +28,7 @@
  * Each block loads and fails on its own. A figure with no source is "—" with a one-line reason, never 0.
  */
 import { Flash } from "../../components/LiveBits";
-import { useLiveOverlay, useLiveOverlays } from "../../lib/useLiveQuotes";
+import { closeLabel, useLiveOverlay, useLiveOverlays, flashOf } from "../../lib/useLiveQuotes";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { MarketIndex, MarketsHome } from "@/services/contracts/markets.contract";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
@@ -355,14 +355,14 @@ function IndexTile({ name, ix, mode, stamp, eodDay }: { name: string; ix: Market
         )}
       </div>
       <span data-testid="desk-index-value" style={{ fontFamily: "var(--display)", fontSize: 27, lineHeight: 1.1, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-        <Flash value={live?.ltp}>{fmtLevel(live ? live.ltp : ix?.value)}</Flash>
+        <Flash value={flashOf(live)}>{fmtLevel(live ? live.ltp : ix?.value)}</Flash>
       </span>
       <span data-testid="desk-index-change" className="cp-num" style={{ fontSize: 11, color }}>
         {ix ? `${fmtPoints(live ? live.change : ix.change)} (${fmtPct(pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
       {ix && (
         <span data-testid="desk-index-stamp" data-mode={mode} data-live={live ? live.kind : undefined} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
-          {live ? (live.kind === "close" ? `Today (live close) · Kite${live.ts ? ` · ${live.ts.slice(0, 10)}` : ""}` : `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}`) : <>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}</>}
+          {live ? (live.kind === "close" ? closeLabel(live) : `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}`) : <>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}</>}
         </span>
       )}
     </div>
@@ -1295,6 +1295,7 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy, c
   const { openChart, openStrategyIdeas } = useDesk();
   const close = latestClose(s, watchAsOf);
   const lp = live.data?.bySymbol.get(s.symbol.toUpperCase());
+  const kite = useLiveOverlay(s.symbol, watchAsOf);               // Kite, only while LIVE; replaces the delayed Yahoo LTP below
   const against = againstOf(lp);
   const liq = liquidityText(s.avgTradedCr);
   const risk = riskClass(s.atrPct);
@@ -1346,7 +1347,7 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy, c
           <span data-testid="desk-opp-price-stamp" className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
             {close ? `close${close.day ? ` ${dayLabel(close.day)}` : ""}` : "no close in the scan"}
           </span>
-          {lp?.livePrice != null && <span data-testid="desk-opp-ltp" className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>LTP {fmtPrice(lp.livePrice)} · delayed</span>}
+          {(kite || lp?.livePrice != null) && <span data-testid="desk-opp-ltp" data-live={kite ? "true" : undefined} className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>LTP <Flash value={flashOf(kite)}>{fmtPrice(kite ? kite.ltp : (lp?.livePrice ?? null))}</Flash> · {kite ? (kite.kind === "close" ? closeLabel(kite) : "live · Kite") : "delayed"}</span>}
           <span data-testid="desk-opp-score" className="cp-num" title="Rules-based scanner score, 0–100 (not a probability)" style={{ fontSize: 11, color: s.score != null && s.score >= 80 ? "var(--mint)" : "var(--cp-ink-2)", whiteSpace: "nowrap" }}>
             Score {s.score == null ? "—" : `${fmtNum(s.score)}/100`}
           </span>

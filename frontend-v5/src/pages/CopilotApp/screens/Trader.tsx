@@ -15,7 +15,15 @@
  * so it is shown as a journal and never labelled as broker positions; the
  * holdings a broker reported are shown as holdings, not as open positions.
  */
+import { Flash } from "../components/LiveBits";
+import { useLiveOverlay, flashOf } from "../lib/useLiveQuotes";
 import { useState, type ReactNode } from "react";
+
+/** The journal trade's last price: Kite while LIVE, otherwise the delayed quote the route sent. */
+function TradeLtp({ symbol, price }: { symbol: string; price: number | null }) {
+  const q = useLiveOverlay(symbol);
+  return q ? <Flash value={flashOf(q)}>{fmtPrice(q.ltp)}</Flash> : <>{fmtPrice(price)}</>;
+}
 import {
   Btn, DataTable, EmptyBlock, Footnote, LoadingBlock, NotConnected, Pill, Screen, ScreenHeader, Section, Tiles,
   TONE_COLOR, fmtDate, fmtINR, fmtNum, fmtPct, humaniseTag, signTone,
@@ -217,7 +225,7 @@ function JournalTables() {
     },
     { key: "qty", header: "Qty", num: true, render: (t) => fmtNum(t.heldQty) },
     { key: "avg", header: "Avg", num: true, render: (t) => fmtPrice(t.avgBuy) },
-    { key: "ltp", header: "LTP", num: true, render: (t) => fmtPrice(t.livePrice) },
+    { key: "ltp", header: "LTP", num: true, render: (t) => <TradeLtp symbol={t.symbol} price={t.livePrice} /> },
     { key: "pnl", header: "P&L", num: true, render: (t) => toned(fmtINR(t.unrealizedRs, { signed: true }), signTone(t.unrealizedRs)) },
     { key: "stop", header: "Stop", num: true, render: (t) => fmtPrice(t.stop) },
     { key: "target", header: "Target", num: true, render: (t) => fmtPrice(t.target) },

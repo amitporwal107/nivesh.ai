@@ -118,7 +118,8 @@ test.describe("Live quotes in the Copilot app", () => {
     await open(page, "sse", "closed", { eodAsOf: "2026-10-20" });                       // the quotes are from 2026-10-21 and final
     await expect(page.getByTestId("live-chip")).toHaveAttribute("data-mode", "closed");
     await expect(page.getByTestId("hm-weighted")).toHaveText(pct(liveWeighted));
-    await expect(page.getByText("today’s close from Kite")).toBeVisible();
+    await expect(page.getByText("1D close · 21 Oct · Kite")).toBeVisible();
+    await expect(page.getByTestId("live-chip")).toContainText("Market closed · Kite close · 21 Oct");
     await expect(page.getByTestId("hm-trust-weighted")).toContainText("End of day");
   });
 

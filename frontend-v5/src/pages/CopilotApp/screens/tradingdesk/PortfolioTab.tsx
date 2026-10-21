@@ -40,6 +40,8 @@
  *                          GET /api/desk/paper-trades, POST …/{id}/close, GET /api/desk/alerts, DELETE …/{id}
  * Every card carries a TrustLine (source, freshness, live / end of day / historical, who made the figures).
  */
+import { Flash } from "../../components/LiveBits";
+import { useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
 import type { PaperSample } from "@/services/adapters/paperTrades.adapter";
@@ -478,6 +480,17 @@ function CapSplit({ view, size, cash }: { view: PortfolioView; size: number; cas
 
 const SHOWN = 8;
 
+/** The stock's move today from the Kite feed (LIVE only). The value and P&L columns stay on the stored prices; this does not recompute them. */
+function PositionToday({ symbol }: { symbol: string }) {
+  const q = useLiveOverlay(symbol);
+  if (!q || q.changePct == null) return null;
+  return (
+    <span data-testid="desk-portfolio-position-live" className="cp-num" title="Today’s move from Kite (live). Value and P&L use the stored prices." style={{ fontSize: 10.5, color: TONE_COLOR[signTone(q.changePct)], whiteSpace: "nowrap" }}>
+      <Flash value={flashOf(q)}>{fmtPct(q.changePct, { signed: true })}</Flash>
+    </span>
+  );
+}
+
 function Positions({ view, phone }: { view: PortfolioView; phone: boolean }) {
   const [all, setAll] = useState(false);
   const stocks = view.stocks;
@@ -507,6 +520,7 @@ function Positions({ view, phone }: { view: PortfolioView; phone: boolean }) {
               <span role="cell" className="flex min-w-0 items-center" style={{ gap: 7 }} title={s.name}>
                 <StockIcon symbol={sym} name={s.name} size={18} />
                 <span className="cp-num" style={{ fontSize: 12, fontWeight: 500, color: "var(--cp-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sym}</span>
+                {s.symbol && <PositionToday symbol={s.symbol} />}
               </span>
               <span role="cell" className="cp-num" style={{ ...cell, color: "var(--cp-ink-2)" }}>{fmtINR(s.valueRs, { compact: true })}</span>
               <span role="cell" data-testid="desk-portfolio-pnl-pct" className="cp-num" style={{ ...cell, color: TONE_COLOR[signTone(s.pnlPct)] }}>{fmtPct(s.pnlPct, { signed: true })}</span>

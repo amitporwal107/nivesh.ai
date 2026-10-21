@@ -40,6 +40,8 @@ export interface LiveMeta {
   session: string | null;
   /** The server's publish time. */
   asOf: string | null;
+  /** When the newest quote in the snapshot was taken (server). */
+  dataAt: string | null;
   /** Seconds between the newest data and the server's answer (server clock). */
   ageSeconds: number | null;
   stale: boolean;
@@ -65,7 +67,7 @@ const norm = (s: string) => {
   return ALIASES[t] ?? t;
 };
 
-const EMPTY_META: LiveMeta = { mode: "unknown", source: null, session: null, asOf: null, ageSeconds: null, stale: true, cadenceSeconds: DEFAULT_CADENCE_S, final: false, receivedAt: null, transport: "idle" };
+const EMPTY_META: LiveMeta = { mode: "unknown", source: null, session: null, asOf: null, dataAt: null, ageSeconds: null, stale: true, cadenceSeconds: DEFAULT_CADENCE_S, final: false, receivedAt: null, transport: "idle" };
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
@@ -91,7 +93,7 @@ export function parsePayload(body: unknown, receivedAt: number): { quotes: Recor
   const m = MODES.find((x) => x === b.mode) ?? "unknown";
   return {
     quotes,
-    meta: { mode: m, source: str(b.source), session: str(b.session), asOf: str(b.as_of), ageSeconds: num(b.age_seconds), stale: b.stale !== false, cadenceSeconds: Math.min(120, Math.max(2, num(b.cadence_seconds) ?? DEFAULT_CADENCE_S)), final: b.final === true, receivedAt, transport: "idle" },
+    meta: { mode: m, source: str(b.source), session: str(b.session), asOf: str(b.as_of), dataAt: str(b.data_at), ageSeconds: num(b.age_seconds), stale: b.stale !== false, cadenceSeconds: Math.min(120, Math.max(2, num(b.cadence_seconds) ?? DEFAULT_CADENCE_S)), final: b.final === true, receivedAt, transport: "idle" },
   };
 }
 
@@ -267,11 +269,23 @@ function pick(q: LiveQuote | undefined, meta: LiveMeta, eodDay: string | null | 
   if (!q) return null;
   if (meta.mode === "live") return { ...q, kind: "live" };
   if (meta.mode === "closed" && meta.final && eodDay) {
+    // The final snapshot of the most recent session, and newer than the screen's own end-of-day day. Compared by date; once the
+    // warehouse's bar for that day lands, `eodDay` catches up and this returns null (the end-of-day data takes over).
     const qDay = istDayOf(q.ts);
-    if (qDay && qDay > eodDay) return { ...q, kind: "close" };
+    if (qDay && qDay > eodDay && qDay === istDayOf(meta.dataAt)) return { ...q, kind: "close" };
   }
   return null;
 }
+
+/** "Close · 21 Oct · Kite": how a closing-snapshot price is labelled (never "live"). */
+export function closeLabel(q: { ts: string | null }): string {
+  const d = q.ts ? new Date(q.ts.slice(0, 10) + "T00:00:00Z") : null;
+  const day = d && Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : "latest session";
+  return `Close · ${day} · Kite`;
+}
+
+/** The Flash value for a quote: ticks flash, a closing snapshot never does. */
+export const flashOf = (q: OverlayQuote | null | undefined): number | undefined => (q && q.kind === "live" ? q.ltp : undefined);
 
 /** The overlay quote for one symbol, or null (see `pick`). */
 export function useLiveOverlay(symbol: string | null | undefined, eodDay?: string | null): OverlayQuote | null {

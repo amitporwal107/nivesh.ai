@@ -55,6 +55,7 @@ export function LiveChip({ floating }: { floating?: boolean }) {
   const text = m.mode === "live"
     ? `Live · Kite · ${secs == null ? "updating" : `updated ${secs}s ago`}`
     : m.mode === "delayed" ? `Delayed · Kite${m.ageSeconds != null ? ` · ${Math.round(m.ageSeconds)}s old` : ""}`
+    : m.mode === "closed" && m.final && m.dataAt ? `Market closed · Kite close · ${new Date(m.dataAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })}`
     : LABEL[m.mode];
   const pill = (
     <span

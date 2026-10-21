@@ -431,6 +431,21 @@ def test_one_final_snapshot_after_close_then_idle():
     assert len(f._kite_obj.quote_calls) == n                   # nothing more is read until the next open
 
 
+def test_closing_snapshot_uses_kites_own_close_and_is_served_as_the_final_market_close():
+    clock = Clock(AFTER_CLOSE)
+    f = make_feed(clock=clock)
+    run(f.tick())
+    snap = f.snapshot
+    q = {x["symbol"]: x for x in snap["quotes"]}["AAA"]
+    assert snap["final"] is True and snap["session"] == "closed"
+    assert q["close"] == 98.0 and q["change"] == 2.0 and q["change_pct"] == pytest.approx(2.0408, abs=1e-3)   # vs Kite's own previous close, not the warehouse's
+    now = AFTER_CLOSE.astimezone(timezone.utc) + timedelta(hours=2)
+    body = live_quotes.build_payload(snap, {"state": "market_closed", "session": "closed", "cadence_seconds": 30}, ["AAA"], now)
+    assert body["mode"] == "closed" and body["final"] is True and body["stale"] is False        # hours old is fine once the market is closed
+    assert body["quotes"]["AAA"]["ts"].startswith("2026-10-20T14:32")                          # the quote's own exchange stamp is carried
+    assert body["data_at"] == snap["data_at"] and body["missing"] == []
+
+
 def test_no_read_inside_the_first_minute_after_close_and_none_stops_the_ticker():
     clock = Clock(datetime(2026, 10, 20, 15, 30, 20, tzinfo=IST))
     f = make_feed(clock=clock)

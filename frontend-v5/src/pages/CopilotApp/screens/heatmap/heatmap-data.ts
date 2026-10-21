@@ -63,6 +63,8 @@ export interface Heatmap {
   weightBasis: string | null;
   weightNote: string | null;
   unavailable: Array<{ field: string; reason: string; symbols: string[] }>;
+  /** Set by the live layer: the YYYY-MM-DD of the Kite session the 1D layer comes from. */
+  liveDay?: string | null;
 }
 
 async function fetchHeatmap(index: string, signal?: AbortSignal): Promise<Heatmap> {
@@ -138,11 +140,12 @@ export function indexLabel(code: string): string {
 export function applyLive(d: Heatmap, get: (symbol: string) => OverlayQuote | null): Heatmap {
   let hits = 0;
   let closeHits = 0;
+  let liveDay: string | null = null;
   const stocks = d.stocks.map((s) => {
     const q = get(s.symbol);
     if (!q || q.changePct == null) return s;
     hits++;
-    if (q.kind === "close") closeHits++;
+    if (q.kind === "close") { closeHits++; liveDay = q.ts ? q.ts.slice(0, 10) : liveDay; }
     return {
       ...s, close: q.ltp, returns: { ...s.returns, d: q.changePct },
       indexImpactD: s.weightPct != null ? (s.weightPct * q.changePct) / 100 : s.indexImpactD,
@@ -164,7 +167,7 @@ export function applyLive(d: Heatmap, get: (symbol: string) => OverlayQuote | nu
     ? stocks.reduce((a, s) => (s.returns.d != null && s.weightPct != null ? a + s.weightPct * s.returns.d : a), 0) / wsum
     : d.weighted.d;
   return {
-    ...d, mode: closeHits === hits ? "live_close" : "live", stocks, sectors, weighted: { ...d.weighted, d: weighted },
+    ...d, mode: closeHits === hits ? "live_close" : "live", liveDay, stocks, sectors, weighted: { ...d.weighted, d: weighted },
     breadth: { advances: adv, declines: dec, unchanged: withD.length - adv - dec },
   };
 }

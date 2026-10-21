@@ -15,6 +15,8 @@
  *
  * A list is the user's own note of stocks to follow. It is not advice.
  */
+import { Flash } from "../../components/LiveBits";
+import { useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { StockIcon, StockName } from "../../components/EntityIcon";
@@ -510,7 +512,7 @@ function StockRow({ stock, listName, removing, onRemove }: { stock: ListStock; l
       >
         <StockName symbol={stock.symbol} name={stock.company_name} size={28} testId="mylist-stock-name" />
       </button>
-      <QuoteCell quote={stock.quote} />
+      <QuoteCell quote={stock.quote} symbol={stock.symbol} />
       <Btn variant="ghost" data-testid="mylist-remove" aria-label={`Remove ${label} from ${listName}`} disabled={removing} onClick={onRemove} style={small}>
         Remove
       </Btn>
@@ -518,8 +520,10 @@ function StockRow({ stock, listName, removing, onRemove }: { stock: ListStock; l
   );
 }
 
-function QuoteCell({ quote }: { quote: ListQuote | null }) {
+function QuoteCell({ quote: stored, symbol }: { quote: ListQuote | null; symbol: string }) {
   const { mobile } = useCopilotShell();
+  const lv = useLiveOverlay(symbol, stored?.as_of ?? null);                     // Kite, only while LIVE; otherwise the list's own quote
+  const quote: ListQuote | null = lv ? { ...(stored ?? ({} as ListQuote)), price: lv.ltp, day_change: lv.change, day_change_pct: lv.changePct, is_live: true } : stored;
   if (!quote) {
     return <span data-testid="mylist-noquote" style={{ fontSize: 12, color: "var(--cp-ink-3)", textAlign: "right" }}>No quote today</span>;
   }
@@ -527,7 +531,7 @@ function QuoteCell({ quote }: { quote: ListQuote | null }) {
   const pct = quote.day_change_pct;
   return (
     <span className="flex flex-col items-end" style={{ gap: 2 }}>
-      <span className="cp-num" data-testid="mylist-price" style={{ fontSize: 14, color: "var(--cp-ink)" }}>{fmtPrice(quote.price)}</span>
+      <span className="cp-num" data-testid="mylist-price" data-live={lv ? "true" : undefined} style={{ fontSize: 14, color: "var(--cp-ink)" }}><Flash value={flashOf(lv)}>{fmtPrice(quote.price)}</Flash></span>
       {pct != null && (
         <span className="cp-num" style={{ fontSize: 12, color: TONE_COLOR[signTone(pct)], whiteSpace: "nowrap" }}>
           {/* The rupee move is left out on a phone, where the row has no room for it. */}

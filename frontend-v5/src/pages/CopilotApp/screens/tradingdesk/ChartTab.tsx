@@ -24,6 +24,8 @@
  * every validation figure the historical record does not hold (average and median return, costs, benchmark,
  * out-of-sample). The design's "Pattern confidence" is the scanner's own grade, labelled "Scanner confidence".
  */
+import { Flash } from "../../components/LiveBits";
+import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { StockIcon } from "../../components/EntityIcon";
 import {
@@ -352,9 +354,14 @@ function patternPills(setup: DeskSetup | null, plain: boolean): ReactNode {
 
 function HeadRow({ symbol, setup, bars, company }: { symbol: string; setup: DeskSetup | null; bars: DailyBar[] | null; company: string | null }) {
   const { persona } = useDesk();
-  const m = priceMove(bars, setup);
+  const eod = priceMove(bars, setup);
+  const lastDay = bars?.length ? bars[bars.length - 1].day.slice(0, 10) : null;
+  const live = useLiveOverlay(symbol, lastDay);                    // Kite: the live price, or today's close after the session until the end-of-day bar lands
+  const m = live
+    ? { close: live.ltp, change: live.change, changePct: live.changePct, asOf: live.kind === "close" ? closeLabel(live) : `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}` }
+    : eod;
   return (
-    <div data-testid="desk-chart-header" className="flex flex-wrap items-start justify-between" style={{ gap: "10px 16px", padding: "16px 18px 4px" }}>
+    <div data-testid="desk-chart-header" data-live={live ? live.kind : undefined} className="flex flex-wrap items-start justify-between" style={{ gap: "10px 16px", padding: "16px 18px 4px" }}>
       <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
         <span className="flex min-w-0 items-center" style={{ gap: 8, fontSize: 13, color: "var(--cp-ink-3)" }}>
           <StockIcon symbol={symbol} name={company} size={20} />
@@ -364,7 +371,7 @@ function HeadRow({ symbol, setup, bars, company }: { symbol: string; setup: Desk
           </span>
         </span>
         <span className="flex flex-wrap items-baseline" style={{ gap: "4px 10px" }}>
-          <span data-testid="desk-chart-close" style={{ fontFamily: "var(--display)", fontSize: 34, lineHeight: 1, letterSpacing: "-0.02em" }}>{fmtPrice(m.close)}</span>
+          <span data-testid="desk-chart-close" style={{ fontFamily: "var(--display)", fontSize: 34, lineHeight: 1, letterSpacing: "-0.02em" }}><Flash value={flashOf(live)}>{fmtPrice(m.close)}</Flash></span>
           <span data-testid="desk-chart-change" className="cp-num" style={{ fontSize: 12, color: TONE_COLOR[signTone(m.change)] }}>
             {m.change != null ? `${fmtSigned(m.change)} (${fmtPct(m.changePct, { signed: true, digits: 2 })})` : "—"}
           </span>
