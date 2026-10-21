@@ -27,6 +27,7 @@ import { StrategyGraphs } from "./StrategyGraphs";
 import { payoffProblem, usePayoff } from "./usePayoff";
 import { paperTradeBodyFor, payoffRequestFor, usePaperTradeIdea } from "./top-actions";
 import { TOP_LIMIT, useStrategyTop, type TopRun } from "./top-data";
+import { legsForBoard, liveNetPremium, useFnoLive, type LiveAnswer } from "./top-live";
 import type { FitFactor, OptionClass, OptionIdea, Regime } from "./top-contract";
 
 const STATE_TONE: Record<string, { glyph: string; color: string }> = {
@@ -123,7 +124,31 @@ function IdeaActions({ idea }: { idea: OptionIdea }) {
 }
 
 
-function IdeaCard({ idea }: { idea: OptionIdea }) {
+function LivePremium({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; at: Map<string, number> }) {
+  const net = liveNetPremium(idea, live, at);
+  if (!live) return null;
+  if (!live.available || net == null) {
+    // Never dress an end-of-day figure as live: say which it is and why.
+    return (
+      <div data-testid="idea-live-off" style={noteStyle}>
+        Live premium unavailable{live.reason ? ` — ${live.reason}` : ""}. The figures above are the
+        end-of-day chain.
+      </div>
+    );
+  }
+  const eod = idea.net_premium;
+  return (
+    <div data-testid="idea-live" style={{ ...noteStyle, color: "var(--mint)" }}>
+      Live net premium {fmtINR(net)}
+      {eod != null ? <> · end of day {fmtINR(eod)}</> : null}
+      {live.as_of ? <> · read {new Date(live.as_of).toLocaleTimeString()}</> : null}
+      {" "}· the ranking above is still the end-of-day one.
+    </div>
+  );
+}
+
+
+function IdeaCard({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; at: Map<string, number> }) {
   const rr = idea.reward_risk;
   const be = idea.breakevens.length ? idea.breakevens.map((b) => fmtNum(b, 2)).join(", ") : DASH;
   const maxProfit = idea.profit_unbounded ? "No upper limit" : fmtINR(idea.max_profit);
@@ -168,6 +193,8 @@ function IdeaCard({ idea }: { idea: OptionIdea }) {
 
       <Why items={idea.fit.because} />
 
+      <LivePremium idea={idea} live={live} at={at} />
+
       <IdeaActions idea={idea} />
 
       <footer style={{ ...noteStyle, borderTop: "1px solid var(--cp-line)", paddingTop: 8 }}>
@@ -193,7 +220,7 @@ function Unavailable({ rows }: { rows: OptionClass["unavailable"] }) {
   );
 }
 
-function OptionSection({ title, note, cls, testId }: { title: string; note: string; cls?: OptionClass; testId: string }) {
+function OptionSection({ title, note, cls, testId, live, at }: { title: string; note: string; cls?: OptionClass; testId: string; live?: LiveAnswer; at: Map<string, number> }) {
   if (!cls) return null;
   return (
     <Section title={title} note={note}>
@@ -208,7 +235,7 @@ function OptionSection({ title, note, cls, testId }: { title: string; note: stri
             }
           />
         ) : (
-          cls.ideas.map((idea) => <IdeaCard key={`${idea.underlying}-${idea.structure}-${idea.rank}`} idea={idea} />)
+          cls.ideas.map((idea) => <IdeaCard key={`${idea.underlying}-${idea.structure}-${idea.rank}`} idea={idea} live={live} at={at} />)
         )}
         {cls.considered != null ? (
           <p style={noteStyle} data-testid="top-considered">
@@ -258,6 +285,14 @@ export function TopByRegime() {
   const board = q.data;
   const again = () => setRun((r) => ({ body: r.body, runId: r.runId + 1 }));
 
+  const [wantLive, setWantLive] = useState(false);
+  const optionIdeas = useMemo(
+    () => [...(board?.classes.index_options?.ideas ?? []), ...(board?.classes.stock_fno?.ideas ?? [])],
+    [board],
+  );
+  const { legs, at } = useMemo(() => legsForBoard(optionIdeas), [optionIdeas]);
+  const liveQ = useFnoLive(legs, wantLive);
+
   const cash = board?.classes.cash;
   const cashRows = useMemo(() => cash?.ideas ?? [], [cash]);
 
@@ -275,8 +310,22 @@ export function TopByRegime() {
         <button type="button" className="cp-chip" data-testid="top-rebuild" onClick={again} disabled={q.isFetching}>
           {q.isFetching ? "Ranking…" : "Rank again"}
         </button>
+        <button
+          type="button" className="cp-chip" data-testid="top-live-toggle"
+          aria-pressed={wantLive} disabled={legs.length === 0}
+          title={legs.length ? "Read the live premium of every contract shown (Kite, read only)" : "No option legs on screen"}
+          onClick={() => setWantLive((v) => !v)}
+          style={wantLive ? { borderColor: "var(--mint-line)", color: "var(--mint)", background: "var(--mint-soft)" } : undefined}
+        >
+          {liveQ.isFetching ? "Reading…" : wantLive ? "Live premiums on" : "Live premiums"}
+        </button>
         <span style={noteStyle}>{board.rules_version}{board.generated_at ? ` · built ${fmtDay(board.generated_at)}` : ""}</span>
       </div>
+      {wantLive && liveQ.isError ? (
+        <p role="alert" data-testid="top-live-error" style={{ ...noteStyle, color: "var(--cp-danger)" }}>
+          {errorSentence(liveQ.error)} The figures below are the end-of-day chain.
+        </p>
+      ) : null}
 
       {q.isError ? <ErrorBlock error={q.error} onRetry={again} /> : null}
 
@@ -285,6 +334,8 @@ export function TopByRegime() {
         title="Index options — NIFTY and BANKNIFTY"
         note="Defined-risk structures only: an index cannot be held, so there is no covered call, protective put or collar here."
         cls={board.classes.index_options}
+        live={wantLive ? liveQ.data : undefined}
+        at={at}
       />
 
       <OptionSection
@@ -292,6 +343,8 @@ export function TopByRegime() {
         title="Stock F&O"
         note={board.classes.stock_fno?.universe?.source ?? "From the AI scanner's own ranked names."}
         cls={board.classes.stock_fno}
+        live={wantLive ? liveQ.data : undefined}
+        at={at}
       />
 
       {cash ? (
