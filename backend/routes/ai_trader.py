@@ -72,6 +72,7 @@ from deps import db, get_current_user
 from services import desk_trading as desk
 from services import desk_strategy_trades as desk_strategy
 from services import risk_controls as rc
+from services import risk_equity as req
 from services import pg_client
 from services.ai_trader import _research, execution, strategy
 from services.ai_trader.calibration import CalibrationError, calibration_report
@@ -371,9 +372,40 @@ async def _portfolio(uid: str, capital: float) -> Portfolio:
     # reported as DRAWDOWN_UNKNOWN — the desk keeps no equity curve to measure a drawdown against,
     # and a threshold that cannot be computed must not be presented as enforced.
     controls = await rc.read(db, uid)
+    equity = await _equity(uid, capital, open_docs)
     return Portfolio(capital=capital, positions=positions, realized_pnl_today=round(realized, 2),
+                     drawdown_pct=equity.get("drawdown_pct"),
                      kill_switch=bool(controls.get("kill_switch")),
                      halted=bool(controls.get("halted")))
+
+
+async def _equity(uid: str, capital: float, open_docs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Equity, its high-water mark and the drawdown, for the governor's DRAWDOWN_HALT.
+
+    Marks the open cash positions at their last close and reuses desk_trading's own `summarize`, so
+    realised and unrealised P&L have ONE definition in the product. It deliberately does NOT call
+    `apply_trade_exits`: that writes exits, and a risk read must not close a position as a side
+    effect of being asked a question.
+
+    An open STRATEGY (multi-leg F&O) position is counted as unmarked, which makes equity and the
+    drawdown unknown rather than wrong: those positions are marked by a different path
+    (desk_strategy_trades.apply_exits) that also writes. Named here as a gap instead of being
+    silently valued at zero.
+    """
+    cash_open = [d for d in open_docs if d.get("kind") in (None, "cash")]
+    strategy_open = len(open_docs) - len(cash_open)
+    try:
+        starts = desk.fetch_starts(cash_open, "opened_at")
+        bars, errors = await desk.fetch_bars_many(starts) if starts else ({}, {})
+        public = [desk.public_trade(d, *desk.mark_for(d["symbol"], bars, errors)) for d in cash_open]
+        public += [desk.public_trade(d) for d in await _closed_trades(uid)]
+        summary = dict(desk.summarize(public, partial=False))
+    except Exception as e:  # noqa: BLE001 — an unreadable mark leaves the drawdown unknown, not zero
+        logger.warning("ai_trader: equity could not be computed for %s (%s)", uid, type(e).__name__)
+        return {"drawdown_pct": None, "equity": None,
+                "unknown_reason": f"the marks could not be read ({type(e).__name__})"}
+    summary["unmarked_open"] = int(summary.get("unmarked_open") or 0) + strategy_open
+    return await req.snapshot(db, uid, capital, summary)
 
 
 def _market(as_of: str) -> Market:
