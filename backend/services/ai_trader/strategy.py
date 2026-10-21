@@ -481,14 +481,22 @@ def _no_losing_trades(metrics: Dict[str, Any]) -> bool:
 def _portfolio_pct_row(gate: Gate, metrics: Dict[str, Any], key: str, meets_threshold: bool) -> Dict[str, Any]:
     """A row whose threshold is a percentage of the portfolio (B3's -25 % drawdown and >0 % return).
 
-    `strategy_engine.backtest` books `pnl_abs = (exit_price - entry_price) - 2 * brokerage_inr` and carries no
-    quantity anywhere, so the equity series `_compute_metrics` draws `max_drawdown_pct` and `total_return_pct`
-    from is one-share rupees added to the starting capital. On a Rs 10,00,000 account a six percent stop on a
-    Rs 1,400 share prints about -0.01 percent a trade, so twenty-five stop-outs read as -0.31 percent where a
-    risk-sized book would be down about 15 percent: the -25 percent floor can never bind. The thresholds are not
-    moved to fit that unit, because they are the sizes the product means. Instead a run has to declare that its
-    percentages are percentages of capital, and nothing produces that declaration today, so these two rows report
-    what they have and fail as unmeasured. An uncomputable value is never a pass.
+    A run has to DECLARE that its percentages are percentages of capital before either row can pass. An
+    uncomputable value is never a pass.
+
+    The declaration exists because the engine once did not size positions at all: it booked
+    `pnl_abs = (exit_price - entry_price) - 2 * brokerage_inr`, the profit on one share, and added that to an
+    equity series starting at the full capital. On a Rs 10,00,000 account a six percent stop on a Rs 1,400 share
+    printed about -0.01 percent a trade, so twenty-five stop-outs read as -0.31 percent where a sized book would
+    be down about 15 percent, and the -25 percent floor could never bind. A real staging run showed exactly that:
+    30 trades moved the account 0.36 percent in total. The thresholds were never moved to fit that unit, because
+    they are the sizes the product means.
+
+    Since the product owner chose to fix the engine (2026-10-21, PRD section 10c and open question 4),
+    `strategy_engine.backtest` sizes each entry to an equal-weight slot of `equity / max_positions`, tracks cash,
+    marks open positions to market daily, and emits `sizing_basis = "portfolio"`, so these two rows now bind. The
+    check stays: a caller that injects its own runner, or an older stored run, must still say what its percentages
+    mean rather than have it assumed.
     """
     sized = metrics.get("sizing_basis") == PORTFOLIO_SIZING_BASIS
     row = _row(gate, metrics.get(key), meets_threshold and sized)
