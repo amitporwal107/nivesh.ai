@@ -1,0 +1,687 @@
+{
+ "_comment": "RECORDED live responses from Trendlyne-Financial-Server 3.1.1 (mcp.trendlyne.com), captured 2026-10-12 for parser tests. Not mock data; documents_infosys_trimmed is cut to 3 chunks x 400 chars.",
+ "tools_list": {
+  "tools": [
+   {
+    "name": "search_financial_parameters",
+    "description": "Search for specific financial parameters, metrics, or field names (e.g., 'PE ratio', 'Revenue', 'Operating Profit Margin') in the database.\nUse this tool to find the masked parameter token and human-readable label for `get_stock_parameter_values`.\n\nTypical workflow on `/mcp`:\n    1. Resolve stock codes with `search_entities` (prefer `nse_code`).\n    2. Resolve parameters with this tool.\n    3. Pass stock codes and the masked `parameter` tokens (e.g. `roea`) to `get_stock_parameter_values`.\n       Use `helping_text` only to explain the metric to the user.\n\nArgs:\n    query: The name of the financial parameter or metric you are looking for (e.g., \"sales growth\", \"operating profit margin\").\n\nReturns:\n    A JSON string containing a list of matching parameters. Each result includes:\n        - `parameter`: masked screener token to pass to `get_stock_parameter_values` (e.g. `roea`)\n        - `helping_text`: human-readable label for display (e.g. `ROE Annual %`)",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "query": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "query"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "get_stock_parameter_values",
+    "description": "Fetches current or historical values of specific financial parameters/metrics for a list of stocks.\n\nUse this tool when you already know the exact stock codes and masked parameter tokens.\nResolve stock codes with `search_entities` (prefer `nse_code`) and parameters with `search_financial_parameters`.\n\nLimits: pass at most 10 stock codes and 10 parameters in a single call. If you need more,\nsplit the request into multiple calls.\n\nArgs:\n    stock_codes: A list of stock identifiers (1 to 10 per call). Each can be an NSE symbol (e.g., 'INFY'),\n        BSE script code (e.g., '500209'), or ISIN (e.g., 'INE009A01021').\n    parameters: A list of masked parameter tokens (1 to 50 per call). Use the `parameter` value from\n        `search_financial_parameters` results — not `helping_text`, not internal field keys like ROE_A.\n        Examples: `roea` (ROE Annual %), `pettm` (PE TTM), `currentprice` (Current Price).\n\nExample:\n    After `search_financial_parameters(\"roe annual\")` returns:\n        {\"parameter\": \"roea\", \"helping_text\": \"ROE Annual %\"}\n    call:\n        stock_codes=[\"INFY\"]\n        parameters=[\"roea\"]\n\nReturns:\n    A JSON string containing a markdown table or structured values of the requested parameters for each stock.",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "stock_codes": {
+       "items": {},
+       "type": "array"
+      },
+      "parameters": {
+       "items": {},
+       "type": "array"
+      }
+     },
+     "required": [
+      "stock_codes",
+      "parameters"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "get_document_search_results",
+    "description": "Searches the company document vector database using semantic similarity.\nThis database contains chunked and embedded text from company filings and reports:\n- Annual Reports (full-year filings with financial statements, management commentary, notes)\n- Quarterly Results (quarterly financial performance and segment data)\n- Earnings Call Transcripts (management commentary, Q&A with analysts)\n- Investor Presentations (strategy updates, growth outlook, capital allocation plans)\n\nIMPORTANT INSTRUCTIONS:\n- Use a specific, focused query for best results. Avoid broad or multi-topic queries.\n- Include the company name in the query for accurate retrieval.\n- Use financial terminology in the query (e.g. \"revenue\", \"EBITDA\", \"PAT\", \"debt-to-equity\").\n\nArgs:\n    query: A focused natural-language search query. Include the company name and the\n        specific financial metric, event, or topic you are looking for.\n        Good example: \"Infosys FY24 annual report revenue and operating margin\"\n        Bad example:  \"Tell me about the company\"\nReturns:\n    A JSON string containing relevant document chunks and source information matching the semantic query.",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "query": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "query"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "get_parameter_values_multi_stock",
+    "description": "Performs semantic search over the structured database to find the latest available company data,\nstock prices, and financial metrics. Use this tool for natural-language or exploratory queries.\n\nFor exact parameter extraction when you already know the stock codes and metric field names,\nuse `search_financial_parameters` to resolve field names and `get_stock_parameter_values`\nto fetch values for specific stocks.\n\nSnapshot data contained in a database contains the latest values of:\n    - Balance Sheet: Balance Sheet Annual\n    - Cash Flow: Cash Flow Annual\n    - Financial Ratios: Financial Ratios Annual\n    - Forecaster: Consensus Estimates Latest\n    - Income Statement: Income Statement Quarter\n    - Insider Trades: Insider Trades Latest\n    - Price & Volume: Price & Volume Latest\n    - Ratios: Other Ratios Latest\n    - Scores: Scores Latest\n    - Shareholding: Shareholding Quarter Aggregates\n    - Technicals: Technicals Day OHLC\n\nArgs:\n    query: The natural-language query containing metrics/ratios or topics to search for.\n    type: The category of financial entity to filter search results by. Allowed values are: 'stock', 'etf', 'index'. Defaults to 'stock'.",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "query": {
+       "type": "string"
+      },
+      "type": {
+       "default": "stock",
+       "type": "string"
+      }
+     },
+     "required": [
+      "query"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "get_ownership_deals_insider_sast",
+    "description": "Fetches stock-level corporate ownership data, promoter/insider transactions, \nand bulk/block market deals for a given company.\n\nUse this tool to inspect shareholding patterns, insider trading (SAST) details, \nor market bulk/block deals. You MUST specify the data category to fetch using the 'type' parameter.\n\nArgs:\n    stock_code (str): The identifier of the stock. This can be an NSE symbol/code (e.g., 'INFY'),\n                      a BSE script code (e.g., '500209'), or the company's ISIN (e.g., 'INE009A01021').\n                      If required, you can optionally call `search_entities` first to get the correct stock code identifier.\n    type (str): The specific category of data to fetch. Allowed values are:\n                - 'shareholding': Retrieves latest shareholding pattern (promoter, institutional, FII, DII, mutual fund, and public holdings).\n                - 'sast': Retrieves Insider Trading and SAST (Substantial Acquisition of Shares and Takeovers) transaction logs, promoter acquisitions/disposals, and share pledges.\n                - 'bulblockdeal': Retrieves bulk and block market deals data (date, buyer/seller name, quantity, and average trade price).",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "stock_code": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "stock_code",
+      "type"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "get_overview_news_corp_events",
+    "description": "Fetches a stock's overview, technical analysis, news feed, or upcoming/historical corporate events.\n\nUse this tool to get comprehensive information about a company's financial indicators,\nmoving averages, news updates, or corporate actions (dividends, splits, board meetings, etc.).\nYou MUST specify the category to fetch using the 'type' parameter.\n\nArgs:\n    stock_code (str): The identifier of the stock. This can be an NSE symbol/code (e.g., 'INFY'),\n                      a BSE script code (e.g., '500209'), or the company's ISIN (e.g., 'INE009A01021').\n                      If required, you can optionally call `search_entities` first to get the correct stock code identifier.\n    type (str): The specific category of data to fetch. Allowed values are:\n                - 'overview': Retrieves key stock overview details including checklists, valuation, ASM/GSM status, forecaster, and basic metrics.\n                - 'technical': Retrieves technical analysis indicators, including RSI, MFI, MACD, and moving averages (EMA/SMA).\n                - 'news': Retrieves latest news feed and exchange announcements for the stock.\n                - 'events': Retrieves all corporate actions and events (Bonus, Splits, Dividends, Board Meetings, Rights).",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "stock_code": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "stock_code",
+      "type"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "search_entities",
+    "description": "Search for Indian stocks, ETFs, or indices by name, BSE/NSE symbol, ticker, sector, industry, or thematic description\nto resolve and find the correct stock code (NSE symbol/BSE code/ISIN) needed for other tools.\n\nArgs:\n    query: The search term. Can be a company name, symbol, ticker, sector, industry, or thematic/keyword description (e.g., 'Infosys', 'IT Services', 'Tata Group', 'Automobile sector').\n    entity_type: The category of financial entity to search for. Allowed values are: 'stock', 'etf', 'index'. Defaults to 'stock'.\n    limit: Optional maximum number of stock records to return (defaults to 10).\n\nReturns:\n    A JSON string containing a success status and a list of matching records under the 'data' key.\n    Each record in 'data' contains:\n    - `name` (string): The full name of the company/stock/ETF/index.\n    - `nse_code` (string or null): The NSE symbol (e.g., 'INFY'), which is the preferred stock_code parameter for other tools.\n    - `bse_code` (string or null): The BSE script code (e.g., '500209').\n    - `isin` (string or null): The ISIN of the company (e.g., 'INE009A01021').\n    - `entity_type` (string or null): The type of page (e.g., 'stock', 'etf', 'index').\n    - `sector` (string or null): The sector name of the company (null for ETFs and indices).\n    - `industry` (string or null): The industry name of the company (null for ETFs and indices).",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "query": {
+       "type": "string"
+      },
+      "entity_type": {
+       "default": "stock",
+       "type": "string"
+      },
+      "limit": {
+       "default": 10,
+       "type": "integer"
+      }
+     },
+     "required": [
+      "query"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "get_stock_eod_ohlc",
+    "description": "Fetch daily end-of-day OHLC for a stock over a recent lookback window.\n\nUse this tool when the user needs recent price bars (open, high, low, close, volume)\nfor charting or short-term trend analysis.\n\nArgs:\n    stock_code: Stock identifier — NSE symbol (e.g. 'INFY'), BSE script code, or ISIN.\n    period: 'weekly' (last 7 trading days, default) or 'monthly' (last 30 trading days).\n\nReturns:\n    JSON string with stock metadata, exchange, period, and an `ohlc` list of daily\n    EOD rows (newest first): date, open, high, low, close, volume.",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "stock_code": {
+       "type": "string"
+      },
+      "period": {
+       "default": "weekly",
+       "type": "string"
+      }
+     },
+     "required": [
+      "stock_code"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "watchlist_add_stock",
+    "description": "Add a stock to a user's specified watchlist.\n\nUse this tool when a user wants to save or track a stock in one of their watchlists.\nRequires both a valid stock ID and watchlist ID.\n\nArgs:\n    stock_id (str or int): The unique ID of the stock to add (e.g., obtained from `search_entities`).\n    watchlist_id (str or int): The unique ID of the target watchlist (e.g., obtained from `watchlist_listing`).\n\nReturns:\n    str: JSON string containing the execution status (\"success\" or \"error\"), response message,\n         and updated watchlist confirmation.",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "stock_id": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      },
+      "watchlist_id": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      }
+     },
+     "required": [
+      "stock_id",
+      "watchlist_id"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "watchlist_remove_stock",
+    "description": "Remove a stock from a user's specified watchlist.\n\nUse this tool when a user wants to delete, remove, or untrack a stock from one of their watchlists.\nRequires both a valid stock ID and watchlist ID.\n\nArgs:\n    stock_id (str or int): The unique ID of the stock to remove (e.g., obtained from `search_entities` or watchlist items).\n    watchlist_id (str or int): The unique ID of the target watchlist (e.g., obtained from `watchlist_listing`).\n\nReturns:\n    str: JSON string containing the execution status (\"success\" or \"error\"), response message,\n         and removal confirmation.",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "stock_id": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      },
+      "watchlist_id": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      }
+     },
+     "required": [
+      "stock_id",
+      "watchlist_id"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "watchlist_listing",
+    "description": "Retrieve all watchlists created by the authenticated user.\n\nUse this tool when a user asks to list, view, or check their watchlists, or when you need\nto retrieve a `watchlist_id` prior to adding or removing stocks.\n\nReturns:\n    str: JSON string containing a list of the user's watchlists. Each item includes:\n         - `watchlist_id` (int/str): The unique identifier for the watchlist.\n         - `name` (str): The display name of the watchlist.\n         - `is_default` (bool): Indicates if it is the user's primary/default watchlist.\n         - `stock_count` (int): The total number of stocks currently in the watchlist.",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {},
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "watchlist_creation",
+    "description": "Create a new custom watchlist for the authenticated user.\n\nUse this tool when a user wants to create, set up, or build a new watchlist to group and track stocks.\nRequires a title/name for the watchlist; the description is optional.\n\nArgs:\n    watchlistTitle (str): The required display name or title for the new watchlist (e.g., \"Tech Stocks\", \"Long Term Holdings\").\n    watchlistDesc (str, optional): Optional description or notes detailing the purpose of the watchlist. Defaults to \"\".\n\nReturns:\n    str: JSON string containing the execution status (\"success\" or \"error\"), response message,\n         and details of the newly created watchlist (including the new `watchlist_id`).",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "watchlistTitle": {
+       "type": "string"
+      },
+      "watchlistDesc": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "default": ""
+      }
+     },
+     "required": [
+      "watchlistTitle"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   },
+   {
+    "name": "watchlist_stocks",
+    "description": "Retrieve all stocks and their details contained within a specific watchlist.\n\nUse this tool when a user wants to view, check, or list the stocks inside a specific watchlist.\nRequires a valid `watchlist_id`, which can be retrieved using the `watchlist_listing` tool.\n\nArgs:\n    watchlist_id (str or int): The unique ID of the watchlist whose stocks are to be fetched (obtained from `watchlist_listing`).\n\nReturns:\n    str: JSON string containing watchlist metadata and the array of stocks (including stock IDs, names,\n         prices, and financial metrics).",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "watchlist_id": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "string"
+        }
+       ]
+      }
+     },
+     "required": [
+      "watchlist_id"
+     ],
+     "type": "object"
+    },
+    "outputSchema": {
+     "description": "Generic wrapper for non-object return types.",
+     "properties": {
+      "result": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "result"
+     ],
+     "type": "object",
+     "x-fastmcp-wrap-result": true
+    },
+    "_meta": {
+     "fastmcp": {
+      "tags": []
+     }
+    }
+   }
+  ]
+ },
+ "calls": {
+  "entities_infosys": {
+   "tool": "search_entities",
+   "arguments": {
+    "query": "Infosys",
+    "limit": 3
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "status: success\ndata:\n  name | nse_code | bse_code | isin | entity_type | sector | industry\n  Infosys Ltd. | INFY | 500209 | INE009A01021 | stock | Software & Services | IT Consulting & Software\n  Mahaveer Infoway Ltd. | MINFY | 539383 | INE019D01016 | stock | Software & Services | IT Consulting & Software\n  InfoBeans Technologies Ltd. | INFOBEAN | 543644 | INE344S01016 | stock | Software & Services | IT Consulting & Software"
+     }
+    ],
+    "structuredContent": {
+     "result": "status: success\ndata:\n  name | nse_code | bse_code | isin | entity_type | sector | industry\n  Infosys Ltd. | INFY | 500209 | INE009A01021 | stock | Software & Services | IT Consulting & Software\n  Mahaveer Infoway Ltd. | MINFY | 539383 | INE019D01016 | stock | Software & Services | IT Consulting & Software\n  InfoBeans Technologies Ltd. | INFOBEAN | 543644 | INE344S01016 | stock | Software & Services | IT Consulting & Software"
+    },
+    "isError": false
+   }
+  },
+  "entities_empty": {
+   "tool": "search_entities",
+   "arguments": {
+    "query": "zzqxnotacompany123"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "status: success\ndata:\n  []"
+     }
+    ],
+    "structuredContent": {
+     "result": "status: success\ndata:\n  []"
+    },
+    "isError": false
+   }
+  },
+  "parameter_search_pe": {
+   "tool": "search_financial_parameters",
+   "arguments": {
+    "query": "PE ratio"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"status\": \"success\", \"data\": [{\"parameter\": \"pettm\", \"helping_text\": \"PE TTM Price to Earnings\"}, {\"parameter\": \"peavg3y\", \"helping_text\": \"PE 3Yr Average\"}, {\"parameter\": \"peavg5y\", \"helping_text\": \"PE 5Yr Average\"}, {\"parameter\": \"peavg10y\", \"helping_text\": \"PE 10Yr Average\"}, {\"parameter\": \"buysellpettmp\", \"helping_text\": \"%Days traded below current PE Price to Earnings\"}, {\"parameter\": \"pricepeavg5y\", \"helping_text\": \"Fair Price based on 5Yr Average PE\"}, {\"parameter\": \"psttm\", \"helping_text\": \"Price to Sales TTM\"}, {\"parameter\": \"grahamratio\", \"helping_text\": \"Graham Ratio\"}, {\"parameter\": \"pricetosalesa\", \"helping_text\": \"Price To Sales Annual\"}, {\"parameter\": \"pegttm\", \"helping_text\": \"PEG TTM PE to Growth\"}]}"
+     }
+    ],
+    "structuredContent": {
+     "result": "{\"status\": \"success\", \"data\": [{\"parameter\": \"pettm\", \"helping_text\": \"PE TTM Price to Earnings\"}, {\"parameter\": \"peavg3y\", \"helping_text\": \"PE 3Yr Average\"}, {\"parameter\": \"peavg5y\", \"helping_text\": \"PE 5Yr Average\"}, {\"parameter\": \"peavg10y\", \"helping_text\": \"PE 10Yr Average\"}, {\"parameter\": \"buysellpettmp\", \"helping_text\": \"%Days traded below current PE Price to Earnings\"}, {\"parameter\": \"pricepeavg5y\", \"helping_text\": \"Fair Price based on 5Yr Average PE\"}, {\"parameter\": \"psttm\", \"helping_text\": \"Price to Sales TTM\"}, {\"parameter\": \"grahamratio\", \"helping_text\": \"Graham Ratio\"}, {\"parameter\": \"pricetosalesa\", \"helping_text\": \"Price To Sales Annual\"}, {\"parameter\": \"pegttm\", \"helping_text\": \"PEG TTM PE to Growth\"}]}"
+    },
+    "isError": false
+   }
+  },
+  "parameter_values_infy_tcs": {
+   "tool": "get_stock_parameter_values",
+   "arguments": {
+    "stock_codes": [
+     "INFY",
+     "TCS"
+    ],
+    "parameters": [
+     "pettm",
+     "roea"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"status\": \"success\", \"data\": \"630|Infosys|INFY|500209|2026-10-12\\n1372|TCS|TCS|532540|2026-10-12\\n\\nPE TTM\\nINFY:13.71\\nTCS:15.12\\n\\n---\\n\\nROE Ann. %\\nINFY:31.70\\nTCS:45.88\\n\\n---\"}"
+     }
+    ],
+    "structuredContent": {
+     "result": "{\"status\": \"success\", \"data\": \"630|Infosys|INFY|500209|2026-10-12\\n1372|TCS|TCS|532540|2026-10-12\\n\\nPE TTM\\nINFY:13.71\\nTCS:15.12\\n\\n---\\n\\nROE Ann. %\\nINFY:31.70\\nTCS:45.88\\n\\n---\"}"
+    },
+    "isError": false
+   }
+  },
+  "parameter_values_unresolved": {
+   "tool": "get_stock_parameter_values",
+   "arguments": {
+    "stock_codes": [
+     "NOTASYMBOLXYZ"
+    ],
+    "parameters": [
+     "pettm"
+    ]
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"status\": \"error\", \"message\": \"Could not resolve stock code(s): NOTASYMBOLXYZ. [code:1012]\"}"
+     }
+    ],
+    "structuredContent": {
+     "result": "{\"status\": \"error\", \"message\": \"Could not resolve stock code(s): NOTASYMBOLXYZ. [code:1012]\"}"
+    },
+    "isError": false
+   }
+  },
+  "events_infy": {
+   "tool": "get_overview_news_corp_events",
+   "arguments": {
+    "stock_code": "INFY",
+    "type": "events"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "stockHeaders:\n  name | unit | unique_name | use_function\n  Stock Name | string | get_full_name | \n  NSE Symbol | string | NSEcode | getNSEcode\n  BSEcode | string | BSEcode | getBSEcode\n  Stock ID | number | stock_id | pk\n  Page type | string | page_type | page_type_name\n  ISIN | string | ISIN | \n  Durability Score | number | d_value | TL_DURABILITY_METRIC\n  Valuation Score | number | v_value | TL_VALUATION_METRIC\n  Momentum Score | number | m_value | abs_score\n  D color | string | d_color | \n  V color | string | v_color | \n  M color | string | m_color | \nstockData:\n  get_full_name: Infosys Ltd.\n  NSEcode: INFY\n  BSEcode: 500209\n  stock_id: 630\n  page_type: Equity\n  ISIN: INE009A01021\n  d_value: 60.0\n  v_value: 46.83333\n  m_value: 36.25\n  d_color: positive\n  v_color: neutral\n  m_color: neutral\nbonus:\n  tableData:\n    exdate | ratiotext | record_date\n    2018-09-04 | 1:1 | 2018-09-05\n    2015-06-15 | 1:1 | None\n    2014-12-02 | 1:1 | 2014-12-03\n    2006-07-13 | 1:1 | 2006-07-14\n    2004-07-01 | 3:1 | 2004-07-02\n  tableHeaders:\n    name | type | unique_name\n    Ex-Date | date | exdate\n    Bonus Ratio | number | ratiotext\n    Record Date | date | record_date\n  insights:\n    Infosys Ltd. has given 5 bonuses since July 01, 2004.The last bonus announced was in the ratio 1:1 with ex-date of September 04, 2018\n  isCurtailed: False\n  curtailedMessage: \nsplit:\n  tableData:\n    []\n  tableHeaders:\n    name | type | unique_name\n    Ex-Date | date | exdate\n    Split Ratio | number | ratiotext\n    Record Date | date | record_date\n  insights:\n    Infosys Ltd. has not split the face value of the share since Jan 1, 2000.\n  isCurtailed: False\n  curtailedMessage: \nrights:\n  tableData:\n    []\n  tableHeaders:\n    name | type | unique_name | use_function\n    Company Code | string | companyCode | CompanyCode\n    Date Of Announcement | date | dateOfAnnouncement | DateOfAnnouncement\n    Existing Instrument | string | existingInstrument | ExistingInstrument\n    Offered Instrument | string | offeredInstrument | OfferedInstrument\n    Ratio Offered | string | ratioOffered | RatioOffered\n    Ratio Exist | string | ratioExist | RatioExist\n    Face Value Offered | string | faceValueOffered | FaceValueOffered\n    Fave Value Exist | string | faveValueExist | FaveValueExist\n    Rights Premium | string | rightsPremium | RightsPremium\n    Record Date | date | recordDate | RecordDate\n    Book Closure StartDate | date | bookClosureStartDate | BookClosureStartDate\n    Book Closure EndDate | date | bookClosureEndDate | BookClosureEndDate\n    ExDate | date | exDate | XRDate\n    Remarks | string | remarks | Remarks\n  insights:\n    Infosys Ltd. has not announced any rights since Jan 1, 2000.\n  isCurtailed: False\n  curtailedMessage: \ndividend:\n  tableData:\n    exdate | amount | dividend_type | record_date | instrument_type\n    2026-06-10 | 25.0 | FINAL | 2026-06-10 | Equity Share\n    2025-10-27 | 23.0 | INTERIM | 2025-10-27 | Equity Share\n    2025-05-30 | 22.0 | FINAL | 2025-05-30 | Equity Share\n    2024-10-29 | 21.0 | INTERIM | 2024-10-29 | Equity Share\n    2024-05-31 | 8.0 | SPECIAL | 2024-05-31 | Equity Share\n    2024-05-31 | 20.0 | FINAL | 2024-05-31 | Equity Share\n    2023-10-25 | 18.0 | INTERIM | 2023-10-25 | Equity Share\n    2023-06-02 | 17.5 | FINAL | 2023-06-02 | Equity Share\n    2022-10-27 | 16.5 | INTERIM | 2022-10-28 | Equity Share\n    2022-05-31 | 16.0 | FINAL | 2022-06-01 | Equity Share\n    2021-10-26 | 15.0 | INTERIM | 2021-10-27 | Equity Share\n    2021-05-31 | 15.0 | FINAL | 2021-06-01 | Equity Share\n    2020-10-23 | 12.0 | INTERIM | 2020-10-26 | Equity Share\n    2020-05-29 | 9.5 | FINAL | 2020-06-01 | Equity Share\n    2019-10-23 | 8.0 | INTERIM | 2019-10-24 | Equity Share\n    2019-06-13 | 10.5 | FINAL | None | Equity Share\n    2019-01-24 | 4.0 | SPECIAL | 2019-01-25 | Equity Share\n    2018-10-25 | 7.0 | INTERIM | 2018-10-27 | Equity Share\n    2018-06-14 | 10.0 | SPECIAL | None | Equity Share\n    2018-06-14 | 20.5 | FINAL | None | Equity Share\n    2017-10-31 | 13.0 | INTERIM | 2017-11-01 | Equity Share\n    2017-06-01 | 14.75 | FINAL | None | Equity Share\n    2016-10-21 | 11.0 | INTERIM | 2016-10-24 | Equity Share\n    2016-06-09 | 14.25 | FINAL | None | Equity Share\n    2015-10-16 | 10.0 | INTERIM | 2015-10-19 | Equity Share\n    2015-06-15 | 29.5 | FINAL | None | Equity Share\n    2014-10-16 | 30.0 | INTERIM | 2014-10-17 | Equity Share\n    2014-05-29 | 43.0 | FINAL | None | Equity Share\n    2013-10-17 | 20.0 | INTERIM | 2013-10-18 | Equity Share\n    2013-05-30 | 27.0 | FINAL | None | Equity Share\n    2012-10-18 | 15.0 | INTERIM | 2012-10-19 | Equity Share\n    2012-05-24 | 32.0 | FINAL | None | Equity Share\n    2011-10-20 | 15.0 | INTERIM | 2011-10-21 | Equity Share\n    2011-05-26 | 20.0 | FINAL | None | Equity Share\n    2010-10-21 | 40.0 | INTERIM | 2010-10-22 | Equity Share\n    2010-05-26 | 15.0 | FINAL | None | Equity Share\n    2009-10-15 | 10.0 | INTERIM | 2009-10-16 | Equity Share\n    2009-06-04 | 13.5 | FINAL | None | Equity Share\n    2008-10-16 | 10.0 | INTERIM | 2008-10-17 | Equity Share\n    2008-05-29 | 27.25 | FINAL | None | Equity Share\n    2007-10-18 | 6.0 | INTERIM | 2007-10-19 | Equity Share\n    2007-06-06 | 6.5 | FINAL | None | Equity Share\n    2006-10-19 | 5.0 | INTERIM | 2006-10-20 | Equity Share\n    2006-05-25 | 38.5 | FINAL | None | Equity Share\n    2005-10-17 | 6.5 | INTERIM | 2005-10-18 | Equity Share\n    2005-06-01 | 6.5 | FINAL | None | Equity Share\n    2004-10-18 | 5.0 | INTERIM | 2004-10-19 | Equity Share\n    2004-05-26 | 115.0 | FINAL | None | Equity Share\n    2003-10-16 | 14.5 | INTERIM | 2003-10-17 | Equity Share\n    2003-05-28 | 14.5 | FINAL | None | Equity Share\n    2002-05-21 | 12.5 | FINAL | None | Equity Share\n  tableHeaders:\n    name | type | unique_name | use_function\n    Ex-Date | date | exdate | \n    Dividend Amount | number | amount | \n    Dividend Type | string | dividend_type | \n    Record Date | string | record_date | \n    Instrument Type | string | instrument_type | getInstrumentType\n  insights:\n    Infosys Ltd. has declared 51 dividends since May 21, 2002., In the past 12 months, the equity dividend amounts to ₹ 48.00 per share., At the current share price of ₹ 1023.4000, this results in a dividend yield of 4.69%.\n  isCurtailed: False\n  curtailedMessage: \nboardMeeting:\n  tableData:\n    board_meet_date | purpose | remarks\n    2026-10-23 | Quarterly Results & Interim Dividend | \n    2026-07-23 | Quarterly Results | \n    2026-04-23 | Audited Results & Final Dividend | \n    2026-01-14 | Quarterly Results | \n    2025-10-16 | Quarterly Results & Interim Dividend | \n    2025-09-11 | Buy Back of shares | \n    2025-07-23 | Quarterly Results | \n    2025-04-17 | Audited Results & Final Dividend | \n    2025-01-16 | Quarterly Results | \n    2024-10-17 | Quarterly Results & Dividend | \n    2024-07-18 | Quarterly Results | \n    2024-04-18 | Audited Results & Final Dividend | \n    2024-01-11 | Quarterly Results | \n    2023-10-12 | Quarterly Results & Interim Dividend | \n    2023-07-20 | Quarterly Results | \n    2023-04-13 | Audited Results & Final Dividend | \n    2023-01-12 | Quarterly Results | \n    2022-10-13 | Qtr Results, Interim Dividend & Buy Back | \n    2022-07-24 | Quarterly Results | \n    2022-04-13 | Audited Results & Final Dividend | \n    2022-01-12 | Quarterly Results | \n    2021-10-13 | Quarterly Results & Interim Dividend | \n    2021-07-14 | Quarterly Results | \n    2021-04-14 | Audited Results, F. Dividend & Buy Back | \n    2021-01-13 | Quarterly Results | \n    2020-10-14 | Quarterly Results & Interim Dividend | \n    2020-07-15 | Quarterly Results | \n    2020-04-20 | Audited Results & Final Dividend | Quarterly Results\n    2020-01-10 | Quarterly Results | \n    2019-10-11 | Quarterly Results & Interim Dividend | \n    2019-07-12 | Quarterly Results | The audited standalone financial results of the Company as per INDAS for the quarter ending June 30, 2019;\n    2019-04-12 | Audited Results & Final Dividend | \n    2019-01-11 | Qtr Results, Sp. Dividend & Buy Back | \n    2018-10-16 | Quarterly, H.Y. Results & Int. Dividend | \n    2018-07-13 | Quarterly Results & Bonus issue | The audited consolidated financial results of the Company and its subsidiaries as per Indian Accounting Standards (INDAS) for the quarter ending June 30, 2018\n    2018-04-13 | Audited Results, Fin & Special Dividend | \n    2018-01-12 | Quarterly Results | Meeting to be held on 11.01.2018 and 12.01.2018 for considering quarterly Results for the quarter ended 31.12.2017.\n    2017-10-24 | Quarterly Results & Interim Dividend | \n    2017-08-19 | Buy Back of Shares | To consider a proposal for buyback of equity shares of the Company at its meeting to be held on August 19, 2017.\n    2017-07-14 | Quarterly Results | \n    2017-04-13 | Audited Results & Final Dividend | \n    2017-02-23 | Others | 1. Noted that the Board had appointed D N Prahlad as an additional director in their meeting of October 14, 2016, with effect from the same date. 2. Recommended the adoption of new AOA of the Com.\n    2017-01-13 | Quarterly Results | \n    2016-10-14 | Quarterly Results & Interim Dividend | The audited standalone financial statements of the Company as per Indian Accounting Standards (INDAS) for the quarter and half year ending September 30, 2016;\n    2016-07-15 | Quarterly Results | \n    2016-04-15 | Audited Results & Final Dividend | \n    2016-01-14 | Quarterly Results | 1. Appointed Dr. Punita Kumar Sinha as an Independent Director. 2. Re-appointed Prof. Jeffrey S. Lehman, Independent Director of the Company.\n    2015-10-12 | Quarterly Results & Interim Dividend | \n    2015-07-21 | Quarterly Results | \n    2015-06-22 | Others | Granted 1,24,061 Restricted Stock Units (RSUs) to Dr. Vishal Sikka (CEO and Managing Director). The grant price of the RSU is Rs. 5/- per RSU. The RSU grant will be subject to the terms,\n    2015-06-05 | Others | 1. Appoints Mr. R. Seshasayee as Non-Executive Chairman of the Board. 2. The Board of Directors accepted K.V. Kamath's resignation from his position as Chairman of the Board.\n    2015-04-24 | Audited Results & Final Dividend | \n    2015-01-09 | Quarterly Results | \n    2014-10-10 | Quarterly Results & Interim Dividend | \n    2014-07-11 | Quarterly Results | \n    2014-06-12 | Others | To conOthersnsider the recommendations of the Nominations & Governance Committee and Management Development & Compensation Committee.\n    2014-04-15 | Audited Results & Final Dividend | \n    2014-01-10 | Quarterly Results | \n    2013-10-11 | Quarterly Results & Interim Dividend | \n    2013-07-12 | Quarterly Results | \n    2013-04-12 | Audited Results & Final Dividend | \n    2013-01-11 | Quarterly Results | \n    2012-10-12 | Quarterly Results & Interim Dividend | \n    2012-07-12 | Quarterly Results | \n    2012-04-13 | Audited Results & Final Dividend | \n    2012-01-12 | Quarterly Results | 1. The audited financial results of the Company for the 3rd quarter & 9 months ended December 31, 2011. 2. The audited consolidated financial results of the Company and its subsidiaries.\n    2011-10-12 | Quarterly Results & Interim Dividend | 1. The audited financial results of the Company as per Indian GAAP for the 2nd quarter and half year ending September 30, 2011. 2. The audited consolidated financial results of the Company.\n    2011-07-12 | Quarterly Results | \n    2011-04-30 | Others | Inter alia, to finalize plans for the Company's leadership succession, post Mr. N. R. Narayana Murthy's, retirement as Chairman of the Board in August 2011.\n    2011-04-15 | Audited Results, Final Dividend & Others | The Board has approved appointment of Mr. Ravi Venkatesan as an Additional Director of the Company & Accepted the resignation of Mr. T V Mohandas Pai & Mr. K. Dinesh from the Directionship of the Co.\n    2011-01-13 | Quarterly Results | To consider the audited financial results as per Indian GAAP of the Company for the 3rd quarter & nine months ending December 31, 2010 & Audited consolidated financial results of the Company.\n    2010-10-15 | Quarterly Results & Interim Dividend | The Board has declared an Interim Dividend of Rs 10/- per Equity Share and a 30th year Special Dividend of Rs. 30/- per Equity Share.\n    2010-07-13 | Quarterly Results | \n    2010-04-13 | Audited Results & Final Dividend | \n    2010-01-12 | Quarterly Results | 1. The audited financial results of the Co. for the 3rd Quarter and Nine months ending Dec 31, 2009. 2. The audited consolidated financial results of the Co. and Its subsidiaries for 3rd Quarter.\n    2009-10-09 | Quarterly Results & Interim Dividend | To consider the audited financial results of the Company as per Indian GAAP for the Q2 and half year ending Sept 30, 2009 & to consider the audited consolidated financial results of the Co.\n    2009-07-10 | Quarterly Results | \n    2009-04-15 | Audited, Qtrly Results & Final Dividend | To consider the audited financial results of the Co. as per Indian GAAP for the quarter & year ending March 31, 2009 & to consider audited consolidated financial results of the Company.\n    2009-01-13 | Quarterly Results | \n    2008-10-10 | Quarterly Results & Intm. Dividend | To consider audited financial results of the Co. as per Indian GAAP for the second quarter, half year ending September 30, 2008 (Q2) & to consider audited consolidated financial results of the Co.\n    2008-08-25 | Scheme of Arrangement | To approve the proposed scheme of arrangement to acquire Axon Global Pic.\n    2008-07-11 | Quarterly Results | \n    2008-04-15 | Audited Results & Final Dividend | \n    2008-01-11 | Quarterly Results | \n    2007-10-11 | Quarterly Results & Interim Dividend | \n    2007-07-11 | Quarterly Results | \n    2007-04-13 | Accounts & Final Dividend | \n    2007-01-11 | Quarterly Results | \n    2006-10-11 | Qtr, Half Yearly Results & I. Dividend | \n    2006-07-12 | Quarterly Results | \n    2006-04-14 | Accounts, Dividend, Bonus & Q.Results | \n    2006-01-11 | Quarterly Results | \n    2005-10-11 | Interim Dividend & Quarterly Results | \n    2005-07-12 | Quarterly Results | \n    2005-04-14 | Accounts & Final Dividend | \n    2005-01-12 | Quarterly Results | \n    2004-11-08 | Others | To consider, a Sponsored Secondary American Depository Shares (ADS) Offering i.e. proposal of the Co. to Sponsor the issue of American Depository Shares against the existing equity shares in the col\n    2004-10-12 | Interim Dividend & Quarterly Results | \n    2004-07-13 | Quarterly Results | \n    2004-04-13 | Accounts, F. Dividend & Q.Results | Bonus Share/Stock Split\n    2004-04-08 | Others | Board has approved the formation of a subsidiary in the US -  Infosys Consulting Inc. The Board also approved an investment upto US $ 20 million in the subsidiary.\n    2004-01-09 | Quarterly Results | \n    2003-10-10 | Quarterly Results & Interim Dividend | \n    2003-07-10 | Quarterly Results | \n    2003-04-10 | Qtr, Half Yearly Results & Dividend | \n    2003-01-10 | Quarterly Results | \n    2002-10-10 | Quarterly Results & Others | Half Yearly Results & Interim Dividend\n    2002-07-10 | Quarterly Results | \n    2002-04-10 | Accounts, F. Dividend & Q.Results | \n    2002-01-10 | Quarterly Results | Quarterly Results and 9 months ended on 31.12.01\n    2001-10-10 | Quarterly & Half Yearly Results | Quarterly Results & Half Yearly Results as per Indian & US GAAP & Interim Dividend\n    2001-07-10 | Quarterly Results | \n    2001-01-09 | Quarterly Results | \n    2000-10-10 | Quarterly Results & Interim Dividend | \n    2000-07-11 | Quarterly Results | \n    2000-04-11 | Accounts & Final dividend | \n    2000-01-11 | Quarterly Results | \n    1999-11-29 | Others | Sub Divided the Existing par Value of Rs. 10\n    1999-10-08 | Quarterly Results & Interim Dividend | \n    1999-10-07 | Quarterly Results | \n    1999-07-09 | Quarterly Results | \n    1999-04-09 | Accounts, Final Dividend,Quarterly Resul | \n    1999-04-08 | Accounts | \n    1999-01-12 | Quarterly Results | \n    1998-12-23 | Bonus issue | \n    1998-10-12 | Quarterly Results & Interim Dividend | \n    1998-10-11 | Quarterly Results | \n    1998-07-09 | Quaterly Results | \n    1998-07-08 | Quarterly Results | \n    1998-04-10 | Accounts & Final Dividend | \n    1998-01-06 | Quarterly Results | \n    1997-12-02 | Fresh issue of equity shares | \n    1997-10-06 | Half Yearly Results & I. Dividend | \n    1997-07-07 | Accounts | \n    1997-04-08 | Accounts, Bonus Issue, Half YearlyResult | \n  tableHeaders:\n    name | type | unique_name\n    Ex-Date | date | board_meet_date\n    Purpose | string | purpose\n    Notes | string | remarks\n  insights:\n    []\n  isCurtailed: False\n  curtailedMessage: "
+     }
+    ],
+    "structuredContent": {
+     "result": "stockHeaders:\n  name | unit | unique_name | use_function\n  Stock Name | string | get_full_name | \n  NSE Symbol | string | NSEcode | getNSEcode\n  BSEcode | string | BSEcode | getBSEcode\n  Stock ID | number | stock_id | pk\n  Page type | string | page_type | page_type_name\n  ISIN | string | ISIN | \n  Durability Score | number | d_value | TL_DURABILITY_METRIC\n  Valuation Score | number | v_value | TL_VALUATION_METRIC\n  Momentum Score | number | m_value | abs_score\n  D color | string | d_color | \n  V color | string | v_color | \n  M color | string | m_color | \nstockData:\n  get_full_name: Infosys Ltd.\n  NSEcode: INFY\n  BSEcode: 500209\n  stock_id: 630\n  page_type: Equity\n  ISIN: INE009A01021\n  d_value: 60.0\n  v_value: 46.83333\n  m_value: 36.25\n  d_color: positive\n  v_color: neutral\n  m_color: neutral\nbonus:\n  tableData:\n    exdate | ratiotext | record_date\n    2018-09-04 | 1:1 | 2018-09-05\n    2015-06-15 | 1:1 | None\n    2014-12-02 | 1:1 | 2014-12-03\n    2006-07-13 | 1:1 | 2006-07-14\n    2004-07-01 | 3:1 | 2004-07-02\n  tableHeaders:\n    name | type | unique_name\n    Ex-Date | date | exdate\n    Bonus Ratio | number | ratiotext\n    Record Date | date | record_date\n  insights:\n    Infosys Ltd. has given 5 bonuses since July 01, 2004.The last bonus announced was in the ratio 1:1 with ex-date of September 04, 2018\n  isCurtailed: False\n  curtailedMessage: \nsplit:\n  tableData:\n    []\n  tableHeaders:\n    name | type | unique_name\n    Ex-Date | date | exdate\n    Split Ratio | number | ratiotext\n    Record Date | date | record_date\n  insights:\n    Infosys Ltd. has not split the face value of the share since Jan 1, 2000.\n  isCurtailed: False\n  curtailedMessage: \nrights:\n  tableData:\n    []\n  tableHeaders:\n    name | type | unique_name | use_function\n    Company Code | string | companyCode | CompanyCode\n    Date Of Announcement | date | dateOfAnnouncement | DateOfAnnouncement\n    Existing Instrument | string | existingInstrument | ExistingInstrument\n    Offered Instrument | string | offeredInstrument | OfferedInstrument\n    Ratio Offered | string | ratioOffered | RatioOffered\n    Ratio Exist | string | ratioExist | RatioExist\n    Face Value Offered | string | faceValueOffered | FaceValueOffered\n    Fave Value Exist | string | faveValueExist | FaveValueExist\n    Rights Premium | string | rightsPremium | RightsPremium\n    Record Date | date | recordDate | RecordDate\n    Book Closure StartDate | date | bookClosureStartDate | BookClosureStartDate\n    Book Closure EndDate | date | bookClosureEndDate | BookClosureEndDate\n    ExDate | date | exDate | XRDate\n    Remarks | string | remarks | Remarks\n  insights:\n    Infosys Ltd. has not announced any rights since Jan 1, 2000.\n  isCurtailed: False\n  curtailedMessage: \ndividend:\n  tableData:\n    exdate | amount | dividend_type | record_date | instrument_type\n    2026-06-10 | 25.0 | FINAL | 2026-06-10 | Equity Share\n    2025-10-27 | 23.0 | INTERIM | 2025-10-27 | Equity Share\n    2025-05-30 | 22.0 | FINAL | 2025-05-30 | Equity Share\n    2024-10-29 | 21.0 | INTERIM | 2024-10-29 | Equity Share\n    2024-05-31 | 8.0 | SPECIAL | 2024-05-31 | Equity Share\n    2024-05-31 | 20.0 | FINAL | 2024-05-31 | Equity Share\n    2023-10-25 | 18.0 | INTERIM | 2023-10-25 | Equity Share\n    2023-06-02 | 17.5 | FINAL | 2023-06-02 | Equity Share\n    2022-10-27 | 16.5 | INTERIM | 2022-10-28 | Equity Share\n    2022-05-31 | 16.0 | FINAL | 2022-06-01 | Equity Share\n    2021-10-26 | 15.0 | INTERIM | 2021-10-27 | Equity Share\n    2021-05-31 | 15.0 | FINAL | 2021-06-01 | Equity Share\n    2020-10-23 | 12.0 | INTERIM | 2020-10-26 | Equity Share\n    2020-05-29 | 9.5 | FINAL | 2020-06-01 | Equity Share\n    2019-10-23 | 8.0 | INTERIM | 2019-10-24 | Equity Share\n    2019-06-13 | 10.5 | FINAL | None | Equity Share\n    2019-01-24 | 4.0 | SPECIAL | 2019-01-25 | Equity Share\n    2018-10-25 | 7.0 | INTERIM | 2018-10-27 | Equity Share\n    2018-06-14 | 10.0 | SPECIAL | None | Equity Share\n    2018-06-14 | 20.5 | FINAL | None | Equity Share\n    2017-10-31 | 13.0 | INTERIM | 2017-11-01 | Equity Share\n    2017-06-01 | 14.75 | FINAL | None | Equity Share\n    2016-10-21 | 11.0 | INTERIM | 2016-10-24 | Equity Share\n    2016-06-09 | 14.25 | FINAL | None | Equity Share\n    2015-10-16 | 10.0 | INTERIM | 2015-10-19 | Equity Share\n    2015-06-15 | 29.5 | FINAL | None | Equity Share\n    2014-10-16 | 30.0 | INTERIM | 2014-10-17 | Equity Share\n    2014-05-29 | 43.0 | FINAL | None | Equity Share\n    2013-10-17 | 20.0 | INTERIM | 2013-10-18 | Equity Share\n    2013-05-30 | 27.0 | FINAL | None | Equity Share\n    2012-10-18 | 15.0 | INTERIM | 2012-10-19 | Equity Share\n    2012-05-24 | 32.0 | FINAL | None | Equity Share\n    2011-10-20 | 15.0 | INTERIM | 2011-10-21 | Equity Share\n    2011-05-26 | 20.0 | FINAL | None | Equity Share\n    2010-10-21 | 40.0 | INTERIM | 2010-10-22 | Equity Share\n    2010-05-26 | 15.0 | FINAL | None | Equity Share\n    2009-10-15 | 10.0 | INTERIM | 2009-10-16 | Equity Share\n    2009-06-04 | 13.5 | FINAL | None | Equity Share\n    2008-10-16 | 10.0 | INTERIM | 2008-10-17 | Equity Share\n    2008-05-29 | 27.25 | FINAL | None | Equity Share\n    2007-10-18 | 6.0 | INTERIM | 2007-10-19 | Equity Share\n    2007-06-06 | 6.5 | FINAL | None | Equity Share\n    2006-10-19 | 5.0 | INTERIM | 2006-10-20 | Equity Share\n    2006-05-25 | 38.5 | FINAL | None | Equity Share\n    2005-10-17 | 6.5 | INTERIM | 2005-10-18 | Equity Share\n    2005-06-01 | 6.5 | FINAL | None | Equity Share\n    2004-10-18 | 5.0 | INTERIM | 2004-10-19 | Equity Share\n    2004-05-26 | 115.0 | FINAL | None | Equity Share\n    2003-10-16 | 14.5 | INTERIM | 2003-10-17 | Equity Share\n    2003-05-28 | 14.5 | FINAL | None | Equity Share\n    2002-05-21 | 12.5 | FINAL | None | Equity Share\n  tableHeaders:\n    name | type | unique_name | use_function\n    Ex-Date | date | exdate | \n    Dividend Amount | number | amount | \n    Dividend Type | string | dividend_type | \n    Record Date | string | record_date | \n    Instrument Type | string | instrument_type | getInstrumentType\n  insights:\n    Infosys Ltd. has declared 51 dividends since May 21, 2002., In the past 12 months, the equity dividend amounts to ₹ 48.00 per share., At the current share price of ₹ 1023.4000, this results in a dividend yield of 4.69%.\n  isCurtailed: False\n  curtailedMessage: \nboardMeeting:\n  tableData:\n    board_meet_date | purpose | remarks\n    2026-10-23 | Quarterly Results & Interim Dividend | \n    2026-07-23 | Quarterly Results | \n    2026-04-23 | Audited Results & Final Dividend | \n    2026-01-14 | Quarterly Results | \n    2025-10-16 | Quarterly Results & Interim Dividend | \n    2025-09-11 | Buy Back of shares | \n    2025-07-23 | Quarterly Results | \n    2025-04-17 | Audited Results & Final Dividend | \n    2025-01-16 | Quarterly Results | \n    2024-10-17 | Quarterly Results & Dividend | \n    2024-07-18 | Quarterly Results | \n    2024-04-18 | Audited Results & Final Dividend | \n    2024-01-11 | Quarterly Results | \n    2023-10-12 | Quarterly Results & Interim Dividend | \n    2023-07-20 | Quarterly Results | \n    2023-04-13 | Audited Results & Final Dividend | \n    2023-01-12 | Quarterly Results | \n    2022-10-13 | Qtr Results, Interim Dividend & Buy Back | \n    2022-07-24 | Quarterly Results | \n    2022-04-13 | Audited Results & Final Dividend | \n    2022-01-12 | Quarterly Results | \n    2021-10-13 | Quarterly Results & Interim Dividend | \n    2021-07-14 | Quarterly Results | \n    2021-04-14 | Audited Results, F. Dividend & Buy Back | \n    2021-01-13 | Quarterly Results | \n    2020-10-14 | Quarterly Results & Interim Dividend | \n    2020-07-15 | Quarterly Results | \n    2020-04-20 | Audited Results & Final Dividend | Quarterly Results\n    2020-01-10 | Quarterly Results | \n    2019-10-11 | Quarterly Results & Interim Dividend | \n    2019-07-12 | Quarterly Results | The audited standalone financial results of the Company as per INDAS for the quarter ending June 30, 2019;\n    2019-04-12 | Audited Results & Final Dividend | \n    2019-01-11 | Qtr Results, Sp. Dividend & Buy Back | \n    2018-10-16 | Quarterly, H.Y. Results & Int. Dividend | \n    2018-07-13 | Quarterly Results & Bonus issue | The audited consolidated financial results of the Company and its subsidiaries as per Indian Accounting Standards (INDAS) for the quarter ending June 30, 2018\n    2018-04-13 | Audited Results, Fin & Special Dividend | \n    2018-01-12 | Quarterly Results | Meeting to be held on 11.01.2018 and 12.01.2018 for considering quarterly Results for the quarter ended 31.12.2017.\n    2017-10-24 | Quarterly Results & Interim Dividend | \n    2017-08-19 | Buy Back of Shares | To consider a proposal for buyback of equity shares of the Company at its meeting to be held on August 19, 2017.\n    2017-07-14 | Quarterly Results | \n    2017-04-13 | Audited Results & Final Dividend | \n    2017-02-23 | Others | 1. Noted that the Board had appointed D N Prahlad as an additional director in their meeting of October 14, 2016, with effect from the same date. 2. Recommended the adoption of new AOA of the Com.\n    2017-01-13 | Quarterly Results | \n    2016-10-14 | Quarterly Results & Interim Dividend | The audited standalone financial statements of the Company as per Indian Accounting Standards (INDAS) for the quarter and half year ending September 30, 2016;\n    2016-07-15 | Quarterly Results | \n    2016-04-15 | Audited Results & Final Dividend | \n    2016-01-14 | Quarterly Results | 1. Appointed Dr. Punita Kumar Sinha as an Independent Director. 2. Re-appointed Prof. Jeffrey S. Lehman, Independent Director of the Company.\n    2015-10-12 | Quarterly Results & Interim Dividend | \n    2015-07-21 | Quarterly Results | \n    2015-06-22 | Others | Granted 1,24,061 Restricted Stock Units (RSUs) to Dr. Vishal Sikka (CEO and Managing Director). The grant price of the RSU is Rs. 5/- per RSU. The RSU grant will be subject to the terms,\n    2015-06-05 | Others | 1. Appoints Mr. R. Seshasayee as Non-Executive Chairman of the Board. 2. The Board of Directors accepted K.V. Kamath's resignation from his position as Chairman of the Board.\n    2015-04-24 | Audited Results & Final Dividend | \n    2015-01-09 | Quarterly Results | \n    2014-10-10 | Quarterly Results & Interim Dividend | \n    2014-07-11 | Quarterly Results | \n    2014-06-12 | Others | To conOthersnsider the recommendations of the Nominations & Governance Committee and Management Development & Compensation Committee.\n    2014-04-15 | Audited Results & Final Dividend | \n    2014-01-10 | Quarterly Results | \n    2013-10-11 | Quarterly Results & Interim Dividend | \n    2013-07-12 | Quarterly Results | \n    2013-04-12 | Audited Results & Final Dividend | \n    2013-01-11 | Quarterly Results | \n    2012-10-12 | Quarterly Results & Interim Dividend | \n    2012-07-12 | Quarterly Results | \n    2012-04-13 | Audited Results & Final Dividend | \n    2012-01-12 | Quarterly Results | 1. The audited financial results of the Company for the 3rd quarter & 9 months ended December 31, 2011. 2. The audited consolidated financial results of the Company and its subsidiaries.\n    2011-10-12 | Quarterly Results & Interim Dividend | 1. The audited financial results of the Company as per Indian GAAP for the 2nd quarter and half year ending September 30, 2011. 2. The audited consolidated financial results of the Company.\n    2011-07-12 | Quarterly Results | \n    2011-04-30 | Others | Inter alia, to finalize plans for the Company's leadership succession, post Mr. N. R. Narayana Murthy's, retirement as Chairman of the Board in August 2011.\n    2011-04-15 | Audited Results, Final Dividend & Others | The Board has approved appointment of Mr. Ravi Venkatesan as an Additional Director of the Company & Accepted the resignation of Mr. T V Mohandas Pai & Mr. K. Dinesh from the Directionship of the Co.\n    2011-01-13 | Quarterly Results | To consider the audited financial results as per Indian GAAP of the Company for the 3rd quarter & nine months ending December 31, 2010 & Audited consolidated financial results of the Company.\n    2010-10-15 | Quarterly Results & Interim Dividend | The Board has declared an Interim Dividend of Rs 10/- per Equity Share and a 30th year Special Dividend of Rs. 30/- per Equity Share.\n    2010-07-13 | Quarterly Results | \n    2010-04-13 | Audited Results & Final Dividend | \n    2010-01-12 | Quarterly Results | 1. The audited financial results of the Co. for the 3rd Quarter and Nine months ending Dec 31, 2009. 2. The audited consolidated financial results of the Co. and Its subsidiaries for 3rd Quarter.\n    2009-10-09 | Quarterly Results & Interim Dividend | To consider the audited financial results of the Company as per Indian GAAP for the Q2 and half year ending Sept 30, 2009 & to consider the audited consolidated financial results of the Co.\n    2009-07-10 | Quarterly Results | \n    2009-04-15 | Audited, Qtrly Results & Final Dividend | To consider the audited financial results of the Co. as per Indian GAAP for the quarter & year ending March 31, 2009 & to consider audited consolidated financial results of the Company.\n    2009-01-13 | Quarterly Results | \n    2008-10-10 | Quarterly Results & Intm. Dividend | To consider audited financial results of the Co. as per Indian GAAP for the second quarter, half year ending September 30, 2008 (Q2) & to consider audited consolidated financial results of the Co.\n    2008-08-25 | Scheme of Arrangement | To approve the proposed scheme of arrangement to acquire Axon Global Pic.\n    2008-07-11 | Quarterly Results | \n    2008-04-15 | Audited Results & Final Dividend | \n    2008-01-11 | Quarterly Results | \n    2007-10-11 | Quarterly Results & Interim Dividend | \n    2007-07-11 | Quarterly Results | \n    2007-04-13 | Accounts & Final Dividend | \n    2007-01-11 | Quarterly Results | \n    2006-10-11 | Qtr, Half Yearly Results & I. Dividend | \n    2006-07-12 | Quarterly Results | \n    2006-04-14 | Accounts, Dividend, Bonus & Q.Results | \n    2006-01-11 | Quarterly Results | \n    2005-10-11 | Interim Dividend & Quarterly Results | \n    2005-07-12 | Quarterly Results | \n    2005-04-14 | Accounts & Final Dividend | \n    2005-01-12 | Quarterly Results | \n    2004-11-08 | Others | To consider, a Sponsored Secondary American Depository Shares (ADS) Offering i.e. proposal of the Co. to Sponsor the issue of American Depository Shares against the existing equity shares in the col\n    2004-10-12 | Interim Dividend & Quarterly Results | \n    2004-07-13 | Quarterly Results | \n    2004-04-13 | Accounts, F. Dividend & Q.Results | Bonus Share/Stock Split\n    2004-04-08 | Others | Board has approved the formation of a subsidiary in the US -  Infosys Consulting Inc. The Board also approved an investment upto US $ 20 million in the subsidiary.\n    2004-01-09 | Quarterly Results | \n    2003-10-10 | Quarterly Results & Interim Dividend | \n    2003-07-10 | Quarterly Results | \n    2003-04-10 | Qtr, Half Yearly Results & Dividend | \n    2003-01-10 | Quarterly Results | \n    2002-10-10 | Quarterly Results & Others | Half Yearly Results & Interim Dividend\n    2002-07-10 | Quarterly Results | \n    2002-04-10 | Accounts, F. Dividend & Q.Results | \n    2002-01-10 | Quarterly Results | Quarterly Results and 9 months ended on 31.12.01\n    2001-10-10 | Quarterly & Half Yearly Results | Quarterly Results & Half Yearly Results as per Indian & US GAAP & Interim Dividend\n    2001-07-10 | Quarterly Results | \n    2001-01-09 | Quarterly Results | \n    2000-10-10 | Quarterly Results & Interim Dividend | \n    2000-07-11 | Quarterly Results | \n    2000-04-11 | Accounts & Final dividend | \n    2000-01-11 | Quarterly Results | \n    1999-11-29 | Others | Sub Divided the Existing par Value of Rs. 10\n    1999-10-08 | Quarterly Results & Interim Dividend | \n    1999-10-07 | Quarterly Results | \n    1999-07-09 | Quarterly Results | \n    1999-04-09 | Accounts, Final Dividend,Quarterly Resul | \n    1999-04-08 | Accounts | \n    1999-01-12 | Quarterly Results | \n    1998-12-23 | Bonus issue | \n    1998-10-12 | Quarterly Results & Interim Dividend | \n    1998-10-11 | Quarterly Results | \n    1998-07-09 | Quaterly Results | \n    1998-07-08 | Quarterly Results | \n    1998-04-10 | Accounts & Final Dividend | \n    1998-01-06 | Quarterly Results | \n    1997-12-02 | Fresh issue of equity shares | \n    1997-10-06 | Half Yearly Results & I. Dividend | \n    1997-07-07 | Accounts | \n    1997-04-08 | Accounts, Bonus Issue, Half YearlyResult | \n  tableHeaders:\n    name | type | unique_name\n    Ex-Date | date | board_meet_date\n    Purpose | string | purpose\n    Notes | string | remarks\n  insights:\n    []\n  isCurtailed: False\n  curtailedMessage: "
+    },
+    "isError": false
+   }
+  },
+  "events_invalid_type": {
+   "tool": "get_overview_news_corp_events",
+   "arguments": {
+    "stock_code": "INFY",
+    "type": "bogus_type"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "status: error\nmessage: Invalid type 'bogus_type'. Allowed values: 'overview', 'technical', 'news', 'events'. [code:1012]"
+     }
+    ],
+    "structuredContent": {
+     "result": "status: error\nmessage: Invalid type 'bogus_type'. Allowed values: 'overview', 'technical', 'news', 'events'. [code:1012]"
+    },
+    "isError": false
+   }
+  },
+  "documents_infosys_trimmed": {
+   "tool": "get_document_search_results",
+   "arguments": {
+    "query": "Infosys FY25 annual report revenue and operating margin"
+   },
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "{\"markdown_data\": \"\\\"2181114|Infosys Ltd.|INFY|630|Annual Report|2026-04-22\\\\n## Business segments Consolidated\\\\nal operating income |\\\\n| 2026 | 12,678 | 6,444 | 5,984 | 7,089 | 3,861 | 3,228 | 2,444 | 717 | 42,445 |\\\\n| 2025 | 11,099 | 4,856 | 6,097 | 7,133 | 3,341 | 3,220 | 2,663 | 827 | 39,236 |\\\\n| Particulars | Financial Services | Manufacturing | Energy, Utilities, Resources and Services | Retail | Communication | Hi-Tech | Life Sciences | All other segments | Total |\\\\n|----\\\\n\\\\n2181114|Infosys Ltd.|INFY|630|Annual Report|2026-04-22\\\\n% |\\\\n| 2025 | 34,549 | 129.2% |\\\\n| 2026 | 33,097 | 112.3% |\\\\nto deliver superior revenue growth and operating margins through prudent financial management and sound corporate governance resulting in share value appreciation, leading to sustained value creation for investors We maintain transparency in our disclosures and frequent communication with investors through channels such as quarterly post-re\\\\n\\\\n2181114|Infosys Ltd.|INFY|630|Annual Report|2026-04-22\\\\n6 | 19.3 | 28.1 | 32.3 | 17.5 | 24.6 | 22.5 | 17.2 | 24.1 |\\\\nOverall segment profitability has decreased primarily on account of lower utilization; and investments in talent, Al, sales &amp; marketing, which was partially offset by benefits arising from increased realization through pricing and productivity, improved onsite mix and foreign currency translation:\\\\nThe following graph sets forth our re\\\"\"}"
+     }
+    ],
+    "structuredContent": {
+     "result": "{\"markdown_data\": \"\\\"2181114|Infosys Ltd.|INFY|630|Annual Report|2026-04-22\\\\n## Business segments Consolidated\\\\nal operating income |\\\\n| 2026 | 12,678 | 6,444 | 5,984 | 7,089 | 3,861 | 3,228 | 2,444 | 717 | 42,445 |\\\\n| 2025 | 11,099 | 4,856 | 6,097 | 7,133 | 3,341 | 3,220 | 2,663 | 827 | 39,236 |\\\\n| Particulars | Financial Services | Manufacturing | Energy, Utilities, Resources and Services | Retail | Communication | Hi-Tech | Life Sciences | All other segments | Total |\\\\n|----\\\\n\\\\n2181114|Infosys Ltd.|INFY|630|Annual Report|2026-04-22\\\\n% |\\\\n| 2025 | 34,549 | 129.2% |\\\\n| 2026 | 33,097 | 112.3% |\\\\nto deliver superior revenue growth and operating margins through prudent financial management and sound corporate governance resulting in share value appreciation, leading to sustained value creation for investors We maintain transparency in our disclosures and frequent communication with investors through channels such as quarterly post-re\\\\n\\\\n2181114|Infosys Ltd.|INFY|630|Annual Report|2026-04-22\\\\n6 | 19.3 | 28.1 | 32.3 | 17.5 | 24.6 | 22.5 | 17.2 | 24.1 |\\\\nOverall segment profitability has decreased primarily on account of lower utilization; and investments in talent, Al, sales &amp; marketing, which was partially offset by benefits arising from increased realization through pricing and productivity, improved onsite mix and foreign currency translation:\\\\nThe following graph sets forth our re\\\"\"}"
+    },
+    "isError": false
+   }
+  }
+ }
+}

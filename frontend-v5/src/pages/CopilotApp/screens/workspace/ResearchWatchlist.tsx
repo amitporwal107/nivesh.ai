@@ -12,6 +12,8 @@
  * research behind it. A research list is not a recommendation; its disclaimer
  * stays under the list.
  */
+import { Flash } from "../../components/LiveBits";
+import { useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { useMemo, useState, type ReactNode } from "react";
 import { useResearchWatchlist } from "@/hooks/use-research-watchlist";
 import { ApiError } from "@/services/api/errors";
@@ -257,8 +259,9 @@ function PickRow({ pick, open, onToggle }: { pick: WatchlistPick; open: boolean;
   const rank = numOrNull(pick.rank);
   const sector = textOrNull(pick.sector);
   const earlier = earlierLists(pick);
-  const day = numOrNull(pick.day_change);
-  const dayPct = numOrNull(pick.day_change_pct);
+  const live = useLiveOverlay(pick.symbol, pick.current_price_date ?? null);              // Kite, only while LIVE; otherwise the list's own (delayed) quote
+  const day = live ? live.change : numOrNull(pick.day_change);
+  const dayPct = live ? live.changePct : numOrNull(pick.day_change_pct);
   const since = numOrNull(pick.change_since_published_pct);
   const addedAt = numOrNull(pick.published_price);
   const thesis = textOrNull(pick.thesis);
@@ -301,7 +304,7 @@ function PickRow({ pick, open, onToggle }: { pick: WatchlistPick; open: boolean;
           )}
         </span>
         <span className="flex flex-col items-end" style={{ gap: 3 }}>
-          <span className="cp-num" data-testid="watchlist-price" style={{ fontSize: 14 }}>{fmtPrice(numOrNull(pick.current_price))}</span>
+          <span className="cp-num" data-testid="watchlist-price" data-live={live ? "true" : undefined} style={{ fontSize: 14 }}><Flash value={flashOf(live)}>{fmtPrice(live ? live.ltp : numOrNull(pick.current_price))}</Flash></span>
           {dayPct != null ? (
             <span className="cp-num" style={{ fontSize: 12, color: TONE_COLOR[signTone(dayPct)], whiteSpace: "nowrap" }}>
               {day != null && <>{day > 0 ? "+" : day < 0 ? "−" : ""}{fmtPrice(Math.abs(day))} · </>}

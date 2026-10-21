@@ -541,7 +541,60 @@ export function fullChartHref(symbol: string, levels: { entry: number | null; st
   return `${import.meta.env.BASE_URL}research?${q.toString()}`;
 }
 
-/** Chart intervals (PRD §7.2). Only daily bars exist for the desk: intraday needs bars nobody collects here yet. */
+// ── intraday bars from Kite (platform session) ───────────────────────────
+
+const AvailabilityC = z.object({ available: z.boolean(), intervals: z.array(z.string()), reason: z.string().nullable().optional(), source: z.string().optional() }).passthrough();
+export type IntradayAvailability = { available: boolean; intervals: string[]; reason: string | null };
+
+/** GET /api/research/chart-intraday/availability: which intraday intervals the platform Kite session can serve right now. */
+export function useIntradayAvailability() {
+  return useQuery<IntradayAvailability>({
+    queryKey: ["copilot", "desk", "intraday-availability"],
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      try {
+        const res = await http({ path: "/api/research/chart-intraday/availability", signal });
+        const r = AvailabilityC.safeParse(res.data);
+        if (!r.success) return { available: false, intervals: [], reason: "unexpected_response" };
+        return { available: r.data.available, intervals: r.data.intervals, reason: r.data.reason ?? null };
+      } catch {
+        return { available: false, intervals: [], reason: "unreachable" };       // 403 / 404 / network: the buttons stay off, nothing is guessed
+      }
+    },
+  });
+}
+
+const IntradayC = z.object({
+  symbol: z.string(), interval: z.string(), source: z.string(), as_of: z.string(), availability: z.string(),
+  bars: z.array(z.tuple([z.string(), z.number(), z.number(), z.number(), z.number(), z.number()])),
+  live_merged: z.boolean().optional(), in_progress_bar: z.string().nullable().optional(), session_dates: z.array(z.string()).optional(),
+}).passthrough();
+export type IntradayBars = { bars: DailyBar[]; availability: string; asOf: string; source: string; liveMerged: boolean; sessions: string[] };
+
+/** GET /api/research/chart-intraday/{symbol}: Kite candles, raw prices, the live price merged into the candle in progress. */
+export function useIntradayBars(symbol: string | null, interval: string, enabled: boolean, refetchMs: number | false) {
+  return useQuery<IntradayBars>({
+    queryKey: ["copilot", "desk", "intraday", symbol, interval],
+    enabled: !!symbol && enabled,
+    staleTime: 20_000,
+    refetchInterval: refetchMs,
+    retry: (count, e) => !(e instanceof ApiError && e.kind === "contract_drift") && count < 1,
+    queryFn: async ({ signal }) => {
+      const res = await http({ path: `/api/research/chart-intraday/${encodeURIComponent((symbol ?? "").toUpperCase())}`, query: { interval, sessions: 5 }, signal });
+      const r = IntradayC.safeParse(res.data);
+      if (!r.success) throw ApiError.contractDrift(`chart-intraday: ${r.error.issues[0]?.message ?? "unexpected shape"}`, r.error);
+      const d = r.data;
+      return {
+        bars: d.bars.map(([day, open, high, low, close, volume]) => ({ day, open, high, low, close, volume })),
+        availability: d.availability, asOf: d.as_of, source: d.source, liveMerged: !!d.live_merged, sessions: d.session_dates ?? [],
+      };
+    },
+  });
+}
+
+/** Chart intervals (PRD §7.2). Daily is always there; the intraday ones are enabled only while GET /api/research/chart-intraday/availability lists them. */
 export const INTERVALS = [
   { value: "1D", label: "Daily", id: "1d", disabled: false },
   { value: "60m", label: "60m", id: "60m", disabled: true },
@@ -550,4 +603,4 @@ export const INTERVALS = [
   { value: "5m", label: "5m", id: "5m", disabled: true },
 ] as const;
 export const INTRADAY_REASON =
-  "No intraday bars on record: nidp.intraday_bars is not collected on this environment and has no read route yet. Daily bars only.";
+  "No intraday bars on record: the platform Kite session is not connected (or the charting feature is off), so none can be fetched. Daily bars only.";

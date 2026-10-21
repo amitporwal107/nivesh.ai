@@ -1,0 +1,3559 @@
+{
+ "generated_at": "2026-10-20T05:46:26.358187+00:00",
+ "data_as_of": {
+  "mode": "end_of_day",
+  "scanner_watchlist": "2026-10-16",
+  "scanner_picks": "2026-10-16",
+  "scan_eligibility": "2026-10-19",
+  "price": "2026-10-19",
+  "fno": "2026-10-19"
+ },
+ "rules_version": "strategy-rules.v1.2 (2026-10-20)",
+ "calculation_version": "payoff-v1",
+ "sent_to_broker": false,
+ "selection": {
+  "source": "AI scanner (watchlist + picks), end of day",
+  "scan_date": "2026-10-16",
+  "rule": "The scanner's merged list (watchlist and picks, picks win for entry, stop and target), ranked by the scanner's score, then only stocks that pass the scan snapshot's eligibility gates (a price and previous close, 20-session traded value, reference data, series EQ or BE, not an ETF, price band at least 10%, not at its band limit, and traded value of at least Rs 10 crore a day); the top N that pass. When the snapshot cannot be read, the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate.",
+  "considered": 34,
+  "selected": 8,
+  "excluded": [
+   {
+    "symbol": "RAJRILTD",
+    "reason": "20-session traded value below Rs 10 crore a day",
+    "code": "illiquid"
+   },
+   {
+    "symbol": "NITINSPIN",
+    "reason": "20-session traded value below Rs 10 crore a day",
+    "code": "illiquid"
+   },
+   {
+    "symbol": "EXPLEOSOL",
+    "reason": "20-session traded value below Rs 10 crore a day",
+    "code": "illiquid"
+   }
+  ],
+  "excluded_note": "Only setups ranked above the last selected one are listed.",
+  "limit": 8,
+  "empty_reason": null,
+  "gate": "scan snapshot eligibility gates (as GET /api/positional/scan-universe)",
+  "source_failures": []
+ },
+ "inputs": {
+  "direction": "bullish",
+  "horizon": "positional",
+  "horizon_days": 10,
+  "instrument": "all",
+  "capital": 20000000.0,
+  "risk_budget_inr": 200000.0,
+  "risk_pct": null,
+  "max_allocation_pct": 25.0,
+  "min_reward_risk": 1.5,
+  "avoid_events": true,
+  "allow_multi_leg": true,
+  "include_combinations": true,
+  "costs": null,
+  "defaults_applied": [
+   "allow_multi_leg",
+   "avoid_events",
+   "horizon",
+   "horizon_days",
+   "include_combinations",
+   "max_allocation_pct",
+   "min_reward_risk"
+  ],
+  "limit": 8
+ },
+ "ranking_note": "Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced.",
+ "ideas": [
+  {
+   "rank": 1,
+   "symbol": "ICICIBANK",
+   "name": "ICICI Bank Limited",
+   "scanner": {
+    "bucket": "pre_breakout",
+    "status": "awaiting",
+    "stage": "EARLY_BREAKOUT",
+    "score": 81.2,
+    "confidence": "MEDIUM",
+    "close": 1397.0,
+    "close_date": "2026-10-16",
+    "entry": 1400.2,
+    "stop": 1363.26,
+    "target": 1474.07,
+    "risk_reward": 2.0,
+    "reason": "0.1% below \u20b91398.80 resistance \u00b7 volume 1.3\u00d7 avg",
+    "reasons": [
+     "Strong uptrend (above 50 & 200 DMA, 50 above 200)",
+     "RSI 60 \u2014 momentum without being overbought",
+     "At 20-day breakout level",
+     "Tight consolidation (low ATR)",
+     "Sector outperforming Nifty"
+    ],
+    "horizon_days": 15,
+    "horizon_days_min": 5,
+    "liquidity_cr": 1407.51,
+    "atr_pct": 1.76,
+    "in_watchlist": true,
+    "in_picks": true,
+    "sector": "Banks"
+   },
+   "direction": "bullish",
+   "fno_eligible": true,
+   "plan_id": "plan_614a1580bfbe943b",
+   "plan_status": "plan",
+   "status_reasons": [],
+   "would_change_if": [
+    "setup_not_triggered: A close above the trigger on volume (the scanner moving it to breakout confirmed).",
+    "no_fresh_buildup: A fresh build-up (price and open interest rising together for a long view).",
+    "reward_risk_below_minimum: A nearer stop, a farther conservative level, or a lower minimum reward : risk."
+   ],
+   "headline": {
+    "technical_setup": {
+     "label": "mixed",
+     "counts": {
+      "supports": 1,
+      "conflicts": 0,
+      "neutral": 7,
+      "unavailable": 1
+     },
+     "scanner_bucket": "pre_breakout",
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pb": 2.55,
+      "roe_pct": 15.09,
+      "roce_pct": 6.3,
+      "debt_to_equity": 0.61,
+      "market_cap_cr": 961989.93,
+      "quarterly_trend": {
+       "latest_quarter": "Q2 FY27",
+       "growth_trend": "insufficient data",
+       "revenue_yoy_pct": null,
+       "pat_cr": 17389.0,
+       "ebitda_margin_pct": null,
+       "quarters": 2
+      }
+     },
+     "missing": [
+      "pe_ttm",
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": {
+      "industry": "Financial Services",
+      "peer_count": 20,
+      "median_pe": 15.25,
+      "median_pe_n": 16,
+      "median_pb": 2.73,
+      "median_pb_n": 20,
+      "median_roe_pct": 13.07,
+      "median_roe_n": 20,
+      "stock_pe": null,
+      "stock_pb": 2.55,
+      "stock_roe_pct": 15.09,
+      "pe_vs_median_pct": null,
+      "pb_vs_median_pct": -6.6
+     }
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "partial",
+     "unavailable_items": 8,
+     "total_items": 40,
+     "unavailable": [
+      "technical.chart_patterns",
+      "fundamental.pe_ttm",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 2,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "technical": {
+     "supports": 1,
+     "conflicts": 0,
+     "neutral": 7,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 7,
+     "unavailable": 4
+    },
+    "catalysts": {
+     "supports": 1,
+     "conflicts": 0,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 8,
+     "unavailable": 1
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": "long_unwinding",
+    "cash_confirmation": "confirms",
+    "pcr": 0.5309,
+    "max_pain": 1390,
+    "call_wall": 1400,
+    "put_wall": 1400,
+    "expected_move": 65.15,
+    "chain_expiry": "2026-11-23",
+    "atm_iv": 19.05,
+    "source_as_of": "2026-10-19",
+    "unavailable": []
+   },
+   "preferred": "combination:covered_call",
+   "strategies": [
+    {
+     "id": "cash:breakout_watch",
+     "segment": "cash",
+     "family": "breakout_watch",
+     "label": "Wait for breakout confirmation",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "setup_not_triggered",
+       "message": "The scanner bucket is pre breakout: the setup has not triggered."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The scanner bucket is pre breakout: the setup has not triggered.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "futures:long_buildup_continuation",
+     "segment": "futures",
+     "family": "long_buildup_continuation",
+     "label": "Long futures: build-up with cash confirmation",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "no_fresh_buildup",
+       "message": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:long_call",
+     "segment": "options",
+     "family": "long_call",
+     "label": "Long call",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk -0.47 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
+      }
+     ],
+     "legs_text": "Buy 7 lots ICICIBANK 1380 call, 23 Nov",
+     "max_loss": -183750.0,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": 183881.88,
+     "max_profit": null,
+     "profit_unbounded": true,
+     "breakeven": [
+      1417.5
+     ],
+     "reward_risk_net": -0.47,
+     "reward_risk_gross": -0.47,
+     "sizing": {
+      "status": "complete",
+      "quantity": 4900,
+      "lots": 7,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 184121.84,
+      "deployed_inr": 184121.84,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The ATM call (1380): the strike nearest the spot, the most responsive to the underlying for its premium; the premium is the whole risk.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "options:bull_call_spread",
+     "segment": "options",
+     "family": "bull_call_spread",
+     "label": "Bull call spread (debit)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk 1.1 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
+      }
+     ],
+     "legs_text": "Buy 29 lots ICICIBANK 1380 call + Sell 29 lots ICICIBANK 1400 call, 23 Nov",
+     "max_loss": -192850.0,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": 193594.83,
+     "max_profit": 213150.0,
+     "profit_unbounded": false,
+     "breakeven": [
+      1389.5
+     ],
+     "reward_risk_net": 1.1,
+     "reward_risk_gross": 1.11,
+     "sizing": {
+      "status": "complete",
+      "quantity": 20300,
+      "lots": 29,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 195834.97,
+      "deployed_inr": 195834.97,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Long the ATM 1380, short 1400: the call wall (rule 3, FnoStrategies.tsx), inside the expected move, so the short leg sits where the market has the most open interest.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "combination:covered_call",
+     "segment": "combination",
+     "family": "covered_call",
+     "label": "Covered call (shares + short call)",
+     "status": "candidate",
+     "reasons": [],
+     "legs_text": "Buy 3500 shares ICICIBANK + Sell 5 lots ICICIBANK 1400 call, 23 Nov",
+     "max_loss": -4735500.0,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": 4738045.75,
+     "max_profit": 164500.0,
+     "profit_unbounded": false,
+     "breakeven": [
+      1353.0
+     ],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": "complete",
+      "quantity": 3500,
+      "lots": 5,
+      "binding": "allocation_cap",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 62090.0,
+      "deployed_inr": 4735500.0,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Bullish-to-neutral view: sell the 1400 call (the call wall) against 3500 shares to collect 28 a share; the upside is capped at that strike.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+      "No pre-expiry estimate for combination structures in this release: the expiry payoff applies.",
+      "Reward : risk is undefined here: the premium received covers the loss at the stop, so there is no loss to divide by. The gate is not applied; read max loss and capital at risk."
+     ],
+     "actionable": true
+    },
+    {
+     "id": "combination:protective_put",
+     "segment": "combination",
+     "family": "protective_put",
+     "label": "Protective put (shares + long put)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_indicated",
+       "message": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:collar",
+     "segment": "combination",
+     "family": "collar",
+     "label": "Collar (shares + long put + short call)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_indicated",
+       "message": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:futures_protective_put",
+     "segment": "combination",
+     "family": "futures_protective_put",
+     "label": "Futures + protective put (synthetic long call)",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "no_fresh_buildup",
+       "message": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": "2026-10-19",
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "ICICIBANK",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 2847
+  },
+  {
+   "rank": 2,
+   "symbol": "HAL",
+   "name": "Hindustan Aeronautics Limited",
+   "scanner": {
+    "bucket": null,
+    "status": "confirmed",
+    "stage": "BREAKOUT",
+    "score": 76.1,
+    "confidence": "MEDIUM",
+    "close": 4989.0,
+    "close_date": "2026-10-16",
+    "entry": 4989.0,
+    "stop": 4822.25,
+    "target": 5322.51,
+    "risk_reward": 2.0,
+    "reason": "Strong uptrend (above 50 & 200 DMA, 50 above 200); RSI 61 \u2014 momentum without being overbought",
+    "reasons": [
+     "Strong uptrend (above 50 & 200 DMA, 50 above 200)",
+     "RSI 61 \u2014 momentum without being overbought",
+     "At 20-day breakout level",
+     "Sector outperforming Nifty"
+    ],
+    "horizon_days": 20,
+    "horizon_days_min": 7,
+    "liquidity_cr": 325.28,
+    "atr_pct": null,
+    "in_watchlist": false,
+    "in_picks": true,
+    "sector": null
+   },
+   "direction": "bullish",
+   "fno_eligible": true,
+   "plan_id": "plan_bdd05ac84abe4f27",
+   "plan_status": "plan",
+   "status_reasons": [],
+   "would_change_if": [
+    "buildup_opposes_view: A build-up in the direction of the view.",
+    "illiquid_leg: The legs having open interest and trading volume."
+   ],
+   "headline": {
+    "technical_setup": {
+     "label": "supportive",
+     "counts": {
+      "supports": 3,
+      "conflicts": 0,
+      "neutral": 5,
+      "unavailable": 1
+     },
+     "scanner_bucket": null,
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pe_ttm": 35.579,
+      "pb": 7.47,
+      "roe_pct": 22.21,
+      "roce_pct": 13.74,
+      "debt_to_equity": 0.0,
+      "market_cap_cr": 318336.9,
+      "quarterly_trend": {
+       "latest_quarter": "Q1 FY27",
+       "growth_trend": "accelerating",
+       "revenue_yoy_pct": 14.4,
+       "pat_cr": 1590.0,
+       "ebitda_margin_pct": 27.7,
+       "quarters": 8
+      }
+     },
+     "missing": [
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": {
+      "industry": "Capital Goods",
+      "peer_count": 20,
+      "median_pe": 44.9,
+      "median_pe_n": 17,
+      "median_pb": 10.33,
+      "median_pb_n": 20,
+      "median_roe_pct": 22.48,
+      "median_roe_n": 20,
+      "stock_pe": 35.579,
+      "stock_pb": 7.47,
+      "stock_roe_pct": 22.21,
+      "pe_vs_median_pct": -20.8,
+      "pb_vs_median_pct": -27.7
+     }
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "complete",
+     "unavailable_items": 7,
+     "total_items": 40,
+     "unavailable": [
+      "technical.chart_patterns",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 1,
+     "conflicts": 1,
+     "neutral": 3,
+     "unavailable": 0
+    },
+    "technical": {
+     "supports": 3,
+     "conflicts": 0,
+     "neutral": 5,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 8,
+     "unavailable": 3
+    },
+    "catalysts": {
+     "supports": 0,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 1,
+     "neutral": 7,
+     "unavailable": 1
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": "short_buildup",
+    "cash_confirmation": "confirms",
+    "pcr": 1.1999,
+    "max_pain": 4950,
+    "call_wall": 5400,
+    "put_wall": 4500,
+    "expected_move": 297.45,
+    "chain_expiry": "2026-11-23",
+    "atm_iv": 29.66,
+    "source_as_of": "2026-10-19",
+    "unavailable": []
+   },
+   "preferred": "combination:covered_call",
+   "strategies": [
+    {
+     "id": "cash:breakout_continuation",
+     "segment": "cash",
+     "family": "breakout_continuation",
+     "label": "Breakout continuation (long)",
+     "status": "candidate",
+     "reasons": [],
+     "legs_text": "Buy 1008 shares HAL",
+     "max_loss": -142813.75,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": 5001211.34,
+     "max_profit": null,
+     "profit_unbounded": true,
+     "breakeven": [
+      4959.0
+     ],
+     "reward_risk_net": 1.89,
+     "reward_risk_gross": 2.0,
+     "sizing": {
+      "status": "complete",
+      "quantity": 1008,
+      "lots": null,
+      "binding": "allocation_cap",
+      "unit": "shares",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 137844.0,
+      "deployed_inr": 4998672.0,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Scanner bucket breakout confirmed (rules smart_v2).",
+     "flags": [],
+     "actionable": true
+    },
+    {
+     "id": "futures:long_buildup_continuation",
+     "segment": "futures",
+     "family": "long_buildup_continuation",
+     "label": "Long futures: build-up with cash confirmation",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "buildup_opposes_view",
+       "message": "The futures build-up is short_buildup, the opposite of the bullish view."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The futures build-up is short_buildup, the opposite of the bullish view.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:long_call",
+     "segment": "options",
+     "family": "long_call",
+     "label": "Long call",
+     "status": "candidate",
+     "reasons": [],
+     "legs_text": "Buy 7 lots HAL 4950 call, 23 Nov",
+     "max_loss": -181072.5,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": 181203.04,
+     "max_profit": null,
+     "profit_unbounded": true,
+     "breakeven": [
+      5122.45
+     ],
+     "reward_risk_net": 1.61,
+     "reward_risk_gross": 1.61,
+     "sizing": {
+      "status": "complete",
+      "quantity": 1050,
+      "lots": 7,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 181443.01,
+      "deployed_inr": 181443.01,
+      "missing": []
+     },
+     "liquidity_flags": [
+      "low_oi@4950CE",
+      "low_volume@4950CE"
+     ],
+     "why": "The ATM call (4950): the strike nearest the spot, the most responsive to the underlying for its premium; the premium is the whole risk.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+      "Flag low_oi on 4950CE: open interest is below the chain's typical strike; exits may be hard.",
+      "Flag low_volume on 4950CE: volume is below the chain's typical strike; the close may not be representative."
+     ],
+     "actionable": true
+    },
+    {
+     "id": "options:bull_call_spread",
+     "segment": "options",
+     "family": "bull_call_spread",
+     "label": "Bull call spread (debit)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "illiquid_leg",
+       "message": "A leg has no open interest or did not trade on 2026-10-19 (zero_open_interest@5250CE, no_trades_today@5250CE): its close is not a market price."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [
+      "low_oi@4950CE",
+      "low_volume@4950CE",
+      "missing_iv@5250CE"
+     ],
+     "why": "Long the ATM 4950, short 5250: the listed strike nearest the edge of the expected move (the wall lies outside it).",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "combination:covered_call",
+     "segment": "combination",
+     "family": "covered_call",
+     "label": "Covered call (shares + short call)",
+     "status": "candidate",
+     "reasons": [],
+     "legs_text": "Buy 900 shares HAL + Sell 6 lots HAL 5400 call, 23 Nov",
+     "max_loss": -4429575.0,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": 4431903.31,
+     "max_profit": 430425.0,
+     "profit_unbounded": false,
+     "breakeven": [
+      4921.75
+     ],
+     "reward_risk_net": 2.92,
+     "reward_risk_gross": 3.12,
+     "sizing": {
+      "status": "complete",
+      "quantity": 900,
+      "lots": 6,
+      "binding": "allocation_cap",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 94328.34,
+      "deployed_inr": 4429575.0,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Bullish-to-neutral view: sell the 5400 call (the call wall) against 900 shares to collect 37.25 a share; the upside is capped at that strike.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+      "No pre-expiry estimate for combination structures in this release: the expiry payoff applies."
+     ],
+     "actionable": true
+    },
+    {
+     "id": "combination:protective_put",
+     "segment": "combination",
+     "family": "protective_put",
+     "label": "Protective put (shares + long put)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_indicated",
+       "message": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:collar",
+     "segment": "combination",
+     "family": "collar",
+     "label": "Collar (shares + long put + short call)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_indicated",
+       "message": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:futures_protective_put",
+     "segment": "combination",
+     "family": "futures_protective_put",
+     "label": "Futures + protective put (synthetic long call)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "buildup_opposes_view",
+       "message": "The futures build-up is short_buildup, the opposite of the bullish view."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The futures build-up is short_buildup, the opposite of the bullish view.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": "2026-10-19",
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "HAL",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 3296
+  },
+  {
+   "rank": 3,
+   "symbol": "PREMEXPLN",
+   "name": "Premier Explosives Limited",
+   "scanner": {
+    "bucket": "trend_continuation",
+    "status": "awaiting",
+    "stage": "ACCUMULATION",
+    "score": 75.8,
+    "confidence": "MEDIUM",
+    "close": 691.4,
+    "close_date": "2026-10-16",
+    "entry": 672.71,
+    "stop": 662.72,
+    "target": 693.9,
+    "risk_reward": 2.12,
+    "reason": "Trend intact (close > 20EMA \u20b9683.49 > 50EMA), 1.2% above 20EMA \u2014 pullback zone",
+    "reasons": [
+     "Strong uptrend (above 50 & 200 DMA, 50 above 200)",
+     "At 20-day breakout level",
+     "Tight consolidation (low ATR)",
+     "Sector outperforming Nifty",
+     "Pre-breakout: bb_squeeze"
+    ],
+    "horizon_days": 15,
+    "horizon_days_min": 5,
+    "liquidity_cr": 15.31,
+    "atr_pct": 1.18,
+    "in_watchlist": true,
+    "in_picks": true,
+    "sector": null
+   },
+   "direction": "bullish",
+   "fno_eligible": false,
+   "plan_id": "plan_a3e06f7df5076b7d",
+   "plan_status": "plan",
+   "status_reasons": [],
+   "would_change_if": [],
+   "headline": {
+    "technical_setup": {
+     "label": "supportive",
+     "counts": {
+      "supports": 4,
+      "conflicts": 0,
+      "neutral": 4,
+      "unavailable": 1
+     },
+     "scanner_bucket": "trend_continuation",
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pe_ttm": 111.0337,
+      "pb": 12.62,
+      "roe_pct": 15.84,
+      "roce_pct": 21.16,
+      "debt_to_equity": 0.11,
+      "market_cap_cr": 3687.75,
+      "quarterly_trend": {
+       "latest_quarter": "Q1 FY27",
+       "growth_trend": "decelerating",
+       "revenue_yoy_pct": -27.9,
+       "pat_cr": 3.07,
+       "ebitda_margin_pct": 5.7,
+       "quarters": 8
+      }
+     },
+     "missing": [
+      "valuation_vs_peers",
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": null
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "partial",
+     "unavailable_items": 13,
+     "total_items": 36,
+     "unavailable": [
+      "market_context.sector_strength",
+      "technical.chart_patterns",
+      "fundamental.valuation_vs_peers",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.oi_buildup",
+      "derivatives.cash_confirmation",
+      "derivatives.nearest_future",
+      "derivatives.option_chain",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 1,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 1
+    },
+    "technical": {
+     "supports": 4,
+     "conflicts": 0,
+     "neutral": 4,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 7,
+     "unavailable": 4
+    },
+    "catalysts": {
+     "supports": 1,
+     "conflicts": 0,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 5
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": null,
+    "cash_confirmation": null,
+    "pcr": null,
+    "max_pain": null,
+    "call_wall": null,
+    "put_wall": null,
+    "expected_move": null,
+    "chain_expiry": null,
+    "atm_iv": null,
+    "source_as_of": null,
+    "unavailable": [
+     "build-up: PREMEXPLN has no futures row on 2026-10-19",
+     "option chain: no expiry list: HTTP 404: No F&O data for PREMEXPLN"
+    ]
+   },
+   "preferred": "cash:pullback_in_uptrend",
+   "strategies": [
+    {
+     "id": "cash:pullback_in_uptrend",
+     "segment": "cash",
+     "family": "pullback_in_uptrend",
+     "label": "Pullback in an uptrend (long)",
+     "status": "candidate",
+     "reasons": [],
+     "legs_text": "Buy 6637 shares PREMEXPLN",
+     "max_loss": -204511.27,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": 4600784.67,
+     "max_profit": null,
+     "profit_unbounded": true,
+     "breakeven": [
+      692.85
+     ],
+     "reward_risk_net": 1.93,
+     "reward_risk_gross": 2.0,
+     "sizing": {
+      "status": "complete",
+      "quantity": 6637,
+      "lots": null,
+      "binding": "risk_budget",
+      "unit": "shares",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 199972.81,
+      "deployed_inr": 4598445.45,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Scanner bucket trend continuation (rules smart_v2).",
+     "flags": [],
+     "actionable": true
+    },
+    {
+     "id": "futures:none",
+     "segment": "futures",
+     "family": "none",
+     "label": "No futures strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:none",
+     "segment": "options",
+     "family": "none",
+     "label": "No options strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:none",
+     "segment": "combination",
+     "family": "none",
+     "label": "No combination strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": null,
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "PREMEXPLN",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 1967
+  },
+  {
+   "rank": 4,
+   "symbol": "BALRAMCHIN",
+   "name": "Balrampur Chini Mills Limited",
+   "scanner": {
+    "bucket": null,
+    "status": "forming",
+    "stage": "ACCUMULATION",
+    "score": 73.2,
+    "confidence": "MEDIUM",
+    "close": 721.15,
+    "close_date": "2026-10-16",
+    "entry": 644.38,
+    "stop": 634.81,
+    "target": 736.0,
+    "risk_reward": 9.57,
+    "reason": "Strong uptrend (above 50 & 200 DMA, 50 above 200); RSI 60 \u2014 momentum without being overbought",
+    "reasons": [
+     "Strong uptrend (above 50 & 200 DMA, 50 above 200)",
+     "RSI 60 \u2014 momentum without being overbought",
+     "Rising delivery volumes \u2014 accumulation",
+     "Sector outperforming Nifty"
+    ],
+    "horizon_days": 30,
+    "horizon_days_min": 10,
+    "liquidity_cr": 94.12,
+    "atr_pct": null,
+    "in_watchlist": false,
+    "in_picks": true,
+    "sector": null
+   },
+   "direction": "bullish",
+   "fno_eligible": false,
+   "plan_id": "plan_f0b80365dca3a7d3",
+   "plan_status": "wait",
+   "status_reasons": [
+    {
+     "code": "setup_not_triggered",
+     "message": "The scanner bucket is true accumulation: the setup has not triggered."
+    },
+    {
+     "code": "not_fno_eligible",
+     "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+    }
+   ],
+   "would_change_if": [
+    "setup_not_triggered: A close above the trigger on volume (the scanner moving it to breakout confirmed)."
+   ],
+   "headline": {
+    "technical_setup": {
+     "label": "supportive",
+     "counts": {
+      "supports": 3,
+      "conflicts": 0,
+      "neutral": 5,
+      "unavailable": 1
+     },
+     "scanner_bucket": null,
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pe_ttm": 38.3944,
+      "pb": 3.55,
+      "roe_pct": 9.14,
+      "roce_pct": 11.12,
+      "debt_to_equity": 0.77,
+      "market_cap_cr": 14828.75,
+      "quarterly_trend": {
+       "latest_quarter": "Q1 FY27",
+       "growth_trend": "decelerating",
+       "revenue_yoy_pct": 6.1,
+       "pat_cr": 44.0,
+       "ebitda_margin_pct": 7.0,
+       "quarters": 8
+      }
+     },
+     "missing": [
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": {
+      "industry": "Fast Moving Consumer Goods",
+      "peer_count": 20,
+      "median_pe": 43.52,
+      "median_pe_n": 19,
+      "median_pb": 9.38,
+      "median_pb_n": 20,
+      "median_roe_pct": 22.26,
+      "median_roe_n": 20,
+      "stock_pe": 38.3944,
+      "stock_pb": 3.55,
+      "stock_roe_pct": 9.14,
+      "pe_vs_median_pct": -11.8,
+      "pb_vs_median_pct": -62.2
+     }
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "partial",
+     "unavailable_items": 12,
+     "total_items": 36,
+     "unavailable": [
+      "market_context.sector_strength",
+      "technical.chart_patterns",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.oi_buildup",
+      "derivatives.cash_confirmation",
+      "derivatives.nearest_future",
+      "derivatives.option_chain",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 1,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 1
+    },
+    "technical": {
+     "supports": 3,
+     "conflicts": 0,
+     "neutral": 5,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 8,
+     "unavailable": 3
+    },
+    "catalysts": {
+     "supports": 1,
+     "conflicts": 0,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 5
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": null,
+    "cash_confirmation": null,
+    "pcr": null,
+    "max_pain": null,
+    "call_wall": null,
+    "put_wall": null,
+    "expected_move": null,
+    "chain_expiry": null,
+    "atm_iv": null,
+    "source_as_of": null,
+    "unavailable": [
+     "build-up: BALRAMCHIN has no futures row on 2026-10-19",
+     "option chain: no expiry list: HTTP 404: No F&O data for BALRAMCHIN"
+    ]
+   },
+   "preferred": null,
+   "strategies": [
+    {
+     "id": "cash:breakout_watch",
+     "segment": "cash",
+     "family": "breakout_watch",
+     "label": "Wait for breakout confirmation",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "setup_not_triggered",
+       "message": "The scanner bucket is true accumulation: the setup has not triggered."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The scanner bucket is true accumulation: the setup has not triggered.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "futures:none",
+     "segment": "futures",
+     "family": "none",
+     "label": "No futures strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:none",
+     "segment": "options",
+     "family": "none",
+     "label": "No options strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:none",
+     "segment": "combination",
+     "family": "none",
+     "label": "No combination strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": null,
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "BALRAMCHIN",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 2844
+  },
+  {
+   "rank": 5,
+   "symbol": "SGMART",
+   "name": "SG Mart Limited",
+   "scanner": {
+    "bucket": null,
+    "status": "forming",
+    "stage": "ACCUMULATION",
+    "score": 72.8,
+    "confidence": "MEDIUM",
+    "close": 798.2,
+    "close_date": "2026-10-16",
+    "entry": 717.1,
+    "stop": 706.45,
+    "target": 797.0,
+    "risk_reward": 7.5,
+    "reason": "Strong uptrend (above 50 & 200 DMA, 50 above 200); RSI 61 \u2014 momentum without being overbought",
+    "reasons": [
+     "Strong uptrend (above 50 & 200 DMA, 50 above 200)",
+     "RSI 61 \u2014 momentum without being overbought",
+     "Rising delivery volumes \u2014 accumulation",
+     "Volume buildup vs 20-day average",
+     "Sector outperforming Nifty"
+    ],
+    "horizon_days": 30,
+    "horizon_days_min": 10,
+    "liquidity_cr": 17.43,
+    "atr_pct": null,
+    "in_watchlist": false,
+    "in_picks": true,
+    "sector": null
+   },
+   "direction": "bullish",
+   "fno_eligible": false,
+   "plan_id": "plan_e2c1532eebd312ef",
+   "plan_status": "no_trade",
+   "status_reasons": [
+    {
+     "code": "event_in_horizon",
+     "message": "Results are scheduled on 2026-10-27, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+    },
+    {
+     "code": "setup_not_triggered",
+     "message": "The scanner bucket is true accumulation: the setup has not triggered."
+    },
+    {
+     "code": "not_fno_eligible",
+     "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+    }
+   ],
+   "would_change_if": [
+    "event_in_horizon: The results date passing, a shorter horizon, or switching avoid_events off (accepting event risk).",
+    "setup_not_triggered: A close above the trigger on volume (the scanner moving it to breakout confirmed)."
+   ],
+   "headline": {
+    "technical_setup": {
+     "label": "supportive",
+     "counts": {
+      "supports": 3,
+      "conflicts": 0,
+      "neutral": 5,
+      "unavailable": 1
+     },
+     "scanner_bucket": null,
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pe_ttm": 78.6474,
+      "pb": 5.87,
+      "roe_pct": 6.95,
+      "roce_pct": 11.87,
+      "debt_to_equity": 0.14,
+      "market_cap_cr": 9633.34,
+      "quarterly_trend": {
+       "latest_quarter": "Q1 FY27",
+       "growth_trend": "accelerating",
+       "revenue_yoy_pct": 14.4,
+       "pat_cr": 45.58,
+       "ebitda_margin_pct": 4.5,
+       "quarters": 8
+      }
+     },
+     "missing": [
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": {
+      "industry": "Metals & Mining",
+      "peer_count": 20,
+      "median_pe": 17.49,
+      "median_pe_n": 18,
+      "median_pb": 2.29,
+      "median_pb_n": 18,
+      "median_roe_pct": 15.22,
+      "median_roe_n": 18,
+      "stock_pe": 78.6474,
+      "stock_pb": 5.87,
+      "stock_roe_pct": 6.95,
+      "pe_vs_median_pct": 349.7,
+      "pb_vs_median_pct": 156.3
+     }
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "partial",
+     "unavailable_items": 12,
+     "total_items": 36,
+     "unavailable": [
+      "market_context.sector_strength",
+      "technical.chart_patterns",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.oi_buildup",
+      "derivatives.cash_confirmation",
+      "derivatives.nearest_future",
+      "derivatives.option_chain",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 1,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 1
+    },
+    "technical": {
+     "supports": 3,
+     "conflicts": 0,
+     "neutral": 5,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 8,
+     "unavailable": 3
+    },
+    "catalysts": {
+     "supports": 0,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 5
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": null,
+    "cash_confirmation": null,
+    "pcr": null,
+    "max_pain": null,
+    "call_wall": null,
+    "put_wall": null,
+    "expected_move": null,
+    "chain_expiry": null,
+    "atm_iv": null,
+    "source_as_of": null,
+    "unavailable": [
+     "build-up: SGMART has no futures row on 2026-10-19",
+     "option chain: no expiry list: HTTP 404: No F&O data for SGMART"
+    ]
+   },
+   "preferred": null,
+   "strategies": [
+    {
+     "id": "cash:breakout_watch",
+     "segment": "cash",
+     "family": "breakout_watch",
+     "label": "Wait for breakout confirmation",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "setup_not_triggered",
+       "message": "The scanner bucket is true accumulation: the setup has not triggered."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-27, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The scanner bucket is true accumulation: the setup has not triggered.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "futures:none",
+     "segment": "futures",
+     "family": "none",
+     "label": "No futures strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-27, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:none",
+     "segment": "options",
+     "family": "none",
+     "label": "No options strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-27, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:none",
+     "segment": "combination",
+     "family": "none",
+     "label": "No combination strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-27, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": null,
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "SGMART",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 1707
+  },
+  {
+   "rank": 6,
+   "symbol": "ORIENTHOT",
+   "name": "Oriental Hotels Limited",
+   "scanner": {
+    "bucket": "pre_breakout",
+    "status": "awaiting",
+    "stage": "EARLY_BREAKOUT",
+    "score": 72.7,
+    "confidence": "MEDIUM",
+    "close": 151.8,
+    "close_date": "2026-10-16",
+    "entry": 154.07,
+    "stop": 146.94,
+    "target": 168.34,
+    "risk_reward": 2.0,
+    "reason": "1.4% below \u20b9153.92 resistance \u00b7 volume 2.7\u00d7 avg",
+    "reasons": [
+     "Strong uptrend (above 50 & 200 DMA, 50 above 200)",
+     "At 20-day breakout level",
+     "Volume buildup vs 20-day average",
+     "Sector outperforming Nifty",
+     "Pre-breakout: vol_divergence"
+    ],
+    "horizon_days": 20,
+    "horizon_days_min": 7,
+    "liquidity_cr": 11.02,
+    "atr_pct": 3.13,
+    "in_watchlist": true,
+    "in_picks": true,
+    "sector": null
+   },
+   "direction": "bullish",
+   "fno_eligible": false,
+   "plan_id": "plan_757a91de8665a662",
+   "plan_status": "wait",
+   "status_reasons": [
+    {
+     "code": "setup_not_triggered",
+     "message": "The scanner bucket is pre breakout: the setup has not triggered."
+    },
+    {
+     "code": "not_fno_eligible",
+     "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+    }
+   ],
+   "would_change_if": [
+    "setup_not_triggered: A close above the trigger on volume (the scanner moving it to breakout confirmed)."
+   ],
+   "headline": {
+    "technical_setup": {
+     "label": "supportive",
+     "counts": {
+      "supports": 3,
+      "conflicts": 0,
+      "neutral": 5,
+      "unavailable": 1
+     },
+     "scanner_bucket": "pre_breakout",
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pe_ttm": 39.625,
+      "pb": 3.22,
+      "roe_pct": 8.91,
+      "roce_pct": 12.66,
+      "debt_to_equity": 0.13,
+      "market_cap_cr": 2485.21,
+      "quarterly_trend": {
+       "latest_quarter": "Q2 FY27",
+       "growth_trend": "steady growth",
+       "revenue_yoy_pct": 6.6,
+       "pat_cr": 8.59,
+       "ebitda_margin_pct": 23.0,
+       "quarters": 6
+      }
+     },
+     "missing": [
+      "valuation_vs_peers",
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": null
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "partial",
+     "unavailable_items": 13,
+     "total_items": 36,
+     "unavailable": [
+      "market_context.sector_strength",
+      "technical.chart_patterns",
+      "fundamental.valuation_vs_peers",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.oi_buildup",
+      "derivatives.cash_confirmation",
+      "derivatives.nearest_future",
+      "derivatives.option_chain",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 1,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 1
+    },
+    "technical": {
+     "supports": 3,
+     "conflicts": 0,
+     "neutral": 5,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 7,
+     "unavailable": 4
+    },
+    "catalysts": {
+     "supports": 1,
+     "conflicts": 0,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 5
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": null,
+    "cash_confirmation": null,
+    "pcr": null,
+    "max_pain": null,
+    "call_wall": null,
+    "put_wall": null,
+    "expected_move": null,
+    "chain_expiry": null,
+    "atm_iv": null,
+    "source_as_of": null,
+    "unavailable": [
+     "build-up: ORIENTHOT has no futures row on 2026-10-19",
+     "option chain: no expiry list: HTTP 404: No F&O data for ORIENTHOT"
+    ]
+   },
+   "preferred": null,
+   "strategies": [
+    {
+     "id": "cash:breakout_watch",
+     "segment": "cash",
+     "family": "breakout_watch",
+     "label": "Wait for breakout confirmation",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "setup_not_triggered",
+       "message": "The scanner bucket is pre breakout: the setup has not triggered."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The scanner bucket is pre breakout: the setup has not triggered.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "futures:none",
+     "segment": "futures",
+     "family": "none",
+     "label": "No futures strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:none",
+     "segment": "options",
+     "family": "none",
+     "label": "No options strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:none",
+     "segment": "combination",
+     "family": "none",
+     "label": "No combination strategy",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_fno_eligible",
+       "message": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The stock is not in the NSE F&O segment (nidp.security_reference_daily.fno_eligible is false): it has no futures or options, so only the cash idea applies.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": null,
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "ORIENTHOT",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 833
+  },
+  {
+   "rank": 7,
+   "symbol": "MPHASIS",
+   "name": "MphasiS Limited",
+   "scanner": {
+    "bucket": "pre_breakout",
+    "status": "awaiting",
+    "stage": "EARLY_BREAKOUT",
+    "score": 72.2,
+    "confidence": "MEDIUM",
+    "close": 2500.0,
+    "close_date": "2026-10-16",
+    "entry": 2524.22,
+    "stop": 2414.49,
+    "target": 2743.69,
+    "risk_reward": 2.0,
+    "reason": "0.9% below \u20b92521.70 resistance \u00b7 volume 1.3\u00d7 avg",
+    "reasons": [
+     "Above 50-day moving average",
+     "At 20-day breakout level",
+     "Rising delivery volumes \u2014 accumulation",
+     "Volume buildup vs 20-day average",
+     "Sector outperforming Nifty"
+    ],
+    "horizon_days": 20,
+    "horizon_days_min": 7,
+    "liquidity_cr": 141.63,
+    "atr_pct": 2.93,
+    "in_watchlist": true,
+    "in_picks": true,
+    "sector": null
+   },
+   "direction": "bullish",
+   "fno_eligible": true,
+   "plan_id": "plan_c688a1ee7e6017a5",
+   "plan_status": "plan",
+   "status_reasons": [],
+   "would_change_if": [
+    "setup_not_triggered: A close above the trigger on volume (the scanner moving it to breakout confirmed).",
+    "no_fresh_buildup: A fresh build-up (price and open interest rising together for a long view).",
+    "reward_risk_below_minimum: A nearer stop, a farther conservative level, or a lower minimum reward : risk."
+   ],
+   "headline": {
+    "technical_setup": {
+     "label": "supportive",
+     "counts": {
+      "supports": 3,
+      "conflicts": 0,
+      "neutral": 5,
+      "unavailable": 1
+     },
+     "scanner_bucket": "pre_breakout",
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pe_ttm": 24.9377,
+      "pb": 3.98,
+      "roe_pct": 17.33,
+      "roce_pct": 23.39,
+      "debt_to_equity": 0.17,
+      "market_cap_cr": 44734.57,
+      "quarterly_trend": {
+       "latest_quarter": "Q1 FY27",
+       "growth_trend": "accelerating",
+       "revenue_yoy_pct": 17.5,
+       "pat_cr": 489.51,
+       "ebitda_margin_pct": 18.1,
+       "quarters": 8
+      }
+     },
+     "missing": [
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": {
+      "industry": "Information Technology",
+      "peer_count": 20,
+      "median_pe": 27.69,
+      "median_pe_n": 20,
+      "median_pb": 5.81,
+      "median_pb_n": 20,
+      "median_roe_pct": 20.21,
+      "median_roe_n": 20,
+      "stock_pe": 24.9377,
+      "stock_pb": 3.98,
+      "stock_roe_pct": 17.33,
+      "pe_vs_median_pct": -9.9,
+      "pb_vs_median_pct": -31.5
+     }
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "partial",
+     "unavailable_items": 8,
+     "total_items": 40,
+     "unavailable": [
+      "technical.chart_patterns",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.cash_confirmation",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 2,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "technical": {
+     "supports": 3,
+     "conflicts": 0,
+     "neutral": 5,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 8,
+     "unavailable": 3
+    },
+    "catalysts": {
+     "supports": 1,
+     "conflicts": 0,
+     "neutral": 2,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 7,
+     "unavailable": 2
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": "long_unwinding",
+    "cash_confirmation": null,
+    "pcr": 0.6393,
+    "max_pain": 2500,
+    "call_wall": 2600,
+    "put_wall": 2500,
+    "expected_move": 214.6,
+    "chain_expiry": "2026-11-23",
+    "atm_iv": 34.87,
+    "source_as_of": "2026-10-19",
+    "unavailable": []
+   },
+   "preferred": "combination:covered_call",
+   "strategies": [
+    {
+     "id": "cash:breakout_watch",
+     "segment": "cash",
+     "family": "breakout_watch",
+     "label": "Wait for breakout confirmation",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "setup_not_triggered",
+       "message": "The scanner bucket is pre breakout: the setup has not triggered."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The scanner bucket is pre breakout: the setup has not triggered.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "futures:long_buildup_continuation",
+     "segment": "futures",
+     "family": "long_buildup_continuation",
+     "label": "Long futures: build-up with cash confirmation",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "no_fresh_buildup",
+       "message": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:long_call",
+     "segment": "options",
+     "family": "long_call",
+     "label": "Long call",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk -0.11 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
+      }
+     ],
+     "legs_text": "Buy 6 lots MPHASIS 2500 call, 23 Nov",
+     "max_loss": -184635.0,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": 184767.32,
+     "max_profit": null,
+     "profit_unbounded": true,
+     "breakeven": [
+      2611.9
+     ],
+     "reward_risk_net": -0.11,
+     "reward_risk_gross": -0.11,
+     "sizing": {
+      "status": "complete",
+      "quantity": 1650,
+      "lots": 6,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 184967.34,
+      "deployed_inr": 184967.34,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The ATM call (2500): the strike nearest the spot, the most responsive to the underlying for its premium; the premium is the whole risk.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "options:bull_call_spread",
+     "segment": "options",
+     "family": "bull_call_spread",
+     "label": "Bull call spread (debit)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk 1.19 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
+      }
+     ],
+     "legs_text": "Buy 15 lots MPHASIS 2500 call + Sell 15 lots MPHASIS 2600 call, 23 Nov",
+     "max_loss": -188100.0,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": 188547.54,
+     "max_profit": 224400.0,
+     "profit_unbounded": false,
+     "breakeven": [
+      2545.6
+     ],
+     "reward_risk_net": 1.19,
+     "reward_risk_gross": 1.19,
+     "sizing": {
+      "status": "complete",
+      "quantity": 4125,
+      "lots": 15,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 189667.5,
+      "deployed_inr": 189667.5,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Long the ATM 2500, short 2600: the call wall (rule 3, FnoStrategies.tsx), inside the expected move, so the short leg sits where the market has the most open interest.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "combination:covered_call",
+     "segment": "combination",
+     "family": "covered_call",
+     "label": "Covered call (shares + short call)",
+     "status": "candidate",
+     "reasons": [],
+     "legs_text": "Buy 1925 shares MPHASIS + Sell 7 lots MPHASIS 2600 call, 23 Nov",
+     "max_loss": -4684872.5,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": 4687422.56,
+     "max_profit": 320127.5,
+     "profit_unbounded": false,
+     "breakeven": [
+      2433.7
+     ],
+     "reward_risk_net": 7.53,
+     "reward_risk_gross": 8.66,
+     "sizing": {
+      "status": "complete",
+      "quantity": 1925,
+      "lots": 7,
+      "binding": "allocation_cap",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 42193.27,
+      "deployed_inr": 4684872.5,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Bullish-to-neutral view: sell the 2600 call (the call wall) against 1925 shares to collect 66.3 a share; the upside is capped at that strike.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+      "No pre-expiry estimate for combination structures in this release: the expiry payoff applies."
+     ],
+     "actionable": true
+    },
+    {
+     "id": "combination:protective_put",
+     "segment": "combination",
+     "family": "protective_put",
+     "label": "Protective put (shares + long put)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_indicated",
+       "message": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Protective put (shares + long put) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:collar",
+     "segment": "combination",
+     "family": "collar",
+     "label": "Collar (shares + long put + short call)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "not_indicated",
+       "message": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Collar (shares + long put + short call) is for a stock with event or gap risk, and here there is none (no results date inside the horizon and the risk class is not high): insurance would be a cost without a reason.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "combination:futures_protective_put",
+     "segment": "combination",
+     "family": "futures_protective_put",
+     "label": "Futures + protective put (synthetic long call)",
+     "status": "wait",
+     "reasons": [
+      {
+       "code": "no_fresh_buildup",
+       "message": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Long unwinding is a fall on falling open interest: it is not fresh selling, so it is a wait, not a trade.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": "2026-10-19",
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "MPHASIS",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 1554
+  },
+  {
+   "rank": 8,
+   "symbol": "INDHOTEL",
+   "name": "The Indian Hotels Company Limited",
+   "scanner": {
+    "bucket": "pre_breakout",
+    "status": "awaiting",
+    "stage": "EARLY_BREAKOUT",
+    "score": 72.2,
+    "confidence": "MEDIUM",
+    "close": 772.1,
+    "close_date": "2026-10-16",
+    "entry": 776.93,
+    "stop": 749.93,
+    "target": 830.91,
+    "risk_reward": 2.0,
+    "reason": "0.5% below \u20b9776.15 resistance \u00b7 volume 1.3\u00d7 avg",
+    "reasons": [
+     "Strong uptrend (above 50 & 200 DMA, 50 above 200)",
+     "At 20-day breakout level",
+     "Sector outperforming Nifty",
+     "Pre-breakout: vol_divergence"
+    ],
+    "horizon_days": 20,
+    "horizon_days_min": 7,
+    "liquidity_cr": 296.77,
+    "atr_pct": 2.33,
+    "in_watchlist": true,
+    "in_picks": true,
+    "sector": null
+   },
+   "direction": "bullish",
+   "fno_eligible": true,
+   "plan_id": "plan_e2949267c4bad1a6",
+   "plan_status": "no_trade",
+   "status_reasons": [
+    {
+     "code": "event_in_horizon",
+     "message": "Results are scheduled on 2026-10-21, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+    },
+    {
+     "code": "setup_not_triggered",
+     "message": "The scanner bucket is pre breakout: the setup has not triggered."
+    },
+    {
+     "code": "buildup_opposes_view",
+     "message": "The futures build-up is short_buildup, the opposite of the bullish view."
+    },
+    {
+     "code": "reward_risk_below_minimum",
+     "message": "Reward : risk -0.45 at the conservative level is below the minimum 1.5 (the default, change it in the inputs).",
+     "reward_risk": -0.45,
+     "minimum": 1.5
+    },
+    {
+     "code": "reward_risk_below_minimum",
+     "message": "Reward : risk 0.04 at the conservative level is below the minimum 1.5 (the default, change it in the inputs).",
+     "reward_risk": 0.04,
+     "minimum": 1.5
+    },
+    {
+     "code": "reward_risk_below_minimum",
+     "message": "Reward : risk -0.13 at the conservative level is below the minimum 1.5 (the default, change it in the inputs).",
+     "reward_risk": -0.13,
+     "minimum": 1.5
+    },
+    {
+     "code": "reward_risk_below_minimum",
+     "message": "Reward : risk 0.65 at the conservative level is below the minimum 1.5 (the default, change it in the inputs).",
+     "reward_risk": 0.65,
+     "minimum": 1.5
+    }
+   ],
+   "would_change_if": [
+    "event_in_horizon: The results date passing, a shorter horizon, or switching avoid_events off (accepting event risk).",
+    "setup_not_triggered: A close above the trigger on volume (the scanner moving it to breakout confirmed).",
+    "buildup_opposes_view: A build-up in the direction of the view.",
+    "reward_risk_below_minimum: A nearer stop, a farther conservative level, or a lower minimum reward : risk."
+   ],
+   "headline": {
+    "technical_setup": {
+     "label": "supportive",
+     "counts": {
+      "supports": 3,
+      "conflicts": 0,
+      "neutral": 5,
+      "unavailable": 1
+     },
+     "scanner_bucket": "pre_breakout",
+     "note": "A qualitative reading of the technical items for the chosen direction; not a score and not a probability."
+    },
+    "fundamental_context": {
+     "role": "context only (valuation, quality, catalysts); not a trigger for a short-horizon trade",
+     "available": {
+      "pe_ttm": 50.4313,
+      "pb": 7.53,
+      "roe_pct": 15.96,
+      "roce_pct": 15.89,
+      "debt_to_equity": 0.0,
+      "market_cap_cr": 101277.2,
+      "quarterly_trend": {
+       "latest_quarter": "Q1 FY27",
+       "growth_trend": "steady growth",
+       "revenue_yoy_pct": 14.6,
+       "pat_cr": 391.0,
+       "ebitda_margin_pct": 28.8,
+       "quarters": 8
+      }
+     },
+     "missing": [
+      "analyst_estimates",
+      "cash_flow_quality",
+      "ownership_changes"
+     ],
+     "valuation_vs_peers": {
+      "industry": "Consumer Services",
+      "peer_count": 20,
+      "median_pe": 56.03,
+      "median_pe_n": 14,
+      "median_pb": 8.93,
+      "median_pb_n": 20,
+      "median_roe_pct": 7.99,
+      "median_roe_n": 20,
+      "stock_pe": 50.4313,
+      "stock_pb": 7.53,
+      "stock_roe_pct": 15.96,
+      "pe_vs_median_pct": -10.0,
+      "pb_vs_median_pct": -15.7
+     }
+    },
+    "model_estimate": {
+     "status": "withheld",
+     "reason": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",
+     "value": null
+    },
+    "data_quality": {
+     "label": "partial",
+     "unavailable_items": 8,
+     "total_items": 40,
+     "unavailable": [
+      "market_context.sector_strength",
+      "technical.chart_patterns",
+      "fundamental.analyst_estimates",
+      "fundamental.cash_flow_quality",
+      "fundamental.ownership_changes",
+      "derivatives.bid_ask",
+      "validation.accumulation_backtest",
+      "portfolio_fit.existing_exposure"
+     ],
+     "mode": "end_of_day",
+     "price_as_of": "2026-10-19",
+     "reference_session": "2026-10-19"
+    },
+    "confidence": null,
+    "confidence_note": "No single confidence number is produced: the four fields above are reported separately (PRD \u00a716.9)."
+   },
+   "evidence_summary": {
+    "market_context": {
+     "supports": 1,
+     "conflicts": 1,
+     "neutral": 2,
+     "unavailable": 1
+    },
+    "technical": {
+     "supports": 3,
+     "conflicts": 0,
+     "neutral": 5,
+     "unavailable": 1
+    },
+    "fundamental": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 8,
+     "unavailable": 3
+    },
+    "catalysts": {
+     "supports": 1,
+     "conflicts": 1,
+     "neutral": 1,
+     "unavailable": 0
+    },
+    "derivatives": {
+     "supports": 0,
+     "conflicts": 1,
+     "neutral": 7,
+     "unavailable": 1
+    },
+    "validation": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 1,
+     "unavailable": 1
+    },
+    "portfolio_fit": {
+     "supports": 0,
+     "conflicts": 0,
+     "neutral": 0,
+     "unavailable": 1
+    }
+   },
+   "oi_view": {
+    "buildup": "short_buildup",
+    "cash_confirmation": "confirms",
+    "pcr": 0.4622,
+    "max_pain": 750,
+    "call_wall": 800,
+    "put_wall": 700,
+    "expected_move": 53.3,
+    "chain_expiry": "2026-11-23",
+    "atm_iv": 28.35,
+    "source_as_of": "2026-10-19",
+    "unavailable": []
+   },
+   "preferred": null,
+   "strategies": [
+    {
+     "id": "cash:breakout_watch",
+     "segment": "cash",
+     "family": "breakout_watch",
+     "label": "Wait for breakout confirmation",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "setup_not_triggered",
+       "message": "The scanner bucket is pre breakout: the setup has not triggered."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-21, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The scanner bucket is pre breakout: the setup has not triggered.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "futures:long_buildup_continuation",
+     "segment": "futures",
+     "family": "long_buildup_continuation",
+     "label": "Long futures: build-up with cash confirmation",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "buildup_opposes_view",
+       "message": "The futures build-up is short_buildup, the opposite of the bullish view."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-21, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The futures build-up is short_buildup, the opposite of the bullish view.",
+     "flags": [],
+     "actionable": false
+    },
+    {
+     "id": "options:long_call",
+     "segment": "options",
+     "family": "long_call",
+     "label": "Long call",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk -0.45 at the conservative level is below the minimum 1.5 (the default, change it in the inputs)."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-21, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "Buy 6 lots INDHOTEL 760 call, 23 Nov",
+     "max_loss": -177000.0,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": 177128.5,
+     "max_profit": null,
+     "profit_unbounded": true,
+     "breakeven": [
+      789.5
+     ],
+     "reward_risk_net": -0.45,
+     "reward_risk_gross": -0.45,
+     "sizing": {
+      "status": "complete",
+      "quantity": 6000,
+      "lots": 6,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 177328.5,
+      "deployed_inr": 177328.5,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The ATM call (760): the strike nearest the spot, the most responsive to the underlying for its premium; the premium is the whole risk.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "options:bull_call_spread",
+     "segment": "options",
+     "family": "bull_call_spread",
+     "label": "Bull call spread (debit)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk 0.04 at the conservative level is below the minimum 1.5 (the default, change it in the inputs)."
+      },
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-21, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "Buy 12 lots INDHOTEL 760 call + Sell 12 lots INDHOTEL 800 call, 23 Nov",
+     "max_loss": -185400.0,
+     "max_loss_basis": "defined max loss at expiry (gross)",
+     "capital_at_risk": 185741.3,
+     "max_profit": 294600.0,
+     "profit_unbounded": false,
+     "breakeven": [
+      775.45
+     ],
+     "reward_risk_net": 0.04,
+     "reward_risk_gross": 0.05,
+     "sizing": {
+      "status": "complete",
+      "quantity": 12000,
+      "lots": 12,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 186621.24,
+      "deployed_inr": 186621.24,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Long the ATM 760, short 800: the call wall (rule 3, FnoStrategies.tsx), inside the expected move, so the short leg sits where the market has the most open interest.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "combination:covered_call",
+     "segment": "combination",
+     "family": "covered_call",
+     "label": "Covered call (shares + short call)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "event_in_horizon",
+       "message": "Results are scheduled on 2026-10-21, inside the 10-day horizon, and the plan is set to avoid events. (avoid_events is on by default; change it in the inputs.)"
+      }
+     ],
+     "legs_text": "Buy 6000 shares INDHOTEL + Sell 6 lots INDHOTEL 800 call, 23 Nov",
+     "max_loss": -4475700.0,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": 4478102.15,
+     "max_profit": 324300.0,
+     "profit_unbounded": false,
+     "breakeven": [
+      745.95
+     ],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": "complete",
+      "quantity": 6000,
+      "lots": 6,
+      "binding": "allocation_cap",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 60420.0,
+      "deployed_inr": 4475700.0,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Bullish-to-neutral view: sell the 800 call (the call wall) against 6000 shares to collect 14.05 a share; the upside is capped at that strike.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+      "No pre-expiry estimate for combination structures in this release: the expiry payoff applies.",
+      "Reward : risk is undefined here: the premium received covers the loss at the stop, so there is no loss to divide by. The gate is not applied; read max loss and capital at risk."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "combination:protective_put",
+     "segment": "combination",
+     "family": "protective_put",
+     "label": "Protective put (shares + long put)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk -0.13 at the conservative level is below the minimum 1.5 (the default, change it in the inputs)."
+      }
+     ],
+     "legs_text": "Buy 6000 shares INDHOTEL + Buy 6 lots INDHOTEL 750 put, 23 Nov",
+     "max_loss": -174900.0,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": 179567.45,
+     "max_profit": null,
+     "profit_unbounded": true,
+     "breakeven": [
+      779.15
+     ],
+     "reward_risk_net": -0.13,
+     "reward_risk_gross": -0.1,
+     "sizing": {
+      "status": "complete",
+      "quantity": 6000,
+      "lots": 6,
+      "binding": "risk_budget",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 179967.48,
+      "deployed_inr": 4674900.0,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Results are scheduled on 2026-10-21, inside the 10-day horizon: buy the 750 put (nearest the stop, the scanner's stop (749.93)) so the loss on 6000 shares cannot go below that strike.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+      "No pre-expiry estimate for combination structures in this release: the expiry payoff applies."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "combination:collar",
+     "segment": "combination",
+     "family": "collar",
+     "label": "Collar (shares + long put + short call)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "reward_risk_below_minimum",
+       "message": "Reward : risk 0.65 at the conservative level is below the minimum 1.5 (the default, change it in the inputs)."
+      }
+     ],
+     "legs_text": "Buy 6000 shares INDHOTEL + Buy 6 lots INDHOTEL 750 put + Sell 6 lots INDHOTEL 800 call, 23 Nov",
+     "max_loss": -90600.0,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": 95349.6,
+     "max_profit": 209400.0,
+     "profit_unbounded": false,
+     "breakeven": [
+      765.1
+     ],
+     "reward_risk_net": 0.65,
+     "reward_risk_gross": 0.73,
+     "sizing": {
+      "status": "complete",
+      "quantity": 6000,
+      "lots": 6,
+      "binding": "allocation_cap",
+      "unit": "lots",
+      "risk_budget_inr": 200000.0,
+      "risk_at_stop_inr": 95829.6,
+      "deployed_inr": 4590600.0,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "Results are scheduled on 2026-10-21, inside the 10-day horizon: buy the 750 put and sell the 800 call (the call wall); the call premium offsets part of the put's cost, and the upside is capped.",
+     "flags": [
+      "Bid/ask is not in the end-of-day file: premiums are the day's close, not an executable price.",
+      "No pre-expiry estimate for combination structures in this release: the expiry payoff applies."
+     ],
+     "actionable": false
+    },
+    {
+     "id": "combination:futures_protective_put",
+     "segment": "combination",
+     "family": "futures_protective_put",
+     "label": "Futures + protective put (synthetic long call)",
+     "status": "no_trade",
+     "reasons": [
+      {
+       "code": "buildup_opposes_view",
+       "message": "The futures build-up is short_buildup, the opposite of the bullish view."
+      }
+     ],
+     "legs_text": "",
+     "max_loss": null,
+     "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
+     "capital_at_risk": null,
+     "max_profit": null,
+     "profit_unbounded": false,
+     "breakeven": [],
+     "reward_risk_net": null,
+     "reward_risk_gross": null,
+     "sizing": {
+      "status": null,
+      "quantity": null,
+      "lots": null,
+      "binding": null,
+      "unit": null,
+      "risk_budget_inr": null,
+      "risk_at_stop_inr": null,
+      "deployed_inr": null,
+      "missing": []
+     },
+     "liquidity_flags": [],
+     "why": "The futures build-up is short_buildup, the opposite of the bullish view.",
+     "flags": [],
+     "actionable": false
+    }
+   ],
+   "data_as_of": {
+    "price": "2026-10-19",
+    "fno": "2026-10-19",
+    "reference_session": "2026-10-19",
+    "mode": "end_of_day",
+    "fundamentals": "2026-10-19",
+    "regime": "2026-10-16"
+   },
+   "plan_inputs": {
+    "underlying": "INDHOTEL",
+    "direction": "bullish",
+    "instrument": "all",
+    "capital": 20000000,
+    "risk_budget_inr": 200000
+   },
+   "build_ms": 1196
+  }
+ ],
+ "elapsed_ms": 4672,
+ "caveats": [
+  "Conditional research ideas, not advice and not an instruction to trade.",
+  "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
+  "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
+  "Margin is not estimated (no source exists in this system) and is not the maximum loss.",
+  "Nothing is sent to a broker."
+ ]
+}

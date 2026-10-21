@@ -111,7 +111,7 @@ function spread<T extends { y: number; h: number }>(items: T[], top: number, bot
   return out;
 }
 
-export function CandleChart({ bars, name, overlays, events = [], compact = false, words = TRADER_CHART_WORDS }: {
+export function CandleChart({ bars, name, overlays, events = [], compact = false, words = TRADER_CHART_WORDS, intraday = false }: {
   bars: DailyBar[];
   name: string;
   overlays: ChartOverlays;
@@ -120,7 +120,10 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
   /** The phone chart (330 × 194). */
   compact?: boolean;
   words?: ChartWords;
+  /** Bars are intraday: `day` is an ISO time with the IST offset and the labels show the time, not just the date. */
+  intraday?: boolean;
 }) {
+  const label = (d: string) => (intraday ? `${fmtDay(d.slice(0, 10))} ${d.slice(11, 16)}` : fmtDay(d));
   const [active, setActive] = useState<number | null>(null);
   const n = bars.length;
 
@@ -191,7 +194,7 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 6 }} data-testid="desk-chart">
       <span data-testid="desk-chart-readout" aria-live="polite" className="cp-num" style={{ fontSize: compact ? 10 : 10.5, color: "var(--cp-ink-3)", lineHeight: 1.5 }}>
-        {fmtDay(shown.day)} · O {fmtPrice(shown.open)} · H {fmtPrice(shown.high)} · L {fmtPrice(shown.low)} · C {fmtPrice(shown.close)} · Vol {fmtShares(shown.volume)}
+        {label(shown.day)} · O {fmtPrice(shown.open)} · H {fmtPrice(shown.high)} · L {fmtPrice(shown.low)} · C {fmtPrice(shown.close)} · Vol {fmtShares(shown.volume)}
         {shownEvent ? ` · ${shownEvent.count} ${shownEvent.count === 1 ? "filing" : "filings"}` : ""}
       </span>
       <svg
@@ -200,7 +203,7 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
         viewBox={`0 0 ${W} ${H}`}
         role="img"
         tabIndex={0}
-        aria-label={`${name}: ${n} daily candles from ${fmtDay(bars[0].day)} to ${fmtDay(last.day)}. Last close ${fmtPrice(last.close)}; highest ${fmtPrice(highest)}, lowest ${fmtPrice(lowest)}. Use the left and right arrow keys to read a session.`}
+        aria-label={`${name}: ${n} ${intraday ? "intraday" : "daily"} candles from ${label(bars[0].day)} to ${label(last.day)}. Last close ${fmtPrice(last.close)}; highest ${fmtPrice(highest)}, lowest ${fmtPrice(lowest)}. Use the left and right arrow keys to read a session.`}
         style={{ display: "block", width: "100%", height: "auto", touchAction: "pan-y", overflow: "visible" }}
         onPointerMove={onMove}
         onPointerDown={onMove}

@@ -13,7 +13,7 @@
 import { createContext, useContext } from "react";
 
 /** Every `?tab=` id of a module. The tab row (TradingDesk.tsx, in the PRD's order) shows all but the lab ("fno"), which sits under More. */
-export const DESK_TABS = ["overview", "scanner", "chart", "intel", "portfolio", "fno"] as const;
+export const DESK_TABS = ["overview", "scanner", "chart", "intel", "portfolio", "fno", "events"] as const;
 export type DeskTab = (typeof DESK_TABS)[number];
 
 /** The module tab names, word for word from the design's tab row. */
@@ -24,6 +24,7 @@ export const DESK_TAB_LABEL: Record<DeskTab, string> = {
   intel: "Market Intelligence",
   portfolio: "Portfolio & Risk",
   fno: "Options & Futures Lab",
+  events: "Events Calendar",
 };
 
 /**
@@ -46,6 +47,14 @@ export interface DeskState {
   openChart: (symbol: string) => void;
   /** Select a stock without changing tab. */
   setSymbol: (symbol: string) => void;
+  /** Open the Strategy Builder (More) on a stock, carrying the signal it started from (shown as "Started from ..."). */
+  openStrategy: (symbol: string, src?: { kind: "scanner" | "chart" | "lab"; bucket?: string | null; date?: string | null }) => void;
+  /** Open the Strategy Builder on the AI opportunities board, optionally scrolled to one stock's idea. */
+  openStrategyIdeas: (focus?: string) => void;
+  /** Open the Strategy Builder in One stock mode with a pick's plan inputs (URL params as the ideas board writes them) and build it. */
+  openStrategyPlan: (params: Record<string, string>) => void;
+  /** Open More · Chartink scans (the settings for using the user's Chartink scans as opportunity sources). */
+  openChartink: () => void;
   /** Ask the Copilot about something on the desk. */
   askDesk: (question: string) => void;
   /** True when the Copilot panel is docked beside the desk (wide screens). */

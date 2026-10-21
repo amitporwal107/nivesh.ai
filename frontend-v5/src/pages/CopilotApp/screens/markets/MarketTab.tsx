@@ -6,10 +6,12 @@
  * headlines. The 52-week and most-active lists come from GET
  * /api/markets/explore, read when a list is first opened.
  */
+import { Flash } from "../../components/LiveBits";
+import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { useState } from "react";
 import type { CapSegment } from "@/services/adapters/markets.adapter";
 import type {
-  ExploreRow, GlobalQuote, MarketBreadth, MarketMover, MarketSector, MarketsHome,
+  ExploreRow, GlobalQuote, MarketBreadth, MarketIndex, MarketMover, MarketSector, MarketsHome,
 } from "@/services/contracts/markets.contract";
 import { StockIcon } from "../../components/EntityIcon";
 import {
@@ -42,6 +44,44 @@ const LISTS: { key: ListKey; label: string }[] = [
 ];
 
 /** One sentence about the session, written only from fields the endpoint returned. */
+// ── live (Kite) overlays: only while the feed is LIVE; otherwise the end-of-day figures the route sent ──
+
+function LivePriceCell({ symbol, price, eodDay }: { symbol: string; price: number | null; eodDay?: string | null }) {
+  const q = useLiveOverlay(symbol, eodDay);
+  return q ? <Flash value={flashOf(q)}>{fmtPrice(q.ltp)}</Flash> : <>{fmtPrice(price)}</>;
+}
+
+function LiveChgCell({ symbol, pct, testId, eodDay }: { symbol: string; pct: number | null; testId?: string; eodDay?: string | null }) {
+  const q = useLiveOverlay(symbol, eodDay);
+  const v = q && q.changePct != null ? q.changePct : pct;
+  return <Signed value={v} testId={testId}>{fmtPct(v, { signed: true, digits: 2 })}</Signed>;
+}
+
+function IndexCard({ ix, eodDay }: { ix: MarketIndex; eodDay?: string | null }) {
+  const q = useLiveOverlay(ix.name, eodDay);
+  const value = q ? q.ltp : ix.value;
+  const change = q ? q.change : ix.change;
+  const pct = q ? q.changePct : ix.change_pct;
+  // A rising VIX is not a gain, so it stays neutral.
+  const tone: Tone = ix.is_vix ? "ink" : signTone(pct);
+  return (
+    <div className="cp-card flex min-w-0 flex-col" data-live={q ? q.kind : undefined} style={{ gap: 6, padding: "14px 16px" }}>
+      <span className="cp-eyebrow">{ix.name}</span>
+      {q?.kind === "close" && <span data-testid="markets-index-close" className="cp-mono-note" style={{ fontSize: 9 }}>{closeLabel(q)}</span>}
+      <span className="cp-num" style={{ fontSize: 22, color: TONE_COLOR[tone] }} data-testid="markets-index-value" data-index={ix.name}>
+        <Flash value={flashOf(q)}>{fmtLevel(value)}</Flash>
+      </span>
+      <span className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>
+        {!ix.is_vix && change != null && (
+          <><span data-testid="markets-index-points" data-index={ix.name}>{fmtPoints(change)}</span>{" · "}</>
+        )}
+        <span data-testid="markets-index-change" data-index={ix.name}>{fmtPct(pct, { signed: true, digits: 2 })}</span>
+      </span>
+      <Sparkline values={ix.spark} tone={tone} testId="markets-index-spark" />
+    </div>
+  );
+}
+
 function tapeLine(d: MarketsHome): string {
   // Exact name: a loose match would also pick up "Nifty 500".
   const nifty = d.indices.find((i) => i.name.trim().toLowerCase() === "nifty 50");
@@ -150,25 +190,7 @@ export function MarketTab({ onOpenFlows }: { onOpenFlows?: () => void }) {
       {d.indices.length > 0 && (
         <div className="flex flex-col" style={{ gap: 8 }}>
           <div data-testid="markets-indices" className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12 }}>
-            {d.indices.map((ix) => {
-              // A rising VIX is not a gain, so it stays neutral.
-              const tone: Tone = ix.is_vix ? "ink" : signTone(ix.change_pct);
-              return (
-                <div key={ix.name} className="cp-card flex min-w-0 flex-col" style={{ gap: 6, padding: "14px 16px" }}>
-                  <span className="cp-eyebrow">{ix.name}</span>
-                  <span className="cp-num" style={{ fontSize: 22, color: TONE_COLOR[tone] }} data-testid="markets-index-value" data-index={ix.name}>
-                    {fmtLevel(ix.value)}
-                  </span>
-                  <span className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>
-                    {!ix.is_vix && ix.change != null && (
-                      <><span data-testid="markets-index-points" data-index={ix.name}>{fmtPoints(ix.change)}</span>{" · "}</>
-                    )}
-                    <span data-testid="markets-index-change" data-index={ix.name}>{fmtPct(ix.change_pct, { signed: true, digits: 2 })}</span>
-                  </span>
-                  <Sparkline values={ix.spark} tone={tone} testId="markets-index-spark" />
-                </div>
-              );
-            })}
+            {d.indices.map((ix) => <IndexCard key={ix.name} ix={ix} eodDay={d.as_of?.slice(0, 10) ?? null} />)}
           </div>
           <SourceLine
             testId="markets-overview-source"
@@ -408,10 +430,10 @@ function MoversTable({ gainers, losers, asOf, held }: {
       key: "stock", header: "Stock", width: "minmax(0,1.7fr)",
       render: (m) => <CompanyCell symbol={m.symbol} name={m.name} held={isHeld(held, m.symbol, m.name)} />,
     },
-    { key: "price", header: "Price", align: "right", num: true, render: (m) => fmtPrice(m.price) },
+    { key: "price", header: "Price", align: "right", num: true, render: (m) => <LivePriceCell symbol={m.symbol} price={m.price} eodDay={asOf?.slice(0, 10) ?? null} /> },
     {
       key: "chg", header: "Change", align: "right", num: true,
-      render: (m) => <Signed value={m.change_pct} testId="markets-mover-change">{fmtPct(m.change_pct, { signed: true, digits: 2 })}</Signed>,
+      render: (m) => <LiveChgCell symbol={m.symbol} pct={m.change_pct} testId="markets-mover-change" eodDay={asOf?.slice(0, 10) ?? null} />,
     },
   ];
   return (
@@ -452,10 +474,10 @@ function MarketLists({ held }: { held: HeldKeys | undefined }) {
       key: "stock", header: "Stock", width: "minmax(0,1.7fr)",
       render: (r) => <CompanyCell symbol={r.symbol} name={r.name} held={isHeld(held, r.symbol, r.name)} />,
     },
-    { key: "price", header: "Price", align: "right", num: true, render: (r) => fmtPrice(r.price) },
+    { key: "price", header: "Price", align: "right", num: true, render: (r) => <LivePriceCell symbol={r.symbol} price={r.price} /> },
     {
       key: "chg", header: "Change", align: "right", num: true,
-      render: (r) => <Signed value={r.change_pct}>{fmtPct(r.change_pct, { signed: true, digits: 2 })}</Signed>,
+      render: (r) => <LiveChgCell symbol={r.symbol} pct={r.change_pct} />,
     },
     detail,
   ];

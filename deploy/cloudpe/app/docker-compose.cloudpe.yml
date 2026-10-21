@@ -55,6 +55,9 @@ services:
       - /opt/nivesh-staging/nginx/cloudflare-only.conf:/etc/nginx/conf.d/00-cloudflare-only.conf:ro
       # This VM's own copy of the Cloudflare origin cert (was prod's /opt/nivesh/ssl).
       - /opt/nivesh-staging/ssl:/etc/nginx/ssl:ro
+      # Mobile app downloads (staging v5 APK), served at /downloads/. The old
+      # host for this, data.niveshcopilot.com, was the GCP NIDP VM and is gone.
+      - /opt/nivesh-staging/downloads:/var/www/downloads:ro
 
 networks:
   nidp-bridge: !reset null

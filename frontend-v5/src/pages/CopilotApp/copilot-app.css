@@ -113,3 +113,11 @@
 .cp-filter { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 10px 8px; }
 .cp-filter button { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; color: var(--cp-ink-3); font-family: var(--mono); font-size: 10px; cursor: pointer; }
 .cp-filter button[aria-pressed="true"] { border-color: var(--mint-line); color: var(--cp-ink); }
+
+/* Live quotes: a price that just ticked is tinted for a moment. Switched off under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-flash="up"] { animation: cp-flash-up 700ms ease-out; }
+  [data-flash="down"] { animation: cp-flash-down 700ms ease-out; }
+  @keyframes cp-flash-up { from { background: color-mix(in srgb, var(--mint) 35%, transparent); } to { background: transparent; } }
+  @keyframes cp-flash-down { from { background: color-mix(in srgb, var(--cp-danger) 35%, transparent); } to { background: transparent; } }
+}

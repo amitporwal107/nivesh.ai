@@ -31,6 +31,9 @@ readable, so an exit is never found by skipping a session that could have held a
 Exits and firings are written with the status in the update filter, so running the check twice (the GET,
 the evening script, two tabs) never closes or fires anything twice and never overwrites a manual close.
 
+A document without `kind` is a cash share trade (everything below). `kind: "strategy"` documents (futures and option
+structures, rules version desk-paper-v3) live in services/desk_strategy_trades.py and are skipped by the share rules.
+
 Paper trades carry the DaaS paper_trades field set (PRD §13.4; rules version `RULES_VERSION`):
     entry rule    at_once (filled at the reference entry when recorded, the first version's behaviour),
                   break_above (filled when a later session's high reaches the entry) or pullback_to (when its
@@ -742,8 +745,8 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
     counts: Dict[str, Any] = {"stop": 0, "target": 0, "time": 0, "entry_not_reached": 0, "already_closed": 0,
                               "checked_through": {}, "paths": {}}
     for trade in trades:
-        if trade.get("status") != "open" or trade["symbol"] not in bars:
-            out.append(trade)
+        if trade.get("kind") == "strategy" or trade.get("status") != "open" or trade["symbol"] not in bars:
+            out.append(trade)          # strategy trades are evaluated by services/desk_strategy_trades.py
             continue
         sim = simulate(trade, bars[trade["symbol"]])
         exit_ = sim["exit"]
@@ -874,6 +877,7 @@ def public_trade(doc: Dict[str, Any], mark: Optional[Dict[str, Any]] = None, mar
     paper = _paper_fields(doc, close, sim)
     return {
         "id": doc["_id"],
+        "kind": "cash",
         "symbol": doc["symbol"],
         "quantity": doc["quantity"],
         "entry_price": doc["entry_price"],

@@ -37,8 +37,8 @@ const MOBILE_LABELS = ["Overview", "AI Scanner", "Market Intel", "Chart Analysis
 // The phone's bottom bar (PRD §3.1 / §3.3, the user's decision of 2026-10-14): same order, short names.
 const BOTTOM = ["overview", "scanner", "intel", "chart", "portfolio", "more"];
 const BOTTOM_LABELS = ["Overview", "Scanner", "Intel", "Chart", "Portfolio", "More"];
-const MORE_ITEMS = ["copilot", "fno", "watchlist", "saved", "paper", "settings"];
-const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
+const MORE_ITEMS = ["copilot", "fno", "events", "strategy", "chartink", "watchlist", "saved", "paper", "settings"];
+const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Events calendar", "Strategy Builder", "Chartink scans", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
 
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -234,8 +234,8 @@ test.describe("Smart trading desk — shell", () => {
     const tools = page.getByRole("navigation", { name: "Tools and workspace" }).locator(".cp-rail-row");
     await expect(tools.first()).toContainText("Smart trading desk");
     await expect(tools.first()).toContainText("AI");
-    await expect(tools.nth(1)).toContainText("Trader desk");
-
+    await expect(tools.nth(1)).toContainText("Screener");
+    await expect(tools.nth(2)).toContainText("Stock research");
     await tools.first().click();
     await expect(page).toHaveURL(/\/v5\/app\/trader\/desk$/);
     await expect(desk(page)).toBeVisible();
@@ -622,7 +622,7 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await expect(status).toHaveText(/^Market closed/);
     await expect(status).toHaveAttribute("data-feed", "closed");
     await expect(page.getByTestId("desk-intro-feed")).toHaveText("NSE · BSE end of day");
-    const sb = await page.getByTestId("desk-search").locator("xpath=..").boundingBox();
+    const sb = await page.getByRole("search").boundingBox();
     expect(Math.round(sb?.height ?? 0)).toBe(38);
     expect(sb?.width ?? 0).toBeLessThanOrEqual(380);
 
@@ -668,6 +668,65 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await expect(status).toHaveAttribute("data-feed", "closed");
     await expect(page.getByTestId("desk-intro-holiday")).toHaveText("NSE holiday · Dussehra");
     await expect(page.getByTestId("desk-intro-feed")).toHaveText("NSE · BSE end of day");
+
+    // PRD 4.1 issue 1: one "Data as of" line dates every feed from the routes' own fields. On a holiday the prior session's
+    // figures are named as such, never presented as today's.
+    const asof = page.getByTestId("desk-asof");
+    await expect(page.getByTestId("desk-asof-clock")).toContainText(/IST \(this device, not a data date\)$/);
+    await expect(page.getByTestId("desk-asof-state")).toHaveText("Market NSE holiday: Dussehra");
+    await expect(page.getByTestId("desk-asof-session")).toHaveText("Last completed session 13 Oct 2026");
+    await expect(page.getByTestId("desk-asof-tape")).toContainText("Index tape End of day · 13 Oct, 15:35 IST");
+    await expect(page.getByTestId("desk-asof-breadth")).toHaveText("Breadth End of day · session 2026-10-13");
+    await expect(page.getByTestId("desk-asof-flows")).toHaveText("FII / DII End of day · session 2026-10-13");
+    await expect(page.getByTestId("desk-asof-regime")).toHaveText("Regime End of day · session 2026-10-13 (1 day old)");
+    await expect(asof).toHaveAttribute("data-not-today", "true");
+    await expect(page.getByTestId("desk-asof-note")).toContainText("are from the last completed session (13 Oct 2026), not today");
+    // The cards keep their own dates.
+    await expect(page.getByTestId("desk-index-stamp").first()).toContainText("13 Oct, 15:35 IST");
+    await expect(page.getByTestId("desk-breadth-scope")).toContainText("13 Oct 2026");
+    await expect(page.getByTestId("desk-mini-fii")).toContainText("13 Oct");
+  });
+
+  test("setup lifecycle: the headline's counts state the scan, the rules, the eligible universe and where each setup stands", async ({ page }) => {
+    await overviewApi(page);
+    // MOCK - not real data: a scan-universe body with only what the line reads (backend/routes/positional.py :: scan_universe).
+    await page.route("**/api/positional/scan-universe*", (route) => json(route, {
+      as_of: "2026-10-12", rows: [], universe: { total: 2469, eligible: 969, fno_eligible: 205, excluded: {} }, categories: {}, model: { status: "unavailable", reason: null, heads: {} },
+    }));
+    await page.route("**/api/positional/watchlist*", (route) => json(route, { ...WATCHLIST, _classifier_version: "smart_v2" }));
+    await page.route("**/api/positional/picks*", (route) => json(route, { ...PICKS, rules_version: "setup-rules-v3" }));
+    await page.goto(DESK);
+    // 3 setups: TESTBRK + TESTPICK confirmed, TESTPRE awaiting (see WATCHLIST / PICKS above); none forming.
+    await expect(page.getByTestId("desk-headline")).toContainText("2 of 3 setups have confirmed.");
+    await expect(page.getByTestId("desk-setups-scope")).toHaveText("End-of-day scan · 12 Oct 2026");
+    await expect(page.getByTestId("desk-setups-rules")).toHaveText("Rules smart_v2 · setup-rules-v3");
+    await expect(page.getByTestId("desk-setups-universe")).toHaveText("Eligible universe 969 stocks · 12 Oct 2026");
+    await expect(page.getByTestId("desk-setups-confirmed")).toHaveText("2 confirmed");
+    await expect(page.getByTestId("desk-setups-awaiting")).toHaveText("1 awaiting");
+    await expect(page.getByTestId("desk-setups-forming")).toHaveText("0 forming");
+    await expect(page.getByTestId("desk-setups-untracked")).toHaveText("Invalidated and expired setups are not tracked yet: the scanner does not send them.");
+  });
+
+  test("setup lifecycle: no scan-universe answer is said, not counted as zero", async ({ page }) => {
+    await overviewApi(page);
+    await page.route("**/api/positional/scan-universe*", (route) => json(route, { detail: "down" }, 500));
+    await page.goto(DESK);
+    await expect(page.getByTestId("desk-setups-universe")).toContainText("Eligible universe — (", { timeout: 15000 });
+    await expect(page.getByTestId("desk-setups-rules")).toHaveText("Rules — (version not in the response)");
+    await expect(page.getByTestId("desk-setups-universe")).not.toContainText("0 stocks");
+  });
+
+  test("Data as of: the live Nifty 50 breadth fallback names no completed session, and a missing timestamp is said, not hidden", async ({ page }) => {
+    await overviewApi(page);
+    await page.route("**/api/markets/home", (route) => json(route, { ...HOME, as_of: null, fetched_at: null, fii_dii: null, market_state: "open", is_live: false, session: SESSION_OPEN,
+      breadth: { ...HOME.breadth, universe: 50, universe_kind: "nifty50_live" } }));
+    await page.goto(DESK);
+    await expect(page.getByTestId("desk-asof-session")).toContainText("Breadth is the live Nifty 50 fallback, which names no completed session.");
+    await expect(page.getByTestId("desk-asof-session")).not.toContainText("2026");
+    await expect(page.getByTestId("desk-asof-tape")).toContainText("The response carries no timestamp for the tape.");
+    await expect(page.getByTestId("desk-asof-flows")).toContainText("The response carries no FII / DII row.");
+    await expect(page.getByTestId("desk-asof-note")).toHaveCount(0);
+    await expect(page.getByTestId("desk-index-stamp").first()).toContainText("no timestamp in the response");
   });
 
   test("header search: a symbol not in the scan opens the Chart tab with ?sym= (PRD §7.2); on the Chart tab it switches the stock; words go to the Copilot", async ({ page }) => {

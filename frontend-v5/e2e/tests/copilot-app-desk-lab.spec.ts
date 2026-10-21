@@ -282,7 +282,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-symbol-nifty")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("desk-fno-symbol-banknifty")).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("desk-fno-loaded")).toHaveCount(0);
-    await expect(page.getByTestId("desk-fno-symbol-input")).toHaveAttribute("placeholder", "Stock ticker, e.g. RELIANCE");
+    await expect(page.getByTestId("desk-fno-symbol-input")).toHaveAttribute("placeholder", "Name or ticker, e.g. TCS");
 
     // Expiry switch from the expiry and futures lists; the nearest (monthly here) is on.
     const sw = expectedSwitch(exp.expiries, fut.futures);
@@ -301,6 +301,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-stats")).toContainText(`${n2(s.expected_move_pct)}% of spot · ATM straddle at the close`);
     await expect(page.getByTestId("desk-fno-futures")).toHaveText(n2(near.settle));
     await expect(page.getByTestId("desk-fno-stats")).toContainText(`+${n2(near.basis)} premium to spot`);
+    await expect(page.getByTestId("desk-fno-stats")).toContainText(`day +${n2(near.change)} (+${n2(near.change_pct)}%)`);
     await expect(page.getByTestId("desk-fno-days")).toHaveText(String(s.days_to_expiry));
     await expect(page.getByTestId("desk-fno-pcr")).toHaveText(n2(s.pcr));
     await expect(page.getByTestId("desk-fno-max-pain")).toHaveText(n0(s.max_pain));
@@ -362,6 +363,45 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-expiry-monthly")).toHaveText(`Monthly · ${dayS(BN_EXPIRIES.expiries[0].expiry)}`);
   });
 
+  test("PRD 17.2 #4/#9: IV, Greeks and per-option OI build-up are collapsed by default, with units, model and the reason for a gap", async ({ page }) => {
+    await fnoData(page);
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-chain").click();
+    const chain = load("copilot-options-chain.json");
+    const toggle = page.getByTestId("desk-fno-model-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByTestId("desk-fno-model-row")).toHaveCount(0);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("desk-fno-model-row")).toHaveCount(chain.strikes.length);
+    await expect(page.getByTestId("desk-fno-model-header").getByRole("columnheader")).toHaveText(["Strike", ...["IV %", "Delta", "Gamma", "Theta", "Vega", "Build-up"], ...["IV %", "Delta", "Gamma", "Theta", "Vega", "Build-up"]]);
+    // 24,800 call from the fixture: IV 13.00, delta 0.6571, theta -7.9948 a day, vega 18.5977 a point, short covering.
+    const row = page.locator('[data-testid="desk-fno-model-row"][data-strike="24800"]');
+    const c = chain.strikes.find((r: { strike: number }) => r.strike === 24800).call;
+    await expect(row.locator('[data-col="call-iv"]')).toHaveText(n2(c.iv));
+    await expect(row.locator('[data-col="call-delta"]')).toHaveText("+0.6571");
+    await expect(row.locator('[data-col="call-theta"]')).toHaveText(`${MINUS}7.9948`);
+    await expect(row.locator('[data-col="call-vega"]')).toHaveText("18.5977");
+    await expect(row.locator('[data-col="call-buildup"]')).toHaveText("short covering");
+    // 24,700 call: close 355.00 is below the discounted intrinsic value of 25,060 - 24,700 -> no IV, "—" with the reason.
+    const dead = page.locator('[data-testid="desk-fno-model-row"][data-strike="24700"]');
+    await expect(dead.locator('[data-col="call-iv"]')).toHaveText("—");
+    await expect(dead.locator('[data-col="call-iv"]')).toHaveAttribute("title", /at or below intrinsic value/);
+    await expect(dead.locator('[data-col="call-delta"]')).toHaveText("—");
+    // The model, rate, as-of and units are on screen.
+    const a = page.getByTestId("desk-fno-model-assumptions");
+    await expect(a).toContainText("Black-76");
+    await expect(a).toContainText("5.75% a year");
+    await expect(a).toContainText("12 Oct");
+    await expect(a).toContainText("forward 25,060.00");
+    const u = page.getByTestId("desk-fno-model-units");
+    await expect(u).toContainText("theta is the price change over one calendar day");
+    await expect(u).toContainText("vega is the price change per one volatility point");
+    await expect(u).toContainText("per one-point move in the forward");
+    await toggle.click();
+    await expect(page.getByTestId("desk-fno-model-row")).toHaveCount(0);
+  });
+
   test("TC-30 NIFTY & BANKNIFTY cards: head, spot, headline, OI range bar, five rows and the chain link", async ({ page }) => {
     await fnoData(page);
     await page.goto(`${DESK}?tab=fno`);
@@ -383,6 +423,9 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId(`${n}-band`)).toHaveText(`${n2(25010 - 487.05)}–${n2(25010 + 487.05)}`);
     await expect(page.getByTestId(`${n}-futures`)).toHaveText("25,060.00 · +50.00 premium");
     await expect(page.getByTestId(`${n}-fut-oi-change`)).toHaveText(`${MINUS}2.50 L`);
+    // PRD 17.2 #8: the futures route's previous close (25,020.00 here) gives the day change; BANKNIFTY's has none.
+    await expect(page.getByTestId(`${n}-fut-day`)).toHaveText("+41.50 (+0.17%) · prev 25,020.00");
+    await expect(page.getByTestId("desk-fno-card-BANKNIFTY-fut-day")).toHaveText("— · no previous close");
     await expect(page.getByTestId(`${n}-pcr`)).toHaveText("0.96");
     await expect(page.getByTestId(`${n}-max-pain`)).toHaveText("25,000");
     await expect(page.getByTestId(`${n}-move`)).toHaveText("12.00% · ±487.05 (1.95%)");
@@ -458,6 +501,97 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await page.getByTestId("desk-fno-symbol-nifty").click();
     await expect(page.getByTestId("desk-fno-loaded")).toHaveCount(0);
     await expect(page.getByTestId("desk-fno-spot")).toHaveText("25,010.00");
+  });
+
+  test("TC-34 a company name is searched, then only F&O stocks load; several matches are listed; an exact ticker skips the search", async ({ page }) => {
+    const asked = await fnoData(page);
+    const searched: string[] = [];
+    // GET /api/search/instruments?q → [{ name, ticker, type, sector }] (backend instrument search; MOCK — not real data)
+    const HITS: Record<string, unknown[]> = {
+      "fixture f&o": [{ name: "Fixture F&O Ltd", ticker: "FIXFNO", type: "equity", sector: "Auto" }],
+      "fixf": [
+        { name: "Fixture F&O Ltd", ticker: "FIXFNO", type: "equity", sector: "Auto" },
+        { name: "Fixture Cash Only Ltd", ticker: "NOFNO", type: "equity", sector: "IT" },
+      ],
+      "cash only": [{ name: "Fixture Cash Only Ltd", ticker: "NOFNO", type: "equity", sector: "IT" }],
+      "zzz corp": [],
+    };
+    await page.route("**/api/search/instruments*", (route) => {
+      const q = (new URL(route.request().url()).searchParams.get("q") ?? "").toLowerCase();
+      searched.push(q);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(HITS[q] ?? []) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-row").first()).toBeVisible();
+    const input = page.getByTestId("desk-fno-symbol-input");
+    const load = page.getByTestId("desk-fno-symbol-load");
+
+    // An exact ticker never calls the search.
+    await input.fill("FIXFNO");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    expect(searched).toEqual([]);
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+    await expect(page.getByTestId("desk-fno-loaded")).toHaveCount(0);
+
+    // A name that matches one F&O stock loads it.
+    await input.fill("Fixture F&O");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    expect(searched).toEqual(["fixture f&o"]);
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+
+    // Several matches: the F&O list's own tickers that contain the text (FIXFLAT) and the search's F&O hits (FIXFNO,
+    // with its name) are offered together, once each; the search's non-F&O hit (NOFNO) is left out. Picking one loads it.
+    await input.fill("fixf");
+    await load.click();
+    const offers = page.getByTestId("desk-fno-symbol-suggest");
+    await expect(offers).toHaveCount(2);
+    await expect(offers.nth(0)).toContainText("FIXFLAT");
+    await expect(offers.nth(1)).toContainText("FIXFNO");
+    await expect(offers.nth(1)).toContainText("Fixture F&O Ltd");
+    await expect(page.locator("#desk-fno-symbol-problem")).not.toContainText("NOFNO");
+    await offers.nth(1).click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    await expect(offers).toHaveCount(0);
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+
+    // Spaces and hyphens do not matter against the F&O list: "fix short" finds FIXSHORT with no help from the search.
+    await input.fill("fix short");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXSHORT loaded");
+    await expect.poll(() => asked).toContain("/api/fno/FIXSHORT/expiries");        // the chain route has no fixture for it; the request is the point
+    await page.getByTestId("desk-fno-symbol-nifty").click();
+
+    // A stock that is not in F&O is named and refused; no chain request is made for it.
+    await input.fill("cash only");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-symbol-unknown")).toHaveText(`Fixture Cash Only Ltd (NOFNO) is not in NSE’s F&O list for ${dayY(BUILDUP.as_of)} (${BUILDUP.universe} stocks have futures), so it has no option chain to load.`);
+    expect(asked.some((a) => a.startsWith("/api/fno/NOFNO"))).toBe(false);
+
+    // No match at all.
+    await input.fill("zzz corp");
+    await load.click();
+    await expect(page.getByTestId("desk-fno-symbol-nomatch")).toHaveText("No stock matches “zzz corp”. Try the NSE ticker, e.g. RELIANCE.");
+  });
+
+  test("TC-34 when the stock search fails, the box says so and a typed ticker still works", async ({ page }) => {
+    const asked = await fnoData(page);
+    await json(page, "**/api/search/instruments*", { detail: "boom" }, 502);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-row").first()).toBeVisible();
+    await page.getByTestId("desk-fno-symbol-input").fill("fixture fno");
+    await page.getByTestId("desk-fno-symbol-load").click();
+    await expect(page.getByTestId("desk-fno-symbol-search-error")).toHaveText("Stock search is unavailable. Type the NSE ticker instead.");
+    // A partial ticker still matches the F&O list itself, so it is offered even though the search failed.
+    await page.getByTestId("desk-fno-symbol-input").fill("fixf");
+    await page.getByTestId("desk-fno-symbol-load").click();
+    await expect(page.getByTestId("desk-fno-symbol-suggest")).toHaveCount(2);
+    await expect(page.getByTestId("desk-fno-symbol-search-error")).toHaveCount(0);
+    await page.getByTestId("desk-fno-symbol-input").fill("FIXFNO");
+    await page.getByTestId("desk-fno-symbol-load").click();
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    expect(asked).toContain("/api/fno/FIXFNO/expiries");
   });
 
   test("TC-32 with the F&O list unavailable, the chain route answers for an unknown ticker", async ({ page }) => {
@@ -627,6 +761,25 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
   });
 
+  test("paper strategies: Build a strategy opens the Strategy Builder for the stock with the chain date as its source; an index has no such button", async ({ page }) => {
+    await fnoData(page);
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-strategies").click();
+    await expect(page.getByTestId("desk-fno-strat-build")).toHaveCount(0);       // NIFTY is an index: plans are for one stock
+    await page.getByTestId("desk-fno-view-buildup").click();
+    await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
+    await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-fno-strat-build").click();
+    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/sym=FIXFNO/);
+    await expect(page).toHaveURL(/src_kind=lab/);
+    await expect(page).toHaveURL(/src_date=2026-10-12/);
+    await expect(page.getByTestId("in-symbol")).toHaveValue("FIXFNO");
+    await expect(page.getByTestId("builder-source")).toHaveText("Started from the Options & futures lab, chain as of 12 Oct 2026");
+  });
+
   test("paper strategies: rules-based cards from build-up, walls and IV; only Cash · delivery posts a paper trade", async ({ page }) => {
     await fnoData(page);
     const posted: unknown[] = [];
@@ -639,17 +792,25 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     });
     await page.goto(`${DESK}?tab=fno`);
 
-    // NIFTY (an index): the view says why no strategy is named.
+    // NIFTY (an index): its build-up is the scan's index-futures row, the same source as the stats tile (short build-up).
     await page.getByTestId("desk-fno-view-strategies").click();
     await expect(page.getByTestId("desk-fno-strat-title")).toHaveText("NIFTY · 27 Oct");
-    await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText("Build-up —");
+    await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText(LABEL[NIFTY_FUT.label as string]);
     await expect(page.getByTestId("desk-fno-strat-kind")).toHaveText("Rules-based · paper trading only");
+    await expect(page.getByTestId("desk-fno-strat-futures-name")).toHaveText("Short futures");
+    await expect(page.getByTestId("desk-fno-strat-options-name")).toHaveText("Bear put spread");
+    await expect(page.getByTestId("desk-fno-strat-cash-name")).toHaveText("No trade suggested");
+    await expect(page.getByTestId("desk-fno-strat-cash-text")).toHaveText("An index has no shares to hold for delivery.");
+    await expect(page.getByTestId("desk-fno-strat-why")).toContainText(`${LABEL[NIFTY_FUT.label as string]} on `);
+    // BANKNIFTY has no index row in the scan: nothing is named, and the view says why.
+    await page.getByTestId("desk-fno-symbol-banknifty").click();
+    await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText("Build-up —");
     for (const k of ["futures", "options", "cash"]) {
       await expect(page.getByTestId(`desk-fno-strat-${k}-name`)).toHaveText("No trade suggested");
       await expect(page.getByTestId(`desk-fno-strat-${k}-add`)).toBeDisabled();
-      await expect(page.getByTestId(`desk-fno-strat-${k}-add`)).toHaveText("No trade suggested");
     }
-    await expect(page.getByTestId("desk-fno-strat-why")).toContainText("NIFTY is an index");
+    await expect(page.getByTestId("desk-fno-strat-why")).toContainText("BANKNIFTY is an index: the build-up scan has no index-futures row");
+    await page.getByTestId("desk-fno-symbol-nifty").click();
 
     // The table: every F&O underlying, names from build-up alone (the rule table, restated here).
     const NAMES: Record<string, [string, string, string]> = {
