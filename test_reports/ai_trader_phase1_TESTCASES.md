@@ -36,6 +36,12 @@ Defects the tests caught and that were fixed before this report: timeframe evide
 ## UI / Playwright Tests
 Not applicable (backend-only phase).
 
+### Real staging run, 2026-10-21 08:23 UTC (after PR #263 deployed; session token supplied by the user)
+- `GET /api/ai-trader/evidence?as_of=2026-10-20` (no cookie) -> `401`; with cookie -> `503 research_engine_unavailable` (also with `symbol=RELIANCE`, and with an unknown symbol, where TC-7 expects 404).
+- `GET /evidence` (no as_of) -> `422`; `as_of=bad` -> `422`.
+- `POST /calibration` with two 0.8 predictions (one hit) -> `200`, `brier 0.34` (hand calc (0.04+0.64)/2 = 0.34, correct).
+- Cause (checked in the running container): `nivesh-staging-app-backend` mounts only `/opt/nivesh-staging/repo/backend:/app/backend` and `/app/data`; `/app/research` does not exist. Fix on branch: read-only mount of `repo/research` in `deploy/nivesh-staging/docker-compose.staging.yml`. Needs a deploy; TC-2, TC-3 (route), TC-11 and the 404 half of TC-7 stay UNVERIFIED on staging until then. Kite daily bars (`/app/research/kite_history/day_2021`) are not in the repo, so symbol-level evidence will still be UNAVAILABLE / BARS_SOURCE_MISSING on staging unless that data is provided.
+
 ## Data Correctness (staging)
 Not run against the warehouse. Sector rows vs index files and file freshness checked locally (TC-10).
 
