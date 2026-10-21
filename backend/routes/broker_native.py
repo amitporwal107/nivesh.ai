@@ -56,6 +56,7 @@ from feature_gate import require_feature
 from services import audit as _audit
 from services.brokers import registry as _broker_registry
 from services.brokers import sessions as _sessions
+from services.kite_live_feed import platform_token as _kite_platform
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/broker/native")
@@ -356,6 +357,14 @@ async def _finish_sign_in(request: Request, broker_slug: str):
     state = qp.get("state") or ""
     status = qp.get("status")
     error = qp.get("error") or (status if status not in ("success", None) else "")
+
+    # The daily PLATFORM Kite login (admin-started, services/kite_live_feed/platform_token.py) is told apart by its signed
+    # "kp." state. It never touches the per-user flow below, and needs no signed-in browser: the state is the proof.
+    if broker_slug == "zerodha" and _kite_platform.is_platform_state(state):
+        ok, reason = await _kite_platform.handle_callback(db, dict(qp))
+        if ok:
+            return RedirectResponse(url=_kite_platform.SUCCESS_REDIRECT)
+        return RedirectResponse(url=f"/dashboard?{urlencode({'kite': 'error', 'reason': reason})}")
 
     state_doc, signed_in = await _find_state(request, state, broker_slug)
     back = _sessions.safe_return_to((state_doc or {}).get("return_to")) or DEFAULT_RETURN_TO

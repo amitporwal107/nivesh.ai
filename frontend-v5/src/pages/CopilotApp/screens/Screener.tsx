@@ -12,6 +12,7 @@ import {
   Btn, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Screen, ScreenHeader, Section, fmtDate, fmtNum,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { useLiveOverlays } from "../lib/useLiveQuotes";
 import { SECTOR_HEATMAP_VIEW } from "../lib/views";
 import { AskPill, FilterChips, LoadError, type ChipItem } from "./markets/parts";
 import { useScreenRun, type ScreenBucket, type ScreenRun, type ScreenRunRequest } from "./markets/screener-run";
@@ -81,6 +82,22 @@ interface RanScreen {
   savedId: string | null;
 }
 
+type Widget = ScreenRun["widget"];
+
+/** The screener widget plus "LTP" and "Day %" columns from the live feed (rows without a live quote show "—"). */
+function withLive(w: Widget, get: (symbol: string) => { ltp: number; changePct: number | null } | null): Widget {
+  return {
+    ...w,
+    columns: [...w.columns,
+      { key: "live_ltp", label: "LTP", unit: "₹", kind: "num", align: "right", decimals: 2 },
+      { key: "live_chg", label: "Day", unit: "%", kind: "num", align: "right", signed: true, decimals: 2 }],
+    universe: w.universe.map((r) => {
+      const q = get(String(r.ticker ?? r.symbol ?? ""));
+      return { ...r, live_ltp: q ? q.ltp : null, live_chg: q ? q.changePct : null };
+    }),
+  };
+}
+
 type ResultState = "idle" | "unrunnable" | "loading" | "error" | "empty" | "ready";
 
 /**
@@ -101,6 +118,9 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
   onAsk: (query: string) => void;
 }) {
   const request = ran?.request ?? null;
+  // Kite's live price and day change join the table as two extra columns while the feed is LIVE; nothing else in the rows changes.
+  const liveRows = data?.ok ? data.widget.universe : [];
+  const live = useLiveOverlays(liveRows.map((r) => String(r.ticker ?? r.symbol ?? "")));
   // The source not answering (ok:false) is a failure, not an empty result.
   const failed = !fetching && (!!error || (!!data && !data.ok));
   const answered = !fetching && !failed && data?.ok ? data : undefined;
@@ -208,7 +228,7 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
         {why ?? (
           <div data-testid="screener-results-widget" className="min-w-0">
             <SafeWidget name="Screener results · stock_screener">
-              <ChatWidget key={`${ran?.seq ?? 0}-${runAt}`} widget={{ widget_type: "stock_screener", data: answered.widget }} onAction={onWidgetAction} />
+              <ChatWidget key={`${ran?.seq ?? 0}-${runAt}`} widget={{ widget_type: "stock_screener", data: live.live ? withLive(answered.widget, live.get) : answered.widget }} onAction={onWidgetAction} />
             </SafeWidget>
           </div>
         )}

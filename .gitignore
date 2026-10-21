@@ -527,3 +527,8 @@ docs/OPEN_API_KEY
 # local deploy checkouts (not part of the repo)
 .deploy-dev
 .deploy-main
+
+# Kite Connect local credentials / daily access token (never commit)
+.kite-api
+.kite-access-token
+.trendlyne-mcp

@@ -6,8 +6,8 @@
  *
  * A squarified treemap of the index (sectors as outer boxes, stocks inside), coloured by the 1D / 1W / 1M return and
  * sized by index weight, traded value or equally. Under it the rotation matrix ranks every sector, and a card shows
- * the selected stock. The headline is written from the data and rewritten with the period. Nothing is live: the
- * route is end of day and every card says so. A return the route could not give shows "—" on a neutral tile.
+ * the selected stock. The headline is written from the data and rewritten with the period. The route is end of day; while the
+ * Kite feed is LIVE the 1D layer is recomputed from live quotes (useLiveHeatmap) and every card says so. A return the route could not give shows "—" on a neutral tile.
  *
  * Reachable from the Screener, the trading desk's sector card and by URL; deliberately not a Trader rail item.
  */
@@ -23,7 +23,7 @@ import {
   CLAMP, PERIODS, PERIOD_LABEL, STALE_AFTER_DAYS, biggestMover, countsFor, daysOld, legendSteps, periodPhrase, rankSectors, signed, sizeOf, tintOf, verdictFor,
   type Counts, type SizeBy,
 } from "./heatmap/heat";
-import { indexLabel, useSectorHeatmap, type HeatSector, type HeatStock, type Heatmap, type PeriodKey } from "./heatmap/heatmap-data";
+import { indexLabel, useLiveHeatmap, useSectorHeatmap, type HeatSector, type HeatStock, type Heatmap, type PeriodKey } from "./heatmap/heatmap-data";
 import { squarify } from "./heatmap/squarify";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -90,7 +90,7 @@ function Trust({ d, testId, extra }: { d: Heatmap; testId: string; extra?: strin
       <TrustLine
         testId={testId}
         source="NSE"
-        mode={d.mode === "end_of_day" ? "eod" : null}
+        mode={d.mode === "live" ? "live" : d.mode === "end_of_day" ? "eod" : null}
         asOf={d.asOf ? dayLabel(d.asOf, { year: true }) : null}
         method={`weights from index constituents · returns on adjusted closes${extra ? ` · ${extra}` : ""}`}
         status={stale ? "stale" : "ok"}
@@ -408,7 +408,7 @@ export default function SectorHeatmap() {
   const [sizeBy, setSizeBy] = useState<SizeBy>("weight");
   const [zoomRaw, setZoom] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
-  const d = q.data;
+  const d = useLiveHeatmap(q.data);          // 1D from Kite while the feed is LIVE; 1W / 1M and the weights stay end of day
 
   const zoom = d && zoomRaw && d.stocks.some((s) => s.sector === zoomRaw) ? zoomRaw : null;
   const missingTv = d ? d.stocks.filter((s) => s.tradedValueCr == null).length : 0;
@@ -472,7 +472,7 @@ export default function SectorHeatmap() {
         <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "minmax(0,1fr) 340px", gap: mobile ? 16 : 28, alignItems: "end" }}>
           <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
             <div className="flex flex-wrap items-center justify-between" style={{ gap: 8 }}>
-              <span className="cp-eyebrow">Sector rotation · {indexLabel(d.index)} · end of day</span>
+              <span className="cp-eyebrow">Sector rotation · {indexLabel(d.index)} · {d.mode === "live" ? "1D live from Kite · 1W and 1M end of day" : "end of day"}</span>
               {mobile && <Seg tall label="Period" testId="hm-period" value={period} onPick={setPeriod} options={PERIODS.map((p) => ({ key: p, label: PERIOD_LABEL[p] }))} />}
             </div>
             <Verdict d={d} period={period} />

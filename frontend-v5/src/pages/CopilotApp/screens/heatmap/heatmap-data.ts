@@ -9,7 +9,9 @@
  * Nothing here trusts the response shape: a missing or non-numeric field is null, never 0, and a body without the
  * `sectors` or `stocks` list the route always sends throws a contract error.
  */
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLiveQuotes, type LiveQuote } from "../../lib/useLiveQuotes";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 
@@ -113,4 +115,49 @@ export function useSectorHeatmap(index: string) {
 /** "NIFTY50" → "Nifty 50"; any other index is shown as the route names it. */
 export function indexLabel(code: string): string {
   return code.toUpperCase() === "NIFTY50" ? "Nifty 50" : code;
+}
+
+/**
+ * The 1-day layer from the live feed. While Kite is LIVE, each stock's 1D return and close come from its live quote and
+ * everything derived from them (each sector's 1D return and pull, the weighted change, breadth, index impact) is
+ * recomputed from the same stocks with the response's own weights. 1W and 1M stay end of day. A stock with no live quote
+ * keeps its end-of-day 1D, and `mode` becomes "live" only when at least one stock was updated.
+ */
+export function applyLive(d: Heatmap, get: (symbol: string) => LiveQuote | null): Heatmap {
+  let hits = 0;
+  const stocks = d.stocks.map((s) => {
+    const q = get(s.symbol);
+    if (!q || q.changePct == null) return s;
+    hits++;
+    return {
+      ...s, close: q.ltp, returns: { ...s.returns, d: q.changePct },
+      indexImpactD: s.weightPct != null ? (s.weightPct * q.changePct) / 100 : s.indexImpactD,
+    };
+  });
+  if (hits === 0) return d;
+  const wsum = stocks.reduce((a, s) => (s.returns.d != null && s.weightPct != null ? a + s.weightPct : a), 0);
+  const sectors = d.sectors.map((sec) => {
+    const mem = stocks.filter((s) => s.sector === sec.name && s.returns.d != null && s.weightPct != null);
+    const w = mem.reduce((a, s) => a + (s.weightPct as number), 0);
+    if (w <= 0) return sec;
+    const ret = mem.reduce((a, s) => a + (s.weightPct as number) * (s.returns.d as number), 0) / w;
+    return { ...sec, returns: { ...sec.returns, d: ret }, contribution: { ...sec.contribution, d: wsum > 0 ? (w * ret) / wsum : sec.contribution.d } };
+  });
+  const withD = stocks.filter((s) => s.returns.d != null);
+  const adv = withD.filter((s) => (s.returns.d as number) > 0).length;
+  const dec = withD.filter((s) => (s.returns.d as number) < 0).length;
+  const weighted = wsum > 0
+    ? stocks.reduce((a, s) => (s.returns.d != null && s.weightPct != null ? a + s.weightPct * s.returns.d : a), 0) / wsum
+    : d.weighted.d;
+  return {
+    ...d, mode: "live", stocks, sectors, weighted: { ...d.weighted, d: weighted },
+    breadth: { advances: adv, declines: dec, unchanged: withD.length - adv - dec },
+  };
+}
+
+/** `useSectorHeatmap`'s data with the live 1D layer on top (the same object while the feed is not LIVE). */
+export function useLiveHeatmap(d: Heatmap | undefined): Heatmap | undefined {
+  const { quotes, meta } = useLiveQuotes(d ? d.stocks.map((s) => s.symbol) : []);
+  const live = meta.mode === "live";
+  return useMemo(() => (d && live ? applyLive(d, (sym) => quotes[sym.toUpperCase()] ?? null) : d), [d, live, quotes]);
 }

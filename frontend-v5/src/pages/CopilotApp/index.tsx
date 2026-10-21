@@ -17,6 +17,7 @@ import { SafeWidget } from "@/components/shared/SafeWidget";
 import { useMe } from "@/hooks/use-auth";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { LoadingBlock } from "./components/ui";
+import { LiveChip } from "./components/LiveBits";
 import { classifyAgent } from "./lib/answer";
 import { CopilotShellProvider, type AskOptions, type CopilotShell } from "./lib/shell-context";
 import { useCopilotPrefs } from "./lib/store";
@@ -186,7 +187,8 @@ export default function CopilotAppPage() {
           <Rail mode={mode} view={view} drawer={compact} isAdmin={isAdmin} onGo={go} onNewQuestion={newQuestion} onToggleMode={toggleMode} />
         )}
 
-        <main className="flex flex-col" style={{ minHeight: 0, minWidth: 0 }}>
+        <main className="flex flex-col" style={{ minHeight: 0, minWidth: 0, position: "relative" }}>
+          {mode === "trader" && !compact && <LiveChip floating />}
           {compact && (
             <div data-testid="compact-bar" className="flex items-center" style={{ gap: 10, padding: "calc(12px + env(safe-area-inset-top)) 16px 10px", borderBottom: "1px solid var(--cp-line)" }}>
               <button type="button" data-testid="menu-button" aria-label="Open menu" aria-expanded={navOpen} onClick={() => setNavOpen((o) => !o)} className="grid place-items-center" style={{ width: 34, height: 34, borderRadius: 10, border: "1px solid var(--line-2)", background: "transparent", fontSize: 16, color: "var(--cp-ink)", cursor: "pointer" }}>≡</button>
@@ -195,6 +197,7 @@ export default function CopilotAppPage() {
                 <span style={{ fontFamily: "var(--display)", fontSize: 20 }}>Nivesh</span>
               </button>
               <span style={{ flex: 1 }} />
+              {mode === "trader" && <LiveChip />}
               {evAllowed && (
                 <button type="button" data-testid="evidence-toggle" onClick={toggleEvidence} className="cp-pill" style={{ cursor: "pointer", background: "transparent" }} aria-pressed={mobile ? sheetOpen : !!evColumn}>Evidence</button>
               )}

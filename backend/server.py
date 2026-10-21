@@ -95,9 +95,11 @@ from routes.paper_trades import router as paper_trades_router    # Research → 
 from routes.fno import router as fno_router                      # Options lab + F&O analyser — end-of-day chain, expiries, futures (/api/fno/*, read-only)
 from routes.sim_lab import router as sim_lab_router            # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 from routes.research_chart import router as research_chart_router        # Research → Charts (/api/research/chart/*, allowlist flag)
+from routes.live_quotes import router as live_quotes_router  # Live Kite quotes (/api/live/*)
 from routes.research_chart_live import router as research_chart_live_router  # Research → Charts LIVE bars (/api/research/chart-live/*)
 from routes.research_drawings import router as research_drawings_router  # Research → Charts drawings (/api/research/drawings, allowlist flag)
 from routes.research_chart_layouts import router as research_chart_layouts_router  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
+from routes.research_providers import router as research_providers_router  # Research → data providers: Kite + Trendlyne MCP (/api/research/providers/*, allowlist flag)
 from routes.portfolio_exposure import router as portfolio_exposure_router  # Diversification & Concentration analytics — AMC / Sector / Company exposure
 from routes.portfolio_risk_analytics import router as portfolio_risk_analytics_router  # V3 risk analytics — beta/sharpe/volatility from DAAS
 from routes.portfolio_composition import router as portfolio_composition_router  # v5 Composition Explorer — asset_class/sector/fund/group breakdown
@@ -228,9 +230,11 @@ app.include_router(paper_trades_router)           # Research → Paper (/api/pap
 app.include_router(fno_router)                    # Options lab + F&O analyser — end-of-day chain, expiries, futures (/api/fno/*, read-only)
 app.include_router(sim_lab_router)                # Research → Simulation Lab (/api/sim-lab/*, allowlist flag)
 app.include_router(research_chart_router)         # Research → Charts (/api/research/chart/*, allowlist flag)
+app.include_router(live_quotes_router)             # Live Kite quotes: status / quotes / snapshot / SSE stream (/api/live/*)
 app.include_router(research_chart_live_router)    # Research → Charts LIVE bars (/api/research/chart-live/*, allowlist flag)
 app.include_router(research_drawings_router)      # Research → Charts drawings (/api/research/drawings, allowlist flag)
 app.include_router(research_chart_layouts_router)  # Research → Charts saved layouts (/api/research/chart-layouts, allowlist flag)
+app.include_router(research_providers_router)      # Research → data providers (/api/research/providers/*, allowlist flag)
 app.include_router(portfolio_exposure_router)      # Diversification & Concentration analytics (/api/portfolio/exposure/concentration)
 app.include_router(portfolio_risk_analytics_router) # V3 risk analytics (/api/portfolio/risk-analytics) — beta/sharpe/vol from DAAS
 app.include_router(portfolio_composition_router)   # v5 Composition Explorer (/api/portfolio/composition)
@@ -430,10 +434,21 @@ async def startup_seed():
         raise
     except Exception as e:
         logger.warning("datastore isolation audit failed: %s", e)
+    # Live Kite quote feed (read-only, leader-elected, KITE_LIVE_FEED_ENABLED=0 turns it off)
+    try:
+        from services import kite_live_feed
+        await kite_live_feed.start(db)
+    except Exception as e:
+        logger.warning("kite live feed did not start: %s", type(e).__name__)
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
+    try:
+        from services import kite_live_feed
+        await kite_live_feed.stop(db)
+    except Exception:
+        pass
     try:
         from services import mf_scheduler, pg_client, redis_client
         mf_scheduler.stop()
