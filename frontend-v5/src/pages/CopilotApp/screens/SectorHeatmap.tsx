@@ -23,7 +23,7 @@ import {
   CLAMP, PERIODS, PERIOD_LABEL, STALE_AFTER_DAYS, biggestMover, countsFor, daysOld, legendSteps, periodPhrase, rankSectors, signed, sizeOf, tintOf, verdictFor,
   type Counts, type SizeBy,
 } from "./heatmap/heat";
-import { indexLabel, useLiveHeatmap, useSectorHeatmap, type HeatSector, type HeatStock, type Heatmap, type PeriodKey } from "./heatmap/heatmap-data";
+import { HEATMAP_INDICES, indexLabel, useLiveHeatmap, useSectorHeatmap, type HeatSector, type HeatStock, type Heatmap, type PeriodKey } from "./heatmap/heatmap-data";
 import { squarify } from "./heatmap/squarify";
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -483,8 +483,8 @@ export default function SectorHeatmap() {
         <div data-testid="hm-controls" className="flex flex-wrap items-center" style={{ gap: "10px 18px" }}>
           <label className="flex items-center" style={{ gap: 8 }}>
             <span className="cp-mono-note">Index</span>
-            <select data-testid="hm-index" value={d.index} onChange={(e) => setIndex(e.target.value)} style={{ minHeight: mobile ? 44 : 36, padding: "0 10px", borderRadius: 10, border: "1px solid var(--line-2)", background: "var(--bg-2)", color: "var(--cp-ink)", fontSize: 13 }}>
-              <option value={d.index}>{indexLabel(d.index)}</option>
+            <select data-testid="hm-index" value={index} onChange={(e) => setIndex(e.target.value)} style={{ minHeight: mobile ? 44 : 36, padding: "0 10px", borderRadius: 10, border: "1px solid var(--line-2)", background: "var(--bg-2)", color: "var(--cp-ink)", fontSize: 13 }}>
+              {HEATMAP_INDICES.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
             </select>
           </label>
           <span className="flex items-center" style={{ gap: 8 }}>

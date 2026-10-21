@@ -112,9 +112,17 @@ export function useSectorHeatmap(index: string) {
   });
 }
 
+/** The broad indices offered in the picker; the route matches names ignoring spaces and case. */
+export const HEATMAP_INDICES: Array<{ code: string; label: string }> = [
+  { code: "NIFTY50", label: "Nifty 50" },
+  { code: "NIFTY100", label: "Nifty 100" },
+  { code: "NIFTY500", label: "Nifty 500" },
+];
+
 /** "NIFTY50" → "Nifty 50"; any other index is shown as the route names it. */
 export function indexLabel(code: string): string {
-  return code.toUpperCase() === "NIFTY50" ? "Nifty 50" : code;
+  const key = code.replace(/\s+/g, "").toUpperCase();
+  return HEATMAP_INDICES.find((o) => o.code === key)?.label ?? code;
 }
 
 /**
