@@ -31,6 +31,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import db, get_current_user
+from services import risk_controls as rc
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/positional/journal", tags=["positional-journal"])
@@ -162,6 +163,11 @@ def _exit_ladder(trade: dict, ltp: Optional[float]) -> List[Dict[str, Any]]:
 async def create_trade(request: Request):
     """Open a new trade journal entry."""
     user = await get_current_user(request)
+    # Same kill switch as the other position-creating paths; this one had no risk gate either.
+    try:
+        await rc.assert_allowed(db, user["user_id"], "journal_trade")
+    except rc.RiskBlocked as blocked:
+        raise HTTPException(status_code=409, detail=blocked.detail("journal_trade"))
     body = await request.json()
     sym = (body.get("nse_symbol") or "").upper().strip()
     cap = float(body.get("capital_alloc_rs") or 0)

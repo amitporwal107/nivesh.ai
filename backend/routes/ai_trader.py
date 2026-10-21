@@ -71,6 +71,7 @@ from pymongo.errors import DuplicateKeyError
 from deps import db, get_current_user
 from services import desk_trading as desk
 from services import desk_strategy_trades as desk_strategy
+from services import risk_controls as rc
 from services import pg_client
 from services.ai_trader import _research, execution, strategy
 from services.ai_trader.calibration import CalibrationError, calibration_report
@@ -363,7 +364,16 @@ async def _portfolio(uid: str, capital: float) -> Portfolio:
             continue
         if desk.ist_date(d["closed_at"]) == today:
             realized += float(pnl)
-    return Portfolio(capital=capital, positions=positions, realized_pnl_today=round(realized, 2))
+    # The governor has enforced `kill_switch` and `halted` since it was written
+    # (risk_governor.py:112-115) and this call never passed them, so they held their dataclass
+    # defaults of False on every evaluation: the enforcement was correct and could never fire.
+    # They now carry the user's stored controls. `drawdown_pct` is still None and still honestly
+    # reported as DRAWDOWN_UNKNOWN — the desk keeps no equity curve to measure a drawdown against,
+    # and a threshold that cannot be computed must not be presented as enforced.
+    controls = await rc.read(db, uid)
+    return Portfolio(capital=capital, positions=positions, realized_pnl_today=round(realized, 2),
+                     kill_switch=bool(controls.get("kill_switch")),
+                     halted=bool(controls.get("halted")))
 
 
 def _market(as_of: str) -> Market:
