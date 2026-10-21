@@ -151,10 +151,40 @@ def _parse_month(s: str) -> date:
     return date.fromisoformat(s if len(s) > 7 else f"{s}-01")
 
 
+def latest_disclosure_month(today: Optional[date] = None) -> date:
+    """The most recent month whose portfolio should exist by now.
+
+    SEBI requires disclosure within 10 days of month end, so before the 11th the previous
+    month is not due yet and the one before it is the latest we can expect.
+    """
+    d = today or date.today()
+    prev = date(d.year - 1, 12, 1) if d.month == 1 else date(d.year, d.month - 1, 1)
+    if d.day >= 11:
+        return prev
+    return date(prev.year - 1, 12, 1) if prev.month == 1 else date(prev.year, prev.month - 1, 1)
+
+
+def trailing_range(n: int, today: Optional[date] = None) -> tuple[date, date]:
+    """The n most recent due disclosure months, oldest..newest."""
+    if n < 1:
+        raise SystemExit("--trailing must be >= 1")
+    end = latest_disclosure_month(today)
+    start = end
+    for _ in range(n - 1):
+        start = date(start.year - 1, 12, 1) if start.month == 1 else \
+            date(start.year, start.month - 1, 1)
+    return start, end
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Backfill nidp.mf_holdings_monthly over a month range")
-    ap.add_argument("--from", dest="start", required=True, help="YYYY-MM or YYYY-MM-01")
-    ap.add_argument("--to", dest="end", required=True, help="YYYY-MM or YYYY-MM-01")
+    ap.add_argument("--from", dest="start", help="YYYY-MM or YYYY-MM-01")
+    ap.add_argument("--to", dest="end", help="YYYY-MM or YYYY-MM-01")
+    ap.add_argument("--trailing", type=int, metavar="N",
+                    help="instead of --from/--to, the N most recent due disclosure months. "
+                         "Intended for cron: with the default --only-missing this is a cheap "
+                         "no-op once every pair is OK, and heals months a third-party index "
+                         "had not yet listed on the scheduled run day.")
     ap.add_argument("--amcs", help="comma-separated adapter keys (default: all)")
     ap.add_argument("--all", dest="only_missing", action="store_false", default=True,
                     help="re-fetch pairs already marked OK (default: skip them)")
@@ -165,10 +195,17 @@ def main() -> None:
     setup_logging("mf_holdings_backfill")
     amcs = [a.strip() for a in args.amcs.split(",")] if args.amcs else None
 
+    if args.trailing is not None:
+        start, end = trailing_range(args.trailing)
+    elif args.start and args.end:
+        start, end = _parse_month(args.start), _parse_month(args.end)
+    else:
+        raise SystemExit("give either --trailing N, or both --from and --to")
+
     async def _go() -> None:
         try:
-            await run_backfill(_parse_month(args.start), _parse_month(args.end),
-                               amcs=amcs, only_missing=args.only_missing, dry_run=args.dry_run)
+            await run_backfill(start, end, amcs=amcs,
+                               only_missing=args.only_missing, dry_run=args.dry_run)
         finally:
             await close_pool()
 

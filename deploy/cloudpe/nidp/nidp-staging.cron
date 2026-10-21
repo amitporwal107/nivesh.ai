@@ -90,6 +90,15 @@ NIDP_HOME=/opt/nidp-staging
 0  9  * * *    nidp-staging  /opt/nidp-staging/run_service.sh amfi_circulars
 0  10 12 * *   nidp-staging  /opt/nidp-staging/run_service.sh mf_disclosure_snapshot
 0  11 12 * *   nidp-staging  /opt/nidp-staging/run_service.sh mf_holdings
+# Catch-up. The run above gets ONE attempt per month, but the AMC sites and the third-party
+# index that lists them lag the SEBI M+10 deadline by days — a month missed on the 12th was
+# previously lost for good (that is how mf_holdings ended up holding a single month). This
+# re-attempts only (amc, month) pairs not yet marked OK in nidp.mf_holdings_coverage, so once
+# the window is complete it is a cheap no-op.
+0  12 12-28 * *  nidp-staging  /opt/nidp-staging/run_service.sh mf_holdings.backfill --trailing 3
+# Month-over-month deltas (§20.1). Runs after the catch-up; --all because filling an older
+# month also changes the next month's comparison baseline.
+30 12 12-28 * *  nidp-staging  /opt/nidp-staging/run_service.sh mf_holdings_deltas --all
 
 # ── MF derived analytics refresh ──────────────────────────────────
 50 23 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh mf_derived_refresh
