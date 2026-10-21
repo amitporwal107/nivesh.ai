@@ -113,3 +113,86 @@ increasing against 236 reducing — net distribution. Reporting both sides is wh
   `code:1009 "Rate limiting channel or user not subscribed"`.
 
 ## Verdict: PASS
+
+---
+
+# Addendum — provenance schema, month-contradiction guard, Tata coverage (same day)
+
+Acting on the P0/P1 action plan: provenance schema and Tata now, independent of the SBI outage.
+
+## Test Cases
+
+| ID | Scenario | Expected | Result |
+|----|----------|----------|--------|
+| TC-C1 | Provenance columns added; nothing fabricated | 0 rows with `published_at` | **PASS** — 0 of 1,648,161 |
+| TC-C2 | Availability is bounded for every existing row | all have `source_observed_at` | **PASS** — 1,648,161/1,648,161, all `observed_only` |
+| TC-C3 | Provenance view separates timely from backfilled months | lag differs | **PASS** — 2026-09 = 12 days; backfilled = 52–205 |
+| TC-C4 | Guard rejects a file naming another month | ERROR with both months named | **PASS** — 4 quant months, see below |
+| TC-C5 | Guard passes legitimate and unjudgeable URLs | no false rejection | **PASS** — 12 real URLs: 4 rejected, 8 passed |
+| TC-C6 | Decode change does not alter resolved URLs | 0 changes | **PASS** — identical=70 changed=0 lost=0 |
+| TC-C7 | Tata resolves the DATA month, not the publication month | Sept target → Sept file | **PASS** — `/2026-10/.../30th September 2026` for 2026-09 |
+| TC-C8 | Tata 13-month catch-up | 13 months | **PASS** — 13/13, 208,771 rows |
+| TC-C9 | Unit tests still pass after four module changes | 19 passed | **PASS** |
+
+## Real output — the guard refusing mislabelled data
+```
+ as_of_month | status |                        last_error
+ 2026-07-01  | ERROR  | source file is for 2026-09-01, not 2026-07-01 (https://www.quantmutual.c…
+ 2026-05-01  | ERROR  | source file is for 2026-09-01, not 2026-05-01 (…)
+ 2026-02-01  | ERROR  | source file is for 2026-09-01, not 2026-02-01 (…)
+ 2025-09-01  | ERROR  | source file is for 2025-12-01, not 2025-09-01 (…)
+```
+Before the guard these four months held September-2026 (and December-2025) holdings written under
+the wrong month — three identical 10,700-row copies, against ~2,600–3,200 rows for a genuine quant
+month. 32,100 mislabelled rows were deleted; the months now read as not-collected, which is true.
+
+## Real output — final coverage
+```
+  amc_id   | ok | not_ok |  rows
+ absl      | 13 |      0 | 199432
+ franklin  | 13 |      0 |  90678
+ icici_pru | 13 |      0 | 351224
+ kotak     | 13 |      0 | 234272
+ nippon    | 13 |      0 | 358029
+ ppfas     | 13 |      0 |  21084
+ tata      | 13 |      0 | 208771
+ uti       | 12 |      1 |  31006
+ quant     |  9 |      4 |  24516
+ axis      |  5 |      8 | 101610
+ sbi       |  1 |     12 |  24737
+```
+**7 AMCs at full 13-month depth** (5 at the start of this addendum, 0 before today).
+
+## Real output — final totals and invariants
+```
+ months | holdings | deltas  | validated | component
+     13 |  1648161 | 1738521 |   1544395 |       965
+
+ tc5 | tc7 | tc6 | tc9 | tc8 | fabricated_published_at
+   0 |   0 |   0 |   0 |   0 |                       0
+```
+`mf_holdings_deltas --all`: `inserted=1710722 status=OK duration=109127ms`.
+`smart_money_scores`: `wrote 965 rows (universe 2480); confidence={'high': 548, 'low': 369, 'medium': 48}`.
+
+## Release-gate position
+- **Gate A (data integrity)** — provenance, completeness, source recovery and missing-data handling
+  are implemented. NOT fully met: `published_at` is uncaptured (no adapter reads it), and
+  `source_payload_sha256` covers only rows written after migration 169 (205,867 of 1,648,161).
+- **Gate B (multi-date shadow validation)** — NOT started. One scoring date exists (2026-10-21);
+  one date cannot evidence stability.
+- **Gate C (incremental predictive value)** — NOT started, and not currently satisfiable: a
+  point-in-time-valid backtest needs `published_at`, and historical universe membership has 3
+  distinct `index_constituents` dates.
+- **Gate D (promotion)** — not reached. The component writes only its own table.
+
+## UNVERIFIED / open
+- Staging only; prod untouched.
+- **SBI 1/13** — `sbimf.com` served HTTP 503 for its whole host throughout. Its 13 months are
+  resolvable; the `--trailing` catch-up should heal it. **quant 9/13** — the 4 refused months are
+  genuinely absent from the index; the direct adapter has no correct file for them.
+  **axis 5/13** (index exposes 5). **HDFC and Mirae unreached** — AdvisorKhoj carries only
+  factsheet PDFs (top-10 holdings, not full portfolios), so they need another source.
+- `published_at` remains the blocker for honest point-in-time use of this pillar.
+- Trendlyne still returns `code:1009` on every data tool; not treated as operational.
+
+## Verdict: PASS
