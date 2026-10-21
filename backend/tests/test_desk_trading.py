@@ -35,6 +35,7 @@ from pymongo.errors import DuplicateKeyError
 
 from routes import desk_trading as route
 from services import desk_trading as svc
+from services import paper_account as _acct
 from services import risk_controls as _rc
 
 TRADES_URL = "/api/desk/paper-trades"
@@ -95,13 +96,29 @@ class FakeCollection:
         self.writes += 1
         self.docs.append(copy.deepcopy(doc))
 
-    async def update_one(self, query, update):
-        assert set(update) == {"$set"}, f"the fake collection does not know {set(update)}"
+    async def update_one(self, query, update, upsert=False):
+        # $inc / $setOnInsert / upsert are modelled because the paper account keeps its cash and
+        # blocked figures that way (services/paper_account). A fixture that cannot express them would
+        # fail every trade create, which is a gap in the fixture, not in the account.
+        known = {"$set", "$inc", "$setOnInsert", "$push"}
+        assert set(update) <= known, f"the fake collection does not know {set(update) - known}"
         for d in self.docs:
             if _matches(d, query):
                 self.writes += 1
-                d.update(copy.deepcopy(update["$set"]))
+                d.update(copy.deepcopy(update.get("$set") or {}))
+                for key, delta in (update.get("$inc") or {}).items():
+                    d[key] = (d.get(key) or 0) + delta
+                for key, value in (update.get("$push") or {}).items():
+                    d.setdefault(key, []).append(copy.deepcopy(value))
                 return _Result(matched=1)
+        if upsert:
+            doc = copy.deepcopy(update.get("$setOnInsert") or {})
+            doc.update(copy.deepcopy(update.get("$set") or {}))
+            for key, delta in (update.get("$inc") or {}).items():
+                doc[key] = (doc.get(key) or 0) + delta
+            self.writes += 1
+            self.docs.append(doc)
+            return _Result(matched=0)
         return _Result()
 
     async def delete_one(self, query):
@@ -121,7 +138,8 @@ class FakeDb:
         # instead of weakening it.
         self.cols = {svc.TRADES: FakeCollection(), svc.ALERTS: FakeCollection(),
                      _rc.CONTROLS: FakeCollection(), _rc.AUDIT: FakeCollection(),
-                     _rc.DECISIONS: FakeCollection()}
+                     _rc.DECISIONS: FakeCollection(),
+                     _acct.ACCOUNTS: FakeCollection(), _acct.LEDGER: FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"

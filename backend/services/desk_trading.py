@@ -729,6 +729,14 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
     res = await db[TRADES].update_one({**owner, "status": "open"}, {"$set": change})
     if res.matched_count:
+        # The account gets back exactly what this trade reserved, plus or minus its net P&L. The
+        # figure comes from the trade, not from a fresh calculation: recomputing it at today's prices
+        # is how a paper account silently drifts away from the positions that made it. Released here
+        # rather than in the route so an AUTOMATIC exit (apply_trade_exits) frees the capital too.
+        from services import paper_account as _acct
+        await _acct.release(db, trade["user_id"], trade.get("paper_reserved_rs"),
+                            net_pnl=change.get("net_pnl_rs"), trade_id=trade["_id"],
+                            symbol=trade.get("symbol"))
         return {**trade, **change}, True
     return await db[TRADES].find_one(owner), False
 
