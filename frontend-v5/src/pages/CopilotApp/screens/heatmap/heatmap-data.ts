@@ -116,7 +116,11 @@ export function useSectorHeatmap(index: string) {
 export const HEATMAP_INDICES: Array<{ code: string; label: string }> = [
   { code: "NIFTY50", label: "Nifty 50" },
   { code: "NIFTY100", label: "Nifty 100" },
+  { code: "NIFTY200", label: "Nifty 200" },
   { code: "NIFTY500", label: "Nifty 500" },
+  { code: "NIFTYMIDCAP150", label: "Nifty Midcap 150" },
+  { code: "NIFTYSMALLCAP250", label: "Nifty Smallcap 250" },
+  { code: "NIFTYTOTALMARKET", label: "Nifty Total Market" },
 ];
 
 /** "NIFTY50" → "Nifty 50"; any other index is shown as the route names it. */
