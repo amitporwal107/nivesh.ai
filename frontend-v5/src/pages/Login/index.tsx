@@ -58,7 +58,12 @@ export default function LoginPage() {
     // failed (meCheck null) they still get caught by RequireAppAccess post-nav.
     // Advisors land on their workspace (reduced advisor nav), not their own
     // portfolio dashboard. To view their own book they open the SELF profile.
+    // The mobile build ships ONLY the one-screen Copilot (/app), so a native
+    // sign-in lands there instead of the dashboard shell — the /app surface runs
+    // its own onboarding at /app/onboarding, so the check below is not needed on
+    // native. Web routing is unchanged.
     const dest = isResearchOnly(meCheck) ? "/research"
+      : Capacitor.isNativePlatform() ? "/app"
       : !user.onboardingCompleted ? "/onboarding"
       : (meCheck?.workspaceType || "").toUpperCase() === "ADVISORY" ? "/advisor"
       : "/dashboard";
