@@ -16,8 +16,12 @@ INSERT INTO nidp.mf_holdings_monthly
     (scheme_code, as_of_month, security_isin, security_name,
      instrument_type, sector, rating, maturity_date, ytm_pct,
      quantity, market_value_inr, weight_pct, source, source_url,
-     source_run_id, ingested_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+     source_run_id, source_observed_at, source_payload_sha256,
+     publication_provenance, ingested_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+        -- published_at is not captured by any adapter yet, so availability is known only as
+        -- "we had seen it by source_observed_at" (migration 169).
+        'observed_only', NOW())
 ON CONFLICT (scheme_code, as_of_month, security_name, security_isin, source) DO UPDATE SET
     instrument_type  = EXCLUDED.instrument_type,
     sector           = EXCLUDED.sector,
@@ -29,6 +33,13 @@ ON CONFLICT (scheme_code, as_of_month, security_name, security_isin, source) DO 
     weight_pct       = EXCLUDED.weight_pct,
     source_url       = EXCLUDED.source_url,
     source_run_id    = EXCLUDED.source_run_id,
+    -- Keep the EARLIEST observation: once we have seen a holding, that fact does not expire, and
+    -- a later re-ingest must not push its availability date forward (that would hide the evidence
+    -- from a point-in-time query that should legitimately see it).
+    source_observed_at = least(nidp.mf_holdings_monthly.source_observed_at,
+                               EXCLUDED.source_observed_at),
+    source_payload_sha256 = EXCLUDED.source_payload_sha256,
+    publication_provenance = EXCLUDED.publication_provenance,
     ingested_at      = NOW()
 """
 
@@ -109,7 +120,8 @@ async def upsert_holdings(
          r["security_name"], r.get("instrument_type"), r.get("sector"),
          r.get("rating"), r.get("maturity_date"), r.get("ytm_pct"),
          r.get("quantity"), r.get("market_value_inr"),
-         r.get("weight_pct"), r["source"], r.get("source_url"), run_id)
+         r.get("weight_pct"), r["source"], r.get("source_url"), run_id,
+         r.get("source_observed_at"), r.get("source_payload_sha256"))
         for r in rows
     ]
 

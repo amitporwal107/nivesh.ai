@@ -31,7 +31,7 @@ import re
 import zipfile
 from datetime import date
 from typing import Optional
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin
 
 import aiohttp
 import openpyxl
@@ -78,6 +78,10 @@ AK_AMCS: dict[str, dict] = {
     "uti":       {"slug": "UTI-Mutual-Fund",                  "filter": ("amc_id = $1", "uti")},
     "nippon":    {"slug": "Nippon-India-Mutual-Fund",         "filter": ("amc_id = $1", "nippon")},
     "quant":     {"slug": "Quant-Mutual-Fund",                "filter": ("amc_id = $1", "quant")},
+    # Tata files a disclosure under its PUBLICATION month ('as on 30th September 2026' served from
+    # /2026-10/), so it is only safe now that matching is filename-first AND percent-decoded —
+    # before both, a request for September returned August's file. Verified 13/13 months.
+    "tata":      {"slug": "Tata-Mutual-Fund",                 "filter": ("amc_id = $1", "tata")},
 }
 
 _ISIN_RE = re.compile(r"^IN[EF][A-Z0-9]{9}$")
@@ -133,7 +137,12 @@ def _file_url_for_month(html: str, base_url: str, as_of_month: date) -> Optional
 
     for match_on_basename in (True, False):
         for href in candidates:
-            low = href.lower()
+            # Match against the PERCENT-DECODED form. Several AMCs put spaces in the filename,
+            # which arrive as %20 and cannot be spanned by the single-character separator class —
+            # Tata's 'Monthly%20Portfolio%20as%20on%2030th%20September%202026.xlsx' matched no
+            # pattern at all until decoded, leaving only its publication-month directory to match
+            # on, i.e. the wrong month. The original href is still what gets requested.
+            low = unquote(href).lower()
             if match_on_basename:
                 # Strip any query string, then take the last path segment.
                 low = low.split("?")[0].rsplit("/", 1)[-1]

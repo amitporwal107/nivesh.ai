@@ -1200,7 +1200,8 @@ async def kotak(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _playwright_holdings_adapter("kotak", http, m)
 
 async def tata(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("tata", http, m)
+    return await _ak_then_direct("tata", http, m,
+                                 lambda: _amfi_holdings_adapter("tata", http, m))
 
 async def mirae(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _amfi_holdings_adapter("mirae", http, m)
