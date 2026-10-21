@@ -230,3 +230,23 @@ How this fits the architecture above:
 2. **Build location: the desk worktree** (`/home/deploy/nivesh-trading-desk`, branch `feat/trading-desk-backend`), not the `feat/provider-foundations` checkout.
 3. **OPEN:** AI strategy target — existing declarative DSL (`strategy_engine`) vs Python sandbox (not yet answered).
 4. **OPEN:** PRD scope — all five phases vs Phase 1 in detail (recommended: Phase 1 in detail).
+
+---
+
+## Build status 2026-10-21
+
+| Phase | What it is | State |
+|---|---|---|
+| 1 | Evidence foundation: shared Evidence record, market context, sector rotation, multi-timeframe conflicts, pattern validation, calibration | Built and merged (PR #263). 43 unit tests pass. On staging it needs the `research/` mount added in the follow-up branch; symbol-level evidence needs the Kite daily bars, which are not on the app VM. |
+| 2 | Strategy Architect: NiveshConfig, regime to template proposal, DSL spec, versioning, backtest through the existing runner, walk-forward folds, promotion gates | Built on `feat/ai-trader-phases-2-5`. Real backtests need the NIDP Postgres pool, so they are unit-tested with an injected runner only. |
+| 3 | Risk Governor: deterministic, independent, can approve, reduce, hedge, defer, reject or halt any order | Built on `feat/ai-trader-phases-2-5`. Imports no strategy, evidence or broker code, which an AST test enforces. |
+| 4 | Paper execution: signals to intents to governor to the existing desk paper-trade engine, every intent stored with its decision | Built on `feat/ai-trader-phases-2-5`. |
+| 5 | Assisted trading: the user confirms each ticket, a paper-shadow trade records the outcome, copy-ready order text, outcome journal feeding calibration | Built on `feat/ai-trader-phases-2-5`. Nothing is ever sent to a broker. |
+
+The ladder stops at assisted, by the decision recorded above. There is no autonomous live mode, not as a flag and not
+as a code path.
+
+**The gates are strict on purpose.** The repo's own data shows no validated edge, so most proposals are expected to
+stop at `backtested`. That is the honest outcome, and the system reports which criterion held a strategy back rather
+than hiding it. Gate thresholds and risk limits are assumptions (B3 and B5 in
+[prd/AI_TRADER_PHASES_2_5.prd.md](prd/AI_TRADER_PHASES_2_5.prd.md)) and need the owner's review before real use.
