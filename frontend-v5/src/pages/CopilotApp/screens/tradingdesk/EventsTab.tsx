@@ -20,6 +20,7 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useCopilotShell } from "../../lib/shell-context";
 import { LoadingBlock } from "../../components/ui";
+import { ApiError } from "@/services/api/errors";
 import { useDesk } from "./context";
 import { istParts, useNow } from "./overview-data";
 import {
@@ -292,7 +293,46 @@ function RangeBar({ m }: { m: ExpMetric }) {
   );
 }
 
-function MetricTile({ m, declared }: { m: ExpMetric; declared: boolean }) {
+/**
+ * The track record that belongs to ONE metric: all-stocks figures come from method.by_metric[key] (EPS follows profit), so a
+ * profit record never sits under revenue. The stock's own record is profit-only in the backend and is shown under profit and EPS.
+ */
+function MetricTrack({ x, m }: { x: Expectation; m: ExpMetric }) {
+  const profit = m.key === "pat" || m.key === "eps";
+  const un = x.method.byMetric[m.key === "eps" ? "pat" : m.key] ?? null;
+  const st = x.method.stock;
+  const stockLine = !profit
+    ? `FOR ${x.symbol}: not tested separately for ${expLabel(m.key).toLowerCase()}`
+    : st && st.nQuarters && st.nQuarters > 0 && st.withinBand != null
+      ? `FOR ${x.symbol}: the method was within its band in ${Math.round((st.withinBand * st.nQuarters) / 100)} of ${st.nQuarters} tested quarters${st.medianAbsErr != null ? ` · median error ${pct1(st.medianAbsErr)}` : ""}`
+      : `FOR ${x.symbol}: no track record, too few published quarters to test the method`;
+  let uniLine: string;
+  if (!un) uniLine = "ACROSS ALL STOCKS: track record not available";
+  else {
+    const err = un.medianAbsErr != null
+      ? ` · median error ${pct1(un.medianAbsErr)}${un.naiveMedianAbsErr != null ? ` vs ${pct1(un.naiveMedianAbsErr)} if last year's quarter were repeated` : ""}`
+      : "";
+    uniLine = un.withinBand != null && un.withinBandN
+      ? `ACROSS ALL STOCKS (held out): within its band in ${pct0(un.withinBand)} of ${un.withinBandN.toLocaleString("en-IN")} tests${err}`
+      : `ACROSS ALL STOCKS: band not yet checked on held-out stocks${un.n ? ` (${un.n.toLocaleString("en-IN")} tests)` : ""}${err}`;
+  }
+  const lq = un?.latest;
+  return (
+    <div data-testid={`events-exp-track-${m.key}`} className="flex flex-col" style={{ gap: 3, padding: "8px 10px", borderRadius: 9, background: "var(--bg-2)" }}>
+      <span style={{ ...mono, fontSize: 8.5, letterSpacing: "0.12em", color: "var(--cp-ink-3)" }}>HOW OFTEN THIS METHOD HAS BEEN RIGHT</span>
+      <span data-testid={`events-exp-track-stock-${m.key}`} style={{ fontSize: 12, color: "var(--cp-ink)" }}>{stockLine}</span>
+      <span data-testid={`events-exp-track-all-${m.key}`} style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>{uniLine}</span>
+      {lq && lq.withinBand != null && lq.testedN ? (
+        <span data-testid={`events-exp-track-latest-${m.key}`} style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>
+          Latest quarter{lq.testedOn ? ` (${lq.testedOn})` : ""}: within its band in {pct0(lq.withinBand)} of {lq.testedN.toLocaleString("en-IN")}, a small sample.
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function MetricTile({ m, x }: { m: ExpMetric; x: Expectation }) {
+  const declared = x.status === "declared";
   const rows: Array<[string, string]> = [
     ["LAST YEAR, SAME QUARTER", fmtExpVal(m.lastYearQuarter, m.unit)],
     ["PREVIOUS QUARTER", fmtExpVal(m.previousQuarter, m.unit)],
@@ -302,6 +342,11 @@ function MetricTile({ m, declared }: { m: ExpMetric; declared: boolean }) {
   const e = m.expected;
   const usable = m.reliable && e != null;
   const vs = f?.value != null && usable ? (m.vsMid ?? (e.mid ? ((f.value / e.mid - 1) * 100) : null)) : null;
+  // inside / outside is the backend's answer when it gave one; above / below is then read off the numbers
+  const place = f?.value != null && usable
+    ? (m.withinBand != null ? (m.withinBand ? "inside" : f.value > e.high ? "above" : "below") : positionOf(f.value, e.low, e.high))
+    : null;
+  const audit = f ? (f.auditStatus ?? x.auditStatus) : null;
   return (
     <div data-testid={`events-exp-metric-${m.key}`} className="flex flex-col" style={{ gap: 9, padding: "12px 14px", borderRadius: 12, border: line, background: "var(--bg-1)" }}>
       <span style={{ ...mono, fontSize: 9, letterSpacing: "0.14em", color: "var(--cp-ink-3)" }}>{expLabel(m.key)}</span>
@@ -312,26 +357,31 @@ function MetricTile({ m, declared }: { m: ExpMetric; declared: boolean }) {
           </span>
           <RangeBar m={m} />
           {e.mid != null && <span style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>MIDPOINT {fmtExpVal(e.mid, m.unit)}</span>}
+          <MetricTrack x={x} m={m} />
         </>
       ) : (
         <p data-testid={`events-exp-unreliable-${m.key}`} style={{ ...quietP, color: "var(--cp-ink-2)" }}>
           No reliable expectation.{m.note ? ` ${m.note}` : ""}
         </p>
       )}
-      {usable && m.note && <span style={{ ...mono, fontSize: 9, letterSpacing: "0.06em", color: "var(--cp-ink-3)" }}>{m.note}</span>}
+      {usable && m.note && <span data-testid={`events-exp-note-${m.key}`} style={{ ...mono, fontSize: 9, letterSpacing: "0.06em", color: "var(--cp-ink-3)" }}>{m.note}</span>}
       {declared && f && (
         <div data-testid={`events-exp-filed-${m.key}`} className="flex flex-col" style={{ gap: 3, paddingTop: 8, borderTop: line }}>
           <span style={{ ...mono, fontSize: 9, letterSpacing: "0.14em", color: "var(--cp-ink-3)" }}>FILED RESULT</span>
           <span className="cp-num" style={{ fontSize: 17 }}>{fmtExpVal(f.value, m.unit)}</span>
-          {f.value != null && usable && (
+          {place && (
             <span data-testid={`events-exp-vs-${m.key}`} style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
-              {positionOf(f.value, e.low, e.high).replace(/^./, (c) => c.toUpperCase())} the baseline range{vs != null ? ` · ${sg(vs)} vs midpoint` : ""}
+              {place.replace(/^./, (c) => c.toUpperCase())} the baseline range{vs != null ? ` · ${sg(vs)} vs midpoint` : ""}
             </span>
           )}
           {f.value != null && !usable && <span style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>No reliable baseline to compare it with.</span>}
+          {f.value != null && usable && x.comparedWith && (
+            <span data-testid={`events-exp-compared-${m.key}`} style={{ ...mono, fontSize: 9, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>{x.comparedWith.toUpperCase()}</span>
+          )}
           <span data-testid={`events-exp-audit-${m.key}`} style={{ ...mono, fontSize: 9, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
-            {auditText(f.auditStatus).toUpperCase()}{f.broadcastAt ? ` · FILED ${f.broadcastAt.slice(0, 16).replace("T", " ")}` : ""}
+            {auditText(audit).toUpperCase()}{f.broadcastAt ? ` · FILED ${f.broadcastAt.slice(0, 16).replace("T", " ")}` : ""}
           </span>
+          {x.auditBasis && <span data-testid={`events-exp-audit-basis-${m.key}`} style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>{x.auditBasis}</span>}
         </div>
       )}
       <div className="flex flex-col">
@@ -342,23 +392,7 @@ function MetricTile({ m, declared }: { m: ExpMetric; declared: boolean }) {
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function TrackRecord({ x }: { x: Expectation }) {
-  const st = x.method.stock, un = x.method.universe;
-  const stockLine = st && st.n && st.n > 0 && st.withinBand != null
-    ? `FOR ${x.symbol}: the method was within its band in ${Math.round((st.withinBand * st.n) / 100)} of ${st.n} quarters (${pct0(st.withinBand)})${st.medianAbsErr != null ? ` · median error ${pct1(st.medianAbsErr)}` : ""}`
-    : `FOR ${x.symbol}: no track record, too few published quarters to test the method`;
-  const uniLine = un && un.n && un.n > 0 && un.withinBand != null
-    ? `ACROSS ALL STOCKS: within its band in ${pct0(un.withinBand)} of ${un.n.toLocaleString("en-IN")} tests${un.medianAbsErr != null ? ` · median error ${pct1(un.medianAbsErr)}` : ""}`
-    : "ACROSS ALL STOCKS: track record not available";
-  return (
-    <div data-testid="events-exp-track" className="flex flex-col" style={{ gap: 4, padding: "9px 12px", borderRadius: 10, background: "var(--bg-2)" }}>
-      <span style={{ ...mono, fontSize: 9, letterSpacing: "0.12em", color: "var(--cp-ink-3)" }}>HOW OFTEN THIS METHOD HAS BEEN RIGHT</span>
-      <span data-testid="events-exp-track-stock" style={{ fontSize: 12.5, color: "var(--cp-ink)" }}>{stockLine}</span>
-      <span data-testid="events-exp-track-all" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>{uniLine}</span>
+      {m.lastYearNote && <span data-testid={`events-exp-lynote-${m.key}`} style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{m.lastYearNote}</span>}
     </div>
   );
 }
@@ -390,7 +424,13 @@ function ResultsExpectation({ ev }: { ev: CalEvent }) {
   if (ev.type !== "RESULTS") return null;
   if (q.isLoading) return <div data-testid="events-exp-loading"><LoadingBlock label="Loading results expectation" rows={3} /></div>;
   if (q.isError || !q.data) {
-    return <p data-testid="events-exp-error" style={quietP}>The results expectation could not be loaded. <button type="button" data-testid="events-exp-retry" onClick={() => q.refetch()} style={{ background: "none", border: 0, color: "var(--mint)", cursor: "pointer", fontSize: 12.5, padding: 0 }}>Retry</button></p>;
+    const missing = q.error instanceof ApiError && q.error.status === 404;
+    return (
+      <p data-testid="events-exp-error" style={quietP}>
+        {missing ? "No results meeting is on file for this stock on that date, so there is no expectation to show." : "The results expectation could not be loaded."}{" "}
+        <button type="button" data-testid="events-exp-retry" onClick={() => q.refetch()} style={{ background: "none", border: 0, color: "var(--mint)", cursor: "pointer", fontSize: 12.5, padding: 0 }}>Retry</button>
+      </p>
+    );
   }
   const x = q.data, declared = x.status === "declared";
   return (
@@ -400,22 +440,28 @@ function ResultsExpectation({ ev }: { ev: CalEvent }) {
         <span data-testid="events-exp-heading" style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
           {declared ? "FILED RESULT VS BASELINE" : "EXPECTED RANGE"}{x.periodLabel ? ` · ${x.periodLabel.toUpperCase()}` : ""}{x.basis ? ` · ${x.basis.toUpperCase()}` : ""}
         </span>
+        {x.label && <span data-testid="events-exp-api-label" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{x.label}</span>}
       </div>
       {x.metrics.length ? (
         <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))" }}>
-          {x.metrics.map((m) => <MetricTile key={m.key} m={m} declared={declared} />)}
+          {x.metrics.map((m) => <MetricTile key={m.key} m={m} x={x} />)}
         </div>
       ) : <p data-testid="events-exp-nometrics" style={quietP}>No published quarters on file to build a baseline from.</p>}
-      <TrackRecord x={x} />
       {(x.method.name || x.method.formula) && (
         <p data-testid="events-exp-method" style={{ ...quietP, fontSize: 12 }}>
-          {x.method.name ? <b style={{ color: "var(--cp-ink-2)", fontWeight: 500 }}>{x.method.name}. </b> : null}{x.method.formula ?? ""}{x.method.nQuarters != null ? ` Built from ${x.method.nQuarters} published quarters.` : ""}
+          {x.method.name ? <b style={{ color: "var(--cp-ink-2)", fontWeight: 500 }}>{x.method.name}. </b> : null}{x.method.formula ?? ""}{x.method.nQuarters != null ? ` Built from ${x.method.nQuarters} published quarters` : ""}{x.expectedAsOf ? `, using only what was published before ${x.expectedAsOf.slice(0, 10)}.` : x.method.nQuarters != null ? "." : ""}
+          {x.method.stock?.note ? ` ${x.method.stock.note.replace(/^./, (c) => c.toUpperCase())}.` : ""}
         </p>
       )}
       <div className="flex flex-col" style={{ gap: 2 }}>
         <span style={{ ...eyebrow, color: "var(--cp-ink)" }}>FILINGS AND NEWS ON THIS QUARTER</span>
         <ExpEvidence items={x.evidence} />
       </div>
+      {x.sources.length > 0 && (
+        <ul data-testid="events-exp-sources" className="m-0 flex flex-col" style={{ gap: 2, paddingLeft: 16, ...quietP, fontSize: 11.5 }}>
+          {x.sources.map(([k, v]) => <li key={k}>{v}</li>)}
+        </ul>
+      )}
       {x.gaps.length > 0 && (
         <ul data-testid="events-exp-gaps" className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 16, ...quietP, fontSize: 12 }}>
           {x.gaps.map((g, i) => <li key={i}>{g}</li>)}

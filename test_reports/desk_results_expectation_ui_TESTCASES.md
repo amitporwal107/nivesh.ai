@@ -49,8 +49,18 @@ Test cases authored before implementation, from the contract and the design rule
 - **Whole desk suite** (`playwright test --config pw.copilot-app.config.ts desk`): `16 skipped, 318 passed (5.8m)`, 0 failed; the skips are in other desk specs (strategy-graphs etc.), not in the Events specs.
 - **Screenshots looked at:** desktop declared (range bar, midpoint tick, amber ring beyond the range, "Above the baseline range · +6.4% vs midpoint", "UNAUDITED · FILED 2026-10-14 17:42"), phone sheet (390px, no sideways scroll). Desktop upcoming and timeline captured, not separately viewed. Git-ignored under `frontend-v5/e2e/screenshots/desk-expectation/`.
 
+## Rework against the real router (backend 78f2993e), real output
+Read `backend/nidp/services/daas_api/routers/desk_expectation.py` and aligned the UI and the mocks to its real shape:
+- **Per-metric track record:** the all-stocks line comes from `method.by_metric[key]` (EPS follows profit); `method.universe_backtest` is PAT-only and is no longer used under revenue. The sample size is `within_band_n`; the median error is shown beside the naive "last year's quarter repeated" benchmark; the latest-quarter check is shown as a small sample. The stock's own record (profit-only in the backend) appears under profit and EPS; revenue says "not tested separately".
+- **New honesty fields:** `label`, `compared_with` ("vs Nivesh baseline, not vs consensus", beside every filed-vs-range), `audit_basis` (under the audit status), `last_year_note`, per-metric `within_band` (preferred over inferring inside/outside; above/below is then read off low/high), `expected_as_of` ("using only what was published before …"), `sources`, `backtest.note`; a 404 says no results meeting is on file.
+- **Units:** the API's "₹ crore" and "₹ a share" are formatted (₹ crore / ₹ per share).
+- **Other keys:** every key `events-data.ts` reads for the calendar, history, macro calendar and macro history was checked against `desk_events.py` / `desk_macro.py` output: none missing.
+- New/changed cases: TC-E4 (per-metric, no leakage across metrics), TC-E5b (band not yet checked), TC-E9b/E9c (audit "not recorded" / "mixed"), TC-E20/E20b (within_band precedence and fallback), TC-E21 (404). Mock shape = real shape.
+
+Real output (docker, production build, mocked API): `tsc --noEmit` rc 0; `playwright test desk-expectation desk-events desk-macro` → `40 passed (30.3s)` (expectation 18, events 10, macro 12). One run first failed on a stale expectation of mine in TC-E10 (the mock's category/source wording); fixed the assertion and re-ran green. The whole-desk run (318 passed, 0 failed) pre-dates this rework and was not repeated.
+
 ## Not verified
-- No call to the real `/api/markets/events-calendar/expectation` route: the backend fork's route did not exist in this worktree when the UI was built. The UI was written to the stated contract; adapt after reading the backend's actual response.
+- No call to the real `/api/markets/events-calendar/expectation` route (not deployed): the UI now matches the router's code and the mocks match its shape, but no real response has been seen.
 - Real data, Investor wording, light mode, months other than October.
 - Pre-existing, not touched: the Events headline says "1 companies report results" (no singular form).
 
