@@ -21,7 +21,7 @@
  * tab keeps them (PRD §5.8). Missing figures show "—" and a filter never treats them as passing.
  */
 import { Flash } from "../../components/LiveBits";
-import { useLiveOverlay } from "../../lib/useLiveQuotes";
+import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Btn, ErrorBlock, LoadingBlock, Pill, TONE_COLOR, fmtNum, fmtPct, type Tone } from "../../components/ui";
@@ -652,7 +652,8 @@ function RiskCell({ r, inline }: { r: Row; inline?: boolean }) {
 
 /** "₹510.00 +3.00 +0.6%": the last close and its change in rupees and percent. */
 function StockSub({ r: row }: { r: Row }) {
-  const live = useLiveOverlay(row.symbol);                 // Kite, only while the feed is LIVE; otherwise the scan's end-of-day figures
+  const scanQ = useDeskScanner();
+  const live = useLiveOverlay(row.symbol, scanQ.data?.watchAsOf ?? scanQ.data?.signalDate ?? null);                 // Kite, only while the feed is LIVE; otherwise the scan's end-of-day figures
   const r: Row = live ? { ...row, price: live.ltp, change: live.change, changePct: live.changePct } : row;
   if (r.price == null) return <>{r.sector ?? ""}</>;
   if (r.change == null && r.changePct != null) {
@@ -668,7 +669,7 @@ function StockSub({ r: row }: { r: Row }) {
   const tone = TONE_COLOR[r.change > 0 ? "mint" : r.change < 0 ? "danger" : "ink"];
   return (
     <span className="cp-num">
-      <Flash value={live?.ltp}>{fmtPrice(r.price)}</Flash>{live ? <sup data-testid="desk-scan-live" aria-label="live price" style={{ color: "var(--mint)", fontSize: 8, marginLeft: 2 }}>●</sup> : null}{" "}
+      <Flash value={flashOf(live)}>{fmtPrice(r.price)}</Flash>{live ? <sup data-testid="desk-scan-live" data-kind={live.kind} aria-label={live.kind === "close" ? closeLabel(live) : "live price"} title={live.kind === "close" ? closeLabel(live) : "Live · Kite"} style={{ color: live.kind === "close" ? "var(--cp-ink-3)" : "var(--mint)", fontSize: 8, marginLeft: 2 }}>{live.kind === "close" ? "◐" : "●"}</sup> : null}{" "}
       <span data-testid="desk-scan-change-abs" style={{ color: tone }}>{fmtSigned(r.change, 2)}</span>{" "}
       <span data-testid="desk-scan-change" style={{ color: tone }}>{fmtPct(r.changePct, { signed: true, digits: 1 })}</span>
     </span>

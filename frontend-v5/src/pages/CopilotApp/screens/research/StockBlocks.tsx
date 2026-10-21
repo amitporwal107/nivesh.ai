@@ -10,7 +10,7 @@ import { SafeWidget } from "@/components/shared/SafeWidget";
 import { EmptyBlock, LoadingBlock, Section, Tiles, fmtPct, signTone } from "../../components/ui";
 import { Flash } from "../../components/LiveBits";
 import { useCopilotShell } from "../../lib/shell-context";
-import { useLiveOverlay } from "../../lib/useLiveQuotes";
+import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { dayLabel, fmtPrice, titleCase } from "../markets/format";
 import { LoadError } from "../markets/parts";
 import { usePriceHistory, useStockBackdrop, useStockCard } from "./data";
@@ -21,7 +21,7 @@ import { PriceChart, fmtShares } from "./PriceChart";
 
 export function StockPrice({ symbol, name }: { symbol: string; name: string }) {
   const q = usePriceHistory(symbol);
-  const live = useLiveOverlay(symbol);        // Kite, only while the feed is LIVE; otherwise the last end-of-day close below
+  const live = useLiveOverlay(symbol, q.data?.kind === "ok" ? q.data.series.last.day : null);        // Kite, only while the feed is LIVE; otherwise the last end-of-day close below
 
   if (q.isPending) return <LoadingBlock label="Loading the price history" rows={5} />;
   if (q.isError) {
@@ -73,8 +73,8 @@ export function StockPrice({ symbol, name }: { symbol: string; name: string }) {
           min={130}
           items={[
             {
-              k: live ? "Live price" : "Last close",
-              v: <span data-testid="research-stock-close" data-live={live ? "true" : undefined}><Flash value={live?.ltp}>{fmtPrice(live ? live.ltp : s.last.close)}</Flash></span>,
+              k: live ? (live.kind === "close" ? closeLabel(live) : "Live price") : "Last close",
+              v: <span data-testid="research-stock-close" data-live={live ? "true" : undefined}><Flash value={flashOf(live)}>{fmtPrice(live ? live.ltp : s.last.close)}</Flash></span>,
               s: live && live.changePct != null
                 ? <span data-testid="research-stock-day-change">{fmtPct(live.changePct, { signed: true, digits: 2 })} on the day · Kite</span>
                 : s.dayChangePct != null

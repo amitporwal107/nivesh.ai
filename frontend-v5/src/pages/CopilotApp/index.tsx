@@ -18,6 +18,7 @@ import { useMe } from "@/hooks/use-auth";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { LoadingBlock } from "./components/ui";
 import { LiveChip } from "./components/LiveBits";
+import { KiteLoginNotice } from "./components/KiteLoginNotice";
 import { classifyAgent } from "./lib/answer";
 import { CopilotShellProvider, type AskOptions, type CopilotShell } from "./lib/shell-context";
 import { useCopilotPrefs } from "./lib/store";
@@ -188,6 +189,7 @@ export default function CopilotAppPage() {
         )}
 
         <main className="flex flex-col" style={{ minHeight: 0, minWidth: 0, position: "relative" }}>
+          {mode === "trader" && <KiteLoginNotice isAdmin={isAdmin} />}
           {mode === "trader" && !compact && <LiveChip floating />}
           {compact && (
             <div data-testid="compact-bar" className="flex items-center" style={{ gap: 10, padding: "calc(12px + env(safe-area-inset-top)) 16px 10px", borderBottom: "1px solid var(--cp-line)" }}>

@@ -24,6 +24,8 @@
  * every validation figure the historical record does not hold (average and median return, costs, benchmark,
  * out-of-sample). The design's "Pattern confidence" is the scanner's own grade, labelled "Scanner confidence".
  */
+import { Flash } from "../../components/LiveBits";
+import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { StockIcon } from "../../components/EntityIcon";
 import {
@@ -35,7 +37,7 @@ import { fmtDay, fmtPrice, fmtSigned } from "../trading/parts";
 import { AddToList } from "../workspace/PersonalLists";
 import { CandleChart, CandleLegend, PLAIN_CHART_WORDS, TRADER_CHART_WORDS, type ChartEvent } from "./CandleChart";
 import {
-  INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, fullChartHref, scanDateLabel, setupLabel, useDailyBars,
+  INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, fullChartHref, scanDateLabel, setupLabel, useDailyBars, useIntradayAvailability, useIntradayBars,
   deskLevels, useDeskLevels, useLiveIndicators, useLivePatterns, useSetupRecord, useStockOdds,
   type DailyBars, type IndicatorValues, type LiveIndicators, type LivePattern, type LivePatterns, type LiveRead, type RecordRow, type SetupRecord,
 } from "./chart-data";
@@ -155,7 +157,7 @@ function ChartControls({ tf, setTf, ov, setOv, hasLevels, small }: {
 }
 
 /** Interval, the full chart and the watchlist (PRD §7.2): one row under the chart. */
-function ChartToolbar({ symbol, company, setup }: { symbol: string; company: string | null; setup: DeskSetup | null }) {
+function ChartToolbar({ symbol, company, setup, iv, setIv, enabledIntervals }: { symbol: string; company: string | null; setup: DeskSetup | null; iv: string; setIv: (v: string) => void; enabledIntervals: string[] }) {
   const { persona } = useDesk();
   const plain = persona === "investor";
   const lv = useDeskLevels(symbol, setup);
@@ -165,11 +167,14 @@ function ChartToolbar({ symbol, company, setup }: { symbol: string; company: str
       <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>{plain ? "Each candle" : "Interval"}</span>
       <Segmented
         label="Interval"
-        value="1D"
+        value={iv}
         idPrefix="desk-chart-iv"
         small
-        options={INTERVALS.map((iv) => ({ value: iv.value, label: iv.label, id: iv.id, disabled: iv.disabled, title: iv.disabled ? INTRADAY_REASON : "One candle per trading day" }))}
-        onChange={() => undefined}
+        options={INTERVALS.map((o) => {
+          const off = o.value !== "1D" && !enabledIntervals.includes(o.value);
+          return { value: o.value, label: o.label, id: o.id, disabled: off, title: off ? INTRADAY_REASON : o.value === "1D" ? "One candle per trading day" : `Kite ${o.label} candles, raw prices, the live price in the latest candle` };
+        })}
+        onChange={(v) => setIv(String(v))}
       />
       <span id="desk-chart-iv-why" data-testid="desk-chart-iv-why" className="sr-only">{INTRADAY_REASON}</span>
       <a
@@ -288,6 +293,41 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
   );
 }
 
+/** Intraday candles (Kite, platform session). Shown only for an interval the availability route lists; never fabricates a bar. */
+function IntradayBody({ symbol, interval, setup, ov, compact }: { symbol: string; interval: string; setup: DeskSetup | null; ov: Overlays; compact?: boolean }) {
+  const { persona } = useDesk();
+  const words = persona === "investor" ? PLAIN_CHART_WORDS : TRADER_CHART_WORDS;
+  const q = useIntradayBars(symbol, interval, true, 30_000);
+  if (q.isPending) return <LoadingBlock label={`Loading ${symbol} ${interval} candles`} rows={5} />;
+  if (q.isError) return <div data-testid="desk-chart-error"><ErrorBlock title={`${symbol} ${interval} candles didn’t load`} error={q.error} onRetry={() => q.refetch()} /></div>;
+  const d = q.data;
+  if (!d.bars.length) {
+    return (
+      <div data-testid="desk-chart-intraday-empty">
+        <EmptyBlock title={`No ${interval} candles for ${symbol}`} body={d.availability === "token_missing" || d.availability === "token_expired" ? "The platform Kite session is not connected, so there are no intraday candles. Daily bars still work." : d.availability === "symbol_not_found" ? "Kite does not list this symbol." : "Kite returned no intraday candles for the recent sessions."} />
+      </div>
+    );
+  }
+  const hasLevels = !!setup && (setup.entry != null || setup.stop != null || setup.target != null);
+  const levelsOn = ov.levels && hasLevels;
+  return (
+    <div data-testid="desk-chart-intraday" data-interval={interval} className="flex min-w-0 flex-col" style={{ gap: 10 }}>
+      <CandleChart
+        bars={d.bars}
+        name={`${symbol} ${interval}`}
+        compact={compact}
+        words={words}
+        intraday
+        overlays={{ levels: levelsOn && setup ? { target: setup.target, entry: setup.entry, stop: setup.stop } : null }}
+      />
+      <span data-testid="desk-chart-source" className="cp-mono-note" style={{ lineHeight: 1.6, fontSize: 9.5 }}>
+        {d.source} · {interval} candles · raw prices, not split or bonus adjusted · {d.sessions.length} {d.sessions.length === 1 ? "session" : "sessions"} · as of {d.asOf.slice(11, 16)} UTC
+        {d.liveMerged ? " · the live price is in the latest candle" : ""} · no indicator lines on intraday candles
+      </span>
+    </div>
+  );
+}
+
 // ── head row ─────────────────────────────────────────────────────────────
 
 function priceMove(bars: DailyBar[] | null, setup: DeskSetup | null) {
@@ -314,9 +354,14 @@ function patternPills(setup: DeskSetup | null, plain: boolean): ReactNode {
 
 function HeadRow({ symbol, setup, bars, company }: { symbol: string; setup: DeskSetup | null; bars: DailyBar[] | null; company: string | null }) {
   const { persona } = useDesk();
-  const m = priceMove(bars, setup);
+  const eod = priceMove(bars, setup);
+  const lastDay = bars?.length ? bars[bars.length - 1].day.slice(0, 10) : null;
+  const live = useLiveOverlay(symbol, lastDay);                    // Kite: the live price, or today's close after the session until the end-of-day bar lands
+  const m = live
+    ? { close: live.ltp, change: live.change, changePct: live.changePct, asOf: live.kind === "close" ? closeLabel(live) : `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}` }
+    : eod;
   return (
-    <div data-testid="desk-chart-header" className="flex flex-wrap items-start justify-between" style={{ gap: "10px 16px", padding: "16px 18px 4px" }}>
+    <div data-testid="desk-chart-header" data-live={live ? live.kind : undefined} className="flex flex-wrap items-start justify-between" style={{ gap: "10px 16px", padding: "16px 18px 4px" }}>
       <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
         <span className="flex min-w-0 items-center" style={{ gap: 8, fontSize: 13, color: "var(--cp-ink-3)" }}>
           <StockIcon symbol={symbol} name={company} size={20} />
@@ -326,7 +371,7 @@ function HeadRow({ symbol, setup, bars, company }: { symbol: string; setup: Desk
           </span>
         </span>
         <span className="flex flex-wrap items-baseline" style={{ gap: "4px 10px" }}>
-          <span data-testid="desk-chart-close" style={{ fontFamily: "var(--display)", fontSize: 34, lineHeight: 1, letterSpacing: "-0.02em" }}>{fmtPrice(m.close)}</span>
+          <span data-testid="desk-chart-close" style={{ fontFamily: "var(--display)", fontSize: 34, lineHeight: 1, letterSpacing: "-0.02em" }}><Flash value={flashOf(live)}>{fmtPrice(m.close)}</Flash></span>
           <span data-testid="desk-chart-change" className="cp-num" style={{ fontSize: 12, color: TONE_COLOR[signTone(m.change)] }}>
             {m.change != null ? `${fmtSigned(m.change)} (${fmtPct(m.changePct, { signed: true, digits: 2 })})` : "—"}
           </span>
@@ -1323,6 +1368,11 @@ export default function ChartTab() {
   const symbol = chosen ?? setups[0]?.symbol ?? null;
   const setup = symbol ? setups.find((s) => s.symbol === symbol) ?? null : null;
   const barsQ = useDailyBars(symbol);
+  const availQ = useIntradayAvailability();
+  const [iv, setIvRaw] = useState<string>("1D");
+  const enabledIntervals = availQ.data?.available ? availQ.data.intervals.map((i) => i.toLowerCase()) : [];
+  const ivNow = iv === "1D" || enabledIntervals.includes(iv) ? iv : "1D";       // an interval that stopped being available falls back to daily
+  const setIv = (v: string) => setIvRaw(v);
   const stockQ = useStockOdds(symbol);
   const liveQ = useLiveIndicators(symbol);
   const filQ = useFilingsFeed({ symbol: symbol ?? "", days: FILING_DAYS, sort: "latest", limit: 20 }, !!symbol);
@@ -1358,7 +1408,9 @@ export default function ChartTab() {
   const stock = stockQ.data?.kind === "ok" ? stockQ.data.data : null;
   const company = row?.company_name ?? stock?.company_name ?? null;
   const hasLevels = !!setup && (setup.entry != null || setup.stop != null || setup.target != null);
-  const body = <ChartBody symbol={symbol} state={barsQ} retry={() => barsQ.refetch()} setup={setup} tf={tf} ov={ov} compact={mobile} live={live} events={events} />;
+  const body = ivNow === "1D"
+    ? <ChartBody symbol={symbol} state={barsQ} retry={() => barsQ.refetch()} setup={setup} tf={tf} ov={ov} compact={mobile} live={live} events={events} />
+    : <IntradayBody symbol={symbol} interval={ivNow} setup={setup} ov={ov} compact={mobile} />;
   const trust = (
     <TrustLine
       testId="desk-chart-trust"
@@ -1394,7 +1446,7 @@ export default function ChartTab() {
         </div>
         <section data-testid="desk-chart-card" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: 12 }}>
           {body}
-          <ChartToolbar symbol={symbol} company={company} setup={setup} />
+          <ChartToolbar symbol={symbol} company={company} setup={setup} iv={ivNow} setIv={setIv} enabledIntervals={enabledIntervals} />
           {trust}
         </section>
 
@@ -1452,7 +1504,7 @@ export default function ChartTab() {
           <HeadRow symbol={symbol} setup={setup} bars={bars} company={company} />
           <div className="flex flex-col" style={{ gap: 10, padding: "8px 18px 14px" }}>
             {body}
-            <ChartToolbar symbol={symbol} company={company} setup={setup} />
+            <ChartToolbar symbol={symbol} company={company} setup={setup} iv={ivNow} setIv={setIv} enabledIntervals={enabledIntervals} />
           </div>
           {live ? (
             <>

@@ -12,7 +12,7 @@ import {
   Btn, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Screen, ScreenHeader, Section, fmtDate, fmtNum,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
-import { useLiveOverlays } from "../lib/useLiveQuotes";
+import { closeLabel, useLiveOverlays } from "../lib/useLiveQuotes";
 import { SECTOR_HEATMAP_VIEW } from "../lib/views";
 import { AskPill, FilterChips, LoadError, type ChipItem } from "./markets/parts";
 import { useScreenRun, type ScreenBucket, type ScreenRun, type ScreenRunRequest } from "./markets/screener-run";
@@ -85,11 +85,13 @@ interface RanScreen {
 type Widget = ScreenRun["widget"];
 
 /** The screener widget plus "LTP" and "Day %" columns from the live feed (rows without a live quote show "—"). */
-function withLive(w: Widget, get: (symbol: string) => { ltp: number; changePct: number | null } | null): Widget {
+function withLive(w: Widget, get: (symbol: string) => { ltp: number; changePct: number | null; kind: "live" | "close"; ts: string | null } | null): Widget {
+  const first = w.universe.map((r) => get(String(r.ticker ?? r.symbol ?? ""))).find((q) => q);
+  const closed = first?.kind === "close";
   return {
     ...w,
     columns: [...w.columns,
-      { key: "live_ltp", label: "LTP", unit: "₹", kind: "num", align: "right", decimals: 2 },
+      { key: "live_ltp", label: closed ? closeLabel(first) : "LTP", unit: "₹", kind: "num", align: "right", decimals: 2 },
       { key: "live_chg", label: "Day", unit: "%", kind: "num", align: "right", signed: true, decimals: 2 }],
     universe: w.universe.map((r) => {
       const q = get(String(r.ticker ?? r.symbol ?? ""));
@@ -120,7 +122,7 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
   const request = ran?.request ?? null;
   // Kite's live price and day change join the table as two extra columns while the feed is LIVE; nothing else in the rows changes.
   const liveRows = data?.ok ? data.widget.universe : [];
-  const live = useLiveOverlays(liveRows.map((r) => String(r.ticker ?? r.symbol ?? "")));
+  const live = useLiveOverlays(liveRows.map((r) => String(r.ticker ?? r.symbol ?? "")), data?.ok ? data.as_of_date : null);
   // The source not answering (ok:false) is a failure, not an empty result.
   const failed = !fetching && (!!error || (!!data && !data.ok));
   const answered = !fetching && !failed && data?.ok ? data : undefined;

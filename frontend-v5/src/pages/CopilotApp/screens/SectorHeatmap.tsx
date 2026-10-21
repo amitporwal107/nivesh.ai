@@ -90,7 +90,7 @@ function Trust({ d, testId, extra }: { d: Heatmap; testId: string; extra?: strin
       <TrustLine
         testId={testId}
         source="NSE"
-        mode={d.mode === "live" ? "live" : d.mode === "end_of_day" ? "eod" : null}
+        mode={d.mode === "live" ? "live" : d.mode === "end_of_day" || d.mode === "live_close" ? "eod" : null}
         asOf={d.asOf ? dayLabel(d.asOf, { year: true }) : null}
         method={`weights from index constituents · returns on adjusted closes${extra ? ` · ${extra}` : ""}`}
         status={stale ? "stale" : "ok"}
@@ -472,7 +472,7 @@ export default function SectorHeatmap() {
         <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "minmax(0,1fr) 340px", gap: mobile ? 16 : 28, alignItems: "end" }}>
           <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
             <div className="flex flex-wrap items-center justify-between" style={{ gap: 8 }}>
-              <span className="cp-eyebrow">Sector rotation · {indexLabel(d.index)} · {d.mode === "live" ? "1D live from Kite · 1W and 1M end of day" : "end of day"}</span>
+              <span className="cp-eyebrow">Sector rotation · {indexLabel(d.index)} · {d.mode === "live" ? "1D live from Kite · 1W and 1M end of day" : d.mode === "live_close" ? `1D close${d.liveDay ? ` · ${new Date(d.liveDay + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}` : ""} · Kite (end of day data not in yet) · 1W and 1M end of day` : "end of day"}</span>
               {mobile && <Seg tall label="Period" testId="hm-period" value={period} onPick={setPeriod} options={PERIODS.map((p) => ({ key: p, label: PERIOD_LABEL[p] }))} />}
             </div>
             <Verdict d={d} period={period} />

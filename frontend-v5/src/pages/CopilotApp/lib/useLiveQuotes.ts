@@ -6,10 +6,10 @@
  *   const meta = useLiveMeta();                                         // mode / age for the shell chip
  *
  * Source: the backend's platform-level Kite feed (read-only). GET /api/live/stream is a server-sent-events stream that
- * pushes a `snapshot` event every cadence (5 s). There is exactly ONE connection for every screen: components subscribe to
+ * pushes a `snapshot` event every server cadence (30 s by default). There is exactly ONE connection for every screen: components subscribe to
  * symbols, the store dedupes them (reference-counted) and asks for their union. If the stream cannot be used (the browser
  * has no EventSource, the session is a bearer-token WebView, the proxy buffers it, or it keeps failing) the store falls back
- * to polling GET /api/live/quotes every 5 s. It pauses while the tab is hidden, and while the market is closed or the
+ * to polling GET /api/live/quotes at the server's cadence. It pauses while the tab is hidden, and while the market is closed or the
  * feed is not connected it only checks the status once a minute. Nothing here ever writes anything.
  *
  * A quote the feed did not have is simply absent: a price is a number or null, never 0.
@@ -40,16 +40,20 @@ export interface LiveMeta {
   session: string | null;
   /** The server's publish time. */
   asOf: string | null;
+  /** When the newest quote in the snapshot was taken (server). */
+  dataAt: string | null;
   /** Seconds between the newest data and the server's answer (server clock). */
   ageSeconds: number | null;
   stale: boolean;
+  /** The server's publish interval in seconds; polling follows it. */
+  cadenceSeconds: number;
   final: boolean;
   /** performance.now()-style browser time of the last answer, for "updated Ns ago". */
   receivedAt: number | null;
   transport: "sse" | "poll" | "idle";
 }
 
-const CADENCE_MS = 5_000;
+const DEFAULT_CADENCE_S = 30;       // until the server says otherwise (its `cadence_seconds`, KITE_LIVE_FEED_CADENCE_SECONDS)
 const IDLE_MS = 60_000;
 const SSE_MAX_SYMBOLS = 300;
 const SSE_FAILS_BEFORE_POLL = 2;
@@ -63,7 +67,7 @@ const norm = (s: string) => {
   return ALIASES[t] ?? t;
 };
 
-const EMPTY_META: LiveMeta = { mode: "unknown", source: null, session: null, asOf: null, ageSeconds: null, stale: true, final: false, receivedAt: null, transport: "idle" };
+const EMPTY_META: LiveMeta = { mode: "unknown", source: null, session: null, asOf: null, dataAt: null, ageSeconds: null, stale: true, cadenceSeconds: DEFAULT_CADENCE_S, final: false, receivedAt: null, transport: "idle" };
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v ? v : null);
@@ -89,7 +93,7 @@ export function parsePayload(body: unknown, receivedAt: number): { quotes: Recor
   const m = MODES.find((x) => x === b.mode) ?? "unknown";
   return {
     quotes,
-    meta: { mode: m, source: str(b.source), session: str(b.session), asOf: str(b.as_of), ageSeconds: num(b.age_seconds), stale: b.stale !== false, final: b.final === true, receivedAt, transport: "idle" },
+    meta: { mode: m, source: str(b.source), session: str(b.session), asOf: str(b.as_of), dataAt: str(b.data_at), ageSeconds: num(b.age_seconds), stale: b.stale !== false, cadenceSeconds: Math.min(120, Math.max(2, num(b.cadence_seconds) ?? DEFAULT_CADENCE_S)), final: b.final === true, receivedAt, transport: "idle" },
   };
 }
 
@@ -210,7 +214,7 @@ class LiveStore {
     }
     if (!this.refs.size || ctl.signal.aborted) return;
     const idle = this.meta.mode === "closed" || this.meta.mode === "not_connected" || this.meta.mode === "expired" || this.meta.mode === "disabled";
-    this.timer = setTimeout(() => this.connect(), idle ? IDLE_MS : CADENCE_MS);
+    this.timer = setTimeout(() => this.connect(), idle ? IDLE_MS : Math.max(5_000, this.meta.cadenceSeconds * 1000));
   }
 
   private markDown() {
@@ -224,7 +228,7 @@ class LiveStore {
     this.quotes = { ...this.quotes, ...parsed.quotes };
     this.meta = { ...parsed.meta, transport };
     this.emit();
-    // The market closed or the feed dropped: stop the 5 s stream, check the status once a minute.
+    // The market closed or the feed dropped: stop the stream, check the status once a minute.
     if (transport === "sse" && (["closed", "not_connected", "expired", "disabled"] as LiveMode[]).includes(parsed.meta.mode)) {
       this.closeStream();
       this.timer = setTimeout(() => this.connect(), IDLE_MS);
@@ -248,16 +252,51 @@ export function useLiveMeta(): LiveMeta {
   return liveStore.getMeta();
 }
 
-/** The live quote for one symbol, or null unless the feed is LIVE (a delayed, closed or disconnected feed never overrides end-of-day data). */
-export function useLiveOverlay(symbol: string | null | undefined): LiveQuote | null {
-  const sym = symbol ? norm(symbol) : "";
-  const { quotes, meta } = useLiveQuotes(sym ? [sym] : []);
-  return sym && meta.mode === "live" ? quotes[sym] ?? null : null;
+/** A quote handed to a screen: `kind` says whether it is a LIVE tick or the final snapshot after the close ("close"). */
+export type OverlayQuote = LiveQuote & { kind: "live" | "close" };
+
+const istDayOf = (iso: string | null): string | null => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? new Date(t + 5.5 * 3600_000).toISOString().slice(0, 10) : null;
+};
+
+/**
+ * What a price cell may show from the feed. While LIVE: the quote. After the close, once the feed has published its FINAL
+ * snapshot: the quote too, but only when it is from a session newer than the screen's own end-of-day day (`eodDay`, a
+ * YYYY-MM-DD) -- so "today's close" shows before the end-of-day ingest lands, labelled "close". Never when delayed / expired / not connected.
+ */
+function pick(q: LiveQuote | undefined, meta: LiveMeta, eodDay: string | null | undefined): OverlayQuote | null {
+  if (!q) return null;
+  if (meta.mode === "live") return { ...q, kind: "live" };
+  if (meta.mode === "closed" && meta.final && eodDay) {
+    // The final snapshot of the most recent session, and newer than the screen's own end-of-day day. Compared by date; once the
+    // warehouse's bar for that day lands, `eodDay` catches up and this returns null (the end-of-day data takes over).
+    const qDay = istDayOf(q.ts);
+    if (qDay && qDay > eodDay && qDay === istDayOf(meta.dataAt)) return { ...q, kind: "close" };
+  }
+  return null;
 }
 
-/** Many symbols at once (a table): one subscription, a lookup that is empty unless the feed is LIVE. */
-export function useLiveOverlays(symbols: string[]): { get: (symbol: string) => LiveQuote | null; live: boolean } {
+/** "Close · 21 Oct · Kite": how a closing-snapshot price is labelled (never "live"). */
+export function closeLabel(q: { ts: string | null }): string {
+  const d = q.ts ? new Date(q.ts.slice(0, 10) + "T00:00:00Z") : null;
+  const day = d && Number.isFinite(d.getTime()) ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : "latest session";
+  return `Close · ${day} · Kite`;
+}
+
+/** The Flash value for a quote: ticks flash, a closing snapshot never does. */
+export const flashOf = (q: OverlayQuote | null | undefined): number | undefined => (q && q.kind === "live" ? q.ltp : undefined);
+
+/** The overlay quote for one symbol, or null (see `pick`). */
+export function useLiveOverlay(symbol: string | null | undefined, eodDay?: string | null): OverlayQuote | null {
+  const sym = symbol ? norm(symbol) : "";
+  const { quotes, meta } = useLiveQuotes(sym ? [sym] : []);
+  return sym ? pick(quotes[sym], meta, eodDay) : null;
+}
+
+/** Many symbols at once (a table): one subscription. */
+export function useLiveOverlays(symbols: string[], eodDay?: string | null): { get: (symbol: string) => OverlayQuote | null; live: boolean } {
   const { quotes, meta } = useLiveQuotes(symbols);
   const live = meta.mode === "live";
-  return useMemo(() => ({ live, get: (s: string) => (live ? quotes[norm(s)] ?? null : null) }), [live, quotes]);
+  return useMemo(() => ({ live, get: (s: string) => pick(quotes[norm(s)], meta, eodDay) }), [live, quotes, meta, eodDay]);
 }

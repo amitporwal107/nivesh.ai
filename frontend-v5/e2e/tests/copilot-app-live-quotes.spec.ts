@@ -21,7 +21,7 @@ const ROWS: Array<[string, string, number, number, number]> = [
 ];
 const eodWeighted = ROWS.reduce((a, r) => a + r[2] * r[4], 0) / ROWS.reduce((a, r) => a + r[2], 0);
 
-function heatmap() {
+function heatmap(asOf?: string) {
   const stocks = ROWS.map(([symbol, sector, weight, close, d]) => ({
     symbol, name: symbol, sector, close, weight_pct: weight, traded_value_cr: 100, returns: { d, w: 1, m: 2 },
     index_impact_pct: { d: (weight * d) / 100 }, rel_volume: 1,
@@ -33,7 +33,7 @@ function heatmap() {
     return { name, stocks: ss.length, weight_pct: w, returns: { d: ret("d"), w: ret("w"), m: ret("m") }, contribution_pct: { d: (w * ret("d")) / 100, w: 0, m: 0 }, breadth: { advances: 0, declines: 0, unchanged: 0, no_price: 0 } };
   });
   return {
-    as_of: new Date().toISOString().slice(0, 10), index: "NIFTY50", source: "nidp.warehouse", sessions: { d: 1, w: 5, m: 21 }, mode: "end_of_day",
+    as_of: asOf ?? new Date().toISOString().slice(0, 10), index: "NIFTY50", source: "nidp.warehouse", sessions: { d: 1, w: 5, m: 21 }, mode: "end_of_day",
     weight_basis: "market_cap", weight_note: "", sectors, stocks, breadth: { advances: 2, declines: 2, unchanged: 0 },
     weighted_change: { d: eodWeighted, w: 1, m: 2 }, unavailable: [],
   };
@@ -48,13 +48,13 @@ function payload(mode: string, quotes = true) {
     ltp: close * (1 + LIVE[symbol] / 100), change: 1, change_pct: LIVE[symbol], open: close, high: close, low: close, close, volume: 1000, oi: null, ts: "2026-10-21T11:13:09+05:30",
   }]));
   return {
-    as_of: "2026-10-21T05:43:10+00:00", data_at: "2026-10-21T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 15, mode,
+    as_of: "2026-10-21T05:43:10+00:00", data_at: "2026-10-21T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30, mode,
     session: mode === "closed" ? "closed" : "open", source: "ws", final: mode === "closed", count: quotes ? 4 : 0, missing: [], quotes: quotes ? q : {}, read_only: true,
   };
 }
 
 type Feed = "sse" | "poll" | "down";
-async function open(page: Page, feed: Feed, mode = "live", opts: { admin?: boolean; plain?: boolean } = {}) {
+async function open(page: Page, feed: Feed, mode = "live", opts: { admin?: boolean; plain?: boolean; eodAsOf?: string } = {}) {
   const live: string[] = [];
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.addInitScript(() => localStorage.setItem("nivesh.copilot", JSON.stringify({ state: { mode: "trader", evidenceOpen: null }, version: 0 })));
@@ -63,7 +63,7 @@ async function open(page: Page, feed: Feed, mode = "live", opts: { admin?: boole
   if (opts.admin) {
     await page.route("**/api/auth/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user_id: "u_admin", email: "admin@example.test", name: "Admin Fixture", is_admin: true, onboarding_completed: true }) }));
   }
-  await page.route("**/api/markets/sector-heatmap*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(heatmap()) }));
+  await page.route("**/api/markets/sector-heatmap*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(heatmap(opts.eodAsOf)) }));
   await page.route("**/api/live/**", (route) => {
     const req = route.request();
     live.push(`${req.method()} ${new URL(req.url()).pathname}`);
@@ -112,6 +112,15 @@ test.describe("Live quotes in the Copilot app", () => {
     await expect(page.getByTestId("live-chip")).toContainText("Market closed");
     await expect(page.getByTestId("hm-weighted")).toHaveText(pct(eodWeighted));
     await expect(page.getByTestId("hm-trust-weighted")).not.toContainText(/\blive\b/i);
+  });
+
+  test("after the close, before the end-of-day data lands: the final Kite snapshot fills today, labelled as the close", async ({ page }) => {
+    await open(page, "sse", "closed", { eodAsOf: "2026-10-20" });                       // the quotes are from 2026-10-21 and final
+    await expect(page.getByTestId("live-chip")).toHaveAttribute("data-mode", "closed");
+    await expect(page.getByTestId("hm-weighted")).toHaveText(pct(liveWeighted));
+    await expect(page.getByText("1D close · 21 Oct · Kite")).toBeVisible();
+    await expect(page.getByTestId("live-chip")).toContainText("Market closed · Kite close · 21 Oct");
+    await expect(page.getByTestId("hm-trust-weighted")).toContainText("End of day");
   });
 
   test("delayed feed: the chip says DELAYED and stale prices never replace end-of-day ones", async ({ page }) => {

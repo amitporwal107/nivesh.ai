@@ -363,8 +363,8 @@ async def _finish_sign_in(request: Request, broker_slug: str):
     if broker_slug == "zerodha" and _kite_platform.is_platform_state(state):
         ok, reason = await _kite_platform.handle_callback(db, dict(qp))
         if ok:
-            return RedirectResponse(url=_kite_platform.SUCCESS_REDIRECT)
-        return RedirectResponse(url=f"/dashboard?{urlencode({'kite': 'error', 'reason': reason})}")
+            return RedirectResponse(url=_kite_platform.success_url())
+        return RedirectResponse(url=_kite_platform.error_url(reason))
 
     state_doc, signed_in = await _find_state(request, state, broker_slug)
     back = _sessions.safe_return_to((state_doc or {}).get("return_to")) or DEFAULT_RETURN_TO

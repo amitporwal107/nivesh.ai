@@ -28,7 +28,7 @@
  * Each block loads and fails on its own. A figure with no source is "—" with a one-line reason, never 0.
  */
 import { Flash } from "../../components/LiveBits";
-import { useLiveOverlay, useLiveOverlays } from "../../lib/useLiveQuotes";
+import { closeLabel, useLiveOverlay, useLiveOverlays, flashOf } from "../../lib/useLiveQuotes";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { MarketIndex, MarketsHome } from "@/services/contracts/markets.contract";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
@@ -311,7 +311,7 @@ function IndexRow({ home, cols }: { home: HomeQuery; cols: "full" | "four" | "tw
   return (
     <div className="flex flex-col" style={{ gap: 8 }}>
       <div data-testid="desk-index-row" className="grid" style={{ gridTemplateColumns: template, gap: 12 }}>
-        {DESK_INDICES.map(({ name, vix }) => <IndexTile key={name} name={name} ix={findIndex(d, name, vix)} mode={mode} stamp={stamp} />)}
+        {DESK_INDICES.map(({ name, vix }) => <IndexTile key={name} name={name} ix={findIndex(d, name, vix)} mode={mode} stamp={stamp} eodDay={istDay(d.as_of)} />)}
         <BreadthTile home={d} style={cols === "full" ? undefined : { gridColumn: "1 / -1" }} />
       </div>
       <IndexTrust d={d} />
@@ -338,8 +338,8 @@ function IndexTrust({ d }: { d: MarketsHome }) {
 /** A rising VIX is not a gain, so its change stays neutral (as on the Markets screen). */
 const indexTone = (ix: MarketIndex | null): Tone => (!ix || ix.is_vix ? "ink" : signTone(ix.change_pct));
 
-function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | null; mode: IndexMode; stamp: string | null }) {
-  const live = useLiveOverlay(ix?.name ?? name);          // the Kite feed, only while it is LIVE; otherwise the response's own figures
+function IndexTile({ name, ix, mode, stamp, eodDay }: { name: string; ix: MarketIndex | null; mode: IndexMode; stamp: string | null; eodDay?: string | null }) {
+  const live = useLiveOverlay(ix?.name ?? name, eodDay);          // the Kite feed, only while it is LIVE; otherwise the response's own figures
   const pct = live ? live.changePct : ix?.change_pct ?? null;
   const tone = !ix || ix.is_vix ? "ink" : signTone(pct);
   const color = tone === "ink" ? "var(--cp-ink-2)" : TONE_COLOR[tone];
@@ -355,14 +355,14 @@ function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | 
         )}
       </div>
       <span data-testid="desk-index-value" style={{ fontFamily: "var(--display)", fontSize: 27, lineHeight: 1.1, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
-        <Flash value={live?.ltp}>{fmtLevel(live ? live.ltp : ix?.value)}</Flash>
+        <Flash value={flashOf(live)}>{fmtLevel(live ? live.ltp : ix?.value)}</Flash>
       </span>
       <span data-testid="desk-index-change" className="cp-num" style={{ fontSize: 11, color }}>
         {ix ? `${fmtPoints(live ? live.change : ix.change)} (${fmtPct(pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
       {ix && (
-        <span data-testid="desk-index-stamp" data-mode={mode} data-live={live ? "true" : undefined} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
-          {live ? `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}` : <>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}</>}
+        <span data-testid="desk-index-stamp" data-mode={mode} data-live={live ? live.kind : undefined} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
+          {live ? (live.kind === "close" ? closeLabel(live) : `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}`) : <>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}</>}
         </span>
       )}
     </div>
@@ -1053,13 +1053,13 @@ function SectorTileView({ r, period, max, leader, asOf, breadth, open, onOpen }:
   const { openChart } = useDesk();
   // An index whose latest close is older than the response's as-of says so.
   const stale = !!r.date && !!asOf && r.date !== asOf;
-  const live = useLiveOverlay(period === "1d" ? r.index : null);      // the index's own 1-day move from Kite while LIVE; 1W / 1M stay end of day
+  const live = useLiveOverlay(period === "1d" ? r.index : null, asOf);      // the index's own 1-day move from Kite while LIVE; 1W / 1M stay end of day
   const pct = period === "1d" && live ? live.changePct : r.ret[period];
   const tone = signTone(pct);
   return (
     <div
       data-testid="desk-sector-tile"
-      data-live={live ? "true" : undefined}
+      data-live={live ? live.kind : undefined}
       data-sector={r.sector}
       data-index={r.index}
       title={`${r.index} · ${fmtLevel(r.close)}${r.date ? ` · close of ${dayLabel(r.date)}` : ""}`}
@@ -1116,7 +1116,7 @@ function ConstituentsPanel({ index, onClose }: { index: string; onClose: () => v
   const { openChart } = useDesk();
   const q = useSectorConstituents(index);
   const rowsForLive = q.data && q.data.kind !== "unavailable" ? q.data.rows : [];
-  const live = useLiveOverlays(rowsForLive.map((c) => c.symbol));      // Kite, only while LIVE; else the end-of-day close and change
+  const live = useLiveOverlays(rowsForLive.map((c) => c.symbol), q.data && q.data.kind !== "unavailable" ? q.data.date : null);      // Kite, only while LIVE; else the end-of-day close and change
   return (
     <section data-testid="desk-sector-constituents" data-index={index} aria-label={`${index} constituents`} className="flex min-w-0 flex-col" style={{ gap: 8, padding: "12px 12px 10px", borderRadius: 12, border: "1px solid var(--line-2)", background: "var(--bg-0)" }}>
       <div className="flex items-center justify-between" style={{ gap: 8 }}>
@@ -1295,6 +1295,7 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy, c
   const { openChart, openStrategyIdeas } = useDesk();
   const close = latestClose(s, watchAsOf);
   const lp = live.data?.bySymbol.get(s.symbol.toUpperCase());
+  const kite = useLiveOverlay(s.symbol, watchAsOf);               // Kite, only while LIVE; replaces the delayed Yahoo LTP below
   const against = againstOf(lp);
   const liq = liquidityText(s.avgTradedCr);
   const risk = riskClass(s.atrPct);
@@ -1346,7 +1347,7 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy, c
           <span data-testid="desk-opp-price-stamp" className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>
             {close ? `close${close.day ? ` ${dayLabel(close.day)}` : ""}` : "no close in the scan"}
           </span>
-          {lp?.livePrice != null && <span data-testid="desk-opp-ltp" className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>LTP {fmtPrice(lp.livePrice)} · delayed</span>}
+          {(kite || lp?.livePrice != null) && <span data-testid="desk-opp-ltp" data-live={kite ? "true" : undefined} className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>LTP <Flash value={flashOf(kite)}>{fmtPrice(kite ? kite.ltp : (lp?.livePrice ?? null))}</Flash> · {kite ? (kite.kind === "close" ? closeLabel(kite) : "live · Kite") : "delayed"}</span>}
           <span data-testid="desk-opp-score" className="cp-num" title="Rules-based scanner score, 0–100 (not a probability)" style={{ fontSize: 11, color: s.score != null && s.score >= 80 ? "var(--mint)" : "var(--cp-ink-2)", whiteSpace: "nowrap" }}>
             Score {s.score == null ? "—" : `${fmtNum(s.score)}/100`}
           </span>
