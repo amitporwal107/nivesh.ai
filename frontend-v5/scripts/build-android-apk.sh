@@ -38,9 +38,12 @@ unset VITE_BASE || true
 
 # Build identity. Date-based by default so every staging APK has a distinct,
 # always-increasing versionCode — Android refuses to install over an equal or
-# newer code, which a hardcoded "1" made impossible.
+# newer code, which a hardcoded "1" made impossible. The date is scaled by 10 to
+# match .github/workflows/deploy-android-staging.yml, which uses the spare digit
+# for the within-day build slot; that keeps a manual build from landing BELOW a
+# CI build of the same day (which could then not be installed over it).
 export ANDROID_VERSION_NAME="${ANDROID_VERSION_NAME:-$(date +%Y.%m.%d)}"
-export ANDROID_VERSION_CODE="${ANDROID_VERSION_CODE:-$(date +%Y%m%d)}"
+export ANDROID_VERSION_CODE="${ANDROID_VERSION_CODE:-$(( $(date +%Y%m%d) * 10 ))}"
 
 WEBROOT="${APK_WEBROOT:-/opt/nivesh-staging/downloads}"
 PUBLIC_URL_BASE="${APK_PUBLIC_URL_BASE:-https://staging.niveshcopilot.com/downloads}"
