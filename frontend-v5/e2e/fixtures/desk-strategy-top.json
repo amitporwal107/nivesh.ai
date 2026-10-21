@@ -1,0 +1,545 @@
+{
+ "schema": "desk.strategy.top.v1",
+ "rules_version": "regime-fit-v1 (2026-10-22)",
+ "generated_at": "2026-10-21T19:15:17.670778+00:00",
+ "limit": 5,
+ "regime": {
+  "available": true,
+  "key": "bearish",
+  "label": "Bearish",
+  "as_of": "2026-10-19",
+  "trend": "down",
+  "nifty_close": 22888.95,
+  "nifty_average": 23514.265999999996,
+  "nifty_vs_average_pct": -2.66,
+  "india_vix": 14.77,
+  "vix_high_threshold": 20.0,
+  "volatility": "low",
+  "breadth": "down",
+  "advancing_share_pct": 19.0,
+  "rule_version": "desk-regime-v1",
+  "source": "macro_engine.classify_desk_regime (routes/macro._desk_regime)"
+ },
+ "staleness_note": "The option chain is from 2026-10-21 but the market regime was last classified on 2026-10-19: the fit is scored against the older regime.",
+ "classes": {
+  "index_options": {
+   "as_of": "2026-10-21",
+   "ideas": [
+    {
+     "underlying": "BANKNIFTY",
+     "structure": "bear_put_spread",
+     "name": "Bear put spread 54100/55000",
+     "view": "down",
+     "premium_flow": "debit",
+     "expiry": "2026-10-27",
+     "days_to_expiry": 6,
+     "placement": "short strike from the move",
+     "legs": [
+      {
+       "kind": "option",
+       "side": "buy",
+       "quantity": 1,
+       "lot_size": 30,
+       "entry_price": 437.5,
+       "expiry": "2026-10-27",
+       "strike": 55000,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 15.36
+      },
+      {
+       "kind": "option",
+       "side": "sell",
+       "quantity": 1,
+       "lot_size": 30,
+       "entry_price": 145.2,
+       "expiry": "2026-10-27",
+       "strike": 54100,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 16.46
+      }
+     ],
+     "net_greeks": {
+      "delta": -8.49,
+      "gamma": 0.0035,
+      "theta": -226.59,
+      "vega": 222.321
+     },
+     "max_profit": 18231.0,
+     "max_loss": -8769.0,
+     "profit_unbounded": false,
+     "loss_unbounded": false,
+     "breakevens": [
+      54707.7
+     ],
+     "net_premium": -8769.0,
+     "capital_at_risk": 8857.74,
+     "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+     "reward_risk": 2.01,
+     "reward_risk_theoretical": 2.08,
+     "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+     "net_at_expected_move": 17612.03,
+     "margin": null,
+     "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+     "caveats": [
+      "Margin is not the maximum loss."
+     ],
+     "fit": {
+      "score": 92.5,
+      "because": [
+       {
+        "factor": "direction",
+        "state": "supports",
+        "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+       },
+       {
+        "factor": "volatility",
+        "state": "supports",
+        "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+       },
+       {
+        "factor": "breadth",
+        "state": "supports",
+        "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+       },
+       {
+        "factor": "positioning",
+        "state": "neutral",
+        "text": "The short strike is placed by the expected move, not on an open-interest wall."
+       }
+      ]
+     },
+     "data_as_of": {
+      "chain": "2026-10-21",
+      "regime": "2026-10-19"
+     },
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+     "rank": 1
+    },
+    {
+     "underlying": "NIFTY",
+     "structure": "bear_put_spread",
+     "name": "Bear put spread 22500/22800",
+     "view": "down",
+     "premium_flow": "debit",
+     "expiry": "2026-10-27",
+     "days_to_expiry": 6,
+     "placement": "short strike from the move",
+     "legs": [
+      {
+       "kind": "option",
+       "side": "buy",
+       "quantity": 1,
+       "lot_size": 65,
+       "entry_price": 196.65,
+       "expiry": "2026-10-27",
+       "strike": 22800,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 14.33
+      },
+      {
+       "kind": "option",
+       "side": "sell",
+       "quantity": 1,
+       "lot_size": 65,
+       "entry_price": 74.45,
+       "expiry": "2026-10-27",
+       "strike": 22500,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 14.61
+      }
+     ],
+     "net_greeks": {
+      "delta": -17.563,
+      "gamma": 0.0102,
+      "theta": -118.209,
+      "vega": 112.2615
+     },
+     "max_profit": 11557.0,
+     "max_loss": -7943.0,
+     "profit_unbounded": false,
+     "loss_unbounded": false,
+     "breakevens": [
+      22677.8
+     ],
+     "net_premium": -7943.0,
+     "capital_at_risk": 8031.81,
+     "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+     "reward_risk": 1.44,
+     "reward_risk_theoretical": 1.45,
+     "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+     "net_at_expected_move": 11457.01,
+     "margin": null,
+     "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+     "caveats": [
+      "Margin is not the maximum loss."
+     ],
+     "fit": {
+      "score": 92.5,
+      "because": [
+       {
+        "factor": "direction",
+        "state": "supports",
+        "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+       },
+       {
+        "factor": "volatility",
+        "state": "supports",
+        "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+       },
+       {
+        "factor": "breadth",
+        "state": "supports",
+        "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+       },
+       {
+        "factor": "positioning",
+        "state": "neutral",
+        "text": "The short strike is placed by the expected move, not on an open-interest wall."
+       }
+      ]
+     },
+     "data_as_of": {
+      "chain": "2026-10-21",
+      "regime": "2026-10-19"
+     },
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+     "rank": 2
+    }
+   ],
+   "considered": 10,
+   "underlyings": [
+    {
+     "underlying": "NIFTY",
+     "spot": 22811.35,
+     "expiry": "2026-10-27",
+     "atm_strike": 22800,
+     "atm_iv": 14.18,
+     "pcr": 0.6999,
+     "max_pain": 22900,
+     "expected_move": 333.3,
+     "expected_move_pct": 1.46
+    },
+    {
+     "underlying": "BANKNIFTY",
+     "spot": 54976.9,
+     "expiry": "2026-10-27",
+     "atm_strike": 55000,
+     "atm_iv": 15.28,
+     "pcr": 0.883,
+     "max_pain": 55500,
+     "expected_move": 859.0,
+     "expected_move_pct": 1.56
+    }
+   ],
+   "unavailable": []
+  },
+  "stock_fno": {
+   "as_of": "2026-10-21",
+   "ideas": [
+    {
+     "underlying": "MPHASIS",
+     "structure": "bear_put_spread",
+     "name": "Bear put spread 2500/2550",
+     "view": "down",
+     "premium_flow": "debit",
+     "expiry": "2026-10-27",
+     "days_to_expiry": 6,
+     "placement": "short strike from the wall",
+     "legs": [
+      {
+       "kind": "option",
+       "side": "buy",
+       "quantity": 1,
+       "lot_size": 275,
+       "entry_price": 31.1,
+       "expiry": "2026-10-27",
+       "strike": 2550,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 31.9
+      },
+      {
+       "kind": "option",
+       "side": "sell",
+       "quantity": 1,
+       "lot_size": 275,
+       "entry_price": 15.35,
+       "expiry": "2026-10-27",
+       "strike": 2500,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 32.62
+      }
+     ],
+     "net_greeks": {
+      "delta": -45.5125,
+      "gamma": 0.2211,
+      "theta": -169.895,
+      "vega": 70.5375
+     },
+     "max_profit": 9418.75,
+     "max_loss": -4331.25,
+     "profit_unbounded": false,
+     "loss_unbounded": false,
+     "breakevens": [
+      2534.25
+     ],
+     "net_premium": -4331.25,
+     "capital_at_risk": 4417.64,
+     "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+     "reward_risk": 2.15,
+     "reward_risk_theoretical": 2.17,
+     "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+     "net_at_expected_move": 9323.09,
+     "margin": null,
+     "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+     "caveats": [
+      "Margin is not the maximum loss."
+     ],
+     "fit": {
+      "score": 100.0,
+      "because": [
+       {
+        "factor": "direction",
+        "state": "supports",
+        "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+       },
+       {
+        "factor": "volatility",
+        "state": "supports",
+        "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+       },
+       {
+        "factor": "breadth",
+        "state": "supports",
+        "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+       },
+       {
+        "factor": "positioning",
+        "state": "supports",
+        "text": "The short strike sits on the open-interest wall from the same chain. Chain put/call OI ratio 0.934."
+       }
+      ]
+     },
+     "data_as_of": {
+      "chain": "2026-10-21",
+      "regime": "2026-10-19"
+     },
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+     "rank": 1
+    },
+    {
+     "underlying": "ICICIBANK",
+     "structure": "bear_put_spread",
+     "name": "Bear put spread 1360/1380",
+     "view": "down",
+     "premium_flow": "debit",
+     "expiry": "2026-10-27",
+     "days_to_expiry": 6,
+     "placement": "short strike from the move",
+     "legs": [
+      {
+       "kind": "option",
+       "side": "buy",
+       "quantity": 1,
+       "lot_size": 700,
+       "entry_price": 8.65,
+       "expiry": "2026-10-27",
+       "strike": 1380,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 16.89
+      },
+      {
+       "kind": "option",
+       "side": "sell",
+       "quantity": 1,
+       "lot_size": 700,
+       "entry_price": 3.1,
+       "expiry": "2026-10-27",
+       "strike": 1360,
+       "option_type": "put",
+       "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+       "iv_pct": 17.34
+      }
+     ],
+     "net_greeks": {
+      "delta": -151.62,
+      "gamma": 2.9842,
+      "theta": -199.43,
+      "vega": 150.85
+     },
+     "max_profit": 10115.0,
+     "max_loss": -3885.0,
+     "profit_unbounded": false,
+     "loss_unbounded": false,
+     "breakevens": [
+      1374.45
+     ],
+     "net_premium": -3885.0,
+     "capital_at_risk": 3969.11,
+     "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded",
+     "reward_risk": 2.32,
+     "reward_risk_theoretical": 2.6,
+     "reward_risk_basis": "net P&L at the chain's expected move over the capital at risk; the theoretical figure measures the payoff at an underlying price of zero and is shown for reference only",
+     "net_at_expected_move": 9029.39,
+     "margin": null,
+     "margin_reason": "No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform and the broker margin APIs are account-level, not per structure. Nothing is estimated.",
+     "caveats": [
+      "Margin is not the maximum loss."
+     ],
+     "fit": {
+      "score": 92.5,
+      "because": [
+       {
+        "factor": "direction",
+        "state": "supports",
+        "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average)."
+       },
+       {
+        "factor": "volatility",
+        "state": "supports",
+        "text": "India VIX 14.77 is below the 20.0 threshold, so buying premium is the favoured side."
+       },
+       {
+        "factor": "breadth",
+        "state": "supports",
+        "text": "Breadth is down (19.0% of the universe advancing) and the structure needs down."
+       },
+       {
+        "factor": "positioning",
+        "state": "neutral",
+        "text": "The short strike is placed by the expected move, not on an open-interest wall."
+       }
+      ]
+     },
+     "data_as_of": {
+      "chain": "2026-10-21",
+      "regime": "2026-10-19"
+     },
+     "price_source": "NSE F&O bhavcopy close, 2026-10-21",
+     "rank": 2
+    }
+   ],
+   "considered": 20,
+   "underlyings": [
+    {
+     "underlying": "ICICIBANK",
+     "spot": 1385.0,
+     "expiry": "2026-10-27",
+     "atm_strike": 1380,
+     "atm_iv": 16.13,
+     "pcr": 0.5136,
+     "max_pain": 1360,
+     "expected_move": 23.55,
+     "expected_move_pct": 1.7
+    },
+    {
+     "underlying": "HAL",
+     "spot": 4854.36,
+     "expiry": "2026-10-27",
+     "atm_strike": 4850,
+     "atm_iv": 22.95,
+     "pcr": 0.7545,
+     "max_pain": 4800,
+     "expected_move": 113.85,
+     "expected_move_pct": 2.35
+    },
+    {
+     "underlying": "MPHASIS",
+     "spot": 2574.99,
+     "expiry": "2026-10-27",
+     "atm_strike": 2550,
+     "atm_iv": 31.16,
+     "pcr": 0.934,
+     "max_pain": 2450,
+     "expected_move": 83.7,
+     "expected_move_pct": 3.25
+    },
+    {
+     "underlying": "INDHOTEL",
+     "spot": 753.0,
+     "expiry": "2026-10-27",
+     "atm_strike": 750,
+     "atm_iv": 36.48,
+     "pcr": 0.7618,
+     "max_pain": 750,
+     "expected_move": 27.95,
+     "expected_move_pct": 3.71
+    }
+   ],
+   "unavailable": [
+    {
+     "underlying": "PREMEXPLN",
+     "reason": "HTTPException: 404: No F&O data for PREMEXPLN"
+    },
+    {
+     "underlying": "BALRAMCHIN",
+     "reason": "HTTPException: 404: No F&O data for BALRAMCHIN"
+    }
+   ],
+   "universe": {
+    "source": "the AI scanner's merged setup list (services/strategy_plan/selection.select_opportunities)",
+    "symbols_tried": [
+     "ICICIBANK",
+     "HAL",
+     "PREMEXPLN",
+     "BALRAMCHIN",
+     "SGMART",
+     "ORIENTHOT",
+     "MPHASIS",
+     "INDHOTEL"
+    ]
+   }
+  },
+  "cash": {
+   "as_of": "2026-10-21",
+   "data_as_of": {
+    "mode": "end_of_day",
+    "scanner_watchlist": "2026-10-16",
+    "scanner_picks": "2026-10-16",
+    "scan_eligibility": "2026-10-21",
+    "chartink": {
+     "scan_date": "2026-10-21",
+     "fetched_at": "2026-10-20T19:45:35Z",
+     "mode": "fetched_at"
+    },
+    "price": "2026-10-21",
+    "fno": "2026-10-21"
+   },
+   "ideas": [
+    {
+     "rank": 1,
+     "symbol": "ICICIBANK",
+     "name": "ICICI Bank Limited",
+     "direction": "bullish",
+     "plan_status": "no_trade"
+    },
+    {
+     "rank": 2,
+     "symbol": "HAL",
+     "name": "Hindustan Aeronautics Limited",
+     "direction": "bullish",
+     "plan_status": "no_trade"
+    }
+   ],
+   "considered": 9,
+   "unavailable": [],
+   "ranking": "Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced. With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; your Chartink scans are your own screens and have not been validated.",
+   "source": "POST /api/desk/strategy/ideas (services/strategy_plan/ideas.build_ideas), unchanged"
+  }
+ },
+ "ranking_note": "Ranked by fit to the market regime measured on the dates shown and by the live end-of-day option chain, then by reward : risk. This is not a forecast, not a probability, and not a ranking by past performance: no strategy performance is recorded for options in this system. Nothing here is an instruction to trade and nothing is sent to a broker.",
+ "ranking_note_cash": "The cash class is NOT ranked by regime fit: it is the desk's existing 'From AI opportunities' answer, kept unchanged, so it carries the scanner's own evidence rank and its ideas have no fit score. The two are shown side by side rather than merged into one ranking.",
+ "gaps": [
+  "No IV percentile or IV rank: no option-implied-volatility history is stored, so 'rich' and 'cheap' volatility use India VIX against the desk-regime threshold (desk-regime-v1 vix_high), not a percentile of this underlying's own IV.",
+  "No performance ranking: the only realised records are three manual cash backtests (public.strategy_trades); there is no options performance history, so no idea here can be ranked by what it earned.",
+  "End of day only: the chain is the NSE F&O bhavcopy close. There is no intraday option data.",
+  "An index has no cash leg: NIFTY and BANKNIFTY cannot be held, so covered calls, protective puts and collars are offered for stocks only."
+ ],
+ "sent_to_broker": false
+}
