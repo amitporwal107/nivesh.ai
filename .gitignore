@@ -532,3 +532,9 @@ docs/OPEN_API_KEY
 .kite-api
 .kite-access-token
 .trendlyne-mcp
+
+# android-native/ — a separate native Kotlin app, unrelated to the Capacitor v5
+# APK built from frontend-v5/. Only its BUILD OUTPUT was ever committed (4,047
+# files of Gradle caches + Hilt/KSP generated Java, ~199 MB; no app/src, no
+# .kt, no build.gradle). Removed 2026-10-21; ignored so it cannot come back.
+android-native/
