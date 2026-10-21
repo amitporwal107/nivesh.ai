@@ -32,9 +32,18 @@ INSERT INTO nidp.mf_holdings_coverage
      attempts, first_attempt_at, last_attempt_at, last_error)
 VALUES ($1, $2, $3, $4, $5, $6, 1, now(), now(), $7)
 ON CONFLICT (amc_id, as_of_month) DO UPDATE SET
-    status          = EXCLUDED.status,
-    rows_written    = EXCLUDED.rows_written,
-    schemes_written = EXCLUDED.schemes_written,
+    -- Status describes what we HOLD, not how the last attempt went. A re-run while the source is
+    -- down must not downgrade OK to EMPTY: the rows from the earlier successful run are still in
+    -- mf_holdings_monthly, so flipping the ledger would make it disagree with the data and would
+    -- make the catch-up pass think a month it already has is missing. Seen live on 2026-10-22,
+    -- when sbimf.com returned 503 for its whole host during a --all re-run of a month we held.
+    -- The failed attempt is still visible via attempts/last_attempt_at/last_error.
+    status          = CASE WHEN nidp.mf_holdings_coverage.status = 'OK' AND EXCLUDED.status <> 'OK'
+                          THEN 'OK' ELSE EXCLUDED.status END,
+    rows_written    = CASE WHEN nidp.mf_holdings_coverage.status = 'OK' AND EXCLUDED.status <> 'OK'
+                          THEN nidp.mf_holdings_coverage.rows_written ELSE EXCLUDED.rows_written END,
+    schemes_written = CASE WHEN nidp.mf_holdings_coverage.status = 'OK' AND EXCLUDED.status <> 'OK'
+                          THEN nidp.mf_holdings_coverage.schemes_written ELSE EXCLUDED.schemes_written END,
     -- Keep the last URL we actually parsed: on a retry that fails, the previously good URL is
     -- more useful to an operator than a NULL.
     source_url      = coalesce(EXCLUDED.source_url, nidp.mf_holdings_coverage.source_url),
@@ -42,6 +51,10 @@ ON CONFLICT (amc_id, as_of_month) DO UPDATE SET
     last_attempt_at = now(),
     last_error      = EXCLUDED.last_error
 """
+
+# Kept deliberately: `status` answers "do we have this AMC-month?", and `last_error` answers
+# "did the most recent attempt work?". Conflating the two is what made the original month-level
+# job_log row useless for healing gaps.
 
 
 async def record(
@@ -96,7 +109,8 @@ async def backfill_from_holdings() -> int:
     (e.g. 'ICICI_PRU_DISCLOSURE_ADVISORKHOJ' -> 'icici_pru'), which is how the adapters build
     it; rows whose prefix matches no known adapter key are left alone rather than guessed at.
 
-    Returns the number of ledger rows seeded. Safe to re-run: existing rows are not touched.
+    Returns the number of ledger rows seeded or repaired. Safe to re-run: a row that already says
+    OK is left alone; one that says EMPTY/ERROR while holdings exist is realigned to OK.
     """
     from nidp.shared.config import MF_AMC_TOP10, MF_AMC_TIER2, MF_AMC_TIER3
 
@@ -126,11 +140,22 @@ async def backfill_from_holdings() -> int:
                 INSERT INTO nidp.mf_holdings_coverage
                     (amc_id, as_of_month, status, rows_written, schemes_written, source_url)
                 VALUES ($1, $2, 'OK', $3, $4, $5)
-                ON CONFLICT (amc_id, as_of_month) DO NOTHING
+                -- Also REPAIRS a row that says EMPTY/ERROR while the holdings are demonstrably
+                -- present. That happens when a re-run hits a source outage (sbimf.com served 503
+                -- for its whole host on 2026-10-22 during a --all pass over a month we held).
+                -- The holdings table is the ground truth for "do we have it"; this realigns the
+                -- ledger to it so the catch-up pass does not keep chasing a month already in hand.
+                ON CONFLICT (amc_id, as_of_month) DO UPDATE SET
+                    status          = 'OK',
+                    rows_written    = EXCLUDED.rows_written,
+                    schemes_written = EXCLUDED.schemes_written,
+                    source_url      = coalesce(EXCLUDED.source_url,
+                                               nidp.mf_holdings_coverage.source_url)
+                WHERE nidp.mf_holdings_coverage.status <> 'OK'
                 """,
                 amc, r["as_of_month"], r["rows_written"], r["schemes_written"], r["source_url"],
             )
         if done.endswith("1"):
             seeded += 1
-    logger.info("coverage seed: %d ledger rows created from existing holdings", seeded)
+    logger.info("coverage seed: %d ledger row(s) created or repaired from existing holdings", seeded)
     return seeded

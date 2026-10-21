@@ -171,8 +171,58 @@ async def _sbi_multisheet_adapter(
     return resolved
 
 
+# A whole AMC's monthly portfolio is thousands of security rows. A handful means the fetch landed
+# on the wrong file or the parse found only a stray block — a degenerate result that must never be
+# allowed to beat a real one. Nippon is the live example: its direct adapter follows a stale
+# registry URL and yields exactly 3 rows, while the official file for the same month parses to
+# 5,189. An earlier version of this helper returned the direct result whenever it was non-empty,
+# so those 3 rows silently suppressed the good source.
+_MIN_PLAUSIBLE_ROWS = 50
+
+
+async def _ak_then_direct(
+    amc_id: str,
+    http: aiohttp.ClientSession,
+    as_of_month: date,
+    direct,
+) -> list[dict]:
+    """Take whichever of the AdvisorKhoj index and the AMC's own adapter yields a real portfolio.
+
+    AdvisorKhoj is tried first because it addresses the official file BY MONTH, whereas these
+    AMCs' direct adapters address only "latest" (URL templates, SPA APIs, WebMethods) — which is
+    why mf_holdings_monthly held exactly one month for each of them. When AdvisorKhoj has not yet
+    indexed a month (it lags the SEBI M+10 deadline by days) the direct adapter still covers the
+    current month, so the two together give both history and freshness.
+
+    Neither source's failure may cost us the other, so exceptions are caught and logged. If both
+    return something, the larger wins — see _MIN_PLAUSIBLE_ROWS.
+    """
+    from .advisorkhoj import advisorkhoj_holdings_adapter
+
+    async def _try(label, fn):
+        try:
+            return await fn() or []
+        except Exception as e:                                         # noqa: BLE001
+            logger.info("mf_holdings[%s]: %s source raised (%s: %s)",
+                        amc_id, label, type(e).__name__, e)
+            return []
+
+    ak = await _try("advisorkhoj",
+                    lambda: advisorkhoj_holdings_adapter(amc_id, http, as_of_month))
+    if len(ak) >= _MIN_PLAUSIBLE_ROWS:
+        return ak
+
+    dr = await _try("direct", direct)
+    if ak or dr:
+        chosen, other = ("advisorkhoj", "direct") if len(ak) >= len(dr) else ("direct", "advisorkhoj")
+        logger.info("mf_holdings[%s %s]: advisorkhoj=%d rows direct=%d rows — using %s",
+                    amc_id, as_of_month, len(ak), len(dr), chosen)
+    return ak if len(ak) >= len(dr) else dr
+
+
 async def sbi(http: aiohttp.ClientSession, as_of_month: date) -> list[dict]:
-    return await _sbi_multisheet_adapter(http, as_of_month)
+    return await _ak_then_direct("sbi", http, as_of_month,
+                                 lambda: _sbi_multisheet_adapter(http, as_of_month))
 
 
 # ── URL-candidate registries ─────────────────────────────────────────
@@ -858,7 +908,8 @@ async def hdfc(http: aiohttp.ClientSession, m: date) -> list[dict]:
     return await _hdfc_multi_file_adapter(http, m)
 
 async def nippon(http: aiohttp.ClientSession, m: date) -> list[dict]:
-    return await _amfi_holdings_adapter("nippon", http, m)
+    return await _ak_then_direct("nippon", http, m,
+                                 lambda: _amfi_holdings_adapter("nippon", http, m))
 
 async def absl(http: aiohttp.ClientSession, m: date) -> list[dict]:
     """ABSL — full monthly disclosure via AdvisorKhoj (consolidated .xls);
@@ -1012,7 +1063,7 @@ async def absl(http: aiohttp.ClientSession, m: date) -> list[dict]:
     logger.info("mf_holdings[absl]: %d raw → %d resolved rows (from %s)", len(all_raw_rows), len(resolved), zip_url)
     return resolved
 
-async def uti(http: aiohttp.ClientSession, m: date) -> list[dict]:
+async def _uti_direct(http: aiohttp.ClientSession, m: date) -> list[dict]:
     """UTI publishes a consolidated ZIP via an Angular SPA API.
 
     The listing pages (forms-and-downloads, factsheets, etc.) are all wrong —
@@ -1326,7 +1377,7 @@ def _parse_quant_xlsx(data: bytes, fund_name: str, as_of_month: date, source_url
     return result
 
 
-async def quant(http: aiohttp.ClientSession, m: date) -> list[dict]:
+async def _quant_direct(http: aiohttp.ClientSession, m: date) -> list[dict]:
     """quant MF portfolio adapter — ASP.NET WebMethod API."""
     from nidp.shared.storage.pg import get_pool
 
@@ -1601,6 +1652,16 @@ async def jm_financial(http: aiohttp.ClientSession, m: date) -> list[dict]:
 
     logger.info("mf_holdings[jm_financial]: %d total holding rows", len(all_rows))
     return all_rows
+
+
+# UTI and quant: proven direct adapters for the current month, AdvisorKhoj for history.
+# See _ak_then_direct. Verified 2026-10-22: AdvisorKhoj resolves UTI 13/13 months, quant 9/13.
+async def uti(http: aiohttp.ClientSession, m: date) -> list[dict]:
+    return await _ak_then_direct("uti", http, m, lambda: _uti_direct(http, m))
+
+
+async def quant(http: aiohttp.ClientSession, m: date) -> list[dict]:
+    return await _ak_then_direct("quant", http, m, lambda: _quant_direct(http, m))
 
 
 ADAPTERS: dict[str, AdapterFn] = {

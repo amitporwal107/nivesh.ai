@@ -67,6 +67,17 @@ AK_AMCS: dict[str, dict] = {
     # per-fund files, or a broken upload — deferred.
     "franklin":  {"slug": "Franklin-Templeton-Mutual-Fund",   "filter": ("scheme_name ILIKE $1", "Franklin %")},
     "ppfas":     {"slug": "PPFAS-Mutual-Fund",                "filter": ("scheme_name ILIKE $1", "Parag Parikh %")},
+    # ── added 2026-10-22 ──
+    # These four already have working DIRECT adapters, which is why they were never registered
+    # here — but those adapters resolve only the CURRENT month, so mf_holdings_monthly held one
+    # month for each of them. AdvisorKhoj indexes their official files per month with full
+    # history, so they are registered as the historical path (the direct adapter still runs
+    # first; see _direct_then_ak in amc_dispatch). Verified 2026-10-22 against the live pages:
+    # SBI 13/13 months, UTI 13/13, Nippon 13/13, quant 9/13.
+    "sbi":       {"slug": "SBI-Mutual-Fund",                  "filter": ("amc_id = $1", "sbi")},
+    "uti":       {"slug": "UTI-Mutual-Fund",                  "filter": ("amc_id = $1", "uti")},
+    "nippon":    {"slug": "Nippon-India-Mutual-Fund",         "filter": ("amc_id = $1", "nippon")},
+    "quant":     {"slug": "Quant-Mutual-Fund",                "filter": ("amc_id = $1", "quant")},
 }
 
 _ISIN_RE = re.compile(r"^IN[EF][A-Z0-9]{9}$")
@@ -95,7 +106,12 @@ def _month_patterns(as_of_month: date) -> list[str]:
         rf"/{yr}/{full}/", rf"/{yr}/{abbr}/",                                  # ICICI path
         rf"{full}{sep}(?:{last}{sep})?{yr}(?!\d)",                            # 'May2026' / 'May-31-2026'
         rf"{abbr}{sep}(?:{last}{sep})?{yr}(?!\d)",
-        rf"{last:02d}{sep}{full}{sep}{yr}(?!\d)",                             # '31-May-2026' (day first)
+        rf"{last:02d}(?:st|nd|rd|th)?{sep}{full}{sep}{yr}(?!\d)",              # '31-May-2026' / '30th September 2026'
+        # Day + month NAME + 2-DIGIT year: Nippon ('NIMF-MONTHLY-PORTFOLIO-30-Sep-26.xls',
+        # '...-31-July-26.xls'). Neither the 4-digit-year nor the all-numeric pattern matches
+        # these, which is why Nippon resolved 0/13 months while its 45 files sat on the page.
+        rf"{last:02d}(?:st|nd|rd|th)?{sep}{abbr}{sep}{yr % 100:02d}(?!\d)",
+        rf"{last:02d}(?:st|nd|rd|th)?{sep}{full}{sep}{yr % 100:02d}(?!\d)",
         rf"(?<!\d){last:02d}{sep}{mo:02d}{sep}{yr}(?!\d)",                     # 31.05.2026 / 31052026
         rf"(?<!\d){last:02d}{sep}{mo:02d}{sep}{yr % 100:02d}(?!\d)",           # 31_05_26 (2-digit yr)
         rf"/{yr}{sep}{mo:02d}(?!\d)",                                         # /2026/05, 2026-05
@@ -103,14 +119,26 @@ def _month_patterns(as_of_month: date) -> list[str]:
 
 
 def _file_url_for_month(html: str, base_url: str, as_of_month: date) -> Optional[str]:
-    """Pick the disclosure-file href referencing as_of_month from a page."""
+    """Pick the disclosure-file href referencing as_of_month from a page.
+
+    Two passes, filename first. Some AMCs file a disclosure under its PUBLICATION month rather
+    than its DATA month — Tata serves 'Monthly Portfolio as on 30th September 2026.xlsx' from a
+    /2026-10/ directory — so matching anywhere in the URL can silently return the wrong month.
+    The basename is the authoritative statement of what the file contains, so it is tried alone
+    before the full URL is considered.
+    """
     pats = _month_patterns(as_of_month)
-    for href in re.findall(r'href=["\']([^"\']+)["\']', html, re.I):
-        if not _DISCLOSURE_EXT_RE.search(href):
-            continue
-        low = href.lower()
-        if any(re.search(p, low) for p in pats):
-            return urljoin(base_url, href.replace(" ", "%20"))
+    candidates = [h for h in re.findall(r'href=["\']([^"\']+)["\']', html, re.I)
+                  if _DISCLOSURE_EXT_RE.search(h)]
+
+    for match_on_basename in (True, False):
+        for href in candidates:
+            low = href.lower()
+            if match_on_basename:
+                # Strip any query string, then take the last path segment.
+                low = low.split("?")[0].rsplit("/", 1)[-1]
+            if any(re.search(p, low) for p in pats):
+                return urljoin(base_url, href.replace(" ", "%20"))
     return None
 
 
