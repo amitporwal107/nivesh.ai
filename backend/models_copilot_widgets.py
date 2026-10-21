@@ -46,7 +46,9 @@ WidgetKind = Literal[
     "insight_card",
 ]
 
-FreshnessState = Literal["live", "cached", "delayed", "eod", "stale"]
+# "unavailable" = the upstream returned nothing and the widget is empty. It exists so a widget can say
+# "no reading" instead of substituting invented values and calling them cached.
+FreshnessState = Literal["live", "cached", "delayed", "eod", "stale", "unavailable"]
 
 
 class FreshnessChip(BaseModel):

@@ -602,6 +602,56 @@ def strategy_costs(trade: Dict[str, Any], exit_marks: List[Optional[float]]) -> 
     return round(total, 2)
 
 
+def exposure_rs(doc: Dict[str, Any]) -> Optional[float]:
+    """An UPPER BOUND on what an open strategy can lose, ₹, for the risk governor's book. None when a leg
+    is missing a field the bound needs.
+
+    Why this exists: the governor builds its portfolio from desk trades and used to keep only
+    `kind in (None, "cash")`, so every multi-leg F&O position — stored with kind="strategy" — was invisible
+    to it. A user with ten option structures open read as an empty book with a full risk budget. The
+    governor measures a position as quantity x price, so a strategy needs one money figure.
+
+    The bound, deliberately conservative (a governor should refuse rather than permit when unsure):
+      * cash and futures legs contribute their full notional (lots x lot size x entry price); a futures
+        loss is limited only by the price reaching zero, so notional is the honest measure.
+      * a lone option leg contributes the premium paid. `check_defined_risk` forbids naked shorts, so a
+        single option leg is always bought and the premium is the whole risk.
+      * two or more option legs contribute the strike span x the largest leg quantity. Max loss on a
+        vertical is the span less the credit (or the debit paid), so the span is a true upper bound. For a
+        four-leg structure it is the OUTER span and therefore overstates a condor, whose real risk is one
+        wing. That is the safe direction for a limit check; it is not a P&L figure and is not shown as one.
+    """
+    legs = doc.get("legs") or []
+    total = 0.0
+
+    def qty(leg: Dict[str, Any]) -> Optional[float]:
+        lots, size = leg.get("lots"), leg.get("lot_size")
+        return None if lots is None or size is None else float(lots) * float(size)
+
+    options = [l for l in legs if l.get("kind") == "option"]
+    for leg in legs:
+        if leg.get("kind") == "option":
+            continue
+        q, price = qty(leg), leg.get("entry_price")
+        if q is None or price is None:
+            return None
+        total += q * float(price)
+
+    if len(options) == 1:
+        q, price = qty(options[0]), options[0].get("entry_price")
+        if q is None or price is None:
+            return None
+        total += q * float(price)
+    elif options:
+        strikes = [l.get("strike") for l in options]
+        qs = [qty(l) for l in options]
+        if any(s is None for s in strikes) or any(q is None for q in qs):
+            return None
+        total += (max(strikes) - min(strikes)) * max(qs)
+
+    return round(total, 2)
+
+
 def net_premium(legs: List[Dict[str, Any]], prices: List[Optional[float]]) -> Optional[float]:
     """Cash the option legs bring in (sold) or take out (bought) at those prices, ₹: negative = a debit.
     None without option legs or when an option leg has no price."""

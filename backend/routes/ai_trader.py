@@ -70,6 +70,7 @@ from pymongo.errors import DuplicateKeyError
 
 from deps import db, get_current_user
 from services import desk_trading as desk
+from services import desk_strategy_trades as desk_strategy
 from services import pg_client
 from services.ai_trader import _research, execution, strategy
 from services.ai_trader.calibration import CalibrationError, calibration_report
@@ -331,9 +332,29 @@ async def _portfolio(uid: str, capital: float) -> Portfolio:
         .to_list(desk.MAX_OPEN_TRADES * 2)
     tickets = await db[execution.TICKETS].find({"user_id": uid}).to_list(MAX_TICKETS_LISTED)
     sector_of = {t["trade_id"]: t.get("sector") for t in tickets if t.get("trade_id")}
-    positions = [Position(symbol=d["symbol"], quantity=int(d["quantity"]), price=float(d["entry_price"]),
-                          sector=sector_of.get(d["_id"]))
-                 for d in open_docs if d.get("kind") in (None, "cash")]
+    # Cash trades carry a quantity and an entry price; a multi-leg strategy (kind="strategy") carries legs
+    # instead, so it is measured once as an upper bound on its loss (desk_strategy_trades.exposure_rs) and
+    # entered as a single unit. Strategies used to be filtered out of this list entirely, which meant every
+    # F&O position was invisible to the governor: the position count, the duplicate-symbol check and the
+    # exposure sum all ran against a book that excluded the most leveraged thing the desk can open.
+    positions: List[Position] = []
+    for d in open_docs:
+        kind = d.get("kind")
+        if kind in (None, "cash"):
+            positions.append(Position(symbol=d["symbol"], quantity=int(d["quantity"]),
+                                      price=float(d["entry_price"]), sector=sector_of.get(d["_id"])))
+            continue
+        if kind == desk_strategy.KIND:
+            value = desk_strategy.exposure_rs(d)
+            if value is None:
+                # A leg is missing a field the bound needs. Counting it as zero would hide it, so it is
+                # entered at the whole capital: the governor then refuses to add risk rather than
+                # measuring an unknown position as harmless.
+                logger.warning("ai_trader risk book: strategy %s has no computable exposure; counting it "
+                               "against the full capital", d.get("_id"))
+                value = capital
+            positions.append(Position(symbol=d.get("underlying") or d.get("symbol"), quantity=1,
+                                      price=float(value), sector=sector_of.get(d["_id"])))
     today = _today_ist()
     realized = 0.0
     for d in await _closed_trades(uid):

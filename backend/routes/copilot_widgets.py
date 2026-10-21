@@ -1020,31 +1020,25 @@ async def sector_rotation(request: Request, payload: Optional[_LayoutOnlyRequest
             month_change_pct=float(mo) if mo is not None else None,
         ))
 
-    if not sectors:
-        sectors = [
-            SectorPoint(name="Banking", quadrant="Leading", rs_score=62, week_change_pct=0.8, month_change_pct=3.2),
-            SectorPoint(name="Auto", quadrant="Leading", rs_score=58, week_change_pct=1.4, month_change_pct=4.1),
-            SectorPoint(name="Capital Goods", quadrant="Improving", rs_score=52, week_change_pct=1.1, month_change_pct=1.8),
-            SectorPoint(name="IT", quadrant="Lagging", rs_score=41, week_change_pct=-2.1, month_change_pct=-3.5),
-            SectorPoint(name="FMCG", quadrant="Weakening", rs_score=57, week_change_pct=-0.4, month_change_pct=-1.2),
-            SectorPoint(name="Pharma", quadrant="Improving", rs_score=50, week_change_pct=0.6, month_change_pct=2.0),
-            SectorPoint(name="Metals", quadrant="Lagging", rs_score=38, week_change_pct=-1.8, month_change_pct=-4.2),
-            SectorPoint(name="Realty", quadrant="Leading", rs_score=61, week_change_pct=2.0, month_change_pct=5.5),
-        ]
-
+    # No fallback list here, deliberately. This used to substitute eight hardcoded sectors with invented
+    # RS scores and returns when upstream was empty, and then stamped them source=["NIDP","NSE"] at
+    # confidence 80 — fabricated data served as sourced data. An empty upstream now answers empty, and the
+    # widget says so. (CONTEXT.md: mock data is loud or it's a lie; FR-DAT-001: missing values are never
+    # silently replaced with fabricated values.)
     data = SectorRotationData(
         horizon="1M",
         sectors=sectors,
-        as_of_date=_iso_now(),
+        as_of_date=_iso_now() if sectors else None,
     )
     title = "Sector Rotation · 1M"
     freshness = FreshnessChip(
-        state="live" if sectors_raw else "cached",
+        state="live" if sectors else "unavailable",
         last_updated=_iso_now(),
-        source=["NIDP", "NSE"],
+        source=["NIDP", "NSE"] if sectors else [],
     )
+    # Confidence is about the reading, so there is none without one.
     agent = AgentInfo(id="market_strategist", label="Market Strategist",
-                      version="v1", confidence=80)
+                      version="v1", confidence=80 if sectors else None)
     primary_cta = {"label": "Which sectors should I trim?", "action": "sector_trim_advice"}
     suggestions = ["Show my exposure to Leading sectors", "Alert me on IT recovery", "3M view"]
 
