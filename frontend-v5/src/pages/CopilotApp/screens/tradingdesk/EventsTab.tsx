@@ -12,17 +12,21 @@
  * and panels. A release shows PREVIOUS / ESTIMATE / ACTUAL; the free sources carry no consensus, so ESTIMATE is "—" with a
  * note and the surprise tag appears only when both an estimate and an actual exist. The panel plots how the Nifty 50 moved on
  * past releases of the same indicator (release day, next day, a week later).
+ * Results events also carry a RESULTS EXPECTATION: a baseline range worked out from the company's own published quarters (not an
+ * analyst consensus, not a forecast) with the method's backtested track record beside it, the filed figure once declared, and the
+ * filings that bear on the quarter, each linked to its source. It never calls a result a beat or a miss.
  * History is what happened before, not a forecast; the panel says so. Nothing is invented: a missing figure is "—".
  */
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useCopilotShell } from "../../lib/shell-context";
 import { LoadingBlock } from "../../components/ui";
+import { ApiError } from "@/services/api/errors";
 import { useDesk } from "./context";
 import { istParts, useNow } from "./overview-data";
 import {
   COUNTRIES, COUNTRY_CHIP, COUNTRY_NAME, EVENT_TYPES, IMPACTS, IMPACT_COLOR, IMPACT_LABEL, TIMING_LABEL, TIMING_ORDER, TIMING_SHORT, TYPE_COLOR, TYPE_LABEL, TYPE_PLURAL, TYPE_SHORT,
-  fmtMacroVal, useEventHistory, useEventsCalendar, useMacroCalendar, useMacroHistory,
-  type CalEvent, type Calendar, type Country, type EventType, type History, type Impact, type MacroCalendar, type MacroEvent, type StatTriple, type Universe,
+  fmtExpVal, fmtMacroVal, useEventHistory, useEventsCalendar, useMacroCalendar, useMacroHistory, useResultsExpectation,
+  type CalEvent, type Calendar, type Country, type EventType, type ExpMetric, type Expectation, type History, type Impact, type MacroCalendar, type MacroEvent, type StatTriple, type Universe,
 } from "./events-data";
 
 const MINUS = "−";
@@ -261,6 +265,212 @@ function MacroHistoryBlock({ ev, today, closes, compact }: { ev: MacroEvent; tod
   return <HistoryView h={view} headline={`NIFTY 50 · ${ev.short}`} pastHead="PAST RELEASES" own={own} compact={compact} macro showActual={h.occurrences.some((o) => o.actual != null)} />;
 }
 
+// ── results expectation ──
+const EXP_LABEL: Record<string, string> = { revenue: "REVENUE FROM OPERATIONS", pat: "NET PROFIT (PAT)", eps: "EPS", ebitda: "EBITDA", total_income: "TOTAL INCOME" };
+const expLabel = (k: string) => EXP_LABEL[k] ?? k.replace(/_/g, " ").toUpperCase();
+const NO_AUDIT = new Set(["", "unknown", "not_recorded", "not recorded", "n/a", "na", "none", "null"]);
+const auditText = (a: string | null) => (a == null || NO_AUDIT.has(a.trim().toLowerCase()) ? "audit status not recorded" : a.trim());
+const safeUrl = (u: string | null) => { if (!u) return null; try { const x = new URL(u); return x.protocol === "http:" || x.protocol === "https:" ? x.toString() : null; } catch { return null; } };
+const pct0 = (v: number) => `${Math.round(v)}%`;
+const pct1 = (v: number) => `${v.toFixed(1)}%`;
+
+/** Where a filed figure sits against the baseline range: a position, never a verdict. */
+function positionOf(v: number, lo: number, hi: number): "below" | "inside" | "above" { return v < lo ? "below" : v > hi ? "above" : "inside"; }
+
+function RangeBar({ m }: { m: ExpMetric }) {
+  const e = m.expected; if (!e) return null;
+  const pts = [e.low, e.high, e.mid, m.filed?.value, m.lastYearQuarter].filter((x): x is number => x != null);
+  const lo = Math.min(...pts), hi = Math.max(...pts), pad = (hi - lo || Math.abs(hi) || 1) * 0.12;
+  const d0 = lo - pad, d1 = hi + pad;
+  const pos = (v: number) => `${(((v - d0) / (d1 - d0)) * 100).toFixed(2)}%`;
+  return (
+    <div aria-hidden style={{ position: "relative", height: 22, borderRadius: 6, background: "var(--bg-2)" }}>
+      <span style={{ position: "absolute", left: pos(e.low), width: `${(((e.high - e.low) / (d1 - d0)) * 100).toFixed(2)}%`, top: 8, height: 6, borderRadius: 3, background: "var(--cp-line-3, var(--line-3))" }} />
+      {e.mid != null && <span style={{ position: "absolute", left: pos(e.mid), top: 3, width: 2, height: 16, marginLeft: -1, background: "var(--cp-ink)" }} />}
+      {m.lastYearQuarter != null && <span style={{ position: "absolute", left: pos(m.lastYearQuarter), top: 6, width: 1, height: 10, background: "var(--cp-ink-3)" }} />}
+      {m.filed?.value != null && <span data-testid="events-exp-filed-mark" style={{ position: "absolute", left: pos(m.filed.value), top: 4, width: 14, height: 14, marginLeft: -7, boxSizing: "border-box", borderRadius: "50%", border: "2px solid var(--amber)" }} />}
+    </div>
+  );
+}
+
+/**
+ * The track record that belongs to ONE metric: all-stocks figures come from method.by_metric[key] (EPS follows profit), so a
+ * profit record never sits under revenue. The stock's own record is profit-only in the backend and is shown under profit and EPS.
+ */
+function MetricTrack({ x, m }: { x: Expectation; m: ExpMetric }) {
+  const profit = m.key === "pat" || m.key === "eps";
+  const un = x.method.byMetric[m.key === "eps" ? "pat" : m.key] ?? null;
+  const st = x.method.stock;
+  const stockLine = !profit
+    ? `FOR ${x.symbol}: not tested separately for ${expLabel(m.key).toLowerCase()}`
+    : st && st.nQuarters && st.nQuarters > 0 && st.withinBand != null
+      ? `FOR ${x.symbol}: the method was within its band in ${Math.round((st.withinBand * st.nQuarters) / 100)} of ${st.nQuarters} tested quarters${st.medianAbsErr != null ? ` · median error ${pct1(st.medianAbsErr)}` : ""}`
+      : `FOR ${x.symbol}: no track record, too few published quarters to test the method`;
+  let uniLine: string;
+  if (!un) uniLine = "ACROSS ALL STOCKS: track record not available";
+  else {
+    const err = un.medianAbsErr != null
+      ? ` · median error ${pct1(un.medianAbsErr)}${un.naiveMedianAbsErr != null ? ` vs ${pct1(un.naiveMedianAbsErr)} if last year's quarter were repeated` : ""}`
+      : "";
+    uniLine = un.withinBand != null && un.withinBandN
+      ? `ACROSS ALL STOCKS (held out): within its band in ${pct0(un.withinBand)} of ${un.withinBandN.toLocaleString("en-IN")} tests${err}`
+      : `ACROSS ALL STOCKS: band not yet checked on held-out stocks${un.n ? ` (${un.n.toLocaleString("en-IN")} tests)` : ""}${err}`;
+  }
+  const lq = un?.latest;
+  return (
+    <div data-testid={`events-exp-track-${m.key}`} className="flex flex-col" style={{ gap: 3, padding: "8px 10px", borderRadius: 9, background: "var(--bg-2)" }}>
+      <span style={{ ...mono, fontSize: 8.5, letterSpacing: "0.12em", color: "var(--cp-ink-3)" }}>HOW OFTEN THIS METHOD HAS BEEN RIGHT</span>
+      <span data-testid={`events-exp-track-stock-${m.key}`} style={{ fontSize: 12, color: "var(--cp-ink)" }}>{stockLine}</span>
+      <span data-testid={`events-exp-track-all-${m.key}`} style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>{uniLine}</span>
+      {lq && lq.withinBand != null && lq.testedN ? (
+        <span data-testid={`events-exp-track-latest-${m.key}`} style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>
+          Latest quarter{lq.testedOn ? ` (${lq.testedOn})` : ""}: within its band in {pct0(lq.withinBand)} of {lq.testedN.toLocaleString("en-IN")}, a small sample.
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function MetricTile({ m, x }: { m: ExpMetric; x: Expectation }) {
+  const declared = x.status === "declared";
+  const rows: Array<[string, string]> = [
+    ["LAST YEAR, SAME QUARTER", fmtExpVal(m.lastYearQuarter, m.unit)],
+    ["PREVIOUS QUARTER", fmtExpVal(m.previousQuarter, m.unit)],
+    ["YEAR-ON-YEAR TREND", m.trendYoy == null ? "—" : sg(m.trendYoy)],
+  ];
+  const f = m.filed;
+  const e = m.expected;
+  const usable = m.reliable && e != null;
+  const vs = f?.value != null && usable ? (m.vsMid ?? (e.mid ? ((f.value / e.mid - 1) * 100) : null)) : null;
+  // inside / outside is the backend's answer when it gave one; above / below is then read off the numbers
+  const place = f?.value != null && usable
+    ? (m.withinBand != null ? (m.withinBand ? "inside" : f.value > e.high ? "above" : "below") : positionOf(f.value, e.low, e.high))
+    : null;
+  const audit = f ? (f.auditStatus ?? x.auditStatus) : null;
+  return (
+    <div data-testid={`events-exp-metric-${m.key}`} className="flex flex-col" style={{ gap: 9, padding: "12px 14px", borderRadius: 12, border: line, background: "var(--bg-1)" }}>
+      <span style={{ ...mono, fontSize: 9, letterSpacing: "0.14em", color: "var(--cp-ink-3)" }}>{expLabel(m.key)}</span>
+      {usable ? (
+        <>
+          <span data-testid={`events-exp-range-${m.key}`} className="cp-num" style={{ fontFamily: "var(--display)", fontSize: 24, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
+            {fmtExpVal(e.low, m.unit)} – {fmtExpVal(e.high, m.unit)}
+          </span>
+          <RangeBar m={m} />
+          {e.mid != null && <span style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>MIDPOINT {fmtExpVal(e.mid, m.unit)}</span>}
+          <MetricTrack x={x} m={m} />
+        </>
+      ) : (
+        <p data-testid={`events-exp-unreliable-${m.key}`} style={{ ...quietP, color: "var(--cp-ink-2)" }}>
+          No reliable expectation.{m.note ? ` ${m.note}` : ""}
+        </p>
+      )}
+      {usable && m.note && <span data-testid={`events-exp-note-${m.key}`} style={{ ...mono, fontSize: 9, letterSpacing: "0.06em", color: "var(--cp-ink-3)" }}>{m.note}</span>}
+      {declared && f && (
+        <div data-testid={`events-exp-filed-${m.key}`} className="flex flex-col" style={{ gap: 3, paddingTop: 8, borderTop: line }}>
+          <span style={{ ...mono, fontSize: 9, letterSpacing: "0.14em", color: "var(--cp-ink-3)" }}>FILED RESULT</span>
+          <span className="cp-num" style={{ fontSize: 17 }}>{fmtExpVal(f.value, m.unit)}</span>
+          {place && (
+            <span data-testid={`events-exp-vs-${m.key}`} style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
+              {place.replace(/^./, (c) => c.toUpperCase())} the baseline range{vs != null ? ` · ${sg(vs)} vs midpoint` : ""}
+            </span>
+          )}
+          {f.value != null && !usable && <span style={{ fontSize: 12.5, color: "var(--cp-ink-3)" }}>No reliable baseline to compare it with.</span>}
+          {f.value != null && usable && x.comparedWith && (
+            <span data-testid={`events-exp-compared-${m.key}`} style={{ ...mono, fontSize: 9, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>{x.comparedWith.toUpperCase()}</span>
+          )}
+          <span data-testid={`events-exp-audit-${m.key}`} style={{ ...mono, fontSize: 9, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
+            {auditText(audit).toUpperCase()}{f.broadcastAt ? ` · FILED ${f.broadcastAt.slice(0, 16).replace("T", " ")}` : ""}
+          </span>
+          {x.auditBasis && <span data-testid={`events-exp-audit-basis-${m.key}`} style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>{x.auditBasis}</span>}
+        </div>
+      )}
+      <div className="flex flex-col">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between items-baseline" style={{ gap: 10, padding: "6px 0", borderTop: line }}>
+            <span style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", color: "var(--cp-ink-3)" }}>{k}</span>
+            <span className="cp-num" style={{ fontSize: 12.5, color: k === "YEAR-ON-YEAR TREND" ? tone(m.trendYoy) : "var(--cp-ink)" }}>{v}</span>
+          </div>
+        ))}
+      </div>
+      {m.lastYearNote && <span data-testid={`events-exp-lynote-${m.key}`} style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{m.lastYearNote}</span>}
+    </div>
+  );
+}
+
+function ExpEvidence({ items }: { items: Expectation["evidence"] }) {
+  if (!items.length) return <p data-testid="events-exp-evidence-empty" style={quietP}>No filings or news on file for this quarter.</p>;
+  return (
+    <div data-testid="events-exp-evidence" className="flex flex-col">
+      {items.map((e, i) => {
+        const href = safeUrl(e.url);
+        const title = href
+          ? <a href={href} target="_blank" rel="noopener noreferrer" data-testid="events-exp-evidence-link" style={{ color: "var(--cp-ink)", textDecoration: "underline", textDecorationColor: "var(--cp-line-3, var(--line-3))" }}>{e.title}</a>
+          : <span>{e.title}</span>;
+        return (
+          <div key={`${e.date}-${i}`} data-testid="events-exp-evidence-row" className="flex flex-col" style={{ gap: 3, padding: "8px 0", borderTop: line, fontSize: 13 }}>
+            {title}
+            <span style={{ ...mono, fontSize: 9, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
+              {[e.date, e.category ? e.category.toUpperCase() : null, e.source ? `SOURCE ${e.source}` : null].filter(Boolean).join(" · ")}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ResultsExpectation({ ev }: { ev: CalEvent }) {
+  const q = useResultsExpectation(ev.symbol, ev.date, ev.type === "RESULTS");
+  if (ev.type !== "RESULTS") return null;
+  if (q.isLoading) return <div data-testid="events-exp-loading"><LoadingBlock label="Loading results expectation" rows={3} /></div>;
+  if (q.isError || !q.data) {
+    const missing = q.error instanceof ApiError && q.error.status === 404;
+    return (
+      <p data-testid="events-exp-error" style={quietP}>
+        {missing ? "No results meeting is on file for this stock on that date, so there is no expectation to show." : "The results expectation could not be loaded."}{" "}
+        <button type="button" data-testid="events-exp-retry" onClick={() => q.refetch()} style={{ background: "none", border: 0, color: "var(--mint)", cursor: "pointer", fontSize: 12.5, padding: 0 }}>Retry</button>
+      </p>
+    );
+  }
+  const x = q.data, declared = x.status === "declared";
+  return (
+    <section data-testid="events-exp" data-status={x.status} className="flex flex-col" style={{ gap: 10 }}>
+      <div className="flex flex-col" style={{ gap: 4 }}>
+        <span data-testid="events-exp-label" style={{ ...eyebrow, color: "var(--cp-ink)", fontSize: 9, lineHeight: 1.5 }}>NIVESH BASELINE FROM PUBLISHED RESULTS · NOT A CONSENSUS · NOT A FORECAST</span>
+        <span data-testid="events-exp-heading" style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
+          {declared ? "FILED RESULT VS BASELINE" : "EXPECTED RANGE"}{x.periodLabel ? ` · ${x.periodLabel.toUpperCase()}` : ""}{x.basis ? ` · ${x.basis.toUpperCase()}` : ""}
+        </span>
+        {x.label && <span data-testid="events-exp-api-label" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{x.label}</span>}
+      </div>
+      {x.metrics.length ? (
+        <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))" }}>
+          {x.metrics.map((m) => <MetricTile key={m.key} m={m} x={x} />)}
+        </div>
+      ) : <p data-testid="events-exp-nometrics" style={quietP}>No published quarters on file to build a baseline from.</p>}
+      {(x.method.name || x.method.formula) && (
+        <p data-testid="events-exp-method" style={{ ...quietP, fontSize: 12 }}>
+          {x.method.name ? <b style={{ color: "var(--cp-ink-2)", fontWeight: 500 }}>{x.method.name}. </b> : null}{x.method.formula ?? ""}{x.method.nQuarters != null ? ` Built from ${x.method.nQuarters} published quarters` : ""}{x.expectedAsOf ? `, using only what was published before ${x.expectedAsOf.slice(0, 10)}.` : x.method.nQuarters != null ? "." : ""}
+          {x.method.stock?.note ? ` ${x.method.stock.note.replace(/^./, (c) => c.toUpperCase())}.` : ""}
+        </p>
+      )}
+      <div className="flex flex-col" style={{ gap: 2 }}>
+        <span style={{ ...eyebrow, color: "var(--cp-ink)" }}>FILINGS AND NEWS ON THIS QUARTER</span>
+        <ExpEvidence items={x.evidence} />
+      </div>
+      {x.sources.length > 0 && (
+        <ul data-testid="events-exp-sources" className="m-0 flex flex-col" style={{ gap: 2, paddingLeft: 16, ...quietP, fontSize: 11.5 }}>
+          {x.sources.map(([k, v]) => <li key={k}>{v}</li>)}
+        </ul>
+      )}
+      {x.gaps.length > 0 && (
+        <ul data-testid="events-exp-gaps" className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 16, ...quietP, fontSize: 12 }}>
+          {x.gaps.map((g, i) => <li key={i}>{g}</li>)}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 // ── event detail ──
 function StockDetail({ ev, today, compact }: { ev: CalEvent; today: string; compact?: boolean }) {
   const { askDesk } = useDesk();
@@ -280,6 +490,7 @@ function StockDetail({ ev, today, compact }: { ev: CalEvent; today: string; comp
         {ev.detail && <span style={{ fontSize: 14.5, color: "var(--cp-ink)" }}>{ev.detail}</span>}
         <span style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>{fmtD(ev.date)} {ev.date.slice(0, 4)} · {ev.timing ? TIMING_LABEL[ev.timing] : "timing not stated"} · {rel(ev.date, today)}</span>
       </div>
+      <ResultsExpectation ev={ev} />
       <HistoryBlock ev={ev} compact={compact} />
       <div className="flex flex-col">
         {facts.map(([k, v]) => (
