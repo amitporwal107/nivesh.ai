@@ -82,6 +82,7 @@ _NEW_CONTEXT_TO_COL: Dict[str, str] = {
     "PublicShareholding_ContextI":                     "public_pct",
     "InstitutionsForeign_ContextI":                    "fii_pct",
     "InstitutionsDomestic_ContextI":                   "dii_pct",
+    "MutualFundsOrUTI_ContextI":                       "mf_pct",   # the name real filings use
     "MutualFunds_ContextI":                            "mf_pct",
     "Banks_ContextI":                                  "bank_fi_pct",
     "NonResidentIndians_ContextI":                     "nri_pct",

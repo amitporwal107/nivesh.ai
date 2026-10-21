@@ -738,6 +738,6 @@ test.describe("TC-19 account screens — desktop", () => {
     await expect(page.getByTestId("settings-mode-advisor")).toBeDisabled(); // not an advisor workspace
     await page.getByTestId("settings-mode-trader").click();
     await expect(page.getByTestId("mode-pill")).toContainText("Trader");
-    await expect(page.getByTestId("copilot-rail").getByRole("button", { name: /Options lab/ })).toBeVisible();
+    await expect(page.getByTestId("copilot-rail").getByRole("button", { name: /Smart trading desk/ })).toBeVisible();
   });
 });

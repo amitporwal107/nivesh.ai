@@ -19,6 +19,12 @@ Public (auth-required):
        within that universe. Rules and thresholds: services/positional_engine/setup_rules.py (versioned, sent back
        as `rules`). Watchlist and picks also send the rules / engine versions behind their rows.
 
+  GET  /api/positional/reversal-candidates?near_pct=&view=&limit=
+       Stocks near their 52-week low that show stabilization evidence (never the proximity alone), each with a
+       rule-based 0-100 score whose unknown components are left out, hard-gate exclusions with reasons, sector
+       rotation context, fundamentals, catalyst evidence and hypothetical entry / invalidation / target levels.
+       Rules: services/positional_engine/reversal_rules.py (versioned, sent back as `rules`). Research only.
+
 Admin:
   POST /api/positional/run?date=YYYY-MM-DD
   POST /api/positional/scans/upload        — upload a Chartink CSV
@@ -48,6 +54,8 @@ from services.positional_engine import (
     conviction,
     pipeline,
     portfolio_filter,
+    reversal_rules,
+    reversal_service,
     scan_config,
     setup_rules,
 )
@@ -611,6 +619,58 @@ async def scan_universe(request: Request,
         "rows": out_rows,
         "not_found": [s for s in want_setups + want_symbols if s not in rows],
     }
+
+
+# ── GET /api/positional/reversal-candidates ─────────────────────────────
+_reversal_cache: Dict[float, Dict[str, Any]] = {}
+_REVERSAL_MAX_DIST = 25.0
+
+
+async def _reversal_snapshot(max_dist_pct: float) -> Dict[str, Any]:
+    """DaaS GET /v1/features/reversal-snapshot, cached for _SNAPSHOT_TTL; 502 upstream_unavailable on any failure."""
+    now = time.monotonic()
+    hit = _reversal_cache.get(max_dist_pct)
+    if hit and now - hit["at"] < _SNAPSHOT_TTL:
+        return hit["body"]
+    if not daas_client.is_configured():
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    try:
+        status, body = await daas_client.get_raw("/features/reversal-snapshot", {"max_dist_pct": max_dist_pct},
+                                                 timeout=60.0)
+    except daas_client.DaasError as e:
+        logger.warning("reversal-candidates: snapshot read failed: %s", e)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if status != 200 or not isinstance(body, dict) or not isinstance(body.get("rows"), list) or not body.get("as_of"):
+        logger.warning("reversal-candidates: snapshot answered HTTP %s", status)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    _reversal_cache[max_dist_pct] = {"at": now, "body": body}
+    return body
+
+
+@router.get("/reversal-candidates")
+async def reversal_candidates(request: Request,
+                              near_pct: float = Query(reversal_rules.NEAR_LOW["default_pct"], ge=5.0, le=25.0,
+                                                      description="Pool: within this % of the rolling 252-session low"),
+                              view: str = Query("candidates", pattern="^(candidates|all)$"),
+                              limit: int = Query(100, ge=1, le=300)):
+    """Reversal candidates near the 52-week low (reversal-rules.v1). Proximity is a screen, not a signal.
+
+    `rows` hold stocks with stabilization evidence (statuses confirmed, trigger_ready, early_reversal, watchlist), best
+    first; `view=all` adds the near-low stocks without enough evidence. `excluded` lists stocks a hard gate removed, each
+    with its reason; `universe.exclusions` counts every reason, `prefilter` what the data platform's liquidity pre-filter
+    dropped. Every row carries components (score, weight, known flag), unknown_components, coverage_pct, signals with
+    observed values, levels (hypothetical, never sent to a broker) and an explanation. Missing data is never neutral.
+    """
+    await get_current_user(request)
+    snap = await _reversal_snapshot(_REVERSAL_MAX_DIST)
+    try:
+        out = reversal_service.run(snap, near_pct, view=view, limit=limit)
+    except (KeyError, IndexError, ValueError, TypeError) as e:
+        logger.warning("reversal-candidates: snapshot malformed: %s", e)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    out["mode"] = "eod"
+    out["scope"] = "research / paper trading only; no order is sent anywhere"
+    return out
 
 
 def _readiness(ltp: Optional[float], entry: float, sl: float) -> str:
@@ -1327,7 +1387,8 @@ async def get_calibration(request: Request,
                 out["symbol_score"] = {"symbol": sym, "as_of_date": r["as_of_date"].isoformat(),
                                        "accumulation_score": score}
             else:
-                out["symbol_reason"] = f"No accumulation score on record for {sym} (stock_technical_features)."
+                out["symbol_reason"] = (f"No accumulation score on record for {sym} (stock_technical_features is empty for it). "
+                                        "It is filled by the positional engine: python -m scripts.run_positional_engine.")
         except Exception as e:  # noqa: BLE001
             out["symbol_reason"] = f"The accumulation score could not be read: {str(e)[:120]}"
 
@@ -1354,7 +1415,9 @@ async def get_calibration(request: Request,
     out["count"] = len(buckets)
     if not buckets:
         out["empty_reason"] = ("No calibration rows on record: the accumulation backtest (POST "
-                               "/api/positional/backtest/label, then /backtest/calibrate) has not been run here.")
+                               "/api/positional/backtest/label, then /backtest/calibrate) has not been run here. It replays "
+                               "stock_ohlcv, which the positional engine's bhavcopy step fills (python -m "
+                               "scripts.run_positional_engine, one date at a time).")
     return out
 
 

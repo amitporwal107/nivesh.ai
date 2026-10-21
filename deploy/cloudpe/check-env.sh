@@ -38,7 +38,9 @@ fi
 
 # Names whose mere presence means the file still expects GCP credentials.
 GCP_NAMES=(GOOGLE_APPLICATION_CREDENTIALS PI_GCS_SA_KEY_PATH PI_GCS_BUCKET
-           NIDP_GCS_BUCKET NIDP_VM_SA_KEY_PATH NSE_HTTPS_PROXY BSE_PROXY_URL)
+           NIDP_GCS_BUCKET NIDP_VM_SA_KEY_PATH NSE_HTTPS_PROXY)
+# BSE_PROXY_URL is deliberately NOT listed: it is the optional rotating proxy for the BSE
+# announcement jobs (a third-party endpoint, valid on CloudPe), not a GCP coupling.
 # Value patterns that only resolve inside the GCP project/VPC.
 GCP_VALUE_RE='(^|[^0-9])10\.160\.|gs://|metadata\.google\.internal|pkg\.dev'
 

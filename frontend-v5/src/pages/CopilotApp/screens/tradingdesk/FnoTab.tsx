@@ -49,6 +49,7 @@ import { BuildupView } from "./FnoBuildup";
 import { StrategiesView } from "./FnoStrategies";
 import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
 import { HEURISTIC_NOTE } from "./FnoBuildup";
+import { SymbolSearch } from "./SymbolSearch";
 import { TrustLine } from "./trust";
 import {
   CardHead, CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
@@ -111,6 +112,7 @@ const MAX_OFFERS = 8;
 
 function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s: string) => void; expiry: ReactNode }) {
   const { mobile } = useCopilotShell();
+  const { persona } = useDesk();
   const scan = useBuildup(true);
   const [typed, setTyped] = useState("");
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -196,19 +198,23 @@ function UnderlyingRow({ symbol, onPick, expiry }: { symbol: string; onPick: (s:
         <form
           onSubmit={submit}
           className="flex items-center"
-          style={{ gap: 6, width: mobile ? "100%" : 290, maxWidth: "100%", height: 40, padding: "0 4px 0 12px", borderRadius: 12, background: "var(--bg-2)", border: `1px solid ${problem && problem.kind !== "choose" ? "var(--danger-line)" : "var(--line-2)"}` }}
+          style={{ position: "relative", gap: 6, width: mobile ? "100%" : 290, maxWidth: "100%", height: 40, padding: "0 4px 0 12px", borderRadius: 12, background: "var(--bg-2)", border: `1px solid ${problem && problem.kind !== "choose" ? "var(--danger-line)" : "var(--line-2)"}` }}
         >
-          <input
-            data-testid="desk-fno-symbol-input"
-            aria-label="Stock name or ticker"
-            aria-invalid={problem != null && problem.kind !== "choose"}
-            aria-describedby={problem ? "desk-fno-symbol-problem" : undefined}
+          <SymbolSearch
+            value={typed}
+            onChange={(v) => { setTyped(v); setProblem(null); }}
+            onSelect={(sym) => load(sym)}
+            persona={persona}
+            fnoOnly
+            anchorToParent
+            testIdPrefix="desk-fno-search"
+            inputTestId="desk-fno-symbol-input"
+            ariaLabel="Stock name or ticker"
+            invalid={problem != null && problem.kind !== "choose"}
             placeholder="Name or ticker, e.g. TCS"
             maxLength={40}
-            spellCheck={false}
-            value={typed}
-            onChange={(e) => { setTyped(e.target.value); setProblem(null); }}
-            style={{ flex: "1 1 auto", minWidth: 0, height: "100%", border: 0, outline: "none", background: "transparent", color: "var(--cp-ink)", fontFamily: "var(--mono)", fontSize: 13 }}
+            listMinWidth={mobile ? undefined : 340}
+            inputStyle={{ flex: "1 1 auto", minWidth: 0, width: "100%", height: 38, border: 0, outline: "none", background: "transparent", color: "var(--cp-ink)", fontFamily: "var(--mono)", fontSize: 13 }}
           />
           <button
             type="submit"
@@ -409,6 +415,9 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
                     {near?.future.settle != null
                       ? `${fmtNum(near.future.settle, 2)}${words === "level" ? " · level with spot" : words ? ` · ${fmtSigned(near.future.basis)} ${words}` : ""}`
                       : futuresLine}
+                  </CardRow>
+                  <CardRow k="Futures · day change" testId={`${id}-fut-day`}>
+                    {near ? `${near.future.change == null ? "—" : `${fmtSigned(near.future.change)} (${fmtSigned(near.future.change_pct)}%)`}${near.future.prev_close != null ? ` · prev ${fmtNum(near.future.prev_close, 2)}` : " · no previous close"}` : futuresLine}
                   </CardRow>
                   <CardRow k={investor ? "Open bets (OI) change · futures" : "Futures OI change"} testId={`${id}-fut-oi-change`}>{near ? fmtQty(near.future.change_in_oi, { signed: true }) : futuresLine}</CardRow>
                   <CardRow k={investor ? "Futures price vs the index" : "Futures chg · cash check"} testId={`${id}-fut-chg`}>

@@ -37,6 +37,33 @@ async def symbols(
     return envelope([row_to_dict(r) for r in rows], **page)
 
 
+_UNIVERSE_SQL = """
+WITH px AS (SELECT symbol, MAX(as_of_date) AS last_price_date FROM nidp.prices_eod_adjusted GROUP BY symbol),
+ref AS (SELECT symbol, bool_or(fno_eligible) AS fno_eligible FROM nidp.security_reference_daily
+         WHERE as_of_date = (SELECT MAX(as_of_date) FROM nidp.security_reference_daily) GROUP BY symbol),
+feat AS (SELECT symbol, MAX(market_cap_cr) AS market_cap_cr FROM nidp.stock_features_daily
+          WHERE as_of_date = (SELECT MAX(as_of_date) FROM nidp.stock_features_daily) GROUP BY symbol)
+SELECT COALESCE(m.symbol, px.symbol) AS symbol, m.company_name, m.isin, m.series, m.sector, m.industry,
+       px.last_price_date, ref.fno_eligible, feat.market_cap_cr
+  FROM nidp.sector_master m
+  FULL JOIN px ON px.symbol = m.symbol
+  LEFT JOIN ref ON ref.symbol = COALESCE(m.symbol, px.symbol)
+  LEFT JOIN feat ON feat.symbol = COALESCE(m.symbol, px.symbol)
+ ORDER BY 1
+"""
+
+
+@router.get("/symbols/universe", summary="Every NSE symbol the platform knows: name, ISIN, last price day, F&O flag, market cap")
+async def symbols_universe() -> Dict[str, Any]:
+    """The symbol master (nidp.sector_master) joined with the symbols that have adjusted prices, so a stock with prices but no
+    master row (an ETF, a new listing) is still searchable. last_price_date is null for a listed company with no price history.
+    One read (about 3,000 rows) for the app's symbol search, which indexes it in process."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(_UNIVERSE_SQL)
+    return envelope([row_to_dict(r) for r in rows], limit=len(rows), offset=0)
+
+
 @router.get("/symbols/search", summary="Substring search over symbol + company name")
 async def symbols_search(
     q: str = Query(..., min_length=1, max_length=64),

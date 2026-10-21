@@ -12,6 +12,7 @@ import {
   Btn, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Screen, ScreenHeader, Section, fmtDate, fmtNum,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
+import { SECTOR_HEATMAP_VIEW } from "../lib/views";
 import { AskPill, FilterChips, LoadError, type ChipItem } from "./markets/parts";
 import { useScreenRun, type ScreenBucket, type ScreenRun, type ScreenRunRequest } from "./markets/screener-run";
 import { StrategyScreens } from "./markets/StrategyScreens";
@@ -275,7 +276,7 @@ function KeepAsWatchlist({ ran, request }: { ran: RanScreen; request: ScreenRunR
  * as the stocks that pass it today.
  */
 export default function ScreenerScreen() {
-  const { ask, mobile } = useCopilotShell();
+  const { ask, go, mobile } = useCopilotShell();
   const [describe, setDescribe] = useState("");
   const [bucket, setBucket] = useState<Bucket>("");
   const [rules, setRules] = useState<BuilderCondition[]>(() => [newRule("roe"), newRule("pe")]);
@@ -378,7 +379,19 @@ export default function ScreenerScreen() {
     <Screen testId="screen-tool-screener">
       <ScreenHeader
         eyebrow="Stock screener · end-of-day data"
-        pills={<AskPill query="Which sectors are showing improving relative strength, and what is breaking out?" testId="screener-ask" />}
+        pills={
+          <>
+            <AskPill query="Which sectors are showing improving relative strength, and what is breaking out?" testId="screener-ask" />
+            <button
+              type="button"
+              data-testid="screener-heatmap-link"
+              onClick={() => go(SECTOR_HEATMAP_VIEW)}
+              style={{ minHeight: 32, padding: "6px 12px", borderRadius: 999, border: "1px solid var(--line-2)", background: "transparent", color: "var(--cp-ink)", fontSize: 13, cursor: "pointer", fontFamily: "var(--sans)" }}
+            >
+              Sector heatmap ›
+            </button>
+          </>
+        }
         title="Find stocks by rule"
         sub="Run one of the ready-made screens, or build the rules yourself, and the matches show on this page. Or describe what you want and let the Copilot run it in a thread."
       />

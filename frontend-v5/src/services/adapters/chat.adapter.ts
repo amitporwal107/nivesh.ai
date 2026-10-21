@@ -94,6 +94,8 @@ export interface ChatAdapter {
   createSession(title?: string): Promise<{ id: string }>;
   getSession(id: string): Promise<{ messages: ChatMessageC[] }>;
   deleteSession(id: string): Promise<void>;
+  /** Bookmark a thread and/or replace its tags. */
+  updateSession(id: string, patch: { bookmarked?: boolean; tags?: string[] }): Promise<void>;
   suggestedPrompts(): Promise<string[]>;
 }
 
@@ -101,6 +103,8 @@ export interface ChatSession {
   id: string;
   title: string;
   updatedAt?: string;
+  bookmarked: boolean;
+  tags: string[];
 }
 
 export const realChatAdapter: ChatAdapter = {
@@ -184,11 +188,13 @@ export const realChatAdapter: ChatAdapter = {
     const arr = Array.isArray(res.data) ? res.data : [];
     return arr
       .map((s) => {
-        const o = s as { session_id?: string; id?: string; title?: string; updated_at?: string; created_at?: string };
+        const o = s as { session_id?: string; id?: string; title?: string; updated_at?: string; created_at?: string; bookmarked?: boolean; tags?: unknown };
         return {
           id: o.session_id ?? o.id ?? "",
           title: (o.title && o.title.trim()) || "New conversation",
           updatedAt: o.updated_at ?? o.created_at,
+          bookmarked: o.bookmarked === true,
+          tags: Array.isArray(o.tags) ? o.tags.filter((t): t is string => typeof t === "string") : [],
         };
       })
       .filter((s) => s.id);
@@ -200,6 +206,9 @@ export const realChatAdapter: ChatAdapter = {
   },
   async deleteSession(id) {
     await http({ method: "DELETE", path: `/api/chat/sessions/${id}` });
+  },
+  async updateSession(id, patch) {
+    await http({ method: "PATCH", path: `/api/chat/sessions/${id}`, body: patch });
   },
   async getSession(id) {
     // History lives at GET /api/chat/messages?session_id= (returns an array).
