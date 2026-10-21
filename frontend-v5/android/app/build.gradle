@@ -12,9 +12,25 @@ apply plugin: 'com.android.application'
 //      ANDROID_KEYSTORE_PASSWORD  store password
 //      ANDROID_KEY_ALIAS          key alias
 //      ANDROID_KEY_PASSWORD       key password (defaults to store password)
+//    The DEBUG build (the staging APK) takes the same treatment, so CI signs it
+//    with a constant certificate — see the note above signingConfigs below:
+//      ANDROID_DEBUG_KEYSTORE_FILE      path to the staging .jks
+//      ANDROID_DEBUG_KEYSTORE_PASSWORD  store password
+//      ANDROID_DEBUG_KEY_ALIAS          key alias
+//      ANDROID_DEBUG_KEY_PASSWORD       key password (defaults to store password)
 def envOr = { String name, String fallback -> System.getenv(name) ?: fallback }
 def keystorePath = System.getenv("ANDROID_KEYSTORE_FILE")
 def hasReleaseSigning = keystorePath != null && !keystorePath.trim().isEmpty()
+
+// ── Stable DEBUG signing (staging app) ───────────────────────────────────────
+// Gradle's default debug keystore is generated per machine, and a GitHub runner
+// starts clean on every run — so each build would be signed by a different
+// certificate. Native Google sign-in then fails with DEVELOPER_ERROR (code 10),
+// because the Android OAuth client is registered against ONE package + SHA-1.
+// Supplying a fixed keystore keeps that fingerprint constant across CI runs.
+// Unset locally → Gradle's normal debug keystore is used, as before.
+def debugKeystorePath = System.getenv("ANDROID_DEBUG_KEYSTORE_FILE")
+def hasDebugSigning = debugKeystorePath != null && !debugKeystorePath.trim().isEmpty()
 
 android {
     namespace "ai.nivesh.staging"
@@ -39,6 +55,15 @@ android {
                 storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
                 keyAlias System.getenv("ANDROID_KEY_ALIAS")
                 keyPassword System.getenv("ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
+        if (hasDebugSigning) {
+            // `debug` always exists, so configure it rather than creating it.
+            debug {
+                storeFile file(debugKeystorePath)
+                storePassword System.getenv("ANDROID_DEBUG_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("ANDROID_DEBUG_KEY_ALIAS")
+                keyPassword System.getenv("ANDROID_DEBUG_KEY_PASSWORD") ?: System.getenv("ANDROID_DEBUG_KEYSTORE_PASSWORD")
             }
         }
     }

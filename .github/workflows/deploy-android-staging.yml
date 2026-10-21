@@ -100,15 +100,47 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "versionCode=$CODE versionName=$NAME"
 
+      # Without this the APK is signed by the runner's throwaway debug keystore,
+      # which is regenerated on every run. Native Google sign-in then fails with
+      # DEVELOPER_ERROR (code 10): the Android OAuth client in Google Cloud
+      # project 728147509901 is registered against ONE package + SHA-1, and the
+      # fingerprint would change build to build. Observed on 2026-10-21 — a
+      # container build gave d15b8e76… and the runner gave 8efdc800…
+      - name: Decode the staging signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_B64:-}" ]; then
+            echo "::error::ANDROID_DEBUG_KEYSTORE_BASE64 is not set — the APK would be signed with a throwaway key and Google sign-in would fail with code 10. See frontend-v5/docs/android-release.md."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/staging.jks"
+          test -s "$RUNNER_TEMP/staging.jks"
+          echo "keystore decoded ($(stat -c%s "$RUNNER_TEMP/staging.jks") bytes)"
+
       - name: Build staging APK
         env:
           ANDROID_VERSION_CODE: ${{ steps.ver.outputs.code }}
           ANDROID_VERSION_NAME: ${{ steps.ver.outputs.name }}
+          ANDROID_DEBUG_KEYSTORE_FILE: ${{ runner.temp }}/staging.jks
+          ANDROID_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEYSTORE_PASSWORD }}
+          ANDROID_DEBUG_KEY_ALIAS: ${{ secrets.ANDROID_DEBUG_KEY_ALIAS }}
+          ANDROID_DEBUG_KEY_PASSWORD: ${{ secrets.ANDROID_DEBUG_KEY_PASSWORD }}
           # The script defaults these to the on-VM paths; the runner's own
           # ANDROID_HOME/JAVA_HOME (set by the setup actions) take precedence.
           # APK_WEBROOT is absent on the runner, so the script builds and warns
           # instead of publishing — the publish step below does that over SSH.
         run: bash scripts/build-android-apk.sh
+
+      # Printed on every run so a signing-key change is visible in the log
+      # instead of only showing up as a sign-in failure on a device.
+      - name: Report the APK signing fingerprint
+        run: |
+          set -euo pipefail
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$BT/apksigner" verify --print-certs nivesh-v5-staging-debug.apk \
+            | grep -i "SHA-1 digest" || true
 
       - name: Upload APK as a workflow artifact
         uses: actions/upload-artifact@v4
