@@ -1,6 +1,8 @@
 """DaaS — the Smart trading desk's RESULTS EXPECTATION for one results meeting, from the company's own published quarters.
 
     GET /v1/desk/events-calendar/expectation?symbol=&date=YYYY-MM-DD      (date = the results meeting's date)
+    GET /v1/desk/events-calendar/expectations?from=&to=&universe=fno|n50|all   (every results meeting in a window of at most 3 days,
+                                                                                one compact summary each: the desk's "today & tomorrow" board)
 
 Read-only. Every figure names its source; a missing figure is null, never 0 or a guess.
 
@@ -62,6 +64,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
 from nidp.services.daas_api.responses import jsonify, normalise_symbol
+from nidp.services.daas_api.routers.desk_events import FNO_SQL, INDUSTRY_SQL, N50_SQL, UNIVERSES, event_id
 
 router = APIRouter(prefix="/desk", tags=["desk"], dependencies=[Depends(require_api_key)])
 
@@ -552,8 +555,46 @@ EVIDENCE_SQL = """
      ORDER BY filed_at DESC LIMIT 400
 """
 
+IST = timezone(timedelta(hours=5, minutes=30))
+MAX_BATCH_DAYS = 3             # the batch window: from..to inclusive, at most this many days
+
+
 def _today() -> date:
-    return date.today()
+    """Today in IST (the desk's clock): between 00:00 and 05:30 IST the server's UTC date is still yesterday."""
+    return datetime.now(IST).date()
+
+
+# The exchange subject companies use for the outcome of a results meeting. It is matched exactly: "Clarification - Financial
+# Results" and "Reasons for Delayed/Non-submission of Financial Results" are NOT a filed result. A filing on the meeting day
+# (IST) is the only evidence we use that a company has reported before its figures reach nidp.nse_financials_quarterly.
+FILING_SQL = """
+    SELECT ticker_symbol, filed_at, subject, attachment_url
+      FROM nidp.corporate_announcements
+     WHERE ticker_symbol = ANY($1::text[]) AND source = 'NSE_ANN' AND filed_at >= $2 AND filed_at < $3
+       AND lower(btrim(subject)) = 'outcome of board meeting'
+     ORDER BY filed_at
+"""
+BATCH_EVENT_SQL = """
+    SELECT DISTINCT ON (symbol, event_date) symbol, company_name, event_date, period, purpose, intimated_at
+      FROM nidp.event_calendar
+     WHERE event_type = 'quarterly_results' AND event_date BETWEEN $1 AND $2
+     ORDER BY symbol, event_date, intimated_at NULLS LAST
+"""
+
+
+def ist_day_window(lo: date, hi: Optional[date] = None) -> Tuple[datetime, datetime]:
+    """[00:00 IST of lo, 00:00 IST of the day after hi)."""
+    hi = hi or lo
+    return (datetime.combine(lo, datetime.min.time(), tzinfo=IST), datetime.combine(hi + timedelta(days=1), datetime.min.time(), tzinfo=IST))
+
+
+def pick_filing(rows: Sequence[Dict[str, Any]], symbol: str, day: date) -> Optional[Dict[str, Any]]:
+    """The earliest 'Outcome of Board Meeting' filing of `symbol` dated `day` in IST, or None."""
+    for r in rows:
+        fa = r["filed_at"]
+        if r["ticker_symbol"] == symbol and fa.astimezone(IST).date() == day:
+            return {"filed_at": fa.astimezone(IST).isoformat(), "subject": (r.get("subject") or "").strip(), "url": r.get("attachment_url")}
+    return None
 
 
 _cache: Dict[str, Any] = {"at": 0.0, "value": None}
@@ -582,7 +623,8 @@ async def get_models(conn: Any) -> Dict[str, Any]:
 
 
 def answer(models: Dict[str, Any], symbol: str, event_date: date, purpose: Optional[str], today: date,
-           evidence_rows: Sequence[Dict[str, Any]], intimated_at: Optional[datetime] = None) -> Dict[str, Any]:
+           evidence_rows: Sequence[Dict[str, Any]], intimated_at: Optional[datetime] = None,
+           filing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     store, gaps = models["store"], [GAP_CONSENSUS, GAP_NEWS, GAP_RESTATE, GAP_AUDIT]
     target, inferred = parse_period_end(purpose, event_date)
     sym_store = store.get(symbol, {})
@@ -603,9 +645,15 @@ def answer(models: Dict[str, Any], symbol: str, event_date: date, purpose: Optio
                   else datetime.combine(event_date, datetime.min.time(), tzinfo=timezone.utc))
         basis_pick, _ = pick_basis(sym_store, target, cutoff)
     by_pe = sym_store.get(basis_pick, {}) if basis_pick is not None else {}
-    status = "declared" if (declared or event_date <= today) else "upcoming"
+    # declared: the figures are stored, or the meeting day has passed, or the meeting is today and the company has filed its
+    # outcome (`filing`). A meeting today with no filing yet is still upcoming.
+    status = "declared" if (declared or event_date < today or (event_date == today and filing is not None)) else "upcoming"
     if status == "declared" and filed_cell is None:
-        gaps.append("the meeting date has passed but the filed figures are not in the stored results yet")
+        if filing is not None:
+            gaps.append("the company has filed its board-meeting outcome (exchange filing, " + filing["filed_at"][11:16] + " IST) but the filed figures "
+                        "are not in the stored results yet: they arrive from Trendlyne / Screener, usually a day or two after the filing")
+        else:
+            gaps.append("the meeting date has passed but the filed figures are not in the stored results yet")
     if inferred:
         gaps.append("the reporting quarter was not stated in the calendar entry; it is taken as the last quarter end before the meeting")
     metrics: List[Dict[str, Any]] = []
@@ -625,6 +673,7 @@ def answer(models: Dict[str, Any], symbol: str, event_date: date, purpose: Optio
         "symbol": symbol, "event_date": event_date.isoformat(), "period_end": target.isoformat(), "period_label": period_label(target),
         "basis": None if basis_pick is None else ("consolidated" if basis_pick else "standalone"), "status": status,
         "intimated_at": intimated_at.isoformat() if intimated_at else None,
+        "filed_state": "figures" if filed_cell is not None else ("pending" if status == "declared" else None), "filing": filing,
         "audit_status": audit, "audit_basis": audit_basis, "label": ONLY_BASELINE,
         "compared_with": "vs Nivesh baseline, not vs consensus" if filed_cell is not None else None,
         "expected_as_of": cutoff.isoformat() if cutoff else None,
@@ -668,4 +717,86 @@ async def results_expectation(
         cutoff_hi = (datetime.combine(event_date, datetime.min.time(), tzinfo=ist) if event_date <= today
                      else datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc))
         ev_rows = [dict(r) for r in await conn.fetch(EVIDENCE_SQL, sym, cutoff_hi - timedelta(days=EVIDENCE_DAYS), cutoff_hi)]
-    return jsonify(answer(models, sym, event_date, ev.get("purpose"), today, ev_rows, ev.get("intimated_at")))
+        filing = None
+        if event_date == today:
+            filing = pick_filing([dict(r) for r in await conn.fetch(FILING_SQL, [sym], *ist_day_window(event_date))], sym, event_date)
+    return jsonify(answer(models, sym, event_date, ev.get("purpose"), today, ev_rows, ev.get("intimated_at"), filing))
+
+
+# ── batch: the desk's "results today & tomorrow" board ─────────────────────────
+
+STATE_ORDER = {"figures": 0, "pending": 1, None: 2}
+GAP_LAG = ("filed figures reach the stored results from Trendlyne / Screener, usually a day or two after the filing: a company that "
+           "has reported today may show 'filed result not loaded yet'")
+EVENT_GAP_SHARED = {GAP_CONSENSUS, GAP_NEWS, GAP_RESTATE, GAP_AUDIT}
+
+
+def compact_event(a: Dict[str, Any], ev: Dict[str, Any], name: Optional[str], sector: Optional[str], universe: Dict[str, Optional[bool]]) -> Dict[str, Any]:
+    """One results meeting as the board needs it: no evidence list, no per-stock method block (those are on the single endpoint)."""
+    keep = ("key", "unit", "expected", "same_quarter_last_year", "previous_quarter", "trend_yoy_pct", "filed", "vs_mid_pct", "within_band",
+            "reliable", "note", "last_year_note")
+    return {
+        "id": event_id(ev["event_date"], ev["symbol"], "RESULTS", None), "symbol": ev["symbol"], "name": name, "sector": sector,
+        "event_date": ev["event_date"].isoformat(), "status": a["status"], "filed_state": a["filed_state"], "filing": a["filing"],
+        "period_label": a["period_label"], "basis": a["basis"], "audit_status": a["audit_status"], "audit_basis": a["audit_basis"],
+        "compared_with": a["compared_with"], "expected_as_of": a["expected_as_of"], "universe": universe,
+        "metrics": [{k: m.get(k) for k in keep} for m in a["metrics"]],
+        "gaps": [g for g in a["gaps"] if g not in EVENT_GAP_SHARED],
+    }
+
+
+@router.get("/events-calendar/expectations", summary="Expectation and filed result for every results meeting in a window of at most 3 days")
+async def results_expectations(
+    from_: str = Query(..., alias="from", description="YYYY-MM-DD"),
+    to: str = Query(..., description="YYYY-MM-DD"),
+    universe: str = Query("fno", description="fno | n50 | all"),
+) -> Dict[str, Any]:
+    if universe not in UNIVERSES:
+        raise HTTPException(status_code=400, detail="universe must be fno, n50 or all")
+    if not (DATE_PARAM_RE.match(from_ or "") and DATE_PARAM_RE.match(to or "")):
+        raise HTTPException(status_code=400, detail="from and to must be YYYY-MM-DD")
+    try:
+        lo, hi = date.fromisoformat(from_), date.fromisoformat(to)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="from and to must be YYYY-MM-DD")
+    if hi < lo:
+        raise HTTPException(status_code=400, detail="from must not be after to")
+    if (hi - lo).days + 1 > MAX_BATCH_DAYS:
+        raise HTTPException(status_code=400, detail=f"the window is at most {MAX_BATCH_DAYS} days")
+    today = _today()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        cal = [dict(r) for r in await conn.fetch(BATCH_EVENT_SQL, lo, hi)]
+        n50 = {r["symbol"] for r in await conn.fetch(N50_SQL)}
+        fno = {r["symbol"] for r in await conn.fetch(FNO_SQL) if r["fno_eligible"]}
+        cal = [r for r in cal if universe == "all" or (universe == "n50" and r["symbol"] in n50) or (universe == "fno" and r["symbol"] in fno)]
+        symbols = sorted({r["symbol"] for r in cal})
+        ind = {r["symbol"]: r for r in await conn.fetch(INDUSTRY_SQL, symbols)} if symbols else {}
+        models = await get_models(conn)
+        filings: List[Dict[str, Any]] = []
+        today_syms = sorted({r["symbol"] for r in cal if r["event_date"] == today})
+        if today_syms:
+            filings = [dict(r) for r in await conn.fetch(FILING_SQL, today_syms, *ist_day_window(today))]
+    out: List[Dict[str, Any]] = []
+    for r in cal:
+        sym, d = r["symbol"], r["event_date"]
+        filing = pick_filing(filings, sym, d) if d == today else None
+        a = answer(models, sym, d, r.get("purpose"), today, [], r.get("intimated_at"), filing)
+        i = ind.get(sym)
+        uni = {"n50": (sym in n50) if n50 else None, "fno": (sym in fno) if fno else None}
+        out.append(compact_event(a, r, r.get("company_name") or (i["company_name"] if i else None), i["industry"] if i else None, uni))
+    out.sort(key=lambda e: (STATE_ORDER[e["filed_state"]], e["event_date"], e["symbol"]))
+    counts = {"declared_figures": sum(1 for e in out if e["filed_state"] == "figures"),
+              "declared_pending": sum(1 for e in out if e["filed_state"] == "pending"),
+              "upcoming": sum(1 for e in out if e["status"] == "upcoming")}
+    gaps = [GAP_CONSENSUS, GAP_NEWS, GAP_RESTATE, GAP_AUDIT, GAP_LAG]
+    if not fno:
+        gaps.append("the F&O master has no eligible symbols, so the F&O filter returns nothing")
+    return jsonify({
+        "from": lo.isoformat(), "to": hi.isoformat(), "universe": universe, "as_of": today.isoformat(), "count": len(out), "counts": counts,
+        "label": ONLY_BASELINE, "events": out,
+        "method": {"name": METHOD_NAME, "formula": METHOD_FORMULA,
+                   "by_metric": {"revenue": models["universe"].get("revenue", {"n": 0}), "pat": models["universe"].get("pat", {"n": 0})}},
+        "sources": {"quarters": SOURCES["quarters"], "calendar": SOURCES["calendar"], "announcements": SOURCES["announcements"]},
+        "gaps": gaps,
+    })

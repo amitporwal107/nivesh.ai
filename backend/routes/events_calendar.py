@@ -12,6 +12,10 @@
         for one results meeting: a baseline expectation of revenue, profit and EPS built from the company's own published
         quarters (not an analyst consensus), the band the method has actually been wrong by, the filed result beside it for a
         declared meeting, and recent exchange filings as evidence; `method.universe_backtest` shows how it did on every stock
+    GET /api/markets/events-calendar/expectations?from=YYYY-MM-DD&to=YYYY-MM-DD&universe=fno|n50|all
+        the same expectation (and the filed result when stored) for EVERY results meeting in a window of at most 3 days, one
+        compact row each, declared first: the desk's "results today & tomorrow" board in one request. A company that has
+        filed its board-meeting outcome today but whose figures are not stored yet is `filed_state: "pending"`, never a number
 
 The rows live in nidp.* tables only the data platform reads, so each route validates, forwards and passes the answer
 through unchanged. Signed-in users only. A data platform that is not configured, unreachable or failing is 502
@@ -20,6 +24,7 @@ upstream_unavailable, never an empty calendar. Macro releases are not served her
 from __future__ import annotations
 
 import logging
+from datetime import date as _date
 from typing import Any, Dict, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -84,3 +89,23 @@ async def events_calendar_expectation(
 ) -> Dict[str, Any]:
     await get_current_user(request)
     return await _daas("/desk/events-calendar/expectation", {"symbol": symbol.upper(), "date": date}, "metrics", not_found_ok=True)
+
+
+MAX_WINDOW_DAYS = 3
+
+
+@router.get("/events-calendar/expectations")
+async def events_calendar_expectations(
+    request: Request,
+    from_: str = Query(..., alias="from", pattern=DATE_PATTERN, description="YYYY-MM-DD"),
+    to: str = Query(..., pattern=DATE_PATTERN, description="YYYY-MM-DD"),
+    universe: Literal["fno", "n50", "all"] = Query("fno"),
+) -> Dict[str, Any]:
+    await get_current_user(request)
+    try:
+        lo, hi = _date.fromisoformat(from_), _date.fromisoformat(to)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="from and to must be real dates (YYYY-MM-DD)")
+    if hi < lo or (hi - lo).days + 1 > MAX_WINDOW_DAYS:
+        raise HTTPException(status_code=422, detail=f"from must not be after to, and the window is at most {MAX_WINDOW_DAYS} days")
+    return await _daas("/desk/events-calendar/expectations", {"from": from_, "to": to, "universe": universe}, "events")

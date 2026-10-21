@@ -84,7 +84,7 @@ async function setup(page: Page, opts: { exp?: (symbol: string, date: string) =>
   await mockApi(page, "populated");
   await page.clock.setFixedTime(new Date("2026-10-21T06:00:00Z"));
   await page.route("**/api/markets/events-calendar/history*", (r) => json(r, HIST));
-  await page.route("**/api/markets/events-calendar/expectation*", async (r) => {
+  await page.route("**/api/markets/events-calendar/expectation?*", async (r) => {
     const u = new URL(r.request().url());
     const symbol = u.searchParams.get("symbol") ?? "", date = u.searchParams.get("date") ?? "";
     opts.calls?.push(`${symbol}|${date}`);

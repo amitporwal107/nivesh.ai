@@ -136,3 +136,53 @@ def test_expectation_upstream_trouble_is_502(monkeypatch, reply):
 def test_expectation_signed_out_is_401(monkeypatch):
     c, calls = _client(monkeypatch, (200, EXPECT), signed_in=False)
     assert c.get("/api/markets/events-calendar/expectation?symbol=TCS&date=2026-10-08").status_code == 401 and calls == []
+
+
+# ── /expectations (the desk's results today & tomorrow board) ────────────────
+
+BATCH = {"from": "2026-10-21", "to": "2026-10-22", "events": [{"symbol": "TCS"}], "count": 1}  # MOCK — not real data
+
+
+def test_expectations_forwards_window_and_universe_and_passes_through(monkeypatch):
+    c, calls = _client(monkeypatch, (200, BATCH))
+    r = c.get("/api/markets/events-calendar/expectations?from=2026-10-21&to=2026-10-22&universe=n50")
+    assert r.status_code == 200 and r.json() == BATCH
+    assert calls == [("/desk/events-calendar/expectations", {"from": "2026-10-21", "to": "2026-10-22", "universe": "n50"})]
+
+
+def test_expectations_universe_defaults_to_fno(monkeypatch):
+    c, calls = _client(monkeypatch, (200, BATCH))
+    c.get("/api/markets/events-calendar/expectations?from=2026-10-21&to=2026-10-21")
+    assert calls[0][1]["universe"] == "fno"
+
+
+@pytest.mark.parametrize("qs", [
+    "", "?from=2026-10-21", "?to=2026-10-21", "?from=oct&to=2026-10-21", "?from=2026-10-21&to=2026-1-22",
+    "?from=2026-10-22&to=2026-10-21",              # from after to
+    "?from=2026-10-21&to=2026-10-24",              # 4 days
+    "?from=2026-02-30&to=2026-03-01",              # not a real date
+    "?from=2026-10-21&to=2026-10-22&universe=nifty",
+])
+def test_expectations_rejects_bad_window_before_calling_upstream(monkeypatch, qs):
+    c, calls = _client(monkeypatch, (200, BATCH))
+    assert c.get("/api/markets/events-calendar/expectations" + qs).status_code == 422 and calls == []
+
+
+def test_expectations_three_day_window_is_allowed(monkeypatch):
+    c, calls = _client(monkeypatch, (200, BATCH))
+    assert c.get("/api/markets/events-calendar/expectations?from=2026-10-21&to=2026-10-23").status_code == 200 and len(calls) == 1
+
+
+@pytest.mark.parametrize("reply", [pytest.param(daas_client.DaasError("timed out"), id="unreachable"),
+                                   pytest.param((500, {"detail": "x"}), id="upstream-500"),
+                                   pytest.param((200, {"nope": 1}), id="wrong-shape")])
+def test_expectations_upstream_trouble_is_502(monkeypatch, reply):
+    c, _ = _client(monkeypatch, reply)
+    r = c.get("/api/markets/events-calendar/expectations?from=2026-10-21&to=2026-10-22")
+    assert (r.status_code, r.json()) == (502, {"detail": "upstream_unavailable"})
+
+
+def test_expectations_signed_out_is_401(monkeypatch):
+    c, calls = _client(monkeypatch, (200, BATCH), signed_in=False)
+    r = c.get("/api/markets/events-calendar/expectations?from=2026-10-21&to=2026-10-22")
+    assert (r.status_code, r.json()) == (401, {"detail": "Not authenticated"}) and calls == []

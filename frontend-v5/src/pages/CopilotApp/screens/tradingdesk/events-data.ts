@@ -215,6 +215,8 @@ const ExpectationC = z.object({
   period_label: z.string().nullable().optional(),
   basis: z.string().nullable().optional(),
   status: z.string(),
+  filed_state: z.string().nullable().optional(),
+  filing: z.object({ filed_at: z.string().nullable().optional(), subject: z.string().nullable().optional(), url: z.string().nullable().optional() }).partial().nullable().optional(),
   label: z.string().nullable().optional(),
   compared_with: z.string().nullable().optional(),
   audit_status: z.string().nullable().optional(),
@@ -266,6 +268,10 @@ export interface Expectation {
   periodLabel: string | null;
   basis: string | null;
   status: "upcoming" | "declared";
+  /** Today's meetings: "figures" (filed and loaded), "pending" (filed, our results feed has not loaded it yet) or null. */
+  filedState: "figures" | "pending" | null;
+  /** The board-meeting outcome filing, when one exists. */
+  filing: { filedAt: string | null; subject: string | null; url: string | null } | null;
   /** The backend's own one-line statement of what this is. */
   label: string | null;
   /** What a filed figure is compared with ("vs Nivesh baseline, not vs consensus"); null when nothing is filed. */
@@ -291,6 +297,18 @@ const uniTrack = (b: z.infer<typeof ByMetricC> | null | undefined): UniTrack | n
       }
     : null;
 
+type MetricIn = z.infer<typeof MetricC>;
+const mapMetric = (m: MetricIn): ExpMetric => ({
+  key: m.key, unit: m.unit ?? null,
+  expected: m.expected && m.expected.low != null && m.expected.high != null ? { low: m.expected.low, mid: m.expected.mid ?? null, high: m.expected.high } : null,
+  lastYearQuarter: m.same_quarter_last_year ?? null, previousQuarter: m.previous_quarter ?? null, trendYoy: m.trend_yoy_pct ?? null,
+  filed: m.filed ? { value: m.filed.value ?? null, broadcastAt: m.filed.broadcast_at ?? null, auditStatus: m.filed.audit_status ?? null } : null,
+  vsMid: m.vs_mid_pct ?? null, withinBand: m.within_band ?? null, reliable: m.reliable !== false, note: m.note ?? null, lastYearNote: m.last_year_note ?? null,
+});
+const mapFiling = (f: z.infer<typeof ExpectationC>["filing"]): Expectation["filing"] =>
+  f ? { filedAt: f.filed_at ?? null, subject: f.subject ?? null, url: f.url ?? null } : null;
+const asFiledState = (v: string | null | undefined): Expectation["filedState"] => (v === "figures" || v === "pending" ? v : null);
+
 export async function fetchExpectation(symbol: string, date: string, signal?: AbortSignal): Promise<Expectation> {
   const res = await http({ path: "/api/markets/events-calendar/expectation", query: { symbol, date }, signal });
   const parsed = ExpectationC.safeParse(res.data);
@@ -301,16 +319,10 @@ export async function fetchExpectation(symbol: string, date: string, signal?: Ab
   const bt = d.method?.backtest;
   return {
     symbol: d.symbol, eventDate: d.event_date ?? null, periodEnd: d.period_end ?? null, periodLabel: d.period_label ?? null, basis: d.basis ?? null,
-    status: d.status === "declared" ? "declared" : "upcoming",
+    status: d.status === "declared" ? "declared" : "upcoming", filedState: asFiledState(d.filed_state), filing: mapFiling(d.filing),
     label: d.label ?? null, comparedWith: d.compared_with ?? null, auditStatus: d.audit_status ?? null, auditBasis: d.audit_basis ?? null, expectedAsOf: d.expected_as_of ?? null,
     sources: Object.entries(d.sources ?? {}).filter((e): e is [string, string] => !!e[1]),
-    metrics: d.metrics.map((m) => ({
-      key: m.key, unit: m.unit ?? null,
-      expected: m.expected && m.expected.low != null && m.expected.high != null ? { low: m.expected.low, mid: m.expected.mid ?? null, high: m.expected.high } : null,
-      lastYearQuarter: m.same_quarter_last_year ?? null, previousQuarter: m.previous_quarter ?? null, trendYoy: m.trend_yoy_pct ?? null,
-      filed: m.filed ? { value: m.filed.value ?? null, broadcastAt: m.filed.broadcast_at ?? null, auditStatus: m.filed.audit_status ?? null } : null,
-      vsMid: m.vs_mid_pct ?? null, withinBand: m.within_band ?? null, reliable: m.reliable !== false, note: m.note ?? null, lastYearNote: m.last_year_note ?? null,
-    })),
+    metrics: d.metrics.map(mapMetric),
     method: {
       name: d.method?.name ?? null, formula: d.method?.formula ?? null, nQuarters: d.method?.n_quarters ?? null,
       stock: bt ? { nQuarters: bt.n_quarters ?? null, medianAbsErr: bt.median_abs_err_pct ?? null, withinBand: bt.within_band_pct ?? null, note: bt.note ?? null } : null,
@@ -328,6 +340,77 @@ export function useResultsExpectation(symbol: string | null, date: string | null
     staleTime: 30 * 60_000,
     retry: noRetry4xx,
     queryFn: ({ signal }) => fetchExpectation(symbol as string, date as string, signal),
+  });
+}
+
+// ── results today & tomorrow (one request for every meeting in a two-day window) ──
+
+const BoardEventC = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  name: z.string().nullable().optional(),
+  sector: z.string().nullable().optional(),
+  event_date: z.string(),
+  status: z.string(),
+  filed_state: z.string().nullable().optional(),
+  filing: ExpectationC.shape.filing,
+  period_label: z.string().nullable().optional(),
+  audit_status: z.string().nullable().optional(),
+  compared_with: z.string().nullable().optional(),
+  metrics: z.array(MetricC).default([]),
+  gaps: z.array(z.string()).default([]),
+});
+const BoardC = z.object({
+  from: z.string(),
+  to: z.string(),
+  as_of: z.string().nullable().optional(),
+  count: Num,
+  counts: z.object({ declared_figures: Num, declared_pending: Num, upcoming: Num }).partial().nullable().optional(),
+  label: z.string().nullable().optional(),
+  events: z.array(BoardEventC).default([]),
+  method: z.object({ by_metric: z.record(z.string(), ByMetricC).nullable().optional() }).partial().nullable().optional(),
+  gaps: z.array(z.string()).default([]),
+});
+
+export interface BoardEvent {
+  id: string; symbol: string; name: string; sector: string | null; eventDate: string;
+  status: "upcoming" | "declared"; filedState: "figures" | "pending" | null; filing: Expectation["filing"];
+  periodLabel: string | null; auditStatus: string | null; comparedWith: string | null; metrics: ExpMetric[]; gaps: string[];
+}
+export interface Board {
+  from: string; to: string; label: string | null; events: BoardEvent[];
+  counts: { figures: number; pending: number; upcoming: number };
+  byMetric: Record<string, UniTrack>; gaps: string[];
+}
+
+export async function fetchBoard(from: string, to: string, universe: Universe, signal?: AbortSignal): Promise<Board> {
+  const res = await http({ path: "/api/markets/events-calendar/expectations", query: { from, to, universe }, signal });
+  const parsed = BoardC.safeParse(res.data);
+  if (!parsed.success) throw ApiError.contractDrift(`events-calendar.expectations: ${parsed.error.issues[0]?.message ?? "unexpected shape"}`, parsed.error);
+  const d = parsed.data;
+  const byMetric: Record<string, UniTrack> = {};
+  for (const [k, v] of Object.entries(d.method?.by_metric ?? {})) { const t = uniTrack(v); if (t) byMetric[k] = t; }
+  return {
+    from: d.from, to: d.to, label: d.label ?? null,
+    events: d.events.map((e) => ({
+      id: e.id, symbol: e.symbol, name: e.name || e.symbol, sector: e.sector ?? null, eventDate: e.event_date,
+      status: e.status === "declared" ? "declared" : "upcoming", filedState: asFiledState(e.filed_state), filing: mapFiling(e.filing),
+      periodLabel: e.period_label ?? null, auditStatus: e.audit_status ?? null, comparedWith: e.compared_with ?? null,
+      metrics: e.metrics.map(mapMetric), gaps: e.gaps,
+    })),
+    counts: { figures: d.counts?.declared_figures ?? 0, pending: d.counts?.declared_pending ?? 0, upcoming: d.counts?.upcoming ?? 0 },
+    byMetric, gaps: d.gaps,
+  };
+}
+
+export function useResultsBoard(from: string, to: string, universe: Universe, enabled: boolean) {
+  return useQuery<Board>({
+    queryKey: ["copilot", "desk", "events-board", from, to, universe],
+    enabled,
+    staleTime: 5 * 60_000,
+    refetchInterval: 10 * 60_000,
+    retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchBoard(from, to, universe, signal),
   });
 }
 

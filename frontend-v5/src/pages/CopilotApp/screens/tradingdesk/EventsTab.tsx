@@ -25,8 +25,8 @@ import { useDesk } from "./context";
 import { istParts, useNow } from "./overview-data";
 import {
   COUNTRIES, COUNTRY_CHIP, COUNTRY_NAME, EVENT_TYPES, IMPACTS, IMPACT_COLOR, IMPACT_LABEL, TIMING_LABEL, TIMING_ORDER, TIMING_SHORT, TYPE_COLOR, TYPE_LABEL, TYPE_PLURAL, TYPE_SHORT,
-  fmtExpVal, fmtMacroVal, useEventHistory, useEventsCalendar, useMacroCalendar, useMacroHistory, useResultsExpectation,
-  type CalEvent, type Calendar, type Country, type EventType, type ExpMetric, type Expectation, type History, type Impact, type MacroCalendar, type MacroEvent, type StatTriple, type Universe,
+  fmtExpVal, fmtMacroVal, useEventHistory, useEventsCalendar, useMacroCalendar, useMacroHistory, useResultsBoard, useResultsExpectation,
+  type Board, type BoardEvent, type CalEvent, type Calendar, type Country, type EventType, type ExpMetric, type Expectation, type History, type Impact, type MacroCalendar, type MacroEvent, type StatTriple, type Universe,
 } from "./events-data";
 
 const MINUS = "−";
@@ -438,10 +438,11 @@ function ResultsExpectation({ ev }: { ev: CalEvent }) {
       <div className="flex flex-col" style={{ gap: 4 }}>
         <span data-testid="events-exp-label" style={{ ...eyebrow, color: "var(--cp-ink)", fontSize: 9, lineHeight: 1.5 }}>NIVESH BASELINE FROM PUBLISHED RESULTS · NOT A CONSENSUS · NOT A FORECAST</span>
         <span data-testid="events-exp-heading" style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
-          {declared ? "FILED RESULT VS BASELINE" : "EXPECTED RANGE"}{x.periodLabel ? ` · ${x.periodLabel.toUpperCase()}` : ""}{x.basis ? ` · ${x.basis.toUpperCase()}` : ""}
+          {declared ? (x.filedState === "pending" ? "FILED · FIGURES NOT LOADED YET" : "FILED RESULT VS BASELINE") : "EXPECTED RANGE"}{x.periodLabel ? ` · ${x.periodLabel.toUpperCase()}` : ""}{x.basis ? ` · ${x.basis.toUpperCase()}` : ""}
         </span>
         {x.label && <span data-testid="events-exp-api-label" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>{x.label}</span>}
       </div>
+      {x.filedState === "pending" && <FiledPending filing={x.filing} testid="events-exp-pending" />}
       {x.metrics.length ? (
         <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(215px, 1fr))" }}>
           {x.metrics.map((m) => <MetricTile key={m.key} m={m} x={x} />)}
@@ -465,6 +466,117 @@ function ResultsExpectation({ ev }: { ev: CalEvent }) {
       {x.gaps.length > 0 && (
         <ul data-testid="events-exp-gaps" className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 16, ...quietP, fontSize: 12 }}>
           {x.gaps.map((g, i) => <li key={i}>{g}</li>)}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+
+// ── results today & tomorrow ──
+/** The company filed its outcome, but the results feed (about a day behind) has not loaded the figures: say so, never a number. */
+function FiledPending({ filing, testid }: { filing: BoardEvent["filing"]; testid: string }) {
+  const url = safeUrl(filing?.url ?? null);
+  return (
+    <p data-testid={testid} style={{ ...quietP, color: "var(--cp-ink-2)" }}>
+      Filed{filing?.filedAt ? ` ${filing.filedAt.slice(0, 16).replace("T", " ")} IST` : ""}. The filed figures are not loaded yet; our results feed usually catches up within a day or two.
+      {url && <> <a href={url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--mint)" }}>Open the filing</a></>}
+    </p>
+  );
+}
+
+const STATE_CHIP: Record<string, [string, string]> = {
+  figures: ["DECLARED", "var(--mint)"],
+  pending: ["FILED · FIGURES PENDING", "var(--amber)"],
+  awaited: ["AWAITED", "var(--cp-ink-3)"],
+};
+const stateOf = (e: BoardEvent) => (e.filedState ?? "awaited");
+
+function BoardMetric({ m, e }: { m: ExpMetric; e: BoardEvent }) {
+  const x = m.expected, f = m.filed;
+  const usable = m.reliable && x != null;
+  const place = f?.value != null && usable ? (m.withinBand != null ? (m.withinBand ? "inside" : f.value > x.high ? "above" : "below") : positionOf(f.value, x.low, x.high)) : null;
+  return (
+    <div data-testid={`events-board-metric-${e.symbol}-${m.key}`} className="flex min-w-0 flex-col" style={{ gap: 3 }}>
+      <span style={{ ...mono, fontSize: 8.5, letterSpacing: "0.14em", color: "var(--cp-ink-3)" }}>{expLabel(m.key)}</span>
+      <span data-testid={`events-board-expected-${e.symbol}-${m.key}`} className="cp-num" style={{ fontSize: 13 }}>
+        <span style={{ ...mono, fontSize: 8.5, letterSpacing: "0.1em", color: "var(--cp-ink-3)" }}>EXPECTED </span>
+        {usable ? `${fmtExpVal(x.low, m.unit)} – ${fmtExpVal(x.high, m.unit)}` : "no reliable range"}
+      </span>
+      {e.filedState === "figures" && f?.value != null && (
+        <span data-testid={`events-board-filed-${e.symbol}-${m.key}`} className="cp-num" style={{ fontSize: 13 }}>
+          <span style={{ ...mono, fontSize: 8.5, letterSpacing: "0.1em", color: "var(--amber)" }}>FILED </span>
+          {fmtExpVal(f.value, m.unit)}
+          {place && <span data-testid={`events-board-place-${e.symbol}-${m.key}`} style={{ fontSize: 11.5, color: "var(--cp-ink-2)" }}> · {place} the range{m.vsMid != null ? ` · ${sg(m.vsMid)} vs midpoint` : ""}</span>}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function BoardRow({ e, onPick }: { e: BoardEvent; onPick: (e: BoardEvent) => void }) {
+  const [chip, color] = STATE_CHIP[stateOf(e)];
+  return (
+    <div data-testid={`events-board-row-${e.symbol}`} data-state={stateOf(e)} className="flex flex-col" style={{ gap: 8, padding: "11px 14px", borderTop: line }}>
+      <button type="button" data-testid={`events-board-open-${e.symbol}`} onClick={() => onPick(e)} className="flex min-w-0 items-center" style={{ gap: 10, padding: 0, border: 0, background: "transparent", cursor: "pointer", textAlign: "left", color: "inherit", minHeight: 30 }}>
+        <span className="flex min-w-0 flex-col" style={{ flex: 1 }}>
+          <span style={{ fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</span>
+          <span style={{ ...mono, fontSize: 9.5, color: "var(--cp-ink-3)" }}>{e.symbol}{e.periodLabel ? ` · ${e.periodLabel.toUpperCase()}` : ""}{e.sector ? ` · ${e.sector.toUpperCase()}` : ""}</span>
+        </span>
+        <span data-testid={`events-board-state-${e.symbol}`} style={{ flex: "none", ...mono, fontSize: 8.5, letterSpacing: "0.12em", color, border: `1px solid ${color}`, borderRadius: 999, padding: "3px 8px" }}>{chip}</span>
+      </button>
+      {e.filedState === "pending" && <FiledPending filing={e.filing} testid={`events-board-pending-${e.symbol}`} />}
+      {e.metrics.length > 0
+        ? <div style={{ display: "grid", gap: "8px 16px", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>{e.metrics.map((m) => <BoardMetric key={m.key} m={m} e={e} />)}</div>
+        : <span data-testid={`events-board-nobaseline-${e.symbol}`} style={{ ...quietP, fontSize: 12 }}>No published quarters on file to build a baseline from.</span>}
+      {e.filedState === "figures" && (
+        <span style={{ ...mono, fontSize: 8.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
+          {(e.comparedWith ?? "vs Nivesh baseline, not vs consensus").toUpperCase()} · {auditText(e.auditStatus).toUpperCase()}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ResultsBoard({ today, universe, secs, q, onPick }: { today: string; universe: Universe; secs: string[]; q: string; onPick: (e: BoardEvent) => void }) {
+  const tomorrow = addDays(today, 1);
+  const bq = useResultsBoard(today, tomorrow, universe, true);
+  const needle = q.trim().toLowerCase();
+  const shown = useMemo(() => (bq.data?.events ?? []).filter((e) =>
+    (!secs.length || (e.sector != null && secs.includes(e.sector))) && (!needle || e.symbol.toLowerCase().includes(needle) || e.name.toLowerCase().includes(needle))), [bq.data, secs, needle]);
+  if (bq.isLoading) return <div data-testid="events-board-loading"><LoadingBlock label="Loading results today and tomorrow" rows={2} /></div>;
+  if (bq.isError || !bq.data) return <ErrorState text="Results for today and tomorrow could not be loaded. Nothing is shown rather than an older list." onRetry={() => bq.refetch()} />;
+  const b: Board = bq.data;
+  if (!b.events.length) return null;
+  const days: Array<[string, string]> = [[today, "TODAY"], [tomorrow, "TOMORROW"]];
+  const track = Object.entries(b.byMetric).filter(([, t]) => t.medianAbsErr != null);
+  return (
+    <section data-testid="events-board" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", borderRadius: 16 }}>
+      <div className="flex flex-col" style={{ gap: 4, padding: "12px 14px", background: "var(--bg-0)" }}>
+        <span className="cp-eyebrow">Results today &amp; tomorrow</span>
+        <span data-testid="events-board-label" style={{ ...eyebrow, color: "var(--cp-ink)", fontSize: 9, lineHeight: 1.5 }}>NIVESH BASELINE FROM PUBLISHED RESULTS · NOT A CONSENSUS · NOT A FORECAST</span>
+        <span data-testid="events-board-counts" style={{ ...mono, fontSize: 9.5, letterSpacing: "0.08em", color: "var(--cp-ink-3)" }}>
+          {b.counts.figures} DECLARED · {b.counts.pending} FILED, FIGURES PENDING · {b.counts.upcoming} AWAITED
+        </span>
+      </div>
+      {days.map(([d, tag]) => {
+        const rows = shown.filter((e) => e.eventDate === d);
+        return (
+          <div key={d} data-testid={`events-board-day-${tag.toLowerCase()}`}>
+            <div style={{ padding: "8px 14px", borderTop: line, background: "var(--bg-1)", ...mono, fontSize: 9.5, letterSpacing: "0.12em", color: "var(--cp-ink-2)" }}>{tag} · {fmtD(d).toUpperCase()} · {rows.length} RESULT{rows.length === 1 ? "" : "S"}</div>
+            {rows.map((e) => <BoardRow key={e.id} e={e} onPick={onPick} />)}
+            {!rows.length && <p style={{ ...quietP, margin: 0, padding: "10px 14px", borderTop: line }}>No results meetings for these filters.</p>}
+          </div>
+        );
+      })}
+      {track.length > 0 && (
+        <p data-testid="events-board-track" style={{ ...quietP, margin: 0, padding: "10px 14px", borderTop: line, fontSize: 11.5 }}>
+          How the baseline has done on past quarters (all stocks): {track.map(([k, t]) => `${expLabel(k).toLowerCase()} median miss ${pct1(t.medianAbsErr as number)}${t.withinBand != null ? `, inside the range ${pct0(t.withinBand)} of the time` : ""}`).join("; ")}.
+        </p>
+      )}
+      {b.gaps.length > 0 && (
+        <ul data-testid="events-board-gaps" className="m-0 flex flex-col" style={{ gap: 3, margin: 0, padding: "10px 14px 12px 30px", borderTop: line, ...quietP, fontSize: 11.5 }}>
+          {b.gaps.map((g, i) => <li key={i}>{g}</li>)}
         </ul>
       )}
     </section>
@@ -872,6 +984,12 @@ function DesktopEvents() {
   const holN = [...(cal?.holidays.keys() ?? [])].filter((k) => monthOf(k) === month).length;
 
   const byId = useMemo(() => new Map(evs.map((e) => [e.id, e])), [evs]);
+  // a board row opens the same panel as the calendar chip; its month and the RESULTS type must be showing for the event to be found
+  const pickBoard = (e: BoardEvent) => {
+    setMonth(monthOf(e.eventDate));
+    setF((x) => (x.types.includes("RESULTS") ? x : { ...x, types: [...x.types, "RESULTS"] }));
+    setPanel({ kind: "ev", id: e.id, from: null });
+  };
   let drawer: ReactNode = null;
   if (panel?.kind === "day") {
     drawer = <DayPanel date={panel.date} list={by.get(panel.date) ?? []} today={today} month={month} cal={cal} onClose={() => setPanel(null)} onPick={(e) => setPanel({ kind: "ev", id: e.id, from: panel.date })} />;
@@ -958,6 +1076,7 @@ function DesktopEvents() {
           {q.isLoading ? <LoadingBlock label={macro ? "Loading macro releases" : "Loading events"} rows={5} /> : q.isError ? <ErrorState text={macro ? "The macro calendar could not be loaded from the data platform. Nothing is shown rather than an older list." : "The events calendar could not be loaded from the data platform. Nothing is shown rather than an older list."} onRetry={() => q.refetch()} /> : (
             <div style={{ position: "relative", minHeight: drawer ? 760 : undefined }}>
               <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
+                {!macro && <ResultsBoard today={today} universe={f.universe} secs={f.secs} q={f.q} onPick={pickBoard} />}
                 {view === "cal"
                   ? <CalendarGrid month={month} today={today} cal={cal} by={by} onChip={(e) => setPanel({ kind: "ev", id: e.id, from: null })} onDay={(d) => setPanel({ kind: "day", date: d })} />
                   : <Timeline key={`${macro ? "m" : "s"}-${month}-${f.universe}`} month={month} today={today} cal={cal} by={by} expanded={expanded} toggle={(id) => setExpanded((x) => tog(x, id))} />}
@@ -1052,6 +1171,7 @@ function MobileEvents() {
         ) : ALL_TYPES.map((tp) => <TypeChip key={tp} t={tp} on={types.includes(tp)} onClick={() => setTypes(tog(types, tp))} />)}
       </div>
       {macro && <CountryGap cal={mq1.data} countries={countries} />}
+      {!macro && <ResultsBoard today={today} universe="fno" secs={[]} q="" onPick={(e) => { setWk(mondayOf(e.eventDate)); setDay(e.eventDate); setTypes((x) => (x.includes("RESULTS") ? x : [...x, "RESULTS"])); setSheet(e.id); }} />}
       {err ? <ErrorState text={macro ? "The macro calendar could not be loaded. Nothing is shown rather than an older list." : "The events calendar could not be loaded. Nothing is shown rather than an older list."} onRetry={() => { a1.refetch(); a2.refetch(); }} /> : (a1.isLoading ? <LoadingBlock label={macro ? "Loading macro releases" : "Loading events"} rows={3} /> : (
         <section className="cp-card" style={{ overflow: "hidden", borderRadius: 18 }}>
           <div style={{ padding: "12px 14px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
