@@ -145,14 +145,7 @@ test.describe("Desk — Events calendar (desktop)", () => {
     await expect(page.getByTestId("events-retry")).toBeVisible();
   });
 
-  test("TC-9 macro switch: count dash, source-pending state", async ({ page }) => {
-    await setup(page);
-    await page.goto(`${DESK}?tab=events`);
-    await expect(page.getByTestId("events-tab-macro")).toContainText("—", SLOW);
-    await page.getByTestId("events-tab-macro").click();
-    await expect(page.getByTestId("events-macro-gap")).toContainText("Macro calendar source not connected yet");
-    await expect(page.locator('[data-testid^="events-chip-"]')).toHaveCount(0);
-  });
+  // TC-9 (macro switch, source pending) is superseded by the macro specs in copilot-app-desk-macro.spec.ts.
 
   test("TC-11 timeline expands a row in place", async ({ page }) => {
     await setup(page);
