@@ -424,6 +424,19 @@ def _net_greeks(views: Sequence[Dict[str, Any]], chain: Dict[str, Any], lot: int
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
+def _newest_day(value: Any) -> Optional[str]:
+    """A single comparable ISO day from a value that may be a day, an object of per-source days, or
+    neither. Returns None rather than something uncomparable: the ideas engine's `data_as_of` is an
+    OBJECT of per-source dates, and comparing it against the regime's date raised
+    TypeError: '>' not supported between instances of 'dict' and 'str'."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        days = [v for v in value.values() if isinstance(v, str)]
+        return max(days) if days else None
+    return None
+
+
 def _why(e: BaseException) -> str:
     return f"{type(e).__name__}: {str(e)[:160]}"
 
@@ -643,11 +656,16 @@ async def build_top(request: Any, user_id: str, *, limit: int = 5,
 
     gap = None
     if regime.get("available"):
-        chain_days = [c.get("as_of") for c in out_classes.values() if isinstance(c, dict) and c.get("as_of")]
+        # Only ISO day strings are comparable. The cash class's `as_of` comes from the ideas engine,
+        # whose `data_as_of` is an OBJECT of per-source dates, not a day — comparing it against the
+        # regime's date raised TypeError: '>' not supported between 'dict' and 'str'.
+        chain_days = [d for d in (_newest_day(c.get("as_of")) for c in out_classes.values()
+                                  if isinstance(c, dict)) if d]
         newest = max(chain_days) if chain_days else None
-        if newest and regime.get("as_of") and newest > regime["as_of"]:
+        regime_day = _newest_day(regime.get("as_of"))
+        if newest and regime_day and newest > regime_day:
             gap = (f"The option chain is from {newest} but the market regime was last classified on "
-                   f"{regime['as_of']}: the fit is scored against the older regime.")
+                   f"{regime_day}: the fit is scored against the older regime.")
 
     return {
         "schema": "desk.strategy.top.v1",
@@ -682,8 +700,12 @@ async def _cash_class(request: Any, user_id: str, limit: int) -> Dict[str, Any]:
         return {"ideas": [], "considered": 0, "unavailable": [{"underlying": None, "reason": _why(e)}]}
 
     ideas = (body.get("ideas") or [])[:limit]
+    # The ideas engine's `data_as_of` is an object of per-source dates. It is kept whole under
+    # `data_as_of`, and `as_of` carries a single comparable day (the newest of them) or None.
+    raw_as_of = body.get("data_as_of") or body.get("as_of")
     return {
-        "as_of": body.get("data_as_of") or body.get("as_of"),
+        "as_of": _newest_day(raw_as_of),
+        "data_as_of": raw_as_of,
         "ideas": ideas,
         "considered": len(body.get("ideas") or []),
         "unavailable": [],
