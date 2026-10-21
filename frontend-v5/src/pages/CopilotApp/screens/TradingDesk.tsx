@@ -9,7 +9,8 @@
  *   03 Market Intelligence    classified filings and institutional flows           tradingdesk/IntelTab
  *   04 Chart Analysis         candles, indicators, levels and the risk desk        tradingdesk/ChartTab
  *   05 Portfolio & Risk       broker-read holdings, concentration, risk figures    tradingdesk/PortfolioTab
- *   06 More                   AI Copilot · Options & futures lab (tradingdesk/FnoTab) · Watchlists ·
+ *   06 More                   AI Copilot · Options & futures lab (tradingdesk/FnoTab) · Events calendar
+ *                             (tradingdesk/EventsTab, also from Market Intelligence) · Watchlists ·
  *                             Saved analyses · Paper trading · Settings & integrations
  *
  * The frame itself reads:
@@ -65,6 +66,7 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
   intel: lazy(() => import("./tradingdesk/IntelTab")),
   portfolio: lazy(() => import("./tradingdesk/PortfolioTab")),
   fno: lazy(() => import("./tradingdesk/FnoTab")),
+  events: lazy(() => import("./tradingdesk/EventsTab")),
 };
 
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
@@ -80,7 +82,7 @@ const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? la
 const SYM_RE = /^[A-Z0-9&-]{1,20}$/;
 
 /** The primary tabs before More, in the PRD's order (§3.1). Phones use the bottom bar's own short names (BottomBar.tsx). */
-const NAV: Array<{ key: Exclude<DeskTab, "fno"> }> = [
+const NAV: Array<{ key: Exclude<DeskTab, "fno" | "events"> }> = [
   { key: "overview" },
   { key: "scanner" },
   { key: "intel" },
@@ -225,7 +227,7 @@ function TabChip({ id, label, num, on, onClick, small }: { id: string; label: st
 
 // ── More ─────────────────────────────────────────────────────────────────
 
-type MoreKey = "copilot" | "fno" | "strategy" | "chartink" | "watchlist" | "saved" | "paper" | "settings";
+type MoreKey = "copilot" | "fno" | "events" | "strategy" | "chartink" | "watchlist" | "saved" | "paper" | "settings";
 
 /**
  * More's destinations (PRD §3.1), each a real view. PRD "Learning and
@@ -234,6 +236,7 @@ type MoreKey = "copilot" | "fno" | "strategy" | "chartink" | "watchlist" | "save
 const MORE: Array<{ key: MoreKey; label: string; note: string }> = [
   { key: "copilot", label: "AI Copilot", note: "Ask about anything on the desk, with sources" },
   { key: "fno", label: "Options & futures lab", note: "NSE F&O: open interest, build-up and option chains (end of day)" },
+  { key: "events", label: "Events calendar", note: "NSE results, dividends and corporate actions by date, with how each stock moved on past occurrences" },
   { key: "strategy", label: "Strategy Builder", note: "Cash, futures and options plans for one stock, with the evidence and the payoff" },
   { key: "chartink", label: "Chartink scans", note: "Use your Chartink scans as opportunity sources" },
   { key: "watchlist", label: "Watchlists", note: "Your watchlists and price alerts" },
@@ -338,7 +341,7 @@ export default function TradingDeskScreen() {
   const strategyView = more && params.get("view") === "strategy";
   const chartinkView = more && params.get("view") === "chartink";
   const pageCopilot = more && !docked && !strategyView && !chartinkView;
-  const moreOn = more || tab === "fno";
+  const moreOn = more || tab === "fno" || tab === "events";
   const dockRef = useRef<CopilotDockHandle>(null);
   const pendingAsk = useRef<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -422,6 +425,7 @@ export default function TradingDeskScreen() {
       if (dockRef.current && docked) dockRef.current.focus();
       else update({ tab: "more" });
     } else if (k === "fno") update({ tab: "fno" });
+    else if (k === "events") update({ tab: "events" });
     else if (k === "strategy") update({ tab: "more", view: "strategy" });
     else if (k === "chartink") update({ tab: "more", view: "chartink" });
     else if (k === "watchlist") go("page/watchlist");
@@ -457,7 +461,7 @@ export default function TradingDeskScreen() {
   const moreChips = moreOn && (
     <div data-testid="desk-more-chips" role="group" aria-label="More" className="cp-scroll flex overflow-x-auto" style={{ gap: 6, ...(mobile ? { ...bleed, paddingBottom: 12 } : {}) }}>
       {MORE.map((m) => (
-        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView && !chartinkView : m.key === "chartink" ? chartinkView : m.key === "fno" ? !more && tab === "fno" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
+        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView && !chartinkView : m.key === "chartink" ? chartinkView : m.key === "fno" ? !more && tab === "fno" : m.key === "events" ? !more && tab === "events" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
           {m.label}
         </SubChip>
       ))}

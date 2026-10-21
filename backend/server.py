@@ -120,6 +120,7 @@ from routes.grafana_alerts import router as grafana_alerts_router  # Grafana web
 from routes.monitoring_actions import router as monitoring_actions_router  # Operator actions webhook + audit log
 from routes.release_docs import router as release_docs_router  # Settings → Release Management (versioned release docs in Mongo)
 from routes.research_watchlist import router as research_watchlist_router  # Public, no-auth /watchlist page (personal research, price-tracked)
+from routes.events_calendar import router as events_calendar_router  # Trading desk: /api/markets/events-calendar
 from routes.symbol_lookup import router as symbol_lookup_router  # /api/markets/symbol-lookup (type-ahead, did-you-mean)
 from routes.markets_desk import router as markets_desk_router  # Trading desk: /api/markets/sector-returns, /api/markets/deals
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
@@ -258,6 +259,7 @@ app.include_router(cas_health_router)     # GET  /api/healthz, /api/readyz (CAS-
 app.include_router(work_router)           # GET/POST/PATCH /api/work/issues, /api/work/stats
 app.include_router(grafana_alerts_router) # POST /api/internal/grafana-alerts, GET /api/admin/grafana-alerts
 app.include_router(monitoring_actions_router) # POST /api/admin/monitoring/action, GET /api/admin/monitoring/actions
+app.include_router(events_calendar_router)  # /api/markets/events-calendar, /history
 app.include_router(symbol_lookup_router)     # /api/markets/symbol-lookup
 app.include_router(markets_desk_router)      # /api/markets/sector-returns, /api/markets/deals
 app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
