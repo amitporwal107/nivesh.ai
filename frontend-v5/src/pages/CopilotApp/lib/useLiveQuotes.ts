@@ -250,16 +250,39 @@ export function useLiveMeta(): LiveMeta {
   return liveStore.getMeta();
 }
 
-/** The live quote for one symbol, or null unless the feed is LIVE (a delayed, closed or disconnected feed never overrides end-of-day data). */
-export function useLiveOverlay(symbol: string | null | undefined): LiveQuote | null {
-  const sym = symbol ? norm(symbol) : "";
-  const { quotes, meta } = useLiveQuotes(sym ? [sym] : []);
-  return sym && meta.mode === "live" ? quotes[sym] ?? null : null;
+/** A quote handed to a screen: `kind` says whether it is a LIVE tick or the final snapshot after the close ("close"). */
+export type OverlayQuote = LiveQuote & { kind: "live" | "close" };
+
+const istDayOf = (iso: string | null): string | null => {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? new Date(t + 5.5 * 3600_000).toISOString().slice(0, 10) : null;
+};
+
+/**
+ * What a price cell may show from the feed. While LIVE: the quote. After the close, once the feed has published its FINAL
+ * snapshot: the quote too, but only when it is from a session newer than the screen's own end-of-day day (`eodDay`, a
+ * YYYY-MM-DD) -- so "today's close" shows before the end-of-day ingest lands, labelled "close". Never when delayed / expired / not connected.
+ */
+function pick(q: LiveQuote | undefined, meta: LiveMeta, eodDay: string | null | undefined): OverlayQuote | null {
+  if (!q) return null;
+  if (meta.mode === "live") return { ...q, kind: "live" };
+  if (meta.mode === "closed" && meta.final && eodDay) {
+    const qDay = istDayOf(q.ts);
+    if (qDay && qDay > eodDay) return { ...q, kind: "close" };
+  }
+  return null;
 }
 
-/** Many symbols at once (a table): one subscription, a lookup that is empty unless the feed is LIVE. */
-export function useLiveOverlays(symbols: string[]): { get: (symbol: string) => LiveQuote | null; live: boolean } {
+/** The overlay quote for one symbol, or null (see `pick`). */
+export function useLiveOverlay(symbol: string | null | undefined, eodDay?: string | null): OverlayQuote | null {
+  const sym = symbol ? norm(symbol) : "";
+  const { quotes, meta } = useLiveQuotes(sym ? [sym] : []);
+  return sym ? pick(quotes[sym], meta, eodDay) : null;
+}
+
+/** Many symbols at once (a table): one subscription. */
+export function useLiveOverlays(symbols: string[], eodDay?: string | null): { get: (symbol: string) => OverlayQuote | null; live: boolean } {
   const { quotes, meta } = useLiveQuotes(symbols);
   const live = meta.mode === "live";
-  return useMemo(() => ({ live, get: (s: string) => (live ? quotes[norm(s)] ?? null : null) }), [live, quotes]);
+  return useMemo(() => ({ live, get: (s: string) => pick(quotes[norm(s)], meta, eodDay) }), [live, quotes, meta, eodDay]);
 }

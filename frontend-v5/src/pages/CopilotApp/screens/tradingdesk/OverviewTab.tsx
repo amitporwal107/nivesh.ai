@@ -311,7 +311,7 @@ function IndexRow({ home, cols }: { home: HomeQuery; cols: "full" | "four" | "tw
   return (
     <div className="flex flex-col" style={{ gap: 8 }}>
       <div data-testid="desk-index-row" className="grid" style={{ gridTemplateColumns: template, gap: 12 }}>
-        {DESK_INDICES.map(({ name, vix }) => <IndexTile key={name} name={name} ix={findIndex(d, name, vix)} mode={mode} stamp={stamp} />)}
+        {DESK_INDICES.map(({ name, vix }) => <IndexTile key={name} name={name} ix={findIndex(d, name, vix)} mode={mode} stamp={stamp} eodDay={istDay(d.as_of)} />)}
         <BreadthTile home={d} style={cols === "full" ? undefined : { gridColumn: "1 / -1" }} />
       </div>
       <IndexTrust d={d} />
@@ -338,8 +338,8 @@ function IndexTrust({ d }: { d: MarketsHome }) {
 /** A rising VIX is not a gain, so its change stays neutral (as on the Markets screen). */
 const indexTone = (ix: MarketIndex | null): Tone => (!ix || ix.is_vix ? "ink" : signTone(ix.change_pct));
 
-function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | null; mode: IndexMode; stamp: string | null }) {
-  const live = useLiveOverlay(ix?.name ?? name);          // the Kite feed, only while it is LIVE; otherwise the response's own figures
+function IndexTile({ name, ix, mode, stamp, eodDay }: { name: string; ix: MarketIndex | null; mode: IndexMode; stamp: string | null; eodDay?: string | null }) {
+  const live = useLiveOverlay(ix?.name ?? name, eodDay);          // the Kite feed, only while it is LIVE; otherwise the response's own figures
   const pct = live ? live.changePct : ix?.change_pct ?? null;
   const tone = !ix || ix.is_vix ? "ink" : signTone(pct);
   const color = tone === "ink" ? "var(--cp-ink-2)" : TONE_COLOR[tone];
@@ -361,8 +361,8 @@ function IndexTile({ name, ix, mode, stamp }: { name: string; ix: MarketIndex | 
         {ix ? `${fmtPoints(live ? live.change : ix.change)} (${fmtPct(pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
       {ix && (
-        <span data-testid="desk-index-stamp" data-mode={mode} data-live={live ? "true" : undefined} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
-          {live ? `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}` : <>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}</>}
+        <span data-testid="desk-index-stamp" data-mode={mode} data-live={live ? live.kind : undefined} className="cp-num" style={{ fontSize: 9.5, letterSpacing: "0.04em", color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
+          {live ? (live.kind === "close" ? `Today (live close) · Kite${live.ts ? ` · ${live.ts.slice(0, 10)}` : ""}` : `Live · Kite${live.ts ? ` · ${live.ts.slice(11, 19)} IST` : ""}`) : <>{MODE_WORD[mode]}{stamp ? ` · ${stamp}` : " · no timestamp in the response"}</>}
         </span>
       )}
     </div>
@@ -1053,13 +1053,13 @@ function SectorTileView({ r, period, max, leader, asOf, breadth, open, onOpen }:
   const { openChart } = useDesk();
   // An index whose latest close is older than the response's as-of says so.
   const stale = !!r.date && !!asOf && r.date !== asOf;
-  const live = useLiveOverlay(period === "1d" ? r.index : null);      // the index's own 1-day move from Kite while LIVE; 1W / 1M stay end of day
+  const live = useLiveOverlay(period === "1d" ? r.index : null, asOf);      // the index's own 1-day move from Kite while LIVE; 1W / 1M stay end of day
   const pct = period === "1d" && live ? live.changePct : r.ret[period];
   const tone = signTone(pct);
   return (
     <div
       data-testid="desk-sector-tile"
-      data-live={live ? "true" : undefined}
+      data-live={live ? live.kind : undefined}
       data-sector={r.sector}
       data-index={r.index}
       title={`${r.index} · ${fmtLevel(r.close)}${r.date ? ` · close of ${dayLabel(r.date)}` : ""}`}
@@ -1116,7 +1116,7 @@ function ConstituentsPanel({ index, onClose }: { index: string; onClose: () => v
   const { openChart } = useDesk();
   const q = useSectorConstituents(index);
   const rowsForLive = q.data && q.data.kind !== "unavailable" ? q.data.rows : [];
-  const live = useLiveOverlays(rowsForLive.map((c) => c.symbol));      // Kite, only while LIVE; else the end-of-day close and change
+  const live = useLiveOverlays(rowsForLive.map((c) => c.symbol), q.data && q.data.kind !== "unavailable" ? q.data.date : null);      // Kite, only while LIVE; else the end-of-day close and change
   return (
     <section data-testid="desk-sector-constituents" data-index={index} aria-label={`${index} constituents`} className="flex min-w-0 flex-col" style={{ gap: 8, padding: "12px 12px 10px", borderRadius: 12, border: "1px solid var(--line-2)", background: "var(--bg-0)" }}>
       <div className="flex items-center justify-between" style={{ gap: 8 }}>

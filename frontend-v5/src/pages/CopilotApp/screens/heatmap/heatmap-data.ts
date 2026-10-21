@@ -11,7 +11,7 @@
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLiveQuotes, type LiveQuote } from "../../lib/useLiveQuotes";
+import { useLiveOverlays, type OverlayQuote } from "../../lib/useLiveQuotes";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 
@@ -135,12 +135,14 @@ export function indexLabel(code: string): string {
  * recomputed from the same stocks with the response's own weights. 1W and 1M stay end of day. A stock with no live quote
  * keeps its end-of-day 1D, and `mode` becomes "live" only when at least one stock was updated.
  */
-export function applyLive(d: Heatmap, get: (symbol: string) => LiveQuote | null): Heatmap {
+export function applyLive(d: Heatmap, get: (symbol: string) => OverlayQuote | null): Heatmap {
   let hits = 0;
+  let closeHits = 0;
   const stocks = d.stocks.map((s) => {
     const q = get(s.symbol);
     if (!q || q.changePct == null) return s;
     hits++;
+    if (q.kind === "close") closeHits++;
     return {
       ...s, close: q.ltp, returns: { ...s.returns, d: q.changePct },
       indexImpactD: s.weightPct != null ? (s.weightPct * q.changePct) / 100 : s.indexImpactD,
@@ -162,14 +164,13 @@ export function applyLive(d: Heatmap, get: (symbol: string) => LiveQuote | null)
     ? stocks.reduce((a, s) => (s.returns.d != null && s.weightPct != null ? a + s.weightPct * s.returns.d : a), 0) / wsum
     : d.weighted.d;
   return {
-    ...d, mode: "live", stocks, sectors, weighted: { ...d.weighted, d: weighted },
+    ...d, mode: closeHits === hits ? "live_close" : "live", stocks, sectors, weighted: { ...d.weighted, d: weighted },
     breadth: { advances: adv, declines: dec, unchanged: withD.length - adv - dec },
   };
 }
 
-/** `useSectorHeatmap`'s data with the live 1D layer on top (the same object while the feed is not LIVE). */
+/** `useSectorHeatmap`'s data with the live 1D layer on top: LIVE ticks while the market trades, and today's final Kite close after it, until the end-of-day data for that day lands. */
 export function useLiveHeatmap(d: Heatmap | undefined): Heatmap | undefined {
-  const { quotes, meta } = useLiveQuotes(d ? d.stocks.map((s) => s.symbol) : []);
-  const live = meta.mode === "live";
-  return useMemo(() => (d && live ? applyLive(d, (sym) => quotes[sym.toUpperCase()] ?? null) : d), [d, live, quotes]);
+  const ov = useLiveOverlays(d ? d.stocks.map((s) => s.symbol) : [], d?.asOf ?? null);
+  return useMemo(() => (d ? applyLive(d, ov.get) : d), [d, ov]);
 }
