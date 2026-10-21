@@ -135,6 +135,9 @@ services:
     # is the freshly-pulled repo. Mirrors the prod backend mount pattern.
     volumes:
       - /opt/nivesh-staging/repo/backend:/app/backend
+      # research/ (charting, costs, index history) sits beside backend/ in the repo; /api/ai-trader/* imports it from
+      # /app/research and answers 503 research_engine_unavailable without it. Read-only.
+      - /opt/nivesh-staging/repo/research:/app/research:ro
       - /opt/nivesh-staging/data/app:/app/data
     # host-gateway resolves to the Docker host IP so the backend can reach
     # the NIDP Query API on 10.160.0.3:8090 via the nidp-bridge network.
