@@ -1,7 +1,7 @@
 # Nivesh AI Trader — Business Requirement
 
 > **Status:** Business requirement captured 2026-10-21 (verbatim intent from the product owner's brief; not yet a PRD or implementation plan).
-> **Next step:** derive a PRD from `docs/PRD_TEMPLATE.md`, reconcile with `docs/INTEGRATED_STOCK_ENGINE_DESIGN.md`, `docs/SMART_TRADING_DESK_FUNCTIONALITY.md` and `docs/smart_trader/`.
+> **Next step:** derive a PRD from `docs/PRD_TEMPLATE.md`, reconcile with `docs/INTEGRATED_STOCK_ENGINE_DESIGN.md`, `docs/SMART_TRADING_DESK_FUNCTIONALITY.md` and `docs/prd/SMART_TRADING_DESK.prd.md`.
 > Editorial note: the pasted source contained rendering CSS for a Mermaid diagram; that was dropped and the diagram is restated as the text flow in §4.
 
 ## Goal

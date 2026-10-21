@@ -121,7 +121,7 @@ Backtest:
 
 ## 6. Integration with the Smart Trading Desk (added 2026-10-20 on user instruction)
 
-Requirement source: docs/smart_trader (PRD). The engine is a feature of the desk, not a separate app.
+Requirement source: `docs/prd/SMART_TRADING_DESK.prd.md` (PRD). The engine is a feature of the desk, not a separate app.
 Build location: the desk branch feat/trading-desk-backend (worktree /home/deploy/nivesh-trading-desk).
 That worktree currently has uncommitted changes from another session, so work goes in a new worktree
 branched from it (see open question 1), not in the dirty tree.
