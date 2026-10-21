@@ -289,7 +289,10 @@ def test_a_value_at_the_edge_of_an_allowed_range_is_accepted(field, value):
     ("commission_pct", 5.01, "commission_pct out of range"),
     ("commission_pct", "0.05", "commission_pct must be a number"),
     ("commission_pct", True, "commission_pct must be a number"),
-    ("pyramiding", -1, "pyramiding must be >= 0"),
+    # The upper bound arrived with migration 024: pyramiding is SMALLINT, so the class now bounds it at
+    # 32767 rather than letting a typo reach asyncpg as a 500. The message names both ends.
+    ("pyramiding", -1, "pyramiding must be between 0 and 32767"),
+    ("pyramiding", 40000, "pyramiding must be between 0 and 32767"),        # above the column's domain
     ("pyramiding", 1.5, "pyramiding must be an integer"),                   # a float is not an integer
     ("pyramiding", True, "pyramiding must be an integer"),
     ("pyramiding", "0", "pyramiding must be an integer"),
