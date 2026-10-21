@@ -30,6 +30,28 @@ metrics["universe_basis"] which the run records for audit):
     Without these, every backtest paints a rosy picture that won't
     survive contact with reality.
 
+  • Position sizing — equal-weight slots against a tracked cash balance
+    (metrics["sizing_basis"] == "portfolio"). One slot is
+    `current_equity / max_positions` and `quantity = floor(slot / entry_price)`,
+    so the run compounds: a slot grows as the book grows. Opening a
+    position debits `quantity * entry_price + brokerage` from cash and
+    closing credits `quantity * exit_price - brokerage`, so cash is a real
+    constraint — a candidate the cash cannot afford, or one whose price
+    exceeds a whole slot, is SKIPPED and counted in
+    metrics["skipped_insufficient_cash"] / ["skipped_min_quantity"],
+    never silently dropped. Before this, `pnl_abs` was the profit on ONE
+    share and that per-share rupee figure was added to an equity series
+    starting at `starting_capital`, so `total_return_pct` and
+    `max_drawdown_pct` were one-share rupees as a percentage of a ten-lakh
+    account (30 trades of a 5%-stop strategy read as -0.36% in total).
+
+  • Daily mark-to-market equity — one equity point per trading day:
+    cash plus `quantity * that day's adjusted close` for every open
+    position. A symbol with no bar on a day carries its last observed mark
+    forward (never an invented price). `max_drawdown_pct` is taken from
+    that series, so it finally includes open-position drawdown, not just
+    the realised dips between exits.
+
   • Pure-async + asyncpg — caller passes a pool; we never open our own
     connection so transaction boundaries stay with the caller.
 """
@@ -63,6 +85,7 @@ class BacktestTrade:
     score: Optional[float]
     stoploss_price: float
     target_price: float
+    quantity: int = 0                   # whole shares held; sized off the equity slot at entry
     exit_date: Optional[date] = None
     exit_price: Optional[float] = None
     exit_reason: Optional[str] = None
@@ -117,7 +140,17 @@ async def run_backtest(
     max_hold = int(spec["exit"].get("max_hold_days", 30))
     trailing_atr_mult = spec["exit"].get("trailing_atr_mult")  # may be None
 
-    equity = starting_capital
+    # Cash is the real constraint; equity = cash + mark-to-market of the open book.
+    cash = float(starting_capital)
+    marks: Dict[str, float] = {}                 # symbol → last OBSERVED close (carried forward)
+    equity_points: List[Dict[str, Any]] = []     # one per trading day, mark-to-market
+    skipped_cash = 0                             # candidates the cash could not afford
+    skipped_min_qty = 0                          # candidates dearer than one whole slot
+    stale_mark_closes = 0                        # force-closes that had no bar on the last day
+
+    def _equity_now() -> float:
+        return cash + sum(t.quantity * marks.get(sym, t.entry_price)
+                          for sym, t in open_trades.items())
 
     for d in trading_dates:
         # 1) Process exits on currently-open positions first
@@ -127,20 +160,25 @@ async def run_backtest(
                 trade = open_trades.get(sym)
                 if not trade:
                     continue
+                # Mark first: today's close is this symbol's mark whether or not it exits.
+                marks[sym] = float(row["close"])
                 closed = _maybe_close_trade(
                     trade, d, row, sl_pct=sl_pct, target_rr=target_rr,
                     max_hold=max_hold, trailing_atr_mult=trailing_atr_mult,
                     brokerage_inr=brokerage_inr, slippage_pct=slippage_pct,
                 )
                 if closed is not None:
-                    equity += closed.pnl_abs or 0.0
+                    # Selling returns the proceeds less this side's brokerage; the
+                    # other leg was already paid at entry, so cash moves by pnl_abs.
+                    cash += closed.quantity * (closed.exit_price or 0.0) - brokerage_inr
                     closed_trades.append(closed)
                     del open_trades[sym]
+                    marks.pop(sym, None)
 
         # 2) Look for new entries — only if we have capacity
         slots = max_positions - len(open_trades)
         if slots <= 0:
-            _record_equity(closed_trades, open_trades, equity, d)
+            _record_equity(equity_points, d, _equity_now())
             continue
 
         rows = await provider.screen(spec, d)
@@ -164,6 +202,26 @@ async def run_backtest(
             stoploss = entry_price * (1.0 - sl_pct)
             target = entry_price + (entry_price - stoploss) * target_rr
 
+            # ── Equal-weight slot sizing ──────────────────────────────
+            # The slot is a share of CURRENT equity, recomputed per candidate so
+            # the run compounds and so the ₹20 already paid on this day's earlier
+            # entries is reflected (sizing off a stale once-a-day equity can make
+            # the last slot of a day unaffordable by exactly that brokerage).
+            slot_value = _equity_now() / max_positions
+            quantity = int(slot_value // entry_price)
+            if quantity < 1:
+                # One whole share costs more than a slot. Skipped, not dropped.
+                skipped_min_qty += 1
+                logger.info("backtest %s on %s: 1 share (₹%.2f) exceeds the slot "
+                            "(₹%.2f) — entry skipped", sym, d, entry_price, slot_value)
+                continue
+            entry_cost = quantity * entry_price + brokerage_inr
+            if entry_cost > cash:
+                skipped_cash += 1
+                logger.info("backtest %s on %s: entry needs ₹%.2f but cash is ₹%.2f "
+                            "— entry skipped", sym, d, entry_cost, cash)
+                continue
+
             t = BacktestTrade(
                 symbol=sym,
                 entry_date=d,
@@ -171,6 +229,7 @@ async def run_backtest(
                 score=float(r.get("accumulation_score") or 0.0),
                 stoploss_price=stoploss,
                 target_price=target,
+                quantity=quantity,
                 brokerage=2 * brokerage_inr,
                 slippage_pct=slippage_pct,
             )
@@ -178,33 +237,58 @@ async def run_backtest(
             t.__dict__["_atr"] = atr
             t.__dict__["_high_water"] = entry_price
             open_trades[sym] = t
+            cash -= entry_cost
+            marks[sym] = base_px          # mark on the day's observed close, not the slipped fill
 
-        _record_equity(closed_trades, open_trades, equity, d)
+        _record_equity(equity_points, d, _equity_now())
 
     # Force-close any still-open positions at the last available close
     if open_trades:
         last_lookup = await provider.exit_bars(list(open_trades), trading_dates[-1])
         for sym, trade in open_trades.items():
             row = last_lookup.get(sym)
-            if not row:
+            if row:
+                close = float(row["close"])
+            elif sym in marks:
+                # No bar on the final day. Close on the last OBSERVED mark rather
+                # than leave the position out of the ledger entirely (the previous
+                # `continue` dropped the trade AND its capital silently). No price
+                # is invented — this is the last close the feed actually carried.
+                close = marks[sym]
+                stale_mark_closes += 1
+                logger.info("backtest %s: no bar on %s — force-closed on the last "
+                            "observed mark ₹%.2f", sym, trading_dates[-1], close)
+            else:
                 continue
-            close = float(row["close"])
             trade.exit_date = trading_dates[-1]
             trade.exit_price = close * (1.0 - slippage_pct)
             trade.exit_reason = "BACKTEST_END"
             trade.pnl_pct = (trade.exit_price - trade.entry_price) / trade.entry_price * 100.0
-            trade.pnl_abs = (trade.exit_price - trade.entry_price) - trade.brokerage
+            trade.pnl_abs = (trade.quantity * (trade.exit_price - trade.entry_price)
+                             - trade.brokerage)
             trade.holding_days = (trade.exit_date - trade.entry_date).days
-            equity += trade.pnl_abs
+            cash += trade.quantity * trade.exit_price - brokerage_inr
             closed_trades.append(trade)
         open_trades.clear()
+        marks.clear()
+        # The force-close happens ON the last trading day, so restate that day's
+        # point instead of appending a second point for the same date.
+        if equity_points:
+            equity_points[-1]["equity"] = cash
 
-    metrics = _compute_metrics(closed_trades, starting_capital, equity)
+    equity = _equity_now()          # open_trades is empty here → equity == cash
+    equity_curve = _build_equity_curve(equity_points, starting_capital)
+    metrics = _compute_metrics(
+        closed_trades, starting_capital, equity, equity_curve,
+        max_positions=max_positions,
+        skipped_insufficient_cash=skipped_cash,
+        skipped_min_quantity=skipped_min_qty,
+        stale_mark_closes=stale_mark_closes,
+    )
     # Self-describe the data basis so the readout / AC-7 data test can assert
     # what actually ran rather than trust a static claim (CONTEXT §1). The
     # provider reports the basis it actually used (price + universe membership).
     metrics.update(provider.basis)
-    equity_curve = _build_equity_curve(closed_trades, starting_capital, trading_dates)
 
     return BacktestResult(trades=closed_trades, equity_curve=equity_curve, metrics=metrics)
 
@@ -247,65 +331,117 @@ def _maybe_close_trade(trade, on_date, row, *,
     trade.exit_date = on_date
     trade.exit_price = exit_price
     trade.exit_reason = exit_reason
+    # pnl_pct KEEPS its original meaning: the PER-SHARE percentage move between the
+    # slipped entry and exit prices, gross of brokerage. Other code and the UI read
+    # it as the trade's percentage move, so it is deliberately not re-based onto the
+    # portfolio. pnl_abs below is the portfolio-scale rupee figure.
     trade.pnl_pct = (exit_price - trade.entry_price) / trade.entry_price * 100.0
-    trade.pnl_abs = (exit_price - trade.entry_price) - 2 * brokerage_inr
+    # Quantity-aware and net of BOTH brokerage legs. Slippage is already baked into
+    # entry_price and exit_price, so it must not be charged a second time here.
+    trade.pnl_abs = trade.quantity * (exit_price - trade.entry_price) - trade.brokerage
     trade.holding_days = held
     return trade
 
 
-def _record_equity(closed, open_trades, equity_now, d):
-    pass  # Phase-1: equity is tracked off closed trades only; mark-to-market deferred
+def _record_equity(points: List[Dict[str, Any]], d: date, equity_now: float) -> None:
+    """Append one mark-to-market equity point for trading day `d`.
+
+    `equity_now` is cash + Σ(quantity × that symbol's latest observed close), so the
+    series moves while positions are still open. Drawdowns are filled in later by
+    `_build_equity_curve` (it needs the running peak over the whole series)."""
+    points.append({"date": str(d), "equity": round(float(equity_now), 2)})
 
 
-def _build_equity_curve(closed_trades, starting_capital, trading_dates) -> List[Dict[str, Any]]:
-    """Realised-PnL equity curve. One point per trade exit, plus start/end."""
-    points = [{"date": str(trading_dates[0]), "equity": starting_capital, "drawdown": 0.0}]
-    eq = starting_capital
-    peak = starting_capital
-    closed_sorted = sorted(closed_trades, key=lambda t: t.exit_date or trading_dates[-1])
-    for t in closed_sorted:
-        eq += t.pnl_abs or 0.0
+def _build_equity_curve(points: List[Dict[str, Any]], starting_capital: float) -> List[Dict[str, Any]]:
+    """Daily mark-to-market equity curve with drawdown against the running peak.
+
+    One point per trading day (the engine's own calendar), each the close-of-day
+    total equity. The peak is seeded at `starting_capital` so a book that is under
+    water from day one reports a drawdown rather than a flat 0%."""
+    out: List[Dict[str, Any]] = []
+    peak = float(starting_capital)
+    for p in points:
+        eq = float(p["equity"])
         peak = max(peak, eq)
-        dd = (eq - peak) / peak * 100.0
-        points.append({
-            "date": str(t.exit_date),
+        out.append({
+            "date": p["date"],
             "equity": round(eq, 2),
-            "drawdown": round(dd, 4),
+            "drawdown": round((eq - peak) / peak * 100.0, 4) if peak else 0.0,
         })
-    return points
+    return out
 
 
-def _compute_metrics(trades: List[BacktestTrade], start_cap: float, end_cap: float) -> Dict[str, Any]:
+def _compute_metrics(trades: List[BacktestTrade], start_cap: float, end_cap: float,
+                     equity_curve: Optional[List[Dict[str, Any]]] = None, *,
+                     max_positions: int = 0,
+                     skipped_insufficient_cash: int = 0,
+                     skipped_min_quantity: int = 0,
+                     stale_mark_closes: int = 0) -> Dict[str, Any]:
+    """Summary metrics for a sized run.
+
+    A WIN means the trade MADE MONEY AFTER COSTS: wins and losses are split on net
+    `pnl_abs`, the same figure `profit_factor` divides, so the two metrics can no
+    longer disagree (they used to — `win_rate` split on gross `pnl_pct` while
+    `profit_factor` used net `pnl_abs`, so a trade whose gross gain was swallowed by
+    brokerage counted as a win and as a loss at the same time).
+
+    Averages come in two pairs, and only one of them is coherent:
+
+      • `avg_win_abs` / `avg_loss_abs` (RUPEES) are the mean net `pnl_abs` of the
+        same buckets `win_rate` and `profit_factor` use. These three are mutually
+        consistent, so THIS is the pair to display.
+      • `avg_win_pct` / `avg_loss_pct` are kept unchanged because other code reads
+        them, but they are a GROSS PER-SHARE percentage averaged over buckets
+        defined by NET RUPEES. `avg_loss_pct` can therefore come back POSITIVE: a
+        trade that moved +2 % gross but netted −₹22 after ₹40 of brokerage sits in
+        the loss bucket carrying a `pnl_pct` of +2.0. Do not headline that pair.
+
+    `max_drawdown_pct` comes from the DAILY mark-to-market `equity_curve`, so it
+    includes open-position drawdown, not only the realised dips between exits.
+    """
+    sizing = {
+        "sizing_basis":              "portfolio",
+        "max_positions":             max_positions,
+        "skipped_insufficient_cash": skipped_insufficient_cash,
+        "skipped_min_quantity":      skipped_min_quantity,
+        "skipped_entries":           skipped_insufficient_cash + skipped_min_quantity,
+        "stale_mark_closes":         stale_mark_closes,
+        "starting_capital":          start_cap,
+        "ending_capital":            round(end_cap, 2),
+    }
+    max_dd = min([p["drawdown"] for p in (equity_curve or [])], default=0.0)
     if not trades:
-        return {"trade_count": 0}
-    wins = [t for t in trades if (t.pnl_pct or 0) > 0]
-    losses = [t for t in trades if (t.pnl_pct or 0) <= 0]
+        return {"trade_count": 0,
+                "max_drawdown_pct": round(max_dd, 2),
+                "total_return_pct": round((end_cap - start_cap) / start_cap * 100.0, 2),
+                **sizing}
+    wins = [t for t in trades if (t.pnl_abs or 0) > 0]
+    losses = [t for t in trades if (t.pnl_abs or 0) <= 0]
     avg_win = sum(t.pnl_pct for t in wins) / len(wins) if wins else 0.0
     avg_loss = sum(t.pnl_pct for t in losses) / len(losses) if losses else 0.0
     total_profit = sum(t.pnl_abs or 0 for t in wins)
     total_loss = abs(sum(t.pnl_abs or 0 for t in losses))
+    # The coherent pair: mean net rupees over the same buckets as win_rate /
+    # profit_factor. avg_loss_abs keeps pnl_abs's sign, so it is ≤ 0.
+    avg_win_abs = (total_profit / len(wins)) if wins else 0.0
+    avg_loss_abs = (sum(t.pnl_abs or 0 for t in losses) / len(losses)) if losses else 0.0
+    # None means "nothing to divide by" (no losing trade). A profit factor of
+    # exactly 0.0 is a real, terrible number and must not be reported as None.
     profit_factor = (total_profit / total_loss) if total_loss > 0 else None
-
-    # Max drawdown — derived from equity curve
-    eq = start_cap
-    peak = start_cap
-    max_dd = 0.0
-    for t in sorted(trades, key=lambda x: x.exit_date or x.entry_date):
-        eq += t.pnl_abs or 0
-        peak = max(peak, eq)
-        max_dd = min(max_dd, (eq - peak) / peak * 100.0)
 
     return {
         "trade_count":        len(trades),
         "win_rate":           round(len(wins) / len(trades) * 100.0, 2),
         "avg_win_pct":        round(avg_win, 2),
         "avg_loss_pct":       round(avg_loss, 2),
-        "profit_factor":      round(profit_factor, 2) if profit_factor else None,
+        "avg_win_abs":        round(avg_win_abs, 2),
+        "avg_loss_abs":       round(avg_loss_abs, 2),
+        "profit_factor":      round(profit_factor, 2) if profit_factor is not None else None,
         "max_drawdown_pct":   round(max_dd, 2),
         "total_return_pct":   round((end_cap - start_cap) / start_cap * 100.0, 2),
-        "starting_capital":   start_cap,
-        "ending_capital":     round(end_cap, 2),
         "avg_holding_days":   round(sum((t.holding_days or 0) for t in trades) / len(trades), 1),
+        "total_quantity":     sum(int(t.quantity or 0) for t in trades),
+        **sizing,
     }
 
 
@@ -337,19 +473,19 @@ async def persist_run(pool, *, strategy_id, version_id, spec, result: BacktestRe
                     """INSERT INTO strategy_trades
                            (run_id, strategy_id, symbol,
                             entry_date, entry_price, score,
-                            stoploss_price, target_price,
+                            stoploss_price, target_price, qty,
                             exit_date, exit_price, exit_reason,
                             pnl_pct, pnl_abs, holding_days,
                             brokerage, slippage_pct)
                        VALUES ($1, $2, $3,
                                $4, $5, $6,
-                               $7, $8,
-                               $9, $10, $11,
-                               $12, $13, $14,
-                               $15, $16)""",
+                               $7, $8, $9,
+                               $10, $11, $12,
+                               $13, $14, $15,
+                               $16, $17)""",
                     run_id, strategy_id, t.symbol,
                     t.entry_date, t.entry_price, t.score,
-                    t.stoploss_price, t.target_price,
+                    t.stoploss_price, t.target_price, int(t.quantity or 0),
                     t.exit_date, t.exit_price, t.exit_reason,
                     t.pnl_pct, t.pnl_abs, t.holding_days,
                     t.brokerage, t.slippage_pct,
