@@ -72,11 +72,12 @@ export function allToolsNav(mode: Mode): NavItem[] {
   return mode === "trader" ? TRADER_TOOLS : mode === "advisor" ? ADVISOR_TOOLS : INVESTOR_TOOLS;
 }
 
-/** The only tools the Trader rail lists. The other Trader screens remain reachable by direct URL. */
+/** The tools the Trader rail lists. The other Trader screens remain reachable by direct URL. */
 const TRADER_RAIL_TOOLS: NavItem[] = [
   { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
   { view: "tool/screener", label: "Screener" },
   { view: "tool/research", label: "Stock research" },
+  { view: SECTOR_HEATMAP_VIEW, label: "Sector rotation" },
 ];
 
 /** Tools shown in the rail for a mode. */
