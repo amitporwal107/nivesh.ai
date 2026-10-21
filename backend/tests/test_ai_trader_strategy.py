@@ -601,10 +601,10 @@ def test_an_unproven_universe_basis_never_passes(basis):
 
 
 def test_the_percent_of_capital_gates_hold_an_engine_run_with_no_sizing_basis():
-    # `backtest._compute_metrics` builds its equity series from `pnl_abs = (exit - entry) - brokerage`, per-share
-    # rupees with no quantity anywhere in the engine, added to the starting capital. Its max_drawdown_pct and
-    # total_return_pct are therefore not the percentages of capital B3's -25 % and >0 % thresholds speak about, so
-    # a run that does not declare a portfolio sizing basis cannot satisfy those two rows.
+    # The engine now sizes positions and declares `sizing_basis = "portfolio"`, but the check stays for any run that
+    # does not: a caller injecting its own runner, or a run stored before the engine was fixed, whose percentages
+    # may still be the old per-share rupees over the full capital rather than percentages of capital. B3's -25 %
+    # and >0 % thresholds speak about the latter, so an undeclared run cannot satisfy those two rows.
     engine_metrics = {k: v for k, v in metrics().items() if k != "sizing_basis"}
     rows = rows_by_code(st.evaluate_gates("paper", engine_metrics, walk_forward=walk(5.0, 4.0, 3.0, -1.0)))
     for code in ("max_drawdown_pct", "total_return_pct"):
