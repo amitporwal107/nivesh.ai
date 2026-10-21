@@ -239,3 +239,92 @@ test.describe("Strategy Builder — Top by regime: payoff and paper trade", () =
     await expect(card.getByTestId("idea-paper-trade")).not.toContainText("Added to paper trades");
   });
 });
+
+test.describe("Strategy Builder — Top by regime: live premiums", () => {
+  test("no live read happens until it is asked for", async ({ page }) => {
+    let calls = 0;
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/live/fno-quotes", (r) => { calls += 1; return r.fulfill({ status: 200, contentType: "application/json", body: "{}" }); });
+    await page.goto(URL);
+    await expect(page.getByTestId("top-by-regime")).toBeVisible();
+    await page.waitForTimeout(600);
+    expect(calls).toBe(0);
+  });
+
+  test("asking for live premiums sends every leg on the board, once", async ({ page }) => {
+    let body: any = null;
+    let calls = 0;
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/live/fno-quotes", async (r) => {
+      calls += 1;
+      body = JSON.parse(r.request().postData() || "{}");
+      return r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ available: false, reason: "no Kite access token is stored for the platform feed", quotes: {}, unresolved: [] }) });
+    });
+    await page.goto(URL);
+    const req = page.waitForRequest((r) => r.url().includes("/api/live/fno-quotes"));
+    await page.getByTestId("top-live-toggle").click();
+    await req;
+    expect(calls).toBe(1);                       // one request for the whole board, not one per card
+    const expected = [...TOP.classes.index_options.ideas, ...TOP.classes.stock_fno.ideas]
+      .reduce((n: number, i: any) => n + i.legs.length, 0);
+    expect(body.legs.length).toBe(expected);
+    expect(body.legs[0]).toHaveProperty("underlying");
+    expect(body.legs[0]).toHaveProperty("strike");
+  });
+
+  test("an unavailable live read says so and keeps the end-of-day figures", async ({ page }) => {
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/live/fno-quotes", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ available: false, reason: "no Kite access token is stored for the platform feed", quotes: {}, unresolved: [] }) }));
+    await page.goto(URL);
+    await page.getByTestId("top-live-toggle").click();
+    const card = page.getByTestId("top-class-index_options").locator("article").first();
+    await expect(card.getByTestId("idea-live-off")).toContainText("Live premium unavailable");
+    await expect(card.getByTestId("idea-live-off")).toContainText("no Kite access token");
+    await expect(card.getByTestId("idea-live")).toHaveCount(0);
+  });
+
+  test("a live read shows the live net premium beside the end-of-day one, and says the ranking is still EOD", async ({ page }) => {
+    const idea = TOP.classes.index_options.ideas[0];
+    // Price every leg of every board idea; the first card's legs are indexes 0..n-1.
+    const quotes: Record<string, unknown> = {};
+    const all = [...TOP.classes.index_options.ideas, ...TOP.classes.stock_fno.ideas];
+    let n = 0;
+    all.forEach((i: any) => i.legs.forEach(() => { quotes[String(n)] = { key: `NFO:X${n}`, last_price: 100 + n }; n += 1; }));
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/live/fno-quotes", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ available: true, reason: null, quotes, unresolved: [], as_of: "2026-10-22T04:30:00Z", source: "kite" }) }));
+    await page.goto(URL);
+    await page.getByTestId("top-live-toggle").click();
+    const card = page.getByTestId("top-class-index_options").locator("article").first();
+    await expect(card.getByTestId("idea-live")).toBeVisible();
+    await expect(card.getByTestId("idea-live")).toContainText("Live net premium");
+    await expect(card.getByTestId("idea-live")).toContainText("the ranking above is still the end-of-day one");
+  });
+
+  test("a part-priced idea shows no live total rather than a number belonging to no moment", async ({ page }) => {
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/live/fno-quotes", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ available: true, reason: null, quotes: { "0": { key: "NFO:X0", last_price: 101 } }, unresolved: [{ index: 1, reason: "no listed contract" }] }) }));
+    await page.goto(URL);
+    await page.getByTestId("top-live-toggle").click();
+    const card = page.getByTestId("top-class-index_options").locator("article").first();
+    // The first idea is a two-leg spread; only one leg priced, so no live total is claimed.
+    await expect(card.getByTestId("idea-live")).toHaveCount(0);
+    await expect(card.getByTestId("idea-live-off")).toBeVisible();
+  });
+});

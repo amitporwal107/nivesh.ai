@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from deps import get_current_user, require_admin
 from services.kite_live_feed import config as cfg
+from services.kite_live_feed import fno_quotes as fq
 from services.kite_live_feed import gateway as gw
 from services.kite_live_feed import platform_token as pt
 from services.kite_live_feed.feed import aware, get_feed
@@ -177,6 +178,70 @@ async def stream(request: Request, symbols: Optional[str] = Query(None, max_leng
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
 
+
+
+@router.post("/fno-quotes")
+async def fno_quotes(request: Request) -> Dict[str, Any]:
+    """Live premiums for a handful of NAMED F&O contracts (the legs a screen is showing).
+
+    Not the websocket: the platform feed subscribes cash and indices only, and an index option chain
+    runs to thousands of strikes against Kite's instrument cap. This asks Kite's REST quote() for the
+    handful of contracts actually on screen.
+
+    Always answers 200. When the feed is off, no token is stored, or Kite refuses, it returns
+    `available: false` with the reason and NO prices, so the caller keeps the end-of-day figures it
+    already had rather than showing a stale number as live.
+    """
+    await get_current_user(request)
+    body = await request.json() if await request.body() else {}
+    legs = body.get("legs") if isinstance(body, dict) else None
+    if not isinstance(legs, list) or not legs:
+        raise HTTPException(status_code=422, detail="legs must be a non-empty list")
+    if len(legs) > fq.MAX_LEGS:
+        raise HTTPException(status_code=422, detail=f"at most {fq.MAX_LEGS} legs per request")
+
+    def off(reason: str) -> Dict[str, Any]:
+        return {"available": False, "reason": reason, "quotes": {}, "unresolved": [], "source": None,
+                "read_only": True}
+
+    if not cfg.enabled():
+        return off("the live feed is disabled")
+    feed = get_feed()
+    token = await pt.token_status(feed.db)
+    if not token.get("stored") or token.get("expired"):
+        return off("no Kite access token is stored for the platform feed")
+    key, access = cfg.get_api_key(), cfg.get_token()
+    if not key or not access:
+        return off("the Kite API key or access token is not configured")
+    try:
+        # Same read-only wrapper the feed uses (gw.ReadOnlyKite): instruments/quote/historical/profile
+        # and nothing else, so no order, GTT, margin or session call is reachable from here.
+        kite = gw.default_kite_factory(key, access)
+        nfo = await asyncio.to_thread(kite.instruments, "NFO")
+    except Exception as e:  # noqa: BLE001 — an unreachable upstream is reported, never guessed around
+        logger.warning("fno-quotes: instruments unavailable (%s)", type(e).__name__)
+        return off(f"the contract list could not be read ({type(e).__name__})")
+
+    keys, unresolved = fq.resolve(legs, fq.index_instruments(nfo))
+    if not keys:
+        return {"available": False, "reason": "none of the legs named a listed contract",
+                "quotes": {}, "unresolved": unresolved, "source": "kite", "read_only": True}
+    try:
+        answer = await asyncio.to_thread(kite.quote, sorted(set(keys.values())))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fno-quotes: quote() failed (%s)", type(e).__name__)
+        return off(f"the quote request failed ({type(e).__name__})")
+
+    priced = fq.prices_from(answer, keys)
+    return {
+        "available": bool(priced),
+        "reason": None if priced else "Kite returned no price for these contracts",
+        "quotes": {str(i): v for i, v in priced.items()},
+        "unresolved": unresolved,
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "source": "kite REST quote (live when the market is open; the last traded price otherwise)",
+        "read_only": True,
+    }
 
 @router.post("/kite/login-url")
 async def kite_login_url(request: Request) -> Dict[str, Any]:
