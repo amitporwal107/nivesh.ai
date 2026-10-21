@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 CONTROLS = "risk_controls"
 AUDIT = "risk_control_audit"
+#: Append-only record of every risk decision and every denial. Separate from AUDIT, which records
+#: changes to the CONTROLS themselves: "who turned the switch on" and "what the governor decided"
+#: are different questions and mixing them makes both harder to read.
+DECISIONS = "risk_decisions"
 
 #: Bumped when the meaning of a stored field changes, so an audit row can be read back correctly.
 POLICY_VERSION = "risk-controls-v1"
@@ -197,3 +201,59 @@ class RiskBlocked(RuntimeError):
             "halted": self.state.get("halted"),
             "note": "Positions already open are untouched. Clearing the control needs a reason and is recorded.",
         }
+
+
+async def record_decision(db, user_id: str, *, action: str, outcome: str,
+                          symbol: Optional[str] = None, requested_qty: Optional[int] = None,
+                          approved_qty: Optional[int] = None,
+                          reasons: Optional[List[Dict[str, Any]]] = None,
+                          limits_version: Optional[str] = None,
+                          correlation_id: Optional[str] = None,
+                          detail: Optional[Dict[str, Any]] = None,
+                          now: Optional[datetime] = None) -> Optional[str]:
+    """Append one risk decision to `risk_decisions`. Returns the event id, or None if it could not be
+    written.
+
+    Why this exists: the governor's decision was previously kept only on the ticket document it
+    produced, which is mutable and overwritten in place. A decision that can be rewritten cannot be
+    reconstructed afterwards, nor PROVED to have been made — which matters as much to the operator as
+    to the user (docs/RISK_CONTROL_INVENTORY.md).
+
+    A failed write is logged at ERROR and returns None rather than raising. The caller is already
+    writing its ticket or trade to the same database, so a log failure almost certainly means that
+    write is about to fail too; refusing the trade here would add nothing but a confusing second
+    error. The kill switch is the control that fails closed — this is the record of what happened.
+    """
+    event_id = str(uuid.uuid4())
+    row = {
+        "_id": event_id,
+        "user_id": user_id,
+        "at": _iso(now or utcnow()),
+        "action": action,
+        "outcome": outcome,
+        "symbol": symbol,
+        "requested_qty": requested_qty,
+        "approved_qty": approved_qty,
+        "reasons": reasons or [],
+        "limits_version": limits_version,
+        "policy_version": POLICY_VERSION,
+        "correlation_id": correlation_id,
+        "detail": detail or {},
+    }
+    try:
+        await db[DECISIONS].insert_one(row)
+    except Exception as e:  # noqa: BLE001
+        logger.error("risk_controls: decision NOT recorded for %s (%s): action=%s outcome=%s",
+                     user_id, type(e).__name__, action, outcome)
+        return None
+    if outcome != "allowed":
+        logger.warning("risk_controls: %s %s for %s (%s)", action, outcome, user_id, symbol or "-")
+    return event_id
+
+
+async def decision_rows(db, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    cur = db[DECISIONS].find({"user_id": user_id}).sort("at", -1).limit(min(limit, MAX_AUDIT_LISTED))
+    rows = await cur.to_list(min(limit, MAX_AUDIT_LISTED))
+    for r in rows:
+        r["event_id"] = r.pop("_id", None)
+    return rows

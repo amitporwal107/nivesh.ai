@@ -620,6 +620,16 @@ async def strategy_signals(strategy_id: str, body: SignalsBody,
             continue
         seen.add(intent.symbol)
         decision = evaluate(intent, portfolio, market, DEFAULT_LIMITS)
+        # The decision used to live only on the ticket document, which is mutable and overwritten in
+        # place; it could not be reconstructed or proved afterwards. This is the append-only record.
+        await rc.record_decision(
+            db, uid, action="ai_trader_ticket",
+            outcome="allowed" if decision.approved_qty > 0 else "refused",
+            symbol=intent.symbol, requested_qty=decision.requested_qty,
+            approved_qty=decision.approved_qty,
+            reasons=[dataclasses.asdict(r) for r in decision.reasons],
+            limits_version=decision.limits_version, correlation_id=strategy_id,
+            detail={"as_of": signal_date, "mode": body.mode})
         ticket = execution.new_ticket(uid, doc, intent, decision, as_of=signal_date, mode=body.mode)
         try:
             # The ticket is written before any trade, so a request that lost the race opens nothing.
@@ -751,6 +761,16 @@ async def confirm_ticket(ticket_id: str, user: dict = Depends(get_current_user))
                 "SIZE_CAPPED_AT_SIGNAL", "Size is held at the quantity the governor approved on the signal date.",
                 "reduce", approved_at_signal)])
     stamp = desk.utcnow().isoformat()
+    # Recorded AFTER the re-run adjustment, so the figure on record is the one actually used, not the
+    # raw evaluation the cap may have overridden.
+    await rc.record_decision(
+        db, uid, action="ai_trader_confirm",
+        outcome="allowed" if (decision.action in execution.ACTIONABLE and decision.approved_qty >= 1) else "refused",
+        symbol=ticket.get("symbol"), requested_qty=decision.requested_qty,
+        approved_qty=decision.approved_qty,
+        reasons=[dataclasses.asdict(r) for r in decision.reasons],
+        limits_version=decision.limits_version, correlation_id=ticket_id,
+        detail={"approved_at_signal": approved_at_signal})
     if decision.action not in execution.ACTIONABLE or decision.approved_qty < 1:
         # The ticket stays open until its session ends: the book may free up before then. The refusal is recorded.
         change = {"last_decision": decision.to_dict(), "last_decision_at": stamp, "updated_at": stamp}
