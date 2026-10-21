@@ -2490,3 +2490,59 @@ test.describe("Smart trading desk · fidelity screenshots", () => {
     }
   }
 });
+
+// ── intraday candles from Kite (platform session) ───────────────────────────
+// MOCK — not real data: /api/research/chart-intraday/* is answered by the fixture below (invented prices). It proves the screen's handling:
+// the buttons are enabled only when the availability route says so, the candles are labelled with their source, and an empty answer is said.
+test.describe("Smart trading desk · Chart · intraday interval (MOCK Kite intraday)", () => {
+  const IDAY = "2026-10-21";
+  const bar = (hhmm: string, o: number, h: number, l: number, c: number): [string, number, number, number, number, number] => [`${IDAY}T${hhmm}:00+05:30`, o, h, l, c, 1000];
+  const INTRADAY_OK = {
+    symbol: "FIXBRK", interval: "5m", source: "Kite intraday", provider: "kite-connect-v3", as_of: `${IDAY}T05:50:00+00:00`, availability: "ok",
+    bars: [bar("09:15", 100, 102, 99, 101), bar("09:20", 101, 103, 100.5, 102.5), bar("09:25", 102.5, 104, 102, 103.5)],
+    count: 3, live_merged: true, in_progress_bar: `${IDAY}T09:25:00+05:30`, session_dates: [IDAY], adjusted: false,
+  };
+
+  async function intradayMocks(page: Page, avail: { available: boolean; intervals: string[]; reason: string | null }, body: unknown = INTRADAY_OK) {
+    await chartMocks(page);
+    const asked: string[] = [];
+    await page.route("**/api/research/chart-intraday/availability", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...avail, source: "Kite intraday" }) }));
+    await page.route("**/api/research/chart-intraday/FIXBRK*", (route) => { asked.push(new URL(route.request().url()).search); return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) }); });
+    return asked;
+  }
+
+  test("available: the intraday buttons turn on, 5m draws Kite candles with their source, and Daily brings the daily candles back", async ({ page }) => {
+    const asked = await intradayMocks(page, { available: true, intervals: ["5m", "15m", "30m", "60m"], reason: null });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    for (const id of ["60m", "30m", "15m", "5m"]) await expect(page.getByTestId(`desk-chart-iv-${id}`)).toBeEnabled();
+    await page.getByTestId("desk-chart-iv-5m").click();
+    const body = page.getByTestId("desk-chart-intraday");
+    await expect(body).toHaveAttribute("data-interval", "5m");
+    await expect(body.getByTestId("desk-candle")).toHaveCount(3);
+    await expect(page.getByTestId("desk-chart-source")).toContainText("Kite intraday");
+    await expect(page.getByTestId("desk-chart-source")).toContainText("raw prices, not split or bonus adjusted");
+    await expect(page.getByTestId("desk-chart-source")).toContainText("the live price is in the latest candle");
+    expect(asked[0]).toContain("interval=5m");
+    await page.getByTestId("desk-chart-iv-1d").click();
+    await expect(page.getByTestId("desk-chart-intraday")).toHaveCount(0);
+    await expect(page.getByTestId("desk-chart-source")).toContainText("NSE daily bars");
+  });
+
+  test("unavailable (token missing): the buttons stay off with the reason, and no intraday request is made", async ({ page }) => {
+    const asked = await intradayMocks(page, { available: false, intervals: [], reason: "token_missing" });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    for (const id of ["60m", "30m", "15m", "5m"]) {
+      await expect(page.getByTestId(`desk-chart-iv-${id}`)).toBeDisabled();
+      await expect(page.getByTestId(`desk-chart-iv-${id}`)).toHaveAttribute("title", /No intraday bars on record/);
+    }
+    expect(asked).toEqual([]);
+  });
+
+  test("available but Kite has no candles: an empty state says so, no candle is drawn", async ({ page }) => {
+    await intradayMocks(page, { available: true, intervals: ["5m", "15m", "30m", "60m"], reason: null }, { ...INTRADAY_OK, bars: [], count: 0, availability: "token_expired", live_merged: false });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await page.getByTestId("desk-chart-iv-15m").click();
+    await expect(page.getByTestId("desk-chart-intraday-empty")).toContainText("platform Kite session is not connected");
+    await expect(page.getByTestId("desk-candle")).toHaveCount(0);
+  });
+});
