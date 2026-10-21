@@ -13,7 +13,7 @@
 import { createContext, useContext } from "react";
 
 /** Every `?tab=` id of a module. The tab row (TradingDesk.tsx, in the PRD's order) shows all but the lab ("fno"), which sits under More. */
-export const DESK_TABS = ["overview", "scanner", "chart", "intel", "portfolio", "fno"] as const;
+export const DESK_TABS = ["overview", "scanner", "chart", "intel", "portfolio", "fno", "events"] as const;
 export type DeskTab = (typeof DESK_TABS)[number];
 
 /** The module tab names, word for word from the design's tab row. */
@@ -24,6 +24,7 @@ export const DESK_TAB_LABEL: Record<DeskTab, string> = {
   intel: "Market Intelligence",
   portfolio: "Portfolio & Risk",
   fno: "Options & Futures Lab",
+  events: "Events Calendar",
 };
 
 /**

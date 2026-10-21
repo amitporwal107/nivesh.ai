@@ -37,8 +37,8 @@ const MOBILE_LABELS = ["Overview", "AI Scanner", "Market Intel", "Chart Analysis
 // The phone's bottom bar (PRD §3.1 / §3.3, the user's decision of 2026-10-14): same order, short names.
 const BOTTOM = ["overview", "scanner", "intel", "chart", "portfolio", "more"];
 const BOTTOM_LABELS = ["Overview", "Scanner", "Intel", "Chart", "Portfolio", "More"];
-const MORE_ITEMS = ["copilot", "fno", "watchlist", "saved", "paper", "settings"];
-const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
+const MORE_ITEMS = ["copilot", "fno", "events", "watchlist", "saved", "paper", "settings"];
+const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Events calendar", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
 
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
