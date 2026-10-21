@@ -69,8 +69,18 @@ jobs:
           cache: npm
           cache-dependency-path: frontend-v5/package-lock.json
 
+      # `packages` MUST be set. The action's default is "tools platform-tools",
+      # and the obsolete `tools` package no longer exists in the cmdline-tools
+      # shipped on ubuntu-latest (16.0), so the default makes sdkmanager exit 1:
+      #   Warning: Failed to find package 'tools'
+      #   Error: The process '.../cmdline-tools/16.0/bin/sdkmanager' failed with exit code 1
+      # (run #83 died exactly this way). Name what the project actually needs -
+      # compileSdk/targetSdk 34 per frontend-v5/android/variables.gradle. The
+      # semicolon entries are single tokens; the action splits on spaces.
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Install web dependencies
         run: npm ci --no-audit --no-fund
