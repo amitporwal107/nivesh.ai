@@ -159,3 +159,49 @@ def test_every_movement_is_recorded(db):
     rows = db[acct.LEDGER].docs
     assert [r["action"] for r in rows] == ["reserve", "release"]
     assert rows[1]["net_pnl_rs"] == 50.0
+
+
+# ── a structured refusal must reach the client as data ──────────────────────
+
+def test_a_dict_detail_survives_the_error_envelope():
+    """`core/error_handlers` used to flatten every non-string HTTPException detail with str(), which
+    emits PYTHON repr — single quotes and True/False — so a client could not parse the fields back
+    out. The refusal carries needed/available/cash/blocked precisely so a screen can say "you need X
+    and have Y"; a repr string makes that unreadable."""
+    import json as _json
+
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    from core.error_handlers import register_error_handlers
+
+    app = FastAPI()
+    register_error_handlers(app)
+
+    @app.get("/boom")
+    def boom():
+        raise HTTPException(status_code=409, detail=acct.InsufficientFunds(
+            needed=50_000_000.0, available=999_959.0, cash=999_959.0, blocked=0.0).detail())
+
+    @app.get("/plain")
+    def plain():
+        raise HTTPException(status_code=409, detail="open_trade_limit")
+
+    client = TestClient(app, raise_server_exceptions=False)
+
+    body = client.get("/boom").json()
+    assert body["status"] == 409
+    # The structured detail is DATA, not a stringified dict.
+    assert body["details"] and isinstance(body["details"][0], dict)
+    d = body["details"][0]
+    assert d["code"] == "insufficient_paper_funds"
+    assert d["needed_rs"] == 50_000_000.0 and d["available_rs"] == 999_959.0
+    # and the whole envelope round-trips as JSON, which a repr string would not
+    assert _json.loads(_json.dumps(body))["details"][0]["blocked_rs"] == 0.0
+    # `message` stays a string, because every existing caller reads it that way
+    assert isinstance(body["message"], str)
+
+    # A plain string detail is unchanged.
+    plain_body = client.get("/plain").json()
+    assert plain_body["message"] == "open_trade_limit"
+    assert plain_body["details"] == []
