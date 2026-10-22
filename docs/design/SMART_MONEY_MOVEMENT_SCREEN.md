@@ -217,6 +217,43 @@ overwriting them — the overlap is a free daily reconciliation check.
 documented API; it can change shape without notice, and the anonymous token is an undocumented
 affordance. Check terms of use before relying on it commercially, and keep provenance recorded.
 
+### 3.1b Four rules the flows panel must obey (measured post-ingest)
+
+The backfill landed (`SENSIBULL` 2,070 rows / 138 sessions, `SENSIBULL_MONTHLY` 196 / 98 months,
+`NSE_FII_DII` 16 preserved). Reconciliation against the real rows produced four hard rules.
+
+**1. Never aggregate across grains — it double-counts by exactly 2×.** The monthly series is the
+*exact* aggregate of the same daily universe. Across all 7 overlap months, `sum(daily)` minus
+`monthly` is **0.00 to the paisa** for both FII and DII. Excellent internal validation of the
+source; also means any `sum()` spanning `SENSIBULL` and `SENSIBULL_MONTHLY` returns a
+plausible-looking number that is twice the truth.
+
+**2. Grain must come from `source`, never from `as_of_date` being the 1st.** Within the daily
+window **5 real trading sessions fall on a month-start** — 2026-04-01, 06-01, 07-01, 09-01,
+10-01. A day-1 heuristic misclassifies 10 legitimate daily rows. This is also why monthly needed
+its own `source` value: sharing `source='SENSIBULL'` would have made those 10 rows **collide on
+the primary key and silently overwrite each other**. Convention: a `%_MONTHLY` suffix, matched
+with a literal `LIKE '%\_MONTHLY'` so a source named `XMONTHLY` is not caught.
+
+**3. Any cross-source comparison needs a grain guard.** A plain self-join on
+`(as_of_date, category, segment)` pairs a daily row against a monthly one and reports **10 false
+disagreements** — e.g. 2026-04-01 DII daily 7,171.80 vs monthly 51,063.87. Add
+`AND b.grain = a.grain`.
+
+**4. The newest monthly point is an incomplete month-to-date.** 2026-10-01 holds only **13
+elapsed sessions** and keeps growing, but sits in the series looking like a closed month. The 1Y
+chart must flag or exclude it, never render it as a finished bar.
+
+Agreement, for the record: NSE vs Sensibull on all 16 overlapping observations **AGREE**, worst
+absolute difference **0.0011 Cr**, worst relative **5.2e-7 %**. Judge agreement with a tolerance
+(an absolute floor is mandatory because net flows cross zero, where a purely relative test is
+meaningless), not exact equality.
+
+Two things stay unreconciled and should be labelled provisional on screen: the **F&O segments**
+(index futures/options, per-index, and the `PRO`/`CLIENT` categories) are single-sourced from
+Sensibull, and **monthly history before 2025-10-01 cannot be session-gap-checked** because the
+`prices_eod` calendar does not reach back that far.
+
 ### 3.2 VWAP must be derived — `avg_price` is empty
 `prices_eod.avg_price` is populated on **0 of 220,507** rows in the last 90 days.
 `turnover` is populated on **220,507 of 220,507**, and `turnover > 0 AND volume > 0` on
