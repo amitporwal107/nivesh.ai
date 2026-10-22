@@ -155,47 +155,67 @@ an assumption.
 | Classification-break detection | `shareholding_pattern` | ⚠️ **no `others` column** (§3.5) |
 | 1Y MF window "Sep 25 → Sep 26" | `scanx_mf_holdings` | ⚠️ **label wrong** (§3.6) |
 | Universe selector "Nifty 1000" | `index_constituents` | ⚠️ **no such index** (§3.7) |
-| FII/DII net cash, rolling sums, cumulative chart | `fii_dii_flows` | 🔴 **BLOCKED** (§3.1) |
+| FII/DII net cash, rolling sums, cumulative chart | Sensibull `oxide` endpoints → `fii_dii_flows` | ✅ **resolved** — 1M/3M/6M daily, 1Y monthly (§3.1) |
 | Financials tiles (P/E, P/B, interest cover, CFO/PAT) | — | 🔴 not ingested — v2 already says so on screen |
 
-### 3.1 🔴 The one real blocker — unchanged from v1
-`nidp.fii_dii_flows` holds **16 rows, segment `EQUITY_CASH`, 2026-10-09 → 2026-10-21** — about
-9 sessions.
+### 3.1 ✅ RESOLVED — Sensibull is the backfill (was the one blocker)
 
-v2's market-wide flows panel needs 22 / 63 / 126 / 248 sessions, plus 5D/20D/60D rolling sums and
-a cumulative chart. **Every period, including 1M, is short.** 60D rolling is impossible; even 20D
-is impossible.
+`nidp.fii_dii_flows` holds **16 NSE-sourced rows** (2026-10-09 → 10-21). NSE's
+`/api/fiidiiTradeReact` is rolling and its dated archive (`fii_stats_*.xls`) 404s, so the
+warehouse cannot be backfilled from NSE. That was the blocker. It is now closed.
 
-**The provider question is settled; the history question is not.** Re-verified live 2026-10-22:
-
-| Source | What it gives |
-|---|---|
-| NSE `/api/fiidiiTradeReact` | rolling only — the 16 rows we hold, no dated archive (`fii_stats_*.xls` 404s) |
-| Trendlyne | nothing market-wide; its `fii*` parameters are per-stock *holding* percentages |
-| **ScanX / Dhan** (`/insight/fii-dii-data`) | **20 days** of `{date, buy, sell, net}` per side, server-rendered in the page's `ng-state` blob — no API key. Confirmed today: 2026-09-22 → 2026-10-21, plus a single *latest* weekly/monthly/yearly aggregate each. |
-
-ScanX is the right source — it beats NSE on both depth (20 days vs ~9) and detail (buy/sell split,
-not just net). It does **not** solve history. The underlying POST was reverse-engineered on
-2026-10-22; the payload nests under `Data`:
+**Sensibull (`web.sensibull.com/fii-dii-data/history`) serves the whole history**, verified live
+2026-10-22. Two endpoints on `oxide.sensibull.com`, reachable with an **anonymous** token — no
+login, no paid plan:
 
 ```
-POST https://ow-static-scanx.dhan.co/staticscanx/fiidiidata
-{"Data":{"startdate":"22-09-2026","enddate":"21-10-2026","TimeFrame":"D"}}
+# 1. mint an anonymous platform token (GET; sets access_token=pa:<JWT>, aud uauth/platform_anon)
+GET https://oxide.sensibull.com/v1/pluto/auth/web/session/a/platform/identify
+
+# 2. DAILY cash + F&O OI, one month per call. NOTE the month-name format.
+GET https://oxide.sensibull.com/v1/compute/cache/fii_dii_daily?year_month=2026-September
+
+# 3. MONTHLY cash, entire history in ONE call, no params
+GET https://oxide.sensibull.com/v1/compute/cache/fii_dii_cash
 ```
-`TimeFrame` ∈ `D/W/M/Y`; range capped at 1000 hours (~41 days). **Every** range tried returns
-`"no record fetched"`, and the endpoint constant table has no `fiidiidata_daterange` sibling
-(unlike MTF, which has one). So a dated pull is not available today.
+Both data calls need `Cookie: access_token=…` **and** `Origin: https://web.sensibull.com`
+(omitting Origin returns `access denied`). `year_month` takes `2026-September`, not `2026-09` —
+the numeric form returns `Internal Calculation Error`.
 
-**Therefore: 1M becomes servable from a daily ScanX job almost immediately (20 of 22 sessions
-already reachable); 3M needs ~2 months of accumulation, 1Y about 11.** No ingest exists yet —
-there is no ScanX FII/DII service in the repo, and `fii_dii_flows` holds only NSE-sourced rows.
+| Endpoint | Depth measured | Granularity | Fields |
+|---|---|---|---|
+| `fii_dii_daily` | **7 months**, `key_list` = 2026-April … 2026-October (~145 sessions) | daily | cash FII/DII buy, sell, net + **futures/options OI per index** (nifty, banknifty, finnifty, midcpnifty, niftynxt50), quantity- and amount-wise |
+| `fii_dii_cash` | **98 months**, 2018-09-01 → 2026-10-01 | monthly | FII/DII buy, sell, net + nifty close and % change |
 
-Until history accumulates:
-- do not render the cumulative chart,
-- do not render 5D/20D/60D,
-- render the two net-flow figures for the days we do have, labelled with the true date span.
+Months outside `key_list` return `Internal Calculation Error`, so daily depth is a ~7-month
+rolling window, not open-ended.
 
-The period toggle must **not** silently change a panel it cannot recompute.
+**What this unblocks:**
+
+| Period | Sessions needed | Status |
+|---|---|---|
+| 1M | 22 | ✅ daily, available now |
+| 3M | 63 | ✅ daily, available now |
+| 6M | 126 | ✅ daily, available now (~145 reachable) |
+| 1Y | 248 | ⚠️ daily is ~103 sessions short — use the **monthly** series (12 points) for the 1Y cumulative chart, or accumulate ~5 more months for true daily |
+
+5D / 20D / 60D rolling sums all fall inside the daily window. ✅
+
+**Provenance cross-check.** Sensibull's 2026-10 monthly aggregate and ScanX/Dhan's independently
+retrieved `LATEST.MONTHLY` agree to within **₹0.0002 Cr on a ₹48,895 Cr figure** (FII net
+−48,895.330078 vs −48,895.330017; DII net +52,983.639648 vs +52,983.639526) — the gap is float32
+vs float64, not a data difference. Two unrelated aggregators carrying identical values is good
+evidence both are passing through NSE's published numbers unmodified.
+
+**Ingest shape.** One call gets all 98 monthly points; six more get Apr–Oct 2026 daily. So the
+entire backfill is **~8 HTTP requests**, not months of accumulation. Record `source`,
+`as_of_date`, retrieval time and provenance per row, and make the job idempotent so repeat runs
+do not duplicate observations. Keep the existing NSE rows distinguishable by `source` rather than
+overwriting them — the overlap is a free daily reconciliation check.
+
+**Caveat, same as ScanX.** This is a third-party aggregator's internal app state, not a
+documented API; it can change shape without notice, and the anonymous token is an undocumented
+affordance. Check terms of use before relying on it commercially, and keep provenance recorded.
 
 ### 3.2 VWAP must be derived — `avg_price` is empty
 `prices_eod.avg_price` is populated on **0 of 220,507** rows in the last 90 days.
@@ -282,6 +302,8 @@ Carried forward from the one-screen copilot design decisions; unchanged by v2:
 3. Ownership-delta column, 1M/3M only, with 6M/1Y showing unavailable (§3.4).
 4. Agree the classification-break rule (§3.5), then ship the badge.
 5. Fix the three labels (§3.6, §3.7) — trivial, but they are factual claims on screen.
-6. **Backfill `fii_dii_flows`** before the market-wide flows panel ships at all (§3.1). This is
-   the only item that blocks a whole panel, and it is the only one that needs new data rather
-   than new code.
+6. **Backfill `fii_dii_flows` from Sensibull** (§3.1) — ~8 requests gets 98 monthly points
+   (2018-09 →) and 7 months of daily. Build it as an idempotent service that keeps `source`
+   distinct from the existing NSE rows, so the overlap stays a daily reconciliation check. The
+   flows panel then ships with 1M/3M/6M on daily data and 1Y on monthly; only a true 248-session
+   daily 1Y still needs ~5 months of accumulation.
