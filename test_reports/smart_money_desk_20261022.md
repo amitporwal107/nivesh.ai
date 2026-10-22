@@ -239,10 +239,17 @@ So the screen serves evidence and never a verdict:
   image. Deploying either alone would put a visible tab on staging that 502s, so none was deployed.
 - **No browser screenshot of the tab against real data**, for the same reason; the Playwright
   evidence is against contract-shaped mocks carrying the real figures.
-- **The router staged on the NIDP VM is now stale** — it predates the design rebuild, and SSH to
-  that host is currently refused (`kex_exchange_identification: Connection reset by peer`, most
-  likely fail2ban after earlier failed key-auth probes). Deploy from the branch, not from that file;
-  the override spells out the exact commands.
+- **The router staged on the NIDP VM has been refreshed** and now matches the committed file
+  (sha256 `6513d8c8d97930087f5260c30c944e8b` on both sides, `REMOTE_PY_COMPILE_OK`, 5 routes,
+  registrations intact). It was briefly stale while SSH to the host was refused
+  (`kex_exchange_identification: Connection reset by peer`, most likely fail2ban after earlier
+  failed key-auth probes); the ban expired. A restart now loads the correct router, though
+  deploying from the branch is still preferable — see the override.
+- **Migration 181 is now committed.** `nidp.trendlyne_deal_fetch_log` is read by four files already
+  merged into dev (the deal ingest from `5f7e83c4`, this scanner, and two tests) while the migration
+  creating it was untracked, so dev could not be built from scratch. Verified against staging where
+  it is already applied: seven columns matching the DDL by name, type and nullability, both indexes,
+  578 rows (561 `OK`, 17 `EMPTY`). Those 17 are what the scanner's "Not checked" state depends on.
 - Screenshots were read at 1600px, 2200px and 390px to check layout, and three defects found that
   way were fixed (a crushed main column, a clipped Evidence column, a clipped Freshness column). The
   captures were scratch and are not committed.
