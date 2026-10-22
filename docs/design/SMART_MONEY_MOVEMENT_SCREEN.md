@@ -150,11 +150,11 @@ an assumption.
 | Bulk/block, transfer-netted | `v_trendlyne_deals_net` | ✅ 6,109 rows → 2026-10-21; 2,318 pure-transfer rows; 42 Nifty-500 names with a deal in 3M |
 | Relative volume (20-session) | `prices_eod.volume` | ✅ 100% populated |
 | Universe selector "Nifty 500" | `index_constituents` | ✅ 501 members, as of 2026-10-22 |
-| Delivery vs 60-session baseline | `prices_eod.deliv_pct` | ⚠️ **lags one session** (§3.3) |
-| FII/DII Δ latest filing | `shareholding_pattern.fii_pct/dii_pct` | ⚠️ **1M/3M only** (§3.4) |
-| Classification-break detection | `shareholding_pattern` | ⚠️ **no `others` column** (§3.5) |
+| Delivery vs 60-session baseline | `prices_eod.deliv_pct` | ✅ servable — **resolve the as-of date**, the lag is transient (§3.3) |
+| FII/DII Δ latest filing | `shareholding_pattern.fii_pct/dii_pct` | 🔴 **49 of 501 names, at every window** (§3.4) |
+| Classification-break detection | `shareholding_pattern` | 🔴 **not earnable from this table** (§3.5) |
 | 1Y MF window "Sep 25 → Sep 26" | `scanx_mf_holdings` | ⚠️ **label wrong** (§3.6) |
-| Universe selector "Nifty 1000" | `index_constituents` | ⚠️ **no such index** (§3.7) |
+| Universe selector "Nifty 1000" | `index_constituents` | ⚠️ **no such index**; Total Market is **755** (§3.7) |
 | FII/DII net cash, rolling sums, cumulative chart | Sensibull `oxide` endpoints → `fii_dii_flows` | ✅ **resolved** — 1M/3M/6M daily, 1Y monthly (§3.1) |
 | Financials tiles (P/E, P/B, interest cover, CFO/PAT) | — | 🔴 not ingested — v2 already says so on screen |
 
@@ -258,45 +258,153 @@ Sensibull, and **monthly history before 2025-10-01 cannot be session-gap-checked
 `prices_eod.avg_price` is populated on **0 of 220,507** rows in the last 90 days.
 `turnover` is populated on **220,507 of 220,507**, and `turnover > 0 AND volume > 0` on
 **100.0%** of them. So period VWAP = `sum(turnover) / sum(volume)` over the window. Servable —
-but anything reading `avg_price` will silently produce nulls.
+but anything reading `avg_price` will silently produce nulls. `turnover` is in **rupees**, not
+lakhs (360ONE VWAP ₹1,117.70 against a ₹1,210 last close), so no unit scaling.
 
-### 3.3 Delivery % lags one session
-| Session | Rows | `deliv_pct` populated |
+Two conditions on that aggregate, both measured:
+
+- **`WHERE series IN ('EQ','BE')` is mandatory** — see §3.9. Without it four Nifty-500 members
+  double-count.
+- **Return `sessions_used` alongside the VWAP.** A 63-session query returns as few as **20**
+  sessions for a recent listing (`HEGAM`), and a VWAP-weighted sector rotation that treats a
+  20-session average as a 63-session one mis-weights new IPOs. Let the UI mark short windows.
+
+### 3.3 Delivery % is complete — but its as-of date must be resolved, not assumed
+v1 of this section said delivery "lags one session" and covers ~88.6% of symbols. **Both were
+wrong**, and re-measuring today says so:
+
+```
+ sessions_total | sessions_delivery_missing
+----------------+---------------------------
+            259 |                         0
+```
+
+**Not one session in 259** (2025-10-01 → 2026-10-21) lacks delivery data. The session that read
+zero was caught mid-ingest: the day's price rows land before its delivery file, and it backfills
+within the day. That is an **intraday ordering artifact, not a standing offset**. The 88.6% figure
+was an artifact of counting all 55 `series` values; within `EQ`+`BE` the real fill is **92.0–92.4%**,
+stable across recent sessions.
+
+The guard v1 proposed is still right, for a different reason. The column must **resolve** its
+as-of date — the latest session whose delivery fill is ≥50% of its rows — rather than assume
+either the latest price session or a fixed one-session offset. On most renders that resolves to
+the *same* date as the price as-of date, so **the UI must print the resolved date and must not
+hardcode "delivery is one day behind."**
+
+Baseline convention, to be stated on screen: the 60 sessions **strictly before** the resolved
+delivery session, requiring ≥20 observations (which suppresses new listings whose baseline is too
+thin to mean anything). 493 of 501 Nifty-500 names clear that bar. A mean baseline is sensitive to
+spikes — the top hit, SIGNATURE at 68.22% against an 11.72% baseline, is real (413,403 of 606,014
+shares) but would be muted by a median. Either is defensible; pick one and label it.
+
+### 3.4 🔴 Ownership deltas are limited by breadth, not by window — 49 of 501
+v1 of this section said Jun → Sep 2026 gives "~336 Nifty-500 names, which serves 1M and 3M" and
+that 6M/1Y should show the column as unavailable. **That is wrong by roughly 7×, and inverted.**
+The filing counts were right; reading them as deltas was not.
+
+```
+ period_end |   source    | rows | fii_pop
+------------+-------------+------+---------
+ 2026-09-30 | NSE_SHP     | 1972 |    1722
+ 2026-09-30 | screener_in |  122 |     118
+ 2026-06-30 | NSE_SHP     | 1117 |       0     <-- rows, but no institutions
+ 2026-06-30 | screener_in |  173 |     167
+ 2026-03-31 | NSE_SHP     |   22 |       0     <-- same
+ 2026-03-31 | screener_in |  172 |     167
+ 2025-12-31 | screener_in |  169 |     164
+ 2025-09-30 | screener_in |  165 |     160
+```
+
+**`NSE_SHP` carries `fii_pct`/`dii_pct` for the 2026-09-30 quarter only.** Every earlier NSE_SHP
+quarter has filings but NULL institutional columns. So 259 of the 336 Jun-2026 filings cannot
+produce a delta at all, and the only source with an institutional *history* is `screener_in`,
+whose panel is 194 symbols in total.
+
+Same-source Nifty-500 FII deltas, by window:
+
+| Window | Prior → anchor | Deltas available |
 |---|---|---|
-| 2026-10-21 | 3,708 | **0** |
-| 2026-10-19 | 3,668 | 3,254 |
-| 2026-10-16 | 3,675 | 3,253 |
+| 1M / 3M | 2026-06-30 → 2026-09-30 | **49** / 501 (9.8%) |
+| 6M | 2026-03-31 → 2026-09-30 | **49** |
+| 1Y | 2025-09-30 → 2026-09-30 | **48** |
 
-Delivery arrives a session late and covers ~88.6% of symbols when it does. The scanner's
-"Delivery vs base" column must read **the latest session that has delivery data**, and the panel's
-as-of date for that column differs from the price as-of date. Do not join on the latest price
-session — it yields an empty column.
+Verified directly: the Jun→Sep same-source count is `49`. The number is **flat across every
+window** because the one source with history is deep, so the spec had it exactly backwards —
+it kept the column where it is thinnest and dropped it where it is just as good.
 
-### 3.4 Ownership deltas work for 1M/3M only
-Filings per period, and Nifty-500 coverage:
+**`PARTITION BY symbol, source` is not optional.** The two sources disagree on the same quarter —
+the first cross-source query I ran fabricated the largest move in the table:
 
-| Period end | Symbols filed (all) | Of Nifty 500 |
-|---|---|---|
-| 2026-09-30 | 1,991 | 420 / 501 (**83.8%**) |
-| 2026-06-30 | 1,207 | 336 / 501 (67.1%) |
-| 2026-03-31 | 193 | — |
-| 2025-12-31 | 169 | — |
-| 2025-09-30 | 165 | — |
+```
+  symbol   | from_period | to_period  | prev_fii | fii   | delta_pp | source_changed
+-----------+-------------+------------+----------+-------+----------+----------------
+ ICICIBANK | 2026-06-30  | 2026-09-30 |  33.79   | 50.44 |  +16.65  | t
+```
 
-A delta needs two consecutive filings. Jun → Sep 2026 gives ~336 Nifty-500 names, which serves
-**1M and 3M**. The 6M window needs Mar 2026 and the 1Y window needs Sep 2025 — both have ~165–193
-symbols *in total*, so the column is effectively empty there. **For 6M/1Y, show the column as
-unavailable rather than computing a delta against a near-empty quarter.**
+ICICIBANK's Sep-2026 `fii_pct` is 50.44 in NSE_SHP and 34.68 in screener_in — **15.76 pp apart**.
+A dedup that picks NSE_SHP for Sep and screener_in for Jun invents 16.65 pp of FII buying in
+India's second-largest bank. Across the 98 overlapping rows the mean absolute difference is
+0.27 pp but the max is 15.76 pp: **good enough to display a level, never good enough to difference
+across sources.**
 
-The feed strip's "Sep 26 filings 62% in" is computable — currently **83.8%** of Nifty 500.
+**What the screen should do:** show the FII/DII **level + filing date for the 420 Nifty-500 names
+that filed for Sep-26** (83.8%, confirmed), and the **Δ only for the 49**, with an explicit
+"Δ unavailable — no comparable prior filing" state for the other 371. Do not drop the Δ at 6M/1Y.
+Until NSE_SHP backfills institutional columns for 2026-06-30 and earlier, the Δ column cannot
+exceed ~49 Nifty-500 names at any window. That is the real gap, and it is larger than v1 thought.
 
-### 3.5 Classification-break detection needs a definition
-v2 withholds an FII change when a filing spans a reclassification (the Tega case: FII falls >10 pp
-while "Others" rises by about as much). `shareholding_pattern` carries `fii_pct, dii_pct, mf_pct,
-insurance_pct, bank_fi_pct, govt_holding_pct, public_pct, individual_pct, nri_pct,
-bodies_corporate_pct` — but **no explicit `others_pct`**. The rule must be written against
-`public_pct` / `bodies_corporate_pct`, or a residual computed as `100 − sum(known buckets)`.
-This is a definition to agree, not a data gap. Until agreed, do not ship the break badge.
+### 3.5 🔴 The classification-break badge cannot be earned from this table — ship a withhold state
+v1 proposed writing the rule against `public_pct` / `bodies_corporate_pct`, or a residual of
+`100 − sum(known buckets)`, citing Tega (FII falls >10 pp while "Others" rises by about as much).
+Three measurements dismantle that plan.
+
+**1. Two of the named columns are not data.** `bodies_corporate_pct`, `insurance_pct` and
+`govt_holding_pct` are populated on **0 of 5,124 rows**, in both sources. A rule written against
+`bodies_corporate_pct` would never fire.
+
+**2. The cited example is not in the warehouse.** `TEGA` has **exactly one filing** (2026-09-30,
+NSE_SHP). There is no Mar-2026 or Jun-2026 row, so the canonical case cannot be reproduced here —
+it was presumably seen in a provider UI. The rule was designed against an example this table
+cannot show, which is why it came out unsound.
+
+**3. The residual rule is algebraically circular.** A source-agnostic residual does work as a
+*level*: `others_pct = 100 − promoter_pct − fii_pct − dii_pct` reproduces screener_in's own
+`public_pct` to 0.317 pp mean absolute error and NSE_SHP's `public_pct − fii_pct − dii_pct` to
+0.084 pp — one formula, both sources, despite their incompatible `public_pct` definitions (§3.9).
+But as a *delta* it carries no information. Across all 1,501 same-source transitions,
+`Δpromoter + Δfii + Δdii + Δothers = 0` with max absolute error **0.0000**. That is forced by the
+definition, not an empirical finding. So "FII fell while another bucket rose by about as much" is
+a restatement of "promoter and DII did not absorb the FII move" — it would fire on every genuine
+FII sale to retail.
+
+**Classify comparability, not reclassification.** When FII moves, the question is where it went.
+Absorbed by DII is institutional rotation; absorbed by promoter is a separately discloseable
+promoter action; absorbed by the residual is **either a real retail/HNI sale or a reclassification,
+and this table cannot tell them apart.** So emit a verdict on whether the Δ is quotable:
+
+- `COMPARABLE` → show the Δ.
+- `STRUCTURAL_PROMOTER_CHANGE` (|Δpromoter| ≥ 10 pp) → withhold; say "promoter holding changed by
+  N pp this quarter; institutional Δ not comparable."
+- `AMBIGUOUS_UNATTRIBUTED` → withhold; say "FII change not attributable to a named counterparty in
+  this filing." **Never the word "reclassification"** — we have evidence of ambiguity, not of one.
+
+On 232 evaluable transitions this flags **2 (0.9%)**: RBLBANK → `STRUCTURAL` (Δpromoter +60.00 pp,
+a real control event) and HFCL → `AMBIGUOUS`. It correctly leaves FEDFINA `COMPARABLE` (+8.64 FII
+absorbed −7.93 by DII — an attributable rotation).
+
+**False-positive risk is high and currently unresolvable.** The thresholds are judgement calls with
+no labelled set to fit against; the one flag is unverifiable (HFCL's FII went 7.08 → 15.74 → 17.24
+with promoter pinned — a large FPI allotment and a reclassification look identical here); and the
+corroborating check is **not computable where the rule runs**, because `total_shares` is populated
+on 0 of 1,987 `screener_in` rows and screener_in is the only source with prior-quarter
+institutions. Note also that screener_in has its own taxonomy break — ICICIBANK's `public_pct`
+jumps 9.13 → 25.36 between Dec-25 and Mar-26 — so any window reaching past 2026-03-31 needs its
+own guard.
+
+**Sharper than v1's "until agreed, do not ship the break badge": the badge can never be earned
+from `shareholding_pattern` alone, whatever rule is agreed.** It needs an out-of-band corroborator
+(`total_shares` backfilled into screener_in, or a deal cross-check against `v_trendlyne_deals_net`).
+The withhold state is shippable today.
 
 ### 3.6 The 1Y MF window label is wrong by one month
 `scanx_mf_holdings` spans **2025-10-01 → 2026-09-01** (12 months, 11 month-steps). v2 labels the
@@ -304,15 +412,51 @@ This is a definition to agree, not a data gap. Until agreed, do not ship the bre
 
 ### 3.7 "Nifty 1000" does not exist
 The universe selector offers Nifty 500 / Nifty 1000 / All liquid NSE / My watchlist.
-`index_constituents` has: Nifty Total Market **756**, Nifty 500 **501**, Nifty Smallcap 250,
-Nifty 200, Nifty Midcap 150, Nifty 100, Nifty 50. There is no 1,000-name index. Either relabel
-the option **"Nifty Total Market (756)"** or drop it.
+`index_constituents` carries **27** indices at the 2026-10-22 snapshot, the largest being Nifty
+Total Market **755**, then Nifty 500 **501**, Nifty Smallcap 250, Nifty 200, Nifty Midcap 150,
+Nifty 100, Nifty 50. There is no 1,000-name index. Either relabel the option
+**"Nifty Total Market (755)"** or drop it.
+
+**755, not 756** — v1 said 756. Verified not a dedup artifact: 755 raw rows, 755 distinct symbols,
+0 duplicates, and 755 on each of the last four snapshots. Shipping "756" on screen would be a
+false factual claim, which is the one thing this section exists to prevent.
+
+Bonus for §2.4's sector rotation: **21 sector indices** already sit in `index_constituents` at the
+same snapshot date, so the sector grouping does not need `sector_master`, which is sparse.
 
 ### 3.8 Global MF→price mapping is loose, but not for Nifty 500
 Of 3,950 symbols in the Sep-2026 MF data, **2,457 have no price row** on 2026-10-21 (unlisted,
 debt, delisted, non-equity holdings). Within Nifty 500 the picture is clean (500/501 have MF
 data). So the scanner's "unmapped ISIN" count must be computed **inside the selected universe** —
 a global count would read ~2,457 and be meaningless.
+
+### 3.9 Two cross-cutting traps that corrupt the aggregates silently
+Neither was in v1; both break more than one panel.
+
+**`prices_eod` has duplicate `symbol` + `as_of_date` rows across `series`.** The latest session
+carries **55 distinct series** (EQ 2,694, SM 393, BE 222, ST 83, plus GS/GB/TB/N\*/Y\*). Four
+Nifty-500 members — ABCAPITAL, ADANIENSOL, CRAFTSMAN, SHRIPISTON — have both a `BL` and an `EQ`
+row on 2026-10-21, so any VWAP, delivery or volume aggregate double-counts them. **Filter
+`series IN ('EQ','BE')`**, which leaves 0 duplicate symbol-date pairs. Consequences to accept:
+BAGMANE, BIRET and EMBASSY trade only in series `RR` (REIT/InvIT) and drop out — add `'RR'` if
+REITs belong in the universe, still 0 duplicates — and `DUMMYHEG` has **0 price rows anywhere**,
+a corporate-action placeholder, which is also why Nifty 500 reports 501 members.
+
+**`shareholding_pattern`'s two sources define `public_pct` incompatibly.**
+
+```
+   source    |  n   | promoter+public ≈ 100 | promoter+fii+dii+public ≈ 100
+-------------+------+-----------------------+-------------------------------
+ NSE_SHP     | 1561 |                  1524 |                           290
+ screener_in | 1667 |                   270 |                          1627
+```
+
+NSE_SHP's `public_pct` is **total** public, institutions included; screener_in's **excludes** them.
+The definitions differ by ~17 pp on average, so `public_pct` must never be compared or differenced
+across sources. Also: **187 symbol+period pairs carry one row per source**, so dedup is mandatory
+(`row_number() OVER (PARTITION BY symbol, period_end, source ORDER BY ingested_at DESC)`); and
+`individual_pct = promoter_pct` on **381 of 1,595** NSE_SHP rows (24%), a parsing artifact — do
+not use `individual_pct`.
 
 ---
 
