@@ -229,23 +229,30 @@ export function rollingNet(rows: FlowPoint[], n: number, key: "fiiNetCr" | "diiN
 /**
  * A one-line reading of the window, derived from the two net figures by fixed rules — not a model
  * output and not a forecast. It restates the arithmetic in words; nothing else.
+ *
+ * Deliberately COMPARATIVE, never causal. An earlier version said domestic institutions "absorbed"
+ * the foreign selling, which claims the two sides traded the same securities. These are two
+ * market-wide cash totals: nothing in this feed matches a buyer to a seller, or one stock to
+ * another. `FLOW_CAVEAT` ships beside the line to say so.
  */
 export function flowRegime(fii: number | null, dii: number | null): string | null {
   if (fii == null || dii == null) return null;
+  const bigger = Math.abs(fii) >= Math.abs(dii) ? "foreign" : "domestic";
   if (fii < 0 && dii > 0) {
-    return Math.abs(dii) >= Math.abs(fii)
-      ? "Domestic institutions absorbed the foreign selling over this window."
-      : "Foreign selling outpaced domestic buying over this window.";
+    return `Foreign institutions were net sellers and domestic institutions net buyers; the ${bigger} figure was the larger of the two.`;
   }
   if (fii > 0 && dii < 0) {
-    return Math.abs(fii) >= Math.abs(dii)
-      ? "Foreign buying outweighed domestic selling over this window."
-      : "Domestic selling outweighed foreign buying over this window.";
+    return `Foreign institutions were net buyers and domestic institutions net sellers; the ${bigger} figure was the larger of the two.`;
   }
   if (fii > 0 && dii > 0) return "Both foreign and domestic institutions were net buyers over this window.";
   if (fii < 0 && dii < 0) return "Both foreign and domestic institutions were net sellers over this window.";
   return "Net flows were flat over this window.";
 }
+
+/** Ships beside the regime line: the two totals are not matched trades. */
+export const FLOW_CAVEAT =
+  "These are two market-wide cash totals for the same window. Nothing here matches a buyer to a seller " +
+  "or one stock to another, so a larger figure on one side is not evidence it absorbed the other.";
 
 export function useSmFlows(enabled: boolean, window: FlowWindow) {
   return useQuery<FlowsFeed>({
@@ -300,6 +307,20 @@ export function sectorValue(r: SectorRow, m: SectorMeasure, grossCr: number): nu
 
 export function sectorGrossCr(rows: SectorRow[]): number {
   return rows.reduce((t, r) => t + Math.abs(r.netValueCr ?? 0), 0);
+}
+
+/**
+ * The reconciliation a reader needs to check the ranking by hand: what was added, what was reduced
+ * and what the two come to. Without it a bar chart of signed values cannot be verified at all.
+ */
+export function sectorTotals(rows: SectorRow[]): { added: number; reduced: number; net: number; sectors: number } {
+  let added = 0, reduced = 0;
+  for (const r of rows) {
+    const v = r.netValueCr;
+    if (v == null) continue;
+    if (v > 0) added += v; else reduced += -v;
+  }
+  return { added, reduced, net: added - reduced, sectors: rows.length };
 }
 
 async function fetchSectors(p: { window: SmPeriod; universe: SmUniverse }, signal?: AbortSignal): Promise<SectorsFeed> {
