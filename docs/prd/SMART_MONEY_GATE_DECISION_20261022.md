@@ -187,8 +187,51 @@ adj ₹1,564.90). A dividend does not halve a price; the factor looks right but 
 probably wrong** (a split or bonus mislabelled). This does not affect returns here — the factor is
 what matters — but anything that *filters* on `last_event_type` would misclassify these rows.
 
+**The adjusted series is not complete, and this run was clean by luck of the calendar.**
+Switching to `prices_eod_adjusted` is necessary but not sufficient. Inside the study window
+(2026-01-12 → 2026-10-21), **19 symbols** have a single-session `adj_open` fall of 35% or more
+with `cumulative_adj_factor = 1.0` — i.e. the adjuster did not adjust them:
+
+| Symbol | Date | Move | CA row present? |
+|---|---|---|---|
+| RNBDENIMS | 2026-05-19 | −82.13% | no |
+| INDIAGLYCO | 2026-09-17 | −77.79% | no |
+| SADHNANIQ | 2026-02-18 | −71.62% | **yes** |
+| **VEDL** | **2026-04-30** | **−61.14%** | **yes** |
+| MAHAPEXLTD | 2026-03-20 | −55.44% | **yes** |
+| … 14 more to −38% | | | mostly no |
+
+Two distinct failures: 14 of 19 have **no** `corporate_actions` row at all, and 5 — including
+Vedanta, a liquid large-cap — **have a row that the adjuster did not apply**. So the gap is in the
+price adjuster as well as in corporate-action coverage. (For the record, `corporate_actions` is
+*not* "nearly empty" as two in-repo comments still claim: it holds 71 SPLIT, 62 BONUS, 59 RIGHTS
+and 1,856 DIVIDEND rows back to 2025-10-03. Those comments are stale. Coverage is incomplete, not
+absent.)
+
+**Is this run contaminated? No — verified exhaustively, not assumed.** Of those 19 symbols, 132
+symbol-days appear in the predictions, 26 were eligible, and **2 were actually picked**. Both are
+VEDL on 2026-01-12, whose holding window is 2026-01-13 → 2026-02-11; its unadjusted move is
+2026-04-30, outside it. Realised +10.13%. The decisive query — every outcome row joined to every
+unadjusted move falling strictly inside its own holding window — returns:
+
+```
+ contaminated_outcome_rows
+---------------------------
+                         0
+```
+
+So the +0.2189 pp result and its CI are sound. But **VEDL ranked 23 on 2026-01-12, inside the
+top 30.** Had its ex-date fallen a quarter earlier, the study would have ingested a −61% artefact
+and the mean would be meaningless. This is a latent hole in the method, not a cleared risk: the
+evaluator should assert that no picked symbol has an unexplained ≥35% single-session move inside
+its holding window, and fail loudly if one does, rather than relying on the adjusted table being
+right.
+
 **Still unverified:** other backtests in this repo that read `prices_eod` open/close across
-multi-week windows have the same original bug and have not been checked.
+multi-week windows have the same original bug. An audit found **9 affected sites in 6 files**
+(worst: `intelligence/confirmation.py` 20-session highs and ranges, three separate copies of a
+52-week high/low block, `intelligence_layer/service.py` correlations, and
+`daas_api/routers/movers.py:_bars_for` feeding ATR and leak detection). None is fixed.
 
 ## 5. Known biases, stated rather than buried
 

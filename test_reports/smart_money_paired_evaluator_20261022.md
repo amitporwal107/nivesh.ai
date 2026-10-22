@@ -114,6 +114,15 @@ NIDP-SM-VALIDATION-002| INCONCLUSIVE  | 0.2189       | [0.0, 0.5104]  | 9     | 
   the adjusted value was stored. KOTAKBANK 2026-01-12 reads **+1.49%** (₹425.38 → ₹431.70) where
   the raw series gave −79.70%. No outcome row carries a corporate-action artefact signature.
 
+**T6 qualified after a follow-up audit.** `prices_eod_adjusted` is not complete. Inside the
+study window 19 symbols fall ≥35% in one session with `cumulative_adj_factor = 1.0` — 14 with no
+`corporate_actions` row and 5, including VEDL, with a row the adjuster did not apply. This run is
+nevertheless clean, verified exhaustively rather than inferred: joining every outcome row to every
+unadjusted move strictly inside its own holding window returns **0 rows**. The 2 picked suspect
+rows are both VEDL on 2026-01-12 (window 2026-01-13 → 2026-02-11, bad date 2026-04-30, realised
++10.13%). But VEDL ranked **23 of 30**, so this was calendar luck. T6 should be upgraded from
+"no artefact appeared" to an assertion the evaluator enforces per picked symbol.
+
 ## Defects found and fixed during verification
 
 1. `Decimal * float` in `_deal_tilt` — client counts return `numeric` from `sum()`. Cast to int.
