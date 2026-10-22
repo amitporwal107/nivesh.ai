@@ -94,6 +94,19 @@ async def smart_money_breadth(request: Request) -> Dict[str, Any]:
     return await _daas("/desk/smart-money/breadth", {}, None)
 
 
+@router.get("/summary")
+async def smart_money_summary(
+    request: Request,
+    window: str = Query("3M", pattern="^(1M|3M|6M|1Y)$"),
+    universe: str = Query("nifty500", pattern="^(nifty50|nifty100|nifty200|nifty500|total)$"),
+) -> Dict[str, Any]:
+    """The four headline figures. Each carries its OWN comparison — cash flows against an equally
+    long preceding window, holdings against the previous scoring date, and the shareholding count
+    against nothing, because only two quarters disclose an institutional column."""
+    await get_current_user(request)
+    return await _daas("/desk/smart-money/summary", {"window": window, "universe": universe}, None)
+
+
 @router.get("/amc")
 async def smart_money_amc(
     request: Request,

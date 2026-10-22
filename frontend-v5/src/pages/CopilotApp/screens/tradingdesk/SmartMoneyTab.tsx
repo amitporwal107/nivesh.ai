@@ -33,7 +33,7 @@ import {
   type SectorMeasure, type SmDirection, type SmFreshness, type SmLane, type SmPeriod, type SmUniverse,
   FLOW_CAVEAT, amcConcentration, dataAgeDays, evidenceChain, flowRegime, ingestAheadOfData,
   mfWindowNote, rollingNet, rowDirection, sectorGrossCr, sectorTotals, sectorValue, useSmAmc,
-  useSmartMoney, whatWouldWeaken,
+  useSmartMoney, whatWouldWeaken, type FlowKpi, type RisingPoint,
 } from "./smart-money-data";
 
 /**
@@ -119,6 +119,96 @@ function Chips<T extends string>({ items, value, onPick, idPrefix, label }: {
         );
       })}
     </span>
+  );
+}
+
+// ── the four headline cards ──────────────────────────────────────────────
+
+/** A bare sparkline: one series, no axes, no legend — the card's own label names it. */
+function Spark({ points, tone, label }: { points: number[]; tone: "mint" | "danger" | "indigo"; label: string }) {
+  if (points.length < 2) return null;
+  const W = 108, H = 30;
+  const lo = Math.min(...points), hi = Math.max(...points);
+  const span = hi - lo || 1;
+  const d = points
+    .map((v, i) => `${i === 0 ? "M" : "L"}${((i * W) / (points.length - 1)).toFixed(1)} ${(H - ((v - lo) / span) * (H - 4) - 2).toFixed(1)}`)
+    .join(" ");
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img" aria-label={label} style={{ overflow: "visible" }}>
+      <path d={d} fill="none" stroke={toneColor(tone)} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/**
+ * A net cash flow can cross zero, so a percentage change on it is meaningless or absurd (−126,600
+ * to −98,383 is not "+22% of buying"). The card shows the absolute change in ₹ crore and says
+ * which direction it moved, naming the window it compares against.
+ */
+function FlowCard({ title, kpi, points, tone }: { title: string; kpi: FlowKpi | null; points: number[]; tone: "mint" | "danger" | "indigo" }) {
+  const change = kpi?.changeCr ?? null;
+  const word = change == null ? null : change > 0 ? "more buying than" : change < 0 ? "less buying than" : "level with";
+  return (
+    <div className="cp-card flex flex-col" style={{ padding: "13px 15px", gap: 7 }}>
+      <span className="cp-eyebrow">{title}</span>
+      <Cr v={kpi?.netCr ?? null} big />
+      <div className="flex items-end" style={{ gap: 8, justifyContent: "space-between" }}>
+        <span style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--cp-ink-4)" }}>
+          {change == null || word == null ? "no comparable prior window" : (
+            <>₹{fmtNum(Math.abs(change))} cr {word} the preceding window{kpi?.previousFrom && <> (from {fmtDate(kpi.previousFrom)})</>}</>
+          )}
+        </span>
+        <Spark points={points} tone={tone} label={`${title} over the window`} />
+      </div>
+    </div>
+  );
+}
+
+function KpiRow({ summary, flowRows }: { summary: ReturnType<typeof useSmartMoney>["summary"]; flowRows: FlowPoint[] }) {
+  const m = summary?.mfRising ?? null;
+  const f = summary?.fiiRising ?? null;
+  const fiiPts = flowRows.map((r) => r.fiiCumCr).filter((v): v is number => v != null);
+  const diiPts = flowRows.map((r) => r.diiCumCr).filter((v): v is number => v != null);
+  const mfPts = (m?.series ?? []).map((p: RisingPoint) => p.risingPct).filter((v): v is number => v != null);
+
+  return (
+    <div data-testid="desk-smart-money-kpis" className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(215px,1fr))", gap: 12, marginBottom: 20 }}>
+      <FlowCard title="FII net flow · cash" kpi={summary?.fii ?? null} points={fiiPts} tone="indigo" />
+      <FlowCard title="DII net flow · cash" kpi={summary?.dii ?? null} points={diiPts} tone="mint" />
+
+      <div className="cp-card flex flex-col" style={{ padding: "13px 15px", gap: 7 }}>
+        <span className="cp-eyebrow">Disclosed holdings rising</span>
+        <span className="cp-num" style={{ fontSize: 20, whiteSpace: "nowrap", color: "var(--cp-ink)" }}>
+          {m?.pct == null ? "—" : `${m.pct}%`}
+          {m?.count != null && <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}> · {fmtNum(m.count)} of {fmtNum(m.evaluated)}</span>}
+        </span>
+        <div className="flex items-end" style={{ gap: 8, justifyContent: "space-between" }}>
+          <span style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--cp-ink-4)" }}>
+            {m?.changePp == null ? "no previous scoring date" : (
+              // Not "vs the previous period": this table is monthly-cadence, so the comparison is
+              // the previous SCORING DATE and the card says which.
+              <>{m.changePp > 0 ? "+" : ""}{m.changePp} pp vs {fmtDate(m.previousAsOf)}</>
+            )}
+          </span>
+          <Spark points={mfPts} tone="mint" label="Share of evaluated names with rising disclosed holdings, by scoring date" />
+        </div>
+      </div>
+
+      <div className="cp-card flex flex-col" style={{ padding: "13px 15px", gap: 7 }}>
+        <span className="cp-eyebrow">FII ownership rising</span>
+        <span className="cp-num" style={{ fontSize: 20, whiteSpace: "nowrap", color: "var(--cp-ink)" }}>
+          {f?.rising == null ? "—" : fmtNum(f.rising)}
+          {f?.disclosed != null && <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}> of {fmtNum(f.disclosed)} disclosed</span>}
+        </span>
+        <span style={{ fontSize: 10.5, lineHeight: 1.45, color: "var(--cp-ink-4)" }}>
+          {/* The denominator is what discloses BOTH quarters, not the index size — saying "of 500"
+              would overstate coverage five-fold. */}
+          {f?.falling != null && <>{fmtNum(f.falling)} falling · </>}
+          only {fmtNum(f?.disclosed)} of {fmtNum(f?.universe)} in the universe disclose both quarters
+          {f?.previousQuarter && <> ({fmtDate(f.previousQuarter)} → {fmtDate(f.currentQuarter)})</>}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -257,7 +347,10 @@ function CumulativeChart({ rows, grain }: { rows: FlowPoint[]; grain: string | n
 
 // ── sector rotation: diverging bars (spec 2.4) ───────────────────────────
 
-function SectorBars({ rows, measure }: { rows: Array<{ industry: string; stocks: number | null; stocksPriced: number | null; netValueCr: number | null; schemesUp: number | null; schemesDn: number | null }>; measure: SectorMeasure }) {
+function SectorBars({ rows, measure, selected, onPick }: {
+  rows: Array<{ industry: string; stocks: number | null; stocksPriced: number | null; netValueCr: number | null; schemesUp: number | null; schemesDn: number | null }>;
+  measure: SectorMeasure; selected: string | null; onPick: (industry: string) => void;
+}) {
   const gross = sectorGrossCr(rows as never);
   const vals = rows.map((r) => sectorValue(r as never, measure, gross));
   const peak = Math.max(1, ...vals.map((v) => Math.abs(v ?? 0)));
@@ -271,9 +364,22 @@ function SectorBars({ rows, measure }: { rows: Array<{ industry: string; stocks:
         const v = vals[i];
         const pct = v == null ? 0 : (Math.abs(v) / peak) * (diverging ? 50 : 100);
         const pos = (v ?? 0) >= 0;
+        const on = selected === r.industry;
         return (
-          <div key={r.industry} className="grid items-center" style={{ gridTemplateColumns: "minmax(110px,0.9fr) minmax(0,1.6fr)", gap: 10 }}>
-            <span style={{ fontSize: 12, color: "var(--cp-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <button
+            key={r.industry} type="button"
+            data-testid={`desk-smart-money-sector-row-${r.industry.replace(/\s+/g, "-").toLowerCase()}`}
+            aria-pressed={on}
+            title={on ? `Showing only ${r.industry} in the scanner — click to clear` : `Show only ${r.industry} in the scanner`}
+            onClick={() => onPick(r.industry)}
+            className="cp-row-link grid items-center"
+            style={{
+              gridTemplateColumns: "minmax(110px,0.9fr) minmax(0,1.6fr)", gap: 10, width: "100%",
+              border: 0, background: on ? "var(--mint-soft)" : "transparent", cursor: "pointer",
+              padding: "3px 6px", borderRadius: 7, textAlign: "left", font: "inherit",
+            }}
+          >
+            <span style={{ fontSize: 12, color: on ? "var(--cp-ink)" : "var(--cp-ink-2)", fontWeight: on ? 600 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {r.industry}
             </span>
             <span className="flex items-center" style={{ gap: 8 }}>
@@ -297,7 +403,7 @@ function SectorBars({ rows, measure }: { rows: Array<{ industry: string; stocks:
                 <span className="sr-only"> {unit}{diverging ? (v != null && v > 0 ? " net bought" : " net sold") : ""}</span>
               </span>
             </span>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -524,7 +630,7 @@ export default function SmartMoneyTab() {
 
   const filters: ScannerFilters = { window: period, universe, sector, direction, lane, freshness };
   const feed = useSmartMoney(filters);
-  const { feeds, flows, sectors, breadth, scanner } = feed;
+  const { summary, feeds, flows, sectors, breadth, scanner } = feed;
   /**
    * The design's own minimum: 380px rail + 860px main. Measured on this tab's column, which the
    * desk shell caps — 888px at a 1600px viewport, 1076px at 2200px, both with the Copilot docked.
@@ -637,6 +743,9 @@ export default function SmartMoneyTab() {
 
   const main = (
     <>
+      {/* ── the four headline cards ── */}
+      <KpiRow summary={summary} flowRows={flowRows} />
+
       {/* ── feed-status strips (spec 2.2) ── */}
       <div
         data-testid="desk-smart-money-feed-strips"
@@ -744,7 +853,10 @@ export default function SmartMoneyTab() {
                   </div>
                 );
               })()}
-              <SectorBars rows={sectorList} measure={measure} />
+              <SectorBars
+                rows={sectorList} measure={measure} selected={sector}
+                onPick={(ind) => setSector(sector === ind ? null : ind)}
+              />
             </>
           )}
           <Footnote>
@@ -752,6 +864,7 @@ export default function SmartMoneyTab() {
             A <em>share-count</em> delta, never a market-value delta, so a price move alone cannot read as buying.
             It is still an estimate: it assumes every change traded at the month’s VWAP, and it does not yet adjust
             for bonuses, splits or scheme mergers, any of which change a share count without a trade.{" "}
+            Click a sector to show only its stocks in the scanner below, then a stock for the fund houses behind it.{" "}
             {sectors?.previousMonth && <>Comparing {fmtDate(sectors.previousMonth)} with {fmtDate(sectors.asOf)}. </>}
             {sectorList.reduce((t, r) => t + (r.stocksPriced ?? 0), 0)} of {sectorList.reduce((t, r) => t + (r.stocks ?? 0), 0)} stocks priced.
             Disclosed portfolios of 11 reporting AMCs — not all mutual funds, and not all institutional flow.

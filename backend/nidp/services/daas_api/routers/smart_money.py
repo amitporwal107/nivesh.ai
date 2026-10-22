@@ -54,7 +54,12 @@ from fastapi import APIRouter, Depends, Query
 
 from nidp.shared.storage.pg import get_pool
 from nidp.services.daas_api.auth import require_api_key
-from nidp.services.daas_api.responses import row_to_dict
+from nidp.services.daas_api.responses import jsonify, row_to_dict
+
+
+def jsonify_num(v: Any) -> Any:
+    """A flow total is a Decimal or None; the contract is a number or null, never 0 for absent."""
+    return None if v is None else jsonify(v)
 
 router = APIRouter(prefix="/desk", tags=["desk"], dependencies=[Depends(require_api_key)])
 
@@ -707,4 +712,130 @@ async def smart_money_amc(
         # The concentration answer: how much of the disclosed holding sits with the largest house.
         "largest_amc_share_pct": top,
     }
+    return out
+
+# ---------------------------------------------------------------- summary KPIs
+
+# The design's four headline cards. Each carries its own comparison, because the four do not share
+# one: cash flows compare an equally-long preceding window, the holdings cards compare the previous
+# SCORING DATE (the table is monthly-cadence, not daily), and the shareholding card has no prior at
+# all — only two quarters disclose an institutional column, so there is nothing to compare against.
+#
+# The design's fourth card read "42 (out of 500)". That denominator is wrong: only 89 of the 500
+# disclose an FII percentage in BOTH quarters, so the count is served against 89 with the universe
+# size beside it. Hiding the gap behind the index size would overstate coverage five-fold.
+_FLOW_WINDOW_SQL = """
+    SELECT sum(net_value_cr) FILTER (WHERE category = 'FII') AS fii,
+           sum(net_value_cr) FILTER (WHERE category = 'DII') AS dii
+      FROM nidp.fii_dii_flows
+     WHERE source = $1 AND segment = 'EQUITY_CASH' AND category IN ('FII', 'DII')
+       AND as_of_date > $2 AND as_of_date <= $3
+"""
+
+# One point per scoring date: the holdings cards' sparkline and their previous value.
+_RISING_SERIES_SQL = """
+    SELECT as_of_date::text AS date,
+           count(*)                                    AS evaluated,
+           count(*) FILTER (WHERE net_shares_delta > 0) AS rising,
+           round(100.0 * count(*) FILTER (WHERE net_shares_delta > 0) / NULLIF(count(*), 0), 1) AS rising_pct
+      FROM nidp.smart_money_scores_daily
+     WHERE point_in_time IS TRUE
+     GROUP BY as_of_date
+     ORDER BY as_of_date DESC
+     LIMIT 12
+"""
+
+_FII_RISING_SQL = """
+    WITH n5 AS (
+        SELECT DISTINCT symbol FROM nidp.index_constituents
+         WHERE index_name = $1
+           AND as_of_date = (SELECT max(as_of_date) FROM nidp.index_constituents WHERE index_name = $1)
+           AND symbol <> 'DUMMYHEG'
+    ),
+    shp AS (
+        SELECT DISTINCT ON (symbol, period_end) symbol, period_end, fii_pct
+          FROM nidp.shareholding_pattern
+         WHERE period_end IN ($2, $3)
+         ORDER BY symbol, period_end, (fii_pct IS NOT NULL) DESC, ingested_at DESC
+    ),
+    d AS (
+        SELECT c.symbol, c.fii_pct - p.fii_pct AS dpp
+          FROM shp c JOIN shp p ON p.symbol = c.symbol AND p.period_end = $3
+         WHERE c.period_end = $2 AND c.fii_pct IS NOT NULL AND p.fii_pct IS NOT NULL
+    )
+    SELECT (SELECT count(*) FROM n5)                  AS universe,
+           count(*)                                   AS disclosed,
+           count(*) FILTER (WHERE d.dpp > 0)          AS rising,
+           count(*) FILTER (WHERE d.dpp < 0)          AS falling
+      FROM d JOIN n5 ON n5.symbol = d.symbol
+"""
+
+
+@router.get("/smart-money/summary", summary="The four headline figures, each with its own comparison")
+async def smart_money_summary(
+    window: str = Query("3M", pattern="^(1M|3M|6M|1Y)$"),
+    universe: str = Query("nifty500", pattern="^(nifty50|nifty100|nifty200|nifty500|total)$"),
+) -> Dict[str, Any]:
+    per = _PERIODS[window]
+    index_name = _UNIVERSES[universe]
+    source, grain, back = _WINDOWS[window]
+    out: Dict[str, Any] = {
+        "window": window, "universe": universe, "index_name": index_name, "grain": grain,
+        "as_of": None,
+        "source": "nidp.fii_dii_flows, nidp.smart_money_scores_daily, nidp.shareholding_pattern",
+        "disclosure": ("Each figure carries its OWN comparison, because the four do not share one: cash "
+                       "flows compare an equally long preceding window, the holdings figures compare the "
+                       "previous scoring date, and the shareholding figure has no prior period at all. "
+                       "A percentage change is not served on a net flow that can cross zero."),
+        "fii": None, "dii": None, "mf_rising": None, "fii_rising": None,
+    }
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        end: Optional[date] = await conn.fetchval(
+            "SELECT max(as_of_date) FROM nidp.fii_dii_flows WHERE source = $1 AND segment = 'EQUITY_CASH'", source)
+        if end is not None:
+            if back is None:
+                tm = end.year * 12 + end.month - 11
+                start = date((tm - 1) // 12, (tm - 1) % 12 + 1, 1)
+                span = (end - start).days
+                prev_start = date(start.year - 1, start.month, 1)
+            else:
+                start, span = end - back, back.days
+                prev_start = start - timedelta(days=span)
+            cur = await conn.fetchrow(_FLOW_WINDOW_SQL, source, start, end)
+            prv = await conn.fetchrow(_FLOW_WINDOW_SQL, source, prev_start, start)
+            out["as_of"] = end.isoformat()
+            for key in ("fii", "dii"):
+                now_v, was_v = (cur or {}).get(key), (prv or {}).get(key)
+                out[key] = {
+                    "net_cr": jsonify_num(now_v), "previous_net_cr": jsonify_num(was_v),
+                    "change_cr": jsonify_num(None if now_v is None or was_v is None else now_v - was_v),
+                    "window_from": start.isoformat(), "previous_from": prev_start.isoformat(),
+                }
+
+        series = [row_to_dict(r) for r in await conn.fetch(_RISING_SERIES_SQL)]
+        if series:
+            now, was = series[0], (series[1] if len(series) > 1 else None)
+            out["mf_rising"] = {
+                "as_of": now["date"], "pct": now["rising_pct"], "count": now["rising"],
+                "evaluated": now["evaluated"],
+                "previous_as_of": was["date"] if was else None,
+                "previous_pct": was["rising_pct"] if was else None,
+                "change_pp": (round(float(now["rising_pct"]) - float(was["rising_pct"]), 1)
+                              if was and now["rising_pct"] is not None and was["rising_pct"] is not None else None),
+                # Oldest-first for a sparkline.
+                "series": list(reversed(series)),
+            }
+
+        qs = [r["period_end"] for r in await conn.fetch(_QUARTERS_SQL)]
+        if len(qs) >= 2:
+            qi = min(per["quarters_back"], len(qs) - 1)
+            r = await conn.fetchrow(_FII_RISING_SQL, index_name, qs[0], qs[qi])
+            if r is not None:
+                out["fii_rising"] = {
+                    **row_to_dict(r),
+                    "current_quarter": qs[0].isoformat(), "previous_quarter": qs[qi].isoformat(),
+                    # No prior period exists: only two quarters carry an institutional column.
+                    "previous_count": None, "change": None,
+                }
     return out
