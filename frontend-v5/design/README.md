@@ -13,6 +13,7 @@ Static HTML / JSX / CSS design deliverables. Not part of the production app — 
 | **`Nivesh MVP-print.html`** | Print-to-PDF sheet of the MVP screens (A4 landscape, 10 pages). |
 | **`Nivesh charting · offline.html`** | Charting proposal — **4 tabs**: 1A Chart, 2A Signals & Alerts, 4A Paper Trading, 3A Field Dictionary. Self-contained; open it directly. Added 2026-09-23. |
 | **`Nivesh Copilot · offline.html`** | One-screen, chat-first Copilot redesign — a single shell (threads rail, ask box, answer thread, evidence panel) with Investor / Trader / Advisor modes, desktop and mobile. Self-contained; open it directly. Unpacked sources in `nivesh-copilot/`. Added 2026-10-13. |
+| **`smart-money/SmartMoneyMovement.dc.html`** | Screen 07 · Smart Money Movement (v2) — an *evidence* screen, not a score screen: 5 feed-status strips, market-wide FII/DII flows, sector rotation from disclosed buying, evidence breadth, and a scanner ranked by A/B/C/D evidence classes. Unpacked template + logic; no bundled `· offline.html` sibling. Added 2026-10-22. |
 
 ## Offline / standalone variants
 
@@ -105,3 +106,34 @@ The shell takes six display settings, useful when comparing states: `theme` (dar
 `surface` (desktop / mobile), `demoState` (none, toolFailure, staleFeed, noPortfolio, smallSample),
 `startView` (home / onboarding), `responseDetail` (compact / full) and `evidencePanel` (on / off).
 In the offline file these are changed from the design tool, not from the page itself.
+
+### Smart Money Movement (`smart-money/SmartMoneyMovement.dc.html`)
+
+Screen id **07 · Smart Money Movement**, v2, received 2026-10-22. The canonical design for the
+Smart Money screen, paired with the written spec in `docs/design/SMART_MONEY_MOVEMENT_SCREEN.md`:
+the spec owns behaviour and the field list, this file owns composition.
+
+v2 replaced a *score* screen with an *evidence* screen, and that is the point of it. Four things it
+does deliberately, which a re-implementation must not "clean up":
+
+- **Evidence is classed, not scored.** Every scanner row carries A/B/C/D chips — **A** disclosed
+  holdings change, **B** disclosed deal net of transfers, **C** market proxy with the buyer unknown,
+  **D** direct and proxy align — and rows are ranked by those classes, then by scheme breadth.
+- **Proxy evidence is never promoted to a claim.** Proxy-only names sit in their own lane and carry
+  an amber banner: "Market-proxy evidence only. This is not labelled institutional accumulation."
+- **The screen is designed to admit what is missing.** One feed strip says a feed is down
+  ("Financials feed · Unavailable · gates unevaluable"); the flows panel says "Historical market
+  reaction: no validated study available"; unmapped ISINs and stale filings are shown, not hidden.
+- **The score is demoted.** It renders only behind `showShadowScore` (default **false**), labelled
+  "Not validated. Shown for research only; not used for ranking." That matches the gate decision in
+  `docs/prd/SMART_MONEY_GATE_DECISION_20261022.md`: study C is INCONCLUSIVE and stays in shadow.
+
+Props: `theme` (dark|light), `showShadowScore` (bool, default false), `showCopilot` (bool, default
+true). Tokens come from `../nivesh-copilot/colors_and_type.css` — the bundle inlined that same file
+(its header comment and token values match the committed copy), so it is referenced, not duplicated.
+
+**Every number, name and date in it is sample data** — the screen labels itself "Illustrative data ·
+not live". The seven stocks (CG Power, Carborundum, Union Bank, Tega, HEG, Mphasis, Dabur) are
+fixtures chosen to exercise the states: a matched-transfer deal that nets to zero, a classification
+break that withholds the FII delta, an unmapped ISIN, a stale filing, and a distribution case.
+Use it for layout, wording and states, never as a source of figures.

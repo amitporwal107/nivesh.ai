@@ -4,6 +4,18 @@
 **Supersedes** `Smart Money Movement.html` (v1, same day) and, before it, the dashboard
 screenshot. v1 is dead — do not wire anything from it.
 
+**Where the screen itself now lives:**
+`frontend-v5/design/smart-money/SmartMoneyMovement.dc.html` — the v2 screen unpacked into its
+template + logic, committed 2026-10-22 so this spec's source resolves inside the repo. Until then
+§0–§2 below described a file that was in no branch and on no disk, which is the same failure the
+charting screen hit (`frontend-v5/design/README.md` → "a screen built from §38 alone will drift on
+composition"). §0–§2 own *behaviour and fields*; the `.dc.html` owns *composition* — bar heights,
+what is a headline, what is a pill, how dense each panel is. Build from both.
+
+The original single-file bundle (`… · offline.html`, ~1 MB of inlined fonts and gzipped runtime) is
+**not** in the repo; only the design it carries is. Drop it at
+`frontend-v5/design/Smart Money Movement v2 · offline.html` if the one-file review copy is wanted.
+
 Screen id: **07 · Smart Money Movement**. Design system is unchanged:
 `frontend-v5/design/nivesh-tokens.css` carried verbatim in the bundle (dark-first, mint primary,
 Instrument Serif display / Inter Tight sans / JetBrains Mono labels). No new tokens.
