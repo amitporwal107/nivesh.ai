@@ -203,6 +203,23 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
         # 5) Correlations: stock↔stock 90D from return_1d series (|corr| >= 0.7).
         # Constrained to symbols present in nidp.index_constituents to keep
         # the pairwise compute tractable; broaden later as universe grows.
+        #
+        # Returns come from nidp.prices_eod_adjusted. nidp.prices_eod is raw, so a split puts a
+        # return in the series that never happened — KOTAKBANK's 5:1 split ex 2026-01-14 reads as
+        # -80.26% there against a true -1.29% — and one such observation in a 120-day window is
+        # enough to change the Pearson value and even its sign: measured on staging for the window
+        # ending 2026-02-28, KOTAKBANK/AXISBANK moves from -0.2036 raw to +0.1365 adjusted and
+        # KOTAKBANK/INDUSINDBK from -0.2447 to +0.0985. Rows are written into graph.correlations
+        # and read as fact, so the input has to be the adjusted series.
+        #
+        # The source filter is dropped with the table: the adjusted table carries exactly one
+        # source (NIDP_PRICE_ADJUSTER), so the old 'NSE_BHAVCOPY' predicate would match nothing.
+        # Dropping the series filter is safe and also fixes a second defect — the raw query never
+        # filtered series at all, and nidp.prices_eod holds 887 symbol-dates with more than one
+        # series row, which lag() was interleaving into the return series. The adjusted table is
+        # EQ-only and unique per (symbol, as_of_date).
+        #
+        # `latest` stays on prices_eod: it is the trading calendar, which needs no adjustment.
         corr_rows = await conn.execute(
             """
             WITH latest AS (
@@ -215,11 +232,10 @@ async def run(target_date: date | None = None) -> dict[str, int | str]:
                 SELECT
                     p.symbol,
                     p.as_of_date,
-                    ((p.close_price / NULLIF(lag(p.close_price) OVER (PARTITION BY p.symbol ORDER BY p.as_of_date), 0)) - 1.0)::double precision AS ret1d
-                FROM nidp.prices_eod p
+                    ((p.adj_close / NULLIF(lag(p.adj_close) OVER (PARTITION BY p.symbol ORDER BY p.as_of_date), 0)) - 1.0)::double precision AS ret1d
+                FROM nidp.prices_eod_adjusted p
                 JOIN universe u ON u.symbol = p.symbol
-                WHERE p.source = 'NSE_BHAVCOPY'
-                  AND p.as_of_date >= COALESCE($1::date, (SELECT dt FROM latest)) - INTERVAL '120 days'
+                WHERE p.as_of_date >= COALESCE($1::date, (SELECT dt FROM latest)) - INTERVAL '120 days'
                   AND p.as_of_date <= COALESCE($1::date, (SELECT dt FROM latest))
             ),
             pairs AS (

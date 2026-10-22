@@ -264,8 +264,12 @@ async def _sessions(conn, symbol: str, d0: date, d1: date) -> list[dict]:
     first bar still has a predecessor.
 
     This does NOT remove the need for the circuit-band check. The adjusted table is derived from
-    nidp.corporate_actions, which holds 8 SPLIT and 9 BONUS symbols in total, so TAALTECH, PGIL,
-    TCC, ESDS and the rest carry a unit factor and stay unadjusted.
+    nidp.corporate_actions, which is no longer the stub this docstring used to describe: counted on
+    staging 2026-10-22 it holds 71 SPLIT and 62 BONUS rows (plus 1,856 DIVIDEND) back to
+    2025-10-03, and TAALTECH, PGIL and TCC now DO carry factors (0.20, 0.50, 0.20). The adjuster
+    is still incomplete, though — 38 symbols fall >=35% in a single session on the adjusted series
+    while carrying a unit factor, 25 with no corporate-action row at all (TATAMOTORS, POLICYBZR,
+    SADBHAV among them) and 13 with a row the adjuster did not apply (VEDL, TRIVENI, SKFINDIA).
     """
     rows = await conn.fetch(
         """
@@ -435,11 +439,13 @@ async def _insider_for(conn, symbol: str, d0: date, d1: date) -> dict:
 
 
 # ── corporate-action contamination ─────────────────────────────────────────
-# nidp.corporate_actions starts 2026-05-26 and holds only 8 SPLIT + 9 BONUS rows, and
-# prices_eod_adjusted has a non-unit factor on 0.4% of rows — so neither can be trusted to
-# explain a split. TAALTECH -79.26% (2026-09-22) and PGIL -50.06% (2026-09-11) are unadjusted
-# splits that appear in NO corporate-action row. A mover list built on the raw feed therefore
-# leads with phantom crashes. We flag them two ways and let the caller decide.
+# nidp.corporate_actions now reaches back to 2025-10-03 with 71 SPLIT + 62 BONUS rows (counted on
+# staging 2026-10-22; the earlier "starts 2026-05-26, 8 SPLIT + 9 BONUS" written here was stale),
+# and TAALTECH (raw -79.26% on 2026-09-22) and PGIL (raw -50.06% on 2026-09-11) are now adjusted —
+# their worst adjusted single-session moves are -7.64% and -10.14%. It is still not complete: 38
+# symbols drop >=35% in one session on the ADJUSTED series while carrying a unit factor, 25 of them
+# with no corporate-action row at all. A mover list built on the raw feed therefore still leads
+# with phantom crashes. We flag them two ways and let the caller decide.
 _CA_RATIOS = (2.0, 2.5, 3.0, 4.0, 5.0, 10.0)
 _CA_TOL = 0.08
 # The widest NSE circuit band is 20%; allow a little slack for rounding in the feed.
@@ -1237,23 +1243,56 @@ async def _population(conn, d0: date, d1: date, head: str) -> dict:
 
 
 async def _bars_for(conn, symbols: list[str], d0: date, d1: date) -> dict[str, list[dict]]:
-    """EQ bars for a set of symbols in one round trip, keyed by symbol and ordered by date."""
+    """EQ bars for a set of symbols in one round trip, keyed by symbol and ordered by date.
+
+    The multi-symbol twin of _sessions() above, and on the same CORPORATE-ACTION-ADJUSTED series
+    for the same reason. Everything downstream of this helper is arithmetic ACROSS sessions —
+    _atr_pct over 14 bars, _leak over 6, _exec_of over the horizon, _head_hit against the previous
+    close — and nidp.prices_eod is raw, so a split corrupts all of it. Measured on staging for
+    KOTAKBANK's 5:1 split ex 2026-01-14: raw ATR-14 at 2026-01-20 reads 7.61% against a true
+    2.02%, which moves the name into a volatility decile it does not belong in, and the volatility
+    deciles are the control the flag-lift card exists to apply. _leak fires on the raw series for
+    2026-01-20 and 2026-01-21 and not on the adjusted one — a phantom "price already drifted the
+    move's way" on every session in the week after any split, which reads as PRE-PRICED.
+
+    volume and turnover stay on the raw feed: the adjusted table has no turnover column, and
+    turnover is a rupee figure off the tape that a split does not change. The EQ pin therefore
+    still comes from prices_eod, which is also what keeps a BE/BZ stint out.
+    """
     out: dict[str, list[dict]] = {}
     if not symbols:
         return out
     for r in await conn.fetch(
         """
-        SELECT symbol, as_of_date, open_price, high_price, low_price, close_price,
-               prev_close, volume, turnover
-          FROM nidp.prices_eod
-         WHERE symbol = ANY($1::text[]) AND series = 'EQ' AND as_of_date BETWEEN $2 AND $3
-         ORDER BY symbol, as_of_date
+        WITH a AS (
+            SELECT symbol, as_of_date, adj_open, adj_high, adj_low, adj_close,
+                   cumulative_adj_factor,
+                   lag(adj_close)  OVER w AS prev_adj,
+                   lag(as_of_date) OVER w AS prev_dt,
+                   bool_or(cumulative_adj_factor <> 1)
+                       OVER (PARTITION BY symbol) AS has_event
+              FROM nidp.prices_eod_adjusted
+             -- widened so the first session in the window still has a predecessor
+             WHERE symbol = ANY($1::text[]) AND as_of_date BETWEEN $2::date - 10 AND $3
+            WINDOW w AS (PARTITION BY symbol ORDER BY as_of_date))
+        SELECT a.symbol, a.as_of_date, a.adj_open, a.adj_high, a.adj_low, a.adj_close,
+               -- the adjusted lag only for a symbol that has an event AND whose previous adjusted
+               -- row is the session right before this one: the adjusted table is EQ-only, so a
+               -- BE/BZ stint leaves a hole a bare lag() would jump (INDIAGLYCO, 2026-09-02..09-17)
+               CASE WHEN a.has_event AND a.prev_adj > 0 AND a.prev_dt >= a.as_of_date - 7
+                    THEN a.prev_adj ELSE p.prev_close END AS prev_adj,
+               a.cumulative_adj_factor, p.volume, p.turnover
+          FROM a JOIN nidp.prices_eod p
+            ON p.symbol = a.symbol AND p.series = 'EQ' AND p.as_of_date = a.as_of_date
+         WHERE a.as_of_date BETWEEN $2 AND $3
+         ORDER BY a.symbol, a.as_of_date
         """, symbols, d0, d1):
         out.setdefault(r["symbol"], []).append({
             "t": r["as_of_date"].isoformat(),
-            "o": _f(r["open_price"]), "h": _f(r["high_price"]), "l": _f(r["low_price"]),
-            "c": _f(r["close_price"]), "prev_c": _f(r["prev_close"]),
+            "o": _f(r["adj_open"]), "h": _f(r["adj_high"]), "l": _f(r["adj_low"]),
+            "c": _f(r["adj_close"]), "prev_c": _f(r["prev_adj"]),
             "v": int(r["volume"] or 0), "turnover": _f(r["turnover"]),
+            "adj_factor": _f(r["cumulative_adj_factor"]),
         })
     return out
 
