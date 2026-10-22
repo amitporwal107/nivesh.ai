@@ -171,6 +171,28 @@ const AMC = {
   ],
 };
 
+/** Real staging figures, 3M window, 2026-10-21. */
+const SUMMARY = {
+  window: "3M", as_of: "2026-10-21", grain: "daily",
+  source: "nidp.fii_dii_flows, nidp.smart_money_scores_daily, nidp.shareholding_pattern",
+  disclosure: "Each figure carries its OWN comparison.",
+  fii: { net_cr: -98383, previous_net_cr: -126600, change_cr: 28217, window_from: "2026-07-23", previous_from: "2026-04-24" },
+  dii: { net_cr: 198123, previous_net_cr: 204312, change_cr: -6189, window_from: "2026-07-23", previous_from: "2026-04-24" },
+  mf_rising: {
+    as_of: "2026-10-21", pct: 46.0, count: 449, evaluated: 976,
+    previous_as_of: "2026-10-12", previous_pct: 45.3, change_pp: 0.7,
+    series: [
+      { date: "2026-08-12", evaluated: 913, rising: 431, rising_pct: 47.2 },
+      { date: "2026-09-12", evaluated: 928, rising: 448, rising_pct: 48.3 },
+      { date: "2026-10-12", evaluated: 967, rising: 438, rising_pct: 45.3 },
+      { date: "2026-10-21", evaluated: 976, rising: 449, rising_pct: 46.0 },
+    ],
+  },
+  fii_rising: { universe: 500, disclosed: 89, rising: 47, falling: 39,
+                current_quarter: "2026-09-30", previous_quarter: "2026-06-30",
+                previous_count: null, change: null },
+};
+
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const bad = { status: 502, contentType: "application/json", body: JSON.stringify({ error: { status: 502, message: "upstream_unavailable" } }) };
 
@@ -185,6 +207,7 @@ async function mockSmartMoney(page: Page, over: { fail?: string[] } = {}) {
   await page.route("**/api/markets/smart-money/scanner*", (r) =>
     serve(r, "scanner", scanner(new URL(r.request().url()).searchParams.get("lane") ?? "all")));
   await page.route("**/api/markets/smart-money/amc*", (r) => serve(r, "amc", AMC));
+  await page.route("**/api/markets/smart-money/summary*", (r) => serve(r, "summary", SUMMARY));
 }
 
 const screen = (page: Page) => page.getByTestId("screen-desk-smart-money");
@@ -420,7 +443,8 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(screen(page)).toContainText("976");
     await expect(page.getByTestId("desk-smart-money-chart")).toBeVisible();
 
-    await mockSmartMoney(page, { fail: ["feeds", "flows", "sectors", "breadth", "scanner"] });
+    // Every source, or the screen is correctly still "ready" on the ones that answered.
+    await mockSmartMoney(page, { fail: ["summary", "feeds", "flows", "sectors", "breadth", "scanner"] });
     await page.goto(SM);
     await expect(screen(page)).toContainText("Smart Money didn’t load", SLOW);
   });
@@ -510,4 +534,48 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("Why it surfaced");
     await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("AMC contribution didn’t load");
   });
+
+  test("TC-F25: the four headline cards carry their own comparison, not one shared period", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    const k = page.getByTestId("desk-smart-money-kpis");
+    await expect(k).toBeVisible();
+    await expect(k).toContainText("FII net flow · cash");
+    await expect(k).toContainText("DII net flow · cash");
+    // A net flow crosses zero, so the change is absolute ₹ cr and worded, never a percentage.
+    await expect(k).toContainText("28,217 cr more buying than the preceding window");
+    await expect(k).toContainText("6,189 cr less buying than the preceding window");
+    await expect(k).not.toContainText("+22%");
+    // Holdings compare the previous SCORING DATE, which the card names.
+    await expect(k).toContainText("46%");
+    await expect(k).toContainText("449 of 976");
+    await expect(k).toContainText("+0.7 pp vs 12 Oct 2026");
+  });
+
+  test("TC-F26: the FII-ownership card uses the disclosed denominator, not the index size", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    const k = page.getByTestId("desk-smart-money-kpis");
+    await expect(k).toContainText("47");
+    await expect(k).toContainText("of 89 disclosed");
+    // "of 500" would overstate coverage more than five-fold; the gap is stated instead.
+    await expect(k).toContainText("only 89 of 500 in the universe disclose both quarters");
+    await expect(k).toContainText("39 falling");
+  });
+
+  test("TC-F27: clicking a sector filters the scanner, and clicking again clears it", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    const bar = page.getByTestId("desk-smart-money-sector-row-healthcare");
+    await expect(bar).toHaveAttribute("aria-pressed", "false");
+    await bar.click();
+    await expect(bar).toHaveAttribute("aria-pressed", "true");
+    // The scanner's own filter is what moved, so Clear filters appears.
+    await expect(page.getByTestId("desk-smart-money-clear")).toBeVisible();
+    await expect(page.getByTestId("desk-smart-money-sector")).toHaveValue("Healthcare");
+    await bar.click();
+    await expect(bar).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("desk-smart-money-sector")).toHaveValue("");
+  });
+
 });

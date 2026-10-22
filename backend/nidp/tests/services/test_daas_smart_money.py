@@ -39,6 +39,8 @@ class _Conn:
         # Matched most-specific first: several queries read nidp.mf_holdings_deltas.
         if "months_back" in q:                       # the disclosed month pairs, richest first
             return self.db.get("pair_rows", [])
+        if "rising_pct" in q:                        # the summary's scoring-date series
+            return self.db.get("rising_series", [])
         if "amc_name_raw" in q:                      # the AMC drill-down
             return self.db.get("amc_rows", [])
         if "mf_scheme_master" in q:                  # the scanner
@@ -75,6 +77,11 @@ class _Conn:
 
     async def fetchrow(self, q, *a):
         self.calls.append((q, a))
+        if "FILTER (WHERE category = 'FII')" in q:   # a flow window, current or prior
+            self.db.setdefault("_flow_calls", []).append(a)
+            return self.db.get("flow_windows", [None, None])[len(self.db["_flow_calls"]) - 1]
+        if "shareholding_pattern" in q and "n5" in q:
+            return self.db.get("fii_rising_row")
         if "smart_money_scores_daily" in q:
             return self.db.get("breadth_row")
         return None
@@ -501,4 +508,61 @@ def test_amc_unknown_symbol_is_200_with_an_empty_answer(make_client):
 def test_amc_requires_a_symbol(make_client):
     c, _ = make_client(_amc_db())
     assert c.get("/v1/desk/smart-money/amc", headers=H).status_code == 400
+
+# ── summary KPIs ─────────────────────────────────────────────────────────
+
+def _summary_db(**over):
+    db = {
+        "flows_latest": date(2026, 10, 21),
+        "flow_windows": [{"fii": -98383.0, "dii": 198123.0}, {"fii": -126600.0, "dii": 204312.0}],
+        "rising_series": [
+            {"date": "2026-10-21", "evaluated": 976, "rising": 449, "rising_pct": 46.0},
+            {"date": "2026-10-12", "evaluated": 967, "rising": 438, "rising_pct": 45.3},
+        ],
+        "quarter_rows": QUARTERS,
+        "fii_rising_row": {"universe": 500, "disclosed": 89, "rising": 47, "falling": 39},
+    }
+    db.update(over)
+    return db
+
+
+def test_summary_gives_each_figure_its_own_comparison(make_client):
+    """The four headline figures do not share one period: cash flows compare an equally long
+    preceding window, the holdings figure compares the previous SCORING DATE, and the shareholding
+    figure has no prior at all. Presenting one shared "vs previous 3 months" would be false."""
+    c, _ = make_client(_summary_db())
+    r = c.get("/v1/desk/smart-money/summary", params={"window": "3M"}, headers=H)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["fii"]["net_cr"] == -98383.0 and d["fii"]["previous_net_cr"] == -126600.0
+    assert d["fii"]["change_cr"] == -98383.0 - -126600.0          # +28,217
+    assert d["dii"]["change_cr"] == 198123.0 - 204312.0           # -6,189
+    # A percentage change on a net flow that can cross zero is meaningless; it is not served.
+    for k in ("fii", "dii"):
+        assert "change_pct" not in d[k]
+    m = d["mf_rising"]
+    assert m["pct"] == 46.0 and m["count"] == 449 and m["evaluated"] == 976
+    assert m["previous_as_of"] == "2026-10-12" and m["change_pp"] == 0.7
+    assert [p["date"] for p in m["series"]] == ["2026-10-12", "2026-10-21"]   # oldest first
+
+
+def test_summary_counts_fii_risers_against_what_actually_discloses(make_client):
+    """The design's card read "42 (out of 500)". Only 89 of the 500 disclose an FII percentage in
+    BOTH quarters, so counting against the index size would overstate coverage five-fold."""
+    c, _ = make_client(_summary_db())
+    f = c.get("/v1/desk/smart-money/summary", headers=H).json()["fii_rising"]
+    assert f["rising"] == 47 and f["falling"] == 39
+    assert f["disclosed"] == 89 and f["universe"] == 500
+    assert f["disclosed"] < f["universe"]
+    # There is no prior period for this one, and it says so rather than inventing a change.
+    assert f["previous_count"] is None and f["change"] is None
+
+
+def test_summary_is_200_with_nulls_when_nothing_is_disclosed(make_client):
+    c, _ = make_client({})
+    r = c.get("/v1/desk/smart-money/summary", headers=H)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["fii"] is None and d["mf_rising"] is None and d["fii_rising"] is None
+    assert d["source"] and d["disclosure"]
 

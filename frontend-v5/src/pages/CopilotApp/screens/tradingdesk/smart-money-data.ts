@@ -44,7 +44,7 @@ const noRetry4xx = (count: number, e: unknown) =>
   !(e instanceof ApiError && (e.kind === "contract_drift" || (e.status != null && e.status >= 400 && e.status < 500))) && count < 1;
 
 export type SourceState = "ok" | "failed" | "loading";
-export type SmSourceKey = "feeds" | "flows" | "sectors" | "breadth" | "scanner";
+export type SmSourceKey = "summary" | "feeds" | "flows" | "sectors" | "breadth" | "scanner";
 
 // ── feeds (GET /api/markets/smart-money/feeds) ───────────────────────────
 
@@ -640,6 +640,93 @@ export function useSmScanner(enabled: boolean, f: ScannerFilters) {
   });
 }
 
+// ── summary KPIs (GET /api/markets/smart-money/summary) ─────────────────
+
+export interface FlowKpi {
+  netCr: number | null;
+  previousNetCr: number | null;
+  changeCr: number | null;
+  windowFrom: string | null;
+  previousFrom: string | null;
+}
+
+export interface RisingPoint { date: string; evaluated: number | null; rising: number | null; risingPct: number | null }
+
+export interface MfRisingKpi {
+  asOf: string | null;
+  pct: number | null;
+  count: number | null;
+  evaluated: number | null;
+  previousAsOf: string | null;
+  previousPct: number | null;
+  changePp: number | null;
+  series: RisingPoint[];
+}
+
+export interface FiiRisingKpi {
+  universe: number | null;
+  /** Names disclosing an FII percentage in BOTH quarters — the real denominator. */
+  disclosed: number | null;
+  rising: number | null;
+  falling: number | null;
+  currentQuarter: string | null;
+  previousQuarter: string | null;
+}
+
+export interface SummaryFeed {
+  window: string | null;
+  asOf: string | null;
+  grain: string | null;
+  source: string | null;
+  disclosure: string | null;
+  fii: FlowKpi | null;
+  dii: FlowKpi | null;
+  mfRising: MfRisingKpi | null;
+  fiiRising: FiiRisingKpi | null;
+}
+
+const flowKpi = (v: unknown): FlowKpi | null => {
+  if (v == null) return null;
+  const r = rec(v);
+  return {
+    netCr: num(r.net_cr), previousNetCr: num(r.previous_net_cr), changeCr: num(r.change_cr),
+    windowFrom: str(r.window_from), previousFrom: str(r.previous_from),
+  };
+};
+
+async function fetchSummary(p: { window: SmPeriod; universe: SmUniverse }, signal?: AbortSignal): Promise<SummaryFeed> {
+  const res = await http({ path: "/api/markets/smart-money/summary", query: { window: p.window, universe: p.universe }, signal });
+  const d = rec(res.data);
+  if (!("fii" in d) || !("mf_rising" in d)) throw ApiError.contractDrift("smart-money.summary: missing headline figures");
+  const m = d.mf_rising == null ? null : rec(d.mf_rising);
+  const f = d.fii_rising == null ? null : rec(d.fii_rising);
+  return {
+    window: str(d.window), asOf: str(d.as_of), grain: str(d.grain),
+    source: str(d.source), disclosure: str(d.disclosure),
+    fii: flowKpi(d.fii), dii: flowKpi(d.dii),
+    mfRising: m && {
+      asOf: str(m.as_of), pct: num(m.pct), count: num(m.count), evaluated: num(m.evaluated),
+      previousAsOf: str(m.previous_as_of), previousPct: num(m.previous_pct), changePp: num(m.change_pp),
+      series: Array.isArray(m.series) ? m.series.flatMap((v): RisingPoint[] => {
+        const r = rec(v); const date = str(r.date);
+        return date ? [{ date, evaluated: num(r.evaluated), rising: num(r.rising), risingPct: num(r.rising_pct) }] : [];
+      }) : [],
+    },
+    fiiRising: f && {
+      universe: num(f.universe), disclosed: num(f.disclosed), rising: num(f.rising), falling: num(f.falling),
+      currentQuarter: str(f.current_quarter), previousQuarter: str(f.previous_quarter),
+    },
+  };
+}
+
+export function useSmSummary(enabled: boolean, window: SmPeriod, universe: SmUniverse) {
+  return useQuery<SummaryFeed>({
+    queryKey: ["copilot", "desk", "smart-money", "summary", window, universe],
+    enabled, staleTime: 15 * 60_000, retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchSummary({ window, universe }, signal),
+  });
+}
+
 // ── AMC contribution (GET /api/markets/smart-money/amc) ─────────────────
 
 export interface AmcRow {
@@ -755,6 +842,7 @@ export function useSmAmc(symbol: string | null) {
 
 export interface SmartMoneyFeed {
   status: "loading" | "error" | "ready";
+  summary: SummaryFeed | null;
   feeds: FeedsFeed | null;
   flows: FlowsFeed | null;
   sectors: SectorsFeed | null;
@@ -772,6 +860,7 @@ export interface SmartMoneyFeed {
  * `failed` populated — a dead feed costs its own panel, not the screen.
  */
 export function useSmartMoney(f: ScannerFilters): SmartMoneyFeed {
+  const summary = useSmSummary(true, f.window, f.universe);
   const feeds = useSmFeeds(true);
   const flows = useSmFlows(true, f.window);
   const sectors = useSmSectors(true, f.window, f.universe);
@@ -779,6 +868,7 @@ export function useSmartMoney(f: ScannerFilters): SmartMoneyFeed {
   const scanner = useSmScanner(true, f);
 
   const parts: Array<{ key: SmSourceKey; pending: boolean; failed: boolean; error: unknown; refetch: () => void }> = [
+    { key: "summary", pending: summary.isPending, failed: summary.isError, error: summary.error, refetch: () => void summary.refetch() },
     { key: "feeds", pending: feeds.isPending, failed: feeds.isError, error: feeds.error, refetch: () => void feeds.refetch() },
     { key: "flows", pending: flows.isPending, failed: flows.isError, error: flows.error, refetch: () => void flows.refetch() },
     { key: "sectors", pending: sectors.isPending, failed: sectors.isError, error: sectors.error, refetch: () => void sectors.refetch() },
@@ -792,7 +882,7 @@ export function useSmartMoney(f: ScannerFilters): SmartMoneyFeed {
   const refetch = () => { for (const p of parts) if (p.failed) p.refetch(); };
 
   const base = {
-    feeds: feeds.data ?? null, flows: flows.data ?? null, sectors: sectors.data ?? null,
+    summary: summary.data ?? null, feeds: feeds.data ?? null, flows: flows.data ?? null, sectors: sectors.data ?? null,
     breadth: breadth.data ?? null, scanner: scanner.data ?? null,
     failed: [...new Set(failedParts.map((p) => p.key))], sourceStates, refetch,
   };
