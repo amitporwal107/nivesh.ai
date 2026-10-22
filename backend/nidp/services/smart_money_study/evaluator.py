@@ -95,6 +95,9 @@ SELECT symbol, med_turnover, close_on_date,
 """
 
 # Forward return between two sessions, on the open, as the frozen execution convention requires.
+# Prices come from nidp.prices_eod_adjusted (adj_open), which is corrected for splits, bonuses and
+# other capital-structure events — nidp.prices_eod is raw and turns a 5:1 split into a -80% return.
+# Sessions still come from prices_eod, which defines the trading calendar used for eligibility.
 _FORWARD_SQL = """
 WITH sess AS (
     SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE as_of_date > $1 ORDER BY as_of_date LIMIT $2
@@ -104,13 +107,15 @@ exit_d  AS (SELECT max(as_of_date) d FROM sess)
 SELECT p1.symbol,
        (SELECT d FROM entry_d) AS entry_date,
        (SELECT d FROM exit_d)  AS exit_date,
-       p1.open_price           AS entry_price,
-       p2.open_price           AS exit_price
-  FROM nidp.prices_eod p1
-  JOIN nidp.prices_eod p2 ON p2.symbol = p1.symbol AND p2.as_of_date = (SELECT d FROM exit_d)
- WHERE p1.as_of_date = (SELECT d FROM entry_d) AND p1.series='EQ' AND p2.series='EQ'
-   AND p1.open_price > 0 AND p2.open_price > 0
+       p1.adj_open             AS entry_price,
+       p2.adj_open             AS exit_price
+  FROM nidp.prices_eod_adjusted p1
+  JOIN nidp.prices_eod_adjusted p2
+    ON p2.symbol = p1.symbol AND p2.as_of_date = (SELECT d FROM exit_d)
+ WHERE p1.as_of_date = (SELECT d FROM entry_d)
+   AND p1.adj_open > 0 AND p2.adj_open > 0
 """
+
 
 # Deal feature, strictly before the scoring date (requirement 2), transfers already netted out.
 _DEALS_SQL = """
@@ -122,25 +127,6 @@ SELECT symbol,
   FROM nidp.v_trendlyne_deals_net
  WHERE deal_date < $1 AND deal_date >= $1 - $2::int
  GROUP BY symbol
-"""
-
-
-# prices_eod carries no adjusted price, so any capital-structure action inside the holding window
-# makes the raw open-to-open move meaningless (a 5:1 split reads as -80%). Those symbol-days are
-# excluded with a reason rather than silently corrected from a free-text ratio string. Dividends and
-# interest payments are deliberately kept: this is a price-return convention, and that is stated.
-_CAP_ACTIONS = ("SPLIT", "BONUS", "DEMERGER", "RIGHTS", "DISTRIBUTION", "CONSOLIDATION")
-
-_ACTIONS_SQL = """
-WITH sess AS (
-    SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE as_of_date > $1 ORDER BY as_of_date LIMIT $2
-)
-SELECT ca.symbol, min(ca.action_type) AS action_type
-  FROM nidp.corporate_actions ca
- WHERE ca.action_type = ANY($3::text[])
-   AND ca.ex_date >  (SELECT min(as_of_date) FROM sess)
-   AND ca.ex_date <= (SELECT max(as_of_date) FROM sess)
- GROUP BY ca.symbol
 """
 
 
@@ -264,8 +250,6 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
             deals = {r["symbol"]: dict(r) for r in await conn.fetch(
                 _DEALS_SQL, d, deal_lookback_days)}
             fwd = {r["symbol"]: dict(r) for r in await conn.fetch(_FORWARD_SQL, d, horizon)}
-            acted = {r["symbol"]: r["action_type"] for r in await conn.fetch(
-                _ACTIONS_SQL, d, horizon, list(_CAP_ACTIONS))}
 
         eligible, excluded = {}, {}
         for r in uni:
@@ -275,8 +259,6 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
                 why = "no_baseline_score"
             if why is None and sym not in fwd:
                 why = "no_forward_window"
-            if why is None and sym in acted:
-                why = "corporate_action_in_window:" + acted[sym]
             (excluded if why else eligible)[sym] = why or True
 
         rows_b, rows_c = [], []
@@ -352,10 +334,7 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
         mb, mc = statistics.fmean(rb), statistics.fmean(rc)
         overlap = len(set(top_b) & set(top_c))
         per_date.append({"date": d.isoformat(), "eligible": len(eligible),
-                         "excluded": len(excluded),
-                         "excluded_corp_action": sum(
-                             1 for v in excluded.values()
-                             if str(v).startswith("corporate_action_in_window")), "b_net_pct": mb, "c_net_pct": mc,
+                         "excluded": len(excluded), "b_net_pct": mb, "c_net_pct": mc,
                          "diff_pp": mc - mb, "overlap": overlap,
                          "names_changed": portfolio_n - overlap})
         logger.info("%s %s: B %+.2f%%  C %+.2f%%  diff %+.3f pp  (%d/%d names changed)",
