@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 SERVICE_NAME = "smart_money_scores"
 
 # Bumped whenever the sub-signals or their weights change, so a stored row can be reproduced.
-CONFIG_VERSION = "sm-component-v1"
+CONFIG_VERSION = "sm-component-v2"   # v2: breadth counts funds, not plan variants (migration 177)
 
 # Default disclosure months to look across. 3 is the shortest window in which "persistence" means
 # anything; the source requirement's 1/3/6/12 lookbacks are served by re-running with --lookback.
@@ -87,10 +87,24 @@ WITH months AS (
 per_month AS (
     SELECT d.security_isin,
            d.current_month,
-           count(*) FILTER (WHERE d.change_class IN ('increase','new'))            AS inc,
-           count(*) FILTER (WHERE d.change_class IN ('decrease','possible_exit'))  AS red,
-           count(*) FILTER (WHERE d.change_class = 'new')                          AS new_pos,
-           count(*) FILTER (WHERE d.change_class = 'possible_exit')                AS exits,
+           -- FUND counts, not scheme-code counts. One fund's disclosure fans out to every
+           -- plan variant it runs (Regular/Direct x Growth/IDCW), each an identical copy, so
+           -- counting rows counted the same decision 2.5-3.4x over and biased breadth toward
+           -- AMCs with more variants (Tata 13x vs Kotak 3.4x). Plan variants share
+           -- (amc, previous_shares, current_shares) exactly, which collapses them. See
+           -- migration 177.
+           count(DISTINCT (coalesce(nullif(sm.amc_id,''), d.scheme_code),
+                           d.previous_shares, d.current_shares))
+               FILTER (WHERE d.change_class IN ('increase','new'))                  AS inc,
+           count(DISTINCT (coalesce(nullif(sm.amc_id,''), d.scheme_code),
+                           d.previous_shares, d.current_shares))
+               FILTER (WHERE d.change_class IN ('decrease','possible_exit'))        AS red,
+           count(DISTINCT (coalesce(nullif(sm.amc_id,''), d.scheme_code),
+                           d.previous_shares, d.current_shares))
+               FILTER (WHERE d.change_class = 'new')                                AS new_pos,
+           count(DISTINCT (coalesce(nullif(sm.amc_id,''), d.scheme_code),
+                           d.previous_shares, d.current_shares))
+               FILTER (WHERE d.change_class = 'possible_exit')                      AS exits,
            count(DISTINCT coalesce(nullif(sm.amc_id,''), 'unattributed:'||d.scheme_code))
                FILTER (WHERE d.change_class IN ('increase','new'))                 AS amcs_inc,
            sum(d.shares_delta)                                                     AS net_shares,

@@ -1,0 +1,18 @@
+# /etc/cron.d/nivesh-staging-db-snapshot — weekly encrypted Postgres snapshot
+# of the app VM (nivesh-app-vm, 45.64.105.88) → private GitHub release.
+#
+# Sunday 02:30 IST. The app VM's only other cron is cache-clear at 00:30 daily,
+# so this contends with nothing; Sunday keeps the weekday NSE feed hours clear.
+#
+# Retention is LATEST ONLY — each run replaces the previous release assets.
+#
+# Install:
+#   sudo bash /opt/nivesh-staging/repo/deploy/cloudpe/backup/install.sh \
+#       --target app --repo <owner/repo> --token-file <f> --pubkey-file <k>
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+30 2 * * 0  root  /opt/nivesh-staging/bin/db-snapshot.sh --target app >> /opt/nivesh-staging/logs/db-snapshot.log 2>&1
