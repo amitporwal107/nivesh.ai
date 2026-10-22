@@ -640,6 +640,117 @@ export function useSmScanner(enabled: boolean, f: ScannerFilters) {
   });
 }
 
+// ── AMC contribution (GET /api/markets/smart-money/amc) ─────────────────
+
+export interface AmcRow {
+  amcId: string;
+  amcName: string | null;
+  schemes: number | null;
+  schemesUp: number | null;
+  schemesDn: number | null;
+  schemesFlat: number | null;
+  currentShares: number | null;
+  previousShares: number | null;
+  sharesDelta: number | null;
+  sharesPctChange: number | null;
+  /** A LEVEL — what this house holds now. Null when no scheme disclosed a value. */
+  currentValueCr: number | null;
+  valueDisclosedSchemes: number | null;
+  /** This house's share of the stock's TOTAL disclosed MF holding. The contribution figure. */
+  shareOfDisclosedPct: number | null;
+  weightDeltaPp: number | null;
+}
+
+export interface AmcTotals {
+  amcs: number | null;
+  schemes: number | null;
+  schemesUp: number | null;
+  schemesDn: number | null;
+  currentShares: number | null;
+  sharesDelta: number | null;
+  currentValueCr: number | null;
+  valueDisclosedSchemes: number | null;
+  sharesOutstanding: number | null;
+  /** Disclosed MF holding as a % of shares outstanding. Null where no quarter discloses a count. */
+  pctOfEquity: number | null;
+  /** How much of the disclosed holding sits with the single largest house. */
+  largestAmcSharePct: number | null;
+}
+
+export interface AmcFeed {
+  symbol: string | null;
+  isin: string | null;
+  asOf: string | null;
+  previousMonth: string | null;
+  mfWindow: MfWindow | null;
+  source: string | null;
+  disclosure: string | null;
+  totals: AmcTotals | null;
+  rows: AmcRow[];
+}
+
+/**
+ * Is the month's disclosed move broad-based, or one house? Answered from the rows, not asserted:
+ * `movers` counts houses whose holding actually changed, and `topShare` is the largest house's
+ * share of the disclosed holding. An AMC COUNT cannot answer this, which is the whole point.
+ */
+export function amcConcentration(f: AmcFeed | null): { movers: number; buyers: number; sellers: number; topShare: number | null; topName: string | null } | null {
+  if (!f || f.rows.length === 0) return null;
+  const moved = f.rows.filter((r) => r.sharesDelta != null && r.sharesDelta !== 0);
+  const top = [...f.rows].sort((a, b) => (b.shareOfDisclosedPct ?? 0) - (a.shareOfDisclosedPct ?? 0))[0];
+  return {
+    movers: moved.length,
+    buyers: moved.filter((r) => (r.sharesDelta ?? 0) > 0).length,
+    sellers: moved.filter((r) => (r.sharesDelta ?? 0) < 0).length,
+    topShare: top?.shareOfDisclosedPct ?? null,
+    topName: top?.amcName ?? top?.amcId ?? null,
+  };
+}
+
+async function fetchAmc(symbol: string, signal?: AbortSignal): Promise<AmcFeed> {
+  const res = await http({ path: "/api/markets/smart-money/amc", query: { symbol }, signal });
+  const d = rec(res.data);
+  if (!Array.isArray(d.rows)) throw ApiError.contractDrift("smart-money.amc: no rows list");
+  const rows: AmcRow[] = d.rows.flatMap((v): AmcRow[] => {
+    const r = rec(v);
+    const amcId = str(r.amc_id);
+    if (!amcId) return [];
+    return [{
+      amcId,
+      amcName: str(r.amc_name),
+      schemes: num(r.schemes), schemesUp: num(r.schemes_up), schemesDn: num(r.schemes_dn),
+      schemesFlat: num(r.schemes_flat),
+      currentShares: num(r.current_shares), previousShares: num(r.previous_shares),
+      sharesDelta: num(r.shares_delta), sharesPctChange: num(r.shares_pct_change),
+      currentValueCr: num(r.current_value_cr), valueDisclosedSchemes: num(r.value_disclosed_schemes),
+      shareOfDisclosedPct: num(r.share_of_disclosed_pct), weightDeltaPp: num(r.weight_delta_pp),
+    }];
+  });
+  const t = d.totals == null ? null : rec(d.totals);
+  return {
+    symbol: str(d.symbol), isin: str(d.isin), asOf: str(d.as_of),
+    previousMonth: str(d.previous_month), mfWindow: mfWin(d.mf_window),
+    source: str(d.source), disclosure: str(d.disclosure),
+    totals: t && {
+      amcs: num(t.amcs), schemes: num(t.schemes), schemesUp: num(t.schemes_up), schemesDn: num(t.schemes_dn),
+      currentShares: num(t.current_shares), sharesDelta: num(t.shares_delta),
+      currentValueCr: num(t.current_value_cr), valueDisclosedSchemes: num(t.value_disclosed_schemes),
+      sharesOutstanding: num(t.shares_outstanding), pctOfEquity: num(t.pct_of_equity),
+      largestAmcSharePct: num(t.largest_amc_share_pct),
+    },
+    rows,
+  };
+}
+
+/** Read only when a stock is selected: one request per drill-down, not per scanner row. */
+export function useSmAmc(symbol: string | null) {
+  return useQuery<AmcFeed>({
+    queryKey: ["copilot", "desk", "smart-money", "amc", symbol],
+    enabled: !!symbol, staleTime: 30 * 60_000, retry: noRetry4xx,
+    queryFn: ({ signal }) => fetchAmc(symbol as string, signal),
+  });
+}
+
 // ── the one feed the screen reads ────────────────────────────────────────
 
 export interface SmartMoneyFeed {

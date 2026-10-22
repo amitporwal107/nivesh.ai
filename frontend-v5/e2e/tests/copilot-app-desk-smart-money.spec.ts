@@ -137,6 +137,40 @@ const scanner = (lane: string) => {
   };
 };
 
+/** Real staging figures for BSE, Sep vs Aug 2026. UTI discloses shares but NO value — kept so the
+ *  "—, never 0" rule is exercised. */
+const AMC = {
+  symbol: "BSE", isin: "INE118H01025", as_of: "2026-09-01", previous_month: "2026-08-01",
+  mf_window: { requested_months: 1, actual_months: 1, exact: true },
+  source: "nidp.mf_holdings_deltas x nidp.mf_scheme_master",
+  disclosure: "Every scheme a house runs, aggregated, resolved by ISIN.",
+  totals: {
+    amcs: 4, schemes: 234, schemes_up: 127, schemes_dn: 51,
+    current_shares: 108672687, shares_delta: 12255501,
+    current_value_cr: 26668.0, value_disclosed_schemes: 194,
+    shares_outstanding: 135000000, pct_of_equity: 80.5, largest_amc_share_pct: 29.5,
+  },
+  count: 4,
+  rows: [
+    { amc_id: "icici_pru", amc_name: "ICICI Prudential Mutual Fund", schemes: 79, schemes_up: 31,
+      schemes_dn: 14, schemes_flat: 34, current_shares: 32336111, previous_shares: 25173484,
+      shares_delta: 7162627, shares_pct_change: 28.45, current_value_cr: 9998.3,
+      value_disclosed_schemes: 74, share_of_disclosed_pct: 26.1, weight_delta_pp: 1.033 },
+    { amc_id: "kotak", amc_name: "Kotak Mahindra Mutual Fund", schemes: 87, schemes_up: 36,
+      schemes_dn: 23, schemes_flat: 28, current_shares: 22421598, previous_shares: 27229572,
+      shares_delta: -4807974, shares_pct_change: -17.66, current_value_cr: 6930.5,
+      value_disclosed_schemes: 73, share_of_disclosed_pct: 18.1, weight_delta_pp: -23.19 },
+    { amc_id: "nippon", amc_name: "Nippon India Mutual Fund", schemes: 49, schemes_up: 27,
+      schemes_dn: 9, schemes_flat: 13, current_shares: 36582650, previous_shares: 33725652,
+      shares_delta: 2856998, shares_pct_change: 8.47, current_value_cr: 11311.4,
+      value_disclosed_schemes: 44, share_of_disclosed_pct: 29.5, weight_delta_pp: 0.28 },
+    { amc_id: "uti", amc_name: "UTI Mutual Fund", schemes: 10, schemes_up: 3, schemes_dn: 7,
+      schemes_flat: 0, current_shares: 2321624, previous_shares: 1328571, shares_delta: 993053,
+      shares_pct_change: 74.75, current_value_cr: null, value_disclosed_schemes: 0,
+      share_of_disclosed_pct: 1.9, weight_delta_pp: -3.41 },
+  ],
+};
+
 const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
 const bad = { status: 502, contentType: "application/json", body: JSON.stringify({ error: { status: 502, message: "upstream_unavailable" } }) };
 
@@ -150,6 +184,7 @@ async function mockSmartMoney(page: Page, over: { fail?: string[] } = {}) {
   await page.route("**/api/markets/smart-money/breadth*", (r) => serve(r, "breadth", BREADTH));
   await page.route("**/api/markets/smart-money/scanner*", (r) =>
     serve(r, "scanner", scanner(new URL(r.request().url()).searchParams.get("lane") ?? "all")));
+  await page.route("**/api/markets/smart-money/amc*", (r) => serve(r, "amc", AMC));
 }
 
 const screen = (page: Page) => page.getByTestId("screen-desk-smart-money");
@@ -435,4 +470,44 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     }
   });
 
+  test("TC-F22: the rail names which fund houses moved, not just how many disclose", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    const amc = page.getByTestId("desk-smart-money-amc");
+    await expect(amc).toBeVisible();
+    // An AMC COUNT cannot say whether a move is broad-based or one house. This can.
+    await expect(page.getByTestId("desk-smart-money-amc-concentration"))
+      .toContainText("3 houses raised and 1 cut, out of 4 holding BSE.");
+    await expect(page.getByTestId("desk-smart-money-amc-concentration"))
+      .toContainText("The largest, Nippon India Mutual Fund, holds 29.5% of the disclosed total.");
+    await expect(amc).toContainText("ICICI Prudential Mutual Fund");
+    await expect(amc).toContainText("26.1%");
+    // Direction survives per house: ICICI added, Kotak cut.
+    const icici = ((await amc.textContent()) ?? "").replace(/,/g, "");
+    expect(icici).toContain("7162627");
+    expect(icici).toContain("4807974");
+  });
+
+  test("TC-F23: a house that disclosed no value reads “—”, never 0", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    const amc = page.getByTestId("desk-smart-money-amc");
+    // 194 of 234 schemes priced — the rest are absent, not zero, and the panel says so.
+    await expect(amc).toContainText("194 of 234 priced");
+    await expect(amc).toContainText("UTI Mutual Fund");
+    // The value is a LEVEL and must never be presented as a month-on-month change.
+    await expect(amc).toContainText("“Held now” is a level, never a month-on-month value change.");
+    await expect(amc).toContainText("not of that house’s own AUM, which is not");
+  });
+
+  test("TC-F24: the drill-down failing does not take the rest of the panel with it", async ({ page }) => {
+    await mockSmartMoney(page, { fail: ["amc"] });
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("Why it surfaced");
+    await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("AMC contribution didn’t load");
+  });
 });

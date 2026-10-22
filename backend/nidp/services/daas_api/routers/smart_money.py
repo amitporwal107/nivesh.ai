@@ -589,3 +589,122 @@ async def smart_money_scanner(
         out["classes"] = {"A": int(counts["class_a"]), "B": int(counts["class_b"]),
                           "C": int(counts["class_c"]), "D": int(counts["class_d"])}
     return out
+
+# ---------------------------------------------------------------- AMC contribution
+
+# Which fund HOUSES drive a stock's disclosed change. "11 AMCs" is a coverage statistic; it does
+# not say whether the buying is broad-based or one house, and that is the question this answers.
+#
+# An AMC is not one portfolio: every scheme it runs is aggregated here, and the stock is resolved by
+# ISIN so a symbol change cannot split a house in two. `share_of_disclosed_pct` is each house's
+# share of the stock's TOTAL disclosed MF holding, which is the contribution figure — a house can
+# hold a lot and have changed nothing, or hold little and account for the whole month's move.
+#
+# Two things this deliberately does NOT serve:
+#   * Holding as a % of the AMC's equity AUM. No AUM series is ingested; inventing a denominator
+#     would be worse than omitting the column.
+#   * A change in holding VALUE. previous/current_market_value_inr exist, but differencing them
+#     mixes price movement into what reads as buying. The share-count delta is the honest figure,
+#     and the value column below is a LEVEL (what is held now), never a delta.
+_AMC_SQL = """
+    WITH d AS (
+        SELECT d.scheme_code, d.current_shares, d.previous_shares, d.shares_delta,
+               d.current_market_value_inr, d.weight_delta_pp, m.amc_id, m.amc_name_raw
+          FROM nidp.mf_holdings_deltas d
+          JOIN nidp.mf_scheme_master m ON m.scheme_code = d.scheme_code
+         WHERE d.current_month = $1 AND d.previous_month = $2 AND d.security_isin = $3
+    ),
+    tot AS (SELECT sum(current_shares) AS all_shares FROM d)
+    SELECT d.amc_id,
+           max(d.amc_name_raw)                                              AS amc_name,
+           count(DISTINCT d.scheme_code)                                    AS schemes,
+           count(DISTINCT d.scheme_code) FILTER (WHERE d.shares_delta > 0)   AS schemes_up,
+           count(DISTINCT d.scheme_code) FILTER (WHERE d.shares_delta < 0)   AS schemes_dn,
+           count(DISTINCT d.scheme_code) FILTER (WHERE coalesce(d.shares_delta, 0) = 0) AS schemes_flat,
+           sum(d.current_shares)                                            AS current_shares,
+           sum(d.previous_shares)                                           AS previous_shares,
+           sum(d.shares_delta)                                              AS shares_delta,
+           round(100.0 * sum(d.shares_delta) / NULLIF(sum(d.previous_shares), 0), 2) AS shares_pct_change,
+           -- A LEVEL, not a delta. NULL when no scheme disclosed a value (UTI does this).
+           round(sum(d.current_market_value_inr) / 1e7, 1)                   AS current_value_cr,
+           count(d.current_market_value_inr)                                AS value_disclosed_schemes,
+           round(100.0 * sum(d.current_shares) / NULLIF((SELECT all_shares FROM tot), 0), 1)
+                                                                            AS share_of_disclosed_pct,
+           round(sum(d.weight_delta_pp), 3)                                 AS weight_delta_pp
+      FROM d
+     GROUP BY d.amc_id
+     ORDER BY abs(coalesce(sum(d.shares_delta), 0)) DESC, sum(d.current_shares) DESC NULLS LAST
+"""
+
+# Shares outstanding, newest quarter that discloses one. Absent for ~160 of 2,132 names, in which
+# case the equity-percentage is null and the UI says it is undisclosed rather than showing 0.
+_SHARES_OUTSTANDING_SQL = """
+    SELECT total_shares FROM nidp.shareholding_pattern
+     WHERE symbol = $1 AND total_shares IS NOT NULL
+     ORDER BY period_end DESC LIMIT 1
+"""
+
+_ISIN_SQL = """
+    SELECT isin FROM nidp.index_constituents
+     WHERE symbol = $1 AND isin IS NOT NULL
+     ORDER BY as_of_date DESC LIMIT 1
+"""
+
+
+@router.get("/smart-money/amc", summary="Which fund houses drive one stock's disclosed change")
+async def smart_money_amc(
+    symbol: str = Query(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"),
+) -> Dict[str, Any]:
+    sym = symbol.upper()
+    out: Dict[str, Any] = {
+        "symbol": sym, "isin": None, "as_of": None, "previous_month": None, "mf_window": None,
+        "source": "nidp.mf_holdings_deltas x nidp.mf_scheme_master, shares outstanding from nidp.shareholding_pattern",
+        "disclosure": ("Every scheme a house runs, aggregated, with the stock resolved by ISIN. "
+                       "`share_of_disclosed_pct` is the house's share of this stock's total DISCLOSED "
+                       "mutual-fund holding, not of its equity. Holding as a percentage of the AMC's own "
+                       "equity AUM is not served: no AUM series is ingested. The value column is a level "
+                       "(what is held now), never a change, because differencing two months of market "
+                       "value mixes price movement into what would read as buying."),
+        "totals": None, "count": 0, "rows": [],
+    }
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        isin = await conn.fetchval(_ISIN_SQL, sym)
+        pair = await _mf_pair(conn, 1)
+        if isin is None or pair is None:
+            return out
+        cur, prv, actual = pair
+        rows = [row_to_dict(r) for r in await conn.fetch(_AMC_SQL, cur, prv, isin)]
+        shares_out = await conn.fetchval(_SHARES_OUTSTANDING_SQL, sym)
+
+    out["isin"] = isin
+    out["as_of"] = cur.isoformat()
+    out["previous_month"] = prv.isoformat()
+    out["mf_window"] = {"requested_months": 1, "actual_months": actual, "exact": actual == 1}
+    out["rows"] = rows
+    out["count"] = len(rows)
+
+    held = sum(float(r["current_shares"] or 0) for r in rows)
+    delta = sum(float(r["shares_delta"] or 0) for r in rows)
+    val = [r["current_value_cr"] for r in rows if r["current_value_cr"] is not None]
+    # The largest HOLDER, not the largest mover. rows are ordered by |shares_delta| so that the
+    # month's movers lead the table; taking rows[0] here reported the biggest buyer's share as if
+    # it were the concentration figure (BSE: ICICI 26.1% instead of Nippon's 29.5%).
+    shares = [r["share_of_disclosed_pct"] for r in rows if r["share_of_disclosed_pct"] is not None]
+    top = max(shares) if shares else None
+    out["totals"] = {
+        "amcs": len(rows),
+        "schemes": sum(int(r["schemes"] or 0) for r in rows),
+        "schemes_up": sum(int(r["schemes_up"] or 0) for r in rows),
+        "schemes_dn": sum(int(r["schemes_dn"] or 0) for r in rows),
+        "current_shares": held or None,
+        "shares_delta": delta or None,
+        # Only the schemes that disclosed one; the rest are absent, not zero.
+        "current_value_cr": round(sum(float(v) for v in val), 1) if val else None,
+        "value_disclosed_schemes": sum(int(r["value_disclosed_schemes"] or 0) for r in rows),
+        "shares_outstanding": float(shares_out) if shares_out else None,
+        "pct_of_equity": round(100.0 * held / float(shares_out), 2) if shares_out and held else None,
+        # The concentration answer: how much of the disclosed holding sits with the largest house.
+        "largest_amc_share_pct": top,
+    }
+    return out
