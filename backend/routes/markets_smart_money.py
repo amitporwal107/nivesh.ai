@@ -74,11 +74,16 @@ async def smart_money_flows(
 
 
 @router.get("/sectors")
-async def smart_money_sectors(request: Request) -> Dict[str, Any]:
+async def smart_money_sectors(
+    request: Request,
+    window: str = Query("3M", pattern="^(1M|3M|6M|1Y)$"),
+    universe: str = Query("nifty500", pattern="^(nifty50|nifty100|nifty200|nifty500|total)$"),
+) -> Dict[str, Any]:
     """Disclosed month-on-month MF holdings change by industry, valued at the disclosure month's
-    VWAP. The 11 disclosing AMCs only — not mutual funds as a whole."""
+    VWAP. The 11 disclosing AMCs only — not mutual funds as a whole. `mf_window` reports the
+    window actually served against the one requested: only a one-month pair is disclosed."""
     await get_current_user(request)
-    return await _daas("/desk/smart-money/sectors", {}, "rows")
+    return await _daas("/desk/smart-money/sectors", {"window": window, "universe": universe}, "rows")
 
 
 @router.get("/breadth")
@@ -92,15 +97,24 @@ async def smart_money_breadth(request: Request) -> Dict[str, Any]:
 @router.get("/scanner")
 async def smart_money_scanner(
     request: Request,
+    window: str = Query("3M", pattern="^(1M|3M|6M|1Y)$"),
+    universe: str = Query("nifty500", pattern="^(nifty50|nifty100|nifty200|nifty500|total)$"),
+    sector: Optional[str] = Query(None, min_length=2, max_length=60, pattern=r"^[A-Za-z0-9 &\-]+$"),
+    direction: str = Query("all", pattern="^(all|accumulation|distribution)$"),
+    lane: str = Query("all", pattern="^(all|disclosed|proxy)$"),
+    freshness: str = Query("any", pattern="^(any|fresh|ageing|stale)$"),
     symbol: Optional[str] = Query(None, min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"),
-    rising_only: bool = Query(False),
-    deal_days: int = Query(90, ge=1, le=365),
     limit: int = Query(100, ge=1, le=500),
 ) -> Dict[str, Any]:
-    """One row per Nifty 500 stock with the disclosed evidence behind it. A null deal column with
-    `deals_checked` false means the symbol was never queried, not that nothing happened."""
+    """One row per stock with the disclosed evidence behind it, ordered by evidence class then
+    scheme breadth — never by a score. A null deal column with `deals_checked` false means the
+    symbol was never queried, not that nothing happened. `lanes` and `classes` count the matched
+    set BEFORE the lane filter, so an empty lane can say "none in this universe"."""
     await get_current_user(request)
-    params: Dict[str, Any] = {"rising_only": rising_only, "deal_days": deal_days, "limit": limit}
+    params: Dict[str, Any] = {"window": window, "universe": universe, "direction": direction,
+                              "lane": lane, "freshness": freshness, "limit": limit}
+    if sector:
+        params["sector"] = sector
     if symbol:
         params["symbol"] = symbol
     return await _daas("/desk/smart-money/scanner", params, "rows")

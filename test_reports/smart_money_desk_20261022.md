@@ -106,8 +106,8 @@ series is the reporting-date (look-ahead) one the study excluded.
 ## 4. Backend test — real output
 ```
 $ python -m pytest nidp/tests/services/test_daas_smart_money.py -q
-.............                                                            [100%]
-13 passed, 1 warning in 0.60s
+...................                                                      [100%]
+19 passed, 1 warning in 0.96s
 ```
 Thirteen cases, of which these guard figures that would otherwise be wrong-but-plausible:
 `point_in_time IS TRUE` present; `v_smart_money_shadow_rank` and `evidence_class` absent;
@@ -120,8 +120,9 @@ Thirteen cases, of which these guard figures that would otherwise be wrong-but-p
 Production build, `vite preview` on :5174, `/api/*` answered by route mocks whose **figures are
 the real staging numbers above**, so a shape drift fails an assertion instead of blanking a panel.
 ```
+$ npx tsc --noEmit -p tsconfig.json                        -> TSC_EXIT=0
 $ npx playwright test --config pw.copilot-app.config.ts e2e/tests/copilot-app-desk-smart-money.spec.ts
-13 passed (9.4s)
+21 passed (16.2s)
 ```
 TC-F1 06/07 numbering · TC-F2 "not scored" · TC-F3 disclosure date + 51d age (not the compute
 date) · TC-F4 1Y switches to monthly · TC-F5 point-in-time tiles · TC-F6 the three deal states
@@ -135,12 +136,63 @@ locale-tolerant; no product code changed.
 
 ### Regression
 ```
-$ npx playwright test ... e2e/tests/copilot-app-desk.spec.ts           -> 19 passed (24.6s)
-$ npx playwright test ... copilot-app-desk-market.spec.ts copilot-app-screens.spec.ts
-                                                                       -> 55 passed (1.2m)
-$ npx tsc --noEmit -p tsconfig.json                                    -> TSC_EXIT=0
+$ npx playwright test ... copilot-app-desk.spec.ts copilot-app-desk-market.spec.ts copilot-app-screens.spec.ts
+74 passed (1.6m)
 ```
 The typecheck was clean before the change too, so the exit 0 is attributable.
+
+## 5b. Built to the v2 design, and where it could not be
+
+The first cut of this tab was built from the spec's §3 data tables and the desk's existing component
+vocabulary; it did not implement §1's layout. That was a real miss and the screen was rebuilt against
+the design. It now carries the period toggle, the five feed-status strips, the regime line, the
+cumulative FII/DII chart, diverging sector bars with three measures, the three breadth tiers, the
+scanner's lanes/filters/legend, and the stock-evidence panel with its evidence chain and
+falsification list.
+
+Three controls could not be built as drawn, each because the warehouse cannot back them. In every
+case the screen states the limit rather than serving a plausible wrong answer:
+
+| Design asks for | Measured reality | What ships |
+|---|---|---|
+| Period toggle recomputes every panel | `mf_holdings_deltas` has only a **1-month** pair (200,160 rows / 4,189 ISINs). The 4- and 5-month pairs cover 103 and 93 ISINs. There is no 3-, 6- or 12-month pair. | All four chips work. Flows, deals, delivery and shareholding do recompute. The MF leg uses the widest-coverage pair and the API returns `mf_window {requested, actual, exact}`; the UI prints "Holdings change is over 1 month — a 3-month disclosure pair is not published." Honouring 6M with the 5-month pair would have collapsed the scanner from 4,189 names to 93. |
+| Universe "Nifty 1000" | No such NSE index and no such list in `index_constituents`. Real lists: Total Market 755, Nifty 500 501, Smallcap 250, Nifty 200, Midcap 150, Nifty 100, Nifty 50. | Offered under real names; **Nifty Total Market** replaces "Nifty 1000". A request for `nifty1000` is a 400. |
+| Evidence column = "A/B/C/D chips + coverage %" | `coverage_pct` is **100.00 on every one of the 976 rows** (min = max) — a second constant-as-measurement, alongside `evidence_class`. | Chips only; the coverage % is dropped and `freshness`, which has real variance (963 fresh / 8 ageing / 5 stale), takes the column. |
+
+The A/B/C/D lanes are real but universe-dependent, which the lane counts now make visible:
+
+```
+ universe             |  A  | B |  C  | D
+----------------------+-----+---+-----+----
+ Nifty 500            | 458 | 0 |   0 | 42
+ Nifty Total Market   | 569 | 7 | 114 | 60
+```
+In Nifty 500 the proxy lane is legitimately empty — every name there has a disclosed MF delta — so
+the tab prints "no name in this universe rests on a proxy alone" rather than an unexplained blank.
+
+### The chart's palette was validated, not chosen by eye
+Two series, one axis (both are ₹ crore; a second scale would be a lie). Colours are new
+`--sm-fii` / `--sm-dii` tokens, run through the palette validator against the real `.cp-card`
+surface in each theme. Dark is re-stepped rather than flipped, because the light pair sits above the
+dark lightness band:
+
+| Mode | FII | DII | Surface | Result |
+|---|---|---|---|---|
+| light | `#4F58D6` | `#B86A12` | `#FFFFFF` | PASS — CVD ΔE 29.5 protan / 25.0 tritan, normal-vision 31.9, contrast ≥3:1 |
+| dark | `#7C86F0` | `#CE7F12` | `#0A0E1A` | PASS — CVD ΔE 28.4 protan / 22.7 tritan, normal-vision 28.9, contrast ≥3:1 |
+
+A legend is always present, both series carry direct end-labels, the hover readout is `aria-live`,
+and a "Show as a table" disclosure gives the same numbers without the plot.
+
+### The rail could not sit beside the main column, and says so
+The design's §1 wants 860px main + 380px rail = 1240px. This tab's column, measured in the browser
+with the desk's Copilot docked, is **888px at a 1600px viewport and 1076px at 2200px** — the desk
+shell caps it. So the stock-evidence panel stacks under the scanner instead of splitting the column.
+Forcing the split would leave the scanner (seven columns) scrolling sideways in ~670px, and the
+scanner is the part of this screen that most needs the width. `useRoomFor(1240)` measures the real
+container, so the split engages by itself if the desk ever grants the room. The design's duplicate
+Copilot was dropped: the desk already docks one, and the panel's "Ask the Copilot" button calls the
+desk's own `askDesk`.
 
 ## 6. What this screen deliberately refuses to say
 
@@ -187,7 +239,19 @@ So the screen serves evidence and never a verdict:
   image. Deploying either alone would put a visible tab on staging that 502s, so none was deployed.
 - **No browser screenshot of the tab against real data**, for the same reason; the Playwright
   evidence is against contract-shaped mocks carrying the real figures.
-- `deal_gross_inr`, `dealDays`, `deliv10d/60d` and `diiDeltaPp` are parsed and served but not yet
+- **The router staged on the NIDP VM is now stale** — it predates the design rebuild, and SSH to
+  that host is currently refused (`kex_exchange_identification: Connection reset by peer`, most
+  likely fail2ban after earlier failed key-auth probes). Deploy from the branch, not from that file;
+  the override spells out the exact commands.
+- Screenshots were read at 1600px, 2200px and 390px to check layout, and three defects found that
+  way were fixed (a crushed main column, a clipped Evidence column, a clipped Freshness column). The
+  captures were scratch and are not committed.
+- `deal_gross_inr`, `dealDays` and `deliv10d/60d` are parsed and served; the first is not yet
   surfaced in any column.
+- The design's §2.7 rail tabs (Smart Money · Financials · Technicals · News) are not built: only the
+  Overview tab's three sections are, which are the ones the disclosed data supports.
+- §2.8's shadow-score container is deliberately not built. `showShadowScore` would have to default
+  false and the gate has not passed, so the component would be dead code that invites being turned
+  on.
 
 ## Verdict: PASS

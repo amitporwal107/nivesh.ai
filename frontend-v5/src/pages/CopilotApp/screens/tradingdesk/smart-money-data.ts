@@ -119,8 +119,57 @@ export function useSmFeeds(enabled: boolean) {
 
 // ── flows (GET /api/markets/smart-money/flows) ───────────────────────────
 
-export const FLOW_WINDOWS = ["1M", "3M", "6M", "1Y"] as const;
-export type FlowWindow = (typeof FLOW_WINDOWS)[number];
+/**
+ * The design's period toggle (spec 2.1). One control, every panel recomputes — except the MF
+ * holdings leg, which cannot: only a one-month disclosure pair exists in the warehouse. The server
+ * reports `mfWindow.actualMonths` against `requestedMonths` so the column states its own window
+ * instead of implying it moved. See `mfWindowNote()`.
+ */
+export const SM_PERIODS = ["1M", "3M", "6M", "1Y"] as const;
+export type SmPeriod = (typeof SM_PERIODS)[number];
+/** Kept as an alias: the flows panel reads the same toggle. */
+export type FlowWindow = SmPeriod;
+export const FLOW_WINDOWS = SM_PERIODS;
+
+/**
+ * Universes that exist as real constituent lists. The design offered "Nifty 1000", which NSE does
+ * not publish and this warehouse does not hold; Nifty Total Market (755 names) is the nearest real
+ * list and is offered under its own name rather than a label implying 1,000.
+ */
+export const SM_UNIVERSES = [
+  { id: "nifty50", label: "Nifty 50" },
+  { id: "nifty100", label: "Nifty 100" },
+  { id: "nifty200", label: "Nifty 200" },
+  { id: "nifty500", label: "Nifty 500" },
+  { id: "total", label: "Nifty Total Market" },
+] as const;
+export type SmUniverse = (typeof SM_UNIVERSES)[number]["id"];
+
+export const SM_DIRECTIONS = ["all", "accumulation", "distribution"] as const;
+export type SmDirection = (typeof SM_DIRECTIONS)[number];
+export const SM_LANES = ["all", "disclosed", "proxy"] as const;
+export type SmLane = (typeof SM_LANES)[number];
+export const SM_FRESHNESS = ["any", "fresh", "ageing", "stale"] as const;
+export type SmFreshness = (typeof SM_FRESHNESS)[number];
+
+/** Which disclosure window the server actually served, in words, or null when it matched. */
+export interface MfWindow {
+  requestedMonths: number | null;
+  actualMonths: number | null;
+  exact: boolean;
+}
+
+export function mfWindowNote(w: MfWindow | null): string | null {
+  if (!w || w.exact || w.actualMonths == null || w.requestedMonths == null) return null;
+  const m = w.actualMonths === 1 ? "1 month" : `${w.actualMonths} months`;
+  return `Holdings change is over ${m} — a ${w.requestedMonths}-month disclosure pair is not published.`;
+}
+
+const mfWin = (v: unknown): MfWindow | null => {
+  if (v == null) return null;
+  const r = rec(v);
+  return { requestedMonths: num(r.requested_months), actualMonths: num(r.actual_months), exact: bool(r.exact) ?? false };
+};
 
 export interface FlowPoint {
   date: string;
@@ -165,6 +214,39 @@ async function fetchFlows(window: FlowWindow, signal?: AbortSignal): Promise<Flo
   };
 }
 
+/** Net over the last `n` points of the series, or null when the window is shorter than n. */
+export function rollingNet(rows: FlowPoint[], n: number, key: "fiiNetCr" | "diiNetCr"): number | null {
+  if (rows.length < n) return null;
+  let t = 0;
+  for (const r of rows.slice(-n)) {
+    const v = r[key];
+    if (v == null) return null;
+    t += v;
+  }
+  return t;
+}
+
+/**
+ * A one-line reading of the window, derived from the two net figures by fixed rules — not a model
+ * output and not a forecast. It restates the arithmetic in words; nothing else.
+ */
+export function flowRegime(fii: number | null, dii: number | null): string | null {
+  if (fii == null || dii == null) return null;
+  if (fii < 0 && dii > 0) {
+    return Math.abs(dii) >= Math.abs(fii)
+      ? "Domestic institutions absorbed the foreign selling over this window."
+      : "Foreign selling outpaced domestic buying over this window.";
+  }
+  if (fii > 0 && dii < 0) {
+    return Math.abs(fii) >= Math.abs(dii)
+      ? "Foreign buying outweighed domestic selling over this window."
+      : "Domestic selling outweighed foreign buying over this window.";
+  }
+  if (fii > 0 && dii > 0) return "Both foreign and domestic institutions were net buyers over this window.";
+  if (fii < 0 && dii < 0) return "Both foreign and domestic institutions were net sellers over this window.";
+  return "Net flows were flat over this window.";
+}
+
 export function useSmFlows(enabled: boolean, window: FlowWindow) {
   return useQuery<FlowsFeed>({
     queryKey: ["copilot", "desk", "smart-money", "flows", window],
@@ -187,13 +269,41 @@ export interface SectorRow {
 export interface SectorsFeed {
   asOf: string | null;
   previousMonth: string | null;
+  window: string | null;
+  indexName: string | null;
+  /** Which disclosure window was actually served, vs the one the period chip asked for. */
+  mfWindow: MfWindow | null;
   source: string | null;
   disclosure: string | null;
   rows: SectorRow[];
 }
 
-async function fetchSectors(signal?: AbortSignal): Promise<SectorsFeed> {
-  const res = await http({ path: "/api/markets/smart-money/sectors", signal });
+/** The three measures the design offers for the diverging bars (spec 2.4). */
+export const SECTOR_MEASURES = [
+  { id: "cr", label: "\u20b9 Cr" },
+  { id: "pct", label: "% of total" },
+  { id: "stocks", label: "# stocks" },
+] as const;
+export type SectorMeasure = (typeof SECTOR_MEASURES)[number]["id"];
+
+/**
+ * The value a bar should draw for the chosen measure. "% of total" is share of the summed
+ * ABSOLUTE net across sectors, so a sector that bought and one that sold both read as a share of
+ * the period's gross disclosed movement rather than cancelling out to a meaningless denominator.
+ */
+export function sectorValue(r: SectorRow, m: SectorMeasure, grossCr: number): number | null {
+  if (m === "stocks") return r.stocks;
+  if (m === "cr") return r.netValueCr;
+  if (r.netValueCr == null || grossCr <= 0) return null;
+  return (r.netValueCr / grossCr) * 100;
+}
+
+export function sectorGrossCr(rows: SectorRow[]): number {
+  return rows.reduce((t, r) => t + Math.abs(r.netValueCr ?? 0), 0);
+}
+
+async function fetchSectors(p: { window: SmPeriod; universe: SmUniverse }, signal?: AbortSignal): Promise<SectorsFeed> {
+  const res = await http({ path: "/api/markets/smart-money/sectors", query: { window: p.window, universe: p.universe }, signal });
   const d = rec(res.data);
   if (!Array.isArray(d.rows)) throw ApiError.contractDrift("smart-money.sectors: no rows list");
   const rows: SectorRow[] = d.rows.flatMap((v): SectorRow[] => {
@@ -207,16 +317,17 @@ async function fetchSectors(signal?: AbortSignal): Promise<SectorsFeed> {
     }];
   });
   return {
-    asOf: str(d.as_of), previousMonth: str(d.previous_month),
+    asOf: str(d.as_of), previousMonth: str(d.previous_month), window: str(d.window),
+    indexName: str(d.index_name), mfWindow: mfWin(d.mf_window),
     source: str(d.source), disclosure: str(d.disclosure), rows,
   };
 }
 
-export function useSmSectors(enabled: boolean) {
+export function useSmSectors(enabled: boolean, window: SmPeriod, universe: SmUniverse) {
   return useQuery<SectorsFeed>({
-    queryKey: ["copilot", "desk", "smart-money", "sectors"],
+    queryKey: ["copilot", "desk", "smart-money", "sectors", window, universe],
     enabled, staleTime: 30 * 60_000, retry: noRetry4xx,
-    queryFn: ({ signal }) => fetchSectors(signal),
+    queryFn: ({ signal }) => fetchSectors({ window, universe }, signal),
   });
 }
 
@@ -290,49 +401,57 @@ export interface ScannerRow {
   diiDeltaPp: number | null;
   dealNetQty: number | null;
   dealGrossInr: number | null;
+  /** Disclosed legs in the window, and how many of them paired off as transfers. */
+  dealLegs: number | null;
+  matchedLegs: number | null;
   dealDays: number | null;
-  /** Days in the window where every leg paired off: an ownership transfer, no net demand. */
   transferDays: number | null;
-  /** False = this symbol was never queried for deals. Not the same as "no deals". */
+  /** False = never queried for deals. Not the same as "no deals". */
   dealsChecked: boolean;
   deliv10d: number | null;
   deliv60d: number | null;
   delivVsBasePp: number | null;
+  closePrice: number | null;
+  prevClose: number | null;
+  changePct: number | null;
+  /** "fresh" | "ageing" | "stale" — how old the disclosure behind this row is. */
+  freshnessStatus: string | null;
+  /** True when the whole signal rests on one fund house: weaker evidence, shown as a badge. */
+  singleAmcSignal: boolean | null;
+  latestReportingDate: string | null;
+  /** Derived server-side from which sources answered — never read from the stored constant. */
+  evidence: EvidenceClass;
 }
 
 export interface ScannerFeed {
   asOf: string | null;
   previousMonth: string | null;
-  quarters: { current: string | null; previous: string | null } | null;
-  dealWindow: { from: string | null; to: string | null } | null;
+  window: string | null;
+  indexName: string | null;
+  mfWindow: MfWindow | null;
+  quarters: { current: string | null; previous: string | null; requestedBack: number | null; actualBack: number | null; exact: boolean } | null;
+  dealWindow: { from: string | null; to: string | null; days: number | null } | null;
   source: string | null;
   disclosure: string | null;
+  /** Rows after every filter including the lane. */
+  total: number | null;
+  /** Rows matching every filter EXCEPT the lane, so an empty lane is explainable. */
+  matched: number | null;
+  lanes: { all: number; disclosed: number; proxy: number };
+  classes: Record<"A" | "B" | "C" | "D", number>;
   rows: ScannerRow[];
 }
 
 /**
- * Evidence class, derived from which sources answered for this row — never read from a stored
- * column, because the stored `evidence_class` is a hardcoded constant.
+ * Evidence class. Derived — never read from the stored `evidence_class` column, which is a
+ * hardcoded literal 'A' on all 25,313 rows.
  *
  *   A  a disclosed holdings change (an AMC's own filing)
  *   B  a disclosed deal leg that survived transfer-netting
- *   D  A and B together
  *   C  a market proxy only: delivery moved, the buyer is unknown — never called accumulation
- *   —  nothing answered for this row
+ *   D  a disclosed holdings change and a deal leg point the same way
  */
 export type EvidenceClass = "A" | "B" | "C" | "D" | "none";
-
-export function evidenceOf(r: ScannerRow): EvidenceClass {
-  const disclosed = r.netSharesDelta != null && r.netSharesDelta !== 0;
-  // A transfer-only day is not demand, so it is not class-B evidence.
-  const dealt = r.dealNetQty != null && r.dealNetQty !== 0;
-  const proxy = r.delivVsBasePp != null;
-  if (disclosed && dealt) return "D";
-  if (disclosed) return "A";
-  if (dealt) return "B";
-  if (proxy) return "C";
-  return "none";
-}
 
 export const EVIDENCE_LABEL: Record<EvidenceClass, string> = {
   A: "Disclosed holdings",
@@ -342,6 +461,14 @@ export const EVIDENCE_LABEL: Record<EvidenceClass, string> = {
   none: "Nothing on record",
 };
 
+/** The class legend, shipped verbatim from spec 2.6. */
+export const EVIDENCE_LEGEND: Array<{ cls: Exclude<EvidenceClass, "none">; text: string }> = [
+  { cls: "A", text: "disclosed holdings change" },
+  { cls: "B", text: "disclosed deal, net of transfers" },
+  { cls: "C", text: "market proxy, buyer unknown" },
+  { cls: "D", text: "direct and proxy align" },
+];
+
 export const EVIDENCE_NOTE: Record<EvidenceClass, string> = {
   A: "An AMC's own monthly filing shows the holding changed.",
   B: "A bulk or block deal leg that was not a matched same-day transfer.",
@@ -350,12 +477,83 @@ export const EVIDENCE_NOTE: Record<EvidenceClass, string> = {
   none: "No disclosed change, no deal leg and no proxy move for this name.",
 };
 
-async function fetchScanner(p: { rising: boolean; dealDays: number; limit: number }, signal?: AbortSignal): Promise<ScannerFeed> {
-  const res = await http({
-    path: "/api/markets/smart-money/scanner",
-    query: { rising_only: p.rising, deal_days: p.dealDays, limit: p.limit },
-    signal,
-  });
+const CLASSES: EvidenceClass[] = ["A", "B", "C", "D", "none"];
+const asClass = (v: unknown): EvidenceClass => {
+  const t = str(v);
+  return (CLASSES as string[]).includes(t ?? "") ? (t as EvidenceClass) : "none";
+};
+
+/** The direction a row's disclosed holdings moved. Proxy-only rows have no direction. */
+export function rowDirection(r: ScannerRow): "accumulation" | "distribution" | "proxy" | null {
+  if (r.evidence === "C") return "proxy";
+  if (r.netSharesDelta == null || r.netSharesDelta === 0) return null;
+  return r.netSharesDelta > 0 ? "accumulation" : "distribution";
+}
+
+/**
+ * Why this row surfaced: one line per source that actually answered, each naming its own source.
+ * This is spec 2.7's "evidence chain" — assembled from the row, never narrated beyond it.
+ */
+export function evidenceChain(r: ScannerRow): Array<{ cls: Exclude<EvidenceClass, "none">; headline: string; source: string }> {
+  const out: Array<{ cls: Exclude<EvidenceClass, "none">; headline: string; source: string }> = [];
+  if (r.netSharesDelta != null && r.netSharesDelta !== 0) {
+    const dir = r.netSharesDelta > 0 ? "raised" : "cut";
+    const pct = r.mfSharesPctChg == null ? "" : ` (${r.mfSharesPctChg > 0 ? "+" : ""}${r.mfSharesPctChg}%)`;
+    out.push({
+      cls: "A",
+      headline: `${r.amcsUp ?? 0} AMC${(r.amcsUp ?? 0) === 1 ? "" : "s"} ${dir} the holding across ${r.schemesUp ?? 0} scheme${(r.schemesUp ?? 0) === 1 ? "" : "s"}${pct}`,
+      source: `Disclosed monthly portfolios${r.latestReportingDate ? `, as of ${r.latestReportingDate}` : ""}`,
+    });
+  }
+  if (r.dealNetQty != null && r.dealNetQty !== 0) {
+    const side = r.dealNetQty > 0 ? "net bought" : "net sold";
+    const matched = r.matchedLegs && r.matchedLegs > 0 ? ` · ${r.matchedLegs} of ${r.dealLegs} legs were matched transfers and removed` : "";
+    out.push({
+      cls: "B",
+      headline: `Disclosed deals ${side} ${Math.abs(r.dealNetQty).toLocaleString("en-IN")} shares${matched}`,
+      source: "Exchange bulk and block deal disclosures, net of same-day matched transfers",
+    });
+  }
+  if (r.delivVsBasePp != null) {
+    const d = r.delivVsBasePp;
+    out.push({
+      cls: "C",
+      headline: `Delivery ${d > 0 ? "above" : "below"} its own 60-session baseline by ${Math.abs(d)} pp`,
+      source: "Exchange delivery percentage — a market proxy. The buyer is not disclosed.",
+    });
+  }
+  return out;
+}
+
+/**
+ * What would weaken this reading (spec 2.7). Each item is a concrete fact about THIS row, not
+ * boilerplate — the panel is only defensible if it names its own soft spots.
+ */
+export function whatWouldWeaken(r: ScannerRow, mf: MfWindow | null): string[] {
+  const out: string[] = [];
+  if (r.singleAmcSignal) out.push("The whole disclosed signal rests on a single fund house, so one manager's decision explains it.");
+  if (r.freshnessStatus && r.freshnessStatus !== "fresh") out.push(`The underlying disclosure is ${r.freshnessStatus}, so the position may already have changed.`);
+  if (!r.dealsChecked) out.push("This stock was never queried for bulk or block deals, so the deal column is unknown rather than empty.");
+  else if (r.transferDays && r.transferDays > 0) out.push(`${r.transferDays} deal day(s) in the window were pure transfers, which move ownership without net demand.`);
+  if (r.dealNetQty != null && r.dealNetQty !== 0) out.push("Deal legs carry no counterparty classification, so a leg may be a market maker rather than a long-term holder.");
+  if (r.fiiDeltaPp == null) out.push("No FII/DII shareholding change is disclosed for both quarters, so the foreign and domestic legs are unknown.");
+  if (r.evidence === "C") out.push("There is no disclosed holdings change at all: delivery and volume do not identify a buyer.");
+  const note = mfWindowNote(mf);
+  if (note) out.push(note);
+  if (r.mfSharesPctChg != null && Math.abs(r.mfSharesPctChg) < 1) out.push("The holdings change is under 1% of the prior position, which is small enough to be routine rebalancing.");
+  return out;
+}
+
+async function fetchScanner(p: {
+  window: SmPeriod; universe: SmUniverse; sector: string | null;
+  direction: SmDirection; lane: SmLane; freshness: SmFreshness; limit: number;
+}, signal?: AbortSignal): Promise<ScannerFeed> {
+  const query: Record<string, string | number> = {
+    window: p.window, universe: p.universe, direction: p.direction,
+    lane: p.lane, freshness: p.freshness, limit: p.limit,
+  };
+  if (p.sector) query.sector = p.sector;
+  const res = await http({ path: "/api/markets/smart-money/scanner", query, signal });
   const d = rec(res.data);
   if (!Array.isArray(d.rows)) throw ApiError.contractDrift("smart-money.scanner: no rows list");
   const rows: ScannerRow[] = d.rows.flatMap((v): ScannerRow[] => {
@@ -370,29 +568,54 @@ async function fetchScanner(p: { rising: boolean; dealDays: number; limit: numbe
       schemesUp: num(r.schemes_up), schemesDn: num(r.schemes_dn), amcsUp: num(r.amcs_up),
       fiiDeltaPp: num(r.fii_delta_pp), diiDeltaPp: num(r.dii_delta_pp),
       dealNetQty: num(r.deal_net_qty), dealGrossInr: num(r.deal_gross_inr),
+      dealLegs: num(r.deal_legs), matchedLegs: num(r.matched_legs),
       dealDays: num(r.deal_days), transferDays: num(r.transfer_days),
       dealsChecked: bool(r.deals_checked) ?? false,
       deliv10d: num(r.deliv_10d), deliv60d: num(r.deliv_60d), delivVsBasePp: num(r.deliv_vs_base_pp),
+      closePrice: num(r.close_price), prevClose: num(r.prev_close), changePct: num(r.change_pct),
+      freshnessStatus: str(r.freshness_status),
+      singleAmcSignal: bool(r.single_amc_signal),
+      latestReportingDate: str(r.latest_reporting_date),
+      evidence: asClass(r.evidence),
     }];
   });
   const q = rec(d.quarters);
   const w = rec(d.deal_window);
+  const ln = rec(d.lanes);
+  const cl = rec(d.classes);
+  const n = (v: unknown) => num(v) ?? 0;
   return {
-    asOf: str(d.as_of), previousMonth: str(d.previous_month),
-    quarters: d.quarters == null ? null : { current: str(q.current), previous: str(q.previous) },
-    dealWindow: d.deal_window == null ? null : { from: str(w.from), to: str(w.to) },
-    source: str(d.source), disclosure: str(d.disclosure), rows,
+    asOf: str(d.as_of), previousMonth: str(d.previous_month), window: str(d.window),
+    indexName: str(d.index_name), mfWindow: mfWin(d.mf_window),
+    quarters: d.quarters == null ? null : {
+      current: str(q.current), previous: str(q.previous),
+      requestedBack: num(q.requested_back), actualBack: num(q.actual_back), exact: bool(q.exact) ?? false,
+    },
+    dealWindow: d.deal_window == null ? null : { from: str(w.from), to: str(w.to), days: num(w.days) },
+    source: str(d.source), disclosure: str(d.disclosure),
+    total: num(d.total), matched: num(d.matched),
+    lanes: { all: n(ln.all), disclosed: n(ln.disclosed), proxy: n(ln.proxy) },
+    classes: { A: n(cl.A), B: n(cl.B), C: n(cl.C), D: n(cl.D) },
+    rows,
   };
 }
 
 export const SCANNER_LIMIT = 100;
-export const SCANNER_DEAL_DAYS = 90;
 
-export function useSmScanner(enabled: boolean, rising: boolean) {
+export interface ScannerFilters {
+  window: SmPeriod;
+  universe: SmUniverse;
+  sector: string | null;
+  direction: SmDirection;
+  lane: SmLane;
+  freshness: SmFreshness;
+}
+
+export function useSmScanner(enabled: boolean, f: ScannerFilters) {
   return useQuery<ScannerFeed>({
-    queryKey: ["copilot", "desk", "smart-money", "scanner", rising],
+    queryKey: ["copilot", "desk", "smart-money", "scanner", f.window, f.universe, f.sector, f.direction, f.lane, f.freshness],
     enabled, staleTime: 15 * 60_000, retry: noRetry4xx,
-    queryFn: ({ signal }) => fetchScanner({ rising, dealDays: SCANNER_DEAL_DAYS, limit: SCANNER_LIMIT }, signal),
+    queryFn: ({ signal }) => fetchScanner({ ...f, limit: SCANNER_LIMIT }, signal),
   });
 }
 
@@ -416,12 +639,12 @@ export interface SmartMoneyFeed {
  * Fans out the five reads and collapses them into one object. Partial failure stays "ready" with
  * `failed` populated — a dead feed costs its own panel, not the screen.
  */
-export function useSmartMoney(window: FlowWindow, rising: boolean): SmartMoneyFeed {
+export function useSmartMoney(f: ScannerFilters): SmartMoneyFeed {
   const feeds = useSmFeeds(true);
-  const flows = useSmFlows(true, window);
-  const sectors = useSmSectors(true);
+  const flows = useSmFlows(true, f.window);
+  const sectors = useSmSectors(true, f.window, f.universe);
   const breadth = useSmBreadth(true);
-  const scanner = useSmScanner(true, rising);
+  const scanner = useSmScanner(true, f);
 
   const parts: Array<{ key: SmSourceKey; pending: boolean; failed: boolean; error: unknown; refetch: () => void }> = [
     { key: "feeds", pending: feeds.isPending, failed: feeds.isError, error: feeds.error, refetch: () => void feeds.refetch() },

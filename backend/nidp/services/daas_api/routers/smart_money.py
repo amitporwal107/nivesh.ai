@@ -182,42 +182,84 @@ async def smart_money_flows(
     return out
 
 
-# ---------------------------------------------------------------- the pinned MF month pair
+# ---------------------------------------------------------------- periods
 
-_MF_PAIR_SQL = """
-    SELECT current_month, max(previous_month) AS previous_month
+# The design's period toggle (spec 2.1). Each window implies a *disclosure* window per leg, and the
+# legs do not all reach as far back:
+#   flows / deals / delivery  recompute at every period
+#   shareholding              1, 1, 2 and 4 quarters back -- present but thin (~160 rows a quarter)
+#   MF holdings               only ONE pair exists (months_back = 1, 4,189 ISINs). The 4- and 5-month
+#                             pairs cover 103 and 93 ISINs, so honouring a 6M request with the
+#                             5-month pair would collapse the scanner from 4,189 names to 93.
+# So the MF leg uses the richest pair and the response reports `mf_window` requested vs actual. The
+# column states its own window rather than implying it moved with the toggle.
+_PERIODS: Dict[str, Dict[str, int]] = {
+    "1M": {"mf_months": 1,  "quarters_back": 1, "deal_days": 30,  "sessions": 22},
+    "3M": {"mf_months": 3,  "quarters_back": 1, "deal_days": 90,  "sessions": 63},
+    "6M": {"mf_months": 6,  "quarters_back": 2, "deal_days": 180, "sessions": 126},
+    "1Y": {"mf_months": 12, "quarters_back": 4, "deal_days": 365, "sessions": 248},
+}
+
+# The universe options that actually exist as constituent lists. The design offered "Nifty 1000",
+# which NSE does not publish and this warehouse does not hold; Nifty Total Market (755) is the
+# nearest real list and is offered under its own name rather than a label that implies 1,000 names.
+_UNIVERSES: Dict[str, str] = {
+    "nifty50": "Nifty 50",
+    "nifty100": "Nifty 100",
+    "nifty200": "Nifty 200",
+    "nifty500": "Nifty 500",
+    "total": "Nifty Total Market",
+}
+
+# Every disclosed pair for the newest disclosure month, richest first. Picking by coverage rather
+# than by "closest to what was asked" is deliberate -- see the note on _PERIODS.
+_MF_PAIRS_SQL = """
+    SELECT previous_month,
+           (EXTRACT(YEAR FROM current_month) * 12 + EXTRACT(MONTH FROM current_month))
+         - (EXTRACT(YEAR FROM previous_month) * 12 + EXTRACT(MONTH FROM previous_month)) AS months_back,
+           count(*) AS rows
       FROM nidp.mf_holdings_deltas
-     WHERE current_month = (SELECT max(current_month) FROM nidp.mf_holdings_deltas)
-       AND previous_month IS NOT NULL
-     GROUP BY current_month
+     WHERE current_month = $1 AND previous_month IS NOT NULL
+     GROUP BY current_month, previous_month
+     ORDER BY rows DESC
 """
 
-# Nifty 500's newest list. DUMMYHEG is a placeholder with no price rows; the 3 REITs on series 'RR'
-# drop out of the VWAP join on their own and are reported as such rather than silently missing.
-_UNIVERSE_CTE = """
-    n5 AS (
+_LATEST_MF_MONTH_SQL = "SELECT max(current_month) FROM nidp.mf_holdings_deltas"
+
+# Quarters that actually carry an institutional column, newest first.
+_QUARTERS_SQL = """
+    SELECT DISTINCT period_end FROM nidp.shareholding_pattern
+     WHERE fii_pct IS NOT NULL ORDER BY period_end DESC LIMIT 8
+"""
+
+
+async def _mf_pair(conn, want_months: int):
+    """(current, previous, actual_months_back) for the richest disclosed pair, or None."""
+    cur = await conn.fetchval(_LATEST_MF_MONTH_SQL)
+    if cur is None:
+        return None
+    pairs = await conn.fetch(_MF_PAIRS_SQL, cur)
+    if not pairs:
+        return None
+    exact = next((p for p in pairs if int(p["months_back"]) == want_months), None)
+    chosen = exact or pairs[0]          # pairs[0] is the widest-coverage pair
+    return cur, chosen["previous_month"], int(chosen["months_back"])
+
+
+_SECTORS_SQL = """
+    WITH n5 AS (
         SELECT DISTINCT symbol, isin, industry
           FROM nidp.index_constituents
-         WHERE index_name = 'Nifty 500'
-           AND as_of_date = (SELECT max(as_of_date) FROM nidp.index_constituents WHERE index_name = 'Nifty 500')
+         WHERE index_name = $5
+           AND as_of_date = (SELECT max(as_of_date) FROM nidp.index_constituents WHERE index_name = $5)
            AND symbol <> 'DUMMYHEG'
-    )
-"""
-
-# series IN ('EQ','BE') is mandatory: 55 series values share (symbol, as_of_date) and an
-# unfiltered aggregate double-counts.
-_VWAP_CTE = """
+    ),
     vwap AS (
         SELECT symbol, sum(turnover) / NULLIF(sum(volume), 0) AS vwap
           FROM nidp.prices_eod
          WHERE series IN ('EQ', 'BE') AND as_of_date >= $1 AND as_of_date < $2
          GROUP BY symbol
-    )
-"""
-
-_SECTORS_SQL = f"""
-    WITH {_UNIVERSE_CTE},
-    {_VWAP_CTE},
+    ),
     d AS (
         SELECT security_isin,
                sum(shares_delta)                                              AS net_shares_delta,
@@ -242,10 +284,16 @@ _SECTORS_SQL = f"""
 
 
 @router.get("/smart-money/sectors", summary="Disclosed MF holdings change by industry")
-async def smart_money_sectors() -> Dict[str, Any]:
+async def smart_money_sectors(
+    window: str = Query("3M", pattern="^(1M|3M|6M|1Y)$"),
+    universe: str = Query("nifty500", pattern="^(nifty50|nifty100|nifty200|nifty500|total)$"),
+) -> Dict[str, Any]:
+    per = _PERIODS[window]
+    index_name = _UNIVERSES[universe]
     out: Dict[str, Any] = {
-        "as_of": None, "previous_month": None,
-        "source": "nidp.mf_holdings_deltas x nidp.index_constituents (Nifty 500) x nidp.prices_eod VWAP",
+        "as_of": None, "previous_month": None, "window": window, "universe": universe,
+        "index_name": index_name, "mf_window": None,
+        "source": "nidp.mf_holdings_deltas x nidp.index_constituents x nidp.prices_eod VWAP",
         "disclosure": ("Disclosed monthly portfolios of 11 reporting AMCs -- not 'mutual funds' as a whole, and "
                        "not all institutional flow. Valued at the disclosure month's VWAP. The shareholding "
                        "(FII/DII) leg is deliberately absent: total_shares is NULL in every prior-quarter row, "
@@ -254,15 +302,17 @@ async def smart_money_sectors() -> Dict[str, Any]:
     }
     pool = await get_pool()
     async with pool.acquire() as conn:
-        pair = await conn.fetchrow(_MF_PAIR_SQL)
+        pair = await _mf_pair(conn, per["mf_months"])
         if pair is None:
             return out
-        cur, prv = pair["current_month"], pair["previous_month"]
+        cur, prv, actual = pair
         nxt = date(cur.year + (cur.month // 12), (cur.month % 12) + 1, 1)
-        rows = [row_to_dict(r) for r in await conn.fetch(_SECTORS_SQL, cur, nxt, cur, prv)]
+        rows = [row_to_dict(r) for r in await conn.fetch(_SECTORS_SQL, cur, nxt, cur, prv, index_name)]
 
     out["as_of"] = cur.isoformat()
     out["previous_month"] = prv.isoformat()
+    out["mf_window"] = {"requested_months": per["mf_months"], "actual_months": actual,
+                        "exact": actual == per["mf_months"]}
     out["rows"] = rows
     out["count"] = out["total"] = len(rows)
     return out
@@ -272,6 +322,7 @@ async def smart_money_sectors() -> Dict[str, Any]:
 
 # point_in_time = true is mandatory: the table carries both series on the same date and the 'f'
 # (reporting-date) series is the look-ahead one the study excluded, measured at 6.72-8.20 points.
+# Omitting it roughly doubles every count below.
 _BREADTH_SQL = """
     SELECT count(*)                                                                      AS evaluated,
            count(*) FILTER (WHERE net_shares_delta > 0)                                  AS disclosed_rising,
@@ -322,8 +373,20 @@ async def smart_money_breadth() -> Dict[str, Any]:
 
 # ---------------------------------------------------------------- scanner
 
-_SCANNER_SQL = f"""
-    WITH {_UNIVERSE_CTE},
+# Evidence class is DERIVED here, never read from the stored evidence_class column (a hardcoded
+# literal 'A' on every row). coverage_pct is likewise not served: it is a constant 100.00.
+#   D  a disclosed holdings change and a surviving deal leg agree
+#   A  a disclosed holdings change
+#   B  a disclosed deal leg, net of matched transfers
+#   C  a market proxy only -- buyer unknown, never called accumulation
+_SCANNER_SQL = """
+    WITH n5 AS (
+        SELECT DISTINCT symbol, isin, industry
+          FROM nidp.index_constituents
+         WHERE index_name = $7
+           AND as_of_date = (SELECT max(as_of_date) FROM nidp.index_constituents WHERE index_name = $7)
+           AND symbol <> 'DUMMYHEG'
+    ),
     mf AS (
         SELECT d.security_isin,
                sum(d.shares_delta)                                              AS net_shares_delta,
@@ -337,8 +400,8 @@ _SCANNER_SQL = f"""
          GROUP BY d.security_isin
     ),
     -- shareholding_pattern is NOT unique on (symbol, period_end): two sources, ~100 duplicate rows
-    -- per quarter. Order by value-presence, not by source: NSE_SHP holds NULL institutional columns
-    -- at the prior quarter while screener_in holds the number (40 computable deltas vs 73).
+    -- per quarter. Order by value-presence, not by source name: NSE_SHP holds NULL institutional
+    -- columns at the prior quarter while screener_in holds the number (40 deltas vs 73).
     shp AS (
         SELECT DISTINCT ON (symbol, period_end) symbol, period_end, fii_pct, dii_pct
           FROM nidp.shareholding_pattern
@@ -352,6 +415,7 @@ _SCANNER_SQL = f"""
     ),
     deals AS (
         SELECT symbol, sum(net_qty) AS deal_net_qty, sum(gross_value_inr) AS deal_gross_inr,
+               sum(legs) AS deal_legs, sum(offsetting_legs) AS matched_legs,
                count(*) AS deal_days, count(*) FILTER (WHERE pure_transfer_day) AS transfer_days
           FROM nidp.v_trendlyne_deals_net
          WHERE deal_date > $5 AND deal_date <= $6
@@ -368,70 +432,160 @@ _SCANNER_SQL = f"""
                  WHERE series IN ('EQ', 'BE') AND as_of_date <= $6 AND deliv_pct IS NOT NULL) z
          WHERE rn <= 60
          GROUP BY symbol
+    ),
+    px AS (
+        SELECT DISTINCT ON (symbol) symbol, close_price, prev_close
+          FROM nidp.prices_eod
+         WHERE series IN ('EQ', 'BE') AND as_of_date <= $6
+         ORDER BY symbol, as_of_date DESC
+    ),
+    fr AS (
+        SELECT symbol, freshness_status, single_amc_signal, latest_reporting_date
+          FROM nidp.smart_money_scores_daily
+         WHERE point_in_time IS TRUE
+           AND as_of_date = (SELECT max(as_of_date) FROM nidp.smart_money_scores_daily
+                              WHERE point_in_time IS TRUE)
+    ),
+    base AS (
+        SELECT n5.symbol, n5.industry,
+               mf.net_shares_delta, mf.previous_shares, mf.schemes_up, mf.schemes_dn, mf.amcs_up,
+               inst.fii_delta_pp, inst.dii_delta_pp,
+               deals.deal_net_qty, deals.deal_gross_inr, deals.deal_legs, deals.matched_legs,
+               deals.deal_days, deals.transfer_days,
+               (checked.symbol IS NOT NULL) AS deals_checked,
+               dl.deliv_10d, dl.deliv_60d,
+               px.close_price, px.prev_close,
+               fr.freshness_status, fr.single_amc_signal, fr.latest_reporting_date,
+               CASE
+                 WHEN coalesce(mf.net_shares_delta, 0) <> 0 AND coalesce(deals.deal_net_qty, 0) <> 0 THEN 'D'
+                 WHEN coalesce(mf.net_shares_delta, 0) <> 0 THEN 'A'
+                 WHEN coalesce(deals.deal_net_qty, 0) <> 0 THEN 'B'
+                 WHEN dl.deliv_10d IS NOT NULL AND dl.deliv_60d IS NOT NULL THEN 'C'
+                 ELSE 'none'
+               END AS evidence
+          FROM n5
+          LEFT JOIN mf      ON mf.security_isin = n5.isin
+          LEFT JOIN inst    ON inst.symbol      = n5.symbol
+          LEFT JOIN deals   ON deals.symbol     = n5.symbol
+          LEFT JOIN checked ON checked.symbol   = n5.symbol
+          LEFT JOIN dl      ON dl.symbol        = n5.symbol
+          LEFT JOIN px      ON px.symbol        = n5.symbol
+          LEFT JOIN fr      ON fr.symbol        = n5.symbol
+    ),
+    -- The lane counts are computed BEFORE the lane filter, so an empty lane can say "none in this
+    -- universe" instead of looking broken. In Nifty 500 the proxy lane is legitimately 0: every
+    -- name there has a disclosed MF delta, so nothing is proxy-only. Nifty Total Market has all four.
+    filtered AS (
+        SELECT *,
+               count(*) OVER ()                                           AS matched_total,
+               count(*) FILTER (WHERE evidence IN ('A', 'B', 'D')) OVER () AS lane_disclosed,
+               count(*) FILTER (WHERE evidence = 'C') OVER ()              AS lane_proxy,
+               count(*) FILTER (WHERE evidence = 'A') OVER ()              AS class_a,
+               count(*) FILTER (WHERE evidence = 'B') OVER ()              AS class_b,
+               count(*) FILTER (WHERE evidence = 'C') OVER ()              AS class_c,
+               count(*) FILTER (WHERE evidence = 'D') OVER ()              AS class_d
+          FROM base
+         WHERE ($8::text  IS NULL OR industry = $8)
+           AND ($12::text IS NULL OR symbol   = $12)
+           AND ($9 = 'all' OR ($9 = 'accumulation'  AND net_shares_delta > 0)
+                           OR ($9 = 'distribution' AND net_shares_delta < 0))
+           AND ($11 = 'any' OR freshness_status = $11)
+           AND evidence <> 'none'
     )
-    SELECT n5.symbol, n5.industry,
-           round(100.0 * mf.net_shares_delta / NULLIF(mf.previous_shares, 0), 2) AS mf_shares_pct_chg,
-           mf.net_shares_delta, mf.schemes_up, mf.schemes_dn, mf.amcs_up,
-           round(inst.fii_delta_pp, 2) AS fii_delta_pp,
-           round(inst.dii_delta_pp, 2) AS dii_delta_pp,
-           deals.deal_net_qty, deals.deal_gross_inr, deals.deal_days, deals.transfer_days,
-           (checked.symbol IS NOT NULL) AS deals_checked,
-           round(dl.deliv_10d, 1) AS deliv_10d, round(dl.deliv_60d, 1) AS deliv_60d,
-           round(dl.deliv_10d - dl.deliv_60d, 1) AS deliv_vs_base_pp
-      FROM n5
-      LEFT JOIN mf      ON mf.security_isin = n5.isin
-      LEFT JOIN inst    ON inst.symbol      = n5.symbol
-      LEFT JOIN deals   ON deals.symbol     = n5.symbol
-      LEFT JOIN checked ON checked.symbol   = n5.symbol
-      LEFT JOIN dl      ON dl.symbol        = n5.symbol
-     WHERE ($7::text IS NULL OR n5.symbol = $7)
-       AND (NOT $8 OR mf.net_shares_delta > 0)
-     ORDER BY mf.amcs_up DESC NULLS LAST, mf.schemes_up DESC NULLS LAST, n5.symbol
-     LIMIT $9
-"""
-
-_QUARTERS_SQL = """
-    SELECT DISTINCT period_end FROM nidp.shareholding_pattern
-     WHERE fii_pct IS NOT NULL ORDER BY period_end DESC LIMIT 2
+    SELECT symbol, industry,
+           round(100.0 * net_shares_delta / NULLIF(previous_shares, 0), 2) AS mf_shares_pct_chg,
+           net_shares_delta, schemes_up, schemes_dn, amcs_up,
+           round(fii_delta_pp, 2) AS fii_delta_pp, round(dii_delta_pp, 2) AS dii_delta_pp,
+           deal_net_qty, deal_gross_inr, deal_legs, matched_legs, deal_days, transfer_days,
+           deals_checked,
+           round(deliv_10d, 1) AS deliv_10d, round(deliv_60d, 1) AS deliv_60d,
+           round(deliv_10d - deliv_60d, 1) AS deliv_vs_base_pp,
+           close_price, prev_close,
+           round(100.0 * (close_price - prev_close) / NULLIF(prev_close, 0), 2) AS change_pct,
+           freshness_status, single_amc_signal, latest_reporting_date,
+           evidence,
+           matched_total, lane_disclosed, lane_proxy, class_a, class_b, class_c, class_d,
+           count(*) OVER () AS lane_total
+      FROM filtered
+     WHERE ($10 = 'all' OR ($10 = 'disclosed' AND evidence IN ('A', 'B', 'D'))
+                        OR ($10 = 'proxy'     AND evidence = 'C'))
+     -- Spec 2.6: evidence classes first, then scheme breadth. NEVER by a score.
+     ORDER BY CASE evidence WHEN 'D' THEN 0 WHEN 'A' THEN 1 WHEN 'B' THEN 2 ELSE 3 END,
+              amcs_up DESC NULLS LAST, schemes_up DESC NULLS LAST, symbol
+     LIMIT $13
 """
 
 
-@router.get("/smart-money/scanner", summary="One row per Nifty 500 stock: the disclosed evidence behind it")
+@router.get("/smart-money/scanner", summary="One row per stock: the disclosed evidence behind it")
 async def smart_money_scanner(
+    window: str = Query("3M", pattern="^(1M|3M|6M|1Y)$"),
+    universe: str = Query("nifty500", pattern="^(nifty50|nifty100|nifty200|nifty500|total)$"),
+    sector: Optional[str] = Query(None, min_length=2, max_length=60, pattern=r"^[A-Za-z0-9 &\-]+$"),
+    direction: str = Query("all", pattern="^(all|accumulation|distribution)$"),
+    lane: str = Query("all", pattern="^(all|disclosed|proxy)$"),
+    freshness: str = Query("any", pattern="^(any|fresh|ageing|stale)$"),
     symbol: Optional[str] = Query(None, min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"),
-    rising_only: bool = Query(False, description="Only names whose disclosed holdings rose"),
-    deal_days: int = Query(90, ge=1, le=365, description="Look-back for the deal columns, in calendar days"),
     limit: int = Query(100, ge=1, le=MAX_LIMIT),
 ) -> Dict[str, Any]:
+    per = _PERIODS[window]
+    index_name = _UNIVERSES[universe]
     out: Dict[str, Any] = {
-        "as_of": None, "previous_month": None, "quarters": None, "deal_window": None,
+        "as_of": None, "previous_month": None, "window": window, "universe": universe,
+        "index_name": index_name, "mf_window": None, "quarters": None, "deal_window": None,
+        "filters": {"sector": sector, "direction": direction, "lane": lane, "freshness": freshness},
         "source": ("nidp.mf_holdings_deltas, nidp.shareholding_pattern, nidp.v_trendlyne_deals_net, "
-                   "nidp.prices_eod, universe nidp.index_constituents 'Nifty 500'"),
-        "disclosure": ("Evidence, not a verdict -- no score and no ranking by one. Ordered by how many AMCs "
-                       "raised the holding, which is a disclosure count, not a model output. A null deal column "
-                       "with deals_checked=false means the symbol was never queried, NOT that nothing happened. "
-                       "Deal legs carry no counterparty classification: a leg may be a market maker, and matched "
-                       "same-day transfers are already netted out by the view."),
-        "count": 0, "total": 0, "rows": [],
+                   "nidp.prices_eod, nidp.smart_money_scores_daily, universe nidp.index_constituents"),
+        "disclosure": ("Evidence, not a verdict -- no score and no ranking by one. Ordered by evidence class, "
+                       "then by how many AMCs raised the holding, which is a disclosure count. A null deal "
+                       "column with deals_checked=false means the symbol was never queried, NOT that nothing "
+                       "happened. Deal legs carry no counterparty classification: a leg may be a market maker, "
+                       "and matched same-day transfers are already netted out by the view."),
+        "count": 0, "total": 0, "matched": 0,
+        "lanes": {"disclosed": 0, "proxy": 0, "all": 0},
+        "classes": {"A": 0, "B": 0, "C": 0, "D": 0},
+        "rows": [],
     }
     pool = await get_pool()
     async with pool.acquire() as conn:
-        pair = await conn.fetchrow(_MF_PAIR_SQL)
+        pair = await _mf_pair(conn, per["mf_months"])
         qs = [r["period_end"] for r in await conn.fetch(_QUARTERS_SQL)]
         end: Optional[date] = await conn.fetchval(
             "SELECT max(as_of_date) FROM nidp.prices_eod WHERE series IN ('EQ','BE')")
         if pair is None or len(qs) < 2 or end is None:
             return out
-        cur, prv = pair["current_month"], pair["previous_month"]
-        start = end - timedelta(days=deal_days)
+        cur, prv, actual = pair
+        # The requested quarter offset if it is disclosed, else the oldest that is.
+        qi = min(per["quarters_back"], len(qs) - 1)
+        q_cur, q_prv = qs[0], qs[qi]
+        start = end - timedelta(days=per["deal_days"])
         rows = [row_to_dict(r) for r in await conn.fetch(
-            _SCANNER_SQL, cur, prv, qs[0], qs[1], start, end,
-            symbol.upper() if symbol else None, rising_only, limit)]
+            _SCANNER_SQL, cur, prv, q_cur, q_prv, start, end, index_name, sector,
+            direction, lane, freshness, symbol.upper() if symbol else None, limit)]
+        # An empty lane is exactly when the counts matter: "0 of 500 are proxy-only" is an answer,
+        # all-zeros is not. The window counts ride on the rows, so on the empty path read them
+        # from one row of the same query with the lane filter lifted.
+        counts = rows[0] if rows else next(iter([row_to_dict(r) for r in await conn.fetch(
+            _SCANNER_SQL, cur, prv, q_cur, q_prv, start, end, index_name, sector,
+            direction, "all", freshness, symbol.upper() if symbol else None, 1)] or [{}]), {})
 
     out["as_of"] = cur.isoformat()
     out["previous_month"] = prv.isoformat()
-    out["quarters"] = {"current": qs[0].isoformat(), "previous": qs[1].isoformat()}
-    out["deal_window"] = {"from": start.isoformat(), "to": end.isoformat()}
-    out["rows"] = rows
-    out["count"] = out["total"] = len(rows)
+    out["mf_window"] = {"requested_months": per["mf_months"], "actual_months": actual,
+                        "exact": actual == per["mf_months"]}
+    out["quarters"] = {"current": q_cur.isoformat(), "previous": q_prv.isoformat(),
+                       "requested_back": per["quarters_back"], "actual_back": qi,
+                       "exact": qi == per["quarters_back"]}
+    out["deal_window"] = {"from": start.isoformat(), "to": end.isoformat(), "days": per["deal_days"]}
+    meta = ("matched_total", "lane_disclosed", "lane_proxy", "class_a", "class_b", "class_c",
+            "class_d", "lane_total")
+    out["rows"] = [{k: v for k, v in r.items() if k not in meta} for r in rows]
+    out["count"] = len(out["rows"])
+    out["total"] = int(rows[0]["lane_total"]) if rows else 0
+    if counts:
+        # Counts before the lane filter, so an empty lane is explainable rather than mysterious.
+        out["matched"] = int(counts["matched_total"])
+        out["lanes"] = {"disclosed": int(counts["lane_disclosed"]), "proxy": int(counts["lane_proxy"]),
+                        "all": int(counts["matched_total"])}
+        out["classes"] = {"A": int(counts["class_a"]), "B": int(counts["class_b"]),
+                          "C": int(counts["class_c"]), "D": int(counts["class_d"])}
     return out

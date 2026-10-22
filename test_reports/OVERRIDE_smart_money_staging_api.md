@@ -4,47 +4,64 @@
 `backend/routes/markets_smart_money.py` and their registrations.
 **Paired report:** `test_reports/smart_money_desk_20261022.md` (PASS for every other leg).
 
-REASON: The five new DaaS routes cannot be exercised over HTTP because the `nidp-daas-api-staging`
-container on the NIDP VM (45.64.105.224) bind-mounts its code read-only with no `--reload`, so new
-code needs the process recreated — and that recreate was **denied by the Claude Code permission
-classifier (Remote Shell Writes)**. I did not work around the denial.
+REASON: The DaaS routes cannot be exercised over HTTP. The `nidp-daas-api-staging` container on the
+NIDP VM (45.64.105.224) bind-mounts its code read-only with no `--reload`, so new code needs the
+process recreated — and that recreate was **denied by the Claude Code permission classifier
+(Remote Shell Writes)**. I did not work around the denial.
 
-State left behind, deliberately inert and additive:
-- `smart_money.py` copied to `/opt/nidp/dev-repo/nivesh.ai/backend/nidp/services/daas_api/routers/`
-  (sha256 `476cbf107d55badcad435bc41491a524...` identical to local).
-- `app.py` and `routers/catalog.py` on that VM registered by an idempotent anchored insert that
-  aborts rather than overwrite; both `py_compile` clean there (`REMOTE_PY_COMPILE_OK`).
-- Import safety checked statically: no undefined names, and every imported symbol resolves
-  (`require_api_key` at `auth.py:60`, `get_pool`, `row_to_dict`).
-- Nothing is served until the restart: verified `HTTP 404` on
-  `https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/breadth`, DaaS health `200`,
-  OpenAPI 170 paths with zero smart-money entries.
+Verified not live: `HTTP 404` on
+`https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/breadth`, DaaS health `200`,
+OpenAPI 170 paths with zero smart-money entries.
 
-What remains, in order. Each is one command; the first is the blocked one:
+## ⚠️ The file staged on that VM is STALE — deploy from git, not from it
+
+An earlier, smaller version of the router was copied to
+`/opt/nidp/dev-repo/nivesh.ai/backend/nidp/services/daas_api/routers/smart_money.py`. The router has
+since been rewritten for design fidelity (period toggle, universe, sector/direction/lane/freshness
+filters, derived evidence class, lane counts, price for the rail). I could **not** refresh that copy:
+SSH to the VM now answers `kex_exchange_identification: Connection reset by peer`, almost certainly
+fail2ban reacting to earlier failed key-auth probes from this host.
+
+Consequence if someone restarts `daas-api` without deploying first: the old router loads and serves
+the old shape. The frontend would not crash — it would show zeroed lane counts and ignore the period
+and filter chips — which is exactly the kind of quietly-wrong screen this work is meant to avoid.
+
+**So deploy from the branch, which now carries the correct file:**
 ```bash
-# 1. NIDP VM (45.64.105.224) — load the staged router
+# 1. NIDP VM (45.64.105.224) — take the committed code, do not trust the staged file
+cd /opt/nidp/dev-repo/nivesh.ai
+git fetch origin feat/provider-foundations
+git checkout origin/feat/provider-foundations -- \
+  backend/nidp/services/daas_api/routers/smart_money.py \
+  backend/nidp/services/daas_api/app.py \
+  backend/nidp/services/daas_api/routers/catalog.py
+python3 -m py_compile backend/nidp/services/daas_api/routers/smart_money.py
+
 NIDP_HOME=/opt/nidp-staging; DEV_REPO=/opt/nidp/dev-repo/nivesh.ai
 docker compose --env-file "$NIDP_HOME/nidp.env" --env-file "$NIDP_HOME/cloudpe.env" \
   -f "$DEV_REPO/backend/nidp/deploy/vm/docker-compose.staging.yml" \
   -f "$DEV_REPO/deploy/cloudpe/nidp/docker-compose.cloudpe.yml" \
   up -d --force-recreate daas-api
-curl -s localhost:8084/openapi.json | grep -c smart-money   # expect 5
+curl -s localhost:8084/openapi.json | grep -c smart-money     # expect 5
 
-# 2. App VM — sync and restart the app backend (serves the /api/markets proxy)
-#    (app-backend bind-mounts /opt/nivesh-staging/repo/backend, NOT this checkout)
+# 2. App VM — sync and restart the app backend (serves the /api/markets/smart-money proxy)
+#    app-backend bind-mounts /opt/nivesh-staging/repo/backend, NOT the /home/deploy checkout
 # 3. App VM — rebuild the v5 frontend image so the 06 tab is served
 ```
-Do **not** do 2 or 3 without 1: the tab would appear on staging and every panel would 502.
+Do **not** do 2 or 3 before 1: the tab would appear on staging and every panel would 502.
 
 Once step 1 lands, the staging-API evidence this override stands in for is:
 ```bash
-curl -sH "X-API-Key: $KEY" "https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/breadth"
-curl -sH "X-API-Key: $KEY" "https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/flows?window=1Y"
-curl -sH "X-API-Key: $KEY" "https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/sectors"
-curl -sH "X-API-Key: $KEY" "https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/scanner?limit=5"
-curl -sH "X-API-Key: $KEY" "https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/feeds"
+K="X-API-Key: $KEY"; B=https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money
+curl -sH "$K" "$B/breadth"
+curl -sH "$K" "$B/flows?window=1Y"
+curl -sH "$K" "$B/sectors?window=3M&universe=nifty500"
+curl -sH "$K" "$B/scanner?window=3M&universe=total&lane=proxy&limit=5"
+curl -sH "$K" "$B/feeds"
 ```
-Expected, from the SQL already run against the same warehouse (report §3): breadth
-`evaluated 976 / rising 449 / single_amc 379 / disclosure_as_of 2026-09-01 / validated_study false`;
-flows 1Y `12 rows, 2025-11-01..2026-10-01, fii -503813, dii 849222`; sectors
-`Financial Services 45225, Healthcare 24993`.
+Expected, from the SQL already run against the same warehouse (report §3):
+- breadth `evaluated 976 · disclosed_rising 449 · single_amc 379 · disclosure_as_of 2026-09-01 · validated_study false`
+- flows 1Y `12 rows · 2025-11-01..2026-10-01 · fii -503813 · dii 849222`
+- sectors `Financial Services 45225 · Healthcare 24993`, `mf_window {requested 3, actual 1, exact false}`
+- scanner on `universe=total`, `lane=proxy` → 114 rows; `classes {A 569, B 7, C 114, D 60}`
+- scanner on `universe=nifty500` → `classes {A 458, B 0, C 0, D 42}`, `lanes.proxy 0`
