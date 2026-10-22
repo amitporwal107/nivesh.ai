@@ -1,16 +1,16 @@
 # /etc/cron.d/nidp-staging-db-snapshot — weekly encrypted TimescaleDB snapshot
-# of the warehouse VM (nidp-staging-vm, 45.64.105.224) → private GitHub release.
+# of the warehouse VM (nidp-staging-vm, 45.64.105.224) → this VM's own disk.
 #
 # Sunday 03:30 IST. Deliberately NOT 02:30: /etc/cron.d/nidp-staging already
 # runs a job at 02:30 daily, and the app VM's snapshot takes that slot. The
 # warehouse's own feed jobs resume at 06:00, leaving 03:30-06:00 free for a
 # 16 GB dump.
 #
-# Retention is LATEST ONLY — each run replaces the previous release assets.
+# Retention is LATEST ONLY, and the snapshot stays on THIS VM: nothing is
+# uploaded anywhere (SNAPSHOT_DESTINATION=local).
 #
 # Install:
-#   sudo bash install.sh --target nidp --repo <owner/repo> \
-#       --token-file <f> --pubkey-file <k>
+#   sudo bash install.sh --target nidp --pubkey-file <k>
 
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin

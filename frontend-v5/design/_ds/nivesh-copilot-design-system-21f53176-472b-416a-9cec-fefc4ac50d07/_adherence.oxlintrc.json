@@ -1,0 +1,147 @@
+{
+  "plugins": [
+    "react",
+    "import"
+  ],
+  "rules": {
+    "react/forbid-elements": [
+      "warn",
+      {
+        "forbid": []
+      }
+    ],
+    "no-restricted-imports": [
+      "warn",
+      {
+        "patterns": [
+          {
+            "group": [
+              "app/**",
+              "ui_kits/copilot/**"
+            ],
+            "message": "Import design-system components from 'index.js', not component internals."
+          }
+        ]
+      }
+    ],
+    "no-restricted-syntax": [
+      "warn",
+      {
+        "selector": "Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
+        "message": "Raw hex color — use a design-system color token via var()."
+      },
+      {
+        "selector": "Literal[value=/font-family\\s*:\\s*(?!['\\\"]?(?:Instrument Serif|Inter Tight|JetBrains Mono))/i]",
+        "message": "Font not provided by the design system. Available: Instrument Serif, Inter Tight, JetBrains Mono."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/index.js"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ],
+  "x-omelette": {
+    "components": {},
+    "tokens": [
+      "--amber",
+      "--amber-2",
+      "--amber-line",
+      "--amber-soft",
+      "--bg-0",
+      "--bg-1",
+      "--bg-2",
+      "--bg-3",
+      "--bg-4",
+      "--bg-glass",
+      "--bg-spot-a",
+      "--bg-spot-b",
+      "--danger",
+      "--danger-2",
+      "--danger-line",
+      "--danger-soft",
+      "--display",
+      "--indigo",
+      "--indigo-2",
+      "--indigo-line",
+      "--indigo-soft",
+      "--ink",
+      "--ink-2",
+      "--ink-3",
+      "--ink-4",
+      "--ink-5",
+      "--line",
+      "--line-2",
+      "--line-3",
+      "--mint",
+      "--mint-2",
+      "--mint-line",
+      "--mint-soft",
+      "--mono",
+      "--radius-lg",
+      "--radius-md",
+      "--radius-sm",
+      "--radius-xl",
+      "--radius-xs",
+      "--rose",
+      "--sans",
+      "--shadow-card",
+      "--shadow-pop"
+    ],
+    "tokenKinds": {
+      "--bg-0": "color",
+      "--bg-1": "color",
+      "--bg-2": "color",
+      "--bg-3": "color",
+      "--bg-4": "color",
+      "--bg-glass": "color",
+      "--bg-spot-a": "color",
+      "--bg-spot-b": "color",
+      "--line": "color",
+      "--line-2": "color",
+      "--line-3": "color",
+      "--ink": "color",
+      "--ink-2": "color",
+      "--ink-3": "color",
+      "--ink-4": "color",
+      "--ink-5": "color",
+      "--mint": "color",
+      "--mint-2": "color",
+      "--mint-soft": "color",
+      "--mint-line": "color",
+      "--amber": "color",
+      "--amber-2": "color",
+      "--amber-soft": "color",
+      "--amber-line": "color",
+      "--indigo": "color",
+      "--indigo-2": "color",
+      "--indigo-soft": "color",
+      "--indigo-line": "color",
+      "--danger": "color",
+      "--danger-2": "color",
+      "--danger-soft": "color",
+      "--danger-line": "color",
+      "--rose": "color",
+      "--display": "font",
+      "--sans": "font",
+      "--mono": "font",
+      "--shadow-card": "shadow",
+      "--shadow-pop": "shadow",
+      "--radius-xs": "radius",
+      "--radius-sm": "radius",
+      "--radius-md": "radius",
+      "--radius-lg": "radius",
+      "--radius-xl": "radius"
+    },
+    "fontFamilies": [
+      "Instrument Serif",
+      "Inter Tight",
+      "JetBrains Mono"
+    ]
+  }
+}

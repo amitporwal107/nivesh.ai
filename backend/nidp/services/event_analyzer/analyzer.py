@@ -46,18 +46,32 @@ async def _get_historical_financials(conn, symbol: str, limit: int = 4) -> list[
 
 
 async def _get_price_context(conn, symbol: str) -> dict:
+    """Last traded close plus the 52-week close range, on ONE share scale.
+
+    `current_price` is RAW: it goes into the prompt as the price the stock actually trades at.
+    The extremes are ADJUSTED, because raw closes across a split do not describe a 52-week range
+    — measured on staging 2026-10-22 the raw feed tells the model ANGELONE is 89.7% below its
+    52-week high (10:1 split ex 2026-02-26) when the true figure is 17.4%, and KOTAKBANK 80.3%
+    when the truth is 2.3%. A model handed that reads a collapsing stock and reasons from it.
+
+    The adjusted extremes are divided by the latest session's cumulative_adj_factor so they are
+    restated in today's share terms and stay comparable to the raw close — an adjusted range
+    printed beside a raw price would be a new inconsistency rather than a fix.
+    """
     row = await conn.fetchrow(
         """
         SELECT p.close_price,
                h.high_52w,
                h.low_52w,
-               ref.sector
+               ref.sector,
+               COALESCE(a.cumulative_adj_factor, 1.0) AS adj_factor
           FROM nidp.prices_eod p
+          LEFT JOIN nidp.prices_eod_adjusted a
+                 ON a.symbol = p.symbol AND a.as_of_date = p.as_of_date
           LEFT JOIN LATERAL (
-              SELECT MAX(close_price) AS high_52w, MIN(close_price) AS low_52w
-                FROM nidp.prices_eod
+              SELECT MAX(adj_close) AS high_52w, MIN(adj_close) AS low_52w
+                FROM nidp.prices_eod_adjusted
                WHERE symbol = $1
-                 AND series = 'EQ'
                  AND as_of_date >= CURRENT_DATE - INTERVAL '52 weeks'
           ) h ON TRUE
           LEFT JOIN nidp.symbol_master ref ON ref.symbol = $1
@@ -69,10 +83,11 @@ async def _get_price_context(conn, symbol: str) -> dict:
         symbol,
     )
     if row:
+        f = float(row["adj_factor"] or 1.0) or 1.0
         return {
             "current_price": float(row["close_price"] or 0),
-            "high_52w":      float(row["high_52w"] or 0),
-            "low_52w":       float(row["low_52w"] or 0),
+            "high_52w":      float(row["high_52w"] or 0) / f,
+            "low_52w":       float(row["low_52w"] or 0) / f,
             "sector":        row["sector"] or "Unknown",
         }
     return {"current_price": 0, "high_52w": 0, "low_52w": 0, "sector": "Unknown"}
