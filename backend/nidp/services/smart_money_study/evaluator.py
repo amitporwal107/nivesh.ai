@@ -46,6 +46,18 @@ DEFAULT_PORTFOLIO_N = 30
 MIN_FORMATION_DATES = 12          # study 001's review floor for effectively independent blocks
 MIN_COVERAGE_PCT = 50.0           # below this the cohort is not representative
 
+# Return-integrity thresholds. nidp.prices_eod is RAW and the adjuster is INCOMPLETE: symbols
+# exist that move >=35% in one session while still carrying cumulative_adj_factor = 1.0, some with
+# a nidp.corporate_actions row the adjuster never applied (VEDL's 2026-04-30 demerger is the
+# reference case). A move that large is therefore not self-evidently a return, so each one is
+# classified and anything not positively explained is excluded WITH A REASON — never silently
+# included, and never silently dropped either.
+UNEXPLAINED_MOVE_PCT = 35.0       # single-session magnitude that demands an explanation
+REVERSAL_RECOVERY_FRAC = 0.60     # next session restoring this much of the move ⇒ bad print
+INTRADAY_GAP_FRAC = 0.50          # overnight gap at or below this share of the move ⇒ travelled
+                                  # intraday, i.e. a real market event rather than a re-pricing
+BENCHMARK_INDEX = "Nifty 500"     # per 001's benchmark block; a PRICE index, see _benchmark()
+
 
 class StudyContractError(RuntimeError):
     pass
@@ -117,6 +129,64 @@ SELECT p1.symbol,
 """
 
 
+# Every >=35% step in the ADJUSTED series landing inside the holding window, with the evidence
+# needed to classify it. Detection is on prices_eod_adjusted because a move the adjuster already
+# absorbed is not a contaminated return — if it survives into adj_close, the adjustment is missing.
+#
+# "Single session" means one MARKET session: sessions_spanned comes from the prices_eod calendar,
+# not from lag() over the symbol's own rows. Without that, a symbol suspended for three months
+# reads as a one-day -45% fall. Measured on this warehouse, 46 of 48 in-window detections span
+# more than one session, so the distinction is the difference between a signal and noise.
+_UNEXPLAINED_MOVE_SQL = """
+WITH sess AS (
+    SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE as_of_date > $1 ORDER BY as_of_date LIMIT $2
+),
+win AS (SELECT min(as_of_date) AS entry_d, max(as_of_date) AS exit_d FROM sess),
+cal AS (SELECT as_of_date, row_number() OVER (ORDER BY as_of_date) AS sn
+          FROM (SELECT DISTINCT as_of_date FROM nidp.prices_eod) z),
+px AS (SELECT a.symbol, a.as_of_date, cal.sn, a.adj_close, a.raw_open, a.raw_close
+         FROM nidp.prices_eod_adjusted a JOIN cal USING (as_of_date)
+        WHERE a.adj_close > 0),
+st AS (SELECT symbol, as_of_date, sn, adj_close, raw_open, raw_close,
+              lag(adj_close)  OVER w AS prev_adj_close,
+              lag(raw_close)  OVER w AS prev_raw_close,
+              lag(sn)         OVER w AS prev_sn,
+              lag(as_of_date) OVER w AS prev_date,
+              lead(adj_close) OVER w AS next_adj_close
+         FROM px WINDOW w AS (PARTITION BY symbol ORDER BY sn))
+SELECT st.symbol, st.prev_date, st.as_of_date AS move_date, st.sn - st.prev_sn AS sessions_spanned,
+       st.prev_adj_close, st.adj_close, st.next_adj_close,
+       (st.adj_close / st.prev_adj_close - 1.0) * 100.0 AS adj_move_pct,
+       CASE WHEN st.prev_raw_close > 0 AND st.raw_open > 0
+            THEN (st.raw_open / st.prev_raw_close - 1.0) * 100.0 END AS open_gap_pct,
+       (SELECT string_agg(DISTINCT c.action_type, ',' ORDER BY c.action_type)
+          FROM nidp.corporate_actions c
+         WHERE c.symbol = st.symbol
+           AND c.ex_date > st.prev_date AND c.ex_date <= st.as_of_date) AS action_types
+  FROM st, win
+ WHERE st.prev_adj_close > 0
+   AND abs(st.adj_close / st.prev_adj_close - 1.0) * 100.0 >= $3
+   AND st.as_of_date BETWEEN win.entry_d AND win.exit_d
+"""
+
+
+# Benchmark over the identical open-to-open window. 001 contracts "Nifty 500 TRI"; no total-return
+# series exists in this warehouse (re-verified 2026-10-22: the only *TR* index names are Nifty 50
+# leveraged/inverse/futures variants), so the PRICE index is used and labelled a proxy on the run.
+_BENCHMARK_SQL = """
+WITH sess AS (
+    SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE as_of_date > $1 ORDER BY as_of_date LIMIT $2
+),
+win AS (SELECT min(as_of_date) AS entry_d, max(as_of_date) AS exit_d FROM sess)
+SELECT e.open_price AS entry_level, x.open_price AS exit_level,
+       (x.open_price / e.open_price - 1.0) * 100.0 AS benchmark_return_pct
+  FROM win
+  JOIN nidp.index_eod e ON e.index_name = $3 AND e.as_of_date = win.entry_d
+  JOIN nidp.index_eod x ON x.index_name = $3 AND x.as_of_date = win.exit_d
+ WHERE e.open_price > 0 AND x.open_price > 0
+"""
+
+
 # Deal feature, strictly before the scoring date (requirement 2), transfers already netted out.
 _DEALS_SQL = """
 SELECT symbol,
@@ -131,10 +201,83 @@ SELECT symbol,
 
 
 def _round_trip_cost_pct(cfg: dict) -> float:
+    """The frozen round-trip cost, checked against the contract's own components.
+
+    Reading the stored total alone would not notice if it had been edited away from the schedule
+    it is supposed to summarise, so the total is recomputed from per_side_pct + GST on the taxable
+    components + the buy-only stamp duty and compared. The stored value is 4-dp rounded, so the
+    tolerance is 1e-4, not equality.
+    """
     cm = cfg.get("cost_model", {})
     if "round_trip_total_pct" in cm:
-        return float(cm["round_trip_total_pct"])
-    raise StudyContractError("frozen cost model has no round_trip_total_pct")
+        total = float(cm["round_trip_total_pct"])
+    else:
+        raise StudyContractError("frozen cost model has no round_trip_total_pct")
+
+    per_side = cm.get("per_side_pct") or {}
+    gst = cm.get("gst_pct_on") or {}
+    if per_side and gst:
+        side = sum(float(v) for v in per_side.values())
+        taxable = sum(float(per_side[k]) for k in gst.get("components", []) if k in per_side)
+        side += taxable * float(gst.get("rate", 0.0)) / 100.0
+        recomputed = 2.0 * side + sum(float(v) for v in (cm.get("buy_only_pct") or {}).values())
+        if abs(recomputed - total) > 1e-4:
+            raise StudyContractError(
+                f"frozen cost model is internally inconsistent: round_trip_total_pct={total} "
+                f"but its own components recompute to {recomputed:.6f}")
+        logger.info("%s: cost schedule %.4f%% round trip, consistent with its components (%.6f%%)",
+                    SERVICE_NAME, total, recomputed)
+    return total
+
+
+def _classify_unexplained_move(row: dict) -> tuple[str, bool]:
+    """Disposition for one detected >=35% single-step move. Returns (disposition, keep).
+
+    Three things a move this large can be, and they are not interchangeable:
+      (a) a capital-structure event the adjusted series already handles  -> never detected here,
+          because a handled event does not survive into adj_close;
+      (b) a genuine market move — a limit move, an open offer, an earnings shock. These are real
+          observations and are KEPT; discarding them would bias the study toward calm names;
+      (c) a data error or an adjustment the adjuster failed to apply. These are not returns.
+
+    The discriminator between (b) and (c) is WHERE the move happened, measured on real rows before
+    this was written: a re-pricing arrives overnight (VEDL 2026-04-30 opened -62.58% into a -64.90%
+    session) while a genuine crash opens near the prior close and travels intraday (POLICYBZR
+    2026-09-24 opened -10.00% into a -36.00% session).
+
+    Anything not positively explained is excluded — the ladder has no silent fall-through.
+    """
+    move = float(row["adj_move_pct"])
+    actions = row["action_types"]
+    if actions:
+        # A recorded action whose adjustment never reached adj_close. The return across it is an
+        # artefact of the incomplete adjuster, not a price change.
+        return f"ca_adjustment_mismatch:{actions}", False
+
+    prev_px, px, nxt_px = row["prev_adj_close"], row["adj_close"], row["next_adj_close"]
+    if nxt_px is not None:
+        # Recovery measured on LEVELS, not on percentages: a -70% move needs +233% to undo, so
+        # comparing percentage magnitudes would under-detect reversals on big down moves.
+        span = float(prev_px) - float(px)
+        if span != 0:
+            recovery = (float(nxt_px) - float(px)) / span
+            if recovery >= REVERSAL_RECOVERY_FRAC:
+                return "data_error_reversal", False
+
+    if int(row["sessions_spanned"]) > 1:
+        # The symbol did not trade across the step, so this is a resumption gap, not a session
+        # return. Whatever repriced it happened while the name was untradeable.
+        return "trading_gap_discontinuity", False
+
+    gap = row["open_gap_pct"]
+    if gap is not None and abs(float(gap)) <= INTRADAY_GAP_FRAC * abs(move):
+        return "genuine_market_move", True
+
+    # Consecutive session, clean overnight gap, nothing in nidp.corporate_actions to explain it.
+    # Most likely an unrecorded capital-structure event (TATAMOTORS' 2025-10-14 demerger has no
+    # action row at all), but it cannot be established from the evidence available, so it fails
+    # closed rather than entering the result as a -40% "return".
+    return "unexplained_gap_undetermined", False
 
 
 def _deal_tilt(row: dict, max_tilt: float) -> float:
@@ -236,6 +379,12 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
     per_date: list[dict] = []
     pred_rows: list[tuple] = []
     out_rows: list[tuple] = []
+    # Every detection and its disposition, so the run is auditable rather than merely clean.
+    integrity: dict[str, Any] = {
+        "threshold_pct": UNEXPLAINED_MOVE_PCT, "detections": [], "dispositions": {},
+        "excluded_symbol_days": 0, "benchmark_missing_dates": [],
+        "picked_contaminated": 0, "price_assertion_failures": [],
+    }
     for d in dates:
         async with pool.acquire() as conn:
             uni = await conn.fetch(_UNIVERSE_SQL, d, ur["turnover_lookback_sessions"],
@@ -250,6 +399,44 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
             deals = {r["symbol"]: dict(r) for r in await conn.fetch(
                 _DEALS_SQL, d, deal_lookback_days)}
             fwd = {r["symbol"]: dict(r) for r in await conn.fetch(_FORWARD_SQL, d, horizon)}
+            moves = [dict(r) for r in await conn.fetch(
+                _UNEXPLAINED_MOVE_SQL, d, horizon, UNEXPLAINED_MOVE_PCT)]
+            bench = await conn.fetchrow(_BENCHMARK_SQL, d, horizon, BENCHMARK_INDEX)
+            # The window's real sessions, so "is this a trading day" and "does the window span
+            # exactly `horizon` sessions" are checked against the calendar, not assumed.
+            win_sess = [r["as_of_date"] for r in await conn.fetch(
+                "SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE as_of_date > $1 "
+                "ORDER BY as_of_date LIMIT $2", d, horizon)]
+        session_set = set(win_sess)
+        sessions_in_window = len(win_sess)
+
+        # Return integrity, per symbol, BEFORE ranking. Deliberately not "per picked symbol":
+        # screening the whole eligible universe is what keeps the exclusion symmetric, since a
+        # disposition computed from (date, symbol) alone cannot know which model picked the name.
+        # Doing it after ranking could drop a symbol from B's portfolio and not C's and silently
+        # break the pairing that requirement 1 exists to protect.
+        contaminated: dict[str, str] = {}
+        for m in moves:
+            disposition, keep = _classify_unexplained_move(m)
+            integrity["dispositions"][disposition] = \
+                integrity["dispositions"].get(disposition, 0) + 1
+            integrity["detections"].append({
+                "scoring_date": d.isoformat(), "symbol": m["symbol"],
+                "prev_date": m["prev_date"].isoformat(), "move_date": m["move_date"].isoformat(),
+                "sessions_spanned": int(m["sessions_spanned"]),
+                "adj_move_pct": round(float(m["adj_move_pct"]), 2),
+                "open_gap_pct": round(float(m["open_gap_pct"]), 2) if m["open_gap_pct"] is not None else None,
+                "action_types": m["action_types"], "disposition": disposition, "kept": keep})
+            if not keep:
+                contaminated[m["symbol"]] = f"unexplained_move:{disposition}"
+
+        if bench is None:
+            # Not fatal: the primary test is the paired difference on an identical universe, where
+            # the benchmark does not enter. But it must not be silently recorded as 0.
+            logger.warning("%s: %s has no %s level on both window ends; benchmark left NULL",
+                           SERVICE_NAME, d, BENCHMARK_INDEX)
+            integrity["benchmark_missing_dates"].append(d.isoformat())
+        bench_pct = float(bench["benchmark_return_pct"]) if bench is not None else None
 
         eligible, excluded = {}, {}
         for r in uni:
@@ -259,6 +446,9 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
                 why = "no_baseline_score"
             if why is None and sym not in fwd:
                 why = "no_forward_window"
+            if why is None and sym in contaminated:
+                why = contaminated[sym]
+                integrity["excluded_symbol_days"] += 1
             (excluded if why else eligible)[sym] = why or True
 
         rows_b, rows_c = [], []
@@ -292,9 +482,26 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
             logger.info("%s: %s skipped — only %d eligible symbols", SERVICE_NAME, d, len(eligible))
             continue
 
-        def net_ret(sym: str) -> Optional[float]:
+        def price_problems(sym: str) -> list[str]:
+            """Task 2 gate on one symbol's window. Depends on (date, symbol) only, never on which
+            model picked it, so B and C are gated identically."""
             f = fwd.get(sym)
             if not f:
+                return ["no_forward_window"]
+            bad = []
+            if not (float(f["entry_price"]) > 0 and float(f["exit_price"]) > 0):
+                bad.append("non_positive_price")
+            if f["entry_date"] not in session_set or f["exit_date"] not in session_set:
+                bad.append("date_not_a_session")
+            if sessions_in_window != horizon:
+                bad.append(f"window_spans_{sessions_in_window}_not_{horizon}")
+            if sym in contaminated:
+                bad.append("contaminated_window_reached_portfolio")
+            return bad
+
+        def net_ret(sym: str) -> Optional[float]:
+            f = fwd.get(sym)
+            if not f or price_problems(sym):
                 return None
             gross = (float(f["exit_price"]) / float(f["entry_price"]) - 1.0) * 100.0
             return gross - cost_pct
@@ -326,10 +533,23 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
                 f = fwd.get(sym)
                 if not f:
                     continue
-                gross = (float(f["exit_price"]) / float(f["entry_price"]) - 1.0) * 100.0
+                entry_px, exit_px = float(f["entry_price"]), float(f["exit_price"])
+                # Task 2 gate, on the rows actually about to be persisted rather than on a sampled
+                # check afterwards. net_ret() consults the same function, so a dropped row is also
+                # absent from the mean — the summary and the stored outcomes cannot disagree.
+                problems = price_problems(sym)
+                if problems:
+                    if "contaminated_window_reached_portfolio" in problems:
+                        integrity["picked_contaminated"] += 1
+                    integrity["price_assertion_failures"].append(
+                        {"study_id": sid, "scoring_date": d.isoformat(), "symbol": sym,
+                         "problems": problems})
+                    logger.error("%s: %s %s dropped — %s", SERVICE_NAME, d, sym, ",".join(problems))
+                    continue
+                gross = (exit_px / entry_px - 1.0) * 100.0
                 out_rows.append((sid, run_id[sid], d, sym, horizon, f["entry_date"],
-                                 float(f["entry_price"]), f["exit_date"], float(f["exit_price"]),
-                                 gross, cost_pct, gross - cost_pct, None, None, "mature"))
+                                 entry_px, f["exit_date"], exit_px,
+                                 gross, cost_pct, gross - cost_pct, bench_pct, None, "mature"))
 
         mb, mc = statistics.fmean(rb), statistics.fmean(rc)
         overlap = len(set(top_b) & set(top_c))
@@ -339,6 +559,27 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
                          "names_changed": portfolio_n - overlap})
         logger.info("%s %s: B %+.2f%%  C %+.2f%%  diff %+.3f pp  (%d/%d names changed)",
                     SERVICE_NAME, d, mb, mc, mc - mb, portfolio_n - overlap, portfolio_n)
+
+    # Requirement 1, asserted rather than assumed. Any asymmetry between B's and C's evaluated
+    # population invalidates the paired estimate, so it is measured on the rows about to be
+    # written: same (date, symbol) keys, same eligibility, same ineligibility reason.
+    pop_b = {(r[2], r[3]): (r[13], r[14]) for r in pred_rows if r[0] == study_b}
+    pop_c = {(r[2], r[3]): (r[13], r[14]) for r in pred_rows if r[0] == study_c}
+    only_b, only_c = set(pop_b) - set(pop_c), set(pop_c) - set(pop_b)
+    disagree = [k for k in set(pop_b) & set(pop_c) if pop_b[k] != pop_c[k]]
+    integrity["paired_population"] = {
+        "b_symbol_days": len(pop_b), "c_symbol_days": len(pop_c),
+        "in_b_not_c": len(only_b), "in_c_not_b": len(only_c),
+        "eligibility_or_reason_disagreements": len(disagree),
+        "identical": not (only_b or only_c or disagree),
+    }
+    if integrity["paired_population"]["identical"]:
+        logger.info("%s: paired population identical across B and C (%d symbol-days)",
+                    SERVICE_NAME, len(pop_b))
+    else:
+        logger.error("%s: paired population NOT identical — B-only %d, C-only %d, disagree %d; "
+                     "the paired difference is not a valid estimate",
+                     SERVICE_NAME, len(only_b), len(only_c), len(disagree))
 
     async with pool.acquire() as conn:
         if pred_rows:
@@ -363,11 +604,12 @@ async def evaluate(*, study_b: str = "NIDP-SM-VALIDATION-001",
 
     return await _finish(pool, run_id, study_b, study_c, per_date, dates,
                          horizon, hurdle, cost_pct, portfolio_n, commit, stage,
-                         len(pred_rows), len(out_rows))
+                         len(pred_rows), len(out_rows), integrity)
 
 
 async def _finish(pool, run_id, study_b, study_c, per_date, dates, horizon, hurdle,
-                  cost_pct, portfolio_n, commit, stage, n_pred=0, n_out=0) -> dict:
+                  cost_pct, portfolio_n, commit, stage, n_pred=0, n_out=0,
+                  integrity: Optional[dict] = None) -> dict:
     diffs = [p["diff_pp"] for p in per_date]
     n = len(diffs)
     mean_diff = statistics.fmean(diffs) if diffs else float("nan")
@@ -403,6 +645,28 @@ async def _finish(pool, run_id, study_b, study_c, per_date, dates, horizon, hurd
         "portfolio_names_changed_total": changed,
         "prediction_rows": n_pred, "outcome_rows": n_out,
         "verdict": verdict, "verdict_reason": why, "per_date": per_date,
+        "integrity": integrity or {},
+        # Stated on every run so a reader cannot mistake what these columns mean.
+        "benchmark": {
+            "column": "benchmark_return_pct", "populated": True,
+            "series": f"nidp.index_eod '{BENCHMARK_INDEX}' open-to-open, same window",
+            "contracted": "Nifty 500 TRI", "is_proxy": True,
+            "deviation": "no total-return series exists in this warehouse, so a PRICE index is "
+                         "used; it understates the benchmark by the dividend yield (~0.1 pp over "
+                         "20 sessions). Market context only — the primary paired test is computed "
+                         "on an identical universe, where the benchmark does not enter.",
+        },
+        "sector_relative": {
+            "column": "sector_return_pct", "populated": False, "status": "UNAVAILABLE",
+            "reason": "no point-in-time sector label exists for these dates. "
+                      "nidp.index_constituents has 4 snapshots, all 2026-10-12..2026-10-22, i.e. "
+                      "after every formation date; nidp.sector_master carries "
+                      "sector_resolved_at in the same October window and is sparse "
+                      "(91/123 of the picked symbols have a sector). Labelling Jan-Sep windows "
+                      "from an October snapshot would inject exactly the look-ahead and "
+                      "survivorship bias 001's universe_rule note rejects, so the column is left "
+                      "NULL. No sector-relative conclusion is available from this run.",
+        },
     }
     async with pool.acquire() as conn:
         for rid in run_id.values():
