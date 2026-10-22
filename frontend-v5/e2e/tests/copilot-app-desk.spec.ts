@@ -30,13 +30,13 @@ import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 const APP = "/v5/app";
 const DESK = `${APP}/trader/desk`;
 // The desk PRD §3.1 order (docs/smart_trader): it overrides the desktop design's order and puts the lab under More.
-const TABS = ["overview", "scanner", "intel", "chart", "portfolio", "more"];
-const LABELS = ["Overview", "AI Scanner", "Market Intelligence", "Chart Analysis", "Portfolio & Risk", "More"];
+const TABS = ["overview", "scanner", "intel", "chart", "portfolio", "smartmoney", "more"];
+const LABELS = ["Overview", "AI Scanner", "Market Intelligence", "Chart Analysis", "Portfolio & Risk", "Smart Money", "More"];
 // The phone's chips (design §11): the same order, shorter names, no numbers.
 const MOBILE_LABELS = ["Overview", "AI Scanner", "Market Intel", "Chart Analysis", "Portfolio & Risk", "More"];
 // The phone's bottom bar (PRD §3.1 / §3.3, the user's decision of 2026-10-14): same order, short names.
-const BOTTOM = ["overview", "scanner", "intel", "chart", "portfolio", "more"];
-const BOTTOM_LABELS = ["Overview", "Scanner", "Intel", "Chart", "Portfolio", "More"];
+const BOTTOM = ["overview", "scanner", "intel", "chart", "portfolio", "smartmoney", "more"];
+const BOTTOM_LABELS = ["Overview", "Scanner", "Intel", "Chart", "Portfolio", "Flows", "More"];
 const MORE_ITEMS = ["copilot", "fno", "events", "strategy", "chartink", "watchlist", "saved", "paper", "settings"];
 const MORE_LABELS = ["AI Copilot", "Options & futures lab", "Events calendar", "Strategy Builder", "Chartink scans", "Watchlists", "Saved analyses", "Paper trading", "Settings & integrations"];
 
@@ -243,7 +243,7 @@ test.describe("Smart trading desk — shell", () => {
     await expect(tools.first()).toHaveAttribute("aria-current", "page");
 
     const tabs = page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab");
-    await expect(tabs).toHaveCount(6);
+    await expect(tabs).toHaveCount(7);
     for (let i = 0; i < TABS.length; i += 1) {
       await expect(tabs.nth(i)).toHaveAttribute("data-testid", `desk-tab-${TABS[i]}`);
       await expect(tabs.nth(i)).toHaveText(`${String(i + 1).padStart(2, "0")}${LABELS[i]}`);
@@ -455,7 +455,7 @@ test.describe("Smart trading desk — shell", () => {
     expect(chat.streams[chat.streams.length - 1]).toMatchObject({ message: "Is breadth improving?", persona: "trader" });
   });
 
-  test("TC-7: at 390px — the bottom bar replaces the chip row: six items in order, each opens its tab, one ask box (More · AI Copilot), no sideways scroll", async ({ page }) => {
+  test("TC-7: at 390px — the bottom bar replaces the chip row: seven items in order, each opens its tab, one ask box (More · AI Copilot), no sideways scroll", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const chat = await mockChat(page);
     await page.goto(DESK);
@@ -473,11 +473,11 @@ test.describe("Smart trading desk — shell", () => {
     // The top chip row is gone on phones (the desktop tab row stays; TC-1).
     await expect(page.getByRole("tablist", { name: "Desk modules" })).toHaveCount(0);
 
-    // The bar: a navigation landmark, six buttons in the PRD's order, fixed to the bottom edge of the screen.
+    // The bar: a navigation landmark, seven buttons in the PRD's order, fixed to the bottom edge of the screen.
     const bar = page.getByRole("navigation", { name: "Desk sections" });
     await expect(bar).toBeVisible();
     const items = bar.getByRole("button");
-    await expect(items).toHaveCount(6);
+    await expect(items).toHaveCount(7);
     for (let i = 0; i < BOTTOM.length; i += 1) {
       await expect(items.nth(i)).toHaveAttribute("data-testid", `desk-bottom-${BOTTOM[i]}`);
       await expect(items.nth(i)).toHaveText(BOTTOM_LABELS[i]);
@@ -575,7 +575,7 @@ test.describe("Smart trading desk — shell", () => {
     // Wider than a phone the bar is not drawn and the numbered tab row is back.
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByTestId("desk-bottom-bar")).toHaveCount(0);
-    await expect(page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab")).toHaveCount(6);
+    await expect(page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab")).toHaveCount(7);
   });
 
   test("TC-8: on a phone the search selects a scanner stock, or asks More · AI Copilot; the persona pill switches the wording", async ({ page }) => {

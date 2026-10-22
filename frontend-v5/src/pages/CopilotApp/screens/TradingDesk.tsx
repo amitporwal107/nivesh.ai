@@ -65,6 +65,7 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
   chart: lazy(() => import("./tradingdesk/ChartTab")),
   intel: lazy(() => import("./tradingdesk/IntelTab")),
   portfolio: lazy(() => import("./tradingdesk/PortfolioTab")),
+  smartmoney: lazy(() => import("./tradingdesk/SmartMoneyTab")),
   fno: lazy(() => import("./tradingdesk/FnoTab")),
   events: lazy(() => import("./tradingdesk/EventsTab")),
 };
@@ -88,6 +89,7 @@ const NAV: Array<{ key: Exclude<DeskTab, "fno" | "events"> }> = [
   { key: "intel" },
   { key: "chart" },
   { key: "portfolio" },
+  { key: "smartmoney" },
 ];
 
 /** The shell's side padding (index.tsx): the header, tab row and footer run edge to edge across it. */
@@ -607,7 +609,7 @@ export default function TradingDeskScreen() {
             {NAV.map((t, i) => (
               <TabChip key={t.key} id={t.key} num={String(i + 1).padStart(2, "0")} label={DESK_TAB_LABEL[t.key]} on={!moreOn && t.key === tab} onClick={() => update({ tab: t.key })} />
             ))}
-            <TabChip id="more" num="06" label="More" on={moreOn} onClick={() => update({ tab: "more" })} />
+            <TabChip id="more" num={String(NAV.length + 1).padStart(2, "0")} label="More" on={moreOn} onClick={() => update({ tab: "more" })} />
           </div>
           {docked && <span data-testid="desk-docked-note" className="cp-eyebrow" style={{ flex: "none", whiteSpace: "nowrap" }}>Copilot docked right</span>}
         </div>

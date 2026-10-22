@@ -14,6 +14,7 @@ extracted into the repo):
 | `frontend-v5/design/Smart Money Movement v2 · offline.html` | the one-file review copy (open it directly) |
 | `frontend-v5/design/smart-money/screenshots/smart-money-movement-v2.png` | v2 rendered |
 | `frontend-v5/design/smart-money/screenshots/smart-money-movement-v1.png` | v1 rendered, for the §0 comparison |
+| `frontend-v5/design/smart-money/Smart Money Movement v1 · offline.html` | v1, openable — **dead**, for the §0 comparison only |
 | `frontend-v5/design/smart-money/Smart Money Movement.dc.html` | v1 source — **dead**, kept only as provenance |
 | `frontend-v5/design/smart-money/support.js` | the runtime the `.dc.html` head loads |
 | `frontend-v5/design/_ds/nivesh-copilot-design-system-21f53176-…/` | the design system the helmet links |

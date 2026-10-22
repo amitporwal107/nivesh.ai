@@ -69,6 +69,23 @@ _DATASETS: List[Dict[str, Any]] = [
         "description": "Daily FII/DII net buy/sell in cash and F&O segments.",
     },
     {
+        "name":       "mf_holdings_deltas",
+        "table":      "nidp.mf_holdings_deltas",
+        "date_col":   "current_month",
+        "domain":     "Flows & events",
+        "endpoints":  ["/v1/desk/smart-money/sectors", "/v1/desk/smart-money/scanner"],
+        "description": "Month-on-month change in each disclosing AMC scheme's holding of a stock.",
+    },
+    {
+        "name":       "smart_money_scores_daily",
+        "table":      "nidp.smart_money_scores_daily",
+        "date_col":   "as_of_date",
+        "domain":     "Flows & events",
+        "endpoints":  ["/v1/desk/smart-money/breadth"],
+        "description": ("Disclosed-holdings evidence per symbol, shadow mode. Scores are NOT served: the "
+                        "validation study returned INCONCLUSIVE and no promotion decision is on record."),
+    },
+    {
         "name":       "bulk_deals",
         "table":      "nidp.bulk_deals",
         "date_col":   "as_of_date",

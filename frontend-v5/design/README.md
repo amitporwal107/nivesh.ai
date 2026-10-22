@@ -117,7 +117,8 @@ plus the rendered screenshots and the dead v1 source:
 | File in `smart-money/` | What it holds |
 |---|---|
 | `Smart Money Movement v2.dc.html` | **the screen** — template + logic, 69 bindings, 7 stock fixtures |
-| `Smart Money Movement.dc.html` | v1 — **dead**, kept only for the v1-vs-v2 comparison below. Do not wire anything from it. |
+| `Smart Money Movement v1 · offline.html` | **v1, openable** — self-contained, open it directly to see what v2 replaced. Dead; do not wire anything from it. |
+| `Smart Money Movement.dc.html` | v1 source — dead, provenance only. Props were `theme`, `sectorChart` (bars\|diverging), `showCopilot`; panels were "Sector rotation — institutional flows", "Flow regime" and the scanner. |
 | `screenshots/smart-money-movement-v2.png` | v2 rendered |
 | `screenshots/smart-money-movement-v1.png` | v1 rendered |
 | `support.js` | the runtime the `.dc.html` head loads (`<script src="./support.js">`) |
