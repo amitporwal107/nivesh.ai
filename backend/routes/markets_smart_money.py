@@ -94,6 +94,19 @@ async def smart_money_breadth(request: Request) -> Dict[str, Any]:
     return await _daas("/desk/smart-money/breadth", {}, None)
 
 
+@router.get("/amc")
+async def smart_money_amc(
+    request: Request,
+    symbol: str = Query(..., min_length=1, max_length=20, pattern=r"^[A-Za-z0-9&\-]+$"),
+) -> Dict[str, Any]:
+    """Which fund houses drive one stock's disclosed holdings change — every scheme a house runs,
+    aggregated, resolved by ISIN. `share_of_disclosed_pct` answers whether a month's move is
+    broad-based or one house: an AMC count alone cannot. The value column is a level, never a
+    change, because differencing two months of market value mixes price into apparent buying."""
+    await get_current_user(request)
+    return await _daas("/desk/smart-money/amc", {"symbol": symbol}, "rows")
+
+
 @router.get("/scanner")
 async def smart_money_scanner(
     request: Request,

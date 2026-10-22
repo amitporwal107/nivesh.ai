@@ -39,6 +39,8 @@ class _Conn:
         # Matched most-specific first: several queries read nidp.mf_holdings_deltas.
         if "months_back" in q:                       # the disclosed month pairs, richest first
             return self.db.get("pair_rows", [])
+        if "amc_name_raw" in q:                      # the AMC drill-down
+            return self.db.get("amc_rows", [])
         if "mf_scheme_master" in q:                  # the scanner
             return self.db.get("scanner_rows", [])
         if "GROUP BY n5.industry" in q:              # sector rotation
@@ -55,6 +57,10 @@ class _Conn:
         self.calls.append((q, a))
         if "promotion_decisions" in q:
             return self.db.get("promoted", False)
+        if "index_constituents" in q and "isin" in q:
+            return self.db.get("isin")
+        if "total_shares" in q:
+            return self.db.get("shares_outstanding")
         if "max(current_month)" in q:
             return self.db.get("mf_month")
         if "fii_dii_flows" in q:
@@ -412,3 +418,87 @@ def test_no_data_is_200_with_an_empty_answer_never_a_500(make_client, path, para
     d = r.json()
     assert d.get("rows", []) == [] or d.get("metrics") is None
     assert d["source"] and d["disclosure"]
+
+# ── AMC contribution ─────────────────────────────────────────────────────
+
+AMC_ROWS = [
+    {"amc_id": "nippon", "amc_name": "Nippon India Mutual Fund", "schemes": 49, "schemes_up": 27,
+     "schemes_dn": 9, "schemes_flat": 13, "current_shares": 36582650.0, "previous_shares": 33725652.0,
+     "shares_delta": 2856998.0, "shares_pct_change": 8.47, "current_value_cr": 11311.4,
+     "value_disclosed_schemes": 44, "share_of_disclosed_pct": 29.5, "weight_delta_pp": 0.28},
+    {"amc_id": "uti", "amc_name": "UTI Mutual Fund", "schemes": 10, "schemes_up": 3, "schemes_dn": 7,
+     "schemes_flat": 0, "current_shares": 2321624.0, "previous_shares": 1328571.0,
+     "shares_delta": 993053.0, "shares_pct_change": 74.75, "current_value_cr": None,
+     "value_disclosed_schemes": 0, "share_of_disclosed_pct": 1.9, "weight_delta_pp": -3.41},
+]
+
+
+def _amc_db(**over):
+    db = {"isin": "INE118H01025", "mf_month": date(2026, 9, 1), "pair_rows": PAIRS,
+          "amc_rows": AMC_ROWS, "shares_outstanding": 135000000.0}
+    db.update(over)
+    return db
+
+
+def test_amc_answers_broad_based_or_one_house(make_client):
+    """An AMC COUNT cannot say whether a month's move is broad-based or one house. The share of the
+    disclosed holding can, so it is computed per house and the largest is surfaced."""
+    c, pool = make_client(_amc_db())
+    r = c.get("/v1/desk/smart-money/amc", params={"symbol": "bse"}, headers=H)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["symbol"] == "BSE" and d["isin"] == "INE118H01025"
+    assert d["as_of"] == "2026-09-01" and d["previous_month"] == "2026-08-01"
+    t = d["totals"]
+    assert t["amcs"] == 2 and t["schemes"] == 59
+    # The largest HOLDER (Nippon 29.5%), not the largest mover — the rows are ordered by
+    # |shares_delta|, so taking the first row reported the wrong house.
+    assert t["largest_amc_share_pct"] == 29.5
+    assert d["rows"][0]["amc_id"] == "nippon"    # biggest mover leads the table
+    assert t["current_shares"] == 36582650.0 + 2321624.0
+    assert t["shares_delta"] == 2856998.0 + 993053.0
+    # Shares outstanding is disclosed here, so the equity percentage is real.
+    assert t["shares_outstanding"] == 135000000.0
+    assert t["pct_of_equity"] == round(100.0 * (36582650.0 + 2321624.0) / 135000000.0, 2)
+    s = _sql(pool)
+    # Aggregated across every scheme a house runs, and resolved by ISIN, not by symbol.
+    assert "GROUP BY d.amc_id" in s
+    assert "d.security_isin = $3" in s
+
+
+def test_amc_value_is_a_level_and_an_undisclosed_one_stays_null(make_client):
+    """UTI discloses share counts but no market value. That must read as absent, never as 0, and
+    the total must count only the schemes that actually disclosed one."""
+    c, _ = make_client(_amc_db())
+    d = c.get("/v1/desk/smart-money/amc", params={"symbol": "BSE"}, headers=H).json()
+    uti = next(r for r in d["rows"] if r["amc_id"] == "uti")
+    assert uti["current_value_cr"] is None
+    assert uti["value_disclosed_schemes"] == 0
+    assert uti["current_shares"] == 2321624.0          # shares ARE disclosed
+    t = d["totals"]
+    assert t["current_value_cr"] == 11311.4            # only the house that disclosed one
+    assert t["value_disclosed_schemes"] == 44
+    # A month-on-month VALUE change would mix price into apparent buying, so it is not served.
+    assert "value_delta" not in uti and "value_change_cr" not in uti
+
+
+def test_amc_equity_percentage_is_null_when_no_quarter_discloses_a_share_count(make_client):
+    c, _ = make_client(_amc_db(shares_outstanding=None))
+    t = c.get("/v1/desk/smart-money/amc", params={"symbol": "BSE"}, headers=H).json()["totals"]
+    assert t["shares_outstanding"] is None
+    assert t["pct_of_equity"] is None                  # not 0, and not invented
+
+
+def test_amc_unknown_symbol_is_200_with_an_empty_answer(make_client):
+    c, _ = make_client(_amc_db(isin=None))
+    r = c.get("/v1/desk/smart-money/amc", params={"symbol": "NOSUCH"}, headers=H)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["rows"] == [] and d["totals"] is None and d["isin"] is None
+    assert d["source"] and d["disclosure"]
+
+
+def test_amc_requires_a_symbol(make_client):
+    c, _ = make_client(_amc_db())
+    assert c.get("/v1/desk/smart-money/amc", headers=H).status_code == 400
+

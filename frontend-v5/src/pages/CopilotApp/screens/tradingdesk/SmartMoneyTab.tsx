@@ -31,8 +31,9 @@ import {
   EVIDENCE_LABEL, EVIDENCE_LEGEND, EVIDENCE_NOTE, SECTOR_MEASURES, SM_DIRECTIONS, SM_FRESHNESS,
   SM_PERIODS, SM_UNIVERSES, type EvidenceClass, type FlowPoint, type ScannerFilters, type ScannerRow,
   type SectorMeasure, type SmDirection, type SmFreshness, type SmLane, type SmPeriod, type SmUniverse,
-  FLOW_CAVEAT, dataAgeDays, evidenceChain, flowRegime, ingestAheadOfData, mfWindowNote, rollingNet,
-  rowDirection, sectorGrossCr, sectorTotals, sectorValue, useSmartMoney, whatWouldWeaken,
+  FLOW_CAVEAT, amcConcentration, dataAgeDays, evidenceChain, flowRegime, ingestAheadOfData,
+  mfWindowNote, rollingNet, rowDirection, sectorGrossCr, sectorTotals, sectorValue, useSmAmc,
+  useSmartMoney, whatWouldWeaken,
 } from "./smart-money-data";
 
 /**
@@ -320,6 +321,104 @@ function Tier({ label, n, of, tone, note }: { label: string; n: number | null; o
   );
 }
 
+// ── AMC contribution drill-down ──────────────────────────────────────────
+
+/**
+ * Which fund houses are behind a stock's disclosed change. "11 disclosing AMCs" is a coverage
+ * statistic — it cannot say whether a month's move is broad-based or one house, and this can.
+ *
+ * Every scheme a house runs is aggregated and the stock is resolved by ISIN. Value is a LEVEL
+ * (what is held now), never a month-on-month change, because differencing two months of market
+ * value mixes price movement into what would read as buying. A house that disclosed no value at
+ * all reads "—", never 0.
+ */
+function AmcContribution({ symbol }: { symbol: string }) {
+  const q = useSmAmc(symbol);
+  if (q.isPending) return <LoadingBlock label="Reading scheme disclosures" rows={2} />;
+  if (q.isError) {
+    return <Footnote>AMC contribution didn’t load. The rest of this panel is unaffected.</Footnote>;
+  }
+  const f = q.data ?? null;
+  const t = f?.totals ?? null;
+  const conc = amcConcentration(f);
+  const rows = f?.rows ?? [];
+  if (rows.length === 0) {
+    return <Footnote>No scheme disclosed a holding in {symbol} for this month pair.</Footnote>;
+  }
+  const peak = Math.max(1, ...rows.map((r) => Math.abs(r.sharesDelta ?? 0)));
+
+  return (
+    <div className="flex flex-col" style={{ gap: 10 }} data-testid="desk-smart-money-amc">
+      <Eyebrow>Which fund houses</Eyebrow>
+
+      {conc && (
+        <p data-testid="desk-smart-money-amc-concentration" style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
+          {conc.movers === 0
+            ? `All ${fmtNum(t?.amcs)} disclosing houses held ${symbol} unchanged this month.`
+            : <>
+                {fmtNum(conc.buyers)} house{conc.buyers === 1 ? "" : "s"} raised and {fmtNum(conc.sellers)} cut,
+                out of {fmtNum(t?.amcs)} holding {symbol}.
+                {conc.topShare != null && <> The largest, {conc.topName}, holds {conc.topShare}% of the disclosed total.</>}
+              </>}
+        </p>
+      )}
+
+      <div className="flex flex-wrap" style={{ gap: "4px 14px", fontSize: 11.5, color: "var(--cp-ink-3)" }}>
+        <span>Schemes <span className="cp-num">{fmtNum(t?.schemes)}</span> · {fmtNum(t?.schemesUp)}↑ {fmtNum(t?.schemesDn)}↓</span>
+        <span>Held now{" "}
+          <span className="cp-num">{t?.currentValueCr == null ? "—" : `₹${fmtNum(t.currentValueCr)} cr`}</span>
+          {t?.valueDisclosedSchemes != null && t.valueDisclosedSchemes < (t.schemes ?? 0) && (
+            <span style={{ color: "var(--cp-ink-4)" }} title="Only some schemes disclose a market value; the rest are absent, not zero">
+              {" "}({fmtNum(t.valueDisclosedSchemes)} of {fmtNum(t.schemes)} priced)
+            </span>
+          )}
+        </span>
+        <span>Of equity{" "}
+          <span className="cp-num">{t?.pctOfEquity == null
+            ? <span style={{ color: "var(--cp-ink-4)" }} title="No quarter discloses a share count for this stock">n/d</span>
+            : `${t.pctOfEquity}%`}</span>
+        </span>
+      </div>
+
+      <div className="flex flex-col" style={{ gap: 6 }}>
+        {rows.slice(0, 8).map((r) => {
+          const d = r.sharesDelta ?? 0;
+          const w = (Math.abs(d) / peak) * 100;
+          return (
+            <div key={r.amcId} className="grid items-center" style={{ gridTemplateColumns: "minmax(0,1.5fr) 54px minmax(0,1fr)", gap: 8, fontSize: 11.5 }}>
+              <span style={{ color: "var(--cp-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    title={`${r.schemesUp ?? 0} schemes raised, ${r.schemesDn ?? 0} cut, ${r.schemesFlat ?? 0} unchanged`}>
+                {r.amcName ?? r.amcId}
+              </span>
+              <span className="cp-num" style={{ textAlign: "right", color: "var(--cp-ink-3)" }}>
+                {r.shareOfDisclosedPct == null ? "—" : `${r.shareOfDisclosedPct}%`}
+              </span>
+              <span className="flex items-center" style={{ gap: 6 }}>
+                <span style={{ position: "relative", flex: "1 1 auto", minWidth: 40, height: 7, background: "var(--bg-2)", borderRadius: 3 }}>
+                  <span style={{ position: "absolute", top: 0, height: 7, width: `${w}%`, left: 0,
+                                 borderRadius: "0 3px 3px 0", background: toneColor(d >= 0 ? "mint" : "danger") }} />
+                </span>
+                <span className="cp-num" style={{ flex: "none", width: 62, textAlign: "right", color: toneColor(d > 0 ? "mint" : d < 0 ? "danger" : "ink") }}>
+                  {d === 0 ? "0" : `${d > 0 ? "+" : "−"}${fmtNum(Math.abs(d))}`}
+                  <span className="sr-only"> shares {d > 0 ? "added" : d < 0 ? "reduced" : "unchanged"}</span>
+                </span>
+              </span>
+            </div>
+          );
+        })}
+        {rows.length > 8 && <span style={{ fontSize: 11, color: "var(--cp-ink-4)" }}>+{rows.length - 8} more houses</span>}
+      </div>
+
+      <Footnote>
+        Share counts from each scheme’s own monthly disclosure, {fmtDate(f?.previousMonth)} → {fmtDate(f?.asOf)},
+        aggregated per house and resolved by ISIN. The percentage is each house’s share of this stock’s
+        disclosed mutual-fund holding — not of its equity, and not of that house’s own AUM, which is not
+        ingested. “Held now” is a level, never a month-on-month value change.
+      </Footnote>
+    </div>
+  );
+}
+
 // ── the stock-evidence rail (spec 2.7) ───────────────────────────────────
 
 function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWindow: Parameters<typeof whatWouldWeaken>[1]; onAsk: (q: string) => void }) {
@@ -385,6 +484,8 @@ function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWin
           </div>
         ))}
       </div>
+
+      <AmcContribution symbol={row.symbol} />
 
       <div className="flex flex-col" style={{ gap: 7 }}>
         <Eyebrow>What would weaken this reading</Eyebrow>
