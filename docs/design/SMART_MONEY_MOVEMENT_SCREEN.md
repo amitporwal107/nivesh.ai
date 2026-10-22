@@ -1,151 +1,264 @@
-# Smart Money Movement — screen design (BASELINE)
+# Smart Money Movement — screen design (BASELINE, v2)
 
-Supersedes the earlier dashboard screenshot. Source: `Smart Money Movement.html`
-(design-component bundle, received 2026-10-22). Screen id in the design: **07 · Smart Money
-Movement**; subtitle `NSE · BSE · AMFI · Shareholding disclosures`.
+**Source:** `Smart Money Movement v2.html` (design-component bundle, received 2026-10-22).
+**Supersedes** `Smart Money Movement.html` (v1, same day) and, before it, the dashboard
+screenshot. v1 is dead — do not wire anything from it.
 
-Design system: `frontend-v5/design/nivesh-tokens.css` (dark-first, mint primary, Instrument
-Serif display / Inter Tight sans / JetBrains Mono labels). The bundle carries the V5 token
-file verbatim — no new tokens are introduced.
+Screen id: **07 · Smart Money Movement**. Design system is unchanged:
+`frontend-v5/design/nivesh-tokens.css` carried verbatim in the bundle (dark-first, mint primary,
+Instrument Serif display / Inter Tight sans / JetBrains Mono labels). No new tokens.
+
+Component props: `theme` (dark|light), `showShadowScore` (bool, default **false**),
+`showCopilot` (bool, default true).
 
 ---
+
+## 0. What changed from v1, and why it matters for wiring
+
+v2 is not a restyle. It replaces a *score* screen with an *evidence* screen.
+
+| v1 | v2 |
+|---|---|
+| 4 KPI cards (score-led) | 5 **feed-status strips** with freshness dots, incl. one that says a feed is down |
+| "Combined FII+DII" sector rotation | "Sector rotation — **disclosed buying**", from MF + shareholding deltas × VWAP |
+| Flow-regime panel | **Evidence-breadth** panel (direct+proxy / direct only / proxy only) |
+| Scanner ranked by score | Scanner ranked by **evidence classes**, then scheme breadth |
+| Evidence vocabulary in prose | **A / B / C / D class chips** per row, with a legend |
+| — | **Evidence lanes** as tabs: Disclosed (A/B) · Proxy only (C) · All |
+| — | "Evidence against & limitations" and "What would weaken this reading" per stock |
+| Score shown | Score demoted behind `showShadowScore`, labelled *not validated, not used for ranking* |
+
+Two consequences:
+
+1. **v1's biggest blocker partly dissolves.** v1 asked for a combined FII+DII *sector* split,
+   which does not exist anywhere (`fpi_sector_auc` is FPI-only). v2 instead derives sector
+   rotation from disclosed MF + shareholding deltas valued at VWAP — all of which we have. That
+   panel is now servable.
+2. **v2 asks for things v1 did not**, chiefly delivery-vs-baseline, transfer-netted deals,
+   scheme/AMC breadth and filing-freshness. Measured below: mostly available, three gaps.
 
 ## 1. Layout
 
 ```
-┌ header (sticky, 60px) ─ brand · nav · search · bell · settings · avatar ─────────┐
+┌ header (sticky, 60px) ─ brand · nav · search · avatar ───────────────────────────┐
 ├ main (flex 10, min 860px) ──────────────────┬ rail (flex 1, min 380px) ─────────┤
-│ title row: 07 · Smart Money Movement        │ Nivesh Copilot                    │
-│   period toggle [1M|3M|6M|1Y] · as-of date  │   ask box + suggested questions   │
-│ KPI row (4 cards, auto-fit minmax(200px))   │   → answer w/ source pills        │
-│ ┌ sector rotation (flex 2) ─┬ flow regime ─┐│ Stock detail                      │
-│ │ ranked bars / diverging   │ cumulative   ││   price · follow · 5 tabs         │
-│ │ view: ₹Cr / % / #stocks   │ FII+DII lines││   Overview·SmartMoney·Fin·Tech·News│
-│ └───────────────────────────┴──────────────┘│                                   │
-│ stock-level smart money scanner (table)     │                                   │
+│ title: 07 · Smart Money Movement            │ Stock evidence panel              │
+│   period [1M|3M|6M|1Y] · as-of · "not live" │   price · Follow · 5 tabs         │
+│ feed-status strip row (5 cards)             │   Overview: why it surfaced ·     │
+│ ┌ market-wide flows ─────────────────────┐  │     evidence chain (A/B/C/D) ·    │
+│ │ regime headline · FII/DII net + 5/20/60D│ │     against · what would weaken   │
+│ │ cumulative FII & DII chart (hover)     │  │   SmartMoney · Fin · Tech · News  │
+│ └────────────────────────────────────────┘  │ Nivesh Copilot                    │
+│ ┌ sector rotation (flex 1.6) ─┬ evidence ─┐ │   ask box + 6 suggested questions │
+│ │ diverging bars · ₹Cr/%/#    │ breadth   │ │   → answer w/ source pills        │
+│ └─────────────────────────────┴───────────┘ │                                   │
+│ scanner: lanes · filters · A/B/C/D · legend │                                   │
 ├ footer ─ "Smart money is evidence, not a buy signal." + caveats ────────────────┘
 ```
-
-Props on the design component: `theme` (dark|light), `sectorChart` (bars|diverging),
-`showCopilot` (bool).
 
 ## 2. Components and every field they need
 
 ### 2.1 Period toggle
-`1M | 3M | 6M | 1Y` → trading-day windows 22 / 63 / 126 / 248. Every panel below is
-recomputed for the selected window, and each KPI shows a delta "vs previous <window>".
+`1M | 3M | 6M | 1Y` → trading-day windows **22 / 63 / 126 / 248**. Every panel recomputes.
+Each window also implies a *disclosure* window, which is what the evidence columns actually use:
 
-### 2.2 KPI row (4 cards)
-| Card | Fields |
-|---|---|
-| FII Net Flow (Cash) | `₹<n> Cr`, `↑/↓ <pct>%` vs prev window, 12-bucket signed sparkline |
-| DII Net Flow (Cash) | same shape |
-| Mutual Fund Accumulation | `<pct>% Rising`, caption "of tracked stocks … (<window>)", area sparkline |
-| Stocks with rising institutional ownership | `<n>` of 500, `↑/↓ <pct>%` vs prev, 12-bucket sparkline |
+| Period | MF window (monthly) | Shareholding window (quarterly) | Deal window |
+|---|---|---|---|
+| 1M | Aug → Sep 26 | 1 quarter back | from 2026-09-21 |
+| 3M | Jun → Sep 26 | 1 quarter back | from 2026-07-21 |
+| 6M | Mar → Sep 26 | 2 quarters back | from 2026-04-21 |
+| 1Y | Sep 25 → Sep 26 | 4 quarters back | from 2025-10-21 |
 
-### 2.3 Sector rotation
-Ten sectors, split into net-buying (mint) and net-selling (danger) groups, ranked by
-magnitude. Two layouts (`sectorChart` prop): ranked bars, or diverging bars around a zero
-axis. Three measures (`View by`): **Net Flow (₹ Cr)** · **% of Total** (share of gross
-institutional flow) · **No. of Stocks**. Clicking a sector filters the scanner; the panel
-footer shows the active filter with a Clear action.
+### 2.2 Feed-status strips (5)
+Name · freshness dot (mint/amber/danger) · cadence line. Verbatim intent from the design:
+NSE FII/DII cash (daily, provisional) · AMFI scheme portfolios (monthly) · Shareholding patterns
+(quarterly, with **% of filings in**) · Bulk/block deals (daily, transfer-netted) · Financials
+feed (**unavailable — gates unevaluable**). The screen is designed to say a feed is down. Keep
+that; do not hide it.
 
-### 2.4 Flow regime
-Regime label (e.g. "Selective **accumulation**"), one-line sub, confidence pill
-(Low / Moderate / High), two cumulative lines (FII mint, DII indigo) over the window with a
-crosshair tooltip (date · FII · DII, cumulative ₹Cr), y-axis ticks with a dashed zero line,
-6 x-ticks, and a prose summary.
+### 2.3 Market-wide flows
+Regime headline + prose · FII net cash and DII net cash (₹ Cr, delta vs previous period, and
+**5D / 20D / 60D rolling sums**) · cumulative FII and DII line chart with hover tooltip (date,
+FII, DII) · pill "Market-wide · not stock-specific" · footer "Historical market reaction: no
+validated study available".
 
-### 2.5 Stock-level smart money scanner
-Columns: `#` · Stock (name + NSE symbol) · Sector · **MF holdings Δ (3M)** + `(n schemes)` ·
-**FII / DII ownership Δ (QoQ)** · **Bulk / block activity (3M)** + share count ·
-**Delivery vs avg (3M)** `<pct>% (vs <pct>%)` · **Accumulation score** 0–100 with bar ·
-**Evidence** pill.
+That last line ships verbatim. It is true (see `docs/prd/SMART_MONEY_GATE_DECISION_20261022.md`)
+and it is the honest alternative to inventing a hit rate.
 
-Controls: universe select (Nifty 500 / 200 / Midcap 150 / Smallcap 250), sector select,
-Filters popover (Evidence: All | Direct only; Min. accumulation score: Any | 60+ | 70+),
-match count, empty state with Clear filters.
+### 2.4 Sector rotation — disclosed buying
+10 sectors, diverging bars around zero, three measures: **₹ Cr / % of total / # stocks**.
+Footnote: "MF + shareholding deltas × period VWAP · estimated · 487/500 covered". Clicking a
+sector filters the scanner.
 
-Evidence vocabulary — **Direct evidence** / **Direct + proxy** / **Proxy only** (mint for the
-first two, amber for proxy-only). Score colour: ≥70 mint, ≥50 amber, else danger.
+### 2.5 Evidence breadth
+Count of stocks with rising disclosed ownership, of N evaluated. Three tiers with bars —
+**Direct + proxy agree · Direct evidence only · Proxy only, not confirmed** — plus freshness
+counts **Fresh / Ageing / Stale**, and an MF coverage sentence.
 
-### 2.6 Stock detail (rail)
-Header: full name, `NSE: <sym> | BSE: <code>`, last price + change (abs and %), Follow
-toggle, NSE deep link. Five tabs:
-- **Overview** — "Why it surfaced" (3 numbered reasons), Accumulation score `/100`,
-  Evidence pill, "Data freshness: MF: <month> · FII/DII: <quarter>".
-- **Smart Money** — FII ownership `a% → b%` (+Δ PP · QOQ), DII ownership, MF holdings Δ
-  (n schemes · 3M), Bulk/block deals (shares · 3M), Delivery vs avg (Δ pts · 3M).
-- **Financials** — Revenue TTM, Revenue growth YoY, ROE, P/E.
-- **Technicals** — RSI 14D (+ overbought/oversold/neutral), vs 50-DMA, vs 200-DMA,
-  52-week range position.
-- **News** — dated exchange/AMFI disclosures with source line.
+### 2.6 Scanner
+Filters: universe · sector · direction (All/Accumulation/Distribution) · freshness (Any/Fresh/
+Ageing/Stale). Lanes as tabs: **Disclosed evidence (A/B)** · **Proxy only (C)** · **All**.
+Coverage line under the tabs.
 
-### 2.7 Copilot rail
-Ask box; five suggested questions (sector buying, rising MF holdings, why IT is being sold,
-FII vs DII comparison, what explains the flow reversal); routed answer with a serif headline,
-prose, and source pills. The header search box also routes into the Copilot on Enter.
+Columns: # · Stock·sector · **MF holdings Δ** (% + `n↑ m↓ · k AMCs`) · **FII/DII Δ latest filing**
+(pp each + quarter pair, or a break/stale note) · **Bulk/block netted** (net shares + `legs ·
+matched`) · **Delivery vs base** (% vs 60-session baseline) · **Evidence** (A/B/C/D chips +
+coverage %) · **Freshness** · chevron.
 
-### 2.8 Footer disclaimer (ship verbatim)
-> Smart money is evidence, not a buy signal. Ownership disclosures are periodic; deal
-> disclosures may not identify beneficial intent; market proxies are indirect. Always
-> validate with fundamentals, technicals and risk management.
+Class legend, shipped verbatim:
+- **A** disclosed holdings change
+- **B** disclosed deal, net of transfers
+- **C** market proxy, buyer unknown
+- **D** direct and proxy align
+
+Ranking: evidence classes first, then scheme breadth. **Not** by score.
+
+### 2.7 Stock evidence panel (rail)
+Name · NSE/BSE ids · Follow toggle · price + change · direction pill (Accumulation / Distribution
+/ **Proxy signal**). Tabs: Overview · Smart Money · Financials · Technicals · News.
+
+Overview carries the three sections that make this screen defensible:
+- **Why it surfaced · evidence chain** — one row per class chip, each with its own source line.
+- **Evidence against & limitations**
+- **What would weaken this reading**
+
+Proxy-only stocks get an explicit amber banner: "Market-proxy evidence only. This is not labelled
+institutional accumulation."
+
+### 2.8 Shadow score
+Behind `showShadowScore`, dashed indigo container, labelled "Experimental score · shadow mode …
+Not validated. Shown for research only; not used for ranking." This matches the gate decision:
+study C is INCONCLUSIVE and stays in shadow. **Default must remain `false` in production.**
+
+### 2.9 Footer (ship verbatim)
+> Smart money is evidence, not a buy signal.
+> Ownership disclosures are periodic; deal disclosures may not identify beneficial intent; market
+> proxies are indirect. Always validate with fundamentals, technicals and risk management.
+> Educational market intelligence, not investment advice.
 
 ---
 
 ## 3. Data contract vs. real staging coverage
 
-Measured on staging NIDP 2026-10-22 (counts and ranges are live `count(*)`/`min`/`max`).
+Measured on staging (NIDP VM 45.64.105.224) 2026-10-22. Every row below is a query result, not
+an assumption.
 
-| Screen field | Source | Coverage on staging | Verdict |
-|---|---|---|---|
-| FII/DII net flow (cash), 1M–1Y + sparkline + cumulative chart | `nidp.fii_dii_flows` (segment=cash) | **16 rows, 2026-10-09 → 2026-10-21** (~8 sessions) | 🔴 **BLOCKED** — cannot serve 1M (22d) let alone 1Y (248d) |
-| MF accumulation % rising | `v_mf_accumulation_breadth` over `mf_holdings_deltas` | 1,780,881 rows, 2025-09 → 2026-09 (13 monthly deltas) | 🟢 servable for all four windows |
-| Stocks with rising institutional ownership (of 500) | `trendlyne_ownership.insti_chg_qoq_pct` | 2,479 symbols but only **3 snapshot dates** (2026-10-16 → 21) | 🟡 current value yes; **no "vs previous window" delta** |
-| | `shareholding_pattern` | 978 symbols have both 2026-06-30 and 2026-09-30 → QoQ computable | 🟡 quarterly only |
-| Sector rotation, net institutional flow by sector | `fpi_sector_auc.net_inv_inr_cr` | 2,592 rows, 23 sectors, 9 fortnightly reports 2026-05-31 → 2026-09-30 | 🟡 **foreign (FPI) only, fortnightly, 5 months** — no DII sector split exists |
-| Scanner: MF holdings Δ 3M + scheme count | `smart_money_scores_daily` (`net_shares_pct`, `schemes_increasing`, `amcs_increasing`) | 25,313 rows, 2025-11-12 → 2026-10-21 | 🟢 |
-| Scanner: FII / DII ownership Δ QoQ | `trendlyne_ownership` (`fii_chg_qoq_pct`, `insti_chg_qoq_pct`) | 2,479 symbols, one snapshot | 🟢 for the current value |
-| Scanner: bulk / block activity 3M + shares | `trendlyne_deals` + `v_trendlyne_deals_net` | 19,787 rows back to 2006; **866 rows / 95 symbols in the last 90d** | 🟢 (NSE `bulk_deals` has only 13 days, `block_deals` 12 rows — use Trendlyne) |
-| Scanner: delivery % vs 3M avg | `delivery_data.deliverable_pct` | 829,714 rows, 2025-10-01 → 2026-10-19 | 🟢 |
-| Scanner: accumulation score + evidence class | `smart_money_scores_daily` (`accumulation_score`, `evidence_class`, `data_confidence`) | as above | 🟢 |
-| Scanner: sector label | `sector_master.sector` | only **550 symbols** have a non-null sector | 🟡 fall back to `index_constituents.industry` |
-| Detail: price + change | `prices_eod` | full | 🟢 |
-| Detail: Financials tiles | `nse_financials_quarterly`, `stock_fundamental_values`, `v_stock_fundamentals_latest` | present; `roce_pct` missing for ~14% of stocks, `profit_margin_trend_pct` ~15% | 🟡 ship with a coverage caveat |
-| Detail: Technicals tiles | `stock_features_daily` (`rsi14`, `sma50`, `sma200`) | present; `sma200` missing ~20% | 🟡 |
-| Detail: News / disclosures | `corporate_announcements`, `mf_scheme_disclosure_snapshot` | present | 🟢 |
-| Universe selects (Nifty 500/200/Midcap/Smallcap) | `index_constituents` | 7,988 rows, 2026-10-12 → 2026-10-22 | 🟢 current; no history |
+| v2 element | Source | Status |
+|---|---|---|
+| Sector rotation (MF + SHP deltas × VWAP) | `scanx_mf_holdings` + `shareholding_pattern` + `prices_eod` | ✅ **servable** — but VWAP must be derived (§3.2) |
+| MF holdings Δ, schemes ↑/↓, AMC breadth, top-AMC % | `scanx_mf_holdings` (`amc`, `scheme_name`, `shares`) | ✅ 12 months Oct 25 → Sep 26; Nifty 500 coverage **500/501** |
+| Bulk/block, transfer-netted | `v_trendlyne_deals_net` | ✅ 6,109 rows → 2026-10-21; 2,318 pure-transfer rows; 42 Nifty-500 names with a deal in 3M |
+| Relative volume (20-session) | `prices_eod.volume` | ✅ 100% populated |
+| Universe selector "Nifty 500" | `index_constituents` | ✅ 501 members, as of 2026-10-22 |
+| Delivery vs 60-session baseline | `prices_eod.deliv_pct` | ⚠️ **lags one session** (§3.3) |
+| FII/DII Δ latest filing | `shareholding_pattern.fii_pct/dii_pct` | ⚠️ **1M/3M only** (§3.4) |
+| Classification-break detection | `shareholding_pattern` | ⚠️ **no `others` column** (§3.5) |
+| 1Y MF window "Sep 25 → Sep 26" | `scanx_mf_holdings` | ⚠️ **label wrong** (§3.6) |
+| Universe selector "Nifty 1000" | `index_constituents` | ⚠️ **no such index** (§3.7) |
+| FII/DII net cash, rolling sums, cumulative chart | `fii_dii_flows` | 🔴 **BLOCKED** (§3.1) |
+| Financials tiles (P/E, P/B, interest cover, CFO/PAT) | — | 🔴 not ingested — v2 already says so on screen |
 
-### 3.1 The one real blocker
-The **FII/DII cash-flow history** is the only thing on this screen that cannot be rendered at
-all for the designed windows. Two KPI cards, the whole cumulative flow-regime chart, and the
-period toggle's meaning for those panels all depend on it, and staging holds ~8 sessions.
+### 3.1 🔴 The one real blocker — unchanged from v1
+`nidp.fii_dii_flows` holds **16 rows, segment `EQUITY_CASH`, 2026-10-09 → 2026-10-21** — about
+9 sessions.
 
-Options, in order of preference:
-1. **NSE daily FII/DII archive backfill** — the dated-archive URL
-   (`fii_stats_{YYYYMMDD}.xls`) 404s, so this needs the current combined-report endpoint
-   scraped forward daily from here (gives 1M in ~3 weeks, 1Y in a year) — plus a one-off
-   historical source.
-2. **ScanX `insight/fii-dii-data`** — server-rendered `ng-state` blob, 20 days of cash
-   buy/sell/net. Covers 1M once we have 2 more days; still not 3M/6M/1Y.
-3. **Trendlyne** — confirmed to carry **no** market-wide FII/DII cash flow. Not an option.
+v2's market-wide flows panel needs 22 / 63 / 126 / 248 sessions, plus 5D/20D/60D rolling sums and
+a cumulative chart. **Every period, including 1M, is short.** 60D rolling is impossible; even 20D
+is impossible.
 
-Until one of those lands, those three panels must render an explicit
-"Insufficient history — N sessions available" state rather than a number. The design has no
-such state; it needs one adding.
+Confirmed previously: Trendlyne carries no market-wide FII/DII cash flow, and ScanX gives 20 days.
+So this is a backfill problem, not a provider-selection problem. Until it is backfilled:
+- do not render the cumulative chart,
+- do not render 5D/20D/60D,
+- render the two net-flow figures for the days we do have, labelled with the true date span.
 
-### 3.2 Second gap worth naming
-Sector rotation is specified as **combined FII + DII** flow per sector. No DII sector split
-exists in any feed we have. Either relabel the panel "FPI sector flows" (honest, servable
-from `fpi_sector_auc`) or source a DII sector breakdown.
+The period toggle must **not** silently change a panel it cannot recompute.
+
+### 3.2 VWAP must be derived — `avg_price` is empty
+`prices_eod.avg_price` is populated on **0 of 220,507** rows in the last 90 days.
+`turnover` is populated on **220,507 of 220,507**, and `turnover > 0 AND volume > 0` on
+**100.0%** of them. So period VWAP = `sum(turnover) / sum(volume)` over the window. Servable —
+but anything reading `avg_price` will silently produce nulls.
+
+### 3.3 Delivery % lags one session
+| Session | Rows | `deliv_pct` populated |
+|---|---|---|
+| 2026-10-21 | 3,708 | **0** |
+| 2026-10-19 | 3,668 | 3,254 |
+| 2026-10-16 | 3,675 | 3,253 |
+
+Delivery arrives a session late and covers ~88.6% of symbols when it does. The scanner's
+"Delivery vs base" column must read **the latest session that has delivery data**, and the panel's
+as-of date for that column differs from the price as-of date. Do not join on the latest price
+session — it yields an empty column.
+
+### 3.4 Ownership deltas work for 1M/3M only
+Filings per period, and Nifty-500 coverage:
+
+| Period end | Symbols filed (all) | Of Nifty 500 |
+|---|---|---|
+| 2026-09-30 | 1,991 | 420 / 501 (**83.8%**) |
+| 2026-06-30 | 1,207 | 336 / 501 (67.1%) |
+| 2026-03-31 | 193 | — |
+| 2025-12-31 | 169 | — |
+| 2025-09-30 | 165 | — |
+
+A delta needs two consecutive filings. Jun → Sep 2026 gives ~336 Nifty-500 names, which serves
+**1M and 3M**. The 6M window needs Mar 2026 and the 1Y window needs Sep 2025 — both have ~165–193
+symbols *in total*, so the column is effectively empty there. **For 6M/1Y, show the column as
+unavailable rather than computing a delta against a near-empty quarter.**
+
+The feed strip's "Sep 26 filings 62% in" is computable — currently **83.8%** of Nifty 500.
+
+### 3.5 Classification-break detection needs a definition
+v2 withholds an FII change when a filing spans a reclassification (the Tega case: FII falls >10 pp
+while "Others" rises by about as much). `shareholding_pattern` carries `fii_pct, dii_pct, mf_pct,
+insurance_pct, bank_fi_pct, govt_holding_pct, public_pct, individual_pct, nri_pct,
+bodies_corporate_pct` — but **no explicit `others_pct`**. The rule must be written against
+`public_pct` / `bodies_corporate_pct`, or a residual computed as `100 − sum(known buckets)`.
+This is a definition to agree, not a data gap. Until agreed, do not ship the break badge.
+
+### 3.6 The 1Y MF window label is wrong by one month
+`scanx_mf_holdings` spans **2025-10-01 → 2026-09-01** (12 months, 11 month-steps). v2 labels the
+1Y MF window "Sep 25 → Sep 26", which would need Sep 2025. Relabel **"Oct 25 → Sep 26"**.
+
+### 3.7 "Nifty 1000" does not exist
+The universe selector offers Nifty 500 / Nifty 1000 / All liquid NSE / My watchlist.
+`index_constituents` has: Nifty Total Market **756**, Nifty 500 **501**, Nifty Smallcap 250,
+Nifty 200, Nifty Midcap 150, Nifty 100, Nifty 50. There is no 1,000-name index. Either relabel
+the option **"Nifty Total Market (756)"** or drop it.
+
+### 3.8 Global MF→price mapping is loose, but not for Nifty 500
+Of 3,950 symbols in the Sep-2026 MF data, **2,457 have no price row** on 2026-10-21 (unlisted,
+debt, delisted, non-equity holdings). Within Nifty 500 the picture is clean (500/501 have MF
+data). So the scanner's "unmapped ISIN" count must be computed **inside the selected universe** —
+a global count would read ~2,457 and be meaningless.
 
 ---
 
 ## 4. Wiring rules that apply (standing)
 
-- Reuse the existing v5 Copilot tools rather than new endpoints; one data source per tool.
-- Brokers are read-only on this screen.
-- Icons sit beside names, never replacing them.
-- Report gaps on the screen (don't silently show zeroes or illustrative numbers).
-- The bundle's numbers are **illustrative** — the footer says so, and that label must not
-  survive into the wired build.
+Carried forward from the one-screen copilot design decisions; unchanged by v2:
+
+1. **Reuse the v5 tools** — do not add a parallel data path for this screen.
+2. **One data source per tool**, named on screen. Every v2 panel already has a source line; keep
+   them bound to the actual table, not to a provider's marketing name.
+3. **Brokers are read-only** here. This screen never places an order.
+4. **Icons sit beside names**, not replacing them.
+5. **Report gaps on screen.** v2 is built for this — the fifth feed strip exists to say a feed is
+   down, proxy-only names get an amber banner, and unavailable tiles say "Feed not ingested".
+   Honour it: no silent zeros, no interpolation, no "—" standing in for an untested claim.
+6. **`showShadowScore` stays `false`** until a study passes its gate. Today the paired B-vs-C
+   evaluation is INCONCLUSIVE.
+
+## 5. Build order implied by the above
+
+1. Sector rotation, MF holdings Δ, deal netting, relative volume, evidence classes/lanes,
+   stock evidence panel — all servable now.
+2. Delivery column with the one-session lag rule (§3.3).
+3. Ownership-delta column, 1M/3M only, with 6M/1Y showing unavailable (§3.4).
+4. Agree the classification-break rule (§3.5), then ship the badge.
+5. Fix the three labels (§3.6, §3.7) — trivial, but they are factual claims on screen.
+6. **Backfill `fii_dii_flows`** before the market-wide flows panel ships at all (§3.1). This is
+   the only item that blocks a whole panel, and it is the only one that needs new data rather
+   than new code.
