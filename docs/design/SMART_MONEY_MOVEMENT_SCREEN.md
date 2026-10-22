@@ -4,17 +4,31 @@
 **Supersedes** `Smart Money Movement.html` (v1, same day) and, before it, the dashboard
 screenshot. v1 is dead — do not wire anything from it.
 
-**Where the screen itself now lives:**
-`frontend-v5/design/smart-money/SmartMoneyMovement.dc.html` — the v2 screen unpacked into its
-template + logic, committed 2026-10-22 so this spec's source resolves inside the repo. Until then
-§0–§2 below described a file that was in no branch and on no disk, which is the same failure the
-charting screen hit (`frontend-v5/design/README.md` → "a screen built from §38 alone will drift on
-composition"). §0–§2 own *behaviour and fields*; the `.dc.html` owns *composition* — bar heights,
-what is a headline, what is a pill, how dense each panel is. Build from both.
+**Where the screen itself now lives** (committed 2026-10-22 from the design-project export
+`Smart Money Movement Dashboard.zip`; the zip is gitignored by `**/*.zip`, so its contents were
+extracted into the repo):
 
-The original single-file bundle (`… · offline.html`, ~1 MB of inlined fonts and gzipped runtime) is
-**not** in the repo; only the design it carries is. Drop it at
-`frontend-v5/design/Smart Money Movement v2 · offline.html` if the one-file review copy is wanted.
+| Path | What |
+|---|---|
+| `frontend-v5/design/smart-money/Smart Money Movement v2.dc.html` | **the v2 screen** — template + logic, as exported |
+| `frontend-v5/design/Smart Money Movement v2 · offline.html` | the one-file review copy (open it directly) |
+| `frontend-v5/design/smart-money/screenshots/smart-money-movement-v2.png` | v2 rendered |
+| `frontend-v5/design/smart-money/screenshots/smart-money-movement-v1.png` | v1 rendered, for the §0 comparison |
+| `frontend-v5/design/smart-money/Smart Money Movement.dc.html` | v1 source — **dead**, kept only as provenance |
+| `frontend-v5/design/smart-money/support.js` | the runtime the `.dc.html` head loads |
+| `frontend-v5/design/_ds/nivesh-copilot-design-system-21f53176-…/` | the design system the helmet links |
+
+Until this landed, §0–§2 below specified a file that was in no branch and on no disk — the same
+failure the charting screen hit (`frontend-v5/design/README.md` → "a screen built from §38 alone
+will drift on composition"). §0–§2 own *behaviour and fields*; the `.dc.html` owns *composition* —
+bar heights, what is a headline, what is a pill, how dense each panel is. Build from both.
+
+Two things the export settled, worth recording because they were previously assumptions:
+`_ds/…/colors_and_type.css` is **byte-identical** to the committed
+`frontend-v5/design/nivesh-copilot/colors_and_type.css` (sha256 `6210c9ed…`), so v2 introduces no
+new tokens; and its `_ds` id is the **same** one the existing `nivesh-copilot/*.dc.html` files
+already reference, so committing that tree makes those files resolve their stylesheet and bundle
+for the first time too.
 
 Screen id: **07 · Smart Money Movement**. Design system is unchanged:
 `frontend-v5/design/nivesh-tokens.css` carried verbatim in the bundle (dark-first, mint primary,

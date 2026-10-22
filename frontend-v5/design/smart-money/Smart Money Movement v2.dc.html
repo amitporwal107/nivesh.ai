@@ -8,15 +8,17 @@
 <body>
 <x-dc>
 <helmet>
-<link rel="stylesheet" href="../nivesh-copilot/colors_and_type.css">
-<style>
-  *, *::before, *::after { box-sizing: border-box; }
-  html, body { margin: 0; background: #06080F; }
-  a { color: var(--mint); text-decoration: none; }
-  a:hover { color: var(--ink); }
-  input::placeholder { color: var(--ink-3); opacity: 1; }
-  select option { background: var(--bg-2); color: var(--ink); }
-</style>
+  <link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+  <link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+  <script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; background: #06080F; }
+    a { color: var(--mint); text-decoration: none; }
+    a:hover { color: var(--ink); }
+    input::placeholder { color: var(--ink-3); opacity: 1; }
+    select option { background: var(--bg-2); color: var(--ink); }
+  </style>
 </helmet>
 <div class="nv-frame" data-theme="{{ theme }}" style="min-height:100vh; display:flex; flex-direction:column; color-scheme:{{ theme }}">
 
@@ -37,8 +39,8 @@
       <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; color:var(--ink-2); border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer" style-hover="color:var(--ink)">Alerts</span>
     </nav>
     <label style="display:flex; align-items:center; gap:10px; flex:0 1 300px; min-width:140px; height:38px; padding:0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink-3)">
-      <svg sc-camel-view-box="0 0 24 24" style="width:16px; height:16px; flex:none; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
-      <input sc-camel-on-key-down="{{ onSearchKey }}" placeholder="Search stocks, sectors, or ask Copilot…" style="flex:1; min-width:0; height:100%; border:0; outline:none; background:transparent; color:var(--ink); font-family:var(--sans); font-size:13px">
+      <svg viewBox="0 0 24 24" style="width:16px; height:16px; flex:none; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+      <input onKeyDown="{{ onSearchKey }}" placeholder="Search stocks, sectors, or ask Copilot…" style="flex:1; min-width:0; height:100%; border:0; outline:none; background:transparent; color:var(--ink); font-family:var(--sans); font-size:13px">
     </label>
     <span style="flex:none; width:36px; height:36px; border-radius:50%; display:grid; place-items:center; background:var(--bg-3); border:1px solid var(--line-2); font-size:12.5px; font-weight:600">SS</span>
   </header>
@@ -53,7 +55,7 @@
         </div>
         <div style="display:flex; gap:2px; padding:3px; border-radius:12px; border:1px solid var(--line-2); background:var(--bg-1)">
           <sc-for list="{{ periods }}" as="p" hint-placeholder-count="4">
-            <button sc-camel-on-click="{{ p.pick }}" style="min-width:46px; height:32px; padding:0 12px; border-radius:9px; border:1px solid transparent; border-color:{{ p.bd }}; background:{{ p.bg }}; color:{{ p.c }}; font-family:var(--mono); font-size:13px; cursor:pointer; transition:all .15s ease">{{ p.label }}</button>
+            <button onClick="{{ p.pick }}" style="min-width:46px; height:32px; padding:0 12px; border-radius:9px; border:1px solid transparent; border-color:{{ p.bd }}; background:{{ p.bg }}; color:{{ p.c }}; font-family:var(--mono); font-size:13px; cursor:pointer; transition:all .15s ease">{{ p.label }}</button>
           </sc-for>
         </div>
         <div style="display:flex; flex-direction:column; gap:2px">
@@ -99,9 +101,9 @@
               <div style="position:relative; height:160px">
                 <sc-for list="{{ chart.ticks }}" as="t" hint-placeholder-count="5"><span style="position:absolute; right:0; top:{{ t.top }}; transform:translateY(-50%); font-family:var(--mono); font-size:10px; color:var(--ink-3); white-space:nowrap">{{ t.label }}</span></sc-for>
               </div>
-              <div sc-camel-on-mouse-move="{{ onChartMove }}" sc-camel-on-mouse-leave="{{ onChartLeave }}" style="position:relative; height:160px; cursor:crosshair">
+              <div onMouseMove="{{ onChartMove }}" onMouseLeave="{{ onChartLeave }}" style="position:relative; height:160px; cursor:crosshair">
                 <sc-for list="{{ chart.ticks }}" as="t" hint-placeholder-count="5"><div style="position:absolute; left:0; right:0; top:{{ t.top }}; border-top-width:1px; border-top-style:{{ t.bs }}; border-top-color:{{ t.bc }}"></div></sc-for>
-                <svg sc-camel-view-box="0 0 600 150" sc-camel-preserve-aspect-ratio="none" style="position:absolute; inset:0; width:100%; height:100%; overflow:visible">
+                <svg viewBox="0 0 600 150" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; overflow:visible">
                   <path d="{{ chart.dii }}" style="fill:none; stroke:var(--indigo); stroke-width:1.75; stroke-linejoin:round; vector-effect:non-scaling-stroke"></path>
                   <path d="{{ chart.fii }}" style="fill:none; stroke:var(--mint); stroke-width:1.75; stroke-linejoin:round; vector-effect:non-scaling-stroke"></path>
                 </svg>
@@ -133,12 +135,12 @@
           <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px">
             <h2 style="margin:0; font-family:var(--mono); font-weight:400; font-size:13px; letter-spacing:0.12em; text-transform:uppercase">Sector rotation — disclosed buying ({{ per }})</h2>
             <div style="display:flex; gap:2px; padding:3px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-0)">
-              <sc-for list="{{ views }}" as="v" hint-placeholder-count="3"><button sc-camel-on-click="{{ v.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ v.bd }}; background:{{ v.bg }}; color:{{ v.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer; white-space:nowrap">{{ v.label }}</button></sc-for>
+              <sc-for list="{{ views }}" as="v" hint-placeholder-count="3"><button onClick="{{ v.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ v.bd }}; background:{{ v.bg }}; color:{{ v.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer; white-space:nowrap">{{ v.label }}</button></sc-for>
             </div>
           </div>
           <div style="display:flex; flex-direction:column; gap:2px">
             <sc-for list="{{ sectorRows }}" as="r" hint-placeholder-count="10">
-              <div sc-camel-on-click="{{ r.pick }}" style="display:grid; grid-template-columns:minmax(92px,130px) minmax(0,1fr) minmax(0,1fr) 88px; align-items:center; padding:4px 8px; border-radius:8px; cursor:pointer; background:{{ r.bg }}; opacity:{{ r.op }}; transition:all .15s ease" style-hover="background:var(--bg-2)">
+              <div onClick="{{ r.pick }}" style="display:grid; grid-template-columns:minmax(92px,130px) minmax(0,1fr) minmax(0,1fr) 88px; align-items:center; padding:4px 8px; border-radius:8px; cursor:pointer; background:{{ r.bg }}; opacity:{{ r.op }}; transition:all .15s ease" style-hover="background:var(--bg-2)">
                 <span style="font-size:13.5px; padding-right:12px">{{ r.name }}</span>
                 <div style="height:16px; display:flex; justify-content:flex-end; align-items:center; border-right:1px solid var(--line-3)"><div style="height:12px; width:{{ r.negW }}; border-radius:3px 0 0 3px; background:linear-gradient(270deg, var(--danger-2), var(--danger)); transition:width .3s ease"></div></div>
                 <div style="height:16px; display:flex; align-items:center"><div style="height:12px; width:{{ r.posW }}; border-radius:0 3px 3px 0; background:linear-gradient(90deg, var(--mint-2), var(--mint)); transition:width .3s ease"></div></div>
@@ -186,29 +188,29 @@
           </div>
           <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px">
             <label style="position:relative; display:flex; align-items:center; color:var(--ink-3)">
-              <sc-raw-select value="{{ universe }}" sc-camel-on-change="{{ onUniverse }}" style="appearance:none; height:34px; padding:0 32px 0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink); font-family:var(--sans); font-size:13px; cursor:pointer; outline:none">
+              <select value="{{ universe }}" onChange="{{ onUniverse }}" style="appearance:none; height:34px; padding:0 32px 0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink); font-family:var(--sans); font-size:13px; cursor:pointer; outline:none">
                 <option value="Nifty 500">Nifty 500</option><option value="Nifty 1000">Nifty 1000</option><option value="All liquid NSE">All liquid NSE</option><option value="My watchlist">My watchlist</option>
-              </sc-raw-select>
-              <svg sc-camel-view-box="0 0 24 24" style="position:absolute; right:10px; width:15px; height:15px; pointer-events:none; fill:none; stroke:currentColor; stroke-width:1.75"><path d="m6 9 6 6 6-6"></path></svg>
+              </select>
+              <svg viewBox="0 0 24 24" style="position:absolute; right:10px; width:15px; height:15px; pointer-events:none; fill:none; stroke:currentColor; stroke-width:1.75"><path d="m6 9 6 6 6-6"></path></svg>
             </label>
             <label style="position:relative; display:flex; align-items:center; color:var(--ink-3)">
-              <sc-raw-select value="{{ sector }}" sc-camel-on-change="{{ onSector }}" style="appearance:none; height:34px; padding:0 32px 0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink); font-family:var(--sans); font-size:13px; cursor:pointer; outline:none">
+              <select value="{{ sector }}" onChange="{{ onSector }}" style="appearance:none; height:34px; padding:0 32px 0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink); font-family:var(--sans); font-size:13px; cursor:pointer; outline:none">
                 <option value="All">All Sectors</option><option value="Financials">Financials</option><option value="Industrials">Industrials</option><option value="Capital Goods">Capital Goods</option><option value="Healthcare">Healthcare</option><option value="Auto">Auto</option><option value="IT">IT</option><option value="FMCG">FMCG</option><option value="Metals">Metals</option><option value="Energy">Energy</option><option value="Telecom">Telecom</option>
-              </sc-raw-select>
-              <svg sc-camel-view-box="0 0 24 24" style="position:absolute; right:10px; width:15px; height:15px; pointer-events:none; fill:none; stroke:currentColor; stroke-width:1.75"><path d="m6 9 6 6 6-6"></path></svg>
+              </select>
+              <svg viewBox="0 0 24 24" style="position:absolute; right:10px; width:15px; height:15px; pointer-events:none; fill:none; stroke:currentColor; stroke-width:1.75"><path d="m6 9 6 6 6-6"></path></svg>
             </label>
             <div style="display:flex; gap:2px; padding:3px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-0)">
-              <sc-for list="{{ dirs }}" as="o" hint-placeholder-count="3"><button sc-camel-on-click="{{ o.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ o.bd }}; background:{{ o.bg }}; color:{{ o.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer">{{ o.label }}</button></sc-for>
+              <sc-for list="{{ dirs }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ o.bd }}; background:{{ o.bg }}; color:{{ o.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer">{{ o.label }}</button></sc-for>
             </div>
             <div style="display:flex; gap:2px; padding:3px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-0)">
-              <sc-for list="{{ frOpts }}" as="o" hint-placeholder-count="4"><button sc-camel-on-click="{{ o.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ o.bd }}; background:{{ o.bg }}; color:{{ o.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer">{{ o.label }}</button></sc-for>
+              <sc-for list="{{ frOpts }}" as="o" hint-placeholder-count="4"><button onClick="{{ o.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ o.bd }}; background:{{ o.bg }}; color:{{ o.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer">{{ o.label }}</button></sc-for>
             </div>
           </div>
         </div>
 
         <div style="display:flex; gap:2px; border-bottom:1px solid var(--line); overflow-x:auto">
           <sc-for list="{{ lanes }}" as="l" hint-placeholder-count="3">
-            <button sc-camel-on-click="{{ l.pick }}" style="flex:none; display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:8px 16px 10px 0; margin-right:12px; margin-bottom:-1px; border:0; border-bottom:2px solid transparent; border-bottom-color:{{ l.bc }}; background:transparent; cursor:pointer; text-align:left">
+            <button onClick="{{ l.pick }}" style="flex:none; display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:8px 16px 10px 0; margin-right:12px; margin-bottom:-1px; border:0; border-bottom:2px solid transparent; border-bottom-color:{{ l.bc }}; background:transparent; cursor:pointer; text-align:left">
               <span style="font-size:13.5px; font-weight:500; color:{{ l.c }}">{{ l.label }} <span style="font-family:var(--mono); font-size:11px; color:var(--ink-3)">{{ l.n }}</span></span>
               <span style="font-size:11.5px; color:var(--ink-3)">{{ l.sub }}</span>
             </button>
@@ -223,7 +225,7 @@
             </div>
             <div style="display:flex; flex-direction:column; gap:2px; padding-top:6px">
               <sc-for list="{{ rows }}" as="s" hint-placeholder-count="5">
-                <div sc-camel-on-click="{{ s.pick }}" style="display:grid; grid-template-columns:24px minmax(150px,1.6fr) minmax(108px,1fr) minmax(116px,1.05fr) minmax(112px,1fr) minmax(84px,0.8fr) minmax(116px,1fr) minmax(96px,0.9fr) 14px; gap:14px; align-items:center; padding:9px 12px; border-radius:10px; border:1px solid transparent; border-color:{{ s.bd }}; background:{{ s.bg }}; cursor:pointer; transition:all .15s ease" style-hover="background:var(--bg-2)">
+                <div onClick="{{ s.pick }}" style="display:grid; grid-template-columns:24px minmax(150px,1.6fr) minmax(108px,1fr) minmax(116px,1.05fr) minmax(112px,1fr) minmax(84px,0.8fr) minmax(116px,1fr) minmax(96px,0.9fr) 14px; gap:14px; align-items:center; padding:9px 12px; border-radius:10px; border:1px solid transparent; border-color:{{ s.bd }}; background:{{ s.bg }}; cursor:pointer; transition:all .15s ease" style-hover="background:var(--bg-2)">
                   <span style="font-size:15px; color:var(--ink-3)">{{ s.n }}</span>
                   <span style="display:flex; flex-direction:column; gap:3px; min-width:0"><span style="font-size:14px; font-weight:500; line-height:1.25">{{ s.name }}</span><span style="font-family:var(--mono); font-size:10px; letter-spacing:0.06em; color:var(--ink-3)">{{ s.ticker }} · {{ s.sector }}</span></span>
                   <span style="display:flex; flex-direction:column; gap:2px"><span style="font-size:14px; color:{{ s.mfC }}">{{ s.mfT }}</span><span style="font-size:12px; color:var(--ink-3)">{{ s.mfB }}</span></span>
@@ -240,7 +242,7 @@
                 </div>
               </sc-for>
               <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
-                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:22px 12px"><span style="font-size:13.5px; color:var(--ink-3)">{{ emptyMsg }}</span><button sc-camel-on-click="{{ clearAll }}" class="nv-btn" style="padding:8px 14px; font-size:13px">Clear filters</button></div>
+                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:22px 12px"><span style="font-size:13.5px; color:var(--ink-3)">{{ emptyMsg }}</span><button onClick="{{ clearAll }}" class="nv-btn" style="padding:8px 14px; font-size:13px">Clear filters</button></div>
               </sc-if>
             </div>
           </div>
@@ -263,11 +265,11 @@
               <div style="display:flex; flex-direction:column; gap:8px">
                 <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px">
                   <h3 style="margin:0; font-family:var(--display); font-weight:400; font-size:25px; line-height:1.12; letter-spacing:-0.02em; text-wrap:pretty">{{ st.name }}</h3>
-                  <button sc-camel-on-click="{{ closeStock }}" aria-label="Close" style="flex:none; width:30px; height:30px; display:grid; place-items:center; border-radius:8px; border:1px solid transparent; background:transparent; color:var(--ink-3); cursor:pointer" style-hover="color:var(--ink); border-color:var(--line-2)"><svg sc-camel-view-box="0 0 24 24" style="width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+                  <button onClick="{{ closeStock }}" aria-label="Close" style="flex:none; width:30px; height:30px; display:grid; place-items:center; border-radius:8px; border:1px solid transparent; background:transparent; color:var(--ink-3); cursor:pointer" style-hover="color:var(--ink); border-color:var(--line-2)"><svg viewBox="0 0 24 24" style="width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
                 </div>
                 <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px">
                   <span style="font-family:var(--mono); font-size:11px; letter-spacing:0.06em; color:var(--ink-3)">NSE: {{ st.ticker }} | BSE: {{ st.bse }}</span>
-                  <button sc-camel-on-click="{{ toggleFollow }}" style="height:30px; padding:0 12px; border-radius:999px; border:1px solid transparent; border-color:{{ follow.bd }}; background:{{ follow.bg }}; color:{{ follow.c }}; font-family:var(--sans); font-size:12.5px; font-weight:500; cursor:pointer">{{ follow.label }}</button>
+                  <button onClick="{{ toggleFollow }}" style="height:30px; padding:0 12px; border-radius:999px; border:1px solid transparent; border-color:{{ follow.bd }}; background:{{ follow.bg }}; color:{{ follow.c }}; font-family:var(--sans); font-size:12.5px; font-weight:500; cursor:pointer">{{ follow.label }}</button>
                 </div>
                 <div style="display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px 12px">
                   <span style="display:flex; align-items:baseline; gap:10px"><span style="font-family:var(--display); font-size:30px; line-height:1">{{ st.price }}</span><span style="font-size:14px; color:{{ st.chgC }}">{{ st.chg }}</span></span>
@@ -276,7 +278,7 @@
               </div>
 
               <div style="display:flex; gap:18px; border-bottom:1px solid var(--line); overflow-x:auto">
-                <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><button sc-camel-on-click="{{ t.pick }}" style="flex:none; padding:6px 0 10px; margin-bottom:-1px; border:0; border-bottom:2px solid transparent; border-bottom-color:{{ t.bc }}; background:transparent; color:{{ t.c }}; font-family:var(--sans); font-size:13px; cursor:pointer">{{ t.label }}</button></sc-for>
+                <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><button onClick="{{ t.pick }}" style="flex:none; padding:6px 0 10px; margin-bottom:-1px; border:0; border-bottom:2px solid transparent; border-bottom-color:{{ t.bc }}; background:transparent; color:{{ t.c }}; font-family:var(--sans); font-size:13px; cursor:pointer">{{ t.label }}</button></sc-for>
               </div>
 
               <sc-if value="{{ tabOverview }}" hint-placeholder-val="{{ true }}">
@@ -380,12 +382,12 @@
             <span style="flex:1; display:flex; flex-direction:column; gap:4px"><span style="font-family:var(--display); font-size:22px; line-height:1">Nivesh Copilot</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)">Answers cite period and source</span></span>
           </div>
           <div style="display:flex; align-items:center; gap:10px; padding:6px 6px 6px 14px; border-radius:16px; border:1px solid var(--line-2); background:var(--bg-glass); backdrop-filter:blur(20px) saturate(140%)">
-            <input ref="{{ draftRef }}" sc-camel-on-key-down="{{ onDraftKey }}" placeholder="Ask about flows or evidence…" style="flex:1; min-width:0; height:36px; border:0; outline:none; background:transparent; color:var(--ink); font-family:var(--display); font-size:17px">
-            <button sc-camel-on-click="{{ send }}" aria-label="Send" class="nv-btn nv-btn-primary" style="flex:none; width:36px; height:36px; padding:0; justify-content:center; border-radius:11px">↗</button>
+            <input ref="{{ draftRef }}" onKeyDown="{{ onDraftKey }}" placeholder="Ask about flows or evidence…" style="flex:1; min-width:0; height:36px; border:0; outline:none; background:transparent; color:var(--ink); font-family:var(--display); font-size:17px">
+            <button onClick="{{ send }}" aria-label="Send" class="nv-btn nv-btn-primary" style="flex:none; width:36px; height:36px; padding:0; justify-content:center; border-radius:11px">↗</button>
           </div>
           <sc-if value="{{ idle }}" hint-placeholder-val="{{ true }}">
             <div style="display:flex; flex-direction:column; gap:6px">
-              <sc-for list="{{ asks }}" as="a" hint-placeholder-count="6"><button sc-camel-on-click="{{ a.pick }}" style="width:100%; text-align:left; padding:8px 12px; border-radius:10px; border:1px solid var(--line-2); background:transparent; color:var(--ink-2); font-family:var(--sans); font-size:13px; cursor:pointer; transition:all .15s ease" style-hover="border-color:var(--line-3); color:var(--ink)">{{ a.q }}</button></sc-for>
+              <sc-for list="{{ asks }}" as="a" hint-placeholder-count="6"><button onClick="{{ a.pick }}" style="width:100%; text-align:left; padding:8px 12px; border-radius:10px; border:1px solid var(--line-2); background:transparent; color:var(--ink-2); font-family:var(--sans); font-size:13px; cursor:pointer; transition:all .15s ease" style-hover="border-color:var(--line-3); color:var(--ink)">{{ a.q }}</button></sc-for>
             </div>
           </sc-if>
           <sc-if value="{{ asking }}" hint-placeholder-val="{{ false }}">
@@ -399,7 +401,7 @@
                   <div style="display:flex; flex-wrap:wrap; gap:6px; margin-left:34px"><sc-for list="{{ ans.src }}" as="x" hint-placeholder-count="1"><span class="nv-pill" style="font-size:9.5px">{{ x }}</span></sc-for></div>
                 </div>
               </sc-if>
-              <button sc-camel-on-click="{{ resetAsk }}" style="align-self:flex-start; padding:0; border:0; background:transparent; color:var(--ink-3); font-family:var(--sans); font-size:12.5px; cursor:pointer" style-hover="color:var(--ink)">‹ More questions</button>
+              <button onClick="{{ resetAsk }}" style="align-self:flex-start; padding:0; border:0; background:transparent; color:var(--ink-3); font-family:var(--sans); font-size:12.5px; cursor:pointer" style-hover="color:var(--ink)">‹ More questions</button>
             </div>
           </sc-if>
         </section>
@@ -408,16 +410,16 @@
   </div>
 
   <footer style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; padding:12px 24px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink-3)">
-    <span style="display:flex; align-items:center; gap:10px; color:var(--ink)"><svg sc-camel-view-box="0 0 24 24" style="width:18px; height:18px; fill:none; stroke:var(--mint); stroke-width:1.75; stroke-linecap:round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>Smart money is evidence, not a buy signal.</span>
+    <span style="display:flex; align-items:center; gap:10px; color:var(--ink)"><svg viewBox="0 0 24 24" style="width:18px; height:18px; fill:none; stroke:var(--mint); stroke-width:1.75; stroke-linecap:round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>Smart money is evidence, not a buy signal.</span>
     <span style="flex:1 1 420px; min-width:0">Ownership disclosures are periodic; deal disclosures may not identify beneficial intent; market proxies are indirect. Always validate with fundamentals, technicals and risk management. Educational market intelligence, not investment advice.</span>
     <span style="font-family:var(--display); font-size:14px; color:var(--ink-2)">Nivesh Copilot <span style="color:var(--ink-4)">/</span> NIDP</span>
   </footer>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showShadowScore&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showCopilot&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showShadowScore&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showCopilot&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;}}">
 const END = new Date(2026, 9, 21);
 const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const M = '−';
+const M = '\u2212';
 const inr = n => Math.round(Math.abs(n)).toLocaleString('en-IN');
 const signed = (n, d) => { const r = +n.toFixed(d); return (r > 0 ? '+' : r < 0 ? M : '') + Math.abs(r).toFixed(d); };
 const tone = n => { const r = +n.toFixed(1); return r > 0 ? 'var(--mint)' : r < 0 ? 'var(--danger)' : 'var(--ink-3)'; };

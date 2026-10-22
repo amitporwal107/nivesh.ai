@@ -13,7 +13,7 @@ Static HTML / JSX / CSS design deliverables. Not part of the production app — 
 | **`Nivesh MVP-print.html`** | Print-to-PDF sheet of the MVP screens (A4 landscape, 10 pages). |
 | **`Nivesh charting · offline.html`** | Charting proposal — **4 tabs**: 1A Chart, 2A Signals & Alerts, 4A Paper Trading, 3A Field Dictionary. Self-contained; open it directly. Added 2026-09-23. |
 | **`Nivesh Copilot · offline.html`** | One-screen, chat-first Copilot redesign — a single shell (threads rail, ask box, answer thread, evidence panel) with Investor / Trader / Advisor modes, desktop and mobile. Self-contained; open it directly. Unpacked sources in `nivesh-copilot/`. Added 2026-10-13. |
-| **`smart-money/SmartMoneyMovement.dc.html`** | Screen 07 · Smart Money Movement (v2) — an *evidence* screen, not a score screen: 5 feed-status strips, market-wide FII/DII flows, sector rotation from disclosed buying, evidence breadth, and a scanner ranked by A/B/C/D evidence classes. Unpacked template + logic; no bundled `· offline.html` sibling. Added 2026-10-22. |
+| **`Smart Money Movement v2 · offline.html`** | Screen 07 · Smart Money Movement (v2) — an *evidence* screen, not a score screen: 5 feed-status strips, market-wide FII/DII flows, sector rotation from disclosed buying, evidence breadth, and a scanner ranked by A/B/C/D evidence classes. Self-contained; open it directly. Unpacked sources, screenshots and v1 in `smart-money/`. Added 2026-10-22. |
 
 ## Offline / standalone variants
 
@@ -107,11 +107,23 @@ The shell takes six display settings, useful when comparing states: `theme` (dar
 `startView` (home / onboarding), `responseDetail` (compact / full) and `evidencePanel` (on / off).
 In the offline file these are changed from the design tool, not from the page itself.
 
-### Smart Money Movement (`smart-money/SmartMoneyMovement.dc.html`)
+### Smart Money Movement (`Smart Money Movement v2 · offline.html` + `smart-money/`)
 
-Screen id **07 · Smart Money Movement**, v2, received 2026-10-22. The canonical design for the
-Smart Money screen, paired with the written spec in `docs/design/SMART_MONEY_MOVEMENT_SCREEN.md`:
-the spec owns behaviour and the field list, this file owns composition.
+Screen id **07 · Smart Money Movement**, v2, exported 2026-10-22 from the design project
+"Smart Money Movement Dashboard". The offline file is the export exactly as received.
+`smart-money/` holds the same design unpacked so a screen can be read without decoding the bundle,
+plus the rendered screenshots and the dead v1 source:
+
+| File in `smart-money/` | What it holds |
+|---|---|
+| `Smart Money Movement v2.dc.html` | **the screen** — template + logic, 69 bindings, 7 stock fixtures |
+| `Smart Money Movement.dc.html` | v1 — **dead**, kept only for the v1-vs-v2 comparison below. Do not wire anything from it. |
+| `screenshots/smart-money-movement-v2.png` | v2 rendered |
+| `screenshots/smart-money-movement-v1.png` | v1 rendered |
+| `support.js` | the runtime the `.dc.html` head loads (`<script src="./support.js">`) |
+
+The written spec is `docs/design/SMART_MONEY_MOVEMENT_SCREEN.md`: it owns behaviour and the field
+list, these files own composition.
 
 v2 replaced a *score* screen with an *evidence* screen, and that is the point of it. Four things it
 does deliberately, which a re-implementation must not "clean up":
@@ -129,11 +141,22 @@ does deliberately, which a re-implementation must not "clean up":
   `docs/prd/SMART_MONEY_GATE_DECISION_20261022.md`: study C is INCONCLUSIVE and stays in shadow.
 
 Props: `theme` (dark|light), `showShadowScore` (bool, default false), `showCopilot` (bool, default
-true). Tokens come from `../nivesh-copilot/colors_and_type.css` — the bundle inlined that same file
-(its header comment and token values match the committed copy), so it is referenced, not duplicated.
+true). Tokens come from `_ds/nivesh-copilot-design-system-21f53176-…/colors_and_type.css`, which is
+byte-identical to `nivesh-copilot/colors_and_type.css` — v2 adds no tokens.
 
 **Every number, name and date in it is sample data** — the screen labels itself "Illustrative data ·
 not live". The seven stocks (CG Power, Carborundum, Union Bank, Tega, HEG, Mphasis, Dabur) are
 fixtures chosen to exercise the states: a matched-transfer deal that nets to zero, a classification
 break that withholds the FII delta, an unmapped ISIN, a stale filing, and a distribution case.
 Use it for layout, wording and states, never as a source of figures.
+
+The requirement document behind this screen is `docs/prd/SMART_MONEY_DATA_SOURCE_INVENTORY.md`
+(1,563 lines), also from the export.
+
+### The `_ds/` design system
+
+`_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/` is the design system that
+**both** `nivesh-copilot/*.dc.html` and `smart-money/*.dc.html` reference in their `<helmet>`. It
+arrived with the Smart Money export; before that the `.dc.html` files pointed at a path the repo did
+not contain. Holds `colors_and_type.css` (and a second copy under `deliverables/tokens/`),
+`_ds_bundle.js`, `_ds_manifest.json`, `_adherence.oxlintrc.json` and its own `README.md`.
