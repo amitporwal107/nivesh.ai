@@ -54,6 +54,25 @@ function useRoomFor(px: number): [boolean, (el: HTMLDivElement | null) => void] 
   return [on, setNode];
 }
 
+/**
+ * A real colour for a tone name.
+ *
+ * `--danger` and `--indigo` hold "R G B" TRIPLETS in this app (so Tailwind's alpha modifiers work),
+ * not colours — see the header of copilot-app.css. So `var(--danger)` is invalid CSS and paints
+ * nothing, which is why negative sector bars and the indigo breadth tier rendered invisible while
+ * the mint ones were fine (`--mint` is a real hex). The `--cp-*` aliases are the actual colours.
+ */
+const TONE_VAR: Record<string, string> = {
+  mint: "var(--mint)",
+  amber: "var(--amber)",
+  indigo: "var(--cp-indigo)",
+  danger: "var(--cp-danger)",
+  ink: "var(--cp-ink-2)",
+  "ink-3": "var(--cp-ink-3)",
+  "ink-4": "var(--cp-ink-4)",
+};
+const toneColor = (t: string) => TONE_VAR[t] ?? "var(--cp-ink-2)";
+
 const CLASS_TONE: Record<EvidenceClass, "mint" | "indigo" | "amber" | "ink"> = {
   D: "mint", A: "mint", B: "indigo", C: "amber", none: "ink",
 };
@@ -67,7 +86,7 @@ function Cr({ v, big }: { v: number | null; big?: boolean }) {
   if (v == null) return <span style={{ color: "var(--cp-ink-4)" }}>—</span>;
   const tone = signTone(v);
   return (
-    <span className="cp-num" style={{ fontSize: big ? 20 : undefined, whiteSpace: "nowrap", color: `var(--${tone === "ink" ? "cp-ink-2" : tone})` }}>
+    <span className="cp-num" style={{ fontSize: big ? 20 : undefined, whiteSpace: "nowrap", color: toneColor(tone) }}>
       {v > 0 ? "+" : v < 0 ? "−" : ""}₹{fmtNum(Math.abs(v))} cr
       <span className="sr-only">{v > 0 ? " net bought" : v < 0 ? " net sold" : " flat"}</span>
     </span>
@@ -268,7 +287,7 @@ function SectorBars({ rows, measure }: { rows: Array<{ industry: string; stocks:
                         ? { left: "50%", borderRadius: "0 4px 4px 0" }
                         : { right: "50%", borderRadius: "4px 0 0 4px" }
                       : { left: 0, borderRadius: "0 4px 4px 0" }),
-                    background: pos ? "var(--mint)" : "var(--danger)",
+                    background: toneColor(pos ? "mint" : "danger"),
                   }}
                 />
               </span>
@@ -292,10 +311,10 @@ function Tier({ label, n, of, tone, note }: { label: string; n: number | null; o
     <div className="flex flex-col" style={{ gap: 4 }} title={note}>
       <span className="flex items-baseline" style={{ gap: 8, justifyContent: "space-between" }}>
         <span style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>{label}</span>
-        <span className="cp-num" style={{ fontSize: 13, color: `var(--${tone})` }}>{fmtNum(n)}</span>
+        <span className="cp-num" style={{ fontSize: 13, color: toneColor(tone) }}>{fmtNum(n)}</span>
       </span>
       <span style={{ height: 6, background: "var(--bg-2)", borderRadius: 3, overflow: "hidden" }}>
-        <span style={{ display: "block", height: 6, width: `${pct}%`, background: `var(--${tone})`, borderRadius: "0 4px 4px 0" }} />
+        <span style={{ display: "block", height: 6, width: `${pct}%`, background: toneColor(tone), borderRadius: "0 4px 4px 0" }} />
       </span>
     </div>
   );
@@ -327,7 +346,7 @@ function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWin
             {row.closePrice == null ? "—" : `₹${fmtNum(row.closePrice, 2)}`}
           </span>
           {row.changePct != null && (
-            <span className="cp-num" style={{ fontSize: 12, color: `var(--${signTone(row.changePct) === "ink" ? "cp-ink-3" : signTone(row.changePct)})` }}>
+            <span className="cp-num" style={{ fontSize: 12, color: toneColor(signTone(row.changePct) === "ink" ? "ink-3" : signTone(row.changePct)) }}>
               {row.changePct > 0 ? "+" : ""}{row.changePct}%
             </span>
           )}
@@ -355,7 +374,7 @@ function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWin
           <div key={c.cls} className="flex" style={{ gap: 9 }}>
             <span className="cp-num" aria-hidden style={{
               flex: "none", width: 20, height: 20, borderRadius: 6, display: "grid", placeItems: "center",
-              fontSize: 11, color: `var(--${CLASS_TONE[c.cls]})`, border: `1px solid var(--${CLASS_TONE[c.cls]})`,
+              fontSize: 11, color: toneColor(CLASS_TONE[c.cls]), border: `1px solid ${toneColor(CLASS_TONE[c.cls])}`,
             }}>{c.cls}</span>
             <span className="flex min-w-0 flex-col" style={{ gap: 2 }}>
               <span style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>
@@ -525,11 +544,11 @@ export default function SmartMoneyTab() {
       >
         {(feeds?.rows ?? []).map((s) => {
           const bad = s.status && s.status !== "OK";
-          const tone = !s.statusRowPresent ? "cp-ink-4" : bad ? (s.status === "STALE" ? "amber" : "danger") : "mint";
+          const tone = !s.statusRowPresent ? "ink-4" : bad ? (s.status === "STALE" ? "amber" : "danger") : "mint";
           return (
             <div key={s.feed} className="cp-card flex flex-col" style={{ padding: "11px 13px", gap: 5 }}>
               <span className="flex items-center" style={{ gap: 7 }}>
-                <span aria-hidden style={{ flex: "none", width: 7, height: 7, borderRadius: 999, background: `var(--${tone})` }} />
+                <span aria-hidden style={{ flex: "none", width: 7, height: 7, borderRadius: 999, background: toneColor(tone) }} />
                 <span style={{ fontSize: 12, color: "var(--cp-ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.feed}</span>
               </span>
               <span className="cp-num" style={{ fontSize: 10.5, color: "var(--cp-ink-3)" }}>
@@ -590,8 +609,17 @@ export default function SmartMoneyTab() {
       {/* ── sector rotation beside evidence breadth (spec 2.4 + 2.5) ── */}
       <div className="grid" style={{ gridTemplateColumns: railSide ? "1.6fr 1fr" : "minmax(0,1fr)", gap: 20 }}>
         <Section
-          title="Sector rotation · disclosed buying"
-          note={<Chips items={SECTOR_MEASURES} value={measure} onPick={setMeasure} idPrefix="desk-smart-money-measure" label="Sector measure" />}
+          // "Rotation" and "buying" both overclaim: this is an estimated change in disclosed
+          // holdings, not a measured capital flow, so the title says what it is.
+          title="Estimated MF sector accumulation"
+          note={
+            <span className="flex flex-wrap items-center" style={{ gap: 10 }}>
+              {sectors?.previousMonth && (
+                <span className="cp-mono-note">{fmtDate(sectors.previousMonth)} → {fmtDate(sectors.asOf)}</span>
+              )}
+              <Chips items={SECTOR_MEASURES} value={measure} onPick={setMeasure} idPrefix="desk-smart-money-measure" label="Sector measure" />
+            </span>
+          }
         >
           {sectorList.length === 0 ? (
             <EmptyBlock title="No disclosed sector change" body="No month pair is disclosed for this universe." />
@@ -599,8 +627,13 @@ export default function SmartMoneyTab() {
             <SectorBars rows={sectorList} measure={measure} />
           )}
           <Footnote>
-            Disclosed MF holdings change × the disclosure month’s VWAP · estimated ·{" "}
-            {sectorList.reduce((t, r) => t + (r.stocksPriced ?? 0), 0)} of {sectorList.reduce((t, r) => t + (r.stocks ?? 0), 0)} covered.
+            <strong style={{ color: "var(--cp-ink-2)" }}>Σ (share count this month − share count last month) × that month’s VWAP.</strong>{" "}
+            A <em>share-count</em> delta, never a market-value delta, so a price move alone cannot read as buying.
+            It is still an estimate: it assumes every change traded at the month’s VWAP, and it does not yet adjust
+            for bonuses, splits or scheme mergers, any of which change a share count without a trade.{" "}
+            {sectors?.previousMonth && <>Comparing {fmtDate(sectors.previousMonth)} with {fmtDate(sectors.asOf)}. </>}
+            {sectorList.reduce((t, r) => t + (r.stocksPriced ?? 0), 0)} of {sectorList.reduce((t, r) => t + (r.stocks ?? 0), 0)} stocks priced.
+            Disclosed portfolios of 11 reporting AMCs — not all mutual funds, and not all institutional flow.
             The FII/DII shareholding leg is absent on purpose: the prior quarter carries no share count, so a
             two-quarter value-weighted figure cannot be computed without inventing one.
           </Footnote>
@@ -698,7 +731,7 @@ export default function SmartMoneyTab() {
               <span key={l.cls} className="flex items-center" style={{ gap: 6, fontSize: 11.5, color: "var(--cp-ink-3)" }}>
                 <span className="cp-num" aria-hidden style={{
                   width: 18, height: 18, borderRadius: 5, display: "grid", placeItems: "center", fontSize: 10,
-                  color: `var(--${CLASS_TONE[l.cls]})`, border: `1px solid var(--${CLASS_TONE[l.cls]})`,
+                  color: toneColor(CLASS_TONE[l.cls]), border: `1px solid ${toneColor(CLASS_TONE[l.cls])}`,
                 }}>{l.cls}</span>
                 <span><strong style={{ color: "var(--cp-ink-2)" }}>{l.cls}</strong> {l.text}</span>
               </span>

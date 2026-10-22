@@ -239,7 +239,13 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(bars).toContainText("63.2");               // 45225 / 71593 gross
     await page.getByTestId("desk-smart-money-measure-stocks").click();
     await expect(bars).toContainText("98");
-    await expect(screen(page)).toContainText("158 of 158 covered");
+    await expect(screen(page)).toContainText("158 of 158 stocks priced");
+    // The heading must not overclaim: this is an estimated holdings change, not a measured flow,
+    // and the on-screen formula must say it is a SHARE-COUNT delta.
+    await expect(screen(page)).toContainText("Estimated MF sector accumulation");
+    await expect(screen(page)).toContainText("Σ (share count this month − share count last month) × that month’s VWAP.");
+    await expect(screen(page)).toContainText("A share-count delta, never a market-value delta");
+    await expect(screen(page)).toContainText("does not yet adjust for bonuses, splits or scheme mergers");
   });
 
   test("TC-F8: the breadth tiers are the three the spec names", async ({ page }) => {
