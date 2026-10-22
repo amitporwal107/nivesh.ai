@@ -31,8 +31,8 @@ import {
   EVIDENCE_LABEL, EVIDENCE_LEGEND, EVIDENCE_NOTE, SECTOR_MEASURES, SM_DIRECTIONS, SM_FRESHNESS,
   SM_PERIODS, SM_UNIVERSES, type EvidenceClass, type FlowPoint, type ScannerFilters, type ScannerRow,
   type SectorMeasure, type SmDirection, type SmFreshness, type SmLane, type SmPeriod, type SmUniverse,
-  dataAgeDays, evidenceChain, flowRegime, ingestAheadOfData, mfWindowNote, rollingNet, rowDirection,
-  sectorGrossCr, sectorValue, useSmartMoney, whatWouldWeaken,
+  FLOW_CAVEAT, dataAgeDays, evidenceChain, flowRegime, ingestAheadOfData, mfWindowNote, rollingNet,
+  rowDirection, sectorGrossCr, sectorTotals, sectorValue, useSmartMoney, whatWouldWeaken,
 } from "./smart-money-data";
 
 /**
@@ -271,12 +271,12 @@ function SectorBars({ rows, measure }: { rows: Array<{ industry: string; stocks:
         const pct = v == null ? 0 : (Math.abs(v) / peak) * (diverging ? 50 : 100);
         const pos = (v ?? 0) >= 0;
         return (
-          <div key={r.industry} className="grid items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 150px", gap: 10 }}>
+          <div key={r.industry} className="grid items-center" style={{ gridTemplateColumns: "minmax(110px,0.9fr) minmax(0,1.6fr)", gap: 10 }}>
             <span style={{ fontSize: 12, color: "var(--cp-ink-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {r.industry}
             </span>
             <span className="flex items-center" style={{ gap: 8 }}>
-              <span style={{ position: "relative", flex: "none", width: 72, height: 10, background: "var(--bg-2)", borderRadius: 3 }}>
+              <span style={{ position: "relative", flex: "1 1 auto", minWidth: 90, height: 10, background: "var(--bg-2)", borderRadius: 3 }}>
                 {diverging && <span aria-hidden style={{ position: "absolute", left: "50%", top: -1, bottom: -1, width: 1, background: "var(--cp-ink-4)" }} />}
                 <span
                   style={{
@@ -577,7 +577,12 @@ export default function SmartMoneyTab() {
           <EmptyBlock title="No flow rows in this window" body="The feed answered with an empty window rather than an older one." />
         ) : (
           <div className="flex flex-col" style={{ gap: 14 }}>
-            {regime && <p data-testid="desk-smart-money-regime" style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: "var(--cp-ink)" }}>{regime}</p>}
+            {regime && (
+              <div data-testid="desk-smart-money-regime" className="flex flex-col" style={{ gap: 5 }}>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: "var(--cp-ink)" }}>{regime}</p>
+                <p style={{ margin: 0, fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-4)" }}>{FLOW_CAVEAT}</p>
+              </div>
+            )}
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
               {([["FII", flows?.fiiNetCr ?? null, "fiiNetCr"], ["DII", flows?.diiNetCr ?? null, "diiNetCr"]] as const).map(([who, net, key]) => (
                 <div key={who} className="cp-card flex flex-col" style={{ padding: "13px 15px", gap: 6 }}>
@@ -624,7 +629,22 @@ export default function SmartMoneyTab() {
           {sectorList.length === 0 ? (
             <EmptyBlock title="No disclosed sector change" body="No month pair is disclosed for this universe." />
           ) : (
-            <SectorBars rows={sectorList} measure={measure} />
+            <>
+              {/* The arithmetic behind the ranking, so it can be checked by hand. */}
+              {(() => {
+                const t = sectorTotals(sectorList);
+                return (
+                  <div data-testid="desk-smart-money-sector-totals" className="flex flex-wrap items-baseline"
+                       style={{ gap: "4px 16px", marginBottom: 12, fontSize: 12, color: "var(--cp-ink-3)" }}>
+                    <span>Added <span className="cp-num" style={{ color: "var(--mint)" }}>+₹{fmtNum(t.added)} cr</span></span>
+                    <span>Reduced <span className="cp-num" style={{ color: "var(--cp-danger)" }}>−₹{fmtNum(t.reduced)} cr</span></span>
+                    <span>Net <span className="cp-num" style={{ color: "var(--cp-ink)" }}>{t.net >= 0 ? "+" : "−"}₹{fmtNum(Math.abs(t.net))} cr</span></span>
+                    <span style={{ color: "var(--cp-ink-4)" }}>across {fmtNum(t.sectors)} sectors</span>
+                  </div>
+                );
+              })()}
+              <SectorBars rows={sectorList} measure={measure} />
+            </>
           )}
           <Footnote>
             <strong style={{ color: "var(--cp-ink-2)" }}>Σ (share count this month − share count last month) × that month’s VWAP.</strong>{" "}

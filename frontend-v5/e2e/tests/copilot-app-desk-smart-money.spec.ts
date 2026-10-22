@@ -207,8 +207,14 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(screen(page)).toBeVisible(SLOW);
     await expect(screen(page)).toContainText("Market-wide · not stock-specific");
     // FII -101382 and DII +201070 -> domestic absorbed the foreign selling.
+    // Comparative, never causal: two market-wide totals are not matched trades, and saying one
+    // "absorbed" the other claims they traded the same securities.
     await expect(page.getByTestId("desk-smart-money-regime"))
-      .toContainText("Domestic institutions absorbed the foreign selling over this window.");
+      .toContainText("Foreign institutions were net sellers and domestic institutions net buyers; the domestic figure was the larger of the two.");
+    await expect(page.getByTestId("desk-smart-money-regime"))
+      .toContainText("Nothing here matches a buyer to a seller or one stock to another");
+    // The caveat itself uses the word ("not evidence it absorbed the other"), so pin the CLAIM.
+    await expect(page.getByTestId("desk-smart-money-regime")).not.toContainText("absorbed the foreign selling");
     await expect(screen(page)).toContainText("regime line is rules-based, not a model");
     // Only 3 points are mocked, so 5D/20D/60D cannot be computed and must read "—", never 0.
     await expect(screen(page)).toContainText("5D — · 20D — · 60D —");
@@ -240,6 +246,12 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await page.getByTestId("desk-smart-money-measure-stocks").click();
     await expect(bars).toContainText("98");
     await expect(screen(page)).toContainText("158 of 158 stocks priced");
+    // The ranking must be checkable by hand: 45225 + 24993 added, 1375 reduced, net 68843.
+    const totals = page.getByTestId("desk-smart-money-sector-totals");
+    await expect(totals).toContainText("Added");
+    await expect(totals).toContainText("70,218");
+    await expect(totals).toContainText("1,375");
+    await expect(totals).toContainText("68,843");
     // The heading must not overclaim: this is an estimated holdings change, not a measured flow,
     // and the on-screen formula must say it is a SHARE-COUNT delta.
     await expect(screen(page)).toContainText("Estimated MF sector accumulation");
