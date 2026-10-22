@@ -72,6 +72,7 @@ from deps import db, get_current_user
 from services import desk_trading as desk
 from services import desk_strategy_trades as desk_strategy
 from services import risk_controls as rc
+from services import paper_account as pacct
 from services import risk_equity as req
 from services import pg_client
 from services.ai_trader import _research, execution, strategy
@@ -716,6 +717,16 @@ async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict
                  f"({strategy_doc.get('version')}) on {ticket['signal_date']}; risk governor "
                  f"{(ticket.get('decision') or {}).get('action')}.")
     trade = desk.new_trade(uid, execution.trade_body(ticket, rationale=rationale[:desk.NOTE_MAX]))
+    # This path inserts into desk.TRADES directly rather than through POST /api/desk/paper-trades, so
+    # it has to charge the paper account itself. Without this the AI trader could open positions the
+    # account never funded while the desk route was constrained — the same "governed on one path only"
+    # shape the risk work has been closing (docs/RISK_CONTROL_INVENTORY.md).
+    need = pacct.reservation_for(trade, None)
+    try:
+        trade["paper_reserved_rs"] = await pacct.reserve(db, uid, need, trade_id=trade["_id"],
+                                                         symbol=trade.get("symbol"))
+    except pacct.InsufficientFunds as short:
+        raise desk.DeskInputError("insufficient_paper_funds") from short
     await db[desk.TRADES].insert_one(trade)
     return trade
 

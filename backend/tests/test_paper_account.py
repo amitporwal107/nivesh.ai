@@ -205,3 +205,39 @@ def test_a_dict_detail_survives_the_error_envelope():
     plain_body = client.get("/plain").json()
     assert plain_body["message"] == "open_trade_limit"
     assert plain_body["details"] == []
+
+
+# ── both creation paths are funded ──────────────────────────────────────────
+
+def test_the_ai_trader_path_charges_the_same_account():
+    """routes/ai_trader._open_paper_trade inserts into desk.TRADES DIRECTLY rather than through
+    POST /api/desk/paper-trades, so it must charge the account itself. Without this the AI trader
+    could open positions the account never funded while the desk route was constrained — the same
+    "governed on one path only" shape docs/RISK_CONTROL_INVENTORY.md describes."""
+    import inspect
+
+    from routes import ai_trader
+
+    src = inspect.getsource(ai_trader._open_paper_trade)
+    assert "pacct.reserve" in src, "the AI trader path must charge the paper account"
+    assert "InsufficientFunds" in src, "and must refuse when it cannot"
+    # the reservation is stored on the trade, so the close returns exactly what was taken
+    assert "paper_reserved_rs" in src
+
+
+def test_a_position_reports_what_it_blocks():
+    """The figure is stored on the trade; a screen cannot show "this position blocks X" unless the
+    public shape carries it. Asserted on the real output rather than on the source, so moving the
+    field between helpers cannot quietly pass."""
+    from services import desk_trading as svc
+
+    doc = {"_id": "t1", "user_id": "u1", "status": "open", "kind": "cash", "symbol": "TCS",
+           "quantity": 10, "entry_price": 100.0, "stop_price": 95.0, "target_price": 110.0,
+           "opened_at": "2026-10-21T00:00:00+00:00", "paper_reserved_rs": 1000.0,
+           "entry_rule": "at_once"}
+    out = svc.public_trade(doc)
+    assert out["paper_reserved_rs"] == 1000.0
+
+    # A trade opened before the account existed reports None, not zero: the account never took it.
+    legacy = dict(doc); legacy.pop("paper_reserved_rs")
+    assert svc.public_trade(legacy)["paper_reserved_rs"] is None

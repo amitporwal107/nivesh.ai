@@ -882,6 +882,9 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         "strategy_version": doc.get("strategy_version"),
         "rationale": doc.get("rationale"),
         "rules_version": doc.get("rules_version"),
+        # What this position blocks against the paper account. None on a trade opened before the
+        # account existed, which is why the account's blocked total can understate those.
+        "paper_reserved_rs": doc.get("paper_reserved_rs"),
         "cost_model": doc.get("cost_model") or dict(COST_MODEL),
         "est_costs_rs": estimated_costs(doc),
         **path,
