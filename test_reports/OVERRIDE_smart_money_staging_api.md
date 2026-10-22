@@ -13,28 +13,34 @@ Verified not live: `HTTP 404` on
 `https://staging-data.niveshcopilot.com/daas/v1/desk/smart-money/breadth`, DaaS health `200`,
 OpenAPI 170 paths with zero smart-money entries.
 
-## ⚠️ The file staged on that VM is STALE — deploy from git, not from it
+## The file staged on that VM is now CURRENT (refreshed 2026-10-22)
 
-An earlier, smaller version of the router was copied to
-`/opt/nidp/dev-repo/nivesh.ai/backend/nidp/services/daas_api/routers/smart_money.py`. The router has
-since been rewritten for design fidelity (period toggle, universe, sector/direction/lane/freshness
-filters, derived evidence class, lane counts, price for the rail). I could **not** refresh that copy:
-SSH to the VM now answers `kex_exchange_identification: Connection reset by peer`, almost certainly
-fail2ban reacting to earlier failed key-auth probes from this host.
+`/opt/nidp/dev-repo/nivesh.ai/backend/nidp/services/daas_api/routers/smart_money.py` was briefly
+stale — it predated the design rebuild, and SSH to the host was refused for a while
+(`kex_exchange_identification: Connection reset by peer`, most likely fail2ban reacting to earlier
+failed key-auth probes from the app VM). The ban has since expired and the file was refreshed:
 
-Consequence if someone restarts `daas-api` without deploying first: the old router loads and serves
-the old shape. The frontend would not crash — it would show zeroed lane counts and ignore the period
-and filter chips — which is exactly the kind of quietly-wrong screen this work is meant to avoid.
+```
+local (committed) sha256: 6513d8c8d97930087f5260c30c944e8b
+remote sha256:            6513d8c8d97930087f5260c30c944e8b
+REMOTE_PY_COMPILE_OK
+registrations still in place: app.py=2 catalog.py=2
+routes in the staged file:    5
+```
 
-**So deploy from the branch, which now carries the correct file:**
+So a restart now loads the correct router. Deploying from git is still the better route, because it
+also brings `app.py`, `routers/catalog.py` and migration 181 under version control rather than
+trusting hand-placed files:
+
 ```bash
-# 1. NIDP VM (45.64.105.224) — take the committed code, do not trust the staged file
+# 1. NIDP VM (45.64.105.224) — take the committed code
 cd /opt/nidp/dev-repo/nivesh.ai
 git fetch origin feat/provider-foundations
 git checkout origin/feat/provider-foundations -- \
   backend/nidp/services/daas_api/routers/smart_money.py \
   backend/nidp/services/daas_api/app.py \
-  backend/nidp/services/daas_api/routers/catalog.py
+  backend/nidp/services/daas_api/routers/catalog.py \
+  backend/nidp/migrations/181_trendlyne_deal_fetch_log.sql
 python3 -m py_compile backend/nidp/services/daas_api/routers/smart_money.py
 
 NIDP_HOME=/opt/nidp-staging; DEV_REPO=/opt/nidp/dev-repo/nivesh.ai
