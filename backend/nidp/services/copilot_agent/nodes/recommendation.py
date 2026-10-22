@@ -11,7 +11,7 @@ from typing import List
 
 from langchain_core.messages import AIMessage
 
-from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -505,10 +505,10 @@ async def recommendation_node(state: CopilotState) -> dict:
 
     llm = make_chat_llm(temperature_for(0.2))
     resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
-    answer_text = resp.content
+    answer_text = text_of(resp)
 
     widget_tr = next(
         (r for r in tool_results if r.widget_type not in (WidgetType.NONE, None) and r.ok),

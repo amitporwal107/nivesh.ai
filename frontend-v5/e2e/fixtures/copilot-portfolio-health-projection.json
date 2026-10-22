@@ -1,0 +1,119 @@
+{
+  "available": true,
+  "current": {
+    "health_score": 64.5,
+    "grade": "B",
+    "grade_band": "Fair",
+    "low_confidence": false,
+    "summary": "A fixture portfolio with room to spread out.",
+    "components": {
+      "diversification": {
+        "name": "Diversification",
+        "score": 61.0,
+        "weight": 0.25,
+        "sub_scores": {
+          "overlap_pct": 62.0
+        },
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      },
+      "risk": {
+        "name": "Risk",
+        "score": 62.0,
+        "weight": 0.25,
+        "sub_scores": {
+          "portfolio_vol_pct": 14.2
+        },
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      },
+      "cost": {
+        "name": "Cost",
+        "score": 60.0,
+        "weight": 0.25,
+        "sub_scores": {
+          "weighted_expense_ratio_pct": 0.92
+        },
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      },
+      "performance": {
+        "name": "Performance",
+        "score": 66.0,
+        "weight": 0.25,
+        "sub_scores": {},
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      }
+    },
+    "risk_drivers": []
+  },
+  "projected": {
+    "health_score": 70.0,
+    "grade": "B",
+    "grade_band": "Fair",
+    "low_confidence": false,
+    "summary": "A fixture portfolio with room to spread out.",
+    "components": {
+      "diversification": {
+        "name": "Diversification",
+        "score": 68.0,
+        "weight": 0.25,
+        "sub_scores": {
+          "overlap_pct": 47.0
+        },
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      },
+      "risk": {
+        "name": "Risk",
+        "score": 64.0,
+        "weight": 0.25,
+        "sub_scores": {
+          "portfolio_vol_pct": 13.1
+        },
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      },
+      "cost": {
+        "name": "Cost",
+        "score": 66.0,
+        "weight": 0.25,
+        "sub_scores": {
+          "weighted_expense_ratio_pct": 0.71
+        },
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      },
+      "performance": {
+        "name": "Performance",
+        "score": 66.0,
+        "weight": 0.25,
+        "sub_scores": {},
+        "drivers": [],
+        "low_confidence": false,
+        "note": null
+      }
+    },
+    "risk_drivers": []
+  },
+  "delta_total": 5.5,
+  "delta_by_component": {
+    "diversification": 7.0,
+    "risk": 2.0,
+    "cost": 6.0,
+    "performance": 0.0
+  },
+  "completed_count": 1,
+  "pending_count": 3,
+  "mutated_action_count": 3,
+  "message": "",
+  "plan_id": "plan_fixture_v2"
+}

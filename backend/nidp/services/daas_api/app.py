@@ -45,7 +45,12 @@ from nidp.services.daas_api.routers import (
     announcements,
     backfill,
     catalog,
+    circulars,
     corporate_actions,
+    desk_events,
+    desk_expectation,
+    desk_macro,
+    desk_market,
     documents,
     dq_ai,
     events,
@@ -330,6 +335,11 @@ app.include_router(macro.router, prefix=v1_prefix)
 app.include_router(snapshots.router, prefix=v1_prefix)
 app.include_router(move_odds.router, prefix=v1_prefix)
 app.include_router(movers.router, prefix=v1_prefix)
+app.include_router(desk_market.router, prefix=v1_prefix)  # /desk/* — trading desk market reads
+app.include_router(desk_events.router, prefix=v1_prefix)  # /desk/events-calendar* — trading desk stock-events calendar
+app.include_router(desk_expectation.router, prefix=v1_prefix)  # /desk/events-calendar/expectation — results expectation from published quarters
+app.include_router(desk_macro.router, prefix=v1_prefix)  # /desk/macro-calendar* — trading desk macro-release calendar
+app.include_router(circulars.router, prefix=v1_prefix)    # /circulars/* — SEBI circulars
 app.include_router(paper_trades.router, prefix=v1_prefix)
 app.include_router(features.router, prefix=v1_prefix)
 app.include_router(events.router, prefix=v1_prefix)

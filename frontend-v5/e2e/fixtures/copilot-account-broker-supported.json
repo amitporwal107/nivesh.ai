@@ -1,0 +1,173 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape (registry.list_supported). No broker app keys set on the server, so nothing is connectable.",
+  "brokers": [
+    {
+      "slug": "fivepaisa",
+      "name": "5paisa",
+      "auth_style": "form",
+      "implemented": true,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "aliceblue",
+      "name": "AliceBlue",
+      "auth_style": "oauth",
+      "implemented": true,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "angel",
+      "name": "Angel One",
+      "auth_style": "oauth",
+      "implemented": true,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "dhan",
+      "name": "Dhan",
+      "auth_style": "apikey",
+      "implemented": true,
+      "configured": true,
+      "connectable": false
+    },
+    {
+      "slug": "fyers",
+      "name": "Fyers",
+      "auth_style": "oauth",
+      "implemented": true,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "groww",
+      "name": "Groww",
+      "auth_style": "apikey",
+      "implemented": true,
+      "configured": true,
+      "connectable": false
+    },
+    {
+      "slug": "upstox",
+      "name": "Upstox",
+      "auth_style": "oauth",
+      "implemented": true,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "zerodha",
+      "name": "Zerodha",
+      "auth_style": "oauth",
+      "implemented": true,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "definedge",
+      "name": "Definedge",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "flattrade",
+      "name": "Flattrade",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "icicidirect",
+      "name": "ICICI Direct",
+      "auth_style": "oauth",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "iifl",
+      "name": "IIFL",
+      "auth_style": "oauth",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "iiflcapital",
+      "name": "IIFL Capital",
+      "auth_style": "oauth",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "indmoney",
+      "name": "INDmoney",
+      "auth_style": "oauth",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "kotak",
+      "name": "Kotak Neo",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "mstock",
+      "name": "m.Stock",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "motilal",
+      "name": "Motilal Oswal",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "paytm",
+      "name": "Paytm Money",
+      "auth_style": "oauth",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "samco",
+      "name": "Samco",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "shoonya",
+      "name": "Shoonya",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    },
+    {
+      "slug": "tradejini",
+      "name": "Tradejini",
+      "auth_style": "form",
+      "implemented": false,
+      "configured": false,
+      "connectable": false
+    }
+  ]
+}

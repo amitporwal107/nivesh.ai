@@ -365,3 +365,104 @@ def _score_cas_confidence(sender: str, subject: str) -> float:
         score += 0.1
 
     return min(round(score, 2), 1.0)
+
+
+# ── Statement history ──────────────────────────────────────────────────────
+# scan_for_cas_emails above returns one email per source — the latest. The
+# opt-in "import all statements" mode (services.cas_history_import) needs every
+# statement of the last year instead. Listing is cheap (ids only); an email is
+# opened one at a time, by the caller, only when it is going to be read.
+
+HISTORY_MONTHS = 12
+# Newest emails kept per source. A depository statement arrives monthly, so a
+# year is ~12; the room above that is for registrar mail that is not a CAS.
+HISTORY_MAX_PER_SOURCE = 120
+_HISTORY_PAGE_SIZE = 100
+
+
+def list_cas_history(service, months: int = HISTORY_MONTHS,
+                     max_per_source: int = HISTORY_MAX_PER_SOURCE) -> dict:
+    """Ids of every email with a PDF from a CAS sender in the last `months`
+    months: ``{source: [message_id, ...]}``, newest first within a source,
+    sources in SOURCE_PRIORITY order, each email once. Opens no email.
+
+    The source here is the sender query that found the email; fetch_cas_email
+    settles it from the sender and subject. A query that fails is logged and
+    skipped, but if Gmail answers none of them the last error is raised, so a
+    dead session is not reported as "no statements"."""
+    found: dict[str, list[str]] = {}
+    seen: set[str] = set()
+    queries = _scan_queries(service)
+    failures = 0
+    last_error: Exception | None = None
+
+    for source, query in queries:
+        ids = found.setdefault(source, [])
+        page_token = None
+        try:
+            while len(ids) < max_per_source:
+                results = service.users().messages().list(
+                    userId="me",
+                    q=f"{query} newer_than:{int(months)}m",
+                    maxResults=_HISTORY_PAGE_SIZE,
+                    pageToken=page_token,
+                ).execute()
+                for meta in results.get("messages", []):
+                    if meta["id"] in seen:
+                        continue
+                    seen.add(meta["id"])
+                    ids.append(meta["id"])
+                page_token = results.get("nextPageToken")
+                if not page_token:
+                    break
+        except Exception as e:  # noqa: BLE001 — one failing query must not hide the others
+            failures += 1
+            last_error = e
+            logger.warning("Gmail history search failed for query '%s': %s", query, e)
+
+    if queries and failures == len(queries) and last_error is not None:
+        raise last_error
+
+    ordered = [s for s in SOURCE_PRIORITY if found.get(s)] + [
+        s for s in found if s not in SOURCE_PRIORITY and found[s]
+    ]
+    history = {s: found[s][:max_per_source] for s in ordered}
+    logger.info(
+        "Gmail history scan: %s",
+        ", ".join(f"{s}={len(ids)}" for s, ids in history.items()) or "nothing found",
+    )
+    return history
+
+
+def fetch_cas_email(service, message_id: str, source: str = "unknown"):
+    """Open one email found by list_cas_history. Returns the dict
+    scan_for_cas_emails builds for an email, or None when the email carries no
+    PDF that can be downloaded. Errors from Gmail propagate to the caller."""
+    msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
+    headers = {
+        h["name"].lower(): h["value"]
+        for h in msg.get("payload", {}).get("headers", [])
+    }
+    sender = headers.get("from", "")
+    subject = headers.get("subject", "")
+    date = headers.get("date", "")
+
+    attachments = _find_pdf_attachments(msg.get("payload", {}))
+    if not attachments:
+        return None
+
+    first = attachments[0]
+    classified = _classify_source(sender, subject)
+    return {
+        "message_id": message_id,
+        "sender":     sender,
+        "subject":    subject,
+        "date":       date,
+        "date_dt":    _parse_email_date(date),
+        "source":     classified if classified != "unknown" else source,
+        "attachments": attachments,
+        "attachment_id": first.get("attachment_id"),
+        "filename":   first.get("filename"),
+        "size":       first.get("size", 0),
+        "confidence": _score_cas_confidence(sender, subject),
+    }

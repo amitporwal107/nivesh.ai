@@ -1,0 +1,56 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape.",
+  "consents": [
+    {
+      "purpose": "data_processing",
+      "title": "Store and analyse portfolio data",
+      "description": "Fixture notice text for data_processing.",
+      "required": true,
+      "status": "granted",
+      "granted_at": "2026-09-01T09:00:00+00:00",
+      "withdrawn_at": null,
+      "version": "1.0"
+    },
+    {
+      "purpose": "advice_ai",
+      "title": "AI-powered advice via third-party LLM",
+      "description": "Fixture notice text for advice_ai.",
+      "required": false,
+      "status": "pending",
+      "granted_at": null,
+      "withdrawn_at": null,
+      "version": "1.0"
+    },
+    {
+      "purpose": "scraping_fetch",
+      "title": "Fetch live prices and ratings",
+      "description": "Fixture notice text for scraping_fetch.",
+      "required": false,
+      "status": "pending",
+      "granted_at": null,
+      "withdrawn_at": null,
+      "version": "1.0"
+    },
+    {
+      "purpose": "marketing_comms",
+      "title": "Product emails and notifications",
+      "description": "Fixture notice text for marketing_comms.",
+      "required": false,
+      "status": "withdrawn",
+      "granted_at": null,
+      "withdrawn_at": "2026-09-15T09:00:00+00:00",
+      "version": "1.0"
+    },
+    {
+      "purpose": "partner_sharing",
+      "title": "Share with partner distributors",
+      "description": "Fixture notice text for partner_sharing.",
+      "required": false,
+      "status": "pending",
+      "granted_at": null,
+      "withdrawn_at": null,
+      "version": "1.0"
+    }
+  ],
+  "version": "1.0"
+}

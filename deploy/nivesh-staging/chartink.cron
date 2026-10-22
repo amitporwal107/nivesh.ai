@@ -1,0 +1,23 @@
+# /etc/cron.d/nivesh-staging-chartink — refresh of every user's Chartink scans for the Smart trading desk [staging].
+#
+# Runs each connected user's enabled Chartink scans (backend/scripts/refresh_chartink.py, same code as
+# POST /api/desk/chartink/refresh) and stores today's hits, so the desk's Chartink list and the Strategy Builder's
+# merged ideas have data even when nobody presses refresh. Chartink has no official API: the run is polite (2 scans at
+# a time, at least 1 s apart, 30 s each, 25 scans per user at most) and happens twice a day. In-app only; no orders,
+# no brokers, no Chartink credential.
+#
+# Schedule (Asia/Kolkata), Mon-Fri:
+#   16:05 IST  after the 15:30 close, so scans that use 5 / 15 minute and 1 hour candles hold the closed session
+#   20:10 IST  after the 19:00 bhavcopy ingest, so end-of-day (daily candle) scans hold the day's final data
+# A missed or failed run is caught up by the next one (a failed scan leaves its earlier hits labelled with their own fetch time).
+#
+# Install (one-off, not CI-managed — see deploy/nivesh-staging/install-chartink.sh):
+#   sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/install-chartink.sh
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+5 16 * * 1-5   root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.refresh_chartink >> /opt/nivesh-staging/logs/chartink.log 2>&1
+10 20 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.refresh_chartink >> /opt/nivesh-staging/logs/chartink.log 2>&1

@@ -1,0 +1,60 @@
+{
+  "ok": false,
+  "mode": "all_statements",
+  "months": 12,
+  "cap": 6,
+  "scanned": 2,
+  "attempted": 2,
+  "imported": 0,
+  "already_stored": 0,
+  "failed": 2,
+  "remaining": 0,
+  "statements": [
+    {
+      "message_id": "m-sep",
+      "filename": "NSDLe-CAS_SEP_2026.PDF",
+      "email_date": "2026-10-03",
+      "source": "nsdl",
+      "consolidated": true,
+      "statement_date": null,
+      "statement_period": null,
+      "date_source": null,
+      "status": "failed",
+      "reason": "The password did not unlock this statement. Check the PAN or statement password under Sync Gmail.",
+      "error_kind": "password",
+      "holdings_count": null,
+      "mounted": false
+    },
+    {
+      "message_id": "m-aug",
+      "filename": "NSDLe-CAS_AUG_2026.PDF",
+      "email_date": "2026-09-03",
+      "source": "nsdl",
+      "consolidated": true,
+      "statement_date": null,
+      "statement_period": null,
+      "date_source": null,
+      "status": "failed",
+      "reason": "The password did not unlock this statement. Check the PAN or statement password under Sync Gmail.",
+      "error_kind": "password",
+      "holdings_count": null,
+      "mounted": false
+    }
+  ],
+  "mounted": {
+    "changed": false,
+    "statement_period": "Aug/2026",
+    "statement_date": "2026-08-31",
+    "source": null,
+    "consolidated": null,
+    "mf_only": false,
+    "reason": "Your portfolio already shows the latest statement (Aug/2026)."
+  },
+  "imported_files": 0,
+  "imported_holdings": 0,
+  "parse_errors": 2,
+  "parse_error": {
+    "kind": "password",
+    "message": "The password did not unlock this statement. Check the PAN or statement password under Sync Gmail."
+  }
+}

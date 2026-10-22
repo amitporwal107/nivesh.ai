@@ -12,7 +12,7 @@ import re
 
 from langchain_core.messages import AIMessage
 
-from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -549,10 +549,10 @@ async def mf_node(state: CopilotState) -> dict:
 
     llm = make_chat_llm(temperature_for(0.1))
     resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + style + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + style + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
-    answer_text = resp.content
+    answer_text = text_of(resp)
 
     response = AgentResponse(
         agent=AgentName.MF,

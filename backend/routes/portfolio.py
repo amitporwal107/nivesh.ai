@@ -516,9 +516,30 @@ async def delete_holding(request: Request, holding_id: str):
 
 @router.delete("/portfolio/holdings-all")
 async def clear_all_holdings(request: Request):
-    """Delete ALL holdings and associated data for the current user."""
+    """Delete ALL holdings and associated data for the current user.
+
+    That includes the stored statements: every `portfolio_snapshots` row that
+    carries a `holdings` array, whether the advisor flow wrote it or the Gmail
+    "import all statements" path did. Any of them could otherwise be loaded
+    back into the live holdings. The lightweight daily trend rows (no
+    `holdings` array) are kept. Statements go first, so a portfolio read that
+    arrives mid-way finds nothing to reload.
+    """
     user = await get_current_user(request)
     uid = user["user_id"]
+
+    stored_statements = {"user_id": uid, "holdings": {"$exists": True}}
+    statement_dates = [
+        d.get("snapshot_date")
+        async for d in db.portfolio_snapshots.find(stored_statements, {"_id": 0, "snapshot_date": 1})
+    ]
+    statements_deleted = (await db.portfolio_snapshots.delete_many(stored_statements)).deleted_count
+    if statement_dates:
+        # A view state left pointing at a statement that no longer exists would
+        # keep health cached under that date.
+        owner = await db.users.find_one({"user_id": uid}, {"_id": 0, "cas_view_state": 1})
+        if ((owner or {}).get("cas_view_state") or {}).get("current_snapshot_date") in statement_dates:
+            await db.users.update_one({"user_id": uid}, {"$unset": {"cas_view_state": ""}})
 
     holdings_deleted = (await db.holdings.delete_many({"user_id": uid})).deleted_count
     await db.fund_performance_cache.delete_many({"user_id": uid})
@@ -529,7 +550,11 @@ async def clear_all_holdings(request: Request):
     await db.chat_messages.delete_many({"user_id": uid})
     await _dc.invalidate(uid)
 
-    return {"message": f"{holdings_deleted} holdings cleared. All portfolio data reset.", "deleted": holdings_deleted}
+    return {
+        "message": f"{holdings_deleted} holdings cleared. All portfolio data reset.",
+        "deleted": holdings_deleted,
+        "statements_deleted": statements_deleted,
+    }
 
 
 

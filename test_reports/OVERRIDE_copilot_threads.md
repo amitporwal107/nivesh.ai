@@ -1,0 +1,1 @@
+REASON: the PATCH /api/chat/sessions/{id} endpoint is not deployed to staging (branch feat/copilot-round4 is unmerged) and no staging session token is available, so no real staging API call could be made. UI is verified against route mocks; backend only by unit test.

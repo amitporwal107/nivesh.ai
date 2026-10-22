@@ -32,6 +32,7 @@ WAVE1_DATED=(
 WAVE1_NODATE=(
   corporate_actions rbi_yields fred_macro nse_calendar nse_equity_master
   nse_shareholding nse_financials event_calendar event_day_poller
+  sebi_circulars
 )
 # Note: corporate_announcements_nse/bse fail without specific runtime
 # args (they're high-freq pollers, not date-driven). Skipped here — the

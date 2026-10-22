@@ -40,6 +40,7 @@ _CATALOG_TABLES: List[Tuple[str, Optional[str], str]] = [
     ("corporate_announcements",   "filed_at",     "Disclosure"),
     ("documents",                 "ingested_at",  "Disclosure"),
     ("document_chunks",           None,           "Disclosure"),
+    ("sebi_circulars",            "issued_on",    "Disclosure"),
     ("stock_features_daily",      "as_of_date",   "Derived"),
     ("market_daily_snapshot",     "as_of_date",   "Derived"),
     ("stock_daily_snapshot",      "as_of_date",   "Derived"),
@@ -142,6 +143,11 @@ _TABLE_DESC: Dict[str, Dict[str, str]] = {
         "source":   "NSE + BSE corporate filings (XBRL feeds, scraped every 5 min)",
         "stores":   "Filing time, subject, body text, attached PDFs — classified by Haiku into impact tiers",
         "use":      "Real-time event-driven signals. v_announcements_high_impact_today is the alert feed.",
+    },
+    "sebi_circulars": {
+        "source":   "SEBI RSS feed (sebi_circulars, every 3 h Mon-Sat) + page 1 of the Circulars / Master Circulars listings (backfill)",
+        "stores":   "Circular title, URL, kind (circular / master_circular), issue date; links under /legal/circulars/ and /legal/master-circulars/ only",
+        "use":      "Regulatory updates on the trading desk (DaaS /v1/circulars/sebi). Enforcement notices naming individuals are never stored.",
     },
     "documents": {
         "source":   "PDF/XLSX attachments referenced by corporate_announcements (downloaded by document_parser)",

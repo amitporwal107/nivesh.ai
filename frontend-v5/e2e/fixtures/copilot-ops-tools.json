@@ -1,0 +1,130 @@
+{
+  "_note": "MOCK — not real data: synthetic values in the shape of the real responses (looked at on staging, 2026-10-13). Keyed by the endpoint each body answers.",
+  "/api/copilot/agents": {
+    "agents": [
+      {
+        "id": "auto",
+        "label": "Auto-route",
+        "icon": "compass",
+        "one_liner": "Picks the right specialist automatically.",
+        "triggers": [],
+        "default_suggestions": [
+          "Fixture starter one?"
+        ]
+      },
+      {
+        "id": "fixture_tax",
+        "label": "Fixture Tax Agent",
+        "icon": "receipt",
+        "one_liner": "Fixture: capital gains questions.",
+        "triggers": [
+          "\\btax\\b",
+          "\\bcapital gains?\\b"
+        ],
+        "default_suggestions": [
+          "Fixture starter two?",
+          "Fixture starter three?"
+        ]
+      },
+      {
+        "id": "fixture_risk",
+        "label": "Fixture Risk Agent",
+        "icon": "shield",
+        "one_liner": "Fixture: risk questions.",
+        "triggers": [
+          "\\brisk\\b"
+        ],
+        "default_suggestions": []
+      }
+    ]
+  },
+  "/api/copilot/models/picker": {
+    "models": [
+      {
+        "id": "fixture-model-a",
+        "provider": "openai",
+        "label": "Fixture Model A (default)",
+        "is_default": true,
+        "underlying": "fixture-model-a-2026",
+        "notes": "Fixture note for model A."
+      },
+      {
+        "id": "fixture-model-b",
+        "provider": "anthropic",
+        "label": "Fixture Model B",
+        "is_default": false,
+        "underlying": "fixture-model-b-2026",
+        "notes": "Fixture note for model B."
+      }
+    ]
+  },
+  "/api/admin/ai/circuit": {
+    "open": true,
+    "opens_until": 1830000000.0,
+    "seconds_remaining": 864000
+  },
+  "/api/admin/prompts": {
+    "prompts": [
+      {
+        "name": "fixture_chat_system",
+        "description": "Fixture: main chat system prompt.",
+        "used_in": "routes/fixture_chat.py",
+        "default": "FIXTURE DEFAULT TEXT — must never be rendered",
+        "current": "FIXTURE CURRENT TEXT — must never be rendered",
+        "overridden": true,
+        "length": 1234
+      },
+      {
+        "name": "fixture_rating_system",
+        "description": "Fixture: rates one fund.",
+        "used_in": "services/fixture.rate_fund",
+        "default": "FIXTURE DEFAULT TEXT — must never be rendered",
+        "current": "FIXTURE DEFAULT TEXT — must never be rendered",
+        "overridden": false,
+        "length": 167
+      },
+      {
+        "name": "fixture_parser_system",
+        "description": "Fixture: parses a statement.",
+        "used_in": "services/fixture.parse",
+        "default": "FIXTURE DEFAULT TEXT — must never be rendered",
+        "current": "FIXTURE DEFAULT TEXT — must never be rendered",
+        "overridden": false,
+        "length": 1668
+      }
+    ]
+  },
+  "/api/admin/feature-flags": {
+    "flags": [
+      {
+        "key": "fixture_research",
+        "display_name": "Fixture research page",
+        "description": "Fixture flag one.",
+        "mode": "allowlist",
+        "allowlist": [
+          "allowed-one@example.test",
+          "allowed-two@example.test"
+        ],
+        "is_custom": false
+      },
+      {
+        "key": "fixture_streaming",
+        "display_name": "Fixture chat streaming",
+        "description": "Fixture flag two.",
+        "mode": "everyone",
+        "allowlist": [],
+        "is_custom": false
+      },
+      {
+        "key": "fixture_autofix",
+        "display_name": "Fixture auto-fix agent",
+        "description": "Fixture flag three.",
+        "mode": "off",
+        "allowlist": [],
+        "is_custom": false
+      }
+    ],
+    "updated_at": "2026-10-12T13:01:40.927364+00:00",
+    "updated_by": "changer@example.test"
+  }
+}

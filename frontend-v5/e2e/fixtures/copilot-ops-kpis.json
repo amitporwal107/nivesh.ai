@@ -1,0 +1,279 @@
+{
+  "_note": "MOCK — not real data: synthetic values in the shape of the real responses (looked at on staging, 2026-10-13). Keyed by the endpoint each body answers.",
+  "/api/admin/stats": {
+    "whitelist": {
+      "total": 40,
+      "active": 25,
+      "pending": 12,
+      "blocked": 3,
+      "conversion_rate": 62.5
+    },
+    "usage": {
+      "total_users": 31,
+      "total_portfolios": 22,
+      "total_holdings": 418
+    }
+  },
+  "/api/admin/nidp/quality/summary": {
+    "quality": [
+      {
+        "target_date": "2026-10-12",
+        "domain": "equity",
+        "overall_score": 90.594,
+        "accuracy": 100.0,
+        "consistency": 71.429,
+        "completeness": 100.0,
+        "freshness": 91.65,
+        "auditability": 100.0,
+        "confidence": 95.473,
+        "certification": "REVIEW",
+        "publish_decision": "REJECT",
+        "computed_at": "2026-10-12T17:00:07.393771+00:00"
+      },
+      {
+        "target_date": "2026-10-12",
+        "domain": "mf",
+        "overall_score": 99.165,
+        "accuracy": 100.0,
+        "consistency": 100.0,
+        "completeness": 100.0,
+        "freshness": 96.2,
+        "auditability": 100.0,
+        "confidence": 98.33,
+        "certification": "GOLD",
+        "publish_decision": "AUTO_PUBLISH",
+        "computed_at": "2026-10-12T17:00:05.641341+00:00"
+      },
+      {
+        "target_date": "2026-10-09",
+        "domain": "equity",
+        "overall_score": 11.111,
+        "accuracy": 11.1,
+        "consistency": 11.1,
+        "completeness": 11.1,
+        "freshness": 11.1,
+        "auditability": 11.1,
+        "confidence": 11.1,
+        "certification": "REVIEW",
+        "publish_decision": "REJECT",
+        "computed_at": "2026-10-09T17:00:07+00:00"
+      }
+    ],
+    "certified": [
+      {
+        "target_date": "2026-10-12",
+        "domain": "mf",
+        "overall_score": 99.165,
+        "certification": "GOLD",
+        "certified_at": "2026-10-12T17:00:05.653759+00:00"
+      }
+    ],
+    "gate": [],
+    "exceptions": [
+      {
+        "queue_id": "00000000-0000-4000-8000-00000000e001",
+        "target_date": "2026-10-12",
+        "domain": "equity",
+        "outcome": "REVIEW",
+        "quality_score": 95.714,
+        "confidence": 98.571,
+        "block_findings": 0,
+        "reason": "fixture: hold for review",
+        "created_at": "2026-10-12T12:16:04+00:00",
+        "resolved": false,
+        "resolved_at": null,
+        "resolution_note": null
+      }
+    ],
+    "errors": {
+      "quality": null,
+      "certified": null,
+      "gate": null,
+      "exceptions": null
+    }
+  },
+  "/api/admin/ocr-correction/stats": {
+    "total_corrections": 18,
+    "auto_applied": 2,
+    "isin_corrections": 14,
+    "name_corrections": 3,
+    "patterns_learned": 17
+  },
+  "/api/data-health/summary": {
+    "status": "warn",
+    "issues": [
+      {
+        "job": "fixture_scanner",
+        "label": "Fixture upload scanner",
+        "severity": "warn",
+        "message": "fixture: scanner unreachable — scans skipped",
+        "last_run_at": null
+      }
+    ],
+    "ms_coverage": {
+      "total": 0,
+      "rated": 0,
+      "pct": 0.0
+    },
+    "mirror_age_hours": null,
+    "scrape_queue": {
+      "queued": 0,
+      "done": 0,
+      "failed": 0
+    },
+    "scanner": {
+      "status": "degraded",
+      "scanner": "fixture",
+      "detail": "fixture"
+    },
+    "checked_at": "2026-10-13T12:53:02.322544+00:00"
+  },
+  "/api/work/stats": {
+    "total": 23,
+    "by_status": {
+      "open": 7,
+      "in_progress": 4,
+      "in_review": 2,
+      "testing_qa": 1,
+      "resolved": 8,
+      "wont_fix": 1
+    },
+    "by_priority": {
+      "P1": 3,
+      "P2": 15,
+      "P3": 5
+    }
+  },
+  "/api/move-odds/diagnostics": {
+    "data": {
+      "source": "fixture/entry_setups_result.json",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "decided": "2026-09-17",
+      "study": {
+        "title": "Fixture entry setups research",
+        "first_signal_day": "2024-10-24",
+        "last_signal_day": "2026-09-08",
+        "universe": "Fixture universe",
+        "cost_round_trip": 0.0025,
+        "exits": "Fixture exits",
+        "rule": "Fixture validation rule",
+        "baseline": "Fixture baseline definition",
+        "tested": 4,
+        "validated": 1
+      },
+      "setups": [
+        {
+          "id": "A",
+          "name": "Fixture breakout",
+          "status": "not_validated",
+          "status_label": "Not validated",
+          "headline": "Fixture headline",
+          "research_status": "Fixture research status",
+          "explanation": "Fixture explanation.",
+          "trades": [
+            {
+              "trade": "5%",
+              "trades": 190,
+              "mean_net": -0.0065,
+              "ci95": [
+                -0.0085,
+                -0.0045
+              ],
+              "baseline_mean_net": -0.0054,
+              "half1_mean_net": -0.0065,
+              "half2_mean_net": -0.0065,
+              "validation": "failed",
+              "failed_checks": [
+                "mean_gt_0"
+              ]
+            },
+            {
+              "trade": "10%",
+              "trades": 1601,
+              "mean_net": -0.0074,
+              "ci95": [
+                -0.0094,
+                -0.0054
+              ],
+              "baseline_mean_net": -0.0061,
+              "half1_mean_net": -0.0074,
+              "half2_mean_net": -0.0074,
+              "validation": "failed",
+              "failed_checks": [
+                "mean_gt_0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "name": "Fixture pullback",
+          "status": "validated",
+          "status_label": "Validated",
+          "headline": "Fixture headline",
+          "research_status": "Fixture research status",
+          "explanation": "Fixture explanation.",
+          "trades": [
+            {
+              "trade": "5%",
+              "trades": 640,
+              "mean_net": 0.0042,
+              "ci95": [
+                0.0021999999999999997,
+                0.0062
+              ],
+              "baseline_mean_net": -0.0054,
+              "half1_mean_net": 0.0042,
+              "half2_mean_net": 0.0042,
+              "validation": "passed",
+              "failed_checks": []
+            },
+            {
+              "trade": "10%",
+              "trades": 910,
+              "mean_net": -0.0011,
+              "ci95": [
+                -0.0031000000000000003,
+                0.0009
+              ],
+              "baseline_mean_net": -0.0061,
+              "half1_mean_net": -0.0011,
+              "half2_mean_net": -0.0011,
+              "validation": "failed",
+              "failed_checks": [
+                "mean_gt_0"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "/api/positional/backtest/calibration": {
+    "buckets": [
+      {
+        "metric": "accumulation_score",
+        "bucket_lo": 0.55,
+        "bucket_hi": 0.6,
+        "horizon_days": 10,
+        "sample_count": 400,
+        "moves_count": 88,
+        "probability": 0.22,
+        "avg_fwd_return": 1.4,
+        "avg_fwd_drawdown": -2.1
+      },
+      {
+        "metric": "accumulation_score",
+        "bucket_lo": 0.6,
+        "bucket_hi": 0.65,
+        "horizon_days": 10,
+        "sample_count": 250,
+        "moves_count": 80,
+        "probability": 0.32,
+        "avg_fwd_return": 2.2,
+        "avg_fwd_drawdown": -1.9
+      }
+    ],
+    "count": 2
+  }
+}

@@ -107,11 +107,11 @@ def test_r9_feed_prefers_claude_and_reads_legacy_stage7_only_for_the_rest(monkey
     monkeypatch.setitem(sys.modules, "deps", fake_deps)
     fake_markets = types.ModuleType("routes.markets")
     asked = []
-    async def _daas_first(tool, params, pg, default):
+    async def _daas_first(tool, params, default):
         asked.append(sorted(params["ids"]))
         return {"insights": {"old": {"one": "stage-7 one-liner"}, "both": {"one": "stale stage-7"}}}
     fake_markets._daas_first = _daas_first
-    fake_markets._aux_cached = fake_markets._articles = fake_markets._filing_insights_pg = lambda *a, **k: None
+    fake_markets._aux_cached = lambda *a, **k: None
     monkeypatch.setitem(sys.modules, "routes.markets", fake_markets)
     monkeypatch.delitem(sys.modules, "routes.filings", raising=False)
     import routes.filings as F

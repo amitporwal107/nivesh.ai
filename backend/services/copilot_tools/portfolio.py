@@ -13,6 +13,7 @@ future LangGraph agents:
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -158,6 +159,15 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
         f"= {portfolio_return_pct:+.1f}% absolute return{xirr_str} "
         f"across {len(rows)} positions"
     )
+    # The summary line is all the copilot model sees of this result, so the
+    # largest positions have to be named in it or "what are my biggest holdings?"
+    # is answered "data unavailable" while the rows sit right here.
+    largest = sorted(rows, key=lambda r: r["current_rs"], reverse=True)[:5]
+    if largest and total_current > 0:
+        summary += " · largest holdings: " + "; ".join(
+            f"{r['name']} ₹{r['current_rs']:,.0f} ({r['current_rs'] / total_current * 100:.1f}%)"
+            for r in largest
+        )
 
     return PortfolioResult(
         ok=True,
@@ -180,6 +190,19 @@ async def get_portfolio_xirr(user_id: str) -> PortfolioResult:
 
 
 # ── Portfolio summary (allocation + overlap) ──────────────────────────────
+
+_PLACEHOLDER_STOCK_RE = re.compile(
+    r"^others?\b|\b(cblo|treps|tri-?party repo|reverse repo|net current assets?|net receivables?|cash)\b", re.I)
+_PLACEHOLDER_SECTORS = {"", "unspecified", "unknown", "others", "other", "n/a", "na"}
+
+
+def _is_placeholder_stock(name: Any) -> bool:
+    return not name or bool(_PLACEHOLDER_STOCK_RE.search(str(name)))
+
+
+def _is_placeholder_sector(name: Any) -> bool:
+    return str(name or "").strip().lower() in _PLACEHOLDER_SECTORS
+
 
 async def get_portfolio_summary(user_id: str) -> PortfolioResult:
     """High-level portfolio snapshot: allocation, overlap, sector.
@@ -223,13 +246,16 @@ async def get_portfolio_summary(user_id: str) -> PortfolioResult:
         summary_parts.append(f"gold {gold_pct:.0f}%")
     if other_pct:
         summary_parts.append(f"other {other_pct:.0f}%")
-    if top_stocks:
-        ts = top_stocks[0]
+    # Fund look-through data carries cash lines ("Others CBLO", TREPS) and an
+    # "Unspecified" sector bucket. Either can be the largest entry, and neither
+    # is a stock or a sector, so the first real one is reported instead.
+    ts = next((t for t in top_stocks if not _is_placeholder_stock(t.get("name") or t.get("slug"))), None)
+    if ts:
         summary_parts.append(
             f"top stock {ts.get('name') or ts.get('slug', '?')} {ts.get('exposure_pct', 0):.1f}%"
         )
-    if sectors:
-        sc = sectors[0]
+    sc = next((x for x in sectors if not _is_placeholder_sector(x.get("sector"))), None)
+    if sc:
         summary_parts.append(f"top sector {sc.get('sector', '?')} {sc.get('pct', 0):.0f}%")
     if effective_stocks:
         summary_parts.append(f"~{effective_stocks:.0f} effective stocks")

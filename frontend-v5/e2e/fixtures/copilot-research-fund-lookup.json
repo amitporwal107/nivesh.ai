@@ -1,0 +1,13 @@
+{
+  "resolved": {
+    "instrument_key": "ISIN:INF000FIX002",
+    "scheme_name": "Fixture Flexi Cap Fund Growth",
+    "instrument_id": "00000000-0000-4000-8000-000000000002",
+    "symbol": "900002",
+    "isin": "INF000FIX002"
+  },
+  "latest_nav": {
+    "nav": 41.2345,
+    "nav_date": null
+  }
+}

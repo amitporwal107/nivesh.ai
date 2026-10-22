@@ -1,0 +1,22 @@
+{
+  "templates": [
+    {
+      "key": "fixture_trend",
+      "name": "Fixture trend template",
+      "description": "Fixture description of a rules-based template.",
+      "asset_class": "STOCK",
+      "definition": {
+        "version": "1",
+        "asset_class": "STOCK",
+        "name": "Fixture trend template",
+        "description": "Fixture description of a rules-based template.",
+        "universe": { "type": "index", "ref": "NIFTY500" },
+        "entry": { "all_of": [{ "feature": "close", "op": ">", "compare_to": "sma200" }, { "feature": "atr_pct", "op": "<", "value": 4.5 }] },
+        "exit": { "stoploss_pct": 5, "target_rr": 3.0, "max_hold_days": 45 },
+        "ranking": { "by": "return_20d_pct", "limit": 10, "order": "desc" },
+        "rebalance": "daily"
+      }
+    }
+  ],
+  "count": 1
+}

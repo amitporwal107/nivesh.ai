@@ -13,6 +13,7 @@ The access token is read at call time and never logged, returned or put in an er
 """
 from __future__ import annotations
 
+import os
 import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -38,11 +39,27 @@ _instrument_cache: Dict[Tuple[str, date], Dict[str, int]] = {}
 
 
 def default_token() -> str:
-    """Today's access token: the secrets store, else the kite_bars daily token file."""
+    """Today's access token: the platform login stored in Mongo (non-expired), else the secrets store, else the file named by KITE_ACCESS_TOKEN_FILE, else the kite_bars daily token file."""
     from helpers import secrets
+    try:                                                    # the platform session from the daily login (kept fresh by the live feed)
+        from services.kite_live_feed.platform_token import cached_token
+        token = cached_token()
+        if token:
+            return token
+    except Exception:  # noqa: BLE001 — never let the lookup break the other sources
+        pass
     token = (secrets.get("KITE_ACCESS_TOKEN") or "").strip()
     if token:
         return token
+    path = (secrets.get("KITE_ACCESS_TOKEN_FILE") or os.environ.get("KITE_ACCESS_TOKEN_FILE") or "").strip()
+    if path:
+        try:
+            with open(os.path.expanduser(path)) as fh:
+                token = fh.read().strip()
+        except OSError:
+            token = ""
+        if token:
+            return token
     from nidp.services.kite_bars.auth import read_token
     return read_token()
 

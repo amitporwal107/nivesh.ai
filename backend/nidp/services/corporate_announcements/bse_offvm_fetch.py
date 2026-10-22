@@ -4,7 +4,15 @@
 STANDALONE: Python 3.9+ standard library only. No pip install, no nidp imports.
 Copy this one file to your own machine and run it there.
 
-WHY THIS RUNS OFF THE VM
+UPDATE 2026-10-13 — IT NOW RUNS ON THE VMs TOO
+
+The 403 described below turned out to depend on two request headers, not on the network:
+with the site-root Referer and an Origin header (both set in HEADERS) the API answers from
+both staging VMs. Separately, AnnGetData/w stopped returning data ("No Record Found!" for every
+date), so the full-day fetch now uses the all-categories call on AnnSubCategoryGetData/w.
+BSE's edge rules can change again; --self-test tells you whether this network works today.
+
+WHY THIS RAN OFF THE VM (history)
 
 api.bseindia.com answers HTTP 403 "Access Denied" to cloud networks — nidp-stack-vm
 directly AND through the app-vm proxy — since 2026-09-23. It is a cloud-ASN block:
@@ -26,7 +34,7 @@ The request constants below mirror backend/nidp/services/corporate_announcements
 service.py and nidp/shared/sources/nse_fetcher.py. A test on the VM
 (test_bse_offvm.py) imports both and fails if they ever drift apart.
 
-  <out>/coarse/YYYY-MM-DD.bin    AnnGetData/w, strCat=-1   (BseAnnouncementsIngester)
+  <out>/coarse/YYYY-MM-DD.bin    AnnSubCategoryGetData/w, strCat=-1 — the whole day (BseAnnouncementsIngester)
   <out>/subcat/YYYY-MM-DD.bin    AnnSubCategoryGetData/w   (BseSubcategoryAnnouncementsIngester)
   <out>/<kind>/YYYY-MM-DD.json   pages, bytes, sha256, last_url, last_status
   <out>/manifest.json            every file with its sha256 (the VM verifies these)
@@ -72,16 +80,16 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
-FETCHER_VERSION = "bse-offvm-1"
+FETCHER_VERSION = "bse-offvm-2"   # 2: site-root Referer + Origin; full day via the all-categories call
 
 # ── Mirrors of production constants (drift is caught by test_bse_offvm.py) ──────
 COARSE_URL_TMPL = (
-    "https://api.bseindia.com/BseIndiaAPI/api/AnnGetData/w"
+    "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w"
     "?pageno={page}&strCat=-1&strPrevDate={d}&strToDate={d}"
-    "&strScrip=&strSearch=P&strType=C&subcategory=-1"
+    "&strscrip=&strSearch=P&strType=C&subcategory=-1"
 )
 SUBCAT_URL = "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w"
-COARSE_MAX_PAGES = 20
+COARSE_MAX_PAGES = 60
 SUBCAT_MAX_PAGES = 10
 # taxonomy.iter_slices(), in production order; empty subcategory = every filing in
 # the category, each row carrying its real SUBCATNAME.
@@ -96,7 +104,8 @@ HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml,*/*",
     "Accept-Language": "en-US,en;q=0.9",
     "Accept-Encoding": "gzip, deflate",
-    "Referer": "https://www.bseindia.com/corporates/ann.html",
+    "Referer": "https://www.bseindia.com/",
+    "Origin": "https://www.bseindia.com",
 }
 RECORD_SEP = b"\x1e"
 
@@ -268,7 +277,7 @@ def self_test(delay: float, via_proxy: bool = False) -> int:
     print(f"self-test: egress IP {egress_ip()} — one historical page from each endpoint (2024-06-03)")
     try:
         b1, s1 = get(coarse_url("20240603", 1), delay, tries=2)
-        print(f"  coarse  AnnGetData            HTTP {s1}  {len(b1):>8,} bytes  {_rows([b1])} rows")
+        print(f"  coarse  all categories        HTTP {s1}  {len(b1):>8,} bytes  {_rows([b1])} rows")
         b2, s2 = get(subcat_url("Company Update", "", "20240603", 1), delay, tries=2)
         print(f"  subcat  AnnSubCategoryGetData HTTP {s2}  {len(b2):>8,} bytes  {_rows([b2])} rows")
     except RuntimeError as e:

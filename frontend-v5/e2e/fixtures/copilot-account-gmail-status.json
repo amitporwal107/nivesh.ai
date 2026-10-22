@@ -1,0 +1,13 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape.",
+  "connected": true,
+  "connected_at": "2026-09-01T09:05:00+00:00",
+  "last_import": {
+    "filename": "FIXTURE_CAS_SEP.pdf",
+    "imported_at": "2026-10-01T01:00:00+00:00",
+    "count": 5
+  },
+  "auto_import_enabled": true,
+  "auto_import_ready": true,
+  "last_auto_import_at": "2026-10-01T01:00:00+00:00"
+}

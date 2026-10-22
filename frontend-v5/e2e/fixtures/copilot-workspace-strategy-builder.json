@@ -1,0 +1,212 @@
+{
+  "_comment": "MOCK — not real data. Shapes of the /api/strategy-builder routes (backend/routes/strategy_builder.py); names, ids and numbers are made up.",
+  "templates": {
+    "templates": [
+      {
+        "key": "uptrend",
+        "name": "Fixture Uptrend",
+        "description": "Fixture description of an uptrend screen.",
+        "asset_class": "STOCK",
+        "definition": {
+          "version": "1",
+          "asset_class": "STOCK",
+          "name": "Fixture Uptrend",
+          "description": "Fixture description of an uptrend screen.",
+          "universe": {
+            "type": "index",
+            "ref": "NIFTY500"
+          },
+          "entry": {
+            "all_of": [
+              {
+                "feature": "return_20d_pct",
+                "op": ">",
+                "value": 5
+              },
+              {
+                "feature": "close",
+                "op": ">",
+                "compare_to": "sma200"
+              }
+            ]
+          },
+          "exit": {
+            "stoploss_pct": 5,
+            "target_rr": 3.0,
+            "max_hold_days": 45
+          },
+          "ranking": {
+            "by": "return_20d_pct",
+            "limit": 10,
+            "order": "desc"
+          },
+          "rebalance": "daily"
+        }
+      },
+      {
+        "key": "squeeze",
+        "name": "Fixture Squeeze",
+        "description": "Fixture description of a squeeze screen.",
+        "asset_class": "STOCK",
+        "definition": {
+          "version": "1",
+          "asset_class": "STOCK",
+          "name": "Fixture Squeeze",
+          "description": "Fixture description of a squeeze screen.",
+          "universe": {
+            "type": "index",
+            "ref": "NIFTY500"
+          },
+          "entry": {
+            "all_of": [
+              {
+                "feature": "return_20d_pct",
+                "op": ">",
+                "value": 5
+              },
+              {
+                "feature": "close",
+                "op": ">",
+                "compare_to": "sma200"
+              }
+            ]
+          },
+          "exit": {
+            "stoploss_pct": 5,
+            "target_rr": 3.0,
+            "max_hold_days": 45
+          },
+          "ranking": {
+            "by": "vol_z20",
+            "limit": 8,
+            "order": "desc"
+          },
+          "rebalance": "daily"
+        }
+      }
+    ],
+    "count": 2
+  },
+  "strategies": {
+    "strategies": [
+      {
+        "id": "0f1e2d3c-0000-4000-8000-00000000f1a1",
+        "owner_id": "user_fixture",
+        "name": "Fixture uptrend watch",
+        "description": "Fixture description of an uptrend screen.",
+        "asset_class": "STOCK",
+        "is_public_template": false,
+        "is_archived": false,
+        "created_at": "2026-10-11T09:00:00+00:00",
+        "updated_at": "2026-10-11T09:00:00+00:00"
+      }
+    ],
+    "count": 1
+  },
+  "strategies_empty": {
+    "strategies": [],
+    "count": 0
+  },
+  "strategy": {
+    "id": "0f1e2d3c-0000-4000-8000-00000000f1a1",
+    "owner_id": "user_fixture",
+    "name": "Fixture uptrend watch",
+    "description": "Fixture description of an uptrend screen.",
+    "asset_class": "STOCK",
+    "is_public_template": false,
+    "is_archived": false,
+    "created_at": "2026-10-11T09:00:00+00:00",
+    "updated_at": "2026-10-11T09:00:00+00:00",
+    "active_version": {
+      "id": "0f1e2d3c-0000-4000-8000-00000000f1b1",
+      "strategy_id": "0f1e2d3c-0000-4000-8000-00000000f1a1",
+      "version_no": 1,
+      "definition": {
+        "version": "1",
+        "asset_class": "STOCK",
+        "name": "Fixture Uptrend",
+        "description": "Fixture description of an uptrend screen.",
+        "universe": {
+          "type": "index",
+          "ref": "NIFTY500"
+        },
+        "entry": {
+          "all_of": [
+            {
+              "feature": "return_20d_pct",
+              "op": ">",
+              "value": 5
+            },
+            {
+              "feature": "close",
+              "op": ">",
+              "compare_to": "sma200"
+            }
+          ]
+        },
+        "exit": {
+          "stoploss_pct": 5,
+          "target_rr": 3.0,
+          "max_hold_days": 45
+        },
+        "ranking": {
+          "by": "return_20d_pct",
+          "limit": 10,
+          "order": "desc"
+        },
+        "rebalance": "daily"
+      },
+      "dsl_version": "1",
+      "is_active": true,
+      "created_by": "user_fixture",
+      "created_at": "2026-10-11T09:00:00+00:00"
+    }
+  },
+  "created": {
+    "id": "0f1e2d3c-0000-4000-8000-00000000f1a1",
+    "owner_id": "user_fixture",
+    "name": "Fixture uptrend watch",
+    "description": "Fixture description of an uptrend screen.",
+    "asset_class": "STOCK",
+    "is_public_template": false,
+    "is_archived": false,
+    "created_at": "2026-10-11T09:00:00+00:00",
+    "updated_at": "2026-10-11T09:00:00+00:00",
+    "active_version": {
+      "id": "0f1e2d3c-0000-4000-8000-00000000f1b1",
+      "version_no": 1,
+      "created_at": "2026-10-11T09:00:00+00:00"
+    }
+  },
+  "screen": {
+    "candidates": [
+      {
+        "symbol": "FIXALPHA",
+        "close": 512.4,
+        "rsi14": 61.2,
+        "return_20d_pct": 14.5,
+        "vol_z20": 1.8,
+        "accumulation_score": 0.72
+      },
+      {
+        "symbol": "FIXBRAVO",
+        "close": 88.15,
+        "rsi14": 58.0,
+        "return_20d_pct": 9.25,
+        "vol_z20": 0.4,
+        "accumulation_score": 0.55
+      }
+    ],
+    "count": 2,
+    "as_of_date": "2026-10-12",
+    "ranked_by": "return_20d_pct",
+    "score_basis": "return_20d_pct"
+  },
+  "screen_empty": {
+    "candidates": [],
+    "count": 0,
+    "as_of_date": "2026-10-12",
+    "ranked_by": "return_20d_pct",
+    "score_basis": "return_20d_pct"
+  }
+}

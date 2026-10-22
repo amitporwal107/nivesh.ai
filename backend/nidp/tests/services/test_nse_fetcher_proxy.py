@@ -55,6 +55,14 @@ def test_bse_never_goes_through_the_proxy(proxied, url):
     assert proxied._proxy_for(url) is None
 
 
+def test_bse_proxy_never_used_for_nse(proxied, monkeypatch):
+    """The other direction: BSE_PROXY_URL (rotating, credentialed) is for bseindia.com
+    only, so setting it must not move NSE traffic."""
+    monkeypatch.setattr(proxied, "BSE_PROXY_URL", "http://bse-proxy.mock.invalid:8000")
+    assert proxied._bse_proxy_for("https://www.nseindia.com/api/allIndices") is None
+    assert proxied._proxy_for("https://api.bseindia.com/x") is None
+
+
 @pytest.mark.parametrize("url", [
     "https://www.rbi.org.in/x.pdf",
     "https://portal.amfiindia.com/spages/NAVAll.txt",

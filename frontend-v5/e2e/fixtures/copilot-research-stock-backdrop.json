@@ -1,0 +1,22 @@
+{
+  "symbol": "FIXTUREUP",
+  "raw_sector": "Fixture Sector A",
+  "sector_key": "FIXTURE_A",
+  "macro_state": {
+    "market": "NEUTRAL",
+    "inflation": "STABLE",
+    "liquidity": "EASY",
+    "risk": "MEDIUM",
+    "multiplier": 1.0,
+    "insight": "Synthetic insight."
+  },
+  "macro_impact_score": 0.0,
+  "sector_bias": "FAVORABLE",
+  "sector_modifier": 2.0,
+  "sector_rationale": "synthetic rationale for the fixture sector",
+  "position_size": {
+    "factor": 1.0,
+    "label": "1x",
+    "explanation": "Synthetic explanation"
+  }
+}

@@ -76,6 +76,8 @@ NIDP_INGESTERS: List[Dict[str, str]] = [
     {"ingester": "corporate_announcements_bse", "cadence": "high-freq"},
     {"ingester": "announcement_classifier",     "cadence": "event"},
     {"ingester": "document_parser",             "cadence": "event"},
+    # SEBI circulars and master circulars (RSS + listing page 1; enforcement notices dropped)
+    {"ingester": "sebi_circulars",              "cadence": "high-freq"},
     # Mutual fund pipeline (added in VM-cron migration)
     {"ingester": "amfi_nav",                    "cadence": "daily"},
     {"ingester": "amfi_circulars",              "cadence": "daily"},

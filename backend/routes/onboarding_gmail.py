@@ -46,6 +46,12 @@ from services.gmail_service import (
     get_gmail_credentials,
     scan_for_cas_emails,
 )
+# Used only by the opt-in `all_statements` mode (see _gmail_import_all_statements).
+import asyncio
+import copy
+import json
+from services import cas_history_import
+from services.gmail_service import HISTORY_MONTHS, list_cas_history
 
 MAX_PDF_BYTES = 25 * 1024 * 1024  # 25 MB
 
@@ -222,6 +228,11 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
       5. Log per-attachment outcomes in `gmail_imports`.
       6. Mark onboarding complete on success.
     """
+    # Opt-in: a JSON body {"all_statements": true} imports every statement of the
+    # last year instead. No body, or anything else, is the import described above.
+    if await _wants_all_statements(request):
+        return await _gmail_import_all_statements(request)
+
     user = await get_current_user(request)
     user_id = user["user_id"]
 
@@ -628,6 +639,169 @@ async def gmail_auto_import(request: Request) -> Dict[str, Any]:
     }
 
 
+# ── Opt-in: import every statement of the last year ──────────────────────────
+async def _wants_all_statements(request: Request) -> bool:
+    """True only for a JSON object body carrying ``"all_statements": true``.
+
+    Callers of the default import send no body (or ``{}``), so the body is read
+    leniently: an absent, empty, unreadable or non-JSON body, a body that is not
+    an object, and any value other than a JSON ``true`` all mean the default."""
+    try:
+        raw = await request.body()
+    except Exception:  # noqa: BLE001 — a body that cannot be read is not an opt-in
+        return False
+    if not raw or not raw.strip():
+        return False
+    try:
+        payload = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return isinstance(payload, dict) and payload.get("all_statements") is True
+
+
+async def _gmail_import_all_statements(request: Request) -> Dict[str, Any]:
+    """POST /gmail/auto-import with ``{"all_statements": true}``.
+
+    Reads up to ``cas_history_import.MAX_STATEMENTS_PER_CALL`` CAS statements of
+    the last ``HISTORY_MONTHS`` months that are not yet on record, stores each as
+    its own snapshot, and shows the latest consolidated one. The rules, and what
+    the answer carries, are in services/cas_history_import.py.
+
+    This is the one path that stores snapshots carrying a full holdings array
+    for an investor's own account (``portfolio_snapshots`` rows marked
+    ``stored_by: "cas_history"``). The holdings self-heal never mounts them, and
+    ``DELETE /api/portfolio/holdings-all`` (clear all) is what removes them.
+
+    The checks before Gmail is read are the default import's, word for word."""
+    user = await get_current_user(request)
+    user_id = user["user_id"]
+
+    token_doc = await db.gmail_tokens.find_one({"user_id": user_id}, {"_id": 0})
+    if not token_doc:
+        raise HTTPException(400, "Gmail not connected — complete the OAuth step first.")
+
+    profile = await db.user_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    password = _resolve_cas_password(profile, token_doc)
+    if not password:
+        raise HTTPException(400, "PAN missing — submit /api/onboarding/pan first.")
+
+    try:
+        creds = get_gmail_credentials(token_doc)
+        service = build_gmail_service(creds)
+        if creds.token != token_doc.get("access_token"):
+            await db.gmail_tokens.update_one(
+                {"user_id": user_id},
+                {"$set": {
+                    "access_token": pii_security.seal_field(creds.token),
+                    "expires_at": (
+                        creds.expiry.replace(tzinfo=timezone.utc).isoformat()
+                        if creds.expiry else None
+                    ),
+                }},
+            )
+        ids_by_source = await asyncio.to_thread(list_cas_history, service)
+    except Exception as e:  # noqa: BLE001
+        logger.error("onboarding gmail history scan failed for %s: %s", user_id, e)
+        msg = str(e).lower()
+        if "invalid_grant" in msg or "token" in msg:
+            await db.gmail_tokens.delete_one({"user_id": user_id})
+            raise HTTPException(401, "Gmail session expired — please reconnect.") from e
+        raise HTTPException(500, f"Gmail scan failed: {e}") from e
+
+    async def mount(statement: "cas_history_import.Statement") -> None:
+        await _mount_history_statement(user_id, statement, password)
+
+    result = await cas_history_import.import_all_statements(
+        db=db, user_id=user_id, service=service, password=password, profile=profile,
+        ids_by_source=ids_by_source, mount=mount,
+    )
+    if result["scanned"] == 0:
+        result["message"] = (
+            f"No CAS statements were found in this Gmail account in the last {HISTORY_MONTHS} months."
+        )
+    logger.info(
+        "gmail-import (all statements): user=%s scanned=%d attempted=%d imported=%d "
+        "already_stored=%d failed=%d remaining=%d mounted_changed=%s",
+        user_id, result["scanned"], result["attempted"], result["imported"],
+        result["already_stored"], result["failed"], result["remaining"], result["mounted"]["changed"],
+    )
+    return result
+
+
+async def _mount_history_statement(
+    user_id: str, statement: "cas_history_import.Statement", password: str,
+) -> None:
+    """Make one statement the live portfolio: the writes the default import makes
+    for its winning file, through the same ``save_holdings`` (so the broker-wins
+    rule applies). cas_history_import decides WHETHER to call this; it is never
+    called for a statement that is not newer than the one on file.
+
+    Differences from the default import, all deliberate: no model call, so a
+    statement with no monthly table gets an empty value trend; the profile also
+    records which kind of statement it was (``cas_statement_source``); and a
+    statement that prints no total clears the previous statement's total instead
+    of leaving it beside the new period."""
+    parsed = statement.parsed
+    task_id = f"onboard_gmail_{uuid.uuid4().hex[:10]}"
+    await save_holdings(user_id, copy.deepcopy(parsed.holdings), file_type="gmail_cas", task_id=task_id)
+
+    # Transactions, as the default import feeds them: the fallback parser's folio
+    # transactions inline, the NSDL ledger in the background.
+    if parsed.layout == "offline" and parsed.raw_data:
+        try:
+            from helpers.parsing import _normalize_casparser_folios
+            from services import cas_transactions as _ct
+            _norm = (
+                _normalize_casparser_folios(parsed.raw_data)
+                if parsed.raw_data.get("folios") else parsed.raw_data
+            )
+            await _ct.persist_transactions_and_sips(db, user_id, _norm, source="OFFLINE_CAS")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("gmail-import (all statements): txn persist failed for %s: %s", user_id, e)
+    if parsed.layout == "nsdl":
+        asyncio.create_task(_persist_nsdl_transactions_background(user_id, statement.content, password))
+
+    now = _now_iso()
+    profile_update: dict = {
+        "onboarding_completed": True,
+        "journey_type": "existing_investor",
+        "updated_at": now,
+        "cas_statement_period": statement.period,
+        "cas_statement_date": parsed.statement_date,
+        "cas_statement_source": statement.source,
+        # Always written, even empty, as the default import does.
+        "cas_monthly_values": parsed.monthly_values or [],
+    }
+    update: dict = {"$set": profile_update, "$setOnInsert": {"user_id": user_id, "created_at": now}}
+    value = parsed.total_value if parsed.total_value is not None else _extract_portfolio_value(parsed.raw_data)
+    if value is not None:
+        profile_update["cas_portfolio_value_rs"] = value
+    else:
+        update["$unset"] = {"cas_portfolio_value_rs": ""}
+    await db.user_profiles.update_one({"user_id": user_id}, update, upsert=True)
+    await db.gmail_tokens.update_one(
+        {"user_id": user_id},
+        {"$set": {"auto_import_enabled": True, "last_auto_import_at": now}},
+    )
+
+    try:
+        from services.action_plan_manager import ActionPlanManager
+        plan = await ActionPlanManager().refresh_plan(user_id)
+        logger.info(
+            "gmail-import (all statements): action plan generated for user=%s plan_id=%s",
+            user_id, plan.get("plan_id"),
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("gmail-import (all statements): plan generation failed for user=%s: %s", user_id, e)
+
+    from routes.upload import _trigger_nidp_pipeline_background
+    asyncio.create_task(_trigger_nidp_pipeline_background(user_id))
+    logger.info(
+        "gmail-import (all statements): portfolio for user=%s now shows the %s statement %s (%d holdings)",
+        user_id, statement.source, statement.statement_date, len(parsed.holdings),
+    )
+
+
 @router.post("/upload-cas")
 async def upload_cas_pdf(
     request: Request,
@@ -852,10 +1026,27 @@ async def onboarding_state(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     profile = await db.user_profiles.find_one({"user_id": user["user_id"]}, {"_id": 0}) or {}
     token_doc = await db.gmail_tokens.find_one({"user_id": user["user_id"]}, {"_id": 0})
+    # A portfolio can also arrive from a broker connection or an uploaded broker
+    # export, so the Portfolio step needs more than the CAS fields to know one
+    # is on file. Ended broker sessions are flipped first so "live" is current;
+    # a failed sweep must not take the bootstrap down with it.
+    try:
+        from services.brokers import sessions as _broker_sessions
+        await _broker_sessions.expire_due_sessions(db, user_id=user["user_id"])
+    except Exception:  # noqa: BLE001
+        logger.exception("onboarding_state: broker session sweep failed")
+    broker_accounts = await db.broker_accounts.count_documents({"user_id": user["user_id"]})
+    broker_accounts_live = await db.broker_accounts.count_documents(
+        {"user_id": user["user_id"], "status": "active"},
+    )
+    holdings_count = await db.holdings.count_documents({"user_id": user["user_id"]})
     return {
         "onboarding_completed": bool(profile.get("onboarding_completed")),
         "pan_on_file": bool(profile.get("pan") or profile.get("cas_password")),
         "gmail_connected": bool(token_doc),
+        "broker_accounts": broker_accounts,             # connected broker accounts, any state
+        "broker_accounts_live": broker_accounts_live,   # of those, readable right now
+        "holdings_count": holdings_count,               # stored holdings from any source
         "cas_statement_period": profile.get("cas_statement_period"),       # "Mar/2025" or null
         "cas_portfolio_value_rs": profile.get("cas_portfolio_value_rs"),   # current value in ₹ or null
         "cas_statement_date": profile.get("cas_statement_date"),           # "DD-MMM-YYYY" or null

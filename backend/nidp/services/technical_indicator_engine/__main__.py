@@ -2,7 +2,7 @@
 
 Usage examples:
 
-  # Compute for yesterday (default)
+  # Compute for the latest date with prices (default)
   python -m nidp.services.technical_indicator_engine
 
   # Compute for a specific date
@@ -42,6 +42,24 @@ def _yesterday() -> date:
     return date.today() - timedelta(days=1)
 
 
+async def default_target_date(pool, today: date | None = None) -> date:
+    """The date to compute when none is given: the latest session that has prices.
+
+    Calendar "yesterday" is wrong after a weekend or a holiday (Monday's run targeted Sunday and
+    loaded 0 rows, and every run trailed the loaded prices by a day). Falls back to yesterday when
+    the price table is empty or unreadable, and never returns a date after today.
+    """
+    today = today or date.today()
+    try:
+        latest = await pool.fetchval("SELECT MAX(as_of_date) FROM nidp.prices_eod WHERE series = 'EQ'")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ti_engine_default_date_fallback error=%s", type(exc).__name__)
+        latest = None
+    if latest is None or latest > today:
+        return today - timedelta(days=1)
+    return latest
+
+
 def _parse_date(s: str) -> date:
     return date.fromisoformat(s)
 
@@ -57,7 +75,7 @@ async def _main(args: argparse.Namespace) -> int:
     pool = await create_pool(url)
     try:
         if args.backfill_days:
-            to_date = args.date or _yesterday()
+            to_date = args.date or await default_target_date(pool)
             from_date = to_date - timedelta(days=args.backfill_days)
             logger.info("ti_engine_backfill_range from=%s to=%s", from_date, to_date)
             reports = await compute_date_range(pool, from_date, to_date, only_symbols=only)
@@ -81,7 +99,7 @@ async def _main(args: argparse.Namespace) -> int:
             return 0
 
         # Single date
-        target = args.date or _yesterday()
+        target = args.date or await default_target_date(pool)
         report = await run_with_job_log(
             "technical_indicator_engine",
             compute_for_date,
@@ -102,13 +120,13 @@ def main() -> None:
     setup_logging(service="technical_indicator_engine")
     parser = argparse.ArgumentParser(description="Nivesh Technical Indicator Engine")
     parser.add_argument("--date", type=_parse_date, default=None,
-                        help="Target date (YYYY-MM-DD). Default: yesterday.")
+                        help="Target date (YYYY-MM-DD). Default: the latest date with prices in nidp.prices_eod.")
     parser.add_argument("--from", dest="from_date", type=_parse_date, default=None,
                         help="Start of date range (inclusive).")
     parser.add_argument("--to", dest="to_date", type=_parse_date, default=None,
                         help="End of date range (inclusive).")
     parser.add_argument("--backfill-days", type=int, default=0,
-                        help="Backfill last N calendar days ending at --date (or yesterday).")
+                        help="Backfill last N calendar days ending at --date (or the latest date with prices).")
     parser.add_argument("--symbols", type=str, default=None,
                         help="Comma-separated list of symbols. Default: all EQ series.")
     parser.add_argument("--batch-size", type=int, default=100,

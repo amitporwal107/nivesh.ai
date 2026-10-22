@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import AIMessage
 
-from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for
+from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
 
@@ -323,10 +323,10 @@ async def _goal_basket_turn(state: CopilotState, user_msg: str) -> dict:
     try:
         llm = make_chat_llm(temperature_for(0.15))
         resp = await llm.ainvoke([
-            {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _BASKET_SYSTEM + "\n\n" + tool_context},
+            {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _BASKET_SYSTEM + "\n\n" + tool_context},
             {"role": "user", "content": user_msg},
         ])
-        answer_text = (resp.content or "").strip()
+        answer_text = text_of(resp).strip()
     except Exception as exc:  # noqa: BLE001
         logger.warning("basket narrative failed: %s", exc)
     if not answer_text:
@@ -414,10 +414,10 @@ async def goal_node(state: CopilotState) -> dict:
 
     llm = make_chat_llm(temperature_for(0.15))
     resp = await llm.ainvoke([
-        {"role": "system", "content": frame_for_persona(state.persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
+        {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},
         {"role": "user", "content": user_msg},
     ])
-    answer_text = resp.content
+    answer_text = text_of(resp)
 
     response = AgentResponse(
         agent=AgentName.GOAL,

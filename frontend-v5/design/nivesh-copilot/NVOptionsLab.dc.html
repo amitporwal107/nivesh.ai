@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+<script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+</helmet>
+<div style="max-width:1080px;margin:0 auto;padding:{{ pad }} 0 40px;display:flex;flex-direction:column;gap:20px;font-family:var(--sans);color:var(--ink)">
+  <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:14px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span class="nv-eyebrow">Options lab · NSE F&amp;O</span><span class="nv-pill nv-pill-mint">Trader mode</span><span class="nv-pill nv-pill-indigo">Paper only</span></span>
+      <h1 style="margin:0;font-family:var(--display);font-weight:400;font-size:40px;line-height:1.05;letter-spacing:-0.02em">Build, test and understand option trades.</h1>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span style="font-family:var(--mono);font-size:11px;color:var(--ink-3)">NIFTY · SPOT</span><span style="display:flex;gap:8px;align-items:baseline"><span class="nv-metric">22,363</span><span class="nv-num" style="font-family:var(--mono);font-size:12px;color:var(--danger)">−0.70%</span></span><span style="font-family:var(--mono);font-size:10px;color:var(--ink-3)">IV 13.8% · VIX 15.25 · LOT 75</span></div>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center"><span class="nv-eyebrow" style="margin-right:6px">Expiry</span><sc-for list="{{ expiries }}" as="e" hint-placeholder-count="5"><span style="font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:8px;border:1px solid {{ e.line }};color:{{ e.color }};background:{{ e.bg }}">{{ e.t }}</span></sc-for></div>
+  <div style="display:flex;gap:24px;overflow-x:auto;border-bottom:1px solid var(--line)"><sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3"><span onClick="{{ t.pick }}" style="padding:10px 0 12px;font-size:14px;white-space:nowrap;cursor:pointer;color:{{ t.color }};border-bottom:2px solid {{ t.line }}">{{ t.t }}</span></sc-for></div>
+
+  <sc-if value="{{ isChain }}" hint-placeholder-val="{{ false }}">
+    <div style="border:1px solid var(--line);border-radius:14px;background:var(--bg-1);overflow:hidden">
+      <div style="overflow-x:auto"><div style="min-width:760px">
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 92px repeat(4,minmax(0,1fr));gap:8px;padding:10px 16px;font-family:var(--mono);font-size:10px;letter-spacing:0.08em;color:var(--ink-3)"><span>CALL OI</span><span>ΔOI</span><span>IV</span><span>LTP</span><span style="text-align:center">STRIKE</span><span style="text-align:right">LTP</span><span style="text-align:right">IV</span><span style="text-align:right">ΔOI</span><span style="text-align:right">PUT OI</span></div>
+        <sc-for list="{{ chain }}" as="r" hint-placeholder-count="11">
+          <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) 92px repeat(4,minmax(0,1fr));gap:8px;padding:9px 16px;border-top:1px solid var(--line);font-size:13px;align-items:center;background:{{ r.rowBg }}">
+            <span class="nv-num" style="padding:2px 4px;border-radius:4px;background:{{ r.cBg }}">{{ r.coi }}</span><span class="nv-num" style="color:{{ r.cdc }}">{{ r.cd }}</span><span class="nv-num" style="color:var(--ink-3)">{{ r.civ }}</span><span class="nv-num" style="color:var(--ink)">{{ r.cl }}</span>
+            <span class="nv-num" style="text-align:center;font-family:var(--mono);font-size:12px;font-weight:500">{{ r.k }}</span>
+            <span class="nv-num" style="text-align:right;color:var(--ink)">{{ r.pl }}</span><span class="nv-num" style="text-align:right;color:var(--ink-3)">{{ r.piv }}</span><span class="nv-num" style="text-align:right;color:{{ r.pdc }}">{{ r.pd }}</span><span class="nv-num" style="text-align:right;padding:2px 4px;border-radius:4px;background:{{ r.pBg }}">{{ r.poi }}</span>
+          </div>
+        </sc-for>
+      </div></div>
+      <div style="padding:10px 16px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3)">OI in lakh contracts. Tinted cells are in the money; the highlighted row is nearest the spot. Prices are a 14:30 snapshot.</div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isOi }}" hint-placeholder-val="{{ false }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <span class="nv-eyebrow">Strikes around the money</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ windows }}" as="w" hint-placeholder-count="4"><span style="font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:8px;border:1px solid {{ w.line }};color:{{ w.color }}">{{ w.t }}</span></sc-for></div>
+        <span onClick="{{ toggleChange }}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;border:1px solid var(--line-2);cursor:pointer;font-size:13px"><span>Show change in OI</span><span style="width:34px;height:20px;border-radius:999px;background:{{ swBg }};position:relative;display:block"><span style="position:absolute;top:2px;left:{{ swX }};width:16px;height:16px;border-radius:50%;background:var(--ink)"></span></span></span>
+        <div style="display:flex;flex-direction:column;gap:6px;font-size:13px"><sc-for list="{{ oiStats }}" as="m" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between"><span style="color:var(--ink-3)">{{ m.k }}</span><span class="nv-num">{{ m.v }}</span></div></sc-for></div>
+        <span style="font-size:12px;line-height:1.5;color:var(--ink-3)">The exchange updates OI every few minutes, so no source has truly real-time OI.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1);grid-column:span 2;min-width:0">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><span class="nv-eyebrow">{{ oiTitle }}</span><span style="display:flex;gap:12px;font-family:var(--mono);font-size:10px"><span style="color:var(--mint)">● PUTS</span><span style="color:var(--danger)">● CALLS</span></span></div>
+        <div style="display:flex;gap:6px;height:200px">
+          <sc-for list="{{ oiBars }}" as="b" hint-placeholder-count="11">
+            <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0">
+              <div style="position:relative;flex:1;background:{{ b.bg }};border-radius:4px">
+                <span style="position:absolute;left:0;right:0;top:{{ b.zero }};height:1px;background:var(--line-2)"></span>
+                <span style="position:absolute;left:calc(50% - 9px);width:8px;top:{{ b.pt }};height:{{ b.ph }};background:var(--mint);border-radius:2px"></span>
+                <span style="position:absolute;left:calc(50% + 1px);width:8px;top:{{ b.ct }};height:{{ b.ch }};background:var(--danger);border-radius:2px"></span>
+              </div>
+              <span class="nv-num" style="font-family:var(--mono);font-size:9px;color:{{ b.kc }};text-align:center;white-space:nowrap;overflow:hidden">{{ b.k }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <span style="font-size:13px;line-height:1.5;color:var(--ink-2)">{{ oiRead }}</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isBuilder }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;align-items:start">
+      <div style="display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+        <div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ views }}" as="v" hint-placeholder-count="4"><span onClick="{{ v.pick }}" style="padding:6px 12px;border-radius:999px;font-size:13px;cursor:pointer;border:1px solid {{ v.line }};color:{{ v.color }};background:{{ v.bg }}">{{ v.t }}</span></sc-for></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px">
+          <sc-for list="{{ strats }}" as="st" hint-placeholder-count="6">
+            <div onClick="{{ st.pick }}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 8px;border-radius:12px;cursor:pointer;border:1px solid {{ st.line }};background:{{ st.bg }}" style-hover="border-color:var(--line-3)">
+              <svg viewBox="0 0 64 32" style="width:64px;height:32px;overflow:visible"><line x1="0" y1="{{ st.z }}" x2="64" y2="{{ st.z }}" stroke="var(--ink-4)" stroke-dasharray="2 3"></line><polyline points="{{ st.pts }}" fill="none" stroke="var(--mint)" stroke-width="1.8" stroke-linejoin="round"></polyline></svg>
+              <span style="font-size:12px;text-align:center;line-height:1.3">{{ st.t }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <span style="font-size:12px;color:var(--ink-3)">Pick a ready-made structure, then adjust the legs. Every leg uses the 30 Oct chain prices.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+        <div style="display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">{{ sel.t }} · legs</span><span style="font-size:12px;color:var(--mint)">＋ Add leg</span></div>
+          <sc-for list="{{ legs }}" as="l" hint-placeholder-count="2">
+            <div style="display:grid;grid-template-columns:44px 52px minmax(0,1fr) 44px 70px;gap:8px;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid var(--line)">
+              <span class="nv-pill" style="justify-content:center;color:{{ l.color }};border-color:{{ l.line }}">{{ l.side }}</span><span class="nv-num" style="color:var(--ink-3)">{{ l.lots }}</span><span class="nv-num">{{ l.k }}</span><span style="font-family:var(--mono);font-size:11px;color:var(--ink-2)">{{ l.type }}</span><span class="nv-num" style="text-align:right">{{ l.px }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--bg-1)">
+          <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="nv-eyebrow">Payoff · 1 lot = 75</span><span style="display:flex;gap:12px;font-family:var(--mono);font-size:10px"><span style="color:var(--mint)">— AT EXPIRY</span><span style="color:var(--indigo)">- - TODAY</span></span></div>
+          <svg viewBox="0 0 600 200" preserveAspectRatio="none" style="width:100%;height:200px;display:block">
+            <line x1="0" y1="{{ zeroY }}" x2="600" y2="{{ zeroY }}" stroke="var(--line-3)"></line>
+            <line x1="{{ spotX }}" y1="0" x2="{{ spotX }}" y2="200" stroke="var(--ink-4)" stroke-dasharray="2 4"></line>
+            <polyline points="{{ nowCurve }}" fill="none" stroke="var(--indigo)" stroke-width="1.5" stroke-dasharray="5 4"></polyline>
+            <polyline points="{{ expCurve }}" fill="none" stroke="var(--mint)" stroke-width="2.2" stroke-linejoin="round"></polyline>
+          </svg>
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--ink-3)"><span>21,600</span><span>SPOT 22,363</span><span>23,200</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px">
+          <sc-for list="{{ summary }}" as="m" hint-placeholder-count="6"><div style="display:flex;flex-direction:column;gap:3px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg-1)"><span class="nv-eyebrow">{{ m.k }}</span><span class="nv-num" style="font-family:var(--display);font-size:20px;color:{{ m.c }}">{{ m.v }}</span><span style="font-size:10px;font-family:var(--mono);color:var(--ink-3)">{{ m.s }}</span></div></sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px 16px;border-radius:12px;background:var(--bg-2)">
+          <sc-for list="{{ greeks }}" as="g" hint-placeholder-count="4"><div style="display:flex;flex-direction:column;gap:2px"><span class="nv-eyebrow">{{ g.k }}</span><span class="nv-num" style="font-size:14px">{{ g.v }}</span></div></sc-for>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <button onClick="{{ paper }}" style="padding:9px 14px;border-radius:10px;border:0;background:var(--mint);color:#06120B;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer">Paper trade this</button>
+          <button onClick="{{ explain }}" style="padding:9px 14px;border-radius:10px;border:1px solid var(--line-2);background:var(--bg-2);color:var(--ink);font-family:var(--sans);font-size:13px;cursor:pointer">Ask Copilot to explain the risk</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+  <span style="font-size:12px;line-height:1.5;color:var(--danger)">9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study). Nivesh cannot place orders; everything here is analysis and paper trading.</span>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1100,&quot;height&quot;:1100},&quot;mobile&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;onAsk&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(q: string, kind: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 2, view: 'Bullish', si: 2, chg: false };
+  renderVals() {
+    const p = this.props, s = this.state;
+    const ask = (q, k) => () => p.onAsk && p.onAsk(q, k);
+    const S0 = 22363, LOT = 75, T = 17 / 365, R = 0.065;
+    const K = [21900, 22000, 22100, 22200, 22300, 22400, 22500, 22600, 22700, 22800, 22900];
+    const CL = [512.4, 428.6, 349.8, 278.1, 214.6, 168.0, 122.4, 97.2, 62.8, 43.0, 27.6], PL = [41.2, 58.9, 81.5, 111.0, 148.3, 193.2, 248.7, 321.4, 388.9, 468.1, 551.7];
+    const CIV = [15.1, 14.8, 14.5, 14.2, 14.0, 13.8, 13.6, 13.4, 13.2, 13.1, 12.8], PIV = [17.9, 17.1, 16.4, 15.7, 15.0, 14.4, 14.0, 13.7, 13.5, 13.4, 13.2];
+    const COI = [9, 18, 22, 31, 46, 72, 118, 96, 74, 89, 52], POI = [61, 94, 71, 102, 84, 66, 38, 21, 12, 8, 5];
+    const CD = [1.2, 2.4, -0.8, 3.1, 6.4, 9.8, 18.2, 11.4, 7.9, 12.6, 4.1], PD = [-2.2, 5.6, 1.9, 8.8, 4.2, -3.1, -1.4, 0.6, 0.2, -0.3, 0.1];
+    const ATM = 5;
+    const Nc = (x) => { const t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989423 * Math.exp(-x * x / 2), q = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return x > 0 ? 1 - q : q; };
+    const bs = (S, k, type, v) => { const sq = Math.sqrt(T), d1 = (Math.log(S / k) + (R + v * v / 2) * T) / (v * sq), d2 = d1 - v * sq, n1 = Math.exp(-d1 * d1 / 2) / Math.sqrt(2 * Math.PI), disc = Math.exp(-R * T); const call = type === 'C'; return { p: call ? S * Nc(d1) - k * disc * Nc(d2) : k * disc * Nc(-d2) - S * Nc(-d1), d: call ? Nc(d1) : Nc(d1) - 1, g: n1 / (S * v * sq), t: (-S * n1 * v / (2 * sq) + (call ? -1 : 1) * R * k * disc * Nc(call ? d2 : -d2)) / 365, v: S * n1 * sq / 100 }; };
+    const VIEWS = {
+      Bullish: [['Buy call', [[1, 'C', 0]]], ['Sell put', [[-1, 'P', 0]]], ['Bull call spread', [[1, 'C', 0], [-1, 'C', 4]]], ['Bull put spread', [[-1, 'P', 0], [1, 'P', -3]]], ['Call ratio back spread', [[-1, 'C', 0], [2, 'C', 3]]], ['Call butterfly', [[1, 'C', 0], [-2, 'C', 2], [1, 'C', 4]]]],
+      Bearish: [['Buy put', [[1, 'P', 0]]], ['Sell call', [[-1, 'C', 0]]], ['Bear put spread', [[1, 'P', 0], [-1, 'P', -4]]], ['Bear call spread', [[-1, 'C', 0], [1, 'C', 3]]]],
+      Neutral: [['Short straddle', [[-1, 'C', 0], [-1, 'P', 0]]], ['Short strangle', [[-1, 'C', 3], [-1, 'P', -3]]], ['Iron condor', [[-1, 'C', 3], [1, 'C', 5], [-1, 'P', -3], [1, 'P', -5]]], ['Iron butterfly', [[-1, 'C', 0], [-1, 'P', 0], [1, 'C', 3], [1, 'P', -3]]]],
+      Volatile: [['Long straddle', [[1, 'C', 0], [1, 'P', 0]]], ['Long strangle', [[1, 'C', 3], [1, 'P', -3]]]],
+    };
+    const legOf = ([q, type, off]) => { const i = ATM + off; return { q, type, k: K[i], prem: type === 'C' ? CL[i] : PL[i], iv: (type === 'C' ? CIV[i] : PIV[i]) / 100 }; };
+    const expiryPL = (legs, S) => legs.reduce((a, l) => a + l.q * LOT * (Math.max(l.type === 'C' ? S - l.k : l.k - S, 0) - l.prem), 0);
+    const nowPL = (legs, S) => legs.reduce((a, l) => a + l.q * LOT * (bs(S, l.k, l.type, l.iv).p - l.prem), 0);
+    const grid = []; for (let S = 21600; S <= 23200; S += 20) grid.push(S);
+    const list = VIEWS[s.view];
+    const si = Math.min(s.si, list.length - 1);
+    const strats = list.map(([t, raw], i) => { const legs = raw.map(legOf), ys = grid.filter((_, j) => j % 4 === 0).map(S => expiryPL(legs, S)), mn = Math.min(...ys, 0), mx = Math.max(...ys, 0), sc = (y) => 30 - (y - mn) / ((mx - mn) || 1) * 28; return { t, pts: ys.map((y, j) => `${(j / (ys.length - 1) * 64).toFixed(1)},${sc(y).toFixed(1)}`).join(' '), z: sc(0).toFixed(1), line: i === si ? 'var(--mint-line)' : 'var(--line)', bg: i === si ? 'var(--mint-soft)' : 'var(--bg-2)', pick: () => this.setState({ si: i }) }; });
+    const [selName, selRaw] = list[si];
+    const legs = selRaw.map(legOf);
+    const ex = grid.map(S => expiryPL(legs, S)), nw = grid.map(S => nowPL(legs, S));
+    const lo = Math.min(...ex, ...nw), hi = Math.max(...ex, ...nw), Y = (v) => 190 - (v - lo) / ((hi - lo) || 1) * 180, X = (S) => (S - 21600) / 1600 * 600;
+    const poly = (arr) => arr.map((v, j) => `${X(grid[j]).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+    const bes = []; for (let j = 1; j < grid.length; j++) if ((ex[j - 1] < 0) !== (ex[j] < 0)) bes.push(Math.round(grid[j - 1] + (grid[j] - grid[j - 1]) * (-ex[j - 1]) / (ex[j] - ex[j - 1])));
+    const slopeR = expiryPL(legs, 30000) - expiryPL(legs, 29000), slopeL = expiryPL(legs, 15000) - expiryPL(legs, 16000);
+    const maxP = slopeR > 0 || slopeL > 0 ? 'Unlimited' : '₹' + Math.round(Math.max(...ex)).toLocaleString('en-IN');
+    const maxL = slopeR < 0 || slopeL < 0 ? 'Unlimited' : '₹' + Math.round(-Math.min(...ex)).toLocaleString('en-IN');
+    const net = legs.reduce((a, l) => a - l.q * l.prem * LOT, 0);
+    const shorts = legs.filter(l => l.q < 0).reduce((a, l) => a - l.q, 0), longs = legs.filter(l => l.q > 0).reduce((a, l) => a + l.q, 0);
+    const margin = shorts === 0 ? Math.abs(net) : shorts > longs ? 115000 * (shorts - longs) + 18000 : 26000 * shorts;
+    let pop = 0, tot = 0; const sd = 0.138 * Math.sqrt(T); for (let S = 18000; S <= 27000; S += 10) { const z = Math.log(S / S0) / sd, w = Math.exp(-z * z / 2) / S; tot += w; if (expiryPL(legs, S) > 0) pop += w; }
+    const G = legs.reduce((a, l) => { const g = bs(S0, l.k, l.type, l.iv), m = l.q * LOT; return { d: a.d + g.d * m, g: a.g + g.g * m, t: a.t + g.t * m, v: a.v + g.v * m }; }, { d: 0, g: 0, t: 0, v: 0 });
+    const f = (x, dp = 0) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(dp);
+    const tabs = ['Option chain', 'Open interest', 'Strategy builder'];
+    const mxOi = Math.max(...COI, ...POI), mxD = Math.max(...CD.map(Math.abs), ...PD.map(Math.abs));
+    const bar = (v) => { if (!s.chg) { const h = v / mxOi * 100; return { t: (100 - h) + '%', h: h + '%' }; } const h = Math.abs(v) / mxD * 50; return v >= 0 ? { t: (50 - h) + '%', h: h + '%' } : { t: '50%', h: h + '%' }; };
+    return {
+      pad: p.mobile ? '24px' : '44px',
+      expiries: [['16 OCT · W', 0], ['23 OCT · W', 0], ['30 OCT · M', 1], ['6 NOV · W', 0], ['27 NOV · M', 0]].map(([t, on]) => ({ t, line: on ? 'var(--mint-line)' : 'var(--line-2)', color: on ? 'var(--mint)' : 'var(--ink-3)', bg: on ? 'var(--mint-soft)' : 'transparent' })),
+      tabs: tabs.map((t, i) => ({ t, color: i === s.tab ? 'var(--ink)' : 'var(--ink-3)', line: i === s.tab ? 'var(--ink)' : 'transparent', pick: () => this.setState({ tab: i }) })),
+      isChain: s.tab === 0, isOi: s.tab === 1, isBuilder: s.tab === 2,
+      chain: K.map((k, i) => ({ k: k.toLocaleString('en-IN'), coi: COI[i], cd: f(CD[i], 1), cdc: CD[i] >= 0 ? 'var(--mint)' : 'var(--danger)', civ: CIV[i].toFixed(1), cl: CL[i].toFixed(2), pl: PL[i].toFixed(2), piv: PIV[i].toFixed(1), pd: f(PD[i], 1), pdc: PD[i] >= 0 ? 'var(--mint)' : 'var(--danger)', poi: POI[i], cBg: k < S0 ? 'var(--amber-soft)' : 'transparent', pBg: k > S0 ? 'var(--amber-soft)' : 'transparent', rowBg: i === ATM ? 'var(--bg-3)' : 'transparent' })),
+      windows: ['±5', '±10', '±15', 'All'].map((t, i) => ({ t, line: i === 0 ? 'var(--mint-line)' : 'var(--line-2)', color: i === 0 ? 'var(--mint)' : 'var(--ink-3)' })),
+      toggleChange: () => this.setState(x => ({ chg: !x.chg })), swBg: s.chg ? 'var(--mint)' : 'var(--bg-4)', swX: s.chg ? '16px' : '2px',
+      oiStats: [['Total call OI', '627 L'], ['Total put OI', '562 L'], ['PCR', '0.90'], ['Max pain', '22,400']].map(([k, v]) => ({ k, v })),
+      oiTitle: s.chg ? 'Change in open interest today · lakh' : 'Open interest by strike · 30 Oct · lakh',
+      oiBars: K.map((k, i) => { const c = bar(s.chg ? CD[i] : COI[i]), pp = bar(s.chg ? PD[i] : POI[i]); return { k: (k / 1000).toFixed(1) + 'k', ct: c.t, ch: c.h, pt: pp.t, ph: pp.h, zero: s.chg ? '50%' : '100%', bg: i === ATM ? 'var(--bg-2)' : 'transparent', kc: i === ATM ? 'var(--ink)' : 'var(--ink-3)' }; }),
+      oiRead: s.chg ? 'Fresh call writing today is heaviest at 22,500 (+18.2 L) and 22,800 (+12.6 L). Put writers added most at 22,200 (+8.8 L) and trimmed at 22,400.' : 'The biggest call wall is at 22,500 and the biggest put base at 22,200. Writers are defending a 22,200–22,500 band into expiry.',
+      views: Object.keys(VIEWS).map(t => ({ t, line: t === s.view ? 'var(--mint-line)' : 'var(--line-2)', color: t === s.view ? 'var(--mint)' : 'var(--ink-2)', bg: t === s.view ? 'var(--mint-soft)' : 'transparent', pick: () => this.setState({ view: t, si: 0 }) })),
+      strats, sel: { t: selName },
+      legs: legs.map(l => ({ side: l.q > 0 ? 'BUY' : 'SELL', color: l.q > 0 ? 'var(--mint)' : 'var(--danger)', line: l.q > 0 ? 'var(--mint-line)' : 'var(--danger-line)', lots: Math.abs(l.q) + ' lot' + (Math.abs(l.q) > 1 ? 's' : ''), k: l.k.toLocaleString('en-IN'), type: l.type === 'C' ? 'CE' : 'PE', px: '₹' + l.prem.toFixed(2) })),
+      expCurve: poly(ex), nowCurve: poly(nw), zeroY: Y(0).toFixed(1), spotX: X(S0).toFixed(1),
+      summary: [['Max profit', maxP, 'At expiry', 'var(--mint)'], ['Max loss', maxL, 'At expiry', 'var(--danger)'], ['Breakeven', bes.length ? bes.map(b => b.toLocaleString('en-IN')).join(' · ') : '—', 'Nifty at expiry', 'var(--ink)'], [net >= 0 ? 'Net credit' : 'Net debit', '₹' + Math.round(Math.abs(net)).toLocaleString('en-IN'), 'Premium', 'var(--ink)'], ['Margin', '₹' + Math.round(margin).toLocaleString('en-IN'), 'Estimate', 'var(--ink)'], ['Chance of profit', Math.round(pop / tot * 100) + '%', 'MODEL · LOGNORMAL', 'var(--amber)']].map(([k, v, sub, c]) => ({ k, v, s: sub, c })),
+      greeks: [['Delta', f(G.d, 1)], ['Gamma', f(G.g, 3)], ['Theta', f(G.t, 0) + '/day'], ['Vega', f(G.v, 0) + '/pt']].map(([k, v]) => ({ k, v })),
+      paper: ask(`Paper trade a Nifty ${selName.toLowerCase()} for 30 Oct`, 'options'),
+      explain: ask(`Explain the risk of a Nifty ${selName.toLowerCase()} for 30 Oct`, 'options'),
+    };
+  }
+}
+</script>
+</body>
+</html>

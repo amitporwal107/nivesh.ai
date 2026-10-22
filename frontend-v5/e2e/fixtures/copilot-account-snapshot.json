@@ -1,0 +1,18 @@
+{
+  "_fixture": "MOCK — not real data. Synthetic values in the real response shape.",
+  "snapshot": {
+    "user_id": "00000000-0000-4000-8000-000000000001",
+    "age": 41,
+    "marital_status": "married",
+    "dependents": 2,
+    "monthly_income_rs": 150000.0,
+    "income_growth_pct": 7.5,
+    "monthly_expenses_rs": 90000.0,
+    "inflation_pct": 5.5,
+    "current_corpus_rs": 2500000.0,
+    "total_liabilities_rs": 400000.0,
+    "risk_profile": "aggressive",
+    "behavior_score": null,
+    "updated_at": "2026-10-02T11:00:00+00:00"
+  }
+}

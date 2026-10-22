@@ -220,6 +220,22 @@ def _year_delta(period_end: str):
     return timedelta(days=365)
 
 
+def _merge_periods(raw_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One row per period_end, newest first. Rows of the same quarter from different sources
+    are combined field by field: the first non-null value wins, in the order received (the
+    data API lists the exchange filing, NSE_SHP, first). A source that has only a pledge
+    figure therefore no longer hides the quarter's promoter, FII and DII figures, and a
+    figure no source gives stays null."""
+    merged: Dict[str, Dict[str, Any]] = {}
+    for r in raw_rows:
+        key = str(r.get("period_end", ""))[:10]
+        into = merged.setdefault(key, {})
+        for field, value in r.items():
+            if into.get(field) is None:
+                into[field] = value
+    return sorted(merged.values(), key=lambda r: str(r.get("period_end", ""))[:10], reverse=True)
+
+
 async def get_shareholding_analysis(symbol: str) -> CompanyResult:
     """Shareholding pattern trend: promoter/FII/DII/MF changes + pledge trend.
 
@@ -230,7 +246,9 @@ async def get_shareholding_analysis(symbol: str) -> CompanyResult:
 
     sym = symbol.strip().upper()
     try:
-        raw_rows = await get_shareholding_history(sym, limit=5)
+        # A quarter can carry one row per source (the exchange filing, the pledge file, a
+        # screener row): fetch extra so five quarters survive the merge below.
+        raw_rows = _merge_periods(await get_shareholding_history(sym, limit=15))[:5]
     except DaasError as exc:
         return CompanyResult(ok=False, summary=f"Shareholding data unavailable: {exc}", error=str(exc))
 
@@ -444,6 +462,11 @@ async def get_company_overview(symbol: str) -> CompanyResult:
             "momentum_score":  features.get("momentum_score"),
             "market_cap_cr":   features.get("market_cap_cr"),
             "market_cap_bucket": features.get("market_cap_bucket"),
+            # Which feature row this is, and where its ROE/P/B/market cap came from (migration 162),
+            # so a screen can say why a figure is blank.
+            "as_of_date":          features.get("as_of_date"),
+            "fundamentals_source": features.get("fundamentals_source"),
+            "fundamentals_as_of":  features.get("fundamentals_as_of"),
         }
 
     summary = (

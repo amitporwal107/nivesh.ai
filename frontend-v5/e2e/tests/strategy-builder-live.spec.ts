@@ -3,7 +3,8 @@
  *
  * Drives the actual deployed screen at /v5/strategy-builder with a real session
  * cookie (SESSION_TOKEN → storageState). Walks Universe → Strategy → Screen →
- * Backtest and asserts real candidates + backtest metrics render. No mocking.
+ * Bot details → Backtest and asserts real candidates + backtest metrics render.
+ * No mocking.
  */
 import { test, expect } from "@playwright/test";
 
@@ -14,8 +15,9 @@ test.describe("@live Strategy Builder wizard", () => {
     await expect(page.getByTestId("strategy-builder-page")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("heading", { name: "Strategy Builder" })).toBeVisible();
 
-    // 2) Universe — Nifty 500 (default) is selectable; advance
-    await page.getByTestId("universe-NIFTY500").click();
+    // 2) Universe — Nifty 500 (default) is selectable; advance. The catalog card's
+    // testid is `universe-card-${ref}` (UniverseCard), not `universe-${ref}`.
+    await page.getByTestId("universe-card-NIFTY500").click();
     await page.getByRole("button", { name: /Strategy →/ }).click();
 
     // 3) Strategy — pick a template that reliably returns candidates in the
@@ -32,7 +34,12 @@ test.describe("@live Strategy Builder wizard", () => {
     const candidateRows = screenResults.locator("tbody tr");
     await expect.poll(() => candidateRows.count(), { timeout: 30_000 }).toBeGreaterThan(0);
 
-    // 5) Backtest — run a short window; expect metrics + trades to render
+    // 5) Bot details — the config step now sits between Screen and Backtest, so the
+    // Screen step's Next is "Bot details →" and "Backtest →" is that step's Next.
+    await page.getByRole("button", { name: /Bot details →/ }).click();
+    await expect(page.getByTestId("bot-details-panel")).toBeVisible({ timeout: 15_000 });
+
+    // 6) Backtest — run a short window; expect metrics + trades to render
     await page.getByRole("button", { name: /Backtest →/ }).click();
     await page.getByTestId("run-backtest").click();
     const backtest = page.getByTestId("backtest-results");

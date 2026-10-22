@@ -1,0 +1,29 @@
+{
+  "_comment": "MOCK — not real data. Two lists of a user who already has lists, as the stand-in for the /api/watchlists routes stores them (backend/routes/watchlists.py: one document per list, its stocks in the order they were added). Every company and symbol is made up. The first list holds one stock of each quote kind in copilot-watchlists-store.json: live, stored with a day change, none, stored without a day change, and a stock the master had no company name for.",
+  "lists": [
+    {
+      "watchlist_id": "wl_fixturebanks",
+      "name": "Fixture banks",
+      "is_starter": false,
+      "seeded_from": null,
+      "created_at": "2026-10-01T08:00:00+00:00",
+      "updated_at": "2026-10-09T11:30:00+00:00",
+      "stocks": [
+        { "symbol": "FIXALPHA", "company_name": "Fixture Alpha Industries Limited", "added_at": "2026-10-01T08:01:00+00:00" },
+        { "symbol": "FIXCHARLIE", "company_name": "Fixture Charlie Power Limited", "added_at": "2026-10-01T08:02:00+00:00" },
+        { "symbol": "FIXDELTA", "company_name": "Fixture Delta Finance Limited", "added_at": "2026-10-03T08:00:00+00:00" },
+        { "symbol": "FIXECHO", "company_name": "Fixture Echo Motors Limited", "added_at": "2026-10-09T11:29:00+00:00" },
+        { "symbol": "FIXNAMELESS", "company_name": null, "added_at": "2026-10-09T11:30:00+00:00" }
+      ]
+    },
+    {
+      "watchlist_id": "wl_fixturereadup",
+      "name": "Fixture to read up on",
+      "is_starter": false,
+      "seeded_from": null,
+      "created_at": "2026-10-05T09:00:00+00:00",
+      "updated_at": "2026-10-05T09:00:00+00:00",
+      "stocks": []
+    }
+  ]
+}
