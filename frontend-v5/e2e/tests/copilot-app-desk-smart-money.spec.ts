@@ -95,7 +95,9 @@ const FEEDS = {
 /** Four rows, one per derived evidence class, each also exercising a deal state. */
 const ROWS = [
   { symbol: "BSE", industry: "Financial Services", mf_shares_pct_chg: 12.58, net_shares_delta: 13841340,
-    schemes_up: 180, schemes_dn: 94, amcs_up: 10, fii_delta_pp: null, dii_delta_pp: null,
+    schemes_up: 180, schemes_dn: 94, amcs_up: 3, amcs_dn: 6, amcs_holding: 11,
+    top_amc_pct_of_move: 121, fii_delta_pp: 4.01, dii_delta_pp: 2.65,
+    fii_spread_pp: 0.8,
     deal_net_qty: -1590764, deal_gross_inr: 38640397021, deal_legs: 4, matched_legs: 0, deal_days: 1,
     transfer_days: 0, deals_checked: true, deliv_10d: 36.6, deliv_60d: 41.3, deliv_vs_base_pp: -4.6,
     close_price: 3248.3, prev_close: 3336.0, change_pct: -2.63, freshness_status: "fresh",
@@ -104,12 +106,14 @@ const ROWS = [
     schemes_up: 34, schemes_dn: 32, amcs_up: 6, fii_delta_pp: 0.29, dii_delta_pp: 1.06,
     deal_net_qty: null, deal_gross_inr: null, deal_legs: null, matched_legs: null, deal_days: null,
     transfer_days: null, deals_checked: false, deliv_10d: 30.5, deliv_60d: 36.8, deliv_vs_base_pp: -6.3,
+    fii_spread_pp: 0.6,
     close_price: 690.0, prev_close: 685.0, change_pct: 0.73, freshness_status: "ageing",
     single_amc_signal: true, latest_reporting_date: "2026-09-01", evidence: "A" },
   { symbol: "ULTRACEMCO", industry: "Construction Materials", mf_shares_pct_chg: 0.17, net_shares_delta: 108375,
     schemes_up: 135, schemes_dn: 158, amcs_up: 9, fii_delta_pp: 0.33, dii_delta_pp: 1.17,
     deal_net_qty: 0, deal_gross_inr: null, deal_legs: 31, matched_legs: 30, deal_days: 1,
     transfer_days: 1, deals_checked: true, deliv_10d: 51.7, deliv_60d: 58.1, deliv_vs_base_pp: -6.4,
+    fii_spread_pp: null,
     close_price: 10849.0, prev_close: 10650.0, change_pct: 1.87, freshness_status: "fresh",
     single_amc_signal: false, latest_reporting_date: "2026-09-01", evidence: "A" },
   { symbol: "ARVINDFASN", industry: "Consumer Durables", mf_shares_pct_chg: null, net_shares_delta: null,
@@ -382,7 +386,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     const panel = page.getByTestId("desk-smart-money-evidence");
     await expect(panel).toContainText("BSE");
     await expect(panel).toContainText("Why it surfaced · evidence chain");
-    await expect(panel).toContainText("10 AMCs raised the holding across 180 schemes (+12.58%)");
+    await expect(panel).toContainText("3 of 11 fund houses raised on net and 6 cut, across 180 schemes up and 94 down (+12.58%)");
     await expect(panel).toContainText("Disclosed monthly portfolios, as of 2026-09-01");
     await expect(panel).toContainText("What would weaken this reading");
     await expect(panel).toContainText("no counterparty classification");
@@ -578,4 +582,33 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await expect(page.getByTestId("desk-smart-money-sector")).toHaveValue("");
   });
 
+  test("TC-F28: an FII figure its own sources disagree about is not printed as a measurement", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    // BSE: +4.01 pp against a 0.8 pp disagreement — usable, but flagged as contested.
+    await expect(row(page, "BSE")).toContainText("+4.01 pp ±");
+    // TATATECH: +0.29 pp against a 0.6 pp disagreement. The sources differ by MORE than the change
+    // itself, so the change is not distinguishable from the disagreement and is not printed.
+    await expect(row(page, "TATATECH")).toContainText("sources differ");
+    await expect(row(page, "TATATECH")).not.toContainText("+0.29 pp");
+    // ULTRACEMCO: only one source carries a figure, so it reads plainly with no marker.
+    await expect(row(page, "ULTRACEMCO")).toContainText("+0.33 pp");
+    await expect(row(page, "ULTRACEMCO")).not.toContainText("±");
+    await expect(screen(page)).toContainText("Where two shareholding sources disagree, the figure is marked");
+  });
+
+  test("TC-F29: a headline driven by one house says so, and counts houses by their NET", async ({ page }) => {
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    const panel = page.getByTestId("desk-smart-money-evidence");
+    // "N AMCs raised" previously counted houses with ANY scheme raising. GLENMARK read "9 AMCs
+    // raised" when on net 3 raised and 6 cut, so the chain now counts the net.
+    await expect(panel).toContainText("3 of 11 fund houses raised on net and 6 cut");
+    await expect(panel).not.toContainText("11 fund houses raised on net and 0 cut");
+    // +12.58% looks broad-based; 121% of it is one house, so the rest are net sellers.
+    await expect(panel).toContainText("A single fund house accounts for 121% of the net change");
+    await expect(panel).toContainText("the other 10 houses are net sellers");
+    await expect(panel).toContainText("More houses cut than raised (6 against 3)");
+  });
 });
