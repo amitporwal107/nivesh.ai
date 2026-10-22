@@ -166,8 +166,31 @@ v2's market-wide flows panel needs 22 / 63 / 126 / 248 sessions, plus 5D/20D/60D
 a cumulative chart. **Every period, including 1M, is short.** 60D rolling is impossible; even 20D
 is impossible.
 
-Confirmed previously: Trendlyne carries no market-wide FII/DII cash flow, and ScanX gives 20 days.
-So this is a backfill problem, not a provider-selection problem. Until it is backfilled:
+**The provider question is settled; the history question is not.** Re-verified live 2026-10-22:
+
+| Source | What it gives |
+|---|---|
+| NSE `/api/fiidiiTradeReact` | rolling only — the 16 rows we hold, no dated archive (`fii_stats_*.xls` 404s) |
+| Trendlyne | nothing market-wide; its `fii*` parameters are per-stock *holding* percentages |
+| **ScanX / Dhan** (`/insight/fii-dii-data`) | **20 days** of `{date, buy, sell, net}` per side, server-rendered in the page's `ng-state` blob — no API key. Confirmed today: 2026-09-22 → 2026-10-21, plus a single *latest* weekly/monthly/yearly aggregate each. |
+
+ScanX is the right source — it beats NSE on both depth (20 days vs ~9) and detail (buy/sell split,
+not just net). It does **not** solve history. The underlying POST was reverse-engineered on
+2026-10-22; the payload nests under `Data`:
+
+```
+POST https://ow-static-scanx.dhan.co/staticscanx/fiidiidata
+{"Data":{"startdate":"22-09-2026","enddate":"21-10-2026","TimeFrame":"D"}}
+```
+`TimeFrame` ∈ `D/W/M/Y`; range capped at 1000 hours (~41 days). **Every** range tried returns
+`"no record fetched"`, and the endpoint constant table has no `fiidiidata_daterange` sibling
+(unlike MTF, which has one). So a dated pull is not available today.
+
+**Therefore: 1M becomes servable from a daily ScanX job almost immediately (20 of 22 sessions
+already reachable); 3M needs ~2 months of accumulation, 1Y about 11.** No ingest exists yet —
+there is no ScanX FII/DII service in the repo, and `fii_dii_flows` holds only NSE-sourced rows.
+
+Until history accumulates:
 - do not render the cumulative chart,
 - do not render 5D/20D/60D,
 - render the two net-flow figures for the days we do have, labelled with the true date span.
