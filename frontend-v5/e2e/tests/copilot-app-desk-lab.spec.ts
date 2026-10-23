@@ -316,7 +316,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-read-first")).toHaveCount(0);
 
     // Sub-tabs: the design's four, in order; OI build-up first and open.
-    await expect(page.getByRole("tablist", { name: "Options and futures views" }).getByRole("tab")).toHaveText(["OI build-up · F&O stocks", "NIFTY & BANKNIFTY", "Option chain OI · NIFTY", "Paper strategies"]);
+    await expect(page.getByRole("tablist", { name: "Options and futures views" }).getByRole("tab")).toHaveText(["OI build-up · F&O stocks", "Candidates", "NIFTY & BANKNIFTY", "Option chain OI · NIFTY", "Paper strategies"]);
     await expect(page.getByTestId("desk-fno-view-buildup")).toHaveAttribute("aria-selected", "true");
 
     // Weekly: the other expiry's chain.
@@ -1231,5 +1231,139 @@ test.describe("Options & futures lab · Kite's closing quotes", () => {
     await page.goto(`${DESK}?tab=fno`);
     await expect(page.getByTestId("desk-fno-spot")).toBeVisible();
     await expect(page.getByTestId("desk-fno-live")).toHaveCount(0);
+  });
+});
+
+// ── Candidates view (screens/tradingdesk/FnoCandidates.tsx, candidates-data.ts) ──────────────────────────────────────
+// MOCK — not real data: e2e/fixtures/fno-candidates.json is the real route's output (backend/routes/fno.py :: scan_candidates) for the unit tests'
+// synthetic stocks LB1, LB2, SB1, SB2, SC1, LU1. Expected figures are read from the fixture, not copied from the screen.
+test.describe("Smart trading desk — Options & futures lab · Candidates", () => {
+  const CAND = load("fno-candidates.json");
+  const CATS = ["long_buildup", "short_buildup", "short_covering", "long_unwinding"] as const;
+  const NAMES: Record<string, string> = { long_buildup: "Long build-up", short_buildup: "Short build-up", short_covering: "Short covering", long_unwinding: "Long unwinding" };
+
+  async function openCandidates(page: Page, body: unknown = CAND, status = 200): Promise<string[]> {
+    await deskBase(page);
+    const asked = await fnoData(page);
+    const hits: string[] = [];
+    await page.route("**/api/fno/scan/candidates*", (route) => {
+      hits.push(route.request().url());
+      return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    expect(asked).toBeDefined();
+    await page.getByTestId("desk-fno-view-candidates").click();
+    return hits;
+  }
+
+  test("TC-3 the Candidates tab sits after OI build-up and requests the route once", async ({ page }) => {
+    const hits = await openCandidates(page);
+    await expect(page.getByTestId("desk-fno-candidates")).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Options and futures views" }).getByRole("tab")).toHaveText(["OI build-up · F&O stocks", "Candidates", "NIFTY & BANKNIFTY", "Option chain OI · NIFTY", "Paper strategies"]);
+    await expect(page.getByTestId("desk-fno-view-candidates")).toHaveAttribute("aria-selected", "true");
+    expect(hits).toHaveLength(1);
+  });
+
+  test("TC-4 the research banner says not validated, names both experiments and the data window, and is not a recommendation", async ({ page }) => {
+    await openCandidates(page);
+    const b = page.getByTestId("desk-cand-research");
+    await expect(b).toHaveAttribute("data-status", "research_setting_not_validated");
+    await expect(b).toContainText("Research setting · not validated");
+    await expect(b).toContainText("not a recommendation and not a forecast");
+    for (const e of CAND.research.experiments) await expect(b).toContainText(e.id);
+    await expect(b).toContainText("29 Dec 2025 – 22 Oct 2026");
+  });
+
+  test("TC-5 four categories with counts; the first with candidates is open; switching changes the cards", async ({ page }) => {
+    await openCandidates(page);
+    for (const c of CATS) await expect(page.getByTestId(`desk-cand-category-${c}`)).toContainText(`${NAMES[c]} ${CAND.categories[c].candidates.length}`);
+    await expect(page.getByTestId("desk-cand-category-long_buildup")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-testid^="desk-cand-card-"]')).toHaveCount(CAND.categories.long_buildup.candidates.length);
+    await page.getByTestId("desk-cand-category-short_buildup").click();
+    await expect(page.getByTestId("desk-cand-category-short_buildup")).toHaveAttribute("aria-pressed", "true");
+    for (const c of CAND.categories.short_buildup.candidates) await expect(page.getByTestId(`desk-cand-card-${c.symbol}`)).toBeVisible();
+    await expect(page.getByTestId("desk-cand-meaning")).toContainText("does not prove who is trading or why");
+    await expect(page.getByTestId("desk-cand-pool")).toContainText(`Pool ${CAND.categories.short_buildup.pool} liquid stocks`);
+  });
+
+  test("TC-6 a card shows symbol, order, label, futures, OI and cash change and the expiry", async ({ page }) => {
+    await openCandidates(page);
+    const c = CAND.categories.long_buildup.candidates[0];
+    const card = page.getByTestId(`desk-cand-card-${c.symbol}`);
+    await expect(card).toContainText(c.symbol);
+    await expect(page.getByTestId(`desk-cand-rank-${c.symbol}`)).toHaveText(`#1 of ${CAND.categories.long_buildup.candidates.length}`);
+    await expect(card).toContainText("Long build-up");
+    await expect(card).toContainText(`+${c.price_chg_pct.toFixed(1)}%`);
+    await expect(card).toContainText(`+${c.oi_chg_pct.toFixed(1)}%`);
+    await expect(card).toContainText(`${c.days_to_expiry}d`);
+  });
+
+  test("TC-7 signal strength and tradeability are separate with coverage; the missing input is named; strategy quality is unavailable", async ({ page }) => {
+    await openCandidates(page);
+    const c = CAND.categories.long_buildup.candidates[0];
+    const s = c.scores.signal_strength, t = c.scores.tradeability;
+    await expect(page.getByTestId(`desk-cand-signal-${c.symbol}`)).toHaveAttribute("data-points", String(s.points));
+    await expect(page.getByTestId(`desk-cand-trade-${c.symbol}`)).toHaveAttribute("data-points", String(t.points));
+    const card = page.getByTestId(`desk-cand-card-${c.symbol}`);
+    await expect(card).toContainText(`Incomplete · coverage ${Math.round(s.coverage * 100)}%`);
+    await expect(card).toContainText(`Not earned: ${s.missing[0].label.toLowerCase()}, ${s.missing[0].weight} points`);
+    await expect(page.getByTestId(`desk-cand-missing-trade-${c.symbol}`)).toContainText(`Not earned: ${t.missing[0].label.toLowerCase()}, ${t.missing[0].weight} points`);
+    await expect(page.getByTestId(`desk-cand-strategy-${c.symbol}`)).toHaveText("Unavailable");
+    await expect(card).not.toContainText("Total score");
+  });
+
+  test("TC-8 the confirmations read holds / does not / unknown, and fundamentals are labelled not part of any score", async ({ page }) => {
+    const body = JSON.parse(JSON.stringify(CAND));
+    const c = body.categories.long_buildup.candidates[0];
+    c.checks.find((k: { key: string }) => k.key === "volume_elevated").state = false;
+    c.checks.find((k: { key: string }) => k.key === "delivery_rising").state = null;
+    await openCandidates(page, body);
+    const row = page.getByTestId(`desk-cand-checks-${c.symbol}`);
+    await expect(row).toContainText("Cash holds");
+    await expect(row).toContainText("Rel. volume does not");
+    await expect(row).toContainText("Delivery unknown");
+    await expect(page.getByTestId(`desk-cand-card-${c.symbol}`)).toContainText("Fundamental context · not part of any score");
+  });
+
+  test("TC-9 Open chain switches to the chain view", async ({ page }) => {
+    await openCandidates(page);
+    const c = CAND.categories.long_buildup.candidates[0];
+    await page.getByTestId(`desk-cand-open-${c.symbol}`).click();
+    await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("desk-fno")).toHaveAttribute("data-symbol", c.symbol);
+  });
+
+  test("TC-10 the not-ordered list is collapsed and shows each reason", async ({ page }) => {
+    const body = JSON.parse(JSON.stringify(CAND));
+    body.categories.long_buildup.unranked = [{ symbol: "MOCKX", reason: "delivery history missing", signal_coverage: 0.55, tradeability_coverage: 0.75 }];
+    await openCandidates(page, body);
+    const d = page.getByTestId("desk-cand-unranked");
+    await expect(d).toContainText("Not ordered · 1 stock with too few of their inputs");
+    await expect(d.getByText("MOCKX · signal coverage 55% · delivery history missing")).toBeHidden();
+    await d.locator("summary").click();
+    await expect(d.getByText("MOCKX · signal coverage 55% · delivery history missing")).toBeVisible();
+  });
+
+  test("TC-11 the screen never calls anything a pick, a best trade or a recommendation", async ({ page }) => {
+    await openCandidates(page);
+    const text = await page.getByTestId("desk-fno-candidates").innerText();
+    expect(text).not.toMatch(/best trade|top pick|buy now|sell now|recommended|guaranteed/i);
+    expect(text).toContain("orders stocks for you to look at");
+  });
+
+  test("TC-12 a failed route shows a notice with retry, and no cards", async ({ page }) => {
+    await openCandidates(page, { detail: "upstream_unavailable" }, 502);
+    await expect(page.getByText("The candidates didn’t load")).toBeVisible();
+    await expect(page.locator('[data-testid^="desk-cand-card-"]')).toHaveCount(0);
+    await expect(page.getByTestId("desk-fno-view-chain")).toBeEnabled();
+  });
+
+  test("TC-13 at 390px there is no sideways overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openCandidates(page);
+    await expect(page.locator('[data-testid^="desk-cand-card-"]').first()).toBeVisible();
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(0);
+    expect(o.scroll).toBeLessThanOrEqual(0);
   });
 });

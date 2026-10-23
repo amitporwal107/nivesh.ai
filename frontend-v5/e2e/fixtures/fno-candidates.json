@@ -1,0 +1,1846 @@
+{
+ "as_of": "2026-10-22",
+ "source": "NSE F&O bhavcopy (fixture)",
+ "rules_version": "fno-candidates-v2",
+ "threshold_version": "fno-candidates-v2",
+ "research": {
+  "status": "research_setting_not_validated",
+  "threshold_version": "fno-candidates-v2",
+  "experiment_id": "fo-bt-95f4e5df42dc",
+  "data_window": {
+   "from": "2025-12-29",
+   "to": "2026-10-22"
+  },
+  "last_updated": "2026-10-23",
+  "experiments": [
+   {
+    "id": "fo-bt-95f4e5df42dc",
+    "stage": "Stage A ranking backtest",
+    "date": "2026-10-23",
+    "data_window": {
+     "from": "2025-12-29",
+     "to": "2026-10-22"
+    },
+    "finding": "No ranking skill beyond picking at random from the same pool; no frozen setting was positive in both validation and test.",
+    "doc": "docs/FO_RANKING_BACKTEST_FINDINGS_20261023.md"
+   },
+   {
+    "id": "fo-b2-c4295fca6fbf",
+    "stage": "Stage B2 expiry-curve study",
+    "date": "2026-10-23",
+    "data_window": {
+     "from": "2025-10-01",
+     "to": "2026-10-22"
+    },
+    "finding": "No hypothesis supported for near, next or far expiry, nor for cross-expiry agreement or state transitions; near-month short build-up is inconclusive (permutation p 0.06).",
+    "doc": "docs/FO_STAGE_B2_FINDINGS_20261023.md"
+   }
+  ],
+  "statuses": [
+   "research_setting_not_validated",
+   "research_result",
+   "validated",
+   "insufficient_evidence"
+  ],
+  "note": "Every threshold and weight on this screen is a research setting, not a validated one. The ranking orders candidates for review; it is not a proven selection method, and back-tests found no skill beyond a random pick from the same pool."
+ },
+ "per_category": 5,
+ "universe": 20,
+ "categories": {
+  "long_buildup": {
+   "label": "long_buildup",
+   "direction": "bullish",
+   "meaning": "Price up and OI up: new long positions are being opened.",
+   "in_scan": 6,
+   "pool": 2,
+   "excluded": {
+    "not_fno_eligible": 1,
+    "no_turnover": 1,
+    "thin_futures": 1,
+    "small_move": 1,
+    "insufficient_coverage": 0
+   },
+   "candidates": [
+    {
+     "symbol": "LB1",
+     "sector": "IT",
+     "label": "long_buildup",
+     "direction": "bullish",
+     "price_chg_pct": 2.5,
+     "oi_chg_pct": 12.0,
+     "oi": 1000000.0,
+     "close": 100.0,
+     "cash_close": 99.0,
+     "cash_chg_pct": 2.5,
+     "near_expiry": "2026-10-27",
+     "days_to_expiry": 5.0,
+     "fut_turnover_cr": 500.0,
+     "risk_flags": [],
+     "scores": {
+      "signal_strength": {
+       "points": 75.7,
+       "max_points": 100.0,
+       "coverage": 0.85,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "oi_signal",
+         "label": "Futures OI signal",
+         "weight": 30,
+         "score": 80.0,
+         "points": 24.0,
+         "observed": "OI +12.0% (full marks at 15%)"
+        },
+        {
+         "key": "price_behavior",
+         "label": "Futures price behaviour",
+         "weight": 20,
+         "score": 83.3,
+         "points": 16.7,
+         "observed": "futures +2.50% (full marks at 3%)"
+        },
+        {
+         "key": "volume",
+         "label": "Volume / relative volume",
+         "weight": 15,
+         "score": 100.0,
+         "points": 15.0,
+         "observed": "2.00x its 20-day average"
+        },
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "score": null,
+         "points": null,
+         "observed": null
+        },
+        {
+         "key": "cash_delivery",
+         "label": "Cash-market and delivery context",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "futures +2.50%, cash +2.50%; 10-session trend +1.20, 20-day average 48%"
+        },
+        {
+         "key": "technical",
+         "label": "Technical structure",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "close 110.00, 20-day 100.00, 50-day 95.00; RSI 62.0, MACD histogram +0.50"
+        }
+       ],
+       "missing": [
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "reason": "Options-chain confirmation is not computed for stocks yet."
+        }
+       ]
+      },
+      "tradeability": {
+       "points": 66.7,
+       "max_points": 100.0,
+       "coverage": 0.75,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "liquidity",
+         "label": "Futures liquidity",
+         "weight": 50,
+         "score": 100.0,
+         "points": 50.0,
+         "observed": "futures turnover \u20b9500 cr"
+        },
+        {
+         "key": "expiry_distance",
+         "label": "Distance to expiry",
+         "weight": 25,
+         "score": 66.7,
+         "points": 16.7,
+         "observed": "5 days to expiry"
+        },
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "score": null,
+         "points": null,
+         "observed": null
+        }
+       ],
+       "missing": [
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "reason": "no bid-ask or depth in end-of-day data"
+        }
+       ]
+      },
+      "strategy_quality": {
+       "state": "unavailable",
+       "reasons": [
+        "Strategy quality is a property of one structure: it needs its payoff, risk, Greeks and costs, which the plan engine computes per candidate on request.",
+        "The cost model still omits STT, exchange charges, GST and stamp duty, and no probability-of-profit method exists yet."
+       ]
+      }
+     },
+     "ranked": true,
+     "unranked_reason": null,
+     "signal_state": "confirmed",
+     "entry_viable": true,
+     "checks": [
+      {
+       "key": "cash_confirms",
+       "label": "The cash market moved the same way as the futures that day.",
+       "state": true,
+       "observed": "futures +2.50%, cash +2.50%"
+      },
+      {
+       "key": "volume_elevated",
+       "label": "Relative volume (vol_z20) is at least 1.0 standard deviation above its 20-session history.",
+       "state": true,
+       "observed": "vol_z20 +2.00"
+      },
+      {
+       "key": "delivery_rising",
+       "label": "The share of delivered volume has been rising over 10 sessions (deliv_trend10 above 0).",
+       "state": true,
+       "observed": "10-session trend +1.20, 20-day average 48%"
+      },
+      {
+       "key": "trend_aligned",
+       "label": "The cash close is on the trade's side of both its 20-day and 50-day average.",
+       "state": true,
+       "observed": "close 110.00, 20-day 100.00, 50-day 95.00"
+      },
+      {
+       "key": "momentum_aligned",
+       "label": "RSI 14 and the MACD histogram agree with the direction and RSI is not already stretched.",
+       "state": true,
+       "observed": "RSI 62.0, MACD histogram +0.50"
+      },
+      {
+       "key": "entry_not_extended",
+       "label": "The stock has not already moved more than 3 normal daily ranges in the trade's direction over 5 sessions, so an entry is still viable.",
+       "state": true,
+       "observed": "5-day move +3.0% vs a normal daily range of 2.1% (limit 6.3% in the trade's direction)"
+      }
+     ],
+     "confirmations": {
+      "holds": 6,
+      "known": 6,
+      "total": 6
+     },
+     "fundamental_context": {
+      "rating": "strong",
+      "agrees_with_direction": true,
+      "holds": 6,
+      "known": 6,
+      "total": 6,
+      "facts": [
+       {
+        "key": "roe_pct",
+        "label": "ROE",
+        "value": 20.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": true
+       },
+       {
+        "key": "roce_pct",
+        "label": "ROCE",
+        "value": 22.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": true
+       },
+       {
+        "key": "debt_to_equity",
+        "label": "Debt / equity",
+        "value": 0.3,
+        "unit": "\u00d7",
+        "rule": "<= 1\u00d7",
+        "ok": true
+       },
+       {
+        "key": "pat_growth_yoy_pct",
+        "label": "Profit growth YoY",
+        "value": 15.0,
+        "unit": "%",
+        "rule": "> 0%",
+        "ok": true
+       },
+       {
+        "key": "eps_growth_3y_cagr_pct",
+        "label": "EPS growth 3Y",
+        "value": 18.0,
+        "unit": "%",
+        "rule": ">= 10%",
+        "ok": true
+       },
+       {
+        "key": "promoter_pledged_pct",
+        "label": "Promoter pledge",
+        "value": 0.0,
+        "unit": "%",
+        "rule": "<= 10%",
+        "ok": true
+       }
+      ],
+      "context": [
+       {
+        "key": "pe_ttm",
+        "label": "P/E",
+        "value": 24.0,
+        "unit": "\u00d7"
+       },
+       {
+        "key": "pe_vs_sector_pct",
+        "label": "P/E vs sector",
+        "value": -5.0,
+        "unit": "%"
+       },
+       {
+        "key": "market_cap_cr",
+        "label": "Market cap",
+        "value": 120000.0,
+        "unit": "\u20b9 cr"
+       },
+       {
+        "key": "promoter_pct",
+        "label": "Promoter holding",
+        "value": 55.0,
+        "unit": "%"
+       }
+      ],
+      "note": "Reported figures, updated quarterly; a view on the business, not on this week's move."
+     },
+     "delivery": {
+      "avg20_pct": 48.0,
+      "trend10": 1.2
+     },
+     "technical": {
+      "rsi14": 62.0,
+      "macd_hist": 0.5,
+      "dist_200dma_pct": 8.0,
+      "return_5d_pct": 3.0,
+      "return_20d_pct": 6.0,
+      "atr_pct": 2.1,
+      "accumulation_score": 60.0
+     },
+     "features_as_of": "2026-10-22",
+     "plan_inputs": {
+      "underlying": "LB1",
+      "direction": "bullish",
+      "horizon": "positional"
+     }
+    },
+    {
+     "symbol": "LB2",
+     "sector": "IT",
+     "label": "long_buildup",
+     "direction": "bullish",
+     "price_chg_pct": 1.0,
+     "oi_chg_pct": 15.0,
+     "oi": 1000000.0,
+     "close": 100.0,
+     "cash_close": 99.0,
+     "cash_chg_pct": -0.4,
+     "near_expiry": "2026-10-27",
+     "days_to_expiry": 5.0,
+     "fut_turnover_cr": 500.0,
+     "risk_flags": [],
+     "scores": {
+      "signal_strength": {
+       "points": 56.7,
+       "max_points": 100.0,
+       "coverage": 0.85,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "oi_signal",
+         "label": "Futures OI signal",
+         "weight": 30,
+         "score": 100.0,
+         "points": 30.0,
+         "observed": "OI +15.0% (full marks at 15%)"
+        },
+        {
+         "key": "price_behavior",
+         "label": "Futures price behaviour",
+         "weight": 20,
+         "score": 33.3,
+         "points": 6.7,
+         "observed": "futures +1.00% (full marks at 3%)"
+        },
+        {
+         "key": "volume",
+         "label": "Volume / relative volume",
+         "weight": 15,
+         "score": 100.0,
+         "points": 15.0,
+         "observed": "2.00x its 20-day average"
+        },
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "score": null,
+         "points": null,
+         "observed": null
+        },
+        {
+         "key": "cash_delivery",
+         "label": "Cash-market and delivery context",
+         "weight": 10,
+         "score": 50.0,
+         "points": 5.0,
+         "observed": "futures +1.00%, cash -0.40%; 10-session trend +0.40, 20-day average 48%"
+        },
+        {
+         "key": "technical",
+         "label": "Technical structure",
+         "weight": 10,
+         "score": 0.0,
+         "points": 0.0,
+         "observed": "close 90.00, 20-day 100.00, 50-day 95.00; RSI 38.0, MACD histogram -0.60"
+        }
+       ],
+       "missing": [
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "reason": "Options-chain confirmation is not computed for stocks yet."
+        }
+       ]
+      },
+      "tradeability": {
+       "points": 66.7,
+       "max_points": 100.0,
+       "coverage": 0.75,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "liquidity",
+         "label": "Futures liquidity",
+         "weight": 50,
+         "score": 100.0,
+         "points": 50.0,
+         "observed": "futures turnover \u20b9500 cr"
+        },
+        {
+         "key": "expiry_distance",
+         "label": "Distance to expiry",
+         "weight": 25,
+         "score": 66.7,
+         "points": 16.7,
+         "observed": "5 days to expiry"
+        },
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "score": null,
+         "points": null,
+         "observed": null
+        }
+       ],
+       "missing": [
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "reason": "no bid-ask or depth in end-of-day data"
+        }
+       ]
+      },
+      "strategy_quality": {
+       "state": "unavailable",
+       "reasons": [
+        "Strategy quality is a property of one structure: it needs its payoff, risk, Greeks and costs, which the plan engine computes per candidate on request.",
+        "The cost model still omits STT, exchange charges, GST and stamp duty, and no probability-of-profit method exists yet."
+       ]
+      }
+     },
+     "ranked": true,
+     "unranked_reason": null,
+     "signal_state": "invalidated",
+     "entry_viable": true,
+     "checks": [
+      {
+       "key": "cash_confirms",
+       "label": "The cash market moved the same way as the futures that day.",
+       "state": false,
+       "observed": "futures +1.00%, cash -0.40%"
+      },
+      {
+       "key": "volume_elevated",
+       "label": "Relative volume (vol_z20) is at least 1.0 standard deviation above its 20-session history.",
+       "state": false,
+       "observed": "vol_z20 +0.20"
+      },
+      {
+       "key": "delivery_rising",
+       "label": "The share of delivered volume has been rising over 10 sessions (deliv_trend10 above 0).",
+       "state": true,
+       "observed": "10-session trend +0.40, 20-day average 48%"
+      },
+      {
+       "key": "trend_aligned",
+       "label": "The cash close is on the trade's side of both its 20-day and 50-day average.",
+       "state": false,
+       "observed": "close 90.00, 20-day 100.00, 50-day 95.00"
+      },
+      {
+       "key": "momentum_aligned",
+       "label": "RSI 14 and the MACD histogram agree with the direction and RSI is not already stretched.",
+       "state": false,
+       "observed": "RSI 38.0, MACD histogram -0.60"
+      },
+      {
+       "key": "entry_not_extended",
+       "label": "The stock has not already moved more than 3 normal daily ranges in the trade's direction over 5 sessions, so an entry is still viable.",
+       "state": true,
+       "observed": "5-day move -4.0% vs a normal daily range of 2.1% (limit 6.3% in the trade's direction)"
+      }
+     ],
+     "confirmations": {
+      "holds": 2,
+      "known": 6,
+      "total": 6
+     },
+     "fundamental_context": {
+      "rating": "weak",
+      "agrees_with_direction": false,
+      "holds": 0,
+      "known": 6,
+      "total": 6,
+      "facts": [
+       {
+        "key": "roe_pct",
+        "label": "ROE",
+        "value": 4.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": false
+       },
+       {
+        "key": "roce_pct",
+        "label": "ROCE",
+        "value": 6.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": false
+       },
+       {
+        "key": "debt_to_equity",
+        "label": "Debt / equity",
+        "value": 2.5,
+        "unit": "\u00d7",
+        "rule": "<= 1\u00d7",
+        "ok": false
+       },
+       {
+        "key": "pat_growth_yoy_pct",
+        "label": "Profit growth YoY",
+        "value": -12.0,
+        "unit": "%",
+        "rule": "> 0%",
+        "ok": false
+       },
+       {
+        "key": "eps_growth_3y_cagr_pct",
+        "label": "EPS growth 3Y",
+        "value": -3.0,
+        "unit": "%",
+        "rule": ">= 10%",
+        "ok": false
+       },
+       {
+        "key": "promoter_pledged_pct",
+        "label": "Promoter pledge",
+        "value": 35.0,
+        "unit": "%",
+        "rule": "<= 10%",
+        "ok": false
+       }
+      ],
+      "context": [
+       {
+        "key": "pe_ttm",
+        "label": "P/E",
+        "value": 24.0,
+        "unit": "\u00d7"
+       },
+       {
+        "key": "pe_vs_sector_pct",
+        "label": "P/E vs sector",
+        "value": -5.0,
+        "unit": "%"
+       },
+       {
+        "key": "market_cap_cr",
+        "label": "Market cap",
+        "value": 120000.0,
+        "unit": "\u20b9 cr"
+       },
+       {
+        "key": "promoter_pct",
+        "label": "Promoter holding",
+        "value": 55.0,
+        "unit": "%"
+       }
+      ],
+      "note": "Reported figures, updated quarterly; a view on the business, not on this week's move."
+     },
+     "delivery": {
+      "avg20_pct": 48.0,
+      "trend10": 0.4
+     },
+     "technical": {
+      "rsi14": 38.0,
+      "macd_hist": -0.6,
+      "dist_200dma_pct": 8.0,
+      "return_5d_pct": -4.0,
+      "return_20d_pct": 6.0,
+      "atr_pct": 2.1,
+      "accumulation_score": 60.0
+     },
+     "features_as_of": "2026-10-22",
+     "plan_inputs": {
+      "underlying": "LB2",
+      "direction": "bullish",
+      "horizon": "positional"
+     }
+    }
+   ],
+   "unranked": []
+  },
+  "short_buildup": {
+   "label": "short_buildup",
+   "direction": "bearish",
+   "meaning": "Price down and OI up: new short positions are being opened.",
+   "in_scan": 2,
+   "pool": 2,
+   "excluded": {
+    "not_fno_eligible": 0,
+    "no_turnover": 0,
+    "thin_futures": 0,
+    "small_move": 0,
+    "insufficient_coverage": 0
+   },
+   "candidates": [
+    {
+     "symbol": "SB1",
+     "sector": "IT",
+     "label": "short_buildup",
+     "direction": "bearish",
+     "price_chg_pct": -3.1,
+     "oi_chg_pct": 14.0,
+     "oi": 1000000.0,
+     "close": 100.0,
+     "cash_close": 99.0,
+     "cash_chg_pct": -2.8,
+     "near_expiry": "2026-10-27",
+     "days_to_expiry": 5.0,
+     "fut_turnover_cr": 500.0,
+     "risk_flags": [],
+     "scores": {
+      "signal_strength": {
+       "points": 83.0,
+       "max_points": 100.0,
+       "coverage": 0.85,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "oi_signal",
+         "label": "Futures OI signal",
+         "weight": 30,
+         "score": 93.3,
+         "points": 28.0,
+         "observed": "OI +14.0% (full marks at 15%)"
+        },
+        {
+         "key": "price_behavior",
+         "label": "Futures price behaviour",
+         "weight": 20,
+         "score": 100.0,
+         "points": 20.0,
+         "observed": "futures -3.10% (full marks at 3%)"
+        },
+        {
+         "key": "volume",
+         "label": "Volume / relative volume",
+         "weight": 15,
+         "score": 100.0,
+         "points": 15.0,
+         "observed": "2.00x its 20-day average"
+        },
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "score": null,
+         "points": null,
+         "observed": null
+        },
+        {
+         "key": "cash_delivery",
+         "label": "Cash-market and delivery context",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "futures -3.10%, cash -2.80%; 10-session trend +0.40, 20-day average 48%"
+        },
+        {
+         "key": "technical",
+         "label": "Technical structure",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "close 90.00, 20-day 100.00, 50-day 95.00; RSI 38.0, MACD histogram -0.60"
+        }
+       ],
+       "missing": [
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "reason": "Options-chain confirmation is not computed for stocks yet."
+        }
+       ]
+      },
+      "tradeability": {
+       "points": 66.7,
+       "max_points": 100.0,
+       "coverage": 0.75,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "liquidity",
+         "label": "Futures liquidity",
+         "weight": 50,
+         "score": 100.0,
+         "points": 50.0,
+         "observed": "futures turnover \u20b9500 cr"
+        },
+        {
+         "key": "expiry_distance",
+         "label": "Distance to expiry",
+         "weight": 25,
+         "score": 66.7,
+         "points": 16.7,
+         "observed": "5 days to expiry"
+        },
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "score": null,
+         "points": null,
+         "observed": null
+        }
+       ],
+       "missing": [
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "reason": "no bid-ask or depth in end-of-day data"
+        }
+       ]
+      },
+      "strategy_quality": {
+       "state": "unavailable",
+       "reasons": [
+        "Strategy quality is a property of one structure: it needs its payoff, risk, Greeks and costs, which the plan engine computes per candidate on request.",
+        "The cost model still omits STT, exchange charges, GST and stamp duty, and no probability-of-profit method exists yet."
+       ]
+      }
+     },
+     "ranked": true,
+     "unranked_reason": null,
+     "signal_state": "confirmed",
+     "entry_viable": true,
+     "checks": [
+      {
+       "key": "cash_confirms",
+       "label": "The cash market moved the same way as the futures that day.",
+       "state": true,
+       "observed": "futures -3.10%, cash -2.80%"
+      },
+      {
+       "key": "volume_elevated",
+       "label": "Relative volume (vol_z20) is at least 1.0 standard deviation above its 20-session history.",
+       "state": true,
+       "observed": "vol_z20 +2.00"
+      },
+      {
+       "key": "delivery_rising",
+       "label": "The share of delivered volume has been rising over 10 sessions (deliv_trend10 above 0).",
+       "state": true,
+       "observed": "10-session trend +0.40, 20-day average 48%"
+      },
+      {
+       "key": "trend_aligned",
+       "label": "The cash close is on the trade's side of both its 20-day and 50-day average.",
+       "state": true,
+       "observed": "close 90.00, 20-day 100.00, 50-day 95.00"
+      },
+      {
+       "key": "momentum_aligned",
+       "label": "RSI 14 and the MACD histogram agree with the direction and RSI is not already stretched.",
+       "state": true,
+       "observed": "RSI 38.0, MACD histogram -0.60"
+      },
+      {
+       "key": "entry_not_extended",
+       "label": "The stock has not already moved more than 3 normal daily ranges in the trade's direction over 5 sessions, so an entry is still viable.",
+       "state": true,
+       "observed": "5-day move -4.0% vs a normal daily range of 2.1% (limit 6.3% in the trade's direction)"
+      }
+     ],
+     "confirmations": {
+      "holds": 6,
+      "known": 6,
+      "total": 6
+     },
+     "fundamental_context": {
+      "rating": "weak",
+      "agrees_with_direction": true,
+      "holds": 0,
+      "known": 6,
+      "total": 6,
+      "facts": [
+       {
+        "key": "roe_pct",
+        "label": "ROE",
+        "value": 4.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": false
+       },
+       {
+        "key": "roce_pct",
+        "label": "ROCE",
+        "value": 6.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": false
+       },
+       {
+        "key": "debt_to_equity",
+        "label": "Debt / equity",
+        "value": 2.5,
+        "unit": "\u00d7",
+        "rule": "<= 1\u00d7",
+        "ok": false
+       },
+       {
+        "key": "pat_growth_yoy_pct",
+        "label": "Profit growth YoY",
+        "value": -12.0,
+        "unit": "%",
+        "rule": "> 0%",
+        "ok": false
+       },
+       {
+        "key": "eps_growth_3y_cagr_pct",
+        "label": "EPS growth 3Y",
+        "value": -3.0,
+        "unit": "%",
+        "rule": ">= 10%",
+        "ok": false
+       },
+       {
+        "key": "promoter_pledged_pct",
+        "label": "Promoter pledge",
+        "value": 35.0,
+        "unit": "%",
+        "rule": "<= 10%",
+        "ok": false
+       }
+      ],
+      "context": [
+       {
+        "key": "pe_ttm",
+        "label": "P/E",
+        "value": 24.0,
+        "unit": "\u00d7"
+       },
+       {
+        "key": "pe_vs_sector_pct",
+        "label": "P/E vs sector",
+        "value": -5.0,
+        "unit": "%"
+       },
+       {
+        "key": "market_cap_cr",
+        "label": "Market cap",
+        "value": 120000.0,
+        "unit": "\u20b9 cr"
+       },
+       {
+        "key": "promoter_pct",
+        "label": "Promoter holding",
+        "value": 55.0,
+        "unit": "%"
+       }
+      ],
+      "note": "Reported figures, updated quarterly; a view on the business, not on this week's move."
+     },
+     "delivery": {
+      "avg20_pct": 48.0,
+      "trend10": 0.4
+     },
+     "technical": {
+      "rsi14": 38.0,
+      "macd_hist": -0.6,
+      "dist_200dma_pct": 8.0,
+      "return_5d_pct": -4.0,
+      "return_20d_pct": 6.0,
+      "atr_pct": 2.1,
+      "accumulation_score": 60.0
+     },
+     "features_as_of": "2026-10-22",
+     "plan_inputs": {
+      "underlying": "SB1",
+      "direction": "bearish",
+      "horizon": "positional"
+     }
+    },
+    {
+     "symbol": "SB2",
+     "sector": "IT",
+     "label": "short_buildup",
+     "direction": "bearish",
+     "price_chg_pct": -1.2,
+     "oi_chg_pct": 9.0,
+     "oi": 1000000.0,
+     "close": 100.0,
+     "cash_close": 99.0,
+     "cash_chg_pct": -1.2,
+     "near_expiry": "2026-10-27",
+     "days_to_expiry": 5.0,
+     "fut_turnover_cr": 500.0,
+     "risk_flags": [],
+     "scores": {
+      "signal_strength": {
+       "points": 51.0,
+       "max_points": 100.0,
+       "coverage": 0.85,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "oi_signal",
+         "label": "Futures OI signal",
+         "weight": 30,
+         "score": 60.0,
+         "points": 18.0,
+         "observed": "OI +9.0% (full marks at 15%)"
+        },
+        {
+         "key": "price_behavior",
+         "label": "Futures price behaviour",
+         "weight": 20,
+         "score": 40.0,
+         "points": 8.0,
+         "observed": "futures -1.20% (full marks at 3%)"
+        },
+        {
+         "key": "volume",
+         "label": "Volume / relative volume",
+         "weight": 15,
+         "score": 100.0,
+         "points": 15.0,
+         "observed": "2.00x its 20-day average"
+        },
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "score": null,
+         "points": null,
+         "observed": null
+        },
+        {
+         "key": "cash_delivery",
+         "label": "Cash-market and delivery context",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "futures -1.20%, cash -1.20%; 10-session trend +1.20, 20-day average 48%"
+        },
+        {
+         "key": "technical",
+         "label": "Technical structure",
+         "weight": 10,
+         "score": 0.0,
+         "points": 0.0,
+         "observed": "close 110.00, 20-day 100.00, 50-day 95.00; RSI 62.0, MACD histogram +0.50"
+        }
+       ],
+       "missing": [
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "reason": "Options-chain confirmation is not computed for stocks yet."
+        }
+       ]
+      },
+      "tradeability": {
+       "points": 66.7,
+       "max_points": 100.0,
+       "coverage": 0.75,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "liquidity",
+         "label": "Futures liquidity",
+         "weight": 50,
+         "score": 100.0,
+         "points": 50.0,
+         "observed": "futures turnover \u20b9500 cr"
+        },
+        {
+         "key": "expiry_distance",
+         "label": "Distance to expiry",
+         "weight": 25,
+         "score": 66.7,
+         "points": 16.7,
+         "observed": "5 days to expiry"
+        },
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "score": null,
+         "points": null,
+         "observed": null
+        }
+       ],
+       "missing": [
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "reason": "no bid-ask or depth in end-of-day data"
+        }
+       ]
+      },
+      "strategy_quality": {
+       "state": "unavailable",
+       "reasons": [
+        "Strategy quality is a property of one structure: it needs its payoff, risk, Greeks and costs, which the plan engine computes per candidate on request.",
+        "The cost model still omits STT, exchange charges, GST and stamp duty, and no probability-of-profit method exists yet."
+       ]
+      }
+     },
+     "ranked": true,
+     "unranked_reason": null,
+     "signal_state": "confirmed",
+     "entry_viable": true,
+     "checks": [
+      {
+       "key": "cash_confirms",
+       "label": "The cash market moved the same way as the futures that day.",
+       "state": true,
+       "observed": "futures -1.20%, cash -1.20%"
+      },
+      {
+       "key": "volume_elevated",
+       "label": "Relative volume (vol_z20) is at least 1.0 standard deviation above its 20-session history.",
+       "state": true,
+       "observed": "vol_z20 +2.00"
+      },
+      {
+       "key": "delivery_rising",
+       "label": "The share of delivered volume has been rising over 10 sessions (deliv_trend10 above 0).",
+       "state": true,
+       "observed": "10-session trend +1.20, 20-day average 48%"
+      },
+      {
+       "key": "trend_aligned",
+       "label": "The cash close is on the trade's side of both its 20-day and 50-day average.",
+       "state": false,
+       "observed": "close 110.00, 20-day 100.00, 50-day 95.00"
+      },
+      {
+       "key": "momentum_aligned",
+       "label": "RSI 14 and the MACD histogram agree with the direction and RSI is not already stretched.",
+       "state": false,
+       "observed": "RSI 62.0, MACD histogram +0.50"
+      },
+      {
+       "key": "entry_not_extended",
+       "label": "The stock has not already moved more than 3 normal daily ranges in the trade's direction over 5 sessions, so an entry is still viable.",
+       "state": true,
+       "observed": "5-day move +3.0% vs a normal daily range of 2.1% (limit 6.3% in the trade's direction)"
+      }
+     ],
+     "confirmations": {
+      "holds": 4,
+      "known": 6,
+      "total": 6
+     },
+     "fundamental_context": {
+      "rating": "strong",
+      "agrees_with_direction": false,
+      "holds": 6,
+      "known": 6,
+      "total": 6,
+      "facts": [
+       {
+        "key": "roe_pct",
+        "label": "ROE",
+        "value": 20.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": true
+       },
+       {
+        "key": "roce_pct",
+        "label": "ROCE",
+        "value": 22.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": true
+       },
+       {
+        "key": "debt_to_equity",
+        "label": "Debt / equity",
+        "value": 0.3,
+        "unit": "\u00d7",
+        "rule": "<= 1\u00d7",
+        "ok": true
+       },
+       {
+        "key": "pat_growth_yoy_pct",
+        "label": "Profit growth YoY",
+        "value": 15.0,
+        "unit": "%",
+        "rule": "> 0%",
+        "ok": true
+       },
+       {
+        "key": "eps_growth_3y_cagr_pct",
+        "label": "EPS growth 3Y",
+        "value": 18.0,
+        "unit": "%",
+        "rule": ">= 10%",
+        "ok": true
+       },
+       {
+        "key": "promoter_pledged_pct",
+        "label": "Promoter pledge",
+        "value": 0.0,
+        "unit": "%",
+        "rule": "<= 10%",
+        "ok": true
+       }
+      ],
+      "context": [
+       {
+        "key": "pe_ttm",
+        "label": "P/E",
+        "value": 24.0,
+        "unit": "\u00d7"
+       },
+       {
+        "key": "pe_vs_sector_pct",
+        "label": "P/E vs sector",
+        "value": -5.0,
+        "unit": "%"
+       },
+       {
+        "key": "market_cap_cr",
+        "label": "Market cap",
+        "value": 120000.0,
+        "unit": "\u20b9 cr"
+       },
+       {
+        "key": "promoter_pct",
+        "label": "Promoter holding",
+        "value": 55.0,
+        "unit": "%"
+       }
+      ],
+      "note": "Reported figures, updated quarterly; a view on the business, not on this week's move."
+     },
+     "delivery": {
+      "avg20_pct": 48.0,
+      "trend10": 1.2
+     },
+     "technical": {
+      "rsi14": 62.0,
+      "macd_hist": 0.5,
+      "dist_200dma_pct": 8.0,
+      "return_5d_pct": 3.0,
+      "return_20d_pct": 6.0,
+      "atr_pct": 2.1,
+      "accumulation_score": 60.0
+     },
+     "features_as_of": "2026-10-22",
+     "plan_inputs": {
+      "underlying": "SB2",
+      "direction": "bearish",
+      "horizon": "positional"
+     }
+    }
+   ],
+   "unranked": []
+  },
+  "short_covering": {
+   "label": "short_covering",
+   "direction": "bullish",
+   "meaning": "Price up and OI down: shorts are closing. A weaker reading than a fresh build-up.",
+   "in_scan": 1,
+   "pool": 1,
+   "excluded": {
+    "not_fno_eligible": 0,
+    "no_turnover": 0,
+    "thin_futures": 0,
+    "small_move": 0,
+    "insufficient_coverage": 0
+   },
+   "candidates": [
+    {
+     "symbol": "SC1",
+     "sector": "IT",
+     "label": "short_covering",
+     "direction": "bullish",
+     "price_chg_pct": 1.8,
+     "oi_chg_pct": -6.0,
+     "oi": 1000000.0,
+     "close": 100.0,
+     "cash_close": 99.0,
+     "cash_chg_pct": 1.8,
+     "near_expiry": "2026-10-27",
+     "days_to_expiry": 5.0,
+     "fut_turnover_cr": 500.0,
+     "risk_flags": [],
+     "scores": {
+      "signal_strength": {
+       "points": 51.6,
+       "max_points": 100.0,
+       "coverage": 0.85,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "oi_signal",
+         "label": "Futures OI signal",
+         "weight": 30,
+         "score": 32.0,
+         "points": 9.6,
+         "observed": "OI -6.0% (full marks at 15%)"
+        },
+        {
+         "key": "price_behavior",
+         "label": "Futures price behaviour",
+         "weight": 20,
+         "score": 60.0,
+         "points": 12.0,
+         "observed": "futures +1.80% (full marks at 3%)"
+        },
+        {
+         "key": "volume",
+         "label": "Volume / relative volume",
+         "weight": 15,
+         "score": 100.0,
+         "points": 15.0,
+         "observed": "2.00x its 20-day average"
+        },
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "score": null,
+         "points": null,
+         "observed": null
+        },
+        {
+         "key": "cash_delivery",
+         "label": "Cash-market and delivery context",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "futures +1.80%, cash +1.80%; 10-session trend +1.20, 20-day average 48%"
+        },
+        {
+         "key": "technical",
+         "label": "Technical structure",
+         "weight": 10,
+         "score": 50.0,
+         "points": 5.0,
+         "observed": "close 110.00, 20-day 100.00, 50-day 95.00; RSI 80.0 (stretched), MACD histogram +0.50"
+        }
+       ],
+       "missing": [
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "reason": "Options-chain confirmation is not computed for stocks yet."
+        }
+       ]
+      },
+      "tradeability": {
+       "points": 66.7,
+       "max_points": 100.0,
+       "coverage": 0.75,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "liquidity",
+         "label": "Futures liquidity",
+         "weight": 50,
+         "score": 100.0,
+         "points": 50.0,
+         "observed": "futures turnover \u20b9500 cr"
+        },
+        {
+         "key": "expiry_distance",
+         "label": "Distance to expiry",
+         "weight": 25,
+         "score": 66.7,
+         "points": 16.7,
+         "observed": "5 days to expiry"
+        },
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "score": null,
+         "points": null,
+         "observed": null
+        }
+       ],
+       "missing": [
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "reason": "no bid-ask or depth in end-of-day data"
+        }
+       ]
+      },
+      "strategy_quality": {
+       "state": "unavailable",
+       "reasons": [
+        "Strategy quality is a property of one structure: it needs its payoff, risk, Greeks and costs, which the plan engine computes per candidate on request.",
+        "The cost model still omits STT, exchange charges, GST and stamp duty, and no probability-of-profit method exists yet."
+       ]
+      }
+     },
+     "ranked": true,
+     "unranked_reason": null,
+     "signal_state": "confirmed",
+     "entry_viable": true,
+     "checks": [
+      {
+       "key": "cash_confirms",
+       "label": "The cash market moved the same way as the futures that day.",
+       "state": true,
+       "observed": "futures +1.80%, cash +1.80%"
+      },
+      {
+       "key": "volume_elevated",
+       "label": "Relative volume (vol_z20) is at least 1.0 standard deviation above its 20-session history.",
+       "state": true,
+       "observed": "vol_z20 +2.00"
+      },
+      {
+       "key": "delivery_rising",
+       "label": "The share of delivered volume has been rising over 10 sessions (deliv_trend10 above 0).",
+       "state": true,
+       "observed": "10-session trend +1.20, 20-day average 48%"
+      },
+      {
+       "key": "trend_aligned",
+       "label": "The cash close is on the trade's side of both its 20-day and 50-day average.",
+       "state": true,
+       "observed": "close 110.00, 20-day 100.00, 50-day 95.00"
+      },
+      {
+       "key": "momentum_aligned",
+       "label": "RSI 14 and the MACD histogram agree with the direction and RSI is not already stretched.",
+       "state": false,
+       "observed": "RSI 80.0 (stretched), MACD histogram +0.50"
+      },
+      {
+       "key": "entry_not_extended",
+       "label": "The stock has not already moved more than 3 normal daily ranges in the trade's direction over 5 sessions, so an entry is still viable.",
+       "state": true,
+       "observed": "5-day move +3.0% vs a normal daily range of 2.1% (limit 6.3% in the trade's direction)"
+      }
+     ],
+     "confirmations": {
+      "holds": 5,
+      "known": 6,
+      "total": 6
+     },
+     "fundamental_context": {
+      "rating": "strong",
+      "agrees_with_direction": true,
+      "holds": 6,
+      "known": 6,
+      "total": 6,
+      "facts": [
+       {
+        "key": "roe_pct",
+        "label": "ROE",
+        "value": 20.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": true
+       },
+       {
+        "key": "roce_pct",
+        "label": "ROCE",
+        "value": 22.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": true
+       },
+       {
+        "key": "debt_to_equity",
+        "label": "Debt / equity",
+        "value": 0.3,
+        "unit": "\u00d7",
+        "rule": "<= 1\u00d7",
+        "ok": true
+       },
+       {
+        "key": "pat_growth_yoy_pct",
+        "label": "Profit growth YoY",
+        "value": 15.0,
+        "unit": "%",
+        "rule": "> 0%",
+        "ok": true
+       },
+       {
+        "key": "eps_growth_3y_cagr_pct",
+        "label": "EPS growth 3Y",
+        "value": 18.0,
+        "unit": "%",
+        "rule": ">= 10%",
+        "ok": true
+       },
+       {
+        "key": "promoter_pledged_pct",
+        "label": "Promoter pledge",
+        "value": 0.0,
+        "unit": "%",
+        "rule": "<= 10%",
+        "ok": true
+       }
+      ],
+      "context": [
+       {
+        "key": "pe_ttm",
+        "label": "P/E",
+        "value": 24.0,
+        "unit": "\u00d7"
+       },
+       {
+        "key": "pe_vs_sector_pct",
+        "label": "P/E vs sector",
+        "value": -5.0,
+        "unit": "%"
+       },
+       {
+        "key": "market_cap_cr",
+        "label": "Market cap",
+        "value": 120000.0,
+        "unit": "\u20b9 cr"
+       },
+       {
+        "key": "promoter_pct",
+        "label": "Promoter holding",
+        "value": 55.0,
+        "unit": "%"
+       }
+      ],
+      "note": "Reported figures, updated quarterly; a view on the business, not on this week's move."
+     },
+     "delivery": {
+      "avg20_pct": 48.0,
+      "trend10": 1.2
+     },
+     "technical": {
+      "rsi14": 80.0,
+      "macd_hist": 0.5,
+      "dist_200dma_pct": 8.0,
+      "return_5d_pct": 3.0,
+      "return_20d_pct": 6.0,
+      "atr_pct": 2.1,
+      "accumulation_score": 60.0
+     },
+     "features_as_of": "2026-10-22",
+     "plan_inputs": {
+      "underlying": "SC1",
+      "direction": "bullish",
+      "horizon": "positional"
+     }
+    }
+   ],
+   "unranked": []
+  },
+  "long_unwinding": {
+   "label": "long_unwinding",
+   "direction": "bearish",
+   "meaning": "Price down and OI down: longs are closing. A weaker reading than a fresh build-up.",
+   "in_scan": 1,
+   "pool": 1,
+   "excluded": {
+    "not_fno_eligible": 0,
+    "no_turnover": 0,
+    "thin_futures": 0,
+    "small_move": 0,
+    "insufficient_coverage": 0
+   },
+   "candidates": [
+    {
+     "symbol": "LU1",
+     "sector": "IT",
+     "label": "long_unwinding",
+     "direction": "bearish",
+     "price_chg_pct": -1.5,
+     "oi_chg_pct": -8.0,
+     "oi": 1000000.0,
+     "close": 100.0,
+     "cash_close": 99.0,
+     "cash_chg_pct": -1.5,
+     "near_expiry": "2026-10-27",
+     "days_to_expiry": 5.0,
+     "fut_turnover_cr": 500.0,
+     "risk_flags": [],
+     "scores": {
+      "signal_strength": {
+       "points": 57.8,
+       "max_points": 100.0,
+       "coverage": 0.85,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "oi_signal",
+         "label": "Futures OI signal",
+         "weight": 30,
+         "score": 42.7,
+         "points": 12.8,
+         "observed": "OI -8.0% (full marks at 15%)"
+        },
+        {
+         "key": "price_behavior",
+         "label": "Futures price behaviour",
+         "weight": 20,
+         "score": 50.0,
+         "points": 10.0,
+         "observed": "futures -1.50% (full marks at 3%)"
+        },
+        {
+         "key": "volume",
+         "label": "Volume / relative volume",
+         "weight": 15,
+         "score": 100.0,
+         "points": 15.0,
+         "observed": "2.00x its 20-day average"
+        },
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "score": null,
+         "points": null,
+         "observed": null
+        },
+        {
+         "key": "cash_delivery",
+         "label": "Cash-market and delivery context",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "futures -1.50%, cash -1.50%; 10-session trend +0.40, 20-day average 48%"
+        },
+        {
+         "key": "technical",
+         "label": "Technical structure",
+         "weight": 10,
+         "score": 100.0,
+         "points": 10.0,
+         "observed": "close 90.00, 20-day 100.00, 50-day 95.00"
+        }
+       ],
+       "missing": [
+        {
+         "key": "options_confirmation",
+         "label": "Options-chain confirmation",
+         "weight": 15,
+         "reason": "Options-chain confirmation is not computed for stocks yet."
+        }
+       ]
+      },
+      "tradeability": {
+       "points": 66.7,
+       "max_points": 100.0,
+       "coverage": 0.75,
+       "complete": false,
+       "inputs": [
+        {
+         "key": "liquidity",
+         "label": "Futures liquidity",
+         "weight": 50,
+         "score": 100.0,
+         "points": 50.0,
+         "observed": "futures turnover \u20b9500 cr"
+        },
+        {
+         "key": "expiry_distance",
+         "label": "Distance to expiry",
+         "weight": 25,
+         "score": 66.7,
+         "points": 16.7,
+         "observed": "5 days to expiry"
+        },
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "score": null,
+         "points": null,
+         "observed": null
+        }
+       ],
+       "missing": [
+        {
+         "key": "spread_depth",
+         "label": "Spread and depth",
+         "weight": 25,
+         "reason": "no bid-ask or depth in end-of-day data"
+        }
+       ]
+      },
+      "strategy_quality": {
+       "state": "unavailable",
+       "reasons": [
+        "Strategy quality is a property of one structure: it needs its payoff, risk, Greeks and costs, which the plan engine computes per candidate on request.",
+        "The cost model still omits STT, exchange charges, GST and stamp duty, and no probability-of-profit method exists yet."
+       ]
+      }
+     },
+     "ranked": true,
+     "unranked_reason": null,
+     "signal_state": "confirmed",
+     "entry_viable": true,
+     "checks": [
+      {
+       "key": "cash_confirms",
+       "label": "The cash market moved the same way as the futures that day.",
+       "state": true,
+       "observed": "futures -1.50%, cash -1.50%"
+      },
+      {
+       "key": "volume_elevated",
+       "label": "Relative volume (vol_z20) is at least 1.0 standard deviation above its 20-session history.",
+       "state": true,
+       "observed": "vol_z20 +2.00"
+      },
+      {
+       "key": "delivery_rising",
+       "label": "The share of delivered volume has been rising over 10 sessions (deliv_trend10 above 0).",
+       "state": true,
+       "observed": "10-session trend +0.40, 20-day average 48%"
+      },
+      {
+       "key": "trend_aligned",
+       "label": "The cash close is on the trade's side of both its 20-day and 50-day average.",
+       "state": true,
+       "observed": "close 90.00, 20-day 100.00, 50-day 95.00"
+      },
+      {
+       "key": "momentum_aligned",
+       "label": "RSI 14 and the MACD histogram agree with the direction and RSI is not already stretched.",
+       "state": null,
+       "observed": "RSI or MACD missing"
+      },
+      {
+       "key": "entry_not_extended",
+       "label": "The stock has not already moved more than 3 normal daily ranges in the trade's direction over 5 sessions, so an entry is still viable.",
+       "state": true,
+       "observed": "5-day move -4.0% vs a normal daily range of 2.1% (limit 6.3% in the trade's direction)"
+      }
+     ],
+     "confirmations": {
+      "holds": 5,
+      "known": 5,
+      "total": 6
+     },
+     "fundamental_context": {
+      "rating": "weak",
+      "agrees_with_direction": true,
+      "holds": 0,
+      "known": 6,
+      "total": 6,
+      "facts": [
+       {
+        "key": "roe_pct",
+        "label": "ROE",
+        "value": 4.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": false
+       },
+       {
+        "key": "roce_pct",
+        "label": "ROCE",
+        "value": 6.0,
+        "unit": "%",
+        "rule": ">= 15%",
+        "ok": false
+       },
+       {
+        "key": "debt_to_equity",
+        "label": "Debt / equity",
+        "value": 2.5,
+        "unit": "\u00d7",
+        "rule": "<= 1\u00d7",
+        "ok": false
+       },
+       {
+        "key": "pat_growth_yoy_pct",
+        "label": "Profit growth YoY",
+        "value": -12.0,
+        "unit": "%",
+        "rule": "> 0%",
+        "ok": false
+       },
+       {
+        "key": "eps_growth_3y_cagr_pct",
+        "label": "EPS growth 3Y",
+        "value": -3.0,
+        "unit": "%",
+        "rule": ">= 10%",
+        "ok": false
+       },
+       {
+        "key": "promoter_pledged_pct",
+        "label": "Promoter pledge",
+        "value": 35.0,
+        "unit": "%",
+        "rule": "<= 10%",
+        "ok": false
+       }
+      ],
+      "context": [
+       {
+        "key": "pe_ttm",
+        "label": "P/E",
+        "value": 24.0,
+        "unit": "\u00d7"
+       },
+       {
+        "key": "pe_vs_sector_pct",
+        "label": "P/E vs sector",
+        "value": -5.0,
+        "unit": "%"
+       },
+       {
+        "key": "market_cap_cr",
+        "label": "Market cap",
+        "value": 120000.0,
+        "unit": "\u20b9 cr"
+       },
+       {
+        "key": "promoter_pct",
+        "label": "Promoter holding",
+        "value": 55.0,
+        "unit": "%"
+       }
+      ],
+      "note": "Reported figures, updated quarterly; a view on the business, not on this week's move."
+     },
+     "delivery": {
+      "avg20_pct": 48.0,
+      "trend10": 0.4
+     },
+     "technical": {
+      "rsi14": null,
+      "macd_hist": -0.6,
+      "dist_200dma_pct": 8.0,
+      "return_5d_pct": -4.0,
+      "return_20d_pct": 6.0,
+      "atr_pct": 2.1,
+      "accumulation_score": 60.0
+     },
+     "features_as_of": "2026-10-22",
+     "plan_inputs": {
+      "underlying": "LU1",
+      "direction": "bearish",
+      "horizon": "positional"
+     }
+    }
+   ],
+   "unranked": []
+  }
+ },
+ "indices": [
+  {
+   "symbol": "NIFTY",
+   "index_name": "Nifty 50",
+   "label": "short_buildup",
+   "direction": "bearish",
+   "price_chg_pct": -0.14,
+   "oi_chg_pct": 4.62,
+   "cash_close": 22687.65,
+   "cash_chg_pct": -0.31,
+   "cash_confirms": true,
+   "near_expiry": "2026-10-27",
+   "days_to_expiry": 5.0,
+   "risk_flags": [
+    "expiry_week"
+   ],
+   "plan_inputs": {
+    "underlying": "NIFTY",
+    "direction": "bearish",
+    "horizon": "positional"
+   },
+   "note": "An index has no delivery or fundamentals: the reading is the futures build-up and the cash check only."
+  },
+  {
+   "symbol": "BANKNIFTY",
+   "index_name": "Nifty Bank",
+   "label": "neutral",
+   "direction": null,
+   "price_chg_pct": 0.0,
+   "oi_chg_pct": 0.0,
+   "cash_close": null,
+   "cash_chg_pct": null,
+   "cash_confirms": null,
+   "near_expiry": null,
+   "days_to_expiry": null,
+   "risk_flags": [],
+   "plan_inputs": null,
+   "note": "An index has no delivery or fundamentals: the reading is the futures build-up and the cash check only. The build-up is neutral or unavailable, so no direction is suggested."
+  }
+ ],
+ "features_as_of": "2026-10-22",
+ "disclosure": "These are heuristic readings of two figures (futures price and open interest), not proof of what traders intended. Rollovers, expiry and changes in who trades a contract distort them. Signal Strength, Tradeability and Strategy Quality are kept as separate scores and never blended; a missing input leaves its points unearned and is shown, it is not redistributed. All weights and thresholds are research settings that no out-of-sample test has validated. Fundamental quality is a separate context panel and is not part of any score. Research and hypothetical scenarios only: nothing here is advice and nothing is sent to a broker.",
+ "gaps": [
+  "End of day: the build-up is the NSE bhavcopy. Intraday confirmation is not available because no intraday OI was stored before 23 Oct 2026.",
+  "Options-chain confirmation is not computed for stocks yet, so Signal Strength coverage is capped at 85%.",
+  "OI persistence, acceleration and OI percentile need OI history this scan does not carry; they are not scored.",
+  "No threshold or weight here has been validated out of sample."
+ ],
+ "risk_flag_text": {
+  "expiry_week": "The nearest contract expires within 7 calendar days."
+ },
+ "read_only": true,
+ "sent_to_broker": false
+}
