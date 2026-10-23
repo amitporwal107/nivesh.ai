@@ -828,3 +828,41 @@ test.describe("Watchlist — price levels · live price", () => {
     await expect(page.getByTestId("watchlist-level-live")).toHaveCount(0);
   });
 });
+
+/**
+ * MOCK — not real data: the feed's final snapshot after a close (mode "closed", final true), invented prices, every quote
+ * stamped with the trading `day`. A day far in the future stands for "newer than the end-of-day data on the screen", a day
+ * far in the past for "the end-of-day data has caught up". Shape: backend/routes/live_quotes.py.
+ */
+async function closeFeed(page: Page, quotes: Record<string, Record<string, unknown>>, day: string) {
+  const full = Object.fromEntries(Object.entries(quotes).map(([s, q]) => [s, { change: 1.5, change_pct: 1.5, open: 1, high: 1, low: 1, close: 1, volume: 1000, oi: null, ...q, ts: `${day}T15:29:58+05:30` }]));
+  const snapshot = {
+    as_of: `${day}T10:01:10+00:00`, data_at: `${day}T10:00:10+00:00`, age_seconds: 5, stale: false, stale_after_seconds: 75, cadence_seconds: 30,
+    mode: "closed", session: "closed", source: "rest", final: true, count: Object.keys(full).length, missing: [], quotes: full, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+const NEWER = "2026-12-31";
+const OLDER = "2020-01-02";
+
+test.describe("Watchlist — price levels · Kite's close", () => {
+  test("after the close a Close · Kite column shows while the scanner's day is older", async ({ page }) => {
+    await open(page);
+    await closeFeed(page, { FIXALPHA: { ltp: 512.25 } }, NEWER);
+    await page.goto(`${APP}/page/watchlist`);
+    await expect(page.getByTestId("watchlist-levels")).toContainText("Close · Kite");
+    await expect(page.getByTestId("watchlist-level-live").nth(0)).toHaveText("₹512.25");
+    await expect(page.getByTestId("watchlist-level-live").nth(1)).toHaveText("—");
+  });
+
+  test("no extra column once the scanner's day has caught up", async ({ page }) => {
+    await open(page);
+    await closeFeed(page, { FIXALPHA: { ltp: 512.25 } }, OLDER);
+    await page.goto(`${APP}/page/watchlist`);
+    await expect(page.getByTestId("watchlist-levels")).toContainText("Level to cross");
+    await expect(page.getByTestId("watchlist-level-live")).toHaveCount(0);
+  });
+});

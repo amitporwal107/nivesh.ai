@@ -1173,3 +1173,63 @@ test.describe("Options & futures lab · live spot", () => {
     await expect(page.getByTestId("desk-fno-asof")).toContainText("end of day");
   });
 });
+
+/**
+ * MOCK — not real data: the feed's final snapshot after a close (mode "closed", final true), invented prices, every quote
+ * stamped with the trading `day`. A day far in the future stands for "newer than the end-of-day data on the screen", a day
+ * far in the past for "the end-of-day data has caught up". Shape: backend/routes/live_quotes.py.
+ */
+async function closeFeed(page: Page, quotes: Record<string, Record<string, unknown>>, day: string) {
+  const full = Object.fromEntries(Object.entries(quotes).map(([s, q]) => [s, { change: 1.5, change_pct: 1.5, open: 1, high: 1, low: 1, close: 1, volume: 1000, oi: null, ...q, ts: `${day}T15:29:58+05:30` }]));
+  const snapshot = {
+    as_of: `${day}T10:01:10+00:00`, data_at: `${day}T10:00:10+00:00`, age_seconds: 5, stale: false, stale_after_seconds: 75, cadence_seconds: 30,
+    mode: "closed", session: "closed", source: "rest", final: true, count: Object.keys(full).length, missing: [], quotes: full, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+const NEWER = "2026-12-31";
+const OLDER = "2020-01-02";
+
+test.describe("Options & futures lab · Kite's closing quotes", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+
+  test("after the close the build-up table shows Kite's closing futures quote while the bhavcopy of that day is not loaded", async ({ page }) => {
+    await fnoData(page);
+    await closeFeed(page, { FIXFNO26OCTFUT: { ...FIX_FUT_QUOTE } }, NEWER);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-live-head")).toHaveText("Close fut");
+    await expect(page.getByTestId("desk-buildup-live-head")).toHaveAttribute("data-kind", "close");
+    const fix = page.locator('[data-testid="desk-buildup-row"]', { hasText: "FIXFNO" }).first();
+    await expect(fix.getByTestId("desk-buildup-live-price")).toContainText("1,512.40");
+    await expect(page.getByTestId("desk-buildup-shown")).toContainText("at Kite's close");
+  });
+
+  test("the closing quote is dropped once the end-of-day data has caught up with its day", async ({ page }) => {
+    await fnoData(page);
+    await closeFeed(page, { FIXFNO26OCTFUT: { ...FIX_FUT_QUOTE } }, OLDER);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-row").first()).toBeVisible();
+    await expect(page.getByTestId("desk-buildup-live-head")).toHaveCount(0);
+  });
+
+  test("the headline spot shows Kite's close, labelled so, until the bhavcopy of that day is loaded", async ({ page }) => {
+    await fnoData(page);
+    await closeFeed(page, { "NIFTY 50": { ltp: 22700.5 } }, NEWER);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-fno-spot")).toHaveText("22,700.50");
+    await expect(page.getByTestId("desk-fno-spot")).toHaveAttribute("data-kind", "close");
+    await expect(page.getByTestId("desk-fno-live")).toContainText("Close ·");
+    await expect(page.getByTestId("desk-fno-live")).not.toContainText("Live");
+  });
+
+  test("a closing quote older than the bhavcopy leaves the bhavcopy spot", async ({ page }) => {
+    await fnoData(page);
+    await closeFeed(page, { "NIFTY 50": { ltp: 22700.5 } }, OLDER);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-fno-spot")).toBeVisible();
+    await expect(page.getByTestId("desk-fno-live")).toHaveCount(0);
+  });
+});

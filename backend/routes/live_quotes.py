@@ -3,6 +3,7 @@
 GET /api/live/status    state of the feed (mode, source, instrument count, last tick age)
 GET /api/live/quotes    ?symbols=RELIANCE,NIFTY 50   batch of quotes from the latest snapshot
 GET /api/live/snapshot  ?universe=indices|nifty500|fno|futures|all   a whole set (futures: the near-month contract of each F&O underlying, with OI)
+GET /api/live/close     ?date=YYYY-MM-DD&symbols=  the saved closing quotes of a trading day (newest when omitted)
 GET /api/live/stream    SSE, one `snapshot` event per cadence with the same body as /quotes or /snapshot
 
 Every body carries as_of / data_at / age_seconds / stale / mode. A symbol with no price is absent from `quotes` and listed
@@ -147,6 +148,20 @@ async def snapshot(request: Request, universe: str = Query("indices"), symbols: 
     if universe not in UNIVERSES:
         raise HTTPException(status_code=400, detail=f"universe must be one of {', '.join(UNIVERSES)}")
     return await _body(_symbols(symbols) if symbols else None, universe)
+
+
+@router.get("/close")
+async def saved_close(request: Request, date: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+                symbols: Optional[str] = Query(None, max_length=12000)) -> Dict[str, Any]:
+    """The saved Kite closing quotes of one trading day (the newest saved day when `date` is omitted), in the same body as
+    /quotes and /snapshot with mode "closed" and final true. Written once after each close; 404 when no close is saved."""
+    await get_current_user(request)
+    doc = await get_feed().read_close(date)
+    if not doc:
+        raise HTTPException(status_code=404, detail="no_saved_close")
+    body = build_payload(doc, {"state": "market_closed", "session": "closed"}, _symbols(symbols) if symbols else None, datetime.now(timezone.utc))
+    body.update({"mode": "closed", "session": "closed", "final": True, "stale": False, "date": doc.get("date")})
+    return body
 
 
 @router.get("/stream")
