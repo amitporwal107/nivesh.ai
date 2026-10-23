@@ -9,6 +9,9 @@
  * is sent to a broker. The mini payoff shapes on the tiles are illustrations of each structure, not figures.
  */
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { http } from "@/services/api/http";
+import { ApiError } from "@/services/api/errors";
 import { LoadingBlock } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
 import { fmtLevel } from "../trading/PayoffResult";
@@ -79,6 +82,71 @@ export function legsFor(t: Template, chain: FnoChain): LegRow[] {
 const field = { padding: "7px 9px", borderRadius: 8, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--cp-ink)", fontFamily: "var(--mono)", fontSize: 12, minHeight: 36, minWidth: 0 } as const;
 const quiet = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" } as const;
 
+
+// ── funds and margin: Zerodha's margin calculator, through the platform's Kite session ───────────────────────────────────────
+
+export interface MarginCharges { brokerage: number | null; stt: number | null; exchange: number | null; sebi: number | null; stampDuty: number | null; gst: number | null; total: number | null }
+export interface MarginAnswer { required: number | null; initial: number | null; charges: MarginCharges; source: string | null; note: string | null }
+type MarginState = { kind: "ok"; data: MarginAnswer } | { kind: "unavailable"; reason: string };
+
+const mnum = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+export function parseMargin(body: unknown): MarginAnswer {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const ch = ((b.charges as Record<string, unknown> | undefined)?.total ?? {}) as Record<string, unknown>;
+  if (!("required_margin" in b)) throw ApiError.contractDrift("fno.margin: no required_margin");
+  return {
+    required: mnum(b.required_margin), initial: mnum(b.initial_margin), source: typeof b.source === "string" ? b.source : null, note: typeof b.note === "string" ? b.note : null,
+    charges: { brokerage: mnum(ch.brokerage), stt: mnum(ch.stt), exchange: mnum(ch.exchange), sebi: mnum(ch.sebi), stampDuty: mnum(ch.stamp_duty), gst: mnum(ch.gst), total: mnum(ch.total) },
+  };
+}
+
+/** The margin for the legs on screen. A 503 (the platform is not logged in to Kite today) or any failure is "Unavailable" with the reason, never a guess. */
+function useMargin(symbol: string, expiry: string | null, legs: LegRow[], enabled: boolean) {
+  const key = JSON.stringify([symbol, expiry, legs.map((l) => [l.side, l.kind, l.strike, l.lots])]);
+  return useQuery<MarginState>({
+    queryKey: ["copilot", "desk", "fno-margin", key],
+    enabled: enabled && !!expiry && legs.length > 0,
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      try {
+        const res = await http({ method: "POST", path: "/api/fno/margin", noRetry: true, timeoutMs: 20_000, signal,
+          body: { underlying: symbol, legs: legs.map((l) => ({ side: l.side, option_type: l.kind, expiry, strike: l.strike, lots: l.lots })) } });
+        return { kind: "ok", data: parseMargin(res.data) };
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 503) return { kind: "unavailable", reason: "The platform is not logged in to Kite today, so the broker’s margin calculator cannot be asked." };
+        if (e instanceof ApiError && e.status === 404) return { kind: "unavailable", reason: e.detail ?? "A contract is not listed." };
+        return { kind: "unavailable", reason: "The margin calculator did not answer just now." };
+      }
+    },
+  });
+}
+
+const inr = (n: number | null) => (n == null ? "—" : `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n)}`);
+
+function MarginStrip({ state }: { state: ReturnType<typeof useMargin> }) {
+  const m = state.data;
+  return (
+    <div data-testid="desk-builder-margin" className="flex flex-col" style={{ gap: 6, padding: "12px 14px", borderRadius: 12, background: "var(--bg-1)", border: "1px solid var(--line-2)" }}>
+      <div className="flex flex-wrap items-baseline" style={{ gap: "6px 18px" }}>
+        <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>Funds and margin needed</span>
+        {state.isPending && state.fetchStatus !== "idle" && <span style={quiet}>Asking the margin calculator…</span>}
+        {m?.kind === "ok" && <span data-testid="desk-builder-margin-required" style={{ fontFamily: "var(--mono)", fontSize: 16 }}>{inr(m.data.required)}</span>}
+        {m?.kind === "unavailable" && <span data-testid="desk-builder-margin-unavailable" style={{ ...quiet, color: "var(--cp-ink-2)" }}>Unavailable · {m.reason}</span>}
+      </div>
+      {m?.kind === "ok" && (
+        <>
+          <span data-testid="desk-builder-charges" style={quiet}>
+            Charges for the entry orders: {inr(m.data.charges.total)} (brokerage {inr(m.data.charges.brokerage)}, STT {inr(m.data.charges.stt)}, exchange {inr(m.data.charges.exchange)}, GST {inr(m.data.charges.gst)}). Initial margin {inr(m.data.initial)}.
+          </span>
+          <span style={quiet}>{m.data.source}. {m.data.note}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function BuilderView({ symbol, state }: { symbol: string; state: ChainState }) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
@@ -122,6 +190,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   const changed = scn.underlyingPrice != null || scn.size != null || scn.evalDate != null || scn.ivShiftPct !== 0;
   const request = base ? (changed ? buildScenarioRequest(base, scn) : base) : null;
   const pay = usePayoff(request);
+  const marginQ = useMargin(symbol, chain?.summary.expiry ?? null, legs, !problem && !!chain);
 
   if (state.status === "loading") return <LoadingBlock label={`Loading the ${symbol} chain`} rows={4} />;
   if (!chain) return <span data-testid="desk-builder-nochain" style={quiet}>{state.status === "none" ? state.message : `The ${symbol} chain didn’t load, so there is nothing to build on.`}</span>;
@@ -203,6 +272,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
             {netLabel && response?.expiry?.net_premium != null && (
               <span data-testid="desk-builder-net" className="cp-mono-note">{netLabel} {fmtLevel(Math.abs(response.expiry.net_premium))} for the position (end-of-day closes, before costs)</span>
             )}
+            <MarginStrip state={marginQ} />
             <StrategyGraphs
               base={base} response={response} errorText={pay.errorText} pending={pay.isPending} stale={pay.isStale} onRetry={pay.refetch}
               scenario={scn} onScenarioChange={setScn} dataDate={chain.summary.as_of} persona={persona} compact={mobile}
