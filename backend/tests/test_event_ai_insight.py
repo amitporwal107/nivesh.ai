@@ -58,8 +58,17 @@ def test_r4_kept_by_filter_but_not_yet_analysed():
 
 def test_r5_dropped_filing_says_routine_and_never_reads_important():
     ins = build([_filter("c1", False, 25), _filter("c1", False, 30, mode="filter_v1_second")])["c1"]
-    assert ins["one"].startswith("Assessed as routine (importance") and ins["sentiment"] == "neutral"
+    assert ins["one"] == "title c1 · Assessed as routine (importance 25/100)" and ins["sentiment"] == "neutral"
+    assert "important" not in ins["one"].replace("importance", "").lower()
     assert [s["tab"] for s in ins["sections"]] == ["Quick Summary"]
+    assert ins["sections"][0]["items"] == ["title c1", "why c1"] and "routine" in ins["sections"][0]["h"]
+
+
+def test_r5b_dropped_filing_without_a_title_keeps_the_reason_wording():
+    f = _filter("c2", False, 25)
+    f["analysis"] = {"why": "only a reason"}
+    ins = build([f])["c2"]
+    assert ins["one"] == "Assessed as routine (importance 25/100): only a reason"
 
 
 def test_r6_second_opinion_keep_overrides_first_drop():
