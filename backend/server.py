@@ -128,6 +128,7 @@ from routes.macro_calendar import router as macro_calendar_router  # Trading des
 from routes.symbol_lookup import router as symbol_lookup_router  # /api/markets/symbol-lookup (type-ahead, did-you-mean)
 from routes.markets_desk import router as markets_desk_router  # Trading desk: /api/markets/sector-returns, /api/markets/deals
 from routes.markets_smart_money import router as markets_smart_money_router  # Trading desk: /api/markets/smart-money/*
+from routes.markets_evidence import router as markets_evidence_router  # Trading desk: /api/markets/evidence/* (frozen research study)
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
@@ -279,6 +280,7 @@ app.include_router(macro_calendar_router)  # /api/markets/macro-calendar, /histo
 app.include_router(symbol_lookup_router)     # /api/markets/symbol-lookup
 app.include_router(markets_desk_router)      # /api/markets/sector-returns, /api/markets/deals
 app.include_router(markets_smart_money_router)  # /api/markets/smart-money/* — disclosed institutional evidence
+app.include_router(markets_evidence_router)  # /api/markets/evidence/* — frozen post-disclosure forward-returns study (INCONCLUSIVE)
 app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation

@@ -27,6 +27,7 @@ import {
 } from "../../components/ui";
 import { useDesk } from "./context";
 import { TrustLine } from "./trust";
+import EvidenceValidationPanel from "./EvidenceValidationPanel";
 import {
   EVIDENCE_LABEL, EVIDENCE_LEGEND, EVIDENCE_NOTE, SECTOR_MEASURES, SM_DIRECTIONS, SM_FRESHNESS,
   SM_PERIODS, SM_UNIVERSES, type EvidenceClass, type FlowPoint, type ScannerFilters, type ScannerRow,
@@ -1001,6 +1002,11 @@ export default function SmartMoneyTab() {
         </div>
         <TrustLine source={scanner?.source ?? "nidp.mf_holdings_deltas"} asOf={fmtDate(scanner?.asOf)} mode="historical" maker="reported" confidence={`n ${scanner?.total ?? 0}`} testId="desk-smart-money-scanner-trust" />
       </Section>
+
+      {/* Evidence & Validation: the one finished, pre-registered post-disclosure forward-returns
+          study behind this desk's smart-money evidence. INCONCLUSIVE, research-only, no score — it
+          owns its own loading/error state. */}
+      <EvidenceValidationPanel />
     </>
   );
 
