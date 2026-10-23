@@ -138,7 +138,7 @@ def test_tc8_run_is_deterministic_and_counts_everything():
     b = es.run(_world(1), FROZEN, n_perm=5, generated_at="y")
     c = es.run(_world(2), FROZEN, n_perm=5, generated_at="x")
     assert a["report_hash"] == b["report_hash"] and a["experiment_id"] == b["experiment_id"]
-    assert a["validated"] is False and a["tested_configurations"] == 7 * 4 * 7 * 6
+    assert a["validated"] is False and a["tested_configurations"] == 7 * 4 * 7 * 6 + 8 * 3 * 2
     assert set(a["configs"]) == set(es.CONFIGS) and set(a["configs"]["near_only"]) == set(es.CATEGORIES)
     assert a["report_hash"] != c["report_hash"] or a["data_window"] == c["data_window"]
     assert all(v["chosen"] in ("near", "next", "far") for v in a["expiry_selection"].values())
@@ -152,3 +152,15 @@ def test_tc9_no_lookahead_in_buckets():
     for sym in ("S0", "S7"):
         for d in days[:61]:
             assert full[sym][d][0]["p"] == cut[sym][d][0]["p"] and full[sym][d][0]["rvol"] == cut[sym][d][0]["rvol"]
+
+
+def test_tc10_transitions_use_previous_session_state():
+    days, out = _outcomes()
+    b = es.window_bounds(days)
+    cats = {es.PRODUCTION_FLOORS: {("S0", 10): ("short_covering", None, None), ("S0", 9): ("short_buildup", None, None), ("S1", 10): ("short_covering", None, None),
+                                   ("S1", 9): ("short_covering", None, None)}}
+    res = es.transitions({}, {es.PRODUCTION_FLOORS: cats[es.PRODUCTION_FLOORS], es.NO_THRESHOLD: {}}, out, b)
+    near = res["production_floors"]["near"]
+    assert near["short_buildup->short_covering"]["transition"]["n_signals"] == 1             # S0 only
+    assert near["short_buildup->short_covering"]["static_today_state"]["n_signals"] == 3     # S0 on 10, S1 on 9 and 10
+    assert near["short_buildup->short_covering"]["persistence_2_sessions"]["n_signals"] == 1  # S1 only

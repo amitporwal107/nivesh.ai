@@ -378,7 +378,7 @@ def run(inputs: Dict[str, Any], frozen: Dict[str, List[Thr]], code_version: str 
                         "holidays": "weekdays used for days to expiry; exchange holidays ignored"},
         "frozen_thresholds": {c: [list(t) for t in frozen[c]] for c in CATEGORIES},
         "configs": configs, "permutation": perm, "expiry_selection": selection, "hypotheses": hyp,
-        "tested_configurations": tested, "limitations": [
+        "tested_configurations": tested + 8 * 3 * 2, "limitations": [
             "One year of data (260 sessions); U has 59 sessions. All three windows are one regime sequence.",
             "Cash returns proxy a futures trade; the 0.15% round-trip cost is assumed.",
             "Far-month contracts are thin; far_only is expected to be noisy. Weekdays to expiry ignore exchange holidays.",
@@ -388,6 +388,7 @@ def run(inputs: Dict[str, Any], frozen: Dict[str, List[Thr]], code_version: str 
     }
     out_rep["roll_and_timing"] = roll_analysis(buckets, cats, out, bounds, per_cat_thr)
     out_rep["agreement_and_migration"] = agreement_migration(buckets, cats, out, bounds, per_cat_thr)
+    out_rep["transitions"] = transitions(buckets, cats, out, bounds)
     out_rep["price_only_baseline"] = price_only(buckets, out, bounds, per_cat_thr, sessions)
     out_rep["experiment_id"] = "fo-b2-" + stats.canonical_hash({"stf_rows": len(rows), "sessions": [sessions[0], sessions[-1]], "frozen": out_rep["frozen_thresholds"], "v": STUDY_VERSION})[:12]
     out_rep["code_version"], out_rep["generated_at"] = code_version, generated_at
@@ -472,3 +473,32 @@ def price_only(buckets, out: Outcomes, bounds, per_cat_thr, sessions) -> Dict[st
 
 def _ix(sessions: Sequence[str], day: str) -> int:
     return bisect_left(sessions, day)
+
+
+TRANSITIONS = (("short_buildup", "short_covering"), ("long_buildup", "long_unwinding"), ("short_covering", "long_buildup"), ("long_unwinding", "short_buildup"))
+
+
+def transitions(buckets, cats_by_thr: Dict[Thr, Dict[Tuple[str, int], Tuple[Optional[str], ...]]], out: Outcomes, bounds) -> Dict[str, Any]:
+    """Previous-session state -> today's state per bucket, against static comparators (pre-registered rule in the B2 addendum, section 5)."""
+    res: Dict[str, Any] = {}
+    for sname, thr in (("production_floors", PRODUCTION_FLOORS), ("no_threshold", NO_THRESHOLD)):
+        cats = cats_by_thr[thr]
+        res[sname] = {}
+        for b, bname in enumerate(BUCKETS):
+            def state(sym: str, i: int, k: int = 0) -> Optional[str]:
+                cs = cats.get((sym, i - k))
+                return cs[b] if cs else None
+            res[sname][bname] = {}
+            for prev, today in TRANSITIONS:
+                d = BULL[today]
+                trans = [(i, sym, d) for (sym, i), cs in cats.items() if cs[b] == today and state(sym, i, 1) == prev]
+                static_any = [(i, sym, d) for (sym, i), cs in cats.items() if cs[b] == today]
+                persist = [(i, sym, d) for (sym, i), cs in cats.items() if cs[b] == today and state(sym, i, 1) == today]
+                t, a = evaluate(trans, out, bounds, PRIMARY_H)["pooled"], evaluate(static_any, out, bounds, PRIMARY_H)["pooled"]
+                p = evaluate(persist, out, bounds, PRIMARY_H)["pooled"]
+                adds = bool((t["mean"] or 0) > 0 and (t["t"] or 0) >= T_CRIT and t["n_sessions"] >= MIN_POOLED_SESSIONS and a["mean"] is not None and t["mean"] > a["mean"])
+                res[sname][bname][f"{prev}->{today}"] = {"transition": t, "static_today_state": a, "persistence_2_sessions": p, "adds_information": adds}
+            for c in ("long_buildup", "short_buildup"):
+                three = [(i, sym, BULL[c]) for (sym, i), cs in cats.items() if cs[b] == c and state(sym, i, 1) == c and state(sym, i, 2) == c]
+                res[sname][bname][f"{c}_3_consecutive_sessions"] = evaluate(three, out, bounds, PRIMARY_H)["pooled"]
+    return res
