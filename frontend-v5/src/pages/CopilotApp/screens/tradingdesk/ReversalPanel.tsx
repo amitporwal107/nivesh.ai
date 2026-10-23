@@ -108,9 +108,10 @@ function SectorPill({ r }: { r: ReversalRow }) {
   return <span data-testid="desk-rev-sector" data-quadrant={q}><Pill tone={t.tone} title={tip}>{r.sector ? `Sector ${t.label.toLowerCase()}` : "Sector unknown"}</Pill></span>;
 }
 
-function Detail({ r }: { r: ReversalRow }) {
-  // Kite's live price while the feed is LIVE, shown beside the scan's close. The levels themselves stay the scan's.
-  const live = useLiveOverlay(r.symbol, null);
+function Detail({ r, asOf }: { r: ReversalRow; asOf: string | null }) {
+  // Kite's live price while the feed is LIVE (after the close, its closing quote until the scan's own day catches up),
+  // shown beside the scan's close. The levels themselves stay the scan's.
+  const live = useLiveOverlay(r.symbol, asOf);
   const h = (t: string) => <span className="cp-eyebrow" style={{ fontSize: 9, display: "block", marginBottom: 4 }}>{t}</span>;
   return (
     <div data-testid="desk-rev-detail" style={{ display: "grid", gap: 14, padding: "12px 0 4px", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
@@ -150,14 +151,14 @@ function Detail({ r }: { r: ReversalRow }) {
         </ul>
         {h("Levels (hypothetical, not sent to a broker)")}
         <p style={{ ...small, margin: 0 }} data-testid="desk-rev-levels">
-          Close {fmtPrice(r.levels.close)}{live ? <b data-testid="desk-rev-live" style={{ color: "var(--mint)", fontWeight: 500 }}> · live {fmtPrice(live.ltp)} (Kite)</b> : null} · trigger {fmtPrice(r.levels.resistance)} · invalidation {fmtPrice(r.levels.invalidation)} · target {fmtPrice(r.levels.target)} · reward/risk {r.levels.rewardRisk == null ? "—" : fmtNum(r.levels.rewardRisk, 2)}
+          Close {fmtPrice(r.levels.close)}{live ? <b data-testid="desk-rev-live" data-kind={live.kind} style={{ color: "var(--mint)", fontWeight: 500 }}> · {live.kind === "live" ? "live" : "Kite close"} {fmtPrice(live.ltp)}{live.kind === "live" ? " (Kite)" : ""}</b> : null} · trigger {fmtPrice(r.levels.resistance)} · invalidation {fmtPrice(r.levels.invalidation)} · target {fmtPrice(r.levels.target)} · reward/risk {r.levels.rewardRisk == null ? "—" : fmtNum(r.levels.rewardRisk, 2)}
         </p>
       </div>
     </div>
   );
 }
 
-function Card({ r, selected, onOpen, plain }: { r: ReversalRow; selected: boolean; onOpen: (s: string) => void; plain: boolean }) {
+function Card({ r, selected, onOpen, plain, asOf }: { r: ReversalRow; selected: boolean; onOpen: (s: string) => void; plain: boolean; asOf: string | null }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const st = STATUS_TEXT[r.status];
@@ -189,7 +190,7 @@ function Card({ r, selected, onOpen, plain }: { r: ReversalRow; selected: boolea
           {r.warnings.map((w) => <li key={w.code} data-code={w.code} role="status" style={{ listStyle: "none", fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>⚠ {w.detail}</li>)}
         </ul>
       )}
-      <div id={id} hidden={!open}>{open && <Detail r={r} />}</div>
+      <div id={id} hidden={!open}>{open && <Detail r={r} asOf={asOf} />}</div>
     </li>
   );
 }
@@ -286,7 +287,7 @@ export default function ReversalPanel({ chips, plain, selected, onOpen }: { chip
             <div data-testid="desk-rev-empty" style={{ padding: "14px 18px", fontSize: 13, color: "var(--cp-ink-3)", borderTop: rowBorder }}>No stock within {near}% of its 52-week low shows enough stabilization evidence on this scan.</div>
           ) : (
             <ul data-testid="desk-rev-list" aria-label="Reversal candidates" style={{ margin: 0, padding: 0 }}>
-              {d.rows.map((r) => <Card key={r.symbol} r={r} selected={selected?.toUpperCase() === r.symbol} onOpen={onOpen} plain={plain} />)}
+              {d.rows.map((r) => <Card key={r.symbol} r={r} selected={selected?.toUpperCase() === r.symbol} onOpen={onOpen} plain={plain} asOf={d.asOf} />)}
             </ul>
           )}
           {d.truncated && <div style={{ ...small, padding: "8px 18px" }}>The list is capped; the lowest-ranked rows are not shown.</div>}

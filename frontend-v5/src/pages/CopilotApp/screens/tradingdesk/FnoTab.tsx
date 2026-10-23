@@ -39,7 +39,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { StockIcon } from "../../components/EntityIcon";
 import { LoadingBlock, Pill, TONE_COLOR, fmtNum, signTone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
-import { useLiveOverlay } from "../../lib/useLiveQuotes";
+import { closeLabel, useLiveOverlay } from "../../lib/useLiveQuotes";
 import { useMarketOverview } from "../markets/hooks";
 import { modelLabel } from "../trading/ModelViews";
 import { fmtLevel } from "../trading/PayoffResult";
@@ -81,7 +81,8 @@ function SpotBlock({ symbol, state, futures }: { symbol: string; state: ChainSta
   const vix = vixLine(home.data);
   // Kite's live spot while the feed is LIVE (the index by its tape name, a stock by its symbol). Only the headline
   // number changes: the chain, walls and the model read below stay the bhavcopy's, and the label says so.
-  const live = useLiveOverlay(indexNameForSymbol(symbol) ?? symbol, null);
+  // After the close, Kite's closing quote shows until the bhavcopy of that day is loaded (the overlay compares it with `asOf`).
+  const live = useLiveOverlay(indexNameForSymbol(symbol) ?? symbol, asOf);
   if (state.status === "loading" && !fut) return <div style={{ flex: "0 1 220px", minWidth: 0 }}><LoadingBlock label={`Loading the ${symbol} spot`} rows={1} /></div>;
   if (spot == null) return null;
   return (
@@ -90,9 +91,9 @@ function SpotBlock({ symbol, state, futures }: { symbol: string; state: ChainSta
         {!isIndexUnderlying(symbol) && <StockIcon symbol={symbol} size={16} />}
         {symbol} · spot
       </span>
-      <span data-testid="desk-fno-spot" data-live={live ? "true" : undefined} className="cp-num" style={{ fontFamily: "var(--display)", fontSize: mobile ? 34 : 40, lineHeight: 1, letterSpacing: "-0.03em" }}>{fmtNum(live ? live.ltp : spot, 2)}</span>
+      <span data-testid="desk-fno-spot" data-live={live ? "true" : undefined} data-kind={live?.kind} className="cp-num" style={{ fontFamily: "var(--display)", fontSize: mobile ? 34 : 40, lineHeight: 1, letterSpacing: "-0.03em" }}>{fmtNum(live ? live.ltp : spot, 2)}</span>
       <span className="cp-num flex flex-col" style={{ gap: 2, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--cp-ink-3)", alignItems: mobile ? "flex-start" : "flex-end" }}>
-        {live && <span data-testid="desk-fno-live" style={{ color: "var(--mint)" }}>Live · Kite{live.changePct != null ? ` · ${live.changePct > 0 ? "+" : ""}${live.changePct.toFixed(2)}%` : ""}</span>}
+        {live && <span data-testid="desk-fno-live" data-kind={live.kind} style={{ color: "var(--mint)" }}>{live.kind === "live" ? "Live · Kite" : closeLabel(live)}{live.changePct != null ? ` · ${live.changePct > 0 ? "+" : ""}${live.changePct.toFixed(2)}%` : ""}</span>}
         {asOf && <span data-testid="desk-fno-asof">{live ? `Chain figures: bhavcopy ${fmtDay(asOf)}` : `Bhavcopy ${fmtDay(asOf)} · end of day`}</span>}
         {vix && <span data-testid="desk-fno-vix" title="India VIX from the markets tape (GET /api/markets/home)">{vix}</span>}
       </span>

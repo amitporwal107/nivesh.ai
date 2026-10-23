@@ -33,6 +33,10 @@ from . import universe as uni
 logger = logging.getLogger(__name__)
 
 COL_SNAP, COL_LEASE, COL_WANTED = "kite_live_snapshot", "kite_live_lease", "kite_live_wanted"
+# One document per trading day, written when the final snapshot after the close is published: the day's closing Kite
+# quotes (cash, indices and the near-month futures), kept for a year so a close outlives the 72 h `latest` snapshot.
+COL_CLOSE = "kite_live_close"
+CLOSE_TTL_SECONDS = 400 * 24 * 3600
 SNAPSHOT_TTL_SECONDS = 72 * 3600
 LEASE_NAME, LEASE_TTL_SECONDS = "kite_live_feed", 45
 UNIVERSE_REFRESH_SECONDS = 15 * 60
@@ -93,6 +97,7 @@ async def try_acquire_lease(coll, name: str, holder: str, now: datetime, ttl_sec
 async def ensure_indexes(db) -> None:
     await db[COL_SNAP].create_index("updated_at", expireAfterSeconds=SNAPSHOT_TTL_SECONDS, background=True)
     await db[COL_WANTED].create_index("expires_at", expireAfterSeconds=0, background=True)
+    await db[COL_CLOSE].create_index("saved_at", expireAfterSeconds=CLOSE_TTL_SECONDS, background=True)
     await pt.ensure_indexes(db)
 
 
@@ -344,6 +349,18 @@ class LiveFeed:
             await self.db[COL_SNAP].replace_one({"_id": "latest"}, doc, upsert=True)
         except Exception as e:  # noqa: BLE001 — in-process snapshot still serves; followers see the older one
             logger.warning("live feed: snapshot write failed (%s)", type(e).__name__)
+        if final:
+            await self._save_close(doc, now)
+
+    async def _save_close(self, snap: dict, now: datetime) -> None:
+        """Keep the closing quotes: one document per trading day, replaced if the final read is repeated that day. A failed
+        write is logged and never stops the feed (the `latest` snapshot still serves the close)."""
+        day = cfg.last_close(now).astimezone(cfg.IST).date().isoformat()
+        try:
+            await self.db[COL_CLOSE].replace_one(
+                {"_id": day}, {**{k: v for k, v in snap.items() if k != "_id"}, "_id": day, "date": day, "saved_at": now}, upsert=True)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("live feed: closing quotes write failed (%s)", type(e).__name__)
 
     async def _write_status(self, now: datetime) -> None:
         try:
@@ -495,6 +512,17 @@ class LiveFeed:
         doc = await self._read_mongo_latest()
         self._cache_read = (time.monotonic(), doc)
         return doc
+
+    async def read_close(self, day: Optional[str] = None) -> Optional[dict]:
+        """The saved closing quotes of one trading day (YYYY-MM-DD), or the newest saved day when none is given."""
+        coll = self.db[COL_CLOSE]
+        if day is None:
+            rows = await coll.find({}, {"date": 1}).to_list(length=500)
+            days = sorted(str(r["_id"]) for r in rows if r.get("_id"))
+            if not days:
+                return None
+            day = days[-1]
+        return await coll.find_one({"_id": day}, {"_id": 0})
 
     async def read_status(self) -> Optional[dict]:
         if self.leader:

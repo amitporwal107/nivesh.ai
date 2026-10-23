@@ -25,7 +25,7 @@ import {
   Column, DataTable, EmptyBlock, ErrorBlock, Eyebrow, Footnote, LoadingBlock, Pill, Screen,
   ScreenHeader, Section, fmtDate, fmtNum, signTone,
 } from "../../components/ui";
-import { useLiveOverlay } from "../../lib/useLiveQuotes";
+import { closeLabel, useLiveOverlay } from "../../lib/useLiveQuotes";
 import { useDesk } from "./context";
 import { TrustLine } from "./trust";
 import {
@@ -528,9 +528,10 @@ function AmcContribution({ symbol }: { symbol: string }) {
 
 // ── the stock-evidence rail (spec 2.7) ───────────────────────────────────
 
-function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWindow: Parameters<typeof whatWouldWeaken>[1]; onAsk: (q: string) => void }) {
-  // Kite's live price and day change while the feed is LIVE; otherwise the scanner's own end-of-day close and change.
-  const live = useLiveOverlay(row?.symbol ?? null, null);
+function StockEvidence({ row, mfWindow, priceDay, onAsk }: { row: ScannerRow | null; mfWindow: Parameters<typeof whatWouldWeaken>[1]; priceDay: string | null; onAsk: (q: string) => void }) {
+  // Kite's live price and day change while the feed is LIVE; after the close, Kite's closing quote until the scanner's own
+  // end-of-day price (`priceDay`, the newest price day the scan read) catches up; otherwise the scanner's close and change.
+  const live = useLiveOverlay(row?.symbol ?? null, priceDay);
   if (!row) {
     return (
       <div className="cp-card" data-testid="desk-smart-money-evidence-empty" style={{ padding: 16 }}>
@@ -550,7 +551,7 @@ function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWin
         <Eyebrow>Stock evidence</Eyebrow>
         <span className="flex items-baseline flex-wrap" style={{ gap: 8 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 20 }}>{row.symbol}</span>
-          <span data-testid="desk-smart-money-price" data-live={live ? "true" : undefined} title={live ? "Live price from Kite" : "End-of-day close"} className="cp-num" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
+          <span data-testid="desk-smart-money-price" data-live={live ? "true" : undefined} title={live ? (live.kind === "live" ? "Live price from Kite" : closeLabel(live)) : "End-of-day close"} className="cp-num" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
             {live ? `₹${fmtNum(live.ltp, 2)}` : row.closePrice == null ? "—" : `₹${fmtNum(row.closePrice, 2)}`}
           </span>
           {(live ? live.changePct : row.changePct) != null && (() => {
@@ -561,7 +562,7 @@ function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWin
               </span>
             );
           })()}
-          {live && <Pill tone="mint" title="Price and day change from Kite's live feed; the evidence below is the disclosed data">Live</Pill>}
+          {live && <Pill tone="mint" title="Price and day change from Kite; the evidence below is the disclosed data">{live.kind === "live" ? "Live" : "Kite close"}</Pill>}
         </span>
         <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
           {dir && <Pill tone={dir === "proxy" ? "amber" : dir === "accumulation" ? "mint" : "danger"}>{DIR_LABEL[dir]}</Pill>}
@@ -1034,7 +1035,7 @@ export default function SmartMoneyTab() {
       <div className="grid" style={{ gridTemplateColumns: railSide ? "minmax(0,1fr) 380px" : "minmax(0,1fr)", gap: 20, alignItems: "start" }}>
         <div className="flex min-w-0 flex-col">{main}</div>
         <div data-testid="desk-smart-money-rail" className="flex flex-col" style={{ gap: 16, position: railSide ? "sticky" : undefined, top: railSide ? 12 : undefined }}>
-          <StockEvidence row={pickedRow} mfWindow={scanner?.mfWindow ?? null} onAsk={askDesk} />
+          <StockEvidence row={pickedRow} mfWindow={scanner?.mfWindow ?? null} priceDay={scanner?.dealWindow?.to ?? null} onAsk={askDesk} />
         </div>
       </div>
 

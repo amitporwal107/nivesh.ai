@@ -61,9 +61,10 @@ export function SetupsToWatch() {
   const columns: Column<WatchRow>[] = [
     { key: "stock", header: "Stock", width: "minmax(0,1.6fr)", render: (r) => <StockName symbol={r.symbol} sub={r.sector ?? undefined} size={24} testId="watchlist-level" /> },
     { key: "close", header: "Close", align: "right", num: true, render: (r) => fmtPrice(r.close) },
-    ...(live.live
+    // Live while the feed ticks; after the close, Kite's closing quote until the scanner's own day catches up (the overlay decides).
+    ...(rows.some((r) => live.get(r.symbol))
       ? [{
-          key: "live", header: "Live · Kite", align: "right" as const, num: true,
+          key: "live", header: live.live ? "Live · Kite" : "Close · Kite", align: "right" as const, num: true,
           render: (r: WatchRow) => {
             const lq = live.get(r.symbol);
             if (!lq) return <span data-testid="watchlist-level-live" style={{ color: "var(--cp-ink-3)" }}>—</span>;

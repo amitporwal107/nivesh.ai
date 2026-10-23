@@ -621,3 +621,47 @@ test.describe("Smart trading desk · 06 Smart Money Movement · live price", () 
     await expect(page.getByTestId("desk-smart-money-price")).not.toHaveAttribute("data-live", "true");
   });
 });
+
+/**
+ * MOCK — not real data: the feed's final snapshot after a close (mode "closed", final true), invented prices, every quote
+ * stamped with the trading `day`. A day far in the future stands for "newer than the end-of-day data on the screen", a day
+ * far in the past for "the end-of-day data has caught up". Shape: backend/routes/live_quotes.py.
+ */
+async function closeFeed(page: Page, quotes: Record<string, Record<string, unknown>>, day: string) {
+  const full = Object.fromEntries(Object.entries(quotes).map(([s, q]) => [s, { change: 1.5, change_pct: 1.5, open: 1, high: 1, low: 1, close: 1, volume: 1000, oi: null, ...q, ts: `${day}T15:29:58+05:30` }]));
+  const snapshot = {
+    as_of: `${day}T10:01:10+00:00`, data_at: `${day}T10:00:10+00:00`, age_seconds: 5, stale: false, stale_after_seconds: 75, cadence_seconds: 30,
+    mode: "closed", session: "closed", source: "rest", final: true, count: Object.keys(full).length, missing: [], quotes: full, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+const NEWER = "2026-12-31";
+const OLDER = "2020-01-02";
+
+test.describe("Smart trading desk · 06 Smart Money Movement · Kite's close", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page, "populated");
+    await mockSmartMoney(page);
+  });
+
+  test("after the close the rail shows Kite's closing price, labelled Kite close, while the scan's price day is older", async ({ page }) => {
+    await closeFeed(page, { BSE: { ltp: 4321.5 } }, NEWER);
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-price")).toHaveText("₹4,321.50");
+    await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("Kite close");
+  });
+
+  test("a closing quote no newer than the scan's price day changes nothing", async ({ page }) => {
+    await closeFeed(page, { BSE: { ltp: 4321.5 } }, OLDER);
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-evidence")).toBeVisible();
+    await expect(page.getByTestId("desk-smart-money-price")).not.toHaveAttribute("data-live", "true");
+  });
+});
