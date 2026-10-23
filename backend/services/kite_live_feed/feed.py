@@ -37,6 +37,13 @@ COL_SNAP, COL_LEASE, COL_WANTED = "kite_live_snapshot", "kite_live_lease", "kite
 # quotes (cash, indices and the near-month futures), kept for a year so a close outlives the 72 h `latest` snapshot.
 COL_CLOSE = "kite_live_close"
 CLOSE_TTL_SECONDS = 400 * 24 * 3600
+# An intraday series kept from now on, because Kite's own history cannot give it back for expired contracts: every
+# INTRADAY_SNAPSHOT_MINUTES of an open session, one document with the near-month futures' and the two main indices' price,
+# open interest and volume. Point-in-time by construction (written when seen); 180 days; one document is about 20 KB.
+COL_INTRADAY = "kite_live_intraday"
+INTRADAY_SNAPSHOT_MINUTES = 5
+INTRADAY_TTL_SECONDS = 180 * 24 * 3600
+INTRADAY_INDICES = ("NIFTY 50", "NIFTY BANK")
 SNAPSHOT_TTL_SECONDS = 72 * 3600
 LEASE_NAME, LEASE_TTL_SECONDS = "kite_live_feed", 45
 UNIVERSE_REFRESH_SECONDS = 15 * 60
@@ -98,6 +105,7 @@ async def ensure_indexes(db) -> None:
     await db[COL_SNAP].create_index("updated_at", expireAfterSeconds=SNAPSHOT_TTL_SECONDS, background=True)
     await db[COL_WANTED].create_index("expires_at", expireAfterSeconds=0, background=True)
     await db[COL_CLOSE].create_index("saved_at", expireAfterSeconds=CLOSE_TTL_SECONDS, background=True)
+    await db[COL_INTRADAY].create_index("saved_at", expireAfterSeconds=INTRADAY_TTL_SECONDS, background=True)
     await pt.ensure_indexes(db)
 
 
@@ -134,6 +142,7 @@ class LiveFeed:
         self._indices: List[str] = []
         self._fno: List[str] = []
         self._n500: List[str] = []
+        self._last_intraday_bucket: Optional[str] = None
         self._futs: Dict[str, dict] = {}         # near-month futures: tradingsymbol -> {symbol, token, underlying, expiry}
         self._inst_day: Optional[date] = None
         self._universe_at: Optional[datetime] = None
@@ -459,8 +468,36 @@ class LiveFeed:
                 self._ws_retry_at = time.monotonic() + WS_RETRY_SECONDS
         self._set_state("live", "")
         await self._publish(now)
+        await self._save_intraday(now)
         out["published"] = True
         return out
+
+    async def _save_intraday(self, now: datetime) -> None:
+        """Keep this INTRADAY_SNAPSHOT_MINUTES bucket's futures and index quotes (price, OI, volume), once per bucket. A failed write is
+        logged (the class name only) and retried on the next pass; it never stops the feed."""
+        t = now.astimezone(cfg.IST)
+        bucket = t.replace(minute=t.minute - t.minute % INTRADAY_SNAPSHOT_MINUTES, second=0, microsecond=0)
+        key = bucket.strftime("%Y-%m-%dT%H:%M")
+        if key == self._last_intraday_bucket:
+            return
+        keep = set(self.sets.get("futures", [])) | {s for s in self.sets.get("indices", []) if s in INTRADAY_INDICES}
+        with self._qlock:
+            items = [q for s, q in self.quotes.items() if s in keep]
+        if not items:
+            return
+        rows = []
+        for q in items:
+            r = {"s": q["symbol"], "p": q["ltp"], "o": q.get("oi"), "v": q.get("volume"), "c": q.get("close"), "t": q.get("ts")}
+            if q.get("instrument") == "FUT":
+                r.update({"u": q.get("underlying"), "x": q.get("expiry")})
+            rows.append(r)
+        doc = {"_id": key, "day": bucket.date().isoformat(), "bucket": key, "as_of": now.isoformat(),
+               "data_at": self.data_at.isoformat() if self.data_at else None, "source": self.source, "count": len(rows), "rows": rows, "saved_at": now}
+        try:
+            await self.db[COL_INTRADAY].replace_one({"_id": key}, doc, upsert=True)
+            self._last_intraday_bucket = key
+        except Exception as e:  # noqa: BLE001
+            logger.warning("live feed: intraday snapshot write failed (%s)", type(e).__name__)
 
     async def _closed_cycle(self, now: datetime) -> Dict[str, Any]:
         """Idle outside the session, except ONE final snapshot once the last close has passed."""

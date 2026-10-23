@@ -1,0 +1,3 @@
+# Override: F&O candidates v2 (backend only, draft PR)
+
+REASON: the backend engine, route and live OI snapshot persistence are tested locally (175 passed in the staging image) but are not deployed or exercised against the real data platform, and the frontend (candidate screen shell, index workspaces) and the threshold research runner are not built. No threshold or weight has been validated: the response says `research_setting_not_validated` and the PR is a draft for that reason. A signed-in staging check needs the PR merged and the backend restarted, plus a session token from the user. This override records the pause; it is not evidence that the candidate engine has passed its release gate.

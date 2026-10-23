@@ -466,7 +466,7 @@ def test_the_router_is_read_only():
     methods = {m for r in route.router.routes for m in r.methods}
     assert methods == {"GET"}
     assert sorted(r.path for r in route.router.routes) == [
-        "/api/fno/scan/buildup", "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures"]
+        "/api/fno/scan/buildup", "/api/fno/scan/candidates", "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures"]
 
 
 # ── GET /expiries ────────────────────────────────────────────────────────────
