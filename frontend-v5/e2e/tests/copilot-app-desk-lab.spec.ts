@@ -1133,3 +1133,43 @@ test.describe("OI build-up — live futures from Kite", () => {
     await expect(page.getByTestId("desk-buildup-error")).toHaveCount(0);
   });
 });
+
+/**
+ * MOCK — not real data: an invented Kite live snapshot (stream and polling) with one quote per symbol given.
+ * Shape: backend/routes/live_quotes.py. `mode` is the feed's own word: only "live" shows live prices.
+ */
+async function liveFeed(page: Page, ltps: Record<string, number>, mode = "live") {
+  const quotes = Object.fromEntries(Object.entries(ltps).map(([s, ltp]) => [s, { ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts: "2026-10-23T11:13:09+05:30" }]));
+  const snapshot = {
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+
+test.describe("Options & futures lab · live spot", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+
+  test("the headline spot is Kite's live Nifty 50 while the feed is live, and says the chain figures are the bhavcopy's", async ({ page }) => {
+    await fnoData(page);
+    await liveFeed(page, { "NIFTY 50": 22700.5 });
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-fno-spot")).toHaveText("22,700.50");
+    await expect(page.getByTestId("desk-fno-spot")).toHaveAttribute("data-live", "true");
+    await expect(page.getByTestId("desk-fno-live")).toContainText("Live · Kite");
+    await expect(page.getByTestId("desk-fno-asof")).toContainText("Chain figures: bhavcopy");
+  });
+
+  test("the bhavcopy spot is unchanged when the feed is closed", async ({ page }) => {
+    await fnoData(page);
+    await liveFeed(page, { "NIFTY 50": 22700.5 }, "closed");
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-fno-spot")).toBeVisible();
+    await expect(page.getByTestId("desk-fno-spot")).not.toHaveAttribute("data-live", "true");
+    await expect(page.getByTestId("desk-fno-live")).toHaveCount(0);
+    await expect(page.getByTestId("desk-fno-asof")).toContainText("end of day");
+  });
+});

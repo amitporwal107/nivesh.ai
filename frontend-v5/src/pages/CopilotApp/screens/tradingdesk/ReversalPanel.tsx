@@ -12,6 +12,7 @@
 import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ErrorBlock, LoadingBlock, Pill, fmtNum, fmtPct, type Tone } from "../../components/ui";
+import { useLiveOverlay } from "../../lib/useLiveQuotes";
 import { SymbolCell } from "../desk/parts";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { TrustLine } from "./trust";
@@ -108,6 +109,8 @@ function SectorPill({ r }: { r: ReversalRow }) {
 }
 
 function Detail({ r }: { r: ReversalRow }) {
+  // Kite's live price while the feed is LIVE, shown beside the scan's close. The levels themselves stay the scan's.
+  const live = useLiveOverlay(r.symbol, null);
   const h = (t: string) => <span className="cp-eyebrow" style={{ fontSize: 9, display: "block", marginBottom: 4 }}>{t}</span>;
   return (
     <div data-testid="desk-rev-detail" style={{ display: "grid", gap: 14, padding: "12px 0 4px", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
@@ -147,7 +150,7 @@ function Detail({ r }: { r: ReversalRow }) {
         </ul>
         {h("Levels (hypothetical, not sent to a broker)")}
         <p style={{ ...small, margin: 0 }} data-testid="desk-rev-levels">
-          Close {fmtPrice(r.levels.close)} · trigger {fmtPrice(r.levels.resistance)} · invalidation {fmtPrice(r.levels.invalidation)} · target {fmtPrice(r.levels.target)} · reward/risk {r.levels.rewardRisk == null ? "—" : fmtNum(r.levels.rewardRisk, 2)}
+          Close {fmtPrice(r.levels.close)}{live ? <b data-testid="desk-rev-live" style={{ color: "var(--mint)", fontWeight: 500 }}> · live {fmtPrice(live.ltp)} (Kite)</b> : null} · trigger {fmtPrice(r.levels.resistance)} · invalidation {fmtPrice(r.levels.invalidation)} · target {fmtPrice(r.levels.target)} · reward/risk {r.levels.rewardRisk == null ? "—" : fmtNum(r.levels.rewardRisk, 2)}
         </p>
       </div>
     </div>
