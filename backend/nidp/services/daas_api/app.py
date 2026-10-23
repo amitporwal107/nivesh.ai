@@ -53,6 +53,7 @@ from nidp.services.daas_api.routers import (
     desk_market,
     documents,
     dq_ai,
+    evidence_validation,
     events,
     features,
     financials,
@@ -343,6 +344,7 @@ app.include_router(desk_expectation.router, prefix=v1_prefix)  # /desk/events-ca
 app.include_router(desk_macro.router, prefix=v1_prefix)  # /desk/macro-calendar* — trading desk macro-release calendar
 app.include_router(smart_money.router, prefix=v1_prefix)  # /desk/smart-money/* — disclosed institutional evidence (no score: study INCONCLUSIVE)
 app.include_router(ownership.router, prefix=v1_prefix)    # /desk/ownership/reaction — retrospective: quarterly ownership change vs that quarter's tape
+app.include_router(evidence_validation.router, prefix=v1_prefix)  # /desk/evidence/* — frozen post-disclosure forward-returns study (INCONCLUSIVE, research-only)
 app.include_router(circulars.router, prefix=v1_prefix)    # /circulars/* — SEBI circulars
 app.include_router(paper_trades.router, prefix=v1_prefix)
 app.include_router(features.router, prefix=v1_prefix)
