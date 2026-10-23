@@ -1437,7 +1437,8 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     expect(Math.abs((hb?.y ?? 0) - (rb?.y ?? 0))).toBeLessThanOrEqual(2);
     expect((rb?.x ?? 0)).toBeGreaterThan((hb?.x ?? 0) + (hb?.width ?? 0));
     // Header bars: bg-0, 13px 18px, the title left and the meta right.
-    const bar = page.getByTestId("desk-portfolio-hub-title").locator("xpath=..");
+    // The widget header bar is the title's grandparent (title sits inside the collapse button).
+    const bar = page.getByTestId("desk-portfolio-hub-title").locator("xpath=../..");
     expect(await bar.evaluate((e) => getComputedStyle(e).padding)).toBe("13px 18px");
     await expect(page.getByTestId("desk-portfolio-record-title")).toHaveText("Paper trades · predicted vs actual");
     await expect(page.getByTestId("desk-paper-card-closed")).toHaveText(`${summarize(trades).closed} closed`);

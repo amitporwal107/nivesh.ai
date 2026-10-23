@@ -38,6 +38,7 @@ import { LoadError, SourceLine } from "../markets/parts";
 import { QueryProblem, fmtDay, fmtPrice } from "../trading/parts";
 import { useDailyBars, useLiveIndicators } from "./chart-data";
 import { useDesk, type DeskPersona } from "./context";
+import { Widget } from "./widget";
 import { useDeskScanner, type DeskSetup } from "./desk-data";
 import { useCreateAlert, useDeleteAlert, useDeskAlerts, writeProblem, type AnyAlert, type NewDeskAlert } from "./desk-trading";
 import type { DailyBar } from "./indicators";
@@ -856,12 +857,15 @@ function DesktopIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip:
   const selected = events.find((e) => e.id === picked) ?? events[0];
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 20 }}>
-      <section data-testid="desk-intel" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-        <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
-          <span data-testid="desk-intel-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>04</span> · AI Event intelligence</span>
-          <button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ marginLeft: "auto", padding: "4px 11px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>
-          <span data-testid="desk-intel-meta" className="cp-eyebrow" style={{ color: "var(--cp-ink-4)" }}>NSE · BSE · SEBI · linked to the scanner</span>
-        </div>
+      <Widget
+        id="intel.main"
+        testId="desk-intel"
+        num="04"
+        title="AI Event intelligence"
+        headTestId="desk-intel-title"
+        meta={<span data-testid="desk-intel-meta">NSE · BSE · SEBI · linked to the scanner</span>}
+        actions={<button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ padding: "4px 11px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>}
+      >
         <TypeChips chip={chip} onPick={pick} mobile={false} />
         {def.alertCategory && feed.status === "ready" && (
           <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "10px 18px", borderBottom: line }}>
@@ -891,7 +895,7 @@ function DesktopIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip:
           <SourcesStatus feed={feed} />
           <IntelTrust feed={feed} />
         </div>
-      </section>
+      </Widget>
       <AlertsCard />
     </div>
   );
@@ -952,19 +956,15 @@ function AlertsCard() {
   }
   const note = q.data?.checkNote ?? "Checked when you open the desk and once each weekday evening; shown in this list only (in-app).";
   return (
-    <section data-testid="desk-intel-alerts" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-      <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: mobile ? "12px 14px" : "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
-        <span className="cp-eyebrow">Your alerts</span>
-        <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>In-app only</span>
-      </div>
-      <div className="flex flex-col" style={{ gap: 10, padding: mobile ? "12px 14px" : "14px 18px" }}>
+    <Widget id={mobile ? "intel.alerts.phone" : "intel.alerts"} testId="desk-intel-alerts" title="Your alerts" meta="In-app only" headPad={mobile ? "12px 14px" : "13px 18px"} bodyStyle={{ gap: 10, padding: mobile ? "12px 14px" : "14px 18px" }}>
+      <>
         {body}
         {q.data && q.data.checkErrors.length > 0 && (
           <span data-testid="desk-intel-alerts-check-error" role="status" style={{ ...quiet, color: "var(--amber)" }}>Some alerts were not checked this time: a source they read could not be read.</span>
         )}
         <span data-testid="desk-intel-alerts-note" style={{ ...quiet, fontSize: 11.5 }}>{note} Nothing is emailed or sent to your phone.</span>
-      </div>
-    </section>
+      </>
+    </Widget>
   );
 }
 
@@ -1069,10 +1069,9 @@ function SectorImpact() {
     );
   }
   return (
-    <section data-testid="desk-intel-sectors" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: "12px 14px" }}>
-      <span className="cp-eyebrow">Sector impact · 1D</span>
+    <Widget id="intel.sectors.phone" testId="desk-intel-sectors" title="Sector impact · 1D" headPad="12px 14px" bodyStyle={{ gap: 10, padding: "12px 14px" }}>
       {body}
-    </section>
+    </Widget>
   );
 }
 
@@ -1090,11 +1089,7 @@ function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: 
     <div data-testid="desk-intel" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
       <button type="button" data-testid="desk-intel-open-events" onClick={() => openTab("events")} style={{ alignSelf: "flex-start", padding: "6px 12px", borderRadius: 999, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 12.5, cursor: "pointer", fontFamily: "var(--sans)" }}>Events calendar ›</button>
       <TypeChips chip={chip} onPick={pick} mobile />
-      <section data-testid="desk-intel-events" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-        <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
-          <span data-testid="desk-intel-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>04</span> · Top market events</span>
-          <span className="cp-mono-note" style={{ fontSize: 9 }}>Tap for why</span>
-        </div>
+      <Widget id="intel.events.phone" testId="desk-intel-events" num="04" title="Top market events" headTestId="desk-intel-title" meta="Tap for why" headPad="12px 14px" style={{ boxShadow: "none" }}>
         {def.alertCategory && feed.status === "ready" && (
           <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "0 14px 10px" }}>
             <ChipAlert def={def} />
@@ -1119,7 +1114,7 @@ function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: 
           <SourcesStatus feed={feed} />
           <IntelTrust feed={feed} />
         </div>
-      </section>
+      </Widget>
       <SectorImpact />
       <AlertsCard />
     </div>

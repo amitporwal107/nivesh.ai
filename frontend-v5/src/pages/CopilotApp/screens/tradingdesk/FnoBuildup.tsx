@@ -30,9 +30,10 @@ import { SourceLine } from "../markets/parts";
 import { QueryProblem, fmtQty } from "../trading/parts";
 import { useDesk } from "./context";
 import { BUILDUP_LABELS, BUILDUP_META, RISK_FLAG_LABEL, useBuildup, type Buildup, type BuildupQuadrant, type BuildupRow } from "./fno-buildup";
-import { CardHead, Dot, TONE_LINE, TONE_SOFT, shortDay } from "./fno-parts";
+import { Dot, TONE_LINE, TONE_SOFT, shortDay } from "./fno-parts";
 import { useLiveFutures } from "./live-futures";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 
 type SortKey = "symbol" | "price" | "oi";
 type SortDir = "asc" | "desc";
@@ -84,8 +85,7 @@ function IntradayState({ d, investor }: { d: Buildup; investor: boolean }) {
   const states = ["candidate", "confirmed", "invalidated", "unavailable"];
   const status = d.intraday.status ?? "unavailable";
   return (
-    <section data-testid="desk-fno-intraday" data-state={status} className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-      <CardHead testId="desk-fno-intraday-head" meta={investor ? "Checks a move over the day" : "Futures vs cash, OI vs price"}>15-minute confirmation</CardHead>
+    <Widget id="fno.intraday" testId="desk-fno-intraday" data={{ "data-state": status }} headTestId="desk-fno-intraday-head" title="15-minute confirmation" meta={investor ? "Checks a move over the day" : "Futures vs cash, OI vs price"}>
       <div className="flex flex-col" style={{ gap: 8, padding: "12px 18px" }}>
         <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
           {states.map((st) => (
@@ -98,7 +98,7 @@ function IntradayState({ d, investor }: { d: Buildup; investor: boolean }) {
           {d.intraday.reason ?? "The route did not say why."} No setup is marked confirmed from a single end-of-day reading.
         </span>
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -175,10 +175,7 @@ function Scatter({ rows, selected, onOpen, investor }: { rows: BuildupRow[]; sel
   const mono = { fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em" } as const;
 
   return (
-    <section data-testid="desk-buildup-scatter" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-      <CardHead testId="desk-buildup-scatter-head" meta="Click a dot to load its option chain">
-        Price change vs futures OI change · {fmtNum(pts.length)} largest OI moves
-      </CardHead>
+    <Widget id="fno.buildup.scatter" testId="desk-buildup-scatter" headTestId="desk-buildup-scatter-head" title={<>Price change vs futures OI change · {fmtNum(pts.length)} largest OI moves</>} meta="Click a dot to load its option chain">
       <div ref={box} style={{ padding: mobile ? "8px 8px 4px" : "10px 14px 6px", minWidth: 0 }}>
         {pts.length === 0 ? (
           <div style={{ padding: 16, fontSize: 13, color: "var(--cp-ink-3)" }}>No stock has both a price change and an OI change in the rows sent.</div>
@@ -245,7 +242,7 @@ function Scatter({ rows, selected, onOpen, investor }: { rows: BuildupRow[]; sel
           </svg>
         )}
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -345,11 +342,13 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
 
       <Scatter rows={d.rows} selected={selected} onOpen={onOpen} investor={investor} />
 
-      <section data-testid="desk-buildup-card" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-        <CardHead testId="desk-buildup-table-head" meta={<span data-testid="desk-buildup-sorted">{sortedBy}</span>}>
-          Stock futures · OI build-up
-          <span data-testid="desk-buildup-count" style={{ color: "var(--cp-ink-4)" }}>{fmtNum(rows.length)} {rows.length === 1 ? "stock" : "stocks"}</span>
-        </CardHead>
+      <Widget
+        id="fno.buildup.table"
+        testId="desk-buildup-card"
+        headTestId="desk-buildup-table-head"
+        title={<>Stock futures · OI build-up <span data-testid="desk-buildup-count" style={{ color: "var(--cp-ink-4)" }}>{fmtNum(rows.length)} {rows.length === 1 ? "stock" : "stocks"}</span></>}
+        meta={<span data-testid="desk-buildup-sorted">{sortedBy}</span>}
+      >
         <div data-testid="desk-buildup-table" className="cp-scroll overflow-x-auto" role="table" aria-label="OI build-up by F&O stock" aria-rowcount={rows.length + 1}>
           <div style={{ minWidth: live ? TABLE_MIN_LIVE : TABLE_MIN }}>
             <div role="row" className="grid" style={{ gridTemplateColumns: template, gap: 12, padding: "10px 18px", borderBottom: "1px solid var(--cp-line)" }}>
@@ -482,7 +481,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
             </button>
           )}
         </div>
-      </section>
+      </Widget>
 
       <IntradayState d={d} investor={investor} />
 

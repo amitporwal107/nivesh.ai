@@ -57,6 +57,7 @@ import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
 import { DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskPersona, type DeskState, type DeskTab } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import { SymbolSearch } from "./tradingdesk/SymbolSearch";
+import { Widget } from "./tradingdesk/widget";
 import { istParts, marketStatus, useNow } from "./tradingdesk/overview-data";
 
 const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
@@ -277,10 +278,7 @@ function LearningGap({ phone }: { phone?: boolean }) {
 /** With the Copilot docked: More as a list of its destinations. */
 function MoreList({ onPick }: { onPick: (k: MoreKey) => void }) {
   return (
-    <section data-testid="desk-more-list" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-      <div style={{ padding: "13px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
-        <span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>06</span> · More</span>
-      </div>
+    <Widget id="more.list" testId="desk-more-list" num="06" title="More">
       <ul className="m-0 grid p-0" style={{ listStyle: "none", gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))" }}>
         {MORE.map((m) => (
           <li key={m.key} style={{ borderTop: "1px solid var(--cp-line)" }}>
@@ -299,7 +297,7 @@ function MoreList({ onPick }: { onPick: (k: MoreKey) => void }) {
           </li>
         ))}
       </ul>
-    </section>
+    </Widget>
   );
 }
 

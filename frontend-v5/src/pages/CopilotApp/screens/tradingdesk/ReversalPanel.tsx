@@ -16,6 +16,7 @@ import { useLiveOverlay } from "../../lib/useLiveQuotes";
 import { SymbolCell } from "../desk/parts";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 import {
   DEFAULT_NEAR, NEAR_CHOICES, useReversalCandidates,
   type NearPct, type Quadrant, type ReversalComponent, type ReversalData, type ReversalRow, type ReversalStatus,
@@ -243,12 +244,11 @@ export default function ReversalPanel({ chips, plain, selected, onOpen }: { chip
   const counts = d?.universe.statusCounts ?? {};
   const cand = (counts.confirmed ?? 0) + (counts.trigger_ready ?? 0) + (counts.early_reversal ?? 0) + (counts.watchlist ?? 0);
   return (
-    <section data-testid="desk-scanner" data-layout="desk" data-cat="reversal" className="cp-card flex min-w-0 flex-col">
-      <header className="flex flex-col" style={{ gap: 6, padding: "13px 18px", borderBottom: rowBorder, background: "var(--bg-0)", borderRadius: "14px 14px 0 0" }}>
-        <span className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}><span style={{ color: "var(--mint)" }}>02</span> · AI Opportunity scanner · Reversal candidates</span>
+    <Widget id="scanner.reversal" testId="desk-scanner" data={{ "data-layout": "desk", "data-cat": "reversal" }} num="02" title="AI Opportunity scanner · Reversal candidates">
+      <div style={{ padding: "10px 18px", borderBottom: rowBorder }}>
         <TrustLine testId="desk-rev-trust" source={d?.source ?? "NIDP feature store · NSE end-of-day prices"} mode="eod" asOf={d ? fmtDay(d.asOf) : null} maker="rules"
           method={rules ?? null} status={q.isError ? "failed" : "ok"} />
-      </header>
+      </div>
       <div className="flex flex-wrap items-center" style={{ gap: 12, padding: "12px 18px", borderBottom: rowBorder }}>
         <span style={{ flex: "1 1 360px", minWidth: 0 }}>{chips}</span>
         <span className="inline-flex items-center" role="group" aria-label="Distance from the 52-week low" style={{ gap: 6, ...small }}>
@@ -302,6 +302,6 @@ export default function ReversalPanel({ chips, plain, selected, onOpen }: { chip
           </div>
         </>
       )}
-    </section>
+    </Widget>
   );
 }

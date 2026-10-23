@@ -13,6 +13,7 @@ import { Pill, TONE_COLOR, fmtPct, signTone, type Tone } from "../../components/
 import { QueryProblem, fmtDay } from "../trading/parts";
 import { useFnoFutures, type FnoFuture, type OiBuildup } from "../trading/fno";
 import { BUILDUP_META, type BuildupLabel } from "./fno-buildup";
+import { Widget } from "./widget";
 
 const BUCKETS = ["Near", "Next", "Far"] as const;
 const LABEL: Record<OiBuildup, BuildupLabel> = {
@@ -31,8 +32,7 @@ export function ExpiryPanel({ symbol }: { symbol: string }) {
   const fq = useFnoFutures(symbol);
   const id = `desk-fno-expiries-${symbol}`;
   return (
-    <section data-testid={id} className="cp-card flex flex-col" style={{ gap: 14, padding: 18, minWidth: 0 }}>
-      <span style={{ fontSize: 15, fontWeight: 600 }}>By expiry</span>
+    <Widget id="fno.expiries" testId={id} title="By expiry" bodyStyle={{ gap: 14, padding: 18 }}>
       {fq.isPending && <span style={quiet}>Loading the futures</span>}
       {fq.isError && <QueryProblem what={`${symbol} futures`} error={fq.error} onRetry={() => fq.refetch()} />}
       {fq.data?.kind === "none" && <span style={quiet}>{fq.data.message}</span>}
@@ -57,7 +57,7 @@ export function ExpiryPanel({ symbol }: { symbol: string }) {
       <span data-testid={`${id}-note`} style={quiet}>
         Each expiry is read on its own contract. Open interest is never added across expiries, and a drop in the near month with a rise in the next may just be rollover.
       </span>
-    </section>
+    </Widget>
   );
 }
 
