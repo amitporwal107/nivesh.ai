@@ -769,12 +769,14 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await fnoData(page);
     await page.goto(`${DESK}?tab=fno`);
     await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-strat-mode-ideas").click();
     await expect(page.getByTestId("desk-fno-strat-build")).toHaveCount(0);       // NIFTY is an index: plans are for one stock
     await page.getByTestId("desk-fno-view-buildup").click();
     await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').focus();
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
     await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-strat-mode-ideas").click();
     await page.getByTestId("desk-fno-strat-build").click();
     await expect(page).toHaveURL(/view=strategy/);
     await expect(page).toHaveURL(/sym=FIXFNO/);
@@ -798,6 +800,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
 
     // NIFTY (an index): its build-up is the scan's index-futures row, the same source as the stats tile (short build-up).
     await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-strat-mode-ideas").click();
     await expect(page.getByTestId("desk-fno-strat-title")).toHaveText("NIFTY · 27 Oct");
     await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText(LABEL[NIFTY_FUT.label as string]);
     await expect(page.getByTestId("desk-fno-strat-kind")).toHaveText("Rules-based · paper trading only");
@@ -903,6 +906,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
       : route.fallback()));
     await page.goto(`${DESK}?tab=fno`);
     await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-strat-mode-ideas").click();
     await page.getByTestId("desk-fno-strat-all").click();
     await page.locator('[data-testid="desk-fno-strat-row"][data-symbol="FIXSHORT"]').click();
     await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText("Short build-up");
@@ -934,6 +938,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await stockFno(page, "FIXFLAT");
     await page.goto(`${DESK}?tab=fno`);
     await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-strat-mode-ideas").click();
     await page.getByTestId("desk-fno-strat-all").click();
     await expect(page.locator('[data-testid="desk-fno-strat-row"][data-symbol="FIXFLAT"] [data-col="options"]')).toHaveText("Iron condor");
     await page.locator('[data-testid="desk-fno-strat-row"][data-symbol="FIXFLAT"]').click();
@@ -1015,6 +1020,7 @@ test.describe("Smart trading desk — Options & futures lab at 390px", () => {
     expect(o.scroll).toBeLessThanOrEqual(1);
 
     await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-strat-mode-ideas").click();
     await page.locator('[data-testid="desk-fno-strat-row"][data-symbol="FIXFNO"]').click();
     await expect(page.getByTestId("desk-fno-strat-cash-name")).toHaveText("Delivery long");
     // The three cards stack.
@@ -1594,6 +1600,122 @@ test.describe("Options & futures lab · OI range walls", () => {
   test("TC-7 a side with no strike has no wall: the tile reads a dash, never the wrong-side strike", async ({ page }) => {
     await openWith(page, { put_wall: null, call_wall: { strike: 25300, oi: 80000 } });
     await expect(page.getByTestId("desk-fno-oi-range")).toHaveText("—");
+  });
+});
+
+// ── the leg-based paper strategy builder (FnoBuilder.tsx) ───────────────────────────────────────────────────────────
+// MOCK — not real data: POST /api/desk/strategy/payoff is answered by `payoffFor` below, an independent expiry-payoff calculation written for this spec (intrinsic value at expiry less the
+// premium, per unit times lots times lot size) over the grid the request asks for. Prices come from the NIFTY chain fixture (strikes 24,700-25,300, lot 65).
+test.describe("Smart trading desk — Options & futures lab · paper strategy builder", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+
+  type ReqLeg = { side: "buy" | "sell"; quantity: number; lot_size: number; entry_price: number; strike: number; option_type: "call" | "put"; kind: string; expiry: string };
+  type Req = { reference_price: number; legs: ReqLeg[]; grid: { from_pct: number; to_pct: number; points: number }; pre_expiry?: unknown; scenarios?: unknown };
+  function payoffFor(req: Req) {
+    const { reference_price: ref, grid } = req;
+    const lo = ref * (1 + grid.from_pct / 100), hi = ref * (1 + grid.to_pct / 100);
+    const xs = Array.from({ length: grid.points }, (_, i) => lo + ((hi - lo) * i) / (grid.points - 1));
+    const at = (x: number) => req.legs.reduce((sum, l) => {
+      const intrinsic = l.option_type === "call" ? Math.max(x - l.strike, 0) : Math.max(l.strike - x, 0);
+      return sum + (l.side === "buy" ? 1 : -1) * (intrinsic - l.entry_price) * l.quantity * l.lot_size;
+    }, 0);
+    const gross = xs.map(at);
+    const premium = req.legs.reduce((s, l) => s + (l.side === "buy" ? -1 : 1) * l.entry_price * l.quantity * l.lot_size, 0);
+    return {
+      valid: true, problems: [], warnings: [], calculation_version: "spec-v1", underlying: "NIFTY", reference_price: ref, caveats: [], sent_to_broker: false,
+      expiry: { grid: xs, gross, net: gross, per_leg: [], breakevens: [], max_profit: Math.max(...gross), max_loss: Math.min(...gross), profit_unbounded: false, loss_unbounded: false, net_premium: premium, scenarios: [] },
+      costs: null, margin: { estimate: null, source: null }, margin_reason: "Margin is not computed", capital_at_risk: -Math.min(...gross), capital_at_risk_basis: "worst net loss over all prices",
+    };
+  }
+  async function openBuilder(page: Page, opts: { fail?: boolean } = {}) {
+    const bodies: Req[] = [];
+    await fnoData(page);
+    await page.route("**/api/desk/strategy/payoff", (route) => {
+      const body = JSON.parse(route.request().postData() ?? "{}") as Req;
+      bodies.push(body);
+      return opts.fail ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) })
+        : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payoffFor(body)) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-strategies").click();
+    return bodies;
+  }
+  const legs = (page: Page) => page.getByTestId("desk-builder-leg");
+
+  test("TC-1 the tab opens on the builder with the structure the build-up suggests; the ideas stay one click away", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("desk-builder")).toBeVisible();
+    await expect(page.getByTestId("desk-builder-suggested")).toContainText("your view decides");
+    await expect(legs(page)).toHaveCount(2);
+    await expect(legs(page).nth(0)).toHaveAttribute("data-side", "buy");
+    await expect(legs(page).nth(0)).toHaveAttribute("data-kind", "put");
+    await page.getByTestId("desk-strat-mode-ideas").click();
+    await expect(page.getByTestId("desk-builder")).toHaveCount(0);
+    await page.getByTestId("desk-strat-mode-builder").click();
+    await expect(page.getByTestId("desk-builder")).toBeVisible();
+  });
+
+  test("TC-2 TC-3 tiles load structures at the chain's strikes and closes; the payoff request carries exactly the table's trades", async ({ page }) => {
+    const bodies = await openBuilder(page);
+    const chain = load("copilot-options-chain.json");
+    const px = (k: number, side: "call" | "put") => chain.strikes.find((r: { strike: number }) => r.strike === k)[side].close;
+    await page.getByTestId("desk-builder-view-bullish").click();
+    await page.getByTestId("desk-builder-tile-bull_call_spread").click();
+    await expect(legs(page)).toHaveCount(2);
+    await expect(legs(page).nth(0).getByTestId("desk-builder-price")).toHaveValue(String(px(25000, "call")));
+    await expect(legs(page).nth(1).getByTestId("desk-builder-strike")).toHaveValue("25200");
+    await expect(legs(page).nth(1).getByTestId("desk-builder-price")).toHaveValue(String(px(25200, "call")));
+    await expect.poll(() => bodies[bodies.length - 1]?.legs.map((l) => [l.side, l.option_type, l.strike, l.quantity, l.lot_size, l.entry_price, l.kind, l.expiry])).toEqual([
+      ["buy", "call", 25000, 1, chain.lot_size, px(25000, "call"), "option", chain.summary.expiry],
+      ["sell", "call", 25200, 1, chain.lot_size, px(25200, "call"), "option", chain.summary.expiry],
+    ]);
+    // an edit: two lots on the sold leg, and the request follows
+    await legs(page).nth(1).getByTestId("desk-builder-lots").fill("2");
+    await expect.poll(() => bodies[bodies.length - 1].legs[1].quantity).toBe(2);
+  });
+
+  test("TC-4 the chart and numbers are the route's answer; probability of profit is not shown; margin is the route's reason", async ({ page }) => {
+    const bodies = await openBuilder(page);
+    await expect(page.getByTestId("strategy-graphs")).toBeVisible();
+    await expect.poll(() => bodies.length).toBeGreaterThan(0);
+    const want = payoffFor(bodies[bodies.length - 1] as Req);
+    await expect(page.getByTestId("desk-builder-net")).toContainText(want.expiry.net_premium < 0 ? "Net debit" : "Net credit");
+    await expect(page.getByTestId("strategy-graphs")).not.toContainText(/probability of profit\s*[0-9]/i);
+    await expect(page.getByTestId("strategy-graphs")).toContainText("Margin is not computed");
+  });
+
+  test("TC-5 a failed payoff shows the notice with a retry, never an empty chart", async ({ page }) => {
+    await openBuilder(page, { fail: true });
+    await expect(page.getByTestId("payoff-error")).toBeVisible();
+  });
+
+  test("TC-6 a trade with no close blocks the request and says why; removing every trade shows the empty state", async ({ page }) => {
+    const bodies = await openBuilder(page);
+    await expect.poll(() => bodies.length).toBeGreaterThan(0);
+    const n = bodies.length;
+    await legs(page).nth(0).getByTestId("desk-builder-price").fill("");
+    await expect(page.getByTestId("desk-builder-problem")).toContainText("has no end-of-day close");
+    expect(bodies.length).toBe(n);
+    await page.getByTestId("desk-builder-clear").click();
+    await expect(page.getByTestId("desk-builder-empty")).toBeVisible();
+    await expect(page.getByTestId("desk-builder-problem")).toContainText("Pick a structure");
+  });
+
+  test("TC-7 recording is disabled with the reason; the full Strategy Builder is one click away", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("desk-builder-record")).toBeDisabled();
+    await expect(page.getByTestId("desk-builder-record-why")).toContainText("paper trades hold long shares only");
+    await expect(page.getByTestId("desk-builder-record-why")).toContainText("Nothing is sent to a broker");
+    await expect(page.getByTestId("desk-builder-full")).toBeEnabled();
+  });
+
+  test("TC-9 at 390px the builder stacks with no sideways overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openBuilder(page);
+    await expect(legs(page).first()).toBeVisible();
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
 
