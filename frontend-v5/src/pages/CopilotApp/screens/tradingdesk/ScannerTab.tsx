@@ -41,6 +41,7 @@ import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-tradi
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import ReversalPanel from "./ReversalPanel";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 import { ChartinkTag, ChartinkTrust } from "./chartink/ChartinkParts";
 import { hitsBySymbol, useChartink, type ChartinkState } from "./chartink/chartink-data";
 import type { ChartinkHitSymbol } from "./chartink/chartink-contract";
@@ -1383,9 +1384,8 @@ export default function ScannerTab() {
         {ruleLine}
         {notes}
         <span data-testid="desk-scan-eyebrow" className="cp-eyebrow" style={{ fontSize: 9, color: "var(--cp-ink-4)" }}>NSE · end of day{dayLabel ? ` ${dayLabel}` : ""} · {shown}</span>
-        <section className="cp-card flex min-w-0 flex-col" aria-label="Scanner opportunities" style={{ overflow: "hidden" }}>{body}</section>
-        <section data-testid="desk-scan-insights" className="cp-card flex min-w-0 flex-col" style={{ gap: 8, padding: 14 }}>
-          <span className="cp-eyebrow">Scanner insights</span>
+        <Widget id="scanner.opps.phone" title="Scanner opportunities" data={{ "aria-label": "Scanner opportunities" }} headPad="12px 14px">{body}</Widget>
+        <Widget id="scanner.insights.phone" testId="desk-scan-insights" title="Scanner insights" headPad="12px 14px" bodyStyle={{ gap: 8, padding: 14 }}>
           <p className="m-0" style={{ fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
             {fmtNum(inCategory.length)} {plain ? "ideas" : "stocks"} in {plain ? catDef.plain : catDef.label} on the {dayLabel ?? "latest"} scan{confirmed ? `; ${fmtNum(confirmed)} confirmed ${confirmed === 1 ? "setup" : "setups"}` : ""}.
             {uni ? ` ${fmtNum(uni.universe.eligible)} of ${fmtNum(uni.universe.total)} stocks pass the eligibility gates.` : ""}
@@ -1395,28 +1395,32 @@ export default function ScannerTab() {
             <summary data-testid="desk-scan-footnote-toggle" style={{ cursor: "pointer", color: "var(--cp-ink-2)" }}>How these figures are worked out</summary>
             <span style={{ display: "block", paddingTop: 6 }}>{footnote}</span>
           </details>
-        </section>
+        </Widget>
       </div>
     );
   }
 
   // ── desk (design-spec §4) ──
   return (
-    <section data-testid="desk-scanner" data-layout="desk" className="cp-card flex min-w-0 flex-col">
-      <header className="flex flex-col" style={{ gap: 6, padding: "13px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)", borderRadius: "14px 14px 0 0" }}>
-        <span className="flex flex-wrap items-center" style={{ gap: "6px 14px" }}>
-          <span data-testid="desk-scan-title" className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}><span style={{ color: "var(--mint)" }}>02</span> · AI Opportunity scanner</span>
-          <span data-testid="desk-scan-eyebrow" className="cp-eyebrow" style={{ ...eyebrow95, color: "var(--cp-ink-4)" }}>NSE · end of day{dayLabel ? ` ${dayLabel}` : ""} · {shown}</span>
-          <span data-testid="desk-scan-record" data-state={oddsQ.isError ? "error" : odds?.kind ?? "loading"} className="cp-eyebrow" style={{ ...eyebrow95, marginLeft: "auto", color: "var(--cp-ink-4)" }}>
-            {runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""}`
-              : odds?.kind === "no_access" ? "Move-odds · not enabled for this account"
-                : odds?.kind === "not_published" ? `Move-odds · not published for ${fmtDay(odds.expectedSession)}`
-                  : odds?.kind === "withheld" ? "Move-odds · run withheld"
-                    : oddsQ.isError ? "Move-odds didn’t load" : "Move-odds · loading"}
-          </span>
+    <Widget
+      id="scanner.opps"
+      testId="desk-scanner"
+      data={{ "data-layout": "desk" }}
+      num="02"
+      title="AI Opportunity scanner"
+      headTestId="desk-scan-title"
+      meta={<span data-testid="desk-scan-eyebrow" style={{ ...eyebrow95 }}>NSE · end of day{dayLabel ? ` ${dayLabel}` : ""} · {shown}</span>}
+      actions={
+        <span data-testid="desk-scan-record" data-state={oddsQ.isError ? "error" : odds?.kind ?? "loading"} className="cp-eyebrow" style={{ ...eyebrow95, color: "var(--cp-ink-4)" }}>
+          {runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""}`
+            : odds?.kind === "no_access" ? "Move-odds · not enabled for this account"
+              : odds?.kind === "not_published" ? `Move-odds · not published for ${fmtDay(odds.expectedSession)}`
+                : odds?.kind === "withheld" ? "Move-odds · run withheld"
+                  : oddsQ.isError ? "Move-odds didn’t load" : "Move-odds · loading"}
         </span>
-        {trust}
-      </header>
+      }
+    >
+      <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--cp-line)" }}>{trust}</div>
 
       <div data-testid="desk-scan-controls" className="flex flex-wrap items-center" style={{ gap: 12, padding: "12px 18px", borderBottom: "1px solid var(--cp-line)" }}>
         <RankBySwitch value={rankBy} onChange={pickRank} ready={modelReady} plain={plain} />
@@ -1437,6 +1441,6 @@ export default function ScannerTab() {
       <div className="flex flex-col" style={{ gap: 4, padding: "12px 18px", borderTop: "1px solid var(--cp-line)", fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
         {footnote}
       </div>
-    </section>
+    </Widget>
   );
 }

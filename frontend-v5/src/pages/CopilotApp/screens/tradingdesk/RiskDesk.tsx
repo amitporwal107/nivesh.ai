@@ -44,6 +44,7 @@ import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, us
 import { useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
 import { largestGap, type DailyBar } from "./indicators";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 
 const CAPITALS = [
   { value: "200000", label: "₹2L", id: "2l" },
@@ -124,21 +125,6 @@ export function Segmented<T extends string | number>({ label, value, options, on
           </button>
         );
       })}
-    </div>
-  );
-}
-
-/** A module card's header bar (design-spec §1): "<mint>NN</mint> · Title" on bg-0, anything else pushed right. */
-export function CardHead({ num, title, children, padding = "13px 18px", testId }: { num: string; title: string; children?: ReactNode; padding?: string; testId?: string }) {
-  return (
-    <div
-      className="flex flex-wrap items-center"
-      style={{ gap: "8px 12px", padding, borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)", borderRadius: "14px 14px 0 0" }}
-    >
-      <span data-testid={testId} className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}>
-        <span style={{ color: "var(--mint)" }}>{num}</span> · {title}
-      </span>
-      {children != null && <div className="flex flex-wrap items-center" style={{ gap: 8, marginLeft: "auto" }}>{children}</div>}
     </div>
   );
 }
@@ -849,10 +835,15 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
   const riskOpt = RISKS.find((r) => r.value === st.fields.riskPct)?.value ?? ("" as string);
 
   return (
-    <section data-testid="desk-risk" data-layout="desk" className="cp-card flex min-w-0 flex-col">
-      <CardHead num="05" title="AI Risk desk" testId="desk-risk-title">
-        {setup && <span data-testid="desk-risk-status" data-status={setup.status}><Pill tone={RISK_STATUS[setup.status].tone}>{RISK_STATUS[setup.status].label}</Pill></span>}
-      </CardHead>
+    <Widget
+      id="risk.desk"
+      testId="desk-risk"
+      data={{ "data-layout": "desk" }}
+      num="05"
+      title="AI Risk desk"
+      headTestId="desk-risk-title"
+      actions={setup ? <span data-testid="desk-risk-status" data-status={setup.status}><Pill tone={RISK_STATUS[setup.status].tone}>{RISK_STATUS[setup.status].label}</Pill></span> : undefined}
+    >
 
       <div className="flex flex-col" style={{ gap: 16, padding: "16px 18px" }}>
         <div className="flex flex-wrap items-end justify-between" style={{ gap: "8px 16px" }}>
@@ -936,7 +927,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           status={st.q.isError ? "failed" : null}
         />
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -953,13 +944,16 @@ export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: De
   const target = lv.target;
   const rr = lv.riskReward;
   return (
-    <section data-testid="desk-risk" data-layout="phone" className="cp-card flex min-w-0 flex-col">
-      <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--cp-line)" }}>
-        <span data-testid="desk-risk-title" className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}><span style={{ color: "var(--mint)" }}>05</span> · Trade scenario</span>
-        <span className="cp-eyebrow" style={{ marginLeft: "auto", fontSize: 9.5 }}>
-          {plain ? "Reward for risk" : "Reward / risk"} <span data-testid="desk-risk-rr" style={{ fontFamily: "var(--display)", fontSize: 18, letterSpacing: 0, textTransform: "none", color: rr != null ? "var(--cp-ink)" : "var(--cp-ink-3)" }}>{rrText(rr)}</span>
-        </span>
-      </div>
+    <Widget
+      id="risk.scenario.phone"
+      testId="desk-risk"
+      data={{ "data-layout": "phone" }}
+      num="05"
+      title="Trade scenario"
+      headTestId="desk-risk-title"
+      headPad="12px 14px"
+      meta={<>{plain ? "Reward for risk" : "Reward / risk"} <span data-testid="desk-risk-rr" style={{ fontFamily: "var(--display)", fontSize: 18, letterSpacing: 0, textTransform: "none", color: rr != null ? "var(--cp-ink)" : "var(--cp-ink-3)" }}>{rrText(rr)}</span></>}
+    >
       <div className="flex flex-col" style={{ gap: 12, padding: 14 }}>
         <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
           <StatTile k={plain ? "Chance of +5%" : "Move probability"} v={f.pValue} s={f.pNote} tone={f.pTone} size={28} testId="desk-risk-p5" />
@@ -982,7 +976,7 @@ export function TradeScenarioCard({ symbol, setup }: { symbol: string; setup: De
         <DeskActions symbol={sym} setup={setup} st={st} phone />
         <TrustLine testId="desk-risk-trust" source="Positional scanner levels · scenario route (server)" mode="eod" maker="rules" method="PRD §8.5 sizing on the server" status={st.q.isError ? "failed" : null} />
       </div>
-    </section>
+    </Widget>
   );
 }
 

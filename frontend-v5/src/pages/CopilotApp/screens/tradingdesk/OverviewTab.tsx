@@ -46,6 +46,7 @@ import { lensOf, readConcentration } from "../portfolio/concentration-data";
 import { QueryProblem } from "../trading/parts";
 import { useBrokerAccounts } from "../trading/queries";
 import { useDesk, type DeskPersona } from "./context";
+import { Widget } from "./widget";
 import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, useScanUniverse, type DeskSetup, type SetupBucket } from "./desk-data";
 import { GROUP_COLOR, eventWhen, useIntelEvents, type IntelEvent } from "./intel-data";
 import {
@@ -131,28 +132,6 @@ export default function OverviewTab() {
 }
 
 // ── shared pieces ────────────────────────────────────────────────────────
-
-/** A desktop module card (design §1: bg-1, 1px line, radius 14, the card shadow). */
-function Card({ testId, children }: { testId?: string; children: ReactNode }) {
-  return (
-    <section data-testid={testId} className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-      {children}
-    </section>
-  );
-}
-
-/** The card header bar: `<mint>NN</mint> · Title` at the left, meta or a control pushed right. */
-function CardHead({ num, title, meta, padding = "13px 18px", testId, children }: { num?: string; title: string; meta?: ReactNode; padding?: string; testId?: string; children?: ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding, borderBottom: line, background: "var(--bg-0)" }}>
-      <span data-testid={testId} className="cp-eyebrow">
-        {num && <><span style={{ color: "var(--mint)" }}>{num}</span> · </>}{title}
-      </span>
-      {meta && <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>{meta}</span>}
-      {children && <span style={{ marginLeft: "auto" }}>{children}</span>}
-    </div>
-  );
-}
 
 /** The card's trust line (PRD §3.2, §16.3), as its last row. */
 function CardTrust({ pad = "10px 18px 12px", ...props }: TrustLineProps & { pad?: string }) {
@@ -456,13 +435,14 @@ function PulseCard({ home, macro, sectors, stats }: { home: HomeQuery; macro: Ma
   const desk = m?.kind === "ready" ? m.desk : null;
   const date = desk?.date ?? (m?.kind === "ready" ? m.date : null);
   return (
-    <Card testId="desk-pulse-card">
-      <CardHead
-        num="01"
-        title="AI Market pulse"
-        testId="desk-pulse-title"
-        meta={m?.kind === "ready" && date ? <span data-testid="desk-pulse-meta">Regime rule · {dayLabel(date)} · end of day</span> : undefined}
-      />
+    <Widget
+      id="overview.pulse"
+      testId="desk-pulse-card"
+      num="01"
+      title="AI Market pulse"
+      headTestId="desk-pulse-title"
+      meta={m?.kind === "ready" && date ? <span data-testid="desk-pulse-meta">Regime rule · {dayLabel(date)} · end of day</span> : undefined}
+    >
       <div className="flex flex-col" style={{ gap: 16, padding: 18 }} data-testid="desk-pulse">
         {macro.isPending ? (
           <LoadingBlock label="Loading the market regime" rows={2} />
@@ -493,7 +473,7 @@ function PulseCard({ home, macro, sectors, stats }: { home: HomeQuery; macro: Ma
         method={desk?.rule.version ? `regime rule ${desk.rule.version}` : null}
         status={m?.kind === "ready" && m.daysStale != null && m.daysStale >= 2 ? "stale" : null}
       />
-    </Card>
+    </Widget>
   );
 }
 
@@ -922,10 +902,7 @@ function SectorCard({ q }: { q: ReturnType<typeof useSectorReturns> }) {
   const [open, setOpen] = useState<string | null>(null);
   const d = q.data;
   return (
-    <Card testId="desk-sector-card">
-      <CardHead title="Sector strength" padding="10px 12px 10px 18px" testId="desk-sector-title">
-        <PeriodSwitch period={period} onPick={setPeriod} d={d} />
-      </CardHead>
+    <Widget id="overview.sectors" testId="desk-sector-card" title="Sector strength" headPad="10px 12px 10px 18px" headTestId="desk-sector-title" actions={<PeriodSwitch period={period} onPick={setPeriod} d={d} />}>
       {d && d.sectors.length > 0 && (
         <div data-testid="desk-sector-controls" className="flex flex-wrap items-center" style={{ gap: 8, padding: "10px 14px", borderBottom: line }}>
           <Segmented label="Sort sectors" options={SECTOR_SORTS} value={sort} onPick={setSort} testId="desk-sector-sort" words={SORT_LABEL} />
@@ -968,7 +945,7 @@ function SectorCard({ q }: { q: ReturnType<typeof useSectorReturns> }) {
         maker="reported"
         method={`${PERIOD_WORDS[period]} = close vs the close ${d?.sessions[period] != null ? sessionsText(d.sessions[period]) : "N sessions"} earlier`}
       />
-    </Card>
+    </Widget>
   );
 }
 
@@ -1248,13 +1225,20 @@ function TopOpportunitiesCard() {
   const ck = useChartink();
   const ckHits = ck.kind === "ready" ? hitsBySymbol(ck.hits) : null;
   return (
-    <Card testId="desk-opps-card">
-      <CardHead num="02" title="Top AI opportunities" testId="desk-opps-title" meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined}>
+    <Widget
+      id="overview.opportunities"
+      testId="desk-opps-card"
+      num="02"
+      title="Top AI opportunities"
+      headTestId="desk-opps-title"
+      meta={date ? `End-of-day scan · ${dayLabel(date)}` : undefined}
+      actions={
         <span className="flex flex-wrap items-center" style={{ gap: "4px 14px" }}>
           <button type="button" data-testid="desk-opps-chartink" onClick={openChartink} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Chartink scans ›</button>
           <button type="button" data-testid="desk-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
         </span>
-      </CardHead>
+      }
+    >
       {scan.isPending ? (
         <div style={{ padding: 18 }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
       ) : scan.isError ? (
@@ -1286,7 +1270,7 @@ function TopOpportunitiesCard() {
       </div>
       <CardTrust testId="desk-opps-trust" source="Positional scanner (watchlist and picks)" mode="eod" asOf={date ? dayLabel(date, { year: true }) : null} maker="rules"
         method={live.data ? `live check read ${fmtStamp(live.data.receivedAt)} (delayed quotes)` : live.isError ? "live check didn’t load" : null} />
-    </Card>
+    </Widget>
   );
 }
 
@@ -1399,23 +1383,19 @@ function KeyEventsCard({ compact }: { compact?: boolean }) {
   const trust = <CardTrust pad={compact ? "10px 14px 12px" : undefined} testId="desk-events-trust" source="NSE / BSE filings, NSE deals, SEBI, NSE FII / DII" asOf={latest ? `latest ${eventWhen(latest).full}` : null} maker="reported" method="filing impact from the event classifier" />;
   if (compact) {
     return (
-      <section data-testid="desk-events-card" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-        <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
-          <span data-testid="desk-events-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Key market events</span>
-        </div>
+      <Widget id="overview.events.phone" testId="desk-events-card" num="03" title="Key market events" headTestId="desk-events-title" headPad="12px 14px" style={{ boxShadow: "none" }}>
         {body}
         {footer}
         {trust}
-      </section>
+      </Widget>
     );
   }
   return (
-    <Card testId="desk-events-card">
-      <CardHead num="03" title="Key market events" testId="desk-events-title" meta="NSE · BSE · SEBI" />
+    <Widget id="overview.events" testId="desk-events-card" num="03" title="Key market events" headTestId="desk-events-title" meta="NSE · BSE · SEBI">
       {body}
       {footer}
       {trust}
-    </Card>
+    </Widget>
   );
 }
 
@@ -1493,10 +1473,7 @@ function PortfolioSnapshotCard() {
     : sync.state === "none" ? "No broker connected · holdings on record in Nivesh"
     : `${sync.names.join(" · ")} · ${sync.last ? `last read ${fmtStamp(sync.last)}` : "nothing read yet"}`;
   return (
-    <Card testId="desk-snapshot-card">
-      <CardHead num="05" title="Portfolio snapshot" testId="desk-snapshot-title">
-        <Pill tone="indigo">Read-only</Pill>
-      </CardHead>
+    <Widget id="overview.snapshot" testId="desk-snapshot-card" num="05" title="Portfolio snapshot" headTestId="desk-snapshot-title" actions={<Pill tone="indigo">Read-only</Pill>}>
       {q.isPending ? (
         <div style={{ padding: 18 }}><LoadingBlock label="Loading your portfolio" rows={3} /></div>
       ) : q.isError ? (
@@ -1559,7 +1536,7 @@ function PortfolioSnapshotCard() {
       )}
       <CardTrust testId="desk-snapshot-trust" source="Your holdings on record (broker reads and imports)" asOf={q.data?.generated_at ? stampIst(q.data.generated_at) : null} maker="reported"
         status={sync.state === "error" ? "failed" : null} />
-    </Card>
+    </Widget>
   );
 }
 
@@ -1610,8 +1587,7 @@ function RiskSummaryCard() {
     rows.push({ id: "data", label: "Missing or stale data", value: flag ? "Check" : "OK", word: flag ? "Check" : "OK", tone: flag ? "amber" : "ink", detail: notes.join(" · ") || "Nothing to report" });
   }
   return (
-    <Card testId="desk-risk-card">
-      <CardHead num="05" title="Risk summary" testId="desk-risk-title" />
+    <Widget id="overview.risk" testId="desk-risk-card" num="05" title="Risk summary" headTestId="desk-risk-title">
       {holdings.isPending ? (
         <div style={{ padding: 18 }}><LoadingBlock label="Loading the risk summary" rows={3} /></div>
       ) : holdings.isError ? (
@@ -1630,7 +1606,7 @@ function RiskSummaryCard() {
         </ul>
       )}
       <CardTrust testId="desk-risk-trust" source="Risk analytics, concentration and your holdings on record" maker="rules" method={`single stock limit ${SINGLE_STOCK_LIMIT_PCT}%; volatility bands of the risk-analytics route`} />
-    </Card>
+    </Widget>
   );
 }
 
@@ -1708,13 +1684,21 @@ function MobilePulse({ home, macro }: { home: HomeQuery; macro: MacroQuery }) {
   const soft = tone === "mint" ? "var(--mint-soft)" : tone === "danger" ? "var(--cp-danger-soft)" : "var(--bg-2)";
   const day = desk?.date ?? (m?.kind === "ready" ? m.date : null);
   return (
-    <section data-testid="desk-pulse-card" className="cp-card flex min-w-0 flex-col" style={{ gap: 12, padding: 14 }}>
-      <div className="flex items-center justify-between" style={{ gap: 8 }}>
-        <span data-testid="desk-pulse-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>01</span> · AI Market pulse</span>
+    <Widget
+      id="overview.pulse.phone"
+      testId="desk-pulse-card"
+      num="01"
+      title="AI Market pulse"
+      headTestId="desk-pulse-title"
+      headPad="12px 14px"
+      style={{ boxShadow: "none" }}
+      bodyStyle={{ gap: 12, padding: 14 }}
+      actions={
         <button type="button" data-testid="desk-pulse-details" aria-expanded={open} onClick={() => setOpen((o) => !o)} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>
           {open ? "Hide details" : "View details ›"}
         </button>
-      </div>
+      }
+    >
       {macro.isPending ? (
         <LoadingBlock label="Loading the market regime" rows={2} />
       ) : macro.isError ? (
@@ -1759,7 +1743,7 @@ function MobilePulse({ home, macro }: { home: HomeQuery; macro: MacroQuery }) {
         </div>
       )}
       <TrustLine testId="desk-pulse-trust" source="Macro engine and end-of-day bars" mode="eod" asOf={day ? dayLabel(day) : null} maker="rules" method={desk?.rule.version ?? null} />
-    </section>
+    </Widget>
   );
 }
 
@@ -1781,14 +1765,21 @@ function TopOpportunities() {
   const ck = useChartink();
   const ckHits = ck.kind === "ready" ? hitsBySymbol(ck.hits) : null;
   return (
-    <section data-testid="desk-top-opps" className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden" }}>
-      <div className="flex items-center justify-between" style={{ gap: 8, padding: "12px 14px" }}>
-        <span data-testid="desk-top-opps-title" className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>02</span> · Top AI opportunities</span>
+    <Widget
+      id="overview.opportunities.phone"
+      testId="desk-top-opps"
+      num="02"
+      title="Top AI opportunities"
+      headTestId="desk-top-opps-title"
+      headPad="12px 14px"
+      style={{ boxShadow: "none" }}
+      actions={
         <span className="flex items-center" style={{ gap: 12 }}>
           <button type="button" data-testid="desk-top-opps-strategies" onClick={() => openStrategyIdeas()} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)" }}>Strategies for these ›</button>
           <button type="button" data-testid="desk-top-opps-all" onClick={() => openTab("scanner")} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--cp-ink-2)" }}>See all ›</button>
         </span>
-      </div>
+      }
+    >
       {scan.isPending ? (
         <div style={{ padding: "0 14px 14px" }}><LoadingBlock label="Loading the scanner" rows={3} /></div>
       ) : scan.isError ? (
@@ -1810,7 +1801,7 @@ function TopOpportunities() {
       <div style={{ padding: "6px 14px 12px" }}>
         <TrustLine testId="desk-top-opps-trust" source="Positional scanner" mode="eod" asOf={date ? dayLabel(date) : null} maker="rules" />
       </div>
-    </section>
+    </Widget>
   );
 }
 

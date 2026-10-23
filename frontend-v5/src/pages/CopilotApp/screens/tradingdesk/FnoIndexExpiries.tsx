@@ -19,6 +19,7 @@ import { useFnoFutures, useOptionChain, type FnoFuture, type OiBuildup } from ".
 import { BUILDUP_LABELS, BUILDUP_META, type BuildupLabel, type BuildupQuadrant } from "./fno-buildup";
 import { num } from "./desk-data";
 import { wallsOf, shortDay } from "./fno-parts";
+import { Widget } from "./widget";
 
 const BUCKETS = ["Near", "Next", "Far"] as const;
 const LABEL: Record<OiBuildup, BuildupLabel> = {
@@ -37,8 +38,7 @@ export function ExpiryPanel({ symbol }: { symbol: string }) {
   const fq = useFnoFutures(symbol);
   const id = `desk-fno-expiries-${symbol}`;
   return (
-    <section data-testid={id} className="cp-card flex flex-col" style={{ gap: 14, padding: 18, minWidth: 0 }}>
-      <span style={{ fontSize: 15, fontWeight: 600 }}>By expiry</span>
+    <Widget id="fno.expiries" testId={id} title="By expiry" bodyStyle={{ gap: 14, padding: 18 }}>
       {fq.isPending && <span style={quiet}>Loading the futures</span>}
       {fq.isError && <QueryProblem what={`${symbol} futures`} error={fq.error} onRetry={() => fq.refetch()} />}
       {fq.data?.kind === "none" && <span style={quiet}>{fq.data.message}</span>}
@@ -63,7 +63,7 @@ export function ExpiryPanel({ symbol }: { symbol: string }) {
       <span data-testid={`${id}-note`} style={quiet}>
         Each expiry is read on its own contract. Open interest is never added across expiries, and a drop in the near month with a rise in the next may just be rollover.
       </span>
-    </section>
+    </Widget>
   );
 }
 
@@ -111,8 +111,7 @@ export function HistoryPanel({ symbol }: { symbol: string }) {
   const q = useIndexHistory(symbol);
   const id = `desk-fno-history-${symbol}`;
   return (
-    <section data-testid={id} className="cp-card flex flex-col" style={{ gap: 12, padding: 18, minWidth: 0 }}>
-      <span style={{ fontSize: 15, fontWeight: 600 }}>Last five sessions</span>
+    <Widget id={`fno.history.${symbol}`} testId={id} title="Last five sessions" bodyStyle={{ gap: 12, padding: 18 }}>
       {q.isPending && <LoadingBlock label={`Loading ${symbol} positioning history`} rows={2} />}
       {q.isError && <QueryProblem what={`${symbol} positioning history`} error={q.error} onRetry={() => q.refetch()} />}
       {q.data && q.data.length === 0 && <span style={quiet}>No sessions came back.</span>}
@@ -133,7 +132,7 @@ export function HistoryPanel({ symbol }: { symbol: string }) {
       <span data-testid={`${id}-note`} style={quiet}>
         The near-month future's state each session, so you can follow how positioning changes. A change of state is not a signal: tests did not show that transitions add information beyond the state itself.
       </span>
-    </section>
+    </Widget>
   );
 }
 
@@ -153,11 +152,13 @@ export function OiBarsPanel({ symbol }: { symbol: string }) {
   const max = Math.max(1, ...rows.flatMap((r) => [r.call?.oi ?? 0, r.put?.oi ?? 0]));
   const w = chain ? wallsOf(chain.summary) : { put: null, call: null };
   return (
-    <section data-testid={id} className="cp-card flex flex-col" style={{ gap: 12, padding: 18, minWidth: 0 }}>
-      <div className="flex flex-wrap items-baseline justify-between" style={{ gap: 6 }}>
-        <span style={{ fontSize: 15, fontWeight: 600 }}>Options open interest by strike{chain ? ` · ${fmtDay(chain.summary.expiry)}` : ""}</span>
-        {chain && <span className="cp-mono-note">PCR {chain.summary.pcr == null ? "—" : fmtNum(chain.summary.pcr, 2)} · max pain {chain.summary.max_pain == null ? "—" : fmtLevel(chain.summary.max_pain)}</span>}
-      </div>
+    <Widget
+      id={`fno.oibars.${symbol}`}
+      testId={id}
+      title={`Options open interest by strike${chain ? ` · ${fmtDay(chain.summary.expiry)}` : ""}`}
+      meta={chain ? `PCR ${chain.summary.pcr == null ? "—" : fmtNum(chain.summary.pcr, 2)} · max pain ${chain.summary.max_pain == null ? "—" : fmtLevel(chain.summary.max_pain)}` : undefined}
+      bodyStyle={{ gap: 12, padding: 18 }}
+    >
       {state.status === "loading" && <LoadingBlock label={`Loading the ${symbol} chain`} rows={3} />}
       {state.status === "none" && <span style={quiet}>{state.message}</span>}
       {state.status === "error" && <span style={quiet}>The chain didn’t load, so there are no bars.</span>}
@@ -184,7 +185,7 @@ export function OiBarsPanel({ symbol }: { symbol: string }) {
       <span data-testid={`${id}-note`} style={quiet}>
         Puts left, calls right. Open interest at a strike shows contracts open there, not who holds them or which side; it is not support or resistance. S and R mark the heaviest put OI at or below the price and the heaviest call OI at or above it.
       </span>
-    </section>
+    </Widget>
   );
 }
 

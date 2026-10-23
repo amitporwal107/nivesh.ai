@@ -55,8 +55,9 @@ import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockH
 import { HEURISTIC_NOTE } from "./FnoBuildup";
 import { SymbolSearch } from "./SymbolSearch";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 import {
-  CardHead, CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
+  CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
   basisWords, buildupWhy, chainTiles, wallsOf, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
 } from "./fno-parts";
 
@@ -391,11 +392,13 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
     ? <span data-testid={`${id}-buildup`} className="cp-pill" data-tone={meta.tone === "ink" ? undefined : meta.tone} title={`${meta.rule} · index futures, ${scan.data?.asOf ? shortDay(scan.data.asOf) : "end of day"}`}>{meta.label}</span>
     : <span data-testid={`${id}-buildup`} className="cp-pill" title={scan.isPending ? "Reading the build-up scan" : scan.isError ? "The build-up scan didn’t load" : ix ? "A price or OI change is missing" : "The scan has no index futures row for it"}>Build-up —</span>;
   return (
-    <section data-testid={id} className="cp-card flex flex-col min-w-0" style={{ overflow: "hidden" }}>
-      <CardHead testId={`${id}-head`} meta={pill}>
-        {symbol}
-        {state.status === "ok" && <span style={{ color: "var(--cp-ink-4)" }}>{fmtDay(state.chain.summary.expiry)} expiry</span>}
-      </CardHead>
+    <Widget
+      id={`fno.index.${symbol}`}
+      testId={id}
+      headTestId={`${id}-head`}
+      title={<span className="inline-flex flex-wrap items-center" style={{ gap: 8 }}>{symbol}{state.status === "ok" && <span style={{ color: "var(--cp-ink-4)" }}>{fmtDay(state.chain.summary.expiry)} expiry</span>}</span>}
+      meta={pill}
+    >
       <div className="flex flex-col" style={{ gap: 14, padding: mobile ? 14 : 18 }}>
         <FnoGate symbol={symbol} state={state} testId={id}>
           {(chain) => {
@@ -455,7 +458,7 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
           }}
         </FnoGate>
       </div>
-    </section>
+    </Widget>
   );
 }
 

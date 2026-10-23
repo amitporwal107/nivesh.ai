@@ -25,6 +25,7 @@ import { nearestFuture, strikesAround, type ChainState, type FnoChain, type FnoF
 import { QueryProblem, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
 import type { DeskPersona } from "./context";
 import { BUILDUP_META, type BuildupLabel } from "./fno-buildup";
+import { Widget } from "./widget";
 
 export const CALL_COLOR = "var(--cp-danger)";
 export const PUT_COLOR = "var(--mint)";
@@ -64,16 +65,6 @@ export function istDay(iso: string | null | undefined): string | null {
 export const noRowsTitle = (symbol: string) => `No F&O rows for ${symbol} on the latest day`;
 
 // ── design primitives ────────────────────────────────────────────────────
-
-/** Card header bar: eyebrow left (`NN · Title`), an optional meta eyebrow pushed right. */
-export function CardHead({ children, meta, testId, pad = "13px 18px" }: { children: ReactNode; meta?: ReactNode; testId?: string; pad?: string }) {
-  return (
-    <div className="flex flex-wrap items-center" style={{ gap: "6px 12px", padding: pad, borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
-      <span data-testid={testId} className="cp-eyebrow flex flex-wrap items-center" style={{ gap: 8, minWidth: 0 }}>{children}</span>
-      {meta != null && <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>{meta}</span>}
-    </div>
-  );
-}
 
 export interface SegOption<T extends string> {
   value: T;
@@ -543,10 +534,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
   );
   const quiet = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
   return (
-    <section data-testid="desk-fno-chain" className="cp-card flex flex-col min-w-0" style={{ overflow: "hidden" }}>
-      <CardHead testId="desk-fno-chain-head" meta="R call wall · S put wall · MP max pain">
-        Option chain OI · {chain.symbol} · {fmtDay(s.expiry)}
-      </CardHead>
+    <Widget id="fno.chain" testId="desk-fno-chain" headTestId="desk-fno-chain-head" title={<>Option chain OI · {chain.symbol} · {fmtDay(s.expiry)}</>} meta="R call wall · S put wall · MP max pain">
       <div ref={scroller} data-testid="desk-fno-chain-scroll" className="cp-scroll overflow-x-auto" role="table" aria-label={`${chain.symbol} open interest by strike, ${fmtDay(s.expiry)} expiry`}>
         <div style={{ minWidth: 700 }}>
           <div role="row" data-testid="desk-fno-chain-header" className="grid" style={{ gridTemplateColumns: CHAIN_TEMPLATE, gap: 10, padding: "10px 18px" }}>
@@ -610,7 +598,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
         </span>
         <span className="cp-mono-note" style={{ lineHeight: 1.6 }}>NSE F&amp;O bhavcopy · end of day · as of {fmtDay(s.as_of)}</span>
       </div>
-    </section>
+    </Widget>
   );
 }
 

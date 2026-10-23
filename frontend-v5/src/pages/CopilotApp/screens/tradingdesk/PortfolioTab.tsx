@@ -70,6 +70,7 @@ import {
   type StockPosition,
 } from "./portfolio-data";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 
 const quiet = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
 const line = "1px solid var(--cp-line)";
@@ -81,32 +82,21 @@ const CORR_HIGH_DEFAULT = 0.7;
 
 // ── frame ────────────────────────────────────────────────────────────────
 
-/** A desktop module card: header bar (eyebrow left, meta right, bg-0) and a padded body. */
+/** A desktop module card: a <Widget> (header bar, body padding); its saved-state id derives from the test id. */
 function ModuleCard({ title, pill, meta, testId, children, bodyGap = 16 }: { title: ReactNode; pill?: ReactNode; meta?: ReactNode; testId: string; children: ReactNode; bodyGap?: number }) {
   return (
-    <section data-testid={testId} className="cp-card flex min-w-0 flex-col" style={{ overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
-      <div className="flex flex-wrap items-center" style={{ gap: "6px 10px", padding: "13px 18px", borderBottom: line, background: "var(--bg-0)" }}>
-        <span data-testid={`${testId}-title`} className="cp-eyebrow">{title}</span>
-        {pill}
-        {meta && <span className="cp-eyebrow" style={{ marginLeft: "auto", color: "var(--cp-ink-4)" }}>{meta}</span>}
-      </div>
-      <div className="flex min-w-0 flex-col" style={{ gap: bodyGap, padding: "16px 18px" }}>{children}</div>
-    </section>
+    <Widget id={`portfolio.${testId}`} testId={testId} headTestId={`${testId}-title`} title={title} meta={meta} actions={pill} headPad="13px 18px" bodyStyle={{ gap: bodyGap, padding: "16px 18px" }}>
+      {children}
+    </Widget>
   );
 }
 
-/** A phone card (design-spec §11: radius 14, bg-1, line): an eyebrow head and the body. */
+/** A phone card (design-spec §11): a <Widget> with the title and aside in its header. */
 function PhoneCard({ title, aside, testId, children }: { title: ReactNode; aside?: ReactNode; testId: string; children: ReactNode }) {
   return (
-    <section data-testid={testId} className="cp-card flex min-w-0 flex-col" style={{ gap: 12, padding: "14px 14px 16px" }}>
-      <div className="flex items-center justify-between" style={{ gap: 8 }}>
-        <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
-          <span data-testid={`${testId}-title`} className="cp-eyebrow">{title}</span>
-        </span>
-        {aside}
-      </div>
+    <Widget id={`portfolio.${testId}.phone`} testId={testId} headTestId={`${testId}-title`} title={title} actions={aside} headPad="12px 14px" bodyStyle={{ gap: 12, padding: "14px 14px 16px" }}>
       {children}
-    </section>
+    </Widget>
   );
 }
 

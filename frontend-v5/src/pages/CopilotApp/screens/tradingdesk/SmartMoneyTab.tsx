@@ -23,11 +23,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Column, DataTable, EmptyBlock, ErrorBlock, Eyebrow, Footnote, LoadingBlock, Pill, Screen,
-  ScreenHeader, Section, fmtDate, fmtNum, signTone,
+  ScreenHeader, fmtDate, fmtNum, signTone,
 } from "../../components/ui";
 import { closeLabel, useLiveOverlay } from "../../lib/useLiveQuotes";
 import { useDesk } from "./context";
 import { TrustLine } from "./trust";
+import { Widget } from "./widget";
 import OwnershipReactionPanel from "./OwnershipReactionPanel";
 import EvidenceValidationPanel from "./EvidenceValidationPanel";
 import {
@@ -536,10 +537,9 @@ function StockEvidence({ row, mfWindow, priceDay, onAsk }: { row: ScannerRow | n
   const live = useLiveOverlay(row?.symbol ?? null, priceDay);
   if (!row) {
     return (
-      <div className="cp-card" data-testid="desk-smart-money-evidence-empty" style={{ padding: 16 }}>
-        <Eyebrow>Stock evidence</Eyebrow>
-        <p style={{ marginTop: 8, fontSize: 13, color: "var(--cp-ink-3)" }}>Select a stock in the scanner.</p>
-      </div>
+      <Widget id="smartmoney.evidence" testId="desk-smart-money-evidence-empty" title="Stock evidence" bodyStyle={{ padding: 16 }}>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--cp-ink-3)" }}>Select a stock in the scanner.</p>
+      </Widget>
     );
   }
   const dir = rowDirection(row);
@@ -548,9 +548,8 @@ function StockEvidence({ row, mfWindow, priceDay, onAsk }: { row: ScannerRow | n
   const DIR_LABEL = { accumulation: "Accumulation", distribution: "Distribution", proxy: "Proxy signal" };
 
   return (
-    <div className="cp-card flex flex-col" data-testid="desk-smart-money-evidence" style={{ padding: 16, gap: 14 }}>
+    <Widget id="smartmoney.evidence" testId="desk-smart-money-evidence" title="Stock evidence" bodyStyle={{ padding: 16, gap: 14 }}>
       <div className="flex flex-col" style={{ gap: 6 }}>
-        <Eyebrow>Stock evidence</Eyebrow>
         <span className="flex items-baseline flex-wrap" style={{ gap: 8 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 20 }}>{row.symbol}</span>
           <span data-testid="desk-smart-money-price" data-live={live ? "true" : undefined} title={live ? (live.kind === "live" ? "Live price from Kite" : closeLabel(live)) : "End-of-day close"} className="cp-num" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
@@ -621,7 +620,7 @@ function StockEvidence({ row, mfWindow, priceDay, onAsk }: { row: ScannerRow | n
         onClick={() => onAsk(`What is the disclosed institutional evidence behind ${row.symbol}, and what would weaken it?`)}
         style={{ alignSelf: "flex-start", padding: "6px 11px", borderRadius: 999, fontSize: 12, cursor: "pointer", border: "1px solid var(--cp-line)", background: "transparent", color: "var(--mint)" }}
       >Ask the Copilot about {row.symbol}</button>
-    </div>
+    </Widget>
   );
 }
 
@@ -806,9 +805,11 @@ export default function SmartMoneyTab() {
       </div>
 
       {/* ── market-wide flows (spec 2.3) ── */}
-      <Section
+      <Widget
+        id="smartmoney.flows"
         title="Market-wide flows"
-        note={<Pill tone="ink" title="This panel is the whole cash market. It says nothing about any single stock.">Market-wide · not stock-specific</Pill>}
+        bodyStyle={{ padding: 16 }}
+        actions={<Pill tone="ink" title="This panel is the whole cash market. It says nothing about any single stock.">Market-wide · not stock-specific</Pill>}
       >
         {flowRows.length === 0 ? (
           <EmptyBlock title="No flow rows in this window" body="The feed answered with an empty window rather than an older one." />
@@ -846,15 +847,17 @@ export default function SmartMoneyTab() {
           </div>
         )}
         <TrustLine source={flows?.source ?? "nidp.fii_dii_flows"} asOf={fmtDate(flows?.asOf)} mode="eod" maker="reported" method={regime ? "regime line is rules-based, not a model" : null} testId="desk-smart-money-flows-trust" />
-      </Section>
+      </Widget>
 
       {/* ── sector rotation beside evidence breadth (spec 2.4 + 2.5) ── */}
       <div className="grid" style={{ gridTemplateColumns: railSide ? "1.6fr 1fr" : "minmax(0,1fr)", gap: 20 }}>
-        <Section
+        <Widget
+          id="smartmoney.sectors"
           // "Rotation" and "buying" both overclaim: this is an estimated change in disclosed
           // holdings, not a measured capital flow, so the title says what it is.
           title="Estimated MF sector accumulation"
-          note={
+          bodyStyle={{ padding: 16 }}
+          actions={
             <span className="flex flex-wrap items-center" style={{ gap: 10 }}>
               {sectors?.previousMonth && (
                 <span className="cp-mono-note">{fmtDate(sectors.previousMonth)} → {fmtDate(sectors.asOf)}</span>
@@ -898,9 +901,9 @@ export default function SmartMoneyTab() {
             The FII/DII shareholding leg is absent on purpose: the prior quarter carries no share count, so a
             two-quarter value-weighted figure cannot be computed without inventing one.
           </Footnote>
-        </Section>
+        </Widget>
 
-        <Section title="Evidence breadth">
+        <Widget id="smartmoney.breadth" title="Evidence breadth" bodyStyle={{ padding: 16 }}>
           {m == null ? (
             <EmptyBlock title="No scored names" body="Nothing was evaluated on the latest date." />
           ) : (
@@ -924,13 +927,15 @@ export default function SmartMoneyTab() {
               </Footnote>
             </div>
           )}
-        </Section>
+        </Widget>
       </div>
 
       {/* ── scanner (spec 2.6) ── */}
-      <Section
+      <Widget
+        id="smartmoney.scanner"
         title="Stock-level smart money scanner"
-        note={<span className="cp-mono-note">{scanner?.indexName ?? ""}</span>}
+        bodyStyle={{ padding: 16 }}
+        actions={<span className="cp-mono-note">{scanner?.indexName ?? ""}</span>}
       >
         <div className="flex flex-col" style={{ gap: 12 }}>
           {/* Lanes as tabs, each with its real count so an empty lane reads as "none here". */}
@@ -1010,7 +1015,7 @@ export default function SmartMoneyTab() {
           </Footnote>
         </div>
         <TrustLine source={scanner?.source ?? "nidp.mf_holdings_deltas"} asOf={fmtDate(scanner?.asOf)} mode="historical" maker="reported" confidence={`n ${scanner?.total ?? 0}`} testId="desk-smart-money-scanner-trust" />
-      </Section>
+      </Widget>
 
       {/* Retrospective companion to the scanner above: the disclosed QUARTERLY ownership change set
           against that same quarter's tape. It rests only on nidp.shareholding_pattern and

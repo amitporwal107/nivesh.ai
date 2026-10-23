@@ -6,6 +6,7 @@
  *
  * No performance number is shown before 30 sessions have a judged signal; the screen says how many more are needed and that the past tests were inconclusive. A missing figure is "—", never 0.
  */
+import { Widget } from "./widget";
 import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
@@ -70,15 +71,11 @@ function Count({ label, value, note, testId }: { label: string; value: number | 
 export function ForwardTestPanel() {
   const q = useForwardTest();
   return (
-    <section data-testid="desk-forward-test" className="cp-card flex flex-col" style={{ gap: 12, padding: 18, minWidth: 0, borderColor: "var(--amber-line)" }}>
-      <div className="flex flex-wrap items-center justify-between" style={{ gap: 6 }}>
-        <span style={{ fontSize: 15, fontWeight: 600 }}>Forward test · near-month short build-up</span>
-        <Pill tone="amber">Inconclusive so far</Pill>
-      </div>
+    <Widget id="fno.forwardtest" testId="desk-forward-test" title="Forward test · near-month short build-up" actions={<Pill tone="amber">Inconclusive so far</Pill>} style={{ borderColor: "var(--amber-line)" }} bodyStyle={{ gap: 12, padding: 18 }}>
       {q.isPending && <LoadingBlock label="Loading the forward test" rows={2} />}
       {q.isError && <QueryProblem what="The forward test" error={q.error} onRetry={() => q.refetch()} />}
       {q.data && <ForwardBody d={q.data} />}
-    </section>
+    </Widget>
   );
 }
 

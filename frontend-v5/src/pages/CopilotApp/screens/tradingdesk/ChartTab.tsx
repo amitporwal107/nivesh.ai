@@ -45,7 +45,8 @@ import { useDesk } from "./context";
 import { suggestionsFor, useDidYouMean } from "./symbol-lookup-data";
 import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup } from "./desk-data";
 import { largestGap, rsiZone, type DailyBar } from "./indicators";
-import { CardHead, RISK_STATUS, RiskDesk, Segmented, TradeScenarioCard } from "./RiskDesk";
+import { RISK_STATUS, RiskDesk, Segmented, TradeScenarioCard } from "./RiskDesk";
+import { Widget } from "./widget";
 import { TrustLine } from "./trust";
 
 type Timeframe = "1M" | "3M" | "6M";
@@ -1320,16 +1321,15 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   const bodies: Record<SectionKey, ReactNode> = { definition: s1, model: s2, technical: s3, fundamentals: s4, events: s5, liquidity: s6, levels: s7, validation: s8, contra: s9, freshness: s10 };
 
   return (
-    <section data-testid="desk-detail" className="cp-card flex min-w-0 flex-col">
-      {phone ? (
-        <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "12px 14px", borderBottom: "1px solid var(--cp-line)" }}>
-          <span data-testid="desk-detail-title" className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}>{plain ? "Everything about this idea" : "Opportunity detail"}</span>
-        </div>
-      ) : (
-        <CardHead num="03" title={plain ? "Everything about this idea" : "Opportunity detail"} testId="desk-detail-title">
-          <span className="cp-mono-note" style={{ fontSize: 9.5 }}>{company ? `${sym} · ${company}` : sym}</span>
-        </CardHead>
-      )}
+    <Widget
+      id={phone ? "chart.detail.phone" : "chart.detail"}
+      testId="desk-detail"
+      num={phone ? undefined : "03"}
+      title={plain ? "Everything about this idea" : "Opportunity detail"}
+      headTestId="desk-detail-title"
+      headPad={phone ? "12px 14px" : undefined}
+      actions={phone ? undefined : <span className="cp-mono-note" style={{ fontSize: 9.5 }}>{company ? `${sym} · ${company}` : sym}</span>}
+    >
       <div className="flex flex-wrap items-center" style={{ gap: 8, padding: "10px 18px 0" }}>
         <span style={{ fontSize: 12, color: "var(--cp-ink-3)", flex: "1 1 200px" }}>{plain ? "Short answers first; open a section for the detail." : "Ten sections, summaries first; open one for its evidence."}</span>
         <button
@@ -1357,7 +1357,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
           method="Each section names its own source; missing figures show — with the reason"
         />
       </div>
-    </section>
+    </Widget>
   );
 }
 
@@ -1449,14 +1449,13 @@ export default function ChartTab() {
         <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
           <ChartControls tf={tf} setTf={setTf} ov={ov} setOv={setOv} hasLevels={hasLevels} small />
         </div>
-        <section data-testid="desk-chart-card" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: 12 }}>
+        <Widget id="chart.card.phone" testId="desk-chart-card" title="Price chart" headPad="10px 12px" bodyStyle={{ gap: 10, padding: 12 }}>
           {body}
           <ChartToolbar symbol={symbol} company={company} setup={setup} iv={ivNow} setIv={setIv} enabledIntervals={enabledIntervals} />
           {trust}
-        </section>
+        </Widget>
 
-        <section data-testid="desk-analysis" className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: 14 }}>
-          <span className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}><span style={{ color: "var(--mint)" }}>03</span> · AI chart analysis</span>
+        <Widget id="chart.analysis.phone" testId="desk-analysis" num="03" title="AI chart analysis" headPad="12px 14px" bodyStyle={{ gap: 10, padding: 14 }}>
           <div data-testid="desk-chart-pills" className="flex flex-wrap" style={{ gap: 6 }}>
             {setup ? (
               <>
@@ -1475,12 +1474,11 @@ export default function ChartTab() {
           ) : (
             <NotOnScanner symbol={symbol} scanError={scan.isError} date={date} />
           )}
-        </section>
+        </Widget>
 
-        <section className="cp-card flex min-w-0 flex-col" style={{ gap: 10, padding: "12px 6px" }}>
-          <span className="cp-eyebrow" style={{ padding: "0 8px" }}>Historical performance · similar setups</span>
+        <Widget id="chart.history.phone" title="Historical performance · similar setups" headPad="12px 14px" bodyStyle={{ gap: 10, padding: "12px 6px" }}>
           <HistoryTiles setup={setup} count={3} phone />
-        </section>
+        </Widget>
 
         <TradeScenarioCard symbol={symbol} setup={setup} />
 
@@ -1502,10 +1500,16 @@ export default function ChartTab() {
       style={{ gridTemplateColumns: sideBySide ? "minmax(0,7fr) minmax(0,5fr)" : "minmax(0,1fr)", gap: 16, alignItems: "start" }}
     >
       <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
-        <section ref={setCard} data-testid="desk-chart-card" className="cp-card flex min-w-0 flex-col">
-          <CardHead num="03" title="AI Chart intelligence" padding="9px 12px 9px 18px" testId="desk-chart-title">
-            <ChartControls tf={tf} setTf={setTf} ov={ov} setOv={setOv} hasLevels={hasLevels} />
-          </CardHead>
+        <Widget
+          id="chart.card"
+          cardRef={setCard}
+          testId="desk-chart-card"
+          num="03"
+          title="AI Chart intelligence"
+          headPad="9px 12px 9px 18px"
+          headTestId="desk-chart-title"
+          actions={<ChartControls tf={tf} setTf={setTf} ov={ov} setOv={setOv} hasLevels={hasLevels} />}
+        >
           <HeadRow symbol={symbol} setup={setup} bars={bars} company={company} />
           <div className="flex flex-col" style={{ gap: 10, padding: "8px 18px 14px" }}>
             {body}
@@ -1536,7 +1540,7 @@ export default function ChartTab() {
           </div>
           <HistoryTiles setup={setup} count={4} />
           <div style={{ padding: "10px 18px 12px", borderTop: "1px solid var(--cp-line)", background: "var(--bg-0)", borderRadius: "0 0 14px 14px" }}>{trust}</div>
-        </section>
+        </Widget>
         <OpportunityDetail symbol={symbol} setup={setup} bars={bars} barsQ={barsQ} liveQ={liveQ} company={company} date={date} />
       </div>
       <RiskDesk symbol={symbol} setup={setup} bars={bars} />
