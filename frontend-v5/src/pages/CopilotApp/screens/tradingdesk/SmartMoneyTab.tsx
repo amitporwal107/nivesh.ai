@@ -28,12 +28,14 @@ import {
 import { closeLabel, useLiveOverlay } from "../../lib/useLiveQuotes";
 import { useDesk } from "./context";
 import { TrustLine } from "./trust";
+import OwnershipReactionPanel from "./OwnershipReactionPanel";
+import EvidenceValidationPanel from "./EvidenceValidationPanel";
 import {
   EVIDENCE_LABEL, EVIDENCE_LEGEND, EVIDENCE_NOTE, SECTOR_MEASURES, SM_DIRECTIONS, SM_FRESHNESS,
   SM_PERIODS, SM_UNIVERSES, type EvidenceClass, type FlowPoint, type ScannerFilters, type ScannerRow,
   type SectorMeasure, type SmDirection, type SmFreshness, type SmLane, type SmPeriod, type SmUniverse,
   FLOW_CAVEAT, amcConcentration, dataAgeDays, evidenceChain, flowRegime, ingestAheadOfData,
-  mfWindowNote, rollingNet, rowDirection, sectorGrossCr, sectorTotals, sectorValue, useSmAmc,
+  fiiTrust, mfWindowNote, rollingNet, rowDirection, sectorGrossCr, sectorTotals, sectorValue, useSmAmc,
   useSmartMoney, whatWouldWeaken, type FlowKpi, type RisingPoint,
 } from "./smart-money-data";
 
@@ -694,14 +696,31 @@ export default function SmartMoneyTab() {
     },
     {
       key: "fii", header: "FII / DII Δ", align: "right", num: true, width: "minmax(0,1fr)",
-      render: (r) => (r.fiiDeltaPp == null
-        ? <span style={{ color: "var(--cp-ink-4)" }} title="Not disclosed for this stock in both quarters">n/d</span>
-        : (
+      render: (r) => {
+        const trust = fiiTrust(r);
+        if (trust === "none") {
+          return <span style={{ color: "var(--cp-ink-4)" }} title="Not disclosed for this stock in both quarters">n/d</span>;
+        }
+        if (trust === "unusable") {
+          // The two sources disagree by as much as the change itself, so the change is not
+          // distinguishable from the disagreement. Printing it would be inventing a signal.
+          return (
+            <span style={{ color: "var(--amber)" }}
+                  title={`Two shareholding sources disagree by ${r.fiiSpreadPp} pp for this quarter — as much as the ${r.fiiDeltaPp} pp change itself. The figure is not usable.`}>
+              sources differ
+            </span>
+          );
+        }
+        return (
           <span className="flex flex-col" style={{ gap: 2, alignItems: "flex-end" }}>
-            <span>{r.fiiDeltaPp > 0 ? "+" : ""}{r.fiiDeltaPp} pp</span>
+            <span style={{ color: trust === "contested" ? "var(--amber)" : undefined }}
+                  title={trust === "contested" ? `Two sources disagree by ${r.fiiSpreadPp} pp for this quarter` : undefined}>
+              {r.fiiDeltaPp != null && r.fiiDeltaPp > 0 ? "+" : ""}{r.fiiDeltaPp} pp{trust === "contested" ? " ±" : ""}
+            </span>
             <span style={{ fontSize: 10.5, color: "var(--cp-ink-4)" }}>DII {r.diiDeltaPp == null ? "—" : `${r.diiDeltaPp > 0 ? "+" : ""}${r.diiDeltaPp}`}</span>
           </span>
-        )),
+        );
+      },
     },
     {
       key: "deals", header: "Bulk / block net", align: "right", num: true, width: "minmax(0,1.1fr)",
@@ -986,10 +1005,22 @@ export default function SmartMoneyTab() {
             having no deals. A deal leg carries no counterparty classification, so it may be a market maker rather
             than a long-term buyer, and matched same-day legs are already netted out as transfers.
             {scanner?.quarters?.current && <> FII columns compare {fmtDate(scanner.quarters.previous)} with {fmtDate(scanner.quarters.current)} and are disclosed for only a minority of names.</>}
+            {" "}Where two shareholding sources disagree, the figure is marked “±” and, where the disagreement is as
+            large as the change itself, replaced by “sources differ” rather than printed as a measurement.
           </Footnote>
         </div>
         <TrustLine source={scanner?.source ?? "nidp.mf_holdings_deltas"} asOf={fmtDate(scanner?.asOf)} mode="historical" maker="reported" confidence={`n ${scanner?.total ?? 0}`} testId="desk-smart-money-scanner-trust" />
       </Section>
+
+      {/* Retrospective companion to the scanner above: the disclosed QUARTERLY ownership change set
+          against that same quarter's tape. It rests only on nidp.shareholding_pattern and
+          nidp.prices_eod_adjusted, reads no MF holdings, and owns its own loading/error state. */}
+      <OwnershipReactionPanel />
+
+      {/* Evidence & Validation: the one finished, pre-registered post-disclosure forward-returns
+          study behind this desk's smart-money evidence. INCONCLUSIVE, research-only, no score — it
+          owns its own loading/error state. */}
+      <EvidenceValidationPanel />
     </>
   );
 

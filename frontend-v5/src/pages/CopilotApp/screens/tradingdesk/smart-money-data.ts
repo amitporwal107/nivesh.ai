@@ -417,9 +417,24 @@ export interface ScannerRow {
   netSharesDelta: number | null;
   schemesUp: number | null;
   schemesDn: number | null;
+  /** Houses whose NET holding rose — not houses with any scheme that rose. */
   amcsUp: number | null;
+  amcsDn: number | null;
+  amcsHolding: number | null;
+  /**
+   * The largest single house's contribution as a share of the net move. Over 100 means one house
+   * more than accounts for it and the others are net sellers — a headline percentage that looks
+   * broad-based but is not. GLENMARK: +36.39% overall, 121% of it from one house.
+   */
+  topAmcPctOfMove: number | null;
   fiiDeltaPp: number | null;
   diiDeltaPp: number | null;
+  /**
+   * How far the two shareholding sources disagree on this stock's FII percentage, in percentage
+   * points. Null when only one source carries a figure. When this is comparable to the delta, the
+   * delta is not distinguishable from source disagreement — see `fiiTrust`.
+   */
+  fiiSpreadPp: number | null;
   dealNetQty: number | null;
   dealGrossInr: number | null;
   /** Disclosed legs in the window, and how many of them paired off as transfers. */
@@ -504,6 +519,21 @@ const asClass = (v: unknown): EvidenceClass => {
   return (CLASSES as string[]).includes(t ?? "") ? (t as EvidenceClass) : "none";
 };
 
+/**
+ * Whether an FII delta can be trusted, given how far its two sources disagree.
+ *
+ * Measured on 2026-09-30: 103 of 129 dual-sourced names agree exactly and 21 are within 0.5pp,
+ * but ICICIBANK's sources differ by 15.76pp against a reported delta of 16.65pp — so almost the
+ * whole "signal" is really which source was ingested last. A figure whose disagreement is as large
+ * as itself is not a measurement, and the screen must not print it as one.
+ */
+export function fiiTrust(r: ScannerRow): "ok" | "contested" | "unusable" | "none" {
+  if (r.fiiDeltaPp == null) return "none";
+  const spread = r.fiiSpreadPp;
+  if (spread == null || spread < 0.5) return "ok";
+  return spread >= Math.abs(r.fiiDeltaPp) ? "unusable" : "contested";
+}
+
 /** The direction a row's disclosed holdings moved. Proxy-only rows have no direction. */
 export function rowDirection(r: ScannerRow): "accumulation" | "distribution" | "proxy" | null {
   if (r.evidence === "C") return "proxy";
@@ -518,11 +548,13 @@ export function rowDirection(r: ScannerRow): "accumulation" | "distribution" | "
 export function evidenceChain(r: ScannerRow): Array<{ cls: Exclude<EvidenceClass, "none">; headline: string; source: string }> {
   const out: Array<{ cls: Exclude<EvidenceClass, "none">; headline: string; source: string }> = [];
   if (r.netSharesDelta != null && r.netSharesDelta !== 0) {
-    const dir = r.netSharesDelta > 0 ? "raised" : "cut";
     const pct = r.mfSharesPctChg == null ? "" : ` (${r.mfSharesPctChg > 0 ? "+" : ""}${r.mfSharesPctChg}%)`;
+    // "N AMCs raised" used to count houses with ANY scheme raising, which overstated agreement
+    // badly: GLENMARK read "9 AMCs raised" when on net 3 raised and 6 cut. Count the net.
+    const up = r.amcsUp ?? 0, dn = r.amcsDn ?? 0, held = r.amcsHolding ?? 0;
     out.push({
       cls: "A",
-      headline: `${r.amcsUp ?? 0} AMC${(r.amcsUp ?? 0) === 1 ? "" : "s"} ${dir} the holding across ${r.schemesUp ?? 0} scheme${(r.schemesUp ?? 0) === 1 ? "" : "s"}${pct}`,
+      headline: `${up} of ${held} fund house${held === 1 ? "" : "s"} raised on net and ${dn} cut, across ${r.schemesUp ?? 0} scheme${(r.schemesUp ?? 0) === 1 ? "" : "s"} up and ${r.schemesDn ?? 0} down${pct}`,
       source: `Disclosed monthly portfolios${r.latestReportingDate ? `, as of ${r.latestReportingDate}` : ""}`,
     });
   }
@@ -552,6 +584,17 @@ export function evidenceChain(r: ScannerRow): Array<{ cls: Exclude<EvidenceClass
  */
 export function whatWouldWeaken(r: ScannerRow, mf: MfWindow | null): string[] {
   const out: string[] = [];
+  // A headline percentage can be one house. GLENMARK: +36.39% overall, 121% of it from quant
+  // alone, with the other ten houses net sellers.
+  const top = r.topAmcPctOfMove;
+  if (top != null && top >= 100) {
+    out.push(`A single fund house accounts for ${top}% of the net change — more than all of it, so the other ${Math.max(0, (r.amcsHolding ?? 1) - 1)} houses are net sellers. The headline percentage is one manager's decision, not a consensus.`);
+  } else if (top != null && top >= 60) {
+    out.push(`A single fund house accounts for ${top}% of the net change, so the headline percentage rests mostly on one manager rather than on breadth.`);
+  }
+  if ((r.amcsDn ?? 0) > (r.amcsUp ?? 0) && (r.netSharesDelta ?? 0) > 0) {
+    out.push(`More houses cut than raised (${r.amcsDn} against ${r.amcsUp}), even though the net is positive.`);
+  }
   if (r.singleAmcSignal) out.push("The whole disclosed signal rests on a single fund house, so one manager's decision explains it.");
   if (r.freshnessStatus && r.freshnessStatus !== "fresh") out.push(`The underlying disclosure is ${r.freshnessStatus}, so the position may already have changed.`);
   if (!r.dealsChecked) out.push("This stock was never queried for bulk or block deals, so the deal column is unknown rather than empty.");
@@ -587,7 +630,9 @@ async function fetchScanner(p: {
       mfSharesPctChg: num(r.mf_shares_pct_chg),
       netSharesDelta: num(r.net_shares_delta),
       schemesUp: num(r.schemes_up), schemesDn: num(r.schemes_dn), amcsUp: num(r.amcs_up),
+      amcsDn: num(r.amcs_dn), amcsHolding: num(r.amcs_holding), topAmcPctOfMove: num(r.top_amc_pct_of_move),
       fiiDeltaPp: num(r.fii_delta_pp), diiDeltaPp: num(r.dii_delta_pp),
+      fiiSpreadPp: num(r.fii_spread_pp),
       dealNetQty: num(r.deal_net_qty), dealGrossInr: num(r.deal_gross_inr),
       dealLegs: num(r.deal_legs), matchedLegs: num(r.matched_legs),
       dealDays: num(r.deal_days), transferDays: num(r.transfer_days),
