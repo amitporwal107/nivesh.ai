@@ -1,0 +1,95 @@
+{
+  "study_id": "NIDP-SHP-FWD-001",
+  "title": "Post-disclosure forward returns by institutional ownership change",
+  "registered_on": "2026-10-23",
+  "stage": "exploratory",
+  "status": "RESEARCH ARTIFACT - NOT A PRODUCT FEATURE. Nothing here may be promoted to any score.",
+  "question": "In the N trading sessions AFTER a quarterly shareholding pattern becomes public, do stocks whose institutional ownership rose outperform those whose institutional ownership fell?",
+
+  "availability_timestamp": {
+    "decision": "rule_based_statutory_deadline_plus_margin",
+    "rule": "availability_date = period_end + 25 calendar days; entry = adj_open of the first trading session STRICTLY AFTER availability_date",
+    "why_not_broadcast_at": "nidp.shareholding_pattern.broadcast_at is a genuine NSE filing-broadcast timestamp (corroborated: the XBRL filename embeds the same time) but it is populated for period_end = 2026-09-30 ONLY. That quarter has zero forward trading sessions as of 2026-10-23, so it cannot be studied.",
+    "why_not_ingested_at": "For every earlier quarter ingested_at falls in 2026-10-12..2026-10-23 - an October-2026 backfill. It is a valid UPPER bound on availability (never earlier than real publication) but is useless as a study timestamp: entry would land after the last available price session for every historical quarter, leaving zero forward windows.",
+    "why_not_period_end": "period_end is the measurement date, not the availability date. Using it is the exact look-ahead bias this study exists to avoid.",
+    "statutory_basis": "SEBI (LODR) Regulations 2015, Reg 31(1)(b): the shareholding pattern must be filed with the stock exchange within 21 days of the end of each quarter.",
+    "empirical_validation": "Measured on the one quarter with observed timestamps (2026-09-30, 1,740 rows carrying fii_pct): median broadcast lag 16 days, 99.54% within 21 days, maximum observed 22 days. +25 days clears both the statutory deadline and the observed maximum.",
+    "next_session_rule_basis": "969 of 1,996 observed broadcasts (48.5%) are timestamped after the 15:30 IST close, so the filing day itself is not tradeable on the filing; entry is the NEXT session's open.",
+    "residual_risk_declared": "For all 10 usable quarters the availability date is DERIVED, not OBSERVED. A filer that was late beyond 25 days would be entered before its disclosure was public. Late filers cannot be identified for historical quarters from any table in this warehouse. This is the study's principal unresolved look-ahead exposure and must be reported as such."
+  },
+
+  "universe": {
+    "source_table": "nidp.shareholding_pattern",
+    "dedupe_rule": "DISTINCT ON (symbol, period_end) ... ORDER BY symbol, period_end, (fii_pct IS NOT NULL) DESC, ingested_at DESC",
+    "formation_quarters": ["2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31", "2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"],
+    "prior_quarter_required": true,
+    "excluded_quarters": {
+      "2023-12-31": "only 61 names have a prior quarter",
+      "2026-09-30": "no trading session exists after its availability date; 0 forward sessions"
+    }
+  },
+
+  "grouping": {
+    "primary_variable": "delta_inst = (fii_pct + dii_pct) at period_end minus (fii_pct + dii_pct) at the prior quarter end, in percentage points; both components required non-null in both quarters",
+    "bands_pp": {"increased": ">= +0.50", "reduced": "<= -0.50", "flat": "strictly between"},
+    "band_justification": "0.50 pp of a company's equity is a materially large single-quarter institutional swing; smaller moves sit inside rounding, restatement and source noise. Chosen a priori as a round number before any outcome was computed.",
+    "robustness_variables": [
+      "delta_fii = fii_pct(Q) - fii_pct(Q-1) alone, same bands (larger n, DII not required)",
+      "within-quarter terciles of delta_inst (threshold-free, balanced groups)"
+    ]
+  },
+
+  "returns": {
+    "price_source": "nidp.prices_eod_adjusted.adj_open",
+    "calendar_source": "nidp.prices_eod with series IN ('EQ','BE')",
+    "execution": "open-to-open",
+    "formula": "r_h = adj_open(entry_sn + h) / adj_open(entry_sn) - 1",
+    "horizons_sessions": [5, 20, 60],
+    "primary_horizon": 20,
+    "total_return": false,
+    "total_return_note": "Price return only; dividends are not added back. Affects both legs of the spread, so it largely cancels in the primary estimand but not in the reported group levels."
+  },
+
+  "estimator": {
+    "primary_estimand": "SPREAD_20 = mean r20 of the 'increased' group minus mean r20 of the 'reduced' group, equal-weighted within group, computed separately for each formation quarter and then averaged across quarters",
+    "market_neutrality": "Both legs occupy the same quarter and the same window, so the spread is market-neutral by construction and needs no index.",
+    "benchmark_decision": "No external benchmark is used. nidp.index_eod 'Nifty 500' is a PRICE index, not the TRI, AND it covers only 63.4% of 2024 sessions and 25.4% of 2025 sessions (largest gap 375 days), so an index-relative return is not computable across most of the study window. The quarter's all-eligible cross-sectional mean return is reported instead as the in-sample reference.",
+    "sector_relative": "Not available: nidp.index_constituents holds only 4 snapshots, all dated after every formation date.",
+    "uncertainty": "Date-block bootstrap: 5,000 resamples drawn with replacement over whole formation quarters (the dependence unit), 95% percentile interval, seed 20261023.",
+    "cost_schedule_pct_round_trip_per_leg": 0.4937,
+    "cost_note": "Inherited from NIDP-SM-VALIDATION-001. Two legs, so the spread carries 0.9874 pp of cost. GROSS is the primary figure because this study measures information content, not a tradeable strategy; the net figure is reported alongside."
+  },
+
+  "decision_rule": {
+    "hurdle_pp": 1.0,
+    "review_floor_independent_blocks": 12,
+    "POSITIVE": "95% CI lower bound of SPREAD_20 > +1.00 pp AND at least 12 independent formation quarters",
+    "NEGATIVE": "95% CI upper bound of SPREAD_20 < 0",
+    "INCONCLUSIVE": "anything else",
+    "declared_before_results": "Only 10 formation quarters can be assembled. That is below the review floor of 12 inherited from NIDP-SM-VALIDATION-001, so a POSITIVE verdict is UNREACHABLE by construction. This study can return only NEGATIVE or INCONCLUSIVE. Stated here, before any result was computed, so the sample limitation cannot later be presented as a finding."
+  },
+
+  "screens": {
+    "S1": "Trading calendar taken from nidp.prices_eod with series IN ('EQ','BE') (55 series values share symbol+date).",
+    "S2": "Require adj_open > 0 at the entry session and at every exit session used for a horizon.",
+    "S3": "Point-in-time liquidity: median nidp.prices_eod.turnover over the 20 sessions ending the session BEFORE entry >= 10,000,000 INR (1 crore). Measured strictly pre-entry so the screen itself carries no look-ahead. Where fewer than 20 pre-entry sessions exist the median is taken over those available, provided at least 10 exist; fewer than 10 is an exclusion with reason 'insufficient_liquidity_history'. This clause was added before any outcome was computed: the 2024-03-31 quarter has only 17 pre-entry sessions because the price calendar begins 2024-04-01.",
+    "S4": "Minimum entry adj_open >= 20 INR.",
+    "S5": "Corporate-action integrity, fail-loud: exclude any (symbol, quarter) whose 60-session window contains a single-session adj_open fall of 35% or more while cumulative_adj_factor = 1.0 (the unapplied-adjustment signature). Count and report every exclusion.",
+    "S6": "Contested source: exclude (symbol, period_end) where two sources' fii_pct differ by more than 2.00 pp. Count and report."
+  },
+
+  "declared_biases": {
+    "B1_survivorship": "177 of 204 panel symbols appear in all 11 quarters. The universe was assembled by an October-2026 backfill of screener.in, so names delisted or dropped from coverage before then are absent. The cross-section is a fixed, currently-covered ~190-name set, NOT point-in-time index membership. Historical membership cannot be reconstructed (index_constituents has 4 snapshots, all later than every formation date).",
+    "B2_restatement": "screener.in serves each quarter's figure as it stands today. If a company restated a prior quarter, the restated value is what we see, not what was disclosed at the time. Unverifiable from this warehouse.",
+    "B3_single_source": "100% of the usable panel's fii_pct comes from source 'screener_in'. NSE_SHP carries institutional columns for 2026-09-30 only, so no cross-source validation is possible on ANY study quarter.",
+    "B4_price_return": "See returns.total_return_note.",
+    "B5_derived_availability": "See availability_timestamp.residual_risk_declared.",
+    "B6_incomplete_adjustment": "nidp.prices_eod_adjusted is known to be incomplete. Screen S5 is the mitigation and its firing count is reported rather than assumed to be zero."
+  },
+
+  "prohibitions": [
+    "No result from this study may be promoted to nidp.v3_stock_scores_daily or any other score.",
+    "No band, horizon, screen or hurdle may be changed after a result has been seen. The hash guard exists to make such a change visible.",
+    "No product code may be modified by this study."
+  ]
+}
