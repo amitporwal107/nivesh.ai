@@ -341,6 +341,11 @@ def _index_block(body: Dict[str, Any]) -> List[Dict[str, Any]]:
     return out
 
 
+def build_all(body: Dict[str, Any], pools: Dict[str, Dict[str, Any]], features: Dict[str, List[Dict[str, Any]]], rules: Dict[str, Any] = RULES) -> Dict[str, List[Dict[str, Any]]]:
+    """Every pool candidate of every category, ranked or not, with all its scores: the research code ranks and evaluates them itself."""
+    return {c: [_candidate(c, row, _latest(features, str(row.get("symbol") or "")), rules) for row in pools[c]["pool"]] for c in CATEGORIES}
+
+
 def assemble(body: Dict[str, Any], pools: Dict[str, Dict[str, Any]], features: Dict[str, List[Dict[str, Any]]], per: int = PER_DEFAULT,
              rules: Dict[str, Any] = RULES) -> Dict[str, Any]:
     per = max(1, min(PER_MAX, int(per)))
