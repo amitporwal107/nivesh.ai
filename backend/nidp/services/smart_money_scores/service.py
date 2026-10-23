@@ -207,10 +207,12 @@ scored AS (
                 + CASE WHEN n.magnitude_d   IS NULL THEN 0 ELSE {_WEIGHTS['magnitude']}   END
                 + CASE WHEN n.conviction_d  IS NULL THEN 0 ELSE {_WEIGHTS['conviction']}  END), 0)
            AS dist_score,
-           -- Coverage = share of the five sub-signals that were populated.
+           -- Share of the five sub-signals that were populated. This is NOT holdings coverage:
+           -- it is 100.00 on every row because all five are always present, which is why
+           -- migration 183 moved it to its own column and gave coverage_pct a measured value.
            ( (n.breadth_s     IS NOT NULL)::int + (n.amc_s        IS NOT NULL)::int
            + (n.persistence_s IS NOT NULL)::int + (n.magnitude_s  IS NOT NULL)::int
-           + (n.conviction_s  IS NOT NULL)::int )::numeric / 5 * 100 AS coverage_pct
+           + (n.conviction_s  IS NOT NULL)::int )::numeric / 5 * 100 AS subsignal_coverage_pct
       FROM norm n
 )
 INSERT INTO nidp.smart_money_scores_daily (
@@ -218,7 +220,8 @@ INSERT INTO nidp.smart_money_scores_daily (
     schemes_increasing, schemes_reducing, amcs_increasing, schemes_new, schemes_exited,
     net_shares_delta, net_shares_pct, weight_delta_pp, months_observed, months_accumulating,
     single_amc_signal, components, proxy_delivery_pct_avg_20, proxy_vol_z20,
-    data_confidence, coverage_pct, latest_reporting_date, freshness_status, lookback_months,
+    data_confidence, coverage_pct, coverage_basis, subsignal_coverage_pct,
+    latest_reporting_date, freshness_status, lookback_months,
     source_references, config_version, point_in_time, computed_at)
 SELECT
     $1::date,
@@ -253,7 +256,12 @@ SELECT
     CASE WHEN s.amcs_increasing >= 3 AND s.months_observed >= 3 THEN 'high'
          WHEN s.amcs_increasing >= 2 AND s.months_observed >= 2 THEN 'medium'
          ELSE 'low' END,
-    round(s.coverage_pct, 2),
+    -- MEASURED holdings coverage: the share of the mutual-fund holding this stock's own
+    -- shareholding filing discloses that our indexed AMCs actually account for (migration 183).
+    -- NULL where the filing does not disclose both mf_pct and total_shares — never 0, never 100.
+    mc.coverage_pct,
+    coalesce(mc.coverage_basis, 'not_measured'),
+    round(s.subsignal_coverage_pct, 2),
     s.latest_reporting_date,
     -- Monthly cadence: a disclosure is due ~10 days after month end, so <70d is fresh and
     -- <100d is ageing. Judged against its own cadence, not against a daily feed's.
@@ -268,6 +276,10 @@ SELECT
 FROM scored s
 LEFT JOIN nidp.stock_features_daily f
        ON f.symbol = s.symbol AND f.as_of_date = $1::date
+-- Joined on ISIN, not symbol: the coverage view is ISIN-keyed and resolves the symbol itself
+-- at the reporting month's last session, which survives a mid-series rename.
+LEFT JOIN nidp.v_mf_stock_coverage mc
+       ON mc.security_isin = s.security_isin AND mc.as_of_month = s.latest_reporting_date
 ON CONFLICT (as_of_date, symbol, point_in_time) DO UPDATE SET
     security_isin        = EXCLUDED.security_isin,
     accumulation_score   = EXCLUDED.accumulation_score,
@@ -289,6 +301,8 @@ ON CONFLICT (as_of_date, symbol, point_in_time) DO UPDATE SET
     proxy_vol_z20        = EXCLUDED.proxy_vol_z20,
     data_confidence      = EXCLUDED.data_confidence,
     coverage_pct         = EXCLUDED.coverage_pct,
+    coverage_basis       = EXCLUDED.coverage_basis,
+    subsignal_coverage_pct = EXCLUDED.subsignal_coverage_pct,
     latest_reporting_date = EXCLUDED.latest_reporting_date,
     freshness_status     = EXCLUDED.freshness_status,
     lookback_months      = EXCLUDED.lookback_months,
