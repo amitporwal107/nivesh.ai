@@ -37,7 +37,7 @@ import { fmtDay, fmtPrice, fmtSigned } from "../trading/parts";
 import { AddToList } from "../workspace/PersonalLists";
 import { CandleChart, CandleLegend, PLAIN_CHART_WORDS, TRADER_CHART_WORDS, type ChartEvent } from "./CandleChart";
 import {
-  INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, fullChartHref, scanDateLabel, setupLabel, useDailyBars, useIntradayAvailability, useIntradayBars,
+  INTERVALS, INTRADAY_REASON, RECORD_HORIZON, STATE_LABEL, alignSeries, withLiveBar, fullChartHref, scanDateLabel, setupLabel, useDailyBars, useIntradayAvailability, useIntradayBars,
   deskLevels, useDeskLevels, useLiveIndicators, useLivePatterns, useSetupRecord, useStockOdds,
   type DailyBars, type IndicatorValues, type LiveIndicators, type LivePattern, type LivePatterns, type LiveRead, type RecordRow, type SetupRecord,
 } from "./chart-data";
@@ -221,7 +221,11 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
 }) {
   const { persona } = useDesk();
   const words = persona === "investor" ? PLAIN_CHART_WORDS : TRADER_CHART_WORDS;
-  const bars = state.data?.kind === "ok" ? state.data.bars : null;
+  const rawBars = state.data?.kind === "ok" ? state.data.bars : null;
+  // Kite's session as the last candle: the forming bar while the feed is live, the final snapshot's bar after the close until the adjusted series has that day.
+  const liveBar = useLiveOverlay(symbol, rawBars?.length ? rawBars[rawBars.length - 1].day.slice(0, 10) : null);
+  const bars = useMemo(() => withLiveBar(rawBars, liveBar), [rawBars, liveBar]);
+  const liveBarKind = liveBar && bars !== rawBars ? liveBar.kind : null;      // withLiveBar hands back the same array when it changed nothing
   const hasLevels = !!setup && (setup.entry != null || setup.stop != null || setup.target != null);
   const n = bars ? Math.min(SESSIONS[tf], bars.length) : 0;
   const shown = useMemo(() => (bars ? bars.slice(bars.length - n) : null), [bars, n]);
@@ -277,7 +281,8 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
       />
       <CandleLegend ema={ov.ema && !!lines} ema200={ov.ema && !!lines && lines.ema200.some((v) => v != null)} vwap={ov.vwap && !!lines} levels={levelsOn} events={inView.length} words={words} span={tf} />
       <span data-testid="desk-chart-source" className="cp-mono-note" style={{ lineHeight: 1.6, fontSize: 9.5 }}>
-        NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · end of day · last session {fmtDay(bars[bars.length - 1].day)}
+        NSE daily bars, split and bonus adjusted{ok?.provider ? ` (${ok.provider})` : ""} · {liveBarKind ? "adjusted end of day to" : "end of day · last session"} {fmtDay(rawBars?.[rawBars.length - 1]?.day ?? bars[bars.length - 1].day)}
+        {liveBarKind ? ` · last bar ${fmtDay(bars[bars.length - 1].day)} from Kite (${liveBarKind === "live" ? "live, still forming" : "the close"}), not yet in the adjusted series; the lines and indicators stop at the adjusted session` : ""}
         {n < SESSIONS[tf] ? ` · only ${n} sessions on record, all shown` : ""}
         {ok?.partial ? " · the data platform dropped some incomplete sessions from this series" : ""}
         {live?.adjustment_break
