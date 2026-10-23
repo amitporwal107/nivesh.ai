@@ -60,6 +60,7 @@ import { isForbidden, useBrokerAccounts, usePaperEvaluation } from "../trading/q
 import { useDesk } from "./context";
 import { BUCKET_LABEL, SETUP_BUCKETS, type SetupBucket } from "./desk-data";
 import { heldDays, openedToday, tradeR, tradeReturnPct, usePaperTrades, type PaperTrade } from "./desk-trading";
+import { ForwardTestPanel } from "./FnoForwardTest";
 import { AlertsBlock, PaperTradesBlock } from "./PaperDesk";
 import { PortfolioImport } from "./PortfolioImport";
 import {
@@ -1316,6 +1317,7 @@ function PaperLists() {
   const q = usePaperTrades();
   return (
     <ModuleCard title="Your paper trades and price alerts" pill={<span className="cp-pill" data-tone="amber">Simulated · no orders</span>} testId="desk-portfolio-paper">
+      <ForwardTestPanel />
       <PaperTradesBlock />
       <AlertsBlock />
       <TrustLine

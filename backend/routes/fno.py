@@ -80,6 +80,7 @@ from services import option_pricing
 from services.copilot_tools import daas_client
 from services.fno_candidates import engine as fno_engine
 from services.fno_candidates import rules as fno_rules
+from services import fno_forward
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fno", tags=["fno"])
@@ -629,6 +630,52 @@ async def futures(
     spot = find_spot(rows)
     contracts = shape_futures(rows, spot)
     return {"symbol": sym, "as_of": as_of, "spot": spot, "lot_size": find_lot_size(rows), "futures": contracts, "count": len(contracts)}
+
+
+_FORWARD_CACHE: Dict[str, Any] = {"ts": 0.0, "key": None, "bars": None}
+_FORWARD_TTL = 1800.0
+
+
+async def _forward_bars(symbols: List[str], start: str, end: str) -> Dict[str, List[Dict[str, Any]]]:
+    """Adjusted bars for the universe, read through the data platform in chunks and kept for half an hour."""
+    import time
+    key = (len(symbols), start, end)
+    if _FORWARD_CACHE["bars"] is not None and _FORWARD_CACHE["key"] == key and time.time() - _FORWARD_CACHE["ts"] < _FORWARD_TTL:
+        return _FORWARD_CACHE["bars"]
+    out: Dict[str, List[Dict[str, Any]]] = {}
+    for i in range(0, len(symbols), 250):
+        got = await daas_client.get_adjusted_prices_bulk(symbols[i:i + 250], start=start, end=end, timeout=60.0)
+        out.update({str(k).upper(): v for k, v in (got or {}).items()})
+    _FORWARD_CACHE.update({"ts": time.time(), "key": key, "bars": out})
+    return out
+
+
+@router.get("/forward-test")
+async def forward_test(request: Request) -> Dict[str, Any]:
+    """The forward test of near-month short build-up (services/fno_forward): how many sessions have been RECORDED, how many signals, how many are judged (5 sessions on), and, only once 30
+    sessions are judged, the pooled result net of the assumed cost. Signals are recorded when a session's data is in (scripts/record_fno_forward.py) and never reconstructed. Read only."""
+    await get_current_user(request)
+    from deps import db
+    base = {"version": fno_forward.VERSION, "hypothesis": fno_forward.HYPOTHESIS, "horizon_sessions": fno_forward.HORIZON, "cost_pct": fno_forward.COST_PCT,
+            "min_sessions": fno_forward.MIN_SESSIONS, "settings_recorded": list(fno_forward.SETTINGS), "read_only": True,
+            "past_result": "Inconclusive in the one-year study (permutation p 0.02 for the production floors, 0.06 for the first frozen setting; 50 pooled sessions); not validated.",
+            "not_recorded": "The five frozen volume-floor settings are not recorded: they need 20 sessions of the contract's own volume at signal time."}
+    try:
+        docs = [d async for d in db[fno_forward.COLLECTION].find({}, {"_id": 0}).sort("as_of", 1)]
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fno forward test: the records could not be read (%s)", type(e).__name__)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if not docs:
+        return {**base, "started": False, "recorded_sessions": 0, "last_recorded": None, "settings": {}}
+    symbols = sorted({s for d in docs for s in (d.get("universe_symbols") or [])})
+    start = (date.fromisoformat(docs[0]["as_of"]) - timedelta(days=5)).isoformat()
+    try:
+        bars = await _forward_bars(symbols, start, date.today().isoformat())
+    except Exception as e:  # noqa: BLE001 — the counts are still true; the judgement needs prices
+        logger.warning("fno forward test: prices unavailable (%s)", type(e).__name__)
+        bars = {}
+    ev = fno_forward.evaluate(docs, bars)
+    return {**base, "started": True, "recorded_sessions": len(docs), "last_recorded": docs[-1]["as_of"], "prices_available": bool(bars), "settings": ev["settings"]}
 
 
 POSITIONING_DAYS_BACK = 16          # weekdays looked back over to find N trading sessions (holidays are skipped, not filled)
