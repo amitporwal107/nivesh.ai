@@ -1,0 +1,39 @@
+# Chartink scans Nivesh compares itself against. The query text is copied verbatim from the public scan page
+# (the "atlas_query" field), never re-typed from a screenshot. Read-only reference: nothing here is executed by the app yet.
+scans:
+  - id: oi-increase-buy-sell-with-volume
+    name: "OPEN INTEREST INCREASE (BUY + SELL) WITH VOLUME"
+    author: "Rishi Asthana"
+    url: "https://chartink.com/screener/copy-copy-open-interest-with-increase-price-and-decrease-price-54"
+    segment: futures                  # the {33489} marker in the query; the 172 results on 2026-10-23 were all F&O underlyings
+    captured_on: "2026-10-23"
+    query: >-
+      ( {33489} ( latest close > 250 and [0] 5 minute volume > [=1] 10 minute volume * 0.10 and( {33489}
+      ( [0] 15 minute close > 1 day ago close * 0.50 or( {33489} ( [0] 15 minute close < 1 day ago close * 1.5
+      or latest supertrend( 7,03 ) < 50 or [0] 15 minute rsi( 14 ) > 70
+      or [0] 5 minute volume < [=1] 10 minute sma( volume,5 ) * 1 ) ) ) ) ) )
+    structure:
+      all_of:
+        - "latest close > 250"
+        - "[0] 5 minute volume > [=1] 10 minute volume * 0.10"
+        - any_of:
+            - "[0] 15 minute close > 1 day ago close * 0.50"
+            - any_of:
+                - "[0] 15 minute close < 1 day ago close * 1.5"
+                - "latest supertrend(7,3) < 50"
+                - "[0] 15 minute rsi(14) > 70"
+                - "[0] 5 minute volume < [=1] 10 minute sma(volume,5) * 1"
+    notes:
+      - "The two multipliers (0.50 and 1.5) make the OR-group true for almost every stock, so the scan is in effect close > 250 plus the 5-minute volume rule."
+      - "Meaning of '[=1] 10 minute' (previous completed 10-minute bar) is an assumption, not confirmed against Chartink."
+    comparison:
+      status: partial_not_validated
+      checked_at: "2026-10-23 close"
+      chartink_results: 172
+      ours: 175
+      in_both: 172
+      chartink_only: 0
+      ours_only: [TCS, HCLTECH, ICICILIFE]
+      caveat: >-
+        Kite candles ended at 15:14 (last 5-minute bar 15:10) while quotes showed trades until 15:57-15:59, so our side used
+        older bars than Chartink's. The three differences are unexplained. A forward comparison during a live session is needed.
