@@ -1,0 +1,48 @@
+{
+  "_comment": "Real nidp.scanx_mf_holdings rows (read-only SELECT, staging, 2026-10-23) for Sundaram Finance (NSE SUNDARMFIN, ISIN INE660A01013), the four AMCs found holding it on Trendlyne's public MF-holdings page but absent from nidp.v_mf_holdings_canonical (migration 182's 11 AMCs). Nothing here is synthetic. Validated against the real Trendlyne screenshot: 7 of 8 comparable monthly deltas matched to the share (see migration 184's header for the one exception, Navi, which is a separate missing-July-snapshot gap on BOTH sources, not a ScanX defect).",
+  "security_isin": "INE660A01013",
+  "security_name": "Sundaram Finance Ltd",
+  "amc_id_map": {
+    "AlphaGrep Mutual Fund": "alphagrep",
+    "JioBlackRock Mutual Fund": "jio_blackrock",
+    "Zerodha Mutual Fund": "zerodha",
+    "Navi Mutual Fund": "navi"
+  },
+  "rows": [
+    {"amc": "AlphaGrep Mutual Fund", "scheme_name": "AlphaGrep Flexi Cap Fund Direct-Growth", "as_of_month": "2026-08-01", "security_isin": "INE660A01013", "shares": 0, "weight_pct": 0.0, "asset_class": "Equity"},
+    {"amc": "AlphaGrep Mutual Fund", "scheme_name": "AlphaGrep Flexi Cap Fund Direct-Growth", "as_of_month": "2026-09-01", "security_isin": "INE660A01013", "shares": 892, "weight_pct": 0.4831, "asset_class": "Equity"},
+
+    {"amc": "JioBlackRock Mutual Fund", "scheme_name": "JioBlackRock Nifty Midcap 150 Index Fund Direct-Growth", "as_of_month": "2026-08-01", "security_isin": "INE660A01013", "shares": 4636, "weight_pct": 0.7329, "asset_class": "Equity"},
+    {"amc": "JioBlackRock Mutual Fund", "scheme_name": "JioBlackRock Nifty Midcap 150 Index Fund Direct-Growth", "as_of_month": "2026-09-01", "security_isin": "INE660A01013", "shares": 4530, "weight_pct": 0.7405, "asset_class": "Equity"},
+
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Life Cycle Fund 2031 Direct-Growth", "as_of_month": "2026-09-01", "security_isin": "INE660A01013", "shares": 43, "weight_pct": 0.1800, "asset_class": "Equity"},
+
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Life Cycle Fund 2036 Direct-Growth", "as_of_month": "2026-08-01", "security_isin": "INE660A01013", "shares": 102, "weight_pct": 0.2366, "asset_class": "Equity"},
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Life Cycle Fund 2036 Direct-Growth", "as_of_month": "2026-09-01", "security_isin": "INE660A01013", "shares": 114, "weight_pct": 0.2379, "asset_class": "Equity"},
+
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Life Cycle Fund 2041 Direct-Growth", "as_of_month": "2026-08-01", "security_isin": "INE660A01013", "shares": 117, "weight_pct": 0.2938, "asset_class": "Equity"},
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Life Cycle Fund 2041 Direct-Growth", "as_of_month": "2026-09-01", "security_isin": "INE660A01013", "shares": 116, "weight_pct": 0.2900, "asset_class": "Equity"},
+
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Nifty MidSmallcap400 50:50 Index Fund Direct-Growth", "as_of_month": "2026-08-01", "security_isin": "INE660A01013", "shares": 142, "weight_pct": 0.3787, "asset_class": "Equity"},
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Nifty MidSmallcap400 50:50 Index Fund Direct-Growth", "as_of_month": "2026-09-01", "security_isin": "INE660A01013", "shares": 160, "weight_pct": 0.3700, "asset_class": "Equity"},
+
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Nifty LargeMidcap250 Plus 8-13 Yr G-Sec 70:30 Index Fund Direct-Growth", "as_of_month": "2026-08-01", "security_isin": "INE660A01013", "shares": 80, "weight_pct": 0.2695, "asset_class": "Equity"},
+    {"amc": "Zerodha Mutual Fund", "scheme_name": "Zerodha Nifty LargeMidcap250 Plus 8-13 Yr G-Sec 70:30 Index Fund Direct-Growth", "as_of_month": "2026-09-01", "security_isin": "INE660A01013", "shares": 81, "weight_pct": 0.2500, "asset_class": "Equity"},
+
+    {"amc": "Navi Mutual Fund", "scheme_name": "Navi Nifty MidSmallcap 400 Index Fund Direct-Growth", "as_of_month": "2026-06-01", "security_isin": "INE660A01013", "shares": 130, "weight_pct": 0.5000, "asset_class": "Equity"},
+    {"amc": "Navi Mutual Fund", "scheme_name": "Navi Nifty MidSmallcap 400 Index Fund Direct-Growth", "as_of_month": "2026-08-01", "security_isin": "INE660A01013", "shares": 142, "weight_pct": 0.4800, "asset_class": "Equity"}
+  ],
+  "trendlyne_validated_deltas": {
+    "_comment": "Trendlyne's public MF-holdings page reading for SUNDARMFIN, 2026-10-23 manual check. Fresh Buy == no prior-month row (not a 0 -> N transition on this source) except AlphaGrep, which IS a disclosed 0 -> 892 (see migration 184 header on why the 0 is real, not an artefact).",
+    "AlphaGrep Flexi Cap Fund|2026-08|2026-09": {"delta": 892, "label": "Fresh Buy 892"},
+    "JioBlackRock Nifty Midcap 150 Index Fund|2026-08|2026-09": {"delta": -106, "label": "-106"},
+    "Zerodha Life Cycle Fund 2031|none|2026-09": {"delta": 43, "label": "Fresh Buy 43"},
+    "Zerodha Life Cycle Fund 2036|2026-08|2026-09": {"delta": 12, "label": "+12"},
+    "Zerodha Life Cycle Fund 2041|2026-08|2026-09": {"delta": -1, "label": "-1"},
+    "Zerodha Nifty MidSmallcap400 50:50 Index Fund|2026-08|2026-09": {"delta": 18, "label": "+18"},
+    "Zerodha Nifty LargeMidcap250 Plus 8-13 Yr G-Sec 70:30 Index Fund|2026-08|2026-09": {"delta": 1, "label": "+1"}
+  },
+  "known_gap_not_a_defect": {
+    "_comment": "Navi Nifty MidSmallcap 400 Index Fund has NO 2026-07 row (jumps 2026-06=130 straight to 2026-08=142), so the Trendlyne-reported 2026-07 delta of -7 cannot be reproduced from this source. The comparable UTI scheme on the same index is ALSO missing its 2026-07 snapshot in both nidp.scanx_mf_holdings and nidp.mf_holdings_monthly (verified) -- a pre-existing July collection gap shared across sources, not evidence against ScanX specifically. Not asserted as a passing delta in the test; asserted only that the month is genuinely absent, never backfilled with a guess."
+  }
+}

@@ -223,6 +223,133 @@ def expected_mf_shares(mf_pct: float, total_shares: float) -> float:
     return total_shares * mf_pct / 100.0
 
 
+# ── ScanX extension (migration 184) — Python mirror of nidp.v_mf_holdings_canonical_scanx /
+# nidp.v_mf_holdings_canonical_ext ─────────────────────────────────────────────────────────────
+# nidp.scanx_mf_holdings covers 51 AMCs (the 11 above plus ~40 ScanX-only), with its primary key
+# (scheme_slug, as_of_month, security_isin) already guaranteeing one row per actual fund — verified
+# against real staging data (migration 184 header) to have NO plan/option fan-out, so there is
+# nothing here for canonical_holdings()'s grouping/representative-quantity logic to do. What IS
+# shared, so the two layers cannot drift apart: base_scheme_name() (reused, not reinvented) and the
+# "never sum two sources for one AMC" rule (combine_extended_holdings() below).
+
+# The equity-like asset classes: real, positive cash share counts comparable to a company's own
+# mf_pct x total_shares filing. 'Arbitrage' is the long cash leg of an arbitrage scheme (the same
+# thing canonical_holdings() keeps as LEG_EQUITY for an AMC-file arbitrage fund) — verified ScanX
+# carries zero negative share counts anywhere, so there is no short leg to net out here. The other
+# 20 asset classes (Debenture, Bonds, REITs, InvITs, Preference Shares, ...) are debt/other
+# instruments and are excluded, the same way canonical_holdings() excludes derivative/no-quantity
+# rows: never summed, never silently dropped.
+SCANX_EQUITY_ASSET_CLASSES = frozenset({"Equity", "Arbitrage"})
+
+
+@dataclass
+class ScanxCanonicalHolding:
+    """One ScanX-sourced fund's holding of one security in one reporting month."""
+
+    amc_id: str
+    base_scheme: str
+    security_isin: str
+    as_of_month: str
+    shares: float
+    weight_pct: Optional[float] = None
+
+    @property
+    def canonical_fund_key(self) -> str:
+        return f"{self.amc_id}|{self.base_scheme}"
+
+
+def scanx_canonical_holdings(rows: Sequence[Mapping],
+                              amc_id_map: Mapping[str, str]) -> list:
+    """Collapse ScanX holdings rows to the canonical (amc_id, base_scheme, isin, month) grain.
+
+    `rows` are dicts with amc (ScanX's full AMC name), scheme_name, security_isin, as_of_month,
+    shares, weight_pct, asset_class — i.e. nidp.scanx_mf_holdings rows.
+    `amc_id_map` is ScanX full name -> amc_id, the Python copy of nidp.v_scanx_amc_id (a
+    warehouse-wide fact derived from nidp.mf_amc_master; cannot be derived from a few rows, same
+    reason canonical_holdings() takes source_amc as a parameter rather than deriving it locally).
+
+    Unlike canonical_holdings(), this does not need to GROUP rows: scanx_mf_holdings' primary key
+    (scheme_slug, as_of_month, security_isin) already guarantees one row per fund x ISIN x month
+    (verified against real staging data — see migration 184's header), so shares is passed
+    through, never summed. A disclosed 0 is kept as a real zero (migration 184's "zero row" note),
+    never dropped — only a genuinely missing `shares` (None) or an unmapped AMC/ISIN is excluded.
+    """
+    out = []
+    for r in rows:
+        if r.get("asset_class") not in SCANX_EQUITY_ASSET_CLASSES:
+            continue
+        isin = (r.get("security_isin") or "").strip()
+        if not isin:
+            continue
+        amc_id = amc_id_map.get(r.get("amc"))
+        if not amc_id:
+            continue
+        shares = r.get("shares")
+        if shares is None:
+            continue
+        out.append(ScanxCanonicalHolding(
+            amc_id=amc_id,
+            base_scheme=base_scheme_name(r.get("scheme_name") or ""),
+            security_isin=isin,
+            as_of_month=r["as_of_month"],
+            shares=float(shares),
+            weight_pct=r.get("weight_pct"),
+        ))
+    return out
+
+
+@dataclass
+class ExtendedStockHoldings:
+    """Per-stock totals over the EXTENDED panel (amc-file + ScanX-only AMCs), with the two
+    sources kept separate rather than blended into one count — the same safeguard migration
+    182/183 keep for duplication vs coverage."""
+
+    security_isin: str = ""
+    mf_shares: float = 0.0
+    naive_mf_shares: float = 0.0
+    funds: int = 0
+    funds_scanx: int = 0
+    amcs_amc_file: set = field(default_factory=set)
+    amcs_scanx: set = field(default_factory=set)
+
+    @property
+    def amcs(self) -> int:
+        return len(self.amcs_amc_file | self.amcs_scanx)
+
+
+def combine_extended_holdings(amc_file_groups: Sequence[CanonicalHolding],
+                               scanx_groups: Sequence[ScanxCanonicalHolding]) -> dict:
+    """Per-stock totals over nidp.v_mf_holdings_canonical (amc_file_groups) union ScanX-only AMCs
+    (scanx_groups) — the Python mirror of migration 184's nidp.v_mf_holdings_canonical_ext /
+    nidp.v_mf_stock_shares_monthly_ext.
+
+    ScanX rows whose amc_id is already present in amc_file_groups are EXCLUDED, never summed with
+    the amc-file figure for that AMC — the two sources are never blended into one ratio.
+    amcs_amc_file / amcs_scanx / funds_scanx stay separate so a caller can always tell which side
+    a figure came from, which is the point of reporting duplication and coverage separately.
+    """
+    out: dict = defaultdict(ExtendedStockHoldings)
+    amc_file_amcs = {g.amc_id for g in amc_file_groups}
+    for g in amc_file_groups:
+        acc = out[g.security_isin]
+        acc.security_isin = g.security_isin
+        acc.mf_shares += g.shares
+        acc.naive_mf_shares += g.naive_sum_quantity
+        acc.funds += 1
+        acc.amcs_amc_file.add(g.amc_id)
+    for h in scanx_groups:
+        if h.amc_id in amc_file_amcs:
+            continue
+        acc = out[h.security_isin]
+        acc.security_isin = h.security_isin
+        acc.mf_shares += h.shares
+        acc.naive_mf_shares += h.shares
+        acc.funds += 1
+        acc.funds_scanx += 1
+        acc.amcs_scanx.add(h.amc_id)
+    return dict(out)
+
+
 def reconcile(rows: Sequence[Mapping],
               expected: Mapping[str, Mapping],
               source_amc: Optional[Mapping] = None) -> list:
