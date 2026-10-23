@@ -339,7 +339,8 @@ function IndexTrust({ d }: { d: MarketsHome }) {
 const indexTone = (ix: MarketIndex | null): Tone => (!ix || ix.is_vix ? "ink" : signTone(ix.change_pct));
 
 function IndexTile({ name, ix, mode, stamp, eodDay }: { name: string; ix: MarketIndex | null; mode: IndexMode; stamp: string | null; eodDay?: string | null }) {
-  const live = useLiveOverlay(ix?.name ?? name, eodDay);          // the Kite feed, only while it is LIVE; otherwise the response's own figures
+  // The Kite feed: live while it ticks; after the close its final snapshot only for a day NEWER than the tile's own daily bar (not the page's breadth day).
+  const live = useLiveOverlay(ix?.name ?? name, ix?.as_of?.slice(0, 10) ?? eodDay);
   const pct = live ? live.changePct : ix?.change_pct ?? null;
   const tone = !ix || ix.is_vix ? "ink" : signTone(pct);
   const color = tone === "ink" ? "var(--cp-ink-2)" : TONE_COLOR[tone];
