@@ -23,13 +23,16 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--date", type=_parse_date, default=None,
                    help="Any date in the disclosure month. Default: previous month.")
+    p.add_argument("--amcs", default=None,
+                   help="Comma-separated adapter keys to restrict the run to. Default: all.")
     p.add_argument("--metrics", action="store_true")
     args = p.parse_args()
 
     setup_logging(service="mf_holdings")
     if args.metrics:
         start_metrics_server()
-    asyncio.run(run(args.date))
+    amcs = [a.strip() for a in args.amcs.split(",")] if args.amcs else None
+    asyncio.run(run(args.date, amcs))
 
 
 if __name__ == "__main__":

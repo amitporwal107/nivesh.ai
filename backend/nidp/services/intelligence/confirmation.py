@@ -3,7 +3,7 @@
 Checks whether the market is confirming a corporate event through five
 independent signal layers, all pulled from existing NIDP warehouse tables:
 
-  1. Volume spike      — prices_eod.volume vs 20-day average
+  1. Volume spike      — prices_eod_adjusted.adj_volume vs 20-day average
   2. Delivery spike    — prices_eod.deliv_pct vs 20-day average
   3. Futures OI        — fno_bhavcopy FUTSTK open_interest change
   4. Put-Call Ratio    — fno_bhavcopy CE/PE open_interest balance
@@ -11,9 +11,16 @@ independent signal layers, all pulled from existing NIDP warehouse tables:
   + Price breakout     — close vs 20D high, gap-up, range expansion
 
 Table references (correct schema):
-  nidp.prices_eod    — EOD OHLCV + delivery; key columns: volume, deliv_qty,
+  nidp.prices_eod    — RAW EOD OHLCV + delivery; key columns: volume, deliv_qty,
                        deliv_pct, close_price, high_price, low_price,
-                       open_price, prev_close; date col: as_of_date
+                       open_price, prev_close; date col: as_of_date.
+                       Unadjusted, so it is read here only for delivery and for
+                       the close published as the traded price.
+  nidp.prices_eod_adjusted
+                     — the same bars corrected for splits/bonuses (adj_open,
+                       adj_high, adj_low, adj_close, adj_volume). Every figure
+                       measured across sessions comes from here. No series
+                       column: it is EQ-only and unique per (symbol, as_of_date).
   nidp.fno_bhavcopy  — F&O bhavcopy; key cols: ticker_symbol, instrument_type,
                        option_type, open_interest, change_in_oi; date: as_of_date
   nidp.index_eod     — Index daily closes; pct_change already computed by NSE
@@ -98,49 +105,79 @@ async def get_confirmation(conn, symbol: str, trade_date: date) -> dict:
     }
 
     score = 0.0
+    # Direction of today's move, read by the OI classifier in block 2. Computed in block 1, where
+    # the adjusted bar is already in hand, and left None if block 1 could not fetch one.
+    price_up: Optional[bool] = None
 
-    # ── 1. Volume + Delivery + Price breakout (prices_eod) ───────────
+    # ── 1. Volume + Delivery + Price breakout ────────────────────────
+    # Two contracts in one row, because this layer needs both.
+    #
+    # ADJUSTED (nidp.prices_eod_adjusted): every figure measured ACROSS sessions — the 20-session
+    # close high, the 20-session average range, the 20-session average volume and the gap off the
+    # previous close. nidp.prices_eod is raw, and across a capital-structure event each of those
+    # becomes a different number entirely: measured on staging for KOTAKBANK 2026-01-20, with its
+    # 5:1 split ex 2026-01-14 inside the window, the raw feed reports vs_20d_high -80.89% (true
+    # -4.45%), a 4.27x volume spike that scores +25 points (true 1.53x, which scores nothing) and
+    # range expansion 0.30x (true 1.20x). The feed's own prev_close is raw too — it reads 2132.60
+    # against an open of 426.00 on the ex-date — so the gap is taken off the previous ADJUSTED
+    # close, guarded the way _sessions() in daas_api/routers/movers.py guards it.
+    #
+    # RAW (nidp.prices_eod): deliv_qty / deliv_pct, which exist only there and are a ratio of two
+    # raw quantities, so they need no adjustment; and the close published as result["close_price"],
+    # which must stay the price that actually printed.
     try:
         price_row = await conn.fetchrow(
             """
-            SELECT
-                volume,
-                deliv_qty,
-                deliv_pct,
-                close_price,
-                open_price,
-                high_price,
-                low_price,
-                prev_close,
-                AVG(volume)
-                    OVER (ORDER BY as_of_date
-                          ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS avg_vol_20d,
-                AVG(deliv_pct)
-                    OVER (ORDER BY as_of_date
-                          ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS avg_del_pct_20d,
-                MAX(close_price)
-                    OVER (ORDER BY as_of_date
-                          ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS close_high_20d,
-                MAX(high_price)
-                    OVER (ORDER BY as_of_date
-                          ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS intraday_high_20d,
-                AVG(high_price - low_price)
-                    OVER (ORDER BY as_of_date
-                          ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS avg_range_20d,
-                as_of_date
-            FROM nidp.prices_eod
-            WHERE symbol = $1
-              AND series  = 'EQ'
-              AND as_of_date >= $2 - INTERVAL '35 days'
-              AND as_of_date <= $2
-            ORDER BY as_of_date DESC
-            LIMIT 1
+            WITH a AS (
+                SELECT as_of_date, adj_open, adj_high, adj_low, adj_close, adj_volume,
+                       lag(adj_close)  OVER w AS prev_adj,
+                       lag(as_of_date) OVER w AS prev_dt,
+                       bool_or(cumulative_adj_factor <> 1) OVER () AS has_event,
+                       AVG(adj_volume)         OVER r AS avg_vol_20d,
+                       MAX(adj_close)          OVER r AS close_high_20d,
+                       MAX(adj_high)           OVER r AS intraday_high_20d,
+                       AVG(adj_high - adj_low) OVER r AS avg_range_20d
+                  FROM nidp.prices_eod_adjusted
+                 WHERE symbol = $1
+                   AND as_of_date >= $2 - INTERVAL '35 days'
+                   AND as_of_date <= $2
+                WINDOW w AS (ORDER BY as_of_date),
+                       r AS (ORDER BY as_of_date
+                             ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING)
+            ),
+            p AS (
+                SELECT as_of_date, deliv_qty, deliv_pct, close_price, prev_close,
+                       AVG(deliv_pct)
+                           OVER (ORDER BY as_of_date
+                                 ROWS BETWEEN 21 PRECEDING AND 1 PRECEDING) AS avg_del_pct_20d
+                  FROM nidp.prices_eod
+                 WHERE symbol = $1
+                   AND series  = 'EQ'
+                   AND as_of_date >= $2 - INTERVAL '35 days'
+                   AND as_of_date <= $2
+            )
+            SELECT a.as_of_date,
+                   a.adj_open, a.adj_high, a.adj_low, a.adj_close, a.adj_volume,
+                   a.avg_vol_20d, a.close_high_20d, a.intraday_high_20d, a.avg_range_20d,
+                   -- the adjusted lag only where it is genuinely the preceding session: the
+                   -- adjusted table holds EQ rows only, so a BE/BZ stint leaves a hole in it and
+                   -- a bare lag() would jump the hole and print a phantom gap
+                   CASE WHEN a.has_event AND a.prev_adj > 0
+                             AND a.prev_dt >= a.as_of_date - 7
+                        THEN a.prev_adj ELSE p.prev_close END AS prev_adj,
+                   p.deliv_qty, p.deliv_pct, p.avg_del_pct_20d,
+                   p.close_price AS raw_close
+              FROM a JOIN p ON p.as_of_date = a.as_of_date
+             ORDER BY a.as_of_date DESC
+             LIMIT 1
             """,
             symbol, trade_date,
         )
 
-        if price_row and price_row["volume"]:
-            vol    = float(price_row["volume"])
+        if price_row and price_row["adj_volume"]:
+            # Both legs on the adjusted share count: a 5:1 split multiplies the share count, so a
+            # raw today-volume over a raw 20-session average spanning the ex-date is ~5x wrong.
+            vol    = float(price_row["adj_volume"])
             avg_v  = float(price_row["avg_vol_20d"] or vol)
             vol_ratio = vol / avg_v if avg_v > 0 else 1.0
             result["volume_spike_ratio"] = round(vol_ratio, 2)
@@ -173,14 +210,23 @@ async def get_confirmation(conn, symbol: str, trade_date: date) -> dict:
                 result["signals_hit"].append(
                     f"Institutional accumulation (delivery {del_pct:.0f}%, vol {vol_ratio:.1f}x)")
 
-            # Price breakout checks
-            close       = float(price_row["close_price"] or 0)
-            open_p      = float(price_row["open_price"] or close)
-            prev_close  = float(price_row["prev_close"] or close)
-            today_range = float((price_row["high_price"] or close) - (price_row["low_price"] or close))
+            # Price breakout checks. Every ratio below is computed in ADJUSTED space on both
+            # legs — mixing a raw close against an adjusted 20-session high would just move the
+            # error rather than remove it. Only the published close is the raw traded price.
+            close       = float(price_row["adj_close"] or 0)
+            open_p      = float(price_row["adj_open"] or close)
+            prev_close  = float(price_row["prev_adj"] or close)
+            today_range = float((price_row["adj_high"] or close) - (price_row["adj_low"] or close))
             avg_range   = float(price_row["avg_range_20d"] or today_range or 1)
             close_h20   = float(price_row["close_high_20d"] or 0)
-            result["close_price"] = round(close, 2)
+            result["close_price"] = round(float(price_row["raw_close"] or close), 2)
+
+            # Both legs adjusted, for block 2's OI classifier. On an ex-date the raw
+            # close/prev_close pair is dominated by the split — KOTAKBANK 2026-01-14 reads
+            # 421.00 against 2132.60 — so a name whose price actually ROSE that session is
+            # classified SHORT_BUILDUP instead of LONG_BUILDUP.
+            if close and prev_close:
+                price_up = close > prev_close
 
             if close > 0 and close_h20 > 0:
                 vs_high = (close / close_h20 - 1) * 100
@@ -241,13 +287,8 @@ async def get_confirmation(conn, symbol: str, trade_date: date) -> dict:
 
             result["oi_change_pct"] = round(oi_chg_pct, 1)
 
-            # Classify OI signal using price direction
-            close = result.get("close_price") or 0
-            prev  = float((await conn.fetchval(
-                "SELECT prev_close FROM nidp.prices_eod WHERE symbol=$1 AND as_of_date=$2 AND series='EQ'",
-                symbol, trade_date,
-            ) or 0))
-            price_up = close > prev if close and prev else None
+            # Classify OI signal using price direction. `price_up` came off the adjusted bar in
+            # block 1; re-reading prices_eod.prev_close here would put the split back in.
 
             if oi_chg_pct >= _OI_CHANGE_STRONG:
                 score += 18

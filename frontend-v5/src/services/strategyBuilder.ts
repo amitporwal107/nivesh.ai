@@ -218,3 +218,165 @@ export async function runBacktest(
   });
   return data;
 }
+
+// ── Bot details config (STRATEGY_BUILDER_CONFIG_SPEC §2, §3.3, §5) ──
+// The config built-ins stored per strategy. `symbols` is platform-owned (it comes
+// from the wizard's universe/screen step, never from this form); the four numbers
+// are the Bot-details fields. Custom keys (§3.3) are read-only here — only a
+// Python strategy_info can create them, and the DSL wizard has no code step.
+
+export interface BotConfig {
+  schema_version?: number;
+  symbols: string[];
+  initial_capital: number;
+  commission_pct: number;
+  pyramiding: number;
+  short_margin_pct: number;
+  custom?: Record<string, unknown>;
+  updated_at?: string | null;
+}
+
+/** PUT body: the four Bot-details built-ins. Symbols are not editable here. */
+export type BotConfigUpdate = Pick<
+  BotConfig,
+  "initial_capital" | "commission_pct" | "pyramiding" | "short_margin_pct"
+>;
+
+export type BotConfigField =
+  | "initial_capital" | "commission_pct" | "pyramiding" | "short_margin_pct";
+
+/** One field's bounds + default, normalised out of GET /config-schema.
+ *  `enforcedByEngine` is the backend's own admission (`enforced_by_engine`) that a
+ *  field is stored but changes nothing about a run — the UI repeats it, never
+ *  contradicts it. */
+export interface ConfigFieldRange {
+  min: number;
+  max: number;
+  exclusiveMin: boolean;
+  exclusiveMax: boolean;
+  integer: boolean;
+  default: number;
+  enforcedByEngine: boolean;
+}
+
+export type BotConfigSchema = Record<BotConfigField, ConfigFieldRange>;
+
+/** THE single fallback, used when GET /config-schema is unreachable — the literal
+ *  ranges and defaults from spec §2 + backend/services/ai_trader/config.py
+ *  (validate() bounds, AI_DEFAULTS). Keep this the only copy of them in the UI. */
+export const BOT_CONFIG_SCHEMA_FALLBACK: BotConfigSchema = {
+  initial_capital: {
+    min: 0, max: 1e10, exclusiveMin: true, exclusiveMax: false,
+    integer: false, default: 1_000_000, enforcedByEngine: true,
+  },
+  commission_pct: {
+    min: 0, max: 5, exclusiveMin: false, exclusiveMax: false,
+    integer: false, default: 0.05, enforcedByEngine: true,
+  },
+  // Stored, but the backtester is long-only and counts no same-direction entries.
+  pyramiding: {
+    min: 0, max: Number.MAX_SAFE_INTEGER, exclusiveMin: false, exclusiveMax: false,
+    integer: true, default: 0, enforcedByEngine: false,
+  },
+  short_margin_pct: {
+    min: 0, max: 100, exclusiveMin: true, exclusiveMax: false,
+    integer: false, default: 100, enforcedByEngine: false,
+  },
+};
+
+export const BOT_CONFIG_FIELDS: BotConfigField[] = [
+  "initial_capital", "commission_pct", "pyramiding", "short_margin_pct",
+];
+
+/** Defaults from the schema (fallback unless a fetched one is passed in). */
+export function defaultBotConfig(
+  symbols: string[] = [],
+  schema: BotConfigSchema = BOT_CONFIG_SCHEMA_FALLBACK,
+): BotConfig {
+  return {
+    schema_version: 1,
+    symbols,
+    initial_capital: schema.initial_capital.default,
+    commission_pct: schema.commission_pct.default,
+    pyramiding: schema.pyramiding.default,
+    short_margin_pct: schema.short_margin_pct.default,
+    custom: {},
+  };
+}
+
+const finite = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) ? v : null;
+
+/** Read one field out of the schema response. Accepts JSON Schema keywords
+ *  (minimum / exclusiveMinimum / maximum / type) and snake_case equivalents;
+ *  anything missing keeps the fallback bound. */
+function fieldRange(raw: unknown, fb: ConfigFieldRange): ConfigFieldRange {
+  const f = (raw ?? {}) as Record<string, unknown>;
+  const exMin = finite(f.exclusiveMinimum) ?? finite(f.exclusive_minimum);
+  const inMin = finite(f.minimum) ?? finite(f.min);
+  const exMax = finite(f.exclusiveMaximum) ?? finite(f.exclusive_maximum);
+  const inMax = finite(f.maximum) ?? finite(f.max);
+  return {
+    min: exMin ?? inMin ?? fb.min,
+    exclusiveMin: exMin != null ? true : inMin != null ? false : fb.exclusiveMin,
+    max: exMax ?? inMax ?? fb.max,
+    exclusiveMax: exMax != null ? true : inMax != null ? false : fb.exclusiveMax,
+    integer: f.type === "integer" ? true : f.type === "number" ? false : fb.integer,
+    default: finite(f.default) ?? fb.default,
+    enforcedByEngine: typeof f.enforced_by_engine === "boolean"
+      ? f.enforced_by_engine
+      : fb.enforcedByEngine,
+  };
+}
+
+export function normaliseBotConfigSchema(raw: unknown): BotConfigSchema {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const props = (r.properties ?? r.fields ?? r) as Record<string, unknown>;
+  const out = {} as BotConfigSchema;
+  for (const k of BOT_CONFIG_FIELDS) {
+    out[k] = fieldRange(props?.[k], BOT_CONFIG_SCHEMA_FALLBACK[k]);
+  }
+  return out;
+}
+
+function shapeConfig(raw: unknown, symbols: string[]): BotConfig {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const fb = defaultBotConfig(symbols);
+  const custom = r.custom;
+  return {
+    schema_version: finite(r.schema_version) ?? 1,
+    symbols: Array.isArray(r.symbols) && r.symbols.length
+      ? (r.symbols as string[])
+      : symbols,
+    initial_capital: finite(r.initial_capital) ?? fb.initial_capital,
+    commission_pct: finite(r.commission_pct) ?? fb.commission_pct,
+    pyramiding: finite(r.pyramiding) ?? fb.pyramiding,
+    short_margin_pct: finite(r.short_margin_pct) ?? fb.short_margin_pct,
+    custom: custom && typeof custom === "object" ? (custom as Record<string, unknown>) : {},
+    updated_at: typeof r.updated_at === "string" ? r.updated_at : null,
+  };
+}
+
+/** Shared validation schema (one source for frontend + backend, spec §4.4). */
+export async function getConfigSchema(): Promise<BotConfigSchema> {
+  const { data } = await http<unknown>({ path: `${BASE}/config-schema` });
+  return normaliseBotConfigSchema(data);
+}
+
+/** Stored config for a strategy. `symbols` falls back to the ones passed in
+ *  (the wizard's universe) when the row carries none. */
+export async function getStrategyConfig(id: string, symbols: string[] = []): Promise<BotConfig> {
+  const { data } = await http<unknown>({
+    path: `${BASE}/strategies/${encodeURIComponent(id)}/config`,
+  });
+  return shapeConfig(data, symbols);
+}
+
+export async function putStrategyConfig(id: string, body: BotConfigUpdate): Promise<BotConfig> {
+  const { data } = await http<unknown>({
+    method: "PUT",
+    path: `${BASE}/strategies/${encodeURIComponent(id)}/config`,
+    body,
+  });
+  return shapeConfig(data, []);
+}

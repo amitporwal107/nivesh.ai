@@ -22,10 +22,12 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import type { StockHit } from "@/hooks/use-instrument-search";
 import { listTemplates, screenStrategy, type ScreenCandidate, type TemplateItem } from "@/services/strategyBuilder";
 import { StockIcon } from "../../components/EntityIcon";
 import { DataTable, EmptyBlock, ErrorBlock, LoadingBlock, Section, fmtDate, fmtNum, humaniseTag, type Column } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { StockPanel } from "../screener/StockPanel";
 import { SaveAsWatchlist } from "../workspace/SaveAsWatchlist";
 import { readScreenResult, useSaveStrategy } from "../workspace/strategies";
 
@@ -72,6 +74,8 @@ function KeepAsWatchlist({ template }: { template: TemplateItem }) {
 export function StrategyScreens() {
   const { ask } = useCopilotShell();
   const [picked, setPicked] = useState<string | null>(null);
+  // A row opens the stock's chart in a panel: Research's own stock view. These candidates carry the symbol only.
+  const [opened, setOpened] = useState<StockHit | null>(null);
 
   const templates = useQuery({
     queryKey: ["strategy-builder", "templates"],
@@ -181,7 +185,7 @@ export function StrategyScreens() {
                     columns={columns}
                     rows={result.rows}
                     rowKey={(c) => c.symbol}
-                    onRowClick={(c) => ask(`Tell me about ${c.symbol}`)}
+                    onRowClick={(c) => setOpened({ symbol: c.symbol, name: c.symbol })}
                     minWidth={columns.length * 120}
                   />
                 </div>
@@ -191,6 +195,7 @@ export function StrategyScreens() {
           </div>
         )}
       </div>
+      {opened && <StockPanel key={opened.symbol} stock={opened} onClose={() => setOpened(null)} />}
     </Section>
   );
 }

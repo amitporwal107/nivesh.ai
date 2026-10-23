@@ -10,7 +10,7 @@
  */
 import type { ReactNode } from "react";
 
-export type BottomKey = "overview" | "scanner" | "intel" | "chart" | "portfolio" | "more";
+export type BottomKey = "overview" | "scanner" | "intel" | "chart" | "portfolio" | "smartmoney" | "more";
 
 /** The bar's own height without the safe area; the page leaves this much room under its content. */
 export const BOTTOM_BAR_HEIGHT = 58;
@@ -37,6 +37,7 @@ const ICONS: Record<BottomKey, ReactNode> = {
   intel: <Icon><path d="M3 3.5h9.5v11H4.5A1.5 1.5 0 0 1 3 13V3.5z" {...stroke} /><path d="M12.5 6.5H15V13a1.5 1.5 0 0 1-1.5 1.5" {...stroke} /><path d="M5.5 6.5h4.5M5.5 9h4.5M5.5 11.5h3" {...stroke} /></Icon>,
   chart: <Icon><path d="M4.5 3v12M9 2v14M13.5 5v9" {...stroke} /><rect x="3" y="6" width="3" height="5" rx="0.6" {...stroke} /><rect x="7.5" y="4.5" width="3" height="7" rx="0.6" {...stroke} /><rect x="12" y="7" width="3" height="4" rx="0.6" {...stroke} /></Icon>,
   portfolio: <Icon><circle cx="9" cy="9" r="6.2" {...stroke} /><path d="M9 2.8V9l5.4 3" {...stroke} /></Icon>,
+  smartmoney: <Icon><ellipse cx="9" cy="4.6" rx="5.5" ry="2.1" {...stroke} /><path d="M3.5 4.6v4.2c0 1.16 2.46 2.1 5.5 2.1s5.5-.94 5.5-2.1V4.6" {...stroke} /><path d="M3.5 8.8v4.2c0 1.16 2.46 2.1 5.5 2.1s5.5-.94 5.5-2.1V8.8" {...stroke} /></Icon>,
   more: <Icon><circle cx="4" cy="9" r="1.3" fill="currentColor" /><circle cx="9" cy="9" r="1.3" fill="currentColor" /><circle cx="14" cy="9" r="1.3" fill="currentColor" /></Icon>,
 };
 
@@ -47,6 +48,7 @@ export const BOTTOM_ITEMS: ReadonlyArray<{ key: BottomKey; label: string; aria: 
   { key: "intel", label: "Intel", aria: "Market Intelligence" },
   { key: "chart", label: "Chart", aria: "Chart Analysis" },
   { key: "portfolio", label: "Portfolio", aria: "Portfolio and Risk" },
+  { key: "smartmoney", label: "Flows", aria: "Smart Money Movement" },
   { key: "more", label: "More", aria: "More: AI Copilot, Options and futures lab, watchlists and settings" },
 ];
 

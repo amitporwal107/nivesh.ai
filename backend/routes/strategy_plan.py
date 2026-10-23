@@ -3,6 +3,7 @@
 POST /api/desk/strategy/payoff            pure payoff calculation (no DB write)
 POST /api/desk/strategy/plan              build a StrategyPlan from live read-only sources; nothing is written
 POST /api/desk/strategy/ideas             strategies for the top AI opportunities (scanner), cash / futures / options / combinations; nothing is written
+POST /api/desk/strategy/top               the best N ideas per asset class (index options / stock F&O / cash) by regime fit; nothing is written
 POST /api/desk/strategy/plans             save a built plan (Mongo `desk_strategy_plans`), immutable after save: there is no update route
 GET  /api/desk/strategy/plans             the signed-in user's saved plans, newest first (capped)
 GET  /api/desk/strategy/plans/{id}        one saved plan
@@ -27,6 +28,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from deps import db, get_current_user
 from services.strategy_plan import PLAN_SCHEMA, build_plan, compute_payoff, explain_plan_context, normalise_inputs
 from services.strategy_plan import ideas as ideas_mod
+from services.strategy_plan import regime_fit
 from services.strategy_plan.plan import digest
 from services.strategy_plan.sources import attach_symbol_suggestions, collect_snapshots, finish_plan
 
@@ -86,6 +88,62 @@ async def strategy_ideas(request: Request) -> Dict[str, Any]:
     if problems:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
     return await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today(), chartink_limit)
+
+
+_TOP_CLASSES = ("index_options", "stock_fno", "cash")
+_TOP_LIMIT_MAX = 10
+
+
+def _parse_top_body(body: Any) -> Dict[str, Any]:
+    """limit / classes / expiry for POST /top. Anything unrecognised is refused rather than ignored, so a
+    misspelled class cannot silently return the default three."""
+    if body in (None, ""):
+        body = {}
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": [
+            {"field": "body", "code": "not_an_object", "message": "The body must be a JSON object."}]})
+    problems = []
+    unknown = sorted(set(body) - {"limit", "classes", "expiry"})
+    if unknown:
+        problems.append({"field": "body", "code": "unknown_field",
+                         "message": f"Unknown field(s): {', '.join(unknown)}."})
+
+    limit = body.get("limit", 5)
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= _TOP_LIMIT_MAX:
+        problems.append({"field": "limit", "code": "out_of_range",
+                         "message": f"limit must be a whole number between 1 and {_TOP_LIMIT_MAX}."})
+
+    classes = body.get("classes")
+    if classes is not None:
+        if not isinstance(classes, list) or not classes or any(c not in _TOP_CLASSES for c in classes):
+            problems.append({"field": "classes", "code": "unknown_class",
+                             "message": f"classes must be a non-empty list from {', '.join(_TOP_CLASSES)}."})
+
+    expiry = body.get("expiry")
+    if expiry is not None:
+        try:
+            date.fromisoformat(str(expiry))
+        except ValueError:
+            problems.append({"field": "expiry", "code": "bad_date",
+                             "message": "expiry must be a date as YYYY-MM-DD."})
+
+    if problems:
+        raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
+    return {"limit": limit, "classes": classes, "expiry": str(expiry) if expiry else None}
+
+
+@router.post("/top")
+async def strategy_top(request: Request) -> Dict[str, Any]:
+    """The best `limit` ideas in each asset class, ranked by fit to the measured market regime and priced
+    from the live end-of-day option chain. Reads only: nothing is written and nothing is sent to a broker.
+
+    "Best" is fit to today's conditions, NOT performance — see services/strategy_plan/regime_fit.py, which
+    records why a performance ranking is not available in this system. The caveat travels on the response
+    as `ranking_note`, and the things this cannot do are listed in `gaps`."""
+    user = await get_current_user(request)
+    args = _parse_top_body(await _body(request))
+    return await regime_fit.build_top(request, user["user_id"], limit=args["limit"],
+                                      classes=args["classes"], expiry=args["expiry"])
 
 
 def _check_plan(plan: Any) -> Dict[str, Any]:

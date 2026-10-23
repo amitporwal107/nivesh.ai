@@ -1,0 +1,107 @@
+{
+  "benchmark": {
+    "deviation": "No total-return index exists in the warehouse (checked 2026-10-22: no TRI/total-return series). The price index understates the benchmark by the dividend yield, roughly 0.1 pp over 20 sessions at a ~1.3% annual yield. This affects only the market-context metric; the PRIMARY test is the paired baseline-vs-tilt difference on an identical universe, where the benchmark does not enter.",
+    "primary_contracted": "Nifty 500 TRI",
+    "primary_implemented": "nidp.index_eod 'Nifty 500' (PRICE index)",
+    "secondary": "sector-relative (nidp.index_constituents.industry peer median)"
+  },
+  "comparison": {
+    "held_constant": [
+      "eligible universe",
+      "rebalance schedule",
+      "position sizing",
+      "sector limits",
+      "liquidity controls",
+      "execution price convention"
+    ],
+    "portfolio_a": "existing stock-selection score, no tilt",
+    "portfolio_b": "identical baseline and constraints plus the bounded smart-money overlay",
+    "tilt_bounds_pp": [
+      -8.0,
+      8.0
+    ],
+    "tilt_scaling": "confidence multiplier (high 1.0 / medium 0.6 / low 0.25) x concentration damping (0.5 when single_amc_signal)"
+  },
+  "cost_model": {
+    "buy_only_pct": {
+      "stamp_duty": 0.015
+    },
+    "gst_pct_on": {
+      "components": [
+        "brokerage",
+        "exchange_txn",
+        "sebi"
+      ],
+      "rate": 18.0
+    },
+    "note": "Indian cash-delivery equity. Frozen before any confirmatory run.",
+    "per_side_pct": {
+      "brokerage": 0.03,
+      "exchange_txn": 0.00325,
+      "sebi": 0.0001,
+      "slippage": 0.1,
+      "stt": 0.1
+    },
+    "round_trip_total_pct": 0.4937,
+    "version": "in-equity-delivery-v1"
+  },
+  "execution": {
+    "applies_to": "both portfolios identically",
+    "entry": "open of the first session AFTER the scoring date",
+    "exit": "open of the session horizon_sessions later"
+  },
+  "horizons": {
+    "primary_sessions": 20,
+    "secondary_sessions": [
+      5,
+      60
+    ]
+  },
+  "hurdle": {
+    "incremental_net_return_pp": 1.0,
+    "note": "business acceptance threshold; assessed separately from statistical significance"
+  },
+  "hypothesis": {
+    "H0": "the smart-money tilt does not produce a positive, deployable incremental net return",
+    "H1": "the tilt produces positive out-of-sample incremental net return, point estimate >= +1.0 pp over 20 sessions"
+  },
+  "promotion_rule": {
+    "failure_policy": "no promotion without positive out-of-sample evidence; a failed study is not rescued by changing horizon, benchmark, threshold or subset \u2014 that requires a new study_id and a fresh holdout",
+    "full_promotion_requires": [
+      "positive out-of-sample point estimate",
+      "confidence interval lower bound above zero",
+      "point estimate >= +1.0 pp",
+      "all safety gates pass"
+    ],
+    "sample_floor_for_review": "12 effectively independent evaluation blocks (a review floor, not a power claim)"
+  },
+  "protocol_version": "1.0",
+  "statistical_plan": {
+    "exclusions": "every excluded cohort and symbol stored with a reason",
+    "inference": [
+      "Newey-West HAC with lag = horizon_sessions",
+      "date-block bootstrap"
+    ],
+    "multiple_testing": "Holm correction across the two secondary horizons; the primary horizon is fixed at 20 and is not selected post hoc",
+    "outlier_policy": "report with and without extremes; the unfiltered result is primary",
+    "primary_unit": "portfolio formation date",
+    "report": [
+      "point estimate",
+      "confidence interval",
+      "n formation dates",
+      "effective independent observations",
+      "sensitivity to inference method"
+    ]
+  },
+  "study_id": "NIDP-SM-VALIDATION-001",
+  "universe_rule": {
+    "min_price_inr": 10,
+    "min_trailing_median_turnover_inr": 100000000,
+    "note": "Computed only from sessions on or before the scoring date. Deliberately NOT index membership: nidp.index_constituents has 4 snapshots, so membership-based eligibility would inject survivorship bias. A liquidity rule from prices is reconstructable point-in-time for every date.",
+    "point_in_time": true,
+    "series": [
+      "EQ"
+    ],
+    "turnover_lookback_sessions": 20
+  }
+}

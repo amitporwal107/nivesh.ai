@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
-import { ChatWidget, type WidgetAction } from "@/components/chat/ChatWidget";
-import {
-  PRIMITIVE_BY_KEY, PRIMITIVE_GROUPS, SCREEN_TEMPLATES, compileScreenQuery,
-  type BuilderCondition, type ScreenTemplate,
-} from "@/components/chat/screenerPrimitives";
+import type { StockHit } from "@/hooks/use-instrument-search";
+import { SCREEN_TEMPLATES, type BuilderCondition, type ScreenTemplate } from "@/components/chat/screenerPrimitives";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import {
   useCreateScreener, useDeleteScreener, useScreeners, useUpdateScreener, type SavedScreener,
@@ -12,11 +9,14 @@ import {
   Btn, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Screen, ScreenHeader, Section, fmtDate, fmtNum,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
-import { closeLabel, useLiveOverlays } from "../lib/useLiveQuotes";
+import { useLiveOverlays } from "../lib/useLiveQuotes";
 import { SECTOR_HEATMAP_VIEW } from "../lib/views";
 import { AskPill, FilterChips, LoadError, type ChipItem } from "./markets/parts";
 import { useScreenRun, type ScreenBucket, type ScreenRun, type ScreenRunRequest } from "./markets/screener-run";
 import { StrategyScreens } from "./markets/StrategyScreens";
+import { FUND_KEYS, PAGE_BY_KEY, PAGE_GROUPS, chatSentence, screenInWords } from "./screener/catalog";
+import { ResultsTable } from "./screener/ResultsTable";
+import { StockPanel } from "./screener/StockPanel";
 import { OpenWatchlist, SaveAsWatchlist } from "./workspace/SaveAsWatchlist";
 
 type Bucket = ScreenBucket;
@@ -36,7 +36,7 @@ const field: CSSProperties = {
 let uid = 0;
 function newRule(key = "roe", value = ""): BuilderCondition {
   uid += 1;
-  return { id: uid, key, op: PRIMITIVE_BY_KEY[key]?.op ?? "over", value };
+  return { id: uid, key, op: PAGE_BY_KEY[key]?.op ?? "over", value };
 }
 
 function asBucket(b: string | undefined): Bucket {
@@ -47,16 +47,16 @@ function asBucket(b: string | undefined): Bucket {
 function toRunRequest(conds: { key: string; op: string; value: string }[], bucket: Bucket): ScreenRunRequest | null {
   const conditions = conds
     .filter((c) => {
-      const p = PRIMITIVE_BY_KEY[c.key];
+      const p = PAGE_BY_KEY[c.key];
       return !!p && !p.bucket && c.value.trim() !== "" && Number.isFinite(Number(c.value));
     })
     .map((c) => ({ key: c.key, op: c.op === "under" ? "under" as const : "over" as const, value: c.value.trim() }));
-  return conditions.length || bucket ? { conditions, bucket } : null;
+  return conditions.length || bucket ? { conditions, bucket, include_funds: true } : null;
 }
 
 /** A run request back in words: the same sentence the Copilot is given. */
 function requestInWords(req: ScreenRunRequest): string {
-  return compileScreenQuery(req.conditions.map((c, i) => ({ id: i, ...c })), req.bucket || undefined);
+  return screenInWords(req.conditions, req.bucket || undefined);
 }
 
 function listInWords(items: string[]): string {
@@ -65,7 +65,7 @@ function listInWords(items: string[]): string {
 }
 
 function metricLabel(key: string): string {
-  return PRIMITIVE_BY_KEY[key]?.label ?? key;
+  return PAGE_BY_KEY[key]?.label ?? key;
 }
 
 /** What the results section is showing. */
@@ -82,24 +82,6 @@ interface RanScreen {
   savedId: string | null;
 }
 
-type Widget = ScreenRun["widget"];
-
-/** The screener widget plus "LTP" and "Day %" columns from the live feed (rows without a live quote show "—"). */
-function withLive(w: Widget, get: (symbol: string) => { ltp: number; changePct: number | null; kind: "live" | "close"; ts: string | null } | null): Widget {
-  const first = w.universe.map((r) => get(String(r.ticker ?? r.symbol ?? ""))).find((q) => q);
-  const closed = first?.kind === "close";
-  return {
-    ...w,
-    columns: [...w.columns,
-      { key: "live_ltp", label: closed ? closeLabel(first) : "LTP", unit: "₹", kind: "num", align: "right", decimals: 2 },
-      { key: "live_chg", label: "Day", unit: "%", kind: "num", align: "right", signed: true, decimals: 2 }],
-    universe: w.universe.map((r) => {
-      const q = get(String(r.ticker ?? r.symbol ?? ""));
-      return { ...r, live_ltp: q ? q.ltp : null, live_chg: q ? q.changePct : null };
-    }),
-  };
-}
-
 type ResultState = "idle" | "unrunnable" | "loading" | "error" | "empty" | "ready";
 
 /**
@@ -108,16 +90,16 @@ type ResultState = "idle" | "unrunnable" | "loading" | "error" | "empty" | "read
  * in a thread. An empty result says why: a rule on a metric the day's data does
  * not carry is named, and is told apart from rules that were simply too strict.
  */
-function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
+function ScreenResults({ ran, fetching, error, data, onRetry, onAsk, onOpenStock }: {
   ran: RanScreen | null;
   /** The request is in flight (a first run or a retry). */
   fetching: boolean;
   error: unknown;
   data: ScreenRun | undefined;
-  /** When the shown answer arrived; a new answer gets a fresh table. */
-  runAt: number;
   onRetry: () => void;
   onAsk: (query: string) => void;
+  /** A row was chosen: open that stock's chart. */
+  onOpenStock: (stock: StockHit) => void;
 }) {
   const request = ran?.request ?? null;
   // Kite's live price and day change join the table as two extra columns while the feed is LIVE; nothing else in the rows changes.
@@ -171,8 +153,6 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
     const emptyMetrics = ruleKeys.filter((k) => coverage[k]?.filled === 0);
     const sizeMissing = sizeCoverage?.filled === 0;
     const asOf = answered.as_of_date ? fmtDate(answered.as_of_date) : "";
-    const onWidgetAction = (a: WidgetAction) => { if (a.query) onAsk(a.query); };
-
     const countText = matched > shown
       ? `Showing ${fmtNum(shown)} of ${fmtNum(matched)} matching stocks, ${coverage.mcap?.filled ? "largest companies first" : "in ticker order"}`
       : `${fmtNum(matched)} ${matched === 1 ? "stock matches" : "stocks match"}`;
@@ -217,7 +197,7 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
       ...ruleKeys.map((k) => {
         const c = coverage[k];
         return c
-          ? { key: k, text: `${metricLabel(k)} filled for ${fmtNum(c.filled)} of ${fmtNum(c.total)} stocks`, gap: c.filled === 0 }
+          ? { key: k, text: `${metricLabel(k)} filled for ${fmtNum(c.filled)} of ${fmtNum(c.total)} stocks${FUND_KEYS.has(k) ? " (Nifty 500 only)" : ""}`, gap: c.filled === 0 }
           : { key: k, text: `${metricLabel(k)} coverage was not reported`, gap: true };
       }),
       ...(sizeCoverage ? [{ key: "bucket", text: `Market-cap size filled for ${fmtNum(sizeCoverage.filled)} of ${fmtNum(sizeCoverage.total)} stocks`, gap: sizeMissing }] : []),
@@ -229,8 +209,8 @@ function ScreenResults({ ran, fetching, error, data, runAt, onRetry, onAsk }: {
         <span data-testid="screener-results-count" aria-live="polite" style={{ fontFamily: "var(--display)", fontSize: 22, lineHeight: 1.2 }}>{countText}</span>
         {why ?? (
           <div data-testid="screener-results-widget" className="min-w-0">
-            <SafeWidget name="Screener results · stock_screener">
-              <ChatWidget key={`${ran?.seq ?? 0}-${runAt}`} widget={{ widget_type: "stock_screener", data: live.live ? withLive(answered.widget, live.get) : answered.widget }} onAction={onWidgetAction} />
+            <SafeWidget name="Screener results">
+              <ResultsTable key={ran?.seq ?? 0} rows={answered.widget.universe} live={live} onOpen={onOpenStock} />
             </SafeWidget>
           </div>
         )}
@@ -315,8 +295,11 @@ export default function ScreenerScreen() {
   const deleteScreen = useDeleteScreener();
   const run = useScreenRun(ran?.request ?? null, ran?.seq ?? 0);
 
-  const query = compileScreenQuery(rules, bucket || undefined);
+  const query = screenInWords(rules, bucket || undefined);
   const canRun = query.length > 0;
+  // The Copilot's sentence parser knows the chat metrics only; a fund rule would be dropped from it silently.
+  const copilotSentence = chatSentence(rules, bucket || undefined);
+  const [opened, setOpened] = useState<StockHit | null>(null);
   const saving = createScreen.isPending || updateScreen.isPending;
   const saveError = createScreen.error ?? updateScreen.error;
 
@@ -331,7 +314,7 @@ export default function ScreenerScreen() {
     touch();
     setRules((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   };
-  const changeMetric = (id: number, key: string) => setRule(id, { key, op: PRIMITIVE_BY_KEY[key]?.op ?? "over" });
+  const changeMetric = (id: number, key: string) => setRule(id, { key, op: PAGE_BY_KEY[key]?.op ?? "over" });
   const addRule = () => { touch(); setRules((rs) => [...rs, newRule()]); };
   const removeRule = (id: number) => { touch(); setRules((rs) => (rs.length > 1 ? rs.filter((r) => r.id !== id) : rs)); };
 
@@ -355,7 +338,7 @@ export default function ScreenerScreen() {
   /** A saved screen goes back into the rules for viewing or editing. */
   const loadSaved = (s: SavedScreener) => {
     const mapped = s.conditions
-      .filter((c) => PRIMITIVE_BY_KEY[c.key] && !PRIMITIVE_BY_KEY[c.key].bucket)
+      .filter((c) => PAGE_BY_KEY[c.key] && !PAGE_BY_KEY[c.key].bucket)
       .map((c) => ({ ...newRule(c.key, c.value), op: c.op === "under" ? "under" as const : "over" as const }));
     setRules(mapped.length ? mapped : [newRule()]);
     setBucket(asBucket(s.bucket));
@@ -398,7 +381,7 @@ export default function ScreenerScreen() {
   };
 
   return (
-    <Screen testId="screen-tool-screener">
+    <Screen testId="screen-tool-screener" width={1280}>
       <ScreenHeader
         eyebrow="Stock screener · end-of-day data"
         pills={
@@ -480,7 +463,7 @@ export default function ScreenerScreen() {
 
           <div className="flex flex-col" style={{ gap: 8 }} data-testid="screener-rules">
             {rules.map((r, i) => {
-              const p = PRIMITIVE_BY_KEY[r.key];
+              const p = PAGE_BY_KEY[r.key];
               return (
                 <div key={r.id} className="flex flex-wrap items-center" style={{ gap: 8 }} data-testid="screener-rule">
                   <select
@@ -490,7 +473,7 @@ export default function ScreenerScreen() {
                     style={{ ...field, flex: "1 1 180px" }}
                     data-testid="screener-rule-metric"
                   >
-                    {PRIMITIVE_GROUPS.map((g) => (
+                    {PAGE_GROUPS.map((g) => (
                       <optgroup key={g.cat} label={g.cat}>
                         {g.items.filter((it) => !it.bucket).map((it) => <option key={it.key} value={it.key}>{it.label}</option>)}
                       </optgroup>
@@ -552,7 +535,12 @@ export default function ScreenerScreen() {
 
           <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
             <Btn variant="primary" disabled={!canRun} onClick={runRules} data-testid="screener-run">Run screen</Btn>
-            <Btn disabled={!canRun} onClick={() => ask(query)} data-testid="screener-open-copilot">Open in Copilot ›</Btn>
+            <Btn
+              disabled={!copilotSentence}
+              onClick={() => copilotSentence && ask(copilotSentence)}
+              title={canRun && !copilotSentence ? "Fund-holding rules run on this page only; the Copilot cannot read them" : undefined}
+              data-testid="screener-open-copilot"
+            >Open in Copilot ›</Btn>
             <Btn variant="ghost" onClick={reset}>{editingId ? "New screen" : "Reset"}</Btn>
             <span style={{ flex: "1 1 12px" }} />
             <label htmlFor="screener-name" className="sr-only">Name for this screen</label>
@@ -581,9 +569,9 @@ export default function ScreenerScreen() {
           fetching={run.isFetching}
           error={run.error}
           data={run.data}
-          runAt={run.dataUpdatedAt}
           onRetry={() => { void run.refetch(); }}
           onAsk={ask}
+          onOpenStock={setOpened}
         />
       </div>
 
@@ -635,7 +623,9 @@ export default function ScreenerScreen() {
         {deleteScreen.isError && <LoadError title="The screen wasn’t deleted" error={deleteScreen.error} />}
       </div>
 
-      <Footnote>End-of-day data · screen matches are candidates, not recommendations</Footnote>
+      <Footnote>End-of-day data, with Kite’s live price while the market is open · fund holdings are disclosed monthly, Nifty 500 only · screen matches are candidates, not recommendations</Footnote>
+
+      {opened && <StockPanel key={opened.symbol} stock={opened} onClose={() => setOpened(null)} />}
     </Screen>
   );
 }

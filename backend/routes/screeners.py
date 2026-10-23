@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
 from deps import db, get_current_user
-from services.copilot_tools import stock_intelligence
+from services.copilot_tools import daas_client, stock_intelligence
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,18 @@ _DAY_READ_LIMIT = 5000
 _CAP_BUCKETS = {"large": "LARGE_CAP", "mid": "MID_CAP", "small": "SMALL_CAP"}
 
 
+# Mutual-fund evidence per stock, from the smart-money scanner (nidp.mf_holdings_deltas). The scanner
+# covers one index universe (Nifty 500), so a stock outside it has no value for these metrics and fails a
+# rule on them, exactly like any other metric the day does not carry. widget key → (scanner field, label).
+_MF_UNIVERSE = "nifty500"
+_MF_METRICS = {
+    "mfChange":   ("mf_shares_pct_chg", "MF holding change"),
+    "amcsUp":     ("amcs_up",           "Fund houses raising"),
+    "amcsDn":     ("amcs_dn",           "Fund houses cutting"),
+    "amcsHolding": ("amcs_holding",     "Fund houses holding"),
+}
+
+
 class ScreenRunCondition(BaseModel):
     key: str = Field(min_length=1, max_length=40)
     op: Literal["over", "under"] = "over"
@@ -113,6 +125,8 @@ class ScreenRunRequest(BaseModel):
     bucket: Optional[Literal["", "large", "mid", "small"]] = None
     sector: Optional[str] = Field(default=None, max_length=60)
     limit: int = Field(default=200, ge=1, le=500)   # matching stocks sent back
+    # Add the mutual-fund columns to the rows even when no rule uses them (they are read anyway when one does).
+    include_funds: bool = False
 
     @model_validator(mode="after")
     def _something_to_screen_on(self) -> "ScreenRunRequest":
@@ -150,13 +164,34 @@ def _filled(rows: List[Dict[str, Any]], key: str) -> Dict[str, int]:
     return {"filled": sum(1 for r in rows if r.get(key) not in (None, "")), "total": len(rows)}
 
 
+async def _mf_by_symbol() -> Optional[Dict[str, Dict[str, Any]]]:
+    """Scanner rows keyed by symbol, shaped as widget keys. None when the scanner did not answer:
+    that is a gap in the evidence, never "no fund activity"."""
+    if not daas_client.is_configured():
+        return None
+    try:
+        status, body = await daas_client.get_raw(
+            "/desk/smart-money/scanner", {"window": "3M", "universe": _MF_UNIVERSE, "limit": 500})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("screeners.run: the smart-money scanner read failed: %r", exc)
+        return None
+    rows = body.get("rows") if status == 200 and isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        logger.warning("screeners.run: the smart-money scanner answered HTTP %s", status)
+        return None
+    return {
+        str(r["symbol"]).upper(): {k: _number(r.get(src)) for k, (src, _label) in _MF_METRICS.items()}
+        for r in rows if isinstance(r, dict) and r.get("symbol")
+    }
+
+
 @router.post("/screeners/run")
 async def run_screener(request: Request, payload: ScreenRunRequest) -> Dict[str, Any]:
     await get_current_user(request)
 
     # The widget's own label map lists every metric a row carries.
     catalog = stock_intelligence.build_stock_screener_widget([])
-    unknown = sorted({c.key for c in payload.conditions} - set(catalog["filter_labels"]))
+    unknown = sorted({c.key for c in payload.conditions} - set(catalog["filter_labels"]) - set(_MF_METRICS))
     if unknown:
         raise HTTPException(status_code=422, detail=f"Unknown screening metric: {', '.join(unknown)}")
 
@@ -187,7 +222,16 @@ async def run_screener(request: Request, payload: ScreenRunRequest) -> Dict[str,
     # Widget-keyed rows, one per raw row and in the same order.
     day = stock_intelligence.build_stock_screener_widget(raw_rows)["universe"]
 
+    wants_funds = payload.include_funds or any(c.key in _MF_METRICS for c in payload.conditions)
+    if wants_funds:
+        mf = await _mf_by_symbol()
+        for row in day:
+            found = (mf or {}).get(str(row.get("ticker") or "").upper(), {})
+            row.update({k: found.get(k) for k in _MF_METRICS})
+
     coverage_keys = [col["key"] for col in catalog["columns"]] + [c.key for c in payload.conditions]
+    if wants_funds:
+        coverage_keys += list(_MF_METRICS)
     coverage = {key: _filled(day, key) for key in dict.fromkeys(coverage_keys)}
     cap_bucket = _CAP_BUCKETS.get(payload.bucket or "")
     if cap_bucket:
@@ -211,6 +255,10 @@ async def run_screener(request: Request, payload: ScreenRunRequest) -> Dict[str,
     widget = stock_intelligence.build_stock_screener_widget(
         [raw_rows[i] for i in matched[:payload.limit]], initial_filters=filters, as_of_date=as_of,
     )
+    if wants_funds:
+        # The widget builder only knows the feature-store columns; carry the fund metrics across.
+        for row, i in zip(widget["universe"], matched[:payload.limit]):
+            row.update({k: day[i].get(k) for k in _MF_METRICS})
     return {
         "ok": True,
         "as_of_date": as_of,

@@ -109,7 +109,7 @@ class Coll:
         self.writes += 1
         self.docs.append(copy.deepcopy(doc))
 
-    async def update_one(self, q, update):
+    async def update_one(self, q, update, upsert=False):
         for d in self.docs:
             if _matches(d, q):
                 self.writes += 1
@@ -117,6 +117,13 @@ class Coll:
                 for key, value in (update.get("$push") or {}).items():
                     d.setdefault(key, []).append(copy.deepcopy(value))
                 return _Res(matched=1)
+        if upsert:
+            # The equity high-water mark upserts its first row (services/risk_equity.observe).
+            doc = copy.deepcopy(update.get("$setOnInsert") or {})
+            doc.update(copy.deepcopy(update.get("$set") or {}))
+            self.docs.append(doc)
+            self.writes += 1
+            return _Res(matched=0)
         return _Res()
 
 

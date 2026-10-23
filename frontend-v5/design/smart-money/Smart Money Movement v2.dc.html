@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/colors_and_type.css">
+  <link rel="stylesheet" href="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/deliverables/tokens/colors_and_type.css">
+  <script src="_ds/nivesh-copilot-design-system-21f53176-472b-416a-9cec-fefc4ac50d07/_ds_bundle.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; background: #06080F; }
+    a { color: var(--mint); text-decoration: none; }
+    a:hover { color: var(--ink); }
+    input::placeholder { color: var(--ink-3); opacity: 1; }
+    select option { background: var(--bg-2); color: var(--ink); }
+  </style>
+</helmet>
+<div class="nv-frame" data-theme="{{ theme }}" style="min-height:100vh; display:flex; flex-direction:column; color-scheme:{{ theme }}">
+
+  <header style="position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:24px; height:60px; padding:0 24px; border-bottom:1px solid var(--line); background:var(--bg-glass); backdrop-filter:blur(20px) saturate(140%)">
+    <div style="display:flex; align-items:center; gap:10px; flex:none">
+      <span class="nv-mark">न</span>
+      <span style="display:flex; align-items:baseline; gap:7px"><span style="font-family:var(--display); font-size:25px; line-height:1; letter-spacing:-0.02em">Nivesh</span><span style="font-family:var(--display); font-size:19px; line-height:1; color:var(--ink-2)">Copilot</span></span>
+      <span style="color:var(--ink-4)">›</span>
+      <span class="nv-pill nv-pill-mint"><span class="nv-dot" style="background:var(--mint)"></span>NIDP</span>
+    </div>
+    <nav style="display:flex; align-self:stretch; gap:2px; flex:1 1 auto; min-width:0; overflow-x:auto; scrollbar-width:none">
+      <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; color:var(--ink-2); border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer" style-hover="color:var(--ink)">Dashboard</span>
+      <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; font-weight:500; color:var(--mint); border-bottom:2px solid var(--mint); white-space:nowrap">Market Intelligence</span>
+      <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; color:var(--ink-2); border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer" style-hover="color:var(--ink)">Stock Analysis</span>
+      <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; color:var(--ink-2); border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer" style-hover="color:var(--ink)">Screeners</span>
+      <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; color:var(--ink-2); border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer" style-hover="color:var(--ink)">Portfolios</span>
+      <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; color:var(--ink-2); border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer" style-hover="color:var(--ink)">Watchlist</span>
+      <span style="display:flex; align-items:center; padding:0 12px; font-size:14px; color:var(--ink-2); border-bottom:2px solid transparent; white-space:nowrap; cursor:pointer" style-hover="color:var(--ink)">Alerts</span>
+    </nav>
+    <label style="display:flex; align-items:center; gap:10px; flex:0 1 300px; min-width:140px; height:38px; padding:0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink-3)">
+      <svg viewBox="0 0 24 24" style="width:16px; height:16px; flex:none; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path></svg>
+      <input onKeyDown="{{ onSearchKey }}" placeholder="Search stocks, sectors, or ask Copilot…" style="flex:1; min-width:0; height:100%; border:0; outline:none; background:transparent; color:var(--ink); font-family:var(--sans); font-size:13px">
+    </label>
+    <span style="flex:none; width:36px; height:36px; border-radius:50%; display:grid; place-items:center; background:var(--bg-3); border:1px solid var(--line-2); font-size:12.5px; font-weight:600">SS</span>
+  </header>
+
+  <div style="display:flex; flex-wrap:wrap; flex:1 0 auto">
+    <main style="flex:10 1 860px; min-width:0; padding:20px 24px; display:flex; flex-direction:column; gap:14px">
+
+      <div style="display:flex; flex-wrap:wrap; align-items:center; gap:12px 22px">
+        <div style="display:flex; flex-direction:column; gap:6px; flex:1 1 320px; min-width:0">
+          <h1 style="margin:0; font-family:var(--mono); font-weight:400; font-size:21px; letter-spacing:0.14em; text-transform:uppercase"><span style="color:var(--mint)">07</span> · Smart Money Movement</h1>
+          <span style="font-size:13.5px; color:var(--ink-3)">Where institutional money has demonstrably moved, where market activity only suggests it, and where the evidence is incomplete.</span>
+        </div>
+        <div style="display:flex; gap:2px; padding:3px; border-radius:12px; border:1px solid var(--line-2); background:var(--bg-1)">
+          <sc-for list="{{ periods }}" as="p" hint-placeholder-count="4">
+            <button onClick="{{ p.pick }}" style="min-width:46px; height:32px; padding:0 12px; border-radius:9px; border:1px solid transparent; border-color:{{ p.bd }}; background:{{ p.bg }}; color:{{ p.c }}; font-family:var(--mono); font-size:13px; cursor:pointer; transition:all .15s ease">{{ p.label }}</button>
+          </sc-for>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:2px">
+          <span style="font-size:12.5px; color:var(--ink-2)">Data as of 21 Oct 2026</span>
+          <span style="font-size:12px; color:var(--amber)">Illustrative data · not live</span>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:8px">
+        <div style="flex:1 1 180px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:12px; padding:10px 14px; display:flex; flex-direction:column; gap:4px"><span style="display:flex; align-items:center; gap:8px; font-size:12.5px"><span class="nv-dot" style="background:var(--mint)"></span>NSE FII/DII cash</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">Daily · provisional · 21 Oct</span></div>
+        <div style="flex:1 1 180px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:12px; padding:10px 14px; display:flex; flex-direction:column; gap:4px"><span style="display:flex; align-items:center; gap:8px; font-size:12.5px"><span class="nv-dot" style="background:var(--mint)"></span>AMFI scheme portfolios</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">Monthly · Sep 2026 · fresh</span></div>
+        <div style="flex:1 1 180px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:12px; padding:10px 14px; display:flex; flex-direction:column; gap:4px"><span style="display:flex; align-items:center; gap:8px; font-size:12.5px"><span class="nv-dot" style="background:var(--amber)"></span>Shareholding patterns</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">Quarterly · Sep 26 filings 62% in</span></div>
+        <div style="flex:1 1 180px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:12px; padding:10px 14px; display:flex; flex-direction:column; gap:4px"><span style="display:flex; align-items:center; gap:8px; font-size:12.5px"><span class="nv-dot" style="background:var(--mint)"></span>Bulk / block deals</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">Daily · transfer-netted · 21 Oct</span></div>
+        <div style="flex:1 1 180px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:12px; padding:10px 14px; display:flex; flex-direction:column; gap:4px"><span style="display:flex; align-items:center; gap:8px; font-size:12.5px"><span class="nv-dot" style="background:var(--danger)"></span>Financials feed</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis">Unavailable · gates unevaluable</span></div>
+      </div>
+
+      <section style="background:var(--bg-1); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:18px; display:flex; flex-direction:column; gap:16px">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px">
+          <h2 style="margin:0; font-family:var(--mono); font-weight:400; font-size:13px; letter-spacing:0.12em; text-transform:uppercase">Market-wide flows ({{ per }})</h2>
+          <span class="nv-pill nv-pill-indigo" style="flex:none; white-space:nowrap">Market-wide · not stock-specific</span>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:20px 28px">
+          <div style="flex:1 1 300px; min-width:0; display:flex; flex-direction:column; gap:14px">
+            <div style="font-family:var(--display); font-size:32px; line-height:1.08; letter-spacing:-0.02em">{{ rg.pre }}<span style="color:var(--mint)">{{ rg.accent }}</span>{{ rg.post }}</div>
+            <p style="margin:0; font-size:14px; line-height:1.5; color:var(--ink-2); text-wrap:pretty">{{ rg.summary }}</p>
+            <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px">
+              <sc-for list="{{ flowStats }}" as="f" hint-placeholder-count="2">
+                <div style="padding:12px; border-radius:12px; background:var(--bg-2); border:1px solid var(--line); display:flex; flex-direction:column; gap:8px; min-width:0">
+                  <span style="display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)"><span class="nv-dot" style="background:{{ f.dot }}"></span>{{ f.k }}</span>
+                  <span style="display:flex; align-items:baseline; flex-wrap:wrap; gap:2px 8px"><span style="font-family:var(--display); font-size:28px; line-height:1; letter-spacing:-0.02em; font-variant-numeric:tabular-nums">{{ f.v }}</span><span style="font-size:12.5px; color:{{ f.dc }}">{{ f.d }}</span></span>
+                  <span style="display:flex; gap:10px; font-family:var(--mono); font-size:10px; color:var(--ink-3); font-variant-numeric:tabular-nums">{{ f.roll }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="flex:1.4 1 360px; min-width:0; display:flex; flex-direction:column; gap:10px">
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:6px 18px; font-size:12.5px; color:var(--ink-2)">
+              <span style="display:flex; align-items:center; gap:8px"><span class="nv-dot" style="background:var(--mint)"></span>FII Net Flow (₹ Cr)</span>
+              <span style="display:flex; align-items:center; gap:8px"><span class="nv-dot" style="background:var(--indigo)"></span>DII Net Flow (₹ Cr)</span>
+              <span style="margin-left:auto; font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)">Cumulative</span>
+            </div>
+            <div style="display:grid; grid-template-columns:48px minmax(0,1fr); column-gap:10px">
+              <div style="position:relative; height:160px">
+                <sc-for list="{{ chart.ticks }}" as="t" hint-placeholder-count="5"><span style="position:absolute; right:0; top:{{ t.top }}; transform:translateY(-50%); font-family:var(--mono); font-size:10px; color:var(--ink-3); white-space:nowrap">{{ t.label }}</span></sc-for>
+              </div>
+              <div onMouseMove="{{ onChartMove }}" onMouseLeave="{{ onChartLeave }}" style="position:relative; height:160px; cursor:crosshair">
+                <sc-for list="{{ chart.ticks }}" as="t" hint-placeholder-count="5"><div style="position:absolute; left:0; right:0; top:{{ t.top }}; border-top-width:1px; border-top-style:{{ t.bs }}; border-top-color:{{ t.bc }}"></div></sc-for>
+                <svg viewBox="0 0 600 150" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; overflow:visible">
+                  <path d="{{ chart.dii }}" style="fill:none; stroke:var(--indigo); stroke-width:1.75; stroke-linejoin:round; vector-effect:non-scaling-stroke"></path>
+                  <path d="{{ chart.fii }}" style="fill:none; stroke:var(--mint); stroke-width:1.75; stroke-linejoin:round; vector-effect:non-scaling-stroke"></path>
+                </svg>
+                <sc-if value="{{ hover }}" hint-placeholder-val="{{ false }}">
+                  <div style="position:absolute; top:0; bottom:0; left:{{ hover.left }}; width:1px; background:var(--line-3); pointer-events:none"></div>
+                  <span style="position:absolute; left:{{ hover.left }}; top:{{ hover.dy }}; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%; background:var(--indigo); pointer-events:none"></span>
+                  <span style="position:absolute; left:{{ hover.left }}; top:{{ hover.fy }}; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%; background:var(--mint); pointer-events:none"></span>
+                  <div style="position:absolute; top:2px; left:{{ hover.left }}; transform:{{ hover.tx }}; min-width:150px; padding:10px 12px; border-radius:10px; background:var(--bg-3); border:1px solid var(--line-2); box-shadow:var(--shadow-pop); pointer-events:none; display:flex; flex-direction:column; gap:6px; z-index:2">
+                    <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)">{{ hover.date }}</span>
+                    <span style="display:flex; justify-content:space-between; gap:16px; font-size:12.5px"><span style="color:var(--ink-2)">FII</span><span style="color:var(--mint)">{{ hover.fii }}</span></span>
+                    <span style="display:flex; justify-content:space-between; gap:16px; font-size:12.5px"><span style="color:var(--ink-2)">DII</span><span style="color:var(--indigo)">{{ hover.dii }}</span></span>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+            <div style="display:flex; justify-content:space-between; margin-left:58px; font-family:var(--mono); font-size:10px; color:var(--ink-3)">
+              <sc-for list="{{ chart.xTicks }}" as="x" hint-placeholder-count="6"><span>{{ x }}</span></sc-for>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 16px; padding-top:10px; border-top:1px solid var(--line); font-size:12.5px">
+              <span style="color:var(--ink-3)">Historical market reaction: <span style="color:var(--ink-2)">no validated study available</span></span>
+              <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)">NSE provisional · cash market</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div style="display:flex; flex-wrap:wrap; gap:12px">
+        <section style="flex:1.6 1 460px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:18px 18px 14px; display:flex; flex-direction:column; gap:12px">
+          <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px 16px">
+            <h2 style="margin:0; font-family:var(--mono); font-weight:400; font-size:13px; letter-spacing:0.12em; text-transform:uppercase">Sector rotation — disclosed buying ({{ per }})</h2>
+            <div style="display:flex; gap:2px; padding:3px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-0)">
+              <sc-for list="{{ views }}" as="v" hint-placeholder-count="3"><button onClick="{{ v.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ v.bd }}; background:{{ v.bg }}; color:{{ v.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer; white-space:nowrap">{{ v.label }}</button></sc-for>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:2px">
+            <sc-for list="{{ sectorRows }}" as="r" hint-placeholder-count="10">
+              <div onClick="{{ r.pick }}" style="display:grid; grid-template-columns:minmax(92px,130px) minmax(0,1fr) minmax(0,1fr) 88px; align-items:center; padding:4px 8px; border-radius:8px; cursor:pointer; background:{{ r.bg }}; opacity:{{ r.op }}; transition:all .15s ease" style-hover="background:var(--bg-2)">
+                <span style="font-size:13.5px; padding-right:12px">{{ r.name }}</span>
+                <div style="height:16px; display:flex; justify-content:flex-end; align-items:center; border-right:1px solid var(--line-3)"><div style="height:12px; width:{{ r.negW }}; border-radius:3px 0 0 3px; background:linear-gradient(270deg, var(--danger-2), var(--danger)); transition:width .3s ease"></div></div>
+                <div style="height:16px; display:flex; align-items:center"><div style="height:12px; width:{{ r.posW }}; border-radius:0 3px 3px 0; background:linear-gradient(90deg, var(--mint-2), var(--mint)); transition:width .3s ease"></div></div>
+                <span style="text-align:right; font-family:var(--mono); font-size:12px; color:{{ r.c }}">{{ r.label }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="margin-top:auto; padding-top:10px; border-top:1px solid var(--line); display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 16px; font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)">
+            <span>MF + shareholding deltas × period VWAP · estimated · 487/500 covered</span>
+            <span style="color:var(--ink-2)">{{ sectorHint }}</span>
+          </div>
+        </section>
+
+        <section style="flex:1 1 320px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:18px; display:flex; flex-direction:column; gap:14px">
+          <h2 style="margin:0; font-family:var(--mono); font-weight:400; font-size:13px; letter-spacing:0.12em; text-transform:uppercase">Evidence breadth ({{ per }})</h2>
+          <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap">
+            <span style="font-family:var(--display); font-size:44px; line-height:1; letter-spacing:-0.03em">{{ k.rising }}</span>
+            <span style="font-size:13px; color:var(--ink-3)">stocks with rising disclosed ownership, of {{ k.evald }} evaluated</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px">
+            <sc-for list="{{ k.tiers }}" as="t" hint-placeholder-count="3">
+              <div style="display:grid; grid-template-columns:minmax(0,1fr) 40px; align-items:center; gap:10px">
+                <div style="display:flex; flex-direction:column; gap:5px">
+                  <span style="display:flex; justify-content:space-between; font-size:12.5px; color:var(--ink-2)"><span>{{ t.k }}</span></span>
+                  <div style="height:6px; border-radius:999px; background:var(--bg-3); overflow:hidden"><div style="height:100%; width:{{ t.w }}; border-radius:999px; background:{{ t.c }}"></div></div>
+                </div>
+                <span style="text-align:right; font-family:var(--mono); font-size:13px; color:{{ t.c }}">{{ t.v }}</span>
+              </div>
+            </sc-for>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; padding-top:12px; border-top:1px solid var(--line)">
+            <sc-for list="{{ k.fresh }}" as="f" hint-placeholder-count="3">
+              <span style="display:flex; flex-direction:column; gap:4px"><span style="display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)"><span class="nv-dot" style="background:{{ f.c }}"></span>{{ f.k }}</span><span style="font-family:var(--display); font-size:24px; line-height:1">{{ f.v }}</span></span>
+            </sc-for>
+          </div>
+          <span style="font-size:12.5px; line-height:1.45; color:var(--ink-3)">{{ k.mfLine }}</span>
+        </section>
+      </div>
+
+      <section style="background:var(--bg-1); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:16px 16px 12px; min-width:0">
+        <div style="display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:12px 16px; margin-bottom:12px">
+          <div style="display:flex; flex-direction:column; gap:6px">
+            <h2 style="margin:0; font-family:var(--mono); font-weight:400; font-size:14px; letter-spacing:0.14em; text-transform:uppercase">Stock-level smart money scanner</h2>
+            <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)">Ranked by evidence classes, then scheme breadth · not a recommendation</span>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; align-items:center; gap:8px">
+            <label style="position:relative; display:flex; align-items:center; color:var(--ink-3)">
+              <select value="{{ universe }}" onChange="{{ onUniverse }}" style="appearance:none; height:34px; padding:0 32px 0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink); font-family:var(--sans); font-size:13px; cursor:pointer; outline:none">
+                <option value="Nifty 500">Nifty 500</option><option value="Nifty 1000">Nifty 1000</option><option value="All liquid NSE">All liquid NSE</option><option value="My watchlist">My watchlist</option>
+              </select>
+              <svg viewBox="0 0 24 24" style="position:absolute; right:10px; width:15px; height:15px; pointer-events:none; fill:none; stroke:currentColor; stroke-width:1.75"><path d="m6 9 6 6 6-6"></path></svg>
+            </label>
+            <label style="position:relative; display:flex; align-items:center; color:var(--ink-3)">
+              <select value="{{ sector }}" onChange="{{ onSector }}" style="appearance:none; height:34px; padding:0 32px 0 12px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-1); color:var(--ink); font-family:var(--sans); font-size:13px; cursor:pointer; outline:none">
+                <option value="All">All Sectors</option><option value="Financials">Financials</option><option value="Industrials">Industrials</option><option value="Capital Goods">Capital Goods</option><option value="Healthcare">Healthcare</option><option value="Auto">Auto</option><option value="IT">IT</option><option value="FMCG">FMCG</option><option value="Metals">Metals</option><option value="Energy">Energy</option><option value="Telecom">Telecom</option>
+              </select>
+              <svg viewBox="0 0 24 24" style="position:absolute; right:10px; width:15px; height:15px; pointer-events:none; fill:none; stroke:currentColor; stroke-width:1.75"><path d="m6 9 6 6 6-6"></path></svg>
+            </label>
+            <div style="display:flex; gap:2px; padding:3px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-0)">
+              <sc-for list="{{ dirs }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ o.bd }}; background:{{ o.bg }}; color:{{ o.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer">{{ o.label }}</button></sc-for>
+            </div>
+            <div style="display:flex; gap:2px; padding:3px; border-radius:10px; border:1px solid var(--line-2); background:var(--bg-0)">
+              <sc-for list="{{ frOpts }}" as="o" hint-placeholder-count="4"><button onClick="{{ o.pick }}" style="height:26px; padding:0 10px; border-radius:7px; border:1px solid transparent; border-color:{{ o.bd }}; background:{{ o.bg }}; color:{{ o.c }}; font-family:var(--sans); font-size:12.5px; cursor:pointer">{{ o.label }}</button></sc-for>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:2px; border-bottom:1px solid var(--line); overflow-x:auto">
+          <sc-for list="{{ lanes }}" as="l" hint-placeholder-count="3">
+            <button onClick="{{ l.pick }}" style="flex:none; display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:8px 16px 10px 0; margin-right:12px; margin-bottom:-1px; border:0; border-bottom:2px solid transparent; border-bottom-color:{{ l.bc }}; background:transparent; cursor:pointer; text-align:left">
+              <span style="font-size:13.5px; font-weight:500; color:{{ l.c }}">{{ l.label }} <span style="font-family:var(--mono); font-size:11px; color:var(--ink-3)">{{ l.n }}</span></span>
+              <span style="font-size:11.5px; color:var(--ink-3)">{{ l.sub }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="padding:8px 0 4px; font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)">{{ coverage }}</div>
+
+        <div style="overflow-x:auto">
+          <div style="min-width:1040px">
+            <div style="display:grid; grid-template-columns:24px minmax(150px,1.6fr) minmax(108px,1fr) minmax(116px,1.05fr) minmax(112px,1fr) minmax(84px,0.8fr) minmax(116px,1fr) minmax(96px,0.9fr) 14px; gap:14px; align-items:end; padding:8px 12px 10px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:9.5px; line-height:1.5; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)">
+              <span>#</span><span>Stock · sector</span><span>MF holdings Δ<br>{{ win }}</span><span>FII / DII Δ<br>latest filing</span><span>Bulk / block<br>netted</span><span>Delivery<br>vs base</span><span>Evidence</span><span>Freshness</span><span></span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:2px; padding-top:6px">
+              <sc-for list="{{ rows }}" as="s" hint-placeholder-count="5">
+                <div onClick="{{ s.pick }}" style="display:grid; grid-template-columns:24px minmax(150px,1.6fr) minmax(108px,1fr) minmax(116px,1.05fr) minmax(112px,1fr) minmax(84px,0.8fr) minmax(116px,1fr) minmax(96px,0.9fr) 14px; gap:14px; align-items:center; padding:9px 12px; border-radius:10px; border:1px solid transparent; border-color:{{ s.bd }}; background:{{ s.bg }}; cursor:pointer; transition:all .15s ease" style-hover="background:var(--bg-2)">
+                  <span style="font-size:15px; color:var(--ink-3)">{{ s.n }}</span>
+                  <span style="display:flex; flex-direction:column; gap:3px; min-width:0"><span style="font-size:14px; font-weight:500; line-height:1.25">{{ s.name }}</span><span style="font-family:var(--mono); font-size:10px; letter-spacing:0.06em; color:var(--ink-3)">{{ s.ticker }} · {{ s.sector }}</span></span>
+                  <span style="display:flex; flex-direction:column; gap:2px"><span style="font-size:14px; color:{{ s.mfC }}">{{ s.mfT }}</span><span style="font-size:12px; color:var(--ink-3)">{{ s.mfB }}</span></span>
+                  <span style="display:flex; flex-direction:column; gap:2px; font-size:13px"><span style="color:var(--ink-2)">FII <span style="color:{{ s.fiiC }}">{{ s.fiiT }}</span> · DII <span style="color:{{ s.diiC }}">{{ s.diiT }}</span></span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:{{ s.qC }}">{{ s.q }}</span></span>
+                  <span style="display:flex; flex-direction:column; gap:2px"><span style="font-size:13px; color:{{ s.dealC }}">{{ s.dealT }}</span><span style="font-size:12px; color:var(--ink-3)">{{ s.dealB }}</span></span>
+                  <span style="display:flex; flex-direction:column; gap:2px"><span style="font-size:14px">{{ s.del }}</span><span style="font-size:12px; color:var(--ink-3)">{{ s.base }}</span></span>
+                  <span style="display:flex; flex-direction:column; gap:5px">
+                    <span style="display:flex; gap:3px"><sc-for list="{{ s.cls }}" as="c" hint-placeholder-count="4"><span title="{{ c.tip }}" style="width:20px; height:20px; display:grid; place-items:center; border-radius:5px; border:1px solid transparent; border-color:{{ c.bd }}; background:{{ c.bg }}; color:{{ c.c }}; font-family:var(--mono); font-size:10.5px">{{ c.k }}</span></sc-for></span>
+                    <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:{{ s.covC }}">{{ s.cov }}</span>
+                    <sc-if value="{{ showShadow }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--indigo)">{{ s.shadow }}</span></sc-if>
+                  </span>
+                  <span style="display:flex; flex-direction:column; gap:3px"><span style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-2)"><span class="nv-dot" style="background:{{ s.frC }}"></span>{{ s.fr }}</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.06em; color:var(--ink-3)">{{ s.frSub }}</span></span>
+                  <span style="font-size:20px; color:var(--ink-3)">›</span>
+                </div>
+              </sc-for>
+              <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:22px 12px"><span style="font-size:13.5px; color:var(--ink-3)">{{ emptyMsg }}</span><button onClick="{{ clearAll }}" class="nv-btn" style="padding:8px 14px; font-size:13px">Clear filters</button></div>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px 18px; padding:12px 12px 2px; margin-top:6px; border-top:1px solid var(--line); font-size:12px; color:var(--ink-3)">
+          <span><span style="font-family:var(--mono); color:var(--mint)">A</span> disclosed holdings change</span>
+          <span><span style="font-family:var(--mono); color:var(--mint)">B</span> disclosed deal, net of transfers</span>
+          <span><span style="font-family:var(--mono); color:var(--amber)">C</span> market proxy, buyer unknown</span>
+          <span><span style="font-family:var(--mono); color:var(--indigo)">D</span> direct and proxy align</span>
+        </div>
+      </section>
+    </main>
+
+    <sc-if value="{{ showRail }}" hint-placeholder-val="{{ true }}">
+      <aside style="flex:1 1 380px; min-width:0; padding:16px; border-left:1px solid var(--line); display:flex; flex-wrap:wrap; align-content:flex-start; gap:14px">
+
+        <section style="flex:1 1 340px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:18px">
+          <sc-if value="{{ hasStock }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex; flex-direction:column; gap:14px">
+              <div style="display:flex; flex-direction:column; gap:8px">
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px">
+                  <h3 style="margin:0; font-family:var(--display); font-weight:400; font-size:25px; line-height:1.12; letter-spacing:-0.02em; text-wrap:pretty">{{ st.name }}</h3>
+                  <button onClick="{{ closeStock }}" aria-label="Close" style="flex:none; width:30px; height:30px; display:grid; place-items:center; border-radius:8px; border:1px solid transparent; background:transparent; color:var(--ink-3); cursor:pointer" style-hover="color:var(--ink); border-color:var(--line-2)"><svg viewBox="0 0 24 24" style="width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px">
+                  <span style="font-family:var(--mono); font-size:11px; letter-spacing:0.06em; color:var(--ink-3)">NSE: {{ st.ticker }} | BSE: {{ st.bse }}</span>
+                  <button onClick="{{ toggleFollow }}" style="height:30px; padding:0 12px; border-radius:999px; border:1px solid transparent; border-color:{{ follow.bd }}; background:{{ follow.bg }}; color:{{ follow.c }}; font-family:var(--sans); font-size:12.5px; font-weight:500; cursor:pointer">{{ follow.label }}</button>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px 12px">
+                  <span style="display:flex; align-items:baseline; gap:10px"><span style="font-family:var(--display); font-size:30px; line-height:1">{{ st.price }}</span><span style="font-size:14px; color:{{ st.chgC }}">{{ st.chg }}</span></span>
+                  <span class="nv-pill {{ st.dirClass }}">{{ st.dirLabel }}</span>
+                </div>
+              </div>
+
+              <div style="display:flex; gap:18px; border-bottom:1px solid var(--line); overflow-x:auto">
+                <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><button onClick="{{ t.pick }}" style="flex:none; padding:6px 0 10px; margin-bottom:-1px; border:0; border-bottom:2px solid transparent; border-bottom-color:{{ t.bc }}; background:transparent; color:{{ t.c }}; font-family:var(--sans); font-size:13px; cursor:pointer">{{ t.label }}</button></sc-for>
+              </div>
+
+              <sc-if value="{{ tabOverview }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex; flex-direction:column; gap:14px">
+                  <span style="font-family:var(--mono); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ink-3)">Why it surfaced · evidence chain</span>
+                  <div style="display:flex; flex-direction:column; gap:12px">
+                    <sc-for list="{{ st.why }}" as="w" hint-placeholder-count="4">
+                      <div style="display:grid; grid-template-columns:22px minmax(0,1fr); gap:12px; align-items:start">
+                        <span style="width:22px; height:22px; display:grid; place-items:center; border-radius:5px; border:1px solid transparent; border-color:{{ w.bd }}; background:{{ w.bg }}; color:{{ w.c }}; font-family:var(--mono); font-size:10.5px">{{ w.k }}</span>
+                        <span style="display:flex; flex-direction:column; gap:3px"><span style="font-size:13.5px; line-height:1.45; color:var(--ink-2); text-wrap:pretty">{{ w.t }}</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-3)">{{ w.src }}</span></span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ st.proxyOnly }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:10px 12px; border-radius:10px; border:1px solid var(--amber-line); background:var(--amber-soft); font-size:13px; line-height:1.45; color:var(--amber)">Market-proxy evidence only. This is not labelled institutional accumulation.</div>
+                  </sc-if>
+                  <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px">
+                    <sc-for list="{{ st.tiles }}" as="t" hint-placeholder-count="4">
+                      <div style="padding:12px; border-radius:12px; background:var(--bg-2); border:1px solid var(--line); display:flex; flex-direction:column; gap:6px; min-width:0">
+                        <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)">{{ t.k }}</span>
+                        <span style="font-family:var(--display); font-size:22px; line-height:1.05; color:{{ t.c }}">{{ t.v }}</span>
+                        <span style="font-size:11.5px; color:var(--ink-3)">{{ t.sub }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ showShadow }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:12px; border-radius:12px; border:1px dashed var(--indigo-line); display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 12px">
+                      <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--indigo)">Experimental score · shadow mode</span>
+                      <span style="font-size:13px; color:var(--ink-2)">{{ st.shadow }}</span>
+                      <span style="flex-basis:100%; font-size:11.5px; color:var(--ink-3)">Not validated. Shown for research only; not used for ranking.</span>
+                    </div>
+                  </sc-if>
+                  <div style="display:flex; flex-direction:column; gap:8px">
+                    <span style="font-family:var(--mono); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ink-3)">Evidence against &amp; limitations</span>
+                    <sc-for list="{{ st.against }}" as="a" hint-placeholder-count="2"><span style="display:grid; grid-template-columns:12px minmax(0,1fr); gap:8px; font-size:13px; line-height:1.45; color:var(--ink-2)"><span style="color:var(--danger)">−</span>{{ a.t }}</span></sc-for>
+                  </div>
+                  <div style="display:flex; flex-direction:column; gap:8px">
+                    <span style="font-family:var(--mono); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ink-3)">What would weaken this reading</span>
+                    <sc-for list="{{ st.weaken }}" as="a" hint-placeholder-count="2"><span style="display:grid; grid-template-columns:12px minmax(0,1fr); gap:8px; font-size:13px; line-height:1.45; color:var(--ink-2)"><span style="color:var(--ink-4)">›</span>{{ a.t }}</span></sc-for>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ tabSmart }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex; flex-direction:column; gap:16px">
+                  <sc-for list="{{ st.groups }}" as="g" hint-placeholder-count="4">
+                    <div style="display:flex; flex-direction:column">
+                      <span style="font-family:var(--mono); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ink-3); margin-bottom:2px">{{ g.t }}</span>
+                      <sc-for list="{{ g.rows }}" as="o" hint-placeholder-count="2">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--line)">
+                          <span style="font-size:13px; color:var(--ink-2)">{{ o.k }}</span>
+                          <span style="display:flex; flex-direction:column; align-items:flex-end; gap:3px"><span style="font-size:13.5px; font-variant-numeric:tabular-nums">{{ o.v }}</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.08em; text-transform:uppercase; color:{{ o.c }}">{{ o.sub }}</span></span>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ tabTiles }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex; flex-direction:column; gap:10px">
+                  <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px">
+                    <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="4">
+                      <div style="padding:12px; border-radius:12px; background:var(--bg-2); border:1px solid var(--line); display:flex; flex-direction:column; gap:6px; min-width:0">
+                        <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)">{{ t.k }}</span>
+                        <span style="font-family:var(--display); font-size:24px; line-height:1; color:{{ t.c }}">{{ t.v }}</span>
+                        <span style="font-size:11.5px; color:var(--ink-3)">{{ t.sub }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)">{{ tilesNote }}</span>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ tabNews }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex; flex-direction:column">
+                  <sc-for list="{{ st.news }}" as="n" hint-placeholder-count="3">
+                    <div style="display:grid; grid-template-columns:52px minmax(0,1fr); gap:12px; padding:10px 0; border-bottom:1px solid var(--line)">
+                      <span style="font-family:var(--mono); font-size:10.5px; text-transform:uppercase; color:var(--ink-3); padding-top:2px">{{ n.date }}</span>
+                      <span style="display:flex; flex-direction:column; gap:4px"><span style="font-size:13.5px; line-height:1.4">{{ n.t }}</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.12em; text-transform:uppercase; color:var(--ink-3)">{{ n.src }}</span></span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <button style="width:100%; height:44px; display:flex; align-items:center; justify-content:center; gap:10px; border-radius:12px; border:1px solid var(--mint-line); background:var(--mint-soft); color:var(--mint); font-family:var(--sans); font-size:14px; font-weight:500; cursor:pointer" style-hover="border-color:var(--mint)">Open detailed stock analysis →</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ noStock }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; gap:8px; padding:12px 2px">
+              <span style="font-family:var(--mono); font-size:10px; letter-spacing:0.16em; text-transform:uppercase; color:var(--ink-3)">Stock evidence</span>
+              <span style="font-family:var(--display); font-size:22px">Select a stock in the scanner</span>
+              <p style="margin:0; font-size:13.5px; line-height:1.5; color:var(--ink-3)">See the evidence chain, what argues against it and how fresh each source is.</p>
+            </div>
+          </sc-if>
+        </section>
+
+        <section style="flex:1 1 340px; min-width:0; background:var(--bg-1); border:1px solid var(--line); border-radius:var(--radius-md); box-shadow:var(--shadow-card); padding:16px; display:flex; flex-direction:column; gap:14px">
+          <div style="display:flex; align-items:center; gap:12px">
+            <span class="nv-mark" style="flex:none; width:34px; height:34px; font-size:20px; border-radius:10px">न</span>
+            <span style="flex:1; display:flex; flex-direction:column; gap:4px"><span style="font-family:var(--display); font-size:22px; line-height:1">Nivesh Copilot</span><span style="font-family:var(--mono); font-size:9.5px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)">Answers cite period and source</span></span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; padding:6px 6px 6px 14px; border-radius:16px; border:1px solid var(--line-2); background:var(--bg-glass); backdrop-filter:blur(20px) saturate(140%)">
+            <input ref="{{ draftRef }}" onKeyDown="{{ onDraftKey }}" placeholder="Ask about flows or evidence…" style="flex:1; min-width:0; height:36px; border:0; outline:none; background:transparent; color:var(--ink); font-family:var(--display); font-size:17px">
+            <button onClick="{{ send }}" aria-label="Send" class="nv-btn nv-btn-primary" style="flex:none; width:36px; height:36px; padding:0; justify-content:center; border-radius:11px">↗</button>
+          </div>
+          <sc-if value="{{ idle }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex; flex-direction:column; gap:6px">
+              <sc-for list="{{ asks }}" as="a" hint-placeholder-count="6"><button onClick="{{ a.pick }}" style="width:100%; text-align:left; padding:8px 12px; border-radius:10px; border:1px solid var(--line-2); background:transparent; color:var(--ink-2); font-family:var(--sans); font-size:13px; cursor:pointer; transition:all .15s ease" style-hover="border-color:var(--line-3); color:var(--ink)">{{ a.q }}</button></sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ asking }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; gap:12px">
+              <div style="align-self:flex-end; max-width:88%; padding:9px 14px; background:var(--bg-2); border:1px solid var(--line); border-radius:16px 16px 4px 16px; font-size:13.5px">{{ askQ }}</div>
+              <sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--mono); font-size:10px; letter-spacing:0.14em; text-transform:uppercase; color:var(--ink-3)">Reading NIDP · NSE · AMFI…</span></sc-if>
+              <sc-if value="{{ answered }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex; flex-direction:column; gap:10px">
+                  <div style="display:flex; gap:10px"><span class="nv-mark" style="flex:none; width:24px; height:24px; font-size:15px; margin-top:2px">न</span><div style="font-family:var(--display); font-size:20px; line-height:1.2; letter-spacing:-0.02em; text-wrap:pretty">{{ ans.pre }}<span style="color:{{ ans.ac }}">{{ ans.accent }}</span>{{ ans.post }}</div></div>
+                  <p style="margin:0 0 0 34px; font-size:13px; line-height:1.55; color:var(--ink-2)">{{ ans.prose }}</p>
+                  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-left:34px"><sc-for list="{{ ans.src }}" as="x" hint-placeholder-count="1"><span class="nv-pill" style="font-size:9.5px">{{ x }}</span></sc-for></div>
+                </div>
+              </sc-if>
+              <button onClick="{{ resetAsk }}" style="align-self:flex-start; padding:0; border:0; background:transparent; color:var(--ink-3); font-family:var(--sans); font-size:12.5px; cursor:pointer" style-hover="color:var(--ink)">‹ More questions</button>
+            </div>
+          </sc-if>
+        </section>
+      </aside>
+    </sc-if>
+  </div>
+
+  <footer style="display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; padding:12px 24px; border-top:1px solid var(--line); font-size:12.5px; color:var(--ink-3)">
+    <span style="display:flex; align-items:center; gap:10px; color:var(--ink)"><svg viewBox="0 0 24 24" style="width:18px; height:18px; fill:none; stroke:var(--mint); stroke-width:1.75; stroke-linecap:round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>Smart money is evidence, not a buy signal.</span>
+    <span style="flex:1 1 420px; min-width:0">Ownership disclosures are periodic; deal disclosures may not identify beneficial intent; market proxies are indirect. Always validate with fundamentals, technicals and risk management. Educational market intelligence, not investment advice.</span>
+    <span style="font-family:var(--display); font-size:14px; color:var(--ink-2)">Nivesh Copilot <span style="color:var(--ink-4)">/</span> NIDP</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showShadowScore&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showCopilot&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;}}">
+const END = new Date(2026, 9, 21);
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const M = '\u2212';
+const inr = n => Math.round(Math.abs(n)).toLocaleString('en-IN');
+const signed = (n, d) => { const r = +n.toFixed(d); return (r > 0 ? '+' : r < 0 ? M : '') + Math.abs(r).toFixed(d); };
+const tone = n => { const r = +n.toFixed(1); return r > 0 ? 'var(--mint)' : r < 0 ? 'var(--danger)' : 'var(--ink-3)'; };
+const seg = on => ({ bg: on ? 'var(--mint-soft)' : 'transparent', bd: on ? 'var(--mint-line)' : 'transparent', c: on ? 'var(--mint)' : 'var(--ink-2)' });
+const arrow = d => (d >= 0 ? '↑ +' : '↓ ' + M) + Math.abs(d) + '%';
+const dd = d => String(d.getDate()).padStart(2, '0') + ' ' + MON[d.getMonth()];
+const QN = ['Mar', 'Jun', 'Sep', 'Dec'];
+const Q = (y, i) => y * 4 + i;
+const qL = q => QN[q % 4] + ' ' + String(Math.floor(q / 4)).slice(2);
+const qLong = q => QN[q % 4] + ' ' + Math.floor(q / 4);
+const LATEST = Q(2026, 2);
+const FR_C = { Fresh: 'var(--mint)', Ageing: 'var(--amber)', Stale: 'var(--danger)' };
+
+const PERIODS = {
+  '1M': { n: 22, seed: 7, prev: 'previous month', fii: 2140, fiiD: -34, dii: 3180, diiD: 9, mf: 61, rising: 31,
+    regime: ['Domestic ', 'support', ''], summary: 'Foreign flows softened over the past month while domestic institutions kept buying.',
+    sectors: [['Financials', 640], ['Capital Goods', 420], ['Industrials', 380], ['Healthcare', 260], ['Metals', 120], ['IT', -410], ['FMCG', -150], ['Auto', -90], ['Energy', -60], ['Telecom', -40]] },
+  '3M': { n: 63, seed: 3, prev: 'previous 3 months', fii: 8420, fiiD: 28, dii: 5960, diiD: 12, mf: 68, rising: 42,
+    regime: ['Selective ', 'accumulation', ''], summary: 'Domestic institutions have been consistent net buyers over the last 3 months, while foreign flows remain volatile with alternating inflows and outflows.',
+    sectors: [['Financials', 2180], ['Industrials', 1460], ['Capital Goods', 980], ['Healthcare', 420], ['Auto', 310], ['IT', -740], ['FMCG', -320], ['Metals', -210], ['Energy', -180], ['Telecom', -90]] },
+  '6M': { n: 126, seed: 11, prev: 'previous 6 months', fii: 14760, fiiD: 9, dii: 21300, diiD: 22, mf: 64, rising: 57,
+    regime: ['Broad ', 'accumulation', ''], summary: 'Both foreign and domestic institutions were net buyers over six months, with domestic buying the larger share.',
+    sectors: [['Financials', 3920], ['Industrials', 2610], ['Capital Goods', 2140], ['Healthcare', 1180], ['Auto', 860], ['Metals', 240], ['IT', -1620], ['FMCG', -540], ['Energy', -380], ['Telecom', -150]] },
+  '1Y': { n: 248, seed: 5, prev: 'previous year', fii: 11940, fiiD: -46, dii: 48900, diiD: 31, mf: 59, rising: 63,
+    regime: ['', 'Domestic-led', ' accumulation'], summary: 'Domestic institutions bought about four times as much as foreign investors over the year.',
+    sectors: [['Financials', 4880], ['Capital Goods', 3460], ['Industrials', 3020], ['Healthcare', 2210], ['Auto', 640], ['Telecom', 310], ['IT', -3840], ['FMCG', -1260], ['Energy', -980], ['Metals', -720]] },
+};
+const WIN = {
+  '1M': { mf: 'Aug → Sep 26', k: 0.45, qb: 1, ok: 1, start: new Date(2026, 8, 21), dk: 3 },
+  '3M': { mf: 'Jun → Sep 26', k: 1, qb: 1, ok: 1, start: new Date(2026, 6, 21), dk: 0 },
+  '6M': { mf: 'Mar → Sep 26', k: 1.6, qb: 2, ok: 1.7, start: new Date(2026, 3, 21), dk: -4 },
+  '1Y': { mf: 'Sep 25 → Sep 26', k: 2.4, qb: 4, ok: 2.6, start: new Date(2025, 9, 21), dk: -7 },
+};
+const UNIV = { 'Nifty 500': [500, 487, 9, 4], 'Nifty 1000': [1000, 941, 31, 28], 'All liquid NSE': [1684, 1633, 51, 0] };
+
+const STOCKS = [
+  { id: 'CGPOWER', name: 'CG Power and Ind. Sol.', full: 'CG Power and Industrial Solutions', bse: '500093', sector: 'Capital Goods', dir: 'acc',
+    mf: { pct: 1.8, up: 12, down: 1, amcs: 6, sh: 1.21, top: 38 }, own: { q: Q(2026, 2), fii: [7.2, 7.8], dii: [12.6, 13.0], filed: new Date(2026, 9, 17) },
+    deals: [{ d: new Date(2026, 9, 9), kind: 'Block', legs: 1, matched: 0, net: 8.4 }], del: 68, base: 42, rvol: 1.8, price: 742.30, chg: 2.8, chgAbs: 20.20, shadow: [82, 9],
+    against: ['Block-deal disclosures do not identify the buyer’s intent.', 'One AMC accounts for 38% of added shares.'],
+    weaken: ['MF share counts fall in the Oct 2026 disclosure.', 'Delivery falls back towards its 60-session baseline.'], fin: ['96.2×', '24.1×'], tech: [61, 3.1, 6.8, 11.8] },
+  { id: 'CARBORUNIV', name: 'Carborundum Universal', full: 'Carborundum Universal', bse: '513375', sector: 'Industrials', dir: 'acc',
+    mf: { pct: 1.4, up: 8, down: 1, amcs: 5, sh: 0.26, top: 31 }, own: { q: Q(2026, 1), fii: [9.1, 9.4], dii: [26.3, 26.5], filed: new Date(2026, 6, 19) },
+    deals: [{ d: new Date(2026, 9, 3), kind: 'Bulk', legs: 2, matched: 0, net: 12.6 }], del: 62, base: 38, rvol: 1.6, price: 1184.60, chg: 1.6, chgAbs: 18.65, shadow: [76, 12],
+    against: ['Sep 2026 shareholding filing has not been received yet.', 'Bulk-deal buyers are disclosed, but not their intent.'],
+    weaken: ['The Sep 2026 filing shows FII or DII ownership falling.', 'MF share counts fall in the Oct 2026 disclosure.'], fin: ['58.4×', '7.9×'], tech: [57, 1.4, 2.1, -3.4] },
+  { id: 'UNIONBANK', name: 'Union Bank of India', full: 'Union Bank of India', bse: '532477', sector: 'Financials', dir: 'acc',
+    mf: { pct: 1.1, up: 15, down: 3, amcs: 7, sh: 2.86, top: 22 }, own: { q: Q(2026, 2), fii: [2.4, 2.8], dii: [8.9, 9.7], filed: new Date(2026, 9, 16) },
+    deals: [{ d: new Date(2026, 8, 26), kind: 'Bulk', legs: 2, matched: 2, net: 0 }], del: 58, base: 36, rvol: 1.4, price: 128.45, chg: 1.2, chgAbs: 1.52, shadow: [71, 14],
+    against: ['The only bulk deal netted to zero: both legs matched as a transfer.', 'Delivery strength is a proxy and does not identify buyers.'],
+    weaken: ['DII ownership falls in the Dec 2026 filing.', 'Schemes reducing exceed those adding in the next disclosure.'], fin: ['6.3×', '1.0×'], tech: [63, 2.4, 5.6, 9.1] },
+  { id: 'TEGA', name: 'Tega Industries', full: 'Tega Industries', bse: '543413', sector: 'Industrials', dir: 'acc',
+    mf: { pct: 0.9, up: 6, down: 0, amcs: 2, sh: 0.05, top: 71 }, own: { q: Q(2026, 1), fii: [14.6, 3.9], dii: [18.2, 18.3], brk: true, filed: new Date(2026, 6, 18) },
+    deals: [], del: 55, base: 33, rvol: 1.3, price: 1836.20, chg: 0.9, chgAbs: 16.40, shadow: [67, 11],
+    against: ['MF buying is concentrated: 2 AMCs, one of them 71% of added shares.', 'FII change is withheld because the filing spans a classification break.'],
+    weaken: ['MF share counts fall in the Oct 2026 disclosure.', 'Delivery returns to its baseline.'], fin: ['49.7×', '7.2×'], tech: [54, 0.8, 1.2, 6.3] },
+  { id: 'HEG', name: 'HEG Ltd.', full: 'HEG Ltd.', bse: '509631', sector: 'Capital Goods', dir: 'acc',
+    mf: null, own: { q: Q(2026, 0), fii: [6.3, 6.4], dii: [11.5, 11.5], filed: new Date(2026, 3, 19) },
+    deals: [], del: 52, base: 34, rvol: 1.7, price: 521.75, chg: -0.6, chgAbs: -3.15, shadow: [54, 16],
+    against: ['ISIN is unmapped in the Sep 2026 AMFI files, so MF holdings are unknown.', 'Latest shareholding filing is from Mar 2026 and is stale.'],
+    weaken: ['Delivery and relative volume return to baseline.', 'Mapped MF data shows schemes reducing holdings.'], fin: ['41.3×', '2.1×'], tech: [47, -0.9, -1.8, -7.5] },
+  { id: 'MPHASIS', name: 'Mphasis', full: 'Mphasis', bse: '526299', sector: 'IT', dir: 'dist',
+    mf: { pct: -1.6, up: 2, down: 11, amcs: 6, sh: -0.31, top: 34 }, own: { q: Q(2026, 2), fii: [24.8, 23.9], dii: [52.1, 52.3], filed: new Date(2026, 9, 18) },
+    deals: [{ d: new Date(2026, 8, 2), kind: 'Block', legs: 1, matched: 0, net: -6.2 }], del: 49, base: 41, rvol: 1.5, price: 2684.40, chg: -1.9, chgAbs: -51.95, shadow: [12, 71],
+    against: ['DII ownership rose slightly, partly offsetting FII selling.', 'Block-deal disclosures do not identify the seller’s intent.'],
+    weaken: ['Schemes adding exceed those reducing in the Oct 2026 disclosure.', 'FII ownership stabilises in the Dec 2026 filing.'], fin: ['31.6×', '5.8×'], tech: [41, -2.6, -4.1, -6.2] },
+  { id: 'DABUR', name: 'Dabur India', full: 'Dabur India', bse: '500096', sector: 'FMCG', dir: 'dist',
+    mf: { pct: -0.8, up: 3, down: 9, amcs: 5, sh: -0.92, top: 29 }, own: { q: Q(2026, 2), fii: [15.6, 15.2], dii: [9.8, 9.7], filed: new Date(2026, 9, 15) },
+    deals: [], del: 44, base: 46, rvol: 0.9, price: 498.30, chg: -0.4, chgAbs: -2.00, shadow: [18, 58],
+    against: ['Market proxies do not confirm selling: delivery is slightly below baseline.', 'Ownership changes are small for a single quarter.'],
+    weaken: ['MF share counts stabilise in the Oct 2026 disclosure.', 'FII ownership rises in the Dec 2026 filing.'], fin: ['48.9×', '8.6×'], tech: [44, -0.7, -1.9, -3.8] },
+];
+
+const ASKS = [
+  ['flows', 'Why are institutional flows changing?'],
+  ['mf', 'Show stocks with rising MF holdings'],
+  ['compare', 'Compare FII and DII flows over 3 months'],
+  ['confirm', 'Which stocks have direct evidence plus proxy confirmation?'],
+  ['breaks', 'Which ownership changes span a classification break?'],
+  ['missing', 'Why is HEG marked proxy-only?'],
+];
+const ANSWERS = {
+  flows: { pre: 'The recent shift is ', accent: 'foreign-led', post: ': FII cash flows turned positive while DII buying held steady.', ac: 'var(--mint)',
+    prose: 'Based on NSE provisional cash-market data, 21 Jul–21 Oct 2026. These are market-wide totals; they do not show which stocks institutions bought.', src: ['NSE FII/DII · 21 Oct 2026'] },
+  mf: { pre: 'MF share counts rose in five scanner names; ', accent: 'Union Bank', post: ' has the widest scheme breadth.', ac: 'var(--mint)',
+    prose: 'Between the Jun and Sep 2026 disclosures, 15 schemes added Union Bank shares and 3 reduced; CG Power had 12 adding and 1 reducing. HEG is excluded because its ISIN is unmapped in the latest AMFI files.', src: ['AMFI · Sep 2026'] },
+  compare: { pre: 'FIIs bought more over 3M, but ', accent: 'DIIs', post: ' were the steadier buyer.', ac: 'var(--mint)',
+    prose: 'FIIs added ₹8,420 Cr against ₹5,960 Cr from DIIs. Foreign flows alternated between inflows and outflows; domestic buying stayed positive. Both are market-wide figures.', src: ['NSE FII/DII · 21 Jul–21 Oct'] },
+  confirm: { pre: '', accent: 'CG Power', post: ' and Carborundum Universal have direct evidence with proxy confirmation.', ac: 'var(--mint)',
+    prose: 'Both show rising MF share counts, a disclosed deal that stays directional after transfer netting, and delivery well above baseline. Union Bank’s deal legs matched as a transfer, so only holdings and proxies support it.', src: ['AMFI · Sep 2026', 'NSE deals · netted', 'NSE delivery'] },
+  breaks: { pre: 'Tega Industries’ FII change is ', accent: 'withheld', post: ' because its filing spans a classification break.', ac: 'var(--amber)',
+    prose: 'Between Mar and Jun 2026, reported FII ownership fell by more than 10 pp while “Others” rose by a similar amount, which points to reclassification rather than selling. DII and MF changes are still shown.', src: ['Shareholding pattern · Jun 2026'] },
+  missing: { pre: 'HEG has ', accent: 'market-proxy evidence only', post: ', so it is not labelled institutional accumulation.', ac: 'var(--amber)',
+    prose: 'Its ISIN is unmapped in the Sep 2026 AMFI files and its latest shareholding filing is from Mar 2026. Delivery of 52% against a 34% baseline is consistent with accumulation but does not identify the buyer.', src: ['NSE delivery', 'Coverage report'] },
+};
+const route = q => { const t = q.toLowerCase();
+  if (/break|classif/.test(t)) return 'breaks'; if (/proxy|missing|heg/.test(t)) return 'missing'; if (/confirm|direct/.test(t)) return 'confirm';
+  if (/\bmf\b|mutual|holding/.test(t)) return 'mf'; if (/compare|\bdii\b|\bvs\b/.test(t)) return 'compare'; return 'flows'; };
+
+function rng(seed) { let s = seed * 9301 + 49297; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+function tradingDays(n) { const out = [], d = new Date(END); while (out.length < n) { const w = d.getDay(); if (w !== 0 && w !== 6) out.unshift(new Date(d)); d.setDate(d.getDate() - 1); } return out; }
+const CACHE = {};
+function chartFor(key) {
+  if (CACHE[key]) return CACHE[key];
+  const P = PERIODS[key], n = P.n, r = rng(P.seed), waves = n > 100 ? 5 : n > 40 ? 3.5 : 2;
+  let f = [], d = [];
+  for (let i = 0; i < n; i++) { const t = i / (n - 1); f.push((r() - 0.5) * 2200 + Math.sin(t * Math.PI * 2 * waves + P.seed) * 700 + (t > 0.78 ? 650 : 0)); d.push(0.3 + r() * 1.4); }
+  const fm = f.reduce((a, v) => a + v, 0) / n; f = f.map(v => v - fm + P.fii / n);
+  const ds = d.reduce((a, v) => a + v, 0); d = d.map(v => v / ds * P.dii);
+  const F = [], D = []; let cf = 0, cd = 0;
+  for (let i = 0; i < n; i++) { cf += f[i]; cd += d[i]; F.push(cf); D.push(cd); }
+  const lo = Math.min(0, ...F, ...D), hi = Math.max(0, ...F, ...D);
+  const step = [1000, 2000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 30000].find(s => (hi - lo) / s <= 4.2) || 30000;
+  const top = Math.ceil(hi / step) * step, bot = Math.floor(lo / step) * step, span = (top - bot) || 1, H = 150;
+  const Y = v => ((top - v) / span) * H;
+  const path = A => A.map((v, i) => (i ? 'L' : 'M') + (i / (n - 1) * 600).toFixed(1) + ',' + Y(v).toFixed(1)).join('');
+  const ticks = []; for (let v = top; v >= bot; v -= step) ticks.push({ label: (v < 0 ? M : '') + inr(v), top: ((top - v) / span * 100) + '%', bs: v === 0 ? 'dashed' : 'solid', bc: v === 0 ? 'var(--line-3)' : 'var(--line)' });
+  const dates = tradingDays(n);
+  const xTicks = [0, 1, 2, 3, 4, 5].map(k => { const dt = dates[Math.round(k * (n - 1) / 5)]; return n > 130 ? MON[dt.getMonth()] + ' ’' + String(dt.getFullYear()).slice(2) : dt.getDate() + ' ' + MON[dt.getMonth()]; });
+  return (CACHE[key] = { n, f, d, F, D, dates, ticks, xTicks, H, Y, fiiPath: path(F), diiPath: path(D) });
+}
+
+const CLS = { A: ['var(--mint)', 'var(--mint-soft)', 'var(--mint-line)', 'Disclosed holdings change'], B: ['var(--mint)', 'var(--mint-soft)', 'var(--mint-line)', 'Disclosed deal, net of transfers'], C: ['var(--amber)', 'var(--amber-soft)', 'var(--amber-line)', 'Market proxy, buyer unknown'], D: ['var(--indigo)', 'var(--indigo-soft)', 'var(--indigo-line)', 'Direct and proxy align'] };
+const chip = (k, on) => k in CLS && on !== false ? { k, c: CLS[k][0], bg: CLS[k][1], bd: CLS[k][2], tip: CLS[k][3] } : { k, c: 'var(--ink-5)', bg: 'transparent', bd: 'var(--line-2)', tip: k in CLS ? CLS[k][3] + ' · absent' : 'Not usable' };
+
+function evalStock(s, W) {
+  const m = s.mf, o = s.own, sq = Math.sqrt(W.k);
+  let mf = null;
+  if (m) { const up = Math.max(m.up ? 1 : 0, Math.round(m.up * sq)), down = Math.round(m.down * sq); mf = { pct: m.pct * W.k, sh: m.sh * W.k, up, down, amcs: Math.min(up + down, Math.max(1, Math.round(m.amcs * Math.min(1.4, sq)))), top: m.top }; }
+  const fr = o.q >= LATEST ? 'Fresh' : o.q === LATEST - 1 ? 'Ageing' : 'Stale';
+  const sp = a => [a[1] - (a[1] - a[0]) * W.ok, a[1]];
+  const fii = o.brk ? null : sp(o.fii), dii = sp(o.dii);
+  const fiiD = fii ? fii[1] - fii[0] : 0, diiD = dii[1] - dii[0];
+  const qText = qL(o.q - W.qb) + ' → ' + qL(o.q);
+  const ds = s.deals.filter(x => x.d >= W.start);
+  const legs = ds.reduce((a, x) => a + x.legs, 0), matched = ds.reduce((a, x) => a + x.matched, 0), net = ds.reduce((a, x) => a + x.net, 0);
+  const del = s.del + W.dk;
+  const A = !!(mf && Math.abs(mf.pct) >= 0.1) || (fr !== 'Stale' && (Math.abs(fiiD) >= 0.05 || Math.abs(diiD) >= 0.05));
+  const B = Math.abs(net) > 0, C = del - s.base >= 8 || s.rvol >= 1.5, D = (A || B) && C;
+  const cov = Math.round(((m ? 1 : 0) + (fr === 'Stale' ? 0 : o.brk ? 0.5 : 1) + 1) / 3 * 100);
+  const breadth = mf ? (s.dir === 'acc' ? mf.up - mf.down : mf.down - mf.up) : -99;
+  return { mf, fr, fii, dii, fiiD, diiD, qText, ds, legs, matched, net, del, A, B, C, D, cov, nCls: (A ? 1 : 0) + (B ? 1 : 0) + (C ? 1 : 0), breadth, lane: (A || B) ? 'direct' : C ? 'proxy' : 'none' };
+}
+
+class Component extends DCLogic {
+  state = { period: '3M', view: 'flow', sector: 'All', universe: 'Nifty 500', dir: 'all', fresh: 'all', lane: 'direct',
+    selId: 'CGPOWER', closed: false, tab: 'overview', followed: {}, hover: null, phase: 'idle', askQ: '', askId: null };
+  draftRef = React.createRef();
+  componentWillUnmount() { clearTimeout(this._t); }
+  ask(q, id) { clearTimeout(this._t); if (this.draftRef.current) this.draftRef.current.value = ''; this.setState({ askQ: q, askId: id || route(q), phase: 'thinking' }); this._t = setTimeout(() => this.setState({ phase: 'done' }), 700); }
+  onChartMove = e => { const r = e.currentTarget.getBoundingClientRect(), n = PERIODS[this.state.period].n; const i = Math.max(0, Math.min(n - 1, Math.round((e.clientX - r.left) / r.width * (n - 1)))); if (i !== this.state.hover) this.setState({ hover: i }); };
+
+  renderVals() {
+    const st = this.state, P = PERIODS[st.period], C = chartFor(st.period), C3 = chartFor('3M'), W = WIN[st.period];
+    const theme = this.props.theme ?? 'dark', showShadow = this.props.showShadowScore ?? false, showRail = this.props.showCopilot ?? true;
+    const sum = (A, k) => A.slice(-k).reduce((a, v) => a + v, 0);
+    const roll = A => [5, 20, 60].map(k => { const v = sum(A, k); return k + 'D ' + (v < 0 ? M : '+') + inr(v); }).join('  ·  ');
+    const flowStats = [
+      { k: 'FII net (cash)', dot: 'var(--mint)', v: '₹' + inr(P.fii) + ' Cr', d: arrow(P.fiiD) + ' vs ' + P.prev, dc: tone(P.fiiD), roll: roll(C3.f) },
+      { k: 'DII net (cash)', dot: 'var(--indigo)', v: '₹' + inr(P.dii) + ' Cr', d: arrow(P.diiD) + ' vs ' + P.prev, dc: tone(P.diiD), roll: roll(C3.d) },
+    ];
+
+    const sorted = [...P.sectors].sort((a, b) => ((b[1] > 0) - (a[1] > 0)) || (Math.abs(b[1]) - Math.abs(a[1])));
+    const gross = sorted.reduce((s, x) => s + Math.abs(x[1]), 0), sumPos = sorted.filter(x => x[1] > 0).reduce((s, x) => s + x[1], 0) || 1;
+    const counts = sorted.map(x => Math.max(1, Math.round(Math.abs(x[1]) / sumPos * P.rising)));
+    const met = sorted.map(([name, v], i) => {
+      const sg = v > 0 ? '+' : M;
+      if (st.view === 'share') return { name, v, m: Math.abs(v), label: sg + (Math.abs(v) / gross * 100).toFixed(1) + '%' };
+      if (st.view === 'count') return { name, v, m: counts[i], label: counts[i] + ' stocks' };
+      return { name, v, m: Math.abs(v), label: sg + inr(v) + ' Cr' };
+    });
+    const mx = Math.max(...met.map(x => x.m)) || 1, sel = st.sector;
+    const sectorRows = met.map(x => { const w = Math.max(3, x.m / mx * 100) + '%'; return { name: x.name, label: x.label, posW: x.v > 0 ? w : '0%', negW: x.v < 0 ? w : '0%', c: x.v > 0 ? 'var(--mint)' : 'var(--danger)', op: sel === 'All' || sel === x.name ? 1 : 0.4, bg: sel === x.name ? 'var(--bg-2)' : 'transparent', pick: () => this.setState(s => ({ sector: s.sector === x.name ? 'All' : x.name })) }; });
+
+    let hover = null;
+    if (st.hover != null && st.hover < C.n) { const i = st.hover, l = i / (C.n - 1) * 100, dt = C.dates[i], money = v => (v < 0 ? M : '+') + '₹' + inr(v) + ' Cr';
+      hover = { left: l + '%', fy: (C.Y(C.F[i]) / C.H * 100) + '%', dy: (C.Y(C.D[i]) / C.H * 100) + '%', date: dt.getDate() + ' ' + MON[dt.getMonth()] + ' ' + dt.getFullYear(), fii: money(C.F[i]), dii: money(C.D[i]), tx: l > 55 ? 'translateX(calc(-100% - 14px))' : 'translateX(14px)' }; }
+
+    const isWatch = st.universe === 'My watchlist';
+    const U = isWatch ? null : UNIV[st.universe];
+    const scale = U ? U[1] / 487 : 0;
+    const rising = isWatch ? STOCKS.filter(s => st.followed[s.id] && s.dir === 'acc').length : Math.round(P.rising * scale);
+    const evald = isWatch ? Object.values(st.followed).filter(Boolean).length : U[1];
+    const fFresh = Math.round(rising * 0.74), fStale = rising ? Math.max(1, Math.round(rising * 0.05)) : 0, fAge = Math.max(0, rising - fFresh - fStale);
+    const tDP = Math.round(rising * 0.43), tD = Math.round(rising * 0.26), tP = Math.max(0, rising - tDP - tD);
+    const tw = v => (rising ? v / rising * 100 : 0) + '%';
+    const k = { rising, evald,
+      tiers: [{ k: 'Direct + proxy agree', v: tDP, w: tw(tDP), c: 'var(--mint)' }, { k: 'Direct evidence only', v: tD, w: tw(tD), c: 'var(--mint-2)' }, { k: 'Proxy only · not confirmed', v: tP, w: tw(tP), c: 'var(--amber)' }],
+      fresh: [{ k: 'Fresh', v: fFresh, c: 'var(--mint)' }, { k: 'Ageing', v: fAge, c: 'var(--amber)' }, { k: 'Stale', v: fStale, c: 'var(--danger)' }],
+      mfLine: P.mf + '% of tracked stocks show rising MF share counts (AMFI, ' + W.mf + '). Proxy-only names are counted separately and never as confirmed accumulation.' };
+
+    const evs = STOCKS.map(s => ({ s, e: evalStock(s, W) }));
+    const base = evs.filter(({ s, e }) => (!isWatch || st.followed[s.id]) && (sel === 'All' || s.sector === sel) && (st.dir === 'all' || s.dir === st.dir) && (st.fresh === 'all' || e.fr === st.fresh));
+    const laneCount = l => base.filter(x => l === 'all' || x.e.lane === l).length;
+    const list = base.filter(x => st.lane === 'all' || x.e.lane === st.lane)
+      .sort((a, b) => (a.s.dir === b.s.dir ? 0 : a.s.dir === 'acc' ? -1 : 1) || (b.e.nCls - a.e.nCls) || (b.e.breadth - a.e.breadth));
+    const rows = list.map(({ s, e }, i) => {
+      const on = s.id === st.selId && !st.closed, stale = e.fr === 'Stale';
+      return { n: i + 1, name: s.name, ticker: s.id, sector: s.sector,
+        mfT: e.mf ? signed(e.mf.pct, 1) + '%' : 'Unmapped', mfC: e.mf ? tone(e.mf.pct) : 'var(--amber)', mfB: e.mf ? e.mf.up + '↑ ' + e.mf.down + '↓ · ' + e.mf.amcs + ' AMCs' : 'ISIN not in AMFI files',
+        fiiT: e.fii ? signed(e.fiiD, 1) + 'pp' : '—', fiiC: !e.fii || stale ? 'var(--ink-3)' : tone(e.fiiD), diiT: signed(e.diiD, 1) + 'pp', diiC: stale ? 'var(--ink-3)' : tone(e.diiD),
+        q: (s.own.brk ? 'FII break · ' : stale ? 'Stale · ' : '') + e.qText, qC: s.own.brk || stale ? 'var(--amber)' : 'var(--ink-3)',
+        dealT: e.legs ? (e.net ? 'Net ' + signed(e.net, 1) + 'L sh' : 'Net 0') : '—', dealC: e.net ? tone(e.net) : e.legs ? 'var(--ink-2)' : 'var(--ink-4)',
+        dealB: e.legs ? (e.net ? e.legs + (e.legs > 1 ? ' legs' : ' leg') + ' · ' + e.matched + ' matched' : e.legs + ' legs · transfer') : 'No deals in window',
+        del: e.del + '%', base: 'vs ' + s.base + '% base',
+        cls: [chip('A', e.A), chip('B', e.B), chip('C', e.C), chip('D', e.D)],
+        cov: e.lane === 'direct' ? 'Direct ' + e.cov + '%' : e.lane === 'proxy' ? 'Proxy only' : 'Insufficient', covC: e.lane === 'direct' && e.cov === 100 ? 'var(--mint)' : 'var(--amber)',
+        shadow: 'Shadow A' + s.shadow[0] + ' · D' + s.shadow[1],
+        fr: e.fr, frC: FR_C[e.fr], frSub: 'MF ' + (s.mf ? 'SEP 26' : '—') + ' · SHP ' + qL(s.own.q).toUpperCase(),
+        bg: on ? 'var(--bg-2)' : 'transparent', bd: on ? 'var(--line-3)' : 'transparent', pick: () => this.setState({ selId: s.id, closed: false }) };
+    });
+    const lanes = [['direct', 'Disclosed evidence', 'Holdings or deals show it (A/B)'], ['proxy', 'Proxy only', 'Activity suggests it; buyer unknown (C)'], ['all', 'All', 'Including insufficient evidence']]
+      .map(([id, label, sub]) => ({ label, sub, n: laneCount(id), pick: () => this.setState({ lane: id }), c: id === st.lane ? 'var(--ink)' : 'var(--ink-3)', bc: id === st.lane ? 'var(--mint)' : 'transparent' }));
+    const coverage = isWatch ? 'Watchlist · ' + evald + ' followed · use Follow in the stock panel to add' : 'Coverage · ' + U[1] + ' of ' + U[0] + ' evaluated · ' + U[2] + ' unmapped ISINs · ' + U[3] + ' below liquidity floor · illustrative sample of ' + STOCKS.length;
+
+    const s = STOCKS.find(x => x.id === st.selId), hasStock = !!s && !st.closed;
+    let stv = null, tiles = [], tilesNote = '';
+    if (s) {
+      const e = evalStock(s, W), stale = e.fr === 'Stale', acc = s.dir === 'acc';
+      const why = [];
+      if (e.mf) why.push({ ...chip('A'), t: 'MF share count ' + (acc ? 'up ' : 'down ') + Math.abs(e.mf.pct).toFixed(1) + '%: ' + e.mf.up + ' schemes adding, ' + e.mf.down + ' reducing, across ' + e.mf.amcs + ' AMCs.', src: 'AMFI · ' + W.mf });
+      else why.push({ ...chip('—', false), t: 'MF holdings unknown: the ISIN is not mapped in the latest AMFI files.', src: 'AMFI · coverage report' });
+      if (stale) why.push({ ...chip('—', false), t: 'Ownership data is stale (latest filing ' + qLong(s.own.q) + ') and is not used as evidence.', src: 'Shareholding · ' + e.qText });
+      else if (s.own.brk) why.push({ ...chip('A'), t: 'DII ownership ' + e.dii[0].toFixed(1) + '% → ' + e.dii[1].toFixed(1) + '%. FII change withheld: classification break detected.', src: 'Shareholding · ' + e.qText });
+      else why.push({ ...chip('A'), t: 'FII ownership ' + e.fii[0].toFixed(1) + '% → ' + e.fii[1].toFixed(1) + '%; DII ' + e.dii[0].toFixed(1) + '% → ' + e.dii[1].toFixed(1) + '%.', src: 'Shareholding · ' + e.qText });
+      if (e.legs && e.net) why.push({ ...chip('B'), t: e.ds[0].kind + ' deal: net ' + signed(e.net, 1) + 'L shares after transfer netting.', src: 'NSE deals · ' + dd(e.ds[0].d) });
+      else if (e.legs) why.push({ ...chip('—', false), t: e.legs + ' bulk-deal legs matched as a transfer; net change is zero.', src: 'NSE deals · netted' });
+      why.push(e.C ? { ...chip('C'), t: 'Delivery ' + e.del + '% vs ' + s.base + '% baseline; relative volume ' + s.rvol.toFixed(1) + '×.', src: 'NSE delivery · 60-session baseline' }
+        : { ...chip('—', false), t: 'Delivery ' + e.del + '% vs ' + s.base + '% baseline; proxies do not confirm.', src: 'NSE delivery · 60-session baseline' });
+      const news = [];
+      if (s.mf) news.push({ d: new Date(2026, 9, 10), t: 'Monthly portfolios: MF share count ' + signed(s.mf.pct, 1) + '%', src: 'AMFI · Sep 2026' });
+      e.ds.forEach(x => news.push({ d: x.d, t: x.kind + ' deal · ' + x.legs + (x.legs > 1 ? ' legs' : ' leg') + (x.net ? ' · net ' + signed(x.net, 1) + 'L shares' : ' · matched transfer'), src: 'NSE · Bulk & block deals' }));
+      news.push({ d: s.own.filed, t: 'Shareholding pattern filed for quarter ended ' + qLong(s.own.q), src: 'BSE · Reg. 31' });
+      news.sort((a, b) => b.d - a.d);
+      stv = { name: s.full, ticker: s.id, bse: s.bse,
+        price: '₹' + s.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), chg: signed(s.chg, 1) + '% (' + signed(s.chgAbs, 2) + ')', chgC: tone(s.chg),
+        dirLabel: e.lane === 'proxy' ? 'Proxy signal' : acc ? 'Accumulation' : 'Distribution', dirClass: e.lane === 'proxy' ? 'nv-pill-amber' : acc ? 'nv-pill-mint' : 'nv-pill-danger',
+        why, proxyOnly: e.lane === 'proxy',
+        tiles: [
+          { k: 'Direct evidence', v: e.cov === 100 ? 'Available' : e.cov >= 50 ? 'Partial' : 'Unavailable', sub: e.cov + '% of direct inputs', c: e.cov === 100 ? 'var(--mint)' : 'var(--amber)' },
+          { k: 'Proxy coverage', v: '100%', sub: 'Delivery · volume · trend', c: 'var(--ink)' },
+          { k: 'Evidence as of', v: s.mf ? 'Sep 2026' : qLong(s.own.q), sub: 'MF ' + (s.mf ? 'Sep 26' : 'unmapped') + ' · SHP ' + qL(s.own.q), c: 'var(--ink)' },
+          { k: 'Freshness', v: e.fr, sub: 'Against expected cadence', c: FR_C[e.fr] },
+        ],
+        shadow: 'Accumulation ' + s.shadow[0] + ' · Distribution ' + s.shadow[1],
+        against: s.against.map(t => ({ t })), weaken: s.weaken.map(t => ({ t })),
+        groups: [
+          { t: 'MF holdings · ' + W.mf, rows: e.mf ? [
+            { k: 'Share count change', v: signed(e.mf.pct, 1) + '%', sub: signed(e.mf.sh, 2) + ' Cr shares', c: tone(e.mf.pct) },
+            { k: 'Schemes adding / reducing', v: e.mf.up + ' / ' + e.mf.down, sub: e.mf.amcs + ' AMCs', c: 'var(--ink-3)' },
+            { k: 'Concentration', v: 'Top AMC ' + e.mf.top + '%', sub: e.mf.top >= 50 ? 'Concentrated' : 'Broad', c: e.mf.top >= 50 ? 'var(--amber)' : 'var(--ink-3)' }]
+            : [{ k: 'Status', v: 'Unmapped', sub: 'ISIN not in AMFI files', c: 'var(--amber)' }] },
+          { t: 'Ownership · ' + e.qText, rows: [
+            { k: 'FII', v: e.fii ? e.fii[0].toFixed(1) + '% → ' + e.fii[1].toFixed(1) + '%' : 'Withheld', sub: e.fii ? signed(e.fiiD, 1) + ' pp' : 'Classification break', c: e.fii ? tone(e.fiiD) : 'var(--amber)' },
+            { k: 'DII', v: e.dii[0].toFixed(1) + '% → ' + e.dii[1].toFixed(1) + '%', sub: signed(e.diiD, 1) + ' pp', c: tone(e.diiD) },
+            { k: 'Comparability', v: s.own.brk ? 'Break detected' : stale ? 'Stale' : 'Comparable', sub: 'Filed ' + dd(s.own.filed), c: s.own.brk || stale ? 'var(--amber)' : 'var(--ink-3)' }] },
+          { t: 'Deals · transfer-netted · ' + st.period, rows: [
+            { k: 'Legs disclosed', v: String(e.legs), sub: e.matched + ' matched as transfer', c: 'var(--ink-3)' },
+            { k: 'Net shares', v: e.legs ? (e.net ? signed(e.net, 1) + 'L' : '0') : '—', sub: e.legs ? (e.net ? 'Directional after netting' : 'Transfer · not directional') : 'No deals in window', c: e.net ? tone(e.net) : 'var(--ink-3)' }] },
+          { t: 'Market proxies · buyer unknown', rows: [
+            { k: 'Delivery', v: e.del + '% vs ' + s.base + '%', sub: '60-session baseline', c: e.C ? 'var(--amber)' : 'var(--ink-3)' },
+            { k: 'Relative volume', v: s.rvol.toFixed(1) + '×', sub: '20-session', c: 'var(--ink-3)' }] },
+        ],
+        news: news.map(x => ({ date: dd(x.d), t: x.t, src: x.src })) };
+      if (st.tab === 'fin') { tiles = [{ k: 'P/E', v: s.fin[0], sub: 'Trailing', c: 'var(--ink)' }, { k: 'P/B', v: s.fin[1], sub: 'Latest book value', c: 'var(--ink)' }, { k: 'Interest coverage', v: 'Unavailable', sub: 'Feed not ingested', c: 'var(--ink-3)' }, { k: 'CFO / PAT', v: 'Unavailable', sub: 'Feed not ingested', c: 'var(--ink-3)' }]; tilesNote = 'Distress gates unevaluable until the financials feed is restored'; }
+      else if (st.tab === 'tech') { const t = s.tech; tiles = [{ k: 'RSI · 14D', v: String(t[0]), sub: t[0] > 70 ? 'Overbought' : t[0] < 30 ? 'Oversold' : 'Neutral', c: 'var(--ink)' }, { k: 'vs EMA20', v: signed(t[1], 1) + '%', sub: 'Short trend', c: tone(t[1]) }, { k: 'vs EMA50', v: signed(t[2], 1) + '%', sub: 'Medium trend', c: tone(t[2]) }, { k: 'vs EMA200', v: signed(t[3], 1) + '%', sub: 'Long trend', c: tone(t[3]) }]; tilesNote = 'Illustrative · daily close, 21 Oct 2026'; }
+    }
+    const fol = s && st.followed[s.id];
+
+    return {
+      theme, per: st.period, win: W.mf, k, flowStats, showShadow, showRail,
+      periods: ['1M', '3M', '6M', '1Y'].map(p => ({ label: p, ...seg(p === st.period), pick: () => this.setState({ period: p, hover: null }) })),
+      onSearchKey: e => { const v = e.target.value.trim(); if (e.key === 'Enter' && v) { this.ask(v); e.target.value = ''; } },
+      rg: { pre: P.regime[0], accent: P.regime[1], post: P.regime[2], summary: P.summary },
+      chart: { ticks: C.ticks, xTicks: C.xTicks, fii: C.fiiPath, dii: C.diiPath }, hover, onChartMove: this.onChartMove, onChartLeave: () => this.setState({ hover: null }),
+      views: [['flow', '₹ Cr'], ['share', '% of total'], ['count', 'Stocks']].map(([id, label]) => ({ label, ...seg(id === st.view), pick: () => this.setState({ view: id }) })),
+      sectorRows, sector: sel, sectorHint: sel === 'All' ? 'Select a sector to filter the scanner' : 'Scanner filtered to ' + sel,
+      universe: st.universe, onUniverse: e => this.setState({ universe: e.target.value }), onSector: e => this.setState({ sector: e.target.value }),
+      dirs: [['all', 'All'], ['acc', 'Accumulation'], ['dist', 'Distribution']].map(([id, label]) => ({ label, ...seg(id === st.dir), pick: () => this.setState({ dir: id }) })),
+      frOpts: [['all', 'Any age'], ['Fresh', 'Fresh'], ['Ageing', 'Ageing'], ['Stale', 'Stale']].map(([id, label]) => ({ label, ...seg(id === st.fresh), pick: () => this.setState({ fresh: id }) })),
+      lanes, rows, coverage, noRows: rows.length === 0,
+      emptyMsg: isWatch && !evald ? 'Your watchlist is empty. Follow a stock from the stock panel.' : 'No stocks match these filters in this evidence lane.',
+      clearAll: () => this.setState({ sector: 'All', dir: 'all', fresh: 'all', lane: 'all', universe: isWatch && !evald ? 'Nifty 500' : st.universe }),
+      idle: st.phase === 'idle', asking: st.phase !== 'idle', thinking: st.phase === 'thinking', answered: st.phase === 'done',
+      asks: ASKS.map(([id, q]) => ({ q, pick: () => this.ask(q, id) })), askQ: st.askQ, ans: ANSWERS[st.askId] || ANSWERS.flows, draftRef: this.draftRef,
+      onDraftKey: e => { const v = e.target.value.trim(); if (e.key === 'Enter' && v) this.ask(v); },
+      send: () => { const el = this.draftRef.current, v = el && el.value.trim(); this.ask(v || 'Why are institutional flows changing?'); },
+      resetAsk: () => { clearTimeout(this._t); this.setState({ phase: 'idle', askQ: '' }); },
+      hasStock, noStock: !hasStock, st: stv, closeStock: () => this.setState({ closed: true }),
+      follow: fol ? { label: '✓ Following', bg: 'transparent', bd: 'var(--line-2)', c: 'var(--ink-2)' } : { label: '＋ Follow', bg: 'var(--mint-soft)', bd: 'var(--mint-line)', c: 'var(--mint)' },
+      toggleFollow: () => this.setState(x => ({ followed: { ...x.followed, [x.selId]: !x.followed[x.selId] } })),
+      tabs: [['overview', 'Overview'], ['smart', 'Smart Money'], ['fin', 'Financials'], ['tech', 'Technicals'], ['news', 'News']].map(([id, label]) => ({ label, pick: () => this.setState({ tab: id }), c: id === st.tab ? 'var(--mint)' : 'var(--ink-3)', bc: id === st.tab ? 'var(--mint)' : 'transparent' })),
+      tabOverview: st.tab === 'overview', tabSmart: st.tab === 'smart', tabTiles: st.tab === 'fin' || st.tab === 'tech', tabNews: st.tab === 'news', tiles, tilesNote,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -61,6 +61,8 @@ SERVICES: dict[str, str] = {
     "sebi_circulars":         "nidp.services.sebi_circulars.service",
     "mf_disclosure_snapshot": "nidp.services.mf_disclosure_snapshot.service",
     "mf_holdings":            "nidp.services.mf_holdings.service",
+    # Derived: month-over-month holdings change (§20.1). Runs after mf_holdings.
+    "mf_holdings_deltas":     "nidp.services.mf_holdings_deltas.service",
     "event_calendar":         "nidp.services.event_calendar.service",
     "nse_financials":         "nidp.services.nse_financials.service",
     "event_analyzer":         "nidp.services.event_analyzer.service",

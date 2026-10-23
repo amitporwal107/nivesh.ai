@@ -51,6 +51,8 @@ from deps import db, get_current_user
 from services import desk_alerts as alerts_svc
 from services import desk_strategy_trades as strat
 from services import desk_trading as svc
+from services import paper_account as acct
+from services import risk_controls as rc
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,16 @@ def _as_of(bars: Dict[str, List[Dict[str, Any]]]):
 async def create_paper_trade(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     uid = user["user_id"]
+    # The kill switch is checked BEFORE the body is parsed or anything is written: this path had no
+    # risk gate of any kind (docs/RISK_CONTROL_INVENTORY.md) and is the one a user actually clicks,
+    # including the Top-5 board's "Paper trade" button. Open positions are untouched.
+    try:
+        await rc.assert_allowed(db, uid, "desk_paper_trade")
+    except rc.RiskBlocked as blocked:
+        await rc.record_decision(db, uid, action="desk_paper_trade", outcome="blocked",
+                                 reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
+                                 detail=blocked.detail("desk_paper_trade"))
+        raise HTTPException(status_code=409, detail=blocked.detail("desk_paper_trade"))
     body = await _body(request)
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
@@ -104,14 +116,27 @@ async def create_paper_trade(request: Request) -> Dict[str, Any]:
             doc = svc.new_trade(uid, body)
     except svc.DeskInputError as exc:
         raise _input_error(exc)
+    # The account is charged BEFORE the trade is written: a position the account cannot fund must not
+    # exist even briefly. A cash trade reserves quantity x entry price; a multi-leg structure reserves
+    # its capital at risk (desk_strategy_trades.exposure_rs) — not exchange margin, which this system
+    # has no source for.
+    need = acct.reservation_for(doc, strat.exposure_rs(doc) if doc.get("kind") == strat.KIND else None)
+    try:
+        reserved = await acct.reserve(db, uid, need, trade_id=doc["_id"], symbol=doc.get("symbol"))
+    except acct.InsufficientFunds as short:
+        raise HTTPException(status_code=409, detail=short.detail())
+    doc["paper_reserved_rs"] = reserved
+
     await svc.ensure_indexes(db)
     open_filter = {"user_id": uid, "status": "open"}
     if await db[svc.TRADES].count_documents(open_filter) >= svc.MAX_OPEN_TRADES:
+        await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
         raise HTTPException(status_code=409, detail="open_trade_limit")
     await db[svc.TRADES].insert_one(doc)
     # Two requests that both counted 99 can both insert; the later count catches it and takes ours back.
     if await db[svc.TRADES].count_documents(open_filter) > svc.MAX_OPEN_TRADES:
         await db[svc.TRADES].delete_one({"_id": doc["_id"], "user_id": uid})
+        await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
         raise HTTPException(status_code=409, detail="open_trade_limit")
     logger.info("desk: user %s opened paper trade %s (%s)", uid, doc["_id"], doc["symbol"])
     return {"trade": _public(doc), **_price_context()}
@@ -119,6 +144,14 @@ async def create_paper_trade(request: Request) -> Dict[str, Any]:
 
 def _public(doc: Dict[str, Any]) -> Dict[str, Any]:
     return strat.public_strategy_trade(doc, detail=True) if doc.get("kind") == strat.KIND else svc.public_trade(doc)
+
+
+@router.get("/paper-account")
+async def paper_account(request: Request) -> Dict[str, Any]:
+    """The paper account: starting capital, cash, what is blocked against open positions, and what is
+    left. `blocked_rs` is CAPITAL AT RISK, not exchange margin — this system has no margin source."""
+    user = await get_current_user(request)
+    return await acct.read(db, user["user_id"])
 
 
 @router.get("/paper-trades")

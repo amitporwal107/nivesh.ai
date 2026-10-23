@@ -1,0 +1,57 @@
+{
+  "controls": "must add value beyond market, sector, liquidity and price-momentum effects",
+  "data_source": {
+    "feed": "Trendlyne MCP get_ownership_deals_insider_sast type=bulblockdeal -> nidp.trendlyne_deals",
+    "vendor_cap": "the feed returns at most 200 rows per stock, most recent first, so very heavily dealt stocks are truncated; this must be reported as a coverage limitation.",
+    "why_not_nse": "nidp.bulk_deals/block_deals come from NSE's ROLLING bulk.csv, which cannot yield history: measured 2026-10-22 at 7 days of bulk and 2 of block, with zero overlap with the study window."
+  },
+  "deal_feature_rules": {
+    "bounds": "the deal contribution is bounded SEPARATELY from the holdings overlay so neither can dominate and each can be ablated independently",
+    "confidence": "lower confidence where the counterparty or ultimate beneficial owner is unclear; a single-client signal is damped as the holdings overlay already does",
+    "evidence_claim": "a disclosed deal evidences that a TRANSACTION occurred, never that an institution is accumulating with a bullish view",
+    "features": [
+      "deal intensity vs turnover and free float",
+      "net disclosed flow excluding transfers",
+      "repeat buying by the same client and by independent clients over fixed lookbacks",
+      "deal price vs market price",
+      "distinct buying clients",
+      "block vs bulk split"
+    ],
+    "offsetting_transfers_excluded": "legs matching an opposite-action leg on the same (symbol, date, quantity, price) are paired off before any net flow is computed. Measured on the first 38 symbols: 46.8% of symbol-days were PURE transfers with zero net demand.",
+    "point_in_time": "a deal may only be used for scoring dates STRICTLY AFTER its trade date. Exchanges publish after the close and the feed carries no publication timestamp, so same-day use is forbidden.",
+    "sides_kept_separate": "buyer and seller legs stored and counted separately; distinct client counts, not leg counts"
+  },
+  "failure_policy": "if the C-vs-B increment is not positive out of sample, deals are retained as market-intelligence CONTEXT and must not influence the score. No horizon, subset or threshold may be reselected after seeing results; that requires a new study_id.",
+  "horizons": {
+    "primary_sessions": 20,
+    "secondary_sessions": [
+      5,
+      60
+    ]
+  },
+  "hurdle": {
+    "note": "inherits 001's +1.0 pp framing for the A->B comparison; the C-vs-B increment has no preset pp hurdle and is judged on a credible positive out-of-sample estimate"
+  },
+  "hypothesis": {
+    "H0": "adding a bounded bulk/block deal feature does not improve net 20-session incremental return beyond the mutual-fund holdings tilt (Model B)",
+    "H1": "Model C (baseline + MF holdings + deal feature) beats Model B by a positive, credible margin out of sample"
+  },
+  "models": {
+    "A": "baseline stock-selection score, no tilt",
+    "B": "baseline + bounded MF holdings overlay (the NIDP-SM-VALIDATION-001 tilt)",
+    "C": "Model B + a SEPARATELY bounded bulk/block deal feature"
+  },
+  "parent_study": "NIDP-SM-VALIDATION-001",
+  "primary_test": "ablation C vs B on identical dates, universe and constraints. C vs A is reported but is NOT the test: the question is incremental value beyond holdings, not whether large deals look bullish.",
+  "protocol_version": "1.0",
+  "reporting_breakdowns": [
+    "bulk only",
+    "block only",
+    "repeated buying",
+    "repeated selling",
+    "mixed activity",
+    "pure-transfer days excluded vs included"
+  ],
+  "study_id": "NIDP-SM-VALIDATION-002",
+  "why_a_separate_study": "NIDP-SM-VALIDATION-001 is frozen and immutable by trigger. Adding a hypothesis to it after the fact is exactly what preregistration exists to prevent, so the bulk/block deal feature is registered as its own versioned experiment with its own holdout. 001's acceptance criteria are unchanged."
+}

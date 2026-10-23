@@ -69,16 +69,38 @@ async def _get_todays_signals(conn, target_date: date) -> list[dict]:
 
 
 async def _get_price_context(conn, symbol: str, trade_date: date) -> dict:
+    """Last traded close plus the 52-week close range, on ONE share scale.
+
+    `current_price` is RAW on purpose: it is printed to a human in the Telegram alert, so it has
+    to be the price that actually traded. The extremes are ADJUSTED, because a 52-week high taken
+    off raw closes is not a high at all once a split lands inside the window — measured on staging
+    2026-10-22, raw says KOTAKBANK sits 80.3% below its 52-week high when the true figure is 2.3%,
+    and ANGELONE 89.7% when the truth is 17.4%.
+
+    Those two facts have to be reconciled, or the fix just moves the error: breakout.py computes
+    (high_52w - current_price) / high_52w, so an adjusted extreme beside a raw price is a NEW bug.
+    The adjusted extremes are therefore divided by the latest session's cumulative_adj_factor,
+    which restates them in today's share terms — the same number a broker screen shows, and
+    directly comparable to the raw close. The factor is 1.0 for all but 2 of the 2,694 symbols on
+    the newest session (those are names whose ex-date has not arrived yet, where the quoted price
+    is still on the old scale and so is the restated high).
+
+    The 52-week window is close-based, as before. The upper bound on as_of_date is new: without it
+    a retrospective run (--date) measured its "52-week high" against sessions after the event.
+    """
     row = await conn.fetchrow(
         """
-        SELECT p.close_price, h.high_52w, h.low_52w
+        SELECT p.close_price, h.high_52w, h.low_52w,
+               COALESCE(a.cumulative_adj_factor, 1.0) AS adj_factor
           FROM nidp.prices_eod p
+          LEFT JOIN nidp.prices_eod_adjusted a
+                 ON a.symbol = p.symbol AND a.as_of_date = p.as_of_date
           LEFT JOIN LATERAL (
-              SELECT MAX(close_price) AS high_52w, MIN(close_price) AS low_52w
-                FROM nidp.prices_eod
+              SELECT MAX(adj_close) AS high_52w, MIN(adj_close) AS low_52w
+                FROM nidp.prices_eod_adjusted
                WHERE symbol = $1
-                 AND series = 'EQ'
                  AND as_of_date >= $2 - INTERVAL '52 weeks'
+                 AND as_of_date <= $2
           ) h ON TRUE
          WHERE p.symbol = $1
            AND p.series = 'EQ'
@@ -89,10 +111,11 @@ async def _get_price_context(conn, symbol: str, trade_date: date) -> dict:
         symbol, trade_date,
     )
     if row:
+        f = float(row["adj_factor"] or 1.0) or 1.0
         return {
             "current_price": float(row["close_price"] or 0),
-            "high_52w":      float(row["high_52w"] or 0),
-            "low_52w":       float(row["low_52w"] or 0),
+            "high_52w":      float(row["high_52w"] or 0) / f,
+            "low_52w":       float(row["low_52w"] or 0) / f,
         }
     return {"current_price": 0, "high_52w": 0, "low_52w": 0}
 

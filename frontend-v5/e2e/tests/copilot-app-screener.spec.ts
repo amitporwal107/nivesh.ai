@@ -73,14 +73,13 @@ test.describe("Screener results — desktop", () => {
     await page.getByTestId("screener-run").click();
 
     await expect(results(page)).toHaveAttribute("data-state", "ready");
-    expect(bodies).toEqual([{ conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "" }]);
+    expect(bodies).toEqual([{ conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "", include_funds: true }]);
     await expect(page.getByTestId("screener-results-count")).toHaveText("2 stocks match");
     await expect(page.getByTestId("screener-results-query")).toHaveText("Screen stocks where P/E under 15");
     const widget = page.getByTestId("screener-results-widget");
-    await expect(widget.locator("tbody tr")).toHaveCount(2);
-    await expect(widget.locator("tbody tr").first()).toContainText("FIXALPHA");
-    await expect(widget.locator("tbody tr").first()).toContainText("12.5");
-    await expect(widget).toContainText("P/E < 15");                       // the widget's own compiled query
+    await expect(widget.getByTestId("screener-row")).toHaveCount(2);
+    await expect(widget.getByTestId("screener-row").first()).toContainText("FIXALPHA");
+    await expect(widget.getByTestId("screener-row").first()).toContainText("12.5");
     await expect(page.getByTestId("screener-results-coverage")).toHaveText("Data as of 12 Oct 2026 · P/E ratio filled for 2 of 2 stocks");
     await expect(page.getByTestId("screener-results-nodata")).toHaveCount(0);
     await expect(page.getByTestId("screener-results-nomatch")).toHaveCount(0);
@@ -102,7 +101,7 @@ test.describe("Screener results — desktop", () => {
     await expect(page.getByTestId("screener-query")).toHaveText("Screen stocks where ROE over 20");
     await page.getByTestId("screener-run").click();
     await expect(results(page)).toHaveAttribute("data-state", "empty");
-    expect(bodies).toEqual([{ conditions: [{ key: "roe", op: "over", value: "20" }], bucket: "" }]);
+    expect(bodies).toEqual([{ conditions: [{ key: "roe", op: "over", value: "20" }], bucket: "", include_funds: true }]);
     await expect(page.getByTestId("screener-results-count")).toHaveText("0 stocks match");
     await expect(page.getByTestId("screener-results-nodata")).toContainText("The latest screening data has no values for ROE");
     await expect(page.getByTestId("screener-results-nodata")).toContainText("remove that rule");
@@ -135,7 +134,7 @@ test.describe("Screener results — desktop", () => {
     await page.getByTestId("screener-rule-value").nth(1).fill("15");
     await expect(page.getByTestId("screener-query")).toHaveText("Screen large cap stocks where P/E under 15");
     await page.getByTestId("screener-run").click();
-    expect(bodies).toEqual([{ conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "large" }]);
+    expect(bodies).toEqual([{ conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "large", include_funds: true }]);
     await expect(page.getByTestId("screener-results-nodata")).toContainText("The latest screening data has no values for market-cap size");
     await expect(page.getByTestId("screener-results-nodata")).toContainText("set the universe to Any size");
     await expect(page.getByTestId("screener-results-coverage")).toHaveText("Data as of 12 Oct 2026 · P/E ratio filled for 2 of 2 stocks · Market-cap size filled for 0 of 2 stocks");
@@ -188,7 +187,7 @@ test.describe("Screener results — desktop", () => {
     await page.goto(`${APP}/tool/screener`);
     await page.getByTestId("screener-saved-run").click();
     await expect(results(page)).toHaveAttribute("data-state", "empty");
-    expect(bodies).toEqual([{ conditions: [{ key: "roe", op: "over", value: "20" }, { key: "pe", op: "under", value: "15" }], bucket: "" }]);
+    expect(bodies).toEqual([{ conditions: [{ key: "roe", op: "over", value: "20" }, { key: "pe", op: "under", value: "15" }], bucket: "", include_funds: true }]);
     await expect(page.getByTestId("screener-results-query")).toHaveText("Fixture quality screen · Screen stocks where ROE over 20, P/E under 15");
     await expect(page.getByTestId("screener-results-nodata")).toContainText("no values for ROE");
     await expect(page.getByTestId("screener-results-coverage")).toHaveText("Data as of 12 Oct 2026 · ROE filled for 0 of 2 stocks · P/E ratio filled for 2 of 2 stocks");
@@ -211,7 +210,7 @@ test.describe("Screener results — desktop", () => {
     expect(bodies).toEqual([{ bucket: "", conditions: [
       { key: "roce", op: "over", value: "20" }, { key: "roe", op: "over", value: "18" }, { key: "salesG", op: "over", value: "12" },
       { key: "profitG", op: "over", value: "12" }, { key: "de", op: "under", value: "0.5" },
-    ] }]);
+    ], include_funds: true }]);
     // ROE, ROCE, sales/profit growth and D/E are all empty in the fixture day
     await expect(page.getByTestId("screener-results-nodata")).toContainText("The latest screening data has no values for ROCE, ROE, Sales growth 3Y, Profit growth 3Y and Debt to Equity");
     await expect(page.getByTestId("screener-results-nodata")).toContainText("remove those rules");
@@ -254,16 +253,15 @@ test.describe("Screener results — desktop", () => {
     expect(errors).toEqual([]);
   });
 
-  test("the table's own Ask button reaches the Copilot", async ({ page }) => {
+  test("a row opens the stock panel, and its Ask Copilot button reaches the Copilot", async ({ page }) => {
     const { sent, errors } = await open(page);
     await mockRun(page, { body: EX.matches });
     await page.goto(`${APP}/tool/screener`);
     await page.getByTestId("screener-rule-value").nth(1).fill("15");
     await page.getByTestId("screener-run").click();
-    const row = page.getByTestId("screener-results-widget").locator("tbody tr").first();
-    await row.hover();
-    await row.getByRole("button", { name: /Ask/ }).click();
-    await expect.poll(() => sent).toEqual(["Tell me about FIXALPHA — is it worth a deeper look?"]);
+    await page.getByTestId("screener-results-widget").getByTestId("screener-row").first().click();
+    await page.getByTestId("screener-stock-panel").getByTestId("research-entity-ask").click();
+    await expect.poll(() => sent).toEqual(["Tell me about FIXALPHA"]);
     expect(errors).toEqual([]);
   });
 });
@@ -300,7 +298,7 @@ test.describe("Screener results — the minimal mocks from the report", () => {
     await page.goto(`${APP}/tool/screener`);
     await page.getByTestId("screener-rule-value").nth(1).fill("15");
     await page.getByTestId("screener-run").click();
-    expect(bodies).toEqual([{ conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "" }]);
+    expect(bodies).toEqual([{ conditions: [{ key: "pe", op: "under", value: "15" }], bucket: "", include_funds: true }]);
     await expect(results(page)).toHaveAttribute("data-state", "ready");
     await expect(page.getByTestId("screener-results-query")).toHaveText("Screen stocks where P/E under 15");
     await expect(page.getByTestId("screener-results-count")).toHaveText("2 stocks match");
@@ -378,7 +376,7 @@ test.describe("Screener — ready-made strategy screens", () => {
     { symbol: "FIXBRAVO", close: 88.15, rsi14: 58.0, return_20d_pct: 9.25, vol_z20: 0.4, accumulation_score: 55 },
   ], count: 2, as_of_date: "2026-10-12", ranked_by: "return_20d_pct", score_basis: "return_20d_pct" };
 
-  test("a ready-made screen runs in place and lists its candidates; a row asks the Copilot", async ({ page }) => {
+  test("a ready-made screen runs in place and lists its candidates; a row opens the stock panel", async ({ page }) => {
     const { sent, errors } = await open(page);
     await json(page, "**/api/strategy-builder/templates", { templates: TEMPLATES });
     const definitions: unknown[] = [];
@@ -410,7 +408,8 @@ test.describe("Screener — ready-made strategy screens", () => {
 
     await cards.nth(0).click();
     await page.getByTestId("screener-strategy-row").first().click();
-    await expect.poll(() => sent).toEqual(["Tell me about FIXALPHA"]);
+    await expect(page.getByTestId("screener-stock-panel").getByTestId("research-entity-name")).toHaveText("FIXALPHA");
+    expect(sent).toEqual([]);                                  // opening the chart does not message the Copilot
     expect(errors).toEqual([]);
   });
 

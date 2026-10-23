@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -174,12 +174,13 @@ class FakeTicker:
     def __init__(self, key, token):
         self.args = (key, token)
         self.subscribed: List[int] = []
+        self.modes: List[tuple] = []
         FakeTicker.instances.append(self)
 
     def connect(self, threaded=False): pass
     def subscribe(self, t): self.subscribed += list(t)
     def unsubscribe(self, t): pass
-    def set_mode(self, m, t): pass
+    def set_mode(self, m, t): self.modes.append((m, list(t)))
     def close(self): pass
 
 
@@ -584,3 +585,91 @@ def test_universe_helpers():
     assert uni.index_symbols(NSE) == ["NIFTY 50", "NIFTY BANK"]
     assert uni.fno_underlyings(NFO) == ["AAA", "EEE"]
     assert gw.canon("NSE:Nifty Financial Services") == "NIFTY FIN SERVICE"
+
+
+# ── near-month futures (live price + open interest) ──────────────────────────
+FUT_NFO = [
+    {"name": "AAA", "instrument_type": "FUT", "tradingsymbol": "AAA26NOVFUT", "instrument_token": 7002, "expiry": date(2026, 11, 24)},
+    {"name": "AAA", "instrument_type": "FUT", "tradingsymbol": "AAA26OCTFUT", "instrument_token": 7001, "expiry": date(2026, 10, 27)},
+    {"name": "AAA", "instrument_type": "FUT", "tradingsymbol": "AAA26SEPFUT", "instrument_token": 7000, "expiry": date(2026, 9, 29)},   # expired
+    {"name": "EEE", "instrument_type": "FUT", "tradingsymbol": "EEE26OCTFUT", "instrument_token": 7101, "expiry": date(2026, 10, 27)},
+    {"name": "AAA", "instrument_type": "CE", "tradingsymbol": "AAA26OCT100CE", "instrument_token": 7900, "expiry": date(2026, 10, 27)},
+    {"name": "BAD", "instrument_type": "FUT", "tradingsymbol": "BAD26OCTFUT", "expiry": date(2026, 10, 27)},                          # no token: skipped
+]
+
+
+class FakeKiteFut(FakeKite):
+    def instruments(self, ex):
+        if self.fail:
+            raise self.fail
+        return self.rows if ex == "NSE" else FUT_NFO
+
+    def quote(self, keys):
+        data = super().quote(keys)
+        for k, v in data.items():
+            if k.startswith("NFO:"):
+                v.update({"oi": 5000, "oi_day_high": 6000, "oi_day_low": 4000})
+        return data
+
+
+def test_near_month_futures_picks_the_nearest_unexpired_contract_and_skips_incomplete_rows():
+    got = uni.near_month_futures(FUT_NFO, date(2026, 10, 20))
+    assert [(f["underlying"], f["symbol"], f["token"], f["expiry"]) for f in got] == [
+        ("AAA", "AAA26OCTFUT", 7001, "2026-10-27"), ("EEE", "EEE26OCTFUT", 7101, "2026-10-27")]
+    # the day after the October expiry the next month is the near month
+    assert uni.near_month_futures(FUT_NFO, date(2026, 10, 28))[0]["symbol"] == "AAA26NOVFUT"
+
+
+def test_futures_are_a_universe_set_subscribed_in_full_mode_and_the_cash_stocks_stay_in_quote_mode():
+    FakeTicker.instances.clear()
+    f = make_feed(force_rest=False, kite=FakeKiteFut())
+    run(f.tick())
+    assert f.sets["futures"] == ["AAA26OCTFUT", "EEE26OCTFUT"] and "AAA26OCTFUT" in f.ordered
+    t = f._ticker
+    t._connect(None)
+    modes = FakeTicker.instances[0].modes
+    assert ("full", [7001, 7101]) in modes
+    assert all(set(toks) & {7001, 7101} == set() for m, toks in modes if m == "quote") and any(m == "quote" for m, _ in modes)
+    t._ticks(None, [{"instrument_token": 7001, "last_price": 250.0, "ohlc": {"open": 1, "high": 2, "low": 1, "close": 245.0},
+                     "volume_traded": 10, "oi": 5000, "oi_day_high": 6000, "oi_day_low": 4000,
+                     "exchange_timestamp": datetime(2026, 10, 20, 14, 32, 6)}])
+    f._clock.now += timedelta(seconds=5)
+    run(f.tick())
+    q = {x["symbol"]: x for x in f.snapshot["quotes"]}["AAA26OCTFUT"]
+    assert (q["ltp"], q["oi"], q["oi_high"], q["oi_low"]) == (250.0, 5000.0, 6000.0, 4000.0)
+    assert (q["instrument"], q["underlying"], q["expiry"]) == ("FUT", "AAA", "2026-10-27")
+
+
+def test_rest_fallback_asks_for_futures_under_nfo_and_keeps_oi():
+    kite = FakeKiteFut()
+    f = make_feed(kite=kite)
+    run(f.tick())
+    asked = [k for call in kite.quote_calls for k in call]
+    assert "NFO:AAA26OCTFUT" in asked and "NSE:AAA" in asked and "NFO:AAA" not in asked
+    q = {x["symbol"]: x for x in f.snapshot["quotes"]}["AAA26OCTFUT"]
+    assert q["oi"] == 5000.0 and q["underlying"] == "AAA" and "instrument" not in {x["symbol"]: x for x in f.snapshot["quotes"]}["AAA"]
+
+
+def test_a_feed_without_futures_rows_is_unchanged():
+    f = make_feed()
+    run(f.tick())
+    assert f.sets["futures"] == [] and all("underlying" not in q for q in f.snapshot["quotes"])
+
+
+def test_futures_universe_is_served_by_snapshot_with_underlying_expiry_and_oi(monkeypatch):
+    f = make_feed(cadence=2, kite=FakeKiteFut())
+    run(f.tick())
+    f.snapshot["data_at"] = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(live_quotes, "get_feed", lambda: f)
+
+    async def fake_user(request: Request):
+        return {"user_id": "u1"}
+    monkeypatch.setattr(live_quotes, "get_current_user", fake_user)
+    app = FastAPI()
+    app.include_router(live_quotes.router)
+    c = TestClient(app)
+    s = c.get("/api/live/snapshot", params={"universe": "futures"})
+    assert s.status_code == 200
+    q = s.json()["quotes"]
+    assert set(q) == {"AAA26OCTFUT", "EEE26OCTFUT"}
+    assert q["AAA26OCTFUT"]["oi"] == 5000.0 and q["AAA26OCTFUT"]["underlying"] == "AAA" and q["AAA26OCTFUT"]["expiry"] == "2026-10-27"

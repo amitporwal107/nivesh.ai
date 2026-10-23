@@ -156,7 +156,19 @@ async def _handle_http_exception(
     request: Request, exc: StarletteHTTPException
 ) -> JSONResponse:
     label = _HTTP_LABELS.get(exc.status_code, "HTTP_ERROR")
-    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    # A structured detail — raise HTTPException(status_code=409, detail={"code": ..., ...}) — used to be
+    # flattened with str(), which emits PYTHON repr: single quotes and True/False, so a client could not
+    # parse the fields back out. The envelope's `message` stays a string (every existing caller reads it
+    # that way) and the dict is carried in `details`, which the envelope already sends as a list.
+    structured: list[dict[str, Any]] = []
+    if isinstance(exc.detail, str):
+        detail = exc.detail
+    elif isinstance(exc.detail, dict):
+        structured = [exc.detail]
+        inner = exc.detail.get("message")
+        detail = inner if isinstance(inner, str) else str(exc.detail.get("code") or exc.detail)
+    else:
+        detail = str(exc.detail)
 
     if exc.status_code >= 500:
         logger.error(
@@ -182,6 +194,7 @@ async def _handle_http_exception(
         error=label,
         code=code,
         message=detail,
+        details=structured,
     )
 
 

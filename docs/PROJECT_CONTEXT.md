@@ -70,6 +70,34 @@ Read the doc that owns the facts you need before building — don't guess.
 | `staging-data.niveshcopilot.com` CNAME | NOT YET LIVE |
 | Audit-log viewer, data-retention sweeps, DPO alerting, admin MFA, SIEM | NOT IMPLEMENTED |
 
+### 5a. Smart Money workstream — three statuses that must never be conflated
+
+Deployment success, research validity and product completion are three different claims
+about this workstream. Reporting any one of them as the others has been the main source
+of confusion here, so they are recorded separately and each is stated at its own scope.
+
+| Claim | Status as at 2026-10-22 | Evidence |
+|---|---|---|
+| PR #298 merged and deployed to staging | **DEPLOYED** | merge commit `72a9243c` on `dev`; both GitHub Actions deploys (CloudPe NIDP VM, Android APK) completed `success`; migrations 174–180 already applied, so that step was a no-op |
+| Smart Money Movement v2 product screen | **NOT SHIPPED** | the measured design contract exists (`docs/design/SMART_MONEY_MOVEMENT_SCREEN.md`); there is **no** component file matching `*smart*money*` in either frontend and **no** backend route. A specified contract is not a running screen |
+| Study C (`NIDP-SM-VALIDATION-002`) promotion | **NOT PROMOTED — shadow mode** | verdict INCONCLUSIVE: mean paired increment **+0.2189 pp**, 95% CI **[0.0000, +0.5104] pp** against a **+1.00 pp** hurdle, on **9** formation dates against a review floor of **12**. Six of the nine paired differences are exactly zero and the overlay moved 4 of 270 top-30 slots |
+
+Two things about the study result are separate findings and must stay separate: the sample
+**cannot support promotion** (9 dates < 12), *and* an increment of **≥+1.0 pp is ruled out at
+95%** under this implementation. The confidence interval is narrow because the estimator mostly
+measures zero, not because it is precise. Neither finding says that no deal-based feature can
+have value.
+
+The frozen contracts specify **rules, not dates** (`sample_floor_for_review` = "12 effectively
+independent evaluation blocks", `universe_rule.point_in_time = true`). So gaining formation dates
+by backfilling history is consistent with the frozen protocol and needs no new preregistration;
+changing the hurdle, the estimator or the feature design **would** need one, before outcomes are
+inspected. Do not lower the hurdle or alter the estimator to obtain a pass.
+
+Also not available yet, and so not to be implied anywhere on screen or in a report:
+`smart_money_study_outcomes.benchmark_return_pct` and `.sector_return_pct` are populated on
+**0 of 1,620 rows**, so no benchmark-relative or sector-relative comparison currently exists.
+
 ## 6. Hard constraints (never violate)
 
 - **Branch discipline:** commit to `dev`, never `main`. `main` only via PR merge. Never force-push to `main`. Never `--no-verify`.

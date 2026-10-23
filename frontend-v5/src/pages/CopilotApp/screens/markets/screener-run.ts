@@ -16,6 +16,8 @@ export interface ScreenRunRequest {
   sector?: string;
   /** Matching stocks sent back (1–500, default 200). */
   limit?: number;
+  /** Add the mutual-fund columns (disclosed holdings, Nifty 500 only) to the rows. */
+  include_funds?: boolean;
 }
 
 /** How many of the day's stocks carry a value for one metric. */

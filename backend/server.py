@@ -127,7 +127,9 @@ from routes.events_calendar import router as events_calendar_router  # Trading d
 from routes.macro_calendar import router as macro_calendar_router  # Trading desk: /api/markets/macro-calendar
 from routes.symbol_lookup import router as symbol_lookup_router  # /api/markets/symbol-lookup (type-ahead, did-you-mean)
 from routes.markets_desk import router as markets_desk_router  # Trading desk: /api/markets/sector-returns, /api/markets/deals
+from routes.markets_smart_money import router as markets_smart_money_router  # Trading desk: /api/markets/smart-money/*
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
+from routes.risk_controls import router as risk_controls_router  # Kill switch / trading halt (/api/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
@@ -164,6 +166,12 @@ except ImportError:
     pass  # graceful no-op if not installed (local dev without the package)
 
 # Include all routers
+# No personal detail reaches a model provider from any call site: llm_guard wraps the provider
+# SDKs themselves, because there are twelve independent client constructions and no shared
+# factory, so a per-call-site guard would miss the next one someone adds.
+from services import llm_guard as _llm_guard
+_llm_guard.install()
+
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(admin_users_router)
@@ -271,7 +279,9 @@ app.include_router(events_calendar_router)  # /api/markets/events-calendar, /his
 app.include_router(macro_calendar_router)  # /api/markets/macro-calendar, /history
 app.include_router(symbol_lookup_router)     # /api/markets/symbol-lookup
 app.include_router(markets_desk_router)      # /api/markets/sector-returns, /api/markets/deals
+app.include_router(markets_smart_money_router)  # /api/markets/smart-money/* — disclosed institutional evidence
 app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
+app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(desk_chartink_router)     # /api/desk/chartink/*

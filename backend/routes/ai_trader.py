@@ -70,6 +70,10 @@ from pymongo.errors import DuplicateKeyError
 
 from deps import db, get_current_user
 from services import desk_trading as desk
+from services import desk_strategy_trades as desk_strategy
+from services import risk_controls as rc
+from services import paper_account as pacct
+from services import risk_equity as req
 from services import pg_client
 from services.ai_trader import _research, execution, strategy
 from services.ai_trader.calibration import CalibrationError, calibration_report
@@ -331,9 +335,29 @@ async def _portfolio(uid: str, capital: float) -> Portfolio:
         .to_list(desk.MAX_OPEN_TRADES * 2)
     tickets = await db[execution.TICKETS].find({"user_id": uid}).to_list(MAX_TICKETS_LISTED)
     sector_of = {t["trade_id"]: t.get("sector") for t in tickets if t.get("trade_id")}
-    positions = [Position(symbol=d["symbol"], quantity=int(d["quantity"]), price=float(d["entry_price"]),
-                          sector=sector_of.get(d["_id"]))
-                 for d in open_docs if d.get("kind") in (None, "cash")]
+    # Cash trades carry a quantity and an entry price; a multi-leg strategy (kind="strategy") carries legs
+    # instead, so it is measured once as an upper bound on its loss (desk_strategy_trades.exposure_rs) and
+    # entered as a single unit. Strategies used to be filtered out of this list entirely, which meant every
+    # F&O position was invisible to the governor: the position count, the duplicate-symbol check and the
+    # exposure sum all ran against a book that excluded the most leveraged thing the desk can open.
+    positions: List[Position] = []
+    for d in open_docs:
+        kind = d.get("kind")
+        if kind in (None, "cash"):
+            positions.append(Position(symbol=d["symbol"], quantity=int(d["quantity"]),
+                                      price=float(d["entry_price"]), sector=sector_of.get(d["_id"])))
+            continue
+        if kind == desk_strategy.KIND:
+            value = desk_strategy.exposure_rs(d)
+            if value is None:
+                # A leg is missing a field the bound needs. Counting it as zero would hide it, so it is
+                # entered at the whole capital: the governor then refuses to add risk rather than
+                # measuring an unknown position as harmless.
+                logger.warning("ai_trader risk book: strategy %s has no computable exposure; counting it "
+                               "against the full capital", d.get("_id"))
+                value = capital
+            positions.append(Position(symbol=d.get("underlying") or d.get("symbol"), quantity=1,
+                                      price=float(value), sector=sector_of.get(d["_id"])))
     today = _today_ist()
     realized = 0.0
     for d in await _closed_trades(uid):
@@ -342,7 +366,47 @@ async def _portfolio(uid: str, capital: float) -> Portfolio:
             continue
         if desk.ist_date(d["closed_at"]) == today:
             realized += float(pnl)
-    return Portfolio(capital=capital, positions=positions, realized_pnl_today=round(realized, 2))
+    # The governor has enforced `kill_switch` and `halted` since it was written
+    # (risk_governor.py:112-115) and this call never passed them, so they held their dataclass
+    # defaults of False on every evaluation: the enforcement was correct and could never fire.
+    # They now carry the user's stored controls. `drawdown_pct` is still None and still honestly
+    # reported as DRAWDOWN_UNKNOWN — the desk keeps no equity curve to measure a drawdown against,
+    # and a threshold that cannot be computed must not be presented as enforced.
+    controls = await rc.read(db, uid)
+    equity = await _equity(uid, capital, open_docs)
+    return Portfolio(capital=capital, positions=positions, realized_pnl_today=round(realized, 2),
+                     drawdown_pct=equity.get("drawdown_pct"),
+                     kill_switch=bool(controls.get("kill_switch")),
+                     halted=bool(controls.get("halted")))
+
+
+async def _equity(uid: str, capital: float, open_docs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Equity, its high-water mark and the drawdown, for the governor's DRAWDOWN_HALT.
+
+    Marks the open cash positions at their last close and reuses desk_trading's own `summarize`, so
+    realised and unrealised P&L have ONE definition in the product. It deliberately does NOT call
+    `apply_trade_exits`: that writes exits, and a risk read must not close a position as a side
+    effect of being asked a question.
+
+    An open STRATEGY (multi-leg F&O) position is counted as unmarked, which makes equity and the
+    drawdown unknown rather than wrong: those positions are marked by a different path
+    (desk_strategy_trades.apply_exits) that also writes. Named here as a gap instead of being
+    silently valued at zero.
+    """
+    cash_open = [d for d in open_docs if d.get("kind") in (None, "cash")]
+    strategy_open = len(open_docs) - len(cash_open)
+    try:
+        starts = desk.fetch_starts(cash_open, "opened_at")
+        bars, errors = await desk.fetch_bars_many(starts) if starts else ({}, {})
+        public = [desk.public_trade(d, *desk.mark_for(d["symbol"], bars, errors)) for d in cash_open]
+        public += [desk.public_trade(d) for d in await _closed_trades(uid)]
+        summary = dict(desk.summarize(public, partial=False))
+    except Exception as e:  # noqa: BLE001 — an unreadable mark leaves the drawdown unknown, not zero
+        logger.warning("ai_trader: equity could not be computed for %s (%s)", uid, type(e).__name__)
+        return {"drawdown_pct": None, "equity": None,
+                "unknown_reason": f"the marks could not be read ({type(e).__name__})"}
+    summary["unmarked_open"] = int(summary.get("unmarked_open") or 0) + strategy_open
+    return await req.snapshot(db, uid, capital, summary)
 
 
 def _market(as_of: str) -> Market:
@@ -589,6 +653,16 @@ async def strategy_signals(strategy_id: str, body: SignalsBody,
             continue
         seen.add(intent.symbol)
         decision = evaluate(intent, portfolio, market, DEFAULT_LIMITS)
+        # The decision used to live only on the ticket document, which is mutable and overwritten in
+        # place; it could not be reconstructed or proved afterwards. This is the append-only record.
+        await rc.record_decision(
+            db, uid, action="ai_trader_ticket",
+            outcome="allowed" if decision.approved_qty > 0 else "refused",
+            symbol=intent.symbol, requested_qty=decision.requested_qty,
+            approved_qty=decision.approved_qty,
+            reasons=[dataclasses.asdict(r) for r in decision.reasons],
+            limits_version=decision.limits_version, correlation_id=strategy_id,
+            detail={"as_of": signal_date, "mode": body.mode})
         ticket = execution.new_ticket(uid, doc, intent, decision, as_of=signal_date, mode=body.mode)
         try:
             # The ticket is written before any trade, so a request that lost the race opens nothing.
@@ -643,6 +717,16 @@ async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict
                  f"({strategy_doc.get('version')}) on {ticket['signal_date']}; risk governor "
                  f"{(ticket.get('decision') or {}).get('action')}.")
     trade = desk.new_trade(uid, execution.trade_body(ticket, rationale=rationale[:desk.NOTE_MAX]))
+    # This path inserts into desk.TRADES directly rather than through POST /api/desk/paper-trades, so
+    # it has to charge the paper account itself. Without this the AI trader could open positions the
+    # account never funded while the desk route was constrained — the same "governed on one path only"
+    # shape the risk work has been closing (docs/RISK_CONTROL_INVENTORY.md).
+    need = pacct.reservation_for(trade, None)
+    try:
+        trade["paper_reserved_rs"] = await pacct.reserve(db, uid, need, trade_id=trade["_id"],
+                                                         symbol=trade.get("symbol"))
+    except pacct.InsufficientFunds as short:
+        raise desk.DeskInputError("insufficient_paper_funds") from short
     await db[desk.TRADES].insert_one(trade)
     return trade
 
@@ -720,6 +804,16 @@ async def confirm_ticket(ticket_id: str, user: dict = Depends(get_current_user))
                 "SIZE_CAPPED_AT_SIGNAL", "Size is held at the quantity the governor approved on the signal date.",
                 "reduce", approved_at_signal)])
     stamp = desk.utcnow().isoformat()
+    # Recorded AFTER the re-run adjustment, so the figure on record is the one actually used, not the
+    # raw evaluation the cap may have overridden.
+    await rc.record_decision(
+        db, uid, action="ai_trader_confirm",
+        outcome="allowed" if (decision.action in execution.ACTIONABLE and decision.approved_qty >= 1) else "refused",
+        symbol=ticket.get("symbol"), requested_qty=decision.requested_qty,
+        approved_qty=decision.approved_qty,
+        reasons=[dataclasses.asdict(r) for r in decision.reasons],
+        limits_version=decision.limits_version, correlation_id=ticket_id,
+        detail={"approved_at_signal": approved_at_signal})
     if decision.action not in execution.ACTIONABLE or decision.approved_qty < 1:
         # The ticket stays open until its session ends: the book may free up before then. The refusal is recorded.
         change = {"last_decision": decision.to_dict(), "last_decision_at": stamp, "updated_at": stamp}

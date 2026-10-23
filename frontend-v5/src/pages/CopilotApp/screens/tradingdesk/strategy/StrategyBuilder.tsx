@@ -22,6 +22,7 @@ import { useDesk } from "../context";
 import { CandidateDetail } from "./CandidateDetail";
 import { CompareTable } from "./CompareTable";
 import { IdeasBoard } from "./IdeasBoard";
+import { TopByRegime } from "./TopByRegime";
 import { EvidenceLedger, Thesis } from "./EvidenceLedger";
 import { PlanActions } from "./PlanActions";
 import { FailureConditions, Methodology, ValidationBlock } from "./PlanExtras";
@@ -51,11 +52,12 @@ export function sourceNote(p: URLSearchParams): string | null {
   return `Started from ${humaniseTag(kind).toLowerCase()}${d ? `, ${d}` : ""}`;
 }
 
-/** The two modes: ideas picked from the AI scanner (default without a stock in the URL), or one stock. */
-export type BuilderMode = "ideas" | "stock";
+/** The three modes: the top ideas in each asset class ranked against the measured regime, ideas picked
+ * from the AI scanner (the default without a stock in the URL), or one stock. */
+export type BuilderMode = "top" | "ideas" | "stock";
 export function builderMode(p: URLSearchParams): BuilderMode {
   const m = p.get("mode");
-  if (m === "ideas" || m === "stock") return m;
+  if (m === "top" || m === "ideas" || m === "stock") return m;
   return p.get("sym") || p.get("plan") ? "stock" : "ideas";
 }
 
@@ -71,6 +73,7 @@ export default function StrategyBuilder() {
     return p;
   }, { replace: true });
   const options: Array<{ value: BuilderMode; label: string }> = [
+    { value: "top", label: plain ? "Top ideas today" : "Top 5 by regime" },
     { value: "ideas", label: plain ? "From the AI's ideas" : "From AI opportunities" },
     { value: "stock", label: "One stock" },
   ];
@@ -86,7 +89,7 @@ export default function StrategyBuilder() {
           </button>
         ))}
       </div>
-      {mode === "ideas" ? <IdeasBoard /> : <StockBuilder />}
+      {mode === "top" ? <TopByRegime /> : mode === "ideas" ? <IdeasBoard /> : <StockBuilder />}
     </div>
   );
 }
