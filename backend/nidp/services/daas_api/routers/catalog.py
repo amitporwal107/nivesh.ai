@@ -146,8 +146,12 @@ _DATASETS: List[Dict[str, Any]] = [
         "table":      "nidp.shareholding_pattern",
         "date_col":   "period_end",
         "domain":     "Fundamentals",
-        "endpoints":  ["/v1/shareholding/{symbol}"],
-        "description": "Quarterly shareholding split — promoter, FII, DII, retail.",
+        "endpoints":  ["/v1/shareholding/{symbol}", "/v1/desk/ownership/reaction"],
+        "description": ("Quarterly shareholding split — promoter, FII, DII, retail. Not unique on "
+                        "(symbol, period_end): sources NSE_SHP and screener_in can both disclose a "
+                        "quarter and can disagree. Only FII/DII have a two-quarter change, and only "
+                        "for ~89 Nifty-500 names; mf_pct/bank_fi_pct exist for ONE quarter (a level, "
+                        "not a change) and insurance_pct/govt_holding_pct are empty for every row."),
     },
     {
         "name":       "rbi_yields",

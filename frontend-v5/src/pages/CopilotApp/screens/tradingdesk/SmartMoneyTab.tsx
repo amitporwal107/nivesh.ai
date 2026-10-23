@@ -27,6 +27,7 @@ import {
 } from "../../components/ui";
 import { useDesk } from "./context";
 import { TrustLine } from "./trust";
+import OwnershipReactionPanel from "./OwnershipReactionPanel";
 import {
   EVIDENCE_LABEL, EVIDENCE_LEGEND, EVIDENCE_NOTE, SECTOR_MEASURES, SM_DIRECTIONS, SM_FRESHNESS,
   SM_PERIODS, SM_UNIVERSES, type EvidenceClass, type FlowPoint, type ScannerFilters, type ScannerRow,
@@ -1001,6 +1002,11 @@ export default function SmartMoneyTab() {
         </div>
         <TrustLine source={scanner?.source ?? "nidp.mf_holdings_deltas"} asOf={fmtDate(scanner?.asOf)} mode="historical" maker="reported" confidence={`n ${scanner?.total ?? 0}`} testId="desk-smart-money-scanner-trust" />
       </Section>
+
+      {/* Retrospective companion to the scanner above: the disclosed QUARTERLY ownership change set
+          against that same quarter's tape. It rests only on nidp.shareholding_pattern and
+          nidp.prices_eod_adjusted, reads no MF holdings, and owns its own loading/error state. */}
+      <OwnershipReactionPanel />
     </>
   );
 
