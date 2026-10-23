@@ -1,0 +1,3 @@
+# Override: live near-month futures on the F&O OI build-up tab
+
+REASON: built and tested locally on feat/provider-foundations (uncommitted); not deployed to staging. The staging backend bind-mounts the dev checkout and needs a process restart, the frontend needs an image rebuild, and a push to dev is denied to this session (a merge by the user deploys it). The signed-in staging checks (GET /api/live/snapshot?universe=futures through the app, and the Playwright run against the deployed desk) therefore have not been run. What WAS run against real data: the changed universe and ticker code against real Kite (see fno_live_futures_20261023.md).

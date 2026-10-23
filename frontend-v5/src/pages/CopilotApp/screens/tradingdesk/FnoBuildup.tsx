@@ -9,6 +9,9 @@
  *                               Per row also: the cash close and change and whether the cash market moved the same way
  *                               (cash check), vol_z20 (relative volume), futures contracts traded, days to the near
  *                               expiry with the risk flags, and setup quality ("—": no validated model)
+ *   GET /api/live/snapshot?universe=futures   while Kite's feed is live: each stock's near-month future, live price, day
+ *                               change, OI and the day's OI range (useLiveFutures). Two extra columns, "Live fut" and
+ *                               "Live OI"; the end-of-day columns stay as they are and the two OI bases are never mixed
  *   PCR and IV                  the loaded stock's own chain (FnoTab passes them); the scan does not send them per
  *                               stock, so other rows show "—"
  *   15-minute confirmation      the scan's `intraday` state: unavailable (no intraday OI is collected), never faked
@@ -28,6 +31,7 @@ import { QueryProblem, fmtQty } from "../trading/parts";
 import { useDesk } from "./context";
 import { BUILDUP_LABELS, BUILDUP_META, RISK_FLAG_LABEL, useBuildup, type Buildup, type BuildupQuadrant, type BuildupRow } from "./fno-buildup";
 import { CardHead, Dot, TONE_LINE, TONE_SOFT, shortDay } from "./fno-parts";
+import { useLiveFutures } from "./live-futures";
 import { TrustLine } from "./trust";
 
 type SortKey = "symbol" | "price" | "oi";
@@ -45,6 +49,9 @@ const SCATTER_LABELS = 6;
 /** Stock · Fut chg · Futures OI · Cash · Cash check · RVOL · Volume · PCR · IV · Expiry · Quality · Build-up. */
 const TEMPLATE = "minmax(0,1.1fr) 64px minmax(0,1.1fr) 96px 78px 58px 66px 46px 46px 104px 54px minmax(0,1.5fr)";
 const TABLE_MIN = 1180;
+/** The same columns with "Live fut" and "Live OI" after Futures OI, while Kite's live feed is on. */
+const TEMPLATE_LIVE = "minmax(0,1.1fr) 64px minmax(0,1.1fr) 92px 92px 96px 78px 58px 66px 46px 46px 104px 54px minmax(0,1.5fr)";
+const TABLE_MIN_LIVE = 1370;
 
 /** The PRD §10.4 caveat, word for word in substance, under the build-up readings. */
 export const HEURISTIC_NOTE =
@@ -249,6 +256,9 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
   const { persona } = useDesk();
   const investor = persona === "investor";
   const q = useBuildup(true);
+  const liveQ = useLiveFutures(true);
+  const live = liveQ.data && Object.keys(liveQ.data.byUnderlying).length > 0 ? liveQ.data.byUnderlying : null;
+  const template = live ? TEMPLATE_LIVE : TEMPLATE;
   const [quadrant, setQuadrant] = useState<BuildupQuadrant | null>(null);
   const [sort, setSort] = useState<Sort>(null);
   const [all, setAll] = useState(false);
@@ -333,8 +343,8 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
           <span data-testid="desk-buildup-count" style={{ color: "var(--cp-ink-4)" }}>{fmtNum(rows.length)} {rows.length === 1 ? "stock" : "stocks"}</span>
         </CardHead>
         <div data-testid="desk-buildup-table" className="cp-scroll overflow-x-auto" role="table" aria-label="OI build-up by F&O stock" aria-rowcount={rows.length + 1}>
-          <div style={{ minWidth: TABLE_MIN }}>
-            <div role="row" className="grid" style={{ gridTemplateColumns: TEMPLATE, gap: 12, padding: "10px 18px", borderBottom: "1px solid var(--cp-line)" }}>
+          <div style={{ minWidth: live ? TABLE_MIN_LIVE : TABLE_MIN }}>
+            <div role="row" className="grid" style={{ gridTemplateColumns: template, gap: 12, padding: "10px 18px", borderBottom: "1px solid var(--cp-line)" }}>
               {(["symbol", "price", "oi"] as const).map((k) => {
                 const on = sort?.key === k;
                 const label = k === "symbol" ? "Stock" : k === "price" ? "Price" : investor ? "Open bets (OI)" : "Futures OI";
@@ -351,6 +361,12 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
                   </span>
                 );
               })}
+              {live && (
+                <>
+                  <span role="columnheader" data-testid="desk-buildup-live-head" title="Near-month futures, live from Kite; the change is against Kite's previous close" style={{ ...cell, ...headStyle, textAlign: "right", color: "var(--mint)" }}>Live fut</span>
+                  <span role="columnheader" title="Open interest of the near-month contract only, live from Kite, with the day's range. The OI change column is end of day and summed over every expiry: not comparable" style={{ ...cell, ...headStyle, textAlign: "right", color: "var(--mint)" }}>Live OI</span>
+                </>
+              )}
               <span role="columnheader" style={{ ...cell, ...headStyle, textAlign: "right" }}>{investor ? "Share price" : "Cash"}</span>
               <span role="columnheader" title="Did the futures and the cash market move the same way that day?" style={{ ...cell, ...headStyle }}>{investor ? "Agree?" : "Cash check"}</span>
               <span role="columnheader" title="vol_z20: the day's cash volume against its 20-session history, in standard deviations" style={{ ...cell, ...headStyle, textAlign: "right" }}>{investor ? "Activity" : "RVOL z"}</span>
@@ -380,7 +396,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
                   onClick={() => onOpen(r.symbol)}
                   onKeyDown={(e) => onKey(e, r.symbol)}
                   className="cp-row-link grid items-center"
-                  style={{ gridTemplateColumns: TEMPLATE, gap: 12, padding: "10px 18px", borderTop: "1px solid var(--cp-line)", fontSize: 13, cursor: "pointer", background: isLoaded ? "var(--bg-2)" : undefined }}
+                  style={{ gridTemplateColumns: template, gap: 12, padding: "10px 18px", borderTop: "1px solid var(--cp-line)", fontSize: 13, cursor: "pointer", background: isLoaded ? "var(--bg-2)" : undefined }}
                 >
                   <span role="cell" className="flex items-center" style={{ ...cell, gap: 9 }}>
                     <StockIcon symbol={r.symbol} size={20} />
@@ -404,6 +420,21 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
                     </span>
                     <span data-testid="desk-buildup-oi" className="cp-num" style={{ flex: "none", fontSize: 11.5, color: TONE_COLOR[oiTone] }}>{fmtPct(r.oiChgPct, { signed: true, digits: 2 })}</span>
                   </span>
+                  {live && (() => {
+                    const lf = live[r.symbol.toUpperCase()];
+                    return (
+                      <>
+                        <span role="cell" data-testid="desk-buildup-live-price" className="flex min-w-0 flex-col items-end" style={{ gap: 1 }} title={lf ? `${lf.symbol}${lf.expiry ? `, expires ${shortDay(lf.expiry)}` : ""}` : "Kite sent no quote for this contract"}>
+                          <span className="cp-num" style={{ ...cell, fontSize: 11.5, color: "var(--cp-ink)" }}>{lf ? fmtNum(lf.ltp, 2) : "—"}</span>
+                          <span data-testid="desk-buildup-live-chg" className="cp-num" style={{ ...cell, fontSize: 11, color: TONE_COLOR[signTone(lf?.changePct ?? null)] }}>{lf ? fmtPct(lf.changePct, { signed: true, digits: 2 }) : "—"}</span>
+                        </span>
+                        <span role="cell" data-testid="desk-buildup-live-oi" className="flex min-w-0 flex-col items-end" style={{ gap: 1 }} title="Near-month contract only">
+                          <span className="cp-num" style={{ ...cell, fontSize: 11.5, color: "var(--cp-ink)" }}>{lf?.oi != null ? fmtQty(lf.oi) : "—"}</span>
+                          <span className="cp-num" style={{ ...cell, fontSize: 10.5, color: "var(--cp-ink-3)" }}>{lf?.oiLow != null && lf.oiHigh != null ? `${fmtQty(lf.oiLow)}–${fmtQty(lf.oiHigh)}` : ""}</span>
+                        </span>
+                      </>
+                    );
+                  })()}
                   <span role="cell" data-testid="desk-buildup-cash" className="flex min-w-0 flex-col items-end" style={{ gap: 1 }}>
                     <span className="cp-num" style={{ ...cell, fontSize: 11.5, color: "var(--cp-ink-2)" }}>{r.cashClose == null ? "—" : fmtNum(r.cashClose, 2)}</span>
                     <span data-testid="desk-buildup-cash-chg" className="cp-num" style={{ ...cell, fontSize: 11, color: TONE_COLOR[signTone(r.cashChgPct)] }}>{fmtPct(r.cashChgPct, { signed: true, digits: 2 })}</span>
@@ -435,7 +466,7 @@ export function BuildupView({ onOpen, selected, loaded }: { onOpen: (symbol: str
         </div>
         <div className="flex flex-wrap items-center justify-between" style={{ gap: 8, padding: "12px 18px", borderTop: "1px solid var(--cp-line)" }}>
           <span data-testid="desk-buildup-shown" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)", flex: "1 1 320px", minWidth: 0 }}>
-            {fmtNum(shown.length)} of {fmtNum(rows.length)} shown. Open a row for its option chain. Volume is futures contracts traded over every expiry. PCR and IV are each stock’s own chain figures, which the scan does not send, so they show for the loaded stock only{loaded && !/^(NIFTY|BANKNIFTY)$/.test(loaded.symbol) ? ` (${loaded.symbol})` : ""}. Cash check compares the near future’s move with the cash close; RVOL z is vol_z20; Quality is “—” because no model of these readings has been validated.
+            {fmtNum(shown.length)} of {fmtNum(rows.length)} shown. Open a row for its option chain. Volume is futures contracts traded over every expiry. PCR and IV are each stock’s own chain figures, which the scan does not send, so they show for the loaded stock only{loaded && !/^(NIFTY|BANKNIFTY)$/.test(loaded.symbol) ? ` (${loaded.symbol})` : ""}. {live ? "Live fut and Live OI are the near-month contract from Kite, refreshed every 30 seconds; the OI change column beside them is end of day and summed over every expiry, so the two are not comparable. " : ""}Cash check compares the near future’s move with the cash close; RVOL z is vol_z20; Quality is “—” because no model of these readings has been validated.
           </span>
           {rows.length > PAGE && (
             <button type="button" className="cp-chip" data-testid="desk-buildup-all" aria-expanded={all} onClick={() => setAll(!all)}>

@@ -354,3 +354,72 @@ def test_pe_vs_sector_is_read_from_the_platform_alias():
     universe = si.build_stock_screener_widget(rows)["universe"]
     assert [u["peVsSector"] for u in universe] == [-12.5, 8.0, None]
 
+
+
+# ── mutual-fund metrics (joined from the smart-money scanner) ───────────────
+
+def _scanner(monkeypatch, rows=None, *, status: int = 200, raises: Optional[Exception] = None):
+    async def fake_get_raw(path, params=None, timeout=None):
+        assert path == "/desk/smart-money/scanner"
+        if raises is not None:
+            raise raises
+        return status, ({"rows": rows} if rows is not None else {})
+    monkeypatch.setattr(route.daas_client, "is_configured", lambda: True)
+    monkeypatch.setattr(route.daas_client, "get_raw", fake_get_raw)
+
+
+MF_ROWS = [
+    {"symbol": "ALPHA", "mf_shares_pct_chg": 12.5, "amcs_up": 5, "amcs_dn": 1, "amcs_holding": 9},
+    {"symbol": "BRAVO", "mf_shares_pct_chg": -3.0, "amcs_up": 1, "amcs_dn": 6, "amcs_holding": 8},
+]
+
+
+def test_mf_rule_joins_scanner_rows_by_symbol_and_filters(monkeypatch):
+    client, _ = _client(monkeypatch)
+    _scanner(monkeypatch, MF_ROWS)
+    body = client.post(URL, json={"conditions": [{"key": "amcsUp", "op": "over", "value": 3}]}).json()
+    assert _tickers(body) == ["ALPHA"]
+    assert body["widget"]["universe"][0]["amcsUp"] == 5
+    assert body["coverage"]["amcsUp"] == {"filled": 2, "total": 6}
+
+
+def test_a_stock_outside_the_scanner_universe_fails_an_mf_rule(monkeypatch):
+    client, _ = _client(monkeypatch)
+    _scanner(monkeypatch, MF_ROWS)
+    body = client.post(URL, json={"conditions": [{"key": "amcsHolding", "op": "over", "value": 0}]}).json()
+    assert sorted(_tickers(body)) == ["ALPHA", "BRAVO"]          # CHARLIE.. have no MF value
+    assert body["matched"] == 2
+
+
+@pytest.mark.parametrize("kwargs", [{"status": 502, "rows": None}, {"raises": RuntimeError("down")}])
+def test_scanner_failure_is_a_gap_not_a_500_and_not_fund_activity(monkeypatch, kwargs):
+    client, _ = _client(monkeypatch)
+    _scanner(monkeypatch, kwargs.get("rows"), status=kwargs.get("status", 200), raises=kwargs.get("raises"))
+    body = client.post(URL, json={"conditions": [{"key": "amcsUp", "op": "over", "value": 1}]}).json()
+    assert body["ok"] is True and body["matched"] == 0
+    assert body["coverage"]["amcsUp"] == {"filled": 0, "total": 6}
+
+
+def test_non_mf_rules_with_a_dead_scanner_still_match_normally(monkeypatch):
+    client, _ = _client(monkeypatch)
+    _scanner(monkeypatch, raises=RuntimeError("down"))
+    body = client.post(URL, json={"conditions": [{"key": "pe", "op": "under", "value": 13}], "include_funds": True}).json()
+    assert sorted(_tickers(body)) == ["BRAVO", "ECHO", "FOXTROT"]
+    assert all(r["amcsUp"] is None for r in body["widget"]["universe"])
+
+
+def test_scanner_is_not_read_unless_funds_are_wanted(monkeypatch):
+    client, _ = _client(monkeypatch)
+    async def boom(*a, **k):
+        raise AssertionError("scanner read without need")
+    monkeypatch.setattr(route.daas_client, "is_configured", lambda: True)
+    monkeypatch.setattr(route.daas_client, "get_raw", boom)
+    assert client.post(URL, json={"conditions": [{"key": "pe", "op": "under", "value": 13}]}).json()["ok"] is True
+
+
+def test_every_mf_key_is_accepted_and_unknown_is_still_422(monkeypatch):
+    client, _ = _client(monkeypatch)
+    _scanner(monkeypatch, MF_ROWS)
+    for key in route._MF_METRICS:
+        assert client.post(URL, json={"conditions": [{"key": key, "op": "over", "value": 0}]}).status_code == 200
+    assert client.post(URL, json={"conditions": [{"key": "nope", "op": "over", "value": 0}]}).status_code == 422

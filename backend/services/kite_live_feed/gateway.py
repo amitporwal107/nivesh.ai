@@ -66,7 +66,8 @@ def default_ticker_factory(api_key: str, token: str):
 
 
 class TickerSource:
-    """KiteTicker in 'quote' mode (ltp, ohlc, volume) on its own thread. Ticks go to `on_tick(token, tick)`.
+    """KiteTicker in 'quote' mode (ltp, ohlc, volume) on its own thread; the tokens in `full_tokens` (the futures) are in
+    'full' mode, the only one that carries open interest. Ticks go to `on_tick(token, tick)`.
 
     `healthy()` is true while connected and a tick (or the connect) happened in the last `stale_after` seconds.
     A close with a token/permission error sets `auth_failed`; the feed then reports 'expired' and re-reads the token.
@@ -78,6 +79,7 @@ class TickerSource:
         self._on_tick, self._stale_after = on_tick, stale_after
         self._kws = factory(api_key, token)
         self._tokens: List[int] = []
+        self.full_tokens: set = set()
         self._lock = threading.Lock()
         self.connected = False
         self.auth_failed = False
@@ -112,7 +114,12 @@ class TickerSource:
         for i in range(0, len(tokens), 500):
             chunk = tokens[i:i + 500]
             self._kws.subscribe(chunk)
-            self._kws.set_mode(self.MODE, chunk)
+            full = [t for t in chunk if t in self.full_tokens]
+            rest = [t for t in chunk if t not in self.full_tokens]
+            if rest:
+                self._kws.set_mode(self.MODE, rest)
+            if full:
+                self._kws.set_mode("full", full)
 
     def stop(self) -> None:
         try:
