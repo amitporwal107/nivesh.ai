@@ -48,7 +48,7 @@ import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../tradi
 import { useDesk } from "./context";
 import { BuildupView } from "./FnoBuildup";
 import CandidatesView from "./FnoCandidates";
-import { ExpiryPanel, IndexResearchNote } from "./FnoIndexExpiries";
+import { ExpiryPanel, GreeksNotAvailable, HistoryPanel, IndexResearchNote, OiBarsPanel } from "./FnoIndexExpiries";
 import { BuilderView } from "./FnoBuilder";
 import { StrategiesView } from "./FnoStrategies";
 import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
@@ -578,8 +578,13 @@ export default function FnoTab() {
               />
               <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(auto-fit,minmax(420px,1fr))", gap: 16, alignItems: "start" }}>
                 <IndexCard key={ix} symbol={ix} onOpen={openChain} />
-                <ExpiryPanel key={`${ix}-exp`} symbol={ix} />
+                <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
+                  <HistoryPanel key={`${ix}-hist`} symbol={ix} />
+                  <ExpiryPanel key={`${ix}-exp`} symbol={ix} />
+                </div>
               </div>
+              <OiBarsPanel key={`${ix}-bars`} symbol={ix} />
+              <GreeksNotAvailable />
               <IndexResearchNote />
             </div>
           );

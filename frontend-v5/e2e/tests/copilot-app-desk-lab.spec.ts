@@ -1718,3 +1718,66 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
+
+// ── index workspace: last five sessions and the option-chain OI bars (FnoIndexExpiries.tsx) ─────────────────────────────
+// MOCK — not real data: GET /api/fno/{symbol}/positioning-history (backend/routes/fno.py) answered with invented sessions; the bars read the NIFTY chain fixture.
+test.describe("Smart trading desk — Options & futures lab · index history and OI bars", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+  const SESS = [
+    { date: "2026-10-16", label: "long_unwinding", price_chg_pct: -0.4, oi_chg_pct: -1.2, cash_confirmation: "confirms" },
+    { date: "2026-10-19", label: "short_covering", price_chg_pct: 0.6, oi_chg_pct: -0.8, cash_confirmation: "confirms" },
+    { date: "2026-10-21", label: null, price_chg_pct: null, oi_chg_pct: null, cash_confirmation: null },
+    { date: "2026-10-22", label: "short_buildup", price_chg_pct: -0.7, oi_chg_pct: 1.4, cash_confirmation: "confirms" },
+    { date: "2026-10-23", label: "long_buildup", price_chg_pct: 0.5, oi_chg_pct: 2.1, cash_confirmation: "confirms" },
+  ];
+  async function openIndices(page: Page, status = 200, body: unknown = { symbol: "NIFTY", sessions: SESS, requested: 5, missing: 11, read_only: true }) {
+    await fnoData(page);
+    await json(page, "**/api/fno/*/positioning-history*", body, status);
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-indices").click();
+  }
+
+  test("TC-5 TC-6 the last five sessions: each date with its state chip, a missing state reads No state, and the note says a change of state is not a signal", async ({ page }) => {
+    await openIndices(page);
+    const h = page.getByTestId("desk-fno-history-NIFTY");
+    await expect(h).toContainText("Last five sessions");
+    await expect(h.locator('[data-testid^="desk-fno-history-NIFTY-2026"]')).toHaveCount(5);
+    await expect(page.getByTestId("desk-fno-history-NIFTY-2026-10-16")).toContainText("Long unwinding");
+    await expect(page.getByTestId("desk-fno-history-NIFTY-2026-10-23")).toContainText("Long build-up");
+    await expect(page.getByTestId("desk-fno-history-NIFTY-2026-10-21")).toContainText("No state");
+    await expect(page.getByTestId("desk-fno-history-NIFTY-2026-10-23")).toContainText("+0.50% · OI +2.10%");
+    await expect(page.getByTestId("desk-fno-history-NIFTY-note")).toContainText("A change of state is not a signal");
+  });
+
+  test("TC-6 a failed history read shows the panel's notice and leaves the card and the other panels", async ({ page }) => {
+    await openIndices(page, 502, { detail: "upstream_unavailable" });
+    await expect(page.getByText("NIFTY positioning history didn’t load").first()).toBeVisible();
+    await expect(page.getByTestId("desk-fno-card-NIFTY-spot")).toHaveText("25,010.00");
+    await expect(page.getByTestId("desk-fno-expiries-NIFTY")).toBeVisible();
+  });
+
+  test("TC-7 option-chain OI bars: puts left, calls right around the ATM, ATM and the walls marked, with the plain note", async ({ page }) => {
+    await openIndices(page);
+    const chain = load("copilot-options-chain.json");
+    const bars = page.getByTestId("desk-fno-oibars-NIFTY");
+    await expect(bars).toBeVisible();
+    const rows = bars.getByTestId("desk-fno-oibar-row");
+    await expect(rows.first()).toBeVisible();
+    expect(await rows.count()).toBeLessThanOrEqual(15);
+    await expect(bars.locator('[data-testid="desk-fno-oibar-row"][data-atm="true"]')).toHaveAttribute("data-strike", String(chain.summary.atm_strike));
+    await expect(bars.locator(`[data-testid="desk-fno-oibar-row"][data-strike="${chain.summary.max_put_oi.strike}"]`)).toContainText("S");
+    await expect(bars.locator(`[data-testid="desk-fno-oibar-row"][data-strike="${chain.summary.max_call_oi.strike}"]`)).toContainText("R");
+    await expect(page.getByTestId("desk-fno-oibars-NIFTY-note")).toContainText("it is not support or resistance");
+    await expect(page.getByTestId("desk-fno-greeks-na")).toContainText("not available yet");
+  });
+
+  test("TC-8 at 390px the workspace with the history and the bars has no sideways overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openIndices(page);
+    await expect(page.getByTestId("desk-fno-oibars-NIFTY").getByTestId("desk-fno-oibar-row").first()).toBeVisible();
+    await expect(page.getByTestId("desk-fno-history-NIFTY-2026-10-16")).toBeVisible();
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+});
