@@ -288,15 +288,15 @@ TAPE_INDICES: List[tuple] = [
 _SPARK_CACHE: Dict[str, Any] = {"ts": 0.0, "data": None}
 
 
-def _fetch_index_history() -> Dict[str, List[float]]:
-    """Daily closes (~1 month) per tape ticker, for sparklines.
+def _fetch_index_history() -> Dict[str, tuple]:
+    """Daily closes (~1 month) per tape ticker, for sparklines, with the date of each ticker's last bar: {ticker: (closes, "YYYY-MM-DD")}.
 
     Synchronous yfinance call. Any ticker Yahoo can't resolve simply drops
     out — the caller renders that tile without a sparkline.
     """
     import yfinance as yf
     tickers = [t for _, t, _ in TAPE_INDICES]
-    out: Dict[str, List[float]] = {}
+    out: Dict[str, tuple] = {}
     try:
         data = yf.download(
             " ".join(tickers), period="1mo", interval="1d",
@@ -307,9 +307,11 @@ def _fetch_index_history() -> Dict[str, List[float]]:
         for t in tickers:
             try:
                 col = data["Close"][t] if len(tickers) > 1 else data["Close"]
-                series = [round(float(x), 2) for x in col.dropna().tolist()]
+                col = col.dropna()
+                series = [round(float(x), 2) for x in col.tolist()]
                 if series:
-                    out[t] = series[-24:]   # last ~24 sessions is enough to read
+                    last = col.index[-1]
+                    out[t] = (series[-24:], last.date().isoformat() if hasattr(last, "date") else str(last)[:10])   # last ~24 sessions is enough to read
             except (KeyError, IndexError, ValueError):
                 continue
     except Exception as e:  # noqa: BLE001
@@ -336,7 +338,7 @@ async def get_index_tape() -> List[Dict[str, Any]]:
 
     tape: List[Dict[str, Any]] = []
     for name, ticker, is_vix in TAPE_INDICES:
-        series = hist.get(ticker) or []
+        series, last_day = hist.get(ticker) or ([], None)
         value = series[-1] if series else None
         prev = series[-2] if len(series) >= 2 else None
         change_pct = round((value - prev) / prev * 100, 2) if value is not None and prev else None
@@ -347,6 +349,8 @@ async def get_index_tape() -> List[Dict[str, Any]]:
             "is_vix":     is_vix,
             "trend":      _vix_trend(change_pct) if is_vix else None,
             "spark":      series,
+            # The date of this tile's own latest daily bar: a screen compares Kite's closing quote with THIS, not with another table's date.
+            "as_of":      last_day if value is not None else None,
         })
 
     _SPARK_CACHE["data"] = tape
