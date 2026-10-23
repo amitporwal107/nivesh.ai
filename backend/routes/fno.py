@@ -631,6 +631,69 @@ async def futures(
     return {"symbol": sym, "as_of": as_of, "spot": spot, "lot_size": find_lot_size(rows), "futures": contracts, "count": len(contracts)}
 
 
+POSITIONING_DAYS_BACK = 16          # weekdays looked back over to find N trading sessions (holidays are skipped, not filled)
+
+
+def _today() -> date:
+    return date.today()
+
+
+def _recent_weekdays(today: date, n: int) -> List[date]:
+    """The last `n` weekdays up to and including `today`, newest first."""
+    out: List[date] = []
+    d = today
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d)
+        d -= timedelta(days=1)
+    return out
+
+
+def _positioning_row(body: Dict[str, Any], sym: str) -> Optional[Dict[str, Any]]:
+    """The symbol's row in one day's build-up scan: an index row first, then a stock row. Only what the scan says; a missing figure is null."""
+    for key in ("indices", "rows"):
+        for r in body.get(key) or []:
+            if isinstance(r, dict) and str(r.get("symbol") or "").upper() == sym:
+                return {"label": r.get("label") if r.get("label") in fno_rules.CATEGORIES else None,
+                        "price_chg_pct": fno_engine.num(r.get("price_chg_pct")), "oi_chg_pct": fno_engine.num(r.get("oi_chg_pct")),
+                        "cash_confirmation": r.get("cash_confirmation") if r.get("cash_confirmation") in ("confirms", "diverges") else None}
+    return None
+
+
+@router.get("/{symbol}/positioning-history")
+async def positioning_history(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    sessions: int = Query(5, ge=2, le=10, description="How many recent trading sessions"),
+) -> Dict[str, Any]:
+    """The near-month futures' build-up state per trading session for the last `sessions` sessions, oldest first: the label, the price change % and the OI change %
+    each day's scan gives (DaaS /desk/fno-buildup?date=D, the same rule as the Lab). A day is kept only when the scan answers for exactly that day: a holiday, a day the
+    platform has not loaded or a failed read is skipped and counted in `missing`, never filled in. Every day failing is 502, not an empty history. Read only."""
+    await get_current_user(request)
+    sym = symbol.upper()
+    days = _recent_weekdays(_today(), POSITIONING_DAYS_BACK)
+    gate = asyncio.Semaphore(4)
+
+    async def one(d: date) -> Optional[Dict[str, Any]]:
+        async with gate:
+            try:
+                body = await _daas("/desk/fno-buildup", {"date": d.isoformat()}, "stock futures")
+            except HTTPException:
+                return None
+        if _iso_day(body.get("as_of")) != d.isoformat():
+            return None
+        row = _positioning_row(body, sym)
+        return {"date": d.isoformat(), **(row or {"label": None, "price_chg_pct": None, "oi_chg_pct": None, "cash_confirmation": None})}
+
+    answers = await asyncio.gather(*(one(d) for d in days))
+    got = [a for a in answers if a is not None]
+    if not got:
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    kept = sorted(got, key=lambda r: r["date"], reverse=True)[:sessions]
+    return {"symbol": sym, "sessions": sorted(kept, key=lambda r: r["date"]), "requested": sessions, "missing": len(days) - len(got),
+            "source": "NSE F&O bhavcopy via the build-up scan, near-month future", "read_only": True}
+
+
 @router.get("/scan/buildup")
 async def scan_buildup(
     request: Request,
