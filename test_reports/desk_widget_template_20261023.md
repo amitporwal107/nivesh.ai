@@ -33,7 +33,7 @@ tsc exit=0
     [copilot-app] › e2e/tests/copilot-app-desk-smart-money.spec.ts:247:3 › ... TC-F3: the disclosure date is shown, not the compute date
   (+31 in copilot-app-desk-strategy-graphs.spec.ts, filtered from this listing)
   16 skipped
-  482 passed (6.8m)
+  491 passed (7.1m) after merging origin/dev (96b6e1b3); the 3 new dev cards (forward test, five-session history, OI-by-strike) are widgets too
 ```
 Baseline, untouched origin/dev, same build and config: strategy-graphs `31 failed`; smart-money TC-F3 fails (`1 failed`). So the 32 failures are identical to the baseline set and pre-existing (not caused by this change).
 
