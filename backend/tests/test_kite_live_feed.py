@@ -770,3 +770,65 @@ def test_close_route_requires_sign_in(monkeypatch):
     app = FastAPI()
     app.include_router(live_quotes.router)
     assert TestClient(app).get("/api/live/close").status_code == 401
+
+
+# ── the intraday series is kept from now on (point-in-time futures and index snapshots) ──────────────────────
+
+def _snaps(f):
+    return f.db["kite_live_intraday"].docs
+
+
+def test_an_open_session_saves_one_snapshot_per_bucket_with_only_futures_and_the_two_indices():
+    clock = Clock(OPEN_NOW)                                    # 14:32:05 IST
+    f = make_feed(clock=clock, kite=FakeKiteFut())
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30"]             # floored to the 5-minute bucket
+    d = _snaps(f)["2026-10-20T14:30"]
+    assert d["day"] == "2026-10-20" and d["count"] == len(d["rows"]) and d["saved_at"] is not None
+    syms = {r["s"] for r in d["rows"]}
+    assert "AAA26OCTFUT" in syms and "NIFTY 50" in syms and "NIFTY BANK" in syms
+    assert "AAA" not in syms                                    # cash stocks are not part of the series
+    fut = next(r for r in d["rows"] if r["s"] == "AAA26OCTFUT")
+    assert (fut["o"], fut["u"], fut["x"]) == (5000.0, "AAA", "2026-10-27") and fut["p"] == 100.0
+
+
+def test_a_second_pass_in_the_same_bucket_writes_nothing_and_the_next_bucket_writes_a_new_document():
+    clock = Clock(OPEN_NOW)
+    f = make_feed(clock=clock, kite=FakeKiteFut())
+    run(f.tick())
+    clock.now += timedelta(seconds=10)
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30"]
+    clock.now += timedelta(minutes=5)
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30", "2026-10-20T14:35"]
+
+
+def test_no_intraday_snapshot_outside_the_session():
+    f = make_feed(clock=Clock(AFTER_CLOSE), kite=FakeKiteFut())
+    run(f.tick())
+    assert _snaps(f) == {}
+
+
+def test_a_failed_snapshot_write_is_logged_without_the_error_text_retried_next_pass_and_never_stops_the_feed(caplog):
+    clock = Clock(OPEN_NOW)
+    f = make_feed(clock=clock, kite=FakeKiteFut())
+    real = f.db["kite_live_intraday"].replace_one
+
+    async def boom(*a, **k):
+        raise RuntimeError("mongo down")
+    f.db["kite_live_intraday"].replace_one = boom
+    with caplog.at_level(logging.WARNING):
+        run(f.tick())
+    assert f.snapshot is not None and f.snapshot["count"] > 0 and _snaps(f) == {}
+    assert any("intraday snapshot write failed" in r.message for r in caplog.records) and "mongo down" not in caplog.text
+    f.db["kite_live_intraday"].replace_one = real
+    clock.now += timedelta(seconds=10)
+    run(f.tick())
+    assert list(_snaps(f)) == ["2026-10-20T14:30"]              # the same bucket is retried because the first write did not land
+
+
+def test_the_intraday_collection_has_a_ttl_index():
+    db = FakeDB()
+    run(feed_mod.ensure_indexes(db))
+    assert any(k.get("expireAfterSeconds") == feed_mod.INTRADAY_TTL_SECONDS for _, k in db["kite_live_intraday"].indexes)

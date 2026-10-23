@@ -70,7 +70,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
@@ -78,6 +78,8 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request
 from deps import get_current_user
 from services import option_pricing
 from services.copilot_tools import daas_client
+from services.fno_candidates import engine as fno_engine
+from services.fno_candidates import rules as fno_rules
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fno", tags=["fno"])
@@ -639,3 +641,34 @@ async def scan_buildup(
         logger.warning("fno DaaS /desk/fno-buildup answered without rows")
         raise HTTPException(status_code=502, detail=_UNAVAILABLE)
     return body
+
+
+@router.get("/scan/candidates")
+async def scan_candidates(
+    request: Request,
+    per: int = Query(fno_rules.PER_DEFAULT, ge=1, le=fno_rules.PER_MAX, description="Candidates per build-up category"),
+    day: Optional[date] = Query(None, alias="date", description="Trading day YYYY-MM-DD; default = the latest"),
+) -> Dict[str, Any]:
+    """The top candidates of each build-up category (long build-up, short build-up, short covering, long unwinding) among the
+    liquid F&O stocks, each with five confirmations (cash, relative volume, delivery, trend, momentum), a fundamental context
+    rating and the figures behind them; plus NIFTY and BANKNIFTY from the same scan. Joins the build-up scan with one bulk read
+    of the engineered features. Read only. The ranking counts confirmations: it is not a probability, and no strategy is ranked
+    by profit here (the plan engine is asked per candidate, from `plan_inputs`). The features failing leaves every analysis
+    reading unknown: the candidates are still listed from the scan."""
+    await get_current_user(request)
+    body = await _daas("/desk/fno-buildup", {"date": day.isoformat()} if day else {}, "stock futures")
+    if not isinstance(body.get("rows"), list):
+        logger.warning("fno DaaS /desk/fno-buildup answered without rows")
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    pools = fno_engine.select_pools(body)
+    symbols = fno_engine.pool_symbols(pools)
+    features: Dict[str, List[Dict[str, Any]]] = {}
+    as_of = _iso_day(body.get("as_of"))
+    if symbols and as_of:
+        try:
+            features = await daas_client.get_features_bulk(
+                symbols, start=(date.fromisoformat(as_of) - timedelta(days=14)).isoformat(), end=as_of)
+        except Exception as e:  # noqa: BLE001 — the scan alone still answers; the analysis readings are then unknown
+            logger.warning("fno candidates: the features read failed (%s)", type(e).__name__)
+            features = {}
+    return fno_engine.assemble(body, pools, features, per)
