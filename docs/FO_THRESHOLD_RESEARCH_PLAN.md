@@ -60,3 +60,23 @@ Design notes for the runner (not yet written):
 4. Cost model and POP method; then strategy recommendations.
 5. Intraday OI: Stage C evaluator and, separately, intraday threshold research.
 6. Position mapping and position-aware alerts.
+
+## 7. Requirement added 2026-10-23: intraday option OI change per underlying
+
+The user's reference (a Sensibull-style "OI Change" screen): for each F&O stock and for NIFTY and BANKNIFTY, call and put OI by strike with the **change over a chosen window** (last 5, 10, 15, 30 minutes, 1, 2, 3 hours, full day), the spot marked, a choice of expiries, a strike range or "N strikes above and below ATM", and a replay slider from 9:15 to the close.
+
+What exists: end-of-day per-strike OI and the day's change from the bhavcopy (the Lab's option-chain view). No intraday option OI is stored, and the live feed subscribes no option contracts (only cash, indices and, since PR #307, near-month futures).
+
+Verified on 2026-10-23 (read-only, Kite REST `quote`, platform token):
+- Kite lists **42,691** option contracts across 219 underlyings. RELIANCE 215 contracts over 3 expiries; SWIGGY 256 over 3; BANKNIFTY 977 over 6; NIFTY 1,824 over 18 expiries (weekly and monthly).
+- A +-10 strike window around the future's price, 2 expiries, calls and puts, was **84 contracts for RELIANCE: 84 quotes returned in 0.03 s, 83 with OI above zero**. Each quote carries `oi`, `oi_day_high`, `oi_day_low`, `volume`, `last_price`, depth and a timestamp.
+- For all 214 F&O stocks that window is about **8,990 contracts**, plus the NIFTY and BANKNIFTY chains. At 500 instruments per call that is about 20 calls a cycle, so a 5-minute snapshot of the whole list is feasible on the existing REST path.
+
+Design implied (not built):
+1. A snapshot job in the feed that, each 5 minutes of an open session, reads the windowed option chains (ATM +-N strikes, two nearest expiries; wider and weekly expiries for NIFTY and BANKNIFTY) and saves strike, type, OI, price and volume under the bucket time. Re-centre the window on the current ATM each cycle.
+2. "Change over the last N minutes" and the replay slider are differences between two saved snapshots, so the view works from the first day the job runs; nothing before that exists to replay.
+3. Storage: about 10,000 rows a snapshot, roughly 400 KB, 75 snapshots a day, about 30 MB a day. Keep a short retention (for example 30 days) or store only the changed strikes; decide before building.
+4. A read route by underlying, expiry, window and strike range (index-agnostic, the same for stocks and indices), and the view in the F&O Lab beside the existing option-chain OI.
+5. Backfill for the current day only if needed: Kite's historical candles with `oi=True` for an option contract (15-minute) should work for active contracts, one request per contract (about 9,000 requests, roughly 50 minutes at 3 a second). Not verified for options.
+
+This belongs to the "intraday OI" milestone, validated separately from the daily threshold research (PRD sections 4 and 10; the user's decision B). It is a descriptive view, so it can ship before thresholds are validated, but it must show its data timestamp and say that OI change is not proof of intent.
