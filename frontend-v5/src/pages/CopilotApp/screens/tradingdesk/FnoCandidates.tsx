@@ -13,10 +13,12 @@ import { useEffect, useState } from "react";
 import { StockIcon } from "../../components/EntityIcon";
 import { LoadingBlock, Pill, TONE_COLOR, fmtNum, fmtPct, signTone, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { useLiveOverlays, type OverlayQuote } from "../../lib/useLiveQuotes";
 import { QueryProblem } from "../trading/parts";
 import { BUILDUP_LABELS, BUILDUP_META, type BuildupQuadrant } from "./fno-buildup";
 import { useCandidates, type Candidate, type CandidateCategory, type Score } from "./candidates-data";
 import { Segmented } from "./fno-parts";
+import { useLiveFutures, type LiveFuture } from "./live-futures";
 import { TrustLine } from "./trust";
 
 const quiet = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
@@ -69,7 +71,33 @@ function Fig({ label, value, tone }: { label: string; value: string; tone?: Tone
   );
 }
 
-function CandidateCard({ c, rank, of, onOpen }: { c: Candidate; rank: number; of: number; onOpen: (s: string) => void }) {
+
+/** "23 Oct" from a YYYY-MM-DD day. */
+const shortDay = (d: string | null) => (d ? new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : null);
+
+/**
+ * The latest quote, a line of its own beneath the end-of-day figures: the cash last price and the near-month future's last price and OI
+ * from the platform's Kite feed. Live only while the feed ticks; after the close the final snapshot only for a day the scan does not have
+ * yet, labelled Close. The near-month OI is that contract's own: it is not comparable with the build-up's OI change, which sums every expiry.
+ */
+function LatestQuote({ symbol, cash, fut, kind }: { symbol: string; cash: OverlayQuote | null; fut: LiveFuture | null; kind: "live" | "close" }) {
+  if (!cash && !fut) return null;
+  const day = shortDay(fut?.day ?? cash?.ts?.slice(0, 10) ?? null);
+  const word = kind === "live" ? "Live · Kite" : `Close · ${day ?? "latest session"} · Kite`;
+  const part = (name: string, ltp: number, pct: number | null) => `${name} ${fmtNum(ltp, 2)}${pct != null ? ` (${fmtPct(pct, { signed: true, digits: 2 })})` : ""}`;
+  return (
+    <div data-testid={`desk-cand-live-${symbol}`} data-kind={kind} className="flex flex-col" style={{ gap: 2, padding: "8px 12px", borderRadius: 10, background: "var(--bg-1)", border: "1px solid var(--mint-line)" }}>
+      <span className="flex flex-wrap items-baseline" style={{ gap: "2px 10px", ...mono, fontSize: 12 }}>
+        <span style={{ color: "var(--mint)" }}>{word}</span>
+        {cash && <span data-testid={`desk-cand-live-cash-${symbol}`}>{part("Cash", cash.ltp, cash.changePct)}</span>}
+        {fut && <span data-testid={`desk-cand-live-fut-${symbol}`}>{part("Futures", fut.ltp, fut.changePct)}{fut.oi != null ? ` · near-month OI ${fmtNum(fut.oi / 1e5, 2)} L` : ""}</span>}
+      </span>
+      <span style={quiet}>Near-month OI is that contract’s own; it is not comparable with the OI change above, which sums every expiry.</span>
+    </div>
+  );
+}
+
+function CandidateCard({ c, rank, of, onOpen, cash, fut, kind }: { c: Candidate; rank: number; of: number; onOpen: (s: string) => void; cash: OverlayQuote | null; fut: LiveFuture | null; kind: "live" | "close" | null }) {
   const meta = BUILDUP_META[c.label];
   const checks = c.checks.filter((k) => CHECK_NAME[k.key]);
   const word = (s: boolean | null) => (s === true ? "holds" : s === false ? "does not" : "unknown");
@@ -91,6 +119,7 @@ function CandidateCard({ c, rank, of, onOpen }: { c: Candidate; rank: number; of
         <Fig label="Cash price" value={fmtPct(c.cashChgPct, { signed: true, digits: 1 })} tone={signTone(c.cashChgPct)} />
         <Fig label="Expiry" value={c.nearExpiry ? `${day(c.nearExpiry)?.replace(/ \d{4}$/, "")}${c.daysToExpiry != null ? ` ${fmtNum(c.daysToExpiry)}d` : ""}` : "—"} />
       </div>
+      {kind && <LatestQuote symbol={c.symbol} cash={cash} fut={fut} kind={kind} />}
       <div className="flex flex-col" style={{ gap: 10, paddingTop: 12, borderTop: "1px solid var(--line-2)" }}>
         <ScoreRow name="Signal strength" s={c.signal} color="var(--mint)" symbol={c.symbol} kind="signal" />
         <ScoreRow name="Tradeability" s={c.tradeability} color="var(--cp-indigo, #8E97FF)" symbol={c.symbol} kind="trade"
@@ -151,6 +180,16 @@ export default function CandidatesView({ onOpen }: { onOpen: (symbol: string) =>
   const first = q.data ? BUILDUP_LABELS.find((l) => q.data.categories[l].candidates.length > 0) ?? BUILDUP_LABELS[0] : null;
   const cat: BuildupQuadrant | null = picked ?? first;
   useEffect(() => { setPicked(null); }, [q.data?.asOf]);
+  // The latest quotes (Kite feed): cash through the overlay rule, near-month futures through the build-up table's rule. Hooks run before any return.
+  const shown = q.data && cat ? q.data.categories[cat].candidates : [];
+  const cashQ = useLiveOverlays(shown.map((x) => x.symbol), q.data?.asOf ?? null);
+  const liveF = useLiveFutures(true);
+  const bhavDay = q.data?.asOf ?? null;
+  const futKind = liveF.data?.kind ?? null;
+  const futFor = (sym: string): LiveFuture | null => {
+    const v = liveF.data?.byUnderlying[sym.toUpperCase()] ?? null;
+    return v && (futKind === "live" || (futKind === "close" && !!bhavDay && !!v.day && v.day > bhavDay)) ? v : null;
+  };
 
   if (q.isPending) return <LoadingBlock label="Loading the candidates" rows={4} />;
   if (q.isError) return <QueryProblem what="The candidates" error={q.error} onRetry={() => q.refetch()} />;
@@ -183,7 +222,12 @@ export default function CandidatesView({ onOpen }: { onOpen: (symbol: string) =>
         ? <span data-testid="desk-cand-empty" style={quiet}>No stock in this category had enough of its inputs to be ordered on this day.</span>
         : (
           <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(auto-fit,minmax(380px,1fr))", gap: 16, alignItems: "start" }}>
-            {c.candidates.map((x, i) => <CandidateCard key={x.symbol} c={x} rank={i + 1} of={c.candidates.length} onOpen={onOpen} />)}
+            {c.candidates.map((x, i) => {
+              const cash = cashQ.get(x.symbol);
+              const fut = futFor(x.symbol);
+              const kind = fut ? futKind : cash?.kind ?? null;
+              return <CandidateCard key={x.symbol} c={x} rank={i + 1} of={c.candidates.length} onOpen={onOpen} cash={cash} fut={fut} kind={kind} />;
+            })}
           </div>
         )}
       {c.unranked.length > 0 && (

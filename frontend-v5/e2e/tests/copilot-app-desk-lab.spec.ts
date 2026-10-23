@@ -1457,3 +1457,104 @@ test.describe("Smart trading desk — Options & futures lab · index workspaces"
     expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
+
+// ── the latest quote on the Candidates cards and the index card ──────────────────────────────────────────────────────
+// MOCK — not real data: invented Kite quotes in the shape backend/routes/live_quotes.py serves. LB1 is the fixture's first long build-up candidate.
+test.describe("Options & futures lab · latest quotes on Candidates and the index card", () => {
+  const CAND = load("fno-candidates.json");
+  const lb1 = CAND.categories.long_buildup.candidates[0];       // LB1
+  const asOf: string = CAND.as_of;                              // the scan's day, 2026-10-22
+
+  const snap = (mode: string, quotes: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true, ...extra,
+  });
+  const cashQuote = (ltp: number, ts = "2026-10-23T11:13:09+05:30") => ({ ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts });
+  const futQuote = { ltp: 101.25, change: 1.1, change_pct: 1.1, open: 100, high: 102, low: 99, close: 100.15, volume: 5000, oi: 1_250_000, oi_high: 1_300_000, oi_low: 1_200_000, instrument: "FUT", underlying: "LB1", expiry: "2026-10-27", ts: "2026-10-23T11:13:09+05:30", day: "2026-10-23" };
+
+  async function openWith(page: Page, mode: string, opts: { final?: boolean; cash?: Record<string, unknown>; fut?: Record<string, unknown>; fail?: boolean } = {}) {
+    await deskBase(page);
+    await fnoData(page);
+    await page.route("**/api/fno/scan/candidates*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CAND) }));
+    await page.route("**/api/live/**", (route) => {
+      const u = new URL(route.request().url());
+      if (opts.fail) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "snapshot_unavailable" }) });
+      const futures = u.searchParams.get("universe") === "futures";
+      const body = snap(mode, (futures ? opts.fut : opts.cash) ?? {}, opts.final ? { final: true } : {});
+      return u.pathname.endsWith("/stream")
+        ? route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(body)}\n\n` })
+        : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-candidates").click();
+    await expect(page.getByTestId(`desk-cand-card-${lb1.symbol}`)).toBeVisible();
+  }
+
+  test("TC-1 TC-2 live: the card gains a Live line with cash and near-month futures; the end-of-day figures are unchanged", async ({ page }) => {
+    await openWith(page, "live", { cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+    const live = page.getByTestId(`desk-cand-live-${lb1.symbol}`);
+    await expect(live).toHaveAttribute("data-kind", "live");
+    await expect(live).toContainText("Live · Kite");
+    await expect(page.getByTestId(`desk-cand-live-cash-${lb1.symbol}`)).toHaveText("Cash 102.50 (+1.50%)");
+    await expect(page.getByTestId(`desk-cand-live-fut-${lb1.symbol}`)).toHaveText("Futures 101.25 (+1.10%) · near-month OI 12.50 L");
+    await expect(live).toContainText("not comparable with the OI change above, which sums every expiry");
+    await expect(page.getByTestId(`desk-cand-card-${lb1.symbol}`)).toContainText(`+${lb1.oi_chg_pct.toFixed(1)}%`);
+  });
+
+  test("TC-3 closed with a final snapshot newer than the scan: labelled Close, never Live", async ({ page }) => {
+    expect(asOf < "2026-10-23").toBe(true);
+    await openWith(page, "closed", { final: true, cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+    const live = page.getByTestId(`desk-cand-live-${lb1.symbol}`);
+    await expect(live).toHaveAttribute("data-kind", "close");
+    await expect(live).toContainText("Close · 23 Oct · Kite");
+    await expect(live).not.toContainText("Live");
+  });
+
+  test("TC-4 closed and the snapshot is not newer than the scan's day: no latest-quote line", async ({ page }) => {
+    await openWith(page, "closed", { final: true, cash: { [lb1.symbol]: cashQuote(102.5, `${asOf}T15:29:00+05:30`) }, fut: { LB1OCTFUT: { ...futQuote, day: asOf, ts: `${asOf}T15:29:00+05:30` } } });
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+  });
+
+  for (const mode of ["delayed", "expired", "not_connected"]) {
+    test(`TC-5 feed ${mode}: no latest-quote line`, async ({ page }) => {
+      await openWith(page, mode, { cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+      await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+    });
+  }
+
+  test("TC-6 a stock Kite sent nothing for shows no line, never 0", async ({ page }) => {
+    await openWith(page, "live", { cash: { OTHER: cashQuote(55) }, fut: {} });
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+  });
+
+  test("TC-7 a failed snapshot read leaves the cards as they were", async ({ page }) => {
+    await openWith(page, "live", { fail: true });
+    await expect(page.getByTestId(`desk-cand-card-${lb1.symbol}`)).toContainText(lb1.symbol);
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+  });
+
+  test("TC-8 the index card shows the live spot under the end-of-day spot", async ({ page }) => {
+    await deskBase(page);
+    await fnoData(page);
+    await page.route("**/api/live/**", (route) => {
+      const u = new URL(route.request().url());
+      const body = snap("live", { "NIFTY 50": cashQuote(25100.5) });
+      return u.pathname.endsWith("/stream")
+        ? route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(body)}\n\n` })
+        : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-indices").click();
+    await expect(page.getByTestId("desk-fno-card-NIFTY-live")).toContainText("Live · Kite 25,100.50 (+1.50%)");
+    await expect(page.getByTestId("desk-fno-card-NIFTY-spot")).toHaveText("25,010.00");
+  });
+
+  test("TC-9 at 390px the live line causes no sideways overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openWith(page, "live", { cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toBeVisible();
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+});

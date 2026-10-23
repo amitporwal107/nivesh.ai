@@ -381,6 +381,8 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
   const scan = useBuildup(true);
   const near = nearFutureOf(fq.data);
   const id = `desk-fno-card-${symbol}`;
+  // Kite's spot for the index while the feed is live, or its closing quote until the bhavcopy of that day is loaded; the card's chain figures stay the bhavcopy's.
+  const liveSpot = useLiveOverlay(indexNameForSymbol(symbol) ?? symbol, state.status === "ok" ? state.chain.summary.as_of : null);
   const futuresLine = fq.isPending ? "Loading" : fq.isError ? "Didn’t load" : fq.data.kind === "none" ? "No futures rows" : "No contract listed";
   const ix = indexRowFor(scan.data, symbol);
   const meta = ix?.label ? BUILDUP_META[ix.label] : null;
@@ -412,6 +414,11 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
                     {chg ? `${fmtSigned(chg.change)}${chg.pct != null ? ` (${fmtSigned(chg.pct)}%)` : ""}` : "change —"}
                   </span>
                   <span className="cp-mono-note">end of day {fmtDay(s.as_of)}</span>
+                  {liveSpot && (
+                    <span data-testid={`${id}-live`} data-kind={liveSpot.kind} className="cp-mono-note" style={{ color: "var(--mint)" }}>
+                      {liveSpot.kind === "live" ? "Live · Kite" : closeLabel(liveSpot)} {fmtNum(liveSpot.ltp, 2)}{liveSpot.changePct != null ? ` (${fmtSigned(liveSpot.changePct)}%)` : ""}
+                    </span>
+                  )}
                 </div>
                 <span data-testid={`${id}-headline`} style={{ fontFamily: "var(--display)", fontSize: 22, lineHeight: 1.2, letterSpacing: "-0.01em" }}>{indexHeadline(s, investor)}</span>
                 <div className="flex flex-col" style={{ gap: 6 }}>
