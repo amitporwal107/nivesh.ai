@@ -48,6 +48,7 @@ import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../tradi
 import { useDesk } from "./context";
 import { BuildupView } from "./FnoBuildup";
 import CandidatesView from "./FnoCandidates";
+import { ExpiryPanel, IndexResearchNote } from "./FnoIndexExpiries";
 import { StrategiesView } from "./FnoStrategies";
 import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
 import { HEURISTIC_NOTE } from "./FnoBuildup";
@@ -558,11 +559,22 @@ export default function FnoTab() {
           />
         )}
         {view === "candidates" && <CandidatesView onOpen={openChain} />}
-        {view === "indices" && (
-          <div data-testid="desk-fno-indices" className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(2,minmax(0,1fr))", gap: 16, alignItems: "start" }}>
-            {FNO_INDICES.map((i) => <IndexCard key={i.symbol} symbol={i.symbol} onOpen={openChain} />)}
-          </div>
-        )}
+        {view === "indices" && (() => {
+          const ix = isIndexUnderlying(symbol) ? symbol : FNO_INDICES[0].symbol;
+          return (
+            <div data-testid="desk-fno-indices" data-index={ix} className="flex flex-col min-w-0" style={{ gap: 16 }}>
+              <Segmented<string>
+                label="Index workspace" testId="desk-fno-index-select" value={ix}
+                options={FNO_INDICES.map((i) => ({ value: i.symbol, label: i.symbol }))} onChange={pick}
+              />
+              <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(auto-fit,minmax(420px,1fr))", gap: 16, alignItems: "start" }}>
+                <IndexCard key={ix} symbol={ix} onOpen={openChain} />
+                <ExpiryPanel key={`${ix}-exp`} symbol={ix} />
+              </div>
+              <IndexResearchNote />
+            </div>
+          );
+        })()}
         {view === "chain" && (chain
           ? <ChainOiTable chain={chain} />
           : oc.state.status === "loading" ? <LoadingBlock label={`Loading the ${symbol} chain`} rows={4} />
