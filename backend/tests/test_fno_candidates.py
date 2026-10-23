@@ -270,7 +270,11 @@ def test_the_weights_come_from_the_rules_and_changing_them_changes_the_order():
 def test_every_response_carries_the_research_status_and_nothing_claims_validation():
     out = build()
     r = out["research"]
-    assert (r["status"], r["experiment_id"], r["data_window"], r["last_updated"]) == ("research_setting_not_validated", None, None, None)
+    assert (r["status"], r["experiment_id"], r["last_updated"]) == ("research_setting_not_validated", "fo-bt-95f4e5df42dc", "2026-10-23")
+    assert r["data_window"] == {"from": "2025-12-29", "to": "2026-10-22"}
+    assert [e["id"] for e in r["experiments"]] == ["fo-bt-95f4e5df42dc", "fo-b2-c4295fca6fbf"]
+    assert all(e["finding"] and e["doc"] and e["data_window"] for e in r["experiments"])
+    assert "validated" not in {e.get("status") for e in r["experiments"]} and r["status"] != "validated"
     assert r["threshold_version"] == "fno-candidates-v2" == out["threshold_version"] and "validated" in r["statuses"]
     assert out["rules"]["research_status"] == "research_setting_not_validated"
     assert "no out-of-sample test" in out["disclosure"] and "most profitable" not in str(out).lower()

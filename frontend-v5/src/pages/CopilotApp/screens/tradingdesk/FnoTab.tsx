@@ -2,7 +2,7 @@
  * Smart trading desk — 06 Options & futures lab. Design: "Smart Trading Desk",
  * Options & futures lab (design-spec §8): header with the underlying's spot,
  * the underlying row with the expiry switch, the stats card, then four
- * sub-tabs — OI build-up · F&O stocks, NIFTY & BANKNIFTY, Option chain OI and
+ * sub-tabs — OI build-up · F&O stocks, Candidates, NIFTY & BANKNIFTY, Option chain OI and
  * Paper strategies. Analysis only: nothing here places an order.
  *
  * Data (all end of day, one NSE F&O bhavcopy a day):
@@ -47,6 +47,7 @@ import { FNO_INDICES, cleanSymbol, indexNameForSymbol, isIndexUnderlying, useFno
 import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
 import { useDesk } from "./context";
 import { BuildupView } from "./FnoBuildup";
+import CandidatesView from "./FnoCandidates";
 import { StrategiesView } from "./FnoStrategies";
 import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
 import { HEURISTIC_NOTE } from "./FnoBuildup";
@@ -57,7 +58,7 @@ import {
   basisWords, buildupWhy, chainTiles, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
 } from "./fno-parts";
 
-type FnoView = "buildup" | "indices" | "chain" | "strategies";
+type FnoView = "buildup" | "candidates" | "indices" | "chain" | "strategies";
 
 // ── header ───────────────────────────────────────────────────────────────
 
@@ -485,6 +486,7 @@ export default function FnoTab() {
 
   const views: Array<{ key: FnoView; label: string }> = [
     { key: "buildup", label: "OI build-up · F&O stocks" },
+    { key: "candidates", label: "Candidates" },
     { key: "indices", label: "NIFTY & BANKNIFTY" },
     { key: "chain", label: `Option chain OI · ${symbol}` },
     { key: "strategies", label: "Paper strategies" },
@@ -555,6 +557,7 @@ export default function FnoTab() {
             loaded={{ symbol, volume: near?.future.volume ?? null, pcr: chain?.summary.pcr ?? null, iv: chain?.summary.atm_iv ?? null }}
           />
         )}
+        {view === "candidates" && <CandidatesView onOpen={openChain} />}
         {view === "indices" && (
           <div data-testid="desk-fno-indices" className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(2,minmax(0,1fr))", gap: 16, alignItems: "start" }}>
             {FNO_INDICES.map((i) => <IndexCard key={i.symbol} symbol={i.symbol} onOpen={openChain} />)}

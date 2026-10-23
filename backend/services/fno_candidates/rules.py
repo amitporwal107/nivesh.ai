@@ -84,13 +84,26 @@ RULES = {
 }
 
 
+RESEARCH_EXPERIMENTS = (
+    {"id": "fo-bt-95f4e5df42dc", "stage": "Stage A ranking backtest", "date": "2026-10-23", "data_window": {"from": "2025-12-29", "to": "2026-10-22"},
+     "finding": "No ranking skill beyond picking at random from the same pool; no frozen setting was positive in both validation and test.",
+     "doc": "docs/FO_RANKING_BACKTEST_FINDINGS_20261023.md"},
+    {"id": "fo-b2-c4295fca6fbf", "stage": "Stage B2 expiry-curve study", "date": "2026-10-23", "data_window": {"from": "2025-10-01", "to": "2026-10-22"},
+     "finding": "No hypothesis supported for near, next or far expiry, nor for cross-expiry agreement or state transitions; near-month short build-up is inconclusive (permutation p 0.06).",
+     "doc": "docs/FO_STAGE_B2_FINDINGS_20261023.md"},
+)
+
+
 def research_block() -> dict:
-    """The research status that travels with every response. No experiment has been completed yet, so nothing is `research_result`
-    or `validated`; the experiment id, data window and last-updated time are filled in when a report exists."""
+    """The research status that travels with every response. The two completed experiments are listed with their findings; neither validated
+    anything, so the status stays `research_setting_not_validated` and nothing here is `research_result` or `validated`."""
+    lead = RESEARCH_EXPERIMENTS[0]
     return {
-        "status": RULES["research_status"], "threshold_version": RULES_VERSION, "experiment_id": None, "data_window": None, "last_updated": None,
+        "status": RULES["research_status"], "threshold_version": RULES_VERSION, "experiment_id": lead["id"], "data_window": dict(lead["data_window"]),
+        "last_updated": max(e["date"] for e in RESEARCH_EXPERIMENTS), "experiments": [dict(e) for e in RESEARCH_EXPERIMENTS],
         "statuses": list(RESEARCH_STATUSES),
-        "note": "Every threshold and weight on this screen is a research setting, not a validated one. The ranking orders candidates for review; it is not a proven selection method.",
+        "note": "Every threshold and weight on this screen is a research setting, not a validated one. The ranking orders candidates for review; it is not a proven selection method, "
+                "and back-tests found no skill beyond a random pick from the same pool.",
     }
 
 
