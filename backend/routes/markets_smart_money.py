@@ -70,7 +70,50 @@ async def smart_money_flows(
     """Market-wide FII/DII cash flows over the window, per period and cumulative. 1M/3M/6M are
     daily; 1Y is monthly, because the daily series only begins 2026-04-01 and would truncate."""
     await get_current_user(request)
-    return await _daas("/desk/smart-money/flows", {"window": window}, "rows")
+    out = await _daas("/desk/smart-money/flows", {"window": window}, "rows")
+    if out.get("grain") == "daily":
+        out = await _with_newer_days(out)
+    return out
+
+
+_TAIL_NOTE = "days after the Sensibull history ends are the NSE provisional figures (nidp.fii_dii_flows, source=NSE_FII_DII), which matched Sensibull to 0.01 crore where both exist"
+
+
+async def _with_newer_days(out: Dict[str, Any]) -> Dict[str, Any]:
+    """Continue the daily series with the days NEWER than its last row. The Sensibull history is ingested in batches and can end days before
+    the NSE provisional feed does; the market-pulse read carries those newer days (only the NSE feed has them, so none is double counted).
+    Net comes from that read; the cumulative continues from the last cumulative. A day with a missing net is skipped, never zero-filled, and a
+    failed or empty read leaves the answer exactly as the data platform sent it."""
+    rows = out.get("rows") or []
+    if not rows:
+        return out
+    last = rows[-1]
+    last_day, fii_cum, dii_cum = str(last.get("date") or "")[:10], last.get("fii_cum_cr"), last.get("dii_cum_cr")
+    if not last_day or fii_cum is None or dii_cum is None:
+        return out
+    try:
+        pulse = await daas_client.get_market_pulse_fii_dii(days=30)
+    except Exception as e:  # noqa: BLE001 — the series as sent is still true
+        logger.warning("smart-money flows: the newer-days read failed (%s)", type(e).__name__)
+        return out
+    newer = sorted((d for d in ((pulse or {}).get("daily") or []) if str(d.get("date") or "")[:10] > last_day), key=lambda d: str(d["date"]))
+    added = []
+    for d in newer:
+        fii, dii = d.get("fii_net"), d.get("dii_net")
+        if not isinstance(fii, (int, float)) or not isinstance(dii, (int, float)):
+            continue
+        fii_cum, dii_cum = fii_cum + fii, dii_cum + dii
+        added.append({"date": str(d["date"])[:10], "fii_net_cr": fii, "dii_net_cr": dii, "fii_cum_cr": round(fii_cum, 4), "dii_cum_cr": round(dii_cum, 4)})
+    if not added:
+        return out
+    merged = {**out, "rows": [*rows, *added], "as_of": added[-1]["date"]}
+    if isinstance(out.get("count"), int):
+        merged["count"] = out["count"] + len(added)
+    if isinstance(out.get("total"), int):
+        merged["total"] = out["total"] + len(added)
+    merged["tail_note"] = _TAIL_NOTE
+    merged["tail_days"] = [a["date"] for a in added]
+    return merged
 
 
 @router.get("/sectors")

@@ -51,7 +51,19 @@ def _fd_row(r) -> Dict[str, Any]:
 
 @router.get("/fii-dii", summary="FII/DII cash flows — daily series + monthly aggregates")
 async def fii_dii(days: int = Query(90, ge=7, le=365)):
-    daily_sql = """
+    # fii_dii_flows holds the same trading day from more than one source (NSE_FII_DII, SENSIBULL daily, and SENSIBULL_MONTHLY month-start
+    # rows). Summing every row double-counted the days two sources share, so each (day, category) takes ONE row: NSE first, then Sensibull
+    # daily. The two agree to 0.01 crore where both exist. Months with no daily row (before 2026-04) come from the SENSIBULL_MONTHLY row.
+    one_per_day = """
+        WITH ranked AS (
+            SELECT as_of_date, category, buy_value_cr, sell_value_cr, net_value_cr,
+                   ROW_NUMBER() OVER (PARTITION BY as_of_date, category
+                                      ORDER BY CASE source WHEN 'NSE_FII_DII' THEN 0 ELSE 1 END) AS rn
+              FROM nidp.fii_dii_flows
+             WHERE segment='EQUITY_CASH' AND category IN ('FII','DII') AND source IN ('NSE_FII_DII', 'SENSIBULL')
+        ), one AS (SELECT * FROM ranked WHERE rn = 1)
+    """
+    daily_sql = one_per_day + """
         SELECT as_of_date,
                SUM(buy_value_cr)  FILTER (WHERE category='FII') AS fii_buy,
                SUM(sell_value_cr) FILTER (WHERE category='FII') AS fii_sell,
@@ -59,24 +71,39 @@ async def fii_dii(days: int = Query(90, ge=7, le=365)):
                SUM(buy_value_cr)  FILTER (WHERE category='DII') AS dii_buy,
                SUM(sell_value_cr) FILTER (WHERE category='DII') AS dii_sell,
                SUM(net_value_cr)  FILTER (WHERE category='DII') AS dii_net
-          FROM nidp.fii_dii_flows
-         WHERE segment='EQUITY_CASH' AND category IN ('FII','DII')
-           AND as_of_date >= (current_date - $1::int)
+          FROM one
+         WHERE as_of_date >= (current_date - $1::int)
          GROUP BY as_of_date
          ORDER BY as_of_date DESC
     """
-    monthly_sql = """
-        SELECT date_trunc('month', as_of_date)::date AS month,
-               SUM(buy_value_cr)  FILTER (WHERE category='FII') AS fii_buy,
-               SUM(sell_value_cr) FILTER (WHERE category='FII') AS fii_sell,
-               SUM(net_value_cr)  FILTER (WHERE category='FII') AS fii_net,
-               SUM(buy_value_cr)  FILTER (WHERE category='DII') AS dii_buy,
-               SUM(sell_value_cr) FILTER (WHERE category='DII') AS dii_sell,
-               SUM(net_value_cr)  FILTER (WHERE category='DII') AS dii_net
-          FROM nidp.fii_dii_flows
-         WHERE segment='EQUITY_CASH' AND category IN ('FII','DII')
-           AND as_of_date >= (date_trunc('month', current_date) - interval '17 months')
-         GROUP BY month
+    monthly_sql = one_per_day + """
+        , from_daily AS (
+            SELECT date_trunc('month', as_of_date)::date AS month,
+                   SUM(buy_value_cr)  FILTER (WHERE category='FII') AS fii_buy,
+                   SUM(sell_value_cr) FILTER (WHERE category='FII') AS fii_sell,
+                   SUM(net_value_cr)  FILTER (WHERE category='FII') AS fii_net,
+                   SUM(buy_value_cr)  FILTER (WHERE category='DII') AS dii_buy,
+                   SUM(sell_value_cr) FILTER (WHERE category='DII') AS dii_sell,
+                   SUM(net_value_cr)  FILTER (WHERE category='DII') AS dii_net
+              FROM one GROUP BY 1
+        ), from_monthly AS (
+            SELECT date_trunc('month', as_of_date)::date AS month,
+                   SUM(buy_value_cr)  FILTER (WHERE category='FII') AS fii_buy,
+                   SUM(sell_value_cr) FILTER (WHERE category='FII') AS fii_sell,
+                   SUM(net_value_cr)  FILTER (WHERE category='FII') AS fii_net,
+                   SUM(buy_value_cr)  FILTER (WHERE category='DII') AS dii_buy,
+                   SUM(sell_value_cr) FILTER (WHERE category='DII') AS dii_sell,
+                   SUM(net_value_cr)  FILTER (WHERE category='DII') AS dii_net
+              FROM nidp.fii_dii_flows
+             WHERE segment='EQUITY_CASH' AND category IN ('FII','DII') AND source = 'SENSIBULL_MONTHLY'
+             GROUP BY 1
+        )
+        SELECT * FROM (
+            SELECT * FROM from_daily
+            UNION ALL
+            SELECT * FROM from_monthly WHERE month NOT IN (SELECT month FROM from_daily)
+        ) m
+         WHERE month >= (date_trunc('month', current_date) - interval '17 months')
          ORDER BY month DESC
     """
     pool = await get_pool()
