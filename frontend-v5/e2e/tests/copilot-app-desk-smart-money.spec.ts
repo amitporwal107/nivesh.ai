@@ -579,3 +579,45 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
   });
 
 });
+
+/**
+ * MOCK — not real data: an invented Kite live snapshot (stream and polling) with one quote per symbol given.
+ * Shape: backend/routes/live_quotes.py. `mode` is the feed's own word: only "live" shows live prices.
+ */
+async function liveFeed(page: Page, ltps: Record<string, number>, mode = "live") {
+  const quotes = Object.fromEntries(Object.entries(ltps).map(([s, ltp]) => [s, { ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts: "2026-10-23T11:13:09+05:30" }]));
+  const snapshot = {
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+
+test.describe("Smart trading desk · 06 Smart Money Movement · live price", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page, "populated");
+    await mockSmartMoney(page);
+  });
+
+  test("TC-live the evidence rail shows Kite's live price and day change while the feed is live, else the scanner's close", async ({ page }) => {
+    await liveFeed(page, { BSE: 4321.5 });
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-price")).toHaveAttribute("data-live", "true");
+    await expect(page.getByTestId("desk-smart-money-price")).toHaveText("₹4,321.50");
+    await expect(page.getByTestId("desk-smart-money-change")).toHaveText("+1.50%");
+  });
+
+  test("TC-live-closed no live attribute when the feed is closed: the scanner's close stays", async ({ page }) => {
+    await liveFeed(page, { BSE: 4321.5 }, "closed");
+    await page.goto(SM);
+    await expect(screen(page)).toBeVisible(SLOW);
+    await row(page, "BSE").click();
+    await expect(page.getByTestId("desk-smart-money-evidence")).toBeVisible();
+    await expect(page.getByTestId("desk-smart-money-price")).not.toHaveAttribute("data-live", "true");
+  });
+});

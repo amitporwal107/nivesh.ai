@@ -36,6 +36,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { useHoldingsEnriched } from "@/hooks/use-portfolio";
 import { StockName } from "../../components/EntityIcon";
 import { Btn, ErrorBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, type Tone } from "../../components/ui";
+import { useLiveOverlay, type OverlayQuote } from "../../lib/useLiveQuotes";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { setupLabel, useDeskLevels, useScenario, useStockOdds, type DeskLevels, type Scenario, type ScenarioInputs } from "./chart-data";
 import { useDesk } from "./context";
@@ -527,10 +528,11 @@ function ScenarioOutputs({ st }: { st: ScenarioState }) {
 // ── range bar ────────────────────────────────────────────────────────────
 
 /**
- * Stop → entry (red, flex 1) and entry → target (green, flex = reward ÷ risk), with the last close marked at its
- * price. Without a target only the red part is drawn.
+ * Stop → entry (red, flex 1) and entry → target (green, flex = reward ÷ risk), with the price marked at its
+ * place: Kite's live price while the feed is LIVE, otherwise the last close. Without a target only the red part is drawn.
  */
-function RangeBar({ entry, stop, target, ltp, plain }: { entry: number; stop: number; target: number | null; ltp: number | null; plain: boolean }) {
+function RangeBar({ entry, stop, target, ltp, live, plain }: { entry: number; stop: number; target: number | null; ltp: number | null; live: OverlayQuote | null; plain: boolean }) {
+  const isLive = live?.kind === "live";
   const rr = target != null && target > entry ? (target - entry) / (entry - stop) : null;
   const red = rr != null ? 1 / (1 + rr) : 1;
   let at: number | null = null;
@@ -551,11 +553,12 @@ function RangeBar({ entry, stop, target, ltp, plain }: { entry: number; stop: nu
           <div
             data-testid="desk-risk-ltp"
             data-at={at.toFixed(4)}
-            title={`Last close ${fmtPrice(ltp)}${where}`}
+            data-live={isLive ? "true" : undefined}
+            title={`${isLive ? "Live price (Kite)" : "Last close"} ${fmtPrice(ltp)}${where}`}
             style={{ position: "absolute", top: 0, left: `${at * 100}%`, transform: "translateX(-1px)", display: "flex", flexDirection: "column", alignItems: at > 0.75 ? "flex-end" : "flex-start" }}
           >
             <span className="cp-num" style={{ position: "absolute", top: -1, [at > 0.75 ? "right" : "left"]: 5, fontSize: 9.5, lineHeight: 1.2, whiteSpace: "nowrap", color: "var(--cp-ink)" }}>
-              Close {fmtPrice(ltp)}{where}
+              {isLive ? "Live" : "Close"} {fmtPrice(ltp)}{where}
             </span>
             <span style={{ position: "absolute", top: 12, left: 0, width: 2, height: 18, background: "var(--cp-ink)" }} />
           </div>
@@ -838,7 +841,9 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
   const stop = lv.stop;
   const target = lv.target;
   const rr = lv.riskReward;
-  const ltp = bars?.length ? bars[bars.length - 1].close : setup?.close ?? null;
+  // Kite's live price while the feed is LIVE (or the closing snapshot of a session the bars do not have yet); else the last end-of-day close.
+  const live = useLiveOverlay(sym, bars?.length ? bars[bars.length - 1].day : null);
+  const ltp = live ? live.ltp : bars?.length ? bars[bars.length - 1].close : setup?.close ?? null;
   const record = f.record;
   const capitalOpt = CAPITALS.find((c) => c.value === st.fields.capital)?.value ?? ("" as string);
   const riskOpt = RISKS.find((r) => r.value === st.fields.riskPct)?.value ?? ("" as string);
@@ -862,7 +867,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
         </div>
 
         {lv.source && entry != null && stop != null && entry > stop ? (
-          <RangeBar entry={entry} stop={stop} target={target} ltp={ltp} plain={plain} />
+          <RangeBar entry={entry} stop={stop} target={target} ltp={ltp} live={live} plain={plain} />
         ) : (
           <span data-testid="desk-risk-nolevels" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-3)" }}>
             {setup ? "This setup has no entry with a stop below it, so there is no range to draw. Enter levels under “Edit the scenario” to size one." : "Not on today’s scanner — no levels. The scanner suggests an entry, stop and target only for stocks that pass its end-of-day rules, and nothing is made up for the rest. Enter your own under “Edit the scenario” and the calculator sizes them."}{lv.reason ? ` (${lv.reason})` : ""}

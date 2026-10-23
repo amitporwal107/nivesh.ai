@@ -791,3 +791,40 @@ test.describe("Workspace screens — phone (390×844)", () => {
     expect(errors).toEqual([]);
   });
 });
+
+/**
+ * MOCK — not real data: an invented Kite live snapshot (stream and polling) with one quote per symbol given.
+ * Shape: backend/routes/live_quotes.py. `mode` is the feed's own word: only "live" shows live prices.
+ */
+async function liveFeed(page: Page, ltps: Record<string, number>, mode = "live") {
+  const quotes = Object.fromEntries(Object.entries(ltps).map(([s, ltp]) => [s, { ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts: "2026-10-23T11:13:09+05:30" }]));
+  const snapshot = {
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+
+test.describe("Watchlist — price levels · live price", () => {
+  test("a Live column appears only while the feed is live; a stock Kite has no quote for shows —", async ({ page }) => {
+    await open(page);
+    await liveFeed(page, { FIXALPHA: 512.25 });
+    await page.goto(`${APP}/page/watchlist`);
+    const cells = page.getByTestId("watchlist-level-live");
+    await expect(cells).toHaveCount(2);
+    await expect(cells.nth(0)).toHaveText("₹512.25");
+    await expect(cells.nth(1)).toHaveText("—");
+    await expect(page.getByTestId("watchlist-levels")).toContainText("Live · Kite");
+  });
+
+  test("no Live column when the feed is closed", async ({ page }) => {
+    await open(page);
+    await liveFeed(page, { FIXALPHA: 512.25 }, "closed");
+    await page.goto(`${APP}/page/watchlist`);
+    await expect(page.getByTestId("watchlist-levels")).toContainText("Level to cross");
+    await expect(page.getByTestId("watchlist-level-live")).toHaveCount(0);
+  });
+});

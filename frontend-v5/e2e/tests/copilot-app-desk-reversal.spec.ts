@@ -231,3 +231,45 @@ test.describe("Smart trading desk · reversal candidates", () => {
     });
   });
 });
+
+/**
+ * MOCK — not real data: an invented Kite live snapshot (stream and polling) with one quote per symbol given.
+ * Shape: backend/routes/live_quotes.py. `mode` is the feed's own word: only "live" shows live prices.
+ */
+async function liveFeed(page: Page, ltps: Record<string, number>, mode = "live") {
+  const quotes = Object.fromEntries(Object.entries(ltps).map(([s, ltp]) => [s, { ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts: "2026-10-23T11:13:09+05:30" }]));
+  const snapshot = {
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+
+test.describe("Smart trading desk · reversal candidates · live price", () => {
+  test("RV-live the detail adds Kite's live price beside the scan's close while the feed is live, and nothing when it is not", async ({ page }) => {
+    await mocks(page);
+    const r = R15.rows[0];
+    await liveFeed(page, { [r.symbol]: 123.45 });
+    await page.goto(DESK_REV);
+    const row = page.locator(`[data-testid="desk-rev-row"][data-symbol="${r.symbol}"]`);
+    await expect(row).toBeVisible(SLOW);
+    await row.getByTestId("desk-rev-toggle").click();
+    await expect(row.getByTestId("desk-rev-live")).toContainText("123.45");
+    await expect(row.getByTestId("desk-rev-levels")).toContainText("trigger");      // the scan's own levels are still there
+  });
+
+  test("RV-live-closed no live price when the feed is closed", async ({ page }) => {
+    await mocks(page);
+    const r = R15.rows[0];
+    await liveFeed(page, { [r.symbol]: 123.45 }, "closed");
+    await page.goto(DESK_REV);
+    const row = page.locator(`[data-testid="desk-rev-row"][data-symbol="${r.symbol}"]`);
+    await expect(row).toBeVisible(SLOW);
+    await row.getByTestId("desk-rev-toggle").click();
+    await expect(row.getByTestId("desk-rev-detail")).toBeVisible();
+    await expect(row.getByTestId("desk-rev-live")).toHaveCount(0);
+  });
+});

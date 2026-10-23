@@ -25,6 +25,7 @@ import {
   Column, DataTable, EmptyBlock, ErrorBlock, Eyebrow, Footnote, LoadingBlock, Pill, Screen,
   ScreenHeader, Section, fmtDate, fmtNum, signTone,
 } from "../../components/ui";
+import { useLiveOverlay } from "../../lib/useLiveQuotes";
 import { useDesk } from "./context";
 import { TrustLine } from "./trust";
 import {
@@ -528,6 +529,8 @@ function AmcContribution({ symbol }: { symbol: string }) {
 // ── the stock-evidence rail (spec 2.7) ───────────────────────────────────
 
 function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWindow: Parameters<typeof whatWouldWeaken>[1]; onAsk: (q: string) => void }) {
+  // Kite's live price and day change while the feed is LIVE; otherwise the scanner's own end-of-day close and change.
+  const live = useLiveOverlay(row?.symbol ?? null, null);
   if (!row) {
     return (
       <div className="cp-card" data-testid="desk-smart-money-evidence-empty" style={{ padding: 16 }}>
@@ -547,14 +550,18 @@ function StockEvidence({ row, mfWindow, onAsk }: { row: ScannerRow | null; mfWin
         <Eyebrow>Stock evidence</Eyebrow>
         <span className="flex items-baseline flex-wrap" style={{ gap: 8 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 20 }}>{row.symbol}</span>
-          <span className="cp-num" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
-            {row.closePrice == null ? "—" : `₹${fmtNum(row.closePrice, 2)}`}
+          <span data-testid="desk-smart-money-price" data-live={live ? "true" : undefined} title={live ? "Live price from Kite" : "End-of-day close"} className="cp-num" style={{ fontSize: 13, color: "var(--cp-ink-2)" }}>
+            {live ? `₹${fmtNum(live.ltp, 2)}` : row.closePrice == null ? "—" : `₹${fmtNum(row.closePrice, 2)}`}
           </span>
-          {row.changePct != null && (
-            <span className="cp-num" style={{ fontSize: 12, color: toneColor(signTone(row.changePct) === "ink" ? "ink-3" : signTone(row.changePct)) }}>
-              {row.changePct > 0 ? "+" : ""}{row.changePct}%
-            </span>
-          )}
+          {(live ? live.changePct : row.changePct) != null && (() => {
+            const pct = (live ? live.changePct : row.changePct) as number;
+            return (
+              <span data-testid="desk-smart-money-change" className="cp-num" style={{ fontSize: 12, color: toneColor(signTone(pct) === "ink" ? "ink-3" : signTone(pct)) }}>
+                {pct > 0 ? "+" : ""}{live ? pct.toFixed(2) : pct}%
+              </span>
+            );
+          })()}
+          {live && <Pill tone="mint" title="Price and day change from Kite's live feed; the evidence below is the disclosed data">Live</Pill>}
         </span>
         <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
           {dir && <Pill tone={dir === "proxy" ? "amber" : dir === "accumulation" ? "mint" : "danger"}>{DIR_LABEL[dir]}</Pill>}

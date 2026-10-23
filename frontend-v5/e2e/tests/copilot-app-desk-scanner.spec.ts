@@ -2593,3 +2593,38 @@ test.describe("Smart trading desk · Chart · Kite closing snapshot (MOCK)", () 
     await expect(page.getByTestId("desk-chart-header")).toContainText("Live · Kite");
   });
 });
+
+/**
+ * MOCK — not real data: an invented Kite live snapshot (stream and polling) with one quote per symbol given.
+ * Shape: backend/routes/live_quotes.py. `mode` is the feed's own word: only "live" shows live prices.
+ */
+async function liveFeed(page: Page, ltps: Record<string, number>, mode = "live") {
+  const quotes = Object.fromEntries(Object.entries(ltps).map(([s, ltp]) => [s, { ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts: "2026-10-23T11:13:09+05:30" }]));
+  const snapshot = {
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true,
+  };
+  await page.route("**/api/live/**", (route) => route.fulfill(
+    new URL(route.request().url()).pathname.endsWith("/stream")
+      ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n` }
+      : { status: 200, contentType: "application/json", body: JSON.stringify(snapshot) }));
+}
+
+test.describe("Smart trading desk · Risk desk · live price", () => {
+  test("TC-live the range bar marks Kite's live price, labelled Live, while the feed is live; the last close otherwise", async ({ page }) => {
+    await chartMocks(page);
+    await liveFeed(page, { FIXBRK: 777.7 });
+    await page.goto(`${DESK}?tab=chart`);
+    await expect(page.getByTestId("desk-risk-scenario")).toHaveText("Breakout confirmed");
+    await expect(page.getByTestId("desk-risk-ltp")).toContainText(`Live ${inr2(777.7)}`);
+    await expect(page.getByTestId("desk-risk-ltp")).toHaveAttribute("data-live", "true");
+  });
+
+  test("TC-live-closed the bar keeps the last close when the feed is closed", async ({ page }) => {
+    await chartMocks(page);
+    await liveFeed(page, { FIXBRK: 777.7 }, "closed");
+    await page.goto(`${DESK}?tab=chart`);
+    await expect(page.getByTestId("desk-risk-ltp")).toContainText(`Close ${inr2(BARS[BARS.length - 1][4])}`);
+    await expect(page.getByTestId("desk-risk-ltp")).not.toHaveAttribute("data-live", "true");
+  });
+});
