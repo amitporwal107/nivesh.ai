@@ -102,10 +102,11 @@ def from_filter(f: dict, kept: bool) -> Dict[str, Any]:
         one = title or why
         head = f"Flagged as important (importance {imp}/100); full analysis pending."
     else:
-        one = f"Assessed as routine (importance {imp}/100): {why or title}" if (why or title) else None
+        # The filter's factual one-liner leads, so the card says WHAT was filed; the verdict stays visible after it and the filing never reads important.
+        one = f"{title} · Assessed as routine (importance {imp}/100)" if title else (f"Assessed as routine (importance {imp}/100): {why}" if why else None)
         head = "The importance check judged this filing routine."
     secs = [
-        _sec("Quick Summary", head, [title, why] if kept else [why or title]),
+        _sec("Quick Summary", head, [title, why] if (kept or title) else [why]),
         _sec("Business Outlook", "Possible catalysts", list(r.get("cats") or [])) if kept else None,
         _sec("Potential Risks", "Risks named in the filing", list(r.get("risks") or [])) if kept else None,
     ]
