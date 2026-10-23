@@ -26,3 +26,12 @@ L1 futures-only (frozen baseline signal); L2 L1 + expiry features (days to expir
 
 ## 4. Unchanged guardrails
 Windows U/D/V/T and the D-learned/frozen selection rule (B2 section 5); session-level Newey-West statistics; permutation baselines; counted configurations; verdict rules (a layer is `supported` only with positive pooled increment on U+V+T for at least 3 of the frozen variants, t >= 1.645 on at least 2, at least 30 pooled signal sessions); nothing is `validated`; ranking stays research-only on screen and the production ranking and floors are not promoted.
+
+## 5. Addendum (2026-10-23, before the first B2 run): positioning transitions
+Decision of record: the user's message that states can occur on any day, evolve and reverse, and that transitions may carry more than the static class.
+- **Scope now:** daily states per bucket (near, next, far) for every session. Intraday states need intraday OI, which is not stored historically; they are not claimed or tested (live snapshots will make that a later study).
+- **State** of a bucket on a session = its build-up category under a setting (None when nothing fires). Settings for this family: `production_floors` (primary) and `no_threshold` (secondary), both frozen and counted; no new thresholds.
+- **Transitions tested** (previous session's state -> today's state, same bucket, same setting), traded in the direction of today's state: short_buildup -> short_covering (long), long_buildup -> long_unwinding (short), short_covering -> long_buildup (long), long_unwinding -> short_buildup (short).
+- **Static comparators:** today's state with any previous state; today's state with the same state the previous session (persistence of 2); and the same state on 3 consecutive sessions (`consecutive_build_sessions` >= 3, build-up categories only).
+- **Outcome, windows, statistics:** as B2 (primary horizon 5, benchmark-relative, net of 0.15% round trip, pooled U+V+T, session-level Newey-West).
+- **Rule (fixed now):** a transition `adds_information` only if its pooled mean is positive, t >= 1.645, at least 30 pooled signal sessions, AND its mean exceeds the static comparator for the same today's state in the same bucket and setting. Otherwise it is reported as not demonstrated. Descriptive only; nothing validated; 8 transition configurations x 3 buckets x 2 settings are added to the counted configurations.
