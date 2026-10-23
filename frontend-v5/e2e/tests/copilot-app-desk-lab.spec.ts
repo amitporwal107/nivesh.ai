@@ -1079,3 +1079,57 @@ test.describe("Options & futures lab — screenshots", () => {
     });
   }
 });
+
+// ── live near-month futures from Kite (GET /api/live/snapshot?universe=futures) ──────────────────────────────
+// MOCK — not real data: invented quotes in the shape backend/routes/live_quotes.py serves for the `futures` set
+// (the quote keys are the contract tradingsymbols; each names its underlying, expiry and OI).
+const LIVE_FUT = (mode: string, quotes: Record<string, Record<string, unknown>>) => ({
+  as_of: "2026-10-23T09:00:10+00:00", data_at: "2026-10-23T09:00:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+  mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true,
+});
+const FIX_FUT_QUOTE = { ltp: 1512.4, change: 12.4, change_pct: 0.8266, open: 1500, high: 1520, low: 1498, close: 1500, volume: 123456, oi: 5_600_000, oi_high: 5_800_000, oi_low: 5_400_000, instrument: "FUT", underlying: "FIXFNO", expiry: "2026-10-27", ts: "2026-10-23T14:30:00+05:30" };
+
+test.describe("OI build-up — live futures from Kite", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+
+  test("while the feed is live the table gains Live fut and Live OI for each stock, and a stock Kite sent nothing for shows —", async ({ page }) => {
+    await fnoData(page);
+    const asked: string[] = [];
+    await page.route("**/api/live/snapshot*", (route) => {
+      asked.push(new URL(route.request().url()).search);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIVE_FUT("live", { FIXFNO26OCTFUT: FIX_FUT_QUOTE })) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-live-head")).toBeVisible();
+    const fix = page.locator('[data-testid="desk-buildup-row"]', { hasText: "FIXFNO" }).first();
+    await expect(fix.getByTestId("desk-buildup-live-price")).toContainText("1,512.40");
+    await expect(fix.getByTestId("desk-buildup-live-chg")).toHaveText("+0.83%");
+    await expect(fix.getByTestId("desk-buildup-live-oi")).toContainText("56");          // 5,600,000 contracts, in lakh
+    const other = page.locator('[data-testid="desk-buildup-row"]', { hasText: "FIXSHORT" }).first();
+    await expect(other.getByTestId("desk-buildup-live-price")).toHaveText("——");
+    await expect(page.getByTestId("desk-buildup-shown")).toContainText("not comparable");
+    expect(asked.some((s) => s.includes("universe=futures"))).toBe(true);
+    // The end-of-day columns are untouched.
+    await expect(fix.getByTestId("desk-buildup-oi")).toHaveText("+12.50%");
+  });
+
+  for (const mode of ["closed", "delayed", "expired", "not_connected"]) {
+    test(`no live columns when the feed is ${mode}: the end-of-day table alone, never stale prices`, async ({ page }) => {
+      await fnoData(page);
+      await json(page, "**/api/live/snapshot*", LIVE_FUT(mode, { FIXFNO26OCTFUT: FIX_FUT_QUOTE }));
+      await page.goto(`${DESK}?tab=fno`);
+      await expect(page.getByTestId("desk-buildup-row").first()).toBeVisible();
+      await expect(page.getByTestId("desk-buildup-live-head")).toHaveCount(0);
+      await expect(page.getByTestId("desk-buildup-live-price")).toHaveCount(0);
+    });
+  }
+
+  test("a live read that fails leaves the table as it was", async ({ page }) => {
+    await fnoData(page);
+    await json(page, "**/api/live/snapshot*", { detail: "snapshot_unavailable" }, 503);
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-buildup-row").first()).toBeVisible();
+    await expect(page.getByTestId("desk-buildup-live-head")).toHaveCount(0);
+    await expect(page.getByTestId("desk-buildup-error")).toHaveCount(0);
+  });
+});

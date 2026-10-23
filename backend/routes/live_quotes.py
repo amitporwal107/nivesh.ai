@@ -2,7 +2,7 @@
 
 GET /api/live/status    state of the feed (mode, source, instrument count, last tick age)
 GET /api/live/quotes    ?symbols=RELIANCE,NIFTY 50   batch of quotes from the latest snapshot
-GET /api/live/snapshot  ?universe=indices|nifty500|fno|all   a whole set
+GET /api/live/snapshot  ?universe=indices|nifty500|fno|futures|all   a whole set (futures: the near-month contract of each F&O underlying, with OI)
 GET /api/live/stream    SSE, one `snapshot` event per cadence with the same body as /quotes or /snapshot
 
 Every body carries as_of / data_at / age_seconds / stale / mode. A symbol with no price is absent from `quotes` and listed
@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/live", tags=["live-quotes"])
 
 MAX_SYMBOLS = 600
-UNIVERSES = ("indices", "nifty500", "fno", "all")
+UNIVERSES = ("indices", "nifty500", "fno", "futures", "all")
 STREAM_MAX_SECONDS = 30 * 60            # the client reconnects (EventSource does so by itself)
 
 

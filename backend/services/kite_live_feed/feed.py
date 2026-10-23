@@ -129,6 +129,7 @@ class LiveFeed:
         self._indices: List[str] = []
         self._fno: List[str] = []
         self._n500: List[str] = []
+        self._futs: Dict[str, dict] = {}         # near-month futures: tradingsymbol -> {symbol, token, underlying, expiry}
         self._inst_day: Optional[date] = None
         self._universe_at: Optional[datetime] = None
         self._wanted: List[str] = []
@@ -160,9 +161,23 @@ class LiveFeed:
         q = make_quote(sym, tick.get("last_price"), tick.get("ohlc"), tick.get("volume_traded", tick.get("volume")),
                        tick.get("oi"), tick.get("exchange_timestamp") or tick.get("last_trade_time"), now)
         if q:
+            self._decorate(sym, q, tick.get("oi_day_high"), tick.get("oi_day_low"))
             with self._qlock:
                 self.quotes[sym] = q
             self.data_at = now
+
+    def _decorate(self, sym: str, q: dict, oi_high: Any, oi_low: Any) -> None:
+        """A futures quote names its underlying and expiry and carries the day's OI range; other quotes are untouched."""
+        f = self._futs.get(sym)
+        if f:
+            q.update({"instrument": "FUT", "underlying": f["underlying"], "expiry": f["expiry"],
+                      "oi_high": _num(oi_high) or None, "oi_low": _num(oi_low) or None})
+
+    def _qkey(self, sym: str) -> str:
+        return ("NFO:" if sym in self._futs else "NSE:") + sym
+
+    def _full_tokens(self) -> set:
+        return {self.token_map[s] for s in self._futs if s in self.token_map}
 
     # ── pieces ───────────────────────────────────────────────────────────────
     async def _session(self, now: datetime):
@@ -215,9 +230,13 @@ class LiveFeed:
                 except (KeyError, TypeError, ValueError):
                     continue
         self._indices = uni.index_symbols(nse)
+        self._futs = {}
         try:
             nfo = await asyncio.to_thread(self._kite.instruments, "NFO")
             self._fno = uni.fno_underlyings(nfo)
+            self._futs = {f["symbol"]: f for f in uni.near_month_futures(nfo, now.astimezone(cfg.IST).date())}
+            for s, f in self._futs.items():
+                tm[s] = f["token"]
         except Exception as e:  # noqa: BLE001 — F&O set is optional; the failure is exposed in status
             if self._classify(e) == "AUTH_EXPIRED":
                 raise
@@ -249,9 +268,10 @@ class LiveFeed:
             except Exception as e:  # noqa: BLE001 — keep the previous list; the partial universe is reported
                 logger.warning("live feed: Nifty 500 list unavailable (%s)", type(e).__name__)
         self.ordered, self.sets, self.unresolved = uni.assemble(
-            self._indices, self._wanted, self._n500, self._fno, self.token_map)
+            self._indices, self._wanted, self._n500, self._fno, self.token_map, list(self._futs))
         self._universe_at = now if due else self._universe_at
         if self._ticker is not None:
+            self._ticker.full_tokens = self._full_tokens()
             self._ticker.set_tokens([self.token_map[s] for s in self.ordered])
         await self.db[COL_SNAP].replace_one(
             {"_id": "universe"}, {"_id": "universe", "sets": self.sets, "updated_at": now}, upsert=True)
@@ -284,7 +304,7 @@ class LiveFeed:
             if i:
                 await self.sleep(cfg.REST_SPACING_SECONDS)
             chunk = todo[i:i + cfg.REST_BATCH]
-            data = await asyncio.to_thread(self._kite.quote, ["NSE:" + s for s in chunk])
+            data = await asyncio.to_thread(self._kite.quote, [self._qkey(s) for s in chunk])
             stamp = self.clock()
             with self._qlock:
                 for key, v in (data or {}).items():
@@ -292,6 +312,7 @@ class LiveFeed:
                     q = make_quote(sym, v.get("last_price"), v.get("ohlc"), v.get("volume"), v.get("oi"),
                                    v.get("timestamp"), stamp)
                     if q:
+                        self._decorate(sym, q, v.get("oi_day_high"), v.get("oi_day_low"))
                         self.quotes[sym] = q
                         read += 1
             self.data_at = stamp
@@ -299,6 +320,7 @@ class LiveFeed:
 
     def _start_ticker(self, key: str, token: str) -> None:
         self._ticker = gw.TickerSource(key, token, self._on_tick, factory=self.ticker_factory)
+        self._ticker.full_tokens = self._full_tokens()
         self._ws_started = time.monotonic()
         self._ticker.start([self.token_map[s] for s in self.ordered])
 
