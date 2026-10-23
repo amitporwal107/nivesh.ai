@@ -1558,3 +1558,41 @@ test.describe("Options & futures lab · latest quotes on Candidates and the inde
     expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
+
+// ── OI range: the put wall at or below the price and the call wall at or above it ─────────────────────────────────────
+// MOCK — not real data: the NIFTY chain fixture with the walls fields added. Shape: backend/routes/fno.py :: summarise_chain (put_wall / call_wall).
+test.describe("Options & futures lab · OI range walls", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+
+  async function openWith(page: Page, summary: Record<string, unknown>) {
+    await fnoData(page);
+    const chain = load("copilot-options-chain.json");
+    chain.summary = { ...chain.summary, ...summary };
+    await page.route("**/api/fno/NIFTY/chain*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(chain) }));
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-fno-oi-range")).toBeVisible();
+  }
+
+  test("TC-4 the tile shows the put wall and the call wall, and says below / above the price", async ({ page }) => {
+    await openWith(page, { put_wall: { strike: 24800, oi: 5000 }, call_wall: { strike: 25200, oi: 6000 } });
+    await expect(page.getByTestId("desk-fno-oi-range")).toHaveText("24,800 – 25,200");
+    await expect(page.getByTestId("desk-fno-stats")).toContainText("Most put OI at or below the price → most call OI at or above it");
+  });
+
+  test("TC-5 wrong side: the in-the-money heaviest put strike above the price is not shown as the floor, and the tile says where it is", async ({ page }) => {
+    await openWith(page, { spot: 25010, max_put_oi: { strike: 25400, oi: 90000 }, max_call_oi: { strike: 25300, oi: 80000 }, put_wall: { strike: 24700, oi: 40000 }, call_wall: { strike: 25300, oi: 80000 } });
+    await expect(page.getByTestId("desk-fno-oi-range")).toHaveText("24,700 – 25,300");
+    await expect(page.getByTestId("desk-fno-stats")).toContainText("The most put OI overall is at 25,400, above the price: in-the-money puts opened when it traded higher, not a floor.");
+  });
+
+  test("TC-6 an older response without the wall fields falls back to the highest-OI range, unchanged", async ({ page }) => {
+    await openWith(page, {});
+    await expect(page.getByTestId("desk-fno-oi-range")).toHaveText("24,700 – 25,300");
+    await expect(page.getByTestId("desk-fno-stats")).toContainText("Most put OI → most call OI");
+  });
+
+  test("TC-7 a side with no strike has no wall: the tile reads a dash, never the wrong-side strike", async ({ page }) => {
+    await openWith(page, { put_wall: null, call_wall: { strike: 25300, oi: 80000 } });
+    await expect(page.getByTestId("desk-fno-oi-range")).toHaveText("—");
+  });
+});

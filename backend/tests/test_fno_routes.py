@@ -26,6 +26,7 @@ The worked example every summary test uses (one expiry, spot 108):
                          puts:  none in the money                         0      total 400
                smallest is 150, at K = 110                                       → 110
     heaviest   call OI 50 at 120, put OI 40 at 100
+    walls      put wall = heaviest put OI at or below 108 → 100 (40); call wall = heaviest call OI at or above 108 → 120 (50)
     futures    settle 108.75 − spot 108 = +0.75 (premium); settle 107.50 − 108 = −0.50 (discount)
 
 The model example (MODEL_CHAIN below; the pricing itself is tested by hand in tests/test_option_pricing.py).
@@ -273,6 +274,7 @@ def test_chain_returns_the_summary_and_the_strike_rows(monkeypatch):
         "total_call_oi": 80, "total_put_oi": 75, "total_call_oi_change": 4, "total_put_oi_change": 6,
         "pcr": 0.9375, "max_pain": 110,
         "max_call_oi": {"strike": 120, "oi": 50}, "max_put_oi": {"strike": 100, "oi": 40},
+        "put_wall": {"strike": 100, "oi": 40}, "call_wall": {"strike": 120, "oi": 50},       # spot 108: put OI at or below it, call OI at or above it
     }
     # every field the route sent before the model estimates were added is still there, unchanged
     assert _only(body["summary"], expected_summary) == expected_summary
@@ -1049,3 +1051,32 @@ def test_chain_greeks_match_an_independent_black_76(monkeypatch):
             assert side["theta"] == pytest.approx(fd_theta, abs=2e-4)
             checked += 1
     assert checked >= 4
+
+
+# ── put wall and call wall: OTM-only heaviest strikes (test_reports/fix_oi_range_otm_walls_TESTCASES.md) ──────────
+
+def _strikes(rows):
+    return [{"strike": k, "call": {"oi": c, "change_in_oi": 0}, "put": {"oi": p, "change_in_oi": 0}} for k, c, p in rows]
+
+
+def test_walls_are_the_heaviest_put_at_or_below_spot_and_the_heaviest_call_at_or_above():
+    s = route.summarise_chain(_strikes([(90, 5, 100), (100, 50, 60), (110, 80, 10), (120, 300, 5)]), 100.0, "2026-10-23", "2026-10-27")
+    assert s["put_wall"]["strike"] == 90 and s["put_wall"]["oi"] == 100          # 90 holds the most put OI at or below 100
+    assert s["call_wall"] == {"strike": 120, "oi": 300}
+    assert s["max_put_oi"]["strike"] == 90 and s["max_call_oi"]["strike"] == 120
+
+
+def test_a_deep_in_the_money_put_peak_is_not_the_wall():
+    # GODFRYPHLP, 23 Oct 2026 (shape): spot 1669, put OI peaks at the in-the-money 1900, call OI at 2100.
+    rows = [(1600, 10, 31350), (1650, 15, 12000), (1700, 20, 32725), (1800, 45100, 31075), (1900, 66275, 36575), (2000, 67100, 500), (2100, 76450, 100)]
+    s = route.summarise_chain(_strikes(rows), 1669.12, "2026-10-23", "2026-10-27")
+    assert s["max_put_oi"]["strike"] == 1900                                       # the raw heaviest, unchanged
+    assert s["put_wall"] == {"strike": 1600, "oi": 31350}                           # the heaviest at or below the price
+    assert s["call_wall"] == {"strike": 2100, "oi": 76450}
+
+
+def test_a_side_with_no_strike_has_no_wall_and_no_spot_means_no_walls():
+    s = route.summarise_chain(_strikes([(100, 5, 5), (110, 6, 6)]), 120.0, "2026-10-23", "2026-10-27")
+    assert s["call_wall"] is None and s["put_wall"]["strike"] in (100, 110)
+    s = route.summarise_chain(_strikes([(100, 5, 5)]), None, "2026-10-23", "2026-10-27")
+    assert s["put_wall"] is None and s["call_wall"] is None and s["max_call_oi"] is not None
