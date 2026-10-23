@@ -310,6 +310,29 @@ export function useDeskLevels(symbol: string, setup: DeskSetup | null): DeskLeve
 }
 
 /** A server series as a line aligned to the bars the chart draws (null where the server has no value for that day). */
+const istDayOf = (ts: string | null): string | null => {
+  const t = ts ? Date.parse(ts) : NaN;
+  return Number.isFinite(t) ? new Date(t + 5.5 * 3600_000).toISOString().slice(0, 10) : null;
+};
+
+/**
+ * The daily bars with the Kite quote's session as the last bar: while the feed is LIVE the forming bar (open, high, low and last price from
+ * the quote), and after the close, once the feed has published its final snapshot, that session's bar until the end-of-day series has it. The
+ * overlay only hands over a closing quote for a day NEWER than the series, so nothing is overwritten after the data platform catches up.
+ * A quote for the series' own last day updates that bar's high, low and close only (its open and the rest stay the series'). A quote for an older
+ * day, or with no day, changes nothing. The input is never mutated.
+ */
+export function withLiveBar(bars: DailyBar[] | null, q: { ltp: number; open: number | null; high: number | null; low: number | null; volume: number | null; ts: string | null } | null): DailyBar[] | null {
+  if (!bars || bars.length === 0 || !q) return bars;
+  const day = istDayOf(q.ts);
+  const last = bars[bars.length - 1];
+  if (!day || day < last.day.slice(0, 10)) return bars;
+  if (day === last.day.slice(0, 10)) {
+    return [...bars.slice(0, -1), { ...last, high: Math.max(last.high, q.high ?? q.ltp, q.ltp), low: Math.min(last.low, q.low ?? q.ltp, q.ltp), close: q.ltp, volume: q.volume ?? last.volume }];
+  }
+  return [...bars, { day, open: q.open ?? q.ltp, high: Math.max(q.high ?? q.ltp, q.ltp), low: Math.min(q.low ?? q.ltp, q.ltp), close: q.ltp, volume: q.volume ?? 0 }];
+}
+
 export function alignSeries(days: string[], values: Array<number | null>, bars: DailyBar[]): Array<number | null> {
   const at = new Map<string, number | null>();
   days.forEach((d, i) => at.set(d, values[i] ?? null));

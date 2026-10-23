@@ -2592,6 +2592,29 @@ test.describe("Smart trading desk · Chart · Kite closing snapshot (MOCK)", () 
     await expect(page.getByTestId("desk-chart-header")).toHaveAttribute("data-live", "live");
     await expect(page.getByTestId("desk-chart-header")).toContainText("Live · Kite");
   });
+
+  // The candles themselves: Kite's session is the last bar until the adjusted series has that day (candles drawn by CandleChart; data-day on each).
+  test("TC-L1 closed + final, newer than the last daily bar: the chart gains that session's bar, and the footnote says it is Kite's close, not yet adjusted", async ({ page }) => {
+    await open(page, "closed", "2026-10-21");
+    await expect(page.getByTestId("desk-candle").last()).toHaveAttribute("data-day", "2026-10-21");
+    const src = page.getByTestId("desk-chart-source");
+    await expect(src).toContainText("adjusted end of day to");
+    await expect(src).toContainText("from Kite (the close), not yet in the adjusted series");
+  });
+
+  test("TC-L2 live: the forming bar is the last candle and the footnote says live, still forming", async ({ page }) => {
+    await open(page, "live", "2026-10-21");
+    await expect(page.getByTestId("desk-candle").last()).toHaveAttribute("data-day", "2026-10-21");
+    await expect(page.getByTestId("desk-chart-source")).toContainText("live, still forming");
+  });
+
+  test("TC-L3 the adjusted series already has that day: no extra candle, the footnote is the end-of-day one", async ({ page }) => {
+    await open(page, "closed", "2026-10-13");
+    await expect(page.getByTestId("desk-candle").last()).toHaveAttribute("data-day", "2026-10-13");
+    const src = page.getByTestId("desk-chart-source");
+    await expect(src).toContainText("end of day · last session");
+    await expect(src).not.toContainText("from Kite");
+  });
 });
 
 /**
