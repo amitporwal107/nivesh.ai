@@ -1749,3 +1749,69 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     await expect(page.getByTestId("desk-strategy-trades")).toHaveCount(0);
   });
 });
+
+// ── the forward test panel (FnoForwardTest.tsx; GET /api/fno/forward-test, backend/services/fno_forward) ─────────────────
+// MOCK — not real data: invented counts in the shape the route sends.
+test.describe("Smart trading desk — Portfolio & risk · F&O forward test", () => {
+  const BASE = {
+    version: "fno-forward-v1", hypothesis: "A stock whose near-month future shows price down and open interest up (the contract's own figures) underperforms the F&O universe over the next 5 sessions, net of an assumed 0.15% round trip. Past tests were inconclusive; this forward test records each signal when it appears and judges it later.",
+    horizon_sessions: 5, cost_pct: 0.15, min_sessions: 30, settings_recorded: ["production_floors", "no_threshold"], read_only: true,
+    past_result: "Inconclusive in the one-year study (permutation p 0.02 for the production floors, 0.06 for the first frozen setting; 50 pooled sessions); not validated.",
+    not_recorded: "The five frozen volume-floor settings are not recorded: they need 20 sessions of the contract's own volume at signal time.",
+  };
+  test.beforeEach(async ({ page }) => {
+    await deskBase(page);
+    await mockPaper(page);
+  });
+  const setting = (o: Record<string, unknown>) => ({ recorded_sessions: 9, signals_recorded: 41, judged_sessions: 4, judged_signals: 17, open_sessions: 5, sessions_needed: 26, mean_pct: null, t: null, ...o });
+
+  async function open(page: Page, status: number, body: unknown) {
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await json(page, "**/api/fno/forward-test", body, status);
+    await page.goto(`${DESK}?tab=portfolio`);
+    await expect(page.getByTestId("desk-forward-test")).toBeVisible();
+  }
+
+  test("TC-7 recording has started: the hypothesis, the counts, the progress to 30 sessions, and no performance number", async ({ page }) => {
+    await open(page, 200, { ...BASE, started: true, recorded_sessions: 9, last_recorded: "2026-10-30", prices_available: true, settings: { production_floors: setting({}), no_threshold: setting({ signals_recorded: 400 }) } });
+    const p = page.getByTestId("desk-forward-test");
+    await expect(p).toContainText("Forward test · near-month short build-up");
+    await expect(page.getByTestId("desk-forward-hypothesis")).toContainText("underperforms the F&O universe over the next 5 sessions");
+    await expect(page.getByTestId("desk-forward-sessions")).toHaveText("9");
+    await expect(page.getByTestId("desk-forward-signals")).toHaveText("41");
+    await expect(page.getByTestId("desk-forward-judged")).toHaveText("4");
+    await expect(page.getByTestId("desk-forward-open")).toHaveText("5");
+    await expect(page.getByTestId("desk-forward-progress-text")).toHaveText("4 of 30 needed");
+    await expect(page.getByTestId("desk-forward-noresult")).toContainText("No result is shown until 30 sessions");
+    await expect(page.getByTestId("desk-forward-result")).toHaveCount(0);
+    await expect(page.getByTestId("desk-forward-past")).toContainText("Inconclusive in the one-year study");
+    await expect(p).toContainText("five frozen volume-floor settings are not recorded");
+  });
+
+  test("TC-7 at 30 judged sessions the pooled result appears, labelled not validated", async ({ page }) => {
+    await open(page, 200, { ...BASE, started: true, recorded_sessions: 40, last_recorded: "2026-12-10", prices_available: true, settings: { production_floors: setting({ judged_sessions: 31, sessions_needed: 0, mean_pct: 0.4123, t: 1.7 }) } });
+    await expect(page.getByTestId("desk-forward-result")).toContainText("Pooled over 31 sessions: +0.41% per signal after the assumed cost (Newey-West t 1.70)");
+    await expect(page.getByTestId("desk-forward-result")).toContainText("Not validated");
+  });
+
+  test("TC-8 nothing recorded yet: the panel says recording has not started", async ({ page }) => {
+    await open(page, 200, { ...BASE, started: false, recorded_sessions: 0, last_recorded: null, settings: {} });
+    await expect(page.getByTestId("desk-forward-notstarted")).toContainText("Recording has not started");
+    await expect(page.getByTestId("desk-forward-signals")).toHaveCount(0);
+  });
+
+  test("TC-8 a failed read shows the panel's notice and leaves the paper trades", async ({ page }) => {
+    await open(page, 502, { detail: "upstream_unavailable" });
+    await expect(page.getByText("The forward test didn’t load").first()).toBeVisible();
+    await expect(page.getByTestId("desk-paper-trades")).toBeVisible();
+  });
+
+  test("TC-8 at 390px the panel has no sideways overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, 200, { ...BASE, started: true, recorded_sessions: 9, last_recorded: "2026-10-30", prices_available: true, settings: { production_floors: setting({}) } });
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+});

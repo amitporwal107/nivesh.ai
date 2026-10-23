@@ -468,7 +468,7 @@ def test_the_router_is_read_only():
     methods = {m for r in route.router.routes for m in r.methods}
     assert methods == {"GET"}
     assert sorted(r.path for r in route.router.routes) == [
-        "/api/fno/scan/buildup", "/api/fno/scan/candidates", "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures"]
+        "/api/fno/forward-test", "/api/fno/scan/buildup", "/api/fno/scan/candidates", "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures"]
 
 
 # ── GET /expiries ────────────────────────────────────────────────────────────
@@ -1080,3 +1080,62 @@ def test_a_side_with_no_strike_has_no_wall_and_no_spot_means_no_walls():
     assert s["call_wall"] is None and s["put_wall"]["strike"] in (100, 110)
     s = route.summarise_chain(_strikes([(100, 5, 5)]), None, "2026-10-23", "2026-10-27")
     assert s["put_wall"] is None and s["call_wall"] is None and s["max_call_oi"] is not None
+
+
+# ── GET /forward-test (test_reports/fno_forward_test_TESTCASES.md TC-6) ────────────────────────────────────────
+
+class _FwdCursor:
+    def __init__(self, docs): self.docs = docs
+    def sort(self, *_a, **_k): return self
+    def __aiter__(self):
+        async def gen():
+            for d in self.docs:
+                yield dict(d)
+        return gen()
+
+
+class _FwdDb:
+    def __init__(self, docs, fail=False): self.docs, self.fail = docs, fail
+    def __getitem__(self, name):
+        db = self
+        class C:
+            def find(self, *_a, **_k):
+                if db.fail:
+                    raise RuntimeError("mongo down")
+                return _FwdCursor(db.docs)
+        return C()
+
+
+def test_forward_test_with_nothing_recorded_reads_no_prices(monkeypatch):
+    import deps
+    monkeypatch.setattr(deps, "db", _FwdDb([]))
+    c, calls = _client(monkeypatch, (404, {}))
+    body = c.get("/api/fno/forward-test").json()
+    assert body["started"] is False and body["recorded_sessions"] == 0 and body["settings"] == {} and "underperforms" in body["hypothesis"]
+    assert body["settings_recorded"] == ["production_floors", "no_threshold"] and "Inconclusive" in body["past_result"] and calls == []
+
+
+def test_forward_test_with_records_returns_counts_and_no_result_before_30_sessions(monkeypatch):
+    import deps
+    days = ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"]
+    syms = [f"S{k}" for k in range(12)]
+    docs = [{"as_of": days[0], "universe_symbols": syms, "settings": {"production_floors": [{"symbol": "S1", "p": -1, "o": 4}], "no_threshold": []}}]
+
+    async def bulk(symbols, start=None, end=None, timeout=30.0):
+        return {s: [{"as_of_date": d, "adj_open": 100.0, "adj_close": 100.0 + i * (0.5 if s == "S1" else -0.1)} for i, d in enumerate(days)] for s in symbols}
+
+    monkeypatch.setattr(deps, "db", _FwdDb(docs))
+    monkeypatch.setattr(route.daas_client, "get_adjusted_prices_bulk", bulk)
+    route._FORWARD_CACHE.update({"ts": 0.0, "key": None, "bars": None})
+    c, _ = _client(monkeypatch, (404, {}))
+    body = c.get("/api/fno/forward-test").json()
+    pf = body["settings"]["production_floors"]
+    assert body["started"] is True and body["recorded_sessions"] == 1 and body["last_recorded"] == days[0] and body["prices_available"] is True
+    assert pf["recorded_sessions"] == 1 and pf["signals_recorded"] == 1 and pf["judged_sessions"] == 1 and pf["mean_pct"] is None and pf["sessions_needed"] == 29
+
+
+def test_forward_test_read_failure_is_502(monkeypatch):
+    import deps
+    monkeypatch.setattr(deps, "db", _FwdDb([], fail=True))
+    c, _ = _client(monkeypatch, (404, {}))
+    assert c.get("/api/fno/forward-test").status_code == 502
