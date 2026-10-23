@@ -120,6 +120,9 @@ const SummaryC = z.object({
   max_pain: NumOrNull,
   max_call_oi: TopOiC,
   max_put_oi: TopOiC,
+  /** The heaviest put strike AT OR BELOW the spot and the heaviest call strike AT OR ABOVE it (the floor and ceiling a trader reads); absent on an older backend. */
+  put_wall: TopOiC.optional(),
+  call_wall: TopOiC.optional(),
   /** Calendar days from the data's day to the expiry. */
   days_to_expiry: Num.int().nullable().optional(),
   /**

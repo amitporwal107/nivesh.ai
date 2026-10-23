@@ -56,7 +56,7 @@ import { SymbolSearch } from "./SymbolSearch";
 import { TrustLine } from "./trust";
 import {
   CardHead, CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
-  basisWords, buildupWhy, chainTiles, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
+  basisWords, buildupWhy, chainTiles, wallsOf, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
 } from "./fno-parts";
 
 type FnoView = "buildup" | "candidates" | "indices" | "chain" | "strategies";
@@ -358,8 +358,8 @@ function sameSessionChange(home: MarketsHome | undefined, symbol: string, asOf: 
 }
 
 function indexHeadline(s: FnoSummary, investor: boolean): string {
-  const put = s.max_put_oi?.strike;
-  const call = s.max_call_oi?.strike;
+  const put = wallsOf(s).put?.strike;
+  const call = wallsOf(s).call?.strike;
   if (put == null || call == null || s.spot == null) return "The chain has no open-interest walls to read.";
   if (investor) {
     return s.spot < put

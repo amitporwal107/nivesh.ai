@@ -254,6 +254,10 @@ def summarise_chain(strikes: Sequence[Dict[str, Any]], spot: Optional[float], as
         "max_pain": _tidy(max_pain(oi, spot)),
         "max_call_oi": top_oi_strike([(k, c) for k, c, _ in oi], spot),
         "max_put_oi": top_oi_strike([(k, p) for k, _, p in oi], spot),
+        # The walls a trader reads as a floor and a ceiling: the heaviest put strike AT OR BELOW the spot and the heaviest call strike AT OR ABOVE it.
+        # After a sharp move the heaviest strike over every strike can be an in-the-money one opened when the price was elsewhere (a "put wall" above the price).
+        "put_wall": top_oi_strike([(k, p) for k, _, p in oi if spot is not None and k <= spot], spot),
+        "call_wall": top_oi_strike([(k, c) for k, c, _ in oi if spot is not None and k >= spot], spot),
     }
 
 

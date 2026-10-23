@@ -283,6 +283,19 @@ const ivText = (iv: number | null | undefined) => (iv == null ? DASH : `${fmtNum
 const moveText = (m: number | null | undefined) => (m == null ? DASH : `±${fmtNum(m, 2)}`);
 
 /** The eight tiles of the design, from the chain summary, the nearest future and the build-up scan. */
+/** The OI range tile's line: what the two ends are, and, when the all-strike heaviest sits on the wrong side of the price, where it is and why it is not the floor or ceiling. */
+export function oiRangeNote(s: FnoSummary, plain: boolean): string {
+  const base = s.put_wall !== undefined
+    ? (plain ? "Most open bets: puts at or below the price → calls at or above it" : "Most put OI at or below the price → most call OI at or above it")
+    : (plain ? "Where most open bets sit: puts → calls" : "Most put OI → most call OI");
+  const spot = s.spot;
+  if (s.put_wall === undefined || spot == null) return base;
+  const extra: string[] = [];
+  if (s.max_put_oi && s.max_put_oi.strike > spot) extra.push(`The most put OI overall is at ${fmtLevel(s.max_put_oi.strike)}, above the price: in-the-money puts opened when it traded higher, not a floor.`);
+  if (s.max_call_oi && s.max_call_oi.strike < spot) extra.push(`The most call OI overall is at ${fmtLevel(s.max_call_oi.strike)}, below the price: in-the-money calls, not a ceiling.`);
+  return extra.length ? `${base}. ${extra.join(" ")}` : base;
+}
+
 export function chainTiles(s: FnoSummary, near: NearFuture | null, futuresNote: string, bu: UnderlyingBuildup, persona: DeskPersona): StatTile[] {
   const plain = persona === "investor";
   const basis = near?.future.basis ?? null;
@@ -334,8 +347,8 @@ export function chainTiles(s: FnoSummary, near: NearFuture | null, futuresNote: 
     },
     {
       k: "OI range",
-      v: s.max_put_oi && s.max_call_oi ? `${fmtLevel(s.max_put_oi.strike)} – ${fmtLevel(s.max_call_oi.strike)}` : DASH,
-      s: plain ? "Where most open bets sit: puts → calls" : "Most put OI → most call OI",
+      v: wallsOf(s).put && wallsOf(s).call ? `${fmtLevel(wallsOf(s).put!.strike)} – ${fmtLevel(wallsOf(s).call!.strike)}` : DASH,
+      s: oiRangeNote(s, plain),
       testId: "desk-fno-oi-range",
     },
     {
@@ -371,12 +384,25 @@ const TAG_TITLE: Record<string, string> = {
   MP: "Max pain",
 };
 
+/**
+ * The put wall (floor) and call wall (ceiling): the heaviest put OI at or below the spot and the heaviest call OI at or above it. After a sharp move the
+ * heaviest strike over EVERY strike can be an in-the-money one opened when the price was elsewhere (a "put wall" above the price), so the walls come from the
+ * route's OTM-side figures. An older backend without them falls back to the all-strike heaviest; a side with no strike is null, never the wrong-side one.
+ */
+export function wallsOf(s: FnoSummary): { put: { strike: number; oi: number } | null; call: { strike: number; oi: number } | null } {
+  return {
+    put: s.put_wall !== undefined ? s.put_wall : s.max_put_oi,
+    call: s.call_wall !== undefined ? s.call_wall : s.max_call_oi,
+  };
+}
+
 /** Which of ATM, R, S and MP a strike is. */
 export function strikeTags(s: FnoSummary, strike: number): string[] {
   const tags: string[] = [];
+  const w = wallsOf(s);
   if (s.atm_strike === strike) tags.push("ATM");
-  if (s.max_call_oi?.strike === strike) tags.push("R");
-  if (s.max_put_oi?.strike === strike) tags.push("S");
+  if (w.call?.strike === strike) tags.push("R");
+  if (w.put?.strike === strike) tags.push("S");
   if (s.max_pain === strike) tags.push("MP");
   return tags;
 }
@@ -391,9 +417,10 @@ export function chainRead(s: FnoSummary): string {
   if (!parts.length) return "This expiry has no open interest to read.";
   let out = `For the ${fmtDay(s.expiry)} expiry, ${parts.join(", ")}.`;
   out = out.charAt(0).toUpperCase() + out.slice(1);
-  if (s.spot != null && s.max_call_oi && s.max_put_oi) {
-    const lo = Math.min(s.max_put_oi.strike, s.max_call_oi.strike);
-    const hi = Math.max(s.max_put_oi.strike, s.max_call_oi.strike);
+  const w = wallsOf(s);
+  if (s.spot != null && w.call && w.put) {
+    const lo = Math.min(w.put.strike, w.call.strike);
+    const hi = Math.max(w.put.strike, w.call.strike);
     const where = s.spot < lo ? "below both" : s.spot > hi ? "above both" : "between the two";
     out += ` The end-of-day spot of ${fmtNum(s.spot, 2)} is ${where}.`;
   }
@@ -591,8 +618,8 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
 
 /** Put wall, call wall, the spot and the expected-move band on one line, with their labels under it. */
 export function OiRangeBar({ s, testId }: { s: FnoSummary; testId: string }) {
-  const put = s.max_put_oi?.strike ?? null;
-  const call = s.max_call_oi?.strike ?? null;
+  const put = wallsOf(s).put?.strike ?? null;
+  const call = wallsOf(s).call?.strike ?? null;
   const spot = s.spot;
   const em = s.expected_move ?? null;
   const pts = [put, call, spot, spot != null && em != null ? spot - em : null, spot != null && em != null ? spot + em : null].filter((x): x is number => x != null);
