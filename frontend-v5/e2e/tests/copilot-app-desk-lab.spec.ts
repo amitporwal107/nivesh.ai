@@ -412,7 +412,6 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     // Index futures build-up from the scan's index row; BANKNIFTY has none in the scan, so "—".
     await expect(page.getByTestId(`${n}-buildup`)).toHaveText(LABEL[NIFTY_FUT.label as string]);
     await expect(page.getByTestId(`${n}-fut-chg`)).toHaveText(`${signedPct(NIFTY_FUT.price_chg_pct)} · same way as the index`);
-    await expect(page.getByTestId("desk-fno-card-BANKNIFTY-buildup")).toHaveText("Build-up —");
     await expect(page.getByTestId(`${n}-spot`)).toHaveText("25,010.00");
     // markets-home.json is for 13 Oct; the bhavcopy is 12 Oct — no same-session change.
     await expect(page.getByTestId(`${n}-change`)).toHaveText("change —");
@@ -425,12 +424,17 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId(`${n}-fut-oi-change`)).toHaveText(`${MINUS}2.50 L`);
     // PRD 17.2 #8: the futures route's previous close (25,020.00 here) gives the day change; BANKNIFTY's has none.
     await expect(page.getByTestId(`${n}-fut-day`)).toHaveText("+41.50 (+0.17%) · prev 25,020.00");
-    await expect(page.getByTestId("desk-fno-card-BANKNIFTY-fut-day")).toHaveText("— · no previous close");
     await expect(page.getByTestId(`${n}-pcr`)).toHaveText("0.96");
     await expect(page.getByTestId(`${n}-max-pain`)).toHaveText("25,000");
     await expect(page.getByTestId(`${n}-move`)).toHaveText("12.00% · ±487.05 (1.95%)");
 
+    // One workspace at a time: choosing BANKNIFTY swaps the card.
+    await expect(page.getByTestId(n)).toBeVisible();
+    await page.getByTestId("desk-fno-index-select-BANKNIFTY").click();
+    await expect(page.getByTestId(n)).toHaveCount(0);
     const b = "desk-fno-card-BANKNIFTY";
+    await expect(page.getByTestId(`${b}-buildup`)).toHaveText("Build-up —");
+    await expect(page.getByTestId(`${b}-fut-day`)).toHaveText("— · no previous close");
     await expect(page.getByTestId(`${b}-spot`)).toHaveText("52,040.00");
     await expect(page.getByTestId(`${b}-headline`)).toHaveText("Spot sits between the 51,500 put wall and the 52,500 call wall.");
     await expect(page.getByTestId(`${b}-pcr`)).toHaveText("0.80");
@@ -992,11 +996,14 @@ test.describe("Smart trading desk — Options & futures lab at 390px", () => {
     expect(o.scroll).toBeLessThanOrEqual(1);
 
     await page.getByTestId("desk-fno-view-indices").click();
+    await page.getByTestId("desk-fno-index-select-BANKNIFTY").click();
     await expect(page.getByTestId("desk-fno-card-BANKNIFTY-pcr")).toHaveText("0.80");
     o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
 
+    // The selector loads the index in the header too, so go back to NIFTY before reading its chain.
+    await page.getByTestId("desk-fno-index-select-NIFTY").click();
     await page.getByTestId("desk-fno-view-chain").click();
     await expect(page.getByTestId("desk-fno-chain-row")).toHaveCount(7);
     // the chain scrolls inside its own box, opened on the strike column
@@ -1365,5 +1372,189 @@ test.describe("Smart trading desk — Options & futures lab · Candidates", () =
     const o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(0);
     expect(o.scroll).toBeLessThanOrEqual(0);
+  });
+});
+
+// ── NIFTY & BANKNIFTY workspaces (FnoTab.tsx indices view, FnoIndexExpiries.tsx) ─────────────────────────────────────
+// MOCK — not real data: copilot-options-futures.json (synthetic NIFTY futures: near 27 Oct oi 14,500,000 change in OI −250,000, short covering,
+// +0.17%; next 29 Dec, no previous close). Expected figures are worked out from that fixture.
+test.describe("Smart trading desk — Options & futures lab · index workspaces", () => {
+  test.beforeEach(async ({ page }) => {
+    await deskBase(page);
+  });
+  const fut = () => load("copilot-options-futures.json");
+  async function openIndices(page: Page) {
+    await fnoData(page);
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-indices").click();
+  }
+
+  test("TC-1 an index selector with one workspace at a time; NIFTY is open", async ({ page }) => {
+    await openIndices(page);
+    await expect(page.getByTestId("desk-fno-indices")).toHaveAttribute("data-index", "NIFTY");
+    await expect(page.getByTestId("desk-fno-index-select-NIFTY")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("desk-fno-index-select-BANKNIFTY")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator('[data-testid^="desk-fno-card-"][data-testid$="-head"]')).toHaveCount(1);
+  });
+
+  test("TC-2 choosing BANKNIFTY swaps the card and the expiry panel and loads it in the header", async ({ page }) => {
+    await openIndices(page);
+    await page.getByTestId("desk-fno-index-select-BANKNIFTY").click();
+    await expect(page.getByTestId("desk-fno")).toHaveAttribute("data-symbol", "BANKNIFTY");
+    await expect(page.getByTestId("desk-fno-expiries-BANKNIFTY")).toBeVisible();
+    await expect(page.getByTestId("desk-fno-expiries-NIFTY")).toHaveCount(0);
+  });
+
+  test("TC-3 By expiry: each bucket's own state, price change and OI change from the futures route", async ({ page }) => {
+    await openIndices(page);
+    const f = fut().futures;
+    const id = "desk-fno-expiries-NIFTY";
+    await expect(page.getByTestId(`${id}-near`)).toContainText("27 Oct 2026");
+    await expect(page.getByTestId(`${id}-near-state`)).toHaveText("Short covering");
+    await expect(page.getByTestId(`${id}-near-price`)).toHaveText("Price +0.17%");
+    const pct = (f[0].change_in_oi / (f[0].oi - f[0].change_in_oi)) * 100;
+    await expect(page.getByTestId(`${id}-near-oi`)).toHaveText(`OI ${MINUS}${Math.abs(pct).toFixed(2)}%`);
+    await expect(page.getByTestId(`${id}-next`)).toContainText("29 Dec 2026");
+    await expect(page.getByTestId(`${id}-next-state`)).toHaveText("No state");
+    await expect(page.getByTestId(`${id}-next-price`)).toHaveText("Price —");
+    await expect(page.getByTestId(`${id}-far`)).toHaveCount(0);
+  });
+
+  test("TC-4 a contract with a missing change in OI shows a dash, never 0", async ({ page }) => {
+    await fnoData(page);
+    const body = fut();
+    body.futures[0].change_in_oi = null;
+    await json(page, "**/api/fno/NIFTY/futures", body);
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-indices").click();
+    await expect(page.getByTestId("desk-fno-expiries-NIFTY-near-oi")).toHaveText("OI —");
+  });
+
+  test("TC-5 TC-6 the panel says OI is never summed across expiries; the research note says not validated and descriptive", async ({ page }) => {
+    await openIndices(page);
+    await expect(page.getByTestId("desk-fno-expiries-NIFTY-note")).toContainText("Open interest is never added across expiries");
+    await expect(page.getByTestId("desk-fno-expiries-NIFTY-note")).toContainText("rollover");
+    const n = page.getByTestId("desk-fno-index-research");
+    await expect(n).toContainText("Research setting · not validated");
+    await expect(n).toContainText("descriptive: no ranking and no claim of skill");
+  });
+
+  test("TC-7 a failed futures read shows the panel's notice and leaves the card usable", async ({ page }) => {
+    await fnoData(page);
+    await json(page, "**/api/fno/NIFTY/futures", { detail: "upstream_unavailable" }, 500);
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-indices").click();
+    await expect(page.getByText("NIFTY futures didn’t load").first()).toBeVisible();
+    await expect(page.getByTestId("desk-fno-card-NIFTY-spot")).toHaveText("25,010.00");
+  });
+
+  test("TC-9 at 390px there is no sideways overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openIndices(page);
+    await expect(page.getByTestId("desk-fno-expiries-NIFTY")).toBeVisible();
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+});
+
+// ── the latest quote on the Candidates cards and the index card ──────────────────────────────────────────────────────
+// MOCK — not real data: invented Kite quotes in the shape backend/routes/live_quotes.py serves. LB1 is the fixture's first long build-up candidate.
+test.describe("Options & futures lab · latest quotes on Candidates and the index card", () => {
+  const CAND = load("fno-candidates.json");
+  const lb1 = CAND.categories.long_buildup.candidates[0];       // LB1
+  const asOf: string = CAND.as_of;                              // the scan's day, 2026-10-22
+
+  const snap = (mode: string, quotes: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+    as_of: "2026-10-23T05:43:10+00:00", data_at: "2026-10-23T05:43:09+00:00", age_seconds: 1.2, stale: mode !== "live", stale_after_seconds: 75, cadence_seconds: 30,
+    mode, session: mode === "live" ? "open" : "closed", source: "ws", final: false, count: Object.keys(quotes).length, missing: [], quotes, read_only: true, ...extra,
+  });
+  const cashQuote = (ltp: number, ts = "2026-10-23T11:13:09+05:30") => ({ ltp, change: 1.5, change_pct: 1.5, open: ltp, high: ltp, low: ltp, close: ltp - 1.5, volume: 1000, oi: null, ts });
+  const futQuote = { ltp: 101.25, change: 1.1, change_pct: 1.1, open: 100, high: 102, low: 99, close: 100.15, volume: 5000, oi: 1_250_000, oi_high: 1_300_000, oi_low: 1_200_000, instrument: "FUT", underlying: "LB1", expiry: "2026-10-27", ts: "2026-10-23T11:13:09+05:30", day: "2026-10-23" };
+
+  async function openWith(page: Page, mode: string, opts: { final?: boolean; cash?: Record<string, unknown>; fut?: Record<string, unknown>; fail?: boolean } = {}) {
+    await deskBase(page);
+    await fnoData(page);
+    await page.route("**/api/fno/scan/candidates*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CAND) }));
+    await page.route("**/api/live/**", (route) => {
+      const u = new URL(route.request().url());
+      if (opts.fail) return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "snapshot_unavailable" }) });
+      const futures = u.searchParams.get("universe") === "futures";
+      const body = snap(mode, (futures ? opts.fut : opts.cash) ?? {}, opts.final ? { final: true } : {});
+      return u.pathname.endsWith("/stream")
+        ? route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(body)}\n\n` })
+        : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-candidates").click();
+    await expect(page.getByTestId(`desk-cand-card-${lb1.symbol}`)).toBeVisible();
+  }
+
+  test("TC-1 TC-2 live: the card gains a Live line with cash and near-month futures; the end-of-day figures are unchanged", async ({ page }) => {
+    await openWith(page, "live", { cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+    const live = page.getByTestId(`desk-cand-live-${lb1.symbol}`);
+    await expect(live).toHaveAttribute("data-kind", "live");
+    await expect(live).toContainText("Live · Kite");
+    await expect(page.getByTestId(`desk-cand-live-cash-${lb1.symbol}`)).toHaveText("Cash 102.50 (+1.50%)");
+    await expect(page.getByTestId(`desk-cand-live-fut-${lb1.symbol}`)).toHaveText("Futures 101.25 (+1.10%) · near-month OI 12.50 L");
+    await expect(live).toContainText("not comparable with the OI change above, which sums every expiry");
+    await expect(page.getByTestId(`desk-cand-card-${lb1.symbol}`)).toContainText(`+${lb1.oi_chg_pct.toFixed(1)}%`);
+  });
+
+  test("TC-3 closed with a final snapshot newer than the scan: labelled Close, never Live", async ({ page }) => {
+    expect(asOf < "2026-10-23").toBe(true);
+    await openWith(page, "closed", { final: true, cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+    const live = page.getByTestId(`desk-cand-live-${lb1.symbol}`);
+    await expect(live).toHaveAttribute("data-kind", "close");
+    await expect(live).toContainText("Close · 23 Oct · Kite");
+    await expect(live).not.toContainText("Live");
+  });
+
+  test("TC-4 closed and the snapshot is not newer than the scan's day: no latest-quote line", async ({ page }) => {
+    await openWith(page, "closed", { final: true, cash: { [lb1.symbol]: cashQuote(102.5, `${asOf}T15:29:00+05:30`) }, fut: { LB1OCTFUT: { ...futQuote, day: asOf, ts: `${asOf}T15:29:00+05:30` } } });
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+  });
+
+  for (const mode of ["delayed", "expired", "not_connected"]) {
+    test(`TC-5 feed ${mode}: no latest-quote line`, async ({ page }) => {
+      await openWith(page, mode, { cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+      await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+    });
+  }
+
+  test("TC-6 a stock Kite sent nothing for shows no line, never 0", async ({ page }) => {
+    await openWith(page, "live", { cash: { OTHER: cashQuote(55) }, fut: {} });
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+  });
+
+  test("TC-7 a failed snapshot read leaves the cards as they were", async ({ page }) => {
+    await openWith(page, "live", { fail: true });
+    await expect(page.getByTestId(`desk-cand-card-${lb1.symbol}`)).toContainText(lb1.symbol);
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toHaveCount(0);
+  });
+
+  test("TC-8 the index card shows the live spot under the end-of-day spot", async ({ page }) => {
+    await deskBase(page);
+    await fnoData(page);
+    await page.route("**/api/live/**", (route) => {
+      const u = new URL(route.request().url());
+      const body = snap("live", { "NIFTY 50": cashQuote(25100.5) });
+      return u.pathname.endsWith("/stream")
+        ? route.fulfill({ status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(body)}\n\n` })
+        : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-indices").click();
+    await expect(page.getByTestId("desk-fno-card-NIFTY-live")).toContainText("Live · Kite 25,100.50 (+1.50%)");
+    await expect(page.getByTestId("desk-fno-card-NIFTY-spot")).toHaveText("25,010.00");
+  });
+
+  test("TC-9 at 390px the live line causes no sideways overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openWith(page, "live", { cash: { [lb1.symbol]: cashQuote(102.5) }, fut: { LB1OCTFUT: futQuote } });
+    await expect(page.getByTestId(`desk-cand-live-${lb1.symbol}`)).toBeVisible();
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
