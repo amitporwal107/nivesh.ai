@@ -130,7 +130,7 @@ from routes.markets_smart_money import router as markets_smart_money_router  # T
 from routes.markets_ownership import router as markets_ownership_router  # Trading desk: /api/markets/ownership/* (retrospective)
 from routes.markets_evidence import router as markets_evidence_router  # Trading desk: /api/markets/evidence/* (frozen research study)
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
-from routes.risk_controls import router as risk_controls_router  # Kill switch / trading halt (/api/risk/*)
+from routes.risk_controls import router as risk_controls_router, admin_router as risk_admin_router  # Kill switch / halt / F&O risk policy (/api/risk/*, /api/admin/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
@@ -283,7 +283,8 @@ app.include_router(markets_smart_money_router)  # /api/markets/smart-money/* —
 app.include_router(markets_ownership_router)  # /api/markets/ownership/* — retrospective ownership change vs that quarter's tape
 app.include_router(markets_evidence_router)  # /api/markets/evidence/* — frozen post-disclosure forward-returns study (INCONCLUSIVE)
 app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
-app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit
+app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit, /decisions, /policy
+app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-switch, /halt, /live-authorization (admin only)
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(desk_chartink_router)     # /api/desk/chartink/*
