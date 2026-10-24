@@ -51,6 +51,7 @@ import CandidatesView from "./FnoCandidates";
 import { ExpiryPanel, GreeksNotAvailable, HistoryPanel, IndexResearchNote, OiBarsPanel } from "./FnoIndexExpiries";
 import { BuilderView } from "./FnoBuilder";
 import { ChainWithAnalyse } from "./FnoChainAnalyse";
+import { CompareView } from "./FnoCompare";
 import { StrategiesView } from "./FnoStrategies";
 import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
 import { HEURISTIC_NOTE } from "./FnoBuildup";
@@ -473,7 +474,7 @@ export default function FnoTab() {
   /** The expiry chosen for `symbol`; null = the nearest still to come. */
   const [picked, setPicked] = useState<string | null>(null);
   const [view, setView] = useState<FnoView>("buildup");
-  const [stratMode, setStratMode] = useState<"builder" | "ideas">("builder");
+  const [stratMode, setStratMode] = useState<"builder" | "compare" | "ideas">("builder");
   const oc = useOptionChain(symbol, picked);
   const fq = useFnoFutures(symbol);
   const scan = useBuildup(true);
@@ -599,11 +600,13 @@ export default function FnoTab() {
             : <span data-testid="desk-fno-chain-missing" style={{ fontSize: 13, color: "var(--cp-ink-3)" }}>No option chain for {symbol}; see the note above.</span>)}
         {view === "strategies" && (
           <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
-            <Segmented<"builder" | "ideas"> label="Paper strategies mode" testId="desk-strat-mode" value={stratMode} onChange={setStratMode}
-              options={[{ value: "builder", label: "Builder" }, { value: "ideas", label: "Rule-based ideas" }]} />
+            <Segmented<"builder" | "compare" | "ideas"> label="Paper strategies mode" testId="desk-strat-mode" value={stratMode} onChange={setStratMode}
+              options={[{ value: "builder", label: "Builder" }, { value: "compare", label: "Compare" }, { value: "ideas", label: "Rule-based ideas" }]} />
             {stratMode === "builder"
               ? <BuilderView symbol={symbol} state={oc.state} />
-              : <StrategiesView symbol={symbol} state={oc.state} near={near} futuresNote={futuresNote} onLoad={pick} />}
+              : stratMode === "compare"
+                ? <CompareView symbol={symbol} state={oc.state} />
+                : <StrategiesView symbol={symbol} state={oc.state} near={near} futuresNote={futuresNote} onLoad={pick} />}
           </div>
         )}
       </div>
