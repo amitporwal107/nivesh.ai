@@ -328,6 +328,44 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     expect(asked).toContain(`/api/fno/NIFTY/chain?expiry=${sw.weekly!.expiry}`);
   });
 
+  test("TC-EXP the expiry row offers the three monthly expiries and a date list; the futures strip shows each contract and selects its expiry", async ({ page }) => {
+    await fnoData(page);
+    // MOCK — not real data: three monthly futures and options expiries plus one weekly, shaped like GET /api/fno/NIFTY/{expiries,futures}.
+    const expiries = { symbol: "NIFTY", as_of: "2026-10-12", expiries: [
+      { expiry: "2026-10-20", days_to_expiry: 8 }, { expiry: "2026-10-27", days_to_expiry: 15 }, { expiry: "2026-11-24", days_to_expiry: 43 }, { expiry: "2026-12-29", days_to_expiry: 78 }], count: 4 };
+    const fx = (expiry: string, settle: number) => ({ expiry, close: settle, settle, oi: 1000000, change_in_oi: 5000, volume: 1000, basis: 20 });
+    const futures = { symbol: "NIFTY", as_of: "2026-10-12", spot: 25010, lot_size: 65, futures: [fx("2026-10-27", 25040), fx("2026-11-24", 25100), fx("2026-12-29", 25160)], count: 3 };
+    await page.route("**/api/fno/NIFTY/expiries", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(expiries) }));
+    await page.route("**/api/fno/NIFTY/futures", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(futures) }));
+    await page.route("**/api/fno/NIFTY/chain*", (route) => {
+      const expiry = new URL(route.request().url()).searchParams.get("expiry") ?? "2026-10-27";
+      const base = load("copilot-options-chain.json");
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...base, expiry, summary: { ...base.summary, expiry } }) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await expect(page.getByTestId("desk-fno-expiry-weekly")).toHaveText("Weekly · 20 Oct");
+    await expect(page.getByTestId("desk-fno-expiry-monthly")).toContainText("27 Oct");
+    await expect(page.getByTestId("desk-fno-expiry-next")).toContainText("24 Nov");
+    await expect(page.getByTestId("desk-fno-expiry-far")).toContainText("29 Dec");
+    await expect(page.getByTestId("desk-fno-expiry-date").locator("option")).toHaveCount(4);
+    await expect(page.getByTestId("desk-fno-futures-strip")).toContainText("Near · 27 Oct");
+    await expect(page.getByTestId("desk-fno-futures-strip")).toContainText("Far · 29 Dec");
+    const asked = page.waitForRequest((r) => r.url().includes("/api/fno/NIFTY/chain?expiry=2026-12-29"));
+    await page.getByTestId("desk-fno-future-2026-12-29").click();
+    await asked;
+    await expect(page.getByTestId("desk-fno-expiry-far")).toHaveAttribute("aria-pressed", "true");
+    const byDate = page.waitForRequest((r) => r.url().includes("/api/fno/NIFTY/chain?expiry=2026-11-24"));
+    await page.getByTestId("desk-fno-expiry-date").selectOption("2026-11-24");
+    await byDate;
+    // The strategy builder prices on the chosen expiry and offers the ones listed within three months.
+    await page.getByTestId("desk-fno-view-strategies").click();
+    await expect(page.getByTestId("desk-builder-expiry")).toContainText("24 Nov");
+    const pickB = page.waitForRequest((r) => r.url().includes("/api/fno/NIFTY/chain?expiry=2026-10-27"));
+    await page.getByTestId("desk-builder-expiry-2026-10-27").click();
+    await pickB;
+    await expect(page.getByTestId("desk-builder-expiry-2026-10-27")).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("TC-31 option chain OI: header, the seven columns in order, ATM / R / S / MP tags and the reading", async ({ page }) => {
     await fnoData(page);
     await page.goto(`${DESK}?tab=fno`);
@@ -1717,10 +1755,17 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     expect(text).not.toMatch(/\b9\d%|accuracy of|best trade|guaranteed|sure shot/i);
   });
 
-  test("TC-9 the payoff summary's margin cell points at the margin strip, not the old 'no margin source' text", async ({ page }) => {
+  test("TC-9 the payoff summary's margin tile shows the margin calculator's figure, not a dash", async ({ page }) => {
     await openBuilder(page);
-    await expect(page.getByTestId("strategy-graphs")).toContainText("Funds and margin needed are in the strip above");
+    await expect(page.getByTestId("strategy-graphs")).toContainText("₹77,519");
+    await expect(page.getByTestId("strategy-graphs")).toContainText("source: Zerodha margin calculator");
     await expect(page.getByTestId("strategy-graphs")).not.toContainText("No margin source exists");
+  });
+
+  test("TC-9 no Kite session: the payoff summary's margin tile is a dash with the reason, never a figure", async ({ page }) => {
+    await openBuilder(page, { margin: { status: 503, body: { detail: "kite_session_unavailable" } } });
+    await expect(page.getByTestId("strategy-graphs")).toContainText("not logged in to Kite today");
+    await expect(page.getByTestId("strategy-graphs")).not.toContainText("₹77,519");
   });
 
   test("TC-9 the request carries the structure and the chain's walls and expected move", async ({ page }) => {
@@ -1801,7 +1846,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     const want = payoffFor(bodies[bodies.length - 1] as Req);
     await expect(page.getByTestId("desk-builder-net")).toContainText(want.expiry.net_premium < 0 ? "Net debit" : "Net credit");
     await expect(page.getByTestId("strategy-graphs")).not.toContainText(/probability of profit\s*[0-9]/i);
-    await expect(page.getByTestId("strategy-graphs")).toContainText("Funds and margin needed are in the strip above");
+    await expect(page.getByTestId("strategy-graphs")).toContainText("source: Zerodha margin calculator");
   });
 
   test("TC-1 TC-2 the first payoff request asks for today's estimate at the data date, and the chart draws today against expiry", async ({ page }) => {
