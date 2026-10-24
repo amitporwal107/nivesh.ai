@@ -117,3 +117,41 @@ From the AI Trading Bot PRD gap analysis: derivatives were invisible to the risk
 #284), the paper fill model could not lose to a gap (**fixed**, PR #284), PII reached the model
 provider in text (**fixed**, PR #285). Remaining: three look-ahead leaks in the backtest engine, no
 execution authorization model, and market data with no bid/ask or depth.
+
+## Update 2026-10-24 — F&O risk foundation (PR A, branch `feat/fno-risk-foundation`)
+
+Live execution will go through Kite Connect in the user's own session (product decision 2026-10-24). This change
+lays the controls that execution must pass through. It still places no order.
+
+- **OpenAlgo removed.** `routes/openalgo_proxy.py` was an unauthenticated reverse proxy mounted at `/api/openalgo/*`.
+  It is gone, together with POST `/api/broker/connect`, POST `/api/broker/connect-hosted`, GET
+  `/api/broker/openalgo-config`, the instance manager, the provisioner and the tracked `openalgo_instances/` data. A
+  legacy OpenAlgo row can still be listed and disconnected. Its sync is refused with 400 `BROKER_READ_NOT_SUPPORTED`.
+  `services/openalgo_client.py` stays because `broker_connect` still reads its `SUPPORTED_BROKERS` display names.
+- **Order-path guard.** `tests/test_order_path_guard.py` AST-scans `backend/` and fails on any call to
+  place/modify/cancel_order or place/modify/cancel_gtt outside `services/oms/adapters/`. It also fails on any new
+  pass-through catch-all route. Four existing admin-only data-platform proxies are allowlisted by name, and each
+  handler must start with `await require_admin(...)`.
+- **Execution modes** (`services/execution_modes.py`): paper, shadow, assisted, live. `LIVE_EXECUTION_AVAILABLE = False`
+  is a code constant. A per-user live grant (`live_authorizations`) is recorded by an admin with a reason and audited.
+  `is_live_allowed` needs both the constant and the grant.
+- **Kill-switch authority.** Anyone can turn their kill switch or halt on. Clearing either needs an admin (403
+  `admin_required`). The audit actor is the signed-in person, not the client an advisor is acting for. New admin
+  routes: `PUT /api/admin/risk/{user_id}/kill-switch | /halt | /live-authorization`. `GET /api/risk/status` now also
+  reports `can_reset`, `live_authorization`, `modes`, `live_execution_available` and `gate`. The new
+  `GET /api/risk/policy` reports the limits and the user's usage against them. Indexes are created lazily.
+- **Shared risk gate** (`services/risk_gate/`, policy `fno-risk-v1`, conservative defaults that are not calibrated):
+  - Checks, in a fixed order: controls, mode, structure, defined risk, exchange lot, listed expiry, caps, open
+    structures. An unknown or unverifiable input blocks with a specific code.
+  - Every decision is written to `risk_decisions` with correlation_id, path, mode and inputs_hash. If that write fails,
+    the route answers 503 `risk_decision_unrecorded` and writes nothing. The legacy `record_decision` still fails open
+    for its existing callers.
+  - It sits behind the `fno_risk_gate` flag (default off) on the desk paper trade (cash and strategy), the journal
+    entry, journal ENTRY fills, and AI-trader signals and confirm. The AI trader keeps its governor.
+  - With the flag off, behaviour is unchanged.
+- **Security fix, regardless of the flag:** the journal's `add_fill` now writes only to the owner's OPEN trade (the
+  filter includes `user_id` and `status`). Any other trade gets 409 `trade_not_open`.
+
+Not done in PR A: staging verification (needs a merge to dev, a backend restart and a session token), any frontend
+(the legacy `frontend/src/components/BrokerConnectButton.jsx` still calls the removed OpenAlgo routes; frontend-v5
+does not), and the order adapter itself.

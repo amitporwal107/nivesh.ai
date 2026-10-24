@@ -21,7 +21,7 @@ from services import risk_controls as rc
 from services import risk_gate
 from services.risk_gate import gate, reference
 from services.risk_gate.contract import RiskRequest
-from tests.test_risk_gate import EXP, NOW, FakeDB, run, spread
+from tests.test_risk_gate import NOW, FakeDB, run, spread
 
 USERS = {
     "u1": {"user_id": "u1", "email": "one@example.com", "role": "user"},
