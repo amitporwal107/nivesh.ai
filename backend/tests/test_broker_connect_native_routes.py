@@ -1,9 +1,9 @@
 """backend/routes/broker_connect.py — the native (broker-session) branch of /sync, the two live positions
-routes, the account list with session state, and the OpenAlgo paths that must stay exactly as they were.
+routes, the account list with session state, and the legacy OpenAlgo rows, which can still be listed and
+disconnected but no longer synced (the OpenAlgo connect, provisioning and proxy paths were removed 2026-10-24).
 
 The route and `services.brokers.hub_reads` both run for real; only what sits below them is faked — the
-Fenix reader, the adapters, the sessions module, the OpenAlgo client, `db`, the signed-in user and the
-audit writer (harness from test_broker_hub_reads.py). Nothing here talks to a real broker.
+Fenix reader, the adapters, the sessions module, `db`, the signed-in user and the audit writer (harness from test_broker_hub_reads.py). Nothing here talks to a real broker.
 
 The test app registers the real `core.error_handlers`, exactly as server.py does, so every error body
 asserted here is the envelope a client actually receives. The `broker_hub` flag gate (`feature_gate`) runs
@@ -30,7 +30,6 @@ import feature_gate  # noqa: E402
 import routes.broker_connect as bc  # noqa: E402  (after the harness has ensured the sibling modules exist)
 from core.error_handlers import register_error_handlers  # noqa: E402
 from services.brokers.base import Position  # noqa: E402
-from services.openalgo_client import OpenAlgoError  # noqa: E402
 
 USERS = {"u1": {"user_id": "u1", "email": "one@example.com"},
          "u2": {"user_id": "u2", "email": "two@example.com"}}
@@ -54,7 +53,7 @@ def openalgo_account(account_id: str, user_id: str = "u1", broker: str = "upstox
 
 class _Harness:
     def __init__(self, monkeypatch, db):
-        self.db, self.audits, self.openalgo_clients = db, [], []
+        self.db, self.audits = db, []
         monkeypatch.setattr(bc, "db", db)
 
         async def current_user(request: Request):
@@ -68,10 +67,6 @@ class _Harness:
             self.audits.append(kw)
             return "aud_test"
         monkeypatch.setattr(bc._audit, "record", record)
-
-        async def no_openalgo(doc):
-            raise AssertionError(f"_client_from called for {doc['account_id']}")
-        monkeypatch.setattr(bc, "_client_from", no_openalgo)
 
         # The flag gate re-reads persisted flags from the database; keep this worker's copy,
         # with `broker_hub` on for everyone (its default) unless a test says otherwise.
@@ -192,20 +187,23 @@ def test_list_accounts_expires_due_sessions_first_and_reports_them(h, sib):
 
 
 # ── POST /accounts/{id}/sync — native ────────────────────────────────────
-def test_a_native_row_cannot_be_synced_through_openalgo(monkeypatch):
-    # Why the native branch exists: this is what `_client_from` does with the row broker_native.py writes.
-    monkeypatch.setattr(bc._pii, "decrypt", lambda blob: "decrypted-token")
-    doc = native_account("ba_z")
-    assert doc["openalgo_url"] == "" and not doc["openalgo_hosted"] and not doc["openalgo_per_account_instance"]
-    with pytest.raises(HTTPException) as e:
-        asyncio.run(bc._client_from(doc))
-    assert (e.value.status_code, e.value.detail) == (500, "Stored OpenAlgo URL is missing")
+def test_the_openalgo_connect_routes_are_gone(h, sib):
+    # OA-2: removed on purpose (live execution goes through Kite Connect; OpenAlgo had no caller in the app).
+    for name in ("_client_from", "_hosted_base_url", "_persist_broker_holdings", "_instance_mgr", "ConnectRequest"):
+        assert not hasattr(bc, name), name
+    paths = {getattr(r, "path", None) for r in bc.router.routes}
+    assert not paths & {"/api/broker/connect", "/api/broker/connect-hosted", "/api/broker/openalgo-config"}
+    before = [dict(a) for a in h.db.broker_accounts.docs]
+    assert h.post("/api/broker/connect").status_code in (404, 405)
+    assert h.post("/api/broker/connect-hosted").status_code in (404, 405)
+    assert h.get("/api/broker/openalgo-config").status_code in (404, 405)
+    assert h.db.broker_accounts.docs == before and h.audits == []
 
 
 def test_native_sync_goes_through_the_hub_and_never_builds_an_openalgo_client(h, sib):
     sib.holdings["ba_z"] = [INFY, GOLDBEES]
     assert h.db.broker_accounts.one(account_id="ba_z")["openalgo_url"] == ""
-    res = h.post("/api/broker/accounts/ba_z/sync")          # `_client_from` raises AssertionError if reached
+    res = h.post("/api/broker/accounts/ba_z/sync")
     assert res.status_code == 200
     body = res.json()
     # Every key the response had before, plus the snapshot of this sync and its duplicate check.
@@ -286,68 +284,23 @@ def test_sync_of_another_users_account_is_404_and_reads_nothing(h, sib):
     assert h.db.holdings.one(name="U2-ROW")
 
 
-# ── POST /accounts/{id}/sync — OpenAlgo, unchanged ───────────────────────
-class _OpenAlgoClient:
-    def __init__(self, rows=None, error=None):
-        self.rows, self.error = rows or [], error
-
-    def fetch_normalized_holdings(self):
-        if self.error:
-            raise self.error
-        return self.rows
-
-
-def _use_openalgo(h, monkeypatch, client):
-    async def client_from(doc):
-        h.openalgo_clients.append(doc["account_id"])
-        return client
-    monkeypatch.setattr(bc, "_client_from", client_from)
-
+# ── POST /accounts/{id}/sync — a legacy OpenAlgo row is refused ─────────
+def _hub_must_not_run(h, monkeypatch):
     async def hub_must_not_run(*a, **kw):
         raise AssertionError("an OpenAlgo account must not go through hub_reads")
     monkeypatch.setattr(bc._hub, "sync_account", hub_must_not_run)
 
 
-def test_openalgo_sync_is_unchanged(h, sib, monkeypatch):
-    _use_openalgo(h, monkeypatch, _OpenAlgoClient(rows=[
-        {"name": "Tata Motors", "ticker": "TATAMOTORS", "asset_type": "equity", "quantity": 12, "buy_price": 610.0,
-         "current_price": 655.5, "sector": "Auto", "source": "openalgo", "source_id": "NSE:TATAMOTORS"},
-        {"ticker": "NIFTYBEES", "asset_type": "weird", "quantity": 3},
-    ]))
+def test_an_openalgo_row_cannot_be_synced_and_nothing_is_written(h, sib, monkeypatch):
+    # OA-3: the OpenAlgo client path is gone; the row and its earlier holdings stay as they were.
+    _hub_must_not_run(h, monkeypatch)
+    before = ([dict(r) for r in h.db.holdings.docs], [dict(a) for a in h.db.broker_accounts.docs])
     res = h.post("/api/broker/accounts/ba_oa/sync")
-    assert res.status_code == 200
-    body = res.json()
-    assert set(body) == {"ok", "count", "holdings"} and body["ok"] is True and body["count"] == 2
-    assert [(r["name"], r["ticker"], r["asset_type"], r["quantity"]) for r in body["holdings"]] == [
-        ("Tata Motors", "TATAMOTORS", "equity", 12.0), ("NIFTYBEES", "NIFTYBEES", "equity", 3.0)]
-    assert h.openalgo_clients == ["ba_oa"] and sib.reads() == []
-
-    rows = [r for r in h.db.holdings.docs if r.get("broker_account_id") == "ba_oa"]
-    assert sorted(r["ticker"] for r in rows) == ["NIFTYBEES", "TATAMOTORS"]
-    assert all(r["source"] == "openalgo" and r["broker"] == "upstox" for r in rows)       # exactly as before
-    tata = h.db.holdings.one(ticker="TATAMOTORS")
-    assert (tata["buy_price"], tata["current_price"], tata["sector"], tata["source_id"], tata["portfolio_id"]) == (
-        610.0, 655.5, "Auto", "NSE:TATAMOTORS", "")
-    assert sorted(r["name"] for r in h.db.holdings.docs if r.get("broker_account_id") != "ba_oa") == [
-        "CAS-FUND", "OLD-Z", "U2-ROW"]
-
-    acct = h.db.broker_accounts.one(account_id="ba_oa")
-    assert (acct["status"], acct["last_sync_count"], acct["last_error"]) == ("active", 2, None)
-    assert h.audits == [{"user_id": "u1", "action": "broker_sync", "resource": "ba_oa", "outcome": "success",
-                         "ip": "testclient", "ua": "testclient", "details": {"broker": "upstox", "count": 2}}]
-    assert sib.cache_invalidations == []            # the OpenAlgo path still does not clear the dashboard cache
-
-
-def test_openalgo_sync_failure_is_unchanged(h, sib, monkeypatch):
-    _use_openalgo(h, monkeypatch, _OpenAlgoClient(error=OpenAlgoError("OpenAlgo holdings: invalid apikey")))
-    res = h.post("/api/broker/accounts/ba_oa/sync")
-    # Still a plain HTTPException with a string detail, so the envelope carries the generic 502 code.
-    _error(res, 502, "INT-001", "OpenAlgo sync failed: OpenAlgo holdings: invalid apikey", [])
-    acct = h.db.broker_accounts.one(account_id="ba_oa")
-    assert (acct["status"], acct["last_error"]) == ("error", "OpenAlgo holdings: invalid apikey")
-    assert h.audits[0]["outcome"] == "error" and h.audits[0]["details"] == {
-        "broker": "upstox", "reason": "OpenAlgo holdings: invalid apikey"}
-    assert h.db.holdings.one(name="OLD-OA")
+    _error(res, 400, "BROKER_READ_NOT_SUPPORTED",
+           "Syncing holdings is available only for accounts connected by signing in on the broker's own page.",
+           [{"broker": "upstox", "account_id": "ba_oa"}])
+    assert (h.db.holdings.docs, h.db.broker_accounts.docs) == before
+    assert h.audits == [] and sib.reads() == [] and sib.cache_invalidations == []
 
 
 # ── GET /accounts/{id}/positions ─────────────────────────────────────────
@@ -551,17 +504,12 @@ def test_all_accounts_positions_with_no_native_account(h, sib):
 
 
 # ── DELETE /accounts/{id} — native rows ──────────────────────────────────
-def test_disconnecting_a_native_account_removes_only_its_row_and_holdings(h, sib, monkeypatch):
-    async def stop(*a, **kw):
-        raise AssertionError("a native account has no OpenAlgo instance to stop")
-    monkeypatch.setattr(bc._instance_mgr, "stop", stop)
-
+def test_disconnecting_a_native_account_removes_only_its_row_and_holdings(h, sib):
     res = h.delete("/api/broker/accounts/ba_z")
     assert res.status_code == 200 and res.json() == {"ok": True}
     assert [a["account_id"] for a in h.db.broker_accounts.docs] == ["ba_i", "ba_oa", "ba_u2"]
     assert sorted(r["name"] for r in h.db.holdings.docs) == ["CAS-FUND", "OLD-OA", "U2-ROW"]
-    assert h.audits[0]["action"] == "broker_disconnect" and h.audits[0]["details"] == {
-        "broker": "zerodha", "instance_stopped": False}
+    assert h.audits[0]["action"] == "broker_disconnect" and h.audits[0]["details"] == {"broker": "zerodha"}
     assert h.delete("/api/broker/accounts/ba_u2", who="u1").status_code == 404
 
 
@@ -756,15 +704,15 @@ def test_the_flag_is_checked_after_ownership_on_sync(h, sib, flag_off):
 
 
 @pytest.mark.parametrize("state", ["flag_off", "flag_unreadable"])
-def test_list_delete_and_openalgo_sync_do_not_depend_on_the_flag(h, sib, monkeypatch, request, state):
+def test_list_delete_and_the_openalgo_refusal_do_not_depend_on_the_flag(h, sib, monkeypatch, request, state):
     request.getfixturevalue(state)                  # off, or unreadable: a route that consulted it would 403 / 503
     listed = h.get("/api/broker/accounts")
     assert listed.status_code == 200
     assert [a["account_id"] for a in listed.json()["accounts"]] == ["ba_z", "ba_i", "ba_oa"]
 
-    _use_openalgo(h, monkeypatch, _OpenAlgoClient(rows=[{"ticker": "TATAMOTORS", "quantity": 12}]))
-    synced = h.post("/api/broker/accounts/ba_oa/sync")
-    assert synced.status_code == 200 and synced.json()["count"] == 1
+    # OA-7: an OpenAlgo row is refused the same way whatever the flag says.
+    _hub_must_not_run(h, monkeypatch)
+    _error(h.post("/api/broker/accounts/ba_oa/sync"), 400, "BROKER_READ_NOT_SUPPORTED")
 
     assert h.delete("/api/broker/accounts/ba_z").json() == {"ok": True}     # a native row can still be removed
     assert h.delete("/api/broker/accounts/ba_oa").json() == {"ok": True}
