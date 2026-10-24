@@ -4,8 +4,9 @@
  *   POST /api/live/fno-quotes   Kite REST quote() for the NAMED legs; read only
  *
  * One request for every leg the board is showing, not a chain subscription: the platform websocket
- * carries cash and indices only, and NIFTY plus BANKNIFTY alone run to thousands of listed strikes
- * against Kite's instrument cap.
+ * carries cash, indices, the near-month futures and only a window of NIFTY and BANKNIFTY options (the
+ * two nearest expiries, 15 strikes either side of the money), so a leg outside that window is not on
+ * it, and NIFTY plus BANKNIFTY alone run to thousands of listed strikes against Kite's instrument cap.
  *
  * The board's RANKING is not re-computed from these prices. It was produced from the end-of-day chain
  * and says so; a live premium is shown beside the figure it would replace, so the two are never

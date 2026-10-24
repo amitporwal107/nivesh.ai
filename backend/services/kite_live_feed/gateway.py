@@ -66,7 +66,7 @@ def default_ticker_factory(api_key: str, token: str):
 
 
 class TickerSource:
-    """KiteTicker in 'quote' mode (ltp, ohlc, volume) on its own thread; the tokens in `full_tokens` (the futures) are in
+    """KiteTicker in 'quote' mode (ltp, ohlc, volume) on its own thread; the tokens in `full_tokens` (futures and options) are in
     'full' mode, the only one that carries open interest. Ticks go to `on_tick(token, tick)`.
 
     `healthy()` is true while connected and a tick (or the connect) happened in the last `stale_after` seconds.

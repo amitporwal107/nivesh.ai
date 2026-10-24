@@ -142,19 +142,29 @@ Server-sent events. Body: `message` (required), `session_id`, `page`, `agent`, `
 
 Platform-level Kite feed (`backend/services/kite_live_feed`): one leader process (Mongo lease `kite_live_lease`) keeps a quote cache from
 KiteTicker (REST `quote()` fallback) and publishes a snapshot every cadence to `kite_live_snapshot` (TTL 72 h). The API never calls Kite.
+The universe is indices, Nifty 500, F&O underlyings, the near-month futures and a window of index options (the nearest expiries of
+`LIVE_OPTION_UNDERLYINGS`, ATM ± `LIVE_OPTION_STRIKES_EACH_SIDE` strikes, CE and PE, re-centred on each 15-minute rebuild; futures and options
+in full mode). Every second the leader also writes the quotes that changed to Redis (`nivesh:quote:<NSE|NFO>:<SYMBOL>`, plus the hash
+`nivesh:quote:chain:<UNDERLYING>:<YYYY-MM-DD>` of `strike|CE/PE` -> key, TTL `LIVE_QUOTE_CACHE_TTL_S`), and at each minute of the open
+session one replay document to Mongo `kite_live_minute` (`_id` `YYYY-MM-DDTHH:MM` IST, compact rows `s p b a bq aq o v t` + `u x k ot` for
+derivatives, first write wins, TTL `LIVE_MINUTE_TTL_DAYS`). Redis is optional: when it is unset or down, reads fall back to the snapshot.
 
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/live/status` | `mode` (live / delayed / closed / expired / not_connected / disabled), `state`, `source` (ws / rest), `instrument_count`, `last_tick_age_seconds`, `session`, `cadence_seconds` |
-| `GET /api/live/quotes?symbols=A,B` | up to 600 symbols; also registers them with the leader (kept 30 min) |
+| `GET /api/live/quotes?symbols=A,B` | up to 600 symbols; also registers them with the leader (kept 30 min). Read from the Redis cache first (when at least as recent), the snapshot for the rest |
+| `GET /api/live/option-chain?underlying=NIFTY&expiry=YYYY-MM-DD` | the cached option window grouped by strike: `rows[{strike, CE, PE}]`, each side with `received_at`, `age_seconds`, `stale` (older than 2 cadences) or null; `cache` = ok / empty / unavailable (Redis down: 200 with `rows: []`) |
 | `GET /api/live/snapshot?universe=indices\|nifty500\|fno\|all` | a whole set |
 | `GET /api/live/stream?symbols=&universe=` | server-sent events: an immediate `snapshot` event, then one per cadence (`X-Accel-Buffering: no`) |
 
 Body: `as_of`, `data_at`, `age_seconds`, `stale` (market open and data older than 2.5 cadences, or not connected), `mode`, `session`, `source`, `final`,
-`quotes{SYMBOL:{ltp,change,change_pct,open,high,low,close,volume,oi,ts}}`, `missing[]`. A price is a number or absent, never 0. Symbols are NSE
+`quotes{SYMBOL:{ltp,change,change_pct,open,high,low,close,volume,oi,ts,bid,ask,bid_qty,ask_qty,exchange_ts,received_at,source}}` (top of book
+from Kite's depth, null without one; futures and options add `instrument`, `underlying`, `expiry`, `lot_size`, options `strike`, `option_type`), `missing[]`. A price is a number or absent, never 0. Symbols are NSE
 tradingsymbols, upper case (`NIFTY BANK`, `RELIANCE`); `NSE:` prefixes and NSE index spellings (`Nifty Financial Services`) are folded.
 Env: `KITE_LIVE_FEED_ENABLED` (default on; `0` stops the loop), `KITE_LIVE_FEED_CADENCE_SECONDS` (2-120, default 30; `stale` = newest data older than 2.5 cadences, so 75 s by default; clients follow `cadence_seconds`), `KITE_LIVE_FEED_FORCE_REST`,
-`KITE_ACCESS_TOKEN` / `KITE_ACCESS_TOKEN_FILE`, `KITE_API_KEY` / `KITE_API_KEY_FILE` (line 1 only; the API secret is never read).
+`KITE_ACCESS_TOKEN` / `KITE_ACCESS_TOKEN_FILE`, `KITE_API_KEY` / `KITE_API_KEY_FILE` (line 1 only; the API secret is never read),
+`LIVE_OPTION_UNDERLYINGS` (default `NIFTY,BANKNIFTY`; empty turns options off), `LIVE_OPTION_EXPIRIES` (0-4, default 2), `LIVE_OPTION_STRIKES_EACH_SIDE`
+(0-50, default 15), `LIVE_QUOTE_CACHE_TTL_S` (30-86400, default 600), `LIVE_MINUTE_TTL_DAYS` (1-400, default 90), `REDIS_URL`.
 
 ### Daily platform Kite login (admin, one human tap per day)
 
