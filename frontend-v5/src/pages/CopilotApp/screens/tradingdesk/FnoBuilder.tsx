@@ -61,14 +61,19 @@ export function suggestedTemplate(label: BuildupLabel | null): string | null {
   return null;
 }
 
-interface LegRow { id: number; side: Side; kind: Kind; strike: number; lots: number; price: string }
+export interface LegRow { id: number; side: Side; kind: Kind; strike: number; lots: number; price: string }
 
-const closeOf = (r: FnoStrike | undefined, k: Kind): number | null => {
+export const closeOf = (r: FnoStrike | undefined, k: Kind): number | null => {
   const s = r?.[k === "call" ? "call" : "put"];
   return s ? s.close ?? s.settle ?? null : null;
 };
 
 let nextId = 1;
+
+/** A new trade at a strike, priced at the end-of-day close (blank when the contract has none). */
+export function newLeg(side: Side, kind: Kind, strike: number, price: number | null): LegRow {
+  return { id: nextId++, side, kind, strike, lots: 1, price: price == null ? "" : String(price) };
+}
 
 /** The legs of a template at the chain's strikes, priced at the end-of-day close (blank when the contract has no close). */
 export function legsFor(t: Template, chain: FnoChain): LegRow[] {
@@ -149,7 +154,10 @@ function MarginStrip({ state }: { state: ReturnType<typeof useMargin> }) {
   );
 }
 
-export function BuilderView({ symbol, state }: { symbol: string; state: ChainState }) {
+export interface SharedLegs { legs: LegRow[]; setLegs: (next: LegRow[] | ((ls: LegRow[]) => LegRow[])) => void }
+
+/** variant "page": the Paper strategies builder (tiles, suggested structure). variant "panel": the chain's Analyse panel, whose trades come from the chain rows (`shared`) and which has no tiles. */
+export function BuilderView({ symbol, state, shared, variant = "page" }: { symbol: string; state: ChainState; shared?: SharedLegs; variant?: "page" | "panel" }) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const scan = useBuildup(true);
@@ -158,14 +166,18 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   const suggested = suggestedTemplate(row?.label ?? null);
   const [view, setView] = useState<View>("bullish");
   const [tpl, setTpl] = useState<string | null>(null);
-  const [legs, setLegs] = useState<LegRow[]>([]);
+  const [ownLegs, setOwnLegs] = useState<LegRow[]>([]);
+  const legs = shared ? shared.legs : ownLegs;
+  const setLegs = shared ? shared.setLegs : setOwnLegs;
+  const panel = variant === "panel";
   const [scn, setScn] = useState<ScenarioInputs>(DEFAULT_SCENARIO);
   const key = chain ? `${symbol}|${chain.summary.expiry}|${chain.summary.as_of}` : null;
 
   // A new underlying or expiry starts from the structure the build-up suggests (or nothing), once the chain and the scan are in.
   useEffect(() => {
-    setLegs([]); setTpl(null); setScn(DEFAULT_SCENARIO);
-    if (!chain || scan.isPending) return;
+    if (!shared) setLegs([]);
+    setTpl(null); setScn(DEFAULT_SCENARIO);
+    if (shared || !chain || scan.isPending) return;
     const t = TEMPLATES.find((x) => x.id === suggested);
     if (t) { setTpl(t.id); setView(t.view); setLegs(legsFor(t, chain)); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -209,8 +221,8 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   const netLabel = response?.expiry?.net_premium != null ? (response.expiry.net_premium < 0 ? "Net debit" : "Net credit") : null;
 
   return (
-    <div data-testid="desk-builder" data-symbol={symbol} className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
-      <div className="flex min-w-0 flex-col" style={{ flex: mobile ? "1 1 100%" : "1 1 400px", maxWidth: mobile ? "100%" : 470, gap: 14 }}>
+    <div data-testid="desk-builder" data-symbol={symbol} data-variant={variant} className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
+      <div className="flex min-w-0 flex-col" style={{ flex: panel || mobile ? "1 1 100%" : "1 1 400px", maxWidth: panel || mobile ? "100%" : 470, gap: 14 }}>
         <Widget
           id="fno.builder.trades"
           title={`Trades${tpl ? ` · ${TEMPLATES.find((t) => t.id === tpl)?.name}` : ""}`}
@@ -250,6 +262,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
           <span data-testid="desk-builder-record-why" style={quiet}>Recording is off for option structures: the desk’s paper trades hold long shares only. Nothing is sent to a broker.</span>
         </Widget>
 
+        {!panel && (
         <Widget id="fno.builder.view" title="Market view" bodyStyle={{ gap: 12, padding: 14 }}>
           <div role="group" aria-label="Market view" className="flex flex-wrap" style={{ gap: 6 }}>
             {VIEWS.map((v) => (
@@ -268,9 +281,10 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
             ))}
           </div>
         </Widget>
+        )}
       </div>
 
-      <div className="flex min-w-0 flex-col" style={{ flex: "999 1 520px", gap: 12 }}>
+      <div className="flex min-w-0 flex-col" style={{ flex: panel ? "1 1 100%" : "999 1 520px", gap: 12 }}>
         {problem ? <span data-testid="desk-builder-problem" style={quiet}>{problem}</span> : base && (
           <>
             {netLabel && response?.expiry?.net_premium != null && (
