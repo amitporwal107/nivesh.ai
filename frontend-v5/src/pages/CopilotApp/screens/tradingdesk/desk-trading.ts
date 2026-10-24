@@ -42,6 +42,7 @@ import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { num } from "./desk-data";
+import { riskBlockedText } from "./risk-controls";
 
 type Raw = Record<string, unknown>;
 const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
@@ -107,9 +108,12 @@ const CODE_TEXT: Record<string, string> = {
   upstream_unavailable: "The data platform could not be reached right now.",
 };
 
-/** The server's own words for a failed write: its code in plain words with the code beside it, else its text. */
+/** The server's own words for a failed write: its code in plain words with the code beside it, else its text. A 409
+ *  risk_blocked says which control blocked it and where the controls are (riskBlockedText, risk-controls.ts). */
 export function writeProblem(e: unknown): string {
   if (e instanceof ApiError) {
+    const blocked = riskBlockedText(e);
+    if (blocked) return blocked;
     if (e.detail) return CODE_TEXT[e.detail] ? `${CODE_TEXT[e.detail]} (${e.detail})` : e.detail;
     if (e.kind === "network") return "The network request failed.";
     if (e.kind === "timeout") return "The request took too long.";
