@@ -424,7 +424,7 @@ function sideFigures(side: FnoSide | null) {
   return { oi: side?.oi ?? null, change: side?.change_in_oi ?? null, close: side?.close ?? null };
 }
 
-const CHAIN_TEMPLATE = "76px minmax(0,1fr) 76px 104px 76px minmax(0,1fr) 76px";
+const CHAIN_TEMPLATE = "76px minmax(0,1fr) 108px 104px 108px minmax(0,1fr) 76px";
 
 // ── model detail: IV, Greeks and per-option OI build-up ──────────────────
 
@@ -519,7 +519,27 @@ function ChainModelDetail({ chain, rows }: { chain: FnoChain; rows: FnoStrike[] 
 }
 
 /** Design: "Option chain OI · SYM · expiry" — seven columns, OI bars, ATM / R / S / MP tags, a reading under it. */
-export function ChainOiTable({ chain }: { chain: FnoChain }) {
+/** The chain's trade buttons: which legs are on the Analyse panel, and the toggle (add a buy or sell at this strike and type, or take it off again). */
+export interface ChainTrades { has: (strike: number, kind: "call" | "put", side: "buy" | "sell") => boolean; toggle: (strike: number, kind: "call" | "put", side: "buy" | "sell") => void }
+
+function TradeButtons({ strike, kind, trades }: { strike: number; kind: "call" | "put"; trades: ChainTrades }) {
+  return (
+    <span className="inline-flex" style={{ gap: 3 }}>
+      {(["buy", "sell"] as const).map((side) => {
+        const on = trades.has(strike, kind, side);
+        return (
+          <button key={side} type="button" aria-pressed={on} aria-label={`${side === "buy" ? "Buy" : "Sell"} the ${fmtLevel(strike)} ${kind} (add to or remove from Analyse)`}
+            data-testid={`desk-chain-${side === "buy" ? "b" : "s"}-${kind}-${strike}`} onClick={() => trades.toggle(strike, kind, side)}
+            style={{ width: 22, height: 22, borderRadius: 5, fontSize: 10, fontWeight: 600, cursor: "pointer", padding: 0,
+              border: `1px solid ${on ? (side === "buy" ? "var(--mint)" : "var(--cp-danger)") : "var(--line-2)"}`,
+              background: on ? (side === "buy" ? "var(--mint-soft)" : "var(--cp-danger-soft)") : "transparent", color: side === "buy" ? "var(--mint)" : "var(--cp-danger)" }}>{side === "buy" ? "B" : "S"}</button>
+        );
+      })}
+    </span>
+  );
+}
+
+export function ChainOiTable({ chain, trades }: { chain: FnoChain; trades?: ChainTrades }) {
   // On a narrow screen the table scrolls sideways; start it centred on the strike column, so calls sit to the left and puts to the right.
   const scroller = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -536,7 +556,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
   return (
     <Widget id="fno.chain" testId="desk-fno-chain" headTestId="desk-fno-chain-head" title={<>Option chain OI · {chain.symbol} · {fmtDay(s.expiry)}</>} meta="R call wall · S put wall · MP max pain">
       <div ref={scroller} data-testid="desk-fno-chain-scroll" className="cp-scroll overflow-x-auto" role="table" aria-label={`${chain.symbol} open interest by strike, ${fmtDay(s.expiry)} expiry`}>
-        <div style={{ minWidth: 700 }}>
+        <div style={{ minWidth: 780 }}>
           <div role="row" data-testid="desk-fno-chain-header" className="grid" style={{ gridTemplateColumns: CHAIN_TEMPLATE, gap: 10, padding: "10px 18px" }}>
             {head("call-chg", "Call OI chg", "left")}
             {head("call-oi", "Call OI", "right")}
@@ -566,7 +586,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
                   <span data-col="call-oi" className="cp-num" style={{ flex: "none", fontSize: 11, color: "var(--cp-ink-2)" }}>{fmtQty(c.oi)}</span>
                   <OiBar share={(c.oi ?? 0) / max} color={CALL_COLOR} leftwards />
                 </span>
-                <span role="cell" data-col="call-close" className="cp-num" style={{ textAlign: "right", color: "var(--cp-ink)" }}>{c.close == null ? DASH : fmtNum(c.close, 2)}</span>
+                <span role="cell" className="cp-num flex items-center justify-end" style={{ gap: 6, color: "var(--cp-ink)" }}>{trades && r.call && <TradeButtons strike={r.strike} kind="call" trades={trades} />}<span data-col="call-close">{c.close == null ? DASH : fmtNum(c.close, 2)}</span></span>
                 <span role="cell" data-col="strike" className="flex flex-col items-center" style={{ gap: 3 }}>
                   <span style={{ fontFamily: "var(--display)", fontSize: 18, lineHeight: 1, color: atm ? "var(--mint)" : "var(--cp-ink)" }}>{fmtLevel(r.strike)}</span>
                   {tags.length > 0 && (
@@ -577,7 +597,7 @@ export function ChainOiTable({ chain }: { chain: FnoChain }) {
                     </span>
                   )}
                 </span>
-                <span role="cell" data-col="put-close" className="cp-num" style={{ color: "var(--cp-ink)" }}>{p.close == null ? DASH : fmtNum(p.close, 2)}</span>
+                <span role="cell" className="cp-num flex items-center" style={{ gap: 6, color: "var(--cp-ink)" }}><span data-col="put-close">{p.close == null ? DASH : fmtNum(p.close, 2)}</span>{trades && r.put && <TradeButtons strike={r.strike} kind="put" trades={trades} />}</span>
                 <span role="cell" className="flex items-center" style={{ gap: 6, minWidth: 0 }}>
                   <OiBar share={(p.oi ?? 0) / max} color={PUT_COLOR} />
                   <span data-col="put-oi" className="cp-num" style={{ flex: "none", fontSize: 11, color: "var(--cp-ink-2)" }}>{fmtQty(p.oi)}</span>

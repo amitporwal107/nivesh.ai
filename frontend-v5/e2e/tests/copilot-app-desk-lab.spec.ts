@@ -1629,7 +1629,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       costs: null, margin: { estimate: null, source: null }, margin_reason: "Margin is not computed", capital_at_risk: -Math.min(...gross), capital_at_risk_basis: "worst net loss over all prices",
     };
   }
-  async function openBuilder(page: Page, opts: { fail?: boolean; margin?: { status: number; body: unknown } } = {}) {
+  async function openBuilder(page: Page, opts: { fail?: boolean; margin?: { status: number; body: unknown }; levels?: { status: number; body: unknown } } = {}) {
     const bodies: Req[] = [];
     await fnoData(page);
     await page.route("**/api/desk/strategy/payoff", (route) => {
@@ -1638,6 +1638,13 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       return opts.fail ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) })
         : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payoffFor(body)) });
     });
+    const levelBodies: Array<{ payoff: Req; refs: Record<string, number | null> }> = [];
+    await page.route("**/api/desk/strategy/levels", (route) => {
+      levelBodies.push(JSON.parse(route.request().postData() ?? "{}"));
+      const l = opts.levels ?? { status: 200, body: LEVELS_OK };
+      return route.fulfill({ status: l.status, contentType: "application/json", body: JSON.stringify(l.body) });
+    });
+    (page as Page & { levelBodies?: typeof levelBodies }).levelBodies = levelBodies;
     const marginBodies: unknown[] = [];
     await page.route("**/api/fno/margin", (route) => {
       marginBodies.push(JSON.parse(route.request().postData() ?? "{}"));
@@ -1653,6 +1660,89 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
   // MOCK — not real data: the shape POST /api/fno/margin sends (backend/routes/fno.py, services/fno_margin).
   const MARGIN_OK = { required_margin: 77519.3125, initial_margin: 78908.0625, charges: { per_order: [], total: { brokerage: 40, stt: 5.5, exchange: 5.65, sebi: 0.01, stamp_duty: 0, gst: 8.24, total: 59.4 } },
     as_of: "2026-10-24", source: "Zerodha margin calculator (Kite Connect): exchange SPAN + exposure margin and order charges", note: "A calculation for the platform account's rules, not an exchange-published figure and not a quote. Nothing is placed.", sent_to_broker: false };
+
+  // MOCK — not real data: the shape POST /api/desk/strategy/levels sends (backend/services/strategy_levels.py).
+  const LEVELS_OK = { valid: true, version: "strategy-levels-v1", sent_to_broker: false, unit: { shares: 65 }, days_to_expiry: 4,
+    premium: { kind: "debit", entry: 3.0, planned_stop: 2.1, planned_stop_loss_per_unit: 0.9, target_1: 3.9, target_2: 4.8, risk_boundary: { value: 0.0, meaning: "the structure's value at its worst: the whole debit is lost" } },
+    underlying: { view: "bearish", entry: 25010, stop: 25190.5, target: 24850.25, target_2: 24720, basis: "the underlying price at which the structure reaches its planned stop and targets", wall_stop: 25300, wall_target: 24700, wall_reference: { put_wall: 24700, call_wall: 25300, expected_move: 487 }, value_at_stop: 2.1, value_at_target: 3.9 },
+    totals: { planned_stop_loss: 58.5, target_1_gain: 58.5, target_2_gain: 117, shares: 65 },
+    legs: [{ index: 0, side: "buy", option_type: "put", strike: 25000, expiry: "2026-10-27", entry_price: 213.6, delta: -0.45, theta: -2.1, vega: 5.2 }, { index: 1, side: "sell", option_type: "put", strike: 24800, expiry: "2026-10-27", entry_price: 152, delta: 0.3, theta: 1.4, vega: -3.6 }],
+    costs: { model: "x", entry: 48.58, exit_at_expiry: 40, round_trip: 88.58, excluded: [], max_loss_gross_total: -9603.75, capital_at_risk: 9692.33, capital_at_risk_basis: "worst net loss over all prices, every leg charged entry and exit costs" },
+    greeks: { net_delta_per_share: -0.31, theta_per_day_per_share: -0.8, vega_per_point_per_share: 1.9, gamma: 0.002, review_when: "net delta rises above -0.093 (30% of the entry delta -0.31)" },
+    scenarios: [{ name: "Bullish", underlying_move_pct: 2, underlying: 25510.2, iv_change_points: -3, date: "2026-10-25", pnl_per_unit: -2.1, pnl_total: -136.5 }, { name: "Bearish", underlying_move_pct: -2, underlying: 24509.8, iv_change_points: 4, date: "2026-10-25", pnl_per_unit: 2.9, pnl_total: 188.5 }],
+    iv_note: "IV rank and percentile need an IV history we do not store; they are not shown.", max_profit_per_unit: 7.0, max_loss_per_unit: 3.0, risk_reward: 2.33,
+    flags: [{ code: "expiry_week", message: "4 days to expiry: gamma can change quickly, so the levels can be overtaken fast." }].map((f) => f),
+    caveats: ["Rule-based, hypothetical levels from fixed research settings. They are not predictions or advice, and no accuracy or hit rate is claimed: tests of these signals found no skill beyond chance.", "A stop is a theoretical level, not an executable price: a stop order can fill worse in a sharp move or a liquidity gap."] };
+
+  test("TC-9 the levels card in three groups: A strategy levels, B thesis levels, C legs; the stop types, the loss-figure explanation and the caveats; nothing claims accuracy", async ({ page }) => {
+    await openBuilder(page);
+    const c = page.getByTestId("desk-levels");
+    await expect(c).toContainText("Rule-based · hypothetical");
+    await expect(page.getByTestId("desk-levels-intro")).toContainText("The strategy is the trade; the legs are its components");
+    const a = page.getByTestId("desk-levels-a");
+    await expect(a).toContainText("A · Strategy levels (the combined debit structure)");
+    await expect(page.getByTestId("desk-levels-entry")).toHaveText("3.00");
+    await expect(page.getByTestId("desk-levels-stop")).toHaveText("2.10");
+    await expect(a).toContainText("loss 0.90 a share (₹59 for 65 shares)");
+    await expect(page.getByTestId("desk-levels-t1")).toHaveText("3.90");
+    await expect(page.getByTestId("desk-levels-t2")).toHaveText("4.80");
+    await expect(page.getByTestId("desk-levels-rr")).toHaveText("7.00 / 3.00");
+    await expect(a).toContainText("Maximum-loss boundary");
+    await expect(a).toContainText("It is a boundary, not the stop-loss");
+    const b = page.getByTestId("desk-levels-b");
+    await expect(b).toContainText("B · Underlying thesis levels (bearish)");
+    await expect(page.getByTestId("desk-levels-underlying")).toContainText("thesis stop 25,190.50 · target 1 24,850.25 · target 2 24,720.00");
+    await expect(b).toContainText("the same ones as in A");
+    await expect(page.getByTestId("desk-levels-walls")).toContainText("Structural reference, not used above: put wall 24,700.00, call wall 25,300.00");
+    await expect(b).toContainText("Nivesh does not monitor the underlying or place exits");
+    await expect(page.getByTestId("desk-levels-stops")).toContainText("Strategy stop");
+    await expect(page.getByTestId("desk-levels-stops")).toContainText("Emergency risk stop");
+    await expect(page.getByTestId("desk-levels-stops")).toContainText("not built");
+    await expect(page.getByTestId("desk-levels-greeks")).toContainText("Net delta −0.31");
+    await expect(page.getByTestId("desk-levels-greeks")).toContainText("Review the trade when net delta rises above");
+    await expect(page.getByTestId("desk-levels-flag")).toContainText("gamma can change quickly");
+    const c2 = page.getByTestId("desk-levels-c");
+    await expect(c2).toContainText("C · Legs (monitoring, not separate trades)");
+    await expect(page.getByTestId("desk-levels-leg")).toHaveCount(2);
+    await expect(page.getByTestId("desk-levels-leg").first()).toContainText("25,000 PE");
+    await expect(c2).toContainText("A current executable price per leg needs live option quotes");
+    await expect(page.getByTestId("desk-levels-scenario")).toHaveCount(2);
+    await expect(page.getByTestId("desk-levels-scenarios")).toContainText("No probabilities are attached");
+    const loss = page.getByTestId("desk-levels-loss-figures");
+    await expect(loss).toContainText("Maximum loss before costs ₹9,604");
+    await expect(loss).toContainText("capital at risk ₹9,692");
+    await expect(loss).toContainText("one position with different cost treatments");
+    await expect(page.getByTestId("desk-levels-caveats")).toContainText("not an executable price");
+    const text = await c.innerText();
+    expect(text).not.toMatch(/\b9\d%|accuracy of|best trade|guaranteed|sure shot/i);
+  });
+
+  test("TC-9 the payoff summary's margin cell points at the margin strip, not the old 'no margin source' text", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("strategy-graphs")).toContainText("Funds and margin needed are in the strip above");
+    await expect(page.getByTestId("strategy-graphs")).not.toContainText("No margin source exists");
+  });
+
+  test("TC-9 the request carries the structure and the chain's walls and expected move", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("desk-levels")).toBeVisible();
+    const sent = ((page as Page & { levelBodies?: Array<{ payoff: Req; refs: Record<string, number | null> }> }).levelBodies ?? [])[0];
+    expect(sent.payoff.legs.length).toBe(2);
+    expect(sent.refs.expected_move).not.toBeUndefined();
+    expect(Object.keys(sent.refs).sort()).toEqual(["call_wall", "expected_move", "put_wall"]);
+  });
+
+  test("TC-9 a structure the engine rejects shows no levels; a failed read shows the notice and leaves the payoff", async ({ page }) => {
+    await openBuilder(page, { levels: { status: 200, body: { valid: false, problems: [{ code: "undefined_risk_not_supported", message: "This structure has a net short call: its loss is unlimited." }], caveats: [], version: "x", sent_to_broker: false } } });
+    await expect(page.getByTestId("desk-levels-invalid")).toContainText("net short call");
+    await expect(page.getByTestId("desk-levels-entry")).toHaveCount(0);
+  });
+
+  test("TC-9 a levels failure leaves everything else", async ({ page }) => {
+    await openBuilder(page, { levels: { status: 500, body: { detail: "boom" } } });
+    await expect(page.getByTestId("desk-levels-error")).toBeVisible();
+    await expect(page.getByTestId("strategy-graphs")).toBeVisible();
+  });
 
   test("TC-6 funds and margin needed come from the margin calculator, with its charges and a source line; the request carries the table's legs", async ({ page }) => {
     await openBuilder(page);
@@ -1711,7 +1801,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     const want = payoffFor(bodies[bodies.length - 1] as Req);
     await expect(page.getByTestId("desk-builder-net")).toContainText(want.expiry.net_premium < 0 ? "Net debit" : "Net credit");
     await expect(page.getByTestId("strategy-graphs")).not.toContainText(/probability of profit\s*[0-9]/i);
-    await expect(page.getByTestId("strategy-graphs")).toContainText("Margin is not computed");
+    await expect(page.getByTestId("strategy-graphs")).toContainText("Funds and margin needed are in the strip above");
   });
 
   test("TC-1 TC-2 the first payoff request asks for today's estimate at the data date, and the chart draws today against expiry", async ({ page }) => {
@@ -1820,5 +1910,113 @@ test.describe("Smart trading desk — Options & futures lab · index history and
     const o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+});
+
+// ── the option chain with the Analyse panel (FnoChainAnalyse.tsx) ───────────────────────────────────────────────────────
+// MOCK — not real data: the NIFTY chain fixture (strikes 24,700-25,300, lot 65); payoff and margin answered by mocks written for this spec (the payoff is an independent expiry-payoff calculation).
+test.describe("Smart trading desk — Options & futures lab · option chain with the Analyse panel", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+  type Leg = { side: string; option_type: string; strike: number; quantity: number; entry_price: number };
+  async function openChain(page: Page, opts: { margin?: { status: number; body: unknown } } = {}) {
+    const bodies: Array<{ reference_price: number; legs: Leg[]; grid: { from_pct: number; to_pct: number; points: number } }> = [];
+    await fnoData(page);
+    await page.route("**/api/desk/strategy/payoff", (route) => {
+      const req = JSON.parse(route.request().postData() ?? "{}");
+      bodies.push(req);
+      const { reference_price: ref, grid, legs } = req;
+      const xs = Array.from({ length: grid.points }, (_, i) => ref * (1 + grid.from_pct / 100) + (ref * ((grid.to_pct - grid.from_pct) / 100) * i) / (grid.points - 1));
+      const gross = xs.map((x: number) => legs.reduce((s: number, l: Leg & { lot_size: number }) => s + (l.side === "buy" ? 1 : -1) * ((l.option_type === "call" ? Math.max(x - l.strike, 0) : Math.max(l.strike - x, 0)) - l.entry_price) * l.quantity * l.lot_size, 0));
+      const prem = legs.reduce((s: number, l: Leg & { lot_size: number }) => s + (l.side === "buy" ? -1 : 1) * l.entry_price * l.quantity * l.lot_size, 0);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ valid: true, problems: [], warnings: [], calculation_version: "spec-v1", caveats: [], sent_to_broker: false, underlying: "NIFTY", reference_price: ref,
+        expiry: { grid: xs, gross, net: gross, per_leg: [], breakevens: [], max_profit: Math.max(...gross), max_loss: Math.min(...gross), profit_unbounded: false, loss_unbounded: false, net_premium: prem, scenarios: [] }, costs: null, margin: { estimate: null, source: null }, capital_at_risk: -Math.min(...gross) }) });
+    });
+    await page.route("**/api/fno/margin", (route) => {
+      const m = opts.margin ?? { status: 200, body: { required_margin: 91234.5, initial_margin: 92000, charges: { per_order: [], total: { brokerage: 40, stt: 0, exchange: 6, sebi: 0.01, stamp_duty: 0, gst: 8.3, total: 54.3 } }, as_of: "2026-10-24", source: "Zerodha margin calculator (Kite Connect): exchange SPAN + exposure margin and order charges", note: "A calculation for the platform account's rules, not an exchange-published figure and not a quote. Nothing is placed.", sent_to_broker: false } };
+      return route.fulfill({ status: m.status, contentType: "application/json", body: JSON.stringify(m.body) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-chain").click();
+    await expect(page.getByTestId("desk-fno-chain-row").first()).toBeVisible();
+    return bodies;
+  }
+  const chainFx = () => load("copilot-options-chain.json");
+
+  test("TC-1 B and S buttons on every call and put cell", async ({ page }) => {
+    await openChain(page);
+    for (const k of [24700, 25000, 25300]) for (const kind of ["call", "put"]) for (const s of ["b", "s"]) await expect(page.getByTestId(`desk-chain-${s}-${kind}-${k}`)).toBeVisible();
+    await expect(page.getByTestId("desk-analyse")).toHaveCount(0);
+  });
+
+  test("TC-2 TC-3 B adds a buy leg at the end-of-day close and opens the panel; S adds another; clicking again removes", async ({ page }) => {
+    const bodies = await openChain(page);
+    const px = (k: number, side: "call" | "put") => chainFx().strikes.find((r: { strike: number }) => r.strike === k)[side].close;
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-analyse")).toContainText("Analyse · 1 trade selected");
+    await expect.poll(() => bodies[bodies.length - 1]?.legs.map((l) => [l.side, l.option_type, l.strike, l.quantity, l.entry_price])).toEqual([["buy", "call", 25000, 1, px(25000, "call")]]);
+    await page.getByTestId("desk-chain-s-call-25200").click();
+    await expect(page.getByTestId("desk-analyse")).toContainText("2 trades selected");
+    await expect(page.getByTestId("desk-chain-s-call-25200")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => bodies[bodies.length - 1]?.legs.length).toBe(2);
+    await page.getByTestId("desk-chain-s-call-25200").click();
+    await expect(page.getByTestId("desk-analyse")).toContainText("1 trade selected");
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-analyse")).toHaveCount(0);
+  });
+
+  test("TC-4 the panel shows funds and margin from the calculator with its source; a 503 reads Unavailable", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-put-25000").click();
+    await expect(page.getByTestId("desk-builder-margin-required")).toHaveText("₹91,235");
+    await expect(page.getByTestId("desk-builder-margin")).toContainText("Zerodha margin calculator");
+    await expect(page.getByTestId("strategy-graphs")).toBeVisible();
+    await page.getByTestId("desk-analyse-close").click();
+    await expect(page.getByTestId("desk-chain-b-put-25000")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("TC-4 no Kite session: the margin is Unavailable with the reason", async ({ page }) => {
+    await openChain(page, { margin: { status: 503, body: { detail: "kite_session_unavailable" } } });
+    await page.getByTestId("desk-chain-b-put-25000").click();
+    await expect(page.getByTestId("desk-builder-margin-unavailable")).toContainText("not logged in to Kite today");
+  });
+
+  test("TC-5 TC-6 minimise keeps the header and count; there is no order button; recording is disabled with the reason", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-builder-record")).toBeDisabled();
+    await expect(page.getByTestId("desk-analyse")).not.toContainText(/trade all|place order|buy now|sell now/i);
+    await page.getByTestId("desk-analyse-min").click();
+    await expect(page.getByTestId("desk-analyse")).toHaveAttribute("data-min", "true");
+    await expect(page.getByTestId("desk-analyse")).toContainText("1 trade selected");
+    await expect(page.getByTestId("desk-builder")).toHaveCount(0);
+    await page.getByTestId("desk-analyse-min").click();
+    await expect(page.getByTestId("desk-builder")).toBeVisible();
+  });
+
+  test("TC-7 another underlying starts a new analysis", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-analyse")).toBeVisible();
+    await page.getByTestId("desk-fno-symbol-banknifty").click();
+    await expect(page.getByTestId("desk-analyse")).toHaveCount(0);
+  });
+
+  test("TC-8 the header drags the panel on desktop; at 390px it docks at the bottom with no sideways overflow", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    const head = page.getByTestId("desk-analyse-head");
+    const before = await page.getByTestId("desk-analyse").boundingBox();
+    const hb = (await head.boundingBox())!;
+    await page.mouse.move(hb.x + 40, hb.y + 10); await page.mouse.down(); await page.mouse.move(hb.x - 160, hb.y - 120, { steps: 6 }); await page.mouse.up();
+    const after = await page.getByTestId("desk-analyse").boundingBox();
+    expect(after!.x).toBeLessThan(before!.x - 100);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await page.getByTestId("desk-fno-view-chain").click();
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    const m = (await page.getByTestId("desk-analyse").boundingBox())!;
+    expect(m.x).toBeGreaterThanOrEqual(0); expect(m.x + m.width).toBeLessThanOrEqual(390); expect(m.y + m.height).toBeGreaterThan(700);
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
   });
 });

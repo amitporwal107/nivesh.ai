@@ -23,6 +23,8 @@ import { buildupRowFor, indexRowFor, useBuildup, type BuildupLabel } from "./fno
 import { isIndexUnderlying } from "../trading/fno";
 import { DEFAULT_SCENARIO, buildScenarioRequest, type ScenarioInputs } from "./strategy/ScenarioControls";
 import { StrategyGraphs } from "./strategy/StrategyGraphs";
+import { LevelsCard, useLevels } from "./FnoLevels";
+import { wallsOf } from "./fno-parts";
 import type { PayoffLeg, PayoffRequest } from "./strategy/strategy-contract";
 import { usePayoff } from "./strategy/usePayoff";
 
@@ -43,8 +45,7 @@ export const TEMPLATES: Template[] = [
   { id: "sell_call", name: "Sell Call", view: "bearish", legs: [{ s: "sell", t: "call", k: 0 }], pts: "2,10 24,10 58,32" },
   { id: "bear_put_spread", name: "Bear Put Spread", view: "bearish", legs: [{ s: "buy", t: "put", k: 0 }, { s: "sell", t: "put", k: -2 }], pts: "2,8 20,8 38,28 58,28" },
   { id: "bear_call_spread", name: "Bear Call Spread", view: "bearish", legs: [{ s: "sell", t: "call", k: 0 }, { s: "buy", t: "call", k: 2 }], pts: "2,10 22,10 40,30 58,30" },
-  { id: "short_straddle", name: "Short Straddle", view: "neutral", legs: [{ s: "sell", t: "call", k: 0 }, { s: "sell", t: "put", k: 0 }], pts: "2,28 30,8 58,28" },
-  { id: "short_strangle", name: "Short Strangle", view: "neutral", legs: [{ s: "sell", t: "call", k: 2 }, { s: "sell", t: "put", k: -2 }], pts: "2,28 16,10 44,10 58,28" },
+  { id: "iron_butterfly", name: "Iron Butterfly", view: "neutral", legs: [{ s: "sell", t: "call", k: 0 }, { s: "sell", t: "put", k: 0 }, { s: "buy", t: "call", k: 2 }, { s: "buy", t: "put", k: -2 }], pts: "2,28 18,28 30,8 42,28 58,28" },
   { id: "iron_condor", name: "Iron Condor", view: "neutral", legs: [{ s: "sell", t: "put", k: -2 }, { s: "buy", t: "put", k: -4 }, { s: "sell", t: "call", k: 2 }, { s: "buy", t: "call", k: 4 }], pts: "2,28 12,28 22,10 38,10 48,28 58,28" },
   { id: "long_straddle", name: "Long Straddle", view: "others", legs: [{ s: "buy", t: "call", k: 0 }, { s: "buy", t: "put", k: 0 }], pts: "2,8 30,28 58,8" },
   { id: "long_strangle", name: "Long Strangle", view: "others", legs: [{ s: "buy", t: "call", k: 2 }, { s: "buy", t: "put", k: -2 }], pts: "2,8 16,26 44,26 58,8" },
@@ -60,14 +61,19 @@ export function suggestedTemplate(label: BuildupLabel | null): string | null {
   return null;
 }
 
-interface LegRow { id: number; side: Side; kind: Kind; strike: number; lots: number; price: string }
+export interface LegRow { id: number; side: Side; kind: Kind; strike: number; lots: number; price: string }
 
-const closeOf = (r: FnoStrike | undefined, k: Kind): number | null => {
+export const closeOf = (r: FnoStrike | undefined, k: Kind): number | null => {
   const s = r?.[k === "call" ? "call" : "put"];
   return s ? s.close ?? s.settle ?? null : null;
 };
 
 let nextId = 1;
+
+/** A new trade at a strike, priced at the end-of-day close (blank when the contract has none). */
+export function newLeg(side: Side, kind: Kind, strike: number, price: number | null): LegRow {
+  return { id: nextId++, side, kind, strike, lots: 1, price: price == null ? "" : String(price) };
+}
 
 /** The legs of a template at the chain's strikes, priced at the end-of-day close (blank when the contract has no close). */
 export function legsFor(t: Template, chain: FnoChain): LegRow[] {
@@ -148,7 +154,10 @@ function MarginStrip({ state }: { state: ReturnType<typeof useMargin> }) {
   );
 }
 
-export function BuilderView({ symbol, state }: { symbol: string; state: ChainState }) {
+export interface SharedLegs { legs: LegRow[]; setLegs: (next: LegRow[] | ((ls: LegRow[]) => LegRow[])) => void }
+
+/** variant "page": the Paper strategies builder (tiles, suggested structure). variant "panel": the chain's Analyse panel, whose trades come from the chain rows (`shared`) and which has no tiles. */
+export function BuilderView({ symbol, state, shared, variant = "page" }: { symbol: string; state: ChainState; shared?: SharedLegs; variant?: "page" | "panel" }) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const scan = useBuildup(true);
@@ -157,7 +166,10 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   const suggested = suggestedTemplate(row?.label ?? null);
   const [view, setView] = useState<View>("bullish");
   const [tpl, setTpl] = useState<string | null>(null);
-  const [legs, setLegs] = useState<LegRow[]>([]);
+  const [ownLegs, setOwnLegs] = useState<LegRow[]>([]);
+  const legs = shared ? shared.legs : ownLegs;
+  const setLegs = shared ? shared.setLegs : setOwnLegs;
+  const panel = variant === "panel";
   const [scn, setScn] = useState<ScenarioInputs>(DEFAULT_SCENARIO);
   const key = chain ? `${symbol}|${chain.summary.expiry}|${chain.summary.as_of}` : null;
   // "Today's payoff" from the start: the what-if starts evaluated at the data date (the day the closes are from) while that is before the expiry, so the chart draws the model's estimate
@@ -166,8 +178,9 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
 
   // A new underlying or expiry starts from the structure the build-up suggests (or nothing), once the chain and the scan are in.
   useEffect(() => {
-    setLegs([]); setTpl(null); setScn(dflt);
-    if (!chain || scan.isPending) return;
+    if (!shared) setLegs([]);
+    setTpl(null); setScn(dflt);
+    if (shared || !chain || scan.isPending) return;
     const t = TEMPLATES.find((x) => x.id === suggested);
     if (t) { setTpl(t.id); setView(t.view); setLegs(legsFor(t, chain)); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,6 +207,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   const changed = scn.underlyingPrice != null || scn.size != null || scn.evalDate != null || scn.ivShiftPct !== 0;
   const request = base ? (changed ? buildScenarioRequest(base, scn) : base) : null;
   const pay = usePayoff(request);
+  const levelsQ = useLevels(base, { put_wall: chain ? wallsOf(chain.summary).put?.strike ?? null : null, call_wall: chain ? wallsOf(chain.summary).call?.strike ?? null : null, expected_move: chain?.summary.expected_move ?? null });
   const marginQ = useMargin(symbol, chain?.summary.expiry ?? null, legs, !problem && !!chain);
 
   if (state.status === "loading") return <LoadingBlock label={`Loading the ${symbol} chain`} rows={4} />;
@@ -206,12 +220,13 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   };
   const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(dflt); };
   const tiles = TEMPLATES.filter((t) => t.view === view);
-  const response = pay.data;
+  // The payoff route still says "No margin source exists" (an old text other screens pin); here the margin strip is the source.
+  const response = pay.data ? { ...pay.data, margin_reason: "Funds and margin needed are in the strip above: Zerodha’s margin calculator, which needs the platform’s Kite login." } : pay.data;
   const netLabel = response?.expiry?.net_premium != null ? (response.expiry.net_premium < 0 ? "Net debit" : "Net credit") : null;
 
   return (
-    <div data-testid="desk-builder" data-symbol={symbol} className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
-      <div className="flex min-w-0 flex-col" style={{ flex: mobile ? "1 1 100%" : "1 1 400px", maxWidth: mobile ? "100%" : 470, gap: 14 }}>
+    <div data-testid="desk-builder" data-symbol={symbol} data-variant={variant} className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
+      <div className="flex min-w-0 flex-col" style={{ flex: panel || mobile ? "1 1 100%" : "1 1 400px", maxWidth: panel || mobile ? "100%" : 470, gap: 14 }}>
         <Widget
           id="fno.builder.trades"
           title={`Trades${tpl ? ` · ${TEMPLATES.find((t) => t.id === tpl)?.name}` : ""}`}
@@ -251,6 +266,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
           <span data-testid="desk-builder-record-why" style={quiet}>Recording is off for option structures: the desk’s paper trades hold long shares only. Nothing is sent to a broker.</span>
         </Widget>
 
+        {!panel && (
         <Widget id="fno.builder.view" title="Market view" bodyStyle={{ gap: 12, padding: 14 }}>
           <div role="group" aria-label="Market view" className="flex flex-wrap" style={{ gap: 6 }}>
             {VIEWS.map((v) => (
@@ -269,15 +285,17 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
             ))}
           </div>
         </Widget>
+        )}
       </div>
 
-      <div className="flex min-w-0 flex-col" style={{ flex: "999 1 520px", gap: 12 }}>
+      <div className="flex min-w-0 flex-col" style={{ flex: panel ? "1 1 100%" : "999 1 520px", gap: 12 }}>
         {problem ? <span data-testid="desk-builder-problem" style={quiet}>{problem}</span> : base && (
           <>
             {netLabel && response?.expiry?.net_premium != null && (
               <span data-testid="desk-builder-net" className="cp-mono-note">{netLabel} {fmtLevel(Math.abs(response.expiry.net_premium))} for the position (end-of-day closes, before costs)</span>
             )}
             <MarginStrip state={marginQ} />
+            <LevelsCard q={levelsQ} />
             <StrategyGraphs
               base={base} response={response} errorText={pay.errorText} pending={pay.isPending} stale={pay.isStale} onRetry={pay.refetch}
               scenario={scn} onScenarioChange={setScn} dataDate={chain.summary.as_of} persona={persona} compact={mobile} defaultMode="pre"
