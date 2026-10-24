@@ -74,6 +74,7 @@ from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request
+from pydantic import BaseModel, Field
 
 from deps import get_current_user
 from services import option_pricing
@@ -81,6 +82,7 @@ from services.copilot_tools import daas_client
 from services.fno_candidates import engine as fno_engine
 from services.fno_candidates import rules as fno_rules
 from services import fno_forward
+from services import fno_margin
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fno", tags=["fno"])
@@ -647,6 +649,39 @@ async def _forward_bars(symbols: List[str], start: str, end: str) -> Dict[str, L
         got = await daas_client.get_adjusted_prices_bulk(symbols[i:i + 250], start=start, end=end, timeout=60.0)
         out.update({str(k).upper(): v for k, v in (got or {}).items()})
     _FORWARD_CACHE.update({"ts": time.time(), "key": key, "bars": out})
+    return out
+
+
+class MarginLeg(BaseModel):
+    side: str = Field(..., pattern="^(buy|sell)$")
+    option_type: str = Field(..., pattern="^(call|put|future)$")
+    expiry: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    strike: Optional[float] = Field(None, gt=0)
+    lots: int = Field(..., ge=1, le=1000)
+
+
+class MarginRequest(BaseModel):
+    underlying: str = Field(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN)
+    legs: List[MarginLeg] = Field(..., min_length=1, max_length=fno_margin.MAX_LEGS)
+
+
+@router.post("/margin")
+async def margin(request: Request, body: MarginRequest) -> Dict[str, Any]:
+    """Funds needed and order charges for a basket, from Zerodha's margin calculator (a CALCULATION through the platform's Kite session; nothing is placed). 503 kite_session_unavailable
+    when the platform is not logged in to Kite today; 404 naming the legs with no listed contract; 502 on a Kite error, never provider text."""
+    await get_current_user(request)
+    legs = [l.model_dump() for l in body.legs]
+    try:
+        calc = fno_margin.default_calculator()
+        out = await asyncio.to_thread(fno_margin.run, calc, body.underlying.upper(), legs)
+    except fno_margin.NoSession:
+        raise HTTPException(status_code=503, detail="kite_session_unavailable")
+    except fno_margin.CalcError as e:
+        logger.warning("fno margin: the calculator failed (%s)", e)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if not out.get("ok"):
+        raise HTTPException(status_code=404, detail=f"No listed contract for: {', '.join(out['missing_contracts'])}")
+    out.pop("ok", None)
     return out
 
 

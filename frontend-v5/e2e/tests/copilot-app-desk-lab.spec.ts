@@ -1627,7 +1627,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       costs: null, margin: { estimate: null, source: null }, margin_reason: "Margin is not computed", capital_at_risk: -Math.min(...gross), capital_at_risk_basis: "worst net loss over all prices",
     };
   }
-  async function openBuilder(page: Page, opts: { fail?: boolean } = {}) {
+  async function openBuilder(page: Page, opts: { fail?: boolean; margin?: { status: number; body: unknown } } = {}) {
     const bodies: Req[] = [];
     await fnoData(page);
     await page.route("**/api/desk/strategy/payoff", (route) => {
@@ -1636,11 +1636,39 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       return opts.fail ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) })
         : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payoffFor(body)) });
     });
+    const marginBodies: unknown[] = [];
+    await page.route("**/api/fno/margin", (route) => {
+      marginBodies.push(JSON.parse(route.request().postData() ?? "{}"));
+      const m = opts.margin ?? { status: 200, body: MARGIN_OK };
+      return route.fulfill({ status: m.status, contentType: "application/json", body: JSON.stringify(m.body) });
+    });
+    (page as Page & { marginBodies?: unknown[] }).marginBodies = marginBodies;
     await page.goto(`${DESK}?tab=fno`);
     await page.getByTestId("desk-fno-view-strategies").click();
     return bodies;
   }
   const legs = (page: Page) => page.getByTestId("desk-builder-leg");
+  // MOCK — not real data: the shape POST /api/fno/margin sends (backend/routes/fno.py, services/fno_margin).
+  const MARGIN_OK = { required_margin: 77519.3125, initial_margin: 78908.0625, charges: { per_order: [], total: { brokerage: 40, stt: 5.5, exchange: 5.65, sebi: 0.01, stamp_duty: 0, gst: 8.24, total: 59.4 } },
+    as_of: "2026-10-24", source: "Zerodha margin calculator (Kite Connect): exchange SPAN + exposure margin and order charges", note: "A calculation for the platform account's rules, not an exchange-published figure and not a quote. Nothing is placed.", sent_to_broker: false };
+
+  test("TC-6 funds and margin needed come from the margin calculator, with its charges and a source line; the request carries the table's legs", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("desk-builder-margin-required")).toHaveText("₹77,519");
+    await expect(page.getByTestId("desk-builder-charges")).toContainText("Charges for the entry orders: ₹59");
+    await expect(page.getByTestId("desk-builder-margin")).toContainText("Zerodha margin calculator");
+    await expect(page.getByTestId("desk-builder-margin")).toContainText("Nothing is placed");
+    const sent = ((page as Page & { marginBodies?: Array<{ underlying: string; legs: Array<Record<string, unknown>> }> }).marginBodies ?? [])[0];
+    expect(sent.underlying).toBe("NIFTY");
+    expect(sent.legs.map((l) => [l.side, l.option_type, l.lots])).toEqual([["buy", "put", 1], ["sell", "put", 1]]);
+  });
+
+  test("TC-6 no Kite session today: the margin reads Unavailable with the reason, never a figure; the payoff is unaffected", async ({ page }) => {
+    await openBuilder(page, { margin: { status: 503, body: { detail: "kite_session_unavailable" } } });
+    await expect(page.getByTestId("desk-builder-margin-unavailable")).toContainText("not logged in to Kite today");
+    await expect(page.getByTestId("desk-builder-margin-required")).toHaveCount(0);
+    await expect(page.getByTestId("strategy-graphs")).toBeVisible();
+  });
 
   test("TC-1 the tab opens on the builder with the structure the build-up suggests; the ideas stay one click away", async ({ page }) => {
     await openBuilder(page);
