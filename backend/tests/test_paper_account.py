@@ -15,26 +15,63 @@ import pytest
 from services import paper_account as acct
 
 
+def mongo_expr(doc: Dict[str, Any], e: Any) -> Any:
+    """Evaluate the aggregation expression in the account's conditional reserve ($gte, $subtract, "$field",
+    numbers) against one document. Shared by the other desk fakes. Anything else fails loudly: a fake that
+    silently matched an expression it cannot read would pass a refusal it never checked."""
+    if isinstance(e, str) and e.startswith("$"):
+        return doc.get(e[1:])
+    if isinstance(e, (int, float)) and not isinstance(e, bool):
+        return e
+    assert isinstance(e, dict) and len(e) == 1, f"the fake does not know the expression {e!r}"
+    [(op, args)] = e.items()
+    a, b = (mongo_expr(doc, x) for x in args)
+    if op == "$subtract":
+        return a - b
+    assert op == "$gte", f"the fake does not know {op}"
+    return a >= b
+
+
+def _match(d: Dict[str, Any], q: Dict[str, Any]) -> bool:
+    return all(mongo_expr(d, v) if k == "$expr" else d.get(k) == v for k, v in q.items())
+
+
+class _Res:
+    def __init__(self, matched: int = 0) -> None:
+        self.matched_count = matched
+
+
 class FakeCollection:
+    """Each call yields to the event loop BEFORE it touches the documents, so two coroutines run with
+    asyncio.gather interleave between their awaits the way two requests do. A single update_one is atomic
+    (match and apply with no await between), as one Mongo update on one document is."""
+
     def __init__(self) -> None:
         self.docs: List[Dict[str, Any]] = []
+        self.updates: List[Dict[str, Any]] = []
 
     async def find_one(self, q):
-        return next((d for d in self.docs if all(d.get(k) == v for k, v in q.items())), None)
+        await asyncio.sleep(0)
+        return next((dict(d) for d in self.docs if _match(d, q)), None)
 
     async def insert_one(self, doc):
+        await asyncio.sleep(0)
         self.docs.append(dict(doc))
 
     async def update_one(self, q, update, upsert=False):
-        doc = await self.find_one(q)
+        await asyncio.sleep(0)
+        self.updates.append(q)
+        doc = next((d for d in self.docs if _match(d, q)), None)
+        matched = doc is not None
         if doc is None:
             if not upsert:
-                return
+                return _Res()
             doc = dict(update.get("$setOnInsert") or {})
             self.docs.append(doc)
         doc.update(update.get("$set") or {})
         for k, delta in (update.get("$inc") or {}).items():
             doc[k] = (doc.get(k) or 0) + delta
+        return _Res(int(matched))
 
 
 class FakeDB:
@@ -126,6 +163,46 @@ def test_blocked_capital_cannot_be_used_twice(db):
     with pytest.raises(acct.InsufficientFunds):
         run(acct.reserve(db, "u1", 600_000.0, trade_id="t2"))
     assert run(acct.read(db, "u1"))["blocked_rs"] == 600_000.0, "the refused trade must block nothing"
+
+
+def test_the_refusal_carries_the_numbers_as_they_stand(db):
+    """After the conditional update misses, the account is re-read: the refusal reports what is really
+    there, not what an earlier read saw."""
+    run(acct.reserve(db, "u1", 600_000.0, trade_id="t1"))
+    with pytest.raises(acct.InsufficientFunds) as e:
+        run(acct.reserve(db, "u1", 600_000.0, trade_id="t2"))
+    d = e.value.detail()
+    assert (d["needed_rs"], d["available_rs"], d["cash_rs"], d["blocked_rs"]) == (600_000.0, 400_000.0,
+                                                                                 acct.DEFAULT_CAPITAL, 600_000.0)
+
+
+def test_two_concurrent_reserves_cannot_overdraw(db):
+    """Two ₹6 lakh trades against a ₹10 lakh account, at the same moment: only one fits. The fake yields
+    before every call, so both requests read before either writes. The old read-then-increment reserve
+    let BOTH pass the check and blocked ₹12 lakh against ₹10 lakh of cash; the conditional update lets
+    exactly one through. (The account row exists first: the race in ensure() on a user's very first
+    trade is a separate matter.)"""
+    run(acct.ensure(db, "u1"))
+
+    async def both():
+        return await asyncio.gather(acct.reserve(db, "u1", 600_000.0, trade_id="t1"),
+                                    acct.reserve(db, "u1", 600_000.0, trade_id="t2"),
+                                    return_exceptions=True)
+
+    results = run(both())
+    assert sorted(type(r).__name__ for r in results) == ["InsufficientFunds", "float"], results
+    a = run(acct.read(db, "u1"))
+    assert a["blocked_rs"] == 600_000.0 and a["available_rs"] == 400_000.0, "the account was overdrawn"
+    assert [r["action"] for r in db[acct.LEDGER].docs] == ["reserve"], "the refused trade must not be recorded"
+    [refused] = [r for r in results if isinstance(r, acct.InsufficientFunds)]
+    assert (refused.needed, refused.available) == (600_000.0, 400_000.0)
+
+
+def test_the_check_and_the_block_are_one_write(db):
+    """The guard lives in the update's filter, so Mongo checks and increments in one operation."""
+    run(acct.reserve(db, "u1", 1_000.0, trade_id="t1"))
+    [gate] = [q for q in db[acct.ACCOUNTS].updates if "$expr" in q]
+    assert gate == {"user_id": "u1", "$expr": {"$gte": [{"$subtract": ["$cash_rs", "$blocked_rs"]}, 1_000.0]}}
 
 
 def test_exactly_the_available_amount_is_allowed(db):

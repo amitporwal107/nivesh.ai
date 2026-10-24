@@ -127,19 +127,25 @@ def reservation_for(doc: Dict[str, Any], exposure: Optional[float]) -> Optional[
 
 async def reserve(db, user_id: str, amount: Optional[float], *, trade_id: str,
                   symbol: Optional[str] = None) -> float:
-    """Block `amount` against the account, or raise InsufficientFunds. Returns the amount blocked."""
-    acct = await read(db, user_id)
+    """Block `amount` against the account, or raise InsufficientFunds. Returns the amount blocked.
+
+    ONE conditional update: the filter matches only while cash - blocked >= amount, and the $inc is in the
+    same write. Reading the balance and then incrementing let two concurrent requests both see the same
+    free cash and both block it, overdrawing the account."""
     if amount is None:
+        acct = await read(db, user_id)
         raise InsufficientFunds(needed=0.0, available=acct["available_rs"],
                                 cash=acct["cash_rs"], blocked=acct["blocked_rs"])
-    if amount > acct["available_rs"]:
-        raise InsufficientFunds(needed=amount, available=acct["available_rs"],
-                                cash=acct["cash_rs"], blocked=acct["blocked_rs"])
     await ensure(db, user_id)
-    await db[ACCOUNTS].update_one(
-        {"user_id": user_id},
+    res = await db[ACCOUNTS].update_one(
+        {"user_id": user_id,
+         "$expr": {"$gte": [{"$subtract": ["$cash_rs", "$blocked_rs"]}, float(amount)]}},
         {"$inc": {"blocked_rs": float(amount)}, "$set": {"updated_at": _iso()}},
     )
+    if not res.matched_count:
+        acct = await read(db, user_id)          # the numbers as they stand after the refusal
+        raise InsufficientFunds(needed=amount, available=acct["available_rs"],
+                                cash=acct["cash_rs"], blocked=acct["blocked_rs"])
     await _ledger(db, user_id, action="reserve", amount_rs=float(amount), trade_id=trade_id, symbol=symbol)
     return float(amount)
 

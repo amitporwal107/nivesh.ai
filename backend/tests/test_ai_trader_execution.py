@@ -48,6 +48,7 @@ from routes import ai_trader as route
 from services import desk_trading as desk
 from services.ai_trader import execution, strategy
 from services.ai_trader.risk_governor import DEFAULT_LIMITS, Decision, Intent, Market, Portfolio, Reason, evaluate
+from tests.test_paper_account import mongo_expr
 
 BASE = "/api/ai-trader"
 A = {"X-Test-User": "user_a"}
@@ -57,10 +58,13 @@ AS_OF = "2026-10-20"                                          # Tuesday, the sig
 CAPITAL = 1_000_000.0
 
 
-# ── the in-memory collections (equality filters, plus the one $in the routes use) ─────
+# ── the in-memory collections (equality filters, the one $in the routes use, the account's $expr) ─────
 def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
     for key, want in query.items():
-        if isinstance(want, dict) and set(want) == {"$in"}:
+        if key == "$expr":          # the paper account's conditional reserve (services/paper_account.reserve)
+            if not mongo_expr(doc, want):
+                return False
+        elif isinstance(want, dict) and set(want) == {"$in"}:
             if doc.get(key) not in want["$in"]:
                 return False
         elif doc.get(key) != want:

@@ -1,0 +1,25 @@
+# /etc/cron.d/nivesh-staging-fno-forward — nightly recording of the F&O forward
+# test's signals (near-month short build-up) [staging].
+#
+# Records the day's signals ONCE per session (backend/scripts/record_fno_forward.py,
+# services/fno_forward; first write wins, never overwritten). The panel at
+# GET /api/fno/forward-test judges them later. Mongo only; no orders, no brokers.
+#
+# Schedule (Asia/Kolkata): 22:45 IST Mon-Fri. The build-up scan reads
+# nidp.fno_bhavcopy directly, and NSE posts the F&O file after 19:30: the NIDP
+# fno_bhavcopy ingest runs at 19:30 and retries at 21:00 and 22:15 IST
+# (deploy/cloudpe/nidp/nidp-staging.cron), so 22:45 is after the last retry.
+# The script refuses a session once the next 09:15 IST open has passed (a late
+# signal is not point in time), so a night whose F&O file never arrived records
+# nothing (exit 3) rather than a stale or partial day; a rerun the same night is
+# a no-op (exit 0, "already recorded").
+#
+# Install (one-off, not CI-managed — see deploy/nivesh-staging/install-fno-forward.sh):
+#   sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/install-fno-forward.sh
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+45 22 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.record_fno_forward >> /opt/nivesh-staging/logs/fno-forward.log 2>&1

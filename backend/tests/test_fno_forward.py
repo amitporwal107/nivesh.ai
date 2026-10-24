@@ -103,3 +103,21 @@ def test_tc5_no_result_before_30_sessions_and_a_result_at_30():
     assert few["judged_sessions"] == 10 and few["mean_pct"] is None and few["t"] is None and few["sessions_needed"] == 20
     many = ff.evaluate([_doc(d) for d in days[:31]], bars)["settings"]["production_floors"]
     assert many["judged_sessions"] == 31 and many["mean_pct"] is not None and many["sessions_needed"] == 0 and many["mean_pct"] > 0
+
+
+def test_the_recorder_is_scheduled_after_the_last_fno_bhavcopy_retry():
+    """The recorder records nothing unless something runs it (test_reports/OVERRIDE_fno_forward_test.md). The scan reads
+    nidp.fno_bhavcopy, whose last retry is 22:15 IST (deploy/cloudpe/nidp/nidp-staging.cron), so the run is after it."""
+    from pathlib import Path
+
+    deploy = Path(__file__).resolve().parents[2] / "deploy"
+    cron = (deploy / "nivesh-staging" / "fno-forward.cron").read_text()
+    assert "CRON_TZ=Asia/Kolkata" in cron
+    [line] = [l for l in cron.splitlines() if l and not l.startswith("#") and "python -m" in l]
+    assert line.split()[:7] == ["45", "22", "*", "*", "1-5", "root", "/usr/bin/docker"]
+    assert "exec nivesh-staging-app-backend python -m scripts.record_fno_forward >>" in line and "--dry-run" not in line
+    retries = [l.split()[:2] for l in (deploy / "cloudpe" / "nidp" / "nidp-staging.cron").read_text().splitlines()
+               if l and not l.startswith("#") and l.rstrip().endswith("run_service.sh fno_bhavcopy")]
+    assert retries and max((int(h), int(m)) for m, h in retries) < (22, 45)
+    installer = (deploy / "nivesh-staging" / "install-fno-forward.sh").read_text()
+    assert "fno-forward.cron" in installer and "/etc/cron.d/nivesh-staging-fno-forward" in installer

@@ -37,6 +37,7 @@ from routes import desk_trading as route
 from services import desk_trading as svc
 from services import paper_account as _acct
 from services import risk_controls as _rc
+from tests.test_paper_account import mongo_expr
 
 TRADES_URL = "/api/desk/paper-trades"
 ALERTS_URL = "/api/desk/alerts"
@@ -48,6 +49,10 @@ NOW = datetime(2026, 10, 12, 5, 0, tzinfo=timezone.utc)          # Monday 10:30 
 # ── an in-memory Mongo collection ────────────────────────────────────────────
 def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
     for key, cond in query.items():
+        if key == "$expr":          # the paper account's conditional reserve (services/paper_account.reserve)
+            if not mongo_expr(doc, cond):
+                return False
+            continue
         assert not isinstance(cond, dict), f"the fake collection does not know {cond}"
         if doc.get(key) != cond:
             return False
@@ -91,7 +96,8 @@ class FakeCollection:
         return sum(1 for d in self.docs if _matches(d, query))
 
     async def insert_one(self, doc):
-        if any(d["_id"] == doc["_id"] for d in self.docs):
+        # A paper-account ledger row has no `_id` (Mongo assigns one); only a given `_id` can collide.
+        if "_id" in doc and any(d.get("_id") == doc["_id"] for d in self.docs):
             raise DuplicateKeyError("E11000 duplicate key: _id")
         self.writes += 1
         self.docs.append(copy.deepcopy(doc))
