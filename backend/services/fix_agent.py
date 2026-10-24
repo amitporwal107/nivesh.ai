@@ -20,6 +20,7 @@ and must never raise into the caller.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import os
@@ -157,18 +158,40 @@ def _generate_rca_document(issue: dict, code_ctx: str, key: str) -> str:
 
 # ── Git helpers ───────────────────────────────────────────────────────────────
 
-def _git(args: list[str], cwd: Path) -> str:
+def _git(args: list[str], cwd: Path, env: Optional[dict] = None) -> str:
     return subprocess.run(
-        ["git"] + args, cwd=cwd, check=True, capture_output=True, text=True
+        ["git"] + args, cwd=cwd, check=True, capture_output=True, text=True, env=env
     ).stdout.strip()
+
+
+def _repo_url() -> str:
+    """The repository's HTTPS URL. It never carries credentials; see `_git_auth_env`."""
+    return f"https://github.com/{REPO_OWNER}/{REPO_NAME}.git"
+
+
+def _git_auth_env(gh_token: str) -> dict:
+    """Environment for a single authenticated git command (clone, push).
+
+    The token is passed as an HTTP Authorization header through git's GIT_CONFIG_* environment
+    variables, scoped to https://github.com/. It is not part of any URL or command-line argument
+    and is never written to the clone's .git/config, which the coding agent can read.
+    """
+    basic = base64.b64encode(f"x-access-token:{gh_token}".encode()).decode()
+    env = dict(os.environ)
+    env.update({
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"Authorization: Basic {basic}",
+    })
+    return env
 
 
 def _clone(gh_token: str, dest: Path) -> Path:
     repo_dir = dest / REPO_NAME
-    auth_url = f"https://x-access-token:{gh_token}@github.com/{REPO_OWNER}/{REPO_NAME}.git"
     subprocess.run(
-        ["git", "clone", "--depth=1", f"--branch={BASE_BRANCH}", auth_url, str(repo_dir)],
-        check=True, capture_output=True, text=True,
+        ["git", "clone", "--depth=1", f"--branch={BASE_BRANCH}", _repo_url(), str(repo_dir)],
+        check=True, capture_output=True, text=True, env=_git_auth_env(gh_token),
     )
     return repo_dir
 
@@ -292,8 +315,10 @@ def _push_and_pr(repo_dir: Path, branch: str, gh_token: str, issue: dict, verify
     _git(["checkout", "-b", branch], repo_dir)
     _git(["add", "-A"], repo_dir)
     _git(["commit", "-m", f"fix({issue.get('issue_id')}): {issue.get('title')[:60]}"], repo_dir)
-    auth_url = f"https://x-access-token:{gh_token}@github.com/{REPO_OWNER}/{REPO_NAME}.git"
-    _git(["push", auth_url, branch], repo_dir)
+    # Push to the canonical URL rather than the clone's `origin`, with repository hooks
+    # disabled, so only git itself handles the credential.
+    _git(["-c", "core.hooksPath=/dev/null", "push", "--no-verify", _repo_url(), branch],
+         repo_dir, env=_git_auth_env(gh_token))
     body = {
         "title": f"fix({issue.get('issue_id')}): {issue.get('title')[:70]}",
         "head": branch,

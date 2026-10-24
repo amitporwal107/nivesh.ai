@@ -543,7 +543,10 @@ def test_no_card_means_nothing_is_added(chat_db):
 def test_the_engine_gets_the_question_with_the_facts_while_the_thread_keeps_the_question_as_asked(stream, chat_db):
     frames, saved = stream(position=POSITION)
     engine_text = ENGINE_INPUTS[-1]["messages"][-1].content
-    assert engine_text.startswith("Show the FIXCO chart\n\nBroker position this question was asked from")
+    # The facts are read from the broker, so they reach the engine delimited as data.
+    assert engine_text.startswith(
+        'Show the FIXCO chart\n\n<external_data source="broker_position">Broker position this question was asked from')
+    assert engine_text.endswith("</external_data>") and engine_text.count("</external_data>") == 1
     assert "average premium of ₹35.88" in engine_text and "last traded ₹21.85" in engine_text
     stored = [m["content"] for m in chat_db.chat_messages.docs if m.get("role") == "user"]
     assert stored == ["Show the FIXCO chart"]
@@ -580,3 +583,15 @@ def test_the_facts_never_name_the_broker_so_the_engine_still_finds_the_underlyin
     assert "ICICI" not in text and "Direct" not in text
     assert resolve_symbol(f"{question}\n\n{text}").symbol == "COLPAL"
     assert resolve_symbol(f"{question}\n\n{text}\nread from ICICI Direct").symbol != "COLPAL"   # the trap is real
+
+
+@pytest.mark.parametrize("symbol", ["COLPAL", "FIXCO", "NIFTY", "BANKNIFTY"])
+def test_delimiting_the_facts_does_not_change_the_symbol_the_engine_finds(chat_db, symbol):
+    from services.copilot_tools.symbol_resolver import resolve_symbol
+    from services.llm_safety import wrap_external_data
+    text = context({**POSITION, "symbol": symbol})
+    assert symbol in text
+    question = "Show the chart with support and resistance."
+    plain = resolve_symbol(f"{question}\n\n{text}").symbol
+    wrapped = resolve_symbol(f"{question}\n\n{wrap_external_data(text, source='broker_position')}").symbol
+    assert wrapped == plain

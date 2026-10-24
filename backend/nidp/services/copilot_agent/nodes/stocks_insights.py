@@ -20,6 +20,8 @@ import re
 
 from langchain_core.messages import AIMessage
 
+from services.llm_safety import wrap_external_data
+
 from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
@@ -197,7 +199,8 @@ async def stocks_insights_node(state: CopilotState) -> dict:
         # call above already follows.
         try:
             tool_context = "TOOL_DATA:\n" + (
-                result.as_llm_context() if result else "recent_filings: UNAVAILABLE")
+                wrap_external_data(result.as_llm_context(), source="stocks_insights")
+                if result else "recent_filings: UNAVAILABLE")
             llm = make_chat_llm(temperature_for(0.1))
             resp = await llm.ainvoke([
                 {"role": "system", "content": frame_for_persona(state.persona, state.desk_persona) + "\n\n" + _SYSTEM + "\n\n" + tool_context},

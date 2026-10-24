@@ -11,7 +11,7 @@ from typing import Optional
 
 from datetime import datetime, timezone
 
-from deps import db, get_current_user
+from deps import _is_role, db, get_current_user
 from services import copilot_agents
 
 router = APIRouter(prefix="/api/copilot", tags=["copilot-agents"])
@@ -75,9 +75,14 @@ async def agent_oneshot(request: Request, payload: AgentOneShotRequest):
     that path stays on /api/chat/stream.
 
     Returns: {"text": "<assistant prose>"}.
+
+    `system_prompt` replaces the agent's own prompt, so only an admin may send
+    it; anyone else gets 403 `system_prompt_not_allowed`. No client sends it today.
     """
     user = await get_current_user(request)
     user_id = user["user_id"]
+    if payload.system_prompt and not _is_role(user, "admin"):
+        raise HTTPException(status_code=403, detail="system_prompt_not_allowed")
     spec = copilot_agents.get_agent(payload.agent_id)
     if not spec:
         raise HTTPException(status_code=400, detail=f"Unknown agent_id: {payload.agent_id}")
