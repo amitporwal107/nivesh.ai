@@ -53,6 +53,7 @@ from services import desk_strategy_trades as strat
 from services import desk_trading as svc
 from services import paper_account as acct
 from services import risk_controls as rc
+from services import risk_gate
 
 logger = logging.getLogger(__name__)
 
@@ -94,16 +95,19 @@ def _as_of(bars: Dict[str, List[Dict[str, Any]]]):
 async def create_paper_trade(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     uid = user["user_id"]
-    # The kill switch is checked BEFORE the body is parsed or anything is written: this path had no
-    # risk gate of any kind (docs/RISK_CONTROL_INVENTORY.md) and is the one a user actually clicks,
-    # including the Top-5 board's "Paper trade" button. Open positions are untouched.
-    try:
-        await rc.assert_allowed(db, uid, "desk_paper_trade")
-    except rc.RiskBlocked as blocked:
-        await rc.record_decision(db, uid, action="desk_paper_trade", outcome="blocked",
-                                 reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
-                                 detail=blocked.detail("desk_paper_trade"))
-        raise HTTPException(status_code=409, detail=blocked.detail("desk_paper_trade"))
+    gated = await risk_gate.enabled_for(db, user)
+    # Without the F&O risk gate, the kill switch is checked BEFORE the body is parsed or anything is
+    # written: this path had no risk gate of any kind (docs/RISK_CONTROL_INVENTORY.md) and is the one a
+    # user actually clicks, including the Top-5 board's "Paper trade" button. With the gate, the same
+    # controls are its first check, after the body is parsed. Open positions are untouched either way.
+    if not gated:
+        try:
+            await rc.assert_allowed(db, uid, "desk_paper_trade")
+        except rc.RiskBlocked as blocked:
+            await rc.record_decision(db, uid, action="desk_paper_trade", outcome="blocked",
+                                     reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
+                                     detail=blocked.detail("desk_paper_trade"))
+            raise HTTPException(status_code=409, detail=blocked.detail("desk_paper_trade"))
     body = await _body(request)
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
@@ -116,6 +120,17 @@ async def create_paper_trade(request: Request) -> Dict[str, Any]:
             doc = svc.new_trade(uid, body)
     except svc.DeskInputError as exc:
         raise _input_error(exc)
+    if gated:
+        # 409 risk_blocked / 503 risk_decision_unrecorded, before the account is charged or anything is written.
+        cid = risk_gate.correlation_id(request)
+        if doc.get("kind") == strat.KIND:
+            req = risk_gate.structure_request(user, cid, path="desk_paper_trade", mode="paper", action="open",
+                                              underlying=doc["underlying"], legs=doc["legs"])
+        else:
+            req = risk_gate.cash_request(user, cid, path="desk_paper_trade", mode="paper", action="open",
+                                         symbol=doc["symbol"], quantity=doc["quantity"],
+                                         capital_at_risk_rs=doc["quantity"] * doc["entry_price"])
+        risk_gate.stamp(doc, await risk_gate.enforce(db, req))
     # The account is charged BEFORE the trade is written: a position the account cannot fund must not
     # exist even briefly. A cash trade reserves quantity x entry price; a multi-leg structure reserves
     # its capital at risk (desk_strategy_trades.exposure_rs) — not exchange margin, which this system

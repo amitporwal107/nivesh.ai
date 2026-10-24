@@ -45,6 +45,19 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "default_allowlist": ["aporwal107@gmail.com"],
         "allowed_modes": ["off", "allowlist"],
     },
+    "fno_risk_gate": {
+        "display_name": "F&O risk gate (pre-trade checks)",
+        "description": (
+            "Runs the shared pre-trade risk gate (services/risk_gate, policy fno-risk-v1) before the desk paper trade, "
+            "the journal entry and entry fill, and the AI-trader signals and confirm write anything: kill switch and "
+            "halt, mode, defined risk, the exchange lot and listed expiry, per-trade capital at risk and the open-"
+            "structure cap. Every decision is recorded in risk_decisions and a block answers 409 risk_blocked. Off = "
+            "the kill-switch check only, as before."
+        ),
+        "default_mode": "off",
+        "default_allowlist": [],
+        "allowed_modes": ["off", "allowlist", "everyone"],
+    },
     "ai_copilot": {
         "display_name": "AI Copilot (Scenario Engine)",
         "description": "Simulate scenarios, rebalance plans, custom builder, saved/pending plans",

@@ -49,6 +49,13 @@ def instruments_today(calc: Calculator, today: Optional[date] = None) -> List[di
     return _INSTRUMENTS["rows"]
 
 
+def cached_instruments(today: Optional[date] = None) -> Optional[List[dict]]:
+    """Today's NFO instrument list if this worker has already loaded it, else None. Never calls Kite (the risk gate
+    reads lot sizes and expiries from it when it is there)."""
+    day = (today or date.today()).isoformat()
+    return _INSTRUMENTS["rows"] if _INSTRUMENTS["day"] == day else None
+
+
 def map_legs(rows: Sequence[dict], legs: Sequence[Dict[str, Any]], underlying: str) -> Tuple[List[dict], List[str]]:
     """(Kite order params, names of legs with no listed contract). Quantity = lots x the contract's lot size."""
     by: Dict[Tuple[str, str, float, str], dict] = {}

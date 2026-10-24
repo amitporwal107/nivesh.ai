@@ -64,7 +64,7 @@ import re
 from datetime import date, timedelta
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo.errors import DuplicateKeyError
 
@@ -72,6 +72,7 @@ from deps import db, get_current_user
 from services import desk_trading as desk
 from services import desk_strategy_trades as desk_strategy
 from services import risk_controls as rc
+from services import risk_gate
 from services import paper_account as pacct
 from services import risk_equity as req
 from services import pg_client
@@ -601,7 +602,7 @@ class SignalsBody(BaseModel):
 
 
 @router.post("/strategies/{strategy_id}/signals")
-async def strategy_signals(strategy_id: str, body: SignalsBody,
+async def strategy_signals(strategy_id: str, body: SignalsBody, request: Request,
                            user: dict = Depends(get_current_user)) -> Dict[str, Any]:
     """Turn one session's screened candidates into tickets (PRD F4.1 to F4.4, F5.1).
 
@@ -645,6 +646,22 @@ async def strategy_signals(strategy_id: str, body: SignalsBody,
     except execution.ExecutionError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
+    # The F&O risk gate, when on for this user, judges every new intent that could open a position BEFORE
+    # anything is written (the book read below can write the equity high-water mark): one block refuses the
+    # whole run with 409, so a run never stops half-written. It is in addition to the governor, which still
+    # sizes and judges each intent below; the gate sees the size asked for, never less than the governor's.
+    risk_ids: Dict[str, Dict[str, str]] = {}
+    if await risk_gate.enabled_for(db, user):
+        cid = risk_gate.correlation_id(request)
+        for intent in intents:
+            if intent.symbol in seen or intent.symbol in risk_ids or intent.quantity < 1:
+                continue
+            decision = await risk_gate.enforce(db, risk_gate.cash_request(
+                user, cid, path="ai_trader_signal", mode=body.mode, action="open", symbol=intent.symbol,
+                quantity=intent.quantity, capital_at_risk_rs=intent.quantity * intent.entry_price))
+            risk_ids[intent.symbol] = {"correlation_id": decision.correlation_id,
+                                       "risk_decision_id": decision.decision_id}
+
     market = await asyncio.to_thread(_market, signal_date)
     portfolio = await _portfolio(uid, float(config["initial_capital"]))
     made: List[Dict[str, Any]] = []
@@ -664,6 +681,7 @@ async def strategy_signals(strategy_id: str, body: SignalsBody,
             limits_version=decision.limits_version, correlation_id=strategy_id,
             detail={"as_of": signal_date, "mode": body.mode})
         ticket = execution.new_ticket(uid, doc, intent, decision, as_of=signal_date, mode=body.mode)
+        ticket.update(risk_ids.get(intent.symbol, {}))
         try:
             # The ticket is written before any trade, so a request that lost the race opens nothing.
             await db[execution.TICKETS].insert_one(ticket)
@@ -672,7 +690,7 @@ async def strategy_signals(strategy_id: str, body: SignalsBody,
             continue
         if ticket["governor_cleared"] and body.mode == "paper":
             try:
-                trade = await _open_paper_trade(uid, ticket, doc)
+                trade = await _open_paper_trade(uid, ticket, doc, risk_ids.get(intent.symbol))
             except desk.DeskInputError as exc:
                 # The desk refused the order, so this ticket is finished: recorded with the reason instead of left in
                 # the transient "confirmed" state, and the loop goes on so the reply names every ticket written.
@@ -707,16 +725,19 @@ async def strategy_signals(strategy_id: str, body: SignalsBody,
     }
 
 
-async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict[str, Any]) -> Dict[str, Any]:
+async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict[str, Any],
+                            risk: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """The paper trade a cleared ticket opens, through the desk's own validator so the document is a real desk trade
     (PRD F4.2). In assisted mode this is the shadow of the order the user places at their broker.
 
     A `desk.DeskInputError` is left to the caller: it is one ticket the desk will not take, and only the caller knows
-    whether a ticket it had already claimed has to be released first."""
+    whether a ticket it had already claimed has to be released first. `risk` carries the F&O risk gate's
+    correlation_id and risk_decision_id when the gate judged this trade."""
     rationale = (f"AI Trader {ticket['mode']} signal from {strategy_doc.get('name') or 'a strategy'} "
                  f"({strategy_doc.get('version')}) on {ticket['signal_date']}; risk governor "
                  f"{(ticket.get('decision') or {}).get('action')}.")
     trade = desk.new_trade(uid, execution.trade_body(ticket, rationale=rationale[:desk.NOTE_MAX]))
+    trade.update(risk or {})
     # This path inserts into desk.TRADES directly rather than through POST /api/desk/paper-trades, so
     # it has to charge the paper account itself. Without this the AI trader could open positions the
     # account never funded while the desk route was constrained — the same "governed on one path only"
@@ -774,7 +795,7 @@ async def _expire_if_due(ticket: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.post("/tickets/{ticket_id}/confirm")
-async def confirm_ticket(ticket_id: str, user: dict = Depends(get_current_user)) -> Dict[str, Any]:
+async def confirm_ticket(ticket_id: str, request: Request, user: dict = Depends(get_current_user)) -> Dict[str, Any]:
     """Confirm an assisted ticket (PRD F5.2). The governor is re-run against the book as it stands now, not as it was
     when the ticket was made; only then is a paper-shadow trade recorded and the copy-ready order returned. Nothing
     is sent to a broker, whatever the answer."""
@@ -821,18 +842,27 @@ async def confirm_ticket(ticket_id: str, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=409, detail={"code": "risk_refused", "decision": decision.to_dict(),
                                                     "reason_codes": [r.code for r in decision.reasons]})
 
+    # The F&O risk gate, when on, judges the size the governor now approves; a block leaves the ticket waiting.
+    risk: Optional[Dict[str, str]] = None
+    if await risk_gate.enabled_for(db, user):
+        verdict = await risk_gate.enforce(db, risk_gate.cash_request(
+            user, risk_gate.correlation_id(request), path="ai_trader_confirm", mode=ticket.get("mode") or "assisted",
+            action="open", symbol=ticket["symbol"], quantity=decision.approved_qty,
+            capital_at_risk_rs=decision.approved_qty * float(ticket["entry_price"])))
+        risk = {"correlation_id": verdict.correlation_id, "risk_decision_id": verdict.decision_id}
+
     # Claim the ticket before anything is recorded, with the status in the filter: two confirms racing leave one
     # shadow trade, not two.
     claim = {"status": "confirmed", "quantity": decision.approved_qty, "decision": decision.to_dict(),
              "reason_codes": [r.code for r in decision.reasons], "last_decision": decision.to_dict(),
-             "last_decision_at": stamp, "updated_at": stamp}
+             "last_decision_at": stamp, "updated_at": stamp, **(risk or {})}
     res = await db[execution.TICKETS].update_one(
         {"_id": ticket_id, "user_id": uid, "status": "awaiting_confirmation"}, {"$set": claim})
     if not res.matched_count:
         raise HTTPException(status_code=409, detail="ticket_not_awaiting_confirmation")
     confirmed = {**ticket, **claim}
     try:
-        trade = await _open_paper_trade(uid, confirmed, doc)
+        trade = await _open_paper_trade(uid, confirmed, doc, risk)
     except Exception as exc:  # noqa: BLE001 — the claim is released whatever went wrong, then the error stands
         # "confirmed" is a transient status no route can answer, so a failed write must not leave the ticket in it:
         # put it back to awaiting_confirmation with the size the governor approved on the signal date, where it can

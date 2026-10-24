@@ -81,11 +81,10 @@ from routes.positional import router as positional_router  # Positional Trading 
 from routes.positional_journal import router as positional_journal_router  # Trade Journal (staged-entry tracker)
 from routes.strategy_builder import router as strategy_builder_router  # Strategy Builder (multi-asset DSL + backtest)
 from routes.feeds import router as feeds_router  # Generic feed-subscription RAG (S4/S5 corpus + structured)
-from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: read-only broker holdings via OpenAlgo
+from routes.broker_connect import router as broker_connect_router  # Secure Portfolio Connect: account list, sync, live reads, disconnect
 from routes.broker_native import router as broker_native_router  # Native broker connect (no OpenAlgo) — direct broker OAuth + SDK adapters
 from routes.broker_native import short_router as broker_callback_short_router  # /api/b/<broker>: short broker callback address
 from routes.work import router as work_router                    # Work issues dashboard (/api/work/) — error triage + diagnostics
-from routes.openalgo_proxy import router as openalgo_proxy_router  # Public reverse-proxy for the Nivesh-hosted OpenAlgo dashboard
 from routes.market_events import router as market_events_router  # Market Event Intelligence — corporate events, AI signals, breakout feed
 from routes.movers import router as movers_router  # Top Movers dashboard — movers, event lanes, return attribution
 from routes.markets import router as markets_router              # Markets home dashboard aggregator (/api/markets/home)
@@ -131,7 +130,7 @@ from routes.markets_smart_money import router as markets_smart_money_router  # T
 from routes.markets_ownership import router as markets_ownership_router  # Trading desk: /api/markets/ownership/* (retrospective)
 from routes.markets_evidence import router as markets_evidence_router  # Trading desk: /api/markets/evidence/* (frozen research study)
 from routes.portfolio_desk import router as portfolio_desk_router  # Trading desk: /api/portfolio/correlation, /api/portfolio/market-cap-split
-from routes.risk_controls import router as risk_controls_router  # Kill switch / trading halt (/api/risk/*)
+from routes.risk_controls import router as risk_controls_router, admin_router as risk_admin_router  # Kill switch / halt / F&O risk policy (/api/risk/*, /api/admin/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
@@ -230,10 +229,9 @@ app.include_router(positional_router)              # Positional Trading Engine
 app.include_router(positional_journal_router)      # Trade Journal (staged-entry tracker)
 app.include_router(strategy_builder_router)        # Strategy Builder (Phase 1: stock DSL + backtest)
 app.include_router(feeds_router)                   # Feed catalog + subscriptions + content RAG search
-app.include_router(broker_connect_router)          # Secure Portfolio Connect — broker holdings via OpenAlgo
+app.include_router(broker_connect_router)          # Secure Portfolio Connect — account list, sync, live reads, disconnect
 app.include_router(broker_native_router)           # Native broker connect (no OpenAlgo) — preferred path for SPC retail
 app.include_router(broker_callback_short_router)   # /api/b/<broker> — the same callback at a short address (ICICI Direct's form caps the URL length)
-app.include_router(openalgo_proxy_router)          # /api/openalgo/* → http://127.0.0.1:5000/api/openalgo/* (reverse proxy)
 app.include_router(market_events_router)           # Market Event Intelligence feed (/api/market/events, /signals)
 app.include_router(movers_router)                   # Top Movers dashboard (/api/movers, /{symbol}, /{symbol}/analysis)
 app.include_router(markets_router)                 # Markets home dashboard aggregator (/api/markets/home)
@@ -285,7 +283,8 @@ app.include_router(markets_smart_money_router)  # /api/markets/smart-money/* —
 app.include_router(markets_ownership_router)  # /api/markets/ownership/* — retrospective ownership change vs that quarter's tape
 app.include_router(markets_evidence_router)  # /api/markets/evidence/* — frozen post-disclosure forward-returns study (INCONCLUSIVE)
 app.include_router(portfolio_desk_router)    # /api/portfolio/correlation, /api/portfolio/market-cap-split
-app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit
+app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /halt, /audit, /decisions, /policy
+app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-switch, /halt, /live-authorization (admin only)
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(desk_chartink_router)     # /api/desk/chartink/*
