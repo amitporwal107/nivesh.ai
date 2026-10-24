@@ -151,7 +151,7 @@ export function Widget({ id, testId, headTestId, num, title, meta, actions, head
           className="flex items-center"
           style={{ gap: 8, minWidth: 0, padding: 0, border: 0, background: "transparent", color: "inherit", cursor: "pointer", textAlign: "left", font: "inherit" }}
         >
-          <svg aria-hidden width="10" height="10" viewBox="0 0 10 10" style={{ flex: "none", color: "var(--cp-ink-3)", transition: "transform .15s", transform: s.collapsed ? "rotate(-90deg)" : "none" }}>
+          <svg aria-hidden width="14" height="14" viewBox="0 0 10 10" style={{ flex: "none", color: "var(--mint)", transition: "transform .15s", transform: s.collapsed ? "rotate(-90deg)" : "none" }}>
             <path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           <span data-testid={headTestId} className="cp-eyebrow" style={{ minWidth: 0 }}>
@@ -183,9 +183,9 @@ export function Widget({ id, testId, headTestId, num, title, meta, actions, head
           onPointerCancel={onUp}
           onDoubleClick={reset}
           onKeyDown={onKey}
-          style={{ position: "absolute", right: 0, bottom: 0, width: 18, height: 18, cursor: "nwse-resize", touchAction: "none", zIndex: 2, color: "var(--cp-ink-4)", display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: 3 }}
+          style={{ position: "absolute", right: 0, bottom: 0, width: 18, height: 18, cursor: "nwse-resize", touchAction: "none", zIndex: 2, color: "var(--cp-ink-3)", display: "flex", alignItems: "flex-end", justifyContent: "flex-end", padding: 3 }}
         >
-          <svg aria-hidden width="9" height="9" viewBox="0 0 9 9"><path d="M8 1 1 8M8 5 5 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
+          <svg aria-hidden width="12" height="12" viewBox="0 0 9 9"><path d="M8 1 1 8M8 5 5 8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
         </div>
       )}
     </section>
