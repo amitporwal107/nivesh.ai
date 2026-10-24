@@ -53,3 +53,9 @@
 ## DONE-GATE
 TC-1…TC-27 pass locally (real tsc and Playwright output in the report). Staging render is blocked on the backend PR
 being merged and deployed plus a user session; that is recorded in `test_reports/OVERRIDE_risk_control_center.md`.
+
+## Results (local, mocked APIs; see OVERRIDE_risk_control_center.md for the run lines)
+TC-1…TC-12, TC-14…TC-25: PASS in copilot-app-desk-risk-controls.spec.ts (RC-1…RC-15, 17 tests). TC-13: PASS in
+copilot-app-desk-scanner.spec.ts ("TC-23 a 409 risk_blocked names what blocked it…"). TC-26: tsc exit 0. TC-27: 326
+passed, 16 skipped, 0 failed across the affected desk specs; baseline on untouched origin/dev 255 passed, 0 failed.
+Staging: not run (backend PR not deployed, no session) — recorded as an override.
