@@ -245,6 +245,9 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
   });
 
   test("TC-F3: the disclosure date is shown, not the compute date", async ({ page }) => {
+    // The age is counted from the browser's today, so pin it to the day these figures were recorded
+    // (2026-10-22): 2026-09-01 is then exactly 51 days old, whatever day the suite runs.
+    await page.clock.setFixedTime(new Date("2026-10-22T12:00:00+05:30"));
     await page.goto(SM);
     await expect(screen(page)).toBeVisible(SLOW);
     // 2026-09-01 is the disclosure; 2026-10-21 is when the score was computed.

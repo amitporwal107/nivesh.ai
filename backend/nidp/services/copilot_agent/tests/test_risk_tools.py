@@ -121,7 +121,16 @@ def _holding(
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # A private loop per call. asyncio.get_event_loop() raises "There is no
+    # current event loop" once an earlier test file has run asyncio.run(),
+    # which leaves the current loop unset. asyncio.run() here would unset it
+    # for the files that run after this one, so neither is used: this loop is
+    # never installed as the current loop, and it is closed after each call.
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 @pytest.fixture(autouse=True)
