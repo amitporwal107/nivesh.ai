@@ -1627,7 +1627,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       costs: null, margin: { estimate: null, source: null }, margin_reason: "Margin is not computed", capital_at_risk: -Math.min(...gross), capital_at_risk_basis: "worst net loss over all prices",
     };
   }
-  async function openBuilder(page: Page, opts: { fail?: boolean; margin?: { status: number; body: unknown } } = {}) {
+  async function openBuilder(page: Page, opts: { fail?: boolean; margin?: { status: number; body: unknown }; levels?: { status: number; body: unknown } } = {}) {
     const bodies: Req[] = [];
     await fnoData(page);
     await page.route("**/api/desk/strategy/payoff", (route) => {
@@ -1636,6 +1636,13 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       return opts.fail ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) })
         : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payoffFor(body)) });
     });
+    const levelBodies: Array<{ payoff: Req; refs: Record<string, number | null> }> = [];
+    await page.route("**/api/desk/strategy/levels", (route) => {
+      levelBodies.push(JSON.parse(route.request().postData() ?? "{}"));
+      const l = opts.levels ?? { status: 200, body: LEVELS_OK };
+      return route.fulfill({ status: l.status, contentType: "application/json", body: JSON.stringify(l.body) });
+    });
+    (page as Page & { levelBodies?: typeof levelBodies }).levelBodies = levelBodies;
     const marginBodies: unknown[] = [];
     await page.route("**/api/fno/margin", (route) => {
       marginBodies.push(JSON.parse(route.request().postData() ?? "{}"));
@@ -1651,6 +1658,58 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
   // MOCK — not real data: the shape POST /api/fno/margin sends (backend/routes/fno.py, services/fno_margin).
   const MARGIN_OK = { required_margin: 77519.3125, initial_margin: 78908.0625, charges: { per_order: [], total: { brokerage: 40, stt: 5.5, exchange: 5.65, sebi: 0.01, stamp_duty: 0, gst: 8.24, total: 59.4 } },
     as_of: "2026-10-24", source: "Zerodha margin calculator (Kite Connect): exchange SPAN + exposure margin and order charges", note: "A calculation for the platform account's rules, not an exchange-published figure and not a quote. Nothing is placed.", sent_to_broker: false };
+
+  // MOCK — not real data: the shape POST /api/desk/strategy/levels sends (backend/services/strategy_levels.py).
+  const LEVELS_OK = { valid: true, version: "strategy-levels-v1", sent_to_broker: false, unit: { shares: 65 }, days_to_expiry: 4,
+    premium: { kind: "debit", entry: 3.0, planned_stop: 2.1, planned_stop_loss_per_unit: 0.9, target_1: 3.9, target_2: 4.8, risk_boundary: { value: 0.0, meaning: "the structure's value at its worst: the whole debit is lost" } },
+    underlying: { view: "bearish", entry: 25010, stop: 25300, target: 24700, value_at_stop: 1.2, value_at_target: 5.4 },
+    greeks: { net_delta_per_share: -0.31, theta_per_day_per_share: -0.8, vega_per_point_per_share: 1.9, gamma: 0.002, review_when: "net delta rises above -0.093 (30% of the entry delta -0.31)" },
+    scenarios: [{ name: "Bullish", underlying_move_pct: 2, underlying: 25510.2, iv_change_points: -3, date: "2026-10-25", pnl_per_unit: -2.1, pnl_total: -136.5 }, { name: "Bearish", underlying_move_pct: -2, underlying: 24509.8, iv_change_points: 4, date: "2026-10-25", pnl_per_unit: 2.9, pnl_total: 188.5 }],
+    iv_note: "IV rank and percentile need an IV history we do not store; they are not shown.", max_profit_per_unit: 7.0, max_loss_per_unit: 3.0, risk_reward: 2.33,
+    flags: [{ code: "expiry_week", message: "4 days to expiry: gamma can change quickly, so the levels can be overtaken fast." }].map((f) => f),
+    caveats: ["Rule-based, hypothetical levels from fixed research settings. They are not predictions or advice, and no accuracy or hit rate is claimed: tests of these signals found no skill beyond chance.", "A stop is a theoretical level, not an executable price: a stop order can fill worse in a sharp move or a liquidity gap."] };
+
+  test("TC-9 the levels card: entry, planned stop, risk boundary, targets, underlying levels, Greek rule, scenarios and the caveats; nothing claims accuracy", async ({ page }) => {
+    await openBuilder(page);
+    const c = page.getByTestId("desk-levels");
+    await expect(c).toContainText("Rule-based · hypothetical");
+    await expect(page.getByTestId("desk-levels-entry")).toHaveText("3.00");
+    await expect(page.getByTestId("desk-levels-stop")).toHaveText("2.10");
+    await expect(page.getByTestId("desk-levels-boundary")).toHaveText("0.00");
+    await expect(page.getByTestId("desk-levels-t1")).toHaveText("3.90");
+    await expect(page.getByTestId("desk-levels-t2")).toHaveText("4.80");
+    await expect(page.getByTestId("desk-levels-rr")).toHaveText("7.00 / 3.00");
+    await expect(page.getByTestId("desk-levels-underlying")).toContainText("stop 25,300.00 · target 24,700.00");
+    await expect(page.getByTestId("desk-levels-greeks")).toContainText("net delta −0.31");
+    await expect(page.getByTestId("desk-levels-greeks")).toContainText("Review the trade when net delta rises above");
+    await expect(page.getByTestId("desk-levels-flag")).toContainText("gamma can change quickly");
+    await expect(page.getByTestId("desk-levels-scenario")).toHaveCount(2);
+    await expect(page.getByTestId("desk-levels-scenarios")).toContainText("No probabilities are attached");
+    await expect(page.getByTestId("desk-levels-caveats")).toContainText("not an executable price");
+    const text = await c.innerText();
+    expect(text).not.toMatch(/\b9\d%|accuracy of|best trade|guaranteed|sure shot/i);
+  });
+
+  test("TC-9 the request carries the structure and the chain's walls and expected move", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("desk-levels")).toBeVisible();
+    const sent = ((page as Page & { levelBodies?: Array<{ payoff: Req; refs: Record<string, number | null> }> }).levelBodies ?? [])[0];
+    expect(sent.payoff.legs.length).toBe(2);
+    expect(sent.refs.expected_move).not.toBeUndefined();
+    expect(Object.keys(sent.refs).sort()).toEqual(["call_wall", "expected_move", "put_wall"]);
+  });
+
+  test("TC-9 a structure the engine rejects shows no levels; a failed read shows the notice and leaves the payoff", async ({ page }) => {
+    await openBuilder(page, { levels: { status: 200, body: { valid: false, problems: [{ code: "undefined_risk_not_supported", message: "This structure has a net short call: its loss is unlimited." }], caveats: [], version: "x", sent_to_broker: false } } });
+    await expect(page.getByTestId("desk-levels-invalid")).toContainText("net short call");
+    await expect(page.getByTestId("desk-levels-entry")).toHaveCount(0);
+  });
+
+  test("TC-9 a levels failure leaves everything else", async ({ page }) => {
+    await openBuilder(page, { levels: { status: 500, body: { detail: "boom" } } });
+    await expect(page.getByTestId("desk-levels-error")).toBeVisible();
+    await expect(page.getByTestId("strategy-graphs")).toBeVisible();
+  });
 
   test("TC-6 funds and margin needed come from the margin calculator, with its charges and a source line; the request carries the table's legs", async ({ page }) => {
     await openBuilder(page);

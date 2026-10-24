@@ -26,6 +26,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from deps import db, get_current_user
+from services import strategy_levels
 from services.strategy_plan import PLAN_SCHEMA, build_plan, compute_payoff, explain_plan_context, normalise_inputs
 from services.strategy_plan import ideas as ideas_mod
 from services.strategy_plan import regime_fit
@@ -62,6 +63,18 @@ async def _body(request: Request) -> Any:
 async def strategy_payoff(request: Request) -> Dict[str, Any]:
     await get_current_user(request)
     return compute_payoff(await _body(request), date.today())
+
+
+@router.post("/levels")
+async def strategy_levels_route(request: Request) -> Dict[str, Any]:
+    """Rule-based, hypothetical entry / stop / target levels for an options structure (services/strategy_levels), worked out from the payoff engine's own numbers. Pure calculation: no write, nothing
+    sent to a broker. Body: {"payoff": <the payoff request>, "refs": {"put_wall", "call_wall", "expected_move"}}."""
+    await get_current_user(request)
+    body = await _body(request)
+    if not isinstance(body, dict) or not isinstance(body.get("payoff"), dict):
+        raise HTTPException(status_code=422, detail="payoff_required")
+    refs = body.get("refs") if isinstance(body.get("refs"), dict) else {}
+    return strategy_levels.compute(body["payoff"], refs, date.today())
 
 
 @router.post("/plan")

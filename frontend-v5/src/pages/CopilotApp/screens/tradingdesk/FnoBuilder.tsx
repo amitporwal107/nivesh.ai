@@ -23,6 +23,8 @@ import { buildupRowFor, indexRowFor, useBuildup, type BuildupLabel } from "./fno
 import { isIndexUnderlying } from "../trading/fno";
 import { DEFAULT_SCENARIO, buildScenarioRequest, type ScenarioInputs } from "./strategy/ScenarioControls";
 import { StrategyGraphs } from "./strategy/StrategyGraphs";
+import { LevelsCard, useLevels } from "./FnoLevels";
+import { wallsOf } from "./fno-parts";
 import type { PayoffLeg, PayoffRequest } from "./strategy/strategy-contract";
 import { usePayoff } from "./strategy/usePayoff";
 
@@ -43,8 +45,7 @@ export const TEMPLATES: Template[] = [
   { id: "sell_call", name: "Sell Call", view: "bearish", legs: [{ s: "sell", t: "call", k: 0 }], pts: "2,10 24,10 58,32" },
   { id: "bear_put_spread", name: "Bear Put Spread", view: "bearish", legs: [{ s: "buy", t: "put", k: 0 }, { s: "sell", t: "put", k: -2 }], pts: "2,8 20,8 38,28 58,28" },
   { id: "bear_call_spread", name: "Bear Call Spread", view: "bearish", legs: [{ s: "sell", t: "call", k: 0 }, { s: "buy", t: "call", k: 2 }], pts: "2,10 22,10 40,30 58,30" },
-  { id: "short_straddle", name: "Short Straddle", view: "neutral", legs: [{ s: "sell", t: "call", k: 0 }, { s: "sell", t: "put", k: 0 }], pts: "2,28 30,8 58,28" },
-  { id: "short_strangle", name: "Short Strangle", view: "neutral", legs: [{ s: "sell", t: "call", k: 2 }, { s: "sell", t: "put", k: -2 }], pts: "2,28 16,10 44,10 58,28" },
+  { id: "iron_butterfly", name: "Iron Butterfly", view: "neutral", legs: [{ s: "sell", t: "call", k: 0 }, { s: "sell", t: "put", k: 0 }, { s: "buy", t: "call", k: 2 }, { s: "buy", t: "put", k: -2 }], pts: "2,28 18,28 30,8 42,28 58,28" },
   { id: "iron_condor", name: "Iron Condor", view: "neutral", legs: [{ s: "sell", t: "put", k: -2 }, { s: "buy", t: "put", k: -4 }, { s: "sell", t: "call", k: 2 }, { s: "buy", t: "call", k: 4 }], pts: "2,28 12,28 22,10 38,10 48,28 58,28" },
   { id: "long_straddle", name: "Long Straddle", view: "others", legs: [{ s: "buy", t: "call", k: 0 }, { s: "buy", t: "put", k: 0 }], pts: "2,8 30,28 58,8" },
   { id: "long_strangle", name: "Long Strangle", view: "others", legs: [{ s: "buy", t: "call", k: 2 }, { s: "buy", t: "put", k: -2 }], pts: "2,8 16,26 44,26 58,8" },
@@ -191,6 +192,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   const changed = scn.underlyingPrice != null || scn.size != null || scn.evalDate != null || scn.ivShiftPct !== 0;
   const request = base ? (changed ? buildScenarioRequest(base, scn) : base) : null;
   const pay = usePayoff(request);
+  const levelsQ = useLevels(base, { put_wall: chain ? wallsOf(chain.summary).put?.strike ?? null : null, call_wall: chain ? wallsOf(chain.summary).call?.strike ?? null : null, expected_move: chain?.summary.expected_move ?? null });
   const marginQ = useMargin(symbol, chain?.summary.expiry ?? null, legs, !problem && !!chain);
 
   if (state.status === "loading") return <LoadingBlock label={`Loading the ${symbol} chain`} rows={4} />;
@@ -275,6 +277,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
               <span data-testid="desk-builder-net" className="cp-mono-note">{netLabel} {fmtLevel(Math.abs(response.expiry.net_premium))} for the position (end-of-day closes, before costs)</span>
             )}
             <MarginStrip state={marginQ} />
+            <LevelsCard q={levelsQ} />
             <StrategyGraphs
               base={base} response={response} errorText={pay.errorText} pending={pay.isPending} stale={pay.isStale} onRetry={pay.refetch}
               scenario={scn} onScenarioChange={setScn} dataDate={chain.summary.as_of} persona={persona} compact={mobile}
