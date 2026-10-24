@@ -1929,6 +1929,27 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     expect(writes.every((w) => /^POST .*\/api\/desk\/(paper-trades|alerts)$/.test(w))).toBe(true);
   });
 
+  test("TC-23 a 409 risk_blocked names what blocked it in plain words and points to Risk controls (the gate's reasons, then the older kill-switch shape)", async ({ page }) => {
+    await chartMocks(page);
+    // MOCK — not real data: the policy gate's refusal (backend PR feat/fno-risk-foundation), reasons invented.
+    const gate = { detail: { code: "risk_blocked", reasons: [{ code: "kill_switch", message: "The kill switch is on." }, { code: "max_open_structures", message: "You have 5 open structures; the limit is 5" }], decision_id: "d-fixture-1", correlation_id: "corr-fixture-1" } };
+    const posted = await mockDeskWrites(page, { paper: { status: 409, body: gate } });
+    await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
+    await expect(page.getByTestId("desk-risk-qty")).toHaveText("200");
+    await page.getByTestId("desk-risk-paper").click();
+    await expect(page.getByTestId("desk-risk-paper-error")).toHaveText(
+      "Not added — Blocked by your risk controls: The kill switch is on; You have 5 open structures; the limit is 5. See Desk › More › Risk controls. (risk_blocked)",
+    );
+    // The older refusal (services/risk_controls.py :: RiskBlocked.detail): its message and the reason the person gave.
+    const legacy = { detail: { code: "risk_blocked", action: "desk_paper_trade", message: "the kill switch is on; new positions are blocked", reason: "Too many losing trades today", set_by: "u_fixture", set_at: "2026-10-24T04:30:00+00:00", kill_switch: true, halted: false } };
+    await page.route("**/api/desk/paper-trades", (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify(legacy) }));
+    await page.getByTestId("desk-risk-paper").click();
+    await expect(page.getByTestId("desk-risk-paper-error")).toHaveText(
+      "Not added — Blocked by your risk controls: the kill switch is on; new positions are blocked (reason given: “Too many losing trades today”). See Desk › More › Risk controls. (risk_blocked)",
+    );
+    expect(posted).toHaveLength(1);
+  });
+
   test("TC-23 a setup with no entry disables both actions and says why", async ({ page }) => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=chart&sym=FIXTRD`);

@@ -11,10 +11,12 @@
  *   05 Portfolio & Risk       broker-read holdings, concentration, risk figures    tradingdesk/PortfolioTab
  *   06 More                   AI Copilot · Options & futures lab (tradingdesk/FnoTab) · Events calendar
  *                             (tradingdesk/EventsTab, also from Market Intelligence) · Watchlists ·
- *                             Saved analyses · Paper trading · Settings & integrations
+ *                             Saved analyses · Paper trading · Risk controls (tradingdesk/RiskControls) ·
+ *                             Settings & integrations
  *
  * The frame itself reads:
  *   GET /api/markets/home                   `market_state` and `is_live` for the market-status pill (useMarketOverview)
+ *   GET /api/risk/status                    the "Kill switch on" / "Trading halted" pill, shown only for a known "on" (useRiskStatus)
  *   GET /api/positional/watchlist + picks   the scanner list the header search matches a stock against (useDeskScanner)
  *
  * Every block reads an existing endpoint (named in each tab's header comment).
@@ -59,6 +61,7 @@ import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import { SymbolSearch } from "./tradingdesk/SymbolSearch";
 import { Widget } from "./tradingdesk/widget";
 import { istParts, marketStatus, useNow } from "./tradingdesk/overview-data";
+import { useRiskStatus } from "./tradingdesk/risk-controls";
 
 const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
   overview: lazy(() => import("./tradingdesk/OverviewTab")),
@@ -74,6 +77,7 @@ const TAB_SCREENS: Record<DeskTab, LazyExoticComponent<ComponentType>> = {
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
 const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
 const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
+const RiskControls = lazy(() => import("./tradingdesk/RiskControls"));
 
 /** Params only the Strategy Builder uses; they are dropped when the desk leaves it. */
 const BUILDER_PARAMS = ["view", "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date", "cand", "mode", "focus", "capital", "risk_inr", "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry"];
@@ -197,6 +201,31 @@ function StatusPill() {
   );
 }
 
+/**
+ * "Kill switch on" / "Trading halted" from GET /api/risk/status, opening More · Risk controls. Nothing shows while the
+ * state is off, loading, failed or unknown (a body without a boolean kill_switch): the panel itself says those.
+ */
+function RiskPill({ onOpen, phone }: { onOpen: () => void; phone?: boolean }) {
+  const s = useRiskStatus().data;
+  if (!s?.known || (!s.killSwitch && !s.halted)) return null;
+  const label = s.killSwitch ? "Kill switch on" : "Trading halted";
+  return (
+    <button
+      type="button"
+      data-testid="desk-risk-pill"
+      data-control={s.killSwitch ? "kill_switch" : "halted"}
+      onClick={onOpen}
+      className="cp-pill"
+      data-tone="danger"
+      title={`${label}: new paper positions are blocked. Open Risk controls.`}
+      style={{ flex: "none", cursor: "pointer", alignSelf: phone ? "flex-start" : undefined }}
+    >
+      <span className="nv-dot" style={{ background: "var(--cp-danger)" }} />
+      {label}
+    </button>
+  );
+}
+
 /** After the search selects a stock: say so, with the way to its chart. */
 function Picked({ symbol, onChart }: { symbol: string; onChart: () => void }) {
   return (
@@ -230,7 +259,7 @@ function TabChip({ id, label, num, on, onClick, small }: { id: string; label: st
 
 // ── More ─────────────────────────────────────────────────────────────────
 
-type MoreKey = "copilot" | "fno" | "events" | "strategy" | "chartink" | "watchlist" | "saved" | "paper" | "settings";
+type MoreKey = "copilot" | "fno" | "events" | "strategy" | "chartink" | "watchlist" | "saved" | "paper" | "risk" | "settings";
 
 /**
  * More's destinations (PRD §3.1), each a real view. PRD "Learning and
@@ -245,6 +274,7 @@ const MORE: Array<{ key: MoreKey; label: string; note: string }> = [
   { key: "watchlist", label: "Watchlists", note: "Your watchlists and price alerts" },
   { key: "saved", label: "Saved analyses", note: "Copilot threads, screens and questions you kept" },
   { key: "paper", label: "Paper trading", note: "Your paper trades: predicted against actual" },
+  { key: "risk", label: "Risk controls", note: "Kill switch, trading halt, policy limits and every risk decision on your paper trades" },
   { key: "settings", label: "Settings & integrations", note: "Broker connections (read-only) and statement imports" },
 ];
 
@@ -340,7 +370,8 @@ export default function TradingDeskScreen() {
   // The desk's Copilot full height in the page: More's AI Copilot wherever it is not docked.
   const strategyView = more && params.get("view") === "strategy";
   const chartinkView = more && params.get("view") === "chartink";
-  const pageCopilot = more && !docked && !strategyView && !chartinkView;
+  const riskView = more && params.get("view") === "risk";
+  const pageCopilot = more && !docked && !strategyView && !chartinkView && !riskView;
   const moreOn = more || tab === "fno" || tab === "events";
   const dockRef = useRef<CopilotDockHandle>(null);
   const pendingAsk = useRef<string | null>(null);
@@ -428,6 +459,7 @@ export default function TradingDeskScreen() {
     else if (k === "events") update({ tab: "events" });
     else if (k === "strategy") update({ tab: "more", view: "strategy" });
     else if (k === "chartink") update({ tab: "more", view: "chartink" });
+    else if (k === "risk") update({ tab: "more", view: "risk" });
     else if (k === "watchlist") go("page/watchlist");
     else if (k === "saved") go("page/saved");
     else if (k === "paper") openPaper();
@@ -461,7 +493,7 @@ export default function TradingDeskScreen() {
   const moreChips = moreOn && (
     <div data-testid="desk-more-chips" role="group" aria-label="More" className="cp-scroll flex overflow-x-auto" style={{ gap: 6, ...(mobile ? { ...bleed, paddingBottom: 12 } : {}) }}>
       {MORE.map((m) => (
-        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView && !chartinkView : m.key === "chartink" ? chartinkView : m.key === "fno" ? !more && tab === "fno" : m.key === "events" ? !more && tab === "events" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
+        <SubChip key={m.key} id={m.key} on={m.key === "copilot" ? more && !docked && !strategyView && !chartinkView && !riskView : m.key === "chartink" ? chartinkView : m.key === "risk" ? riskView : m.key === "fno" ? !more && tab === "fno" : m.key === "events" ? !more && tab === "events" : m.key === "strategy" ? strategyView : undefined} onClick={() => pickMore(m.key)}>
           {m.label}
         </SubChip>
       ))}
@@ -488,6 +520,14 @@ export default function TradingDeskScreen() {
       <div data-testid="desk-panel-chartink" role="tabpanel" aria-label="Chartink scans" className="flex min-w-0 flex-col">
         <SafeWidget key="chartink" name="Trading desk · chartink scans">
           <Suspense fallback={<LoadingBlock label="Loading Chartink scans" rows={4} />}><ChartinkSettings /></Suspense>
+        </SafeWidget>
+      </div>
+    );
+  } else if (riskView) {
+    content = (
+      <div data-testid="desk-panel-risk" role="tabpanel" aria-label="Risk controls" className="flex min-w-0 flex-col">
+        <SafeWidget key="risk" name="Trading desk · risk controls">
+          <Suspense fallback={<LoadingBlock label="Loading risk controls" rows={4} />}><RiskControls /></Suspense>
         </SafeWidget>
       </div>
     );
@@ -529,6 +569,7 @@ export default function TradingDeskScreen() {
   );
 
   const dataTab = more ? "more" : tab;
+  const openRisk = () => update({ tab: "more", view: "risk" });
 
   if (mobile) {
     const bottomKey: BottomKey = moreOn ? "more" : tab;
@@ -568,6 +609,7 @@ export default function TradingDeskScreen() {
                 {persona === "trader" ? "Trader" : "Investor"}
               </button>
             </div>
+            <RiskPill phone onOpen={openRisk} />
             {searchOpen && <SearchBox column onSubmit={onSearch} autoFocus persona={persona} setups={scan.data?.setups ?? []} />}
             {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           </header>
@@ -599,6 +641,7 @@ export default function TradingDeskScreen() {
           <span style={{ flex: "1 1 0", minWidth: 0 }} />
           <SearchBox onSubmit={onSearch} persona={persona} setups={scan.data?.setups ?? []} />
           <PersonaSwitch persona={persona} onPick={desk.setPersona} />
+          <RiskPill onOpen={openRisk} />
           <StatusPill />
         </div>
 
