@@ -23,6 +23,16 @@ from nidp.services.copilot_agent.nodes.intent_patterns import match_agent
 AS_OF = date(2026, 6, 30)
 
 
+# The coroutine tests below are marked `anyio`: anyio's pytest plugin ships with
+# anyio (pinned in requirements.txt), while pytest-asyncio is not installed, so
+# `@pytest.mark.asyncio` was ignored and those tests failed without running.
+# Pinned to asyncio because trio is also importable in the image, and the
+# plugin would otherwise run every coroutine test a second time on trio.
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
 # ── pure math ────────────────────────────────────────────────────────────────
 
 def test_lump_sum_doubling_two_years():
@@ -121,7 +131,7 @@ def test_parse_fragments_explicit_weights():
 
 # ── resolution + weighting ───────────────────────────────────────────────────
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_resolve_instruments_equal_weight():
     def fake_symbol(text):
         t = text.lower()
@@ -145,7 +155,7 @@ async def test_resolve_instruments_equal_weight():
     assert all(abs(i.weight - 0.5) < 1e-9 for i in insts)
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_resolve_instruments_explicit_weight_normalised():
     def fake_symbol(text):
         t = text.lower()
@@ -182,7 +192,7 @@ def _growing_bulk_rows(start: date, end: date, v0: float, annual: float):
     return out
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_engine_end_to_end_stock_and_fund():
     stk = _growing_bulk_rows(date(2023, 1, 2), AS_OF, 100.0, 1.25)
     nav = [{"nav_date": r["as_of_date"], "nav": r["tret_close"]}
@@ -241,7 +251,7 @@ async def test_engine_end_to_end_stock_and_fund():
     assert 10.0 <= bench["3"]["lump_sum"]["cagr_pct"] <= 20.0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_benchmark_unavailable_degrades():
     stk = _growing_bulk_rows(date(2023, 1, 2), AS_OF, 100.0, 1.20)
 
@@ -269,7 +279,7 @@ async def test_benchmark_unavailable_degrades():
     assert res.data["portfolio"]["1"]["status"] == "ok"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_engine_flags_insufficient_history():
     # series only since mid-2025 → 3y lookback (2023-06) is impossible
     young = _growing_bulk_rows(date(2025, 6, 2), AS_OF, 50.0, 1.40)
@@ -299,14 +309,14 @@ async def test_engine_flags_insufficient_history():
     assert res.data["portfolio"]["3"]["status"] == "insufficient_history"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_engine_no_instruments():
     res = await bt.get_historical_backtest("what would my money have done", as_of=AS_OF)
     assert not res.ok
     assert res.error in ("no_instruments", "unresolved")
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_engine_no_price_data_returns_error():
     """Resolves instruments but the data layer returns nothing → explicit
     no_price_data error (so the node says 'couldn't load', not an empty widget)."""
@@ -332,7 +342,7 @@ async def test_engine_no_price_data_returns_error():
     assert res.error == "no_price_data"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_engine_data_call_failure_degrades_not_crashes():
     """A failing/slow DaaS call must not propagate — it degrades to no_price_data."""
     async def boom_bulk(symbols, start, end, **kw):
