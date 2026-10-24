@@ -1610,7 +1610,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
   test.beforeEach(async ({ page }) => { await deskBase(page); });
 
   type ReqLeg = { side: "buy" | "sell"; quantity: number; lot_size: number; entry_price: number; strike: number; option_type: "call" | "put"; kind: string; expiry: string };
-  type Req = { reference_price: number; legs: ReqLeg[]; grid: { from_pct: number; to_pct: number; points: number }; pre_expiry?: unknown; scenarios?: unknown };
+  type Req = { reference_price: number; legs: ReqLeg[]; grid: { from_pct: number; to_pct: number; points: number }; pre_expiry?: { date: string }; scenarios?: unknown };
   function payoffFor(req: Req) {
     const { reference_price: ref, grid } = req;
     const lo = ref * (1 + grid.from_pct / 100), hi = ref * (1 + grid.to_pct / 100);
@@ -1624,6 +1624,8 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     return {
       valid: true, problems: [], warnings: [], calculation_version: "spec-v1", underlying: "NIFTY", reference_price: ref, caveats: [], sent_to_broker: false,
       expiry: { grid: xs, gross, net: gross, per_leg: [], breakevens: [], max_profit: Math.max(...gross), max_loss: Math.min(...gross), profit_unbounded: false, loss_unbounded: false, net_premium: premium, scenarios: [] },
+      // a smoother "today" estimate (the expiry payoff pulled halfway to its mean), only when the request asks for one
+      pre_expiry: req.pre_expiry ? { date: (req.pre_expiry as { date: string }).date, model: "Black-76 (spec)", assumptions: {}, grid: xs, gross: gross.map((g) => g * 0.5 + (gross.reduce((a, b) => a + b, 0) / gross.length) * 0.5), net: gross.map((g) => g * 0.5 + (gross.reduce((a, b) => a + b, 0) / gross.length) * 0.5), greeks: { delta: -1000, gamma: 200, theta: -100, vega: 40, rho: -5 }, per_leg_greeks: [], unavailable: [] } : null,
       costs: null, margin: { estimate: null, source: null }, margin_reason: "Margin is not computed", capital_at_risk: -Math.min(...gross), capital_at_risk_basis: "worst net loss over all prices",
     };
   }
@@ -1800,6 +1802,17 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     await expect(page.getByTestId("desk-builder-net")).toContainText(want.expiry.net_premium < 0 ? "Net debit" : "Net credit");
     await expect(page.getByTestId("strategy-graphs")).not.toContainText(/probability of profit\s*[0-9]/i);
     await expect(page.getByTestId("strategy-graphs")).toContainText("Funds and margin needed are in the strip above");
+  });
+
+  test("TC-1 TC-2 the first payoff request asks for today's estimate at the data date, and the chart draws today against expiry", async ({ page }) => {
+    const bodies = await openBuilder(page);
+    const chain = load("copilot-options-chain.json");
+    await expect.poll(() => bodies[bodies.length - 1]?.pre_expiry?.date).toBe(chain.summary.as_of);
+    await expect(page.getByTestId("payoff-line")).toBeVisible();
+    await expect(page.getByTestId("payoff-line-expiry")).toBeVisible();
+    await expect(page.getByTestId("payoff-legend")).toContainText("Today (model estimate)");
+    await expect(page.getByTestId("payoff-legend")).toContainText("Payoff at expiry");
+    await expect(page.getByTestId("payoff-mode-pre")).toHaveAttribute("aria-pressed", "true");
   });
 
   test("TC-5 a failed payoff shows the notice with a retry, never an empty chart", async ({ page }) => {

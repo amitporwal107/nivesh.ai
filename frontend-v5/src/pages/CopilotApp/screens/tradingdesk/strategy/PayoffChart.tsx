@@ -106,12 +106,14 @@ export function PayoffChart({
     const ys = basis === "net" ? series.net : series.gross;
     if (ys.length !== series.grid.length) return null;
     const legYs = legsOn && expiry ? expiry.per_leg.map((l) => l.gross.filter((v): v is number => v != null)) : [];
-    const all = [...ys, ...legYs.flat(), 0];
+    // On the estimate the payoff at expiry is drawn behind it (the same grid), so the scale must hold both.
+    const behind = mode === "pre" && expiry && expiry.grid.length === series.grid.length ? (basis === "net" ? expiry.net : expiry.gross) : [];
+    const all = [...ys, ...legYs.flat(), ...behind, 0];
     const lo = Math.min(...all);
     const hi = Math.max(...all);
     const pad = (hi - lo || 1) * 0.1;
     return { ys, lo: lo - (lo < 0 ? pad : 0), hi: hi + (hi > 0 ? pad : 0), x0: series.grid[0], x1: series.grid[series.grid.length - 1] };
-  }, [series, basis, legsOn, expiry]);
+  }, [series, basis, legsOn, expiry, mode]);
 
   if (!series || !model) {
     return (
@@ -336,6 +338,11 @@ export function PayoffChart({
           return <path key={l.index} data-testid={`payoff-leg-line-${l.index}`} d={pathOf(expiry.grid, l.gross)} fill="none" style={{ stroke: st.color }} strokeWidth={1.1} strokeDasharray={st.dash} opacity={0.7} />;
         })}
 
+        {/* on the estimate, the payoff at expiry behind it (same grid): "today" against "at expiry" */}
+        {mode === "pre" && expiry && expiry.grid.length === series.grid.length && (
+          <path data-testid="payoff-line-expiry" d={pathOf(expiry.grid, basis === "net" ? expiry.net : expiry.gross)} fill="none" style={{ stroke: LINE }} strokeWidth={1.6} opacity={0.85} strokeLinejoin="round" />
+        )}
+
         {/* the payoff */}
         <path data-testid="payoff-line" d={line} fill="none" style={{ stroke: mode === "pre" ? ESTIMATE : LINE }} strokeWidth={2} strokeDasharray={mode === "pre" ? "6 3" : undefined} strokeLinejoin="round" />
 
@@ -395,8 +402,9 @@ export function PayoffChart({
 
       <div data-testid="payoff-legend" className="flex flex-wrap items-center" style={{ gap: "6px 14px", fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--cp-ink-3)" }}>
         <LegendKey color={mode === "pre" ? ESTIMATE : LINE} dash={mode === "pre" ? "6 3" : undefined}>
-          {mode === "pre" ? "Estimate (model)" : "Payoff at expiry"} · {basis === "net" ? "after costs" : "before costs"}
+          {mode === "pre" ? "Today (model estimate)" : "Payoff at expiry"} · {basis === "net" ? "after costs" : "before costs"}
         </LegendKey>
+        {mode === "pre" && expiry && expiry.grid.length === series.grid.length && <LegendKey color={LINE}>Payoff at expiry</LegendKey>}
         <span className="inline-flex items-center" style={{ gap: 6 }}><span aria-hidden style={{ width: 10, height: 10, background: "color-mix(in srgb, var(--mint) 25%, transparent)", border: "1px solid var(--mint)" }} />Profit zone</span>
         <span className="inline-flex items-center" style={{ gap: 6 }}><svg width={10} height={10} aria-hidden><rect width={10} height={10} style={{ fill: `color-mix(in srgb, ${LOSS} 22%, transparent)`, stroke: LOSS }} /><path d="M0 10 L10 0" style={{ stroke: LOSS }} strokeWidth={1} /></svg>Loss zone</span>
         {legsOn && expiry && expiry.per_leg.map((l, i) => (

@@ -172,11 +172,14 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
   const panel = variant === "panel";
   const [scn, setScn] = useState<ScenarioInputs>(DEFAULT_SCENARIO);
   const key = chain ? `${symbol}|${chain.summary.expiry}|${chain.summary.as_of}` : null;
+  // "Today's payoff" from the start: the what-if starts evaluated at the data date (the day the closes are from) while that is before the expiry, so the chart draws the model's estimate
+  // for that day against the payoff at expiry, and the Greeks are shown. The date can be moved in the what-if controls.
+  const dflt = useMemo<ScenarioInputs>(() => (chain && chain.summary.as_of < chain.summary.expiry ? { ...DEFAULT_SCENARIO, evalDate: chain.summary.as_of } : DEFAULT_SCENARIO), [chain]);
 
   // A new underlying or expiry starts from the structure the build-up suggests (or nothing), once the chain and the scan are in.
   useEffect(() => {
     if (!shared) setLegs([]);
-    setTpl(null); setScn(DEFAULT_SCENARIO);
+    setTpl(null); setScn(dflt);
     if (shared || !chain || scan.isPending) return;
     const t = TEMPLATES.find((x) => x.id === suggested);
     if (t) { setTpl(t.id); setView(t.view); setLegs(legsFor(t, chain)); }
@@ -215,7 +218,7 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
     const px = closeOf(chain.strikes.find((r) => r.strike === strike), kind);
     setLeg(id, { strike, price: px == null ? "" : String(px) });
   };
-  const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(DEFAULT_SCENARIO); };
+  const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(dflt); };
   const tiles = TEMPLATES.filter((t) => t.view === view);
   // The payoff route still says "No margin source exists" (an old text other screens pin); here the margin strip is the source.
   const response = pay.data ? { ...pay.data, margin_reason: "Funds and margin needed are in the strip above: Zerodha’s margin calculator, which needs the platform’s Kite login." } : pay.data;
@@ -256,7 +259,7 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
               const at = chain.strikes.find((r) => r.strike === chain.summary.atm_strike) ?? chain.strikes[0];
               setLegs((ls) => [...ls, { id: nextId++, side: "buy", kind: "call", strike: at.strike, lots: 1, price: closeOf(at, "call") == null ? "" : String(closeOf(at, "call")) }]);
             }}>Add a trade</button>
-            {legs.length > 0 && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-builder-clear" onClick={() => { setLegs([]); setTpl(null); setScn(DEFAULT_SCENARIO); }}>Clear</button>}
+            {legs.length > 0 && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-builder-clear" onClick={() => { setLegs([]); setTpl(null); setScn(dflt); }}>Clear</button>}
             <button type="button" disabled data-testid="desk-builder-record" className="cp-btn" data-variant="ghost" style={{ opacity: 0.5, cursor: "not-allowed" }}>Record as paper trade</button>
             <button type="button" data-testid="desk-builder-full" className="cp-btn" data-variant="ghost" onClick={() => openStrategy(symbol, { kind: "lab", date: chain.summary.as_of })}>Open the full Strategy Builder ›</button>
           </div>
@@ -295,7 +298,7 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
             <LevelsCard q={levelsQ} />
             <StrategyGraphs
               base={base} response={response} errorText={pay.errorText} pending={pay.isPending} stale={pay.isStale} onRetry={pay.refetch}
-              scenario={scn} onScenarioChange={setScn} dataDate={chain.summary.as_of} persona={persona} compact={mobile}
+              scenario={scn} onScenarioChange={setScn} dataDate={chain.summary.as_of} persona={persona} compact={mobile} defaultMode="pre"
             />
           </>
         )}
