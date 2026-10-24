@@ -155,11 +155,14 @@ def test_same_session_stop_and_target_stays_a_stop_with_costs_at_the_stop(api, w
     assert body["summary"]["net_realized_pnl_rs"] == -141.95 and body["summary"]["costs_realized_rs"] == 41.95
 
 
-def test_a_gap_through_the_stop_is_flagged_and_the_fill_stays_the_stop(api, world):
+def test_a_gap_through_the_stop_fills_at_the_open_and_is_flagged(api, world):
+    """The session opened at 93, under the 95 stop: the price never traded at 95, so the fill is the open (cace6500;
+    pinned in test_honesty_safety_pass.py). gross (93 − 100) × 10 = −70; costs 20.50 + 20.465 = 40.965."""
     open_trade(api)
     world.add("FIXA", obar("2026-10-13", 93, 96, 92, 94))
     t = only(trades(api))
-    assert (t["exit_reason"], t["exit_price"]) == ("stop", 95.0)            # the existing rule: the paper fill is the stop
+    assert (t["exit_reason"], t["exit_price"]) == ("stop", 93.0)
+    assert t["gross_pnl_rs"] == -70.0 and t["costs_rs"] == pytest.approx(side(100, 10) + side(93, 10), abs=0.01)
     [gap] = [f for f in t["flags"] if f["code"] == "gap_through_stop"]
     assert gap["session"] == "2026-10-13" and gap["price"] == 93.0
     assert "93" in gap["text"]
@@ -216,11 +219,12 @@ def test_break_above_fills_at_the_level_and_the_path_starts_on_the_entry_session
     assert "entry_gap" not in flag_codes(t)
 
 
-def test_a_gap_open_beyond_the_entry_is_flagged(api, world):
+def test_a_gap_open_beyond_the_entry_fills_at_the_open_and_is_flagged(api, world):
+    """The session opened at 105, above the 103 trigger: the price never traded at 103, so the fill is the open."""
     open_trade(api, entry_price=103.0, stop_price=98.0, target_price=120.0, entry_rule="break_above")
     world.add("FIXA", obar("2026-10-13", 105, 107, 104, 106))
     t = only(trades(api))
-    assert t["entry_status"] == "reached" and t["sim_entry_price"] == 103.0
+    assert t["entry_status"] == "reached" and t["sim_entry_price"] == 105.0
     [gap] = [f for f in t["flags"] if f["code"] == "entry_gap"]
     assert gap["price"] == 105.0 and gap["session"] == "2026-10-13"
 
