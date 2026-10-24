@@ -61,7 +61,7 @@ export function suggestedTemplate(label: BuildupLabel | null): string | null {
   return null;
 }
 
-interface LegRow { id: number; side: Side; kind: Kind; strike: number; lots: number; price: string }
+export interface LegRow { id: number; side: Side; kind: Kind; strike: number; lots: number; price: string }
 
 const closeOf = (r: FnoStrike | undefined, k: Kind): number | null => {
   const s = r?.[k === "call" ? "call" : "put"];

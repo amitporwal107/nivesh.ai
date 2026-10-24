@@ -1868,3 +1868,93 @@ test.describe("Smart trading desk — Options & futures lab · index history and
     expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
+
+// ── Compare structures (FnoCompare.tsx) ─────────────────────────────────────────────────────────────────────────────────
+// MOCK — not real data: POST /api/desk/strategy/levels is answered by `levelsFor` below, an independent calculation for vertical spreads (width and net premium) written for this spec; a single sold option is
+// answered as the engine does (undefined risk, not supported). Closes come from the NIFTY chain fixture (25000 CE 273.45, 25200 CE 169.95, 25000 PE 213.6, 24800 PE 152.0).
+test.describe("Smart trading desk — Options & futures lab · compare structures", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+  type L = { side: string; strike: number; entry_price: number };
+  const levelsFor = (req: { payoff: { legs: L[] } }) => {
+    const legs = req.payoff.legs;
+    const net = legs.reduce((s, l) => s + (l.side === "sell" ? 1 : -1) * l.entry_price, 0);
+    if (legs.length === 1) {
+      if (legs[0].side === "sell") return { valid: false, problems: [{ code: "undefined_risk_not_supported", message: "This structure has a net short call or put: its loss is unlimited." }], caveats: [], version: "x", sent_to_broker: false };
+      return { valid: true, version: "x", sent_to_broker: false, premium: { kind: "debit", entry: legs[0].entry_price }, underlying: { view: "bullish" }, greeks: { net_delta_per_share: 0.5, theta_per_day_per_share: -3, vega_per_point_per_share: 8, gamma: 0 }, scenarios: [], flags: [], caveats: [], max_profit_per_unit: null, max_loss_per_unit: legs[0].entry_price, risk_reward: null };
+    }
+    const width = Math.abs(legs[0].strike - legs[1].strike), entry = Math.abs(net), credit = net > 0;
+    const mp = credit ? entry : width - entry, ml = credit ? width - entry : entry;
+    return { valid: true, version: "x", sent_to_broker: false, premium: { kind: credit ? "credit" : "debit", entry }, underlying: { view: "bullish" }, greeks: { net_delta_per_share: credit ? 0.2 : 0.3, theta_per_day_per_share: credit ? 1.5 : -1.5, vega_per_point_per_share: credit ? -2 : 2, gamma: 0 },
+      scenarios: [], flags: [], caveats: [], max_profit_per_unit: Math.round(mp * 100) / 100, max_loss_per_unit: Math.round(ml * 100) / 100, risk_reward: Math.round((mp / ml) * 100) / 100 };
+  };
+  async function openCompare(page: Page, marginStatus = 200) {
+    await fnoData(page);
+    await page.route("**/api/desk/strategy/levels", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(levelsFor(JSON.parse(route.request().postData() ?? "{}"))) }));
+    await page.route("**/api/fno/margin", (route) => route.fulfill({ status: marginStatus, contentType: "application/json", body: JSON.stringify(marginStatus === 200
+      ? { required_margin: 50000, initial_margin: 51000, charges: { per_order: [], total: { brokerage: 40, stt: 0, exchange: 5, sebi: 0, stamp_duty: 0, gst: 8, total: 53 } }, as_of: "2026-10-24", source: "Zerodha margin calculator", note: "x", sent_to_broker: false }
+      : { detail: "kite_session_unavailable" }) }));
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-strategies").click();
+    await page.getByTestId("desk-strat-mode-compare").click();
+    await expect(page.getByTestId("desk-compare-row").first()).toBeVisible();
+  }
+  const row = (page: Page, id: string) => page.locator(`[data-testid="desk-compare-row"][data-id="${id}"]`);
+
+  test("TC-1 TC-2 TC-3 the view's structures side by side, with the route's figures", async ({ page }) => {
+    await openCompare(page);
+    await expect(page.getByTestId("desk-compare-row")).toHaveCount(4);
+    const bcs = row(page, "bull_call_spread");                       // buy 25000 CE 273.45, sell 25200 CE 169.95: debit 103.50, width 200
+    await expect(bcs.getByTestId("desk-compare-entry")).toHaveText("debit 103.50");
+    await expect(bcs.getByTestId("desk-compare-maxprofit")).toHaveText("96.50");
+    await expect(bcs.getByTestId("desk-compare-maxloss")).toHaveText("103.50");
+    await expect(bcs.getByTestId("desk-compare-rr")).toHaveText("0.93");
+    await expect(bcs.getByTestId("desk-compare-margin")).toHaveText("₹50,000");
+    await expect(bcs.getByTestId("desk-compare-charges")).toHaveText("₹53");
+    const bps = row(page, "bull_put_spread");                        // sell 25000 PE 213.6, buy 24800 PE 152.0: credit 61.60, width 200
+    await expect(bps.getByTestId("desk-compare-entry")).toHaveText("credit 61.60");
+    await expect(bps.getByTestId("desk-compare-maxprofit")).toHaveText("61.60");
+    await expect(bps.getByTestId("desk-compare-maxloss")).toHaveText("138.40");
+  });
+
+  test("TC-4 a structure the engine rejects reads not supported, with dashes", async ({ page }) => {
+    await openCompare(page);
+    const sp = row(page, "sell_put");
+    await expect(sp).toContainText("(not supported)");
+    await expect(sp.getByTestId("desk-compare-maxloss")).toHaveText("—");
+    await expect(sp.getByTestId("desk-compare-entry")).toHaveText("—");
+  });
+
+  test("TC-5 only the chosen column sorts; no row is marked best and the note says why", async ({ page }) => {
+    await openCompare(page);
+    const ids = async () => page.getByTestId("desk-compare-row").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.id));
+    const first = await ids();
+    expect(first).toEqual(["buy_call", "sell_put", "bull_call_spread", "bull_put_spread"]);
+    await page.getByTestId("desk-compare-sort-maxLoss").click();       // descending: 138.40 (bull put), 103.50 (bull call), 20x (buy call), then the dash
+    const sorted = await ids();
+    expect(sorted[0]).toBe("buy_call");                                  // the long call's max loss is its premium (273.45), the largest
+    expect(sorted[sorted.length - 1]).toBe("sell_put");                  // rows with no figure go last
+    await page.getByTestId("desk-compare-sort-maxLoss").click();
+    expect((await ids())[0]).toBe("bull_call_spread");                   // ascending: 103.50 first
+    const text = await page.getByTestId("desk-compare").innerText();
+    expect(text).not.toMatch(/\bbest (trade|strategy)\b|recommended|top pick/i);
+    await expect(page.getByTestId("desk-compare-note")).toContainText("not ranked and none is marked best");
+  });
+
+  test("TC-6 no Kite login today: margin reads the reason and the other columns still show", async ({ page }) => {
+    await openCompare(page, 503);
+    const bcs = row(page, "bull_call_spread");
+    await expect(bcs.getByTestId("desk-compare-margin")).toHaveText("— (no Kite login today)");
+    await expect(bcs.getByTestId("desk-compare-maxprofit")).toHaveText("96.50");
+  });
+
+  test("TC-7 another view changes the rows; at 390px the table scrolls inside its box", async ({ page }) => {
+    await openCompare(page);
+    await page.getByTestId("desk-compare-view-bearish").click();
+    await expect(row(page, "bear_put_spread")).toBeVisible();
+    await expect(row(page, "bull_call_spread")).toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+    expect(o.scroll).toBeLessThanOrEqual(1);
+  });
+});
