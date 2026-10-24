@@ -32,6 +32,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import db, get_current_user
 from services import risk_controls as rc
+from services import risk_gate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/positional/journal", tags=["positional-journal"])
@@ -163,19 +164,29 @@ def _exit_ladder(trade: dict, ltp: Optional[float]) -> List[Dict[str, Any]]:
 async def create_trade(request: Request):
     """Open a new trade journal entry."""
     user = await get_current_user(request)
-    # Same kill switch as the other position-creating paths; this one had no risk gate either.
-    try:
-        await rc.assert_allowed(db, user["user_id"], "journal_trade")
-    except rc.RiskBlocked as blocked:
-        await rc.record_decision(db, user["user_id"], action="journal_trade", outcome="blocked",
-                                 reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
-                                 detail=blocked.detail("journal_trade"))
-        raise HTTPException(status_code=409, detail=blocked.detail("journal_trade"))
+    gated = await risk_gate.enabled_for(db, user)
+    # Same kill switch as the other position-creating paths; this one had no risk gate either. With the
+    # F&O risk gate on, the same controls are the gate's first check, after the body is parsed.
+    if not gated:
+        try:
+            await rc.assert_allowed(db, user["user_id"], "journal_trade")
+        except rc.RiskBlocked as blocked:
+            await rc.record_decision(db, user["user_id"], action="journal_trade", outcome="blocked",
+                                     reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
+                                     detail=blocked.detail("journal_trade"))
+            raise HTTPException(status_code=409, detail=blocked.detail("journal_trade"))
     body = await request.json()
     sym = (body.get("nse_symbol") or "").upper().strip()
     cap = float(body.get("capital_alloc_rs") or 0)
     if not sym or cap <= 0:
         raise HTTPException(400, "nse_symbol and capital_alloc_rs are required")
+    decision = None
+    if gated:
+        # The journal records the user's own trades; the platform places nothing, so the gate sees "paper".
+        # The capital allocated is the capital at risk: a long share position can lose all of it.
+        decision = await risk_gate.enforce(db, risk_gate.cash_request(
+            user, risk_gate.correlation_id(request), path="journal_create", mode="paper", action="open",
+            symbol=sym, quantity=None, capital_at_risk_rs=cap))
 
     trade = {
         "_id":              str(uuid4()),
@@ -195,6 +206,8 @@ async def create_trade(request: Request):
         "created_at":       _now(),
         "updated_at":       _now(),
     }
+    if decision is not None:
+        risk_gate.stamp(trade, decision)
     await db[COL].insert_one(trade)
     return _public(trade)
 
@@ -275,11 +288,18 @@ async def add_fill(request: Request, trade_id: str):
 
     Body: {stage: "PILOT|CONFIRM|SUSTAIN|MOMENTUM", qty, price,
            kind: "ENTRY|EXIT", at?: ISO}
+
+    Only the owner's OPEN trade takes a fill (409 trade_not_open otherwise), and the write is filtered
+    on both, so a fill can never land on another user's trade or on a closed one. With the F&O risk
+    gate on, an ENTRY fill (it adds to the position) is checked first; an EXIT fill reduces risk and is not.
     """
     user = await get_current_user(request)
-    doc = await db[COL].find_one({"_id": trade_id, "user_id": user["user_id"]})
+    uid = user["user_id"]
+    doc = await db[COL].find_one({"_id": trade_id, "user_id": uid})
     if not doc:
         raise HTTPException(404, "trade not found")
+    if doc.get("status") != "OPEN":
+        raise HTTPException(status_code=409, detail="trade_not_open")
 
     body = await request.json()
     fill = {
@@ -292,12 +312,20 @@ async def add_fill(request: Request, trade_id: str):
     }
     if fill["qty"] <= 0 or fill["price"] <= 0:
         raise HTTPException(400, "qty and price must be > 0")
+    if fill["kind"] == "ENTRY" and await risk_gate.enabled_for(db, user):
+        decision = await risk_gate.enforce(db, risk_gate.cash_request(
+            user, risk_gate.correlation_id(request), path="journal_fill", mode="paper", action="add",
+            symbol=doc.get("nse_symbol"), quantity=fill["qty"], capital_at_risk_rs=fill["qty"] * fill["price"]))
+        risk_gate.stamp(fill, decision)
 
-    await db[COL].update_one(
-        {"_id": trade_id},
+    res = await db[COL].update_one(
+        {"_id": trade_id, "user_id": uid, "status": "OPEN"},
         {"$push": {"fills": fill}, "$set": {"updated_at": _now()}},
     )
-    updated = await db[COL].find_one({"_id": trade_id})
+    if not res.matched_count:
+        # Closed (or deleted) between the read and the write.
+        raise HTTPException(status_code=409, detail="trade_not_open")
+    updated = await db[COL].find_one({"_id": trade_id, "user_id": uid})
     return {
         **_public(updated),
         "added_fill": fill,
