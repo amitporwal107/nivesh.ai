@@ -348,8 +348,8 @@ def metrics_for(underlying: str, legs: Sequence[Dict[str, Any]], spot: float,
     calculation POST /api/desk/strategy/payoff runs, so a structure priced here and in the shipped
     plan engine cannot disagree. Returns {ok: False, ...} when the request does not validate.
 
-    Margin is deliberately absent: engine.MARGIN_REASON records that no margin source exists in this
-    system (no SPAN/exposure feed, broker margin APIs are account-level), so nothing is estimated.
+    Margin is deliberately absent: engine.MARGIN_REASON records that the payoff calculation does not
+    estimate margin (only Zerodha's margin calculator gives it, through the platform's Kite login).
     For the defined-risk structures offered here, max loss IS the capital at risk."""
     from .engine import compute_payoff
 

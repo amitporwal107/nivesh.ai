@@ -26,6 +26,7 @@ import routes.strategy_plan as route
 from services.strategy_plan import candidates as cd
 from services.strategy_plan import compute_payoff, explain_plan_context, normalise_inputs
 from services.strategy_plan import evidence as ev
+from services.strategy_plan import live_reads as lr
 from services.strategy_plan import plan as pl
 from services.strategy_plan.evidence import src_fail, src_ok
 from services.strategy_plan.rules import RULES, STRATEGY_RULES_VERSION
@@ -484,6 +485,17 @@ def test_futures_long_buildup_with_cash_confirmation():
     assert {x["name"]: x["price"] for x in c["targets"]}["base"] == 1250.0
     assert any("exceed the initial margin" in w for w in c["warnings"]) and c["payoff"]["loss_can_exceed_margin"] is True
     assert c["payoff"]["margin"] is None
+    # The live margin read swaps this exact warning when the calculator answers, so the two texts must stay identical; neither claims no source exists.
+    assert lr.OLD_FUTURES_WARNING in c["warnings"] and "no margin estimate exists" not in lr.OLD_FUTURES_WARNING
+
+
+def test_margin_caveat_names_the_calculator_and_is_shared_by_ideas_and_picks():
+    import inspect
+    from services.strategy_plan import ideas, picks
+    assert "no source exists" not in pl.MARGIN_CAVEAT and "Zerodha's margin calculator" in pl.MARGIN_CAVEAT and "not the maximum loss" in pl.MARGIN_CAVEAT
+    assert pl.MARGIN_CAVEAT in picks.CAVEATS
+    # ideas builds its caveats inline: it must use the plan's constant (the live swap to MARGIN_LIVE_CAVEAT matches on equality), not a copy.
+    assert "no source exists" not in inspect.getsource(ideas) and "MARGIN_CAVEAT" in inspect.getsource(ideas)
 
 
 def test_futures_short_covering_and_long_unwinding_are_wait_not_trade():

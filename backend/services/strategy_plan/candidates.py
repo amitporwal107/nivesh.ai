@@ -314,7 +314,7 @@ def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str,
         if risk_unit < RULES["targets"]["min_stop_atr"] * (atr or 0):
             c["warnings"].append(f"The stop is closer than {RULES['targets']['min_stop_atr']:g} x ATR to the entry: it may sit inside normal noise.")
         if segment == "futures":
-            c["warnings"].append("Futures losses can exceed the initial margin; no margin estimate exists in this system, so the notional is used for the allocation cap.")
+            c["warnings"].append("Futures losses can exceed the initial margin; the plan does not estimate margin, so the notional is used for the allocation cap.")
     if c["status"] == "candidate":
         apply_rr_gate(c, inputs)
     return c

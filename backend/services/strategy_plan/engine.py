@@ -12,8 +12,8 @@ from .pre_expiry import pre_expiry
 
 CALCULATION_VERSION = "payoff-v1"
 
-MARGIN_REASON = ("No margin source exists in this system: the exchange SPAN/exposure margin is not in the data platform "
-                 "and the broker margin APIs are account-level, not per structure. Nothing is estimated.")
+MARGIN_REASON = ("This payoff calculation does not estimate margin. The margin for a structure comes only from Zerodha's margin calculator "
+                 "(the F&O builder's funds and margin strip), which needs the platform's daily Kite login and is unavailable without it.")
 
 
 def _empty(parsed: Dict[str, Any]) -> Dict[str, Any]:

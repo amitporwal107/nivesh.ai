@@ -335,7 +335,8 @@ def _would_change(reasons: List[Dict[str, Any]]) -> List[str]:
 EOD_CAVEAT = "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day."
 LIVE_CAVEAT = ("Prices, the option chain and the F&O data are end of day (one NSE bhavcopy per day). Only the broker bid/ask quotes marked live or delayed "
                "are read from the user's own broker session, read-only.")
-MARGIN_CAVEAT = "Margin is not estimated (no source exists in this system) and is not the maximum loss."
+MARGIN_CAVEAT = ("Margin is not estimated by the plan: it comes only from Zerodha's margin calculator, which needs a live Kite session. "
+                 "Margin is not the maximum loss.")
 MARGIN_LIVE_CAVEAT = ("Margin shown is an estimate from Zerodha's margin calculator, read-only; no order is placed. It covers these legs alone "
                       "and is not the maximum loss.")
 
