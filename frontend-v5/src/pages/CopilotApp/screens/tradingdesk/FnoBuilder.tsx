@@ -160,10 +160,13 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   const [legs, setLegs] = useState<LegRow[]>([]);
   const [scn, setScn] = useState<ScenarioInputs>(DEFAULT_SCENARIO);
   const key = chain ? `${symbol}|${chain.summary.expiry}|${chain.summary.as_of}` : null;
+  // "Today's payoff" from the start: the what-if starts evaluated at the data date (the day the closes are from) while that is before the expiry, so the chart draws the model's estimate
+  // for that day against the payoff at expiry, and the Greeks are shown. The date can be moved in the what-if controls.
+  const dflt = useMemo<ScenarioInputs>(() => (chain && chain.summary.as_of < chain.summary.expiry ? { ...DEFAULT_SCENARIO, evalDate: chain.summary.as_of } : DEFAULT_SCENARIO), [chain]);
 
   // A new underlying or expiry starts from the structure the build-up suggests (or nothing), once the chain and the scan are in.
   useEffect(() => {
-    setLegs([]); setTpl(null); setScn(DEFAULT_SCENARIO);
+    setLegs([]); setTpl(null); setScn(dflt);
     if (!chain || scan.isPending) return;
     const t = TEMPLATES.find((x) => x.id === suggested);
     if (t) { setTpl(t.id); setView(t.view); setLegs(legsFor(t, chain)); }
@@ -201,7 +204,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
     const px = closeOf(chain.strikes.find((r) => r.strike === strike), kind);
     setLeg(id, { strike, price: px == null ? "" : String(px) });
   };
-  const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(DEFAULT_SCENARIO); };
+  const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(dflt); };
   const tiles = TEMPLATES.filter((t) => t.view === view);
   const response = pay.data;
   const netLabel = response?.expiry?.net_premium != null ? (response.expiry.net_premium < 0 ? "Net debit" : "Net credit") : null;
@@ -241,7 +244,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
               const at = chain.strikes.find((r) => r.strike === chain.summary.atm_strike) ?? chain.strikes[0];
               setLegs((ls) => [...ls, { id: nextId++, side: "buy", kind: "call", strike: at.strike, lots: 1, price: closeOf(at, "call") == null ? "" : String(closeOf(at, "call")) }]);
             }}>Add a trade</button>
-            {legs.length > 0 && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-builder-clear" onClick={() => { setLegs([]); setTpl(null); setScn(DEFAULT_SCENARIO); }}>Clear</button>}
+            {legs.length > 0 && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-builder-clear" onClick={() => { setLegs([]); setTpl(null); setScn(dflt); }}>Clear</button>}
             <button type="button" disabled data-testid="desk-builder-record" className="cp-btn" data-variant="ghost" style={{ opacity: 0.5, cursor: "not-allowed" }}>Record as paper trade</button>
             <button type="button" data-testid="desk-builder-full" className="cp-btn" data-variant="ghost" onClick={() => openStrategy(symbol, { kind: "lab", date: chain.summary.as_of })}>Open the full Strategy Builder ›</button>
           </div>
@@ -277,7 +280,7 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
             <MarginStrip state={marginQ} />
             <StrategyGraphs
               base={base} response={response} errorText={pay.errorText} pending={pay.isPending} stale={pay.isStale} onRetry={pay.refetch}
-              scenario={scn} onScenarioChange={setScn} dataDate={chain.summary.as_of} persona={persona} compact={mobile}
+              scenario={scn} onScenarioChange={setScn} dataDate={chain.summary.as_of} persona={persona} compact={mobile} defaultMode="pre"
             />
           </>
         )}
