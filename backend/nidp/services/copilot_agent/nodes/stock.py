@@ -11,6 +11,8 @@ import sys
 
 from langchain_core.messages import AIMessage
 
+from services.llm_safety import wrap_external_data
+
 from .._llm import ANTI_HALLUCINATION_RULES, make_chat_llm, temperature_for, text_of
 from ..persona_framing import frame_for_persona
 from ..schemas import AgentName, AgentResponse, CopilotState, ToolResult, WidgetType
@@ -183,7 +185,8 @@ async def stock_node(state: CopilotState) -> dict:
 
     ctx_lines = [f"  [{tr.tool_name}] {tr.as_llm_context()}" for tr in tool_results]
     if research is not None and research.ok:
-        ctx_lines.insert(0, f"  [instrument_research] {research.as_llm_context()}")
+        ctx_lines.insert(0, "  [instrument_research] "
+                         + wrap_external_data(research.as_llm_context(), source="instrument_research"))
     tool_context = "TOOL_DATA:\n" + "\n".join(ctx_lines)
 
     llm_user_msg = user_msg or f"Analyse {symbol}"

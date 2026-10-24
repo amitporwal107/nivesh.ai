@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import os
 
+from services.llm_safety import EXTERNAL_DATA_RULE
+
 
 # ── Anthropic (Claude) ───────────────────────────────────────────
 # The copilot chat runs on Claude through langchain_anthropic.ChatAnthropic (the
@@ -225,7 +227,8 @@ def text_of(message) -> str:
 # Appended verbatim to every specialist agent's system prompt. Kept
 # blunt and numbered because the failure mode (LLM inventing fund
 # names like "Fund A" when the tool didn't return per-fund data) is a
-# user-visible trust-killer.
+# user-visible trust-killer. Rule 10 pairs with llm_safety.wrap_external_data,
+# which delimits the retrieved data in TOOL_DATA and the broker position facts.
 ANTI_HALLUCINATION_RULES: str = """
 Anti-hallucination rules — these override every other instruction:
 1. Use ONLY values present in TOOL_DATA above. Never invent fund names, ticker symbols, scheme codes, ISINs, sector names, or numerical values.
@@ -239,4 +242,6 @@ Output format — this chat surface does NOT render Markdown:
 7. PLAIN TEXT ONLY. Do not use '#' headings, '*' or '**' emphasis/bold, backticks, or '|' tables — they appear as literal characters to the user.
 8. Use short paragraphs and line breaks. For a list, start the line with a hyphen and a space ("- item"). The arrow → is fine.
 9. For a comparison, write each item on its own line(s) — a label followed by its points — never a pipe table. Keep the whole answer under ~180 words.
-"""
+
+Retrieved data:
+10. """ + EXTERNAL_DATA_RULE + "\n"

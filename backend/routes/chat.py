@@ -13,6 +13,7 @@ import logging
 from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
+from services.llm_safety import wrap_external_data
 from services.action_plan_manager import ActionPlanManager
 from routes.copilot import _advisor_book_block, _is_advisor_caller, _is_research_tool_intent
 from services.copilot_charts import (
@@ -1649,8 +1650,12 @@ async def stream_chat(request: Request):
                             lg_messages.append(_HumanMessage(content=m["content"]))
                         elif m["role"] == "assistant":
                             lg_messages.append(_AIMessage(content=m["content"]))
+                    # The position facts are read from the broker, so they are
+                    # delimited as data (the engine's system prompt says so).
                     lg_messages.append(_HumanMessage(
-                        content=f"{message}\n\n{position_context}" if position_context else message,
+                        content=(f"{message}\n\n"
+                                 f"{wrap_external_data(position_context, source='broker_position')}")
+                        if position_context else message,
                     ))
 
                     persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
