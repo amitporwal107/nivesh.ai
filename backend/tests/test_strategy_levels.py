@@ -30,8 +30,11 @@ def test_tc1_bull_call_spread_debit_levels():
     assert (r["max_profit_per_unit"], r["max_loss_per_unit"], r["risk_reward"]) == (7.0, 3.0, 2.33)
     assert r["max_profit_total"] == 700.0 and r["max_loss_total"] == -300.0
     u = r["underlying"]
-    assert u["view"] == "bullish" and u["entry"] == 100.0 and u["stop"] == 92.0 and u["target"] == 108.0
-    assert u["value_at_stop"] is not None and u["value_at_stop"] < 3.0 < u["value_at_target"]               # the spread is worth less at the stop and more at the target
+    assert u["view"] == "bullish" and u["entry"] == 100.0
+    # the thesis levels are the prices at which the STRUCTURE reaches its own stop and targets; the walls stay as a reference
+    assert u["stop"] < 100.0 < u["target"] < u["target_2"] and u["wall_stop"] == 92.0 and u["wall_target"] == 108.0
+    assert u["value_at_stop"] == pytest.approx(2.1, abs=0.02) and u["value_at_target"] == pytest.approx(3.9, abs=0.02)
+    assert r["totals"] == {"planned_stop_loss": 90.0, "target_1_gain": 90.0, "target_2_gain": 180.0, "shares": 100, "note": "per share x the position's size (lot size x lots)"}
     assert r["greeks"]["review_when"].startswith("net delta falls below") and r["sent_to_broker"] is False
     assert any("not an executable price" in c for c in r["caveats"]) and any("no accuracy" in c for c in r["caveats"])
 
@@ -40,7 +43,8 @@ def test_tc2_bear_put_spread_mirrors_the_underlying_levels():
     r = sl.compute(body([leg("buy", "put", 100, 4.0), leg("sell", "put", 90, 1.5)]), REFS, TODAY)
     p, u = r["premium"], r["underlying"]
     assert p["kind"] == "debit" and p["entry"] == 2.5 and p["planned_stop"] == 1.75 and r["max_profit_per_unit"] == 7.5
-    assert u["view"] == "bearish" and u["stop"] == 108.0 and u["target"] == 92.0                             # stop above, target below
+    assert u["view"] == "bearish" and u["stop"] > 100.0 > u["target"] and u["wall_stop"] == 108.0 and u["wall_target"] == 92.0   # stop above, target below
+    assert u["value_at_stop"] == pytest.approx(1.75, abs=0.02)
     assert r["greeks"]["review_when"].startswith("net delta rises above")
 
 
@@ -69,9 +73,10 @@ def test_tc4b_iron_butterfly_is_a_defined_risk_credit():
 def test_tc5_a_wall_on_the_wrong_side_is_replaced_and_missing_inputs_leave_null():
     legs = [leg("buy", "call", 100, 5.0), leg("sell", "call", 110, 2.0)]
     r = sl.compute(body(legs), {"put_wall": 105.0, "call_wall": 95.0, "expected_move": 4.0}, TODAY)
-    assert r["underlying"]["stop"] == 96.0 and r["underlying"]["target"] == 104.0                             # spot -/+ the expected move
+    assert r["underlying"]["wall_stop"] == 96.0 and r["underlying"]["wall_target"] == 104.0                  # spot -/+ the expected move
     r = sl.compute(body(legs), {}, TODAY)
-    assert r["underlying"]["stop"] is None and r["underlying"]["target"] is None and r["underlying"]["value_at_stop"] is None
+    assert r["underlying"]["wall_stop"] is None and r["underlying"]["wall_target"] is None                   # no walls and no move: no reference level, never a guess
+    assert r["underlying"]["stop"] is not None and r["underlying"]["value_at_stop"] is not None             # the structure-based level does not need them
 
 
 def test_tc6_per_unit_figures_do_not_depend_on_lots_or_lot_size():
@@ -116,3 +121,18 @@ def test_tc8_the_route_answers_200_with_levels_and_422_on_a_bad_body(monkeypatch
     assert ok.status_code == 200 and ok.json()["premium"]["entry"] == 3.0 and ok.json()["valid"] is True
     assert c.post("/api/desk/strategy/levels", json={"refs": {}}).status_code == 422
     assert c.post("/api/desk/strategy/levels", data="not json").status_code == 422
+
+
+def test_legs_and_cost_breakdown_are_returned_with_the_levels():
+    r = sl.compute(body([leg("buy", "put", 100, 4.0), leg("sell", "put", 90, 1.5)]), REFS, TODAY)
+    assert [(l["side"], l["option_type"], l["strike"], l["entry_price"]) for l in r["legs"]] == [("buy", "put", 100, 4.0), ("sell", "put", 90, 1.5)]
+    assert r["legs"][0]["delta"] < 0 < r["legs"][1]["delta"] and r["legs"][0]["theta"] is not None
+    c = r["costs"]
+    assert c["max_loss_gross_total"] == -250.0 and c["capital_at_risk"] is not None and c["capital_at_risk"] >= 250.0 and c["round_trip"] is not None
+    assert c["capital_at_risk_basis"] and "worst net loss" in c["capital_at_risk_basis"]
+
+
+def test_a_butterfly_keeps_its_wall_range_and_is_not_solved():
+    legs = [leg("sell", "call", 100, 4.0), leg("sell", "put", 100, 4.0), leg("buy", "call", 105, 3.0), leg("buy", "put", 95, 3.0)]
+    r = sl.compute(body(legs), REFS, TODAY)
+    assert r["underlying"]["view"] == "neutral" and "stop" not in r["underlying"] and r["underlying"]["range_low"] == 92.0
