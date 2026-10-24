@@ -23,7 +23,8 @@ opened / the alert was created):
     paper trade   low <= stop → closed at the stop ("stop"); high >= target → closed at the target
                   ("target"); both inside one session's range → the stop (we cannot tell which came first
                   from a daily bar, so the conservative reading is taken and the trade says so).
-                  A gap through the stop would fill worse in a real market; the paper fill is the stop.
+                  A session that opens below the stop never traded at the stop: the fill is that open
+                  (worse than the stop) and the gap is flagged.
     alert         above: high >= level · below: low <= level → fired, fired_price = the level,
                   fired_session = that session.
 A session whose high or low is missing ends the scan: later sessions are not checked until it is
@@ -39,12 +40,12 @@ Paper trades carry the DaaS paper_trades field set (PRD §13.4; rules version `R
                   break_above (filled when a later session's high reaches the entry) or pullback_to (when its
                   low does). A conditional entry waits `entry_window_sessions` sessions, then closes as
                   "entry_not_reached" with no P&L. The fill is the reference entry; a session that opened
-                  beyond it is flagged (a real order would have filled near the open).
+                  beyond it never traded at the entry, so the fill is that open (worse) and it is flagged.
     entry session conditional entries are checked for exits on their own session too, conservatively:
                   break_above counts a stop on that session (the low may have come first, flagged);
                   pullback_to does not count a target on that session (the high may have come first, flagged).
     exit rule     stop / target as above; with `max_hold_sessions`, the close of the last session held
-                  ("time"). A gap through the stop is flagged; the paper fill stays the stop.
+                  ("time"). A gap through the stop fills at the session's open and is flagged.
     costs         strategy_engine's cost model (services/strategy_engine/backtest.py): DEFAULT_SLIPPAGE_PCT of
                   the traded value plus DEFAULT_BROKERAGE_INR, per side. Snapshotted on each trade.
     path          observations = eligible sessions read since the trade was recorded; MFE / MAE = the highest

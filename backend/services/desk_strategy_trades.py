@@ -54,6 +54,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from services import desk_trading as base
+from services import paper_account
 from services.copilot_tools import daas_client
 
 logger = logging.getLogger(__name__)
@@ -708,6 +709,12 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
     res = await db[base.TRADES].update_one({**owner, "status": "open"}, {"$set": change})
     if res.matched_count:
+        # As the cash close (desk_trading.close_trade): the account gets back exactly what this structure
+        # reserved when it was opened (its capital at risk), plus or minus its net P&L. Here rather than in the
+        # route so an exit-rule close (apply_exits, from the list read or the evening script) frees the capital
+        # too; only the call that matched the open trade releases, so a racing second close releases nothing.
+        await paper_account.release(db, trade["user_id"], trade.get("paper_reserved_rs"),
+                                    net_pnl=change["net_pnl_rs"], trade_id=trade["_id"], symbol=trade.get("symbol"))
         return {**trade, **change}, True
     return await db[base.TRADES].find_one(owner), False
 
