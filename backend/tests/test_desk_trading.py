@@ -96,7 +96,8 @@ class FakeCollection:
         return sum(1 for d in self.docs if _matches(d, query))
 
     async def insert_one(self, doc):
-        if any(d["_id"] == doc["_id"] for d in self.docs):
+        # A paper-account ledger row has no `_id` (Mongo assigns one); only a given `_id` can collide.
+        if "_id" in doc and any(d.get("_id") == doc["_id"] for d in self.docs):
             raise DuplicateKeyError("E11000 duplicate key: _id")
         self.writes += 1
         self.docs.append(copy.deepcopy(doc))

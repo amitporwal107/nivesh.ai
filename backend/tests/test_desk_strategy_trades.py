@@ -31,6 +31,7 @@ import pytest
 
 from services import desk_strategy_trades as strat
 from services import desk_trading as svc
+from services import paper_account as acct
 from services.copilot_tools import daas_client
 from tests.test_desk_trading import (  # noqa: F401  (`world` and `api` are fixtures)
     A, B, NOW, TRADES_URL, api, bar, open_trade, trade_body, trades, world,
@@ -500,6 +501,145 @@ def test_the_evening_check_script_path_leaves_strategy_trades_to_their_own_rules
     doc = strat.new_strategy_trade("u", strategy_body(), NOW)
     out, counts = asyncio.run(svc.apply_trade_exits(sworld.db, [doc], {"FIXU": [], }))
     assert out == [doc] and counts["paths"] == {}
+
+
+# ── the paper account: a closed structure returns what it reserved ───────────
+# The worked spread reserves its capital at risk, the strike span × the quantity: (1360 − 1300) × 250 = ₹15,000.
+def _account(db, uid: str = "user_a") -> Dict[str, Any]:
+    import asyncio
+    return asyncio.run(acct.read(db, uid))
+
+
+def _releases(db) -> List[Dict[str, Any]]:
+    return [r for r in db[acct.LEDGER].docs if r["action"] == "release"]
+
+
+def test_a_manual_close_returns_the_reservation_and_books_the_net_pnl(api, sworld):
+    open_strategy(api, stop_underlying=1100.0, target_underlying=1500.0)
+    assert sworld.db.trades.docs[0]["paper_reserved_rs"] == 15000.0
+    assert _account(sworld.db)["blocked_rs"] == 15000.0
+    sworld.rows["FIXU"] = UNDERLYING[:3]
+    assert api.post(f"{TRADES_URL}/{sworld.db.trades.docs[0]['_id']}/close", json={}, headers=A).status_code == 200
+    stored = sworld.db.trades.docs[0]
+    # 14 Oct marks 30 / 10: gross −1,250; costs 46.875 + (30 + 10) × 250 × 0.0005 + 40 = 91.875; net −1,341.875
+    assert stored["net_pnl_rs"] == pytest.approx(-1341.875, abs=0.01)
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0
+    assert a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + stored["net_pnl_rs"], abs=0.01)
+    [rel] = _releases(sworld.db)
+    assert (rel["amount_rs"], rel["net_pnl_rs"], rel["trade_id"]) == (15000.0, stored["net_pnl_rs"], stored["_id"])
+
+
+def test_an_exit_rule_close_returns_the_reservation_too(api, sworld):
+    open_strategy(api)
+    trades(api)                                                    # the list read fires the target (15 Oct)
+    stored = sworld.db.trades.docs[0]
+    assert (stored["status"], stored["exit_reason"]) == ("closed", "target")
+    assert stored["net_pnl_rs"] == pytest.approx(6141.875, abs=0.01)  # 6,250 − 108.125
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6141.875, abs=0.01)
+    trades(api)                                                    # a second read changes nothing
+    assert len(_releases(sworld.db)) == 1
+
+
+def test_two_closes_racing_release_the_capital_once(api, sworld):
+    """A manual close and an exit-rule close holding the same open copy: the status in the filter lets one win, and
+    only the winner releases."""
+    import asyncio
+    open_strategy(api)
+    doc = copy.deepcopy(sworld.db.trades.docs[0])
+    _, sims, _ = asyncio.run(strat.apply_exits(sworld.db, [doc], persist=False))
+    sim = sims[doc["_id"]]
+    first = asyncio.run(strat.close_strategy_trade(sworld.db, doc, **sim["exit"], sim=sim))
+    second = asyncio.run(strat.close_strategy_trade(sworld.db, doc, exit_reason="manual", exit_session=None,
+                                                    exit_note=None, sim=sim))
+    assert first[1] is True and second[1] is False
+    assert second[0]["exit_reason"] == "target"                    # the first close stands
+    assert len(_releases(sworld.db)) == 1
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6141.875, abs=0.01)
+
+
+def test_a_structure_opened_before_the_account_existed_releases_nothing_but_books_its_pnl(sworld):
+    import asyncio
+    doc = strat.new_strategy_trade("user_a", strategy_body(), NOW)  # no paper_reserved_rs, as an old trade
+    asyncio.run(sworld.db.trades.insert_one(doc))
+    _, sims, _ = asyncio.run(strat.apply_exits(sworld.db, [doc], persist=False))
+    _, mine = asyncio.run(strat.close_strategy_trade(sworld.db, doc, **sims[doc["_id"]]["exit"], sim=sims[doc["_id"]]))
+    assert mine is True
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0, "the account must not be credited for a reservation it never took"
+    assert a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6141.875, abs=0.01)
+
+
+def test_a_close_with_an_unknown_pnl_returns_the_reservation_and_assumes_no_pnl(api, sworld):
+    """A stop on a session before a leg's first row: that leg has no mark, so the structure has no P&L. The capital
+    comes back; cash is not moved by a figure nobody knows."""
+    import asyncio
+    open_strategy(api)
+    doc = copy.deepcopy(sworld.db.trades.docs[0])
+    _, sims, _ = asyncio.run(strat.apply_exits(sworld.db, [doc], persist=False))
+    sim = copy.deepcopy(sims[doc["_id"]])
+    sim["legs"][1].update(mark=None, mark_date=None, mark_basis=None)
+    sim["gross_pnl_rs"] = None
+    stored, mine = asyncio.run(strat.close_strategy_trade(sworld.db, doc, **sim["exit"], sim=sim))
+    assert mine is True and stored["net_pnl_rs"] is None
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == acct.DEFAULT_CAPITAL
+
+
+# ── the evening script runs the strategy exit rules too ──────────────────────
+def test_the_evening_script_dry_run_reports_the_strategy_exit_and_writes_nothing(api, sworld):
+    import asyncio
+    from scripts import check_desk_alerts as script
+
+    open_strategy(api)
+    writes = sworld.db.trades.writes
+    account = copy.deepcopy(sworld.db[acct.ACCOUNTS].docs)
+    out = asyncio.run(script.run(sworld.db, dry_run=True))
+    assert out["ok"] is True and out["open_strategy_trades"] == 1
+    assert out["strategy_exits"] == {"target": 1} and out["strategy_not_checked"] == 0
+    assert out["symbols"] == 0                                     # the share-trade read leaves FIXU to the strategy read
+    assert sworld.db.trades.writes == writes and sworld.db.trades.docs[0]["status"] == "open"
+    assert sworld.db[acct.ACCOUNTS].docs == account and _releases(sworld.db) == []
+
+
+def test_the_evening_script_closes_the_strategy_and_returns_its_capital_once(api, sworld):
+    import asyncio
+    from scripts import check_desk_alerts as script
+
+    open_strategy(api)
+    out = asyncio.run(script.run(sworld.db))
+    assert out["ok"] is True and out["strategy_exits"] == {"target": 1}
+    doc = sworld.db.trades.docs[0]
+    assert (doc["status"], doc["exit_reason"], doc["exit_session"]) == ("closed", "target", "2026-10-15")
+    a = _account(sworld.db)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6141.875, abs=0.01)
+
+    writes = sworld.db.trades.writes + sworld.db[acct.ACCOUNTS].writes
+    again = asyncio.run(script.run(sworld.db))
+    assert again["open_strategy_trades"] == 0 and again["strategy_exits"] == {}
+    assert sworld.db.trades.writes + sworld.db[acct.ACCOUNTS].writes == writes
+    assert len(_releases(sworld.db)) == 1
+
+
+def test_the_evening_script_says_when_strategy_prices_cannot_be_read(api, sworld, monkeypatch, caplog):
+    import asyncio
+    import logging
+
+    import deps
+    from scripts import check_desk_alerts as script
+
+    open_strategy(api)
+    sworld.history_fail = daas_client.DaasError("unreachable")
+    out = asyncio.run(script.run(sworld.db))
+    assert out["strategy_not_checked"] == 1 and out["ok"] is False   # nothing else to check, and this could not be read
+    assert sworld.db.trades.docs[0]["status"] == "open"
+    caplog.set_level(logging.INFO)
+    monkeypatch.setattr(deps, "db", sworld.db)
+    monkeypatch.setattr("sys.argv", ["check_desk_alerts"])
+    assert script.main() == 1
+    assert "1 strategy trade(s) were not checked" in caplog.text
 
 
 def test_costs_use_the_strategy_engine_constants():
