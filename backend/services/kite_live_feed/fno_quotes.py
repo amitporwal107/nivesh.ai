@@ -1,13 +1,14 @@
 """Live premiums for a handful of named F&O contracts, read only.
 
 WHY THIS EXISTS AND WHY IT IS NOT THE WEBSOCKET
-The platform feed (`feed.py`) subscribes CASH and INDICES only: `_load_instruments` keeps NSE rows
-where `segment == "INDICES"` or `instrument_type == "EQ"`, and the `instruments("NFO")` call it makes
-feeds `universe.fno_underlyings`, which extracts FUT *underlying names* — a list of which stocks have
-F&O. No option or futures CONTRACT is ever subscribed, which is why a desk screen shows end-of-day
-premiums today.
+The platform feed (`feed.py`) subscribes cash stocks, indices, the near-month FUT contract of every F&O
+underlying, and a window of index options: for LIVE_OPTION_UNDERLYINGS (default NIFTY and BANKNIFTY) the
+LIVE_OPTION_EXPIRIES nearest expiries (default 2), LIVE_OPTION_STRIKES_EACH_SIDE strikes either side of the
+money (default 15), CE and PE, re-centred on every universe rebuild (served by GET /api/live/option-chain).
+A contract outside that set (a stock option, a later expiry, a strike outside the window, a next-month
+future) is not on the socket.
 
-Subscribing the chain is not the fix: NIFTY and BANKNIFTY alone run to thousands of listed strikes
+Subscribing every chain is not the fix: NIFTY and BANKNIFTY alone run to thousands of listed strikes
 against Kite's ~3000-instrument websocket cap. A screen showing five ideas needs at most ~20 named
 contracts, so this asks for exactly those over Kite's REST `quote()` instead. `ReadOnlyKite` exposes
 no order, GTT, margin or session method, so nothing here can place anything.

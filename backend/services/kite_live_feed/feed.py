@@ -6,6 +6,14 @@ unavailable or silent, by REST `quote()` in batches of at most 500 with at least
 (KITE_LIVE_FEED_CADENCE_SECONDS, 2-120, default 30) it publishes one consolidated snapshot to Mongo
 (`kite_live_snapshot`, TTL 72 h) and to this process. Followers and the API read the snapshot; they never call Kite.
 
+The universe is indices, Nifty 500, F&O underlyings, the near-month futures and, for LIVE_OPTION_UNDERLYINGS (default NIFTY
+and BANKNIFTY), the options of the LIVE_OPTION_EXPIRIES nearest expiries within LIVE_OPTION_STRIKES_EACH_SIDE strikes of the
+money, re-centred on every universe rebuild. Futures and options are in 'full' mode (open interest and market depth); quotes
+keep the top of book (bid/ask and their quantities) when Kite sends depth.
+
+Besides the snapshot, a second task on the leader (`run_cache`, every second) writes the quotes that changed to Redis, one
+key per symbol (`quote_cache`), and at each minute of the open session one replay document to `kite_live_minute`.
+
 It runs the market only during the NSE session (holidays from nidp.nse_holidays through the data platform), plus ONE
 final snapshot after the close. A missing or expired token is a state ('not_connected' / 'expired'), not a crash: the
 token is re-read on every attempt, with exponential backoff. Nothing here places, modifies or cancels an order, and no
@@ -27,6 +35,7 @@ from pymongo.errors import DuplicateKeyError
 from . import config as cfg
 from . import gateway as gw
 from . import platform_token as pt
+from . import quote_cache as qc
 from . import token_alert as ta
 from . import universe as uni
 
@@ -44,6 +53,10 @@ COL_INTRADAY = "kite_live_intraday"
 INTRADAY_SNAPSHOT_MINUTES = 5
 INTRADAY_TTL_SECONDS = 180 * 24 * 3600
 INTRADAY_INDICES = ("NIFTY 50", "NIFTY BANK")
+# One document per minute of the open session (`_id` "YYYY-MM-DDTHH:MM" IST, the first write wins), with the compact rows of
+# the indices, futures and options on the feed, for replay; kept LIVE_MINUTE_TTL_DAYS (default 90).
+COL_MINUTE = "kite_live_minute"
+CACHE_FLUSH_SECONDS = 1.0               # Redis writes are batched into at most one pipeline per second
 SNAPSHOT_TTL_SECONDS = 72 * 3600
 LEASE_NAME, LEASE_TTL_SECONDS = "kite_live_feed", 45
 UNIVERSE_REFRESH_SECONDS = 15 * 60
@@ -70,8 +83,38 @@ def _iso(ts: Any, default: datetime) -> str:
     return d.astimezone(cfg.IST).isoformat()
 
 
-def make_quote(symbol: str, last: Any, ohlc: Optional[dict], volume: Any, oi: Any, ts: Any, now: datetime) -> Optional[dict]:
-    """One normalised quote. ltp is None when Kite gave none (never 0); the change is last minus previous close."""
+def _stamp(ts: Any) -> Optional[str]:
+    """Kite's own stamp as IST ISO, or None when Kite gave none (never the receive time)."""
+    if isinstance(ts, str) and ts:
+        try:
+            ts = datetime.fromisoformat(ts)
+        except ValueError:
+            return None
+    return _iso(ts, datetime.now(timezone.utc)) if isinstance(ts, datetime) else None
+
+
+def top_of_book(depth: Any) -> Dict[str, Any]:
+    """bid/ask and their quantities from depth buy[0]/sell[0]. No depth, an empty level or a zero price gives None, never 0."""
+    out: Dict[str, Any] = {"bid": None, "ask": None, "bid_qty": None, "ask_qty": None}
+    if not isinstance(depth, dict):
+        return out
+    for side, price_key, qty_key in (("buy", "bid", "bid_qty"), ("sell", "ask", "ask_qty")):
+        levels = depth.get(side)
+        if not isinstance(levels, list) or not levels or not isinstance(levels[0], dict):
+            continue
+        price = _num(levels[0].get("price"))
+        if price is None or price <= 0:
+            continue
+        qty = _num(levels[0].get("quantity"))
+        out[price_key], out[qty_key] = price, (int(qty) if qty is not None and qty > 0 else None)
+    return out
+
+
+def make_quote(symbol: str, last: Any, ohlc: Optional[dict], volume: Any, oi: Any, ts: Any, now: datetime,
+               depth: Any = None) -> Optional[dict]:
+    """One normalised quote. ltp is None when Kite gave none (never 0); the change is last minus previous close.
+    `ts` is Kite's stamp, else the receive time; `exchange_ts` is Kite's stamp only (None without one); `received_at` is when
+    the feed got it; bid/ask come from the depth when Kite sent one."""
     ltp = _num(last)
     if ltp is None or ltp <= 0:
         return None
@@ -82,7 +125,8 @@ def make_quote(symbol: str, last: Any, ohlc: Optional[dict], volume: Any, oi: An
     return {"symbol": symbol, "ltp": ltp, "change": change,
             "change_pct": round(change / close * 100.0, 4) if change is not None else None,
             "open": _num(o.get("open")), "high": _num(o.get("high")), "low": _num(o.get("low")), "close": close,
-            "volume": _num(volume), "oi": _num(oi) or None, "ts": _iso(ts, now)}
+            "volume": _num(volume), "oi": _num(oi) or None, "ts": _iso(ts, now), **top_of_book(depth),
+            "exchange_ts": _stamp(ts), "received_at": now.astimezone(cfg.IST).isoformat(timespec="milliseconds")}
 
 
 def backoff_seconds(fails: int, cadence: int) -> int:
@@ -106,6 +150,10 @@ async def ensure_indexes(db) -> None:
     await db[COL_WANTED].create_index("expires_at", expireAfterSeconds=0, background=True)
     await db[COL_CLOSE].create_index("saved_at", expireAfterSeconds=CLOSE_TTL_SECONDS, background=True)
     await db[COL_INTRADAY].create_index("saved_at", expireAfterSeconds=INTRADAY_TTL_SECONDS, background=True)
+    try:
+        await db[COL_MINUTE].create_index("saved_at", expireAfterSeconds=cfg.minute_ttl_days() * 86400, background=True)
+    except Exception as e:  # noqa: BLE001 — e.g. the TTL setting changed after the index exists (needs collMod); the feed still starts
+        logger.warning("live feed: %s TTL index not (re)created (%s)", COL_MINUTE, type(e).__name__)
     await pt.ensure_indexes(db)
 
 
@@ -143,7 +191,26 @@ class LiveFeed:
         self._fno: List[str] = []
         self._n500: List[str] = []
         self._last_intraday_bucket: Optional[str] = None
-        self._futs: Dict[str, dict] = {}         # near-month futures: tradingsymbol -> {symbol, token, underlying, expiry}
+        self._futs: Dict[str, dict] = {}         # near-month futures: tradingsymbol -> {symbol, token, underlying, expiry, lot_size}
+        self.option_underlyings = cfg.option_underlyings()
+        self.option_expiries, self.option_strikes = cfg.option_expiries(), cfg.option_strikes_each_side()
+        self.cache_ttl = cfg.quote_cache_ttl_seconds()
+        self._opt_chains: Dict[str, Dict[str, List[dict]]] = {}   # underlying -> expiry -> listed contracts (nearest expiries)
+        self._opt_meta: Dict[str, dict] = {}     # tradingsymbol -> contract, for every contract of those chains
+        self._opts: List[str] = []               # the window on the feed now (ATM +/- N strikes, CE and PE)
+        self._opt_picked: List[dict] = []
+        self._opt_missing: List[str] = []        # underlyings left out for want of a spot price (retried every pass)
+        self._chains: Dict[tuple, Dict[str, str]] = {}            # (underlying, expiry) -> {"strike|type": "NFO:SYMBOL"}
+        self._chain_dirty = False
+        self._chain_keys: set = set()            # chain hashes written to Redis (to delete one that left the window)
+        self._chain_at = float("-inf")
+        self._index_syms: set = set()
+        self._dirty: set = set()                 # symbols with a new quote since the last Redis write (guarded by _qlock)
+        self._written: Dict[str, float] = {}     # symbol -> epoch seconds of its last Redis write
+        self._cache_at = float("-inf")
+        self._cache_warned_at = float("-inf")
+        self._last_minute: Optional[str] = None
+        self._minute_warned: Optional[str] = None
         self._inst_day: Optional[date] = None
         self._universe_at: Optional[datetime] = None
         self._wanted: List[str] = []
@@ -173,25 +240,40 @@ class LiveFeed:
             return
         now = self.clock()
         q = make_quote(sym, tick.get("last_price"), tick.get("ohlc"), tick.get("volume_traded", tick.get("volume")),
-                       tick.get("oi"), tick.get("exchange_timestamp") or tick.get("last_trade_time"), now)
+                       tick.get("oi"), tick.get("exchange_timestamp") or tick.get("last_trade_time"), now, tick.get("depth"))
         if q:
-            self._decorate(sym, q, tick.get("oi_day_high"), tick.get("oi_day_low"))
+            self._decorate(sym, q, tick.get("oi_day_high"), tick.get("oi_day_low"), "ws")
             with self._qlock:
                 self.quotes[sym] = q
+                self._dirty.add(sym)
             self.data_at = now
 
-    def _decorate(self, sym: str, q: dict, oi_high: Any, oi_low: Any) -> None:
-        """A futures quote names its underlying and expiry and carries the day's OI range; other quotes are untouched."""
+    def _decorate(self, sym: str, q: dict, oi_high: Any, oi_low: Any, source: str) -> None:
+        """Every quote says how it arrived (ws | rest). A futures quote names its underlying, expiry and lot size and carries the
+        day's OI range; an option quote names its underlying, expiry, strike, CE/PE and lot size."""
+        q["source"] = source
         f = self._futs.get(sym)
         if f:
             q.update({"instrument": "FUT", "underlying": f["underlying"], "expiry": f["expiry"],
-                      "oi_high": _num(oi_high) or None, "oi_low": _num(oi_low) or None})
+                      "oi_high": _num(oi_high) or None, "oi_low": _num(oi_low) or None, "lot_size": f.get("lot_size")})
+            return
+        o = self._opt_meta.get(sym)
+        if o:
+            q.update({"instrument": "OPT", "underlying": o["underlying"], "expiry": o["expiry"], "strike": o["strike"],
+                      "option_type": o["option_type"], "lot_size": o.get("lot_size")})
 
     def _qkey(self, sym: str) -> str:
-        return ("NFO:" if sym in self._futs else "NSE:") + sym
+        return ("NFO:" if sym in self._futs or sym in self._opt_meta else "NSE:") + sym
 
     def _full_tokens(self) -> set:
-        return {self.token_map[s] for s in self._futs if s in self.token_map}
+        return {self.token_map[s] for s in list(self._futs) + list(self._opt_meta) if s in self.token_map}
+
+    def _kind(self, sym: str) -> str:
+        if sym in self._futs:
+            return "FUT"
+        if sym in self._opt_meta:
+            return "OPT"
+        return "INDEX" if sym in self._index_syms else "EQ"
 
     # ── pieces ───────────────────────────────────────────────────────────────
     async def _session(self, now: datetime):
@@ -237,20 +319,29 @@ class LiveFeed:
             return
         nse = await asyncio.to_thread(self._kite.instruments, "NSE")
         tm: Dict[str, int] = {}
+        idx: set = set()
         for r in nse:
             if r.get("segment") == "INDICES" or r.get("instrument_type") == "EQ":
                 try:
                     tm[gw.canon(r["tradingsymbol"])] = int(r["instrument_token"])
                 except (KeyError, TypeError, ValueError):
                     continue
+                if r.get("segment") == "INDICES":
+                    idx.add(gw.canon(r["tradingsymbol"]))
         self._indices = uni.index_symbols(nse)
-        self._futs = {}
+        self._index_syms = idx
+        self._futs, self._opt_chains, self._opt_meta = {}, {}, {}
         try:
             nfo = await asyncio.to_thread(self._kite.instruments, "NFO")
             self._fno = uni.fno_underlyings(nfo)
             self._futs = {f["symbol"]: f for f in uni.near_month_futures(nfo, now.astimezone(cfg.IST).date())}
             for s, f in self._futs.items():
                 tm[s] = f["token"]
+            self._opt_chains = uni.option_contracts(nfo, self.option_underlyings, now.astimezone(cfg.IST).date(),
+                                                    self.option_expiries)
+            self._opt_meta = {c["symbol"]: c for by_day in self._opt_chains.values() for rows in by_day.values() for c in rows}
+            for s, c in self._opt_meta.items():
+                tm[s] = c["token"]
         except Exception as e:  # noqa: BLE001 — F&O set is optional; the failure is exposed in status
             if self._classify(e) == "AUTH_EXPIRED":
                 raise
@@ -272,17 +363,43 @@ class LiveFeed:
         self._wanted = wanted
         return changed
 
+    def _spot(self, underlying: str) -> Optional[float]:
+        """The at-the-money reference: the index quote (NIFTY 50 for NIFTY, NIFTY BANK for BANKNIFTY, the cash quote for a
+        stock), else the near-month future's. None when the feed has neither yet."""
+        fut = next((s for s, f in self._futs.items() if f["underlying"] == underlying), None)
+        with self._qlock:
+            q = self.quotes.get(uni.OPTION_SPOT.get(underlying, underlying)) or (self.quotes.get(fut) if fut else None)
+        return _num(q.get("ltp")) if q else None
+
+    def _select_options(self) -> None:
+        picked, self._opt_missing = uni.select_options(
+            self._opt_chains, {u: self._spot(u) for u in self._opt_chains}, self.option_strikes)
+        self._opt_picked, self._opts = picked, [c["symbol"] for c in picked]
+
+    def _build_chains(self) -> None:
+        """The chain index for the window actually subscribed (an option the cap dropped is not listed)."""
+        on = set(self.ordered)
+        chains: Dict[tuple, Dict[str, str]] = {}
+        for c in self._opt_picked:
+            if c["symbol"] in on:
+                chains.setdefault((c["underlying"], c["expiry"]), {})[qc.strike_field(c["strike"], c["option_type"])] = "NFO:" + c["symbol"]
+        if chains != self._chains:
+            self._chains, self._chain_dirty = chains, True
+
     async def _ensure_universe(self, now: datetime, wanted_changed: bool) -> None:
         due = self._universe_at is None or (now - self._universe_at).total_seconds() >= UNIVERSE_REFRESH_SECONDS
-        if not (due or wanted_changed):
+        pending = any(self._spot(u) is not None for u in self._opt_missing)    # a spot arrived for options left out
+        if not (due or wanted_changed or pending):
             return
         if due:
             try:
                 self._n500 = await self.load_nifty500()
             except Exception as e:  # noqa: BLE001 — keep the previous list; the partial universe is reported
                 logger.warning("live feed: Nifty 500 list unavailable (%s)", type(e).__name__)
+        self._select_options()                                # re-centred on the latest spot at every rebuild
         self.ordered, self.sets, self.unresolved = uni.assemble(
-            self._indices, self._wanted, self._n500, self._fno, self.token_map, list(self._futs))
+            self._indices, self._wanted, self._n500, self._fno, self.token_map, list(self._futs), self._opts)
+        self._build_chains()
         self._universe_at = now if due else self._universe_at
         if self._ticker is not None:
             self._ticker.full_tokens = self._full_tokens()
@@ -324,10 +441,11 @@ class LiveFeed:
                 for key, v in (data or {}).items():
                     sym = gw.canon(key)
                     q = make_quote(sym, v.get("last_price"), v.get("ohlc"), v.get("volume"), v.get("oi"),
-                                   v.get("timestamp"), stamp)
+                                   v.get("timestamp"), stamp, v.get("depth"))
                     if q:
-                        self._decorate(sym, q, v.get("oi_day_high"), v.get("oi_day_low"))
+                        self._decorate(sym, q, v.get("oi_day_high"), v.get("oi_day_low"), "rest")
                         self.quotes[sym] = q
+                        self._dirty.add(sym)
                         read += 1
             self.data_at = stamp
         return read
@@ -528,16 +646,116 @@ class LiveFeed:
         return await self.db[COL_SNAP].find_one({"_id": "latest"}, {"_id": 0})
 
     async def run(self) -> None:
+        cache = asyncio.ensure_future(self.run_cache())
+        try:
+            while True:
+                t0 = time.monotonic()
+                try:
+                    await self.tick()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("live feed tick failed: %s", type(e).__name__)
+                period = self.cadence if self.session == "open" and self.state in ("live", "error") else IDLE_SECONDS
+                await self.sleep(max(0.2, period - (time.monotonic() - t0)))
+        finally:
+            cache.cancel()
+
+    # ── Redis quote cache + 1-minute replay snapshots (leader only, every second) ──
+    async def run_cache(self) -> None:
         while True:
-            t0 = time.monotonic()
             try:
-                await self.tick()
+                await self.cache_pass()
             except asyncio.CancelledError:
                 raise
-            except Exception as e:  # noqa: BLE001
-                logger.warning("live feed tick failed: %s", type(e).__name__)
-            period = self.cadence if self.session == "open" and self.state in ("live", "error") else IDLE_SECONDS
-            await self.sleep(max(0.2, period - (time.monotonic() - t0)))
+            except Exception as e:  # noqa: BLE001 — the cache never stops the feed
+                t = time.monotonic()
+                if t - self._cache_warned_at >= 60:
+                    self._cache_warned_at = t
+                    logger.warning("live quote cache pass failed: %s", type(e).__name__)
+            await self.sleep(CACHE_FLUSH_SECONDS)
+
+    async def cache_pass(self) -> Dict[str, Any]:
+        if not self.leader:
+            with self._qlock:
+                self._dirty.clear()
+            return {}
+        now = self.clock().astimezone(timezone.utc)
+        return {"cached": await self._flush_cache(now), "minute": await self._save_minute(now)}
+
+    def _open_now(self, now: datetime) -> bool:
+        """Open session per the leader's last pass AND the clock (self.session can lag the 15:30 close by a pass)."""
+        hol = self._holidays.get(now.astimezone(cfg.IST).date(), set())
+        return self.session == "open" and self.state == "live" and cfg.session_of(now, hol)[0] == "open"
+
+    async def _flush_cache(self, now: datetime) -> int:
+        """Quotes that changed since the last write go to Redis in one pipeline, at most once per CACHE_FLUSH_SECONDS. During
+        the session a quote not rewritten for half the TTL is rewritten as it is (same received_at), so a quiet contract stays
+        cached while the leader lives; when the leader stops, every key expires within the TTL. A failed write keeps the
+        symbols pending for the next pass. Returns the number of rows written."""
+        t = now.timestamp()
+        if t - self._cache_at < CACHE_FLUSH_SECONDS:
+            return 0
+        self._cache_at = t
+        on = set(self.ordered)
+        keep_alive = self._open_now(now)
+        half = self.cache_ttl / 2.0
+        self._written = {s: at for s, at in self._written.items() if s in on}      # forget symbols that left the feed
+        with self._qlock:
+            dirty, self._dirty = self._dirty, set()
+            todo = {s for s in dirty if s in on}
+            if keep_alive:
+                todo |= {s for s, at in self._written.items() if s in on and t - at >= half}
+            items = [self.quotes[s] for s in todo if s in self.quotes]
+        chains: Dict[str, Dict[str, str]] = {}
+        if self._chain_dirty or (keep_alive and t - self._chain_at >= half):
+            chains = {qc.chain_key(u, x): m for (u, x), m in self._chains.items()}
+            chains.update({k: {} for k in self._chain_keys - set(chains)})          # a chain that left the window is deleted
+        rows = [qc.cache_row(q, self._kind(q["symbol"]), self.session) for q in items]
+        if not rows and not chains:
+            return 0
+        if not await qc.write(rows, chains, self.cache_ttl):
+            with self._qlock:
+                self._dirty |= dirty
+            return 0
+        for r in rows:
+            self._written[r["symbol"]] = t
+        if chains:
+            self._chain_keys = {k for k, m in chains.items() if m}
+            self._chain_dirty, self._chain_at = False, t
+        return len(rows)
+
+    async def _save_minute(self, now: datetime) -> bool:
+        """At the first pass of each minute of the open session, one replay document: the compact rows of the indices,
+        futures and options on the feed. Inserted, so the first write of a minute wins (another leader's is never replaced).
+        A failed write is logged once for that minute (class name only) and retried on the next pass."""
+        if not self._open_now(now):
+            return False
+        t = now.astimezone(cfg.IST)
+        key = t.strftime("%Y-%m-%dT%H:%M")
+        if key == self._last_minute:
+            return False
+        keep = set(self.sets.get("indices", [])) | set(self.sets.get("futures", [])) | set(self.sets.get("options", []))
+        with self._qlock:
+            items = [q for s, q in self.quotes.items() if s in keep]
+        if not items:
+            return False
+        rows = [qc.minute_row(q) for q in items]
+        doc = {"_id": key, "day": t.date().isoformat(), "minute": key, "as_of": now.isoformat(),
+               "data_at": self.data_at.isoformat() if self.data_at else None, "source": self.source,
+               "count": len(rows), "rows": rows, "saved_at": now}
+        try:
+            await self.db[COL_MINUTE].insert_one(doc)
+        except DuplicateKeyError:
+            self._last_minute = key                               # another leader wrote this minute first: theirs stays
+            return False
+        except Exception as e:  # noqa: BLE001
+            if self._minute_warned != key:
+                self._minute_warned = key
+                logger.warning("live feed: minute snapshot write failed (%s)", type(e).__name__)
+            return False
+        self._last_minute = key
+        return True
 
     # ── reads for the API ────────────────────────────────────────────────────
     async def read_snapshot(self) -> Optional[dict]:

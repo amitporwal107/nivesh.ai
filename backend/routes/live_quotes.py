@@ -5,9 +5,12 @@ GET /api/live/quotes    ?symbols=RELIANCE,NIFTY 50   batch of quotes from the la
 GET /api/live/snapshot  ?universe=indices|nifty500|fno|futures|all   a whole set (futures: the near-month contract of each F&O underlying, with OI)
 GET /api/live/close     ?date=YYYY-MM-DD&symbols=  the saved closing quotes of a trading day (newest when omitted)
 GET /api/live/stream    SSE, one `snapshot` event per cadence with the same body as /quotes or /snapshot
+GET /api/live/option-chain  ?underlying=NIFTY&expiry=YYYY-MM-DD  the cached option window (ATM +/- N strikes) grouped by strike
 
 Every body carries as_of / data_at / age_seconds / stale / mode. A symbol with no price is absent from `quotes` and listed
-in `missing` (null, never 0). The API never calls Kite: it serves what the leader process published.
+in `missing` (null, never 0). The API never calls Kite: it serves what the leader process published. Named symbols
+(/quotes, and /snapshot or /stream with ?symbols=) are read from the leader's per-symbol Redis cache first, which is at most a
+second old, and from the snapshot for the rest or when Redis is unavailable; the body is the same either way.
 """
 from __future__ import annotations
 
@@ -25,6 +28,7 @@ from services.kite_live_feed import config as cfg
 from services.kite_live_feed import fno_quotes as fq
 from services.kite_live_feed import gateway as gw
 from services.kite_live_feed import platform_token as pt
+from services.kite_live_feed import quote_cache as qc
 from services.kite_live_feed.feed import aware, get_feed
 
 logger = logging.getLogger(__name__)
@@ -82,6 +86,33 @@ def build_payload(snapshot: Optional[dict], status: Optional[dict], wanted: Opti
                     f"{cfg.stale_after_seconds(_cadence(status)):g}s (2.5 cadences), or the feed is not connected.", "read_only": True}
 
 
+def _when(ts: Any) -> Optional[datetime]:
+    try:
+        return aware(datetime.fromisoformat(str(ts))) if ts else None
+    except ValueError:
+        return None
+
+
+def overlay_cache(body: Dict[str, Any], symbols: List[str], cached: Optional[Dict[str, dict]]) -> Dict[str, Any]:
+    """Put the Redis cache's quote over the snapshot's for each named symbol, when it is at least as recent (received_at);
+    the snapshot answers the rest. No change when the cache is unavailable (None) or holds none of them."""
+    if not cached:
+        return body
+    quotes = body["quotes"]
+    for s in symbols:
+        row = cached.get(s)
+        if not row:
+            continue
+        have = quotes.get(s)
+        new, old = _when(row.get("received_at")), _when((have or {}).get("received_at"))
+        if have is None or (new is not None and (old is None or new >= old)):
+            quotes[s] = qc.as_quote(row)
+    body["quotes"] = {s: quotes[s] for s in symbols if s in quotes}
+    body["missing"] = [s for s in symbols if s not in quotes]
+    body["count"] = len(body["quotes"])
+    return body
+
+
 def _symbols(raw: str) -> List[str]:
     out, seen = [], set()
     for part in raw.split(","):
@@ -111,7 +142,8 @@ async def _body(symbols: Optional[List[str]], universe: Optional[str]) -> Dict[s
         await feed.request_symbols(symbols)
     elif universe:
         wanted = await _universe_symbols(universe)
-    return build_payload(await feed.read_snapshot(), await feed.read_status(), wanted, now)
+    body = build_payload(await feed.read_snapshot(), await feed.read_status(), wanted, now)
+    return overlay_cache(body, symbols, await qc.read_quotes(symbols)) if symbols else body
 
 
 @router.get("/status")
@@ -199,9 +231,11 @@ async def stream(request: Request, symbols: Optional[str] = Query(None, max_leng
 async def fno_quotes(request: Request) -> Dict[str, Any]:
     """Live premiums for a handful of NAMED F&O contracts (the legs a screen is showing).
 
-    Not the websocket: the platform feed subscribes cash and indices only, and an index option chain
-    runs to thousands of strikes against Kite's instrument cap. This asks Kite's REST quote() for the
-    handful of contracts actually on screen.
+    Not the websocket: the platform feed carries cash, indices, the near-month futures and only a window
+    of index options (NIFTY and BANKNIFTY by default: the nearest expiries, ATM +/- N strikes; see
+    /option-chain), so a leg outside it is not on the socket, and a whole option chain runs to thousands
+    of strikes against Kite's instrument cap. This asks Kite's REST quote() for the handful of contracts
+    actually on screen.
 
     Always answers 200. When the feed is off, no token is stored, or Kite refuses, it returns
     `available: false` with the reason and NO prices, so the caller keeps the end-of-day figures it
@@ -257,6 +291,42 @@ async def fno_quotes(request: Request) -> Dict[str, Any]:
         "source": "kite REST quote (live when the market is open; the last traded price otherwise)",
         "read_only": True,
     }
+
+@router.get("/option-chain")
+async def option_chain(request: Request, underlying: str = Query(..., pattern=r"^[A-Za-z0-9&-]{1,30}$"),
+                       expiry: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$")) -> Dict[str, Any]:
+    """The option quotes the leader cached for one underlying and expiry (the window on the feed: ATM +/- N strikes, CE and
+    PE), grouped by strike. Each CE/PE carries its received_at, age_seconds and `stale` (older than 2 cadences). A strike
+    side with no cached quote is null. Always 200: with Redis unavailable `cache` is "unavailable", with no chain cached for
+    that underlying and expiry it is "empty", and `rows` is [] in both; nothing is fabricated or read from Kite here."""
+    await get_current_user(request)
+    status = await get_feed().read_status()
+    cadence = _cadence(status)
+    stale_after = 2 * cadence
+    name = underlying.strip().upper()
+    state, cached = await qc.read_chain(name, expiry)
+    now = datetime.now(timezone.utc)
+    by_strike: Dict[float, Dict[str, Any]] = {}
+    for r in cached:
+        k, side = r.get("strike"), r.get("option_type")
+        if not isinstance(k, (int, float)) or side not in ("CE", "PE") or r.get("underlying") != name or r.get("expiry") != expiry:
+            continue
+        age = _age(r.get("received_at"), now)
+        item = {f: v for f, v in r.items() if f not in ("underlying", "expiry", "strike", "option_type", "exchange", "kind",
+                                                        "oi_high", "oi_low")}
+        item.update({"age_seconds": age, "stale": age is None or age > stale_after})
+        by_strike.setdefault(float(k), {"strike": float(k), "CE": None, "PE": None})[side] = item
+    rows = [by_strike[k] for k in sorted(by_strike)]
+    items = [x for row in rows for x in (row["CE"], row["PE"]) if x]
+    return {"underlying": name, "expiry": expiry, "cache": state, "as_of": now.isoformat(),
+            "session": (status or {}).get("session"), "cadence_seconds": cadence, "stale_after_seconds": stale_after,
+            "strikes": len(rows), "count": len(items), "stale_count": sum(1 for x in items if x["stale"]),
+            "lot_size": next((x["lot_size"] for x in items if x.get("lot_size")), None), "rows": rows,
+            "note": "Kite quotes cached by the live feed (ltp, bid/ask from the top of the book, OI, volume). `stale` is true when a "
+                    f"quote is older than {stale_after}s (2 cadences); outside the session every quote is stale and the cache "
+                    "empties within its TTL. Only the window on the feed is cached; any other contract is absent, never estimated.",
+            "read_only": True}
+
 
 @router.post("/kite/login-url")
 async def kite_login_url(request: Request) -> Dict[str, Any]:
