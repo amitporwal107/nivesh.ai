@@ -49,7 +49,7 @@ import { useDesk } from "./context";
 import { BuildupView } from "./FnoBuildup";
 import CandidatesView from "./FnoCandidates";
 import { ExpiryPanel, GreeksNotAvailable, HistoryPanel, IndexResearchNote, OiBarsPanel } from "./FnoIndexExpiries";
-import { BuilderView } from "./FnoBuilder";
+import { BUILDER_EXPIRY_DAYS, BuilderView } from "./FnoBuilder";
 import { ChainWithAnalyse } from "./FnoChainAnalyse";
 import { CompareView } from "./FnoCompare";
 import { StrategiesView } from "./FnoStrategies";
@@ -338,17 +338,57 @@ function ExpiryChooser({ oc, futures, symbol, onPick }: { oc: ReturnType<typeof 
   // NSE lists futures for monthly expiries only, so an option expiry a future shares is a monthly one.
   const futDays = futures.data.futures.map((f) => f.expiry);
   const last = futDays.length ? futDays.reduce((a, b) => (a > b ? a : b)) : null;
-  const monthly = pool.find((e) => futDays.includes(e.expiry)) ?? null;
+  const months = pool.filter((e) => futDays.includes(e.expiry)).slice(0, 3);
+  const monthly = months[0] ?? null;
   const weekly = pool.find((e) => !futDays.includes(e.expiry) && (last == null || e.expiry < last)) ?? null;
+  const tag = (e: { expiry: string; days_to_expiry: number }) => `${fmtDay(e.expiry)} · ${fmtNum(e.days_to_expiry)} days`;
   const opts: Array<SegOption<string>> = [
     weekly
-      ? { value: weekly.expiry, key: "weekly", label: `Weekly · ${shortDay(weekly.expiry)}`, title: `${fmtDay(weekly.expiry)} · ${fmtNum(weekly.days_to_expiry)} days` }
+      ? { value: weekly.expiry, key: "weekly", label: `Weekly · ${shortDay(weekly.expiry)}`, title: tag(weekly) }
       : { value: "weekly-none", key: "weekly", label: "Weekly", disabled: true, title: `No weekly expiry is listed for ${symbol}` },
     monthly
-      ? { value: monthly.expiry, key: "monthly", label: `Monthly · ${shortDay(monthly.expiry)}`, title: `${fmtDay(monthly.expiry)} · ${fmtNum(monthly.days_to_expiry)} days` }
+      ? { value: monthly.expiry, key: "monthly", label: `Monthly · ${shortDay(monthly.expiry)}`, title: tag(monthly) }
       : { value: "monthly-none", key: "monthly", label: "Monthly", disabled: true, title: `No monthly expiry is listed for ${symbol}` },
+    ...months.slice(1).map((e, k) => ({ value: e.expiry, key: k === 0 ? "next" : "far", label: `${k === 0 ? "Next" : "Far"} · ${shortDay(e.expiry)}`, title: tag(e) })),
   ];
-  return <Segmented<string> label="Expiry" testId="desk-fno-expiry" value={expiry} onChange={onPick} options={opts} />;
+  return (
+    <span className="inline-flex flex-wrap items-center" style={{ gap: 8 }}>
+      <Segmented<string> label="Expiry" testId="desk-fno-expiry" value={expiry} onChange={onPick} options={opts} />
+      <select
+        aria-label="Pick an expiry date" data-testid="desk-fno-expiry-date" value={expiry} onChange={(e) => onPick(e.target.value)}
+        className="cp-num" style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid var(--cp-line, rgba(255,255,255,0.18))", background: "var(--bg-2)", color: "var(--cp-ink)", fontSize: 11 }}
+      >
+        {pool.map((e) => <option key={e.expiry} value={e.expiry}>{`${fmtDay(e.expiry)} · ${futDays.includes(e.expiry) ? "monthly" : "weekly"} · ${fmtNum(e.days_to_expiry)}d`}</option>)}
+      </select>
+    </span>
+  );
+}
+
+/** Every listed futures contract (the three monthly expiries) with its price, basis and OI change; a contract whose expiry also has options selects that expiry. */
+function FuturesStrip({ futures, optionExpiries, picked, onPick }: { futures: FnoResult<FnoFutures> | undefined; optionExpiries: string[]; picked: string | null; onPick: (e: string) => void }) {
+  if (futures?.kind !== "ok" || futures.data.futures.length === 0) return null;
+  const rows = futures.data.futures.filter((f) => f.expiry >= futures.data.as_of).slice(0, 3);
+  const names = ["Near", "Next", "Far"];
+  return (
+    <div data-testid="desk-fno-futures-strip" role="group" aria-label="Futures contracts" className="flex flex-wrap items-stretch" style={{ gap: 8 }}>
+      <span className="cp-eyebrow" style={{ alignSelf: "center" }}>Futures</span>
+      {rows.map((f, k) => {
+        const on = f.expiry === picked;
+        const linked = optionExpiries.includes(f.expiry);
+        return (
+          <button
+            key={f.expiry} type="button" data-testid={`desk-fno-future-${f.expiry}`} aria-pressed={on} disabled={!linked}
+            title={linked ? "Show the options for this expiry" : "No options are listed for this expiry"} onClick={() => onPick(f.expiry)}
+            className="cp-num flex flex-col" style={{ gap: 2, padding: "6px 12px", borderRadius: 10, textAlign: "left", cursor: linked ? "pointer" : "default", border: `1px solid ${on ? "var(--cp-ink-3)" : "var(--cp-line, rgba(255,255,255,0.18))"}`, background: on ? "var(--bg-4)" : "transparent", color: "var(--cp-ink)", fontSize: 11 }}
+          >
+            <span style={{ color: "var(--cp-ink-3)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase" }}>{names[k]} · {shortDay(f.expiry)}</span>
+            <span>{f.settle == null ? "—" : fmtNum(f.settle, 2)}{f.basis == null ? "" : ` · basis ${fmtSigned(f.basis)}`}</span>
+            <span style={{ color: "var(--cp-ink-3)" }}>OI {f.oi == null ? "—" : fmtQty(f.oi)}{f.change_in_oi == null ? "" : ` (${fmtQty(f.change_in_oi, { signed: true })})`}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── NIFTY & BANKNIFTY ────────────────────────────────────────────────────
@@ -529,6 +569,7 @@ export default function FnoTab() {
         onPick={pick}
         expiry={oc.state.status !== "none" ? <ExpiryChooser oc={oc} futures={fq.data} symbol={symbol} onPick={setPicked} /> : <span className="cp-mono-note">—</span>}
       />
+      <FuturesStrip futures={fq.data} optionExpiries={oc.list.map((e) => e.expiry)} picked={oc.expiry} onPick={setPicked} />
 
       <FnoGate symbol={symbol} state={oc.state} testId="desk-fno-stats">
         {(c) => (
@@ -603,7 +644,7 @@ export default function FnoTab() {
             <Segmented<"builder" | "compare" | "ideas"> label="Paper strategies mode" testId="desk-strat-mode" value={stratMode} onChange={setStratMode}
               options={[{ value: "builder", label: "Builder" }, { value: "compare", label: "Compare" }, { value: "ideas", label: "Rule-based ideas" }]} />
             {stratMode === "builder"
-              ? <BuilderView symbol={symbol} state={oc.state} />
+              ? <BuilderView symbol={symbol} state={oc.state} expiryChoice={{ options: oc.list.filter((e) => e.days_to_expiry > 0 && e.days_to_expiry <= BUILDER_EXPIRY_DAYS), onPick: setPicked }} />
               : stratMode === "compare"
                 ? <CompareView symbol={symbol} state={oc.state} />
                 : <StrategiesView symbol={symbol} state={oc.state} near={near} futuresNote={futuresNote} onLoad={pick} />}

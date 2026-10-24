@@ -157,7 +157,11 @@ function MarginStrip({ state }: { state: ReturnType<typeof useMargin> }) {
 export interface SharedLegs { legs: LegRow[]; setLegs: (next: LegRow[] | ((ls: LegRow[]) => LegRow[])) => void }
 
 /** variant "page": the Paper strategies builder (tiles, suggested structure). variant "panel": the chain's Analyse panel, whose trades come from the chain rows (`shared`) and which has no tiles. */
-export function BuilderView({ symbol, state, shared, variant = "page" }: { symbol: string; state: ChainState; shared?: SharedLegs; variant?: "page" | "panel" }) {
+/** Option expiries the builder can price on: the ones listed within the next three months. */
+export const BUILDER_EXPIRY_DAYS = 95;
+export interface ExpiryChoice { options: Array<{ expiry: string; days_to_expiry: number }>; onPick: (expiry: string) => void }
+
+export function BuilderView({ symbol, state, shared, variant = "page", expiryChoice }: { symbol: string; state: ChainState; shared?: SharedLegs; variant?: "page" | "panel"; expiryChoice?: ExpiryChoice }) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const scan = useBuildup(true);
@@ -220,8 +224,13 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
   };
   const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(dflt); };
   const tiles = TEMPLATES.filter((t) => t.view === view);
-  // The payoff route still says "No margin source exists" (an old text other screens pin); here the margin strip is the source.
-  const response = pay.data ? { ...pay.data, margin_reason: "Funds and margin needed are in the strip above: Zerodha’s margin calculator, which needs the platform’s Kite login." } : pay.data;
+  // The payoff route has no margin source (its text is pinned by other screens); here the margin calculator is the source, and the tile shows its number.
+  const mState = marginQ.data;
+  const response = pay.data ? {
+    ...pay.data,
+    margin: mState?.kind === "ok" && mState.data.required != null ? { estimate: mState.data.required, source: mState.data.source } : pay.data.margin,
+    margin_reason: mState?.kind === "unavailable" ? mState.reason : marginQ.isLoading ? "Asking Zerodha’s margin calculator." : "Funds and margin needed are in the strip above: Zerodha’s margin calculator, which needs the platform’s Kite login.",
+  } : pay.data;
   const netLabel = response?.expiry?.net_premium != null ? (response.expiry.net_premium < 0 ? "Net debit" : "Net credit") : null;
 
   return (
@@ -233,6 +242,20 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
           meta={`${fmtDay(chain.summary.expiry)} expiry · lot ${lot ?? "—"}`}
           bodyStyle={{ gap: 12, padding: 14 }}
         >
+          {expiryChoice && expiryChoice.options.length > 1 && (
+            <div data-testid="desk-builder-expiry" role="group" aria-label="Expiry for this strategy" className="flex flex-wrap items-center" style={{ gap: 6 }}>
+              <span className="cp-eyebrow">Expiry</span>
+              {expiryChoice.options.map((e) => {
+                const on = e.expiry === chain.summary.expiry;
+                return (
+                  <button key={e.expiry} type="button" aria-pressed={on} data-testid={`desk-builder-expiry-${e.expiry}`} title={`${fmtDay(e.expiry)} · ${e.days_to_expiry} days`} onClick={() => expiryChoice.onPick(e.expiry)}
+                    className="cp-num" style={{ padding: "4px 10px", borderRadius: 999, fontSize: 10.5, cursor: "pointer", border: `1px solid ${on ? "var(--cp-ink-3)" : "var(--cp-line, rgba(255,255,255,0.18))"}`, background: on ? "var(--bg-4)" : "transparent", color: on ? "var(--cp-ink)" : "var(--cp-ink-3)" }}>
+                    {fmtDay(e.expiry)} · {e.days_to_expiry}d
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {suggested && tpl === suggested && <span data-testid="desk-builder-suggested" style={quiet}>Suggested by the {row?.label?.replace("_", " ")}; your view decides. End-of-day closes, not live quotes.</span>}
           {legs.length === 0 ? <span data-testid="desk-builder-empty" style={quiet}>No trades yet. Pick a structure below, or add a trade.</span> : (
             <div className="flex flex-col" style={{ gap: 8 }}>
