@@ -56,6 +56,9 @@ def test_tc2_shape_totals_and_nulls():
 
 def _client(monkeypatch, calc=None, no_session=False):
     fm._INSTRUMENTS.update({"day": None, "rows": None})
+    async def _noop():
+        return None
+    monkeypatch.setattr(route, "_refresh_platform_token", _noop)
     async def fake_user(request: Request):
         return {"user_id": "u1"}
     def make():
@@ -106,3 +109,34 @@ def test_tc5_instruments_are_read_once_a_day():
     assert s.inst_calls == 1
     fm.instruments_today(s, date(2026, 10, 25))
     assert s.inst_calls == 2
+
+
+def test_the_route_reloads_the_platform_token_before_asking_kite_and_survives_a_failed_reload(monkeypatch):
+    """With several workers only the feed leader reloads the token, so every margin call reloads this worker's copy first (a worker holding yesterday's token answered 503 on staging)."""
+    import deps
+    from services.kite_live_feed import platform_token as pt
+    order = []
+
+    async def fake_refresh(db, now=None):
+        order.append("refresh")
+        return True
+
+    class Calc(Stub):
+        def basket_margins(self, params):
+            order.append("kite")
+            return super().basket_margins(params)
+
+    monkeypatch.setattr(pt, "refresh_cache", fake_refresh)
+    monkeypatch.setattr(deps, "db", object())
+    fm._INSTRUMENTS.update({"day": None, "rows": None})
+    async def fake_user(request: Request):
+        return {"user_id": "u1"}
+    monkeypatch.setattr(route, "get_current_user", fake_user)
+    monkeypatch.setattr(fm, "default_calculator", lambda: (order.append("calc"), Calc())[1])
+    app = FastAPI(); app.include_router(route.router)
+    assert TestClient(app).post("/api/fno/margin", json=_body()).status_code == 200
+    assert order == ["refresh", "calc", "kite"]
+    async def boom(db, now=None):
+        raise RuntimeError("mongo down")
+    monkeypatch.setattr(pt, "refresh_cache", boom)
+    assert TestClient(app).post("/api/fno/margin", json=_body()).status_code == 200        # a failed reload does not break the route

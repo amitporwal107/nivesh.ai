@@ -652,6 +652,16 @@ async def _forward_bars(symbols: List[str], start: str, end: str) -> Dict[str, L
     return out
 
 
+async def _refresh_platform_token() -> None:
+    """Load the stored platform Kite token into this worker. A failed read leaves whatever the worker held (the calculator then answers 503 if that is stale)."""
+    try:
+        from deps import db
+        from services.kite_live_feed import platform_token
+        await platform_token.refresh_cache(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fno margin: the platform token could not be reloaded (%s)", type(e).__name__)
+
+
 class MarginLeg(BaseModel):
     side: str = Field(..., pattern="^(buy|sell)$")
     option_type: str = Field(..., pattern="^(call|put|future)$")
@@ -671,6 +681,8 @@ async def margin(request: Request, body: MarginRequest) -> Dict[str, Any]:
     when the platform is not logged in to Kite today; 404 naming the legs with no listed contract; 502 on a Kite error, never provider text."""
     await get_current_user(request)
     legs = [l.model_dump() for l in body.legs]
+    # The backend runs several workers and only the feed's leader reloads the platform token from Mongo, so this worker's copy can be yesterday's: reload it before asking Kite.
+    await _refresh_platform_token()
     try:
         calc = fno_margin.default_calculator()
         out = await asyncio.to_thread(fno_margin.run, calc, body.underlying.upper(), legs)
