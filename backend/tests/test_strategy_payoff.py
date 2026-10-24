@@ -92,6 +92,18 @@ def test_long_future_with_lot_size_and_costs():
     assert r["costs"]["entry"] == 323.75 and r["sent_to_broker"] is False
 
 
+def test_margin_reason_points_to_the_margin_calculator_and_its_kite_login():
+    # The payoff engine does not estimate margin; per-structure margin exists only through Zerodha's calculator (services/fno_margin.py),
+    # which needs the platform's daily Kite login. The old text ("No margin source exists ... account-level") is false and must not return.
+    ok = run([leg("future", qty=1, lot=250, entry=1215.0)])
+    bad = compute_payoff({"underlying": "X", "reference_price": 100.0, "legs": []}, today=date(2026, 10, 20))
+    for r in (ok, bad):
+        assert r["margin"] is None
+        assert "does not estimate margin" in r["margin_reason"] and "Zerodha's margin calculator" in r["margin_reason"] and "Kite login" in r["margin_reason"]
+        assert "no margin source" not in r["margin_reason"].lower() and "account-level" not in r["margin_reason"]
+    assert ok["valid"] is True and bad["valid"] is False
+
+
 def test_short_future_unbounded_loss():
     r = run([leg("future", side="sell", qty=1, lot=250, entry=1215.0)])
     e = r["expiry"]

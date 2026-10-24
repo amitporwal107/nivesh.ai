@@ -582,7 +582,7 @@ def plan_doc():                                                  # MOCK — not 
     twin = {"id": "opt2", "segment": "options", "status": "candidate", "legs": [leg_a, leg_b], "payoff": {"margin": None, "margin_reason": "none"},
             "options_selection": {"preferred_flags": []}, "warnings": []}
     fx = {"id": "fut1", "segment": "futures", "status": "candidate", "legs": [fut], "payoff": {"margin": None, "margin_reason": "none"}, "options_selection": None,
-          "warnings": ["Futures losses can exceed the initial margin; no margin estimate exists in this system, so the notional is used for the allocation cap."]}
+          "warnings": ["Futures losses can exceed the initial margin; the plan does not estimate margin, so the notional is used for the allocation cap."]}
     blocked = {"id": "opt3", "segment": "options", "status": "no_trade", "legs": [leg_a], "payoff": {"margin": None, "margin_reason": "none"}, "options_selection": None, "warnings": []}
     cash = {"id": "cash1", "segment": "cash", "status": "candidate", "legs": [{"kind": "cash", "side": "buy", "quantity": 10, "lot_size": 1}], "payoff": {"margin": None}, "options_selection": None, "warnings": []}
     return {"inputs": {"underlying": "RELIANCE", "live_broker_reads": True}, "preferred": "opt1", "candidates": [opt, twin, fx, blocked, cash],

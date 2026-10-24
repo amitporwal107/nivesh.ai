@@ -13,7 +13,8 @@
  *
  * Pointing at the chart (or touching it), or focusing it and pressing the left / right arrow keys
  * (Shift for ten steps, Home / End), prints the price, gross and net P&L and, on the pre-expiry
- * estimate, the Greeks in the line above it; nothing is on hover only.
+ * estimate, the Greeks in the line above it; nothing is on hover only. The estimate also lists each
+ * leg's Greeks from the answer (`per_leg_greeks`) in a small table, labelled as the model's estimate.
  *
  * Unbounded ends are labelled with an arrow and words ("Profit unbounded"); max profit and max
  * loss print "Unlimited" when the response's flag says so and "—" when the figure is null.
@@ -428,6 +429,7 @@ export function PayoffChart({
           ))}
         </ul>
       )}
+      {mode === "pre" && preExpiry && <LegGreeks pre={preExpiry} referencePrice={referencePrice} />}
       {mode === "pre" && preExpiry && <PreNote pre={preExpiry} />}
     </div>
   );
@@ -450,6 +452,47 @@ function LegendKey({ color, dash, children }: { color: string; dash?: string; ch
       <svg width={16} height={6} aria-hidden><line x1={0} y1={3} x2={16} y2={3} style={{ stroke: color }} strokeWidth={2} strokeDasharray={dash} /></svg>
       {children}
     </span>
+  );
+}
+
+const GREEK_COLS: Array<{ key: "delta" | "gamma" | "theta" | "vega" | "rho"; label: string }> = [
+  { key: "delta", label: "Δ" }, { key: "gamma", label: "Γ" }, { key: "theta", label: "Θ/day" }, { key: "vega", label: "Vega" }, { key: "rho", label: "ρ" },
+];
+
+/** Each leg's Greeks at the reference price, as the answer gives them, with the answer's net row. A leg or a value the model could not price prints "—". */
+function LegGreeks({ pre, referencePrice }: { pre: PayoffPreExpiry; referencePrice: number }) {
+  const rows = pre.per_leg_greeks;
+  const caption = `Greeks per leg at ${rs(referencePrice)} · model estimate (${pre.model}, end-of-day inputs), not a quote`;
+  const note: CSSProperties = { fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)" };
+  if (!rows.length) return <p data-testid="payoff-leg-greeks-none" className="m-0" style={note}>Greeks per leg: {DASH} (not in this answer).</p>;
+  const cell: CSSProperties = { padding: "3px 6px", textAlign: "right", whiteSpace: "nowrap", fontWeight: 400 };
+  const head: CSSProperties = { ...cell, textAlign: "left", whiteSpace: "normal" };
+  return (
+    <div data-testid="payoff-leg-greeks" className="min-w-0" style={{ overflowX: "auto" }}>
+      <table className="cp-num" style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, color: "var(--cp-ink-2)" }}>
+        <caption style={{ ...note, captionSide: "top", textAlign: "left", paddingBottom: 4 }}>{caption}</caption>
+        <thead>
+          <tr style={{ color: "var(--cp-ink-3)" }}>
+            <th scope="col" style={head}>Leg</th>
+            {GREEK_COLS.map((c) => <th key={c.key} scope="col" style={cell}>{c.label}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.leg} data-testid="payoff-leg-greeks-row" style={{ borderTop: "1px solid var(--line-2)" }}>
+              <th scope="row" style={head}>{r.label || `Leg ${r.leg + 1}`}</th>
+              {GREEK_COLS.map((c) => <td key={c.key} style={cell}>{greek(r.greeks?.[c.key])}</td>)}
+            </tr>
+          ))}
+          {pre.greeks && (
+            <tr data-testid="payoff-leg-greeks-net" style={{ borderTop: "1px solid var(--line-3)", color: "var(--cp-ink)" }}>
+              <th scope="row" style={head}>Net</th>
+              {GREEK_COLS.map((c) => <td key={c.key} style={cell}>{greek(pre.greeks?.[c.key])}</td>)}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

@@ -226,7 +226,7 @@ export function CandidateDetail({ plan, c, persona }: { plan: StrategyPlan; c: C
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,200px),1fr))", gap: "10px 18px" }}>
               <Fact testId="cost-round" k="Estimated round-trip costs" v={rupees(pay.costs?.round_trip)} why={pay.costs?.model ?? undefined} />
               <Fact testId="cost-excluded" k="Not included" v={pay.costs?.excluded.length ? pay.costs.excluded.join(", ") : DASH} />
-              <Fact testId="margin" k="Margin estimate" v={pay.margin?.estimate != null ? rupees(pay.margin.estimate) : DASH} why={pay.margin?.estimate != null ? pay.margin.source ?? undefined : pay.margin_reason ?? "No margin source exists in this system."} />
+              <Fact testId="margin" k="Margin estimate" v={pay.margin?.estimate != null ? rupees(pay.margin.estimate) : DASH} why={pay.margin?.estimate != null ? pay.margin.source ?? undefined : pay.margin_reason ?? "The plan does not estimate margin."} />
               <Fact testId="capital-at-risk" k="Capital at risk (worst net loss)" v={rupees(pay.capital_at_risk)} why={pay.capital_at_risk == null ? "The loss is not bounded, so there is no figure." : pay.capital_at_risk_basis ?? undefined} />
             </div>
           </Block>

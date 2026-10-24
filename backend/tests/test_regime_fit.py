@@ -149,7 +149,7 @@ def test_margin_is_never_estimated(chain):
     m = rf.metrics_for("NIFTY", got["legs"], chain["summary"]["spot"], chain["asof"],
                        scenario_price=rf._expected_move_price("down", chain["summary"]))
     assert m["margin"] is None
-    assert "no margin source" in (m["margin_reason"] or "").lower()
+    assert "does not estimate margin" in (m["margin_reason"] or "") and "margin calculator" in (m["margin_reason"] or "")
 
 
 # ── TC-14: net Greeks ───────────────────────────────────────────────────────

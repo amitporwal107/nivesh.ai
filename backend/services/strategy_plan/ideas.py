@@ -18,7 +18,7 @@ from fastapi import Request
 
 from . import evidence as ev
 from .engine import CALCULATION_VERSION
-from .plan import build_plan, normalise_inputs
+from .plan import MARGIN_CAVEAT, build_plan, normalise_inputs
 from .rules import STRATEGY_RULES_VERSION
 from .rules import RULES
 from .selection import DEFAULT_LIMIT, MAX_LIMIT, scanner_view, select_opportunities
@@ -236,5 +236,5 @@ async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[s
         "caveats": ["Conditional research ideas, not advice and not an instruction to trade.",
                     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
                     "Payoff figures are calculations at the prices shown, not forecasts; taxes, statutory charges, dividends and funding are excluded.",
-                    "Margin is not estimated (no source exists in this system) and is not the maximum loss.", "Nothing is sent to a broker."],
+                    MARGIN_CAVEAT, "Nothing is sent to a broker."],
     }
