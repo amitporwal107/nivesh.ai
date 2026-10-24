@@ -1809,3 +1809,111 @@ test.describe("Smart trading desk — Options & futures lab · index history and
     expect(o.scroll).toBeLessThanOrEqual(1);
   });
 });
+
+// ── the option chain with the Analyse panel (FnoChainAnalyse.tsx) ───────────────────────────────────────────────────────
+// MOCK — not real data: the NIFTY chain fixture (strikes 24,700-25,300, lot 65); payoff and margin answered by mocks written for this spec (the payoff is an independent expiry-payoff calculation).
+test.describe("Smart trading desk — Options & futures lab · option chain with the Analyse panel", () => {
+  test.beforeEach(async ({ page }) => { await deskBase(page); });
+  type Leg = { side: string; option_type: string; strike: number; quantity: number; entry_price: number };
+  async function openChain(page: Page, opts: { margin?: { status: number; body: unknown } } = {}) {
+    const bodies: Array<{ reference_price: number; legs: Leg[]; grid: { from_pct: number; to_pct: number; points: number } }> = [];
+    await fnoData(page);
+    await page.route("**/api/desk/strategy/payoff", (route) => {
+      const req = JSON.parse(route.request().postData() ?? "{}");
+      bodies.push(req);
+      const { reference_price: ref, grid, legs } = req;
+      const xs = Array.from({ length: grid.points }, (_, i) => ref * (1 + grid.from_pct / 100) + (ref * ((grid.to_pct - grid.from_pct) / 100) * i) / (grid.points - 1));
+      const gross = xs.map((x: number) => legs.reduce((s: number, l: Leg & { lot_size: number }) => s + (l.side === "buy" ? 1 : -1) * ((l.option_type === "call" ? Math.max(x - l.strike, 0) : Math.max(l.strike - x, 0)) - l.entry_price) * l.quantity * l.lot_size, 0));
+      const prem = legs.reduce((s: number, l: Leg & { lot_size: number }) => s + (l.side === "buy" ? -1 : 1) * l.entry_price * l.quantity * l.lot_size, 0);
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ valid: true, problems: [], warnings: [], calculation_version: "spec-v1", caveats: [], sent_to_broker: false, underlying: "NIFTY", reference_price: ref,
+        expiry: { grid: xs, gross, net: gross, per_leg: [], breakevens: [], max_profit: Math.max(...gross), max_loss: Math.min(...gross), profit_unbounded: false, loss_unbounded: false, net_premium: prem, scenarios: [] }, costs: null, margin: { estimate: null, source: null }, capital_at_risk: -Math.min(...gross) }) });
+    });
+    await page.route("**/api/fno/margin", (route) => {
+      const m = opts.margin ?? { status: 200, body: { required_margin: 91234.5, initial_margin: 92000, charges: { per_order: [], total: { brokerage: 40, stt: 0, exchange: 6, sebi: 0.01, stamp_duty: 0, gst: 8.3, total: 54.3 } }, as_of: "2026-10-24", source: "Zerodha margin calculator (Kite Connect): exchange SPAN + exposure margin and order charges", note: "A calculation for the platform account's rules, not an exchange-published figure and not a quote. Nothing is placed.", sent_to_broker: false } };
+      return route.fulfill({ status: m.status, contentType: "application/json", body: JSON.stringify(m.body) });
+    });
+    await page.goto(`${DESK}?tab=fno`);
+    await page.getByTestId("desk-fno-view-chain").click();
+    await expect(page.getByTestId("desk-fno-chain-row").first()).toBeVisible();
+    return bodies;
+  }
+  const chainFx = () => load("copilot-options-chain.json");
+
+  test("TC-1 B and S buttons on every call and put cell", async ({ page }) => {
+    await openChain(page);
+    for (const k of [24700, 25000, 25300]) for (const kind of ["call", "put"]) for (const s of ["b", "s"]) await expect(page.getByTestId(`desk-chain-${s}-${kind}-${k}`)).toBeVisible();
+    await expect(page.getByTestId("desk-analyse")).toHaveCount(0);
+  });
+
+  test("TC-2 TC-3 B adds a buy leg at the end-of-day close and opens the panel; S adds another; clicking again removes", async ({ page }) => {
+    const bodies = await openChain(page);
+    const px = (k: number, side: "call" | "put") => chainFx().strikes.find((r: { strike: number }) => r.strike === k)[side].close;
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-analyse")).toContainText("Analyse · 1 trade selected");
+    await expect.poll(() => bodies[bodies.length - 1]?.legs.map((l) => [l.side, l.option_type, l.strike, l.quantity, l.entry_price])).toEqual([["buy", "call", 25000, 1, px(25000, "call")]]);
+    await page.getByTestId("desk-chain-s-call-25200").click();
+    await expect(page.getByTestId("desk-analyse")).toContainText("2 trades selected");
+    await expect(page.getByTestId("desk-chain-s-call-25200")).toHaveAttribute("aria-pressed", "true");
+    await expect.poll(() => bodies[bodies.length - 1]?.legs.length).toBe(2);
+    await page.getByTestId("desk-chain-s-call-25200").click();
+    await expect(page.getByTestId("desk-analyse")).toContainText("1 trade selected");
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-analyse")).toHaveCount(0);
+  });
+
+  test("TC-4 the panel shows funds and margin from the calculator with its source; a 503 reads Unavailable", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-put-25000").click();
+    await expect(page.getByTestId("desk-builder-margin-required")).toHaveText("₹91,235");
+    await expect(page.getByTestId("desk-builder-margin")).toContainText("Zerodha margin calculator");
+    await expect(page.getByTestId("strategy-graphs")).toBeVisible();
+    await page.getByTestId("desk-analyse-close").click();
+    await expect(page.getByTestId("desk-chain-b-put-25000")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("TC-4 no Kite session: the margin is Unavailable with the reason", async ({ page }) => {
+    await openChain(page, { margin: { status: 503, body: { detail: "kite_session_unavailable" } } });
+    await page.getByTestId("desk-chain-b-put-25000").click();
+    await expect(page.getByTestId("desk-builder-margin-unavailable")).toContainText("not logged in to Kite today");
+  });
+
+  test("TC-5 TC-6 minimise keeps the header and count; there is no order button; recording is disabled with the reason", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-builder-record")).toBeDisabled();
+    await expect(page.getByTestId("desk-analyse")).not.toContainText(/trade all|place order|buy now|sell now/i);
+    await page.getByTestId("desk-analyse-min").click();
+    await expect(page.getByTestId("desk-analyse")).toHaveAttribute("data-min", "true");
+    await expect(page.getByTestId("desk-analyse")).toContainText("1 trade selected");
+    await expect(page.getByTestId("desk-builder")).toHaveCount(0);
+    await page.getByTestId("desk-analyse-min").click();
+    await expect(page.getByTestId("desk-builder")).toBeVisible();
+  });
+
+  test("TC-7 another underlying starts a new analysis", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    await expect(page.getByTestId("desk-analyse")).toBeVisible();
+    await page.getByTestId("desk-fno-symbol-banknifty").click();
+    await expect(page.getByTestId("desk-analyse")).toHaveCount(0);
+  });
+
+  test("TC-8 the header drags the panel on desktop; at 390px it docks at the bottom with no sideways overflow", async ({ page }) => {
+    await openChain(page);
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    const head = page.getByTestId("desk-analyse-head");
+    const before = await page.getByTestId("desk-analyse").boundingBox();
+    const hb = (await head.boundingBox())!;
+    await page.mouse.move(hb.x + 40, hb.y + 10); await page.mouse.down(); await page.mouse.move(hb.x - 160, hb.y - 120, { steps: 6 }); await page.mouse.up();
+    const after = await page.getByTestId("desk-analyse").boundingBox();
+    expect(after!.x).toBeLessThan(before!.x - 100);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await page.getByTestId("desk-fno-view-chain").click();
+    await page.getByTestId("desk-chain-b-call-25000").click();
+    const m = (await page.getByTestId("desk-analyse").boundingBox())!;
+    expect(m.x).toBeGreaterThanOrEqual(0); expect(m.x + m.width).toBeLessThanOrEqual(390); expect(m.y + m.height).toBeGreaterThan(700);
+    const o = await sideways(page);
+    expect(o.doc).toBeLessThanOrEqual(1);
+  });
+});
