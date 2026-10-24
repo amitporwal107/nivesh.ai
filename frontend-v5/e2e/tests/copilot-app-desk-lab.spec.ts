@@ -1662,32 +1662,63 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
   // MOCK — not real data: the shape POST /api/desk/strategy/levels sends (backend/services/strategy_levels.py).
   const LEVELS_OK = { valid: true, version: "strategy-levels-v1", sent_to_broker: false, unit: { shares: 65 }, days_to_expiry: 4,
     premium: { kind: "debit", entry: 3.0, planned_stop: 2.1, planned_stop_loss_per_unit: 0.9, target_1: 3.9, target_2: 4.8, risk_boundary: { value: 0.0, meaning: "the structure's value at its worst: the whole debit is lost" } },
-    underlying: { view: "bearish", entry: 25010, stop: 25300, target: 24700, value_at_stop: 1.2, value_at_target: 5.4 },
+    underlying: { view: "bearish", entry: 25010, stop: 25190.5, target: 24850.25, target_2: 24720, basis: "the underlying price at which the structure reaches its planned stop and targets", wall_stop: 25300, wall_target: 24700, wall_reference: { put_wall: 24700, call_wall: 25300, expected_move: 487 }, value_at_stop: 2.1, value_at_target: 3.9 },
+    totals: { planned_stop_loss: 58.5, target_1_gain: 58.5, target_2_gain: 117, shares: 65 },
+    legs: [{ index: 0, side: "buy", option_type: "put", strike: 25000, expiry: "2026-10-27", entry_price: 213.6, delta: -0.45, theta: -2.1, vega: 5.2 }, { index: 1, side: "sell", option_type: "put", strike: 24800, expiry: "2026-10-27", entry_price: 152, delta: 0.3, theta: 1.4, vega: -3.6 }],
+    costs: { model: "x", entry: 48.58, exit_at_expiry: 40, round_trip: 88.58, excluded: [], max_loss_gross_total: -9603.75, capital_at_risk: 9692.33, capital_at_risk_basis: "worst net loss over all prices, every leg charged entry and exit costs" },
     greeks: { net_delta_per_share: -0.31, theta_per_day_per_share: -0.8, vega_per_point_per_share: 1.9, gamma: 0.002, review_when: "net delta rises above -0.093 (30% of the entry delta -0.31)" },
     scenarios: [{ name: "Bullish", underlying_move_pct: 2, underlying: 25510.2, iv_change_points: -3, date: "2026-10-25", pnl_per_unit: -2.1, pnl_total: -136.5 }, { name: "Bearish", underlying_move_pct: -2, underlying: 24509.8, iv_change_points: 4, date: "2026-10-25", pnl_per_unit: 2.9, pnl_total: 188.5 }],
     iv_note: "IV rank and percentile need an IV history we do not store; they are not shown.", max_profit_per_unit: 7.0, max_loss_per_unit: 3.0, risk_reward: 2.33,
     flags: [{ code: "expiry_week", message: "4 days to expiry: gamma can change quickly, so the levels can be overtaken fast." }].map((f) => f),
     caveats: ["Rule-based, hypothetical levels from fixed research settings. They are not predictions or advice, and no accuracy or hit rate is claimed: tests of these signals found no skill beyond chance.", "A stop is a theoretical level, not an executable price: a stop order can fill worse in a sharp move or a liquidity gap."] };
 
-  test("TC-9 the levels card: entry, planned stop, risk boundary, targets, underlying levels, Greek rule, scenarios and the caveats; nothing claims accuracy", async ({ page }) => {
+  test("TC-9 the levels card in three groups: A strategy levels, B thesis levels, C legs; the stop types, the loss-figure explanation and the caveats; nothing claims accuracy", async ({ page }) => {
     await openBuilder(page);
     const c = page.getByTestId("desk-levels");
     await expect(c).toContainText("Rule-based · hypothetical");
+    await expect(page.getByTestId("desk-levels-intro")).toContainText("The strategy is the trade; the legs are its components");
+    const a = page.getByTestId("desk-levels-a");
+    await expect(a).toContainText("A · Strategy levels (the combined debit structure)");
     await expect(page.getByTestId("desk-levels-entry")).toHaveText("3.00");
     await expect(page.getByTestId("desk-levels-stop")).toHaveText("2.10");
-    await expect(page.getByTestId("desk-levels-boundary")).toHaveText("0.00");
+    await expect(a).toContainText("loss 0.90 a share (₹59 for 65 shares)");
     await expect(page.getByTestId("desk-levels-t1")).toHaveText("3.90");
     await expect(page.getByTestId("desk-levels-t2")).toHaveText("4.80");
     await expect(page.getByTestId("desk-levels-rr")).toHaveText("7.00 / 3.00");
-    await expect(page.getByTestId("desk-levels-underlying")).toContainText("stop 25,300.00 · target 24,700.00");
-    await expect(page.getByTestId("desk-levels-greeks")).toContainText("net delta −0.31");
+    await expect(a).toContainText("Maximum-loss boundary");
+    await expect(a).toContainText("It is a boundary, not the stop-loss");
+    const b = page.getByTestId("desk-levels-b");
+    await expect(b).toContainText("B · Underlying thesis levels (bearish)");
+    await expect(page.getByTestId("desk-levels-underlying")).toContainText("thesis stop 25,190.50 · target 1 24,850.25 · target 2 24,720.00");
+    await expect(b).toContainText("the same ones as in A");
+    await expect(page.getByTestId("desk-levels-walls")).toContainText("Structural reference, not used above: put wall 24,700.00, call wall 25,300.00");
+    await expect(b).toContainText("Nivesh does not monitor the underlying or place exits");
+    await expect(page.getByTestId("desk-levels-stops")).toContainText("Strategy stop");
+    await expect(page.getByTestId("desk-levels-stops")).toContainText("Emergency risk stop");
+    await expect(page.getByTestId("desk-levels-stops")).toContainText("not built");
+    await expect(page.getByTestId("desk-levels-greeks")).toContainText("Net delta −0.31");
     await expect(page.getByTestId("desk-levels-greeks")).toContainText("Review the trade when net delta rises above");
     await expect(page.getByTestId("desk-levels-flag")).toContainText("gamma can change quickly");
+    const c2 = page.getByTestId("desk-levels-c");
+    await expect(c2).toContainText("C · Legs (monitoring, not separate trades)");
+    await expect(page.getByTestId("desk-levels-leg")).toHaveCount(2);
+    await expect(page.getByTestId("desk-levels-leg").first()).toContainText("25,000 PE");
+    await expect(c2).toContainText("A current executable price per leg needs live option quotes");
     await expect(page.getByTestId("desk-levels-scenario")).toHaveCount(2);
     await expect(page.getByTestId("desk-levels-scenarios")).toContainText("No probabilities are attached");
+    const loss = page.getByTestId("desk-levels-loss-figures");
+    await expect(loss).toContainText("Maximum loss before costs ₹9,604");
+    await expect(loss).toContainText("capital at risk ₹9,692");
+    await expect(loss).toContainText("one position with different cost treatments");
     await expect(page.getByTestId("desk-levels-caveats")).toContainText("not an executable price");
     const text = await c.innerText();
     expect(text).not.toMatch(/\b9\d%|accuracy of|best trade|guaranteed|sure shot/i);
+  });
+
+  test("TC-9 the payoff summary's margin cell points at the margin strip, not the old 'no margin source' text", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("strategy-graphs")).toContainText("Funds and margin needed are in the strip above");
+    await expect(page.getByTestId("strategy-graphs")).not.toContainText("No margin source exists");
   });
 
   test("TC-9 the request carries the structure and the chain's walls and expected move", async ({ page }) => {
@@ -1768,7 +1799,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     const want = payoffFor(bodies[bodies.length - 1] as Req);
     await expect(page.getByTestId("desk-builder-net")).toContainText(want.expiry.net_premium < 0 ? "Net debit" : "Net credit");
     await expect(page.getByTestId("strategy-graphs")).not.toContainText(/probability of profit\s*[0-9]/i);
-    await expect(page.getByTestId("strategy-graphs")).toContainText("Margin is not computed");
+    await expect(page.getByTestId("strategy-graphs")).toContainText("Funds and margin needed are in the strip above");
   });
 
   test("TC-5 a failed payoff shows the notice with a retry, never an empty chart", async ({ page }) => {

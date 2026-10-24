@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from services.strategy_plan import compute_payoff
 
-VERSION = "strategy-levels-v1"
+VERSION = "strategy-levels-v2"
 S = {"debit_stop_keep": 0.70, "debit_t1": 0.30, "debit_t2": 0.60, "credit_stop_share_of_max_loss": 0.5, "credit_t1_keep": 0.50, "credit_t2_keep": 0.80,
      "delta_flat": 0.05, "delta_keep": 0.30, "neutral_delta_limit": 0.20, "expiry_week_days": 3}
 # The scenario matrix: every leg repriced by the engine (Black-76) for a price move, an IV change and elapsed time. No probabilities are attached: we have none, so no "expected" P&L is computed.
@@ -42,6 +42,26 @@ def _value_at(req: Dict[str, Any], price: float, today: date, base_gross_at_ref_
         return None
     pnl_unit = gross[0] / unit
     return entry + pnl_unit if not credit else entry - pnl_unit
+
+
+def _solve(req: Dict[str, Any], today: date, target: float, a: float, b: float, unit: float, credit: bool, entry: float) -> Optional[float]:
+    """The underlying price between a and b at which the structure's model value (T+0, per unit) equals `target`; None when it never gets there in that interval. Assumes the value moves one way
+    across the interval (true for a vertical spread or a single option); a structure whose value turns back (a butterfly, a condor) is not solved."""
+    fa = _value_at(req, a, today, 0.0, unit, credit, entry)
+    fb = _value_at(req, b, today, 0.0, unit, credit, entry)
+    if fa is None or fb is None or (fa - target) * (fb - target) > 0:
+        return None
+    lo, hi = a, b
+    for _ in range(26):
+        mid = (lo + hi) / 2.0
+        fm = _value_at(req, mid, today, 0.0, unit, credit, entry)
+        if fm is None:
+            return None
+        if (fa - target) * (fm - target) <= 0:
+            hi = mid
+        else:
+            lo, fa = mid, fm
+    return (lo + hi) / 2.0
 
 
 def compute(body: Dict[str, Any], refs: Optional[Dict[str, Any]] = None, today: Optional[date] = None) -> Dict[str, Any]:
@@ -99,17 +119,25 @@ def compute(body: Dict[str, Any], refs: Optional[Dict[str, Any]] = None, today: 
     def above() -> Optional[float]:
         return cw if (cw is not None and spot is not None and cw > spot) else (spot + em if spot is not None and em is not None else None)
     lo, hi = below(), above()
-    und: Dict[str, Any] = {"view": view, "entry": spot}
-    if view == "bullish":
-        und.update(stop=lo, target=hi)
-    elif view == "bearish":
-        und.update(stop=hi, target=lo)
+    und: Dict[str, Any] = {"view": view, "entry": spot, "wall_reference": {"put_wall": pw, "call_wall": cw, "expected_move": em}}
+    if view in ("bullish", "bearish") and spot is not None:
+        # The thesis levels are the underlying prices at which the STRUCTURE reaches its own planned stop and targets (model, data date): the same definition on both lists, so the two cannot disagree.
+        down, up = spot * 0.85, spot * 1.15
+        adverse = (down, spot) if view == "bullish" else (spot, up)
+        favour = (spot, up) if view == "bullish" else (down, spot)
+        stop_u = _solve(req, today, prem["planned_stop"], adverse[0], adverse[1], unit, credit, entry)
+        t1_u = _solve(req, today, prem["target_1"], favour[0], favour[1], unit, credit, entry)
+        t2_u = _solve(req, today, prem["target_2"], favour[0], favour[1], unit, credit, entry)
+        und.update(stop=stop_u, target=t1_u, target_2=t2_u, basis="the underlying price at which the structure reaches its planned stop and targets")
+        und["wall_stop"], und["wall_target"] = (lo, hi) if view == "bullish" else (hi, lo)
+    elif view == "bullish" or view == "bearish":
+        und.update(stop=None, target=None, target_2=None, basis=None)
     else:
-        und.update(range_low=lo, range_high=hi)
+        und.update(range_low=lo, range_high=hi, basis="the put and call walls (or the expected move)")
     def val(p: Optional[float]) -> Optional[float]:
         return None if p is None else _r(_value_at(req, p, today, 0.0, unit, credit, entry))
-    und["value_at_stop"] = val(und.get("stop")) if "stop" in und else None
-    und["value_at_target"] = val(und.get("target")) if "target" in und else None
+    und["value_at_stop"] = val(und.get("stop")) if und.get("stop") is not None else None
+    und["value_at_target"] = val(und.get("target")) if und.get("target") is not None else None
     if view == "neutral":
         und["value_at_range_low"], und["value_at_range_high"] = val(lo), val(hi)
     # Greek rule
@@ -141,8 +169,22 @@ def compute(body: Dict[str, Any], refs: Optional[Dict[str, Any]] = None, today: 
     if days is not None and days <= S["expiry_week_days"]:
         flags.append({"code": "expiry_week", "message": f"{days} days to expiry: gamma can change quickly, so the levels can be overtaken fast."})
     rr = None if mp_u is None or not ml_u else mp_u / ml_u
+    sign = 1.0 if not credit else -1.0
+    totals = {"planned_stop_loss": _r(prem["planned_stop_loss_per_unit"] * unit), "target_1_gain": _r(sign * (prem["target_1"] - entry) * unit), "target_2_gain": _r(sign * (prem["target_2"] - entry) * unit),
+              "shares": unit, "note": "per share x the position's size (lot size x lots)"}
+    per_leg: List[Dict[str, Any]] = []
+    plg = pe.get("per_leg_greeks") or []
+    for i, l in enumerate(legs):
+        gr = next((x for x in plg if x.get("leg") == i), {}) if plg else {}
+        gg = (gr.get("greeks") or {}) if isinstance(gr, dict) else {}
+        q = (l.get("quantity") or 1) * (l.get("lot_size") or 1)
+        per_leg.append({"index": i, "side": l.get("side"), "option_type": l.get("option_type"), "strike": l.get("strike"), "expiry": l.get("expiry"), "entry_price": _r(_n(l.get("entry_price"))),
+                        "delta": _r(None if _n(gg.get("delta")) is None else gg["delta"] / q, 3), "theta": _r(None if _n(gg.get("theta")) is None else gg["theta"] / q, 3), "vega": _r(None if _n(gg.get("vega")) is None else gg["vega"] / q, 3)})
+    c = out.get("costs") or {}
+    costs = {"model": c.get("model"), "entry": _r(_n(c.get("entry"))), "exit_at_expiry": _r(_n(c.get("exit_at_expiry"))), "round_trip": _r(_n(c.get("round_trip"))), "excluded": c.get("excluded") or [],
+             "max_loss_gross_total": _r(ml), "capital_at_risk": _n(out.get("capital_at_risk")), "capital_at_risk_basis": out.get("capital_at_risk_basis")}
     rnd = lambda d: {k: (_r(v, 2) if isinstance(v, float) else v) for k, v in d.items()}
     prem = {**{k: (_r(v) if isinstance(v, float) else v) for k, v in prem.items() if k != "risk_boundary"}, "risk_boundary": rnd(prem["risk_boundary"])}
     return {**base, "valid": True, "unit": {"shares": unit, "note": "figures per share (per unit of the position's lot multiple)"}, "premium": prem, "underlying": {k: (_r(v) if isinstance(v, float) else v) for k, v in und.items()},
-            "greeks": greek, "scenarios": scen, "iv_rank": None, "iv_percentile": None, "iv_note": "IV rank and percentile need an IV history we do not store; they are not shown.", "max_profit_per_unit": _r(mp_u), "max_loss_per_unit": _r(ml_u), "risk_reward": _r(rr), "max_profit_total": _r(mp), "max_loss_total": _r(ml),
+            "greeks": greek, "legs": per_leg, "totals": totals, "costs": costs, "scenarios": scen, "iv_rank": None, "iv_percentile": None, "iv_note": "IV rank and percentile need an IV history we do not store; they are not shown.", "max_profit_per_unit": _r(mp_u), "max_loss_per_unit": _r(ml_u), "risk_reward": _r(rr), "max_profit_total": _r(mp), "max_loss_total": _r(ml),
             "capital_at_risk": _n(out.get("capital_at_risk")), "days_to_expiry": days, "flags": flags, "expiry": expiry}

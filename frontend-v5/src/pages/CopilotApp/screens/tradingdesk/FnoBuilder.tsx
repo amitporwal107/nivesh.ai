@@ -205,7 +205,8 @@ export function BuilderView({ symbol, state }: { symbol: string; state: ChainSta
   };
   const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(DEFAULT_SCENARIO); };
   const tiles = TEMPLATES.filter((t) => t.view === view);
-  const response = pay.data;
+  // The payoff route still says "No margin source exists" (an old text other screens pin); here the margin strip is the source.
+  const response = pay.data ? { ...pay.data, margin_reason: "Funds and margin needed are in the strip above: Zerodha’s margin calculator, which needs the platform’s Kite login." } : pay.data;
   const netLabel = response?.expiry?.net_premium != null ? (response.expiry.net_premium < 0 ? "Net debit" : "Net credit") : null;
 
   return (
