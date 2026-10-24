@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 from datetime import date, datetime, time as dtime, timedelta, timezone
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -24,6 +24,50 @@ MAX_INSTRUMENTS = 3000                  # Kite's per-connection WebSocket limit
 REST_BATCH = 500                        # Kite's per-call limit for quote()
 REST_SPACING_SECONDS = 1.1              # quote() is limited to 1 request/second
 PRE_OPEN, OPEN, CLOSE = dtime(9, 0), dtime(9, 15), dtime(15, 30)
+# Index options on the feed (NFO names, comma separated; empty turns them off), how many of the nearest unexpired expiries,
+# and how many strikes each side of the at-the-money strike, CE and PE.
+OPTION_UNDERLYINGS_ENV, OPTION_UNDERLYINGS_DEFAULT = "LIVE_OPTION_UNDERLYINGS", "NIFTY,BANKNIFTY"
+OPTION_EXPIRIES_ENV, OPTION_EXPIRIES_DEFAULT = "LIVE_OPTION_EXPIRIES", 2
+OPTION_STRIKES_ENV, OPTION_STRIKES_DEFAULT = "LIVE_OPTION_STRIKES_EACH_SIDE", 15
+# The per-symbol Redis quote cache (seconds a key lives without a rewrite) and the 1-minute replay snapshots (days kept).
+QUOTE_CACHE_TTL_ENV, QUOTE_CACHE_TTL_DEFAULT = "LIVE_QUOTE_CACHE_TTL_S", 600
+MINUTE_TTL_ENV, MINUTE_TTL_DEFAULT = "LIVE_MINUTE_TTL_DAYS", 90
+
+
+def _int_env(name: str, default: int, lo: int, hi: int, env: Optional[Dict[str, str]] = None) -> int:
+    """An integer setting clamped to [lo, hi]; missing or unreadable is the default."""
+    raw = (env if env is not None else os.environ).get(name)
+    try:
+        v = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, v))
+
+
+def option_underlyings(env: Optional[Dict[str, str]] = None) -> List[str]:
+    raw = (env if env is not None else os.environ).get(OPTION_UNDERLYINGS_ENV, OPTION_UNDERLYINGS_DEFAULT)
+    out: List[str] = []
+    for part in str(raw).split(","):
+        s = part.strip().upper()
+        if s and s not in out:
+            out.append(s)
+    return out
+
+
+def option_expiries(env: Optional[Dict[str, str]] = None) -> int:
+    return _int_env(OPTION_EXPIRIES_ENV, OPTION_EXPIRIES_DEFAULT, 0, 4, env)
+
+
+def option_strikes_each_side(env: Optional[Dict[str, str]] = None) -> int:
+    return _int_env(OPTION_STRIKES_ENV, OPTION_STRIKES_DEFAULT, 0, 50, env)
+
+
+def quote_cache_ttl_seconds(env: Optional[Dict[str, str]] = None) -> int:
+    return _int_env(QUOTE_CACHE_TTL_ENV, QUOTE_CACHE_TTL_DEFAULT, 30, 86400, env)
+
+
+def minute_ttl_days(env: Optional[Dict[str, str]] = None) -> int:
+    return _int_env(MINUTE_TTL_ENV, MINUTE_TTL_DEFAULT, 1, 400, env)
 
 
 def enabled(env: Optional[Dict[str, str]] = None) -> bool:
