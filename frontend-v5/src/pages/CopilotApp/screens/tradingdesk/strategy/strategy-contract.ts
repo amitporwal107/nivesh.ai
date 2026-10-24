@@ -137,7 +137,7 @@ export const PayoffResponseSchema = z.object({
   /** The worst NET loss over all prices (conservative: every leg charged both sides); null when the loss is unbounded. */
   capital_at_risk: numOrNull.optional(),
   capital_at_risk_basis: z.string().nullable().catch(null).optional(),
-  /** Always null today; why is `margin_reason`. */
+  /** Null from the payoff route (it does not estimate margin); why is `margin_reason`. The F&O builder fills it from Zerodha's margin calculator. */
   margin_reason: z.string().nullable().catch(null).optional(),
   loss_can_exceed_margin: z.boolean().catch(false).optional(),
   underlying: z.string().optional(),

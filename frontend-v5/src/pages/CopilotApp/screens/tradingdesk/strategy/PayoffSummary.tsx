@@ -56,7 +56,7 @@ export function PayoffSummary({ response, legs, persona = "trader" }: PayoffSumm
         />
         <Stat
           k="Margin (estimate)" id="margin" v={margin?.estimate == null ? DASH : rs(margin.estimate)}
-          sub={margin?.estimate == null ? response.margin_reason || "no margin source for this position" : margin.source ? `source: ${margin.source}` : "source not given"}
+          sub={margin?.estimate == null ? response.margin_reason || "the payoff calculation does not estimate margin" : margin.source ? `source: ${margin.source}` : "source not given"}
         />
       </dl>
 

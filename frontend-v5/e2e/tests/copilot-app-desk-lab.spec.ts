@@ -1649,7 +1649,20 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
 
   type ReqLeg = { side: "buy" | "sell"; quantity: number; lot_size: number; entry_price: number; strike: number; option_type: "call" | "put"; kind: string; expiry: string };
   type Req = { reference_price: number; legs: ReqLeg[]; grid: { from_pct: number; to_pct: number; points: number }; pre_expiry?: { date: string }; scenarios?: unknown };
-  function payoffFor(req: Req) {
+  // MOCK — not real data: per-leg Greeks for a long and a short put of one NIFTY lot each (the default bear put spread); the net is their sum, as the route's is.
+  // "missing": the second leg could not be priced and the first has no rho, so the route gives no net; "empty": the answer carries no per-leg list.
+  const LEG_GREEKS = [{ delta: -29.25, gamma: 0.039, theta: -136.5, vega: 338, rho: -9.1 }, { delta: 19.5, gamma: -0.031, theta: 91, vega: -234, rho: 6.2 }];
+  type GreeksCase = "ok" | "missing" | "empty";
+  function legGreeksFor(req: Req, greeks: GreeksCase) {
+    const per = req.legs.map((l, i) => ({
+      leg: i, label: `${l.side === "buy" ? "Buy" : "Sell"} ${l.quantity} lot${l.quantity === 1 ? "" : "s"} ${l.option_type} ${l.strike}`,
+      greeks: greeks === "missing" && i === 1 ? null : greeks === "missing" && i === 0 ? { ...LEG_GREEKS[0], rho: null } : LEG_GREEKS[i % 2],
+    }));
+    const total = (k: keyof (typeof LEG_GREEKS)[number]) => Math.round(per.reduce((a, e) => a + (e.greeks?.[k] ?? 0), 0) * 1e4) / 1e4;
+    const net = greeks === "missing" ? null : { delta: total("delta"), gamma: total("gamma"), theta: total("theta"), vega: total("vega"), rho: total("rho") };
+    return { greeks: net, per_leg_greeks: greeks === "empty" ? [] : per };
+  }
+  function payoffFor(req: Req, greeks: GreeksCase = "ok") {
     const { reference_price: ref, grid } = req;
     const lo = ref * (1 + grid.from_pct / 100), hi = ref * (1 + grid.to_pct / 100);
     const xs = Array.from({ length: grid.points }, (_, i) => lo + ((hi - lo) * i) / (grid.points - 1));
@@ -1663,18 +1676,18 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       valid: true, problems: [], warnings: [], calculation_version: "spec-v1", underlying: "NIFTY", reference_price: ref, caveats: [], sent_to_broker: false,
       expiry: { grid: xs, gross, net: gross, per_leg: [], breakevens: [], max_profit: Math.max(...gross), max_loss: Math.min(...gross), profit_unbounded: false, loss_unbounded: false, net_premium: premium, scenarios: [] },
       // a smoother "today" estimate (the expiry payoff pulled halfway to its mean), only when the request asks for one
-      pre_expiry: req.pre_expiry ? { date: (req.pre_expiry as { date: string }).date, model: "Black-76 (spec)", assumptions: {}, grid: xs, gross: gross.map((g) => g * 0.5 + (gross.reduce((a, b) => a + b, 0) / gross.length) * 0.5), net: gross.map((g) => g * 0.5 + (gross.reduce((a, b) => a + b, 0) / gross.length) * 0.5), greeks: { delta: -1000, gamma: 200, theta: -100, vega: 40, rho: -5 }, per_leg_greeks: [], unavailable: [] } : null,
+      pre_expiry: req.pre_expiry ? { date: (req.pre_expiry as { date: string }).date, model: "Black-76 (spec)", assumptions: {}, grid: xs, gross: gross.map((g) => g * 0.5 + (gross.reduce((a, b) => a + b, 0) / gross.length) * 0.5), net: gross.map((g) => g * 0.5 + (gross.reduce((a, b) => a + b, 0) / gross.length) * 0.5), ...legGreeksFor(req, greeks), unavailable: [] } : null,
       costs: null, margin: { estimate: null, source: null }, margin_reason: "Margin is not computed", capital_at_risk: -Math.min(...gross), capital_at_risk_basis: "worst net loss over all prices",
     };
   }
-  async function openBuilder(page: Page, opts: { fail?: boolean; margin?: { status: number; body: unknown }; levels?: { status: number; body: unknown } } = {}) {
+  async function openBuilder(page: Page, opts: { fail?: boolean; margin?: { status: number; body: unknown }; levels?: { status: number; body: unknown }; greeks?: GreeksCase } = {}) {
     const bodies: Req[] = [];
     await fnoData(page);
     await page.route("**/api/desk/strategy/payoff", (route) => {
       const body = JSON.parse(route.request().postData() ?? "{}") as Req;
       bodies.push(body);
       return opts.fail ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "boom" }) })
-        : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payoffFor(body)) });
+        : route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payoffFor(body, opts.greeks)) });
     });
     const levelBodies: Array<{ payoff: Req; refs: Record<string, number | null> }> = [];
     await page.route("**/api/desk/strategy/levels", (route) => {
@@ -1759,13 +1772,17 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     await openBuilder(page);
     await expect(page.getByTestId("strategy-graphs")).toContainText("₹77,519");
     await expect(page.getByTestId("strategy-graphs")).toContainText("source: Zerodha margin calculator");
-    await expect(page.getByTestId("strategy-graphs")).not.toContainText("No margin source exists");
+    await expect(page.getByTestId("strategy-graphs")).not.toContainText(/no margin source/i);
+    await expect(page.getByTestId("strategy-graphs")).not.toContainText("does not estimate margin");
   });
 
   test("TC-9 no Kite session: the payoff summary's margin tile is a dash with the reason, never a figure", async ({ page }) => {
     await openBuilder(page, { margin: { status: 503, body: { detail: "kite_session_unavailable" } } });
     await expect(page.getByTestId("strategy-graphs")).toContainText("not logged in to Kite today");
     await expect(page.getByTestId("strategy-graphs")).not.toContainText("₹77,519");
+    await expect(page.getByTestId("sum-margin")).toHaveText("—");
+    await expect(page.getByTestId("sum-margin-note")).toContainText("not logged in to Kite today");
+    await expect(page.getByTestId("strategy-graphs")).not.toContainText(/no margin source/i);
   });
 
   test("TC-9 the request carries the structure and the chain's walls and expected move", async ({ page }) => {
@@ -1792,7 +1809,9 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
   test("TC-6 funds and margin needed come from the margin calculator, with its charges and a source line; the request carries the table's legs", async ({ page }) => {
     await openBuilder(page);
     await expect(page.getByTestId("desk-builder-margin-required")).toHaveText("₹77,519");
-    await expect(page.getByTestId("desk-builder-charges")).toContainText("Charges for the entry orders: ₹59");
+    // Every charge the calculator returns, to the paisa, and its own total: 40 + 5.50 + 5.65 + 0.01 + 0 + 8.24 = 59.40 (MARGIN_OK.charges.total.total).
+    await expect(page.getByTestId("desk-builder-charges")).toContainText("Charges for the entry orders: ₹59.40 (brokerage ₹40.00, STT ₹5.50, exchange ₹5.65, SEBI ₹0.01, stamp duty ₹0.00, GST ₹8.24)");
+    expect(MARGIN_OK.charges.total.total).toBe(59.4);
     await expect(page.getByTestId("desk-builder-margin")).toContainText("Zerodha margin calculator");
     await expect(page.getByTestId("desk-builder-margin")).toContainText("Nothing is placed");
     const sent = ((page as Page & { marginBodies?: Array<{ underlying: string; legs: Array<Record<string, unknown>> }> }).marginBodies ?? [])[0];
@@ -1804,6 +1823,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     await openBuilder(page, { margin: { status: 503, body: { detail: "kite_session_unavailable" } } });
     await expect(page.getByTestId("desk-builder-margin-unavailable")).toContainText("not logged in to Kite today");
     await expect(page.getByTestId("desk-builder-margin-required")).toHaveCount(0);
+    await expect(page.getByTestId("desk-builder-charges")).toHaveCount(0);
     await expect(page.getByTestId("strategy-graphs")).toBeVisible();
   });
 
@@ -1877,12 +1897,56 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     await expect(page.getByTestId("desk-builder-problem")).toContainText("Pick a structure");
   });
 
-  test("TC-7 recording is disabled with the reason; the full Strategy Builder is one click away", async ({ page }) => {
+  test("TC-7 no dead record button: the note says option structures are recorded from a plan in the full Strategy Builder, one click away", async ({ page }) => {
     await openBuilder(page);
-    await expect(page.getByTestId("desk-builder-record")).toBeDisabled();
-    await expect(page.getByTestId("desk-builder-record-why")).toContainText("paper trades hold long shares only");
-    await expect(page.getByTestId("desk-builder-record-why")).toContainText("Nothing is sent to a broker");
+    await expect(page.getByTestId("desk-builder-record")).toHaveCount(0);
+    const why = page.getByTestId("desk-builder-record-why");
+    await expect(why).toContainText("Option structures are recorded as paper trades from a plan: open the full Strategy Builder");
+    await expect(why).toContainText("“Paper trade this” on a defined-risk candidate");
+    await expect(why).toContainText("the trades here are not carried over");
+    await expect(why).toContainText("Nothing is sent to a broker");
+    await expect(why).not.toContainText("long shares only");
     await expect(page.getByTestId("desk-builder-full")).toBeEnabled();
+    await page.getByTestId("desk-builder-full").click();
+    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/src_kind=lab/);
+  });
+
+  test("TC-10 the pre-expiry view lists each leg's Greeks from the answer and the net row, labelled a model estimate; the expiry view has no table", async ({ page }) => {
+    await openBuilder(page);
+    await expect(page.getByTestId("payoff-mode-pre")).toHaveAttribute("aria-pressed", "true");
+    const t = page.getByTestId("payoff-leg-greeks");
+    await expect(t).toContainText("Greeks per leg at");
+    await expect(t).toContainText("model estimate (Black-76 (spec), end-of-day inputs), not a quote");
+    const rows = page.getByTestId("payoff-leg-greeks-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator("th")).toHaveText(/^Buy 1 lot put \d+$/);
+    await expect(rows.nth(1).locator("th")).toHaveText(/^Sell 1 lot put \d+$/);
+    // the readout's formatting (strategy-format greek): 4 decimals under 1, 3 under 100, 1 from 100
+    await expect(rows.nth(0).locator("td")).toHaveText(["−29.250", "0.0390", "−136.5", "338.0", "−9.100"]);
+    await expect(rows.nth(1).locator("td")).toHaveText(["19.500", "−0.0310", "91.000", "−234.0", "6.200"]);
+    await expect(page.getByTestId("payoff-leg-greeks-net").locator("td")).toHaveText(["−9.750", "0.0080", "−45.500", "104.0", "−2.900"]);
+    await expect(page.getByTestId("payoff-readout-greeks")).toContainText("Δ −9.750");
+    await page.getByTestId("payoff-mode-expiry").click();
+    await expect(page.getByTestId("payoff-leg-greeks")).toHaveCount(0);
+    await page.getByTestId("payoff-mode-pre").click();
+    await expect(page.getByTestId("payoff-leg-greeks")).toBeVisible();
+  });
+
+  test("TC-10 edge: a leg the model could not price prints dashes, a missing value prints a dash, and there is no net row", async ({ page }) => {
+    await openBuilder(page, { greeks: "missing" });
+    const rows = page.getByTestId("payoff-leg-greeks-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(1).locator("td")).toHaveText(["—", "—", "—", "—", "—"]);
+    await expect(rows.nth(0).locator("td")).toHaveText(["−29.250", "0.0390", "−136.5", "338.0", "—"]);
+    await expect(page.getByTestId("payoff-leg-greeks-net")).toHaveCount(0);
+    await expect(page.getByTestId("payoff-readout-greeks")).toContainText("Greeks: —");
+  });
+
+  test("TC-10 edge: an answer with no per-leg Greeks says so with a dash, never an empty table", async ({ page }) => {
+    await openBuilder(page, { greeks: "empty" });
+    await expect(page.getByTestId("payoff-leg-greeks-none")).toHaveText("Greeks per leg: — (not in this answer).");
+    await expect(page.getByTestId("payoff-leg-greeks")).toHaveCount(0);
   });
 
   test("TC-9 at 390px the builder stacks with no sideways overflow", async ({ page }) => {
@@ -2115,10 +2179,11 @@ test.describe("Smart trading desk — Options & futures lab · option chain with
     await expect(page.getByTestId("desk-builder-margin-unavailable")).toContainText("not logged in to Kite today");
   });
 
-  test("TC-5 TC-6 minimise keeps the header and count; there is no order button; recording is disabled with the reason", async ({ page }) => {
+  test("TC-5 TC-6 minimise keeps the header and count; there is no order button; recording points to the full Strategy Builder", async ({ page }) => {
     await openChain(page);
     await page.getByTestId("desk-chain-b-call-25000").click();
-    await expect(page.getByTestId("desk-builder-record")).toBeDisabled();
+    await expect(page.getByTestId("desk-builder-record")).toHaveCount(0);
+    await expect(page.getByTestId("desk-builder-record-why")).toContainText("open the full Strategy Builder");
     await expect(page.getByTestId("desk-analyse")).not.toContainText(/trade all|place order|buy now|sell now/i);
     await page.getByTestId("desk-analyse-min").click();
     await expect(page.getByTestId("desk-analyse")).toHaveAttribute("data-min", "true");

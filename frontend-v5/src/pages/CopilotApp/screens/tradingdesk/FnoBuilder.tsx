@@ -4,9 +4,9 @@
  *   structure tiles -> editable trades (B/S, strike, lots, price) -> POST /api/desk/strategy/payoff -> the payoff chart, the summary strip and the what-if controls
  *
  * The builder works out NO payoff, Greek, cost or capital figure: it builds the request from the chain's end-of-day option closes and shows what the route answered
- * (StrategyGraphs: PayoffChart, PayoffSummary, ScenarioControls). Probability of profit and margin are what the route says they are (unavailable). Prices are end-of-day closes,
- * never live quotes. Option spreads cannot be recorded as paper trades (the desk's paper trades hold long shares only), so recording is disabled with that reason, and nothing here
- * is sent to a broker. The mini payoff shapes on the tiles are illustrations of each structure, not figures.
+ * (StrategyGraphs: PayoffChart, PayoffSummary, ScenarioControls). Probability of profit is what the route says it is (unavailable); margin and charges come from Zerodha's margin
+ * calculator (POST /api/fno/margin), never estimated here. Prices are end-of-day closes, never live quotes. Option structures are recorded as paper trades from a plan in the full
+ * Strategy Builder (PlanActions), not from here, and nothing here is sent to a broker. The mini payoff shapes on the tiles are illustrations of each structure, not figures.
  */
 import { Widget } from "./widget";
 import { useEffect, useMemo, useState } from "react";
@@ -131,6 +131,8 @@ function useMargin(symbol: string, expiry: string | null, legs: LegRow[], enable
 }
 
 const inr = (n: number | null) => (n == null ? "—" : `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n)}`);
+/** Charges to the paisa: SEBI's fee is often ₹0.01, and rounded rupees would not add up to the calculator's total. */
+const paise = (n: number | null) => (n == null ? "—" : `₹${new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`);
 
 function MarginStrip({ state }: { state: ReturnType<typeof useMargin> }) {
   const m = state.data;
@@ -145,7 +147,7 @@ function MarginStrip({ state }: { state: ReturnType<typeof useMargin> }) {
       {m?.kind === "ok" && (
         <>
           <span data-testid="desk-builder-charges" style={quiet}>
-            Charges for the entry orders: {inr(m.data.charges.total)} (brokerage {inr(m.data.charges.brokerage)}, STT {inr(m.data.charges.stt)}, exchange {inr(m.data.charges.exchange)}, GST {inr(m.data.charges.gst)}). Initial margin {inr(m.data.initial)}.
+            Charges for the entry orders: {paise(m.data.charges.total)} (brokerage {paise(m.data.charges.brokerage)}, STT {paise(m.data.charges.stt)}, exchange {paise(m.data.charges.exchange)}, SEBI {paise(m.data.charges.sebi)}, stamp duty {paise(m.data.charges.stampDuty)}, GST {paise(m.data.charges.gst)}). Initial margin {inr(m.data.initial)}.
           </span>
           <span style={quiet}>{m.data.source}. {m.data.note}</span>
         </>
@@ -224,7 +226,7 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
   };
   const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(dflt); };
   const tiles = TEMPLATES.filter((t) => t.view === view);
-  // The payoff route has no margin source (its text is pinned by other screens); here the margin calculator is the source, and the tile shows its number.
+  // The payoff route does not estimate margin; here the margin calculator is the source, and the tile shows its number or points to the strip.
   const mState = marginQ.data;
   const response = pay.data ? {
     ...pay.data,
@@ -283,10 +285,12 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
               setLegs((ls) => [...ls, { id: nextId++, side: "buy", kind: "call", strike: at.strike, lots: 1, price: closeOf(at, "call") == null ? "" : String(closeOf(at, "call")) }]);
             }}>Add a trade</button>
             {legs.length > 0 && <button type="button" className="cp-btn" data-variant="ghost" data-testid="desk-builder-clear" onClick={() => { setLegs([]); setTpl(null); setScn(dflt); }}>Clear</button>}
-            <button type="button" disabled data-testid="desk-builder-record" className="cp-btn" data-variant="ghost" style={{ opacity: 0.5, cursor: "not-allowed" }}>Record as paper trade</button>
             <button type="button" data-testid="desk-builder-full" className="cp-btn" data-variant="ghost" onClick={() => openStrategy(symbol, { kind: "lab", date: chain.summary.as_of })}>Open the full Strategy Builder ›</button>
           </div>
-          <span data-testid="desk-builder-record-why" style={quiet}>Recording is off for option structures: the desk’s paper trades hold long shares only. Nothing is sent to a broker.</span>
+          <span data-testid="desk-builder-record-why" style={quiet}>
+            Option structures are recorded as paper trades from a plan: open the full Strategy Builder, build a plan for options and use “Paper trade this” on a defined-risk candidate.
+            The plan picks its own legs; the trades here are not carried over. Nothing is sent to a broker.
+          </span>
         </Widget>
 
         {!panel && (
