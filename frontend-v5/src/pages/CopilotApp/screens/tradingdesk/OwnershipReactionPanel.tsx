@@ -25,6 +25,7 @@
  *   * No score, no rank-by-score. Sorting is by a measured column the user picks, and the
  *     "not scored" pill is driven by the live `validatedStudy` read, not a hardcoded string.
  */
+import { Widget } from "./widget";
 import { useState } from "react";
 import {
   Column, DataTable, EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Pill, Section,
@@ -321,9 +322,10 @@ export default function OwnershipReactionPanel() {
   const reconcileOk = reconciles(counts);
 
   return (
-    <Section
+    <Widget
+      id="smartmoney.ownership"
       title="Historical Smart Money Movement"
-      note={
+      actions={
         <span className="flex flex-wrap items-center" style={{ gap: 6 }}>
           <Pill tone="amber" title="This panel describes a quarter that has already finished. It is not predictive and not a recommendation.">
             Retrospective · explains the past
@@ -340,6 +342,7 @@ export default function OwnershipReactionPanel() {
           )}
         </span>
       }
+      bodyStyle={{ padding: 16 }}
     >
       <div className="flex flex-col" data-testid="or-panel" style={{ gap: 14 }}>
         {/* The non-negotiable framing, always visible and never dismissible. */}
@@ -515,6 +518,6 @@ export default function OwnershipReactionPanel() {
           )}
         </div>
       </div>
-    </Section>
+    </Widget>
   );
 }

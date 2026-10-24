@@ -8,6 +8,7 @@
  * never live quotes. Option spreads cannot be recorded as paper trades (the desk's paper trades hold long shares only), so recording is disabled with that reason, and nothing here
  * is sent to a broker. The mini payoff shapes on the tiles are illustrations of each structure, not figures.
  */
+import { Widget } from "./widget";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
@@ -220,11 +221,12 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
   return (
     <div data-testid="desk-builder" data-symbol={symbol} data-variant={variant} className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
       <div className="flex min-w-0 flex-col" style={{ flex: panel || mobile ? "1 1 100%" : "1 1 400px", maxWidth: panel || mobile ? "100%" : 470, gap: 14 }}>
-        <section className="cp-card flex flex-col" style={{ gap: 12, padding: 14 }}>
-          <div className="flex flex-wrap items-center justify-between" style={{ gap: 6 }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Trades{tpl ? ` · ${TEMPLATES.find((t) => t.id === tpl)?.name}` : ""}</span>
-            <span className="cp-mono-note">{fmtDay(chain.summary.expiry)} expiry · lot {lot ?? "—"}</span>
-          </div>
+        <Widget
+          id="fno.builder.trades"
+          title={`Trades${tpl ? ` · ${TEMPLATES.find((t) => t.id === tpl)?.name}` : ""}`}
+          meta={`${fmtDay(chain.summary.expiry)} expiry · lot ${lot ?? "—"}`}
+          bodyStyle={{ gap: 12, padding: 14 }}
+        >
           {suggested && tpl === suggested && <span data-testid="desk-builder-suggested" style={quiet}>Suggested by the {row?.label?.replace("_", " ")}; your view decides. End-of-day closes, not live quotes.</span>}
           {legs.length === 0 ? <span data-testid="desk-builder-empty" style={quiet}>No trades yet. Pick a structure below, or add a trade.</span> : (
             <div className="flex flex-col" style={{ gap: 8 }}>
@@ -256,10 +258,10 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
             <button type="button" data-testid="desk-builder-full" className="cp-btn" data-variant="ghost" onClick={() => openStrategy(symbol, { kind: "lab", date: chain.summary.as_of })}>Open the full Strategy Builder ›</button>
           </div>
           <span data-testid="desk-builder-record-why" style={quiet}>Recording is off for option structures: the desk’s paper trades hold long shares only. Nothing is sent to a broker.</span>
-        </section>
+        </Widget>
 
         {!panel && (
-        <section className="cp-card flex flex-col" style={{ gap: 12, padding: 14 }}>
+        <Widget id="fno.builder.view" title="Market view" bodyStyle={{ gap: 12, padding: 14 }}>
           <div role="group" aria-label="Market view" className="flex flex-wrap" style={{ gap: 6 }}>
             {VIEWS.map((v) => (
               <button key={v.key} type="button" aria-pressed={view === v.key} data-testid={`desk-builder-view-${v.key}`} onClick={() => setView(v.key)}
@@ -276,7 +278,7 @@ export function BuilderView({ symbol, state, shared, variant = "page" }: { symbo
               </button>
             ))}
           </div>
-        </section>
+        </Widget>
         )}
       </div>
 

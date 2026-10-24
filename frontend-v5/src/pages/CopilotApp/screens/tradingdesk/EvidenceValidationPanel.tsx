@@ -22,6 +22,7 @@
  *   * There is no benchmark row. No Nifty 500 TRI exists in this warehouse and none is implied.
  *   * No score, no rank, no buy/sell wording anywhere on this panel.
  */
+import { Widget } from "./widget";
 import {
   EmptyBlock, ErrorBlock, Footnote, LoadingBlock, Pill, Section,
 } from "../../components/ui";
@@ -79,10 +80,12 @@ export default function EvidenceValidationPanel() {
   const primary = findPrimary(rows);
 
   return (
-    <Section
+    <Widget
+      id="smartmoney.evidence-validation"
       title="Evidence & Validation"
-      note={feed?.studyId ? `${feed.studyId} · pre-registered` : undefined}
-      className="mt-4"
+      meta={feed?.studyId ? `${feed.studyId} · pre-registered` : undefined}
+      style={{ marginTop: 16 }}
+      bodyStyle={{ padding: 16 }}
     >
       <div className="flex flex-col" style={{ gap: 14 }} data-testid="evidence-validation-panel">
         <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
@@ -185,6 +188,6 @@ export default function EvidenceValidationPanel() {
           </>
         )}
       </div>
-    </Section>
+    </Widget>
   );
 }
