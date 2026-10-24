@@ -50,6 +50,7 @@ import { BuildupView } from "./FnoBuildup";
 import CandidatesView from "./FnoCandidates";
 import { ExpiryPanel, GreeksNotAvailable, HistoryPanel, IndexResearchNote, OiBarsPanel } from "./FnoIndexExpiries";
 import { BuilderView } from "./FnoBuilder";
+import { ChainWithAnalyse } from "./FnoChainAnalyse";
 import { CompareView } from "./FnoCompare";
 import { StrategiesView } from "./FnoStrategies";
 import { BUILDUP_META, buildupRowFor, matchFnoTickers, searchStocks, type StockHit, indexRowFor, useBuildup } from "./fno-buildup";
@@ -594,7 +595,7 @@ export default function FnoTab() {
           );
         })()}
         {view === "chain" && (chain
-          ? <ChainOiTable chain={chain} />
+          ? <ChainWithAnalyse chain={chain} state={oc.state} symbol={symbol} />
           : oc.state.status === "loading" ? <LoadingBlock label={`Loading the ${symbol} chain`} rows={4} />
             : <span data-testid="desk-fno-chain-missing" style={{ fontSize: 13, color: "var(--cp-ink-3)" }}>No option chain for {symbol}; see the note above.</span>)}
         {view === "strategies" && (

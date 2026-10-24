@@ -24,3 +24,11 @@ Settings (research, version `strategy-levels-v1`):
 | TC-7 | an invalid structure returns the engine's problems, no levels; expiry week adds the gamma warning; the executable-stop caveat is always present | pytest | flags |
 | TC-8 | POST /api/fno/strategy-levels: 200 shape, 422 on a bad body | pytest | status |
 | TC-9 | the builder shows the levels card: entry, planned stop, risk boundary, targets, underlying levels, Greek rule, the caveats; nothing says best/accuracy | e2e | text |
+
+## Addendum 2026-10-24 (v2): clarity changes after the POWERINDIA bear put spread screenshot and review
+Finding checked against the screenshot's own numbers: entry 384.15 = 535.30 - 151.15; max loss 384.15 x 25 = 9,603.75; stop 0.7 x 384.15 = 268.90 (loss 115.25 a share = 2,881.25 for 25); targets 499.39 / 614.64. Consistent.
+Real defect: the underlying stop was the call WALL (30,000, 14% from the 26,299 spot, beyond both strikes: the spread is already at maximum loss there) and the underlying target the put wall (25,000, beyond the 25,500 short strike).
+Change: the thesis stop and targets are now the underlying prices at which the STRUCTURE reaches its own planned stop and targets (model, T+0, bisection; monotone structures only); the walls stay as a labelled reference; a butterfly/condor keeps its wall range.
+Also: rupee totals, per-leg figures, the cost breakdown, "Risk boundary" renamed "Maximum-loss boundary" (and explained as not the stop), a stop-types table (strategy, thesis, boundary, emergency = not built), and the margin cell points at the margin strip.
+Added tests: thesis levels solved so the value at them equals the planned stop/targets (+-0.02), totals, legs and costs returned, butterfly not solved, walls null without refs; e2e: three-group card, stop-types table, loss-figure explanation, margin cell text.
+Not done (stated): trigger types (touch/close) are not set; a current executable price per leg needs live option quotes; the pre-expiry control is PR #331.
