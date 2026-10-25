@@ -15,6 +15,8 @@ export const SCREENS: Record<string, Screen> = {
   // Not a rail item: opened from the Screener, the desk's sector card, or by URL (see SECTOR_HEATMAP_VIEW).
   "tool/sector-heatmap": lazy(() => import("./SectorHeatmap")),
   "tool/optlab": lazy(() => import("./OptionsLab")),
+  // The seven F&O AI trading screens (PRD §15.1): not a rail item; opened from the desk F&O tab, the Options lab or by URL.
+  "tool/fnolab": lazy(() => import("./fnolab/FnoLab")),
   trader: lazy(() => import("./Trader")),
   "trader/desk": lazy(() => import("./TradingDesk")),
   "trader/strategy": lazy(() => import("./desk/StrategyBuilder")),

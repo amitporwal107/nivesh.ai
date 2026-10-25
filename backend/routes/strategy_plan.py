@@ -1,6 +1,7 @@
 """Strategy Builder routes (PRD §16, §17.4, §16.11).
 
 POST /api/desk/strategy/payoff            pure payoff calculation (no DB write)
+GET  /api/desk/strategy/templates         the strategy templates the payoff engine can price (read only; templates, not certified programs)
 POST /api/desk/strategy/plan              build a StrategyPlan from live read-only sources; nothing is written
 POST /api/desk/strategy/ideas             strategies for the top AI opportunities (scanner), cash / futures / options / combinations; nothing is written
 POST /api/desk/strategy/top               the best N ideas per asset class (index options / stock F&O / cash) by regime fit; nothing is written
@@ -30,6 +31,7 @@ from services import strategy_levels
 from services.strategy_plan import PLAN_SCHEMA, build_plan, compute_payoff, explain_plan_context, normalise_inputs
 from services.strategy_plan import ideas as ideas_mod
 from services.strategy_plan import regime_fit
+from services.strategy_plan import templates as templates_mod
 from services.strategy_plan.plan import digest
 from services.strategy_plan.sources import attach_symbol_suggestions, collect_snapshots, finish_plan
 
@@ -63,6 +65,17 @@ async def _body(request: Request) -> Any:
 async def strategy_payoff(request: Request) -> Dict[str, Any]:
     await get_current_user(request)
     return compute_payoff(await _body(request), date.today())
+
+
+@router.get("/templates")
+async def strategy_templates(request: Request) -> Dict[str, Any]:
+    """The strategy templates in services/strategy_plan/templates.py, for the F&O lab's program library: each one's legs,
+    its own parameters and the payoff engine version that prices it. Read only: these are templates, not certified
+    programs (there is no program compiler, executor or certification yet); nothing is compiled, written or sent."""
+    await get_current_user(request)
+    items = templates_mod.catalog()
+    return {"templates": items, "count": len(items), "status": "template",
+            "calculation_version": templates_mod.CALCULATION_VERSION, "read_only": True}
 
 
 @router.post("/levels")
