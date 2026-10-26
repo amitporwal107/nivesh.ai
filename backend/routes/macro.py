@@ -6,15 +6,19 @@
   POST /api/macro/refresh              — manual trigger (admin / debug)
   POST /api/macro/backfill             — pull last N days of history
                                           (one-shot at first deploy)
+  GET  /api/macro/regime-history       — the desk regime (desk-regime-v1) of each stored session,
+                                          recomputed from the stored end-of-day inputs
   GET  /api/macro/sector               — per-sector tilt heatmap (PR-2)
   GET  /api/stock/{symbol}/why         — explainability for one stock (PR-2)
 """
 from __future__ import annotations
+import asyncio
 import logging
 import time
+from collections import Counter
 from datetime import date, timedelta
-from typing import Any, Dict, Optional, Tuple
-from fastapi import APIRouter, Request, HTTPException
+from typing import Any, Dict, List, Optional, Tuple
+from fastapi import APIRouter, Query, Request, HTTPException
 from pydantic import BaseModel, Field
 
 from deps import get_current_user
@@ -107,23 +111,32 @@ async def _warehouse_nifty(session: date) -> Tuple[Optional[float], Optional[flo
     hit = _NIFTY_CACHE.get(key)
     if hit and time.time() - hit[0] < _NIFTY_TTL:
         return hit[1]
-    n = int(macro_engine.DESK_REGIME_RULE["trend_average_sessions"])
     try:
         rows = await daas_client.get_index_eod_history(
             "Nifty 50", start=(session - timedelta(days=_NIFTY_LOOKBACK_DAYS)).isoformat(), end=key)
     except Exception as e:  # noqa: BLE001
         logger.warning("desk regime: Nifty 50 warehouse read failed: %s", e)
         return None, None, f"{NIFTY_WAREHOUSE_SOURCE} could not be read ({type(e).__name__})"
-    series = [(str(r.get("as_of_date"))[:10], _num(r.get("close_price"))) for r in rows if str(r.get("as_of_date"))[:10] <= key]
-    series = [(d, c) for d, c in series if c is not None]
-    close = next((c for d, c in series if d == key), None)
-    if close is None:
-        out: Tuple[Optional[float], Optional[float], Optional[str]] = (None, None, f"{NIFTY_WAREHOUSE_SOURCE} has no close for {key}")
-    else:
-        avg = macro_engine._sma([c for _, c in series], n)
-        out = (close, avg, None if avg is not None else f"{NIFTY_WAREHOUSE_SOURCE} has only {len(series[-n:])} of the {n} sessions to {key}")
+    out = nifty_from_warehouse_rows(rows, session)
     _NIFTY_CACHE[key] = (time.time(), out)
     return out
+
+
+def nifty_from_warehouse_rows(rows: Any, session: date) -> Tuple[Optional[float], Optional[float], Optional[str]]:
+    """(Nifty 50 close on `session`, its average over the rule's sessions up to it, why not) from nidp.index_eod rows,
+    using only the rows from `_NIFTY_LOOKBACK_DAYS` before the session up to the session (the window _warehouse_nifty
+    reads), so a longer read gives the same answer for each session. The average is macro_engine._sma's."""
+    from services import macro_engine
+    key = session.isoformat()
+    first = (session - timedelta(days=_NIFTY_LOOKBACK_DAYS)).isoformat()
+    n = int(macro_engine.DESK_REGIME_RULE["trend_average_sessions"])
+    series = [(str(r.get("as_of_date"))[:10], _num(r.get("close_price"))) for r in rows or [] if isinstance(r, dict)]
+    series = [(d, c) for d, c in series if c is not None and first <= d <= key]
+    close = next((c for d, c in series if d == key), None)
+    if close is None:
+        return None, None, f"{NIFTY_WAREHOUSE_SOURCE} has no close for {key}"
+    avg = macro_engine._sma([c for _, c in series], n)
+    return close, avg, None if avg is not None else f"{NIFTY_WAREHOUSE_SOURCE} has only {len(series[-n:])} of the {n} sessions to {key}"
 
 
 def _num(v: Any) -> Optional[float]:
@@ -137,7 +150,6 @@ async def _desk_regime(snap: Dict[str, Any]) -> Dict[str, Any]:
     """The desk's five-regime reading of the snapshot's session (PRD OV-003). The regime is the
     rule's answer, never a guess: a missing input skips its check and says so, and a failure here
     leaves `key` null with the reason instead of failing /macro/today."""
-    from services import macro_engine
     session = snap.get("date")
     values = snap.get("values") or {}
     feats = snap.get("features") or {}
@@ -155,16 +167,27 @@ async def _desk_regime(snap: Dict[str, Any]) -> Dict[str, Any]:
         w_close, w_avg, nifty_note = await _warehouse_nifty(date.fromisoformat(session))
         if w_close is not None and w_avg is not None:
             nifty_close, nifty_average, nifty_source, nifty_note = w_close, w_avg, NIFTY_WAREHOUSE_SOURCE, None
+    return _classify_session(session, nifty_close, nifty_average, nifty_source, nifty_note,
+                             _num(values.get("india_vix")), breadth, breadth_error)
+
+
+def _classify_session(session: Optional[str], nifty_close: Optional[float], nifty_average: Optional[float],
+                      nifty_source: str, nifty_note: Optional[str], india_vix: Optional[float],
+                      breadth: Optional[Dict[str, Any]], breadth_error: Optional[str]) -> Dict[str, Any]:
+    """classify_desk_regime on one session's inputs, with the notes /macro/today adds: where the Nifty levels came
+    from, why the trend check could not be made, and a breadth read that failed. Shared by /today and
+    /regime-history so a session reads the same in both."""
+    from services import macro_engine
     try:
         out = macro_engine.classify_desk_regime(
             session=session,
             nifty_close=nifty_close,
             nifty_average=nifty_average,
-            india_vix=_num(values.get("india_vix")),
+            india_vix=india_vix,
             breadth=breadth,
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning("/macro/today desk regime failed: %s", e, exc_info=True)
+        logger.warning("/macro desk regime failed: %s", e, exc_info=True)
         return {"key": None, "label": None, "date": session, "rule": dict(macro_engine.DESK_REGIME_RULE),
                 "inputs": {}, "skipped": [], "invalidation": [],
                 "reason": f"the regime rule failed: {type(e).__name__}"}
@@ -175,6 +198,121 @@ async def _desk_regime(snap: Dict[str, Any]) -> Dict[str, Any]:
         out["skipped"] = [c for c in out["skipped"] if c["check"] != "mixed"] + [
             {"check": "mixed", "reason": f"breadth could not be read ({breadth_error})"}]
     return out
+
+
+# ── Regime history: the desk regime of every stored session ──────────────────
+REGIME_HISTORY_DEFAULT_DAYS = 60
+REGIME_HISTORY_MAX_DAYS = 260       # about a year of sessions; each session is one breadth query
+_REGIME_HISTORY_BREADTH_CONCURRENCY = 3   # the app's Postgres pool holds five connections
+REGIME_HISTORY_BASIS = (
+    "Recomputed now with the rule's version from the stored end-of-day inputs of each session: macro_daily (Nifty 50 "
+    "close, India VIX), macro_features (the 50-session Nifty average; the warehouse Nifty 50 closes when it has none, "
+    "as /api/macro/today does) and stock_ohlcv (advances and declines). It is not a record of what the desk showed on "
+    "the day: no regime reading was stored at the time, and a stored input that was later rewritten gives its current value.")
+_REGIME_POINT_INPUTS = ("nifty_close", "nifty_average", "nifty_vs_average_pct", "nifty_source", "trend", "india_vix",
+                        "volatility_high", "advancing_share_pct", "breadth", "breadth_universe")
+
+
+def _regime_missing(points: List[Dict[str, Any]]) -> List[str]:
+    """What the stored inputs lack, in sentences, from the checks each point could not make."""
+    n = len(points)
+    skipped = Counter(c["check"] for p in points for c in p["skipped"])
+    out: List[str] = []
+    no_regime = sum(1 for p in points if p["key"] is None)
+    if no_regime:
+        out.append(f"{no_regime} of {n} sessions have no 50-session Nifty 50 average in macro_features and none could be "
+                   f"worked out from the warehouse closes: they have no regime.")
+    if skipped["high_volatility"]:
+        out.append(f"India VIX (macro_daily.india_vix) is missing on {skipped['high_volatility']} of {n} sessions: the "
+                   f"high-volatility check is skipped on them.")
+    if skipped["mixed"]:
+        out.append(f"Breadth (stock_ohlcv advances and declines) is missing or could not be read on {skipped['mixed']} of "
+                   f"{n} sessions: the mixed check is skipped on them.")
+    warehouse = sum(1 for p in points if p["inputs"].get("nifty_source") == NIFTY_WAREHOUSE_SOURCE)
+    if warehouse:
+        out.append(f"{warehouse} of {n} sessions take the Nifty 50 levels from the warehouse closes because macro_features "
+                   f"has no 50-session average for them.")
+    return out
+
+
+@router.get("/regime-history")
+async def regime_history(
+    request: Request,
+    days: int = Query(REGIME_HISTORY_DEFAULT_DAYS, ge=1, le=REGIME_HISTORY_MAX_DAYS, description="Latest stored sessions"),
+):
+    """The desk regime (macro_engine.classify_desk_regime, desk-regime-v1) of each of the latest `days` stored
+    sessions, oldest first. A session is a macro_daily row with a Nifty 50 close. Each point carries its rule
+    version, its inputs, the checks it could not make and why; a session whose inputs are missing has a null
+    regime with the reason, never a default. `missing` sums up what the stored inputs lack. The macro store
+    failing to answer is 502, never an empty history. Read only."""
+    await get_current_user(request)
+    from services import macro_engine
+    from services.copilot_tools import daas_client
+    try:
+        stored = await macro_engine.desk_regime_inputs(days)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("/macro/regime-history: the stored inputs could not be read: %s", type(e).__name__)
+        raise HTTPException(status_code=502, detail="macro_unavailable")
+    rows: List[Dict[str, Any]] = stored["rows"]
+    rule = dict(macro_engine.DESK_REGIME_RULE)
+    base: Dict[str, Any] = {"rule": rule, "rule_version": rule["version"], "basis": REGIME_HISTORY_BASIS,
+                            "requested_days": days, "non_session_rows": stored.get("non_session_rows", 0), "read_only": True}
+    if not rows:
+        return {**base, "sessions": 0, "points": [], "first_session": None, "last_session": None,
+                "complete": 0, "partial": 0, "unclassified": 0, "missing": [],
+                "reason": "macro_daily has no session with a Nifty 50 close: the daily macro job (18:30 IST) or "
+                          "POST /api/macro/backfill fills it."}
+
+    # The warehouse closes are read once for every session that needs them (macro_features has no average for it).
+    need = [r for r in rows if r["nifty"] is None or r["nifty_50dma"] is None]
+    warehouse: List[Dict[str, Any]] = []
+    warehouse_note: Optional[str] = None
+    if need:
+        start = (date.fromisoformat(need[0]["date"]) - timedelta(days=_NIFTY_LOOKBACK_DAYS)).isoformat()
+        try:
+            warehouse = await daas_client.get_index_eod_history("Nifty 50", start=start, end=need[-1]["date"])
+        except Exception as e:  # noqa: BLE001
+            warehouse_note = f"{NIFTY_WAREHOUSE_SOURCE} could not be read ({type(e).__name__})"
+        if not warehouse and warehouse_note is None:
+            warehouse_note = (f"{NIFTY_WAREHOUSE_SOURCE} sent no rows for {start} to {need[-1]['date']} (this client "
+                              f"answers a failed read with no rows, so the two cannot be told apart)")
+
+    gate = asyncio.Semaphore(_REGIME_HISTORY_BREADTH_CONCURRENCY)
+
+    async def one(r: Dict[str, Any]) -> Dict[str, Any]:
+        session = r["date"]
+        breadth: Optional[Dict[str, Any]] = None
+        breadth_error: Optional[str] = None
+        try:
+            async with gate:
+                breadth = await _session_breadth(date.fromisoformat(session))
+        except Exception as e:  # noqa: BLE001
+            breadth_error = f"{type(e).__name__}: {str(e)[:120]}"
+        close, avg = r["nifty"], r["nifty_50dma"]
+        source, note = NIFTY_MACRO_SOURCE, None
+        if close is None or avg is None:
+            if warehouse_note:
+                note = warehouse_note
+            else:
+                w_close, w_avg, note = nifty_from_warehouse_rows(warehouse, date.fromisoformat(session))
+                if w_close is not None and w_avg is not None:
+                    close, avg, source, note = w_close, w_avg, NIFTY_WAREHOUSE_SOURCE, None
+        out = _classify_session(session, close, avg, source, note, r["india_vix"], breadth, breadth_error)
+        inputs = out.get("inputs") or {}
+        return {"date": session, "rule_version": (out.get("rule") or rule).get("version"), "key": out.get("key"),
+                "label": out.get("label"), "inputs": {k: inputs.get(k) for k in _REGIME_POINT_INPUTS},
+                "skipped": out.get("skipped") or [], "reason": out.get("reason")}
+
+    points = list(await asyncio.gather(*(one(r) for r in rows)))
+    return {
+        **base, "sessions": len(points), "points": points,
+        "first_session": points[0]["date"], "last_session": points[-1]["date"],
+        "complete": sum(1 for p in points if p["key"] and not p["skipped"]),
+        "partial": sum(1 for p in points if p["key"] and p["skipped"]),
+        "unclassified": sum(1 for p in points if not p["key"]),
+        "missing": _regime_missing(points),
+        "reason": None,
+    }
 
 
 class RefreshRequest(BaseModel):

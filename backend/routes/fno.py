@@ -9,6 +9,10 @@
                                                  passed through from DaaS /v1/desk/fno-buildup (definitions in
                                                  nidp/services/daas_api/routers/desk_market.py). It lives under /desk
                                                  there because the data platform's /fno/{symbol} would catch /fno/scan
+    GET /api/fno/{symbol}/iv-history?days=&bucket=  the recorded daily ATM implied volatility of the underlying, with IV
+                                                 rank and IV percentile once 252 sessions are recorded
+                                                 (services/fno_iv_history; written by scripts/record_iv_history.py
+                                                 from `session_iv` below, the chain's own model on one session's rows)
 
 The rows live in nidp.fno_bhavcopy, which only the data platform can read (DaaS /v1/fno/*,
 nidp/services/daas_api/routers/fno.py), so each route forwards to it and shapes the answer. The data is end of
@@ -82,6 +86,7 @@ from services.copilot_tools import daas_client
 from services.fno_candidates import engine as fno_engine
 from services.fno_candidates import rules as fno_rules
 from services import fno_forward
+from services import fno_iv_history
 from services import fno_margin
 
 logger = logging.getLogger(__name__)
@@ -487,6 +492,88 @@ def add_day_change(strikes: Sequence[Dict[str, Any]], raw: Any) -> List[Dict[str
     return out
 
 
+# ── one session's ATM implied volatility (the IV history) ───────────────────
+# The chain route's own calculation, run on one past (or the latest) session's rows: the same spot, ATM strike,
+# forward and Black-76 implied volatility, so a recorded figure equals the chain's `summary.atm_iv` for that expiry
+# on that day. Buckets: near_month is the first futures expiry strictly after the session, next_month the second.
+# On an expiry day the expiring month has no time left (its IV is null in the chain), so it is not a bucket.
+
+IV_BUCKET_FIELDS = ("expiry", "days_to_expiry", "atm_strike", "spot", "future_settle", "forward", "forward_basis",
+                    "call_iv", "call_iv_price", "put_iv", "put_iv_price", "atm_iv", "reason")
+
+
+def session_expiries(day: str, futures_rows: Iterable[Any]) -> List[str]:
+    """The futures expiries listed on `day` that fall strictly after it, nearest first."""
+    rows = [r for r in futures_rows if isinstance(r, dict) and _iso_day(r.get("as_of_date")) == day]
+    return sorted({f["expiry"] for f in shape_futures(rows, None) if f["expiry"] > day})
+
+
+def _chain_rows(rows: Iterable[Any]) -> List[Dict[str, Any]]:
+    """Option rows of one expiry, as the data platform sends them from /fno/{symbol}, regrouped into the
+    {strike, CE, PE} list that /fno/{symbol}/chain sends, so the chain's own shaping reads them."""
+    chain: Dict[float, Dict[str, Any]] = {}
+    for r in rows:
+        if not isinstance(r, dict) or r.get("option_type") not in _OPTION_SIDES:
+            continue
+        k = _num(r.get("strike_price"))
+        if k is None or k <= 0:
+            continue
+        chain.setdefault(k, {"strike": k, "CE": None, "PE": None})[r["option_type"]] = r
+    return [chain[k] for k in sorted(chain)]
+
+
+def expiry_atm_iv(day: str, expiry: str, futures_rows: Sequence[Any], rows: Iterable[Any]) -> Dict[str, Any]:
+    """The ATM implied volatility of one expiry on one session, exactly as the chain route works it out
+    (find_spot, atm_strike, model_summary, add_model, atm_iv), with the inputs it used. `atm_iv` is null with a
+    `reason` when it cannot be worked out; nothing is filled in."""
+    out: Dict[str, Any] = dict.fromkeys(IV_BUCKET_FIELDS)
+    out["expiry"] = expiry
+    raw = _chain_rows(rows)
+    strikes = shape_strikes(raw)
+    if not strikes:
+        out["reason"] = f"no option contracts expiring {expiry} in the rows for {day}"
+        return out
+    spot = find_spot([item.get(side) for item in raw for side in _OPTION_SIDES])
+    summary = model_summary(day, expiry, spot, futures_rows, strikes)
+    k = _tidy(atm_strike([float(r["strike"]) for r in strikes], spot))
+    out.update(days_to_expiry=summary["days_to_expiry"], atm_strike=k, spot=spot, forward=summary["forward"],
+               forward_basis=summary["forward_basis"], future_settle=same_expiry_future(futures_rows, day, expiry))
+    if spot is None:
+        out["reason"] = "no underlying price in the day's rows, so no ATM strike"
+        return out
+    if summary["forward"] is None:
+        out["reason"] = "no forward: no same-expiry future, no strike whose call and put both traded, and no time left or no spot"
+        return out
+    atm_row = next((r for r in strikes if r["strike"] == k), None)
+    priced = add_model([atm_row], summary["forward"], option_pricing.year_fraction(summary["days_to_expiry"]))[0]
+    for name in _SIDE_KIND:
+        side = priced.get(name) or {}
+        out[f"{name}_iv"], out[f"{name}_iv_price"] = side.get("iv"), side.get("iv_price")
+    out["atm_iv"] = atm_iv(priced)
+    if out["atm_iv"] is None:
+        out["reason"] = ("neither the ATM call nor the ATM put has an implied volatility (no trade and no open interest, "
+                         "or a price at or below intrinsic value)")
+    return out
+
+
+def session_iv(day: str, futures_rows: Sequence[Any], rows_by_expiry: Dict[str, Sequence[Any]]) -> Dict[str, Dict[str, Any]]:
+    """{bucket: expiry_atm_iv(...)} for each bucket in fno_iv_history.BUCKETS. A bucket with no futures expiry
+    to name it (or no rows read for that expiry) is all null with the reason."""
+    expiries = session_expiries(day, futures_rows)
+    out: Dict[str, Dict[str, Any]] = {}
+    for i, name in enumerate(fno_iv_history.BUCKETS):
+        expiry = expiries[i] if i < len(expiries) else None
+        if expiry is not None and expiry in rows_by_expiry:
+            out[name] = expiry_atm_iv(day, expiry, futures_rows, rows_by_expiry[expiry])
+        else:
+            blank = dict.fromkeys(IV_BUCKET_FIELDS)
+            blank["expiry"] = expiry
+            blank["reason"] = (f"no option rows were read for the {expiry} expiry" if expiry
+                               else f"the rows for {day} list fewer than {i + 1} futures expiries after that day")
+            out[name] = blank
+    return out
+
+
 # ── data platform ────────────────────────────────────────────────────────────
 
 def no_data(sym: str) -> str:
@@ -548,6 +635,54 @@ async def _futures_rows_or_none(sym: str) -> Optional[List[Dict[str, Any]]]:
     except HTTPException as e:
         logger.warning("fno futures read for the %s chain failed (%s): model estimates are left out", sym, e.detail)
         return None
+
+
+# One expiry of one underlying on one day is a few hundred rows (NIFTY's busiest is under 1,000); 5,000 is the data
+# platform's page limit. More pages than this is not a chain this module expects, so it is refused, not truncated.
+_SESSION_PAGE = 5000
+_SESSION_MAX_PAGES = 4
+
+
+def _rows_for_day(body: Dict[str, Any], day: str, what: str) -> List[Dict[str, Any]]:
+    """The rows of a /fno/{symbol}?on=day answer. An answer for any other day (a data platform that ignored `on`
+    and sent its latest day) is a failed read, never another day's figures under this day's name."""
+    rows = [r for r in (body.get("data") if isinstance(body.get("data"), list) else []) if isinstance(r, dict)]
+    if _iso_day(body.get("as_of")) != day or any(_iso_day(r.get("as_of_date")) != day for r in rows):
+        logger.warning("fno DaaS %s answered for another day than %s", what, day)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    return rows
+
+
+async def _session_expiry_rows(sym: str, day: str, expiry: str) -> List[Dict[str, Any]]:
+    """Every row (future, calls and puts) of one expiry on one day, through every page."""
+    rows: List[Dict[str, Any]] = []
+    offset = 0
+    for _ in range(_SESSION_MAX_PAGES):
+        body = await _daas(f"/fno/{sym}", {"on": day, "expiry": expiry, "limit": _SESSION_PAGE, "offset": offset}, sym)
+        page = _rows_for_day(body, day, f"/fno/{sym} {expiry}")
+        rows.extend(page)
+        nxt = (body.get("pagination") or {}).get("next_offset") if isinstance(body.get("pagination"), dict) else None
+        if not page or not isinstance(nxt, int) or isinstance(nxt, bool):
+            return rows
+        offset = nxt
+    logger.warning("fno DaaS /fno/%s %s on %s ran past %d pages: refused, not truncated", sym, expiry, day, _SESSION_MAX_PAGES)
+    raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+
+
+async def read_session(sym: str, day: str) -> Optional[Dict[str, Any]]:
+    """The bhavcopy rows one session's IV history row is worked out from: {"futures": the day's futures rows,
+    "expiries": {expiry: that expiry's rows} for the bucket expiries}. None when the data platform has no futures
+    rows for the day (a holiday, a day not loaded, or no F&O on the underlying): nothing to record, nothing filled
+    in. A failed read, or an answer for another day, raises HTTPException (the caller counts it as failed)."""
+    bodies = await asyncio.gather(*(
+        _daas(f"/fno/{sym}", {"on": day, "instrument_type": kind, "limit": _FUTURES_LIMIT}, sym) for kind in _FUTURES_TYPES
+    ))
+    futures_rows = [r for kind, b in zip(_FUTURES_TYPES, bodies) for r in _rows_for_day(b, day, f"/fno/{sym} {kind}")]
+    if not futures_rows:
+        return None
+    expiries = session_expiries(day, futures_rows)[:len(fno_iv_history.BUCKETS)]
+    by_expiry = {e: await _session_expiry_rows(sym, day, e) for e in expiries}
+    return {"futures": futures_rows, "expiries": by_expiry}
 
 
 # ── routes ───────────────────────────────────────────────────────────────────
@@ -786,6 +921,29 @@ async def positioning_history(
     kept = sorted(got, key=lambda r: r["date"], reverse=True)[:sessions]
     return {"symbol": sym, "sessions": sorted(kept, key=lambda r: r["date"]), "requested": sessions, "missing": len(days) - len(got),
             "source": "NSE F&O bhavcopy via the build-up scan, near-month future", "read_only": True}
+
+
+@router.get("/{symbol}/iv-history")
+async def iv_history_series(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    days: int = Query(fno_iv_history.DEFAULT_DAYS, ge=1, le=fno_iv_history.MAX_DAYS, description="Recorded sessions sent in `series`"),
+    bucket: str = Query(fno_iv_history.BUCKETS[0], pattern="^(" + "|".join(fno_iv_history.BUCKETS) + ")$",
+                        description="near_month (1st futures expiry after the session) | next_month (2nd)"),
+) -> Dict[str, Any]:
+    """The underlying's recorded daily ATM implied volatility, oldest first, the latest session as `current`, and
+    IV rank and IV percentile over the latest 252 recorded sessions (null with a `reason` until 252 exist). Only
+    what was recorded (scripts/record_iv_history.py): a session that was not recorded is absent, never estimated.
+    The store failing to answer is 502, never an empty history. Read only."""
+    await get_current_user(request)
+    from deps import db
+    sym = symbol.upper()
+    try:
+        docs = await fno_iv_history.read_rows(db, sym)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("fno iv history: the records for %s could not be read (%s)", sym, type(e).__name__)
+        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    return fno_iv_history.history_answer(sym, docs, bucket, days)
 
 
 @router.get("/scan/buildup")

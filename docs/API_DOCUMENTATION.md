@@ -178,6 +178,24 @@ Kite has no supported way to log in without a human (Zerodha 2FA); no headless/T
 
 Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days from 08:30 IST until the 15:30 close, while the platform token is missing, expired or refused, an alert goes out every `KITE_TOKEN_ALERT_INTERVAL_MIN` minutes (default 30, 5-240) with a fresh login link and the time to the 09:15 open; when Kite connects, one "Kite connected" message is sent and reminders stop. Channels: `nidp/shared/notify.py` (email via `NIDP_ALERT_SMTP_*` + `NIDP_ALERT_EMAIL_TO`; Telegram via `NIDP_TELEGRAM_BOT_TOKEN` + `NIDP_TELEGRAM_CHAT_ID`), else the app mailer (`SMTP_*` secrets) to `KITE_TOKEN_ALERT_EMAIL_TO`. The channels that fired are logged; a failing channel never affects the feed. One Mongo doc (`kite_live_snapshot/token_alert`) makes it idempotent across containers. `GET /api/live/status` carries `alert_state` (`TOKEN_ALERT` or null), `token_alert{}` and `platform_token{stored, valid_until, expired}`.
 
+## F&O IV history and regime history (read-only, signed-in)
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/fno/{symbol}/iv-history?days=1..1000 (252)&bucket=near_month\|next_month` | `series[]` (oldest first: `date, atm_iv, call_iv, put_iv, expiry, days_to_expiry, atm_strike, spot, future_settle, forward, forward_basis, rate_pct, calc_version, method, reason`), `sessions` (recorded sessions with an IV), `sessions_without_iv`, `current` (the latest recorded session, IV possibly null), `iv_rank`, `iv_percentile`, `window{sessions,from,to,min,max,calendar_days}`, `reason`, `methods{recorded,backfill}` |
+| `GET /api/macro/regime-history?days=1..260 (60)` | `points[]` (oldest first: `date, rule_version, key, label, inputs{…}, skipped[{check,reason}], reason`), `sessions, complete, partial, unclassified, missing[]` (what the stored inputs lack, in sentences), `non_session_rows`, `rule`, `basis` |
+
+- IV history: the chain route's own ATM IV (Black-76 on the forward) per session, recorded from the NSE F&O bhavcopy
+  (`nidp.fno_bhavcopy` via DaaS `/v1/fno/{symbol}?on=<day>`) by `scripts/record_iv_history.py` into Mongo `fno_iv_history`.
+  `near_month` / `next_month` = the 1st / 2nd futures expiry strictly after the session. `iv_rank` = (current − min) ÷
+  (max − min) × 100 and `iv_percentile` = share of the earlier sessions below the current × 100, both over the latest 252
+  sessions with an IV; null with a `reason` (how many sessions exist) until 252 exist. Sessions not recorded are absent,
+  never estimated. Nothing recorded is 200 with `sessions: 0`; an unreadable store is 502 `upstream_unavailable`.
+- Regime history: `desk-regime-v1` (the same rule and notes as `/api/macro/today`) recomputed per stored session from
+  `macro_daily` (Nifty 50 close, India VIX), `macro_features` (50-session average, else the warehouse Nifty 50 closes) and
+  `stock_ohlcv` breadth. Not a record of what the desk showed that day. A missing input skips its check and says so; no
+  trend inputs means `key: null`. An unreadable store is 502 `macro_unavailable`.
+
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.
 
