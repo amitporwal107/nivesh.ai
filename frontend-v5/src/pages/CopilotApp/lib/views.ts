@@ -60,6 +60,7 @@ const TRADER_TOOLS: NavItem[] = [
   { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
   { view: "trader", label: "Trader desk", tag: "F&O" },
   { view: "tool/optlab", label: "Options lab", tag: "F&O" },
+  { view: "tool/fnolab", label: "F&O lab", tag: "F&O" },
   // The original strategy builder (screen → backtest → save), mounted inside the shell.
   { view: "trader/strategy", label: "Strategy builder" },
   { view: "tool/screener", label: "Screener" },

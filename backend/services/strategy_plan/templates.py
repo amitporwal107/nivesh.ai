@@ -7,10 +7,11 @@ side with no close price raises TemplateError (code `no_premium`): a premium is 
 """
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-from .engine import compute_payoff
+from .engine import CALCULATION_VERSION, compute_payoff
 
 
 class TemplateError(ValueError):
@@ -109,3 +110,48 @@ def cash_long(spot, shares, entry_price=None, underlying="X", today=None, costs=
     legs = [{"kind": "cash", "side": "buy", "quantity": shares, "lot_size": 1,
              "entry_price": entry_price if entry_price is not None else spot, "price_source": source}]
     return _result("cash_long", legs, underlying, spot, today, costs, as_of)
+
+
+# ── catalog ──────────────────────────────────────────────────────────────────
+# The templates as the F&O lab's program library lists them (GET /api/desk/strategy/templates). One entry per public
+# template function above; tests/test_strategy_plan_templates_route.py checks the names, and that every leg's
+# strike_param is an argument of its function, so the catalog cannot drift from the code. `params` is not written here:
+# catalog() reads it from each function's own signature.
+
+CATALOG: List[Dict[str, Any]] = [
+    {"name": "long_call", "label": "Long call", "kind": "option",
+     "legs": [{"side": "buy", "option_type": "call", "strike_param": "strike"}]},
+    {"name": "long_put", "label": "Long put", "kind": "option",
+     "legs": [{"side": "buy", "option_type": "put", "strike_param": "strike"}]},
+    {"name": "bull_call_spread", "label": "Bull call spread", "kind": "option",
+     "legs": [{"side": "buy", "option_type": "call", "strike_param": "long_strike"},
+              {"side": "sell", "option_type": "call", "strike_param": "short_strike"}]},
+    {"name": "bear_put_spread", "label": "Bear put spread", "kind": "option",
+     "legs": [{"side": "buy", "option_type": "put", "strike_param": "long_strike"},
+              {"side": "sell", "option_type": "put", "strike_param": "short_strike"}]},
+    {"name": "iron_condor", "label": "Iron condor", "kind": "option",
+     "legs": [{"side": "buy", "option_type": "put", "strike_param": "long_put_strike"},
+              {"side": "sell", "option_type": "put", "strike_param": "short_put_strike"},
+              {"side": "sell", "option_type": "call", "strike_param": "short_call_strike"},
+              {"side": "buy", "option_type": "call", "strike_param": "long_call_strike"}]},
+    {"name": "long_future", "label": "Long future", "kind": "future",
+     "legs": [{"side": "buy", "option_type": None, "strike_param": None}]},
+    {"name": "short_future", "label": "Short future", "kind": "future",
+     "legs": [{"side": "sell", "option_type": None, "strike_param": None}]},
+    {"name": "cash_long", "label": "Cash long", "kind": "cash",
+     "legs": [{"side": "buy", "option_type": None, "strike_param": None}]},
+]
+
+# Arguments every template takes from its context (the chain, the market, the call), not a choice of the template.
+_CONTEXT_ARGS = {"chain", "spot", "lot_size", "expiry", "underlying", "today", "costs", "as_of", "source"}
+
+
+def catalog() -> List[Dict[str, Any]]:
+    """CATALOG with each template's own parameters (read from its signature) and the payoff engine's version."""
+    out: List[Dict[str, Any]] = []
+    for entry in CATALOG:
+        fn = globals()[entry["name"]]
+        params = [p for p in inspect.signature(fn).parameters if p not in _CONTEXT_ARGS]
+        out.append({**entry, "legs": [dict(leg) for leg in entry["legs"]], "params": params,
+                    "calculation_version": CALCULATION_VERSION})
+    return out

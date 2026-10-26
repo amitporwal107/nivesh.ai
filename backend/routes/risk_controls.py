@@ -8,6 +8,10 @@
     GET  /api/risk/audit           the append-only record of every control change
     GET  /api/risk/decisions       the append-only record of every risk decision and denial
     GET  /api/risk/policy          the F&O risk policy's version, limits and this user's usage against them
+    GET  /api/risk/live-readiness  the twelve live-trading conditions of PRD §21, each pass / fail with its evidence
+    GET  /api/risk/decisions/{id}/lineage  the decision's ten-step lineage: what is recorded and what is not
+    POST /api/risk/decisions/{id}/replay   re-run the gate on the decision's stored snapshot and compare; writes nothing
+                                   (both: the caller's own decision, or any for an admin; otherwise 404)
 
     PUT  /api/admin/risk/{user_id}/kill-switch         admin only: {enabled: bool, reason: str}
     PUT  /api/admin/risk/{user_id}/halt                admin only: {enabled: bool, reason: str}
@@ -36,6 +40,7 @@ from services import execution_modes as modes
 from services import risk_controls as rc
 from services import risk_gate
 from services.risk_gate import policy as risk_policy
+from services.risk_gate import readiness, replay
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/risk", tags=["risk"])
@@ -158,6 +163,44 @@ async def policy(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     return {"policy_version": risk_policy.POLICY_VERSION, "limits": risk_policy.limits(),
             "usage": await risk_gate.usage(db, _uid(user))}
+
+
+@router.get("/live-readiness")
+async def live_readiness(request: Request) -> Dict[str, Any]:
+    """PRD §21: the conditions live F&O orders need, each read from what exists today. None passes in this build."""
+    user = await get_current_user(request)
+    from services.kite_live_feed.feed import get_feed  # imported here: the feed module is heavy and optional
+
+    return await readiness.live_readiness(db, _uid(user), gate_enabled=lambda: risk_gate.enabled_for(db, user),
+                                          feed_status=lambda: get_feed().read_status())
+
+
+_DECISION = Path(..., min_length=1, max_length=64)
+_NOT_FOUND = {"code": "decision_not_found", "message": "No such decision on this account."}
+
+
+async def _decision(request: Request, decision_id: str) -> Dict[str, Any]:
+    """The decision row if the caller may read it: their own, or any for an admin. Anything else is 404, the same
+    answer as an unknown id, so ids on other accounts cannot be probed."""
+    user = await get_current_user(request)
+    row = await replay.load(db, decision_id, _uid(user), await _is_admin_session(user))
+    if not row:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    return row
+
+
+@router.get("/decisions/{decision_id}/lineage")
+async def decision_lineage(request: Request, decision_id: str = _DECISION) -> Dict[str, Any]:
+    """The ten lineage steps, each recorded / not_recorded / not_reached / not_applicable, from the row and the
+    records that carry its id. Read only."""
+    return await replay.lineage(db, await _decision(request, decision_id))
+
+
+@router.post("/decisions/{decision_id}/replay")
+async def decision_replay(request: Request, decision_id: str = _DECISION) -> Dict[str, Any]:
+    """Re-run the gate's checks on the stored snapshot under the code and policy running now, and compare outcome,
+    reasons and checks with the record. POST because it computes on demand; it writes nothing."""
+    return replay.replay(await _decision(request, decision_id))
 
 
 # ── admin ────────────────────────────────────────────────────────────────────
