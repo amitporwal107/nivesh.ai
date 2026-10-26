@@ -22,10 +22,10 @@ function quotes(mode: string) {
   return { as_of: "2026-10-21T05:43:10+00:00", data_at: "2026-10-21T05:43:09+00:00", age_seconds: 1, stale: mode !== "live", cadence_seconds: 30, mode, session: "open", source: "ws", final: false, count: 0, missing: [], quotes: {} };
 }
 
-async function open(page: Page, o: { admin?: boolean; st?: Record<string, unknown>; feedMode?: string; url?: string } = {}) {
+async function open(page: Page, o: { admin?: boolean; st?: Record<string, unknown>; feedMode?: string; url?: string; mode?: "trader" | "investor" } = {}) {
   const seen: string[] = [];
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.addInitScript(() => localStorage.setItem("nivesh.copilot", JSON.stringify({ state: { mode: "trader", evidenceOpen: null }, version: 0 })));
+  await page.addInitScript((mode) => localStorage.setItem("nivesh.copilot", JSON.stringify({ state: { mode, evidenceOpen: null }, version: 0 })), o.mode ?? "trader");
   await mockApi(page, "populated");
   await page.route("**/api/auth/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(o.admin === false ? PLAIN : ADMIN) }));
   await page.route("**/api/live/**", (route) => {
@@ -86,6 +86,34 @@ test.describe("Kite login notice", () => {
 
   test("an expired token in a session shows the banner even before the alert fires", async ({ page }) => {
     await open(page, { st: { alert_state: null, token_alert: { state: null }, mode: "not_connected", state: "not_connected" } });
+    await expect(page.getByTestId("kite-login-banner")).toBeVisible();
+  });
+
+  // 2026-10-26: after 15:30 the alert stops, but a login still lets the feed save the day's close (login_needed, close_not_saved).
+  const AFTER_CLOSE = { session: "closed", reason: "after_hours", alert_state: null, token_alert: { state: null }, mode: "expired", state: "expired" };
+
+  test("after the close, until the day's close is saved, the banner asks for the login to save today's closing prices", async ({ page }) => {
+    const seen = await open(page, { st: { ...AFTER_CLOSE, login_needed: true, login_why: "close_not_saved", close_saved_today: false } });
+    const banner = page.getByTestId("kite-login-banner");
+    await expect(banner).toBeVisible();
+    await expect(banner).toHaveAttribute("data-why", "close_not_saved");
+    await expect(page.getByTestId("kite-login-banner-title")).toHaveText("Kite login needed — 2FA required to save today’s closing prices");
+    await expect(banner).toContainText("today’s Kite close shows until the bhavcopy end of day lands");
+    const nav = page.waitForRequest((r) => r.url().includes("/kite-login-stub?go=1"));
+    await page.getByTestId("kite-login-banner-login").click();
+    await nav;
+    expect(seen).toContain("POST /api/live/kite/login-url");
+  });
+
+  test("after the close, once the day's close is saved, there is no banner", async ({ page }) => {
+    await open(page, { st: { ...AFTER_CLOSE, login_needed: false, login_why: null, close_saved_today: true } });
+    await expect(page.getByTestId("copilot-app")).toBeVisible();
+    await page.waitForTimeout(800);
+    await expect(page.getByTestId("kite-login-banner")).toHaveCount(0);
+  });
+
+  test("an admin in Investor mode gets the banner too", async ({ page }) => {
+    await open(page, { mode: "investor", url: "/v5/app", st: { ...AFTER_CLOSE, login_needed: true, login_why: "close_not_saved" } });
     await expect(page.getByTestId("kite-login-banner")).toBeVisible();
   });
 
