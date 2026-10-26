@@ -36,7 +36,7 @@ const STATE_TONE: Record<string, { glyph: string; color: string }> = {
   neutral: { glyph: "·", color: "var(--cp-ink-3)" },
 };
 
-function Why({ items }: { items: FitFactor[] }) {
+export function Why({ items }: { items: FitFactor[] }) {
   if (!items.length) return null;
   return (
     <ul data-testid="idea-why" className="flex flex-col" style={{ gap: 4, margin: 0, padding: 0, listStyle: "none" }}>
@@ -154,7 +154,10 @@ function LivePremium({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; 
 }
 
 
-function IdeaCard({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; at: Map<string, number> }) {
+const NO_LIVE: Map<string, number> = new Map();
+
+/** One ranked idea in full. Also the lab's focus panel (LabFocus.tsx) and the Scanner's Top 10 F&O rows (ScannerTop10.tsx). */
+export function IdeaCard({ idea, live, at = NO_LIVE, onViewTrades }: { idea: OptionIdea; live?: LiveAnswer; at?: Map<string, number>; onViewTrades?: () => void }) {
   const rr = idea.reward_risk;
   const be = idea.breakevens.length ? idea.breakevens.map((b) => fmtNum(b, 2)).join(", ") : DASH;
   const maxProfit = idea.profit_unbounded ? "No upper limit" : fmtINR(idea.max_profit);
@@ -201,7 +204,7 @@ function IdeaCard({ idea, live, at }: { idea: OptionIdea; live?: LiveAnswer; at:
 
       <LivePremium idea={idea} live={live} at={at} />
 
-      <IdeaActions idea={idea} />
+      <IdeaActions idea={idea} onViewTrades={onViewTrades} />
 
       <footer style={{ ...noteStyle, borderTop: "1px solid var(--cp-line)", paddingTop: 8 }}>
         {idea.price_source ?? "end-of-day prices"}

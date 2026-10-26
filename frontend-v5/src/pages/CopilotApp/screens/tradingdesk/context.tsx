@@ -52,6 +52,9 @@ export const LAB_VIEW_LABEL: Record<LabView, string> = {
   strategies: "Paper strategies",
 };
 
+/** The underlying the lab loads when the URL names none (trading/fno.ts FNO_INDICES[0]). */
+export const LAB_DEFAULT_SYMBOL = "NIFTY";
+
 export function isLabView(v: string | null | undefined): v is LabView {
   return !!v && (LAB_VIEWS as readonly string[]).includes(v);
 }

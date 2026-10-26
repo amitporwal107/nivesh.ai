@@ -16,7 +16,7 @@
  * Kept in this browser tab's sessionStorage with the view it belongs to, so a reload of the same view keeps
  * the trail and a fresh link starts clean. Storage that is blocked or holds something else is ignored.
  */
-import { DESK_TAB_LABEL, LAB_VIEW_LABEL, isDeskTab, isLabView, type TrailFrom } from "./context";
+import { DESK_TAB_LABEL, LAB_DEFAULT_SYMBOL, LAB_VIEW_LABEL, isDeskTab, isLabView, type TrailFrom } from "./context";
 
 export interface Crumb {
   /** The view's identity: two URLs with the same key are the same view. */
@@ -54,11 +54,12 @@ export function crumbOf(params: URLSearchParams): { key: string; label: string }
   if (t === "fno") {
     const raw = params.get("lab");
     const view = isLabView(raw) ? raw : "buildup";
-    const sym = symOf(params.get("lab_sym"));
+    // The lab loads NIFTY when no underlying is named (FnoTab), so no name and NIFTY are the same view.
+    const sym = symOf(params.get("lab_sym")) ?? LAB_DEFAULT_SYMBOL;
     const focus = symOf(params.get("lab_focus"));
     // Candidates is a list: the stock in focus names it. The other views show one underlying.
     const which = view === "candidates" ? focus : sym;
-    return { key: `fno:${view}:${sym ?? ""}:${focus ?? ""}`, label: `F&O Lab · ${LAB_VIEW_LABEL[view]}${which ? ` · ${which}` : ""}` };
+    return { key: `fno:${view}:${sym}:${focus ?? ""}`, label: `F&O Lab · ${LAB_VIEW_LABEL[view]}${which ? ` · ${which}` : ""}` };
   }
   if (t === "chart") {
     const sym = symOf(params.get("sym"));

@@ -19,6 +19,10 @@
  * Every threshold shown comes from the route's `rules` block (backend setup_rules.py, versioned); none is kept here.
  * The category, the ranking and every filter live in the URL (sc_*), so a reload, a shared link or a trip to another
  * tab keeps them (PRD §5.8). Missing figures show "—" and a filter never treats them as passing.
+ *
+ * Above the list (the user's requirement of 2026-10-25): the market pulse (ScannerPulse.tsx — the latest events and FII / DII,
+ * smart-money and sector indicators, opening Market Intelligence and Smart Money) and the Top 10 stock and F&O ideas
+ * (ScannerTop10.tsx). Each loads on its own; the list never waits for them.
  */
 import { Flash } from "../../components/LiveBits";
 import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
@@ -40,6 +44,8 @@ import {
 import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import ReversalPanel from "./ReversalPanel";
+import { ScannerPulse } from "./ScannerPulse";
+import { ScannerTop10 } from "./ScannerTop10";
 import { TrustLine } from "./trust";
 import { Widget } from "./widget";
 import { ChartinkTag, ChartinkTrust } from "./chartink/ChartinkParts";
@@ -1118,7 +1124,19 @@ const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
 
 // ── the tab ──────────────────────────────────────────────────────────────
 
+/** The tab: the market pulse and the Top 10 boards (each loads on its own), then the scanner list. */
 export default function ScannerTab() {
+  const { mobile } = useCopilotShell();
+  return (
+    <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
+      <ScannerPulse />
+      <ScannerTop10 />
+      <ScannerList />
+    </div>
+  );
+}
+
+function ScannerList() {
   const { mobile } = useCopilotShell();
   const { symbol, openChart, openTab, openChartink, persona } = useDesk();
   const plain = persona === "investor";
