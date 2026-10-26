@@ -18,6 +18,7 @@ import { ErrorBlock, LoadingBlock } from "../../components/ui";
 import { isIndexUnderlying } from "../trading/fno";
 import { LAB_VIEW_LABEL, useDesk, type LabView } from "./context";
 import { IdeaCard } from "./strategy/TopByRegime";
+import { levelsRefsFor } from "./strategy/top-actions";
 import { TOP10, fnoRowFor, useTop10Fno } from "./top10-data";
 
 const note = { fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" } as const;
@@ -73,7 +74,7 @@ export function LabFocus({ symbol, view, onView, onClose }: { symbol: string; vi
       ) : q.isError && !q.data ? (
         <ErrorBlock error={q.error} onRetry={() => q.refetch()} />
       ) : row ? (
-        <IdeaCard idea={row.idea} onViewTrades={openPaperTrades} />
+        <IdeaCard idea={row.idea} rulesVersion={q.data?.rules_version} refs={levelsRefsFor(q.data, row.idea.underlying)} onViewTrades={openPaperTrades} />
       ) : (
         <p data-testid="desk-lab-focus-missing" className="m-0" style={note}>
           {symbol} is not on the current Top 10 F&amp;O ideas board, so there is no idea to show for it here. Its chain and build-up are below.
