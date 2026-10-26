@@ -193,6 +193,40 @@ export interface CostModel {
   name: string | null;
   slippagePctPerSide: number | null;
   brokerageRsPerSide: number | null;
+  /** "desk-cost-v2" (the desk cost card: statutory charges by segment) or "desk-flat-v1" / null (slippage + brokerage). */
+  version: string | null;
+}
+
+/** A trade's costs by component, ₹ (backend services/desk_cost_card.py; a flat-model trade has only brokerage and
+ *  slippage, the rest 0). */
+export interface CostsBreakdown {
+  brokerage: number | null;
+  stt: number | null;
+  exchange: number | null;
+  sebi: number | null;
+  stamp: number | null;
+  gst: number | null;
+  slippage: number | null;
+  total: number | null;
+}
+
+export function readCostsBreakdown(v: unknown): CostsBreakdown | null {
+  const b = rec(v);
+  if (!Object.keys(b).length) return null;
+  return { brokerage: num(b.brokerage), stt: num(b.stt), exchange: num(b.exchange), sebi: num(b.sebi), stamp: num(b.stamp),
+    gst: num(b.gst), slippage: num(b.slippage), total: num(b.total) };
+}
+
+/** "brokerage ₹40.00 · STT ₹2.10 · exchange ₹0.06 · SEBI ₹0.00 · stamp ₹0.15 · GST ₹7.22 · slippage ₹1.05" under the desk
+ *  cost card; "brokerage ₹40.00 · slippage ₹1.95" for a trade priced with the flat model, which has no statutory charges
+ *  (showing them as ₹0.00 would read as if they had been charged at zero). */
+export function costsBreakdownText(b: CostsBreakdown | null, inr: (n: number) => string, statutory = true): string | null {
+  if (!b) return null;
+  const parts: Array<[string, number | null]> = statutory
+    ? [["brokerage", b.brokerage], ["STT", b.stt], ["exchange", b.exchange], ["SEBI", b.sebi], ["stamp", b.stamp], ["GST", b.gst], ["slippage", b.slippage]]
+    : [["brokerage", b.brokerage], ["slippage", b.slippage]];
+  const known = parts.filter(([, n]) => n != null) as Array<[string, number]>;
+  return known.length ? known.map(([k, n]) => `${k} ${inr(n)}`).join(" · ") : null;
 }
 
 export interface PaperTrade {
@@ -245,6 +279,8 @@ export interface PaperTrade {
   /** Gross P&L (unrealised while open), estimated costs and net P&L, ₹. */
   grossRs: number | null;
   costsRs: number | null;
+  /** The costs above by component (brokerage, STT, exchange, SEBI, stamp, GST, slippage). */
+  costsBreakdown: CostsBreakdown | null;
   costsBasis: string | null;
   netRs: number | null;
   flags: PaperFlag[];
@@ -342,6 +378,8 @@ export interface StrategyPaperTrade {
   markPremiumRs: number | null;
   grossRs: number | null;
   costsRs: number | null;
+  /** The costs above by component (brokerage, STT, exchange, SEBI, stamp, GST, slippage). */
+  costsBreakdown: CostsBreakdown | null;
   costsBasis: string | null;
   netRs: number | null;
   unrealizedRs: number | null;
@@ -401,7 +439,8 @@ export interface PaperBook {
 function readCostModel(v: unknown): CostModel | null {
   const m = rec(v);
   if (!Object.keys(m).length) return null;
-  return { name: str(m.name), slippagePctPerSide: num(m.slippage_pct_per_side), brokerageRsPerSide: num(m.brokerage_rs_per_side) };
+  return { name: str(m.name), slippagePctPerSide: num(m.slippage_pct_per_side), brokerageRsPerSide: num(m.brokerage_rs_per_side),
+    version: str(m.version) };
 }
 
 function readTrade(v: unknown): PaperTrade | null {
@@ -456,6 +495,7 @@ function readTrade(v: unknown): PaperTrade | null {
     maeRs: num(t.mae_rs),
     grossRs: num(t.gross_pnl_rs),
     costsRs: num(t.costs_rs),
+    costsBreakdown: readCostsBreakdown(t.costs_breakdown),
     costsBasis: str(t.costs_basis),
     netRs: num(t.net_pnl_rs),
     flags: (Array.isArray(t.flags) ? t.flags : []).flatMap((x): PaperFlag[] => {
@@ -532,7 +572,7 @@ function readStrategyTrade(v: unknown): StrategyPaperTrade {
     entryRecordHash: str(t.entry_record_hash), entryRecordIntact: typeof t.entry_record_intact === "boolean" ? t.entry_record_intact : null,
     legs,
     netPremiumRs: num(t.net_premium_rs), markPremiumRs: num(t.mark_premium_rs),
-    grossRs: num(t.gross_pnl_rs), costsRs: num(t.costs_rs), costsBasis: str(t.costs_basis), netRs: num(t.net_pnl_rs),
+    grossRs: num(t.gross_pnl_rs), costsRs: num(t.costs_rs), costsBreakdown: readCostsBreakdown(t.costs_breakdown), costsBasis: str(t.costs_basis), netRs: num(t.net_pnl_rs),
     unrealizedRs: num(t.unrealized_pnl_rs), realizedRs: num(t.realized_pnl_rs),
     mfeRs: num(t.mfe_rs), maeRs: num(t.mae_rs), observations: num(t.observations), heldSessions: num(t.held_sessions),
     checkedThrough: str(t.checked_through), lastMarkDate: str(t.last_mark_date), markError: str(t.mark_error),

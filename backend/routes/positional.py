@@ -1611,8 +1611,8 @@ def _size_position(
             "risk_basis": _BASKET_RISK_BASIS}
 
 
-_BASKET_RISK_BASIS = ("loss at the stop after estimated round-trip costs (slippage and brokerage; taxes and statutory "
-                      "charges not included)")
+_BASKET_RISK_BASIS = ("loss at the stop after estimated round-trip costs (the desk cost card: brokerage, STT, exchange "
+                      "charge, SEBI fee, stamp duty, GST and slippage; DP charges and income tax not included)")
 
 
 # ── Trade scenario calculator (PRD §8.5 and §8.6; desk default D6) ────────
@@ -1630,18 +1630,19 @@ from services.strategy_engine.backtest import (  # noqa: E402
 _SCENARIO_CAVEATS = (
     "A stop price does not guarantee the exit price: a gap or thin trading can fill the exit beyond the stop, "
     "so the loss can be larger than shown.",
-    "Costs are estimates from the strategy_engine model (slippage per side plus a flat brokerage per side), the model a "
-    "paper trade records; taxes and exchange charges are not included.",
+    "Costs are estimates from the desk cost card, the model a paper trade records: brokerage (a desk assumption of ₹20 "
+    "a side, not a broker's tariff), STT, exchange charge, SEBI fee, stamp duty, GST, and slippage of 0.05% a side that "
+    "also stands in for the spread; DP charges and income tax are not included.",
     "Illustrative only: nothing is sent to a broker and no order is placed.",
 )
 _SCENARIO_METHOD = (
     "PRD §8.5, long only: risk per share = entry − stop; reward per share = target − entry; reward : risk = reward ÷ "
-    "risk; quantity = floor((risk budget − 2 × brokerage) ÷ (risk per share + (entry + stop) × slippage %)), so the "
-    "loss at the stop AFTER the entry and stop-exit costs stays within the risk budget; then capped by "
-    "floor(capital × max allocation % ÷ entry) and the maximum quantity, and rounded down to the lot size. Costs per "
-    "side = traded value × slippage % + brokerage; net loss at the stop = gross loss + entry and stop-exit costs; net "
-    "profit at the target = gross profit − entry and target-exit costs. Portfolio weights assume the buy is new money "
-    "added to the portfolio."
+    "risk; quantity = the most shares whose loss at the stop AFTER the entry and stop-exit costs stays within the risk "
+    "budget; then capped by floor(capital × max allocation % ÷ entry) and the maximum quantity, and rounded down to the "
+    "lot size. Costs per side = brokerage + STT + exchange charge + SEBI fee + stamp duty (buy) + GST + traded value × "
+    "slippage % (the desk cost card, equity delivery); net loss at the stop = gross loss + entry and stop-exit costs; "
+    "net profit at the target = gross profit − entry and target-exit costs. Portfolio weights assume the buy is new "
+    "money added to the portfolio."
 )
 
 
@@ -1665,11 +1666,20 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
 
     slip_pct = _SE_SLIPPAGE_FRACTION * 100 if slippage_pct is None else float(slippage_pct)
     brokerage = _SE_BROKERAGE_INR if brokerage_per_side is None else float(brokerage_per_side)
+    from services import desk_cost_card as _card
+    from services import desk_trading as _desk
+    # The desk cost card (the model a paper trade records): the request may change the slippage and the brokerage; the
+    # statutory charges (STT, exchange, SEBI, stamp, GST) always apply.
+    desk_model = {**_desk.COST_MODEL, "slippage_pct_per_side": slip_pct, "brokerage_rs_per_side": brokerage}
     cost_model = {
+        "version": _card.VERSION,
         "slippage_pct_per_side": slip_pct,
         "brokerage_inr_per_side": brokerage,
+        "statutory": _card.SNAPSHOT["statutory"] + ", equity delivery rates",
+        "brokerage_basis": _card.SNAPSHOT["brokerage_basis"],
+        "slippage_basis": _card.SNAPSHOT["slippage_basis"],
         "default": slippage_pct is None and brokerage_per_side is None,
-        "source": "services/strategy_engine/backtest.py (DEFAULT_SLIPPAGE_PCT, DEFAULT_BROKERAGE_INR)",
+        "source": "services/desk_cost_card.py (the desk cost card), services/strategy_engine/backtest.py (the default slippage and brokerage)",
     }
     budget = risk_budget if risk_budget is not None else (
         capital * risk_pct / 100.0 if capital is not None and risk_pct is not None else None)
@@ -1719,9 +1729,7 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
 
     # Sized so the loss at the stop INCLUDING the round-trip costs stays within the budget (gate 4). It used to be
     # floor(budget / risk per share), so the net loss could exceed the budget (PRD Example A: 85 shares, ₹3,098.94 > ₹3,000).
-    from services import desk_trading as _desk
-    qty_risk = _desk.max_units_within_budget(budget, entry, stop, model={"slippage_pct_per_side": slip_pct,
-                                                                        "brokerage_rs_per_side": brokerage})
+    qty_risk = _desk.max_units_within_budget(budget, entry, stop, model=desk_model)
     qty_alloc = math.floor(capital * max_alloc_pct / 100.0 / entry + eps) if capital is not None else None
     limits = [("risk_budget", qty_risk), ("max_allocation", qty_alloc), ("max_qty", max_qty)]
     binding, qty = min(((k, q) for k, q in limits if q is not None), key=lambda kq: kq[1])
@@ -1752,18 +1760,17 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
             f"The risk budget (₹{budget:,.2f}) does not cover one share's risk (₹{risk_ps:,.2f}) plus the round-trip "
             f"costs at the stop, so no whole share fits."))
     else:
-        s = slip_pct / 100.0
-        entry_cost = qty * entry * s + brokerage
-        exit_stop = qty * stop * s + brokerage
-        exit_target = (qty * target * s + brokerage) if target is not None else None
-        rt_stop = entry_cost + exit_stop
-        rt_target = (entry_cost + exit_target) if exit_target is not None else None
+        at_stop = _card.round_trip("equity_delivery", qty, entry, stop, model=desk_model)
+        at_target = _card.round_trip("equity_delivery", qty, entry, target, model=desk_model) if target is not None else None
+        rt_stop = at_stop["total"]["total"]
+        rt_target = at_target["total"]["total"] if at_target else None
         costs = {
-            "entry": round(entry_cost, 2),
-            "exit_at_stop": round(exit_stop, 2),
-            "exit_at_target": round(exit_target, 2) if exit_target is not None else None,
-            "round_trip_at_stop": round(rt_stop, 2),
-            "round_trip_at_target": round(rt_target, 2) if rt_target is not None else None,
+            "entry": at_stop["entry"]["total"],
+            "exit_at_stop": at_stop["exit"]["total"],
+            "exit_at_target": at_target["exit"]["total"] if at_target else None,
+            "round_trip_at_stop": rt_stop,
+            "round_trip_at_target": rt_target,
+            "breakdown_at_stop": at_stop["total"],
         }
         loss = qty * risk_ps
         profit = qty * reward_ps if reward_ps is not None else None

@@ -111,13 +111,65 @@ Authored up front in `test_reports/paper_fills_pnl_TESTCASES.md`.
   ICICIBANK 89 sh 1400.2 -> stop 1363.26: flat 162.97 ... | zerodha-equity-v1 delivery statutory 289.17 (... STT 245.95 ...) + the same 5 bps slippage 122.97
   Example A sizing with the card (slippage 5 bps + statutory): 78
   ```
-  **OPEN ITEM, owner decision.** The flat model is now explicit, versioned and consistent everywhere. It still leaves
+  **(Superseded by the follow-up below: new trades now carry the statutory charges in `desk-cost-v2`.)** First commit:
+  the flat model is now explicit, versioned and consistent everywhere. It still leaves
   out STT, stamp duty, exchange and SEBI charges, GST and DP charges. On Example A those are ₹195.70, more than the
   flat model's whole ₹120.97. Adopting the card was judged not small and safe in this change; reasons are in the PR.
 
+## Follow-up: statutory charges (desk cost card `desk-cost-v2`), a second commit on this branch
+Owner criterion 0.2 asks for brokerage, taxes, spread and slippage. The flat model had no taxes, so new trades now
+snapshot a versioned card. Older trades keep the model they were opened under.
+- **`backend/services/desk_cost_card.py`.** Rates are module constants, each with its source and effective date.
+  - **Equity delivery:** STT 0.1% on buy and sell, NSE exchange 0.00307%, SEBI ₹10/crore, stamp 0.015% on the buy,
+    GST 18% of brokerage + exchange + SEBI. These are copied from `research/costs/rules/zerodha-equity-v1.json` and
+    `nse-equity-statutory-v1.json`; nothing is imported from `research/`.
+  - **Futures:** STT 0.05% on the sale, exchange 0.00183%, stamp 0.002% on the buy, SEBI, GST.
+  - **Options (on the premium):** STT 0.15% on the sale, exchange 0.03553%, stamp 0.003% on the buy, SEBI, GST.
+  - **The repo had no F&O rates.** `fno_margin.py` reads Kite's computed charges and holds none. The F&O figures come
+    from https://zerodha.com/charges/, retrieved 2026-10-27 in two independent reads that gave the same cell text. The
+    page gives no effective date, so each is recorded `effective_from: None` (UNVERIFIED).
+  - **Not charged:** DP charges (broker-specific), IPFT and clearing charges, income tax. An option held to expiry is
+    priced as sold at intrinsic: same rate and base as exercise STT.
+- **Desk assumptions, stated on every trade.** Brokerage ₹20 per order side for all segments is a desk assumption,
+  not a broker's tariff. Slippage of 0.05% a side is also the spread allowance (EOD data has no bid/ask).
+- **One pricing function.** `desk_trading.round_trip_breakdown` / `round_trip_cost` prices realised costs (cash and,
+  per leg and segment, strategy trades), each trade's estimates, plan sizing (`size_position` searches against it
+  exactly), the desk scenario and the basket.
+- **Old trades.** A trade with `desk-flat-v1`, or with no cost model, keeps the flat model, and its stored totals are
+  unchanged.
+- **Breakdown shown** (brokerage, STT, exchange, SEBI, stamp, GST, slippage):
+  - the paper-trade record, cash and strategy (`costs_breakdown`); a flat trade shows brokerage and slippage only;
+  - the Risk desk scenario's cost row;
+  - the Builder's new "Costs at the stop" line.
+- **Not changed (OPEN):** the Strategy Builder payoff engine (`strategy_plan/payoff.py`). It prices net R:R and capital
+  at risk for ideas, regime-fit, levels and F&O candidates, ten-plus modules beyond the desk, so it still charges
+  slippage and brokerage only. Its net R:R therefore excludes statutory charges, while plan sizing and every paper
+  trade include them. This needs its own change.
+
+| Case (hand-computed, each component to the paisa) | Result |
+|---|---|
+| Example A (1005 / 970, ₹3,000) | **77 shares**; costs ₹292.61; loss at the stop ₹2,987.61 ≤ ₹3,000 (78 would exceed it; 82 under the flat model, 85 gross; at 85 the card's net loss is ₹3,293.11) |
+| Cash, 10 bought at 100, sold at 110 | brokerage 40.00 · STT 2.10 · exchange 0.06 · SEBI 0.00 · stamp 0.15 · GST 7.22 · slippage 1.05 = **50.58** (flat: 41.05) |
+| Futures, 1 lot of 250, 1,222.50 → 1,180 | buy 189.48 + sell 325.33 = **514.81** (STT 147.50 on the sale, stamp 6.11 on the buy) |
+| Options, long call 1 × 250, 40 → 110 | 33.10 + 90.16 = **123.26**; the bull call spread worked example: **193.80**, net 6,056.20 (flat: 108.125) |
+| Gap probe (break-above 100, fill 104, target 110, 100 sh) | gross 600, costs **81.66**, net 518.34 (flat 50.70 / 549.30) |
+| Old v1 / no-model trades | unchanged: 41.05, breakdown brokerage + slippage only |
+| Reconciliation invariants (R-1…R-3) | hold under the card |
+
+Real output (follow-up):
+- Backend, the same 34 test files: `1371 passed, 4 warnings in 67.81s (0:01:07)` (1366 + 5 new card tests; the
+  updated assertions each say why).
+- Whole `backend/tests`, branch vs 5b6b3cfd: `580 failed, 6021 passed, 577 skipped, 43 warnings, 166 errors` vs
+  `589 failed, 5927 passed, ...`. **0 tests fail on the branch that pass on base.**
+- Playwright, 11 desk specs (adds `copilot-app-desk-portfolio-fno` with a new cost-card record case): `tsc: clean` ·
+  `✓ built in 33.92s` · `16 skipped` · `380 passed (4.9m)`.
+- Builder fixtures `strategy-plan-cash.json` and `-futures.json`: the sizing blocks are re-dumped from the backend's
+  fixture world (cash: by_risk 227, costs 839.32, net 9,159.32; futures: costs 504.49); quantities are unchanged.
+
 ## Inputs required from user
 - Approval to deploy to staging and a test session for S-1/S-2.
-- The owner decisions listed in the PR: the cost card, the entry-rule mapping and the target-jump convention.
+- The owner decisions listed in the PR: the brokerage assumption (₹20 a side, all segments), the F&O rates' effective
+  dates, the payoff engine follow-up, the entry-rule mapping and the target-jump convention.
 
 ## Verdict: BLOCKED
 <!-- Every local test case passed with real output above; the staging API cases (S-1, S-2) are not run because this task

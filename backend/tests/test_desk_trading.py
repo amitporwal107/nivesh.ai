@@ -454,8 +454,9 @@ def test_list_marks_open_trades_at_the_last_end_of_day_close(api, world):
     assert row["mark_error"] is None
     assert body["as_of"] == "2026-10-12" and body["checked_through"] == "2026-10-12"
     assert body["marks_error"] is None and body["price_basis"] == "end of day"
-    # Net of the strategy_engine cost model: 100 × 10 × 0.05% + ₹20 and 101 × 10 × 0.05% + ₹20 → ₹41.00; 10 − 41 = −31.
-    costs = round((100 * 10 * 0.0005 + 20.0) + (101 * 10 * 0.0005 + 20.0), 2)
+    # Under the desk cost card (desk-cost-v2) by hand: buy 100 x 10 = 20 + 1.00 STT + 0.03 exch + 0.15 stamp + 3.61 GST
+    # + 0.50 slippage = 25.29; sell 101 x 10 = 20 + 1.01 + 0.03 + 3.61 + 0.51 = 25.16; 50.45 (41.00 flat, before).
+    costs = 50.45
     assert body["summary"] == {"open": 1, "closed": 0, "wins": 0, "losses": 0, "realized_pnl_rs": None,
                                "unrealized_pnl_rs": 10.0, "unmarked_open": 0, "partial": False,
                                "net_realized_pnl_rs": None, "costs_realized_rs": None,

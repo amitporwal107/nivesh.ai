@@ -3,25 +3,26 @@
 One rule, on the server, beside `_size_position`. Pure: no database, no broker, nothing is stored or sent.
 
 Worked example (LONG, the desk fixture's pick): entry ₹505, stop ₹480, target ₹555, capital ₹5,00,000, risk 1%, max
-allocation 25%, costs from the strategy_engine model (0.05% slippage + ₹20 brokerage per side), the model a paper trade
-records. Sized so the loss at the stop AFTER costs fits the budget (paper_fills_pnl TESTCASES C-2; it used to be
-floor(5,000 / 25) = 200 shares, whose net loss at the stop was ₹5,138.50, over the ₹5,000 budget):
+allocation 25%. Costs are the desk cost card desk-cost-v2 (services/desk_cost_card.py, equity delivery), the model a
+paper trade records: ₹20 brokerage a side (a desk assumption), STT 0.1% both sides, NSE exchange 0.00307%, SEBI ₹10 a
+crore, stamp 0.015% on the buy, GST 18% of brokerage + exchange + SEBI, slippage 0.05% a side; each component to the
+paisa. Sized so the loss at the stop AFTER costs fits the budget (paper_fills_pnl TESTCASES C-2):
     risk per share      505 − 480 = 25            reward per share   555 − 505 = 50        reward : risk  50 / 25 = 2.0
     risk budget         5,00,000 × 1% = 5,000
-    costs per share     (505 + 480) × 0.05% = 0.4925 at the stop, plus 2 × ₹20 brokerage
-    qty by risk         floor((5,000 − 40) / (25 + 0.4925)) = floor(194.57) = 194
-    qty by allocation   floor(5,00,000 × 25% / 505) = floor(247.52) = 247              → quantity 194 (risk budget binds)
-    gross exposure      194 × 505 = 97,970         allocation         97,970 / 5,00,000 = 19.594%
-    entry costs         97,970 × 0.05% + 20 = 48.985 + 20 = 68.985
-    exit at the stop    194 × 480 = 93,120 × 0.05% + 20 = 46.56 + 20 = 66.56        round trip 135.545
-    exit at the target  194 × 555 = 1,07,670 × 0.05% + 20 = 53.835 + 20 = 73.835   round trip 142.82
-    loss at the stop    194 × 25 = 4,850 gross     4,985.545 net of costs (≤ 5,000)
-    profit at target    194 × 50 = 9,700 gross     9,557.18 net of costs
+    qty by risk         the most shares with 25 × q + costs(q) ≤ 5,000 → 186
+    qty by allocation   floor(5,00,000 × 25% / 505) = floor(247.52) = 247              → quantity 186 (risk budget binds)
+    gross exposure      186 × 505 = 93,930         allocation         93,930 / 5,00,000 = 18.786%
+    entry (buy 93,930)  20 + STT 93.93 + exch 2.88 + SEBI 0.09 + stamp 14.09 + GST 4.13 + slippage 46.97 = 182.09
+    exit at the stop    sell 89,280: 20 + 89.28 + 2.74 + 0.09 + 0 + 4.11 + 44.64 = 160.86      round trip 342.95
+    exit at the target  sell 1,03,230: 20 + 103.23 + 3.17 + 0.10 + 0 + 4.19 + 51.62 = 182.31   round trip 364.40
+    loss at the stop    186 × 25 = 4,650 gross     4,992.95 net of costs (≤ 5,000)
+    profit at target    186 × 50 = 9,300 gross     8,935.60 net of costs
+(Under the flat model, desk-flat-v1, it was 194 shares and a net loss of 4,985.545; on the gross distance, 200.)
 
 Portfolio (§8.6), portfolio ₹10,00,000 holding ₹50,000 of the stock and ₹1,50,000 in its sector, the buy added as new money:
-    stock weight        5.0% → (50,000 + 97,970) / 10,97,970 = 13.4767%
-    sector weight       15.0% → (1,50,000 + 97,970) / 10,97,970 = 22.5844%
-    impact at the stop  −4,985.545 / 10,00,000        at the target  +9,557.18 / 10,00,000
+    stock weight        5.0% → (50,000 + 93,930) / 10,93,930
+    sector weight       15.0% → (1,50,000 + 93,930) / 10,93,930
+    impact at the stop  −4,992.95 / 10,00,000        at the target  +8,935.60 / 10,00,000
 """
 from __future__ import annotations
 
@@ -56,19 +57,21 @@ def test_long_worked_example():
     assert ps == {"risk": 25.0, "reward": 50.0, "reward_to_risk": 2.0}
     s = r["sizing"]
     assert s["risk_budget"] == 5_000.0
-    assert s["qty_by_risk"] == 194 and s["qty_by_allocation"] == 247 and s["qty_by_max"] is None
-    assert s["quantity"] == 194 and s["binding"] == "risk_budget"
-    assert s["gross_exposure"] == 97_970.0
-    assert s["allocation_pct"] == pytest.approx(19.594)
+    assert s["qty_by_risk"] == 186 and s["qty_by_allocation"] == 247 and s["qty_by_max"] is None
+    assert s["quantity"] == 186 and s["binding"] == "risk_budget"
+    assert s["gross_exposure"] == 93_930.0
+    assert s["allocation_pct"] == pytest.approx(18.786)
     assert "after the entry and stop-exit costs" in s["risk_basis"]
     c = r["costs"]
-    assert c["entry"] == pytest.approx(68.985, abs=0.006)           # rounded to the paisa
-    assert c["exit_at_stop"] == pytest.approx(66.56) and c["round_trip_at_stop"] == pytest.approx(135.545, abs=0.006)
-    assert c["exit_at_target"] == pytest.approx(73.835, abs=0.006) and c["round_trip_at_target"] == pytest.approx(142.82)
+    assert c["entry"] == 182.09
+    assert c["exit_at_stop"] == 160.86 and c["round_trip_at_stop"] == 342.95
+    assert c["exit_at_target"] == 182.31 and c["round_trip_at_target"] == 364.4
+    assert c["breakdown_at_stop"] == {"brokerage": 40.0, "stt": 183.21, "exchange": 5.62, "sebi": 0.18, "stamp": 14.09,
+                                      "gst": 8.24, "slippage": 91.61, "total": 342.95}
     o = r["outcomes"]
-    assert o["loss_at_stop"] == pytest.approx(4_850.0) and o["loss_at_stop_net"] == pytest.approx(4_985.545, abs=0.006)
+    assert o["loss_at_stop"] == pytest.approx(4_650.0) and o["loss_at_stop_net"] == 4_992.95
     assert o["loss_at_stop_net"] <= s["risk_budget"]                       # gate 4: the net loss fits the budget
-    assert o["profit_at_target"] == pytest.approx(9_700.0) and o["profit_at_target_net"] == pytest.approx(9_557.18)
+    assert o["profit_at_target"] == pytest.approx(9_300.0) and o["profit_at_target_net"] == 8_935.6
     assert r["portfolio"] is None
 
 
@@ -77,7 +80,8 @@ def test_cost_model_is_the_strategy_engine_default():
     cm = r["cost_model"]
     assert cm["slippage_pct_per_side"] == pytest.approx(DEFAULT_SLIPPAGE_PCT * 100)      # 0.05 (percent units)
     assert cm["brokerage_inr_per_side"] == pytest.approx(DEFAULT_BROKERAGE_INR)          # ₹20
-    assert "strategy_engine" in cm["source"]
+    assert cm["version"] == "desk-cost-v2" and "desk_cost_card" in cm["source"]
+    assert "desk assumption" in cm["brokerage_basis"] and "spread" in cm["slippage_basis"]
     # The PRD's gap caveat travels with every answer.
     assert any("does not guarantee" in c for c in r["caveats"])
 
@@ -107,28 +111,30 @@ def test_target_is_optional():
     assert r["per_share"]["reward"] is None and r["per_share"]["reward_to_risk"] is None
     assert r["outcomes"]["profit_at_target"] is None and r["outcomes"]["profit_at_target_net"] is None
     assert r["costs"]["exit_at_target"] is None
-    assert r["outcomes"]["loss_at_stop"] == pytest.approx(4_850.0)
+    assert r["outcomes"]["loss_at_stop"] == pytest.approx(4_650.0)
 
 
 # ── costs are inputs ─────────────────────────────────────────────────────────
 
-def test_zero_costs_make_net_equal_gross():
+def test_zero_slippage_and_brokerage_leave_only_the_statutory_charges():
+    # Renamed from test_zero_costs_make_net_equal_gross: slippage and brokerage are inputs, the statutory charges (STT,
+    # exchange, SEBI, stamp, GST) are not, so net never equals gross any more.
     r = _calc(slippage_pct=0.0, brokerage_per_side=0.0)
-    assert r["sizing"]["quantity"] == 200                # with no costs, floor(5,000 / 25) as before
-    assert r["costs"]["round_trip_at_stop"] == 0 and r["costs"]["round_trip_at_target"] == 0
-    assert r["outcomes"]["loss_at_stop_net"] == r["outcomes"]["loss_at_stop"]
-    assert r["outcomes"]["profit_at_target_net"] == r["outcomes"]["profit_at_target"]
+    b = r["costs"]["breakdown_at_stop"]
+    assert (b["brokerage"], b["slippage"]) == (0.0, 0.0) and b["stt"] > 0 and b["stamp"] > 0
+    assert r["sizing"]["quantity"] == 191 and r["costs"]["round_trip_at_stop"] == b["total"]
+    assert r["outcomes"]["loss_at_stop_net"] == round(r["outcomes"]["loss_at_stop"] + b["total"], 2) <= 5_000
 
 
 def test_custom_costs():
     r = _calc(slippage_pct=0.1, brokerage_per_side=0.0)
-    # The custom costs size too: floor(5,000 / (25 + 985 × 0.1%)) = floor(192.4) = 192 shares.
-    # entry 96,960 × 0.1% = 96.96; stop exit 92,160 × 0.1% = 92.16; target exit 1,06,560 × 0.1% = 106.56
-    assert r["sizing"]["quantity"] == 192
-    assert r["costs"]["entry"] == pytest.approx(96.96)
-    assert r["costs"]["round_trip_at_stop"] == pytest.approx(189.12)
-    assert r["outcomes"]["loss_at_stop_net"] == pytest.approx(192 * 25 + 189.12) and r["outcomes"]["loss_at_stop_net"] <= 5_000
-    assert r["outcomes"]["profit_at_target_net"] == pytest.approx(192 * 50 - 203.52)
+    # The custom slippage and brokerage size too (the statutory charges stay): 184 shares.
+    # entry buy 184 × 505 = 92,920: 0 + STT 92.92 + exch 2.85 + SEBI 0.09 + stamp 13.94 + GST 0.53 + slippage 92.92 = 203.25
+    assert r["sizing"]["quantity"] == 184
+    assert r["costs"]["entry"] == 203.25
+    assert r["costs"]["round_trip_at_stop"] == 383.19
+    assert r["outcomes"]["loss_at_stop_net"] == round(184 * 25 + 383.19, 2) and r["outcomes"]["loss_at_stop_net"] <= 5_000
+    assert r["outcomes"]["profit_at_target_net"] == round(184 * 50 - 411.31, 2)
     assert r["cost_model"]["slippage_pct_per_side"] == pytest.approx(0.1)
 
 
@@ -147,17 +153,17 @@ def test_max_quantity_binds():
 
 
 def test_lot_size_rounds_down():
-    r = _calc(lot_size=30)                               # 194 → 180, the largest multiple of 30
+    r = _calc(lot_size=30)                               # 186 → 180, the largest multiple of 30
     assert r["sizing"]["quantity"] == 180 and r["sizing"]["binding"] == "lot_size"
-    r = _calc(lot_size=2)                                # 194 is already a multiple: the risk budget still binds
-    assert r["sizing"]["quantity"] == 194 and r["sizing"]["binding"] == "risk_budget"
+    r = _calc(lot_size=2)                                # 186 is already a multiple: the risk budget still binds
+    assert r["sizing"]["quantity"] == 186 and r["sizing"]["binding"] == "risk_budget"
 
 
 def test_risk_budget_in_rupees_without_capital():
     r = route._trade_scenario(entry=505.0, stop=480.0, target=555.0, risk_budget=2_000.0)
     assert r["valid"] is True
-    # floor((2,000 − 40) / 25.4925) = 76 (80 on the gross distance before costs were counted)
-    assert r["sizing"]["risk_budget"] == 2_000.0 and r["sizing"]["quantity"] == 76
+    # 73 after the card's costs (76 under the flat model, 80 on the gross distance)
+    assert r["sizing"]["risk_budget"] == 2_000.0 and r["sizing"]["quantity"] == 73
     assert r["sizing"]["allocation_pct"] is None and r["sizing"]["qty_by_allocation"] is None
 
 
@@ -181,12 +187,12 @@ def test_portfolio_impact():
     r = _calc(portfolio_value=1_000_000.0, existing_value=50_000.0, sector_value=150_000.0)
     p = r["portfolio"]
     assert p["stock_weight_before_pct"] == pytest.approx(5.0)
-    assert p["stock_weight_after_pct"] == pytest.approx(147_970 / 1_097_970 * 100)
-    assert p["stock_weight_change_pct"] == pytest.approx(147_970 / 1_097_970 * 100 - 5.0)
+    assert p["stock_weight_after_pct"] == pytest.approx(143_930 / 1_093_930 * 100)
+    assert p["stock_weight_change_pct"] == pytest.approx(143_930 / 1_093_930 * 100 - 5.0)
     assert p["sector_weight_before_pct"] == pytest.approx(15.0)
-    assert p["sector_weight_after_pct"] == pytest.approx(247_970 / 1_097_970 * 100)
-    assert p["impact_at_stop_pct"] == pytest.approx(-4_985.55 / 1_000_000 * 100, abs=1e-5)
-    assert p["impact_at_target_pct"] == pytest.approx(9_557.18 / 1_000_000 * 100)
+    assert p["sector_weight_after_pct"] == pytest.approx(243_930 / 1_093_930 * 100)
+    assert p["impact_at_stop_pct"] == pytest.approx(-4_992.95 / 1_000_000 * 100)
+    assert p["impact_at_target_pct"] == pytest.approx(8_935.6 / 1_000_000 * 100)
     assert "new money" in p["assumption"]
 
 

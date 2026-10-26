@@ -181,14 +181,18 @@ def test_p1_p2_a_gapped_entry_books_600_from_its_fill_not_1000_and_the_open_and_
     assert (open_row["entry_status"], open_row["sim_entry_price"], open_row["unrealized_pnl_rs"]) == ("reached", 104.0, 100.0)
     world.add("FIXG", obar("2026-10-15", 106, 111, 105, 110.5))
     [row] = trades(api)["trades"]
-    costs = round(side(104, 100) + side(110, 100), 2)                       # 25.20 + 25.50 = 50.70
+    # The desk cost card at the fills, by hand: buy 10,400 = 20 + 10.40 STT + 0.32 exch + 0.01 SEBI + 1.56 stamp + 3.66 GST
+    # + 5.20 slippage = 41.15; sell 11,000 = 20 + 11.00 + 0.34 + 0.01 + 3.66 + 5.50 = 40.51; 81.66 (50.70 flat)
+    costs = 81.66
     assert (row["status"], row["exit_reason"], row["exit_price"]) == ("closed", "target", 110.0)
     assert row["realized_pnl_rs"] == 600.0 == row["gross_pnl_rs"]          # (110 − 104) × 100; it booked 1,000 before
-    assert row["costs_rs"] == costs == 50.7 and row["net_pnl_rs"] == round(600.0 - costs, 2) == 549.3
+    assert row["costs_rs"] == costs and row["net_pnl_rs"] == round(600.0 - costs, 2) == 518.34
+    assert row["costs_breakdown"] == {"brokerage": 40.0, "stt": 21.4, "exchange": 0.66, "sebi": 0.02, "stamp": 1.56,
+                                      "gst": 7.32, "slippage": 10.7, "total": 81.66}
     stored = _doc(world, t["id"])
-    assert (stored["realized_pnl_rs"], stored["costs_rs"], stored["net_pnl_rs"], stored["sim_entry_price"]) == (600.0, 50.7, 549.3, 104.0)
+    assert (stored["realized_pnl_rs"], stored["costs_rs"], stored["net_pnl_rs"], stored["sim_entry_price"]) == (600.0, 81.66, 518.34, 104.0)
     (account,) = world.db.cols[acct.ACCOUNTS].docs
-    assert account["cash_rs"] == round(acct.DEFAULT_CAPITAL + 549.3, 2) and account["blocked_rs"] == 0.0
+    assert account["cash_rs"] == round(acct.DEFAULT_CAPITAL + 518.34, 2) and account["blocked_rs"] == 0.0
 
 
 def test_p1_the_service_close_uses_the_fill_too():
@@ -198,14 +202,16 @@ def test_p1_the_service_close_uses_the_fill_too():
     db = FakeDb()
     db.trades.docs.append(t)
     stored, mine = run(svc.close_trade(db, t, **sim["exit"], sim=sim))
-    assert mine and (stored["realized_pnl_rs"], stored["costs_rs"], stored["net_pnl_rs"]) == (600.0, 50.7, 549.3)
+    assert mine and (stored["realized_pnl_rs"], stored["costs_rs"], stored["net_pnl_rs"]) == (600.0, 81.66, 518.34)
 
 
-def test_p3_an_older_closed_record_without_costs_is_priced_at_its_stored_fill():
+def test_p3_an_older_closed_record_without_costs_is_priced_at_its_stored_fill_under_its_own_model():
     doc = {**_trade("break_above"), "status": "closed", "exit_price": 110.0, "realized_pnl_rs": 600.0, "sim_entry_price": 104.0,
            "entry_status": "reached"}
-    out = svc.public_trade(doc)
-    assert out["costs_rs"] == round(side(104, 100) + side(110, 100), 2) and out["net_pnl_rs"] == 549.3
+    assert svc.public_trade(doc)["costs_rs"] == 81.66 and svc.public_trade(doc)["net_pnl_rs"] == 518.34     # the card
+    flat = {**doc, "cost_model": dict(svc.COST_MODEL_FLAT_V1)}
+    out = svc.public_trade(flat)
+    assert out["costs_rs"] == round(side(104, 100) + side(110, 100), 2) == 50.7 and out["net_pnl_rs"] == 549.3
 
 
 def test_p5_a_gap_through_the_stop_books_the_loss_at_the_open(api, world):
@@ -214,7 +220,9 @@ def test_p5_a_gap_through_the_stop_books_the_loss_at_the_open(api, world):
     [row] = trades(api)["trades"]
     assert (row["exit_reason"], row["exit_price"]) == ("stop", 92.0)
     assert row["realized_pnl_rs"] == (92.0 - 100.0) * 20 == -160.0
-    assert row["costs_rs"] == round(side(100, 20) + side(92, 20), 2) and _doc(world, t["id"])["net_pnl_rs"] == row["net_pnl_rs"]
+    # The desk cost card: buy 2,000 = 20 + 2.00 + 0.06 + 0 + 0.30 + 3.61 + 1.00 = 26.97; sell 1,840 = 20 + 1.84 + 0.06 + 3.61
+    # + 0.92 = 26.43; 53.40
+    assert row["costs_rs"] == 53.4 and row["net_pnl_rs"] == -213.4 == _doc(world, t["id"])["net_pnl_rs"]
 
 
 def test_p4_strategy_trades_have_no_separate_fill_open_and_closed_pnl_use_the_recorded_legs():
@@ -237,26 +245,30 @@ EXAMPLE_A = dict(entry=1005.0, stop=970.0, budget=3000.0)                  # PRD
 
 def test_c1_example_a_is_sized_so_the_loss_after_costs_fits_the_budget():
     e, s, b = EXAMPLE_A["entry"], EXAMPLE_A["stop"], EXAMPLE_A["budget"]
-    slip, brokerage = svc.cost_terms()
     inputs = {"risk_budget_inr": b, "capital": 300_000.0, "max_allocation_pct": 100.0}
     gross_only = cd.size_position(inputs, risk_per_unit=e - s, value_per_unit=e, unit="shares", per_unit_label="x")
     assert gross_only["quantity"] == 85                                     # the PRD's figure, on the gross distance
-    over = 85 * (e - s) + svc.round_trip_cost(85, e, s)
-    assert round(over, 2) == 3098.94 and over > b                          # study A probe P2: over the budget
+    flat = 85 * (e - s) + svc.round_trip_cost(85, e, s, svc.COST_MODEL_FLAT_V1)
+    assert round(flat, 2) == 3098.94 and flat > b                          # study A probe P2: over the budget, flat costs
+    assert round(85 * (e - s) + svc.round_trip_cost(85, e, s), 2) == 3293.11  # and further over with the statutory charges
     sized = cd.size_position(inputs, risk_per_unit=e - s, value_per_unit=e, unit="shares", per_unit_label="x",
-                             cost_per_unit=(e + s) * slip, fixed_cost=2 * brokerage)
-    # floor((3,000 − 40) / (35 + 1,975 × 0.05%)) = floor(2,960 / 35.9875) = 82
-    assert (sized["quantity"], sized["by_risk_budget"], sized["costs_included"]) == (82, 82, True)
-    # 82 x 35 = 2,870 gross; 82 x 0.9875 + 40 = 120.975 of costs; 2,990.975 after costs (rounded to the paisa)
-    assert sized["risk_at_stop_inr"] == 2870.0 and sized["risk_at_stop_net_inr"] == pytest.approx(2990.975, abs=0.006)
+                             cost_at_stop=lambda units: svc.round_trip_cost(units, e, s))
+    # The desk cost card (follow-up "statutory charges"): the most shares with 35 x q + costs(q) <= 3,000 is 77 (82 under
+    # the flat model). Costs at the stop for 77, by hand: buy 77,385 = 20 + 77.39 STT + 2.38 exch + 0.08 SEBI + 11.61 stamp
+    # + 4.04 GST + 38.69 slippage = 154.19; sell 74,690 = 20 + 74.69 + 2.29 + 0.07 + 4.02 + 37.35 = 138.42; 292.61 in all.
+    assert (sized["quantity"], sized["by_risk_budget"], sized["costs_included"]) == (77, 77, True)
+    assert (sized["risk_at_stop_inr"], sized["costs_at_stop_inr"], sized["risk_at_stop_net_inr"]) == (2695.0, 292.61, 2987.61)
     assert sized["risk_at_stop_net_inr"] <= b
-    assert svc.max_units_within_budget(b, e, s) == 82
+    assert 78 * (e - s) + svc.round_trip_cost(78, e, s) > b                 # one more share would not fit
+    assert svc.max_units_within_budget(b, e, s) == 77
 
 
 def test_c2_the_desk_scenario_sizes_example_a_after_costs():
     r = positional_route._trade_scenario(entry=1005.0, stop=970.0, target=1075.0, risk_budget=3000.0)
-    assert r["sizing"]["quantity"] == 82 and r["sizing"]["binding"] == "risk_budget"
-    assert r["outcomes"]["loss_at_stop_net"] == pytest.approx(2990.975, abs=0.006) and r["outcomes"]["loss_at_stop_net"] <= 3000.0
+    assert r["sizing"]["quantity"] == 77 and r["sizing"]["binding"] == "risk_budget"
+    assert r["outcomes"]["loss_at_stop_net"] == 2987.61 and r["outcomes"]["loss_at_stop_net"] <= 3000.0
+    assert r["costs"]["breakdown_at_stop"] == {"brokerage": 40.0, "stt": 152.08, "exchange": 4.67, "sebi": 0.15, "stamp": 11.61,
+                                               "gst": 8.06, "slippage": 76.04, "total": 292.61}
 
 
 def test_c3_the_basket_never_forces_a_share_above_its_risk_cap():
@@ -265,13 +277,13 @@ def test_c3_the_basket_never_forces_a_share_above_its_risk_cap():
     wide = positional_route._size_position(100_000.0, 8, 5000.0, 100.0, 1.0)
     assert wide["qty"] == 0 and wide["risk_rs"] == 0.0
     ok = positional_route._size_position(100_000.0, 8, 1000.0, 960.0, 1.0)
-    # by allocation floor(12,500 / 1,000) = 12; by risk floor((2,000 − 40) / (40 + 1,960 × 0.05%)) = floor(47.83) = 47 → 12
-    assert ok["qty"] == 12 and ok["risk_gross_rs"] == 480.0
+    # by allocation floor(12,500 / 1,000) = 12; the risk cap allows 45 after the card's costs → 12; 480 + 85.15 = 565.15
+    assert ok["qty"] == 12 and ok["risk_gross_rs"] == 480.0 and ok["risk_rs"] == 565.15
     assert ok["risk_rs"] == round(480.0 + svc.round_trip_cost(12, 1000.0, 960.0), 2) and "after estimated round-trip costs" in ok["risk_basis"]
-    tight = positional_route._size_position(100_000.0, 1, 1000.0, 960.0, 1.0)  # allocation 100: the risk cap binds at 47
-    assert tight["qty"] == 47 and tight["risk_rs"] <= 2000.0
-    # On the gross distance it would have been floor(2,000 / 40) = 50, with ₹2,000 + ₹137.80 of costs over the cap.
-    assert 50 * 40 + svc.round_trip_cost(50, 1000.0, 960.0) > 2000.0
+    tight = positional_route._size_position(100_000.0, 1, 1000.0, 960.0, 1.0)  # allocation 100: the risk cap binds at 45
+    assert tight["qty"] == 45 and tight["risk_rs"] <= 2000.0
+    # On the gross distance it would have been floor(2,000 / 40) = 50: ₹2,205.37 after the card's costs, over the cap.
+    assert round(50 * 40 + svc.round_trip_cost(50, 1000.0, 960.0), 2) == 2205.37
 
 
 def test_c4_one_cost_function_for_sizing_the_estimate_on_the_trade_and_the_realised_costs():
@@ -284,19 +296,85 @@ def test_c4_one_cost_function_for_sizing_the_estimate_on_the_trade_and_the_reali
                              "stop_price": c["invalidation"]["technical"]["price"]}, svc.utcnow())
     estimate = svc.estimated_costs(t)["at_stop"]                                 # shown on the trade (est_costs_rs)
     realised = svc.trade_costs(t, t["entry_price"], t["stop_price"])             # booked by a stop exit at those fills
-    assert sz["costs_at_stop_inr"] == estimate == realised == 285.44
-    assert sz["risk_at_stop_net_inr"] == round(208 * 40 + realised, 2) == 8605.44
+    assert sz["costs_at_stop_inr"] == estimate == realised == 839.32
+    assert sz["risk_at_stop_net_inr"] == round(208 * 40 + realised, 2) == 9159.32
+    assert sz["costs_breakdown_at_stop"] == svc.trade_cost_breakdown(t, t["entry_price"], t["stop_price"])
     scenario = positional_route._trade_scenario(entry=1200.0, stop=1160.0, risk_budget=10_000.0, max_qty=208)
     assert scenario["costs"]["round_trip_at_stop"] == realised
 
 
 def test_c5_the_cost_model_is_versioned_explicit_and_an_old_trade_keeps_its_own():
-    assert svc.COST_MODEL["version"] == "desk-flat-v1"
-    assert {"STT", "stamp duty", "GST"} <= set(svc.COST_MODEL["excludes"])
+    assert svc.COST_MODEL["version"] == "desk-cost-v2" and svc.COST_MODEL_FLAT_V1["version"] == "desk-flat-v1"
+    assert "desk assumption" in svc.COST_MODEL["brokerage_basis"] and "spread" in svc.COST_MODEL["slippage_basis"]
+    assert {"STT", "stamp duty", "GST"} <= set(svc.COST_MODEL_FLAT_V1["excludes"])
     old = {**_trade(), "cost_model": {"name": "older", "slippage_pct_per_side": 0.1, "brokerage_rs_per_side": 0.0}}
     assert svc.trade_costs(old, 100.0, 110.0) == round(100 * 100 * 0.001 + 110 * 100 * 0.001, 2)
-    t = svc.public_trade({**_trade(), "status": "closed", "exit_price": 110.0, "realized_pnl_rs": 1000.0, "costs_rs": 41.0})
-    assert "not included" in t["costs_basis"]
+    t = svc.public_trade({**_trade(), "cost_model": dict(svc.COST_MODEL_FLAT_V1), "status": "closed", "exit_price": 110.0,
+                          "realized_pnl_rs": 1000.0, "costs_rs": 41.0})
+    assert "not included" in t["costs_basis"] and t["costs_rs"] == 41.0       # its stored total, as booked
+
+
+# ── V: the desk cost card desk-cost-v2 (follow-up "statutory charges") ───────
+def test_v1_a_cash_round_trip_breakdown_matches_the_hand_computation():
+    # 10 FIXA bought at 100 and sold at 110, equity delivery: buy 1,000 = 20 + 1.00 STT + 0.03 exch + 0.00 SEBI + 0.15
+    # stamp + 3.61 GST + 0.50 slippage = 25.29; sell 1,100 = 20 + 1.10 + 0.03 + 0 + 0 + 3.61 + 0.55 = 25.29.
+    t = svc.new_trade("u1", trade_body(), svc.utcnow())
+    assert t["cost_model"]["version"] == "desk-cost-v2"
+    assert svc.trade_cost_breakdown(t, 100.0, 110.0) == {"brokerage": 40.0, "stt": 2.1, "exchange": 0.06, "sebi": 0.0,
+                                                         "stamp": 0.15, "gst": 7.22, "slippage": 1.05, "total": 50.58}
+
+
+def test_v2_a_futures_round_trip_breakdown_matches_the_hand_computation():
+    from services import desk_cost_card as card
+    # 1 lot of 250 bought at 1,222.50 (3,05,625), sold at 1,180 (2,95,000), futures:
+    #   buy  20 + STT 0 + exch 0.00183% 5.59 + SEBI 0.31 + stamp 0.002% 6.11 + GST 18% of 25.90 = 4.66 + slip 152.81 = 189.48
+    #   sell 20 + STT 0.05% 147.50 + exch 5.40 + SEBI 0.30 + stamp 0 + GST 18% of 25.70 = 4.63 + slip 147.50 = 325.33
+    rt = card.round_trip("futures", 250, 1222.5, 1180.0)
+    assert rt["entry"] == {"brokerage": 20.0, "stt": 0.0, "exchange": 5.59, "sebi": 0.31, "stamp": 6.11, "gst": 4.66,
+                           "slippage": 152.81, "total": 189.48}
+    assert rt["exit"] == {"brokerage": 20.0, "stt": 147.5, "exchange": 5.4, "sebi": 0.3, "stamp": 0.0, "gst": 4.63,
+                          "slippage": 147.5, "total": 325.33}
+    assert rt["total"]["total"] == 514.81
+    # A short future: the entry is the sale (STT), the exit the purchase (stamp).
+    short = card.round_trip("futures", 250, 1180.0, 1222.5, long=False)
+    assert (short["entry"]["stt"], short["entry"]["stamp"], short["exit"]["stt"], short["exit"]["stamp"]) == (147.5, 0.0, 0.0, 6.11)
+
+
+def test_v3_an_options_round_trip_breakdown_matches_the_hand_computation():
+    from services import desk_cost_card as card
+    # A long call, 1 lot of 250: bought at 40 (premium 10,000), sold at 110 (27,500):
+    #   buy  20 + STT 0 + exch 0.03553% 3.55 + SEBI 0.01 + stamp 0.003% 0.30 + GST 4.24 + slip 5.00 = 33.10
+    #   sell 20 + STT 0.15% 41.25 + exch 9.77 + SEBI 0.03 + stamp 0 + GST 5.36 + slip 13.75 = 90.16
+    rt = card.round_trip("options", 250, 40.0, 110.0)
+    assert (rt["entry"]["total"], rt["exit"]["total"]) == (33.1, 90.16)
+    assert rt["total"] == {"brokerage": 40.0, "stt": 41.25, "exchange": 13.32, "sebi": 0.04, "stamp": 0.3, "gst": 9.6,
+                           "slippage": 18.75, "total": 123.26}
+
+
+def test_v4_every_rate_names_its_source_and_says_when_its_effective_date_is_unknown():
+    from services import desk_cost_card as card
+    for segment, rates in card.STATUTORY.items():
+        for name, rate in rates.items():
+            assert rate.source and rate.unit, (segment, name)
+            if segment == "equity_delivery":
+                assert rate.effective_from, (segment, name)                # from the repo's dated rule files
+            else:
+                assert rate.effective_from is None and "zerodha.com/charges" in rate.source   # no date published
+    assert card.SNAPSHOT["version"] == "desk-cost-v2" and card.BROKERAGE_RS_PER_SIDE == 20.0
+    assert card.SLIPPAGE_PCT_PER_SIDE == 0.05
+
+
+def test_v5_old_flat_trades_are_unchanged():
+    # A trade snapshotted with desk-flat-v1, and one older still with no cost model: slippage and brokerage only.
+    for model in (dict(svc.COST_MODEL_FLAT_V1), None):
+        t = svc.new_trade("u1", trade_body(), svc.utcnow())
+        if model is None:
+            t.pop("cost_model")
+        else:
+            t["cost_model"] = model
+        assert svc.trade_costs(t, 100.0, 110.0) == round(side(100, 10) + side(110, 10), 2) == 41.05
+        assert svc.trade_cost_breakdown(t, 100.0, 110.0) == {"brokerage": 40.0, "stt": 0.0, "exchange": 0.0, "sebi": 0.0,
+                                                             "stamp": 0.0, "gst": 0.0, "slippage": 1.05, "total": 41.05}
 
 
 # ── R: reconciliation invariants ─────────────────────────────────────────────

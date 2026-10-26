@@ -396,13 +396,16 @@ def test_cash_breakout_continuation_sizing_and_net_ratio_by_hand():
     p = build(instrument="cash")
     c = cand(p, "cash:breakout_continuation")
     assert c["status"] == "candidate" and p["status"] == "plan" and p["preferred"] == c["id"]
-    # entry 1200, scanner stop 1160: risk 40/share. Sized after costs (paper_fills_pnl TESTCASES C-1; it was 10000/40 = 250
-    # on the gross distance): costs at the stop 0.05% x (1200 + 1160) = 1.18/share + 2 x Rs 20 brokerage, so
-    # floor((10000 - 40) / 41.18) = 241. The allocation cap floor(1,000,000 x 25% / 1200) = 208 still binds -> 208 shares.
+    # entry 1200, scanner stop 1160: risk 40/share. Sized after the desk cost card's costs at the stop (paper_fills_pnl
+    # TESTCASES C-1; 250 on the gross distance, 241 under the flat model): the most shares with 40 x q + costs(q) <= 10000
+    # is 227. The allocation cap floor(1,000,000 x 25% / 1200) = 208 still binds -> 208 shares.
     s = c["sizing"]
-    assert (s["status"], s["quantity"], s["by_risk_budget"], s["by_allocation_cap"], s["binding"]) == ("complete", 208, 241, 208, "allocation_cap")
-    # 208 x 40 = 8320 gross; costs 208 x 1.18 + 40 = 285.44; 8605.44 after costs (the same figure as the net risk below).
-    assert (s["risk_at_stop_inr"], s["costs_at_stop_inr"], s["risk_at_stop_net_inr"], s["costs_included"]) == (8320.0, 285.44, 8605.44, True)
+    assert (s["status"], s["quantity"], s["by_risk_budget"], s["by_allocation_cap"], s["binding"]) == ("complete", 208, 227, 208, "allocation_cap")
+    # 208 x 40 = 8320 gross; costs at the stop, by hand: buy 2,49,600 = 20 + 249.60 STT + 7.66 exch + 0.25 SEBI + 37.44 stamp
+    # + 5.02 GST + 124.80 slippage = 444.77; sell 2,41,280 = 20 + 241.28 + 7.41 + 0.24 + 4.98 + 120.64 = 394.55; 839.32.
+    assert (s["risk_at_stop_inr"], s["costs_at_stop_inr"], s["risk_at_stop_net_inr"], s["costs_included"]) == (8320.0, 839.32, 9159.32, True)
+    assert s["costs_breakdown_at_stop"] == {"brokerage": 40.0, "stt": 490.88, "exchange": 15.07, "sebi": 0.49, "stamp": 37.44,
+                                            "gst": 10.0, "slippage": 245.44, "total": 839.32}
     assert c["legs"][0]["quantity"] == 208 and c["legs"][0]["entry_price"] == 1200.0
     # levels: base 1200 + 2 x 40 = 1280, optimistic 1200 + 3 x 40 = 1320, conservative 1 x ATR = 1220 (resistance 1290 is farther than the base)
     t = {x["name"]: x["price"] for x in c["targets"]}
@@ -450,7 +453,7 @@ def test_cash_incomplete_sizing_shows_formula_and_missing_inputs_never_a_guess()
     s = cand(p, "cash:breakout_continuation")["sizing"]
     assert s["status"] == "incomplete" and s["quantity"] is None and "capital" in s["missing"]
     # The formula now names the costs it sizes with (paper_fills_pnl TESTCASES C-1).
-    assert any("risk_budget_inr" in m for m in s["missing"]) and "floor((risk budget - fixed costs)" in s["formula"]
+    assert any("risk_budget_inr" in m for m in s["missing"]) and "estimated round-trip costs at the stop" in s["formula"]
     c = cand(p, "cash:breakout_continuation")
     assert c["legs"][0]["quantity"] == 1 and any("Sizing is incomplete" in w for w in c["warnings"])
 

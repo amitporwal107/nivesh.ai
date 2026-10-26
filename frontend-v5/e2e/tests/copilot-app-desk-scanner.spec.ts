@@ -2177,7 +2177,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     await expect(page.getByTestId("desk-chart-trust")).toHaveText("NSE daily bars (nidp.prices_eod_adjusted) · End of day · 13 Oct 2026 · Rules-based · Indicators: stock_features_daily engine (calculator.py) · scanner setups: rules");
     await expect(page.getByTestId("desk-chart-trust")).toHaveAttribute("data-mode", "eod");
     await expect(page.getByTestId("desk-risk-trust")).toContainText("Positional scanner levels · scenario route (server) · End of day · 13 Oct 2026 · Rules-based");
-    await expect(page.getByTestId("desk-risk-trust")).toContainText("costs 0.05% + ₹20 a side (strategy_engine)");
+    await expect(page.getByTestId("desk-risk-trust")).toContainText("0.05% + ₹20 a side + STT, exchange, SEBI, stamp duty and GST");
     await expect(page.getByTestId("desk-detail-trust")).toHaveAttribute("data-maker", "rules");
     // Nothing on the tab claims to be live.
     await expect(page.getByTestId("desk-chart-tab")).not.toContainText(/\bLive\b/);

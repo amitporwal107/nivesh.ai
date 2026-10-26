@@ -44,9 +44,11 @@ Paper trades carry the DaaS paper_trades field set (PRD §13.4; rules version `R
                   break_above counts a stop on that session (the low may have come first, flagged);
                   pullback_to does not count a target on that session (the high may have come first, flagged).
     exit rule     stop / target; with `max_hold_sessions`, the close of the last session held ("time").
-    costs         `COST_MODEL` (below), snapshotted on each trade; one function (`trade_costs`, `cost_terms`) prices
-                  the realised costs, the estimates shown on a trade and the sizing that the plan and the desk's
-                  scenario do (services/strategy_plan/candidates.py, routes/positional.py).
+    costs         `COST_MODEL` = the desk cost card desk-cost-v2 (services/desk_cost_card.py: brokerage, STT, exchange
+                  charge, SEBI fee, stamp duty, GST, slippage), snapshotted on each trade; a trade keeps the model it
+                  was opened under (desk-flat-v1 = slippage + brokerage only). One function (`round_trip_breakdown`)
+                  prices the realised costs, the estimates on a trade and the sizing that the plan, the desk scenario
+                  and the basket do (services/strategy_plan/candidates.py, routes/positional.py).
     path          observations = eligible sessions read since the trade was recorded; MFE / MAE = the highest
                   high / lowest low from the first session held through the exit session, against the fill.
 
@@ -96,6 +98,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
+from services import desk_cost_card as cost_card
 from services.copilot_tools import daas_client
 from services.strategy_engine.backtest import DEFAULT_BROKERAGE_INR, DEFAULT_SLIPPAGE_PCT
 
@@ -140,18 +143,29 @@ MAX_ENTRY_WINDOW = 20
 MAX_HOLD_SESSIONS = 250
 SIGNAL_SKEW = timedelta(minutes=5)  # a signal time this far ahead of the server clock is still accepted
 STRATEGY_VERSION_MAX = 60
-COST_MODEL = {
+# The flat model new trades used until desk-cost-v2: slippage + brokerage per side, statutory charges left out. A trade
+# that snapshotted it (or that has no cost model at all, older still) keeps being priced with it.
+COST_MODEL_FLAT_V1 = {
     "name": "strategy_engine default",
-    # A flat model, stated as one: slippage stands in for the spread too. Statutory charges are left out, and every
-    # surface that shows a cost says so (costs_basis, the sizing basis). Kept on each trade, so an older trade keeps
-    # the model it was opened under.
     "version": "desk-flat-v1",
     "slippage_pct_per_side": round(DEFAULT_SLIPPAGE_PCT * 100, 4),
     "brokerage_rs_per_side": float(DEFAULT_BROKERAGE_INR),
     "excludes": ["STT", "stamp duty", "exchange transaction charges", "SEBI fee", "GST", "DP charges"],
     "source": "services/strategy_engine/backtest.py",
 }
+# What a NEW trade snapshots: the desk cost card (services/desk_cost_card.py): the same ₹20 brokerage and 0.05% slippage
+# (the spread allowance too), plus STT, exchange charge, SEBI fee, stamp duty and GST by segment.
+COST_MODEL = dict(cost_card.SNAPSHOT)
 COSTS_EXCLUDED_TEXT = "slippage and brokerage only; STT, stamp duty, exchange and SEBI charges, GST and DP charges are not included"
+COSTS_CARD_TEXT = ("brokerage (a desk assumption of ₹20 a side), STT, exchange charge, SEBI fee, stamp duty, GST and 0.05% "
+                   "slippage a side (also the spread allowance); DP charges and income tax are not included")
+
+
+def costs_text(model: Optional[Dict[str, Any]]) -> str:
+    """What a trade's costs include, in words, for its own cost model."""
+    return COSTS_CARD_TEXT if cost_card.is_card(model) else COSTS_EXCLUDED_TEXT
+
+
 ORDERS_NOTE = "Paper trades are simulated and never create a broker order."
 TIME_EXIT_NOTE = "Held for the most sessions the exit rule allows; closed at that session's close."
 NOT_REACHED_NOTE = "The entry level was not reached within the entry window; no position was taken."
@@ -732,36 +746,55 @@ def find_trade_exit(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[
 
 
 def cost_terms(model: Optional[Dict[str, Any]] = None) -> Tuple[float, float]:
-    """(slippage as a fraction of the traded value per side, brokerage ₹ per side) of a cost model snapshot; the
-    current COST_MODEL for a field the snapshot lacks. The one place a cost model is read, for P&L and for sizing."""
+    """(slippage as a fraction of the traded value per side, brokerage ₹ per side) of a cost model snapshot, the
+    current COST_MODEL's for a field the snapshot lacks."""
     model = model or COST_MODEL
     return (float(model.get("slippage_pct_per_side", COST_MODEL["slippage_pct_per_side"])) / 100.0,
             float(model.get("brokerage_rs_per_side", COST_MODEL["brokerage_rs_per_side"])))
 
 
-def round_trip_cost(quantity: float, entry_price: float, exit_price: float, model: Optional[Dict[str, Any]] = None) -> float:
-    """Round-trip cost in rupees of `quantity` units bought at `entry_price` and sold at `exit_price`."""
+def round_trip_breakdown(quantity: float, entry_price: float, exit_price: float, model: Optional[Dict[str, Any]] = None, *,
+                         segment: str = "equity_delivery", long: bool = True) -> Dict[str, float]:
+    """The ONE pricing function for a round trip (realised costs, the estimates on a trade, and the sizing in the plan,
+    the desk scenario and the basket): {brokerage, stt, exchange, sebi, stamp, gst, slippage, total}, ₹.
+    Under the desk cost card (`model` version desk-cost-v2, the default) every component is priced by
+    services/desk_cost_card.py for `segment`; under the flat model (desk-flat-v1, or a snapshot without a version) only
+    slippage and brokerage exist and the statutory components are 0, as that trade was recorded."""
+    model = model or COST_MODEL
+    if cost_card.is_card(model):
+        return cost_card.round_trip(segment, quantity, entry_price, exit_price, long=long, model=model)["total"]
     slip, brokerage = cost_terms(model)
-    return round(entry_price * quantity * slip + brokerage + exit_price * quantity * slip + brokerage, 2)
+    out = {k: 0.0 for k in cost_card.COMPONENTS}
+    out.update(brokerage=round(2 * brokerage, 2), slippage=round(entry_price * quantity * slip + exit_price * quantity * slip, 2))
+    out["total"] = round(entry_price * quantity * slip + brokerage + exit_price * quantity * slip + brokerage, 2)
+    return out
+
+
+def round_trip_cost(quantity: float, entry_price: float, exit_price: float, model: Optional[Dict[str, Any]] = None, *,
+                    segment: str = "equity_delivery", long: bool = True) -> float:
+    """Round-trip cost in rupees of `quantity` units entered at `entry_price` and exited at `exit_price`."""
+    return round_trip_breakdown(quantity, entry_price, exit_price, model, segment=segment, long=long)["total"]
 
 
 def max_units_within_budget(budget: float, entry: float, stop: float, *, lot_units: int = 1,
-                            model: Optional[Dict[str, Any]] = None) -> int:
-    """The most whole lots whose loss at the stop INCLUDING the round-trip costs of `model` stays within `budget`:
-        lots × lot_units × (|entry − stop| + (entry + stop) × slippage) + 2 × brokerage ≤ budget.
-    Sizing on the gross stop distance alone let the loss after costs exceed the budget (PRD Example A: 85 shares at
-    ₹35 of risk is ₹2,975 gross but ₹3,098.94 after costs against ₹3,000). 0 when not even one lot fits."""
-    slip, brokerage = cost_terms(model)
-    per_lot = lot_units * (abs(entry - stop) + (entry + stop) * slip)
-    room = budget - 2 * brokerage
-    if per_lot <= 0 or room <= 0:
-        return 0
-    return max(0, math.floor(room / per_lot + 1e-9))
+                            model: Optional[Dict[str, Any]] = None, segment: str = "equity_delivery") -> int:
+    """The most whole lots whose loss at the stop INCLUDING the round-trip costs (`round_trip_cost`, the same function
+    that books them) stays within `budget`, found exactly (services/desk_cost_card.max_lots_within). A stop above the
+    entry is a short. Sizing on the gross stop distance alone let the loss after costs exceed the budget (PRD Example A:
+    85 shares at ₹35 of risk is ₹2,975 gross but ₹3,098.94 after the flat costs against ₹3,000). 0 when no lot fits."""
+    long = stop < entry
+    return cost_card.max_lots_within(budget, abs(entry - stop), lot_units,
+                                     lambda units: round_trip_cost(units, entry, stop, model, segment=segment, long=long))
 
 
 def trade_costs(trade: Dict[str, Any], entry_price: float, exit_price: float) -> float:
-    """Round-trip estimated cost in rupees under the trade's cost model (the current one for older trades)."""
-    return round_trip_cost(int(trade["quantity"]), entry_price, exit_price, trade.get("cost_model"))
+    """Round-trip cost in rupees under the trade's own cost model. A trade stored with no cost model predates the field
+    set; it is priced with the flat model of its time, never with a newer card."""
+    return round_trip_cost(int(trade["quantity"]), entry_price, exit_price, trade.get("cost_model") or COST_MODEL_FLAT_V1)
+
+
+def trade_cost_breakdown(trade: Dict[str, Any], entry_price: float, exit_price: float) -> Dict[str, float]:
+    return round_trip_breakdown(int(trade["quantity"]), entry_price, exit_price, trade.get("cost_model") or COST_MODEL_FLAT_V1)
 
 
 def estimated_costs(trade: Dict[str, Any]) -> Dict[str, Optional[float]]:
@@ -856,7 +889,8 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
     # instead of ₹600 in the study's probe) and the paper account was credited the overstated net.
     fill = path["sim_entry_price"] if path.get("sim_entry_price") is not None else float(trade["entry_price"])
     gross = realized_pnl(trade, exit_price, fill) if exit_price is not None else None
-    costs = trade_costs(trade, fill, exit_price) if exit_price is not None else None
+    breakdown = trade_cost_breakdown(trade, fill, exit_price) if exit_price is not None else None
+    costs = breakdown["total"] if breakdown else None
     change = {
         "status": "closed",
         "closed_at": stamp,
@@ -866,6 +900,7 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
         "exit_note": exit_note,
         "realized_pnl_rs": gross,
         "costs_rs": costs,
+        "costs_breakdown": breakdown,
         "net_pnl_rs": round(gross - costs, 2) if gross is not None and costs is not None else None,
         "open_key": None,              # frees the symbol for a new trade (routes/desk_trading.py duplicate rule)
         **path,
@@ -1004,8 +1039,10 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         entered = path["entry_status"] in ENTERED
         fill = path["sim_entry_price"]
         gross = round((close - fill) * int(doc["quantity"]), 2) if entered and close is not None and fill else None
-        costs = trade_costs(doc, fill, close) if gross is not None else None
-        basis = f"entry at the fill, exit side estimated at the last close; {COSTS_EXCLUDED_TEXT}" if costs is not None else None
+        breakdown = trade_cost_breakdown(doc, fill, close) if gross is not None else None
+        costs = breakdown["total"] if breakdown else None
+        basis = (f"entry at the fill, exit side estimated at the last close; {costs_text(doc.get('cost_model'))}"
+                 if costs is not None else None)
     else:
         keys = ("observations", "held_sessions", "entry_session", "mfe_pct", "mae_pct", "mfe_rs", "mae_rs")
         path = {k: doc.get(k) for k in keys}
@@ -1016,11 +1053,15 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
                     else (float(doc["entry_price"]) if status in ENTERED else None))
         gross = doc.get("realized_pnl_rs")
         costs = doc.get("costs_rs")
-        if costs is None and exit_price is not None and gross is not None:
-            # An older record without stored costs: priced at its stored fill, else (no fill known) the reference entry.
-            fill = path["sim_entry_price"] if path.get("sim_entry_price") is not None else float(doc["entry_price"])
-            costs = trade_costs(doc, float(fill), float(exit_price))
-        basis = f"entry and exit at the fill prices; {COSTS_EXCLUDED_TEXT}" if costs is not None else None
+        fill = path["sim_entry_price"] if path.get("sim_entry_price") is not None else float(doc["entry_price"])
+        breakdown = doc.get("costs_breakdown")
+        if breakdown is None and exit_price is not None and gross is not None:
+            # An older record without a stored breakdown: priced at its stored fill (else, no fill known, the reference
+            # entry) under its own cost model; its stored total, when it has one, is kept as it was booked.
+            breakdown = trade_cost_breakdown(doc, float(fill), float(exit_price))
+        if costs is None and breakdown is not None:
+            costs = breakdown["total"]
+        basis = f"entry and exit at the fill prices; {costs_text(doc.get('cost_model'))}" if costs is not None else None
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
     return {
         "entry_rule": rule,
@@ -1033,11 +1074,12 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         # What this position blocks against the paper account. None on a trade opened before the
         # account existed, which is why the account's blocked total can understate those.
         "paper_reserved_rs": doc.get("paper_reserved_rs"),
-        "cost_model": doc.get("cost_model") or dict(COST_MODEL),
+        "cost_model": doc.get("cost_model") or dict(COST_MODEL_FLAT_V1),
         "est_costs_rs": estimated_costs(doc),
         **path,
         "gross_pnl_rs": gross,
         "costs_rs": costs,
+        "costs_breakdown": breakdown,
         "costs_basis": basis,
         "net_pnl_rs": net,
     }
