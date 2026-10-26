@@ -2,47 +2,41 @@
  * F&O lab · 12 Audit & Decision Replay (?screen=audit). Design: the "Audit & Decision Replay" screen of Nivesh F&O Desk,
  * today state.
  *
- *   GET /api/risk/decisions?limit=200   every recorded risk decision, newest first (governance-data.ts useAuditDecisions):
- *                                       outcome, path, symbol, time, correlation id, policy version, inputs hash, checks
- *   GET /api/risk/audit?limit=          control changes, append only (tradingdesk/risk-controls.ts useRiskAudit)
+ *   GET  /api/risk/decisions?limit=200      every recorded risk decision, newest first (governance-data.ts useAuditDecisions)
+ *   GET  /api/risk/decisions/{id}/lineage   the PRD's ten steps for the selected decision, each recorded / not recorded /
+ *                                           not reached / not applicable, with what was recorded (useDecisionLineage)
+ *   POST /api/risk/decisions/{id}/replay    re-runs the gate on the snapshot stored with the decision and compares;
+ *                                           writes nothing (useReplayDecision)
+ *   GET  /api/risk/audit?limit=             control changes, append only (tradingdesk/risk-controls.ts useRiskAudit)
  *
- * A search box filters by decision id or correlation id. Selecting a decision shows the PRD's ten-step lineage: today
- * only the risk decision is recorded (its risk_decisions row, which is also the audit record); every other step reads
- * "Not recorded" with the backlog item that records it. There is no replay: it needs the snapshot store (P0.3).
+ * A search box filters by decision id or correlation id. The lineage marks a step recorded only when the server does.
+ * Replay works on the gate's own reads (request, controls, exchange reference, open-structure count); no market price
+ * snapshot is stored yet (P0.3), so it says nothing about prices. A row without a snapshot shows the server's reason.
  */
 import { useState } from "react";
-import { EmptyBlock, LoadingBlock, Pill, Section, fmtINR } from "../../components/ui";
+import { Btn, EmptyBlock, LoadingBlock, Pill, Section, fmtINR } from "../../components/ui";
 import { INPUT_STYLE, QueryProblem } from "../trading/parts";
 import { stampIst } from "../tradingdesk/overview-data";
 import { useRiskAudit, type RiskAuditEvent } from "../tradingdesk/risk-controls";
-import { isBlocked, matchesDecision, useAuditDecisions, type AuditDecision } from "./governance-data";
+import {
+  isBlocked, matchesDecision, useAuditDecisions, useDecisionLineage, useReplayDecision,
+  type AuditDecision, type LineageStatus, type LineageStep,
+} from "./governance-data";
 import { KvRows, SourceCards, quiet, type SourceItem } from "./parts";
 
 const SOURCES: SourceItem[] = [
-  { k: "Decision store", sub: "risk_decisions · gate decisions with correlation id · P0.3 for the rest", tone: "amber" },
+  { k: "Decision store", sub: "risk_decisions · gate decisions with correlation id", tone: "mint" },
+  { k: "Decision snapshot", sub: "The gate's reads, hashed · no market prices · P0.3", tone: "amber" },
   { k: "Kill-switch audit", sub: "risk_control_audit · exists", tone: "mint" },
   { k: "Paper entry hashes", sub: "entry_record_hash · exists", tone: "mint" },
-  { k: "Snapshot linkage", sub: "Missing · P0.3", tone: "danger" },
 ];
 
 const at = (iso: string | null) => stampIst(iso) ?? "time not recorded";
 
-type NodeId = "snapshot" | "instrument" | "regime" | "proposal" | "schema" | "pricing" | "risk" | "cert" | "oms" | "audit";
-
-const NODES: Array<{ id: NodeId; k: string; tag: string | null; why: string }> = [
-  { id: "snapshot", k: "Market snapshot", tag: "P0.3", why: "No market data snapshot is stored with a decision, so the prices it saw cannot be recovered." },
-  { id: "instrument", k: "Instrument master", tag: "P0.3", why: "No versioned instrument master is linked; the gate reads the day's exchange lot size but stores no reference to it." },
-  { id: "regime", k: "Regime", tag: "P0.3", why: "No regime snapshot is stored with a decision." },
-  { id: "proposal", k: "Agent proposal", tag: "P0.3", why: "There is no F&O agent, so no proposal exists to record." },
-  { id: "schema", k: "Schema check", tag: "P0.3", why: "No separate strategy-schema validator exists; the payoff engine's own validation is not recorded with the decision." },
-  { id: "pricing", k: "Pricing & margin", tag: "P0.3", why: "No pricing result is stored; the decision keeps only the capital at risk the gate worked out." },
-  { id: "risk", k: "Risk decision", tag: null, why: "" },
-  { id: "cert", k: "Certification", tag: "P3.1", why: "No certification record exists to match against." },
-  { id: "oms", k: "OMS", tag: "P3.2", why: "The OMS paper store is not linked to gate decisions, and there is no broker order." },
-  { id: "audit", k: "Audit record", tag: null, why: "" },
-];
-
-const recorded = (id: NodeId) => id === "risk" || id === "audit";
+const STATUS_TEXT: Record<LineageStatus, string> = {
+  recorded: "Recorded", not_recorded: "Not recorded", not_reached: "Not reached", not_applicable: "Not applicable",
+};
+const stepTag = (s: LineageStep) => (s.status === "not_recorded" && s.backlog ? `Not recorded · ${s.backlog}` : STATUS_TEXT[s.status]);
 
 function DecisionRow({ d, on, onPick }: { d: AuditDecision; on: boolean; onPick: () => void }) {
   const blocked = isBlocked(d.outcome);
@@ -62,58 +56,104 @@ function DecisionRow({ d, on, onPick }: { d: AuditDecision; on: boolean; onPick:
   );
 }
 
-function Lineage({ d }: { d: AuditDecision }) {
-  const [node, setNode] = useState<NodeId>("risk");
-  const sel = NODES.find((n) => n.id === node) ?? NODES[6];
-  return (
-    <Section title={`Lineage · ${d.id}`} note={at(d.at)}>
-      <div className="flex flex-col" style={{ gap: 14 }}>
-        <div data-testid="fnolab-audit-lineage" className="cp-scroll flex" style={{ gap: 6, overflowX: "auto", paddingBottom: 4 }}>
-          {NODES.map((n) => {
-            const ok = recorded(n.id);
-            const on = n.id === node;
-            return (
-              <button key={n.id} type="button" data-testid="fnolab-audit-node" data-node={n.id} data-recorded={String(ok)} aria-pressed={on} onClick={() => setNode(n.id)}
-                className="flex flex-col" style={{ flex: "1 0 112px", textAlign: "left", gap: 5, padding: 10, borderRadius: 10, border: `1px solid ${on ? "var(--mint-line)" : "var(--cp-line)"}`, background: on ? "var(--bg-2)" : "transparent", color: "var(--cp-ink)", opacity: ok ? 1 : 0.7, cursor: "pointer" }}>
-                <span className="flex items-center" style={{ gap: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: ok ? "var(--mint)" : "var(--cp-ink-4)" }}>
-                  <span aria-hidden style={{ width: 6, height: 6, borderRadius: "50%", background: ok ? "var(--mint)" : "var(--cp-ink-4)" }} />
-                  {ok ? "Recorded" : `Not recorded · ${n.tag}`}
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.25 }}>{n.k}</span>
-              </button>
-            );
-          })}
-        </div>
+const mono = (v: string) => <span style={{ fontFamily: "var(--mono)", fontSize: 11.5 }}>{v}</span>;
+const words = (xs: string[]) => (xs.length ? xs.join(", ") : "none");
 
-        <div data-testid="fnolab-audit-node-detail" data-node={sel.id} className="flex flex-col" style={{ gap: 10 }}>
-          <span className="cp-eyebrow" style={{ color: recorded(sel.id) ? "var(--mint)" : "var(--cp-ink-3)" }}>{sel.k}</span>
-          {sel.id === "risk" && (
-            <KvRows testId="fnolab-audit-risk" rows={[
-              { k: "Outcome", v: d.outcome ?? "not recorded" },
-              { k: "Path · mode", v: `${d.path ?? d.action ?? "—"} · ${d.mode ?? "mode not recorded"}` },
-              { k: "Reasons", v: d.reasons.length ? d.reasons.map((r) => (r.code ? `${r.message} (${r.code})` : r.message)).join("; ") : "None (allowed)" },
-              { k: "Checks", v: d.checks.length ? d.checks.map((c) => `${c.check} ${c.status ?? "?"}`).join(", ") : "Not recorded on this row" },
-              { k: "Policy", v: d.policyVersion ?? "not recorded" },
-              { k: "Inputs hash", v: <span style={{ fontFamily: "var(--mono)", fontSize: 11.5 }}>{d.inputsHash ?? "not recorded"}</span> },
-              { k: "Correlation id", v: <span style={{ fontFamily: "var(--mono)", fontSize: 11.5 }}>{d.correlationId ?? "not recorded"}</span> },
-              { k: "Capital at risk", v: d.capitalAtRiskRs == null ? "—" : fmtINR(d.capitalAtRiskRs) },
-              { k: "Recorded by", v: d.source ?? "source not recorded" },
-            ]} />
-          )}
-          {sel.id === "audit" && (
-            <span style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-              The decision's own row in risk_decisions is its audit record. It is append-only by convention: the code only inserts, and nothing in the database enforces it.
-            </span>
-          )}
-          {!recorded(sel.id) && (
-            <span data-testid="fnolab-audit-gap" style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
-              Not recorded today ({sel.tag}). {sel.why}
-            </span>
-          )}
-          <span data-testid="fnolab-audit-replay" style={{ padding: "10px 12px", borderRadius: 10, border: "1px dashed var(--line-3)", fontSize: 13, color: "var(--cp-ink-3)" }}>
-            Replay needs the snapshot store (P0.3). Without the market snapshot and versions, the decision cannot be re-run.
+function ReplayPanel({ d }: { d: AuditDecision }) {
+  const m = useReplayDecision();
+  const res = m.data;
+  const state = m.isPending ? "running" : m.isError ? "error" : !res ? "idle" : !res.replayable ? "not_replayable" : res.match ? "match" : "mismatch";
+  return (
+    <div data-testid="fnolab-audit-replay" data-state={state} className="flex flex-col" style={{ gap: 10, padding: "12px 14px", borderRadius: 10, border: "1px dashed var(--line-3)" }}>
+      <div className="flex flex-wrap items-center" style={{ gap: "8px 12px" }}>
+        <span style={{ flex: "1 1 260px", fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+          Replay re-runs the gate's checks on what it read when it decided, under the code and policy running now, and compares. It writes nothing. No market price snapshot is stored (P0.3), so it says nothing about the prices.
+        </span>
+        <Btn data-testid="fnolab-audit-replay-run" disabled={m.isPending} onClick={() => m.mutate(d.id)} style={{ padding: "6px 14px" }}>
+          {m.isPending ? "Replaying…" : res ? "Replay again" : "Replay from snapshot"}
+        </Btn>
+      </div>
+      {m.isError && <QueryProblem what="The replay" error={m.error} onRetry={() => m.mutate(d.id)} />}
+      {res && !res.replayable && (
+        <span data-testid="fnolab-audit-replay-reason" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>Not replayable. {res.reason}</span>
+      )}
+      {res && res.replayable && (
+        <div data-testid="fnolab-audit-replay-result" data-match={String(res.match)} className="flex flex-col" style={{ gap: 8 }}>
+          <span className="flex flex-wrap items-center" style={{ gap: 8, fontSize: 13.5 }}>
+            <Pill tone={res.match ? "mint" : "danger"}>{res.match ? "Match" : "Mismatch"}</Pill>
+            {res.match ? "The same inputs reach the same decision under the code and policy running now." : "The replay does not reproduce the recorded decision."}
           </span>
+          <KvRows testId="fnolab-audit-replay-rows" rows={[
+            { k: "Outcome", v: `${res.outcomeThen ?? "not recorded"} then · ${res.outcomeNow ?? "—"} now` },
+            { k: "Reasons", v: `${words(res.reasonsThen)} then · ${words(res.reasonsNow)} now` },
+            { k: "Capital at risk", v: `${res.capitalThen == null ? "—" : fmtINR(res.capitalThen)} then · ${res.capitalNow == null ? "—" : fmtINR(res.capitalNow)} now` },
+            { k: "Policy", v: `${res.policyThen ?? "not recorded"} then · ${res.policyNow ?? "—"} now` },
+            { k: "Inputs hash", v: res.inputsHashMatch ? "matches the stored request" : "does not match the stored request" },
+            { k: "Snapshot hash", v: res.snapshotHashMatch ? "matches the stored snapshot" : "does not match the stored snapshot" },
+          ]} />
+          {res.differences.length > 0 && (
+            <ul data-testid="fnolab-audit-replay-diff" style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
+              {res.differences.map((x) => <li key={x}>{x}</li>)}
+            </ul>
+          )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function Lineage({ d }: { d: AuditDecision }) {
+  const q = useDecisionLineage(d.id);
+  const [node, setNode] = useState("risk_decision");
+  const steps = q.data?.steps ?? [];
+  const sel = steps.find((s) => s.step === node) ?? steps.find((s) => s.step === "risk_decision") ?? steps[0];
+  return (
+    <Section title={`Lineage · ${d.id}`} note={q.data ? `${q.data.recorded} of ${steps.length} recorded · ${at(d.at)}` : at(d.at)}>
+      <div className="flex flex-col" style={{ gap: 14 }}>
+        {q.isPending && <LoadingBlock label="Reading the lineage" rows={2} />}
+        {q.isError && <QueryProblem what="The lineage" error={q.error} onRetry={() => void q.refetch()} />}
+        {q.data && (
+          <div data-testid="fnolab-audit-lineage" className="cp-scroll flex" style={{ gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+            {steps.map((n) => {
+              const ok = n.status === "recorded";
+              const on = n.step === sel?.step;
+              return (
+                <button key={n.step} type="button" data-testid="fnolab-audit-node" data-node={n.step} data-status={n.status} data-recorded={String(ok)} aria-pressed={on} onClick={() => setNode(n.step)}
+                  className="flex flex-col" style={{ flex: "1 0 112px", textAlign: "left", gap: 5, padding: 10, borderRadius: 10, border: `1px solid ${on ? "var(--mint-line)" : "var(--cp-line)"}`, background: on ? "var(--bg-2)" : "transparent", color: "var(--cp-ink)", opacity: ok ? 1 : 0.7, cursor: "pointer" }}>
+                  <span className="flex items-center" style={{ gap: 6, fontFamily: "var(--mono)", fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: ok ? "var(--mint)" : "var(--cp-ink-4)" }}>
+                    <span aria-hidden style={{ width: 6, height: 6, borderRadius: "50%", background: ok ? "var(--mint)" : "var(--cp-ink-4)" }} />
+                    {stepTag(n)}
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 500, lineHeight: 1.25 }}>{n.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {sel && (
+          <div data-testid="fnolab-audit-node-detail" data-node={sel.step} className="flex flex-col" style={{ gap: 10 }}>
+            <span className="cp-eyebrow" style={{ color: sel.status === "recorded" ? "var(--mint)" : "var(--cp-ink-3)" }}>{sel.label} · {stepTag(sel)}</span>
+            {sel.step === "risk_decision" && (
+              <KvRows testId="fnolab-audit-risk" rows={[
+                { k: "Outcome", v: d.outcome ?? "not recorded" },
+                { k: "Path · mode", v: `${d.path ?? d.action ?? "—"} · ${d.mode ?? "mode not recorded"}` },
+                { k: "Reasons", v: d.reasons.length ? d.reasons.map((r) => (r.code ? `${r.message} (${r.code})` : r.message)).join("; ") : "None (allowed)" },
+                { k: "Checks", v: d.checks.length ? d.checks.map((c) => `${c.check} ${c.status ?? "?"}`).join(", ") : "Not recorded on this row" },
+                { k: "Policy", v: d.policyVersion ?? "not recorded" },
+                { k: "Inputs hash", v: mono(d.inputsHash ?? "not recorded") },
+                { k: "Correlation id", v: mono(d.correlationId ?? "not recorded") },
+                { k: "Capital at risk", v: d.capitalAtRiskRs == null ? "—" : fmtINR(d.capitalAtRiskRs) },
+                { k: "Recorded by", v: d.source ?? "source not recorded" },
+              ]} />
+            )}
+            <span data-testid={sel.status === "not_recorded" ? "fnolab-audit-gap" : "fnolab-audit-step-detail"} style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>
+              {sel.status === "not_recorded" && sel.backlog ? `Not recorded today (${sel.backlog}). ` : ""}{sel.detail}
+            </span>
+            {sel.ref && <span data-testid="fnolab-audit-step-ref" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>ref {sel.ref}</span>}
+          </div>
+        )}
+        <ReplayPanel d={d} />
       </div>
     </Section>
   );

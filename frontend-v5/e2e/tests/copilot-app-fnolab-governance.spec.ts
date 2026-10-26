@@ -8,7 +8,9 @@
  * Expected text is worked out here from the payloads. Production build, every /api mocked — see pw.copilot-app.config.ts.
  *
  * Cases (test_reports/fno_lab_screens_TESTCASES.md): P-1..P-3 · R-1 · SH-1 · L-1, L-2 · C-1 · A-1..A-5 · S-3, S-5 for
- * these screens.
+ * these screens; and test_reports/fno_lab_backend_core_TESTCASES.md UI-1..UI-3 (live readiness, lineage and replay read
+ * from GET /api/risk/live-readiness, GET /api/risk/decisions/{id}/lineage and POST /api/risk/decisions/{id}/replay, whose
+ * answers here are written by hand in the routes' shapes).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -87,7 +89,59 @@ const AUDIT = { append_only: true, policy_version: "risk-controls-v1", count: 1,
   { _id: "a-1", at: "2026-10-24T04:30:00+00:00", actor: "admin_fixture", action: "set_kill_switch", field: "kill_switch", before: true, after: false, reason: "Reviewed and cleared", policy_version: "risk-controls-v1" },
 ] };
 
-async function base(page: Page, o: { status?: unknown; forward?: { status: number; body: unknown }; templates?: { status: number; body: unknown } } = {}) {
+/** GET /api/risk/live-readiness (routes/risk_controls.py live_readiness), INVENTED evidence in the route's shape. */
+const COND = (id: string, label: string, evidence: string, backlog: string, status = "fail") => ({ id, label, status, evidence, backlog });
+const readiness = (o: { pass?: string } = {}) => ({
+  count: 12, live_execution_available: false, policy_version: "fno-risk-v1", read_at: "2026-10-26T08:30:00+00:00", readiness_version: "live-readiness-v1",
+  conditions: [
+    COND("agent_certified", "Agent version certified", "No agent certification service exists", "P3.1"),
+    COND("template_certified", "Strategy template certified", "No strategy certification records exist", "P3.1"),
+    COND("universe_certified", "Contract in certified universe", "No certified universe scope exists", "P3.1"),
+    COND("adapter_certified", "Broker, account and adapter certified", "Live execution is not available in this build; the broker adapters are read-only", "P3.2"),
+    COND("risk_policy_matches", "Risk policy matches certification", "The fno-risk-v1 gate is on for your account; there is no certification to match it against", "P3.1"),
+    COND("market_data_fresh", "Market data fresh and complete", "Live feed expired, session open, data at none; instruments: index_options 1060. Stock options are not on the feed, and no freshness check runs before a decision", "P0.1"),
+    COND("pricing_margin", "Pricing, payoff, Greeks, margin pass", "Payoff and capital at risk are computed; exchange margin is not checked before a decision", "P1.1"),
+    COND("portfolio_risk", "Portfolio risk checks pass", "The gate caps legs (4), lots per leg (10), open structures (10) and capital at risk per trade (Rs 200,000); no portfolio Greeks or stress tests", "P1.2"),
+    COND("user_authorization", "User authorisation present", "No live authorization is granted; there is no per-order confirmation flow", "P3.2"),
+    COND("oms_reconciliation", "OMS and reconciliation healthy", "The OMS state machine and an idempotent paper order store exist; no broker adapter and no reconciliation", "P3.2"),
+    COND("kill_switch", "Kill switch inactive and available", "Kill switch off, trading halt off. It blocks new paper positions; it cannot cancel orders or flatten positions", "P0.4", o.pass === "kill_switch" ? "pass" : "fail"),
+    COND("evidence_persisted", "Evidence persisted", "2 of your gate decisions are stored with a correlation id; 1 carry the decision snapshot (the gate's reads) and can be replayed. No market price snapshot is stored with a decision", "P0.3"),
+  ],
+});
+
+/** GET /api/risk/decisions/{id}/lineage for a gate decision, statuses as services/risk_gate/replay.py would mark them. */
+const step = (s: string, label: string, status: string, detail: string, backlog: string | null = null, ref: unknown = null) => ({ step: s, label, status, detail, backlog, ref });
+const lineage = (id: string, blocked: boolean) => ({
+  decision_id: id, recorded: 5, replayable: true, lineage_version: "decision-replay-v1", linked: { oms_orders: [], desk_paper_trades: [], trade_journal: [] },
+  steps: [
+    step("market_snapshot", "Market snapshot", "not_recorded", "No market price snapshot is stored with a decision; the legs carry the entry prices the request sent.", "P0.3"),
+    step("instrument_master", "Instrument master", "recorded", "The exchange lot size and listed expiries the gate checked, stored in the decision snapshot: nidp bhavcopy as of 2026-10-23.", "P0.3", ["2026-10-27"]),
+    step("regime", "Regime", "not_recorded", "The gate does not read the regime, and none is stored with a decision.", "P0.3"),
+    step("agent_proposal", "Agent proposal", "not_applicable", "A person entered this trade; no agent proposed it."),
+    step("schema_check", "Schema check", "recorded", "The gate's structure check: pass.", null, "checks.structure"),
+    step("pricing_margin", "Pricing & margin", "recorded", "Capital at risk not worked out; caps check skipped. Exchange margin is not computed.", "P1.1", "checks.caps"),
+    step("risk_decision", "Risk decision", "recorded", blocked ? "blocked under fno-risk-v1; 1 reason(s)." : "allowed under fno-risk-v1.", null, id),
+    step("certification", "Certification", "not_recorded", "No certification record exists to match against.", "P3.1"),
+    blocked ? step("oms", "OMS", "not_reached", "The decision blocked the write, so no order may follow it.")
+            : step("oms", "OMS", "not_recorded", "No OMS order carries this decision id.", "P3.2"),
+    step("audit_record", "Audit record", "recorded", "The decision's own row in risk_decisions. Snapshot hash 0f1e2d3c4b5a… 0 paper record(s) carry this decision id.", null, `risk_decisions/${id}`),
+  ],
+});
+
+/** POST /api/risk/decisions/{id}/replay answers (INVENTED). */
+const REPLAY: Record<string, unknown> = {
+  "dec-blk-0002": { decision_id: "dec-blk-0002", replayable: true, match: true, outcome_then: "block", outcome_now: "block",
+    reasons_then: ["lot_size_mismatch"], reasons_now: ["lot_size_mismatch"], checks_then: [], checks_now: [], capital_at_risk_then: null, capital_at_risk_now: null,
+    inputs_hash_match: true, snapshot_hash_match: true, policy_version_then: "fno-risk-v1", policy_version_now: "fno-risk-v1", snapshot_version: "decision-snapshot-v1",
+    differences: [], replayed_on: "the request and the gate's own reads as stored", replay_version: "decision-replay-v1", writes: "none" },
+  "dec-ok-0003": { decision_id: "dec-ok-0003", replayable: true, match: false, outcome_then: "allow", outcome_now: "block",
+    reasons_then: [], reasons_now: ["capital_at_risk_over_cap"], checks_then: [], checks_now: [], capital_at_risk_then: 13000, capital_at_risk_now: 13000,
+    inputs_hash_match: true, snapshot_hash_match: true, policy_version_then: "fno-risk-v1", policy_version_now: "fno-risk-v1", snapshot_version: "decision-snapshot-v1",
+    differences: ["Outcome was allow, replays as block.", "The reason codes differ."], replayed_on: "the request and the gate's own reads as stored", replay_version: "decision-replay-v1", writes: "none" },
+  "dec-old-0001": { decision_id: "dec-old-0001", replayable: false, reason: "This decision came from the kill-switch stream, not the F&O risk gate; only gate decisions store the inputs a replay needs.", replay_version: "decision-replay-v1", writes: "none" },
+};
+
+async function base(page: Page, o: { status?: unknown; forward?: { status: number; body: unknown }; templates?: { status: number; body: unknown }; readiness?: { status: number; body: unknown } } = {}) {
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (route) => route.fulfill({ status: 200, contentType: "application/json", body: "[]" }));
@@ -98,6 +152,15 @@ async function base(page: Page, o: { status?: unknown; forward?: { status: numbe
   await json(page, "**/api/risk/status", o.status ?? status());
   await json(page, "**/api/risk/decisions*", DECISIONS);
   await json(page, "**/api/risk/audit*", AUDIT);
+  await json(page, "**/api/risk/live-readiness", o.readiness?.body ?? readiness(), o.readiness?.status ?? 200);
+  await page.route("**/api/risk/decisions/*/lineage", (route) => {
+    const id = new URL(route.request().url()).pathname.split("/")[4];
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(lineage(id, id === "dec-blk-0002")) });
+  });
+  await page.route("**/api/risk/decisions/*/replay", (route) => {
+    const id = new URL(route.request().url()).pathname.split("/")[4];
+    return route.fulfill({ status: route.request().method() === "POST" ? 200 : 405, contentType: "application/json", body: JSON.stringify(REPLAY[id] ?? {}) });
+  });
 }
 
 function recordWrites(page: Page): string[] {
@@ -225,28 +288,38 @@ test.describe("MOCK — not real data: F&O lab · governance screens", () => {
     await expect(page.getByTestId("fnolab-source").filter({ hasText: "Forward test" })).toContainText("Did not load");
   });
 
-  test("L-1 L-2 Live: twelve conditions, none enforceable; live state rows read the risk status; no order path", async ({ page }) => {
+  test("L-1 L-2 UI-1 Live: twelve conditions from the readiness route, none enforceable; no order path", async ({ page }) => {
     await base(page);
     await page.goto(`${LAB}?screen=live`);
     await expect(page.getByTestId("fnolab-mode")).toHaveAttribute("data-mode", "live-disabled");
     const rowsL = page.getByTestId("fnolab-live-row");
     await expect(rowsL).toHaveCount(12);
+    await expect(page.locator('[data-testid="fnolab-live-row"][data-status="fail"]')).toHaveCount(12);
     await expect(page.getByTestId("fnolab-screen-live")).toContainText("0 of 12 enforceable");
     await expect(page.getByTestId("fnolab-live-headline")).toHaveAttribute("data-live", "false");
-    await expect(page.getByTestId("fnolab-live-headline")).toContainText("Live orders are off");
-    await expect(rowsL.nth(4)).toContainText("fno-risk-v1 gate exists (on for your account)");
-    await expect(rowsL.nth(8)).toContainText("(not granted)");
-    await expect(rowsL.nth(10)).toContainText("Kill switch off");
+    await expect(page.getByTestId("fnolab-live-headline")).toContainText("Live orders are off. None of the 12 conditions can be enforced yet.");
+    await expect(rowsL.nth(4)).toHaveAttribute("data-id", "risk_policy_matches");
+    await expect(rowsL.nth(4)).toContainText("The fno-risk-v1 gate is on for your account");
+    await expect(rowsL.nth(5)).toContainText("Live feed expired, session open");
+    await expect(rowsL.nth(8)).toContainText("No live authorization is granted");
+    await expect(rowsL.nth(10)).toContainText("Kill switch off, trading halt off");
     await expect(rowsL.nth(11)).toHaveAttribute("data-tag", "P0.3");
+    await expect(page.getByTestId("fnolab-live-gate")).toHaveAttribute("data-read-at", "2026-10-26T08:30:00+00:00");
     await expect(page.getByRole("button", { name: /authori[sz]e/i })).toHaveCount(0);
   });
 
-  test("L-1b Live: a kill switch that is on and a gate that is off read as such", async ({ page }) => {
-    await base(page, { status: status({ kill_switch: true, gate: { enabled: false, policy_version: "fno-risk-v1" } }) });
+  test("UI-1 Live: a passing condition is counted; a failed readiness read is said, never filled with fixed rows", async ({ page }) => {
+    await base(page, { readiness: { status: 200, body: readiness({ pass: "kill_switch" }) } });
     await page.goto(`${LAB}?screen=live`);
-    const rowsL = page.getByTestId("fnolab-live-row");
-    await expect(rowsL.nth(10)).toContainText("Kill switch ON");
-    await expect(rowsL.nth(4)).toContainText("(off for your account)");
+    await expect(page.getByTestId("fnolab-screen-live")).toContainText("1 of 12 enforceable");
+    await expect(page.locator('[data-testid="fnolab-live-row"][data-id="kill_switch"]')).toHaveAttribute("data-status", "pass");
+    await expect(page.getByTestId("fnolab-live-headline")).toContainText("11 of the 12 conditions still fail.");
+
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await base(page, { readiness: { status: 500, body: { detail: "boom" } }, status: status({ kill_switch: true }) });
+    await page.goto(`${LAB}?screen=live`);
+    await expect(page.getByTestId("fnolab-screen-live")).toContainText("The live readiness conditions");
+    await expect(page.getByTestId("fnolab-live-row")).toHaveCount(0);
     await expect(page.getByTestId("fnolab-source").filter({ hasText: "Kill switch" })).toHaveAttribute("data-tone", "danger");
   });
 
@@ -264,7 +337,8 @@ test.describe("MOCK — not real data: F&O lab · governance screens", () => {
     await expect(page.getByTestId("fnolab-cert-gap")).toHaveAttribute("data-tag", "P3.1");
   });
 
-  test("A-1 A-2 A-4 A-5 Audit: decisions newest first; the lineage marks only the recorded steps; control changes; no replay", async ({ page }) => {
+  test("A-1 A-2 A-4 UI-2 UI-3 Audit: decisions newest first; lineage statuses from the route; replay matches; control changes", async ({ page }) => {
+    const writes = recordWrites(page);
     await base(page);
     await page.goto(`${LAB}?screen=audit`);
     const list = page.getByTestId("fnolab-audit-decision");
@@ -277,8 +351,10 @@ test.describe("MOCK — not real data: F&O lab · governance screens", () => {
     await list.nth(1).click();
     const nodes = page.getByTestId("fnolab-audit-node");
     await expect(nodes).toHaveCount(10);
-    await expect(page.locator('[data-testid="fnolab-audit-node"][data-recorded="true"]')).toHaveCount(2);
-    await expect(page.locator('[data-testid="fnolab-audit-node"][data-node="snapshot"]')).toContainText("Not recorded · P0.3");
+    await expect(page.locator('[data-testid="fnolab-audit-node"][data-recorded="true"]')).toHaveCount(5);
+    await expect(page.locator('[data-testid="fnolab-audit-node"][data-node="market_snapshot"]')).toContainText("Not recorded · P0.3");
+    await expect(page.locator('[data-testid="fnolab-audit-node"][data-node="oms"]')).toHaveAttribute("data-status", "not_reached");
+    await expect(page.locator('[data-testid="fnolab-audit-node"][data-node="agent_proposal"]')).toContainText("Not applicable");
     const risk = page.getByTestId("fnolab-audit-risk");
     await expect(risk).toContainText("blocked");
     await expect(risk).toContainText("Lot 50 is not the exchange lot 65. (lot_size_mismatch)");
@@ -286,15 +362,43 @@ test.describe("MOCK — not real data: F&O lab · governance screens", () => {
     await expect(risk).toContainText("corr-aaaa-1111-blk");
     await expect(risk).toContainText("fno-risk-v1");
 
-    await page.locator('[data-testid="fnolab-audit-node"][data-node="snapshot"]').click();
-    await expect(page.getByTestId("fnolab-audit-gap")).toContainText("Not recorded today (P0.3)");
-    await expect(page.getByTestId("fnolab-audit-replay")).toContainText("Replay needs the snapshot store (P0.3)");
-    await expect(page.getByRole("button", { name: /replay/i })).toHaveCount(0);
+    await page.locator('[data-testid="fnolab-audit-node"][data-node="market_snapshot"]').click();
+    await expect(page.getByTestId("fnolab-audit-gap")).toContainText("Not recorded today (P0.3). No market price snapshot is stored with a decision");
+    await page.locator('[data-testid="fnolab-audit-node"][data-node="instrument_master"]').click();
+    await expect(page.getByTestId("fnolab-audit-step-detail")).toContainText("nidp bhavcopy as of 2026-10-23");
+    await expect(page.getByTestId("fnolab-audit-step-ref")).toContainText("ref 2026-10-27");
+
+    await expect(page.getByTestId("fnolab-audit-replay")).toHaveAttribute("data-state", "idle");
+    await page.getByTestId("fnolab-audit-replay-run").click();
+    const result = page.getByTestId("fnolab-audit-replay-result");
+    await expect(result).toHaveAttribute("data-match", "true");
+    await expect(result).toContainText("Match");
+    await expect(page.getByTestId("fnolab-audit-replay-rows")).toContainText("block then · block now");
+    await expect(page.getByTestId("fnolab-audit-replay-rows")).toContainText("lot_size_mismatch then · lot_size_mismatch now");
+    await expect(page.getByTestId("fnolab-audit-replay-rows")).toContainText("matches the stored snapshot");
+    expect(writes).toEqual(["POST /api/risk/decisions/dec-blk-0002/replay"]);
 
     const controls = page.getByTestId("fnolab-audit-control");
     await expect(controls).toHaveCount(1);
     await expect(controls.first()).toContainText("kill_switch: on → off");
     await expect(controls.first()).toContainText("admin_fixture · “Reviewed and cleared”");
+  });
+
+  test("A-5 UI-3 Audit: a mismatch lists what differs; a row without a snapshot shows the server's reason", async ({ page }) => {
+    await base(page);
+    await page.goto(`${LAB}?screen=audit`);
+    await page.getByTestId("fnolab-audit-decision").nth(0).click();
+    await page.getByTestId("fnolab-audit-replay-run").click();
+    await expect(page.getByTestId("fnolab-audit-replay-result")).toHaveAttribute("data-match", "false");
+    await expect(page.getByTestId("fnolab-audit-replay-result")).toContainText("Mismatch");
+    await expect(page.getByTestId("fnolab-audit-replay-diff")).toContainText("Outcome was allow, replays as block.");
+    await expect(page.getByTestId("fnolab-audit-replay-rows")).toContainText("allow then · block now");
+
+    await page.getByTestId("fnolab-audit-decision").nth(2).click();
+    await expect(page.getByTestId("fnolab-audit-replay")).toHaveAttribute("data-state", "idle");
+    await page.getByTestId("fnolab-audit-replay-run").click();
+    await expect(page.getByTestId("fnolab-audit-replay")).toHaveAttribute("data-state", "not_replayable");
+    await expect(page.getByTestId("fnolab-audit-replay-reason")).toContainText("Not replayable. This decision came from the kill-switch stream");
   });
 
   test("A-3 Audit: search filters by correlation id or decision id, and says when nothing matches", async ({ page }) => {

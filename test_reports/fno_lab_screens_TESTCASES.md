@@ -59,7 +59,7 @@ The screen lives at `/app/tool/fnolab`; `?screen=` picks one of the seven.
 
 | ID | Case | Expected |
 |---|---|---|
-| L-1 | Readiness list | The 12 PRD §21 conditions with "0 of 12 enforceable" and the backlog tag that closes each one. The kill-switch row reads `/api/risk/status` (on/off). The risk-policy row reads `gate.enabled` and the policy version. |
+| L-1 | Readiness list | The 12 PRD §21 conditions with "0 of 12 enforceable" and the backlog tag that closes each one. On `feat/fno-lab-backend-core` (UI-1) the rows come from `GET /api/risk/live-readiness`. |
 | L-2 | No order path | No authorise button and no order ticket. `live_execution_available: false` reads "Live orders are off". |
 
 ## Kite sessions panel on Live Desk and MI (K) — added 2026-10-26 ("Need a kite login for the same")
@@ -91,10 +91,10 @@ Two Kite logins already exist in the backend. Both are reused here; neither is n
 | ID | Case | Expected |
 |---|---|---|
 | A-1 | Decisions | From `GET /api/risk/decisions`: outcome, path, symbol, time, correlation id, newest first. |
-| A-2 | Lineage | Selecting a decision shows the 10-step lineage. Only the steps that are recorded today are marked Recorded (risk decision, plus the control audit when present). The others read "Not recorded · P0.3". |
+| A-2 | Lineage | Selecting a decision shows the 10-step lineage. Superseded on `feat/fno-lab-backend-core` by UI-2: each step's status comes from `GET /api/risk/decisions/{id}/lineage`. |
 | A-3 | Search | Searching by decision id or correlation id filters the list. |
 | A-4 | Control changes | From `GET /api/risk/audit`, newest first. |
-| A-5 | Replay | No replay button. Instead: "Replay needs the snapshot store (P0.3)". |
+| A-5 | Replay | Superseded on `feat/fno-lab-backend-core` by UI-3: "Replay from snapshot" calls `POST /api/risk/decisions/{id}/replay`. It shows match or mismatch, or the server's reason for a row without a snapshot. |
 
 ## Verification plan
 

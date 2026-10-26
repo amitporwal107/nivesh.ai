@@ -7,13 +7,16 @@
  *   GET  /api/fno/forward-test          the forward test of a futures signal (tradingdesk/FnoForwardTest.tsx useForwardTest)
  *   GET  /api/risk/status, /api/risk/audit   kill switch, gate and live authorization; control changes (risk-controls.ts)
  *   GET  /api/risk/decisions?limit=200  every recorded risk decision with the fields the audit lineage shows: policy
- *                                       version, inputs hash, checks, mode, source                (useAuditDecisions)
+ *                                       version, inputs hash, checks, mode, source, snapshot version (useAuditDecisions)
+ *   GET  /api/risk/live-readiness       the twelve PRD §21 conditions, each pass / fail with its evidence (useLiveReadiness)
+ *   GET  /api/risk/decisions/{id}/lineage   the ten lineage steps of one decision                (useDecisionLineage)
+ *   POST /api/risk/decisions/{id}/replay    re-run the gate on the stored snapshot; writes nothing (useReplayDecision)
  *
  * The audit reader is separate from risk-controls.ts readRiskDecisions on purpose: that one keeps the six fields the
  * Risk Control Center lists; the lineage needs the rest of the stored row (inputs hash, checks, policy version), and
  * reads a longer list so a search by id can find older decisions. Reasons are read with the same readReasons.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import { useImpersonationStore } from "@/stores/impersonation.store";
@@ -164,6 +167,8 @@ export interface AuditDecision {
   instrument: string | null;
   legs: number | null;
   capitalAtRiskRs: number | null;
+  /** "decision-snapshot-v1" when the gate stored what it read; null on older rows (they cannot be replayed). */
+  snapshotVersion: string | null;
 }
 
 export const isBlocked = (outcome: string | null) => outcome === "block" || outcome === "blocked" || outcome === "denied";
@@ -185,6 +190,7 @@ export function readAuditDecisions(body: unknown): AuditDecision[] {
       correlationId: str(r.correlation_id), policyVersion: str(r.policy_version) ?? str(r.limits_version),
       inputsHash: str(r.inputs_hash), checks, source: str(r.source), actorId: str(r.actor_id),
       instrument: str(detail.instrument), legs: num(detail.legs), capitalAtRiskRs: num(detail.capital_at_risk_rs),
+      snapshotVersion: str(r.snapshot_version),
     };
   });
   const t = (x: AuditDecision) => (x.at ? new Date(x.at).getTime() : NaN);
@@ -215,4 +221,130 @@ export function matchesDecision(d: AuditDecision, q: string): boolean {
   const s = q.trim().toLowerCase();
   if (!s) return true;
   return d.id.toLowerCase().includes(s) || (d.correlationId ?? "").toLowerCase().includes(s);
+}
+
+// ── live readiness (PRD §21) ─────────────────────────────────────────────
+
+export interface LiveCondition {
+  id: string;
+  label: string;
+  /** Anything other than "pass" from the server reads as fail: an unknown is never a pass. */
+  status: "pass" | "fail";
+  evidence: string;
+  backlog: string | null;
+}
+
+export interface LiveReadiness {
+  conditions: LiveCondition[];
+  count: number;
+  enforceable: number;
+  liveExecutionAvailable: boolean;
+  policyVersion: string | null;
+  readAt: string | null;
+}
+
+export function readLiveReadiness(body: unknown): LiveReadiness {
+  const d = rec(body);
+  if (!Array.isArray(d.conditions)) throw ApiError.contractDrift("risk.live-readiness: no conditions list");
+  const conditions = d.conditions.flatMap((v): LiveCondition[] => {
+    const c = rec(v);
+    const id = str(c.id);
+    const label = str(c.label);
+    if (!id || !label) return [];
+    return [{ id, label, status: c.status === "pass" ? "pass" : "fail", evidence: str(c.evidence) ?? "No evidence given", backlog: str(c.backlog) }];
+  });
+  return {
+    conditions, count: conditions.length, enforceable: conditions.filter((c) => c.status === "pass").length,
+    liveExecutionAvailable: d.live_execution_available === true, policyVersion: str(d.policy_version), readAt: str(d.read_at),
+  };
+}
+
+export function useLiveReadiness() {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<LiveReadiness>({
+    queryKey: ["copilot", "fnolab", "live-readiness", profile ?? "self"],
+    staleTime: 30_000,
+    retry: false,
+    queryFn: async ({ signal }) => readLiveReadiness((await http({ path: "/api/risk/live-readiness", signal, noRetry: true })).data),
+  });
+}
+
+// ── decision lineage and replay ──────────────────────────────────────────
+
+export type LineageStatus = "recorded" | "not_recorded" | "not_reached" | "not_applicable";
+
+export interface LineageStep {
+  step: string;
+  label: string;
+  status: LineageStatus;
+  detail: string;
+  /** A record id, a list of ids, or a field path on the decision row. */
+  ref: string | null;
+  backlog: string | null;
+}
+
+export interface DecisionLineage {
+  decisionId: string;
+  steps: LineageStep[];
+  recorded: number;
+  replayable: boolean;
+}
+
+const STATUSES: LineageStatus[] = ["recorded", "not_recorded", "not_reached", "not_applicable"];
+
+export function readLineage(body: unknown): DecisionLineage {
+  const d = rec(body);
+  if (!Array.isArray(d.steps)) throw ApiError.contractDrift("risk.lineage: no steps list");
+  const steps = d.steps.flatMap((v): LineageStep[] => {
+    const s = rec(v);
+    const step = str(s.step);
+    const label = str(s.label);
+    if (!step || !label) return [];
+    const status = STATUSES.includes(s.status as LineageStatus) ? (s.status as LineageStatus) : "not_recorded";
+    const ref = Array.isArray(s.ref) ? s.ref.map(String).join(", ") || null : s.ref == null ? null : String(s.ref);
+    return [{ step, label, status, detail: str(s.detail) ?? "", ref, backlog: str(s.backlog) }];
+  });
+  return { decisionId: str(d.decision_id) ?? "", steps, recorded: steps.filter((s) => s.status === "recorded").length, replayable: d.replayable === true };
+}
+
+export function useDecisionLineage(id: string) {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<DecisionLineage>({
+    queryKey: ["copilot", "fnolab", "lineage", profile ?? "self", id],
+    staleTime: 60_000,
+    retry: false,
+    queryFn: async ({ signal }) => readLineage((await http({ path: `/api/risk/decisions/${encodeURIComponent(id)}/lineage`, signal, noRetry: true })).data),
+  });
+}
+
+export type DecisionReplay =
+  | { replayable: false; reason: string }
+  | {
+      replayable: true; match: boolean; outcomeThen: string | null; outcomeNow: string | null;
+      reasonsThen: string[]; reasonsNow: string[]; inputsHashMatch: boolean; snapshotHashMatch: boolean;
+      policyThen: string | null; policyNow: string | null; capitalThen: number | null; capitalNow: number | null;
+      differences: string[]; replayedOn: string | null;
+    };
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
+
+export function readReplay(body: unknown): DecisionReplay {
+  const d = rec(body);
+  if (d.replayable === false) return { replayable: false, reason: str(d.reason) ?? "The server gave no reason." };
+  if (d.replayable !== true || typeof d.match !== "boolean") throw ApiError.contractDrift("risk.replay: no replayable/match");
+  return {
+    replayable: true, match: d.match, outcomeThen: str(d.outcome_then), outcomeNow: str(d.outcome_now),
+    reasonsThen: strings(d.reasons_then), reasonsNow: strings(d.reasons_now),
+    inputsHashMatch: d.inputs_hash_match === true, snapshotHashMatch: d.snapshot_hash_match === true,
+    policyThen: str(d.policy_version_then), policyNow: str(d.policy_version_now),
+    capitalThen: num(d.capital_at_risk_then), capitalNow: num(d.capital_at_risk_now),
+    differences: strings(d.differences), replayedOn: str(d.replayed_on),
+  };
+}
+
+/** POST because the server computes on demand; it writes nothing. */
+export function useReplayDecision() {
+  return useMutation<DecisionReplay, Error, string>({
+    mutationFn: async (id) => readReplay((await http({ method: "POST", path: `/api/risk/decisions/${encodeURIComponent(id)}/replay`, noRetry: true })).data),
+  });
 }
