@@ -20,6 +20,11 @@ compute, so it is named `blocked_rs` and its basis travels with it.
 RESERVE WHAT YOU RELEASE
 The amount reserved is written on the trade, and the close releases THAT figure rather than
 recomputing it from prices that have since moved. Recomputing is how an account silently drifts.
+
+CORRECTIONS ARE ADDED, NEVER OVERWRITTEN
+`adjust` is the only way a reconciliation (services/paper_reconcile.py) moves an account: a compensating
+movement with a reason, the original trade id and an idempotency key, recorded as an "adjust" ledger row.
+Nothing here deletes or rewrites a ledger row.
 """
 from __future__ import annotations
 
@@ -31,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 ACCOUNTS = "paper_accounts"
 LEDGER = "paper_account_ledger"
+#: The ledger action of a reconciliation's compensating movement (`adjust`).
+ADJUST = "adjust"
 
 #: What a new paper account starts with. Matches the AI trader's own `initial_capital` default so a
 #: strategy backtested at that size can be paper-traded at the same size.
@@ -170,3 +177,34 @@ async def release(db, user_id: str, amount: Optional[float], *, net_pnl: Optiona
     )
     await _ledger(db, user_id, action="release", amount_rs=float(amount or 0.0),
                   net_pnl_rs=net_pnl, trade_id=trade_id, symbol=symbol)
+
+
+async def adjust(db, user_id: str, *, key: str, cash_delta: float = 0.0, blocked_delta: float = 0.0,
+                 row: Dict[str, Any]) -> bool:
+    """Apply a reconciliation's compensating movement at most once per `key`. True when THIS call moved the account.
+
+    ONE conditional update moves the account and records the key on it (`adjustment_keys`): the filter matches only
+    while the key is absent. So a retry cannot move the account twice, and neither can a run that died after the
+    account write and before the ledger row. The ledger row's `_id` is the key, so it too is written once; a retry
+    writes it when it is missing. Unlike `_ledger`, a failed ledger write is raised, not logged: a correction without
+    its record is exactly what this exists to prevent, and the retry completes it.
+
+    No funds check: a correction records a position or a result that already exists; refusing it would leave the
+    account misstated. Raises LookupError when the user has no account (a correction never creates one)."""
+    from pymongo.errors import DuplicateKeyError
+
+    res = await db[ACCOUNTS].update_one(
+        {"user_id": user_id, "adjustment_keys": {"$ne": key}},
+        {"$inc": {"cash_rs": float(cash_delta), "blocked_rs": float(blocked_delta)},
+         "$push": {"adjustment_keys": key}, "$set": {"updated_at": _iso()}},
+    )
+    moved = bool(res.matched_count)
+    if not moved and await db[ACCOUNTS].find_one({"user_id": user_id, "adjustment_keys": key}) is None:
+        raise LookupError("this user has no paper account; a correction never creates one")
+    try:
+        await db[LEDGER].insert_one({**row, "_id": key, "user_id": user_id, "at": _iso(), "policy_version": POLICY_VERSION,
+                                     "action": ADJUST, "idempotency_key": key, "cash_delta_rs": float(cash_delta),
+                                     "blocked_delta_rs": float(blocked_delta)})
+    except DuplicateKeyError:
+        pass                                    # recorded by an earlier attempt
+    return moved
