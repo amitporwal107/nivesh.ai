@@ -1006,6 +1006,45 @@ def classify_desk_regime(
     }
 
 
+async def desk_regime_inputs(limit: int) -> Dict[str, Any]:
+    """The stored inputs of the desk regime for the latest `limit` sessions, oldest first: each macro_daily row
+    with a Nifty 50 close (`nifty`, `india_vix`) and that day's macro_features `nifty_50dma` (None when the day has
+    no features row). `non_session_rows` counts the macro_daily rows in the same span with no Nifty close: not NSE
+    sessions (yfinance dates a global print on an Indian holiday; latest_state skips them the same way).
+
+    Raises when Postgres is not reachable or the read fails: an unread store is not an empty history."""
+    pool = await pg_client.get_pool()
+    if pool is None:
+        raise RuntimeError("Postgres is not reachable")
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT d.date, d.nifty, d.india_vix, f.nifty_50dma
+              FROM macro_daily d
+              LEFT JOIN macro_features f ON f.date = d.date
+             WHERE d.nifty IS NOT NULL
+             ORDER BY d.date DESC
+             LIMIT $1
+            """,
+            limit,
+        )
+        non_sessions = 0
+        if rows:
+            non_sessions = await conn.fetchval(
+                "SELECT COUNT(*) FROM macro_daily WHERE nifty IS NULL AND date BETWEEN $1 AND $2",
+                rows[-1]["date"], rows[0]["date"],
+            )
+
+    def _f(v: Any) -> Optional[float]:
+        return float(v) if v is not None else None
+
+    return {
+        "rows": [{"date": r["date"].isoformat(), "nifty": _f(r["nifty"]), "india_vix": _f(r["india_vix"]),
+                  "nifty_50dma": _f(r["nifty_50dma"])} for r in reversed(rows)],
+        "non_session_rows": int(non_sessions or 0),
+    }
+
+
 # ── Migration runner (idempotent — called from server startup) ─────────
 async def ensure_schema() -> None:
     """Apply macro migrations on startup if PG is available.

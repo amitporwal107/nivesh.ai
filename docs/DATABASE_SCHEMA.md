@@ -38,6 +38,14 @@ immutable record per holdings sync, at most 90 per account; indexes on `snapshot
 `(user_id, broker_account_id, synced_at desc)`). Holdings rows read from a broker carry
 `broker_account_id`, `broker`, `source` (`broker_native` | `openalgo` | `broker_export`) and `isin`.
 
+F&O IV history: `fno_iv_history` (one document per underlying and session, `_id` `"<UNDERLYING>:<YYYY-MM-DD>"`,
+upserted; index `(underlying, date desc)` created by the recorder). Fields: `underlying, date, as_of, calc_version
+(fno-atm-iv-v1), source, rate_pct, method (recorded | backfill, first write), recorded_at, computed_at` and
+`buckets.{near_month,next_month}` = `expiry, days_to_expiry, atm_strike, spot, future_settle, forward, forward_basis,
+call_iv, call_iv_price, put_iv, put_iv_price, atm_iv, reason`. Written only by `backend/scripts/record_iv_history.py`
+(nightly cron documented in the script, not installed); see `backend/services/fno_iv_history.py`. A session that was
+not read has no document; nothing is interpolated.
+
 ## Conventions
 snake_case tables/columns · UUID PKs (`uuid-ossp`) on app PG · timestamps UTC · money as
 `NUMERIC`, never float · NAV `NUMERIC(12,4)`.
