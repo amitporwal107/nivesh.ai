@@ -6,4 +6,4 @@ REASON: This fix group may not write to staging (no deploy, restart, cron instal
 - **Verified:** 390 unit tests pass (40 new); 12 mutants checked (all killed after one added test); read-only staging dry runs of both tools with before/after counts unchanged and zero write attempts.
 - **Verified on a throwaway local Mongo 7 (not staging):** concurrent applies move each entry once, apply-twice and revert-twice are no-ops, revert restores the account, 20 concurrent lease acquires give one winner.
 - **Not verified:** the route on staging; the job's full run against real Mongo with real concurrency (two `run_job` processes); the cron line under real cron; `flock` on the staging host under real contention; any staging write.
-- **This is not a pass.** Resolve before merge to `main`.
+- **This is not a pass.** Resolve before merge to `dev`.
