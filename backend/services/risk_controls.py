@@ -282,8 +282,10 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
 
 
 async def decision_rows(db, user_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-    cur = db[DECISIONS].find({"user_id": user_id}).sort("at", -1).limit(min(limit, MAX_AUDIT_LISTED))
+    # The decision snapshot is left out (projection, and popped for stores that ignore it): POST .../replay reads it.
+    cur = db[DECISIONS].find({"user_id": user_id}, {"snapshot": 0}).sort("at", -1).limit(min(limit, MAX_AUDIT_LISTED))
     rows = await cur.to_list(min(limit, MAX_AUDIT_LISTED))
     for r in rows:
         r["event_id"] = r.pop("_id", None)
+        r.pop("snapshot", None)
     return rows
