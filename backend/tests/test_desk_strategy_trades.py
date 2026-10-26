@@ -33,6 +33,7 @@ from services import desk_strategy_trades as strat
 from services import desk_trading as svc
 from services import paper_account as acct
 from services.copilot_tools import daas_client
+from services.risk_gate import reference
 from tests.test_desk_trading import (  # noqa: F401  (`world` and `api` are fixtures)
     A, B, NOW, TRADES_URL, api, bar, open_trade, trade_body, trades, world,
 )
@@ -117,6 +118,19 @@ def sworld(world, monkeypatch):
                 "pagination": {"limit": params["limit"], "offset": params["offset"], "total": None, "next_offset": None}}
 
     monkeypatch.setattr(svc.daas_client, "_get", fake_get)
+
+    # The exchange lot the desk checks every structure against when the F&O risk gate is off
+    # (strat.check_exchange_lots → services/risk_gate/reference.lookup). MOCK — not real data: FIXU's lot is 250.
+    world.lots = {EXPIRY: 250, "2026-11-24": 250}
+    world.lot_lookups = []
+
+    async def lookup(underlying, expiries, today):
+        world.lot_lookups.append((underlying, sorted(expiries)))
+        return {e: ({"listed": True, "lot_size": world.lots[e], "source": reference.BHAVCOPY_SOURCE, "as_of": "2026-10-09",
+                     "error": None} if world.lots.get(e) else
+                    {"listed": None, "lot_size": None, "source": None, "as_of": None, "error": "the data platform could not be read"})
+                for e in expiries}
+    monkeypatch.setattr(reference, "lookup", lookup)
     return world
 
 
@@ -156,7 +170,9 @@ def test_create_stores_the_strategy_with_its_legs_signal_and_lifecycle(api, swor
 def test_a_document_without_kind_stays_a_cash_trade_and_kind_cash_is_accepted(api, sworld):
     cash = open_trade(api)
     assert cash["kind"] == "cash" and cash["rules_version"] == "desk-paper-v2"
-    r = api.post(TRADES_URL, json=trade_body(kind="cash"), headers=A)
+    # Another symbol: a second open FIXA trade would be refused as a duplicate.
+    r = api.post(TRADES_URL, json=trade_body(kind="cash", symbol="FIXB", entry_price=500.0, stop_price=480.0,
+                                             target_price=520.0), headers=A)
     assert r.status_code == 201 and r.json()["trade"]["rules_version"] == "desk-paper-v2"
     assert "kind" not in sworld.db.trades.docs[0]               # the stored share document is not changed
     r = api.post(TRADES_URL, json=trade_body(kind="swing"), headers=A)
@@ -170,6 +186,12 @@ BAD = [
     ("short calls above the long", dict(family="custom", legs=[call("buy", 1300, 40), call("sell", 1360, 15, lots=2)]), "unbounded_loss"),
     ("naked short put", dict(family="custom", direction="bullish", legs=[put("sell", 1200, 12)]), "naked_short_put"),
     ("short future with a short call", dict(family="custom", legs=[future("sell", 1215), call("sell", 1300, 20)]), "unbounded_loss"),
+    # TESTCASES F-2 (study A probe D1): a short future alone was accepted and stamped defined_risk: True.
+    ("short future only", dict(family="short_future", direction="bearish", stop_underlying=1250.0, target_underlying=1150.0,
+                               legs=[future("sell", 1215)]), "short_futures_not_supported"),
+    # TESTCASES F-3: a future's loss is not capped by the structure, so the plan's stop on the underlying is required.
+    ("long future without a stop", dict(family="long_future", stop_underlying=None, legs=[future("buy", 1215)]),
+     "futures_stop_required"),
     ("mixed option expiries", dict(family="custom", legs=[call("buy", 1300, 40), call("sell", 1360, 15, expiry="2026-11-24")]), "mixed_option_expiries"),
     ("cash only", dict(family="custom", legs=[{"kind": "cash", "side": "buy", "lots": 10, "lot_size": 1, "entry_price": 1215.0,
                                               "expiry": None, "strike": None, "option_type": None, "price_source": "NSE end of day"}]),
@@ -203,14 +225,14 @@ BAD = [
 @pytest.mark.parametrize("name,over,code", BAD, ids=[b[0] for b in BAD])
 def test_a_bad_strategy_is_refused_with_its_code_and_nothing_is_stored(api, sworld, name, over, code):
     r = post_strategy(api, **over)
-    assert (r.status_code, r.json()["detail"]) == (422, code)
+    detail = r.json()["detail"]
+    # The newer refusals carry {code, message}; the older ones the bare code.
+    assert (r.status_code, detail if isinstance(detail, str) else detail["code"]) == (422, code)
     assert sworld.db.trades.docs == []
 
 
 GOOD = [
     ("long future", dict(family="long_future", legs=[future("buy", 1215)])),
-    ("short future (a plain futures leg)", dict(family="short_future", direction="bearish", stop_underlying=1250.0,
-                                                 target_underlying=1150.0, legs=[future("sell", 1215)])),
     ("long put", dict(family="long_put", direction="bearish", stop_underlying=1250.0, target_underlying=1150.0, legs=[put("buy", 1200, 25)])),
     ("bull put spread", dict(family="bull_put_spread", legs=[put("sell", 1200, 25), put("buy", 1150, 10)])),
     ("iron condor", dict(family="iron_condor", direction="neutral", stop_underlying=None, target_underlying=None,
@@ -223,15 +245,18 @@ GOOD = [
 @pytest.mark.parametrize("name,over", GOOD, ids=[g[0] for g in GOOD])
 def test_defined_risk_structures_and_a_plain_futures_leg_are_accepted(api, sworld, name, over):
     t = open_strategy(api, **over)
-    assert t["risk"]["defined_risk"] is True
-    assert t["risk"]["note"] == (strat.UNBOUNDED_NOTE if any(leg["kind"] == "future" for leg in t["legs"]) else None)
+    # TESTCASES F-1, F-7: any futures leg is NOT defined risk (it used to say True for a future, short ones included).
+    has_future = any(leg["kind"] == "future" for leg in t["legs"])
+    has_option = any(leg["kind"] == "option" for leg in t["legs"])
+    assert t["risk"]["defined_risk"] is (not has_future) and t["risk"]["futures_exposure"] is has_future
+    assert t["risk"]["note"] == ((strat.FUTURES_HEDGED_NOTE if has_option else strat.UNBOUNDED_NOTE) if has_future else None)
 
 
 def test_strategy_trades_count_against_the_open_limit_with_share_trades(api, sworld):
-    for _ in range(99):
-        open_trade(api)
+    for i in range(99):                                          # 99 symbols: one symbol twice is now a duplicate
+        sworld.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), NOW), "_id": f"t{i}"})
     open_strategy(api)                                           # the 100th
-    r = post_strategy(api)
+    r = post_strategy(api, legs=[call("buy", 1310, 35), call("sell", 1370, 12)])   # another structure: not a duplicate
     assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
     r = api.post(TRADES_URL, json=trade_body(), headers=A)
     assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
@@ -324,8 +349,8 @@ def test_options_expire_at_intrinsic_value_against_the_underlying_close(api, swo
 def test_a_long_put_settles_at_strike_minus_the_close_and_a_future_at_its_final_settle():
     # Pure rule, no routes: put 1300 bought at 30 → underlying 1250 → (1300 − 1250) = 50 → (50 − 30) × 250 = +5,000;
     # future bought at 1215, final settle 1260 → (1260 − 1215) × 250 = +11,250.
-    doc = strat.new_strategy_trade("u", strategy_body(
-        family="custom", direction="bullish", stop_underlying=None, target_underlying=None,
+    doc = strat.new_strategy_trade("u", strategy_body(       # a futures leg needs a stop; 1200 is never touched here
+        family="custom", direction="bullish", stop_underlying=1200.0, target_underlying=None,
         legs=[put("buy", 1300, 30), future("buy", 1215)]), NOW)
     bars = [{"date": date(2026, 10, 27), "open": 1255.0, "high": 1262.0, "low": 1245.0, "close": 1250.0, "volume": 1.0, "series": "EQ"}]
     rows = [[crow(EXPIRY, 49, 49, underlying=1250)], [crow(EXPIRY, 1260, 1259, underlying=1250)]]
@@ -658,3 +683,14 @@ def test_the_defined_risk_rule_directly():
     with pytest.raises(svc.DeskInputError) as e:
         strat.check_defined_risk(legs(put("sell", 1300, 40), put("buy", 1250, 10, lots=1), put("sell", 1200, 5)))
     assert e.value.code == "naked_short_put"                                # two short puts, one long
+    # Futures (TESTCASES F-1, F-2, F-7): never defined risk; a short futures-only structure is refused.
+    assert strat.check_defined_risk(legs(future("buy", 1215))) == {"defined_risk": False, "futures_exposure": True,
+                                                                   "note": strat.UNBOUNDED_NOTE}
+    with pytest.raises(svc.DeskInputError) as e:
+        strat.check_defined_risk(legs(future("sell", 1215)))
+    assert e.value.code == "short_futures_not_supported" and "no limit on its loss" in e.value.message
+    with pytest.raises(svc.DeskInputError) as e:                            # a calendar spread sells a future too
+        strat.check_defined_risk(legs(future("buy", 1215), dict(future("sell", 1220), expiry="2026-11-24")))
+    assert e.value.code == "short_futures_not_supported"
+    hedged = strat.check_defined_risk(legs(future("sell", 1215), call("buy", 1300, 20)))
+    assert hedged == {"defined_risk": False, "futures_exposure": True, "note": strat.FUTURES_HEDGED_NOTE}

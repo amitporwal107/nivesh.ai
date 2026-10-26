@@ -204,6 +204,10 @@ export function paperBlocker(plan: StrategyPlan, c: Candidate): string | null {
     return null;
   }
   const dir = paperDirection(plan);
+  if (c.segment === "futures" && c.legs.some((l) => l.kind === "future" && l.side === "sell")) {
+    // The route refuses it too (short_futures_not_supported, owner decision D2): said here before any request.
+    return "Short futures are not recorded as paper trades yet: they need the shared risk service (margin and gap stress) first.";
+  }
   const ref = plan.underlying.spot;
   if (ref == null) return "The plan has no reference price (the last close).";
   const stop = dir === "neutral" ? null : c.invalidation?.technical?.price ?? null;

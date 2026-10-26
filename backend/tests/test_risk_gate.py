@@ -523,8 +523,10 @@ def test_an_unconfigured_data_platform_is_unverifiable(bhav):
 # ── RG-18: the legacy decision log is unchanged ──────────────────────────────
 def test_record_decision_keeps_its_signature_and_still_fails_open():
     params = list(inspect.signature(rc.record_decision).parameters)
+    # `path` (keyword, optional) was added so desk and journal refusals carry the gate's path names; every older
+    # caller is unchanged.
     assert params == ["db", "user_id", "action", "outcome", "symbol", "requested_qty", "approved_qty", "reasons",
-                      "limits_version", "correlation_id", "detail", "now"]
+                      "limits_version", "correlation_id", "detail", "path", "now"]
     db = FakeDB()
     db.fail[(rc.DECISIONS, "insert_one")] = RuntimeError("down")
     assert run(rc.record_decision(db, "u1", action="x", outcome="allowed")) is None

@@ -97,3 +97,35 @@ def test_flag_on_a_blocked_confirm_leaves_the_ticket_waiting_and_records_no_trad
     assert [x["code"] for x in r.json()["detail"]["reasons"]] == ["capital_at_risk_exceeded"]
     assert gate.db.trades.docs == [] and gate.db.tickets.docs[0]["status"] == "awaiting_confirmation"
     assert "risk_decision_id" not in gate.db.tickets.docs[0]
+
+
+# ── Release gate 1 on the AI trader paths (TESTCASES K-10 to K-12 in test_reports/desk_paper_safety_TESTCASES.md) ──
+def _kill_switch_on(world):
+    world.db[rc.CONTROLS].docs.append({"user_id": "user_a", "kill_switch": True, "halted": False, "reason": "stop"})
+
+
+def test_flag_off_the_kill_switch_stops_a_paper_signal_from_opening_any_trade(api, gate):
+    # With the flag off the governor reads the same controls (routes/ai_trader._portfolio → risk_controls.read) and
+    # halts: the ticket is recorded as refused, and no desk paper trade is written.
+    gate.gate_on = False
+    gate.db.strategies.docs.append(strategy_record())
+    _kill_switch_on(gate)
+    body = signals(api)
+    (ticket,) = gate.db.tickets.docs
+    assert ticket["status"] == "rejected" and ticket["governor_cleared"] is False
+    assert "KILL_SWITCH" in ticket["reject_reason"]
+    assert gate.db.trades.docs == [] and body["tickets"][0]["trade_id"] is None
+
+
+@pytest.mark.parametrize("gate_on", [False, True])
+def test_the_kill_switch_stops_a_confirm_whatever_the_flag(api, gate, gate_on):
+    gate.gate_on = False
+    ticket = assisted_ticket(api, gate)                  # made before the switch went on
+    _kill_switch_on(gate)
+    gate.gate_on = gate_on
+    r = api.post(f"{BASE}/tickets/{ticket['id']}/confirm", headers=A)
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    # The governor re-runs on the book first and halts on the switch, so the gate (when on) is never reached.
+    assert detail["code"] == "risk_refused" and "KILL_SWITCH" in detail["reason_codes"]
+    assert gate.db.trades.docs == [] and gate.db.tickets.docs[0]["status"] == "awaiting_confirmation"

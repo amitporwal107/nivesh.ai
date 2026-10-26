@@ -77,8 +77,9 @@ def test_create_defaults_are_the_first_versions_behaviour(api):
     assert (t["entry_rule"], t["entry_window_sessions"], t["max_hold_sessions"]) == ("at_once", None, None)
     assert t["entry_status"] == "assumed" and t["sim_entry_price"] == 100.0
     assert t["signal_at"] is None and t["strategy_version"] is None and t["rationale"] is None
-    # No target: the estimate at the target is null, never 0.
-    t2 = open_trade(api, target_price=None)
+    # No target: the estimate at the target is null, never 0. (Another user: a second open FIXA trade for the same
+    # user is refused as a duplicate.)
+    t2 = open_trade(api, who=B, target_price=None)
     assert t2["est_costs_rs"]["at_target"] is None and t2["est_costs_rs"]["at_stop"] == round(side(100, 10) + side(95, 10), 2)
 
 
