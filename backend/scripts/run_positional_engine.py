@@ -14,10 +14,17 @@ Usage:
     docker exec nivesh-backend python -m scripts.run_positional_engine
     docker exec nivesh-backend python -m scripts.run_positional_engine --date 2026-05-19
     docker exec nivesh-backend python -m scripts.run_positional_engine --skip-bhavcopy
+    # the scheduled evening run (deploy/cloudpe/app/positional-engine.cron):
+    docker exec nivesh-staging-app-backend python -m scripts.run_positional_engine --require-bars --skip-if-done
+
+--require-bars: after the bhavcopy step, stop unless stock_ohlcv holds bars for the date. Without them the Chartink hits
+                still make a universe and the scorer would date the previous session's bars as today's.
+--skip-if-done: do nothing when positional_signals already holds the date (a retry after a run that worked).
 
 Exit codes:
-  0 — pipeline ran (even if a sub-step had issues; see log for partial errors)
+  0 — pipeline ran (even if a sub-step had issues; see log for partial errors), or skipped as already scored
   1 — fatal error reaching DB/secrets
+  2 — skipped: no bars for the date yet (--require-bars)
 """
 from __future__ import annotations
 
@@ -27,6 +34,7 @@ import logging
 import sys
 from datetime import date, datetime
 from pathlib import Path
+from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -42,7 +50,27 @@ logging.basicConfig(
 )
 
 
-async def run(run_date: date, *, fetch_bhavcopy: bool, fetch_scans: bool) -> dict:
+async def _count_on(sql: str, run_date: date) -> Optional[int]:
+    """count(*) for the day, or None when the database cannot be reached."""
+    from services import pg_client  # noqa: E402
+
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+    async with pool.acquire() as conn:
+        return int(await conn.fetchval(sql, run_date) or 0)
+
+
+async def bars_on(run_date: date) -> Optional[int]:
+    return await _count_on("SELECT count(*) FROM stock_ohlcv WHERE bar_date = $1", run_date)
+
+
+async def signals_on(run_date: date) -> Optional[int]:
+    return await _count_on("SELECT count(*) FROM positional_signals WHERE signal_date = $1", run_date)
+
+
+async def run(run_date: date, *, fetch_bhavcopy: bool, fetch_scans: bool,
+              require_bars: bool = False, skip_if_done: bool = False) -> dict:
     from services.positional_engine import (  # noqa: E402
         bhavcopy_ingester,
         chartink_api,
@@ -54,6 +82,12 @@ async def run(run_date: date, *, fetch_bhavcopy: bool, fetch_scans: bool) -> dic
 
     out: dict = {"date": str(run_date), "steps": {}}
 
+    # A retry after a run that already scored the day does nothing.
+    if skip_if_done and (await signals_on(run_date) or 0) > 0:
+        log.info("already scored %s: nothing to do", run_date)
+        out.update(ok=True, skipped="already_scored")
+        return out
+
     if fetch_bhavcopy:
         try:
             n = await bhavcopy_ingester.ingest_for_date(run_date)
@@ -62,6 +96,13 @@ async def run(run_date: date, *, fetch_bhavcopy: bool, fetch_scans: bool) -> dic
         except Exception as e:  # noqa: BLE001
             out["steps"]["bhavcopy"] = {"ok": False, "error": str(e)[:200]}
             log.warning("bhavcopy failed: %s", e)
+
+    # Without the day's bars the Chartink hits would still make a universe, and the scorer would date the previous
+    # session's bars as today's. A scheduled run stops here instead and is retried later.
+    if require_bars and not await bars_on(run_date):
+        log.warning("no stock_ohlcv bars for %s (bhavcopy not published or not ingested yet): not scoring", run_date)
+        out.update(ok=False, skipped="no_bars")
+        return out
 
     if fetch_scans:
         try:
@@ -109,6 +150,10 @@ def main() -> int:
                     help="Skip NSE bhavcopy ingest (use existing OHLCV rows)")
     p.add_argument("--skip-scans", action="store_true",
                     help="Skip Chartink scan fetch (use existing scan hits)")
+    p.add_argument("--require-bars", action="store_true",
+                    help="Stop before the scans and scoring unless stock_ohlcv holds bars for the date (exit 2)")
+    p.add_argument("--skip-if-done", action="store_true",
+                    help="Do nothing when positional_signals already holds the date")
     args = p.parse_args()
 
     run_date: date
@@ -129,9 +174,11 @@ def main() -> int:
         run_date,
         fetch_bhavcopy=not args.skip_bhavcopy,
         fetch_scans=not args.skip_scans,
+        require_bars=args.require_bars,
+        skip_if_done=args.skip_if_done,
     ))
-    log.info("done: ok=%s steps=%s", result.get("ok"), list(result.get("steps", {})))
-    return 0
+    log.info("done: ok=%s skipped=%s steps=%s", result.get("ok"), result.get("skipped"), list(result.get("steps", {})))
+    return 2 if result.get("skipped") == "no_bars" else 0
 
 
 if __name__ == "__main__":
