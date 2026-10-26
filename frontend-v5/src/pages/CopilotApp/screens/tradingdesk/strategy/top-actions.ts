@@ -13,7 +13,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import type { PayoffRequest } from "./strategy-contract";
-import type { OptionIdea } from "./top-contract";
+import type { OptionIdeaCore as OptionIdea } from "./top-contract";
 
 export const PAPER_TRADES_PATH = "/api/desk/paper-trades";
 

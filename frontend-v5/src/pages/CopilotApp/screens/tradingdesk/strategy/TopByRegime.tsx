@@ -28,7 +28,7 @@ import { payoffProblem, usePayoff } from "./usePayoff";
 import { paperTradeBodyFor, payoffRequestFor, usePaperTradeIdea } from "./top-actions";
 import { TOP_LIMIT, useStrategyTop, type TopRun } from "./top-data";
 import { legsForBoard, liveNetPremium, useFnoLive, type LiveAnswer } from "./top-live";
-import type { FitFactor, OptionClass, OptionIdea, Regime } from "./top-contract";
+import type { FitFactor, OptionClass, OptionIdea, OptionIdeaCore, Regime } from "./top-contract";
 
 const STATE_TONE: Record<string, { glyph: string; color: string }> = {
   supports: { glyph: "+", color: "var(--good, #3fbf87)" },
@@ -67,8 +67,11 @@ function Fig({ k, v, title }: { k: string; v: string; title?: string }) {
  * Both go through the desk's existing routes — POST /api/desk/strategy/payoff and
  * POST /api/desk/paper-trades — so an idea opened here and the same structure built in "One stock"
  * cannot price or record differently. The payoff is only requested once the chart is opened: five
- * cards would otherwise fire five calculations nobody asked for. */
-function IdeaActions({ idea }: { idea: OptionIdea }) {
+ * cards would otherwise fire five calculations nobody asked for.
+ *
+ * Also used by the Scanner's Top 10 F&O board and the lab's focus panel; `onViewTrades` adds their
+ * "View trades ›" link to the row. */
+export function IdeaActions({ idea, onViewTrades }: { idea: OptionIdeaCore; onViewTrades?: () => void }) {
   const [openChart, setOpenChart] = useState(false);
   const request = useMemo(() => payoffRequestFor(idea), [idea]);
   const pay = usePayoff(openChart ? request : null);
@@ -95,6 +98,9 @@ function IdeaActions({ idea }: { idea: OptionIdea }) {
         >
           {paper.isSuccess ? "Added to paper trades" : paper.isPending ? "Adding…" : "Paper trade"}
         </button>
+        {onViewTrades ? (
+          <button type="button" className="cp-chip" data-testid="idea-view-trades" onClick={onViewTrades}>View trades ›</button>
+        ) : null}
         {paper.isError ? (
           <span role="alert" data-testid="idea-paper-error" style={{ ...noteStyle, color: "var(--cp-danger)" }}>
             {errorSentence(paper.error)}
