@@ -22,8 +22,8 @@ from services import ai_watchlist_store as store
 
 router = APIRouter(prefix="/api/desk/ai-watchlist", tags=["desk"])
 
-NO_LIST_YET = ("No list is stored yet. The job runs each weekday at 20:15 IST, after the AI scanner's 19:45 run, "
-               "and keeps every day's list.")
+NO_LIST_YET = ("No list is stored yet. The job runs each weekday at 22:45 IST, after the AI scanner's run and the "
+               "day's NSE F&O bhavcopy, and keeps every day's list.")
 
 
 def annotate(doc: Dict[str, Any], earlier: Dict[str, Dict[str, list]], stored_days: list) -> Dict[str, Any]:

@@ -1,12 +1,24 @@
 # /etc/cron.d/nivesh-staging-ai-watchlist — store the day's AI scanner watchlist (Top 10 cash + Top 10 F&O ideas) [staging].
 #
-# Runs after the AI scanner (nivesh-staging-positional-engine: 19:45 IST, retry 21:45), Mon-Fri (the VM's clock is IST):
-#   20:15 IST  build and store the day's lists (services/ai_watchlist_build, as the system caller).
-#   22:15 IST  retry after the scanner's own retry; does nothing when the day is already stored.
+# Two inputs must be in before a day can be built:
+#   - the AI scanner's scan of the day (nivesh-staging-positional-engine: 19:45 IST, retry 21:45), for both halves;
+#   - the day's NSE F&O bhavcopy in nidp.fno_bhavcopy, for the F&O half. The NIDP fno_bhavcopy ingest runs at 19:30,
+#     21:00 and 22:15 IST (deploy/cloudpe/nidp/nidp-staging.cron), and the file has landed on the 22:15 run every day
+#     since 19 Oct (ingested 22:15:03-22:15:17 IST).
+# So the job runs after both, Mon-Fri (the VM's clock is IST):
+#   22:45 IST  build and store the day's lists (services/ai_watchlist_build, as the system caller).
+#   23:30 IST  retry; does nothing when the day is already stored.
+#   23:55 IST  last retry of the day; does nothing when the day is already stored.
+# The job refuses a day whose F&O half would be built on another day's option chain, or on none (exit 4, nothing
+# written), so a retry builds it once the chain is in. Until 2026-10-27 it ran at 20:15, before the F&O file, and the
+# insert-once store kept the previous session's chain. A chain that lands after 23:55 leaves the day unbuilt; it is
+# never filled from the next day's chain.
 # No scan for the day (holiday, scanner skipped) -> exit 2, nothing written. A stored day is never rewritten.
+# flock -n: the job has no lock of its own, so a run that starts while another is still going exits at once.
 # Read by GET /api/desk/ai-watchlist (signed in) -> /app/watchlist (user decision 2026-10-26).
 #
-# Install (one-off, not CI-managed):
+# Install (one-off, not CI-managed), together with the backend that carries the chain check (exit 4): the old code has
+# no check, so a late F&O file would let a run store the previous session's chain.
 #   sudo install -m 0644 /opt/nivesh-staging/repo/deploy/nivesh-staging/ai-watchlist.cron /etc/cron.d/nivesh-staging-ai-watchlist
 
 SHELL=/bin/bash
@@ -14,5 +26,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CRON_TZ=Asia/Kolkata
 MAILTO=""
 
-15 20 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh-staging/logs/ai-watchlist.log 2>&1
-15 22 * * 1-5  root  /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh-staging/logs/ai-watchlist.log 2>&1
+45 22 * * 1-5  root  /usr/bin/flock -n /run/lock/nivesh-staging-ai-watchlist.lock /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh-staging/logs/ai-watchlist.log 2>&1
+30 23 * * 1-5  root  /usr/bin/flock -n /run/lock/nivesh-staging-ai-watchlist.lock /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh-staging/logs/ai-watchlist.log 2>&1
+55 23 * * 1-5  root  /usr/bin/flock -n /run/lock/nivesh-staging-ai-watchlist.lock /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.build_ai_watchlist --skip-if-done >> /opt/nivesh-staging/logs/ai-watchlist.log 2>&1

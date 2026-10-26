@@ -32,13 +32,18 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .candidates import _neighbour, _option_leg, condor_ok, iv_fences, leg_view, spread_strike
 
 logger = logging.getLogger(__name__)
 
-REGIME_FIT_VERSION = "regime-fit-v1 (2026-10-22)"
+REGIME_FIT_VERSION = "regime-fit-v1.1 (2026-10-27)"
+
+# The fewest sessions an offered contract must still run after the chain's own day. 1 = the expiry is strictly after
+# the chain date, so a contract expiring on the chain's day (or before it) is never offered. The owner may raise it.
+MIN_SESSIONS_TO_EXPIRY = 1
 
 RANKING_NOTE = (
     "Ranked by fit to the market regime measured on the dates shown and by the live end-of-day "
@@ -63,6 +68,10 @@ GAPS = [
     "End of day only: the chain is the NSE F&O bhavcopy close. There is no intraday option data.",
     "An index has no cash leg: NIFTY and BANKNIFTY cannot be held, so covered calls, protective "
     "puts and collars are offered for stocks only.",
+    f"Expiry rule: no contract expiring on or before the chain's own day is offered. An idea needs at "
+    f"least {MIN_SESSIONS_TO_EXPIRY} session(s) to expiry after the chain date, so on an expiry day the "
+    f"next listed expiry is used, and an underlying with no such expiry is listed as unavailable with "
+    f"the reason. Sessions are counted as weekdays: exchange holidays are not known here.",
 ]
 
 # ---------------------------------------------------------------------------
@@ -456,10 +465,37 @@ def _why(e: BaseException) -> str:
     return f"{type(e).__name__}: {str(e)[:160]}"
 
 
+def sessions_to_expiry(chain_day: str, expiry: str) -> int:
+    """Sessions from the chain's day to the expiry: the weekdays after `chain_day` up to and including `expiry`, so 0
+    when the expiry is on or before the chain day. Exchange holidays are not known here and count as sessions."""
+    start, end = date.fromisoformat(chain_day), date.fromisoformat(expiry)
+    days = (end - start).days
+    if days <= 0:
+        return 0
+    weeks, rest = divmod(days, 7)
+    return weeks * 5 + sum(1 for i in range(1, rest + 1) if (start.weekday() + i) % 7 < 5)
+
+
+def expiry_refusal(chain_day: Optional[str], expiry: Optional[str]) -> Optional[str]:
+    """Why a contract expiring on `expiry` is not offered from a chain dated `chain_day` (MIN_SESSIONS_TO_EXPIRY), or
+    None when it may be."""
+    if not chain_day or not expiry:
+        return "the chain carries no day or no expiry, so its time to expiry cannot be checked"
+    n = sessions_to_expiry(chain_day, expiry)
+    if n >= MIN_SESSIONS_TO_EXPIRY:
+        return None
+    return (f"expiry {expiry} is {n} session(s) after the chain date {chain_day}; "
+            f"at least {MIN_SESSIONS_TO_EXPIRY} needed")
+
+
 async def _chain_for(request: Any, symbol: str, expiry: Optional[str]) -> Dict[str, Any]:
     """The chain for one underlying, shaped the way candidates.py shapes it (`asof` alongside `summary`).
     Raises LookupError when the underlying lists no option expiries — which is also how a non-F&O
-    symbol is detected, without a second reference lookup."""
+    symbol is detected, without a second reference lookup.
+
+    This is the one place the board chooses an expiry, so the expiry rule lives here: the nearest listed expiry at
+    least MIN_SESSIONS_TO_EXPIRY sessions after the chain's day; the nearer ones are recorded under `expiries_skipped`
+    with the reason. LookupError when none qualifies, or when a requested expiry does not."""
     from datetime import date as _date
 
     from routes import fno
@@ -468,11 +504,27 @@ async def _chain_for(request: Any, symbol: str, expiry: Optional[str]) -> Dict[s
     rows = ex.get("expiries") or []
     if not rows:
         raise LookupError(f"{symbol} lists no option expiries on the latest trading day")
-    chosen = expiry or rows[0]["expiry"]
+    day = ex.get("as_of")
+    skipped = [{"expiry": r["expiry"], "reason": why} for r in rows if (why := expiry_refusal(day, r["expiry"]))]
+    if expiry:
+        why = expiry_refusal(day, expiry)
+        if why:
+            raise LookupError(f"the requested {why}")
+        chosen = expiry
+    else:
+        chosen = next((r["expiry"] for r in rows if not expiry_refusal(day, r["expiry"])), None)
+        if chosen is None:
+            raise LookupError(f"no listed expiry is at least {MIN_SESSIONS_TO_EXPIRY} session(s) after the chain "
+                              f"date {day} (listed: {', '.join(r['expiry'] for r in rows[:3])})")
     ch = dict(await fno.chain(request, symbol=symbol, expiry=_date.fromisoformat(chosen),
                               around=fno.DEFAULT_AROUND))
     ch["asof"] = (ch.get("summary") or {}).get("as_of")
+    # Checked again against the chain's own day: the data can move to a new session between the two reads.
+    why = expiry_refusal(ch["asof"], (ch.get("summary") or {}).get("expiry"))
+    if why:
+        raise LookupError(why)
     ch["expiries_listed"] = [r["expiry"] for r in rows]
+    ch["expiries_skipped"] = skipped
     return ch
 
 
@@ -578,6 +630,7 @@ async def ideas_for_underlying(request: Any, symbol: str, regime: Dict[str, Any]
     return {
         "underlying": symbol, "available": True, "as_of": asof,
         "expiry": S.get("expiry"), "expiries_listed": chain.get("expiries_listed"),
+        "expiries_skipped": chain.get("expiries_skipped") or [],
         "spot": spot, "lot_size": lot,
         "chain_context": {"atm_strike": S.get("atm_strike"), "atm_iv": S.get("atm_iv"),
                           "pcr": S.get("pcr"), "max_pain": S.get("max_pain"),
@@ -676,7 +729,7 @@ async def _pooled(request: Any, symbols: Sequence[str], regime: Dict[str, Any],
             continue
         as_of = as_of or r.get("as_of")
         context.append({"underlying": sym, "spot": r.get("spot"), "expiry": r.get("expiry"),
-                        **(r.get("chain_context") or {})})
+                        "expiries_skipped": r.get("expiries_skipped") or [], **(r.get("chain_context") or {})})
         pool.extend(r["ideas"])
         priced += int(r.get("considered") or 0)
     if distinct:

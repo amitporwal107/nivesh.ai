@@ -148,7 +148,10 @@ def job_env(monkeypatch):
 
     async def build_day(d):
         seen["built"] += 1
-        return build.shape_day(d, {"ideas": [idea("A")]}, {"classes": {}}, datetime(2026, 10, 26, tzinfo=timezone.utc))
+        # The board read the list date's chain: a day on another day's chain (or none) is refused (exit 4,
+        # tests/test_watchlist_fno_chain_expiry.py).
+        top = {"classes": {"index_options": {"as_of": d, "ideas": []}}}
+        return build.shape_day(d, {"ideas": [idea("A")]}, top, datetime(2026, 10, 26, tzinfo=timezone.utc))
 
     async def insert_day(doc):
         seen["inserted"].append(doc["list_date"])
@@ -278,4 +281,4 @@ def test_route_with_nothing_stored_yet_says_when_the_job_runs(api):
     c, days = api
     days.clear()
     b = c.get("/api/desk/ai-watchlist").json()
-    assert b["available_dates"] == [] and b["cash"] == [] and "20:15 IST" in b["empty_reason"]
+    assert b["available_dates"] == [] and b["cash"] == [] and "22:45 IST" in b["empty_reason"]
