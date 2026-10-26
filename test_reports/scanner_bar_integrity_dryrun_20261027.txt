@@ -1,0 +1,1474 @@
+# Staging dry-run output, unedited (scripts/repair_scanner_bars.py --dry-run, branch code loaded in memory in nivesh-staging-app-backend; database sessions read-only)
+# stdout follows. stderr (not included) held INFO lines (universe 2930 → 2210 after the equity filter; macro state falls back from 2026-10-26 to 2026-10-23, "no Nifty"), one WARNING "GSM client unavailable" (the container has no Google credentials) and a Python FutureWarning; no traceback.
+
+
+== window
+{
+ "start": "2025-10-20",
+ "end": "2026-10-26",
+ "store_dates": 262,
+ "warehouse_sessions": 250
+}
+
+== phantom dates (deleted by --apply)
+{
+ "count": 14,
+ "rows": 36361,
+ "dates": [
+  {
+   "date": "2025-10-22",
+   "prev_date": "2025-10-21",
+   "rows": 2430,
+   "identical": 2430
+  },
+  {
+   "date": "2025-11-05",
+   "prev_date": "2025-11-04",
+   "rows": 2434,
+   "identical": 2434
+  },
+  {
+   "date": "2026-01-15",
+   "prev_date": "2026-01-14",
+   "rows": 2495,
+   "identical": 2495
+  },
+  {
+   "date": "2026-01-26",
+   "prev_date": "2026-01-23",
+   "rows": 2501,
+   "identical": 2501
+  },
+  {
+   "date": "2026-03-03",
+   "prev_date": "2026-03-02",
+   "rows": 2533,
+   "identical": 2533
+  },
+  {
+   "date": "2026-03-26",
+   "prev_date": "2026-03-25",
+   "rows": 2538,
+   "identical": 2538
+  },
+  {
+   "date": "2026-03-31",
+   "prev_date": "2026-03-30",
+   "rows": 2552,
+   "identical": 2552
+  },
+  {
+   "date": "2026-04-03",
+   "prev_date": "2026-04-02",
+   "rows": 2550,
+   "identical": 2550
+  },
+  {
+   "date": "2026-04-14",
+   "prev_date": "2026-04-13",
+   "rows": 2558,
+   "identical": 2558
+  },
+  {
+   "date": "2026-05-01",
+   "prev_date": "2026-04-30",
+   "rows": 2650,
+   "identical": 2650
+  },
+  {
+   "date": "2026-05-28",
+   "prev_date": "2026-05-27",
+   "rows": 2658,
+   "identical": 2658
+  },
+  {
+   "date": "2026-06-26",
+   "prev_date": "2026-06-25",
+   "rows": 2669,
+   "identical": 2669
+  },
+  {
+   "date": "2026-09-14",
+   "prev_date": "2026-09-11",
+   "rows": 2885,
+   "identical": 2885
+  },
+  {
+   "date": "2026-10-02",
+   "prev_date": "2026-10-01",
+   "rows": 2908,
+   "identical": 2908
+  }
+ ]
+}
+
+== non-session dates that are NOT a 100% copy (never deleted)
+[]
+
+== missing sessions (back-filled by --apply)
+{
+ "count": 2,
+ "dates": [
+  {
+   "date": "2026-10-21",
+   "warehouse_rows": 2916
+  },
+  {
+   "date": "2026-10-22",
+   "warehouse_rows": 2915
+  }
+ ],
+ "nse_file_check": {
+  "2026-10-21": {
+   "warehouse_rows": 2916,
+   "nse_file": "trade date matches",
+   "nse_eq_be_rows": 2916,
+   "in_both": 2916,
+   "close_mismatches": 0,
+   "mismatch_sample": [],
+   "only_in_nse_file": 0
+  },
+  "2026-10-22": {
+   "warehouse_rows": 2915,
+   "nse_file": "trade date matches",
+   "nse_eq_be_rows": 2915,
+   "in_both": 2915,
+   "close_mismatches": 0,
+   "mismatch_sample": [],
+   "only_in_nse_file": 0
+  }
+ }
+}
+
+== derived rows
+{
+ "on_phantom_dates_deleted_by_apply": {
+  "stock_technical_features": {
+   "2025-10-22": 0,
+   "2025-11-05": 0,
+   "2026-01-15": 2116,
+   "2026-01-26": 2122,
+   "2026-03-03": 2153,
+   "2026-03-26": 2171,
+   "2026-03-31": 2164,
+   "2026-04-03": 2167,
+   "2026-04-14": 2170,
+   "2026-05-01": 2179,
+   "2026-05-28": 2187,
+   "2026-06-26": 2216,
+   "2026-09-14": 2213,
+   "2026-10-02": 2212
+  },
+  "positional_signals": {
+   "2025-10-22": 0,
+   "2025-11-05": 0,
+   "2026-01-15": 456,
+   "2026-01-26": 222,
+   "2026-03-03": 462,
+   "2026-03-26": 358,
+   "2026-03-31": 217,
+   "2026-04-03": 321,
+   "2026-04-14": 921,
+   "2026-05-01": 1358,
+   "2026-05-28": 1386,
+   "2026-06-26": 1087,
+   "2026-09-14": 1049,
+   "2026-10-02": 909
+  }
+ },
+ "scored_dates": 190,
+ "recompute_dates": [
+  "2026-10-26"
+ ],
+ "recompute_rows_replaced": {
+  "stock_technical_features": {
+   "2026-10-26": 2210
+  },
+  "positional_signals": {
+   "2026-10-26": 666
+  }
+ },
+ "affected_dates": 190,
+ "affected_not_recomputed": {
+  "count": 189,
+  "first": [
+   "2026-01-12"
+  ],
+  "last": [
+   "2026-10-23"
+  ]
+ },
+ "other_stores": {
+  "positional_outcomes": {
+   "rows": 0,
+   "on_phantom_dates": 0
+  },
+  "positional_backtest_labels": {
+   "rows": 0,
+   "on_phantom_dates": 0
+  },
+  "chartink_scan_hits": {
+   "rows": 0,
+   "on_phantom_dates": 0
+  },
+  "mongo.ai_watchlist_days": {
+   "docs": 1,
+   "on_phantom_dates": 0,
+   "note": "a stored day is never rewritten (services/ai_watchlist_store); not touched by --apply"
+  }
+ }
+}
+
+== data quality: as stored
+{
+ "window": [
+  "2025-10-20",
+  "2026-10-26"
+ ],
+ "dates": 262,
+ "rows": 688123,
+ "symbols": 3067,
+ "copied_sessions": {
+  "count": 14,
+  "dates": [
+   {
+    "date": "2025-10-22",
+    "prev_date": "2025-10-21",
+    "rows": 2430,
+    "identical": 2430,
+    "share": 1.0
+   },
+   {
+    "date": "2025-11-05",
+    "prev_date": "2025-11-04",
+    "rows": 2434,
+    "identical": 2434,
+    "share": 1.0
+   },
+   {
+    "date": "2026-01-15",
+    "prev_date": "2026-01-14",
+    "rows": 2495,
+    "identical": 2495,
+    "share": 1.0
+   },
+   {
+    "date": "2026-01-26",
+    "prev_date": "2026-01-23",
+    "rows": 2501,
+    "identical": 2501,
+    "share": 1.0
+   },
+   {
+    "date": "2026-03-03",
+    "prev_date": "2026-03-02",
+    "rows": 2533,
+    "identical": 2533,
+    "share": 1.0
+   },
+   {
+    "date": "2026-03-26",
+    "prev_date": "2026-03-25",
+    "rows": 2538,
+    "identical": 2538,
+    "share": 1.0
+   },
+   {
+    "date": "2026-03-31",
+    "prev_date": "2026-03-30",
+    "rows": 2552,
+    "identical": 2552,
+    "share": 1.0
+   },
+   {
+    "date": "2026-04-03",
+    "prev_date": "2026-04-02",
+    "rows": 2550,
+    "identical": 2550,
+    "share": 1.0
+   },
+   {
+    "date": "2026-04-14",
+    "prev_date": "2026-04-13",
+    "rows": 2558,
+    "identical": 2558,
+    "share": 1.0
+   },
+   {
+    "date": "2026-05-01",
+    "prev_date": "2026-04-30",
+    "rows": 2650,
+    "identical": 2650,
+    "share": 1.0
+   },
+   {
+    "date": "2026-05-28",
+    "prev_date": "2026-05-27",
+    "rows": 2658,
+    "identical": 2658,
+    "share": 1.0
+   },
+   {
+    "date": "2026-06-26",
+    "prev_date": "2026-06-25",
+    "rows": 2669,
+    "identical": 2669,
+    "share": 1.0
+   },
+   {
+    "date": "2026-09-14",
+    "prev_date": "2026-09-11",
+    "rows": 2885,
+    "identical": 2885,
+    "share": 1.0
+   },
+   {
+    "date": "2026-10-02",
+    "prev_date": "2026-10-01",
+    "rows": 2908,
+    "identical": 2908,
+    "share": 1.0
+   }
+  ]
+ },
+ "missing_sessions": {
+  "count": 2,
+  "dates": [
+   "2026-10-21",
+   "2026-10-22"
+  ]
+ },
+ "extra_dates": {
+  "count": 14,
+  "dates": [
+   "2025-10-22",
+   "2025-11-05",
+   "2026-01-15",
+   "2026-01-26",
+   "2026-03-03",
+   "2026-03-26",
+   "2026-03-31",
+   "2026-04-03",
+   "2026-04-14",
+   "2026-05-01",
+   "2026-05-28",
+   "2026-06-26",
+   "2026-09-14",
+   "2026-10-02"
+  ]
+ },
+ "duplicate_bars": {
+  "count": 36363,
+  "on_copied_sessions": 36361,
+  "outside_copied_sessions": 2,
+  "sample": [
+   "SHIVAUM 2026-03-10",
+   "SONAL 2026-04-22"
+  ]
+ },
+ "stale_symbols": {
+  "count": 137,
+  "sessions_behind": {
+   "1": 4,
+   "2-5": 11,
+   ">5": 122
+  },
+  "sample": [
+   {
+    "symbol": "SONAL",
+    "last_bar": "2026-10-23",
+    "sessions_behind": 1
+   },
+   {
+    "symbol": "PALASHSECU",
+    "last_bar": "2026-10-23",
+    "sessions_behind": 1
+   },
+   {
+    "symbol": "LIQUIDBETA",
+    "last_bar": "2026-10-23",
+    "sessions_behind": 1
+   },
+   {
+    "symbol": "DSKULKARNI",
+    "last_bar": "2026-10-23",
+    "sessions_behind": 1
+   },
+   {
+    "symbol": "VIVIMEDLAB",
+    "last_bar": "2026-10-19",
+    "sessions_behind": 2
+   },
+   {
+    "symbol": "VASUPRADA",
+    "last_bar": "2026-10-19",
+    "sessions_behind": 2
+   },
+   {
+    "symbol": "PARSVNATH",
+    "last_bar": "2026-10-19",
+    "sessions_behind": 2
+   },
+   {
+    "symbol": "ICICIPRULI",
+    "last_bar": "2026-10-19",
+    "sessions_behind": 2
+   },
+   {
+    "symbol": "HAMPTON",
+    "last_bar": "2026-10-19",
+    "sessions_behind": 2
+   },
+   {
+    "symbol": "GSEC10ABSL",
+    "last_bar": "2026-10-19",
+    "sessions_behind": 2
+   }
+  ]
+ },
+ "invalid_ohlc": {
+  "count": 0,
+  "by_rule": {},
+  "sample": []
+ },
+ "zero_volume": {
+  "count": 0,
+  "sample": []
+ }
+}
+
+== data quality: phantom dates removed (missing sessions still listed until back-filled)
+{
+ "dates": 248,
+ "rows": 651762,
+ "missing_sessions": {
+  "count": 2,
+  "dates": [
+   "2026-10-21",
+   "2026-10-22"
+  ]
+ },
+ "extra_dates": {
+  "count": 0,
+  "dates": []
+ },
+ "copied_sessions": {
+  "count": 0,
+  "dates": []
+ },
+ "duplicate_bars": {
+  "count": 2,
+  "on_copied_sessions": 0,
+  "outside_copied_sessions": 2,
+  "sample": [
+   "SHIVAUM 2026-03-10",
+   "SONAL 2026-04-22"
+  ]
+ }
+}
+
+== corporate actions in the window
+{
+ "symbols_with_step": 91,
+ "steps": 91,
+ "price_ratio_histogram": {
+  "0.1": 29,
+  "0.5": 23,
+  "0.2": 17,
+  "0.3333": 4,
+  "0.25": 3,
+  "0.75": 3,
+  "0.0667": 2,
+  "0.01": 2,
+  "0.6667": 2,
+  "0.7143": 1,
+  "0.0909": 1,
+  "0.4": 1
+ },
+ "symbols": [
+  "AASTHA",
+  "AHCL",
+  "AIIL",
+  "AJMERA",
+  "ANANDRATHI",
+  "ANGELONE",
+  "AQYLON",
+  "AVROIND",
+  "AZADIND",
+  "BANKNIFTY1",
+  "BANSALWIRE",
+  "BECTORFOOD",
+  "BEML",
+  "BESTAGRO",
+  "BHARATRAS",
+  "BLSE",
+  "BRIGADE",
+  "BUILDPRO",
+  "CAMS",
+  "CONS",
+  "CORDELIA",
+  "CUB",
+  "CUPID",
+  "DBEIL",
+  "DELPHIFX",
+  "E2E",
+  "ECLERX",
+  "FCL",
+  "GEEKAYWIRE",
+  "GOLDADD",
+  "GOLDIAM",
+  "GOODLUCK",
+  "GRMOVER",
+  "GROWWGOLD",
+  "GROWWSLVR",
+  "HARDWYN",
+  "HDFCAMC",
+  "HEALTHADD",
+  "HIRECT",
+  "INFOBEAN",
+  "IRB",
+  "IVZINGOLD",
+  "IVZINNIFTY",
+  "JLHL",
+  "JSWDULUX",
+  "KAPSTON",
+  "KILITCH",
+  "KIRLPNU",
+  "KMEW",
+  "KOTAKBANK",
+  "KOTYARK",
+  "KRISHANA",
+  "LALPATHLAB",
+  "LEMERITE",
+  "LICI",
+  "LICMFGOLD",
+  "MBAPL",
+  "MCX",
+  "METROPOLIS",
+  "MIDCAP",
+  "MIDQ50ADD",
+  "MOLDTKPAC",
+  "MONEYBOXX",
+  "MWL",
+  "NARMADA",
+  "NUVAMA",
+  "NV20",
+  "PASHUPATI",
+  "PGIL",
+  "POCL",
+  "PSUBANK",
+  "QNIFTY",
+  "RAMRAT",
+  "RMDRIP",
+  "RNBDENIMS",
+  "SIKKO",
+  "SILVER1",
+  "SILVERADD",
+  "SILVERTUC",
+  "SKMEGGPROD",
+  "SMCGLOBAL",
+  "TAALTECH",
+  "TCC",
+  "TDPOWERSYS",
+  "TEMBO",
+  "THYROCARE",
+  "TRENT",
+  "V2RETAIL",
+  "VGL",
+  "WEBELSOLAR",
+  "ZFCVINDIA"
+ ],
+ "store_symbols_with_factors": 2996,
+ "store_symbols": 3067,
+ "adjusted_vs_warehouse_sample": [
+  {
+   "symbol": "KOTAKBANK",
+   "ex_date": "2026-01-14",
+   "dates_compared": 248,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-01-13",
+    "raw_close": 2132.6,
+    "adjusted_close": 426.52,
+    "warehouse_adj_close": 426.52
+   }
+  },
+  {
+   "symbol": "AASTHA",
+   "ex_date": "2026-09-28",
+   "dates_compared": 66,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-09-25",
+    "raw_close": 72.72,
+    "adjusted_close": 36.36,
+    "warehouse_adj_close": 36.36
+   }
+  },
+  {
+   "symbol": "AHCL",
+   "ex_date": "2026-04-24",
+   "dates_compared": 201,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-04-23",
+    "raw_close": 143.79,
+    "adjusted_close": 14.379,
+    "warehouse_adj_close": 14.379
+   }
+  },
+  {
+   "symbol": "AIIL",
+   "ex_date": "2026-01-13",
+   "dates_compared": 248,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-01-12",
+    "raw_close": 3098.6,
+    "adjusted_close": 619.72,
+    "warehouse_adj_close": 619.72
+   }
+  },
+  {
+   "symbol": "AJMERA",
+   "ex_date": "2026-01-14",
+   "dates_compared": 248,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-01-13",
+    "raw_close": 910.05,
+    "adjusted_close": 182.01,
+    "warehouse_adj_close": 182.01
+   }
+  },
+  {
+   "symbol": "ANANDRATHI",
+   "ex_date": "2026-06-03",
+   "dates_compared": 248,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-06-02",
+    "raw_close": 3539.3,
+    "adjusted_close": 1769.65,
+    "warehouse_adj_close": 1769.65
+   }
+  },
+  {
+   "symbol": "ANGELONE",
+   "ex_date": "2026-02-26",
+   "dates_compared": 248,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-02-25",
+    "raw_close": 2489.9,
+    "adjusted_close": 248.99,
+    "warehouse_adj_close": 248.99
+   }
+  },
+  {
+   "symbol": "AQYLON",
+   "ex_date": "2026-03-05",
+   "dates_compared": 163,
+   "max_rel_diff": 0.0,
+   "price_basis": "warehouse_adjusted",
+   "break_truncated_at": null,
+   "day_before_ex": {
+    "date": "2026-03-04",
+    "raw_close": 1084.1,
+    "adjusted_close": 108.41,
+    "warehouse_adj_close": 108.41
+   }
+  }
+ ]
+}
+
+== scanner rerun preview (in memory, top 20)
+{
+ "date": "2026-10-26",
+ "replay_as_stored_vs_table": {
+  "scored": {
+   "before": 2210,
+   "after": 2210,
+   "both": 2210
+  },
+  "actionable": {
+   "before": 666,
+   "after": 666,
+   "added": 0,
+   "removed": 0
+  },
+  "top20": {
+   "before": [
+    "ICICIBANK",
+    "CRISIL",
+    "SGMART",
+    "UNIONBANK",
+    "ACUTAAS",
+    "KOTAKBANK",
+    "MPHASIS",
+    "COFORGE",
+    "ABMINTLLTD",
+    "LAURUSLABS",
+    "PANACHE",
+    "FEDERALBNK",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "DRREDDY",
+    "INDUSTOWER",
+    "PETRONET",
+    "BHARTIARTL"
+   ],
+   "after": [
+    "ICICIBANK",
+    "CRISIL",
+    "SGMART",
+    "UNIONBANK",
+    "ACUTAAS",
+    "KOTAKBANK",
+    "MPHASIS",
+    "COFORGE",
+    "ABMINTLLTD",
+    "LAURUSLABS",
+    "PANACHE",
+    "FEDERALBNK",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "DRREDDY",
+    "INDUSTOWER",
+    "PETRONET",
+    "BHARTIARTL"
+   ],
+   "entered": [],
+   "exited": [],
+   "rank_shifts": []
+  },
+  "stage_changes": 0,
+  "final_score_delta": {
+   "identical": 2139,
+   "changed_gt_0_01": 0,
+   "mean_abs": 6.9e-05,
+   "max_abs": 0.0082
+  }
+ },
+ "adjusted_unrepaired_vs_table": {
+  "scored": {
+   "before": 2210,
+   "after": 2205,
+   "both": 2205
+  },
+  "actionable": {
+   "before": 666,
+   "after": 676,
+   "added": 11,
+   "removed": 1
+  },
+  "top20": {
+   "before": [
+    "ICICIBANK",
+    "CRISIL",
+    "SGMART",
+    "UNIONBANK",
+    "ACUTAAS",
+    "KOTAKBANK",
+    "MPHASIS",
+    "COFORGE",
+    "ABMINTLLTD",
+    "LAURUSLABS",
+    "PANACHE",
+    "FEDERALBNK",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "DRREDDY",
+    "INDUSTOWER",
+    "PETRONET",
+    "BHARTIARTL"
+   ],
+   "after": [
+    "ICICIBANK",
+    "CRISIL",
+    "SGMART",
+    "UNIONBANK",
+    "ACUTAAS",
+    "KOTAKBANK",
+    "MPHASIS",
+    "ANANDRATHI",
+    "COFORGE",
+    "ABMINTLLTD",
+    "LAURUSLABS",
+    "PANACHE",
+    "FEDERALBNK",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "DRREDDY",
+    "INDUSTOWER",
+    "PETRONET"
+   ],
+   "entered": [
+    "ANANDRATHI"
+   ],
+   "exited": [
+    "BHARTIARTL"
+   ],
+   "rank_shifts": [
+    {
+     "symbol": "COFORGE",
+     "from": 8,
+     "to": 9
+    },
+    {
+     "symbol": "ABMINTLLTD",
+     "from": 9,
+     "to": 10
+    },
+    {
+     "symbol": "LAURUSLABS",
+     "from": 10,
+     "to": 11
+    },
+    {
+     "symbol": "PANACHE",
+     "from": 11,
+     "to": 12
+    },
+    {
+     "symbol": "FEDERALBNK",
+     "from": 12,
+     "to": 13
+    },
+    {
+     "symbol": "MARKOLINES",
+     "from": 13,
+     "to": 14
+    },
+    {
+     "symbol": "NAZARA",
+     "from": 14,
+     "to": 15
+    },
+    {
+     "symbol": "INDHOTEL",
+     "from": 15,
+     "to": 16
+    },
+    {
+     "symbol": "BAFNAPH",
+     "from": 16,
+     "to": 17
+    },
+    {
+     "symbol": "DRREDDY",
+     "from": 17,
+     "to": 18
+    },
+    {
+     "symbol": "INDUSTOWER",
+     "from": 18,
+     "to": 19
+    },
+    {
+     "symbol": "PETRONET",
+     "from": 19,
+     "to": 20
+    }
+   ]
+  },
+  "stage_changes": 12,
+  "final_score_delta": {
+   "identical": 2094,
+   "changed_gt_0_01": 34,
+   "mean_abs": 0.001271,
+   "max_abs": 0.2053
+  }
+ },
+ "corrected_vs_table": {
+  "scored": {
+   "before": 2210,
+   "after": 2205,
+   "both": 2205
+  },
+  "actionable": {
+   "before": 666,
+   "after": 682,
+   "added": 32,
+   "removed": 16
+  },
+  "top20": {
+   "before": [
+    "ICICIBANK",
+    "CRISIL",
+    "SGMART",
+    "UNIONBANK",
+    "ACUTAAS",
+    "KOTAKBANK",
+    "MPHASIS",
+    "COFORGE",
+    "ABMINTLLTD",
+    "LAURUSLABS",
+    "PANACHE",
+    "FEDERALBNK",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "DRREDDY",
+    "INDUSTOWER",
+    "PETRONET",
+    "BHARTIARTL"
+   ],
+   "after": [
+    "ICICIBANK",
+    "CRISIL",
+    "ACUTAAS",
+    "UNIONBANK",
+    "COFORGE",
+    "ANANDRATHI",
+    "PNB",
+    "ABMINTLLTD",
+    "INDUSTOWER",
+    "GESHIP",
+    "PERSISTENT",
+    "LAURUSLABS",
+    "CANTABIL",
+    "SGMART",
+    "DRREDDY",
+    "FEDERALBNK",
+    "MPHASIS",
+    "ZYDUSLIFE",
+    "INDGN",
+    "KOTAKBANK"
+   ],
+   "entered": [
+    "ANANDRATHI",
+    "PNB",
+    "GESHIP",
+    "PERSISTENT",
+    "CANTABIL",
+    "ZYDUSLIFE",
+    "INDGN"
+   ],
+   "exited": [
+    "PANACHE",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "PETRONET",
+    "BHARTIARTL"
+   ],
+   "rank_shifts": [
+    {
+     "symbol": "ACUTAAS",
+     "from": 5,
+     "to": 3
+    },
+    {
+     "symbol": "COFORGE",
+     "from": 8,
+     "to": 5
+    },
+    {
+     "symbol": "ABMINTLLTD",
+     "from": 9,
+     "to": 8
+    },
+    {
+     "symbol": "INDUSTOWER",
+     "from": 18,
+     "to": 9
+    },
+    {
+     "symbol": "LAURUSLABS",
+     "from": 10,
+     "to": 12
+    },
+    {
+     "symbol": "SGMART",
+     "from": 3,
+     "to": 14
+    },
+    {
+     "symbol": "DRREDDY",
+     "from": 17,
+     "to": 15
+    },
+    {
+     "symbol": "FEDERALBNK",
+     "from": 12,
+     "to": 16
+    },
+    {
+     "symbol": "MPHASIS",
+     "from": 7,
+     "to": 17
+    },
+    {
+     "symbol": "KOTAKBANK",
+     "from": 6,
+     "to": 20
+    }
+   ]
+  },
+  "stage_changes": 55,
+  "final_score_delta": {
+   "identical": 76,
+   "changed_gt_0_01": 1377,
+   "mean_abs": 0.021766,
+   "max_abs": 0.1922
+  }
+ },
+ "corrected_vs_replay": {
+  "scored": {
+   "before": 2210,
+   "after": 2205,
+   "both": 2205
+  },
+  "actionable": {
+   "before": 666,
+   "after": 682,
+   "added": 32,
+   "removed": 16
+  },
+  "top20": {
+   "before": [
+    "ICICIBANK",
+    "CRISIL",
+    "SGMART",
+    "UNIONBANK",
+    "ACUTAAS",
+    "KOTAKBANK",
+    "MPHASIS",
+    "COFORGE",
+    "ABMINTLLTD",
+    "LAURUSLABS",
+    "PANACHE",
+    "FEDERALBNK",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "DRREDDY",
+    "INDUSTOWER",
+    "PETRONET",
+    "BHARTIARTL"
+   ],
+   "after": [
+    "ICICIBANK",
+    "CRISIL",
+    "ACUTAAS",
+    "UNIONBANK",
+    "COFORGE",
+    "ANANDRATHI",
+    "PNB",
+    "ABMINTLLTD",
+    "INDUSTOWER",
+    "GESHIP",
+    "PERSISTENT",
+    "LAURUSLABS",
+    "CANTABIL",
+    "SGMART",
+    "DRREDDY",
+    "FEDERALBNK",
+    "MPHASIS",
+    "ZYDUSLIFE",
+    "INDGN",
+    "KOTAKBANK"
+   ],
+   "entered": [
+    "ANANDRATHI",
+    "PNB",
+    "GESHIP",
+    "PERSISTENT",
+    "CANTABIL",
+    "ZYDUSLIFE",
+    "INDGN"
+   ],
+   "exited": [
+    "PANACHE",
+    "MARKOLINES",
+    "NAZARA",
+    "INDHOTEL",
+    "BAFNAPH",
+    "PETRONET",
+    "BHARTIARTL"
+   ],
+   "rank_shifts": [
+    {
+     "symbol": "ACUTAAS",
+     "from": 5,
+     "to": 3
+    },
+    {
+     "symbol": "COFORGE",
+     "from": 8,
+     "to": 5
+    },
+    {
+     "symbol": "ABMINTLLTD",
+     "from": 9,
+     "to": 8
+    },
+    {
+     "symbol": "INDUSTOWER",
+     "from": 18,
+     "to": 9
+    },
+    {
+     "symbol": "LAURUSLABS",
+     "from": 10,
+     "to": 12
+    },
+    {
+     "symbol": "SGMART",
+     "from": 3,
+     "to": 14
+    },
+    {
+     "symbol": "DRREDDY",
+     "from": 17,
+     "to": 15
+    },
+    {
+     "symbol": "FEDERALBNK",
+     "from": 12,
+     "to": 16
+    },
+    {
+     "symbol": "MPHASIS",
+     "from": 7,
+     "to": 17
+    },
+    {
+     "symbol": "KOTAKBANK",
+     "from": 6,
+     "to": 20
+    }
+   ]
+  },
+  "stage_changes": 55,
+  "final_score_delta": {
+   "identical": 75,
+   "changed_gt_0_01": 1377,
+   "mean_abs": 0.021751,
+   "max_abs": 0.1922
+  }
+ },
+ "corrected_run": {
+  "universe": 2210,
+  "scored": 2205,
+  "actionable": 682,
+  "price_basis": {
+   "warehouse_adjusted": 2194,
+   "raw_no_factors": 11,
+   "unadjusted_replay": 0
+  },
+  "break_truncated": 17,
+  "skipped_short_after_break": 5,
+  "macro_multiplier": 1.0
+ },
+ "symbols_with_adjustment": 81,
+ "adjusted_symbols_detail": [
+  {
+   "symbol": "AHCL",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.1431,
+    "sma_200": 54.9703,
+    "return_20d_pct": -16.78
+   },
+   "rerun": {
+    "stage": "ACCUMULATION",
+    "final_score": 0.2688,
+    "sma_200": 15.846715000000003,
+    "return_20d_pct": -13.787085514834207
+   }
+  },
+  {
+   "symbol": "AIIL",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.146,
+    "sma_200": 511.8813,
+    "return_20d_pct": -13.3
+   },
+   "rerun": {
+    "stage": "WEAK",
+    "final_score": 0.139,
+    "sma_200": 518.4410999999999,
+    "return_20d_pct": -11.756707759245833
+   }
+  },
+  {
+   "symbol": "AJMERA",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.51,
+    "sma_200": 125.7265,
+    "return_20d_pct": 2.68
+   },
+   "rerun": {
+    "stage": "ACCUMULATION",
+    "final_score": 0.4277,
+    "sma_200": 129.00924999999995,
+    "return_20d_pct": 2.779852294415397
+   }
+  },
+  {
+   "symbol": "ALLCARGO",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 0,
+    "break_truncated_at": "2025-11-12",
+    "bars_dropped": 15
+   },
+   "stored": {
+    "stage": "ACCUMULATION",
+    "final_score": 0.2952,
+    "sma_200": 9.3495,
+    "return_20d_pct": -16.52
+   },
+   "rerun": {
+    "stage": "ACCUMULATION",
+    "final_score": 0.314,
+    "sma_200": 9.460949999999999,
+    "return_20d_pct": -13.242009132420085
+   }
+  },
+  {
+   "symbol": "ANANDRATHI",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "EARLY_BREAKOUT",
+    "final_score": 0.5711,
+    "sma_200": 2661.575,
+    "return_20d_pct": 2.8
+   },
+   "rerun": {
+    "stage": "EARLY_BREAKOUT",
+    "final_score": 0.7047,
+    "sma_200": 1850.4035000000017,
+    "return_20d_pct": 2.8882532066069944
+   }
+  },
+  {
+   "symbol": "ANGELONE",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.187,
+    "sma_200": 642.3207,
+    "return_20d_pct": -5.8
+   },
+   "rerun": {
+    "stage": "WEAK",
+    "final_score": 0.28,
+    "sma_200": 290.33420000000007,
+    "return_20d_pct": -2.786377708978316
+   }
+  },
+  {
+   "symbol": "AQYLON",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.19,
+    "sma_200": null,
+    "return_20d_pct": -26.32
+   },
+   "rerun": {
+    "stage": "WEAK",
+    "final_score": 0.1262,
+    "sma_200": null,
+    "return_20d_pct": -27.014218009478675
+   }
+  },
+  {
+   "symbol": "AVROIND",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.1892,
+    "sma_200": 55.0203,
+    "return_20d_pct": -21.32
+   },
+   "rerun": {
+    "stage": "WEAK",
+    "final_score": 0.1318,
+    "sma_200": 10.467385,
+    "return_20d_pct": -20.76271186440678
+   }
+  },
+  {
+   "symbol": "AXITA",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.2034,
+    "sma_200": 8.2092,
+    "return_20d_pct": -10.5
+   },
+   "rerun": {
+    "stage": "WEAK",
+    "final_score": 0.1889,
+    "sma_200": 8.301499999999997,
+    "return_20d_pct": -10.499999999999998
+   }
+  },
+  {
+   "symbol": "BANSALWIRE",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.1749,
+    "sma_200": 294.0668,
+    "return_20d_pct": -81.69
+   },
+   "rerun": {
+    "stage": "WEAK",
+    "final_score": 0.168,
+    "sma_200": 60.01030999999999,
+    "return_20d_pct": -10.5458481521571
+   }
+  },
+  {
+   "symbol": "BECTORFOOD",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "WEAK",
+    "final_score": 0.2678,
+    "sma_200": 203.5876,
+    "return_20d_pct": -15.44
+   },
+   "rerun": {
+    "stage": "WEAK",
+    "final_score": 0.2703,
+    "sma_200": 205.36435000000012,
+    "return_20d_pct": -14.020771513353115
+   }
+  },
+  {
+   "symbol": "BEML",
+   "price_adjustment": {
+    "price_basis": "warehouse_adjusted",
+    "factor_steps": 1,
+    "break_truncated_at": null,
+    "bars_dropped": 0
+   },
+   "stored": {
+    "stage": "ACCUMULATION",
+    "final_score": 0.3354,
+    "sma_200": 1791.9245,
+    "return_20d_pct": -11.97
+   },
+   "rerun": {
+    "stage": "ACCUMULATION",
+    "final_score": 0.2904,
+    "sma_200": 1800.1095000000007,
+    "return_20d_pct": -9.773038544316194
+   }
+  }
+ ]
+}
+
+== --apply would
+{
+ "delete_dates": [
+  "2025-10-22",
+  "2025-11-05",
+  "2026-01-15",
+  "2026-01-26",
+  "2026-03-03",
+  "2026-03-26",
+  "2026-03-31",
+  "2026-04-03",
+  "2026-04-14",
+  "2026-05-01",
+  "2026-05-28",
+  "2026-06-26",
+  "2026-09-14",
+  "2026-10-02"
+ ],
+ "backfill_dates": [
+  "2026-10-21",
+  "2026-10-22"
+ ],
+ "recompute_dates": [
+  "2026-10-26"
+ ],
+ "note": "snapshot first; a second --apply finds nothing to do"
+}
+exit=0

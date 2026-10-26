@@ -9,6 +9,12 @@ Run path:
   3. Persist features (stock_technical_features) and signals
      (positional_signals).
 
+A date the NSE calendar says is not a session is refused (session_calendar).
+Bars are put on one price scale first (price_adjustment: warehouse split/bonus
+factors, then a residual-break guard), so no feature straddles a split.
+Scoring (`score_universe`) is separate from writing so the repair tool can
+preview a rerun without writing anything.
+
 The orchestrator is best-effort per-symbol — one bad symbol must not
 poison the batch.
 """
@@ -16,8 +22,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
-from typing import Dict, List, Optional
+from datetime import date, timedelta
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from services import pg_client
 
@@ -28,7 +34,9 @@ from . import (
     equity_universe,
     feature_calculator as fc,
     ohlcv_store,
+    price_adjustment,
     scorer,
+    session_calendar,
     sector_strength,
     trade_planner,
 )
@@ -163,6 +171,11 @@ def _to_jsonable(o):
 
 
 async def _persist_features(pool, scan_date: date, scored: dict) -> None:
+    async with pool.acquire() as conn:
+        await _write_features(conn, scan_date, scored)
+
+
+async def _write_features(conn, scan_date: date, scored: dict) -> None:
     f = scored["features"]
     s = scored["scores"]
     sub = s["sub_scores"]
@@ -173,58 +186,65 @@ async def _persist_features(pool, scan_date: date, scored: dict) -> None:
         # Pre-breakout signals — persisted in the JSONB blob (not a column
         # of its own) so we don't need a migration. UI reads from here.
         "pre_breakout": _to_jsonable(scored.get("pre_breakout") or {}),
+        # How the bars' prices were treated (price_adjustment.adjust_bars): warehouse-adjusted or raw, and where a
+        # residual split/bonus break cut the window.
+        "price_adjustment": _to_jsonable(scored.get("price_adjustment") or {}),
     }
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO stock_technical_features (
-                nse_symbol, as_of_date,
-                trend_score, momentum_score, structure_score, accumulation_score,
-                sector_score, risk_score, final_score, confidence, stage,
-                close_price, sma_50, sma_200, rsi_14, atr_14,
-                return_5d_pct, return_20d_pct,
-                breakout_level, support_level, resistance_level,
-                components, engine_version
-            ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-                $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23
-            )
-            ON CONFLICT (nse_symbol, as_of_date) DO UPDATE SET
-                trend_score = EXCLUDED.trend_score,
-                momentum_score = EXCLUDED.momentum_score,
-                structure_score = EXCLUDED.structure_score,
-                accumulation_score = EXCLUDED.accumulation_score,
-                sector_score = EXCLUDED.sector_score,
-                risk_score = EXCLUDED.risk_score,
-                final_score = EXCLUDED.final_score,
-                confidence = EXCLUDED.confidence,
-                stage = EXCLUDED.stage,
-                close_price = EXCLUDED.close_price,
-                sma_50 = EXCLUDED.sma_50,
-                sma_200 = EXCLUDED.sma_200,
-                rsi_14 = EXCLUDED.rsi_14,
-                atr_14 = EXCLUDED.atr_14,
-                return_5d_pct = EXCLUDED.return_5d_pct,
-                return_20d_pct = EXCLUDED.return_20d_pct,
-                breakout_level = EXCLUDED.breakout_level,
-                support_level = EXCLUDED.support_level,
-                resistance_level = EXCLUDED.resistance_level,
-                components = EXCLUDED.components,
-                engine_version = EXCLUDED.engine_version,
-                computed_at = NOW()
-            """,
-            scored["nse_symbol"], scan_date,
-            sub["trend"], sub["momentum"], sub["structure"], sub["accumulation"],
-            sub["sector"], sub["risk"], s["final_score"], s["confidence"], s["stage"],
-            f.get("close"), f.get("sma_50"), f.get("sma_200"),
-            f.get("rsi_14"), f.get("atr_14"),
-            f.get("return_5d_pct"), f.get("return_20d_pct"),
-            f.get("high_20d"), f.get("swing_low_20"), f.get("swing_high_20"),
-            json.dumps(components), ENGINE_VERSION,
+    await conn.execute(
+        """
+        INSERT INTO stock_technical_features (
+            nse_symbol, as_of_date,
+            trend_score, momentum_score, structure_score, accumulation_score,
+            sector_score, risk_score, final_score, confidence, stage,
+            close_price, sma_50, sma_200, rsi_14, atr_14,
+            return_5d_pct, return_20d_pct,
+            breakout_level, support_level, resistance_level,
+            components, engine_version
+        ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+            $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22::jsonb,$23
         )
+        ON CONFLICT (nse_symbol, as_of_date) DO UPDATE SET
+            trend_score = EXCLUDED.trend_score,
+            momentum_score = EXCLUDED.momentum_score,
+            structure_score = EXCLUDED.structure_score,
+            accumulation_score = EXCLUDED.accumulation_score,
+            sector_score = EXCLUDED.sector_score,
+            risk_score = EXCLUDED.risk_score,
+            final_score = EXCLUDED.final_score,
+            confidence = EXCLUDED.confidence,
+            stage = EXCLUDED.stage,
+            close_price = EXCLUDED.close_price,
+            sma_50 = EXCLUDED.sma_50,
+            sma_200 = EXCLUDED.sma_200,
+            rsi_14 = EXCLUDED.rsi_14,
+            atr_14 = EXCLUDED.atr_14,
+            return_5d_pct = EXCLUDED.return_5d_pct,
+            return_20d_pct = EXCLUDED.return_20d_pct,
+            breakout_level = EXCLUDED.breakout_level,
+            support_level = EXCLUDED.support_level,
+            resistance_level = EXCLUDED.resistance_level,
+            components = EXCLUDED.components,
+            engine_version = EXCLUDED.engine_version,
+            computed_at = NOW()
+        """,
+        scored["nse_symbol"], scan_date,
+        sub["trend"], sub["momentum"], sub["structure"], sub["accumulation"],
+        sub["sector"], sub["risk"], s["final_score"], s["confidence"], s["stage"],
+        f.get("close"), f.get("sma_50"), f.get("sma_200"),
+        f.get("rsi_14"), f.get("atr_14"),
+        f.get("return_5d_pct"), f.get("return_20d_pct"),
+        f.get("high_20d"), f.get("swing_low_20"), f.get("swing_high_20"),
+        json.dumps(components), ENGINE_VERSION,
+    )
 
 
 async def _persist_signal(pool, scan_date: date, scored: dict) -> None:
+    async with pool.acquire() as conn:
+        await _write_signal(conn, scan_date, scored)
+
+
+async def _write_signal(conn, scan_date: date, scored: dict) -> None:
     plan = scored["trade_plan"]
     s = scored["scores"]
     payload = {
@@ -232,52 +252,86 @@ async def _persist_signal(pool, scan_date: date, scored: dict) -> None:
         "scan_hits": s["scan_hits"],
         "reasons": scored.get("reasons", []),
     }
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO positional_signals (
-                nse_symbol, signal_date, final_score, confidence, stage,
-                timeframe_days_min, timeframe_days_max,
-                entry_price, stoploss, target_price, risk_reward,
-                source_scans, reasons, engine_version
-            ) VALUES (
-                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14
-            )
-            ON CONFLICT (nse_symbol, signal_date) DO UPDATE SET
-                final_score = EXCLUDED.final_score,
-                confidence = EXCLUDED.confidence,
-                stage = EXCLUDED.stage,
-                timeframe_days_min = EXCLUDED.timeframe_days_min,
-                timeframe_days_max = EXCLUDED.timeframe_days_max,
-                entry_price = EXCLUDED.entry_price,
-                stoploss = EXCLUDED.stoploss,
-                target_price = EXCLUDED.target_price,
-                risk_reward = EXCLUDED.risk_reward,
-                source_scans = EXCLUDED.source_scans,
-                reasons = EXCLUDED.reasons,
-                engine_version = EXCLUDED.engine_version,
-                computed_at = NOW()
-            """,
-            scored["nse_symbol"], scan_date,
-            s["final_score"], s["confidence"], s["stage"],
-            plan["timeframe_days_min"], plan["timeframe_days_max"],
-            plan["entry"], plan["stoploss"], plan["target"], plan["risk_reward"],
-            payload["scan_hits"],
-            json.dumps(payload["reasons"]),
-            ENGINE_VERSION,
+    await conn.execute(
+        """
+        INSERT INTO positional_signals (
+            nse_symbol, signal_date, final_score, confidence, stage,
+            timeframe_days_min, timeframe_days_max,
+            entry_price, stoploss, target_price, risk_reward,
+            source_scans, reasons, engine_version
+        ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14
         )
+        ON CONFLICT (nse_symbol, signal_date) DO UPDATE SET
+            final_score = EXCLUDED.final_score,
+            confidence = EXCLUDED.confidence,
+            stage = EXCLUDED.stage,
+            timeframe_days_min = EXCLUDED.timeframe_days_min,
+            timeframe_days_max = EXCLUDED.timeframe_days_max,
+            entry_price = EXCLUDED.entry_price,
+            stoploss = EXCLUDED.stoploss,
+            target_price = EXCLUDED.target_price,
+            risk_reward = EXCLUDED.risk_reward,
+            source_scans = EXCLUDED.source_scans,
+            reasons = EXCLUDED.reasons,
+            engine_version = EXCLUDED.engine_version,
+            computed_at = NOW()
+        """,
+        scored["nse_symbol"], scan_date,
+        s["final_score"], s["confidence"], s["stage"],
+        plan["timeframe_days_min"], plan["timeframe_days_max"],
+        plan["entry"], plan["stoploss"], plan["target"], plan["risk_reward"],
+        payload["scan_hits"],
+        json.dumps(payload["reasons"]),
+        ENGINE_VERSION,
+    )
 
 
 # ── Main run ─────────────────────────────────────────────────────────────
-async def run_for_date(scan_date: date) -> dict:
-    """End-to-end run for a single scan_date. Returns a summary dict."""
-    pool = await pg_client.get_pool()
-    if pool is None:
-        return {"ok": False, "error": "no_pg_pool"}
+BarLoader = Callable[[str, date, int], Awaitable[List[dict]]]
 
+
+async def _load_bars(symbol: str, end_date: date, lookback_bars: int) -> List[dict]:
+    return await ohlcv_store.load_bars(symbol, end_date=end_date, lookback_bars=lookback_bars)
+
+
+async def session_refusal(scan_date: date) -> Optional[dict]:
+    """None when `scan_date` is an NSE session; otherwise the refusal summary (a holiday, a weekend, or a calendar
+    that cannot be read: a date is never scored on the assumption that a weekday trades)."""
+    try:
+        ok, why = await session_calendar.check_session(scan_date)
+    except session_calendar.CalendarUnavailable as e:
+        return {"ok": False, "error": "calendar_unavailable", "reason": str(e), "scan_date": str(scan_date)}
+    if not ok:
+        return {"ok": False, "error": "not_a_session", "reason": why, "scan_date": str(scan_date)}
+    return None
+
+
+async def score_universe(scan_date: date, *, load_bars: Optional[BarLoader] = None,
+                         factors: Optional[Dict[str, Dict[date, float]]] = None,
+                         adjust: bool = True) -> Tuple[dict, List[dict]]:
+    """Score every symbol of the day's universe. Reads only; writes nothing. Returns (summary, scored rows).
+
+    `load_bars` defaults to stock_ohlcv; the repair tool passes corrected bars to preview a rerun. `factors` defaults
+    to the warehouse's split/bonus factors for the universe; a failed read refuses the run (fail closed).
+    `adjust=False` scores the bars as stored, as engine v1.0 did: only the repair preview uses it, to check that an
+    in-memory replay reproduces the stored rows.
+    """
     universe = await universe_for(scan_date)
     if not universe:
-        return {"ok": False, "error": "empty_universe", "scan_date": str(scan_date)}
+        return {"ok": False, "error": "empty_universe", "scan_date": str(scan_date)}, []
+    load = load_bars or _load_bars
+
+    if not adjust:
+        factors = {}
+    elif factors is None:
+        try:
+            factors = await price_adjustment.load_factors(
+                universe, scan_date - timedelta(days=price_adjustment.FACTOR_LOOKBACK_DAYS), scan_date)
+        except price_adjustment.FactorsUnavailable as e:
+            logger.error("positional %s: split/bonus factors unavailable, not scoring: %s", scan_date, e)
+            return {"ok": False, "error": "adjustment_factors_unavailable", "reason": str(e),
+                    "scan_date": str(scan_date)}, []
 
     bench_ret = await sector_strength.load_bench_return(end_date=scan_date,
                                                          lookback=20)
@@ -305,10 +359,12 @@ async def run_for_date(scan_date: date) -> dict:
     except Exception as e:  # noqa: BLE001
         logger.debug("macro overlay unavailable: %s", e)
 
-    scored_count = 0
-    actionable = 0
+    scored_rows: List[dict] = []
     errors = 0
     blocked = 0
+    basis = {price_adjustment.BASIS_ADJUSTED: 0, price_adjustment.BASIS_RAW: 0, "unadjusted_replay": 0}
+    truncated = 0
+    short_after_break = 0
 
     for symbol in universe:
         try:
@@ -319,9 +375,18 @@ async def run_for_date(scan_date: date) -> dict:
                 blocked += 1
                 continue
 
-            bars = await ohlcv_store.load_bars(symbol, end_date=scan_date,
-                                                lookback_bars=260)
+            bars = await load(symbol, scan_date, 260)
             if len(bars) < MIN_BARS:
+                continue
+            if adjust:
+                bars, adj = price_adjustment.adjust_bars(bars, factors.get(symbol))
+            else:
+                adj = {"price_basis": "unadjusted_replay", "factor_steps": 0, "break_truncated_at": None,
+                       "bars_dropped": 0}
+            if adj["break_truncated_at"]:
+                truncated += 1
+            if len(bars) < MIN_BARS:
+                short_after_break += 1
                 continue
             scan_hits = await chartink_loader.get_scans_for(scan_date, symbol)
             scored = score_symbol(symbol, bars,
@@ -332,6 +397,65 @@ async def run_for_date(scan_date: date) -> dict:
                                    macro_risk=macro_risk)
             if not scored:
                 continue
+            scored["price_adjustment"] = adj
+            basis[adj["price_basis"]] += 1
+            scored_rows.append(scored)
+        except Exception as e:  # noqa: BLE001
+            errors += 1
+            logger.warning("positional: failed for %s: %s", symbol, e)
+
+    summary = {
+        "ok": True,
+        "scan_date": str(scan_date),
+        "engine_version": ENGINE_VERSION,
+        "universe": len(universe),
+        "scored": len(scored_rows),
+        "actionable": sum(1 for r in scored_rows if r["actionable"]),
+        "errors": errors,
+        "blocked_by_macro": blocked,
+        "macro_multiplier": macro_multiplier,
+        "blocked_sectors": list(blocked_sectors),
+        "bench_ret_20d": bench_ret,
+        "price_basis": basis,
+        "break_truncated": truncated,
+        "skipped_short_after_break": short_after_break,
+    }
+    return summary, scored_rows
+
+
+async def write_scored(conn, scan_date: date, scored_rows: List[dict], *, replace: bool = False) -> None:
+    """Write a day's scored rows on one connection (the caller owns the transaction). With `replace`, the day's
+    existing features and signals are deleted first, so a symbol no longer scored or no longer actionable does not
+    keep a stale row."""
+    if replace:
+        await conn.execute("DELETE FROM positional_signals WHERE signal_date = $1", scan_date)
+        await conn.execute("DELETE FROM stock_technical_features WHERE as_of_date = $1", scan_date)
+    for scored in scored_rows:
+        await _write_features(conn, scan_date, scored)
+        if scored["actionable"]:
+            await _write_signal(conn, scan_date, scored)
+
+
+async def run_for_date(scan_date: date) -> dict:
+    """End-to-end run for a single scan_date. Returns a summary dict."""
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"ok": False, "error": "no_pg_pool"}
+
+    refusal = await session_refusal(scan_date)
+    if refusal:
+        logger.warning("positional %s refused: %s (%s)", scan_date, refusal["error"], refusal["reason"])
+        return refusal
+
+    summary, scored_rows = await score_universe(scan_date)
+    if not summary.get("ok"):
+        return summary
+
+    scored_count = 0
+    actionable = 0
+    errors = summary["errors"]
+    for scored in scored_rows:
+        try:
             await _persist_features(pool, scan_date, scored)
             scored_count += 1
             if scored["actionable"]:
@@ -339,21 +463,9 @@ async def run_for_date(scan_date: date) -> dict:
                 actionable += 1
         except Exception as e:  # noqa: BLE001
             errors += 1
-            logger.warning("positional: failed for %s: %s", symbol, e)
+            logger.warning("positional: failed for %s: %s", scored.get("nse_symbol"), e)
 
-    return {
-        "ok": True,
-        "scan_date": str(scan_date),
-        "engine_version": ENGINE_VERSION,
-        "universe": len(universe),
-        "scored": scored_count,
-        "actionable": actionable,
-        "errors": errors,
-        "blocked_by_macro": blocked,
-        "macro_multiplier": macro_multiplier,
-        "blocked_sectors": list(blocked_sectors),
-        "bench_ret_20d": bench_ret,
-    }
+    return {**summary, "scored": scored_count, "actionable": actionable, "errors": errors}
 
 
 async def _sector_key_for(symbol: str) -> Optional[str]:

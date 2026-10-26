@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Set
 
 from services import pg_client
 
@@ -128,3 +128,14 @@ async def latest_bar_date(symbol: str) -> Optional[date]:
             symbol.upper(),
         )
     return row["d"] if row else None
+
+
+async def dates_between(start: date, end: date) -> Optional[Set[date]]:
+    """The bar dates stored in [start, end]; None when the database cannot be reached."""
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return None
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT DISTINCT bar_date FROM stock_ohlcv WHERE bar_date BETWEEN $1 AND $2", start, end)
+    return {r["bar_date"] for r in rows}
