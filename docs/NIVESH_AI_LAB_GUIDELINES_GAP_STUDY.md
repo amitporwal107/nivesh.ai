@@ -339,6 +339,32 @@ this phase.
 6. **Scanner weights stay unchanged** until the corrected, pre-registered out-of-sample research says otherwise. The study
    goes in its own documentation PR, separate from the code and data changes.
 
+### 9.1 Owner decisions on PR #355, the scanner price history (2026-10-27)
+
+1. **Staging repair: approved as a controlled run, subject to a preflight.**
+   - The snapshot is on persistent storage and verified as readable, complete and non-empty.
+   - Row counts match the reviewed dry run.
+   - The snapshot covers every affected table (bars, technical features, signals).
+   - The apply runs in **one transaction**, and the quality check is rerun afterwards.
+   - A second apply changes nothing, and a restore returns the exact prior state.
+2. **Recompute only the latest date (26 Oct 2026).**
+   - The 189 older scored dates are not rescored with today's macro regime.
+   - Disclose that those older dates were calculated on the previously stored price basis.
+3. **The scanner stays fail-closed** when the NSE calendar or the adjustment factors cannot be read.
+   - Add a calendar-readiness check that validates next year's NSE Capital Market holidays before the first session that
+     needs them.
+   - Make the failure visible and alertable. Do not wait for 1 Jan 2027 to find out.
+4. **Adjusted prices are accepted:** warehouse factors plus the residual-break guard. Report the exceptions explicitly:
+   symbols scored on raw prices and symbols not scored after history truncation.
+5. **The ranking change is a material release change.**
+   - Record the before and after rankings and signals.
+   - Publish the engine version, price basis and data-quality status with the results.
+   - Keep the effect of the code change separate from the effect of the data repair.
+   - Do not claim the new ranking is more predictive: that needs separate validation.
+6. **PR #355 stays unmerged** until review confirms these safeguards. Code merge and data repair are separate decisions.
+   No production repair and no stricter cron gate (`--require-clean`) until the staging evidence has been reviewed.
+   Phase 0 stays open until the other fix groups are integrated and the release checks pass.
+
 ## 10. What was asked of the owner (now answered in §9)
 
 1. **Approve Phase 0** (code: 0.1–0.6, 0.8 code). It will go to PRs against `dev`.
