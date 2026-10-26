@@ -1479,8 +1479,9 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await expect(page.getByTestId("desk-event-row")).toHaveCount(0);
 
     // Filings fail: All still lists the deals, circulars and flows and says what is missing, with a retry.
+    // The chip is kept in the URL (?in_chip=), so a reload would stay on Results: open the All list by its URL instead.
     await page.route("**/api/filings/feed*", (route) => { calls.feed.push(new URL(route.request().url())); return json(route, { detail: "fixture failure" }, 500); });
-    await page.reload();
+    await page.goto(`${DESK}?tab=intel`);
     const partial = page.getByTestId("desk-intel-partial");
     await expect(partial.getByRole("alert")).toContainText("Filings didn’t load; the rest are listed", SLOW);
     await expect(page.getByTestId("desk-event-row")).toHaveCount(5 + DEALS.rows.length + CIRCULARS.rows.length);
@@ -1491,13 +1492,13 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await expect(page.getByTestId("desk-intel-error").getByRole("alert")).toContainText("Market events didn’t load", SLOW);
 
     await page.route("**/api/markets/deals*", (route) => json(route, { detail: "feature_not_enabled" }, 403));
-    await page.reload();
+    await page.goto(`${DESK}?tab=intel`);
     await page.getByTestId("desk-intel-chip-deals").click();
     await expect(page.getByTestId("desk-intel-error")).toContainText("this account does not have access", SLOW);
 
     // The rows answered but their provenance could not be read: rows stay, the gap is said.
     await page.route("**/api/filings/feed*", (route) => json(route, { ...feed([R_EARN], 1), provenance: { source: null, error: "upstream_unavailable" } }));
-    await page.reload();
+    await page.goto(`${DESK}?tab=intel`);
     await expect(page.getByTestId("desk-intel-provenance-error")).toHaveText("The filings’ source records could not be read, so ingestion times, sectors and related companies are not shown.", SLOW);
   });
 

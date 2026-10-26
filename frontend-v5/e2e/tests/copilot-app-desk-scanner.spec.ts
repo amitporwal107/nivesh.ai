@@ -237,10 +237,17 @@ async function deskMocks(page: Page, over: Over = {}) {
 }
 
 /** Writes (anything but GET) to /api/* made by the page. */
+/**
+ * POST routes that only read: the Scanner's Top 10 boards ask them on load (ScannerTop10.tsx). Each builds an answer from
+ * existing data and writes nothing (backend/routes/strategy_plan.py: "nothing is written", sent_to_broker false).
+ */
+const READ_ONLY_POSTS = /^\/api\/desk\/strategy\/(ideas|top)$/;
+
 function recordWrites(page: Page): string[] {
   const writes: string[] = [];
   page.on("request", (req) => {
-    if (req.method() !== "GET" && /\/api\//.test(new URL(req.url()).pathname)) writes.push(`${req.method()} ${req.url()}`);
+    const p = new URL(req.url()).pathname;
+    if (req.method() !== "GET" && /\/api\//.test(p) && !READ_ONLY_POSTS.test(p)) writes.push(`${req.method()} ${req.url()}`);
   });
   return writes;
 }

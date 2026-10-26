@@ -8,8 +8,12 @@
  * What the screen refuses to do: call anything a recommendation, a pick or a best trade; blend the three scores; spread a missing
  * input's points over the others (it is listed as "not earned"); show strategy quality (it is unavailable); or hide that the ranking is
  * a research setting that back-tests did not validate. The research banner is always the first thing shown.
+ *
+ * Each card opens the stock's chain, its futures OI build-up (the lab's OI build-up view) and the Strategy Builder, where a
+ * plan can be recorded as a paper trade. A stock in focus (`focus`: a Top 10 F&O idea opened from the Scanner) opens the
+ * category that lists it, is outlined and scrolled into view; when no category lists it, a line says so.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StockIcon } from "../../components/EntityIcon";
 import { LoadingBlock, Pill, TONE_COLOR, fmtNum, fmtPct, signTone, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
@@ -97,13 +101,19 @@ function LatestQuote({ symbol, cash, fut, kind }: { symbol: string; cash: Overla
   );
 }
 
-function CandidateCard({ c, rank, of, onOpen, cash, fut, kind }: { c: Candidate; rank: number; of: number; onOpen: (s: string) => void; cash: OverlayQuote | null; fut: LiveFuture | null; kind: "live" | "close" | null }) {
+/** What a card can open besides its chain: the stock's futures OI build-up in the lab, and the Strategy Builder (where a paper trade is recorded). */
+interface CardLinks { onBuildup?: (s: string) => void; onStrategy?: (s: string) => void }
+
+const secondaryBtn = { padding: "9px 16px", minHeight: 44, borderRadius: 10, border: "1px solid var(--line-2)", background: "transparent", color: "var(--cp-ink-2)", fontSize: 14, cursor: "pointer" } as const;
+
+function CandidateCard({ c, rank, of, onOpen, cash, fut, kind, focused, links }: { c: Candidate; rank: number; of: number; onOpen: (s: string) => void; cash: OverlayQuote | null; fut: LiveFuture | null; kind: "live" | "close" | null; focused?: boolean; links?: CardLinks }) {
   const meta = BUILDUP_META[c.label];
   const checks = c.checks.filter((k) => CHECK_NAME[k.key]);
   const word = (s: boolean | null) => (s === true ? "holds" : s === false ? "does not" : "unknown");
   const dot = (s: boolean | null) => (s === true ? "var(--mint)" : s === false ? "var(--danger-hex, #FF8D99)" : "transparent");
   return (
-    <article data-testid={`desk-cand-card-${c.symbol}`} data-label={c.label} className="cp-card flex flex-col" style={{ gap: 14, padding: 18, minWidth: 0 }}>
+    <article data-testid={`desk-cand-card-${c.symbol}`} data-label={c.label} data-focused={focused ? "true" : undefined} className="cp-card flex flex-col"
+      style={{ gap: 14, padding: 18, minWidth: 0, ...(focused ? { borderColor: "var(--mint-line)", boxShadow: "0 0 0 1px var(--mint-line)" } : {}) }}>
       <div className="flex items-center" style={{ gap: 12 }}>
         <StockIcon symbol={c.symbol} size={38} />
         <div className="flex min-w-0 flex-col" style={{ flex: "1 1 auto" }}>
@@ -148,6 +158,17 @@ function CandidateCard({ c, rank, of, onOpen, cash, fut, kind }: { c: Candidate;
           style={{ padding: "9px 16px", minHeight: 44, borderRadius: 10, border: "1px solid var(--mint-line)", background: "var(--mint-soft)", color: "var(--mint)", fontSize: 14, cursor: "pointer" }}>
           Open {c.symbol} chain ›
         </button>
+        {links?.onBuildup && (
+          <button type="button" data-testid={`desk-cand-buildup-${c.symbol}`} onClick={() => links.onBuildup?.(c.symbol)} style={secondaryBtn}>
+            Futures OI build-up ›
+          </button>
+        )}
+        {links?.onStrategy && (
+          <button type="button" data-testid={`desk-cand-strategy-open-${c.symbol}`} onClick={() => links.onStrategy?.(c.symbol)} style={secondaryBtn}
+            title="Build a plan for this stock in the Strategy Builder, where it can be recorded as a paper trade">
+            Strategy &amp; paper trade ›
+          </button>
+        )}
       </div>
     </article>
   );
@@ -173,13 +194,25 @@ function ResearchBanner({ r }: { r: NonNullable<ReturnType<typeof useCandidates>
   );
 }
 
-export default function CandidatesView({ onOpen }: { onOpen: (symbol: string) => void }) {
+export default function CandidatesView({ onOpen, focus = null, onBuildup, onStrategy }: { onOpen: (symbol: string) => void; focus?: string | null } & CardLinks) {
   const { mobile } = useCopilotShell();
   const q = useCandidates(true);
   const [picked, setPicked] = useState<BuildupQuadrant | null>(null);
   const first = q.data ? BUILDUP_LABELS.find((l) => q.data.categories[l].candidates.length > 0) ?? BUILDUP_LABELS[0] : null;
-  const cat: BuildupQuadrant | null = picked ?? first;
+  // A stock in focus (a Top 10 F&O idea opened from the Scanner) opens the category that lists it.
+  const focusCat = focus && q.data ? BUILDUP_LABELS.find((l) => q.data.categories[l].candidates.some((x) => x.symbol === focus)) ?? null : null;
+  const cat: BuildupQuadrant | null = picked ?? focusCat ?? first;
   useEffect(() => { setPicked(null); }, [q.data?.asOf]);
+  // ...and is scrolled into view once, when its card first renders.
+  const scrolledTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focus || !focusCat || scrolledTo.current === focus) return;
+    const el = document.querySelector(`[data-testid="desk-cand-card-${focus}"]`);
+    if (!el) return;
+    scrolledTo.current = focus;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focus, focusCat, cat]);
+  const links: CardLinks = { onBuildup, onStrategy };
   // The latest quotes (Kite feed): cash through the overlay rule, near-month futures through the build-up table's rule. Hooks run before any return.
   const shown = q.data && cat ? q.data.categories[cat].candidates : [];
   const cashQ = useLiveOverlays(shown.map((x) => x.symbol), q.data?.asOf ?? null);
@@ -200,6 +233,11 @@ export default function CandidatesView({ onOpen }: { onOpen: (symbol: string) =>
   return (
     <div data-testid="desk-fno-candidates" className="flex flex-col min-w-0" style={{ gap: 16 }}>
       <ResearchBanner r={d.research} />
+      {focus && !focusCat && (
+        <span data-testid="desk-cand-focus-missing" style={quiet}>
+          {focus} is not among this day’s build-up candidates in any category; its futures OI build-up is under “OI build-up”.
+        </span>
+      )}
       <div className="flex flex-wrap items-center justify-between" style={{ gap: 12, minWidth: 0 }}>
         <div style={{ maxWidth: "100%", overflowX: "auto" }}>
         <Segmented<BuildupQuadrant>
@@ -226,7 +264,7 @@ export default function CandidatesView({ onOpen }: { onOpen: (symbol: string) =>
               const cash = cashQ.get(x.symbol);
               const fut = futFor(x.symbol);
               const kind = fut ? futKind : cash?.kind ?? null;
-              return <CandidateCard key={x.symbol} c={x} rank={i + 1} of={c.candidates.length} onOpen={onOpen} cash={cash} fut={fut} kind={kind} />;
+              return <CandidateCard key={x.symbol} c={x} rank={i + 1} of={c.candidates.length} onOpen={onOpen} cash={cash} fut={fut} kind={kind} focused={x.symbol === focus} links={links} />;
             })}
           </div>
         )}

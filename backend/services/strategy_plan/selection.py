@@ -290,6 +290,16 @@ async def select_opportunities(request: Request, limit: int = DEFAULT_LIMIT, cha
     return out
 
 
+async def eligible_setups(request: Request, limit: int) -> Dict[str, Any]:
+    """The same scanner-only selection as select_opportunities without its MAX_LIMIT cap: every merged setup that passes the eligibility gates,
+    up to `limit`, each with the scan snapshot's `fno_eligible` (True, False, or None when the snapshot has no row). For the regime-fit board's
+    one-row-per-underlying stock F&O class, which has to look past the first 15 names to find enough F&O-listed ones. Never raises on a source failure."""
+    out = await _select_scanner(request, max(1, int(limit)))
+    for k in ("_merged", "_rows", "_rows_read"):
+        out.pop(k, None)
+    return out
+
+
 async def _select_scanner(request: Request, limit: int) -> Dict[str, Any]:
     """The scanner-only selection (the behaviour before Chartink). Private keys for the Chartink step: _merged (the merged scanner list), _rows (the
     scan snapshot rows, None when not read or unreadable) and _rows_read (whether the snapshot read was attempted)."""

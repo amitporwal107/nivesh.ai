@@ -108,7 +108,7 @@ _TOP_LIMIT_MAX = 10
 
 
 def _parse_top_body(body: Any) -> Dict[str, Any]:
-    """limit / classes / expiry for POST /top. Anything unrecognised is refused rather than ignored, so a
+    """limit / classes / expiry / distinct for POST /top. Anything unrecognised is refused rather than ignored, so a
     misspelled class cannot silently return the default three."""
     if body in (None, ""):
         body = {}
@@ -116,7 +116,7 @@ def _parse_top_body(body: Any) -> Dict[str, Any]:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": [
             {"field": "body", "code": "not_an_object", "message": "The body must be a JSON object."}]})
     problems = []
-    unknown = sorted(set(body) - {"limit", "classes", "expiry"})
+    unknown = sorted(set(body) - {"limit", "classes", "expiry", "distinct"})
     if unknown:
         problems.append({"field": "body", "code": "unknown_field",
                          "message": f"Unknown field(s): {', '.join(unknown)}."})
@@ -140,9 +140,15 @@ def _parse_top_body(body: Any) -> Dict[str, Any]:
             problems.append({"field": "expiry", "code": "bad_date",
                              "message": "expiry must be a date as YYYY-MM-DD."})
 
+    # One row per underlying in the option classes (regime_fit.one_per_underlying); off unless asked for.
+    distinct = body.get("distinct", False)
+    if not isinstance(distinct, bool):
+        problems.append({"field": "distinct", "code": "not_a_boolean",
+                         "message": "distinct must be true or false."})
+
     if problems:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
-    return {"limit": limit, "classes": classes, "expiry": str(expiry) if expiry else None}
+    return {"limit": limit, "classes": classes, "expiry": str(expiry) if expiry else None, "distinct": distinct}
 
 
 @router.post("/top")
@@ -156,7 +162,7 @@ async def strategy_top(request: Request) -> Dict[str, Any]:
     user = await get_current_user(request)
     args = _parse_top_body(await _body(request))
     return await regime_fit.build_top(request, user["user_id"], limit=args["limit"],
-                                      classes=args["classes"], expiry=args["expiry"])
+                                      classes=args["classes"], expiry=args["expiry"], distinct=args["distinct"])
 
 
 def _check_plan(plan: Any) -> Dict[str, Any]:

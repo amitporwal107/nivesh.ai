@@ -46,7 +46,13 @@
  * PRD "Learning and methodology" has no view in the app yet: More says so in
  * a line of text, not with a button that goes nowhere.
  *
- * The tab, the selected stock and the wording live in the URL (?tab=&sym=&persona=).
+ * The tab, the selected stock and the wording live in the URL (?tab=&sym=&persona=), as do the lab's view and
+ * underlying (?lab=&lab_sym=&lab_focus=, FnoTab) and Market Intelligence's chip and event (?in_chip=&in_ev=,
+ * IntelTab); a tab change drops those.
+ *
+ * Breadcrumb (the user's requirement of 2026-10-25): under the tab row (on a phone, under the header), "Trading
+ * desk › the views visited › here" (tradingdesk/DeskTrail, rules in desk-trail.ts). A main tab or the bottom bar
+ * starts it again; a crumb returns to that view as it was left.
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -56,8 +62,10 @@ import { useCopilotShell } from "../lib/shell-context";
 import { useMarketOverview } from "./markets/hooks";
 import { BOTTOM_BAR_SPACE, DeskBottomBar, type BottomKey } from "./tradingdesk/BottomBar";
 import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
-import { DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskPersona, type DeskState, type DeskTab } from "./tradingdesk/context";
+import { DESK_TAB_LABEL, DeskProvider, isDeskTab, type DeskPersona, type DeskState, type DeskTab, type TrailFrom } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
+import { DeskTrail } from "./tradingdesk/DeskTrail";
+import { crumbOf, nextTrail, readTrail, writeTrail, type Crumb } from "./tradingdesk/desk-trail";
 import { SymbolSearch } from "./tradingdesk/SymbolSearch";
 import { Widget } from "./tradingdesk/widget";
 import { istParts, marketStatus, useNow } from "./tradingdesk/overview-data";
@@ -81,6 +89,8 @@ const RiskControls = lazy(() => import("./tradingdesk/RiskControls"));
 
 /** Params only the Strategy Builder uses; they are dropped when the desk leaves it. */
 const BUILDER_PARAMS = ["view", "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date", "cand", "mode", "focus", "capital", "risk_inr", "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry"];
+/** The lab's view, underlying and focus (FnoTab.tsx) and Market Intelligence's chip and event (IntelTab.tsx): dropped on a tab change too. */
+const VIEW_PARAMS = [...BUILDER_PARAMS, "lab", "lab_sym", "lab_focus", "in_chip", "in_ev"];
 
 const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
 
@@ -385,7 +395,7 @@ export default function TradingDeskScreen() {
       const p = new URLSearchParams(prev);
       if (next.tab) {
         p.set("tab", next.tab);
-        for (const k of BUILDER_PARAMS) p.delete(k);
+        for (const k of VIEW_PARAMS) p.delete(k);
         if (next.view) p.set("view", next.view);
         for (const [k, v] of Object.entries(next.extra ?? {})) p.set(k, v);
       }
@@ -414,6 +424,91 @@ export default function TradingDeskScreen() {
     dockRef.current.ask(q);
   }, [pageCopilot]);
 
+  // Scroll to an element once the view that holds it has rendered (a lazy tab can take a moment).
+  const scrollTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (scrollTimer.current) window.clearInterval(scrollTimer.current); }, []);
+  const scrollWhenReady = useCallback((selector: string) => {
+    if (scrollTimer.current) window.clearInterval(scrollTimer.current);
+    let tries = 0;
+    scrollTimer.current = window.setInterval(() => {
+      const el = document.querySelector(selector);
+      tries += 1;
+      if (el || tries > 40) {
+        if (scrollTimer.current) window.clearInterval(scrollTimer.current);
+        scrollTimer.current = null;
+        el?.scrollIntoView({ block: "start", behavior: "smooth" });
+      }
+    }, 150);
+  }, []);
+
+  // "Paper trading": the Portfolio & Risk tab, scrolled to its paper-trade card once it has rendered.
+  const openPaper = useCallback(() => {
+    update({ tab: "portfolio" });
+    scrollWhenReady(PAPER_CARD);
+  }, [update, scrollWhenReady]);
+
+  // ── breadcrumb trail (rules: tradingdesk/desk-trail.ts) ──
+  // The view left is recorded when the URL names a new view; a main tab, the root and a crumb set the trail
+  // themselves first (noPush), and a link may name the part of the view it leaves from (fromRef). Both flags are
+  // consumed by the next URL change and cleared after the click in case the URL did not change.
+  const search = params.toString();
+  const here = useMemo(() => crumbOf(new URLSearchParams(search)), [search]);
+  const trailRef = useRef<Crumb[] | null>(null);
+  if (trailRef.current === null) trailRef.current = readTrail(here.key);
+  const [trail, setTrail] = useState<Crumb[]>(trailRef.current);
+  const hereRef = useRef<Crumb | null>(null);
+  const noPush = useRef(false);
+  const fromRef = useRef<TrailFrom | null>(null);
+  const commitTrail = useCallback((next: Crumb[], hereKey: string) => {
+    trailRef.current = next;
+    setTrail(next);
+    writeTrail(hereKey, next);
+  }, []);
+  const clearFlagsSoon = useCallback(() => {
+    window.setTimeout(() => { noPush.current = false; fromRef.current = null; }, 0);
+  }, []);
+  useEffect(() => {
+    const prev = hereRef.current;
+    hereRef.current = { key: here.key, label: here.label, search };
+    const skip = noPush.current;
+    const from = fromRef.current;
+    noPush.current = false;
+    fromRef.current = null;
+    // First render, or the same view with other filters: nothing to record (the view's crumb keeps the newest URL).
+    if (!prev || prev.key === here.key) return;
+    const t = trailRef.current ?? [];
+    commitTrail(skip ? t : nextTrail(t, prev, here.key, from), here.key);
+  }, [search, here.key, here.label, commitTrail]);
+
+  /** A main tab or "Trading desk": the trail starts again from the view it opens. */
+  const restartTrail = useCallback(() => {
+    noPush.current = true;
+    commitTrail([], here.key);
+    clearFlagsSoon();
+  }, [commitTrail, clearFlagsSoon, here.key]);
+
+  const goCrumb = (i: number) => {
+    const t = trailRef.current ?? [];
+    const c = t[i];
+    if (!c) return;
+    noPush.current = true;
+    commitTrail(t.slice(0, i), here.key);
+    clearFlagsSoon();
+    setParams(new URLSearchParams(c.search), { replace: true });
+    if (c.anchor) scrollWhenReady(`[data-testid="${c.anchor}"]`);
+  };
+
+  const goRoot = () => {
+    restartTrail();
+    update({ tab: "overview" });
+  };
+
+  /** The tab row and the phone's bottom bar. */
+  const pickTab = (t: DeskTab | "more") => {
+    restartTrail();
+    update({ tab: t });
+  };
+
   const desk = useMemo<DeskState>(() => ({
     tab,
     openTab: (t) => update({ tab: t }),
@@ -427,29 +522,28 @@ export default function TradingDeskScreen() {
     openStrategyIdeas: (focus) => update({ tab: "more", view: "strategy", extra: { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) } }),
     openStrategyPlan: (params) => update({ tab: "more", view: "strategy", extra: { ...params, mode: "stock", build: "1" } }),
     openChartink: () => update({ tab: "more", view: "chartink" }),
+    openLab: (view, opts) => update({
+      tab: "fno",
+      extra: {
+        ...(view && view !== "buildup" ? { lab: view } : {}),
+        ...(opts?.symbol ? { lab_sym: opts.symbol.toUpperCase() } : {}),
+        ...(opts?.focus ? { lab_focus: opts.focus.toUpperCase() } : {}),
+      },
+    }),
+    openIntel: (opts) => update({
+      tab: "intel",
+      extra: { ...(opts?.chip && opts.chip !== "all" ? { in_chip: opts.chip } : {}), ...(opts?.event ? { in_ev: opts.event } : {}) },
+    }),
+    openPaperTrades: openPaper,
+    noteFrom: (from) => {
+      fromRef.current = from;
+      clearFlagsSoon();
+    },
     askDesk,
     docked,
     persona,
     setPersona: (p) => update({ persona: p }),
-  }), [tab, symbol, update, askDesk, docked, persona]);
-
-  // "Paper trading": the Portfolio & Risk tab, scrolled to its paper-trade card once it has rendered.
-  const scrollTimer = useRef<number | null>(null);
-  useEffect(() => () => { if (scrollTimer.current) window.clearInterval(scrollTimer.current); }, []);
-  const openPaper = () => {
-    update({ tab: "portfolio" });
-    if (scrollTimer.current) window.clearInterval(scrollTimer.current);
-    let tries = 0;
-    scrollTimer.current = window.setInterval(() => {
-      const el = document.querySelector(PAPER_CARD);
-      tries += 1;
-      if (el || tries > 40) {
-        if (scrollTimer.current) window.clearInterval(scrollTimer.current);
-        scrollTimer.current = null;
-        el?.scrollIntoView({ block: "start", behavior: "smooth" });
-      }
-    }, 150);
-  };
+  }), [tab, symbol, update, askDesk, docked, persona, openPaper, clearFlagsSoon]);
 
   const pickMore = (k: MoreKey) => {
     if (k === "copilot") {
@@ -570,6 +664,7 @@ export default function TradingDeskScreen() {
 
   const dataTab = more ? "more" : tab;
   const openRisk = () => update({ tab: "more", view: "risk" });
+  const trailBar = <DeskTrail trail={trail} here={here.label} onRoot={goRoot} onCrumb={goCrumb} />;
 
   if (mobile) {
     const bottomKey: BottomKey = moreOn ? "more" : tab;
@@ -614,12 +709,13 @@ export default function TradingDeskScreen() {
             {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           </header>
 
+          <div style={{ paddingBottom: 10 }}>{trailBar}</div>
           {moreChips}
           {moreOn && <LearningGap phone />}
 
           <div style={{ paddingBottom: 18 }}>{content}</div>
           {!pageCopilot && footer}
-          <DeskBottomBar active={bottomKey} onPick={(k) => update({ tab: k })} />
+          <DeskBottomBar active={bottomKey} onPick={pickTab} />
         </div>
       </DeskProvider>
     );
@@ -648,12 +744,14 @@ export default function TradingDeskScreen() {
         <div className="flex items-center" style={{ gap: 12, ...bleed, paddingTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--cp-line)" }}>
           <div role="tablist" aria-label="Desk modules" className="cp-scroll flex min-w-0 overflow-x-auto" style={{ flex: 1, gap: 6 }}>
             {NAV.map((t, i) => (
-              <TabChip key={t.key} id={t.key} num={String(i + 1).padStart(2, "0")} label={DESK_TAB_LABEL[t.key]} on={!moreOn && t.key === tab} onClick={() => update({ tab: t.key })} />
+              <TabChip key={t.key} id={t.key} num={String(i + 1).padStart(2, "0")} label={DESK_TAB_LABEL[t.key]} on={!moreOn && t.key === tab} onClick={() => pickTab(t.key)} />
             ))}
-            <TabChip id="more" num={String(NAV.length + 1).padStart(2, "0")} label="More" on={moreOn} onClick={() => update({ tab: "more" })} />
+            <TabChip id="more" num={String(NAV.length + 1).padStart(2, "0")} label="More" on={moreOn} onClick={() => pickTab("more")} />
           </div>
           {docked && <span data-testid="desk-docked-note" className="cp-eyebrow" style={{ flex: "none", whiteSpace: "nowrap" }}>Copilot docked right</span>}
         </div>
+
+        <div style={{ ...bleed, paddingTop: 10, paddingBottom: 10, borderBottom: "1px solid var(--cp-line)" }}>{trailBar}</div>
 
         <div
           className="grid"

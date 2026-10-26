@@ -24,6 +24,10 @@
  * nearest other expiry before the farthest listed future (long-dated quarterly
  * options lie beyond it). Stocks have no weekly expiry, so that choice is off.
  *
+ * The view, the loaded underlying and a Top 10 F&O idea in focus are in the URL (?lab=&lab_sym=&lab_focus=): the
+ * Scanner's Top 10 board opens the lab on a view with an idea in focus (LabFocus.tsx, above the underlying row), and
+ * the desk's breadcrumb returns to the same view. The expiry and the paper-strategies mode stay local.
+ *
  * Index futures build-up comes from the scan's `indices` rows (the near future's
  * price change × OI summed over every expiry, with the index close as the cash
  * side). F&O eligibility of a loaded stock is the NSE F&O master's (the scan row's
@@ -35,7 +39,8 @@
  *                                  shown on the card as the cash side of the build-up)
  *   15-minute confirmation         no intraday OI is collected (FnoBuildup.tsx shows the route's reason)
  */
-import { useState, type FormEvent, type ReactNode } from "react";
+import { Suspense, lazy, useState, type FormEvent, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { StockIcon } from "../../components/EntityIcon";
 import { LoadingBlock, Pill, TONE_COLOR, fmtNum, signTone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
@@ -45,7 +50,7 @@ import { modelLabel } from "../trading/ModelViews";
 import { fmtLevel } from "../trading/PayoffResult";
 import { FNO_INDICES, cleanSymbol, indexNameForSymbol, isIndexUnderlying, useFnoFutures, useOptionChain, type ChainState, type FnoFutures, type FnoResult, type FnoSummary } from "../trading/fno";
 import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
-import { useDesk } from "./context";
+import { isLabView, useDesk, type LabView } from "./context";
 import { BuildupView } from "./FnoBuildup";
 import CandidatesView from "./FnoCandidates";
 import { ExpiryPanel, GreeksNotAvailable, HistoryPanel, IndexResearchNote, OiBarsPanel } from "./FnoIndexExpiries";
@@ -63,7 +68,14 @@ import {
   basisWords, buildupWhy, chainTiles, wallsOf, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
 } from "./fno-parts";
 
-type FnoView = "buildup" | "candidates" | "indices" | "chain" | "strategies";
+/** The focus panel, only with ?lab_focus=: its own chunk (it carries the Strategy Builder's idea card and payoff chart). */
+const LabFocus = lazy(() => import("./LabFocus").then((m) => ({ default: m.LabFocus })));
+
+/** An underlying the URL may name: the F&O routes' own rule (letters, digits, & and -). */
+const labSymbol = (v: string | null): string | null => {
+  const s = (v ?? "").toUpperCase();
+  return /^[A-Z0-9&-]{1,20}$/.test(s) ? s : null;
+};
 
 // ── header ───────────────────────────────────────────────────────────────
 
@@ -508,12 +520,30 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
 
 export default function FnoTab() {
   const { mobile } = useCopilotShell();
-  const { persona } = useDesk();
+  const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
-  const [symbol, setSymbol] = useState<string>(FNO_INDICES[0].symbol);
-  /** The expiry chosen for `symbol`; null = the nearest still to come. */
-  const [picked, setPicked] = useState<string | null>(null);
-  const [view, setView] = useState<FnoView>("buildup");
+  // The view, the loaded underlying and a Top 10 idea in focus live in the URL (?lab=&lab_sym=&lab_focus=), so the
+  // Scanner can open the lab on any of them and the breadcrumb can come back to it.
+  const [params, setParams] = useSearchParams();
+  const rawView = params.get("lab");
+  const view: LabView = isLabView(rawView) ? rawView : "buildup";
+  const symbol = labSymbol(params.get("lab_sym")) ?? FNO_INDICES[0].symbol;
+  const focus = labSymbol(params.get("lab_focus"));
+  const setLab = (patch: { view?: LabView; symbol?: string; focus?: string | null }) => setParams((prev) => {
+    const p = new URLSearchParams(prev);
+    if (patch.view) {
+      if (patch.view === "buildup") p.delete("lab");
+      else p.set("lab", patch.view);
+    }
+    if (patch.symbol) p.set("lab_sym", patch.symbol.toUpperCase());
+    if (patch.focus === null) p.delete("lab_focus");
+    return p;
+  }, { replace: true });
+  const setView = (v: LabView) => setLab({ view: v });
+  /** The expiry chosen for `symbol`; none = the nearest still to come. Kept with its symbol, so loading another one resets it. */
+  const [pickedFor, setPickedFor] = useState<{ symbol: string; expiry: string } | null>(null);
+  const picked = pickedFor?.symbol === symbol ? pickedFor.expiry : null;
+  const setPicked = (expiry: string) => setPickedFor({ symbol, expiry });
   const [stratMode, setStratMode] = useState<"builder" | "compare" | "ideas">("builder");
   const oc = useOptionChain(symbol, picked);
   const fq = useFnoFutures(symbol);
@@ -521,14 +551,8 @@ export default function FnoTab() {
   const near = nearFutureOf(fq.data);
   const futuresNote = fq.isPending ? "Loading the futures" : fq.isError ? "The futures didn’t load" : fq.data.kind === "none" ? "No futures rows" : "No futures contract listed";
 
-  const pick = (s: string) => {
-    setSymbol(s);
-    setPicked(null);
-  };
-  const openChain = (s: string) => {
-    pick(s);
-    setView("chain");
-  };
+  const pick = (s: string) => setLab({ symbol: s });
+  const openChain = (s: string) => setLab({ symbol: s, view: "chain" });
   const chain = oc.state.status === "ok" ? oc.state.chain : null;
 
   const row = isIndexUnderlying(symbol) ? indexRowFor(scan.data, symbol) : buildupRowFor(scan.data, symbol);
@@ -539,7 +563,7 @@ export default function FnoTab() {
         : row ? { status: "ok", label: row.label, priceChgPct: row.priceChgPct, oiChgPct: row.oiChgPct, asOf: scan.data.asOf }
           : { status: "absent" };
 
-  const views: Array<{ key: FnoView; label: string }> = [
+  const views: Array<{ key: LabView; label: string }> = [
     { key: "buildup", label: "OI build-up · F&O stocks" },
     { key: "candidates", label: "Candidates" },
     { key: "indices", label: "NIFTY & BANKNIFTY" },
@@ -563,6 +587,12 @@ export default function FnoTab() {
         </div>
         <SpotBlock symbol={symbol} state={oc.state} futures={fq.data} />
       </div>
+
+      {focus && (
+        <Suspense fallback={<LoadingBlock label={`Loading the ${focus} idea`} rows={1} />}>
+          <LabFocus symbol={focus} view={view} onView={(v) => setLab({ view: v, symbol: focus })} onClose={() => setLab({ focus: null })} />
+        </Suspense>
+      )}
 
       <UnderlyingRow
         symbol={symbol}
@@ -603,7 +633,7 @@ export default function FnoTab() {
         </div>
       )}
 
-      <UnderlineTabs<FnoView> tabs={views} value={view} onChange={setView} label="Options and futures views" idPrefix="desk-fno-view" />
+      <UnderlineTabs<LabView> tabs={views} value={view} onChange={setView} label="Options and futures views" idPrefix="desk-fno-view" />
 
       <div role="tabpanel" aria-label={views.find((v) => v.key === view)?.label} className="flex flex-col min-w-0" style={{ gap: 12 }}>
         {view === "buildup" && (
@@ -613,7 +643,14 @@ export default function FnoTab() {
             loaded={{ symbol, volume: near?.future.volume ?? null, pcr: chain?.summary.pcr ?? null, iv: chain?.summary.atm_iv ?? null }}
           />
         )}
-        {view === "candidates" && <CandidatesView onOpen={openChain} />}
+        {view === "candidates" && (
+          <CandidatesView
+            onOpen={openChain}
+            focus={focus}
+            onBuildup={(s) => setLab({ symbol: s, view: "buildup" })}
+            onStrategy={(s) => openStrategy(s, { kind: "lab" })}
+          />
+        )}
         {view === "indices" && (() => {
           const ix = isIndexUnderlying(symbol) ? symbol : FNO_INDICES[0].symbol;
           return (

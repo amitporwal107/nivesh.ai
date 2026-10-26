@@ -26,8 +26,12 @@
  * box headed "AI read · not verified", apart from the sourced facts, and no
  * bullish / bearish label is drawn from them (PRD §6.5). Historical reactions
  * to comparable events have no published study, so they read "—" with the reason.
+ *
+ * The chip and the event picked are in the URL (?in_chip=&in_ev=): the Scanner's market pulse opens one event here,
+ * and the desk's breadcrumb returns to the same list.
  */
 import { useState, type CSSProperties, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { StockIcon } from "../../components/EntityIcon";
 import { EmptyBlock, LoadingBlock, TONE_COLOR, fmtNum, fmtPct, signTone, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
@@ -843,18 +847,29 @@ function IntelTrust({ feed }: { feed: EventFeed }) {
   );
 }
 
-function DesktopIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: (c: IntelChip) => void; feed: EventFeed; scan: ScanIndex }) {
+/** The chip and the picked event belong to the tab (the URL); each layout draws them. */
+interface IntelViewProps {
+  chip: IntelChip;
+  setChip: (c: IntelChip) => void;
+  /** The event picked (desktop: in the detail pane; phone: the row opened), by id; null = none (desktop: the newest). */
+  picked: string | null;
+  setPicked: (id: string | null) => void;
+  feed: EventFeed;
+  scan: ScanIndex;
+}
+
+function DesktopIntel({ chip, setChip, picked, setPicked, feed, scan }: IntelViewProps) {
   const { openTab } = useDesk();
-  const [picked, setPicked] = useState<string | null>(null);
-  const [shown, setShown] = useState(PAGE);
+  const [more, setShown] = useState(PAGE);
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
   const pick = (c: IntelChip) => {
     setChip(c);
-    setPicked(null);
     setShown(PAGE);
   };
   const events = feed.events;
   const selected = events.find((e) => e.id === picked) ?? events[0];
+  // An event opened by a link is listed even when it sits past the first page.
+  const shown = Math.max(more, events.findIndex((e) => e.id === picked) + 1);
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 20 }}>
       <Widget
@@ -1075,14 +1090,14 @@ function SectorImpact() {
   );
 }
 
-function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: (c: IntelChip) => void; feed: EventFeed; scan: ScanIndex }) {
+function MobileIntel({ chip, setChip, picked: open, setPicked: setOpen, feed, scan }: IntelViewProps) {
   const { openTab } = useDesk();
-  const [open, setOpen] = useState<string | null>(null);
-  const [shown, setShown] = useState(PAGE);
+  const [more, setShown] = useState(PAGE);
   const def = INTEL_CHIPS.find((c) => c.key === chip) ?? INTEL_CHIPS[0];
+  // An event opened by a link is listed even when it sits past the first page.
+  const shown = Math.max(more, feed.events.findIndex((e) => e.id === open) + 1);
   const pick = (c: IntelChip) => {
     setChip(c);
-    setOpen(null);
     setShown(PAGE);
   };
   return (
@@ -1123,12 +1138,31 @@ function MobileIntel({ chip, setChip, feed, scan }: { chip: IntelChip; setChip: 
 
 // ── tab ──────────────────────────────────────────────────────────────────
 
+/** A chip the URL may name: one drawn on screen. */
+const urlChip = (v: string | null): IntelChip => INTEL_CHIPS.find((c) => c.key === v && !c.hidden)?.key ?? "all";
+
 export default function IntelTab() {
   const { mobile } = useCopilotShell();
-  const [chip, setChip] = useState<IntelChip>("all");
+  // The chip and the event picked live in the URL (?in_chip=&in_ev=), so the Scanner's market pulse can open one event
+  // and the desk's breadcrumb returns to the same list.
+  const [params, setParams] = useSearchParams();
+  const chip = urlChip(params.get("in_chip"));
+  const picked = params.get("in_ev");
+  const write = (patch: { chip?: IntelChip; event?: string | null }) => setParams((prev) => {
+    const p = new URLSearchParams(prev);
+    if (patch.chip) {
+      if (patch.chip === "all") p.delete("in_chip");
+      else p.set("in_chip", patch.chip);
+    }
+    if (patch.event === null) p.delete("in_ev");
+    else if (patch.event) p.set("in_ev", patch.event);
+    return p;
+  }, { replace: true });
+  const setChip = (c: IntelChip) => write({ chip: c, event: null });
+  const setPicked = (id: string | null) => write({ event: id });
   const feed = useIntelEvents(chip);
   const scan = useScanIndex();
   return mobile
-    ? <MobileIntel chip={chip} setChip={setChip} feed={feed} scan={scan} />
-    : <DesktopIntel chip={chip} setChip={setChip} feed={feed} scan={scan} />;
+    ? <MobileIntel chip={chip} setChip={setChip} picked={picked} setPicked={setPicked} feed={feed} scan={scan} />
+    : <DesktopIntel chip={chip} setChip={setChip} picked={picked} setPicked={setPicked} feed={feed} scan={scan} />;
 }

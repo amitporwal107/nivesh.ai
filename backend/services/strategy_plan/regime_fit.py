@@ -491,6 +491,12 @@ def _expected_move_price(view: str, summary: Dict[str, Any]) -> Optional[float]:
     return float(spot) + (float(move) if view == "up" else -float(move))
 
 
+def _rank_key(idea: Dict[str, Any]) -> Tuple[float, float]:
+    """The one ranking rule: best fit first; reward : risk breaks a tie. An idea with no reward:risk (unbounded
+    profit) sorts last within its fit band rather than being treated as infinitely good."""
+    return (-(idea["fit"]["score"]), -(idea["reward_risk"] or 0.0))
+
+
 def _short_at_wall(plan: Dict[str, Any]) -> Optional[bool]:
     """True/False when the structure has a short strike, None when it has none to place."""
     if "short_from" not in plan:
@@ -565,9 +571,7 @@ async def ideas_for_underlying(request: Any, symbol: str, regime: Dict[str, Any]
                 "price_source": f"NSE F&O bhavcopy close, {asof}",
             })
 
-    # Best fit first; reward : risk breaks a tie. An idea with no reward:risk (unbounded profit) sorts
-    # last within its fit band rather than being treated as infinitely good.
-    built.sort(key=lambda i: (-(i["fit"]["score"]), -(i["reward_risk"] or 0.0)))
+    built.sort(key=_rank_key)
     top = built[:limit]
     for i, it in enumerate(top, 1):
         it["rank"] = i
@@ -589,20 +593,80 @@ INDEX_UNDERLYINGS = ["NIFTY", "BANKNIFTY"]
 # the best `limit` are kept, so this bounds the chain reads, not the answer.
 STOCK_FNO_SCAN = 8
 
+# One row per underlying (`distinct`): the F&O-listed scanner names to read chains for, enough that the
+# board still fills after the ones whose chain cannot be read; and how many of an underlying's other
+# structures ride along under its row.
+STOCK_FNO_SCAN_DISTINCT = 12
+ALTERNATIVES_MAX = 2
+# Scanner rows read to find those names: every merged watchlist + picks row the route sends
+# (selection.SCANNER_ROUTE_LIMIT from each), not the ideas board's cap of 15.
+DISTINCT_SETUPS_READ = 60
+
+NOT_FNO_REASON = "not in the NSE F&O list (scan snapshot), so no chain was read"
+
+
+def one_per_underlying(pool: Sequence[Dict[str, Any]], limit: int,
+                       alternatives_max: int = ALTERNATIVES_MAX) -> List[Dict[str, Any]]:
+    """The pool ranked by `_rank_key` and cut to one idea per underlying: its best structure, with the next
+    `alternatives_max` structures of the same underlying (in the same order) under `alternatives`. Ranks run
+    1..n over underlyings; an alternative carries no rank of its own."""
+    lead: Dict[str, Dict[str, Any]] = {}
+    alts: Dict[str, List[Dict[str, Any]]] = {}
+    for idea in sorted(pool, key=_rank_key):
+        u = idea["underlying"]
+        if u not in lead:
+            lead[u], alts[u] = idea, []
+        elif len(alts[u]) < alternatives_max:
+            alts[u].append(idea)
+    out: List[Dict[str, Any]] = []
+    for i, u in enumerate(list(lead)[:limit], 1):
+        out.append({**lead[u], "rank": i, "alternatives": [{**a, "rank": None} for a in alts[u]]})
+    return out
+
+
+def order_fno_names(setups: Sequence[Dict[str, Any]], want: int) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """Scanner setups (in the scanner's order) -> the names to read chains for, and the names skipped.
+
+    A name the scan snapshot marks as not F&O-listed is skipped before any chain read and reported with the
+    reason; names it marks F&O-listed come first, then names whose eligibility it does not know. The walk
+    stops once `want` F&O-listed names are found, so only names actually passed over are reported."""
+    known: List[str] = []
+    unknown: List[str] = []
+    skipped: List[Dict[str, Any]] = []
+    seen: set = set()
+    for s in setups:
+        if len(known) >= want:
+            break
+        sym = str(s.get("symbol") or "").upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        flag = s.get("fno_eligible")
+        if flag is False:
+            skipped.append({"underlying": sym, "reason": NOT_FNO_REASON})
+        elif flag is True:
+            known.append(sym)
+        else:
+            unknown.append(sym)
+    return (known + unknown)[:want], skipped
+
 
 async def _pooled(request: Any, symbols: Sequence[str], regime: Dict[str, Any],
-                  expiry: Optional[str], limit: int) -> Dict[str, Any]:
-    """Build every underlying in the list, pool the ideas and keep the best `limit` overall."""
+                  expiry: Optional[str], limit: int, distinct: bool = False) -> Dict[str, Any]:
+    """Build every underlying in the list, pool the ideas and keep the best `limit` overall — or, with
+    `distinct`, the best idea of each of the best `limit` underlyings (one_per_underlying)."""
     import asyncio
 
+    per_underlying = 1 + ALTERNATIVES_MAX if distinct else limit
     results = await asyncio.gather(
-        *[ideas_for_underlying(request, s, regime, expiry=expiry, limit=limit) for s in symbols],
+        *[ideas_for_underlying(request, s, regime, expiry=expiry, limit=per_underlying) for s in symbols],
         return_exceptions=True,
     )
     pool: List[Dict[str, Any]] = []
     unavailable: List[Dict[str, Any]] = []
     as_of: Optional[str] = None
     context: List[Dict[str, Any]] = []
+    priced = 0
     for sym, r in zip(symbols, results):
         if isinstance(r, BaseException):
             unavailable.append({"underlying": sym, "reason": _why(r)})
@@ -614,7 +678,12 @@ async def _pooled(request: Any, symbols: Sequence[str], regime: Dict[str, Any],
         context.append({"underlying": sym, "spot": r.get("spot"), "expiry": r.get("expiry"),
                         **(r.get("chain_context") or {})})
         pool.extend(r["ideas"])
-    pool.sort(key=lambda i: (-(i["fit"]["score"]), -(i["reward_risk"] or 0.0)))
+        priced += int(r.get("considered") or 0)
+    if distinct:
+        # `considered` is every structure that priced on the underlyings read, not only the three kept per underlying.
+        return {"as_of": as_of, "ideas": one_per_underlying(pool, limit), "considered": priced, "distinct": True,
+                "underlyings": context, "unavailable": unavailable}
+    pool.sort(key=_rank_key)
     top = pool[:limit]
     for i, it in enumerate(top, 1):
         it["rank"] = i
@@ -636,42 +705,77 @@ async def _stock_fno_symbols(request: Any, want: int) -> Tuple[List[str], Option
         return [], _why(e)
 
 
+async def _stock_fno_names_distinct(request: Any, want: int) -> Tuple[List[str], List[Dict[str, Any]], Optional[str]]:
+    """The same scanner universe, read wider and with non-F&O names dropped before any chain read
+    (order_fno_names). Returns ([], [], reason) when the scanner cannot be read."""
+    try:
+        from .selection import eligible_setups
+
+        sel = await eligible_setups(request, DISTINCT_SETUPS_READ)
+        syms, skipped = order_fno_names(sel.get("setups") or [], want)
+        return syms, skipped, None
+    except Exception as e:  # noqa: BLE001
+        logger.warning("regime_fit: scanner selection unavailable: %s", _why(e))
+        return [], [], _why(e)
+
+
+_NO_REGIME = "the market regime is unavailable, so fit cannot be scored"
+
+
+async def _index_class(request: Any, regime: Dict[str, Any], expiry: Optional[str], limit: int,
+                       distinct: bool) -> Dict[str, Any]:
+    if not regime.get("available"):
+        return {"ideas": [], "considered": 0, "underlyings": [],
+                "unavailable": [{"underlying": s, "reason": _NO_REGIME} for s in INDEX_UNDERLYINGS]}
+    return await _pooled(request, INDEX_UNDERLYINGS, regime, expiry, limit, distinct)
+
+
+async def _stock_class(request: Any, regime: Dict[str, Any], expiry: Optional[str], limit: int,
+                       distinct: bool) -> Dict[str, Any]:
+    if not regime.get("available"):
+        return {"ideas": [], "considered": 0, "underlyings": [],
+                "unavailable": [{"underlying": None, "reason": _NO_REGIME}]}
+    if distinct:
+        syms, skipped, why = await _stock_fno_names_distinct(request, STOCK_FNO_SCAN_DISTINCT)
+        source = ("the AI scanner's merged setup list, F&O-listed names only "
+                  "(services/strategy_plan/selection.eligible_setups)")
+    else:
+        (syms, why), skipped = await _stock_fno_symbols(request, STOCK_FNO_SCAN), []
+        source = "the AI scanner's merged setup list (services/strategy_plan/selection.select_opportunities)"
+    if not syms:
+        out: Dict[str, Any] = {"ideas": [], "considered": 0, "underlyings": [],
+                               "unavailable": [{"underlying": None, "reason": why or "the scanner returned no setups"}]}
+        if distinct:
+            out["universe"] = {"source": source, "symbols_tried": [], "skipped": skipped}
+        return out
+    out = await _pooled(request, syms, regime, expiry, limit, distinct)
+    out["universe"] = {"source": source, "symbols_tried": syms}
+    if distinct:
+        out["universe"]["skipped"] = skipped
+    return out
+
+
 async def build_top(request: Any, user_id: str, *, limit: int = 5,
                     classes: Optional[Sequence[str]] = None,
-                    expiry: Optional[str] = None) -> Dict[str, Any]:
-    """The whole answer: the regime, then the best `limit` ideas in each asset class.
+                    expiry: Optional[str] = None, distinct: bool = False) -> Dict[str, Any]:
+    """The whole answer: the regime, then the best `limit` ideas in each asset class — with `distinct`, the
+    best idea of each of the best `limit` underlyings in each option class (the cash class is one row per
+    stock already). The classes are built at the same time; each one catches its own failures.
 
     Reads only. Nothing is written and nothing is sent to a broker."""
+    import asyncio
     from datetime import datetime, timezone
 
     wanted = list(classes) if classes else ["index_options", "stock_fno", "cash"]
     regime = await read_regime()
-    out_classes: Dict[str, Any] = {}
-
-    if "index_options" in wanted:
-        if regime.get("available"):
-            out_classes["index_options"] = await _pooled(request, INDEX_UNDERLYINGS, regime, expiry, limit)
-        else:
-            out_classes["index_options"] = {"ideas": [], "considered": 0, "underlyings": [],
-                                            "unavailable": [{"underlying": s, "reason": "the market regime is unavailable, so fit cannot be scored"} for s in INDEX_UNDERLYINGS]}
-
-    if "stock_fno" in wanted:
-        if regime.get("available"):
-            syms, why = await _stock_fno_symbols(request, STOCK_FNO_SCAN)
-            if syms:
-                out_classes["stock_fno"] = await _pooled(request, syms, regime, expiry, limit)
-                out_classes["stock_fno"]["universe"] = {
-                    "source": "the AI scanner's merged setup list (services/strategy_plan/selection.select_opportunities)",
-                    "symbols_tried": syms}
-            else:
-                out_classes["stock_fno"] = {"ideas": [], "considered": 0, "underlyings": [],
-                                            "unavailable": [{"underlying": None, "reason": why or "the scanner returned no setups"}]}
-        else:
-            out_classes["stock_fno"] = {"ideas": [], "considered": 0, "underlyings": [],
-                                        "unavailable": [{"underlying": None, "reason": "the market regime is unavailable, so fit cannot be scored"}]}
-
-    if "cash" in wanted:
-        out_classes["cash"] = await _cash_class(request, user_id, limit)
+    builders = {
+        "index_options": lambda: _index_class(request, regime, expiry, limit, distinct),
+        "stock_fno": lambda: _stock_class(request, regime, expiry, limit, distinct),
+        "cash": lambda: _cash_class(request, user_id, limit),
+    }
+    names = [k for k in builders if k in wanted]
+    built = await asyncio.gather(*[builders[k]() for k in names])
+    out_classes: Dict[str, Any] = dict(zip(names, built))
 
     gap = None
     if regime.get("available"):
@@ -691,6 +795,7 @@ async def build_top(request: Any, user_id: str, *, limit: int = 5,
         "rules_version": REGIME_FIT_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "limit": limit,
+        "distinct": distinct,
         "regime": regime,
         "staleness_note": gap,
         "classes": out_classes,
