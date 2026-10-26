@@ -868,12 +868,13 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(panel.getByTestId("desk-scan-paper-add")).toBeDisabled();
     await panel.getByTestId("desk-scan-paper-qty").fill("12");
     const p = PICKS.picks[0];
-    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`entry ${inr2(p.entry_price)}, stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}. No order is placed and nothing is sent to a broker`);
+    // paper_fills_pnl TESTCASES ER-4: the pick's entry 505 is under the watchlist close 510, so it waits for a pullback.
+    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`entry ${inr2(p.entry_price)} (filled when a later session pulls back to it), stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}. No order is placed and nothing is sent to a broker`);
     await panel.getByTestId("desk-scan-paper-add").click();
     await expect(panel.getByTestId("desk-scan-paper-done")).toHaveText(`Paper trade added: 12 FIXBRK at ${inr2(p.entry_price)}. No order is placed.`);
     expect(paperPosts.map((x) => x.body)).toEqual([{
       symbol: "FIXBRK", quantity: 12, entry_price: p.entry_price, stop_price: p.stoploss, target_price: p.target_price,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date },
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date }, entry_rule: "pullback_to",
     }]);
 
     // A universe-only stock has no plan: no paper trade, and it says why.

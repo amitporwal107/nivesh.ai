@@ -59,7 +59,9 @@ def test_create_stores_the_field_set_and_echoes_the_cost_estimates(api, world):
     assert t["signal_at"] == "2026-10-12T03:30:00+00:00"
     assert t["strategy_version"] == "positional-scanner v2" and t["rationale"] == "Broke a 20-day high on volume"
     assert t["rules_version"] == svc.RULES_VERSION
-    assert t["cost_model"] == {"name": svc.COST_MODEL["name"], "slippage_pct_per_side": 0.05, "brokerage_rs_per_side": 20.0,
+    # The snapshot now also names its version and what it leaves out (paper_fills_pnl TESTCASES C-5).
+    assert t["cost_model"] == {"name": svc.COST_MODEL["name"], "version": "desk-flat-v1", "slippage_pct_per_side": 0.05,
+                               "brokerage_rs_per_side": 20.0, "excludes": svc.COST_MODEL["excludes"],
                                "source": svc.COST_MODEL["source"]}
     # Not reached yet: nothing has been read, so the entry is waiting and no P&L or MFE exists.
     assert (t["entry_status"], t["sim_entry_price"], t["entry_session"]) == ("waiting", None, None)
@@ -139,7 +141,8 @@ def test_an_open_trade_is_marked_gross_and_net_with_the_path_so_far(api, world):
     assert t["unrealized_pnl_rs"] == 20.0 == t["gross_pnl_rs"]
     assert t["costs_rs"] == 41.01 and t["net_pnl_rs"] == -21.01
     assert (t["mfe_pct"], t["mae_pct"], t["observations"]) == (4.0, -2.0, 1)
-    assert t["costs_basis"] == "exit side estimated at the last close"
+    # The basis now says what the figure includes (gate 4: risk and cost figures say whether costs are in them).
+    assert t["costs_basis"] == "entry at the fill, exit side estimated at the last close; " + svc.COSTS_EXCLUDED_TEXT
 
 
 def test_same_session_stop_and_target_stays_a_stop_with_costs_at_the_stop(api, world):
@@ -258,7 +261,11 @@ def test_a_missing_bar_stops_the_scan_and_is_flagged(api, world):
 
 
 def test_an_at_once_entry_outside_the_days_range_is_flagged(api, world):
-    open_trade(api, entry_price=120.0, stop_price=110.0, target_price=130.0)   # 12 Oct traded 94–104
+    # The route now refuses such an entry when it is recorded (paper_fills_pnl TESTCASES FM-2) ...
+    r = api.post(TRADES_URL, json=trade_body(entry_price=120.0, stop_price=110.0, target_price=130.0), headers=A)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "entry_not_tradable"
+    # ... and a trade stored before that check is still flagged on its open date's range (12 Oct traded 94–104).
+    world.db.trades.docs.append(svc.new_trade("user_a", trade_body(entry_price=120.0, stop_price=110.0, target_price=130.0), world.now))
     t = only(trades(api))
     assert "entry_outside_day_range" in flag_codes(t)
 

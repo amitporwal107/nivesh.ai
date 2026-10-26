@@ -145,6 +145,38 @@ const EXIT_REASONS: readonly string[] = ["stop", "target", "time", "manual", "en
 
 export type EntryRule = "at_once" | "break_above" | "pullback_to";
 const ENTRY_RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
+
+/** How each entry rule fills, in a few words (the FILL MODEL in backend/services/desk_trading.py). */
+export const ENTRY_RULE_SHORT: Record<EntryRule, string> = {
+  at_once: "filled at once, inside the last session's range",
+  break_above: "filled when a later session trades up to it",
+  pullback_to: "filled when a later session pulls back to it",
+};
+
+/**
+ * The entry rule a scanner idea's levels mean, from where the entry sits against the scan's close (the levels the
+ * scanner set: backend/services/positional_engine/trade_planner.py and setup_rules.py):
+ *   above the close → break_above   EARLY_BREAKOUT's trigger, max(close, 20-day high x 1.001); the watchlist trigger
+ *                                   (the breakout level) of a pre-breakout or accumulation setup
+ *   below the close → pullback_to   ACCUMULATION's swing-low x 1.01 entry; a confirmed breakout's retest of its level
+ *   at the close    → at_once       BREAKOUT (entry = the close), or ACCUMULATION already at support
+ * With no close the setup decides: ACCUMULATION → pullback_to; EARLY_BREAKOUT, pre-breakout, accumulation bucket →
+ * break_above; anything else → at_once. The route refuses an at-once entry outside the last completed session's range
+ * either way (entry_not_tradable), so a level the market never traded is never booked as filled.
+ */
+export function entryRuleFor(entry: number, close: number | null | undefined,
+  setup: { stage?: string | null; bucket?: string | null } = {}): EntryRule {
+  if (close != null && close > 0) {
+    const tolerance = close * 0.0005;               // the scanner rounds its levels to the paisa
+    if (entry > close + tolerance) return "break_above";
+    if (entry < close - tolerance) return "pullback_to";
+    return "at_once";
+  }
+  const stage = (setup.stage ?? "").toUpperCase();
+  if (stage === "ACCUMULATION") return "pullback_to";
+  if (stage === "EARLY_BREAKOUT" || setup.bucket === "pre_breakout" || setup.bucket === "true_accumulation") return "break_above";
+  return "at_once";
+}
 /** assumed: filled when recorded (at once) · reached: the level traded · waiting: not yet · not_reached: never filled. */
 export type EntryStatus = "assumed" | "reached" | "waiting" | "not_reached";
 const ENTRY_STATUSES: readonly string[] = ["assumed", "reached", "waiting", "not_reached"];

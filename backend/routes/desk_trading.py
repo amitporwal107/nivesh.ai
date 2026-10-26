@@ -31,6 +31,10 @@ Endpoints (all under /api/desk):
 Limits: 100 open paper trades and 50 active alerts per user (409 open_trade_limit / active_alert_limit). An active
 alert identical to one the user already has (same condition, stock, level and settings) is 409 duplicate_alert.
 
+Entry fills (POST /paper-trades, cash): an `at_once` entry must lie inside the last completed session's low-high range
+(422 entry_not_tradable with the range; 422 entry_unverifiable with no bar; 503 prices_unavailable when the bars cannot
+be read). The whole fill model is written once, in services/desk_trading.py ("FILL MODEL").
+
 Duplicates and retries (POST /paper-trades): a second OPEN cash trade in the same symbol is 409 duplicate_open_trade, an
 identical open structure 409 duplicate_open_structure, each with `existing_trade_id` (adding to a position is not
 supported yet). An `Idempotency-Key` header (8-64 characters, one per click; a retry reuses it) makes a repeated
@@ -213,6 +217,19 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
     existing = await _open_duplicate(uid, doc)
     if existing is not None:
         raise await ref.refuse(409, _duplicate_detail(doc, existing))
+    if doc.get("kind") != strat.KIND and doc["entry_rule"] == "at_once":
+        # The fill model (services/desk_trading.py): an at-once entry is filled when recorded, so it must be a price the
+        # last completed session traded. Without this a scanner pullback level 8-11% below the market was booked as
+        # filled (FEDERALBNK 316.89 against 337.20-344.80). No bars, no fill: refused rather than assumed.
+        try:
+            bars = await svc.fetch_bars(doc["symbol"], svc.ist_date(doc["opened_at"]) - timedelta(days=svc.LOOKBACK_DAYS))
+        except svc.PricesUnavailable as exc:
+            logger.warning("desk: no end-of-day bars for %s to check an at-once entry: %s", doc["symbol"], exc)
+            raise await ref.refuse(503, "prices_unavailable")
+        try:
+            doc["entry_range_checked"] = svc.check_entry_tradable(doc, bars)
+        except svc.DeskInputError as exc:
+            raise await ref.refuse(422, exc.detail())
     if gated:
         # 409 risk_blocked / 503 risk_decision_unrecorded, before the account is charged or anything is written.
         if doc.get("kind") == strat.KIND:

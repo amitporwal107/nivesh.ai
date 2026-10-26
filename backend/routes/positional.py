@@ -1585,27 +1585,34 @@ def _size_position(
     """Compute qty, allocated_rs, risk_rs for one position.
 
     Base allocation = capital_rs / max_positions, scaled by position_size_factor.
-    Max risk per position = 2% of capital (risk control floor).
-    Returns dict with qty, allocated_rs, risk_rs, risk_pct.
+    Max risk per position = 2% of capital (risk control floor), and that risk is the loss at the stop AFTER the
+    estimated round-trip costs (services/desk_trading.max_units_within_budget, the cost model a paper trade records).
+    The cap always applies: a stop so wide that no whole share fits gives qty 0, never 1 (it used to force
+    `max(1, ...)` and skip the cap when the cap was 0, so one share could exceed the 2% limit).
+    Returns dict with qty, allocated_rs, risk_rs (loss at the stop after costs), risk_gross_rs, risk_pct, risk_basis.
     """
     import math
+    from services import desk_trading as _desk
     base = capital_rs / max_positions
     adjusted = base * position_size_factor
     risk_per_share = entry - stoploss
     if risk_per_share <= 0 or entry <= 0:
-        return {"qty": 0, "allocated_rs": 0.0, "risk_rs": 0.0, "risk_pct": 0.0}
+        return {"qty": 0, "allocated_rs": 0.0, "risk_rs": 0.0, "risk_gross_rs": 0.0, "risk_pct": 0.0,
+                "risk_basis": _BASKET_RISK_BASIS}
 
-    qty = max(1, math.floor(adjusted / entry))
-
-    # Cap by 2% risk limit
-    max_qty_by_risk = math.floor((capital_rs * 0.02) / risk_per_share)
-    if max_qty_by_risk > 0:
-        qty = min(qty, max_qty_by_risk)
+    qty = max(0, math.floor(adjusted / entry))
+    qty = min(qty, _desk.max_units_within_budget(capital_rs * 0.02, entry, stoploss))
 
     allocated = round(qty * entry, 2)
-    risk_rs = round(qty * risk_per_share, 2)
+    gross = round(qty * risk_per_share, 2)
+    risk_rs = round(gross + _desk.round_trip_cost(qty, entry, stoploss), 2) if qty else 0.0
     risk_pct = round(risk_rs / capital_rs * 100, 2) if capital_rs > 0 else 0.0
-    return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_pct": risk_pct}
+    return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_gross_rs": gross, "risk_pct": risk_pct,
+            "risk_basis": _BASKET_RISK_BASIS}
+
+
+_BASKET_RISK_BASIS = ("loss at the stop after estimated round-trip costs (slippage and brokerage; taxes and statutory "
+                      "charges not included)")
 
 
 # ── Trade scenario calculator (PRD §8.5 and §8.6; desk default D6) ────────
@@ -1623,16 +1630,18 @@ from services.strategy_engine.backtest import (  # noqa: E402
 _SCENARIO_CAVEATS = (
     "A stop price does not guarantee the exit price: a gap or thin trading can fill the exit beyond the stop, "
     "so the loss can be larger than shown.",
-    "Costs are estimates from the strategy_engine model (slippage per side plus a flat brokerage per side); "
-    "taxes and exchange charges are not included.",
+    "Costs are estimates from the strategy_engine model (slippage per side plus a flat brokerage per side), the model a "
+    "paper trade records; taxes and exchange charges are not included.",
     "Illustrative only: nothing is sent to a broker and no order is placed.",
 )
 _SCENARIO_METHOD = (
     "PRD §8.5, long only: risk per share = entry − stop; reward per share = target − entry; reward : risk = reward ÷ "
-    "risk; quantity = floor(risk budget ÷ risk per share), then capped by floor(capital × max allocation % ÷ entry) "
-    "and the maximum quantity, and rounded down to the lot size. Costs per side = traded value × slippage % + "
-    "brokerage; net loss at the stop = gross loss + entry and stop-exit costs; net profit at the target = gross "
-    "profit − entry and target-exit costs. Portfolio weights assume the buy is new money added to the portfolio."
+    "risk; quantity = floor((risk budget − 2 × brokerage) ÷ (risk per share + (entry + stop) × slippage %)), so the "
+    "loss at the stop AFTER the entry and stop-exit costs stays within the risk budget; then capped by "
+    "floor(capital × max allocation % ÷ entry) and the maximum quantity, and rounded down to the lot size. Costs per "
+    "side = traded value × slippage % + brokerage; net loss at the stop = gross loss + entry and stop-exit costs; net "
+    "profit at the target = gross profit − entry and target-exit costs. Portfolio weights assume the buy is new money "
+    "added to the portfolio."
 )
 
 
@@ -1708,7 +1717,11 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         "reward_to_risk": round(reward_ps / risk_ps, 4) if reward_ps is not None else None,
     }
 
-    qty_risk = math.floor(budget / risk_ps + eps)
+    # Sized so the loss at the stop INCLUDING the round-trip costs stays within the budget (gate 4). It used to be
+    # floor(budget / risk per share), so the net loss could exceed the budget (PRD Example A: 85 shares, ₹3,098.94 > ₹3,000).
+    from services import desk_trading as _desk
+    qty_risk = _desk.max_units_within_budget(budget, entry, stop, model={"slippage_pct_per_side": slip_pct,
+                                                                        "brokerage_rs_per_side": brokerage})
     qty_alloc = math.floor(capital * max_alloc_pct / 100.0 / entry + eps) if capital is not None else None
     limits = [("risk_budget", qty_risk), ("max_allocation", qty_alloc), ("max_qty", max_qty)]
     binding, qty = min(((k, q) for k, q in limits if q is not None), key=lambda kq: kq[1])
@@ -1728,6 +1741,7 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         "gross_exposure": round(gross, 2),
         "allocation_pct": round(gross / capital * 100.0, 6) if capital else None,
         "max_alloc_pct": max_alloc_pct,
+        "risk_basis": "the loss at the stop after the entry and stop-exit costs fits the risk budget",
     }
 
     warnings = []
@@ -1735,7 +1749,8 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
     if qty == 0:
         warnings.append(_scenario_problem(
             "risk", "no_whole_share",
-            f"The risk budget (₹{budget:,.2f}) is smaller than one share's risk (₹{risk_ps:,.2f}), so no whole share fits."))
+            f"The risk budget (₹{budget:,.2f}) does not cover one share's risk (₹{risk_ps:,.2f}) plus the round-trip "
+            f"costs at the stop, so no whole share fits."))
     else:
         s = slip_pct / 100.0
         entry_cost = qty * entry * s + brokerage
@@ -1941,6 +1956,7 @@ async def build_basket(request: Request, body: BasketRequest):
             "allocated_rs":      sizing["allocated_rs"],
             "risk_rs":           sizing["risk_rs"],
             "risk_pct":          sizing["risk_pct"],
+            "risk_basis":        sizing["risk_basis"],
             "position_size_factor": psf,
             "hedge":             hedge,
             "signal_date":       str(sig_date),

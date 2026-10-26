@@ -29,7 +29,7 @@ import { SymbolCell } from "../desk/parts";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk, type TrailFrom } from "./context";
 import { BUCKET_LABEL, type SetupBucket } from "./desk-data";
-import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
+import { ENTRY_RULE_SHORT, entryRuleFor, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { Segmented } from "./fno-parts";
 import { DASH, StatusPill, noteStyle, ratio, rupeesAbs } from "./strategy/plan-format";
 import type { PlanStatus } from "./strategy/plan-contract";
@@ -78,11 +78,13 @@ function StockPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: string | nu
     return <span data-testid="desk-top10-paper-none" style={quiet}>A paper trade needs the scanner’s entry and a stop below it; {idea.symbol} has none on this scan. Open the plan to record one there.</span>;
   }
   const sendTarget = target != null && target > entry ? target : null;
+  const rule = entryRuleFor(entry, idea.scanner.close, { stage: idea.scanner.stage, bucket });
   const q = Number(qty.trim());
   const ok = /^\d+$/.test(qty.trim()) && q >= 1 && q <= 1_000_000;
   const body: NewPaperTrade | null = ok ? {
     symbol: idea.symbol, quantity: q, entry_price: entry, stop_price: stop, target_price: sendTarget,
     source: { kind: "scanner", ...(bucket ? { bucket } : {}), ...(scanDate ? { signal_date: scanDate } : {}) },
+    entry_rule: rule,
   } : null;
   return (
     <span className="flex min-w-0 flex-col" style={{ gap: 6 }}>
@@ -96,7 +98,7 @@ function StockPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: string | nu
         </Btn>
       </span>
       <span style={quiet}>
-        At the scanner’s levels: entry {fmtPrice(entry)}, stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}{sized != null ? `; ${fmtNum(sized)} is the plan’s sized quantity` : ""}. Simulated; nothing is sent to a broker.
+        At the scanner’s levels: entry {fmtPrice(entry)} (<span data-testid="desk-top10-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}{sized != null ? `; ${fmtNum(sized)} is the plan’s sized quantity` : ""}. Simulated; nothing is sent to a broker.
       </span>
       {paper.isSuccess && <span role="status" data-testid="desk-top10-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {idea.symbol} at {fmtPrice(entry)}.</span>}
       {paper.isError && <span role="alert" data-testid="desk-top10-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}

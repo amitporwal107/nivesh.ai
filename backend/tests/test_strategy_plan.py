@@ -396,9 +396,13 @@ def test_cash_breakout_continuation_sizing_and_net_ratio_by_hand():
     p = build(instrument="cash")
     c = cand(p, "cash:breakout_continuation")
     assert c["status"] == "candidate" and p["status"] == "plan" and p["preferred"] == c["id"]
-    # entry 1200, scanner stop 1160: risk 40/share. budget 10000/40 = 250; allocation cap floor(1,000,000 x 25% / 1200) = 208 -> 208 shares.
+    # entry 1200, scanner stop 1160: risk 40/share. Sized after costs (paper_fills_pnl TESTCASES C-1; it was 10000/40 = 250
+    # on the gross distance): costs at the stop 0.05% x (1200 + 1160) = 1.18/share + 2 x Rs 20 brokerage, so
+    # floor((10000 - 40) / 41.18) = 241. The allocation cap floor(1,000,000 x 25% / 1200) = 208 still binds -> 208 shares.
     s = c["sizing"]
-    assert (s["status"], s["quantity"], s["by_risk_budget"], s["by_allocation_cap"], s["binding"]) == ("complete", 208, 250, 208, "allocation_cap")
+    assert (s["status"], s["quantity"], s["by_risk_budget"], s["by_allocation_cap"], s["binding"]) == ("complete", 208, 241, 208, "allocation_cap")
+    # 208 x 40 = 8320 gross; costs 208 x 1.18 + 40 = 285.44; 8605.44 after costs (the same figure as the net risk below).
+    assert (s["risk_at_stop_inr"], s["costs_at_stop_inr"], s["risk_at_stop_net_inr"], s["costs_included"]) == (8320.0, 285.44, 8605.44, True)
     assert c["legs"][0]["quantity"] == 208 and c["legs"][0]["entry_price"] == 1200.0
     # levels: base 1200 + 2 x 40 = 1280, optimistic 1200 + 3 x 40 = 1320, conservative 1 x ATR = 1220 (resistance 1290 is farther than the base)
     t = {x["name"]: x["price"] for x in c["targets"]}
@@ -445,7 +449,8 @@ def test_cash_incomplete_sizing_shows_formula_and_missing_inputs_never_a_guess()
     p = pl.build_plan(inputs(instrument="cash", capital=None, risk_budget_inr=None), world(), NOW, TODAY)
     s = cand(p, "cash:breakout_continuation")["sizing"]
     assert s["status"] == "incomplete" and s["quantity"] is None and "capital" in s["missing"]
-    assert any("risk_budget_inr" in m for m in s["missing"]) and "floor(risk budget" in s["formula"]
+    # The formula now names the costs it sizes with (paper_fills_pnl TESTCASES C-1).
+    assert any("risk_budget_inr" in m for m in s["missing"]) and "floor((risk budget - fixed costs)" in s["formula"]
     c = cand(p, "cash:breakout_continuation")
     assert c["legs"][0]["quantity"] == 1 and any("Sizing is incomplete" in w for w in c["warnings"])
 

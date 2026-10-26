@@ -20,6 +20,7 @@ import statistics
 from datetime import date, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from services import desk_trading as desk_costs
 from services.option_pricing import RISK_FREE_RATE
 from services.positional_engine import setup_rules
 
@@ -87,10 +88,31 @@ def scenario_levels(entry: float, up: bool, stop: float, atr: Optional[float], n
 
 # ── sizing (PRD §16.5) ───────────────────────────────────────────────────────
 
+def _cost_model(inputs: Dict[str, Any]) -> Dict[str, Any]:
+    """The plan's cost inputs as a desk cost-model snapshot (services/desk_trading.COST_MODEL keys): the request's
+    `costs` (slippage_pct, brokerage_per_side) where given, the desk model for the rest. So the plan sizes with the
+    costs its payoff charges, and by default with the model a paper trade of it records."""
+    c = inputs.get("costs") or {}
+    model = dict(desk_costs.COST_MODEL)
+    if c.get("slippage_pct") is not None:
+        model["slippage_pct_per_side"] = c["slippage_pct"]
+    if c.get("brokerage_per_side") is not None:
+        model["brokerage_rs_per_side"] = c["brokerage_per_side"]
+    return model
+
+
 def size_position(inputs: Dict[str, Any], *, risk_per_unit: Optional[float], value_per_unit: Optional[float], unit: str,
-                  lot_units: int = 1, per_unit_label: str) -> Dict[str, Any]:
-    """units = floor(risk budget / (risk per unit x lot units)), capped by floor(capital x max allocation % / (value per unit x
-    lot units)). Incomplete, with the formula and the missing inputs, when any input is missing. Never a guessed quantity."""
+                  lot_units: int = 1, per_unit_label: str, cost_per_unit: Optional[float] = None,
+                  fixed_cost: float = 0.0) -> Dict[str, Any]:
+    """units = floor((risk budget − fixed costs) / ((risk per unit + cost per unit) x lot units)), capped by
+    floor(capital x max allocation % / (value per unit x lot units)). Incomplete, with the formula and the missing inputs,
+    when any input is missing. Never a guessed quantity.
+
+    `cost_per_unit` / `fixed_cost` are the estimated round-trip costs at the stop of a linear position (cash, futures):
+    slippage per unit on both sides and the flat brokerage, from the cost model the paper trade records
+    (services/desk_trading.cost_terms). With them the loss at the stop AFTER costs stays within the budget; sizing on
+    the gross stop distance alone let it exceed the budget (PRD Example A: 85 shares, ₹3,098.94 against ₹3,000). None
+    when `risk_per_unit` is already a net figure (an option structure's worst loss including costs)."""
     budget, capital = inputs.get("risk_budget_inr"), inputs.get("capital")
     if budget is None and inputs.get("risk_pct") is not None and capital:
         budget = capital * inputs["risk_pct"] / 100.0
@@ -109,12 +131,18 @@ def size_position(inputs: Dict[str, Any], *, risk_per_unit: Optional[float], val
         out["missing"].append("value per unit")
     if out["missing"]:
         return out
-    by_risk = math.floor(budget / (risk_per_unit * lot_units))
+    unit_cost = cost_per_unit or 0.0
+    room = budget - (fixed_cost if cost_per_unit is not None else 0.0)
+    by_risk = max(0, math.floor(room / ((risk_per_unit + unit_cost) * lot_units) + 1e-9)) if room > 0 else 0
     by_cap = math.floor(capital * alloc / 100.0 / (value_per_unit * lot_units))
     n = max(0, min(by_risk, by_cap))
     out.update(status="complete" if n >= 1 else "too_small", quantity=n, units=n * lot_units, by_risk_budget=by_risk, by_allocation_cap=by_cap,
                binding="risk_budget" if by_risk <= by_cap else "allocation_cap",
-               risk_at_stop_inr=r2(n * lot_units * risk_per_unit), deployed_inr=r2(n * lot_units * value_per_unit))
+               risk_at_stop_inr=r2(n * lot_units * risk_per_unit), deployed_inr=r2(n * lot_units * value_per_unit),
+               costs_included=cost_per_unit is not None)
+    if cost_per_unit is not None:
+        costs = n * lot_units * cost_per_unit + fixed_cost if n >= 1 else 0.0
+        out.update(costs_at_stop_inr=r2(costs), risk_at_stop_net_inr=r2(n * lot_units * risk_per_unit + costs))
     if n < 1:
         out["reason"] = "The risk budget or the allocation cap buys less than one share/lot."
     return out
@@ -290,8 +318,18 @@ def linear_candidate(ctx: Dict[str, Any], segment: str, family: str, label: str,
     levels = scenario_levels(entry, up, stop, atr, near, base_override)
     risk_unit = abs(entry - stop)
     unit_name = "share" if unit_kind == "cash" else "lot"
+    slip, brokerage = desk_costs.cost_terms(_cost_model(inputs))
     sizing = size_position(inputs, risk_per_unit=risk_unit, value_per_unit=entry, unit=unit_name + "s", lot_units=lot,
-                           per_unit_label="entry minus stop, per unit, gross (costs and gap slippage excluded)")
+                           per_unit_label=("entry minus stop, per unit, plus the estimated round-trip costs at the stop "
+                                           "(slippage and brokerage, as the paper trade records them); taxes, statutory "
+                                           "charges and gap slippage are not included"),
+                           cost_per_unit=(entry + stop) * slip, fixed_cost=2 * brokerage)
+    if sizing["status"] == "complete":
+        # The costs shown are the desk's own figure for this quantity (services/desk_trading.round_trip_cost), so the
+        # plan, the paper trade's estimate and its realised costs at the stop agree to the paisa.
+        units = sizing["quantity"] * lot
+        costs_at_stop = desk_costs.round_trip_cost(units, entry, stop, _cost_model(inputs))
+        sizing.update(costs_at_stop_inr=costs_at_stop, risk_at_stop_net_inr=r2(units * risk_unit + costs_at_stop))
     qty = sizing["quantity"] if sizing["status"] == "complete" else 1
     leg = {"kind": unit_kind, "side": "buy" if up else "sell", "quantity": qty, "lot_size": lot, "entry_price": entry,
            "expiry": expiry, "price_source": price_source}
