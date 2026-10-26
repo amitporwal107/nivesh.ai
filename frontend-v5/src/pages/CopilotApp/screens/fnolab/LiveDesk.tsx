@@ -6,11 +6,13 @@
  * stands today and the backlog item that closes it. None is enforceable, so the count is 0 of 12. Three rows read live
  * state from GET /api/risk/status (tradingdesk/risk-controls.ts): the kill switch, the policy gate for this account and
  * the admin-granted live authorization. `live_execution_available: false` reads "Live orders are off".
- * There is no authorise button and no order ticket.
+ * There is no authorise button and no order ticket. The Kite sessions panel (./KiteSessions) offers the two logins that
+ * exist: the admin's daily platform login and the user's own read-only Zerodha connection.
  */
 import { LoadingBlock, Pill, Section } from "../../components/ui";
 import { QueryProblem } from "../trading/parts";
 import { useRiskStatus, type RiskStatus } from "../tradingdesk/risk-controls";
+import { KiteSessions } from "./KiteSessions";
 import { GapNote, Mark, SourceCards, type SourceItem } from "./parts";
 
 interface GateRow { k: string; today: string; tag: string }
@@ -51,6 +53,7 @@ export function LiveDesk() {
   return (
     <div className="flex flex-col" style={{ gap: 14 }}>
       <SourceCards items={SOURCES(st)} />
+      <KiteSessions />
       <Section title="Live readiness gate · PRD §21" note={<Pill tone="amber">0 of 12 enforceable</Pill>}>
         <div className="flex flex-col" style={{ gap: 12 }}>
           <span data-testid="fnolab-live-headline" data-live={String(live)} style={{ fontFamily: "var(--display)", fontSize: 28, lineHeight: 1.1 }}>

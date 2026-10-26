@@ -25,6 +25,7 @@ import {
   type ExpiryBuildup, type LiveChain, type MiUnderlying,
 } from "./market-intel";
 import { GapNote, KvRows, SourceCards, quiet, type SourceItem } from "./parts";
+import { KiteSessions } from "./KiteSessions";
 
 const BUILDUP_TONE: Record<OiBuildup, Tone> = {
   "long build-up": "mint", "short build-up": "danger", "short covering": "amber", "long unwinding": "amber",
@@ -376,6 +377,7 @@ export function MarketIntel() {
         </div>
       </div>
 
+      <KiteSessions own={false} />
       <QuotePanel symbol={symbol} live={liveData} isPending={live.isPending} error={live.isError ? live.error : null} onRetry={() => void live.refetch()} atm={chain?.summary.atm_strike ?? null} />
     </div>
   );

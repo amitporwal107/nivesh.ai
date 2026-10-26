@@ -62,6 +62,24 @@ The screen lives at `/app/tool/fnolab`; `?screen=` picks one of the seven.
 | L-1 | Readiness list | The 12 PRD §21 conditions with "0 of 12 enforceable" and the backlog tag that closes each one. The kill-switch row reads `/api/risk/status` (on/off). The risk-policy row reads `gate.enabled` and the policy version. |
 | L-2 | No order path | No authorise button and no order ticket. `live_execution_available: false` reads "Live orders are off". |
 
+## Kite sessions panel on Live Desk and MI (K) — added 2026-10-26 ("Need a kite login for the same")
+
+Two Kite logins already exist in the backend. Both are reused here; neither is new.
+- The platform's daily data session, admin only: `POST /api/live/kite/login-url`. Its state is read from `GET /api/live/status`.
+- The user's own Zerodha account, read-only, which is the future order route: `GET /api/broker/accounts`, `GET /api/broker/native/supported`, `GET /api/broker/native/start/zerodha`.
+
+| ID | Case | Expected |
+|---|---|---|
+| K-1 | Admin; feed expired in an open session (`alert_state: TOKEN_ALERT`) | `fnolab-kite-platform` has `data-state="login_needed"` and the text "Kite login needed". The button `fnolab-kite-login` sends `POST /api/live/kite/login-url` and the browser goes to the returned `login_url`. |
+| K-2 | Non-admin; same feed state | No `fnolab-kite-login` button. The text says an admin logs in once a day. |
+| K-3 | Feed LIVE | `data-state="live"`, the text says the Kite session is active, and there is no login button. |
+| K-4 | Market closed, platform token stored and not expired | `data-state="closed"`. The text says the market is closed and shows how long today's session is valid. No login button. |
+| K-5 | No Zerodha account; the zerodha adapter is connectable | `fnolab-kite-own` has `data-state="none"`. `fnolab-kite-connect` goes to `/api/broker/native/start/zerodha?return_to=` plus the encoded `/v5/app/tool/fnolab?screen=live`. |
+| K-6 | Zerodha account active (masked id ••••34) | `data-state="connected"` and the text "••••34". No connect button. The read-only line is shown. |
+| K-7 | Zerodha account with `needs_reconnect: true` | `data-state="reconnect"` and the button `fnolab-kite-connect` reads "Reconnect Zerodha". |
+| K-8 | MI screen | The platform row (`fnolab-kite-platform`) is shown above the live chain. The own-account row is not shown on MI. |
+| K-S | Staging after merge (admin session) | The panel reads the real `/api/live/status` and `/api/broker/accounts`, and its state matches the API answers in the report. |
+
 ## 11 Certification (C)
 
 | ID | Case | Expected |
