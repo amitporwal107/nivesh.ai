@@ -363,8 +363,9 @@ async def score_universe(scan_date: date, *, load_bars: Optional[BarLoader] = No
     errors = 0
     blocked = 0
     basis = {price_adjustment.BASIS_ADJUSTED: 0, price_adjustment.BASIS_RAW: 0, "unadjusted_replay": 0}
-    truncated = 0
-    short_after_break = 0
+    # Every symbol whose prices were not a clean adjusted history, by name and reason (owner decision 2026-10-27:
+    # exceptions are reported, never shown as adjusted).
+    exceptions: Dict[str, List[dict]] = {"raw_prices": [], "truncated": [], "not_scored_after_truncation": []}
 
     for symbol in universe:
         try:
@@ -384,9 +385,13 @@ async def score_universe(scan_date: date, *, load_bars: Optional[BarLoader] = No
                 adj = {"price_basis": "unadjusted_replay", "factor_steps": 0, "break_truncated_at": None,
                        "bars_dropped": 0}
             if adj["break_truncated_at"]:
-                truncated += 1
+                exceptions["truncated"].append({"symbol": symbol, "break_date": adj["break_truncated_at"],
+                                                "bars_dropped": adj["bars_dropped"], "bars_left": len(bars)})
             if len(bars) < MIN_BARS:
-                short_after_break += 1
+                exceptions["not_scored_after_truncation"].append({
+                    "symbol": symbol, "break_date": adj["break_truncated_at"], "bars_left": len(bars),
+                    "reason": f"a price break the warehouse factors do not explain on {adj['break_truncated_at']}; "
+                              f"{len(bars)} bars after it, fewer than the {MIN_BARS} the scanner needs"})
                 continue
             scan_hits = await chartink_loader.get_scans_for(scan_date, symbol)
             scored = score_symbol(symbol, bars,
@@ -399,6 +404,10 @@ async def score_universe(scan_date: date, *, load_bars: Optional[BarLoader] = No
                 continue
             scored["price_adjustment"] = adj
             basis[adj["price_basis"]] += 1
+            if adj["price_basis"] == price_adjustment.BASIS_RAW:
+                exceptions["raw_prices"].append({
+                    "symbol": symbol, "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) "
+                                                "for this symbol: scored on raw NSE prices"})
             scored_rows.append(scored)
         except Exception as e:  # noqa: BLE001
             errors += 1
@@ -417,8 +426,9 @@ async def score_universe(scan_date: date, *, load_bars: Optional[BarLoader] = No
         "blocked_sectors": list(blocked_sectors),
         "bench_ret_20d": bench_ret,
         "price_basis": basis,
-        "break_truncated": truncated,
-        "skipped_short_after_break": short_after_break,
+        "break_truncated": len(exceptions["truncated"]),
+        "skipped_short_after_break": len(exceptions["not_scored_after_truncation"]),
+        "exceptions": exceptions,
     }
     return summary, scored_rows
 

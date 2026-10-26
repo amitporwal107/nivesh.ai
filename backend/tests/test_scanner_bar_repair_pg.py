@@ -1,5 +1,6 @@
-"""bar_repair.PgStore against a real, disposable Postgres: plan, apply (snapshot first), a second apply that changes
-nothing, and restore back to the exact pre-apply rows (NUMERIC, JSONB, TEXT[], timestamps included).
+"""bar_repair.PgStore against a real, disposable Postgres: a failure injected inside the one apply transaction leaves
+every table byte-identical; then apply (snapshot written and verified first, one transaction), a second apply that
+changes nothing, and restore back to the exact pre-apply rows (NUMERIC, JSONB, TEXT[], timestamps included), twice.
 
 Opt-in: skipped unless SCANNER_REPAIR_PG_DSN points at a THROWAWAY database (the test drops and recreates
 stock_ohlcv, stock_technical_features and positional_signals there). Example, with no network at all:
@@ -85,7 +86,7 @@ async def seed(pool):
         await conn.execute("UPDATE positional_signals SET engine_version = 'positional.v1.0'")
 
 
-def test_pg_apply_twice_then_restore_exactly(tmp_path, monkeypatch):
+def test_pg_one_transaction_failure_rolls_back_then_apply_twice_then_restore_exactly(tmp_path, monkeypatch):
     import asyncpg
     from services import pg_client
 
@@ -95,27 +96,49 @@ def test_pg_apply_twice_then_restore_exactly(tmp_path, monkeypatch):
         async def get_pool():
             return pool
         monkeypatch.setattr(pg_client, "get_pool", get_pool)
+        from scripts import repair_scanner_bars as cli
         await seed(pool)
         before = await dump(pool)
         store = bar_repair.PgStore(pool)
+        await cli.fingerprint(pool, str(tmp_path / "fp_before.json"))      # the run-book's exact-compare tool
 
-        async def ingest(d):          # the real upsert path of the ingester, with a file's parsed bars
-            n = await ohlcv_store.upsert_bars([
+        async def fetch(d):           # a parsed, trade-date-checked file: fetched before the transaction opens
+            return {"date": d.isoformat(), "status": "ok", "rows": 2}, [
                 {"nse_symbol": "AAA", "bar_date": d, "open": 12.5, "high": 13.5, "low": 11.5, "close": 12.5,
                  "volume": 1012, "delivery_qty": 400, "delivery_pct": 40.0, "source": "bhavcopy"},
                 {"nse_symbol": "BBB", "bar_date": d, "open": 22.5, "high": 23.5, "low": 21.5, "close": 22.5,
-                 "volume": 2022, "source": "bhavcopy"}])
-            return {"date": d.isoformat(), "status": "written", "rows_written": n}
+                 "volume": 2022, "source": "bhavcopy"}]
 
-        async def score(d):
+        async def score(d, phantom, extra):
+            assert phantom == {HOL} and sorted(extra) == ["AAA", "BBB"]
             return {"ok": True}, [scored("AAA", .6543, True), scored("BBB", .3, False), scored("CCC", .5, True)]
 
         plan = await bar_repair.plan_repair(store, Warehouse())
         assert [p["date"] for p in plan["phantom"]] == [HOL] and [m["date"] for m in plan["missing"]] == [MISS]
+        expect = {"stock_ohlcv": 2, "stock_technical_features": 4, "positional_signals": 2}
 
+        # 1. A failure in the middle of the recompute write: the deletes and the back-fill had already run in the
+        #    same transaction. Everything rolls back: the tables are byte-identical to before.
+        real_write_signal = pipeline._write_signal
+
+        async def failing_write_signal(conn, d, row):
+            raise RuntimeError("injected failure while writing the recompute's signals")
+        monkeypatch.setattr(pipeline, "_write_signal", failing_write_signal)
+        with pytest.raises(RuntimeError, match="injected failure"):
+            await bar_repair.apply_repair(store, Warehouse(), fetch, score, str(tmp_path / "failed.json"), expect=expect)
+        assert await dump(pool) == before
+        assert (tmp_path / "failed.json").exists()          # written and verified before the transaction opened
+        await cli.fingerprint(pool, str(tmp_path / "fp_failed.json"))
+        assert cli.compare_fingerprints(str(tmp_path / "fp_before.json"), str(tmp_path / "fp_failed.json"))["identical"]
+        monkeypatch.setattr(pipeline, "_write_signal", real_write_signal)
+
+        # 2. The real apply: one transaction.
         snap = tmp_path / "snap.json"
-        out = await bar_repair.apply_repair(store, Warehouse(), ingest, score, str(snap))
-        assert out["deleted"] == {"stock_ohlcv": 2, "stock_technical_features": 2, "positional_signals": 1}
+        out = await bar_repair.apply_repair(store, Warehouse(), fetch, score, str(snap), expect=expect)
+        assert out["changed"] and out["verification"]["ok"]
+        assert out["written"] == {"stock_ohlcv_deleted": 2, "stock_technical_features_deleted": 2,
+                                  "positional_signals_deleted": 1, "stock_ohlcv_inserted": 2,
+                                  "features_written": 3, "signals_written": 2}
         assert out["after"]["pending"] == {"delete_dates": [], "backfill_dates": [], "recompute_dates": []}
         async with pool.acquire() as conn:
             assert await conn.fetchval("SELECT count(*) FROM stock_ohlcv WHERE bar_date = $1", HOL) == 0
@@ -127,16 +150,24 @@ def test_pg_apply_twice_then_restore_exactly(tmp_path, monkeypatch):
             assert await conn.fetchval("SELECT count(*) FROM positional_signals WHERE signal_date = $1", LAST) == 2
             assert await conn.fetchval("SELECT count(*) FROM stock_technical_features WHERE as_of_date = $1", S3) == 2
         after_first = await dump(pool)
+        await cli.fingerprint(pool, str(tmp_path / "fp_applied.json"))
+        changed = cli.compare_fingerprints(str(tmp_path / "fp_before.json"), str(tmp_path / "fp_applied.json"))
+        assert changed["differing_dates"] == {"positional_signals": ["2026-10-02", "2026-10-06"],
+                                              "stock_ohlcv": ["2026-10-02", "2026-10-05"],
+                                              "stock_technical_features": ["2026-10-02", "2026-10-06"]}
 
-        second = await bar_repair.apply_repair(store, Warehouse(), ingest, score, str(tmp_path / "again.json"))
+        # 3. A second apply changes nothing.
+        second = await bar_repair.apply_repair(store, Warehouse(), fetch, score, str(tmp_path / "again.json"))
         assert second["changed"] is False and await dump(pool) == after_first
         assert not (tmp_path / "again.json").exists()
 
-        s = json.loads(snap.read_text())
-        assert {t: len(r) for t, r in s["rows"].items()} == {"stock_ohlcv": 2, "stock_technical_features": 4,
-                                                              "positional_signals": 2}
-        await bar_repair.restore_snapshot(store, str(snap))
+        # 4. The snapshot verifies; restore returns the exact prior rows, twice.
+        s = bar_repair.read_snapshot(str(snap))
+        assert bar_repair.verify_snapshot(s)["ok"] and bar_repair.verify_snapshot(s)["rows"] == expect
+        assert (await bar_repair.restore_snapshot(store, str(snap)))["restored"] is True
         assert await dump(pool) == before
+        await cli.fingerprint(pool, str(tmp_path / "fp_restored.json"))
+        assert cli.compare_fingerprints(str(tmp_path / "fp_before.json"), str(tmp_path / "fp_restored.json"))["identical"]
         await bar_repair.restore_snapshot(store, str(snap))
         assert await dump(pool) == before
         await pool.close()

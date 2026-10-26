@@ -26,10 +26,19 @@ or scored, and so is a date the calendar cannot vouch for. The bhavcopy step ref
 --skip-if-done: do nothing when positional_signals already holds the date (a retry after a run that worked).
 --backfill-missing: before the day's bhavcopy, ingest every warehouse session of the last --backfill-days calendar days
                 that stock_ohlcv lacks (a day the job missed). Idempotent: a rerun finds nothing missing.
---quality-check: run services/positional_engine/bar_quality over the feature window and log/return its counts.
---require-clean: as --quality-check, and refuse to score when it finds missing sessions, non-session dates, copied
-                sessions or invalid OHLC (or cannot run). Turn it on only after the bar store is repaired
-                (scripts/repair_scanner_bars.py), or it refuses every run.
+Data quality (report only, on by default; --skip-quality-check turns it off): services/positional_engine/bar_quality
+over the feature window. Its status is recorded with the results and shown on the desk (scan_basis).
+--require-clean: also refuse to score when it finds missing sessions, non-session dates, copied sessions or invalid
+                OHLC (or cannot run). Owner decision 2026-10-27: not in the cron until the staging evidence is reviewed.
+--quality-check: accepted for compatibility; the check is on by default.
+
+Calendar readiness (owner decision 2026-10-27): from --calendar-lead (MM-DD, default SCANNER_CALENDAR_LEAD or 12-01)
+next year's NSE CM holiday list must be loaded too. When it is not, the run logs an ERROR, still scores the day, and
+exits 6; the run record says calendar_ready=false and the missing year.
+
+Run record: every run that gets past argument parsing writes one document to Mongo `job_runs` (job
+"positional_engine", services/positional_engine/scan_meta.py): status, exit code, session, counts (engine version,
+price basis, exceptions, data quality, calendar), error. A record that cannot be written is logged as an ERROR.
 
 Exit codes:
   0 — pipeline ran (even if a sub-step had issues; see log for partial errors), or skipped as already scored
@@ -38,6 +47,7 @@ Exit codes:
   3 — refused: the date is not an NSE session (weekend or holiday)
   4 — refused: the NSE calendar could not be read or does not cover the date
   5 — refused: the bar store failed the data-quality check (--require-clean)
+  6 — scored, but next year's NSE holiday list is not loaded (ALERT: load it before 1 Jan)
 """
 from __future__ import annotations
 
@@ -45,9 +55,10 @@ import argparse
 import asyncio
 import logging
 import sys
+import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -83,6 +94,8 @@ async def signals_on(run_date: date) -> Optional[int]:
 
 
 EXIT_CODES = {"no_bars": 2, "not_a_session": 3, "calendar_unavailable": 4, "dirty_bars": 5}
+EXIT_CALENDAR_NOT_READY = 6
+RECORD_TIMEOUT_S = 10.0         # a Mongo hiccup must not hold the evening run
 QUALITY_WINDOW_DAYS = 400       # the pipeline's 260-bar feature window
 
 
@@ -108,7 +121,8 @@ async def quality(run_date: date) -> dict:
 async def run(run_date: date, *, fetch_bhavcopy: bool, fetch_scans: bool,
               require_bars: bool = False, skip_if_done: bool = False,
               backfill_missing: bool = False, backfill_days: int = 14,
-              quality_check: bool = False, require_clean: bool = False) -> dict:
+              quality_check: bool = True, require_clean: bool = False,
+              calendar_lead: Tuple[int, int] = (12, 1)) -> dict:
     from services.positional_engine import (  # noqa: E402
         bhavcopy_ingester,
         chartink_api,
@@ -125,8 +139,10 @@ async def run(run_date: date, *, fetch_bhavcopy: bool, fetch_scans: bool,
     try:
         is_session, why = await session_calendar.check_session(run_date)
     except session_calendar.CalendarUnavailable as e:
-        log.warning("refused %s: the NSE calendar is unavailable (%s)", run_date, e)
-        out.update(ok=False, skipped="calendar_unavailable", reason=str(e))
+        log.error("refused %s: the NSE calendar is unavailable (%s)", run_date, e)
+        out.update(ok=False, skipped="calendar_unavailable", reason=str(e),
+                   calendar={"ready": False, "missing_year": run_date.year, "checked_years": [run_date.year],
+                             "reason": str(e)})
         return out
     if not is_session:
         log.warning("refused %s: not an NSE session (%s)", run_date, why)
@@ -138,6 +154,13 @@ async def run(run_date: date, *, fetch_bhavcopy: bool, fetch_scans: bool,
         log.info("already scored %s: nothing to do", run_date)
         out.update(ok=True, skipped="already_scored")
         return out
+
+    # Next year's holidays must be loaded before the first session that needs them: an alert, not a refusal.
+    ready = await session_calendar.readiness(run_date, calendar_lead)
+    out["calendar"] = ready
+    if not ready["ready"]:
+        log.error("ALERT calendar not ready: the NSE CM holiday list for %s is not loaded (%s). The run continues; "
+                  "load it before the first session of %s.", ready["missing_year"], ready["reason"], ready["missing_year"])
 
     if backfill_missing:
         try:
@@ -240,9 +263,13 @@ def main() -> int:
     p.add_argument("--backfill-days", type=int, default=14,
                     help="Calendar days before the run date that --backfill-missing looks at (default 14)")
     p.add_argument("--quality-check", action="store_true",
-                    help="Run the bar-store data-quality check and log its counts")
+                    help="Accepted for compatibility: the data-quality check runs by default")
+    p.add_argument("--skip-quality-check", action="store_true",
+                    help="Do not run the bar-store data-quality check (its status is then 'not checked')")
     p.add_argument("--require-clean", action="store_true",
-                    help="As --quality-check, and refuse to score when the store is not clean (exit 5)")
+                    help="Refuse to score when the data-quality check finds a market-wide problem (exit 5)")
+    p.add_argument("--calendar-lead", default="",
+                    help="MM-DD from which next year's NSE holiday list must be loaded (default SCANNER_CALENDAR_LEAD or 12-01)")
     args = p.parse_args()
 
     run_date: date
@@ -255,23 +282,104 @@ def main() -> int:
     else:
         run_date = datetime.utcnow().date()
 
+    from services.positional_engine import session_calendar  # noqa: E402
+    try:
+        lead = session_calendar.parse_lead(args.calendar_lead)
+    except ValueError:
+        log.error("Invalid --calendar-lead / SCANNER_CALENDAR_LEAD %r (expected MM-DD)", args.calendar_lead)
+        return 1
+
     log.info(
         "positional engine: date=%s bhavcopy=%s scans=%s",
         run_date, not args.skip_bhavcopy, not args.skip_scans,
     )
-    result = asyncio.run(run(
-        run_date,
+    result, code = asyncio.run(recorded(run_date, dict(
         fetch_bhavcopy=not args.skip_bhavcopy,
         fetch_scans=not args.skip_scans,
         require_bars=args.require_bars,
         skip_if_done=args.skip_if_done,
         backfill_missing=args.backfill_missing,
         backfill_days=args.backfill_days,
-        quality_check=args.quality_check,
+        quality_check=not args.skip_quality_check,
         require_clean=args.require_clean,
-    ))
-    log.info("done: ok=%s skipped=%s steps=%s", result.get("ok"), result.get("skipped"), list(result.get("steps", {})))
-    return EXIT_CODES.get(result.get("skipped"), 0)
+        calendar_lead=lead,
+    )))
+    log.info("done: ok=%s skipped=%s exit=%s steps=%s", result.get("ok"), result.get("skipped"), code,
+             list(result.get("steps", {})))
+    return code
+
+
+def exit_code(result: dict) -> int:
+    if result.get("skipped"):
+        return EXIT_CODES.get(result["skipped"], 0)
+    if not (result.get("calendar") or {}).get("ready", True):
+        return EXIT_CALENDAR_NOT_READY
+    return 0
+
+
+def record_of(result: dict, code: int) -> Tuple[str, dict, Optional[str], dict]:
+    """(status, counts, error, top-level fields) of the run record for `result`."""
+    from services.positional_engine import ENGINE_VERSION, scan_meta  # noqa: E402
+
+    pipe = result.get("steps", {}).get("pipeline") or {}
+    q = result.get("steps", {}).get("quality") or {}
+    cal = result.get("calendar") or {}
+    report = q.get("report") or {}
+    counts = {
+        "date": result.get("date"), "engine_version": ENGINE_VERSION,
+        "scored": pipe.get("scored"), "actionable": pipe.get("actionable"),
+        "price_basis": pipe.get("price_basis"), "exceptions": pipe.get("exceptions"),
+        "quality": ({"ok": q.get("ok"), "clean": q.get("clean"), "problems": q.get("problems"),
+                     "counts": {k: (v or {}).get("count") for k, v in report.items() if isinstance(v, dict)},
+                     "error": q.get("error"), "reason": q.get("reason")} if q else None),
+        "calendar": cal or None,
+        "bhavcopy": (result.get("steps", {}).get("bhavcopy") or {}).get("status"),
+        "backfill_missing": (result.get("steps", {}).get("backfill") or {}).get("missing"),
+    }
+    fields = {"calendar_ready": cal.get("ready") if cal else None, "calendar_missing_year": cal.get("missing_year") if cal else None}
+    skipped = result.get("skipped")
+    if skipped:
+        return scan_meta.SKIPPED.get(skipped, f"skipped_{skipped}"), counts, result.get("reason"), fields
+    if pipe and not pipe.get("ok"):
+        return scan_meta.FAILED, counts, f"{pipe.get('error')}: {pipe.get('reason') or ''}".strip(": "), fields
+    if code == EXIT_CALENDAR_NOT_READY:
+        return (scan_meta.CALENDAR_NOT_READY, counts,
+                f"the NSE CM holiday list for {cal.get('missing_year')} is not loaded ({cal.get('reason')})", fields)
+    return scan_meta.OK, counts, None, fields
+
+
+async def recorded(run_date: date, kwargs: dict) -> Tuple[dict, int]:
+    """run() with its run record in Mongo `job_runs`: written as running first, finished with the outcome after."""
+    from services.positional_engine import scan_meta  # noqa: E402
+    db = None
+    run_id = uuid.uuid4().hex
+    try:
+        from deps import db as _db  # noqa: E402
+        await asyncio.wait_for(scan_meta.start(_db, run_id, session=run_date.isoformat(), now=scan_meta.utcnow()),
+                               RECORD_TIMEOUT_S)
+        db = _db
+    except Exception as e:  # noqa: BLE001 — the run still happens; the missing record is an ERROR in the log
+        log.error("run record not started (%s): this run will not appear in job_runs", type(e).__name__)
+    try:
+        result = await run(run_date, **kwargs)
+    except Exception as e:  # a crash is recorded as failed, then raised as before
+        if db is not None:
+            try:
+                await asyncio.wait_for(scan_meta.finish(db, run_id, now=scan_meta.utcnow(), status=scan_meta.FAILED,
+                                                        exit_code=1, counts={"date": run_date.isoformat()},
+                                                        error=f"{type(e).__name__}: {str(e)[:300]}"), RECORD_TIMEOUT_S)
+            except Exception as rec_err:  # noqa: BLE001
+                log.error("run record %s not finished after a crash (%s)", run_id, type(rec_err).__name__)
+        raise
+    code = exit_code(result)
+    if db is not None:
+        status, counts, error, fields = record_of(result, code)
+        try:
+            await asyncio.wait_for(scan_meta.finish(db, run_id, now=scan_meta.utcnow(), status=status, exit_code=code,
+                                                    counts=counts, error=error, **fields), RECORD_TIMEOUT_S)
+        except Exception as e:  # noqa: BLE001
+            log.error("run record %s not finished (%s): job_runs shows it as running", run_id, type(e).__name__)
+    return result, code
 
 
 if __name__ == "__main__":

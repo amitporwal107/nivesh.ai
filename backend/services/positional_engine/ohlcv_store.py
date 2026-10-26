@@ -17,12 +17,36 @@ from services import pg_client
 logger = logging.getLogger(__name__)
 
 
+_UPSERT_SQL = """
+    INSERT INTO stock_ohlcv (nse_symbol, bar_date, open_price, high_price,
+                             low_price, close_price, volume, delivery_qty,
+                             delivery_pct, source)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    ON CONFLICT (nse_symbol, bar_date) DO UPDATE SET
+        open_price   = EXCLUDED.open_price,
+        high_price   = EXCLUDED.high_price,
+        low_price    = EXCLUDED.low_price,
+        close_price  = EXCLUDED.close_price,
+        volume       = EXCLUDED.volume,
+        delivery_qty = EXCLUDED.delivery_qty,
+        delivery_pct = EXCLUDED.delivery_pct,
+        source       = EXCLUDED.source,
+        ingested_at  = NOW()
+"""
+
+
 async def upsert_bars(bars: Iterable[dict]) -> int:
     """Insert/update OHLCV rows. Returns count written."""
     pool = await pg_client.get_pool()
     if pool is None:
         logger.warning("upsert_bars: no pg pool")
         return 0
+    async with pool.acquire() as conn:
+        return await write_bars(conn, bars)
+
+
+async def write_bars(conn, bars: Iterable[dict]) -> int:
+    """Upsert bars on the caller's connection (and transaction). Returns count written."""
     payload = []
     for b in bars:
         sym = b.get("nse_symbol") or b.get("symbol")
@@ -42,26 +66,7 @@ async def upsert_bars(bars: Iterable[dict]) -> int:
         ))
     if not payload:
         return 0
-    async with pool.acquire() as conn:
-        await conn.executemany(
-            """
-            INSERT INTO stock_ohlcv (nse_symbol, bar_date, open_price, high_price,
-                                     low_price, close_price, volume, delivery_qty,
-                                     delivery_pct, source)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-            ON CONFLICT (nse_symbol, bar_date) DO UPDATE SET
-                open_price   = EXCLUDED.open_price,
-                high_price   = EXCLUDED.high_price,
-                low_price    = EXCLUDED.low_price,
-                close_price  = EXCLUDED.close_price,
-                volume       = EXCLUDED.volume,
-                delivery_qty = EXCLUDED.delivery_qty,
-                delivery_pct = EXCLUDED.delivery_pct,
-                source       = EXCLUDED.source,
-                ingested_at  = NOW()
-            """,
-            payload,
-        )
+    await conn.executemany(_UPSERT_SQL, payload)
     return len(payload)
 
 

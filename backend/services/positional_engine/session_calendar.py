@@ -10,17 +10,23 @@ services/copilot_tools/market_research.py already use (the app database has no `
 
 A weekday is never assumed to be a session: a year the holiday list has no CM rows for, or a list that cannot be read,
 is `CalendarUnavailable`, and the caller refuses with that reason.
+
+Readiness (owner decision 2026-10-27: do not wait for 1 Jan to find out). From a lead date (default 1 Dec, set with
+SCANNER_CALENDAR_LEAD=MM-DD or the runner's --calendar-lead) the NEXT year's CM list must be loaded too; `readiness`
+says which year is missing so the evening run can log an ERROR and record an alert while it still scores the day.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from datetime import date, timedelta
 from typing import Dict, Iterable, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_LEAD = "12-01"         # from 1 Dec the next year's holiday list must be loaded
 HOLIDAY_TTL_S = 3600            # NSE adds an occasional special holiday mid-year; a long-lived process re-reads hourly
 SESSION_READ_CONCURRENCY = 8    # warehouse reads in flight
 
@@ -106,3 +112,23 @@ async def warehouse_sessions(start: date, end: date, extra: Iterable[date] = ())
 
     found = await asyncio.gather(*(one(d) for d in sorted(days)))
     return {d for d, ok in found if ok}
+
+
+def parse_lead(text: str = "") -> Tuple[int, int]:
+    """(month, day) from "MM-DD" (default SCANNER_CALENDAR_LEAD, else 12-01). Raises ValueError on a bad value."""
+    raw = (text or os.environ.get("SCANNER_CALENDAR_LEAD") or DEFAULT_LEAD).strip()
+    month, day = (int(x) for x in raw.split("-"))
+    date(2001, month, day)            # validates; 2001 is not a leap year, so 02-29 is refused
+    return month, day
+
+
+async def readiness(today: date, lead: Tuple[int, int] = (12, 1)) -> Dict:
+    """Is the CM holiday list loaded for every year the coming sessions need? Always this year; from the lead date
+    also next year. {ready, missing_year, checked_years, reason}; never raises for a missing year."""
+    need = [today.year] + ([today.year + 1] if (today.month, today.day) >= lead else [])
+    for year in need:
+        try:
+            await holidays_for_year(year)
+        except CalendarUnavailable as e:
+            return {"ready": False, "missing_year": year, "checked_years": need, "reason": str(e)}
+    return {"ready": True, "missing_year": None, "checked_years": need, "reason": None}

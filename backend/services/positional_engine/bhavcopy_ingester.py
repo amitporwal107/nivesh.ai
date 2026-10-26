@@ -126,6 +126,38 @@ def parse_bhavcopy_csv(blob: str, on_date: date) -> List[dict]:
 SessionCheck = Callable[[date], Awaitable[Tuple[bool, str]]]
 
 
+async def fetch_session(on_date: date, *, session_check: Optional[SessionCheck] = None,
+                        fetch: Optional[Callable[[str], Optional[str]]] = None) -> Tuple[Dict, List[dict]]:
+    """Fetch + parse the bhavcopy for `on_date` WITHOUT writing: (result, bars). result["status"] is "ok" when `bars`
+    are that session's own EQ/BE bars; otherwise one of the refusals `ingest` documents, and `bars` is empty. The repair
+    tool fetches every missing session this way before it opens its one transaction."""
+    out: Dict = {"date": on_date.isoformat(), "rows_written": 0}
+    check = session_check or session_calendar.check_session
+    try:
+        is_session, why = await check(on_date)
+    except session_calendar.CalendarUnavailable as e:
+        logger.warning("bhavcopy %s refused: session calendar unavailable (%s)", on_date, e)
+        return {**out, "status": "calendar_unavailable", "reason": str(e)}, []
+    if not is_session:
+        logger.warning("bhavcopy %s refused: not an NSE session (%s)", on_date, why)
+        return {**out, "status": "not_a_session", "reason": why}, []
+
+    url = BHAV_URL_FMT.format(ddmmyyyy=on_date.strftime("%d%m%Y"))
+    blob = (fetch or _fetch)(url)
+    if not blob:
+        return {**out, "status": "not_published", "reason": "NSE answered no file"}, []
+    try:
+        bars = parse_bhavcopy_csv(blob, on_date)
+    except BhavcopyDateMismatch as e:
+        logger.warning("bhavcopy %s refused, nothing written: %s", on_date, e)
+        return {**out, "status": "date_mismatch", "reason": str(e),
+                "file_dates": sorted(d.isoformat() for d in e.found if d)}, []
+    if not bars:
+        logger.warning("bhavcopy %s parsed 0 rows", on_date)
+        return {**out, "status": "no_rows", "reason": "the file holds no EQ/BE rows"}, []
+    return {**out, "status": "ok", "rows": len(bars)}, bars
+
+
 async def ingest(on_date: date, *, session_check: Optional[SessionCheck] = None,
                  fetch: Optional[Callable[[str], Optional[str]]] = None) -> Dict:
     """Fetch + parse + persist the bhavcopy for `on_date`, refusing anything that is not that session's file.
@@ -139,32 +171,11 @@ async def ingest(on_date: date, *, session_check: Optional[SessionCheck] = None,
       no_rows               the file holds no EQ/BE rows
     Nothing is written unless the status is "written".
     """
-    out: Dict = {"date": on_date.isoformat(), "rows_written": 0}
-    check = session_check or session_calendar.check_session
-    try:
-        is_session, why = await check(on_date)
-    except session_calendar.CalendarUnavailable as e:
-        logger.warning("bhavcopy %s refused: session calendar unavailable (%s)", on_date, e)
-        return {**out, "status": "calendar_unavailable", "reason": str(e)}
-    if not is_session:
-        logger.warning("bhavcopy %s refused: not an NSE session (%s)", on_date, why)
-        return {**out, "status": "not_a_session", "reason": why}
-
-    url = BHAV_URL_FMT.format(ddmmyyyy=on_date.strftime("%d%m%Y"))
-    blob = (fetch or _fetch)(url)
-    if not blob:
-        return {**out, "status": "not_published", "reason": "NSE answered no file"}
-    try:
-        bars = parse_bhavcopy_csv(blob, on_date)
-    except BhavcopyDateMismatch as e:
-        logger.warning("bhavcopy %s refused, nothing written: %s", on_date, e)
-        return {**out, "status": "date_mismatch", "reason": str(e),
-                "file_dates": sorted(d.isoformat() for d in e.found if d)}
-    if not bars:
-        logger.warning("bhavcopy %s parsed 0 rows", on_date)
-        return {**out, "status": "no_rows", "reason": "the file holds no EQ/BE rows"}
+    res, bars = await fetch_session(on_date, session_check=session_check, fetch=fetch)
+    if res["status"] != "ok":
+        return res
     n = await ohlcv_store.upsert_bars(bars)
-    return {**out, "status": "written", "rows_written": n}
+    return {"date": res["date"], "rows_written": n, "status": "written"}
 
 
 async def ingest_for_date(on_date: date) -> int:

@@ -9,6 +9,7 @@ the 2 Oct 2026 holiday with 1 Oct's file, and sec_bhavdata_full_21102026.csv.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import math
 from datetime import date, timedelta
@@ -28,6 +29,8 @@ from services.positional_engine import (
     session_calendar as cal,
 )
 
+_REAL_READINESS = cal.readiness          # runner fixtures stub it; the owner-4 tests put the real one back
+
 HEADER = ("SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, LOW_PRICE, LAST_PRICE, CLOSE_PRICE, AVG_PRICE,"
           " TTL_TRD_QNTY, TURNOVER_LACS, NO_OF_TRADES, DELIV_QTY, DELIV_PER\n")
 FILE_01_OCT = HEADER + (
@@ -46,6 +49,17 @@ HOLIDAYS_2026 = {date(2026, 10, 2): "Mahatma Gandhi Jayanti", date(2026, 10, 20)
 
 def run(coro):
     return asyncio.run(coro)
+
+
+@pytest.fixture(autouse=True)
+def _no_run_record(monkeypatch):
+    """The runner writes a run record to Mongo; tests that look at it install their own stubs."""
+    from services.positional_engine import scan_meta
+
+    async def no_record(*a, **kw):
+        return None
+    monkeypatch.setattr(scan_meta, "start", no_record)
+    monkeypatch.setattr(scan_meta, "finish", no_record)
 
 
 async def a_session(d):
@@ -184,10 +198,18 @@ def runner_calls(monkeypatch):
         seen["signals_on"] += 1
         return 0
 
+    async def ready(d, lead=(12, 1)):
+        return {"ready": True, "missing_year": None, "checked_years": [d.year], "reason": None}
+
+    async def quality(d):
+        return {"ok": True, "clean": True, "problems": [], "report": {}}
+
     monkeypatch.setattr(bi, "ingest", ingest)
     monkeypatch.setattr(pipeline, "run_for_date", run_for_date)
     monkeypatch.setattr(scan_config, "load", load)
     monkeypatch.setattr(runner, "signals_on", signals_on)
+    monkeypatch.setattr(cal, "readiness", ready)
+    monkeypatch.setattr(runner, "quality", quality)
     return seen
 
 
@@ -455,17 +477,15 @@ def test_tc20_quality_checks_count_each_problem():
                                                "invalid_ohlc=1"])
 
 
-# ── TC-21..TC-25: the repair tool on an in-memory store ──────────────────
+# ── TC-21..TC-25 (+ owner decisions 2026-10-27): the repair tool on an in-memory store ──
 class FakeStore:
-    """stock_ohlcv + derived tables as row dicts; counts every write."""
+    """stock_ohlcv + derived tables as row dicts. apply_txn is all-or-nothing, like the Postgres transaction."""
 
     def __init__(self, ohlcv, derived):
         self.t = {"stock_ohlcv": ohlcv, **derived}
+        self.txns = 0
         self.writes = 0
-        self.ingested: list = []
-
-    def _col(self, table):
-        return dict(bar_repair.TABLES)[table]
+        self.fail_after_deletes = False
 
     async def bounds(self):
         ds = [r["bar_date"] for r in self.t["stock_ohlcv"]]
@@ -493,25 +513,38 @@ class FakeStore:
         ds = set(dates)
         return [json.loads(json.dumps(r, default=str)) for r in self.t[table] if r[col] in ds]
 
-    async def delete_dates(self, dates):
-        ds, out = set(dates), {}
-        for table, col in bar_repair.TABLES:
-            keep = [r for r in self.t[table] if r[col] not in ds]
-            out[table] = len(self.t[table]) - len(keep)
-            self.writes += out[table]
-            self.t[table] = keep
-        return out
-
-    async def replace_scored(self, d, scored):
-        for table, col in bar_repair.DERIVED:
-            self.t[table] = [r for r in self.t[table] if r[col] != d]
-        for s in scored:
-            self.t["stock_technical_features"].append({"nse_symbol": s["nse_symbol"], "as_of_date": d,
-                                                       "engine_version": ENGINE_VERSION})
-            if s["actionable"]:
-                self.t["positional_signals"].append({"nse_symbol": s["nse_symbol"], "signal_date": d,
-                                                     "engine_version": ENGINE_VERSION})
-        self.writes += 1
+    async def apply_txn(self, delete_dates, bars, replacements, expected):
+        saved = copy.deepcopy(self.t)
+        self.txns += 1
+        try:
+            for table, col in bar_repair.TABLES:
+                for d_iso, n in expected[table].items():
+                    found = sum(1 for r in self.t[table] if r[col] == date.fromisoformat(d_iso))
+                    if found != n:
+                        raise bar_repair.RepairAborted(f"{table} {d_iso}: {found} != {n}")
+            ds = set(delete_dates)
+            out = {}
+            for table, col in bar_repair.TABLES:
+                before = len(self.t[table])
+                self.t[table] = [r for r in self.t[table] if r[col] not in ds]
+                out[f"{table}_deleted"] = before - len(self.t[table])
+            if self.fail_after_deletes:
+                raise RuntimeError("injected failure inside the transaction")
+            self.t["stock_ohlcv"] += [_bar(b["nse_symbol"], b["bar_date"], b["close"]) for b in bars]
+            for d, scored in replacements.items():
+                for table, col in bar_repair.DERIVED:
+                    self.t[table] = [r for r in self.t[table] if r[col] != d]
+                for x in scored:
+                    self.t["stock_technical_features"].append({"nse_symbol": x["nse_symbol"], "as_of_date": d,
+                                                               "engine_version": ENGINE_VERSION})
+                    if x["actionable"]:
+                        self.t["positional_signals"].append({"nse_symbol": x["nse_symbol"], "signal_date": d,
+                                                             "engine_version": ENGINE_VERSION})
+            self.writes += 1
+            return out
+        except BaseException:
+            self.t = saved
+            raise
 
     async def restore(self, snap):
         back = {date.fromisoformat(d) for d in snap["backfill_dates"]}
@@ -563,17 +596,27 @@ def world():
     return store, wh
 
 
-def fake_ingest(store):
-    async def ingest(d):
-        store.ingested.append(d)
-        store.t["stock_ohlcv"] += [_bar("AAA", d, 12.5), _bar("BBB", d, 22.5)]
-        store.writes += 1
-        return {"date": d.isoformat(), "status": "written", "rows_written": 2}
-    return ingest
+def fake_fetch(seen=None):
+    async def fetch(d):
+        if seen is not None:
+            seen.append(d)
+        return {"date": d.isoformat(), "status": "ok", "rows": 2}, [
+            {"nse_symbol": "AAA", "bar_date": d, "close": 12.5}, {"nse_symbol": "BBB", "bar_date": d, "close": 22.5}]
+    return fetch
 
 
-async def fake_score(d):
-    return {"ok": True}, [{"nse_symbol": "AAA", "actionable": True}, {"nse_symbol": "BBB", "actionable": False}]
+async def fake_score(d, phantom, extra):
+    assert phantom == {HOL} or phantom == set()
+    return ({"ok": True, "scored": 2, "actionable": 1, "exceptions": {"raw_prices": [], "truncated": [],
+                                                                      "not_scored_after_truncation": []}},
+            [{"nse_symbol": "AAA", "actionable": True}, {"nse_symbol": "BBB", "actionable": False}])
+
+
+async def fake_before_after(d, rows):
+    return {"date": d.isoformat(), "comparison": {"code_change_only": {}, "code_plus_repair": {}, "repair_only": {}}}
+
+
+EXPECT = {"stock_ohlcv": 2, "stock_technical_features": 4, "positional_signals": 2}
 
 
 def test_tc21_dry_run_plan_reports_exactly_and_writes_nothing():
@@ -586,33 +629,41 @@ def test_tc21_dry_run_plan_reports_exactly_and_writes_nothing():
     assert plan["derived_on_phantom"] == {"stock_technical_features": {HOL: 2}, "positional_signals": {HOL: 1}}
     assert plan["recompute_dates"] == [LAST] and plan["affected_not_recomputed"] == []   # 1 Oct predates both
     assert plan["affected_dates"] == 1
-    assert bar_repair.apply_actions(plan) == {"delete_dates": [HOL], "backfill_dates": [MISS], "recompute_dates": [LAST]}
-    assert store.writes == 0 and store.state() == before
+    act = bar_repair.apply_actions(plan)
+    assert act == {"delete_dates": [HOL], "backfill_dates": [MISS], "recompute_dates": [LAST]}
+    assert bar_repair.expected_counts(plan, act) == {"stock_ohlcv": {"2026-10-02": 2},
+                                                     "stock_technical_features": {"2026-10-02": 2, "2026-10-06": 2},
+                                                     "positional_signals": {"2026-10-02": 1, "2026-10-06": 1}}
+    assert store.writes == 0 and store.txns == 0 and store.state() == before
 
 
-def test_tc22_apply_snapshots_first_then_repairs(tmp_path):
+def test_tc22_apply_fetches_and_computes_first_then_one_transaction(tmp_path):
     store, wh = world()
     snap = tmp_path / "snap.json"
-    out = run(bar_repair.apply_repair(store, wh, fake_ingest(store), fake_score, str(snap)))
-    assert out["changed"] and out["deleted"] == {"stock_ohlcv": 2, "stock_technical_features": 2, "positional_signals": 1}
-    assert store.ingested == [MISS] and out["recomputed"] == {"2026-10-06": {"scored": 2, "actionable": 1}}
+    fetched: list = []
+    out = run(bar_repair.apply_repair(store, wh, fake_fetch(fetched), fake_score, str(snap), expect=EXPECT,
+                                      before_after=fake_before_after))
+    assert out["changed"] and store.txns == 1 and fetched == [MISS]
+    assert out["written"] == {"stock_ohlcv_deleted": 2, "stock_technical_features_deleted": 2, "positional_signals_deleted": 1}
+    assert out["verification"]["ok"] and out["verification"]["rows"] == EXPECT
     assert out["after"]["phantom"] == 0 and out["after"]["missing"] == 0
     assert out["after"]["pending"] == {"delete_dates": [], "backfill_dates": [], "recompute_dates": []}
     assert out["after"]["unverified_extra"] == 1                       # 3 Oct: reported, never deleted
     assert not any(r["bar_date"] == HOL for r in store.t["stock_ohlcv"])
+    assert sum(1 for r in store.t["stock_ohlcv"] if r["bar_date"] == MISS) == 2
     assert {r["engine_version"] for r in store.t["stock_technical_features"] if r["as_of_date"] == LAST} == {ENGINE_VERSION}
     s = json.loads(snap.read_text())
     assert s["backfill_dates"] == ["2026-10-05"] and s["dates"]["stock_ohlcv"] == ["2026-10-02"]
-    assert len(s["rows"]["stock_ohlcv"]) == 2 and len(s["rows"]["stock_technical_features"]) == 4
-    assert len(s["rows"]["positional_signals"]) == 2
+    ba = json.loads((tmp_path / "snap.json.before_after.json").read_text())
+    assert ba["dates"]["2026-10-06"]["date"] == "2026-10-06" and "committed_at" in ba
 
 
 def test_tc23_apply_twice_changes_nothing(tmp_path):
     store, wh = world()
-    run(bar_repair.apply_repair(store, wh, fake_ingest(store), fake_score, str(tmp_path / "1.json")))
-    writes, state = store.writes, store.state()
-    out = run(bar_repair.apply_repair(store, wh, fake_ingest(store), fake_score, str(tmp_path / "2.json")))
-    assert out["changed"] is False and store.writes == writes and store.state() == state
+    run(bar_repair.apply_repair(store, wh, fake_fetch(), fake_score, str(tmp_path / "1.json")))
+    txns, state = store.txns, store.state()
+    out = run(bar_repair.apply_repair(store, wh, fake_fetch(), fake_score, str(tmp_path / "2.json")))
+    assert out["changed"] is False and store.txns == txns and store.state() == state
     assert not (tmp_path / "2.json").exists()
 
 
@@ -620,9 +671,9 @@ def test_tc24_restore_returns_the_exact_pre_apply_state_and_is_idempotent(tmp_pa
     store, wh = world()
     before = store.state()
     snap = tmp_path / "snap.json"
-    run(bar_repair.apply_repair(store, wh, fake_ingest(store), fake_score, str(snap)))
+    run(bar_repair.apply_repair(store, wh, fake_fetch(), fake_score, str(snap)))
     assert store.state() != before
-    run(bar_repair.restore_snapshot(store, str(snap)))
+    assert run(bar_repair.restore_snapshot(store, str(snap)))["restored"] is True
     assert store.state() == before
     run(bar_repair.restore_snapshot(store, str(snap)))
     assert store.state() == before
@@ -633,34 +684,132 @@ def test_tc25_apply_never_overwrites_an_existing_snapshot(tmp_path):
     snap = tmp_path / "snap.json"
     snap.write_text("earlier snapshot")
     with pytest.raises(FileExistsError):
-        run(bar_repair.apply_repair(store, wh, fake_ingest(store), fake_score, str(snap)))
-    assert store.writes == 0 and snap.read_text() == "earlier snapshot"
+        run(bar_repair.apply_repair(store, wh, fake_fetch(), fake_score, str(snap)))
+    assert store.txns == 0 and snap.read_text() == "earlier snapshot"
 
 
-def test_tc25b_cli_apply_without_snapshot_is_refused(monkeypatch):
+def _cli_args(**over):
+    base = dict(restore=None, apply=False, snapshot=None, recompute_from=None, expect=None, verify_snapshot=None,
+                snapshot_only=False, top=20, skip_preview=True, fingerprint=None, compare_fingerprints=None)
+    base.update(over)
+    return type("A", (), base)()
+
+
+def test_tc25b_cli_apply_without_snapshot_or_with_a_bad_expect_is_refused(monkeypatch):
     from scripts import repair_scanner_bars as cli
     from services import pg_client
 
     async def pool():
-        return object()
+        raise AssertionError("a refused command must not open a connection")
     monkeypatch.setattr(pg_client, "get_pool", pool)
+    assert run(cli.main(_cli_args(apply=True))) == 1
+    assert run(cli.main(_cli_args(snapshot_only=True))) == 1
+    existing = __file__                                                   # any existing path
+    assert run(cli.main(_cli_args(apply=True, snapshot=existing))) == 1
+    assert run(cli.main(_cli_args(fingerprint=existing))) == 1
+    assert run(cli.main(_cli_args(apply=True, snapshot="/tmp/x.json", expect="stock_ohlcv=abc"))) == 1
+    assert cli.parse_expect("stock_ohlcv=36361,stock_technical_features=28280,positional_signals=9412") == {
+        "stock_ohlcv": 36361, "stock_technical_features": 28280, "positional_signals": 9412}
 
-    class A:
-        restore = None
-        apply = True
-        snapshot = None
-        recompute_from = None
-    assert run(cli.main(A())) == 1
 
-
-def test_apply_skips_recompute_when_a_backfill_is_refused(tmp_path):
+def test_owner1_a_failure_inside_the_transaction_changes_nothing(tmp_path):
     store, wh = world()
+    before = store.state()
+    store.fail_after_deletes = True
+    with pytest.raises(RuntimeError, match="injected"):
+        run(bar_repair.apply_repair(store, wh, fake_fetch(), fake_score, str(tmp_path / "s.json"),
+                                    before_after=fake_before_after))
+    assert store.state() == before and store.txns == 1
+    assert (tmp_path / "s.json").exists()                               # the snapshot was written and verified first
+    assert not (tmp_path / "s.json.before_after.json").exists()        # no record of a repair that did not commit
+
+
+def test_owner1_a_refused_fetch_writes_nothing_not_even_a_snapshot(tmp_path):
+    store, wh = world()
+    before = store.state()
 
     async def refused(d):
-        return {"date": d.isoformat(), "status": "date_mismatch", "rows_written": 0}
+        return {"date": d.isoformat(), "status": "date_mismatch", "reason": "file trade date 2026-10-02"}, []
     out = run(bar_repair.apply_repair(store, wh, refused, fake_score, str(tmp_path / "s.json")))
-    assert "skipped" in out["recomputed"] and out["after"]["missing"] == 1
-    assert {r["engine_version"] for r in store.t["stock_technical_features"] if r["as_of_date"] == LAST} == {"positional.v1.0"}
+    assert out["changed"] is False and "date_mismatch" in out["refused"]
+    assert store.state() == before and store.txns == 0 and not (tmp_path / "s.json").exists()
+
+
+def test_owner1_counts_changed_after_the_snapshot_roll_back(tmp_path, monkeypatch):
+    """A row lands on a snapshotted date between the snapshot and the transaction: the in-transaction re-check aborts."""
+    store, wh = world()
+    real_read = bar_repair.read_snapshot
+    calls = {"n": 0}
+
+    def read_then_drift(path):
+        calls["n"] += 1
+        if calls["n"] == 2:                                             # after verification, before the transaction
+            store.t["positional_signals"].append({"nse_symbol": "CCC", "signal_date": LAST, "engine_version": "x"})
+        return real_read(path)
+    monkeypatch.setattr(bar_repair, "read_snapshot", read_then_drift)
+    drifted = None
+    with pytest.raises(bar_repair.RepairAborted, match="positional_signals 2026-10-06"):
+        drifted = run(bar_repair.apply_repair(store, wh, fake_fetch(), fake_score, str(tmp_path / "s.json")))
+    assert drifted is None and any(r["bar_date"] == HOL for r in store.t["stock_ohlcv"])
+
+
+def test_owner2_verify_snapshot_checks_content_coverage_and_counts(tmp_path):
+    store, wh = world()
+    path = tmp_path / "pre.json"
+    out = run(bar_repair.snapshot_only(store, wh, str(path), expect=EXPECT))
+    assert out["verification"]["ok"] and out["verification"]["rows"] == EXPECT and store.writes == 0
+    plan = run(bar_repair.plan_repair(store, wh))
+    snap = bar_repair.read_snapshot(str(path))
+    assert bar_repair.verify_snapshot(snap, plan)["ok"]
+    # a row missing from the snapshot
+    bad = copy.deepcopy(snap)
+    bad["rows"]["positional_signals"] = bad["rows"]["positional_signals"][:1]
+    v = bar_repair.verify_snapshot(bad, plan)
+    assert not v["ok"] and any("positional_signals" in p for p in v["problems"])
+    # a table left out
+    bad = copy.deepcopy(snap)
+    del bad["rows"]["stock_technical_features"]
+    assert not bar_repair.verify_snapshot(bad)["ok"]
+    # the store changed since the snapshot (a scored date more)
+    store.t["stock_technical_features"].append({"nse_symbol": "CCC", "as_of_date": LAST, "engine_version": "positional.v1.0"})
+    v = bar_repair.verify_snapshot(snap, run(bar_repair.plan_repair(store, wh)))
+    assert not v["ok"] and any("changed since" in p for p in v["problems"])
+    # --expect differing from the snapshot
+    assert bar_repair.check_expect({"stock_ohlcv": 2}, {"stock_ohlcv": 3}) == ["stock_ohlcv: snapshot 2, expected 3"]
+    # empty / unreadable files
+    (tmp_path / "empty.json").write_text("")
+    with pytest.raises(ValueError, match="empty"):
+        bar_repair.read_snapshot(str(tmp_path / "empty.json"))
+    (tmp_path / "junk.json").write_text("{not json")
+    with pytest.raises(ValueError, match="readable"):
+        bar_repair.read_snapshot(str(tmp_path / "junk.json"))
+
+
+def test_owner2_apply_refuses_when_the_snapshot_differs_from_expect(tmp_path):
+    store, wh = world()
+    before = store.state()
+    out = run(bar_repair.apply_repair(store, wh, fake_fetch(), fake_score, str(tmp_path / "s.json"),
+                                      expect={**EXPECT, "stock_ohlcv": 36361}))
+    assert out["changed"] is False and out["refused"].startswith("snapshot verification failed")
+    assert "stock_ohlcv: snapshot 2, expected 36361" in out["verification"]["problems"]
+    assert store.txns == 0 and store.state() == before
+
+
+def test_owner7_before_after_record_keeps_code_and_repair_effects_apart():
+    stored = ({"A": {"final_score": .9, "stage": "BREAKOUT"}, "B": {"final_score": .5, "stage": "WEAK"}},
+              [{"symbol": "A", "final_score": .9, "risk_reward": 2.0, "stage": "BREAKOUT"}])
+    code = ({"A": {"final_score": .8, "stage": "BREAKOUT"}, "B": {"final_score": .6, "stage": "ACCUMULATION"}},
+            [{"symbol": "A", "final_score": .8, "risk_reward": 2.0, "stage": "BREAKOUT"},
+             {"symbol": "B", "final_score": .6, "risk_reward": 1.5, "stage": "ACCUMULATION"}])
+    post = ({"A": {"final_score": .4, "stage": "WEAK"}, "B": {"final_score": .7, "stage": "ACCUMULATION"}},
+            [{"symbol": "B", "final_score": .7, "risk_reward": 1.5, "stage": "ACCUMULATION"}])
+    rec = bar_repair.before_after_record(LAST, stored, code, post, top=2)
+    assert rec["pre_repair_stored"]["signals_ranked"][0] == {"rank": 1, "symbol": "A", "final_score": .9,
+                                                             "risk_reward": 2.0, "stage": "BREAKOUT"}
+    assert rec["comparison"]["code_change_only"]["actionable"] == {"before": 1, "after": 2, "added": 1, "removed": 0}
+    assert rec["comparison"]["code_plus_repair"]["top2"]["exited"] == ["A"]
+    assert rec["comparison"]["repair_only"]["stage_changes"] == 1
+    assert "not evidence" in rec["note"]
 
 
 def test_compare_runs_reports_top_entries_exits_and_shifts():
@@ -672,3 +821,290 @@ def test_compare_runs_reports_top_entries_exits_and_shifts():
                            "rank_shifts": []}
     assert out["actionable"] == {"before": 3, "after": 3, "added": 1, "removed": 1}
     assert out["stage_changes"] == 1 and out["final_score_delta"]["changed_gt_0_01"] == 1
+
+
+# ── owner decision 4: calendar readiness, with fixed clocks ──────────────
+def _holiday_years(monkeypatch, loaded):
+    async def holidays_for_year(year):
+        if year not in loaded:
+            raise cal.CalendarUnavailable(f"the NSE holiday list (segment CM) has no rows for {year}")
+        return {date(year, 1, 26): "Republic Day"}
+    monkeypatch.setattr(cal, "holidays_for_year", holidays_for_year)
+
+
+@pytest.mark.parametrize("today, loaded, ready, missing, checked", [
+    (date(2026, 11, 30), {2026}, True, None, [2026]),                  # before the lead date: 2027 not needed yet
+    (date(2026, 12, 1), {2026}, False, 2027, [2026, 2027]),            # lead date, 2027 missing: ALERT
+    (date(2026, 12, 1), {2026, 2027}, True, None, [2026, 2027]),       # lead date, 2027 loaded
+    (date(2027, 1, 1), {2026}, False, 2027, [2027]),                   # 1 Jan, 2027 missing: the run itself refuses
+])
+def test_owner4_readiness_with_fixed_clocks(monkeypatch, today, loaded, ready, missing, checked):
+    _holiday_years(monkeypatch, loaded)
+    r = run(cal.readiness(today, (12, 1)))
+    assert (r["ready"], r["missing_year"], r["checked_years"]) == (ready, missing, checked)
+
+
+def test_owner4_lead_date_is_configurable(monkeypatch):
+    assert cal.parse_lead("") == (12, 1)
+    monkeypatch.setenv("SCANNER_CALENDAR_LEAD", "11-15")
+    assert cal.parse_lead("") == (11, 15) and cal.parse_lead("10-01") == (10, 1)
+    with pytest.raises(ValueError):
+        cal.parse_lead("13-01")
+    _holiday_years(monkeypatch, {2026})
+    assert run(cal.readiness(date(2026, 11, 20), cal.parse_lead("")))["missing_year"] == 2027
+
+
+@pytest.fixture
+def scanner_world(monkeypatch, runner_calls):
+    async def classify(d):
+        try:
+            hol = await cal.holidays_for_year(d.year)
+        except cal.CalendarUnavailable:
+            raise
+        return cal.classify(d, hol)
+
+    async def bars_on(d):
+        return 2930
+
+    async def quality(d):
+        return {"ok": True, "clean": True, "problems": [], "report": {"copied_sessions": {"count": 0}}}
+    monkeypatch.setattr(cal, "check_session", classify)
+    monkeypatch.setattr(cal, "readiness", _REAL_READINESS)
+    monkeypatch.setattr(runner, "bars_on", bars_on)
+    monkeypatch.setattr(runner, "quality", quality)
+    return runner_calls
+
+
+@pytest.mark.parametrize("today, loaded, code, status, missing, scored", [
+    (date(2026, 11, 30), {2026}, 0, "ok", None, True),
+    (date(2026, 12, 1), {2026}, 6, "calendar_not_ready", 2027, True),
+    (date(2026, 12, 1), {2026, 2027}, 0, "ok", None, True),
+    (date(2027, 1, 1), {2026}, 4, "refused_calendar_unavailable", 2027, False),
+])
+def test_owner4_nightly_run_alerts_but_still_scores(monkeypatch, scanner_world, today, loaded, code, status, missing, scored):
+    from services.positional_engine import scan_meta
+    _holiday_years(monkeypatch, loaded)
+    records: list = []
+
+    async def start(db, run_id, **kw):
+        records.append(("start", run_id, kw))
+
+    async def finish(db, run_id, **kw):
+        records.append(("finish", run_id, kw))
+    monkeypatch.setattr(scan_meta, "start", start)
+    monkeypatch.setattr(scan_meta, "finish", finish)
+    result, got = run(runner.recorded(today, dict(fetch_bhavcopy=False, fetch_scans=False, require_bars=True)))
+    assert got == code and (scanner_world["pipeline"] == 1) is scored
+    fin = records[-1][2]
+    assert records[0][0] == "start" and records[0][2]["session"] == today.isoformat()
+    assert fin["status"] == status and fin["exit_code"] == code
+    assert fin["calendar_missing_year"] == missing and fin["counts"]["calendar"]["missing_year"] == missing
+    assert fin["calendar_ready"] is (missing is None)
+    if missing:
+        assert str(missing) in (fin["error"] or "")
+
+
+def test_owner4_a_record_that_cannot_be_written_is_logged_and_the_run_still_happens(monkeypatch, scanner_world, caplog):
+    from services.positional_engine import scan_meta
+    _holiday_years(monkeypatch, {2026})
+
+    async def broken(db, run_id, **kw):
+        raise RuntimeError("mongo down")
+    monkeypatch.setattr(scan_meta, "start", broken)
+    result, code = run(runner.recorded(date(2026, 10, 27), dict(fetch_bhavcopy=False, fetch_scans=False)))
+    assert code == 0 and scanner_world["pipeline"] == 1
+    assert any("run record not started" in r.message for r in caplog.records if r.levelname == "ERROR")
+
+
+# ── owner decisions 5 and 6: what the results are published with ────────
+class _Conn:
+    def __init__(self, handler):
+        self.handler = handler
+
+    async def fetch(self, sql, *args):
+        return self.handler(sql, args)
+
+
+class _Acquire:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def __aenter__(self):
+        return self.conn
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _PoolStub:
+    def __init__(self, handler):
+        self.conn = _Conn(handler)
+
+    def acquire(self):
+        return _Acquire(self.conn)
+
+
+class _Cursor:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def sort(self, *a):
+        return self
+
+    async def to_list(self, n):
+        return self.rows[:n]
+
+
+class _Db:
+    def __init__(self, rows=None, error=None):
+        self.rows, self.error = rows or [], error
+
+    def __getitem__(self, name):
+        assert name == "job_runs"
+        return self
+
+    def find(self, query, projection=None):
+        if self.error:
+            raise self.error
+        assert query["job"] == "positional_engine" and query["status"] == {"$in": ["ok", "calendar_not_ready"]}
+        return _Cursor(self.rows)
+
+
+def _basis_handler(groups, raw=(), cut=()):
+    def handler(sql, args):
+        if "GROUP BY 1, 2" in sql:
+            return [{"v": v, "b": b, "n": n} for v, b, n in groups]
+        if "= 'raw_no_factors'" in sql:
+            return [{"nse_symbol": s} for s in raw]
+        if "break_truncated_at' IS NOT NULL" in sql:
+            return [{"nse_symbol": s, "b": d} for s, d in cut]
+        raise AssertionError(sql)
+    return handler
+
+
+def test_owner5_adjusted_date_publishes_basis_exceptions_and_quality():
+    from services.positional_engine import scan_meta
+    record = {"finished_at": "2026-10-26T14:15:30+00:00", "status": "ok",
+              "counts": {"quality": {"ok": True, "clean": False, "problems": ["missing_sessions=2", "extra_dates=14"]},
+                         "exceptions": {"not_scored_after_truncation": [{"symbol": "ZZZ", "bars_left": 12}]}}}
+    pool = _PoolStub(_basis_handler([("positional.v1.1", "warehouse_adjusted", 2194),
+                                     ("positional.v1.1", "raw_no_factors", 2)],
+                                    raw=["AAA", "BBB"], cut=[("ALLCARGO", "2025-11-12")]))
+    b = run(scan_meta.basis_for_date(pool, _Db([record]), date(2026, 10, 26)))
+    assert b["price_basis"] == "corp_action_adjusted" and b["engine_versions"] == ["positional.v1.1"]
+    assert b["price_basis_rows"] == {"corp_action_adjusted": 2194, "raw_no_factors": 2, "raw_before_v1_1": 0}
+    assert [x["symbol"] for x in b["exceptions"]["raw_prices"]] == ["AAA", "BBB"]
+    assert "raw" in b["exceptions"]["raw_prices"][0]["reason"]
+    assert b["exceptions"]["not_scored_after_truncation"] == [{"symbol": "ZZZ", "bars_left": 12}]
+    assert b["data_quality"]["status"] == "warnings" and b["data_quality"]["warnings"] == 2
+
+
+def test_owner6_a_day_without_factors_is_raw_never_adjusted_and_unchecked_is_said():
+    from services.positional_engine import scan_meta
+    pool = _PoolStub(_basis_handler([("positional.v1.0", None, 2210)]))
+    b = run(scan_meta.basis_for_date(pool, _Db([]), date(2026, 10, 23)))
+    assert b["price_basis"] == "raw" and b["price_basis_rows"]["raw_before_v1_1"] == 2210
+    assert b["data_quality"]["status"] == "not_checked" and b["exceptions"]["not_scored_after_truncation"] is None
+    b = run(scan_meta.basis_for_date(pool, _Db(error=TimeoutError()), date(2026, 10, 23)))
+    assert b["data_quality"]["status"] == "not_checked" and "TimeoutError" in b["data_quality"]["reason"]
+
+
+def test_owner5_picks_and_watchlist_routes_carry_scan_basis_and_row_price_basis(monkeypatch):
+    from routes import positional as route
+    from tests.test_positional_scan_universe import _bars, _candidate, _client
+    monkeypatch.setattr(route, "db", _Db([]))
+    day = date(2026, 10, 13)
+
+    basis = _basis_handler([("positional.v1.1", "warehouse_adjusted", 1), ("positional.v1.1", "raw_no_factors", 1)],
+                           raw=["AAA"])
+
+    def handler(bars):
+        def h(sql, args):
+            if "MAX(signal_date)" in sql or "MAX(as_of_date)" in sql:
+                return [{"d": day}]
+            if "FROM positional_signals ps" in sql:
+                assert "price_basis" in sql
+                return [{"nse_symbol": "AAA", "signal_date": day, "final_score": 0.8, "engine_version": "positional.v1.1",
+                         "pre_breakout": None, "features_raw": None, "price_basis": "raw_no_factors"}]
+            if "FROM stock_technical_features stf" in sql:
+                assert "price_basis" in sql
+                return [_candidate(engine_version="positional.v1.1", price_basis="warehouse_adjusted")]
+            if "FROM stock_ohlcv" in sql:
+                return bars
+            return basis(sql, args)
+        return h
+    c, _, _ = _client(monkeypatch, handler=handler([]))
+    p = c.get("/api/positional/picks").json()
+    assert p["picks"][0]["price_basis"] == "raw_no_factors"
+    assert p["scan_basis"]["price_basis"] == "corp_action_adjusted" and p["scan_basis"]["exceptions"]["raw_prices"][0]["symbol"] == "AAA"
+    c, _, _ = _client(monkeypatch, handler=handler(_bars()))
+    w = c.get("/api/positional/watchlist").json()
+    assert w["scan_basis"]["date"] == "2026-10-13" and w["scan_basis"]["data_quality"]["status"] == "not_checked"
+    rows = [r for b in w["buckets"].values() for r in b]
+    assert rows and rows[0]["price_basis"] == "warehouse_adjusted"
+
+
+def test_owner6_pipeline_names_every_exception(monkeypatch):
+    raw, _c, factors = kotak_like()
+    short = raw[SPLIT_AT - 70:SPLIT_AT + 10]          # 80 bars: the cut leaves 10 < MIN_BARS
+
+    async def universe(d):
+        return ["KOTAKBANK", "NOFACT", "SHORT"]
+
+    async def load(sym, end, n):
+        return {"KOTAKBANK": raw, "NOFACT": raw[SPLIT_AT:], "SHORT": short}[sym]
+
+    async def nothing(*a, **kw):
+        return None
+
+    async def no_hits(d, s):
+        return []
+    from services import macro_engine
+    monkeypatch.setattr(pipeline, "universe_for", universe)
+    monkeypatch.setattr(pipeline, "_sector_key_for", nothing)
+    monkeypatch.setattr(pipeline.sector_strength, "load_bench_return", nothing)
+    monkeypatch.setattr(pipeline.chartink_loader, "get_scans_for", no_hits)
+    monkeypatch.setattr(macro_engine, "latest_state", nothing)
+    summary, rows = run(pipeline.score_universe(raw[-1]["bar_date"], load_bars=load, factors={"KOTAKBANK": factors}))
+    exc = summary["exceptions"]
+    assert [e["symbol"] for e in exc["raw_prices"]] == ["NOFACT"] and "raw NSE prices" in exc["raw_prices"][0]["reason"]
+    assert [e["symbol"] for e in exc["not_scored_after_truncation"]] == ["SHORT"]
+    assert exc["not_scored_after_truncation"][0]["bars_left"] == 10 and "2026-01-14" in exc["not_scored_after_truncation"][0]["reason"]
+    assert {r["nse_symbol"]: r["price_adjustment"]["price_basis"] for r in rows} == {
+        "KOTAKBANK": "warehouse_adjusted", "NOFACT": "raw_no_factors"}
+
+
+def test_owner1_compare_fingerprints_names_every_differing_date(tmp_path):
+    from scripts import repair_scanner_bars as cli
+    a = {"tables": {"stock_ohlcv": {"2026-10-01": [2908, "aa"], "2026-10-02": [2908, "aa"]}, "positional_signals": {}}}
+    b = {"tables": {"stock_ohlcv": {"2026-10-01": [2908, "aa"], "2026-10-21": [2916, "bb"]}, "positional_signals": {}}}
+    (tmp_path / "a.json").write_text(json.dumps(a))
+    (tmp_path / "b.json").write_text(json.dumps(b))
+    (tmp_path / "c.json").write_text(json.dumps(a))
+    assert cli.compare_fingerprints(str(tmp_path / "a.json"), str(tmp_path / "c.json")) == {
+        "identical": True, "differing_dates": {"positional_signals": [], "stock_ohlcv": []}}
+    assert cli.compare_fingerprints(str(tmp_path / "a.json"), str(tmp_path / "b.json"))["differing_dates"]["stock_ohlcv"] == [
+        "2026-10-02", "2026-10-21"]
+    assert run(cli.main(_cli_args(compare_fingerprints=[str(tmp_path / "a.json"), str(tmp_path / "b.json")]))) == 1
+
+
+def test_owner4_a_crash_is_recorded_as_failed_and_raised(monkeypatch):
+    from services.positional_engine import scan_meta
+    finished: list = []
+
+    async def start(db, run_id, **kw):
+        return None
+
+    async def finish(db, run_id, **kw):
+        finished.append(kw)
+
+    async def crash(d, **kw):
+        raise RuntimeError("database went away")
+    monkeypatch.setattr(scan_meta, "start", start)
+    monkeypatch.setattr(scan_meta, "finish", finish)
+    monkeypatch.setattr(runner, "run", crash)
+    with pytest.raises(RuntimeError, match="went away"):
+        run(runner.recorded(date(2026, 10, 27), {}))
+    assert finished[0]["status"] == "failed" and finished[0]["exit_code"] == 1
+    assert "database went away" in finished[0]["error"]
+
