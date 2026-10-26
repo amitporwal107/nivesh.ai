@@ -9,7 +9,8 @@
  *   FII / DII     the newest FII / DII session in that feed (GET /api/markets/fii-dii, NSE provisional, ₹ crore)
  *   Smart money   GET /api/markets/smart-money/summary?window=1M&universe=nifty500 (useSmSummary): FII and DII net cash over
  *                 the month, and the share of Nifty 500 names whose disclosed mutual-fund holding rose
- *   Sectors       the sector-index moves in that feed (GET /api/markets/sector-returns, last session, SECTOR_MOVE_MIN % or more)
+ *   Sectors       useIntelEvents("sector"): the sector-index moves Market Intelligence's Sector chip lists (GET
+ *                 /api/markets/sector-returns, last session, SECTOR_MOVE_MIN % or more; the "All" list leaves them out)
  *
  * An event opens Market Intelligence with it selected; the FII / DII and sector tiles open their own chips there; the
  * Smart money tile opens Smart Money. Each tile says when its source failed or has nothing; the others still show. The
@@ -83,14 +84,18 @@ export function ScannerPulse() {
   const { mobile } = useCopilotShell();
   const desk = useDesk();
   const feed = useIntelEvents("all");
+  // Market Intelligence's "All" list leaves sector moves out; its "Sector" chip has them, from the same cached read.
+  const sectorFeed = useIntelEvents("sector");
   const sm = useSmSummary(true, "1M", "nifty500");
   const go = (f: () => void) => { desk.noteFrom(FROM); f(); };
 
   const ready = feed.status === "ready";
   const news = feed.events.filter((e) => NEWS_GROUPS.has(e.group)).slice(0, EVENTS_SHOWN);
   const flow = feed.events.find((e) => e.group === "flows" && e.flow);
-  const sectors = feed.events.filter((e) => e.group === "sector");
-  const failed = (k: "flows" | "sectors") => feed.sourceStates[k] === "failed";
+  const sectors = sectorFeed.events.filter((e) => e.group === "sector");
+  const flowsFailed = feed.sourceStates.flows === "failed";
+  const sectorsFailed = sectorFeed.sourceStates.sectors === "failed" || sectorFeed.status === "error";
+  const sectorsReady = sectorFeed.status === "ready";
   const s = sm.data;
 
   return (
@@ -118,7 +123,7 @@ export function ScannerPulse() {
               <span style={quiet}>{eventWhen(flow.at).full} · NSE provisional, cash</span>
             </>
           ) : (
-            <span style={quiet}>{failed("flows") ? "The FII / DII figures didn’t load." : ready ? "No FII / DII session in the feed." : "Loading…"}</span>
+            <span style={quiet}>{flowsFailed ? "The FII / DII figures didn’t load." : ready ? "No FII / DII session in the feed." : "Loading…"}</span>
           )}
         </Tile>
         <Tile testId="desk-pulse-smartmoney" title="Smart money · 1 month" open="Smart Money" onOpen={() => go(() => desk.openTab("smartmoney"))}>
@@ -147,7 +152,7 @@ export function ScannerPulse() {
               <span style={quiet}>{sectors.length} index{sectors.length === 1 ? "" : "es"} moved {SECTOR_MOVE_MIN}% or more{sectors[0].at ? ` · ${eventWhen(sectors[0].at).full}` : ""}</span>
             </>
           ) : (
-            <span style={quiet}>{failed("sectors") ? "The sector closes didn’t load." : ready ? `No sector index moved ${SECTOR_MOVE_MIN}% or more.` : "Loading…"}</span>
+            <span style={quiet}>{sectorsFailed ? "The sector closes didn’t load." : sectorsReady ? `No sector index moved ${SECTOR_MOVE_MIN}% or more.` : "Loading…"}</span>
           )}
         </Tile>
       </div>

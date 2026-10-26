@@ -22,11 +22,12 @@
  *
  * Above the list (the user's requirement of 2026-10-25): the market pulse (ScannerPulse.tsx — the latest events and FII / DII,
  * smart-money and sector indicators, opening Market Intelligence and Smart Money) and the Top 10 stock and F&O ideas
- * (ScannerTop10.tsx). Each loads on its own; the list never waits for them.
+ * (ScannerTop10.tsx). Each loads on its own, from its own code chunk (the boards carry the Strategy Builder's payoff charts);
+ * the list never waits for them.
  */
 import { Flash } from "../../components/LiveBits";
 import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
-import { useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Btn, ErrorBlock, LoadingBlock, Pill, TONE_COLOR, fmtNum, fmtPct, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
@@ -44,8 +45,6 @@ import {
 import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import ReversalPanel from "./ReversalPanel";
-import { ScannerPulse } from "./ScannerPulse";
-import { ScannerTop10 } from "./ScannerTop10";
 import { TrustLine } from "./trust";
 import { Widget } from "./widget";
 import { ChartinkTag, ChartinkTrust } from "./chartink/ChartinkParts";
@@ -1124,13 +1123,16 @@ const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
 
 // ── the tab ──────────────────────────────────────────────────────────────
 
+const ScannerPulse = lazy(() => import("./ScannerPulse").then((m) => ({ default: m.ScannerPulse })));
+const ScannerTop10 = lazy(() => import("./ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
+
 /** The tab: the market pulse and the Top 10 boards (each loads on its own), then the scanner list. */
 export default function ScannerTab() {
   const { mobile } = useCopilotShell();
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
-      <ScannerPulse />
-      <ScannerTop10 />
+      <Suspense fallback={<LoadingBlock label="Loading the market pulse" rows={1} />}><ScannerPulse /></Suspense>
+      <Suspense fallback={<LoadingBlock label="Loading the Top 10 ideas" rows={2} />}><ScannerTop10 /></Suspense>
       <ScannerList />
     </div>
   );

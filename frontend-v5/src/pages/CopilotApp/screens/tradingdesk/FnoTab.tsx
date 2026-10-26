@@ -39,7 +39,7 @@
  *                                  shown on the card as the cash side of the build-up)
  *   15-minute confirmation         no intraday OI is collected (FnoBuildup.tsx shows the route's reason)
  */
-import { useState, type FormEvent, type ReactNode } from "react";
+import { Suspense, lazy, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { StockIcon } from "../../components/EntityIcon";
 import { LoadingBlock, Pill, TONE_COLOR, fmtNum, signTone } from "../../components/ui";
@@ -51,7 +51,6 @@ import { fmtLevel } from "../trading/PayoffResult";
 import { FNO_INDICES, cleanSymbol, indexNameForSymbol, isIndexUnderlying, useFnoFutures, useOptionChain, type ChainState, type FnoFutures, type FnoResult, type FnoSummary } from "../trading/fno";
 import { QueryProblem, SEBI_FNO_NOTE, fmtDay, fmtQty, fmtSigned } from "../trading/parts";
 import { isLabView, useDesk, type LabView } from "./context";
-import { LabFocus } from "./LabFocus";
 import { BuildupView } from "./FnoBuildup";
 import CandidatesView from "./FnoCandidates";
 import { ExpiryPanel, GreeksNotAvailable, HistoryPanel, IndexResearchNote, OiBarsPanel } from "./FnoIndexExpiries";
@@ -68,6 +67,9 @@ import {
   CardRow, ChainOiTable, FnoGate, OiRangeBar, Segmented, StatGrid, TONE_LINE, TONE_SOFT, UnderlineTabs,
   basisWords, buildupWhy, chainTiles, wallsOf, istDay, nearFutureOf, shortDay, type SegOption, type UnderlyingBuildup,
 } from "./fno-parts";
+
+/** The focus panel, only with ?lab_focus=: its own chunk (it carries the Strategy Builder's idea card and payoff chart). */
+const LabFocus = lazy(() => import("./LabFocus").then((m) => ({ default: m.LabFocus })));
 
 /** An underlying the URL may name: the F&O routes' own rule (letters, digits, & and -). */
 const labSymbol = (v: string | null): string | null => {
@@ -586,7 +588,11 @@ export default function FnoTab() {
         <SpotBlock symbol={symbol} state={oc.state} futures={fq.data} />
       </div>
 
-      {focus && <LabFocus symbol={focus} view={view} onView={(v) => setLab({ view: v, symbol: focus })} onClose={() => setLab({ focus: null })} />}
+      {focus && (
+        <Suspense fallback={<LoadingBlock label={`Loading the ${focus} idea`} rows={1} />}>
+          <LabFocus symbol={focus} view={view} onView={(v) => setLab({ view: v, symbol: focus })} onClose={() => setLab({ focus: null })} />
+        </Suspense>
+      )}
 
       <UnderlyingRow
         symbol={symbol}
