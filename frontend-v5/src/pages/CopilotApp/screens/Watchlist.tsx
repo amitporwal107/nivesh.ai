@@ -1,4 +1,5 @@
 import { NotConnected, Screen, ScreenHeader } from "../components/ui";
+import { AiScannerWatchlist } from "./workspace/AiScannerWatchlist";
 import { FilingAlertSettings } from "./workspace/FilingAlerts";
 import { PersonalLists } from "./workspace/PersonalLists";
 import { ResearchWatchlist } from "./workspace/ResearchWatchlist";
@@ -11,6 +12,9 @@ import { SetupsToWatch } from "./workspace/SetupsToWatch";
  *
  * Everything the product has that is a watchlist or an alert, each from its own
  * endpoint:
+ *   · the AI scanner watchlist: the Top 10 cash and F&O ideas stored after each
+ *     day's scan, by day, with Kite prices and links into the trading desk —
+ *     workspace/AiScannerWatchlist.tsx (/api/desk/ai-watchlist)
  *   · the user's own lists: name a list, add and remove stocks, with a quote on
  *     each — workspace/PersonalLists.tsx (/api/watchlists). A first-time user is
  *     given one example list, a copy of the newest research watchlist.
@@ -30,8 +34,9 @@ export default function WatchlistScreen() {
       <ScreenHeader
         eyebrow="Watchlist & alerts"
         title="Stocks you follow, and what you want to be told"
-        sub="Your own lists, the research watchlist with live prices, your saved screens as watchlists, the price levels the scanner is watching, and your filing alerts."
+        sub="The AI scanner's daily ideas, your own lists, the research watchlist with live prices, your saved screens as watchlists, the price levels the scanner is watching, and your filing alerts."
       />
+      <AiScannerWatchlist />
       <PersonalLists />
       <ResearchWatchlist />
       <ScreenWatchlists />

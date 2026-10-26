@@ -881,8 +881,8 @@ test.describe("Your lists — with the rest of the Watchlist screen", () => {
     await expect(needs).toContainText("Alert rules on price, volume");
     await expect(needs).toContainText("A delivery job for filing alerts");
     await expect(needs).not.toContainText("watchlist store");
-    // The header names the new section first.
-    await expect(page.getByTestId("screen-page-watchlist")).toContainText("Your own lists, the research watchlist with live prices");
+    // The header names the sections in their order: the AI scanner's daily ideas (2026-10-26), then your own lists.
+    await expect(page.getByTestId("screen-page-watchlist")).toContainText("The AI scanner's daily ideas, your own lists, the research watchlist with live prices");
     expect(errors).toEqual([]);
   });
 });
