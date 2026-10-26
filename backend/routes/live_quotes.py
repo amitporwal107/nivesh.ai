@@ -1,6 +1,7 @@
 """Live quotes from the platform-level Kite feed (services/kite_live_feed). Read only.
 
-GET /api/live/status    state of the feed (mode, source, instrument count, last tick age)
+GET /api/live/status    state of the feed (mode, source, instrument count, last tick age), and whether an admin should be
+                        asked for the day's Kite login now (login_needed / login_why, platform_token.login_needed)
 GET /api/live/quotes    ?symbols=RELIANCE,NIFTY 50   batch of quotes from the latest snapshot
 GET /api/live/snapshot  ?universe=indices|nifty500|fno|futures|all   a whole set (futures: the near-month contract of each F&O underlying, with OI)
 GET /api/live/close     ?date=YYYY-MM-DD&symbols=  the saved closing quotes of a trading day (newest when omitted)
@@ -29,7 +30,7 @@ from services.kite_live_feed import fno_quotes as fq
 from services.kite_live_feed import gateway as gw
 from services.kite_live_feed import platform_token as pt
 from services.kite_live_feed import quote_cache as qc
-from services.kite_live_feed.feed import aware, get_feed
+from services.kite_live_feed.feed import COL_CLOSE, aware, get_feed
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/live", tags=["live-quotes"])
@@ -157,6 +158,11 @@ async def status(request: Request) -> Dict[str, Any]:
     out = dict(st or {})
     out.pop("holder", None)
     out.pop("updated_at", None)
+    token = await pt.token_status(feed.db, now)
+    # The day's closing quotes are saved under the IST date (feed._save_close); once they are, a login adds nothing that day.
+    today = now.astimezone(cfg.IST).date().isoformat()
+    close_saved = await feed.db[COL_CLOSE].find_one({"_id": today}, {"_id": 1}) is not None
+    needed, why = pt.login_needed(now, feed_state=out.get("state"), feed_reason=out.get("reason"), token=token, close_saved_today=close_saved)
     return {"enabled": cfg.enabled(), "mode": mode_of(st, age), "state": (st or {}).get("state", "disabled" if not cfg.enabled() else "unknown"),
             "last_tick_age_seconds": age, "as_of": (snap or {}).get("as_of"), "source": out.get("source"),
             "instrument_count": out.get("instrument_count", 0), "unresolved_count": out.get("unresolved_count", 0),
@@ -165,7 +171,8 @@ async def status(request: Request) -> Dict[str, Any]:
             "holiday_checked": out.get("holiday_checked"), "read_only": True,
             "token_alert": out.get("token_alert") or {"state": None},
             "alert_state": (out.get("token_alert") or {}).get("state"),
-            "platform_token": await pt.token_status(feed.db)}
+            "platform_token": token,
+            "login_needed": needed, "login_why": why, "close_saved_today": close_saved}
 
 
 @router.get("/quotes")

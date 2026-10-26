@@ -189,7 +189,8 @@ export default function CopilotAppPage() {
         )}
 
         <main className="flex flex-col" style={{ minHeight: 0, minWidth: 0, position: "relative" }}>
-          {mode === "trader" && <KiteLoginNotice isAdmin={isAdmin} />}
+          {/* Every mode: prices on every screen depend on the day's Kite login (the user's requirement of 2026-10-26). */}
+          <KiteLoginNotice isAdmin={isAdmin} />
           {mode === "trader" && !compact && <LiveChip floating />}
           {compact && (
             <div data-testid="compact-bar" className="flex items-center" style={{ gap: 10, padding: "calc(12px + env(safe-area-inset-top)) 16px 10px", borderBottom: "1px solid var(--cp-line)" }}>
