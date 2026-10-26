@@ -46,6 +46,20 @@ REPLY = load(CONTRACT["levels_reply_fixture"])
 IDEA = next(i for i in TOP["classes"][CONTRACT["idea"]["class"]]["ideas"] if i["underlying"] == CONTRACT["idea"]["underlying"])
 
 
+@pytest.fixture(autouse=True)
+def exchange_lots(monkeypatch):
+    """The exchange lot the route checks every strategy leg against when the F&O risk gate is off
+    (desk_strategy_trades.check_exchange_lots -> services/risk_gate/reference.lookup, from fix/desk-paper-safety).
+    MOCK — not real data: the lot is the captured idea's own (the 2026-10-21 staging chain), as the reference would read it."""
+    from services.risk_gate import reference
+    lots = {leg["expiry"]: leg["lot_size"] for leg in IDEA["legs"]}
+
+    async def lookup(underlying, expiries, today):
+        return {e: {"listed": True, "lot_size": lots.get(e), "source": reference.BHAVCOPY_SOURCE,
+                    "as_of": IDEA["data_as_of"]["chain"], "error": None} for e in expiries}
+    monkeypatch.setattr(reference, "lookup", lookup)
+
+
 # ── B-1, B-2: the bodies the button sends open a trade ───────────────────────
 @pytest.mark.parametrize("variant", ["body_with_levels", "body_without_levels"])
 def test_the_body_the_idea_button_sends_opens_a_strategy_trade_with_its_signal(api, world, variant):
