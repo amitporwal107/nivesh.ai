@@ -1,5 +1,5 @@
-# Staging dry-run output, unedited (scripts/repair_scanner_bars.py --dry-run, branch code loaded in memory in nivesh-staging-app-backend; database sessions read-only)
-# stdout follows. stderr (not included) held INFO lines (universe 2930 → 2210 after the equity filter; macro state falls back from 2026-10-26 to 2026-10-23, "no Nifty"), one WARNING "GSM client unavailable" (the container has no Google credentials) and a Python FutureWarning; no traceback.
+# Staging dry-run output, unedited (scripts/repair_scanner_bars.py --dry-run at commit 97447f67; branch modules loaded in memory in nivesh-staging-app-backend; database sessions read-only)
+# Run 2026-10-26T21:28:16Z .. 2026-10-26T21:29:47Z UTC. stdout follows. stderr (not included): INFO lines (universe 2930 -> 2210 after the equity filter; macro state falls back from 2026-10-26 to 2026-10-23, "no Nifty"), a WARNING "GSM client unavailable" (no Google credentials in the container) and a Python FutureWarning; no traceback.
 
 
 == window
@@ -196,7 +196,8 @@
   ],
   "last": [
    "2026-10-23"
-  ]
+  ],
+  "note": "left as recorded: computed by engine v1.0 on the previously stored (raw, unrepaired) price basis"
  },
  "other_stores": {
   "positional_outcomes": {
@@ -1187,6 +1188,174 @@
   "skipped_short_after_break": 5,
   "macro_multiplier": 1.0
  },
+ "exceptions_code_plus_repair": {
+  "raw_prices": {
+   "count": 11,
+   "symbols": [
+    {
+     "symbol": "RAJRILTD",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "HITECHGEAR",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "GVKPIL",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "RCOM",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "EQUIPPP",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "SEYAIND",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "EASTSILK",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "SWANDEF",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "MTEDUCARE",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "PREMIER",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    },
+    {
+     "symbol": "VHLTD",
+     "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+    }
+   ]
+  },
+  "not_scored_after_truncation": {
+   "count": 5,
+   "symbols": [
+    {
+     "symbol": "MOLDTECH",
+     "break_date": "2026-10-09",
+     "bars_left": 11,
+     "reason": "a price break the warehouse factors do not explain on 2026-10-09; 11 bars after it, fewer than the 60 the scanner needs"
+    },
+    {
+     "symbol": "BHAGYANGR",
+     "break_date": "2026-10-08",
+     "bars_left": 12,
+     "reason": "a price break the warehouse factors do not explain on 2026-10-08; 12 bars after it, fewer than the 60 the scanner needs"
+    },
+    {
+     "symbol": "VERANDA",
+     "break_date": "2026-10-06",
+     "bars_left": 14,
+     "reason": "a price break the warehouse factors do not explain on 2026-10-06; 14 bars after it, fewer than the 60 the scanner needs"
+    },
+    {
+     "symbol": "CCAVENUE",
+     "break_date": "2026-10-19",
+     "bars_left": 5,
+     "reason": "a price break the warehouse factors do not explain on 2026-10-19; 5 bars after it, fewer than the 60 the scanner needs"
+    },
+    {
+     "symbol": "INDIAGLYCO",
+     "break_date": "2026-09-02",
+     "bars_left": 36,
+     "reason": "a price break the warehouse factors do not explain on 2026-09-02; 36 bars after it, fewer than the 60 the scanner needs"
+    }
+   ]
+  },
+  "truncated_but_scored": {
+   "count": 12,
+   "symbols": [
+    {
+     "symbol": "KAPSTON",
+     "break_date": "2026-01-28",
+     "bars_dropped": 67,
+     "bars_left": 183
+    },
+    {
+     "symbol": "MAHAPEXLTD",
+     "break_date": "2026-03-20",
+     "bars_dropped": 103,
+     "bars_left": 147
+    },
+    {
+     "symbol": "DBEIL",
+     "break_date": "2026-06-19",
+     "bars_dropped": 162,
+     "bars_left": 88
+    },
+    {
+     "symbol": "SIKKO",
+     "break_date": "2025-12-08",
+     "bars_dropped": 33,
+     "bars_left": 217
+    },
+    {
+     "symbol": "RNBDENIMS",
+     "break_date": "2026-04-02",
+     "bars_dropped": 110,
+     "bars_left": 140
+    },
+    {
+     "symbol": "BIOFILCHEM",
+     "break_date": "2026-02-02",
+     "bars_dropped": 70,
+     "bars_left": 180
+    },
+    {
+     "symbol": "VEDL",
+     "break_date": "2026-04-30",
+     "bars_dropped": 128,
+     "bars_left": 122
+    },
+    {
+     "symbol": "SETCO",
+     "break_date": "2026-06-02",
+     "bars_dropped": 149,
+     "bars_left": 101
+    },
+    {
+     "symbol": "TRIVENI",
+     "break_date": "2026-07-22",
+     "bars_dropped": 184,
+     "bars_left": 66
+    },
+    {
+     "symbol": "DCMSRIND",
+     "break_date": "2025-12-26",
+     "bars_dropped": 46,
+     "bars_left": 204
+    },
+    {
+     "symbol": "SADHNANIQ",
+     "break_date": "2026-02-18",
+     "bars_dropped": 82,
+     "bars_left": 168
+    },
+    {
+     "symbol": "ALLCARGO",
+     "break_date": "2025-11-12",
+     "bars_dropped": 15,
+     "bars_left": 235
+    }
+   ]
+  }
+ },
+ "exceptions_code_change_only": {
+  "raw_prices": 11,
+  "not_scored_after_truncation": 5,
+  "truncated_but_scored": 16
+ },
  "symbols_with_adjustment": 81,
  "adjusted_symbols_detail": [
   {
@@ -1441,7 +1610,8 @@
     "return_20d_pct": -9.773038544316194
    }
   }
- ]
+ ],
+ "note": "Rankings change; that is not evidence the new ranking predicts better (separate validation needed)."
 }
 
 == --apply would
@@ -1469,6 +1639,12 @@
  "recompute_dates": [
   "2026-10-26"
  ],
- "note": "snapshot first; a second --apply finds nothing to do"
+ "snapshot_rows_by_table": {
+  "stock_ohlcv": 36361,
+  "stock_technical_features": 28280,
+  "positional_signals": 9412
+ },
+ "expect_arg": "stock_ohlcv=36361,stock_technical_features=28280,positional_signals=9412",
+ "note": "snapshot first and verified, then one transaction; a second --apply finds nothing to do"
 }
 exit=0

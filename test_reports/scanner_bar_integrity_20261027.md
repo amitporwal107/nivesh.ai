@@ -1,12 +1,12 @@
 # Functionality Verification Report — AI scanner price history and adjusted prices (N1, N2; gates 5 and 6)
 
 - **Branch:** fix/scanner-bar-integrity (off origin/dev 5b6b3cfd), worktree /home/deploy/nivesh-scanner-integrity
-- **Date:** 2026-10-27
+- **Date:** 2026-10-27 (first commit 1f6f7e3e; follow-up for the owner's decisions 97447f67)
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER; bug fix + data-repair tooling)
 - **Environment:** unit tests in the staging image (no network); a disposable local Postgres for the write paths;
   staging READ-ONLY for the dry run (branch code loaded in memory in nivesh-staging-app-backend, database sessions
   opened read-only). Nothing was deployed, applied, scheduled or written on staging.
-- **Changed areas:** backend routes/services: services yes (services/positional_engine), routes no · frontend src: no
+- **Changed areas:** backend routes/services: yes (services/positional_engine; follow-up: routes/positional.py, services/strategy_plan) · frontend src: follow-up yes (desk Scanner tab)
 - **Acceptance standard:** docs/NIVESH_AI_LAB_PHASE_SUCCESS_CRITERIA.md §0.1; study items N1, N2; release gates 5, 6.
 
 ## Summary
@@ -1254,7 +1254,7 @@ UNCHANGED
 
 - none for the work done. Owner decisions are listed in the PR draft (apply approval, recompute window, cron flags).
 
-## Pending (not claimed as passed)
+## Pending at the first commit (superseded by the follow-up section below)
 
 - UNVERIFIED on staging: the deployed scheduled job with the new guards (calendar refusal, DATE1 refusal, adjusted
   features, `--backfill-missing`, `--quality-check`/`--require-clean`). Needs merge + deploy; plan in the PR draft.
@@ -1262,5 +1262,644 @@ UNCHANGED
 - Not covered: the 189 scored dates before 2026-10-26 stay as recorded unless the owner picks `--recompute-from`;
   historical recomputes would use today's macro state (`macro_engine.latest_state()` is not point-in-time).
 - Overall status: IN PROGRESS (code and evidence complete; staging repair and deploy await approval).
+
+---
+
+# Follow-up for the owner's decisions (§9.1), commit 97447f67
+
+Status of this section: code and tests complete; staging was only read. The repair itself is for the coordinator to
+run with `runbook_scanner_repair.md` (not run by me).
+
+## What changed, by decision
+
+| # | Decision | Implementation | Tests |
+|---|---|---|---|
+| 1 | One transaction; snapshot verified first; quality rerun; second apply no-op; exact restore | `bar_repair.apply_repair` fetches the missing NSE files (trade date checked) and scores 26 Oct on the corrected bars in memory, writes + reads back + verifies the snapshot, then `PgStore.apply_txn` re-checks the counts and does every write on one connection in one transaction. `--restore` verifies, then one transaction, and marks the apply's run record `rolled_back`. `--fingerprint` / `--compare-fingerprints`. Apply mode uses its own pool (300 s per statement). | TC-28..TC-32, TC-35, TC-45 |
+| 2 | `--verify-snapshot` | readable, non-empty, every table and date covered, per-date counts = plan; `--expect` = the reviewed dry run's per-table counts; apply verifies its own snapshot and refuses on a problem; `--snapshot-only` preflight | TC-33, TC-34 |
+| 3 | Recompute only 26 Oct | default and documented; `--recompute-from` kept, documented as not the path | dry run below |
+| 4 | Calendar readiness, visible | `session_calendar.readiness` from the lead date (default 12-01, `SCANNER_CALENDAR_LEAD` / `--calendar-lead`); the runner logs `ERROR ALERT calendar not ready`, still scores, exits 6; every run writes Mongo `job_runs` (`job: positional_engine`, `calendar_ready`, `calendar_missing_year`, also in `counts`/`error`); a crash is recorded as `failed` | TC-36..TC-39 |
+| 5 | Publish engine version, price basis, data quality | `scan_meta.basis_for_date` → `scan_basis` on `/api/positional/picks`, `/watchlist` and the ideas `selection`; `price_basis` per row; desk Scanner line `desk-scan-basis` and the `desk-scan-raw-prices` row marker; quality check on by default (report only) | TC-40..TC-42, SB-1..SB-4 |
+| 6 | Exceptions explicit | `score_universe` summary `exceptions` (raw prices, not scored after truncation, truncated); in the dry run, the run record and `scan_basis` | TC-43 |
+| 7 | Before/after record | `<snapshot>.before_after.json` with stored / code-change-only / post-repair rankings and signals and three comparisons | TC-44 |
+
+**Disclosure (decision 3):** the 189 older scored dates (2026-01-12 .. 2026-10-23) stay as recorded. They were computed
+by engine v1.0 on the previously stored price basis: raw, unadjusted prices on the unrepaired bar store (with the
+phantom dates, without 21–22 Oct). They are not rescored with today's macro regime.
+
+**Not a claim of better predictions:** the rankings change because the inputs are corrected. Whether the new ranking
+predicts better needs its own out-of-sample validation.
+
+## Test runs (real output, this session)
+
+- Backend, staging image, `--network none`, 23 files: `626 passed, 1 skipped, 4 warnings in 29.54s`
+- Throwaway Postgres (`postgres:16-alpine`, no network; container removed after, `count=0`):
+  `tests/test_scanner_bar_repair_pg.py::test_pg_one_transaction_failure_rolls_back_then_apply_twice_then_restore_exactly PASSED [100%]` /
+  `1 passed in 0.48s`. It injects a failure while the recompute's signals are written, after the phantom deletes and
+  the back-fill insert ran in the same transaction, and asserts every table is byte-identical (to_jsonb dump and
+  `--fingerprint` compare); then apply, a second apply with no change, restore to the exact prior rows, twice.
+- Frontend, `run-fe.sh` (tsc, production build, Playwright with the API mocked, no network):
+  - `e2e/tests/copilot-app-desk-scanner.spec.ts`: `tsc: clean` · `✓ built in 26.82s` · `85 passed (1.1m)`; new:
+    `SB-1 an adjusted scan says so, counts its exceptions, names them, and marks a raw-price row`, `SB-2 a clean adjusted
+    scan reads as one quiet line`, `SB-3 a scan from before v1.1 is raw prices and unchecked, said plainly`, `SB-4 the
+    picks route's basis is used when the watchlist sends none; an unreadable basis or none at all is said`.
+  - the 14 other specs that mock `/api/positional/watchlist|picks`: `tsc: clean` · `✓ built in 26.03s` ·
+    `405 passed (6.4m)` · `2 skipped` (the lab's screenshot tests, skipped by their own condition).
+
+## Staging, read-only (fresh dry run on 97447f67)
+
+The branch's modules and script loaded in memory in `nivesh-staging-app-backend` from stdin; database sessions
+read-only. Unedited stdout: `test_reports/scanner_bar_integrity_dryrun_20261027.txt` (replaces the first run's file;
+the first run's output stays in git history at 1f6f7e3e). Excerpts:
+
+Window: `{
+ "start": "2025-10-20",
+ "end": "2026-10-26",
+ "store_dates": 262,
+ "warehouse_sessions": 250
+}`
+
+Phantom dates: `{"count": 14, "rows": 36361}` (same 14 dates as reviewed). Missing sessions with NSE file checks:
+```
+{
+ "count": 2,
+ "dates": [
+  {
+   "date": "2026-10-21",
+   "warehouse_rows": 2916
+  },
+  {
+   "date": "2026-10-22",
+   "warehouse_rows": 2915
+  }
+ ],
+ "nse_file_check": {
+  "2026-10-21": {
+   "warehouse_rows": 2916,
+   "nse_file": "trade date matches",
+   "nse_eq_be_rows": 2916,
+   "in_both": 2916,
+   "close_mismatches": 0,
+   "mismatch_sample": [],
+   "only_in_nse_file": 0
+  },
+  "2026-10-22": {
+   "warehouse_rows": 2915,
+   "nse_file": "trade date matches",
+   "nse_eq_be_rows": 2915,
+   "in_both": 2915,
+   "close_mismatches": 0,
+   "mismatch_sample": [],
+   "only_in_nse_file": 0
+  }
+ }
+}
+```
+Recompute and what stays as recorded:
+```
+{
+ "recompute_dates": [
+  "2026-10-26"
+ ],
+ "recompute_rows_replaced": {
+  "stock_technical_features": {
+   "2026-10-26": 2210
+  },
+  "positional_signals": {
+   "2026-10-26": 666
+  }
+ },
+ "affected_not_recomputed": {
+  "count": 189,
+  "first": [
+   "2026-01-12"
+  ],
+  "last": [
+   "2026-10-23"
+  ],
+  "note": "left as recorded: computed by engine v1.0 on the previously stored (raw, unrepaired) price basis"
+ }
+}
+```
+Data quality, as stored (counts):
+```
+{
+ "window": [
+  "2025-10-20",
+  "2026-10-26"
+ ],
+ "dates": 262,
+ "rows": 688123,
+ "symbols": 3067,
+ "copied_sessions": 14,
+ "missing_sessions": 2,
+ "extra_dates": 14,
+ "duplicate_bars": 36363,
+ "stale_symbols": 137,
+ "invalid_ohlc": 0,
+ "zero_volume": 0
+}
+```
+With the phantom dates removed (counts):
+```
+{
+ "dates": 248,
+ "rows": 651762,
+ "missing_sessions": 2,
+ "extra_dates": 0,
+ "copied_sessions": 0,
+ "duplicate_bars": 2
+}
+```
+Corporate actions (91 = the study's 91) and the adjusted-close sample against the warehouse `[dates compared, max relative difference]`:
+```
+{
+ "symbols_with_step": 91,
+ "sample_max_rel_diff": {
+  "KOTAKBANK": [
+   248,
+   0.0
+  ],
+  "AASTHA": [
+   66,
+   0.0
+  ],
+  "AHCL": [
+   201,
+   0.0
+  ],
+  "AIIL": [
+   248,
+   0.0
+  ],
+  "AJMERA": [
+   248,
+   0.0
+  ],
+  "ANANDRATHI": [
+   248,
+   0.0
+  ],
+  "ANGELONE": [
+   248,
+   0.0
+  ],
+  "AQYLON": [
+   163,
+   0.0
+  ]
+ }
+}
+```
+**Exceptions for 26 Oct, code + repair (decision 6):**
+```
+{
+ "raw_prices": {
+  "count": 11,
+  "symbols": [
+   {
+    "symbol": "RAJRILTD",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "HITECHGEAR",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "GVKPIL",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "RCOM",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "EQUIPPP",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "SEYAIND",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "EASTSILK",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "SWANDEF",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "MTEDUCARE",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "PREMIER",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   },
+   {
+    "symbol": "VHLTD",
+    "reason": "no split/bonus factors in the warehouse (nidp.prices_eod_adjusted) for this symbol: scored on raw NSE prices"
+   }
+  ]
+ },
+ "not_scored_after_truncation": {
+  "count": 5,
+  "symbols": [
+   {
+    "symbol": "MOLDTECH",
+    "break_date": "2026-10-09",
+    "bars_left": 11,
+    "reason": "a price break the warehouse factors do not explain on 2026-10-09; 11 bars after it, fewer than the 60 the scanner needs"
+   },
+   {
+    "symbol": "BHAGYANGR",
+    "break_date": "2026-10-08",
+    "bars_left": 12,
+    "reason": "a price break the warehouse factors do not explain on 2026-10-08; 12 bars after it, fewer than the 60 the scanner needs"
+   },
+   {
+    "symbol": "VERANDA",
+    "break_date": "2026-10-06",
+    "bars_left": 14,
+    "reason": "a price break the warehouse factors do not explain on 2026-10-06; 14 bars after it, fewer than the 60 the scanner needs"
+   },
+   {
+    "symbol": "CCAVENUE",
+    "break_date": "2026-10-19",
+    "bars_left": 5,
+    "reason": "a price break the warehouse factors do not explain on 2026-10-19; 5 bars after it, fewer than the 60 the scanner needs"
+   },
+   {
+    "symbol": "INDIAGLYCO",
+    "break_date": "2026-09-02",
+    "bars_left": 36,
+    "reason": "a price break the warehouse factors do not explain on 2026-09-02; 36 bars after it, fewer than the 60 the scanner needs"
+   }
+  ]
+ },
+ "truncated_but_scored": {
+  "count": 12,
+  "symbols": [
+   {
+    "symbol": "KAPSTON",
+    "break_date": "2026-01-28",
+    "bars_dropped": 67,
+    "bars_left": 183
+   },
+   {
+    "symbol": "MAHAPEXLTD",
+    "break_date": "2026-03-20",
+    "bars_dropped": 103,
+    "bars_left": 147
+   },
+   {
+    "symbol": "DBEIL",
+    "break_date": "2026-06-19",
+    "bars_dropped": 162,
+    "bars_left": 88
+   },
+   {
+    "symbol": "SIKKO",
+    "break_date": "2025-12-08",
+    "bars_dropped": 33,
+    "bars_left": 217
+   },
+   {
+    "symbol": "RNBDENIMS",
+    "break_date": "2026-04-02",
+    "bars_dropped": 110,
+    "bars_left": 140
+   },
+   {
+    "symbol": "BIOFILCHEM",
+    "break_date": "2026-02-02",
+    "bars_dropped": 70,
+    "bars_left": 180
+   },
+   {
+    "symbol": "VEDL",
+    "break_date": "2026-04-30",
+    "bars_dropped": 128,
+    "bars_left": 122
+   },
+   {
+    "symbol": "SETCO",
+    "break_date": "2026-06-02",
+    "bars_dropped": 149,
+    "bars_left": 101
+   },
+   {
+    "symbol": "TRIVENI",
+    "break_date": "2026-07-22",
+    "bars_dropped": 184,
+    "bars_left": 66
+   },
+   {
+    "symbol": "DCMSRIND",
+    "break_date": "2025-12-26",
+    "bars_dropped": 46,
+    "bars_left": 204
+   },
+   {
+    "symbol": "SADHNANIQ",
+    "break_date": "2026-02-18",
+    "bars_dropped": 82,
+    "bars_left": 168
+   },
+   {
+    "symbol": "ALLCARGO",
+    "break_date": "2025-11-12",
+    "bars_dropped": 15,
+    "bars_left": 235
+   }
+  ]
+ }
+}
+```
+Code change only (counts): `{"raw_prices": 11, "not_scored_after_truncation": 5, "truncated_but_scored": 16}`
+
+**Rerun preview for 26 Oct (decision 7's split):**
+```
+{
+ "date": "2026-10-26",
+ "corrected_run": {
+  "universe": 2210,
+  "scored": 2205,
+  "actionable": 682,
+  "price_basis": {
+   "warehouse_adjusted": 2194,
+   "raw_no_factors": 11,
+   "unadjusted_replay": 0
+  },
+  "break_truncated": 17,
+  "skipped_short_after_break": 5,
+  "macro_multiplier": 1.0
+ },
+ "replay_as_stored_vs_table": {
+  "scored": {
+   "before": 2210,
+   "after": 2210,
+   "both": 2210
+  },
+  "actionable": {
+   "before": 666,
+   "after": 666,
+   "added": 0,
+   "removed": 0
+  },
+  "stage_changes": 0,
+  "final_score_delta": {
+   "identical": 2139,
+   "changed_gt_0_01": 0,
+   "mean_abs": 6.9e-05,
+   "max_abs": 0.0082
+  },
+  "top20_entered": [],
+  "top20_exited": [],
+  "top20_rank_shifts": []
+ },
+ "adjusted_unrepaired_vs_table": {
+  "scored": {
+   "before": 2210,
+   "after": 2205,
+   "both": 2205
+  },
+  "actionable": {
+   "before": 666,
+   "after": 676,
+   "added": 11,
+   "removed": 1
+  },
+  "stage_changes": 12,
+  "final_score_delta": {
+   "identical": 2094,
+   "changed_gt_0_01": 34,
+   "mean_abs": 0.001271,
+   "max_abs": 0.2053
+  },
+  "top20_entered": [
+   "ANANDRATHI"
+  ],
+  "top20_exited": [
+   "BHARTIARTL"
+  ],
+  "top20_rank_shifts": [
+   [
+    "COFORGE",
+    8,
+    9
+   ],
+   [
+    "ABMINTLLTD",
+    9,
+    10
+   ],
+   [
+    "LAURUSLABS",
+    10,
+    11
+   ],
+   [
+    "PANACHE",
+    11,
+    12
+   ],
+   [
+    "FEDERALBNK",
+    12,
+    13
+   ],
+   [
+    "MARKOLINES",
+    13,
+    14
+   ],
+   [
+    "NAZARA",
+    14,
+    15
+   ],
+   [
+    "INDHOTEL",
+    15,
+    16
+   ],
+   [
+    "BAFNAPH",
+    16,
+    17
+   ],
+   [
+    "DRREDDY",
+    17,
+    18
+   ],
+   [
+    "INDUSTOWER",
+    18,
+    19
+   ],
+   [
+    "PETRONET",
+    19,
+    20
+   ]
+  ]
+ },
+ "corrected_vs_table": {
+  "scored": {
+   "before": 2210,
+   "after": 2205,
+   "both": 2205
+  },
+  "actionable": {
+   "before": 666,
+   "after": 682,
+   "added": 32,
+   "removed": 16
+  },
+  "stage_changes": 55,
+  "final_score_delta": {
+   "identical": 76,
+   "changed_gt_0_01": 1377,
+   "mean_abs": 0.021766,
+   "max_abs": 0.1922
+  },
+  "top20_entered": [
+   "ANANDRATHI",
+   "PNB",
+   "GESHIP",
+   "PERSISTENT",
+   "CANTABIL",
+   "ZYDUSLIFE",
+   "INDGN"
+  ],
+  "top20_exited": [
+   "PANACHE",
+   "MARKOLINES",
+   "NAZARA",
+   "INDHOTEL",
+   "BAFNAPH",
+   "PETRONET",
+   "BHARTIARTL"
+  ],
+  "top20_rank_shifts": [
+   [
+    "ACUTAAS",
+    5,
+    3
+   ],
+   [
+    "COFORGE",
+    8,
+    5
+   ],
+   [
+    "ABMINTLLTD",
+    9,
+    8
+   ],
+   [
+    "INDUSTOWER",
+    18,
+    9
+   ],
+   [
+    "LAURUSLABS",
+    10,
+    12
+   ],
+   [
+    "SGMART",
+    3,
+    14
+   ],
+   [
+    "DRREDDY",
+    17,
+    15
+   ],
+   [
+    "FEDERALBNK",
+    12,
+    16
+   ],
+   [
+    "MPHASIS",
+    7,
+    17
+   ],
+   [
+    "KOTAKBANK",
+    6,
+    20
+   ]
+  ]
+ },
+ "note": "Rankings change; that is not evidence the new ranking predicts better (separate validation needed)."
+}
+```
+**What `--apply` would do, and the `--expect` value:**
+```
+{
+ "delete_dates": [
+  "2025-10-22",
+  "2025-11-05",
+  "2026-01-15",
+  "2026-01-26",
+  "2026-03-03",
+  "2026-03-26",
+  "2026-03-31",
+  "2026-04-03",
+  "2026-04-14",
+  "2026-05-01",
+  "2026-05-28",
+  "2026-06-26",
+  "2026-09-14",
+  "2026-10-02"
+ ],
+ "backfill_dates": [
+  "2026-10-21",
+  "2026-10-22"
+ ],
+ "recompute_dates": [
+  "2026-10-26"
+ ],
+ "snapshot_rows_by_table": {
+  "stock_ohlcv": 36361,
+  "stock_technical_features": 28280,
+  "positional_signals": 9412
+ },
+ "expect_arg": "stock_ohlcv=36361,stock_technical_features=28280,positional_signals=9412",
+ "note": "snapshot first and verified, then one transaction; a second --apply finds nothing to do"
+}
+```
+**Zero writes:** read-only fingerprint before and after this dry run, identical; last writes are the 19:45 IST job of 26 Oct:
+```
+stock_ohlcv rows 688123 dates 262 last_write 2026-10-26T14:15:05.364706+00:00
+stock_technical_features rows 440693 dates 202 last_write 2026-10-26T14:15:25.554618+00:00
+positional_signals rows 180841 dates 202 last_write 2026-10-26T14:15:25.529901+00:00
+UNCHANGED
+```
+**`scan_basis` and calendar readiness on staging today** (read-only probe with the branch's modules):
+```
+2026-10-26: price_basis "raw", engine_versions ["positional.v1.0"], price_basis_rows {"corp_action_adjusted": 0, "raw_no_factors": 0, "raw_before_v1_1": 2210}, data_quality "not_checked" ("no data-quality check is recorded for this date")
+2026-10-23: price_basis "raw", engine_versions ["positional.v1.0"], raw_before_v1_1 2208, data_quality "not_checked"
+readiness 2026-10-27: ready (checked [2026]) · 2026-11-30: ready (checked [2026]) · 2026-12-01: NOT ready, missing_year 2027 ("the NSE holiday list (segment CM) has no rows for 2027")
+```
+(condensed from the probe's JSON output; values unchanged.)
+
+Snapshot size, measured read-only: `snapshot_bytes_estimate 10296811 47264246 4444930 total_MB 62.0`; `/app/data`:
+`/dev/vda1 96G 91G 5.3G 95% /app/data`.
+
+## Pending (not claimed as passed)
+
+- NOT RUN by me: the staging repair (preflight, apply, second apply, restore, exact compare, final apply). The run-book
+  is `runbook_scanner_repair.md` in the coordinator's scratchpad.
+- UNVERIFIED on staging: the deployed runner (calendar alert, run record, default quality check) and the API's
+  `scan_basis` and desk line: they need merge + deploy.
+- The `job_runs` admin route lives on `fix/paper-exit-job-reconcile` (unmerged); until then the alert is visible in the
+  cron log (ERROR, exit 6) and the Mongo record.
+- The 2027 NSE CM holiday list is not loaded on staging: from 1 Dec the nightly run will alert until it is.
 
 ## Verdict: PASS

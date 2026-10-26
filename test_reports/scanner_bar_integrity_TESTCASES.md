@@ -59,3 +59,32 @@ Acceptance standard: `docs/NIVESH_AI_LAB_PHASE_SUCCESS_CRITERIA.md` §0.1 (Histo
 
 - No staging deploy, no `--apply`, no cron change: the code paths are verified by unit tests and the read-only dry-run
   only. Staging verification of the deployed code is a post-merge step listed in the report.
+
+## Follow-up cases for the owner's decisions (§9.1, 2026-10-27)
+
+Added with the follow-up commits. Unlike TC-1..TC-27, these were written alongside the code rather than before it
+(stated, not hidden).
+
+| ID | Owner item | Scenario | Type | Expected |
+|----|------------|----------|------|----------|
+| TC-28 | 1 one transaction | Apply on the fake store: fetches and the recompute happen first, then exactly one transaction | unit | `txns == 1`; deletes, back-fill and replace all applied |
+| TC-29 | 1 | A failure injected inside the transaction (fake) | failure | state identical to before; snapshot exists; no before/after file |
+| TC-30 | 1 | A refused NSE fetch (date mismatch) | failure | nothing written, not even a snapshot |
+| TC-31 | 1 | Rows land on a snapshotted date between verification and the transaction | failure | the in-transaction re-check raises `RepairAborted`; nothing written |
+| TC-32 | 1 | Real Postgres: failure injected while writing the recompute's signals, after the deletes and back-fill ran in the same transaction | integration | every table byte-identical (to_jsonb dump and fingerprint); then apply, no-op second apply, exact restore twice |
+| TC-33 | 2 verify-snapshot | `--snapshot-only` + verification: readable, non-empty, every table and date covered, counts = plan = `--expect` | unit | ok; a missing row, a missing table, a changed store, an empty or unreadable file are each reported |
+| TC-34 | 2 | Apply with `--expect` differing from the snapshot | unit | refused before the transaction, problems name the table |
+| TC-35 | 2 | CLI: `--apply`/`--snapshot-only` without `--snapshot`, an existing snapshot or fingerprint path, a bad `--expect` | edge | exit 1 before any connection is opened |
+| TC-36 | 4 calendar | Fixed clocks: 30 Nov (2027 missing), 1 Dec (2027 missing), 1 Dec (2027 present), 1 Jan 2027 (2027 missing) | unit | ready / ALERT missing 2027 / ready / not ready (missing 2027) |
+| TC-37 | 4 | Nightly run on those four dates (runner + run record) | unit | exit 0 / 6 (scored, status `calendar_not_ready`, `calendar_missing_year` 2027, ERROR logged) / 0 / 4 (refused) |
+| TC-38 | 4 | Lead date from `SCANNER_CALENDAR_LEAD` / `--calendar-lead`; invalid value | unit | parsed; invalid refused |
+| TC-39 | 4 | Run record cannot be written (Mongo down) | failure | ERROR logged; the run still scores |
+| TC-40 | 5 publish | `basis_for_date` on an adjusted day with exceptions and a run record | unit | `corp_action_adjusted`, raw symbols named, not-scored list, data checks "warnings" (2) |
+| TC-41 | 5/6 | A v1.0 day without a record; an unreadable record | unit | `raw`; data checks `not_checked` with the reason; never "clean" |
+| TC-42 | 5 | `/picks` and `/watchlist` carry `scan_basis` and a per-row `price_basis` | api (TestClient) | as above |
+| TC-43 | 6 exceptions | `score_universe` names every exception | unit | raw-price symbol, not-scored symbol with break date and bars left |
+| TC-44 | 7 before/after | `before_after_record` keeps code-only, code+repair and repair-only apart | unit | comparisons and ranked signals per run; "not evidence" note |
+| TC-45 | 1 run-book | `--compare-fingerprints` names every differing date | unit | identical / differing dates listed; exit 1 when different |
+| SB-1..4 | 5 UI | Desk Scanner line: adjusted with exceptions; clean; raw v1.0; unavailable / not published; raw-price row marker | e2e (Playwright, mocked API) | the exact line text, data attributes, title naming the symbols, marker only on the exception row |
+| TC-46 | all | Fresh read-only staging dry run on the final commit | data | same counts as reviewed; exceptions named; `expect_arg`; zero writes (fingerprint unchanged) |
+| TC-47 | 4 | The run itself crashes | failure | the run record is finished as `failed` with the error, and the exception is raised as before |
