@@ -6,7 +6,11 @@ Public (auth-required):
        Rows of both carry spark_closes (last 24 daily closes up to the signal / features date, oldest first, from
        stock_ohlcv), spark_end (date of the last one) and avg_traded_value_cr_20d (mean close × volume over the last
        20 sessions, ₹ crore; null with fewer than 20 sessions or a missing volume). Watchlist rows also carry
-       resistance_level and support_level from stock_technical_features.
+       resistance_level and support_level from stock_technical_features. Both apply the results signal at read time
+       (docs/EARNINGS_SURPRISE_TRACKER.md §4d, services/results_week/signal.py): each row carries `results_signal`
+       (null or {strength, points, basis, reasons, filed_at, sessions_since}) and `base_final_score` (the engine's
+       stored score); `final_score` = clamp(base + points / 100, 0, 1), applied before the sort, min_score and limit.
+       Stage is unchanged; the stored scores are never written.
   GET  /api/positional/picks/{symbol}?date=
   GET  /api/positional/picks/mine          — portfolio-aware filtered picks
   GET  /api/positional/scenario?entry=&stop=&target=&capital=&risk_pct=… — trade scenario calculator (PRD §8.5/§8.6);
@@ -46,6 +50,7 @@ from deps import db, get_current_user, require_admin
 from feature_gate import require_feature
 from services import pg_client
 from services.copilot_tools import daas_client
+from services.results_week import signal as results_signal
 from services.positional_engine import (
     backtest,
     bhavcopy_ingester,
@@ -146,10 +151,11 @@ async def _latest_signal_date() -> Optional[date]:
 async def _fetch_picks(signal_date: date,
                         min_score: float,
                         stage: Optional[str],
-                        limit: int) -> List[dict]:
+                        limit: int,
+                        symbols: Optional[List[str]] = None) -> List[dict]:
     """Fetch picks for a date. LEFT JOINs stock_technical_features so
     callers can read the pre_breakout block (signals + accumulation_score)
-    without a second round-trip."""
+    without a second round-trip. `symbols` limits the read to those stocks."""
     pool = await pg_client.get_pool()
     if pool is None:
         return []
@@ -170,6 +176,9 @@ async def _fetch_picks(signal_date: date,
     if stage:
         sql += "AND ps.stage = $3 "
         params.append(stage.upper())
+    if symbols is not None:
+        sql += "AND ps.nse_symbol = ANY($%d::text[]) " % (len(params) + 1)
+        params.append(list(symbols))
     sql += "ORDER BY ps.final_score DESC, ps.risk_reward DESC LIMIT $%d" % (len(params) + 1)
     params.append(limit)
     try:
@@ -210,6 +219,32 @@ async def _scan_basis(d: Optional[date]) -> Optional[Dict[str, Any]]:
         return {"date": d.isoformat(), "unavailable": f"scan basis unreadable ({type(e).__name__})"}
 
 
+def _rr_key(r: Dict[str, Any]):
+    """ORDER BY risk_reward DESC as Postgres sorts it (NULLs first)."""
+    rr = r.get("risk_reward")
+    return (0, 0.0) if rr is None else (1, -float(rr))
+
+
+async def _picks_with_results_signal(sig_date: date, min_score: float, stage: Optional[str],
+                                     limit: int) -> "tuple[List[dict], Dict[str, Any]]":
+    """The day's picks with the results signal applied BEFORE the min-score filter, the sort and the limit
+    (docs/EARNINGS_SURPRISE_TRACKER.md §4d): the top rows by the engine's score plus every stock with a signal are read,
+    final_score is adjusted, then filtered, sorted and cut, so a boosted stock just outside the top N can enter and a
+    weak one can leave. The engine's stored scores are never changed. No signal (or a failed one) leaves the order as it was."""
+    signals, gap = await results_signal.current()
+    cat = sorted(signals)
+    rows = await _fetch_picks(sig_date, min_score, stage, limit + len(cat))
+    have = {r["nse_symbol"] for r in rows}
+    extra = [s for s in cat if s not in have]
+    if extra:
+        rows += await _fetch_picks(sig_date, 0.0, stage, len(extra), symbols=extra)
+    results_signal.apply(rows, signals)
+    rows = [r for r in rows if (r.get("final_score") is not None and float(r["final_score"]) >= min_score)]
+    rows.sort(key=lambda r: (-float(r["final_score"]), _rr_key(r)))
+    rows = rows[:limit]
+    return rows, results_signal.meta(signals, gap, sum(1 for r in rows if r.get("results_signal")))
+
+
 # ── Public endpoints ─────────────────────────────────────────────────────
 @router.get("/picks")
 async def get_picks(request: Request,
@@ -222,7 +257,7 @@ async def get_picks(request: Request,
     if sig_date is None:
         return {"signal_date": None, "picks": [], "message": "no signals available yet",
                 "rules_version": setup_rules.RULES_VERSION, "engine_versions": []}
-    picks = await _fetch_picks(sig_date, min_score, stage, limit)
+    picks, rs_meta = await _picks_with_results_signal(sig_date, min_score, stage, limit)
     bars = await _spark_bars(sorted({p["nse_symbol"] for p in picks}), sig_date)
     for p in picks:
         p.update(_bar_fields(None if bars is None else bars.get(p["nse_symbol"], [])))
@@ -230,6 +265,8 @@ async def get_picks(request: Request,
         "signal_date": str(sig_date),
         "count": len(picks),
         "picks": picks,
+        # docs/EARNINGS_SURPRISE_TRACKER.md §4d: final_score carries the results signal; base_final_score is the engine's.
+        "results_signal": rs_meta,
         # PRD §5.8: the rules and engine versions behind these rows.
         "rules_version": setup_rules.RULES_VERSION,
         "engine_versions": sorted({p["engine_version"] for p in picks if p.get("engine_version")}),
@@ -270,6 +307,8 @@ async def get_watchlist(request: Request, limit: int = 30):
     await get_current_user(request)
     rules = setup_rules.public_rules()
     cand = setup_rules.WATCHLIST["candidates"]
+    signals, rs_gap = await results_signal.current()      # §4d, applied to the candidates before they are cut
+    signalled = sorted(signals)
     pool = await pg_client.get_pool()
     if pool is None:
         return {"as_of_date": None, "buckets": {}, "_reason": "no pg pool", "rules": rules}
@@ -289,8 +328,7 @@ async def get_watchlist(request: Request, limit: int = 30):
             # First pass — narrow candidates by score so we only do the
             # OHLCV round-trip for the top ~80. WEAK/EXTENDED dropped here
             # because their structure rules out our 4 buckets anyway.
-            cand_rows = await conn.fetch(
-                """
+            cand_sql = """
                 SELECT stf.nse_symbol, stf.stage, stf.confidence, stf.final_score,
                        stf.close_price, stf.sma_50, stf.sma_200,
                        stf.rsi_14, stf.atr_14,
@@ -304,11 +342,25 @@ async def get_watchlist(request: Request, limit: int = 30):
                   AND stf.stage IS NOT NULL
                   AND stf.stage <> ALL($2::text[])
                   AND stf.close_price > $3
+                  {extra}
                 ORDER BY stf.final_score DESC NULLS LAST
                 LIMIT $4
-                """,
-                d, cand["excluded_stages"], cand["min_close"], cand["top_by_score"],
-            )
+                """
+            cand_rows = [dict(r) for r in await conn.fetch(
+                cand_sql.format(extra=""),
+                d, cand["excluded_stages"], cand["min_close"], cand["top_by_score"] + len(signalled),
+            )]
+            have = {r["nse_symbol"] for r in cand_rows}
+            missing = [s for s in signalled if s not in have]
+            if missing:
+                cand_rows += [dict(r) for r in await conn.fetch(
+                    cand_sql.format(extra="AND stf.nse_symbol = ANY($5::text[])"),
+                    d, cand["excluded_stages"], cand["min_close"], len(missing), missing,
+                )]
+            # §4d: the results signal adjusts final_score before the candidates are ranked and cut (stage unchanged).
+            results_signal.apply(cand_rows, signals)
+            cand_rows.sort(key=lambda r: -(r["final_score"] if r["final_score"] is not None else -1.0))
+            cand_rows = cand_rows[:cand["top_by_score"]]
             candidate_syms = [r["nse_symbol"] for r in cand_rows]
             # Second pass — bulk-load last 60 bars for each candidate
             # symbol from stock_ohlcv. One query.
@@ -405,6 +457,8 @@ async def get_watchlist(request: Request, limit: int = 30):
             "stage": r["stage"],
             "confidence": r["confidence"],
             "final_score": round(float(r["final_score"] or 0), 3),
+            "base_final_score": round(float(r["base_final_score"]), 3) if r.get("base_final_score") is not None else None,
+            "results_signal": r.get("results_signal"),
             "close_price": close,
             "trigger_price": bo,
             "stop_price": None,
@@ -484,6 +538,8 @@ async def get_watchlist(request: Request, limit: int = 30):
         "rules": rules,
         "engine_versions": sorted({r.get("engine_version") for r in cand_rows if r.get("engine_version")}),
         "scan_basis": await _scan_basis(d),
+        # docs/EARNINGS_SURPRISE_TRACKER.md §4d: final_score carries the results signal; base_final_score is the engine's.
+        "results_signal": results_signal.meta(signals, rs_gap, sum(1 for v in buckets.values() for it in v if it.get("results_signal"))),
     }
 
 

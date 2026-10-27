@@ -1,0 +1,27 @@
+# /etc/cron.d/nivesh-staging-results-week — store the day's "Results week" snapshot (Earnings Surprise & Guidance
+# Tracker P1, docs/EARNINGS_SURPRISE_TRACKER.md §5) [staging].
+#
+# NOT INSTALLED. Installing it needs the owner's go-ahead (spec §5).
+#
+# The snapshot is built from the date's own inputs, so the job runs after all of them, Mon-Fri (the VM's clock is IST):
+#   - the AI scanner's technicals (nivesh-staging-positional-engine: 19:45 IST, retry 21:45);
+#   - the day's stock prices in stock_ohlcv (EOD ingest, evening);
+#   - the day's NSE F&O bhavcopy for the OI build-up (NIDP fno_bhavcopy ingest 19:30 / 21:00 / 22:15 IST; landed on the
+#     22:15 run every day since 19 Oct).
+#   22:45 IST  refresh each imported desk Chartink dashboard once, build and store the day.
+#   23:30 IST  retry; does nothing when the day is already stored.
+# The job refuses a day whose F&O build-up or prices are not the date's (exit 4, nothing written), so the retry builds
+# it once they are in. Not an NSE session -> exit 2. A stored day is never rewritten (insert-once).
+# flock -n: a run that starts while another is still going exits at once.
+# Read by GET /api/desk/results-week?date= (signed in) for past dates; today is built live by the route.
+#
+# Install (one-off, not CI-managed), after the backend that carries scripts/build_results_week.py is deployed:
+#   sudo install -m 0644 /opt/nivesh-staging/repo/deploy/nivesh-staging/results-week.cron /etc/cron.d/nivesh-staging-results-week
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+45 22 * * 1-5  root  /usr/bin/flock -n /run/lock/nivesh-staging-results-week.lock /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.build_results_week --skip-if-done >> /opt/nivesh-staging/logs/results-week.log 2>&1
+30 23 * * 1-5  root  /usr/bin/flock -n /run/lock/nivesh-staging-results-week.lock /usr/bin/docker exec nivesh-staging-app-backend python -m scripts.build_results_week --skip-if-done >> /opt/nivesh-staging/logs/results-week.log 2>&1
