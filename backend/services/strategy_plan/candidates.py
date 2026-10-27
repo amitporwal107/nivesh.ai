@@ -201,9 +201,20 @@ def reward_risk(res: Dict[str, Any], linear: bool, gate: str = "base") -> Dict[s
                      "the gate uses the net ratio when costs are known"}
 
 
+UNSIZED_RR_NOTE = ("Reward : risk is judged before costs here: with no capital and risk budget the position is not sized, and on "
+                   "a single share the desk's flat brokerage alone would decide the ratio. It is judged after estimated costs "
+                   "once the plan is sized (owner rule 2026-10-27: minimum 1.5 after estimated costs where feasible).")
+
+
 def apply_rr_gate(c: Dict[str, Any], inputs: Dict[str, Any]) -> None:
     rr = c["risk_reward"]
     got = rr.get("net") if rr.get("net") is not None else rr.get("gross")
+    if c.get("segment") in ("cash", "futures") and (c.get("sizing") or {}).get("status") == "incomplete" and rr.get("gross") is not None:
+        # An unsized linear position is priced for ONE unit, where fixed per-order costs swamp the ratio; costs are not
+        # yet feasible to estimate, so the gross ratio decides and the plan says so.
+        got = rr["gross"]
+        rr["gate_basis"] = "gross: the position is not sized"
+        c["warnings"].append(UNSIZED_RR_NOTE)
     lvl = rr.get("level")
     if got is None:
         c["status"] = "insufficient_data"

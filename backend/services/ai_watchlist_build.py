@@ -63,8 +63,12 @@ def cash_entry(idea: Dict[str, Any], rank: int) -> Dict[str, Any]:
     preferred = next((s for s in strategies if s.get("id") == idea.get("preferred")), None) if idea.get("preferred") else None
     cash = next((s for s in strategies if s.get("segment") == "cash"), None)
     sized = ((cash or {}).get("sizing") or {}).get("quantity")
+    tp = idea.get("trade_plan")
     return {
         "rank": rank, "symbol": idea.get("symbol"), "name": idea.get("name"), "sector": sc.get("sector"),
+        # Phase 2.1 (study B10: the stored row used to drop the plan id): the idea's canonical TradePlan, by id and as
+        # the snapshot the row shows and its paper trade records; the plan itself is stored in trade_plans.
+        "plan_id": idea.get("plan_id"), "trade_plan_id": tp.get("plan_id") if tp else None, "trade_plan": tp,
         "direction": idea.get("direction"), "fno_eligible": idea.get("fno_eligible"), "source": idea.get("source"),
         "scanner": {k: sc.get(k) for k in ("bucket", "status", "score", "close", "close_date", "entry", "stop", "target",
                                             "risk_reward", "horizon_days", "atr_pct", "liquidity_cr", "reason", "reasons")},
@@ -74,6 +78,11 @@ def cash_entry(idea: Dict[str, Any], rank: int) -> Dict[str, Any]:
         "sized_shares": sized if isinstance(sized, int) and sized >= 1 else None,
         "plan_inputs": idea.get("plan_inputs") or {},
     }
+
+
+def trade_plans_of_day(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every TradePlan a built day carries (each cash entry's and each F&O entry's), for the job to store."""
+    return [e["trade_plan"] for e in (doc.get("cash") or []) + (doc.get("fno") or []) if e.get("trade_plan")]
 
 
 def _rank_key(i: Dict[str, Any]):
