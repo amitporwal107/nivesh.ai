@@ -6,8 +6,10 @@
  *                                                  earlier list days and `days_on_list` (backend/routes/ai_watchlist.py)
  *
  * A stored day never changes, so a day's answer is kept for the session; the newest day is asked again every 10 minutes
- * (a new day appears after the 20:15 IST job). The F&O entries are the regime-fit board's ideas, so their shape is that
- * board's contract (strategy/top-contract.ts). Nothing here recomputes a figure.
+ * (a new day appears after the 22:45 IST job, which runs after the day's NSE F&O bhavcopy; it retries at 23:30 and
+ * 23:55). The F&O entries are the regime-fit board's ideas, so their shape is that board's contract
+ * (strategy/top-contract.ts). Each entry also carries its list-day levels and, when it was carried from earlier lists,
+ * `carried`; the day carries the scanner's `notes.scan_basis`. Nothing here recomputes a figure.
  */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -23,7 +25,34 @@ const num = z.number().nullable().catch(null);
 const str = z.string().nullable().catch(null);
 const strs = z.array(z.string()).catch([]);
 
-const Listing = { earlier_list_dates: strs, days_on_list: z.number().catch(1) };
+/** An entry's entry, stop and target as stored on a list day (backend ai_watchlist_store.entry_levels; display only). */
+const ListedLevelsSchema = z.object({
+  list_date: str, entry: num, entry_kind: str, stop: num, target: num, plan_id: str, basis: str,
+}).partial().transform((l) => ({ list_date: l.list_date ?? null, entry: l.entry ?? null, entry_kind: l.entry_kind ?? null, stop: l.stop ?? null,
+  target: l.target ?? null, plan_id: l.plan_id ?? null, basis: l.basis ?? null }));
+
+const Listing = {
+  earlier_list_dates: strs,
+  days_on_list: z.number().catch(1),
+  /** This day's levels (every entry), and since when it has been carried (an entry on more than one list day in a row). */
+  levels_on_list: ListedLevelsSchema.nullable().optional().catch(null),
+  carried: z.object({ sessions: z.number(), from: z.string(), first: ListedLevelsSchema.nullable().catch(null), today: ListedLevelsSchema.nullable().catch(null) })
+    .nullable().optional().catch(null),
+};
+
+/** The scanner's basis for the scan a list was built on (#355, backend positional_engine/scan_meta.basis_for_date). */
+export const ScanBasisSchema = z.object({
+  date: str,
+  engine_versions: strs,
+  price_basis: str,
+  data_quality: z.object({ status: str, warnings: num, checked_at: str, reason: str }).partial().nullable().catch(null),
+  exceptions: z.object({
+    raw_prices: z.array(z.unknown()).catch([]), truncated: z.array(z.unknown()).catch([]),
+    not_scored_after_truncation: z.array(z.unknown()).nullable().catch(null),
+  }).partial().nullable().catch(null),
+  unavailable: str,
+}).partial();
+export type ScanBasis = z.infer<typeof ScanBasisSchema>;
 
 export const CashEntrySchema = z.object({
   rank: z.number(),
@@ -71,6 +100,8 @@ export const DaySchema = z.object({
     cash_ranking: str, cash_caveats: strs, fno_ranking: str, fno_gaps: strs, fno_staleness: str, fno_chain_as_of: str, fno_rules_version: str,
     fno_skipped: z.array(z.object({ underlying: str }).passthrough()).catch([]),
     regime: z.object({ available: z.boolean().nullable().catch(null), label: str, as_of: str, trend: str, india_vix: num }).partial().nullable().catch(null),
+    /** Absent on a day stored before the job kept it. */
+    scan_basis: ScanBasisSchema.nullable().optional().catch(null),
   }).partial().catch({}),
   rules: z.object({ cash: str, fno: str }).partial().catch({}),
   empty_reason: str.optional(),

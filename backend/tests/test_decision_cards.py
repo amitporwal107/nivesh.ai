@@ -231,6 +231,9 @@ def test_be6_an_idea_on_three_list_days_in_a_row_says_since_when_with_the_first_
         "today": {"list_date": "2026-10-27", "entry": 1210.0, "entry_kind": "price", "stop": 1172.0, "target": 1286.0,
                   "plan_id": "tp_today", "basis": "trade_plan"}}
     assert "carried" not in crisil
+    assert icici["levels_on_list"] == icici["carried"]["today"]
+    assert crisil["levels_on_list"] == {"list_date": "2026-10-27", "entry": None, "entry_kind": "price", "stop": None, "target": None,
+                                        "plan_id": None, "basis": "scanner"}
     bank = b["fno"][0]["carried"]
     assert bank["first"] == {"list_date": "2026-10-22", "entry": -8769.0, "entry_kind": "net_premium", "stop": 55271.88,
                              "target": 54641.63, "plan_id": None, "basis": "strategy_levels"}

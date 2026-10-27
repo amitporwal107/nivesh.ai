@@ -2,15 +2,19 @@
  * A share paper trade AT A TRADEPLAN's levels (Phase 2.1), for the Top 10 stock rows and the AI watchlist cash rows.
  *
  * The row shows the plan's one line (entry and order type · stop and its method · targets in R) and its id, and the
- * button records exactly those levels with `plan_ref` (POST /api/desk/paper-trades). A plan that cannot be traded
- * (rejected by its own rules, no setup, not stored) disables the button and says why. The body is pinned by
+ * button records exactly those levels with `plan_ref` (POST /api/desk/paper-trades). Phase 3: the plan is the decision
+ * card's (decision/plan-view.ts usePlanView: the newest version you may open), and the button is off with the reason the
+ * card's action gate gives (rejected by its own rules, no setup, not stored, or a universal-risk block that still
+ * applies). A 409 risk_reduce offers the size the risk service allows (RiskReduce.tsx). The body is pinned by
  * e2e/fixtures/contract-trade-plan-paper.json. Simulated; nothing is sent to a broker.
  */
 import { useId, useState } from "react";
 import { Btn, fmtNum } from "../../components/ui";
 import { fmtPrice } from "../trading/parts";
 import { ENTRY_RULE_SHORT, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type EntryRule, type NewPaperTrade } from "./desk-trading";
-import { planBlocker, planLine, planMaxHold, planRefOf, primaryTarget, type TradePlan } from "./strategy/trade-plan";
+import { planLine, planMaxHold, planRefOf, primaryTarget, type TradePlan } from "./strategy/trade-plan";
+import { usePlanView } from "./decision/plan-view";
+import { RiskReduceOffer } from "./RiskReduce";
 
 const quiet = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" } as const;
 const RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
@@ -28,14 +32,17 @@ export function planCashBody(tp: TradePlan, symbol: string, quantity: number, so
   };
 }
 
-export function PlanPaperTrade({ tp, symbol, source, sized, testPrefix }: {
+export function PlanPaperTrade({ tp: rowPlan, symbol, source, sized, testPrefix }: {
   tp: TradePlan; symbol: string; source: NewPaperTrade["source"]; sized: number | null; testPrefix: string;
 }) {
   const paper = useAddPaperTrade();
   const id = useId();
+  // A share trade is built from the plan alone, so it records whichever version the card shows.
+  const view = usePlanView(rowPlan, { recordsShownPlan: true });
+  const tp = view?.plan ?? rowPlan;
   const planSized = tp.size?.status === "complete" && tp.size.quantity != null ? tp.size.quantity : null;
   const [qty, setQty] = useState(planSized != null ? String(planSized) : sized != null ? String(sized) : "");
-  const blocked = planBlocker(tp);
+  const blocked = view?.gate ?? null;
   const q = Number(qty.trim());
   const ok = /^\d+$/.test(qty.trim()) && q >= 1 && q <= 1_000_000;
   const body = ok && !blocked ? planCashBody(tp, symbol, q, source) : null;
@@ -67,6 +74,10 @@ export function PlanPaperTrade({ tp, symbol, source, sized, testPrefix }: {
       </span>
       {paper.isSuccess && <span role="status" data-testid={`${testPrefix}-done`} style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {symbol} at {fmtPrice(tp.entry.price ?? null)}.</span>}
       {paper.isError && <span role="alert" data-testid={`${testPrefix}-error`} style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}
+      {paper.isError && paper.variables && (
+        <RiskReduceOffer error={paper.error} testId={`${testPrefix}-reduce`}
+          onAccept={(n) => { const last = paper.variables; if (!last) return; setQty(String(n)); paper.mutate({ ...last, quantity: n }); }} />
+      )}
     </span>
   );
 }

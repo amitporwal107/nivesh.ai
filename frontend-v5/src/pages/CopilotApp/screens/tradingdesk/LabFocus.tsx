@@ -9,7 +9,8 @@
  *                                  the same code the Strategy Builder's "Top by regime" uses
  *
  * The idea is shown as the Strategy Builder shows it (IdeaCard): structure, expiry, fit and its reasons, max loss and
- * gain, breakevens, reward : risk, the payoff chart and a paper trade. The links switch the lab's own view to the
+ * gain, breakevens, reward : risk, the payoff chart and a paper trade, with its trade plan as the FULL decision card
+ * (decision/DecisionCard.tsx, every section open). The links switch the lab's own view to the
  * underlying's option chain, its futures OI build-up (a stock) or the index workspace (NIFTY, BANKNIFTY), and the
  * Candidates list. When the underlying is not on the board (a re-rank moved it off, or the link was typed) the panel
  * says so instead of showing another idea. "Ideas", not recommendations; nothing places an order.
@@ -74,7 +75,7 @@ export function LabFocus({ symbol, view, onView, onClose }: { symbol: string; vi
       ) : q.isError && !q.data ? (
         <ErrorBlock error={q.error} onRetry={() => q.refetch()} />
       ) : row ? (
-        <IdeaCard idea={row.idea} rulesVersion={q.data?.rules_version} refs={levelsRefsFor(q.data, row.idea.underlying)} onViewTrades={openPaperTrades} />
+        <IdeaCard idea={row.idea} rulesVersion={q.data?.rules_version} refs={levelsRefsFor(q.data, row.idea.underlying)} onViewTrades={openPaperTrades} cardVariant="full" />
       ) : (
         <p data-testid="desk-lab-focus-missing" className="m-0" style={note}>
           {symbol} is not on the current Top 10 F&amp;O ideas board, so there is no idea to show for it here. Its chain and build-up are below.

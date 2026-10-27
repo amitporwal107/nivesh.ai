@@ -15,6 +15,7 @@ import {
   cashPaperBody, copilotQuestion, paperBlocker, planFailure, strategyPaperBody, useSavePlan, type BuiltPlan,
 } from "./plan-data";
 import { noteStyle } from "./plan-format";
+import { usePlanView } from "../decision/plan-view";
 
 export interface PlanActionsProps {
   built: BuiltPlan;
@@ -32,7 +33,10 @@ export function PlanActions({ built, savedId, onSaved, c, askDesk }: PlanActions
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string; id: string } | null>(null);
   const say = (id: string, tone: "ok" | "bad", text: string) => setMsg({ id, tone, text });
   const busy = save.isPending || strat.isPending || share.isPending;
-  const blocker = c ? paperBlocker(plan, c) : "Select a candidate first.";
+  // Phase 3: the decision card's action gate too (a newer version of the candidate's plan, or a universal-risk block that
+  // still applies). The Builder records the candidate's own legs, so it cannot record a newer version.
+  const view = usePlanView(c?.trade_plan ?? null);
+  const blocker = c ? paperBlocker(plan, c) ?? view?.gate ?? null : "Select a candidate first.";
 
   /** The saved id: the plan's, or save it now and say so. Null when the save failed (the failure is on screen). */
   async function ensureSaved(why: string): Promise<string | null> {

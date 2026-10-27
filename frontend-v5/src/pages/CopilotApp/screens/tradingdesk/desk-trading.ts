@@ -338,6 +338,8 @@ export function costsBreakdownText(b: CostsBreakdown | null, inr: (n: number) =>
 export interface PaperTrade {
   id: string;
   symbol: string;
+  /** Phase 2.1: the TradePlan the trade cites (`plan_ref.plan_id`), shown as its decision card in the record. */
+  tradePlanId: string | null;
   quantity: number | null;
   entry: number | null;
   stop: number | null;
@@ -605,6 +607,7 @@ function readTrade(v: unknown): PaperTrade | null {
   const est = rec(t.est_costs_rs);
   return {
     id, symbol, status,
+    tradePlanId: str(rec(t.plan_ref).plan_id),
     quantity: q != null && q > 0 ? q : null,
     entry: price(t.entry_price),
     stop: price(t.stop_price),
@@ -813,6 +816,9 @@ export interface NewPaperTrade {
 /** The `Idempotency-Key` header the paper-trade route takes (backend/routes/desk_trading.py). */
 export const IDEMPOTENCY_HEADER = "Idempotency-Key";
 
+/** The decision cards' plan readings (decision/plan-view.ts PLAN_KEY_ALL), refreshed after a paper-trade submission. */
+const PLAN_CACHE_KEY = ["copilot", "desk", "trade-plan"] as const;
+
 /**
  * One idempotency key per submission. Sending the same body again after a failure (a timeout whose request may have
  * reached the server, a refused write the user retries) reuses the key, so the route answers with the trade the
@@ -847,6 +853,8 @@ export function useAddPaperTrade() {
       submission.done();
       return qc.invalidateQueries({ queryKey: PAPER_KEY });
     },
+    // A plan's status and its risk decision change with any submission that cites it, refused or not (decision/plan-view.ts).
+    onSettled: () => qc.invalidateQueries({ queryKey: PLAN_CACHE_KEY }),
   });
 }
 
@@ -907,6 +915,7 @@ export function useAddStrategyPaperTrade() {
       submission.done();
       return qc.invalidateQueries({ queryKey: PAPER_KEY });
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: PLAN_CACHE_KEY }),
   });
 }
 

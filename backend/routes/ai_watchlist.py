@@ -8,6 +8,7 @@ The body is the day's lists as stored (every figure is what the routes answered 
   available_dates      the dateline: every stored day, newest first, with how many cash and F&O ideas it holds
   earlier_list_dates   per entry, the earlier stored days within 30 days that it was also on (newest first)
   days_on_list         per entry, how many stored days in a row ending on this one it was on (1 = new that day)
+  levels_on_list       per entry, its entry, stop and target as stored that day (store.entry_levels; display only)
   carried              per entry on more than one day in a row (the owner's carry-forward tag, option A; display only):
                        {sessions, from (the run's first list day), first {list_date, entry, entry_kind, stop, target,
                        plan_id, basis} (null when that day cannot be read), today {...the same for this day}}
@@ -36,6 +37,7 @@ def annotate(doc: Dict[str, Any], earlier: Dict[str, Dict[str, list]], stored_da
             prev = earlier.get(seg, {}).get(e.get(key), [])
             e["earlier_list_dates"] = prev
             e["days_on_list"] = store.run_of_days(day, prev, stored_days)
+            e["levels_on_list"] = store.entry_levels(e, seg, day)
     return doc
 
 

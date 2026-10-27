@@ -15,6 +15,7 @@ import { TrustLine } from "../trust";
 import type { Candidate, OptionsSelection, StrategyPlan } from "./plan-contract";
 import { CHARTINK_CANDIDATE_NOTE, CHARTINK_FAMILY, CandidatePill, DASH, Fact, SEGMENT_WORD, noteStyle, ratio, rupees, rupeesAbs } from "./plan-format";
 import { costsBreakdownText, readCostsBreakdown } from "../desk-trading";
+import { DecisionCard } from "../decision/DecisionCard";
 
 const list = { margin: 0, display: "flex", flexDirection: "column" as const, gap: 4, paddingLeft: 18 };
 
@@ -115,6 +116,8 @@ export function CandidateDetail({ plan, c, persona }: { plan: StrategyPlan; c: C
           <CandidatePill status={c.status} testId="cand-status" />
           {c.id === plan.preferred && <span className="cp-pill" data-tone="mint" title="Highest net reward : risk among the viable candidates. A ranking, not a probability.">Preferred</span>}
         </div>
+
+        {c.trade_plan && <DecisionCard plan={c.trade_plan} variant="full" testId="cand-decision-card" />}
 
         {c.family === CHARTINK_FAMILY && (
           <p role="note" data-testid="cand-chartink-note" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>{CHARTINK_CANDIDATE_NOTE}</p>
