@@ -1,7 +1,10 @@
-"""The shared browser/route contract fixtures, written from the backend's own builders (run inside the backend image):
+"""The shared browser/route contract fixtures, built from the backend's own routes. They are written by pytest, so the
+suite's autouse stubs apply exactly as in the tests (tests/conftest.py risk_mock_inputs: a MOCK sector and market
+state for the universal risk service):
 
-    python -m tests.contract_fixtures trade-plan-paper > frontend-v5/e2e/fixtures/contract-trade-plan-paper.json
-    python -m tests.contract_fixtures decision-card    > frontend-v5/e2e/fixtures/contract-decision-card.json
+    CONTRACT_FIXTURES_OUT=<dir> python -m pytest tests/test_decision_card_contract.py -q
+        writes <dir>/contract-trade-plan-paper.json and <dir>/contract-decision-card.json; copy them into
+        frontend-v5/e2e/fixtures/
 
 Each answer is what the REAL route returns in the MOCK world of tests/test_strategy_plan.py (cash) or for the REAL
 2026-10-21 staging capture of POST /api/desk/strategy/top (F&O), on one in-memory Mongo (tests/test_desk_trading.FakeDb).
@@ -13,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
@@ -43,6 +45,14 @@ def _fno_top() -> Dict[str, Any]:
 
 def _fno_idea(top: Dict[str, Any], underlying: str = "BANKNIFTY") -> Dict[str, Any]:
     return next(i for i in top["classes"]["index_options"]["ideas"] if i["underlying"] == underlying)
+
+
+async def _user_from_header(request):
+    from fastapi import HTTPException
+    uid = request.headers.get("X-Test-User")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"user_id": uid}
 
 
 def plan_ref(tp: Dict[str, Any]) -> Dict[str, Any]:
@@ -92,6 +102,12 @@ def decision_card() -> Dict[str, Any]:
     from services import ai_watchlist_build as awb
     from services.strategy_plan import trade_plan as tpm
 
+    from fastapi.testclient import TestClient
+
+    import routes.risk_controls as risk_route
+    from services import risk_controls as rc
+    from tests.test_desk_trading import bar
+
     top = _fno_top()
     with pytest.MonkeyPatch.context() as mp:
         c = _surfaces(mp)
@@ -101,9 +117,33 @@ def decision_card() -> Dict[str, Any]:
         futures = c.post("/api/desk/strategy/plan", json={**idea["plan_inputs"], "instrument": "futures"}, headers=A).json()
         ftp = _fno_idea(top)["trade_plan"]
         asyncio.run(tpm.store(c.db, copy.deepcopy(ftp), "system:ai-watchlist"))
-        cash_get = c.get(f"/api/desk/trade-plans/{idea['trade_plan']['plan_id']}", headers=A).json()
+        pid = idea["trade_plan"]["plan_id"]
+        cash_get = c.get(f"/api/desk/trade-plans/{pid}", headers=A).json()
         fno_get = c.get(f"/api/desk/trade-plans/{ftp['plan_id']}", headers=A).json()
         account = c.get("/api/desk/paper-account", headers=A).json()
+        # GET /api/risk/profile for the same user (Phase 1): the equity basis the card's "% of equity" uses
+        mp.setattr(risk_route, "db", c.db)
+        mp.setattr(risk_route, "get_current_user", _user_from_header)
+        app = c.app
+        app.include_router(risk_route.router)
+        profile = TestClient(app).get("/api/risk/profile", headers=A).json()
+        # Real risk-service decisions on the same plan (the card's approval badge reads only these):
+        #   user_a, the loosest profile (tests/risk_helpers.py): ALLOW, and the trade is written;
+        #   user_c, the owner's default profile (0.5% a trade): REDUCE, nothing written;
+        #   user_d, the loosest profile with its kill switch on: BLOCK, nothing written.
+        sym = idea["symbol"]
+        c.rows[sym] = [dict(bar("2026-10-19", 1215.0, 1185.0, 1200.0), symbol=sym)]       # MOCK: the session the entry traded in
+        body = cash_body(idea, ideas["selection"]["scan_date"], idea["trade_plan"]["size"]["quantity"] or 1)
+        from tests.risk_helpers import loose_profile_doc
+        c.db.cols["risk_profiles"].docs.append(loose_profile_doc("user_d"))
+        asyncio.run(rc.set_control(c.db, "user_d", field="kill_switch", value=True, reason="MOCK: decision-card fixture", actor="user_d"))
+        answers = {}
+        for user in ("user_a", "user_c", "user_d"):
+            h = {"X-Test-User": user}
+            assert c.post("/api/desk/strategy/ideas", json=SIZED, headers=h).status_code == 200      # the user's own copy of the plan
+            r = c.post("/api/desk/paper-trades", json=copy.deepcopy(body), headers=h)
+            answers[user] = {"paper_status": r.status_code, "paper_detail": r.json().get("detail") if r.status_code >= 400 else None,
+                             "trade_plan_response": c.get(f"/api/desk/trade-plans/{pid}", headers=h).json()}
     top_fno = copy.deepcopy(top)
     top_fno.pop("classes", None)
     top_fno["classes"] = {k: v for k, v in top["classes"].items() if k != "cash"}
@@ -119,7 +159,8 @@ def decision_card() -> Dict[str, Any]:
                   "RELIANCE-like world of backend/tests/test_strategy_plan.py), sized with capital 10,00,000 and risk 0.5%. fno: the "
                   "REAL 2026-10-21 staging capture desk-strategy-top.json with the plans the board builds for it."),
         "cash": {"ideas_request": SIZED, "ideas_response": ideas, "builder_response": builder, "trade_plan_response": cash_get,
-                 "body": cash_body(idea, ideas["selection"]["scan_date"], idea["trade_plan"]["size"]["quantity"] or 1)},
+                 "body": body, "allowed": answers["user_a"], "reduced": answers["user_c"], "blocked": answers["user_d"]},
+        "risk_profile": profile,
         "futures": {"builder_response": futures},
         "fno": {"idea_underlying": "BANKNIFTY", "top_response": top_fno, "trade_plan_response": fno_get},
         "ai_watchlist_day": day_response,
@@ -130,10 +171,3 @@ def decision_card() -> Dict[str, Any]:
 def dump(obj: Any) -> str:
     return json.dumps(obj, indent=1, ensure_ascii=True) + "\n"
 
-
-if __name__ == "__main__":
-    which = sys.argv[1] if len(sys.argv) > 1 else ""
-    builders = {"trade-plan-paper": trade_plan_paper, "decision-card": decision_card}
-    if which not in builders:
-        sys.exit(f"usage: python -m tests.contract_fixtures {{{'|'.join(builders)}}}")
-    sys.stdout.write(dump(builders[which]()))

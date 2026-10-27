@@ -901,10 +901,10 @@
       "capital": 1000000,
       "risk_pct": 0.5
      },
-     "build_ms": 60
+     "build_ms": 54
     }
    ],
-   "elapsed_ms": 64,
+   "elapsed_ms": 55,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -9599,11 +9599,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T06:12:25.769597+00:00",
+    "created_at": "2026-10-27T06:19:08.309230+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T06:12:25.769597+00:00",
+     "at": "2026-10-27T06:19:08.309230+00:00",
      "after_approval": false
     },
     "events": []
@@ -9613,11 +9613,13 @@
     "trades": [],
     "rejections": []
    },
+   "risk_decision": null,
+   "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
    "versions": [
     {
      "plan_id": "tp_f2177a8ce8ec4ac5",
      "version": 1,
-     "created_at": "2026-10-27T06:12:25.769597+00:00",
+     "created_at": "2026-10-27T06:19:08.309230+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -9642,6 +9644,1699 @@
     "candidate_id": "cash:breakout_continuation",
     "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }
+  },
+  "allowed": {
+   "paper_status": 201,
+   "paper_detail": null,
+   "trade_plan_response": {
+    "plan": {
+     "schema": "trade-plan-v1",
+     "rules_version": "trade-plan-v1.1 (2026-10-27)",
+     "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
+     "calculation_version": "payoff-v1",
+     "strategy": {
+      "segment": "cash",
+      "family": "breakout_continuation",
+      "label": "Breakout continuation (long)",
+      "direction": "bullish",
+      "candidate_id": "cash:breakout_continuation"
+     },
+     "instrument": {
+      "symbol": "ICICIBANK",
+      "segment": "cash",
+      "lot_size": 1,
+      "expiry": null,
+      "legs": [
+       {
+        "kind": "cash",
+        "side": "buy",
+        "lot_size": 1,
+        "expiry": null,
+        "entry_price": 1200.0
+       }
+      ]
+     },
+     "timeframe": {
+      "horizon": "positional",
+      "sessions_max": 10
+     },
+     "setup": {
+      "source": "ai_scanner",
+      "bucket": "breakout_confirmed",
+      "stage": null,
+      "signal_date": null,
+      "trigger": 1195.0,
+      "scanner_stop": 1160.0,
+      "scanner_target": null,
+      "rules_version": "mock-classifier",
+      "timeframe_days": null
+     },
+     "entry": {
+      "price": 1200.0,
+      "order_type": "at_close",
+      "desk_entry_rule": "at_once",
+      "order_text": "at the session's close (the desk records it at once, inside that session's range)",
+      "valid_for_sessions": null,
+      "reference_close": 1200.0,
+      "logic": "Last close 1200 (nidp.prices_eod_adjusted close, 2026-10-19); a close above the trigger on volume confirms it"
+     },
+     "stop": {
+      "price": 1160.0,
+      "method": "atr",
+      "atr": 23.33,
+      "atr_multiple": 1.5,
+      "distance_atr": 1.714,
+      "swing_ref": null,
+      "measured_from": 1195.0,
+      "rationale": "the scanner's stop (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
+      "invalidation": "the thesis is wrong if price closes beyond this level"
+     },
+     "r_per_unit": 40.0,
+     "targets": [
+      {
+       "name": "conservative",
+       "price": 1220.0,
+       "r_multiple": 0.5,
+       "rule": "1 x ATR(14) (no resistance at least 0.5 x ATR away)",
+       "primary": false
+      },
+      {
+       "name": "base",
+       "price": 1280.0,
+       "r_multiple": 2.0,
+       "rule": "2 x the stop distance",
+       "primary": true
+      },
+      {
+       "name": "optimistic",
+       "price": 1320.0,
+       "r_multiple": 3.0,
+       "rule": "3 x the stop distance",
+       "primary": false
+      }
+     ],
+     "size": {
+      "status": "complete",
+      "quantity": 113,
+      "lots": null,
+      "lot_size": 1,
+      "risk_budget_rs": 5000.0,
+      "risk_rs": 4997.53,
+      "risk_pct_of_equity": 0.5,
+      "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+      "binding": "risk_budget",
+      "missing": [],
+      "costs_included": true
+     },
+     "costs": {
+      "model": "desk-cost-v2",
+      "basis": "a round trip of 113 unit(s) from the entry to the stop",
+      "units": 113,
+      "breakdown_at_stop": {
+       "brokerage": 40.0,
+       "stt": 266.68,
+       "exchange": 8.18,
+       "sebi": 0.27,
+       "stamp": 20.34,
+       "gst": 8.72,
+       "slippage": 133.34,
+       "total": 477.53
+      },
+      "excluded": [
+       "DP charges",
+       "income tax",
+       "gap slippage beyond the cost card's slippage"
+      ],
+      "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
+     },
+     "exit_plan": {
+      "stop": {
+       "price": 1160.0,
+       "method": "atr"
+      },
+      "targets": [
+       {
+        "name": "conservative",
+        "price": 1220.0,
+        "r_multiple": 0.5
+       },
+       {
+        "name": "base",
+        "price": 1280.0,
+        "r_multiple": 2.0
+       },
+       {
+        "name": "optimistic",
+        "price": 1320.0,
+        "r_multiple": 3.0
+       }
+      ],
+      "primary_target": "base",
+      "time": {
+       "max_sessions": 10,
+       "basis": "the setup's maximum horizon in sessions, else the plan's horizon"
+      },
+      "trailing": {
+       "enabled": false,
+       "atr_multiple": null,
+       "owner": "feat/p2-exits-backtest"
+      },
+      "trend": {
+       "enabled": false,
+       "ma": null,
+       "period": null,
+       "owner": "feat/p2-exits-backtest"
+      },
+      "options": null
+     },
+     "evidence_refs": [
+      {
+       "key": "buildup",
+       "source": "MOCK DaaS fno-buildup",
+       "as_of": "2026-10-19",
+       "content_hash": "873352f49983e4aa"
+      },
+      {
+       "key": "chain",
+       "source": "MOCK NSE F&O bhavcopy chain",
+       "as_of": "2026-10-19",
+       "content_hash": "aee56f706360650d"
+      },
+      {
+       "key": "futures",
+       "source": "MOCK NSE F&O bhavcopy futures",
+       "as_of": "2026-10-19",
+       "content_hash": "0eb3a07ed300d516"
+      },
+      {
+       "key": "indicators",
+       "source": "MOCK nidp.prices_eod_adjusted",
+       "as_of": "2026-10-19",
+       "content_hash": "2b270487085af63c"
+      },
+      {
+       "key": "regime",
+       "source": "MOCK macro_engine.classify_desk_regime",
+       "as_of": "2026-10-19",
+       "content_hash": "74d5cfc01887f37e"
+      },
+      {
+       "key": "scan_row",
+       "source": "MOCK DaaS scan-snapshot",
+       "as_of": "2026-10-19",
+       "content_hash": "875e69e8d45f80ba"
+      },
+      {
+       "key": "scanner_bucket",
+       "source": "MOCK positional watchlist",
+       "as_of": "2026-10-19",
+       "content_hash": "c7d9653ff8772e5f"
+      }
+     ],
+     "evidence": {
+      "items": [
+       {
+        "key": "regime",
+        "label": "Market regime",
+        "status": "ok",
+        "direction": "supports",
+        "text": "Desk regime is Bullish (macro_engine.classify_desk_regime, session 2026-10-19).",
+        "as_of": "2026-10-19",
+        "source": "MOCK macro_engine.classify_desk_regime"
+       },
+       {
+        "key": "trend",
+        "label": "Trend",
+        "status": "ok",
+        "direction": "supports",
+        "text": "Trend up: close 1200.00 vs EMA50 1150.00, EMA20 1190.00.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "relative_strength",
+        "label": "Relative strength",
+        "status": "ok",
+        "direction": "supports",
+        "text": "63-session return +3.00% against the benchmark.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "momentum",
+        "label": "Momentum",
+        "status": "ok",
+        "direction": "supports",
+        "text": "MACD histogram +1.50, 20-day change +4.00%.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "volume",
+        "label": "Volume",
+        "status": "ok",
+        "direction": "neutral",
+        "text": "Relative volume 1.8x; average traded value 500.0 Cr a day.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "structure",
+        "label": "Price structure",
+        "status": "ok",
+        "direction": "neutral",
+        "text": "20-session support 1130.0 and resistance 1290.0. Bull flag (bullish) is confirmed: closed beyond the level",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       }
+      ],
+      "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"
+     },
+     "warnings": [
+      {
+       "key": "event",
+       "label": "Event",
+       "status": "clear",
+       "text": "No results date inside the 10-day horizon. No ex-date inside the horizon."
+      },
+      {
+       "key": "liquidity",
+       "label": "Liquidity",
+       "status": "clear",
+       "text": "Eligible for the scanner universe. Relative volume 1.8x; average traded value 500.0 Cr a day."
+      },
+      {
+       "key": "concentration",
+       "label": "Concentration",
+       "status": "at_entry",
+       "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+      },
+      {
+       "key": "correlation",
+       "label": "Correlation",
+       "status": "unavailable",
+       "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+      }
+     ],
+     "risk_flags": [],
+     "eligibility": {
+      "eligible": true,
+      "paper_eligible": true,
+      "state": "TRADE_ELIGIBLE",
+      "status": "candidate",
+      "reasons": []
+     },
+     "data_as_of": {
+      "price": "2026-10-19",
+      "fno": "2026-10-19",
+      "reference_session": "2026-10-19",
+      "mode": "end_of_day",
+      "fundamentals": "2026-10-19",
+      "regime": "2026-10-19"
+     },
+     "sent_to_broker": false,
+     "source": {
+      "kind": "strategy_plan",
+      "strategy_plan_id": "plan_21486406d987195f",
+      "candidate_id": "cash:breakout_continuation"
+     },
+     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "lineage_key": "tl_3719a268ef01487d",
+     "lifecycle": {
+      "status": "open",
+      "state": "TRADE_ELIGIBLE",
+      "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})",
+      "derived": true
+     },
+     "version": 1,
+     "supersedes": null,
+     "created_at": "2026-10-27T06:19:08.309230+00:00",
+     "revalidation": {
+      "ok": true,
+      "problems": [],
+      "at": "2026-10-27T06:19:08.309230+00:00",
+      "after_approval": false
+     },
+     "events": []
+    },
+    "lifecycle": {
+     "status": "open",
+     "trades": [
+      {
+       "id": "29bf0591-52e0-43f0-8742-f603ef46e8ba",
+       "state": "POSITION_OPEN",
+       "status": "open"
+      }
+     ],
+     "rejections": []
+    },
+    "risk_decision": {
+     "decision_id": "e48c651d-e5f9-4a42-808b-2ff549d13818",
+     "outcome": "allow",
+     "at": "2026-10-20T05:00:00+00:00",
+     "symbol": "ICICIBANK",
+     "trade_id": "29bf0591-52e0-43f0-8742-f603ef46e8ba",
+     "requested_qty": 113,
+     "approved_qty": 113,
+     "requested_lots": null,
+     "approved_lots": null,
+     "reasons": [],
+     "estimated_risk_rs": {
+      "gross": 4520.0,
+      "costs": 477.53,
+      "gap_stress": 1310.8,
+      "stop_based": 4997.53,
+      "total": 6308.33,
+      "basis": "shares: qty x (entry - stop) + round-trip costs + gap stress",
+      "gap_stress_pct": 1.0,
+      "version": "est-risk-v1"
+     },
+     "policy_version": "universal-risk-v1",
+     "limits_version": "rp-1-258b9566"
+    },
+    "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
+    "versions": [
+     {
+      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "version": 1,
+      "created_at": "2026-10-27T06:19:08.309230+00:00",
+      "revalidation_ok": true,
+      "supersedes": null
+     }
+    ],
+    "sent_to_broker": false
+   }
+  },
+  "reduced": {
+   "paper_status": 409,
+   "paper_detail": {
+    "code": "risk_reduce",
+    "decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+    "outcome": "reduce",
+    "requested_qty": 113,
+    "approved_qty": 83,
+    "requested_lots": null,
+    "approved_lots": null,
+    "approved_notional_rs": 99600.0,
+    "planned_entry_price": 1200.0,
+    "reasons": [
+     {
+      "code": "per_trade_risk_exceeded",
+      "check": "per_trade_risk",
+      "severity": "reduce",
+      "value": 6308.33,
+      "limit": 5000.0,
+      "message": "Estimated risk Rs 6,308.33 exceeds the per-trade budget Rs 5,000.00; at most 89 shares fit."
+     },
+     {
+      "code": "POSITION_SIZE",
+      "check": "governor",
+      "severity": "reduce",
+      "value": 83,
+      "limit": 10.0,
+      "message": "Size limited by position size."
+     }
+    ],
+    "estimated_risk_rs": {
+     "gross": 3320.0,
+     "costs": 363.3,
+     "gap_stress": 962.8,
+     "stop_based": 3683.3,
+     "total": 4646.1,
+     "basis": "shares: qty x (entry - stop) + round-trip costs + gap stress",
+     "gap_stress_pct": 1.0,
+     "version": "est-risk-v1"
+    },
+    "budget": {
+     "capital_basis": "paper_equity",
+     "equity_rs": 1000000.0,
+     "starting_capital_rs": 1000000.0,
+     "starting_capital_label": "simulation default (Rs 10,00,000): the paper account's opening cash, not a real account's capital",
+     "per_trade_pct": 0.5,
+     "per_trade_budget_rs": 5000.0,
+     "reward_risk": 1.7023,
+     "min_reward_risk": 1.5,
+     "open_risk_before_rs": 0.0,
+     "open_risk_cap_rs": 30000.0,
+     "open_risk_pct_limit": 3.0,
+     "exposure_before_rs": 0.0,
+     "exposure_cap_rs": 800000.0,
+     "position_cap_rs": 100000.0,
+     "position_pct_limit": 10.0,
+     "sector": "MOCK Sector",
+     "sector_before_rs": 0.0,
+     "sector_cap_rs": 250000.0,
+     "sector_pct_limit": 25.0,
+     "open_positions_before": 0,
+     "max_open_positions": 10,
+     "new_exposure_rs": 99600.0,
+     "day_pnl_rs": 0.0,
+     "day_start_equity_rs": 1000000.0,
+     "day_start": "2026-10-20",
+     "day_loss_pct_limit": 2.0,
+     "day_loss_pct": 0.0,
+     "week_pnl_rs": 0.0,
+     "week_start_equity_rs": 1000000.0,
+     "week_start": "2026-10-19",
+     "week_loss_pct_limit": 4.0,
+     "week_loss_pct": 0.0,
+     "drawdown_pct": 0.0,
+     "drawdown_pct_limit": 10.0,
+     "peak_rs": 1000000.0,
+     "funding_rs": 99600.0,
+     "available_rs": 1000000.0,
+     "open_risk_after_rs": 4646.1
+    },
+    "policy_version": "universal-risk-v1",
+    "limits_version": "rp-0-7e7c3751",
+    "correlation_id": "3da624155fe0496794f2559e67679ed8",
+    "reservation_id": null,
+    "freshness": {
+     "last_close": {
+      "source": "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the data platform)",
+      "as_of": "2026-10-19",
+      "age_sessions": 0,
+      "budget": 2,
+      "ok": true,
+      "reason": null,
+      "version": "freshness-v1"
+     },
+     "sector": {
+      "source": "MOCK sector (tests/conftest.py)",
+      "as_of": null,
+      "age_sessions": null,
+      "budget": null,
+      "ok": true,
+      "reason": null,
+      "version": "freshness-v1"
+     },
+     "market": {
+      "source": "MOCK regime",
+      "as_of": "2026-10-19",
+      "age_sessions": 0,
+      "budget": 2,
+      "ok": true,
+      "reason": null,
+      "version": "freshness-v1"
+     },
+     "equity": {
+      "source": "paper account + end-of-day marks (services/risk_book.py)",
+      "as_of": null,
+      "fno_marks_as_of": null,
+      "ok": true,
+      "reason": null
+     }
+    },
+    "inputs_hash": "7e80279b9997b32637e619cf8ca8d0974c9a3ebcd79fc5ad09a3ac785b5eef86",
+    "message": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size."
+   },
+   "trade_plan_response": {
+    "plan": {
+     "schema": "trade-plan-v1",
+     "rules_version": "trade-plan-v1.1 (2026-10-27)",
+     "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
+     "calculation_version": "payoff-v1",
+     "strategy": {
+      "segment": "cash",
+      "family": "breakout_continuation",
+      "label": "Breakout continuation (long)",
+      "direction": "bullish",
+      "candidate_id": "cash:breakout_continuation"
+     },
+     "instrument": {
+      "symbol": "ICICIBANK",
+      "segment": "cash",
+      "lot_size": 1,
+      "expiry": null,
+      "legs": [
+       {
+        "kind": "cash",
+        "side": "buy",
+        "lot_size": 1,
+        "expiry": null,
+        "entry_price": 1200.0
+       }
+      ]
+     },
+     "timeframe": {
+      "horizon": "positional",
+      "sessions_max": 10
+     },
+     "setup": {
+      "source": "ai_scanner",
+      "bucket": "breakout_confirmed",
+      "stage": null,
+      "signal_date": null,
+      "trigger": 1195.0,
+      "scanner_stop": 1160.0,
+      "scanner_target": null,
+      "rules_version": "mock-classifier",
+      "timeframe_days": null
+     },
+     "entry": {
+      "price": 1200.0,
+      "order_type": "at_close",
+      "desk_entry_rule": "at_once",
+      "order_text": "at the session's close (the desk records it at once, inside that session's range)",
+      "valid_for_sessions": null,
+      "reference_close": 1200.0,
+      "logic": "Last close 1200 (nidp.prices_eod_adjusted close, 2026-10-19); a close above the trigger on volume confirms it"
+     },
+     "stop": {
+      "price": 1160.0,
+      "method": "atr",
+      "atr": 23.33,
+      "atr_multiple": 1.5,
+      "distance_atr": 1.714,
+      "swing_ref": null,
+      "measured_from": 1195.0,
+      "rationale": "the scanner's stop (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
+      "invalidation": "the thesis is wrong if price closes beyond this level"
+     },
+     "r_per_unit": 40.0,
+     "targets": [
+      {
+       "name": "conservative",
+       "price": 1220.0,
+       "r_multiple": 0.5,
+       "rule": "1 x ATR(14) (no resistance at least 0.5 x ATR away)",
+       "primary": false
+      },
+      {
+       "name": "base",
+       "price": 1280.0,
+       "r_multiple": 2.0,
+       "rule": "2 x the stop distance",
+       "primary": true
+      },
+      {
+       "name": "optimistic",
+       "price": 1320.0,
+       "r_multiple": 3.0,
+       "rule": "3 x the stop distance",
+       "primary": false
+      }
+     ],
+     "size": {
+      "status": "complete",
+      "quantity": 113,
+      "lots": null,
+      "lot_size": 1,
+      "risk_budget_rs": 5000.0,
+      "risk_rs": 4997.53,
+      "risk_pct_of_equity": 0.5,
+      "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+      "binding": "risk_budget",
+      "missing": [],
+      "costs_included": true
+     },
+     "costs": {
+      "model": "desk-cost-v2",
+      "basis": "a round trip of 113 unit(s) from the entry to the stop",
+      "units": 113,
+      "breakdown_at_stop": {
+       "brokerage": 40.0,
+       "stt": 266.68,
+       "exchange": 8.18,
+       "sebi": 0.27,
+       "stamp": 20.34,
+       "gst": 8.72,
+       "slippage": 133.34,
+       "total": 477.53
+      },
+      "excluded": [
+       "DP charges",
+       "income tax",
+       "gap slippage beyond the cost card's slippage"
+      ],
+      "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
+     },
+     "exit_plan": {
+      "stop": {
+       "price": 1160.0,
+       "method": "atr"
+      },
+      "targets": [
+       {
+        "name": "conservative",
+        "price": 1220.0,
+        "r_multiple": 0.5
+       },
+       {
+        "name": "base",
+        "price": 1280.0,
+        "r_multiple": 2.0
+       },
+       {
+        "name": "optimistic",
+        "price": 1320.0,
+        "r_multiple": 3.0
+       }
+      ],
+      "primary_target": "base",
+      "time": {
+       "max_sessions": 10,
+       "basis": "the setup's maximum horizon in sessions, else the plan's horizon"
+      },
+      "trailing": {
+       "enabled": false,
+       "atr_multiple": null,
+       "owner": "feat/p2-exits-backtest"
+      },
+      "trend": {
+       "enabled": false,
+       "ma": null,
+       "period": null,
+       "owner": "feat/p2-exits-backtest"
+      },
+      "options": null
+     },
+     "evidence_refs": [
+      {
+       "key": "buildup",
+       "source": "MOCK DaaS fno-buildup",
+       "as_of": "2026-10-19",
+       "content_hash": "873352f49983e4aa"
+      },
+      {
+       "key": "chain",
+       "source": "MOCK NSE F&O bhavcopy chain",
+       "as_of": "2026-10-19",
+       "content_hash": "aee56f706360650d"
+      },
+      {
+       "key": "futures",
+       "source": "MOCK NSE F&O bhavcopy futures",
+       "as_of": "2026-10-19",
+       "content_hash": "0eb3a07ed300d516"
+      },
+      {
+       "key": "indicators",
+       "source": "MOCK nidp.prices_eod_adjusted",
+       "as_of": "2026-10-19",
+       "content_hash": "2b270487085af63c"
+      },
+      {
+       "key": "regime",
+       "source": "MOCK macro_engine.classify_desk_regime",
+       "as_of": "2026-10-19",
+       "content_hash": "74d5cfc01887f37e"
+      },
+      {
+       "key": "scan_row",
+       "source": "MOCK DaaS scan-snapshot",
+       "as_of": "2026-10-19",
+       "content_hash": "875e69e8d45f80ba"
+      },
+      {
+       "key": "scanner_bucket",
+       "source": "MOCK positional watchlist",
+       "as_of": "2026-10-19",
+       "content_hash": "c7d9653ff8772e5f"
+      }
+     ],
+     "evidence": {
+      "items": [
+       {
+        "key": "regime",
+        "label": "Market regime",
+        "status": "ok",
+        "direction": "supports",
+        "text": "Desk regime is Bullish (macro_engine.classify_desk_regime, session 2026-10-19).",
+        "as_of": "2026-10-19",
+        "source": "MOCK macro_engine.classify_desk_regime"
+       },
+       {
+        "key": "trend",
+        "label": "Trend",
+        "status": "ok",
+        "direction": "supports",
+        "text": "Trend up: close 1200.00 vs EMA50 1150.00, EMA20 1190.00.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "relative_strength",
+        "label": "Relative strength",
+        "status": "ok",
+        "direction": "supports",
+        "text": "63-session return +3.00% against the benchmark.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "momentum",
+        "label": "Momentum",
+        "status": "ok",
+        "direction": "supports",
+        "text": "MACD histogram +1.50, 20-day change +4.00%.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "volume",
+        "label": "Volume",
+        "status": "ok",
+        "direction": "neutral",
+        "text": "Relative volume 1.8x; average traded value 500.0 Cr a day.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "structure",
+        "label": "Price structure",
+        "status": "ok",
+        "direction": "neutral",
+        "text": "20-session support 1130.0 and resistance 1290.0. Bull flag (bullish) is confirmed: closed beyond the level",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       }
+      ],
+      "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"
+     },
+     "warnings": [
+      {
+       "key": "event",
+       "label": "Event",
+       "status": "clear",
+       "text": "No results date inside the 10-day horizon. No ex-date inside the horizon."
+      },
+      {
+       "key": "liquidity",
+       "label": "Liquidity",
+       "status": "clear",
+       "text": "Eligible for the scanner universe. Relative volume 1.8x; average traded value 500.0 Cr a day."
+      },
+      {
+       "key": "concentration",
+       "label": "Concentration",
+       "status": "at_entry",
+       "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+      },
+      {
+       "key": "correlation",
+       "label": "Correlation",
+       "status": "unavailable",
+       "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+      }
+     ],
+     "risk_flags": [],
+     "eligibility": {
+      "eligible": true,
+      "paper_eligible": true,
+      "state": "TRADE_ELIGIBLE",
+      "status": "candidate",
+      "reasons": []
+     },
+     "data_as_of": {
+      "price": "2026-10-19",
+      "fno": "2026-10-19",
+      "reference_session": "2026-10-19",
+      "mode": "end_of_day",
+      "fundamentals": "2026-10-19",
+      "regime": "2026-10-19"
+     },
+     "sent_to_broker": false,
+     "source": {
+      "kind": "strategy_plan",
+      "strategy_plan_id": "plan_21486406d987195f",
+      "candidate_id": "cash:breakout_continuation"
+     },
+     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "lineage_key": "tl_3719a268ef01487d",
+     "lifecycle": {
+      "status": "rejected",
+      "state": "TRADE_ELIGIBLE",
+      "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})",
+      "derived": true
+     },
+     "version": 1,
+     "supersedes": null,
+     "created_at": "2026-10-27T06:19:08.309230+00:00",
+     "revalidation": {
+      "ok": true,
+      "problems": [],
+      "at": "2026-10-27T06:19:08.309230+00:00",
+      "after_approval": false
+     },
+     "events": [
+      {
+       "from": "TRADE_ELIGIBLE",
+       "to": "REJECTED",
+       "at": "2026-10-20T05:00:00+00:00",
+       "session": "2026-10-20",
+       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
+       "source": "desk_paper_trade",
+       "rejection_reasons": [
+        "risk_reduce"
+       ],
+       "plan_id": "tp_f2177a8ce8ec4ac5",
+       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
+      }
+     ]
+    },
+    "lifecycle": {
+     "status": "rejected",
+     "trades": [],
+     "rejections": [
+      {
+       "from": "TRADE_ELIGIBLE",
+       "to": "REJECTED",
+       "at": "2026-10-20T05:00:00+00:00",
+       "session": "2026-10-20",
+       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
+       "source": "desk_paper_trade",
+       "rejection_reasons": [
+        "risk_reduce"
+       ],
+       "plan_id": "tp_f2177a8ce8ec4ac5",
+       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
+      }
+     ]
+    },
+    "risk_decision": {
+     "decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+     "outcome": "reduce",
+     "at": "2026-10-20T05:00:00+00:00",
+     "symbol": "ICICIBANK",
+     "trade_id": "e1ba4138-0bbc-4cf4-bb88-6f9d96bafba4",
+     "requested_qty": 113,
+     "approved_qty": 83,
+     "requested_lots": null,
+     "approved_lots": null,
+     "reasons": [
+      {
+       "code": "per_trade_risk_exceeded",
+       "check": "per_trade_risk",
+       "severity": "reduce",
+       "message": "Estimated risk Rs 6,308.33 exceeds the per-trade budget Rs 5,000.00; at most 89 shares fit."
+      },
+      {
+       "code": "POSITION_SIZE",
+       "check": "governor",
+       "severity": "reduce",
+       "message": "Size limited by position size."
+      }
+     ],
+     "estimated_risk_rs": {
+      "gross": 3320.0,
+      "costs": 363.3,
+      "gap_stress": 962.8,
+      "stop_based": 3683.3,
+      "total": 4646.1,
+      "basis": "shares: qty x (entry - stop) + round-trip costs + gap stress",
+      "gap_stress_pct": 1.0,
+      "version": "est-risk-v1"
+     },
+     "policy_version": "universal-risk-v1",
+     "limits_version": "rp-0-7e7c3751"
+    },
+    "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
+    "versions": [
+     {
+      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "version": 1,
+      "created_at": "2026-10-27T06:19:08.309230+00:00",
+      "revalidation_ok": true,
+      "supersedes": null
+     }
+    ],
+    "sent_to_broker": false
+   }
+  },
+  "blocked": {
+   "paper_status": 409,
+   "paper_detail": {
+    "code": "risk_blocked",
+    "decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+    "outcome": "block",
+    "requested_qty": 113,
+    "approved_qty": 0,
+    "requested_lots": null,
+    "approved_lots": null,
+    "approved_notional_rs": null,
+    "planned_entry_price": 1200.0,
+    "reasons": [
+     {
+      "code": "kill_switch_on",
+      "check": "controls",
+      "severity": "halt",
+      "value": null,
+      "limit": null,
+      "message": "The kill switch is on (MOCK: decision-card fixture)."
+     }
+    ],
+    "estimated_risk_rs": {
+     "gross": 4520.0,
+     "costs": 477.53,
+     "gap_stress": 1310.8,
+     "stop_based": 4997.53,
+     "total": 6308.33,
+     "basis": "shares: qty x (entry - stop) + round-trip costs + gap stress",
+     "gap_stress_pct": 1.0,
+     "version": "est-risk-v1"
+    },
+    "budget": {
+     "capital_basis": "paper_equity",
+     "equity_rs": 1000000.0,
+     "starting_capital_rs": 1000000.0,
+     "starting_capital_label": "simulation default (Rs 10,00,000): the paper account's opening cash, not a real account's capital",
+     "per_trade_pct": 5.0,
+     "per_trade_budget_rs": 50000.0,
+     "open_risk_before_rs": 0.0,
+     "open_risk_cap_rs": 500000.0,
+     "open_risk_pct_limit": 50.0,
+     "exposure_before_rs": 0.0,
+     "exposure_cap_rs": 800000.0,
+     "position_cap_rs": 1000000.0,
+     "position_pct_limit": 100.0,
+     "sector": "MOCK Sector",
+     "sector_before_rs": 0.0,
+     "sector_cap_rs": 1000000.0,
+     "sector_pct_limit": 100.0,
+     "open_positions_before": 0,
+     "max_open_positions": 10,
+     "new_exposure_rs": 135600.0,
+     "day_pnl_rs": 0.0,
+     "day_start_equity_rs": 1000000.0,
+     "day_start": "2026-10-20",
+     "day_loss_pct_limit": 20.0,
+     "day_loss_pct": 0.0,
+     "week_pnl_rs": 0.0,
+     "week_start_equity_rs": 1000000.0,
+     "week_start": "2026-10-19",
+     "week_loss_pct_limit": 40.0,
+     "week_loss_pct": 0.0,
+     "drawdown_pct": 0.0,
+     "drawdown_pct_limit": 50.0,
+     "peak_rs": 1000000.0,
+     "funding_rs": 135600.0,
+     "available_rs": 1000000.0,
+     "open_risk_after_rs": null
+    },
+    "policy_version": "universal-risk-v1",
+    "limits_version": "rp-1-258b9566",
+    "correlation_id": "0303dae2203f429b80c50b05cbaf6034",
+    "reservation_id": null,
+    "freshness": {
+     "last_close": {
+      "source": "NSE end-of-day bhavcopy, raw traded prices (nidp.prices_eod via the data platform)",
+      "as_of": "2026-10-19",
+      "age_sessions": 0,
+      "budget": 2,
+      "ok": true,
+      "reason": null,
+      "version": "freshness-v1"
+     },
+     "sector": {
+      "source": "MOCK sector (tests/conftest.py)",
+      "as_of": null,
+      "age_sessions": null,
+      "budget": null,
+      "ok": true,
+      "reason": null,
+      "version": "freshness-v1"
+     },
+     "market": {
+      "source": "MOCK regime",
+      "as_of": "2026-10-19",
+      "age_sessions": 0,
+      "budget": 2,
+      "ok": true,
+      "reason": null,
+      "version": "freshness-v1"
+     },
+     "equity": {
+      "source": "paper account + end-of-day marks (services/risk_book.py)",
+      "as_of": null,
+      "fno_marks_as_of": null,
+      "ok": true,
+      "reason": null
+     }
+    },
+    "inputs_hash": "ae7c8aa6a3cc456b737c77d7a76d4db75e61f3f4c888c00596677f6ac9f0e308",
+    "message": "The kill switch is on (MOCK: decision-card fixture)."
+   },
+   "trade_plan_response": {
+    "plan": {
+     "schema": "trade-plan-v1",
+     "rules_version": "trade-plan-v1.1 (2026-10-27)",
+     "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
+     "calculation_version": "payoff-v1",
+     "strategy": {
+      "segment": "cash",
+      "family": "breakout_continuation",
+      "label": "Breakout continuation (long)",
+      "direction": "bullish",
+      "candidate_id": "cash:breakout_continuation"
+     },
+     "instrument": {
+      "symbol": "ICICIBANK",
+      "segment": "cash",
+      "lot_size": 1,
+      "expiry": null,
+      "legs": [
+       {
+        "kind": "cash",
+        "side": "buy",
+        "lot_size": 1,
+        "expiry": null,
+        "entry_price": 1200.0
+       }
+      ]
+     },
+     "timeframe": {
+      "horizon": "positional",
+      "sessions_max": 10
+     },
+     "setup": {
+      "source": "ai_scanner",
+      "bucket": "breakout_confirmed",
+      "stage": null,
+      "signal_date": null,
+      "trigger": 1195.0,
+      "scanner_stop": 1160.0,
+      "scanner_target": null,
+      "rules_version": "mock-classifier",
+      "timeframe_days": null
+     },
+     "entry": {
+      "price": 1200.0,
+      "order_type": "at_close",
+      "desk_entry_rule": "at_once",
+      "order_text": "at the session's close (the desk records it at once, inside that session's range)",
+      "valid_for_sessions": null,
+      "reference_close": 1200.0,
+      "logic": "Last close 1200 (nidp.prices_eod_adjusted close, 2026-10-19); a close above the trigger on volume confirms it"
+     },
+     "stop": {
+      "price": 1160.0,
+      "method": "atr",
+      "atr": 23.33,
+      "atr_multiple": 1.5,
+      "distance_atr": 1.714,
+      "swing_ref": null,
+      "measured_from": 1195.0,
+      "rationale": "the scanner's stop (1160): 1.5 x ATR(14) below 1195 (ATR 23.33)",
+      "invalidation": "the thesis is wrong if price closes beyond this level"
+     },
+     "r_per_unit": 40.0,
+     "targets": [
+      {
+       "name": "conservative",
+       "price": 1220.0,
+       "r_multiple": 0.5,
+       "rule": "1 x ATR(14) (no resistance at least 0.5 x ATR away)",
+       "primary": false
+      },
+      {
+       "name": "base",
+       "price": 1280.0,
+       "r_multiple": 2.0,
+       "rule": "2 x the stop distance",
+       "primary": true
+      },
+      {
+       "name": "optimistic",
+       "price": 1320.0,
+       "r_multiple": 3.0,
+       "rule": "3 x the stop distance",
+       "primary": false
+      }
+     ],
+     "size": {
+      "status": "complete",
+      "quantity": 113,
+      "lots": null,
+      "lot_size": 1,
+      "risk_budget_rs": 5000.0,
+      "risk_rs": 4997.53,
+      "risk_pct_of_equity": 0.5,
+      "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+      "binding": "risk_budget",
+      "missing": [],
+      "costs_included": true
+     },
+     "costs": {
+      "model": "desk-cost-v2",
+      "basis": "a round trip of 113 unit(s) from the entry to the stop",
+      "units": 113,
+      "breakdown_at_stop": {
+       "brokerage": 40.0,
+       "stt": 266.68,
+       "exchange": 8.18,
+       "sebi": 0.27,
+       "stamp": 20.34,
+       "gst": 8.72,
+       "slippage": 133.34,
+       "total": 477.53
+      },
+      "excluded": [
+       "DP charges",
+       "income tax",
+       "gap slippage beyond the cost card's slippage"
+      ],
+      "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
+     },
+     "exit_plan": {
+      "stop": {
+       "price": 1160.0,
+       "method": "atr"
+      },
+      "targets": [
+       {
+        "name": "conservative",
+        "price": 1220.0,
+        "r_multiple": 0.5
+       },
+       {
+        "name": "base",
+        "price": 1280.0,
+        "r_multiple": 2.0
+       },
+       {
+        "name": "optimistic",
+        "price": 1320.0,
+        "r_multiple": 3.0
+       }
+      ],
+      "primary_target": "base",
+      "time": {
+       "max_sessions": 10,
+       "basis": "the setup's maximum horizon in sessions, else the plan's horizon"
+      },
+      "trailing": {
+       "enabled": false,
+       "atr_multiple": null,
+       "owner": "feat/p2-exits-backtest"
+      },
+      "trend": {
+       "enabled": false,
+       "ma": null,
+       "period": null,
+       "owner": "feat/p2-exits-backtest"
+      },
+      "options": null
+     },
+     "evidence_refs": [
+      {
+       "key": "buildup",
+       "source": "MOCK DaaS fno-buildup",
+       "as_of": "2026-10-19",
+       "content_hash": "873352f49983e4aa"
+      },
+      {
+       "key": "chain",
+       "source": "MOCK NSE F&O bhavcopy chain",
+       "as_of": "2026-10-19",
+       "content_hash": "aee56f706360650d"
+      },
+      {
+       "key": "futures",
+       "source": "MOCK NSE F&O bhavcopy futures",
+       "as_of": "2026-10-19",
+       "content_hash": "0eb3a07ed300d516"
+      },
+      {
+       "key": "indicators",
+       "source": "MOCK nidp.prices_eod_adjusted",
+       "as_of": "2026-10-19",
+       "content_hash": "2b270487085af63c"
+      },
+      {
+       "key": "regime",
+       "source": "MOCK macro_engine.classify_desk_regime",
+       "as_of": "2026-10-19",
+       "content_hash": "74d5cfc01887f37e"
+      },
+      {
+       "key": "scan_row",
+       "source": "MOCK DaaS scan-snapshot",
+       "as_of": "2026-10-19",
+       "content_hash": "875e69e8d45f80ba"
+      },
+      {
+       "key": "scanner_bucket",
+       "source": "MOCK positional watchlist",
+       "as_of": "2026-10-19",
+       "content_hash": "c7d9653ff8772e5f"
+      }
+     ],
+     "evidence": {
+      "items": [
+       {
+        "key": "regime",
+        "label": "Market regime",
+        "status": "ok",
+        "direction": "supports",
+        "text": "Desk regime is Bullish (macro_engine.classify_desk_regime, session 2026-10-19).",
+        "as_of": "2026-10-19",
+        "source": "MOCK macro_engine.classify_desk_regime"
+       },
+       {
+        "key": "trend",
+        "label": "Trend",
+        "status": "ok",
+        "direction": "supports",
+        "text": "Trend up: close 1200.00 vs EMA50 1150.00, EMA20 1190.00.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "relative_strength",
+        "label": "Relative strength",
+        "status": "ok",
+        "direction": "supports",
+        "text": "63-session return +3.00% against the benchmark.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "momentum",
+        "label": "Momentum",
+        "status": "ok",
+        "direction": "supports",
+        "text": "MACD histogram +1.50, 20-day change +4.00%.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "volume",
+        "label": "Volume",
+        "status": "ok",
+        "direction": "neutral",
+        "text": "Relative volume 1.8x; average traded value 500.0 Cr a day.",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       },
+       {
+        "key": "structure",
+        "label": "Price structure",
+        "status": "ok",
+        "direction": "neutral",
+        "text": "20-session support 1130.0 and resistance 1290.0. Bull flag (bullish) is confirmed: closed beyond the level",
+        "as_of": "2026-10-19",
+        "source": "MOCK nidp.prices_eod_adjusted"
+       }
+      ],
+      "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"
+     },
+     "warnings": [
+      {
+       "key": "event",
+       "label": "Event",
+       "status": "clear",
+       "text": "No results date inside the 10-day horizon. No ex-date inside the horizon."
+      },
+      {
+       "key": "liquidity",
+       "label": "Liquidity",
+       "status": "clear",
+       "text": "Eligible for the scanner universe. Relative volume 1.8x; average traded value 500.0 Cr a day."
+      },
+      {
+       "key": "concentration",
+       "label": "Concentration",
+       "status": "at_entry",
+       "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+      },
+      {
+       "key": "correlation",
+       "label": "Correlation",
+       "status": "unavailable",
+       "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+      }
+     ],
+     "risk_flags": [],
+     "eligibility": {
+      "eligible": true,
+      "paper_eligible": true,
+      "state": "TRADE_ELIGIBLE",
+      "status": "candidate",
+      "reasons": []
+     },
+     "data_as_of": {
+      "price": "2026-10-19",
+      "fno": "2026-10-19",
+      "reference_session": "2026-10-19",
+      "mode": "end_of_day",
+      "fundamentals": "2026-10-19",
+      "regime": "2026-10-19"
+     },
+     "sent_to_broker": false,
+     "source": {
+      "kind": "strategy_plan",
+      "strategy_plan_id": "plan_21486406d987195f",
+      "candidate_id": "cash:breakout_continuation"
+     },
+     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "lineage_key": "tl_3719a268ef01487d",
+     "lifecycle": {
+      "status": "rejected",
+      "state": "TRADE_ELIGIBLE",
+      "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})",
+      "derived": true
+     },
+     "version": 1,
+     "supersedes": null,
+     "created_at": "2026-10-27T06:19:08.309230+00:00",
+     "revalidation": {
+      "ok": true,
+      "problems": [],
+      "at": "2026-10-27T06:19:08.309230+00:00",
+      "after_approval": false
+     },
+     "events": [
+      {
+       "from": "TRADE_ELIGIBLE",
+       "to": "REJECTED",
+       "at": "2026-10-20T05:00:00+00:00",
+       "session": "2026-10-20",
+       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
+       "source": "desk_paper_trade",
+       "rejection_reasons": [
+        "risk_reduce"
+       ],
+       "plan_id": "tp_f2177a8ce8ec4ac5",
+       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
+      },
+      {
+       "from": "TRADE_ELIGIBLE",
+       "to": "REJECTED",
+       "at": "2026-10-20T05:00:00+00:00",
+       "session": "2026-10-20",
+       "reason": "The kill switch is on (MOCK: decision-card fixture).",
+       "source": "desk_paper_trade",
+       "rejection_reasons": [
+        "kill_switch_on"
+       ],
+       "plan_id": "tp_f2177a8ce8ec4ac5",
+       "risk_decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
+      }
+     ]
+    },
+    "lifecycle": {
+     "status": "rejected",
+     "trades": [],
+     "rejections": [
+      {
+       "from": "TRADE_ELIGIBLE",
+       "to": "REJECTED",
+       "at": "2026-10-20T05:00:00+00:00",
+       "session": "2026-10-20",
+       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
+       "source": "desk_paper_trade",
+       "rejection_reasons": [
+        "risk_reduce"
+       ],
+       "plan_id": "tp_f2177a8ce8ec4ac5",
+       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
+      },
+      {
+       "from": "TRADE_ELIGIBLE",
+       "to": "REJECTED",
+       "at": "2026-10-20T05:00:00+00:00",
+       "session": "2026-10-20",
+       "reason": "The kill switch is on (MOCK: decision-card fixture).",
+       "source": "desk_paper_trade",
+       "rejection_reasons": [
+        "kill_switch_on"
+       ],
+       "plan_id": "tp_f2177a8ce8ec4ac5",
+       "risk_decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
+      }
+     ]
+    },
+    "risk_decision": {
+     "decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+     "outcome": "block",
+     "at": "2026-10-20T05:00:00+00:00",
+     "symbol": "ICICIBANK",
+     "trade_id": "de950867-1539-4eac-a52e-1de71dcfed5e",
+     "requested_qty": 113,
+     "approved_qty": 0,
+     "requested_lots": null,
+     "approved_lots": null,
+     "reasons": [
+      {
+       "code": "kill_switch_on",
+       "check": "controls",
+       "severity": "halt",
+       "message": "The kill switch is on (MOCK: decision-card fixture)."
+      }
+     ],
+     "estimated_risk_rs": {
+      "gross": 4520.0,
+      "costs": 477.53,
+      "gap_stress": 1310.8,
+      "stop_based": 4997.53,
+      "total": 6308.33,
+      "basis": "shares: qty x (entry - stop) + round-trip costs + gap stress",
+      "gap_stress_pct": 1.0,
+      "version": "est-risk-v1"
+     },
+     "policy_version": "universal-risk-v1",
+     "limits_version": "rp-1-258b9566"
+    },
+    "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
+    "versions": [
+     {
+      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "version": 1,
+      "created_at": "2026-10-27T06:19:08.309230+00:00",
+      "revalidation_ok": true,
+      "supersedes": null
+     }
+    ],
+    "sent_to_broker": false
+   }
+  }
+ },
+ "risk_profile": {
+  "profile": {
+   "user_id": "user_a",
+   "profile": "custom",
+   "limits": {
+    "per_trade_risk_pct": 5.0,
+    "max_open_risk_pct": 50.0,
+    "max_position_pct": 100.0,
+    "max_sector_pct": 100.0,
+    "daily_loss_pct": 20.0,
+    "weekly_loss_pct": 40.0,
+    "max_drawdown_pct": 50.0,
+    "min_reward_risk": 0.0
+   },
+   "version": 1,
+   "limits_version": "rp-1-258b9566",
+   "capital_basis": "paper_equity",
+   "capital_basis_text": "paper equity = paper cash + net unrealised P&L of the open positions at their latest end-of-day marks (net of estimated round-trip costs); unknown when any open position cannot be marked",
+   "starting_capital_rs": 1000000.0,
+   "starting_capital_label": "simulation default (Rs 10,00,000): the paper account's opening cash, not a real account's capital",
+   "effective_from": "2026-10-01T00:00:00+00:00",
+   "set_by": "mock-admin",
+   "set_at": "2026-10-01T00:00:00+00:00",
+   "reason": "MOCK: mechanics suite under the loosest allowed profile",
+   "stored": true,
+   "policy_version": "risk-profile-v1"
+  },
+  "live": {
+   "equity": {
+    "equity_rs": 1000000.0,
+    "cash_rs": 1000000.0,
+    "net_unrealised_rs": 0.0,
+    "unknown_reasons": [],
+    "basis": "paper equity = paper cash + net unrealised P&L of the open positions at their latest end-of-day marks (net of estimated round-trip costs); unknown when any open position cannot be marked",
+    "marks_as_of": null,
+    "fno_marks_as_of": null,
+    "fno_marks_ok": null
+   },
+   "peak": {
+    "peak_rs": 1000000.0,
+    "starting_capital_rs": 1000000.0,
+    "stored": false
+   },
+   "drawdown_pct": 0.0,
+   "day": {
+    "start": "2026-10-20",
+    "pnl_rs": 0.0,
+    "unknown_reasons": [],
+    "start_equity_rs": 1000000.0
+   },
+   "week": {
+    "start": "2026-10-19",
+    "pnl_rs": 0.0,
+    "unknown_reasons": [],
+    "start_equity_rs": 1000000.0
+   },
+   "open": {
+    "positions": 0,
+    "reserved_positions": 0,
+    "legacy_positions": 0,
+    "risk_rs": 0.0,
+    "reserved_risk_rs": 0.0,
+    "legacy_risk_rs": 0,
+    "legacy_risk_unknown": [],
+    "exposure_rs": 0.0,
+    "reserved_exposure_rs": 0.0,
+    "legacy_exposure_rs": 0,
+    "sector_rs": {},
+    "unclassified_exposure_rs": 0.0,
+    "held_symbols": []
+   },
+   "budgets_rs": {
+    "per_trade": 50000.0,
+    "open_risk": 500000.0,
+    "position": 1000000.0,
+    "sector": 1000000.0
+   },
+   "error": null
+  },
+  "changes": [],
+  "can_loosen": false,
+  "catalogue": {
+   "definitions": {
+    "per_trade_risk_pct": {
+     "label": "Risk per trade",
+     "basis": "estimated risk of the new entry = quantity x |entry - stop| + round-trip costs (desk-cost-v2) + gap stress (services/risk_gate/estimate.py), as % of paper equity; options: maximum loss of the whole structure from its payoff plus costs",
+     "reset": "none: judged per entry",
+     "breach": "the size is REDUCED to the largest valid quantity or lot count within the budget; if even the smallest valid quantity exceeds it, the entry is BLOCKED (min_qty_exceeds_budget)"
+    },
+    "max_open_risk_pct": {
+     "label": "Total open risk",
+     "basis": "estimated risk reserved by every open position (paper_accounts.open_risk_rs, plus positions opened before Phase 1 at their stored levels) plus the new entry, as % of paper equity",
+     "reset": "falls as positions close, are cancelled or expire",
+     "breach": "REDUCED to fit the remaining budget, else BLOCKED (open_risk_exceeded)"
+    },
+    "max_position_pct": {
+     "label": "Position exposure",
+     "basis": "market exposure (notional: quantity x entry for shares, futures notional and the options' capital at risk for a structure) of the new position, as % of paper equity",
+     "reset": "none: judged per entry",
+     "breach": "REDUCED to fit, else BLOCKED (POSITION_SIZE / position_exceeded)"
+    },
+    "max_sector_pct": {
+     "label": "Sector exposure",
+     "basis": "market exposure of every open position in the instrument's sector (NSE industry classification) plus the new one, as % of paper equity; a position with no known sector blocks the entry",
+     "reset": "falls as positions in the sector close",
+     "breach": "REDUCED to fit, else BLOCKED (sector_exceeded)"
+    },
+    "daily_loss_pct": {
+     "label": "Daily loss halt",
+     "basis": "loss since the start of the IST trading day: net realised P&L of trades closed today plus the change in net unrealised P&L of the positions held since the previous session's close, as % of start-of-day equity",
+     "reset": "the next IST trading day (weekday calendar)",
+     "breach": "new entries BLOCKED for the rest of the day (daily_loss_halt); open positions untouched"
+    },
+    "weekly_loss_pct": {
+     "label": "Weekly loss halt",
+     "basis": "the same loss measured from the close of the last session before Monday of the ISO week (IST), as % of start-of-week equity",
+     "reset": "Monday, IST",
+     "breach": "new entries BLOCKED until the week resets (weekly_loss_halt); open positions untouched"
+    },
+    "max_drawdown_pct": {
+     "label": "Drawdown halt",
+     "basis": "fall of paper equity from the configured equity peak: the starting capital, raised by every higher equity the risk service observes, never lowered",
+     "reset": "never resets daily; only a person (an admin) resets the peak or loosens the limit",
+     "breach": "new entries BLOCKED (drawdown_halt); open positions are NOT liquidated"
+    },
+    "min_reward_risk": {
+     "label": "Minimum reward:risk",
+     "basis": "(gain at the target - estimated costs) / (loss at the stop + estimated costs); options: maximum gain at expiry over maximum loss, both after costs; unbounded gain passes",
+     "reset": "none: judged per entry",
+     "breach": "BLOCKED (reward_risk_too_low); an entry with no target where one is needed is BLOCKED (target_required)"
+    }
+   },
+   "named_profiles": {
+    "owner-default-2026-10-27": {
+     "limits": {
+      "per_trade_risk_pct": 0.5,
+      "max_open_risk_pct": 3.0,
+      "max_position_pct": 10.0,
+      "max_sector_pct": 25.0,
+      "daily_loss_pct": 2.0,
+      "weekly_loss_pct": 4.0,
+      "max_drawdown_pct": 10.0,
+      "min_reward_risk": 1.5
+     },
+     "text": "The product owner's paper-risk defaults (2026-10-27). Research defaults, not validated optimal values."
+    },
+    "engineering-comparison": {
+     "limits": {
+      "per_trade_risk_pct": 1.0,
+      "max_open_risk_pct": 6.0,
+      "max_position_pct": 10.0,
+      "max_sector_pct": 30.0,
+      "daily_loss_pct": 3.0,
+      "weekly_loss_pct": 6.0,
+      "max_drawdown_pct": 15.0,
+      "min_reward_risk": 1.5
+     },
+     "text": "The engineering proposal kept for comparison (study \u00a77 D1). Looser on every limit."
+    }
+   },
+   "ranges": {
+    "per_trade_risk_pct": [
+     0.05,
+     5.0
+    ],
+    "max_open_risk_pct": [
+     0.1,
+     50.0
+    ],
+    "max_position_pct": [
+     0.5,
+     100.0
+    ],
+    "max_sector_pct": [
+     1.0,
+     100.0
+    ],
+    "daily_loss_pct": [
+     0.1,
+     20.0
+    ],
+    "weekly_loss_pct": [
+     0.1,
+     40.0
+    ],
+    "max_drawdown_pct": [
+     1.0,
+     50.0
+    ],
+    "min_reward_risk": [
+     0.0,
+     10.0
+    ]
+   },
+   "fields": [
+    "per_trade_risk_pct",
+    "max_open_risk_pct",
+    "max_position_pct",
+    "max_sector_pct",
+    "daily_loss_pct",
+    "weekly_loss_pct",
+    "max_drawdown_pct",
+    "min_reward_risk"
+   ],
+   "capital_basis": "paper_equity",
+   "capital_basis_text": "paper equity = paper cash + net unrealised P&L of the open positions at their latest end-of-day marks (net of estimated round-trip costs); unknown when any open position cannot be marked",
+   "starting_capital_label": "simulation default (Rs 10,00,000): the paper account's opening cash, not a real account's capital",
+   "policy_version": "risk-profile-v1"
+  },
+  "estimate": {
+   "version": "est-risk-v1",
+   "gap_stress_pct": 1.0,
+   "gap_stress_text": "a gap of 1% of the stop price through the stop (research constant, not calibrated; est-risk-v1)",
+   "cost_model": "desk-cost-v2"
+  },
+  "risk_policy_version": "universal-risk-v1",
+  "fno_additional_checks": {
+   "flag": "fno_risk_gate",
+   "enabled": false
   }
  },
  "futures": {
@@ -14268,11 +15963,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T06:12:25.879319+00:00",
+    "created_at": "2026-10-27T06:19:08.391786+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T06:12:25.879319+00:00",
+     "at": "2026-10-27T06:19:08.391786+00:00",
      "after_approval": false
     },
     "events": []
@@ -14282,11 +15977,13 @@
     "trades": [],
     "rejections": []
    },
+   "risk_decision": null,
+   "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
    "versions": [
     {
      "plan_id": "tp_da115be9a1a753cd",
      "version": 1,
-     "created_at": "2026-10-27T06:12:25.879319+00:00",
+     "created_at": "2026-10-27T06:19:08.391786+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
