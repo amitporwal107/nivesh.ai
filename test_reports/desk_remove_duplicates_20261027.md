@@ -1,6 +1,7 @@
 # Functionality Verification Report — Desk redesign step 6: remove the duplicate trading screens (scope A)
 
-- **Branch:** `feat/desk-remove-duplicates` (from `origin/dev` 0f076b9b)
+- **Branch:** `feat/desk-remove-duplicates` (from `origin/dev` 0f076b9b; `origin/dev` merged in twice while this was
+  built: #371/#373 Market Overview, then #375 Market Desk; final base 329a3647)
 - **Date:** 2026-10-27
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER)
 - **Environment:** offline: tsc, the production build and Playwright against mocked APIs (`MOCK — not real data`), in
@@ -15,15 +16,15 @@ new home in the Smart trading desk or `/app/page/paper`. The specs of the delete
 used a moved URL were rewritten to the new place. The 14 `test.skip` cases the shell left "for step 6" were removed.
 Test cases: `test_reports/desk_remove_duplicates_TESTCASES.md` (written before the implementation).
 
-## What was deleted (`git diff -M --stat origin/dev`)
+## What was deleted (`git diff -M --stat origin/dev`, base 329a3647)
 
 | | Files | Lines |
 |---|---|---|
 | Frontend source files deleted | 16 | 3,198 |
 | Frontend source total (incl. edits) | 29 changed | +101 / −3,389 |
 | e2e spec files deleted | 4 (`copilot-app-options`, `-fnolab-mi`, `-fnolab-kite`, `-fnolab-governance`) | 1,320 |
-| e2e total (incl. edits, 1 rename, 1 new spec) | 23 changed | +260 / −2,002 |
-| Whole branch before these reports | 54 changed | +416 / −5,392 |
+| e2e total (incl. edits, 1 rename, 1 new spec) | 23 changed | +260 / −2,007 |
+| Whole branch (with these reports and one doc line) | 56 changed | +629 / −5,397 |
 
 Deleted source files: `screens/Trader.tsx`, `trading/FnoAnalyser.tsx`, `screens/OptionsLab.tsx`,
 `trading/OptionChainViews.tsx`, `fnolab/FnoLab.tsx`, `Replay.tsx`, `Certification.tsx`, `Shadow.tsx`,
@@ -32,8 +33,8 @@ only `ProTraderPage` imported the hook.
 
 Tests removed: 48 `test()` cases in the four deleted specs, 4 in `copilot-app-screens` (Trader landing ×1, Options
 lab ×2, Trader F&O card ×1), 1 in the broker spec (the journal and scanner rows of the landing), and the 14
-superseded skips. `test.skip(` calls under `e2e/tests`: 39 on dev, 24 now. The 15 removed are the 14 step-6 skips and
-the options spec's screenshot skip.
+superseded skips. `test.skip(` calls under `e2e/tests`: 58 on dev 329a3647, 43 on the branch. The 15 removed are the 14 step-6 skips and the
+options spec's screenshot skip.
 
 ## Kept (re-hosted or shared), checked with the import graph
 - `fnolab/parts.tsx`: imported by Risk Desk `ControlsView` / `DecisionLog` and by the kept lab screens. Only the
@@ -77,8 +78,8 @@ titles and the admin Trader desk / Options lab tool templates are gone.
 
 ## Orphaned backend routes (follow-up; nothing deleted here)
 I ran the review's method over `origin/dev` and over this branch: the import-graph closure from `main.tsx`, the API
-strings, and the service-adapter methods, matched against the 962 routes in `backend/`. Routes referenced by reachable
-v5 code went from 491 to 488:
+strings, and the service-adapter methods, matched against the 963 routes in `backend/`. Routes referenced by reachable
+v5 code go from 493 (origin/dev 329a3647) to 490 (the final commit):
 
 ```
 ORPHANED GET /api/live/option-chain routes/live_quotes.py
@@ -124,54 +125,58 @@ ORPHANED POST /api/positional/basket/simulate routes/positional.py
 ## Evidence (real output, this session)
 `run-fe-both.sh` = the scratchpad `run-fe.sh` recipe (tsc, `vite build`, `vite preview` on :5174, Playwright with no
 network) plus `playwright.config.ts`'s mocked `desktop-chrome` project, for the specs outside `copilot-app*`.
-`PWEXTRA="--workers=2"`.
+`PWEXTRA="--workers=2"`. The import graph on the final commit: `674 files 157429 lines; unresolved: []`.
 
-**tsc and the build (both runs):**
+**Final commit (after both merges). Run 4, every regression spec except the five in the comparison below:**
+- copilot-app specs: `copilot-app.spec`, `-desk-lab`, `-desk-strategy-builder`, `-workspace`, `-desk-risk-desk`,
+  `-desk-top10`, `-desk-smart-money`, `-desk-portfolio-fno`, `-desk-risk-controls`, `-desk-market.spec`, `-research`,
+  `-screener`, `-shots`, `-live`, `-ops`, `-desk-retired`, `-broker-paper`, `-screens`, `-builder`, `-kite-login-notice`.
+- Main-config specs: `research-access`, `research-move-odds`, `research-charts.spec`, `filings-intelligence`,
+  `research-paper-trades`, `research-paper-trade-chart`, `strategy-config-bot-details`.
 ```
 == tsc
 tsc: clean
 == build
-✓ built in 24.65s
-```
-A standalone `npx tsc --noEmit -p tsconfig.json` after the deletions also printed `tsc: clean`. The import graph after the
-deletion: `664 files 155566 lines; unresolved: []`.
-
-**Run 1: new and rewritten specs.** copilot-app: `copilot-app-desk-retired`, `-broker-paper`, `-kite-login-notice`,
-`-builder`, `-screens`. Main: `research-paper-trades`, `research-paper-trade-chart`, `strategy-config-bot-details`.
-```
+✓ built in 38.59s
 == playwright copilot-app
-  79 passed (1.6m)
-== playwright main (desktop-chrome)
-  33 passed (30.8s)
-exit 0
-```
-
-**Run 2: full regression.**
-- copilot-app specs: `copilot-app.spec`, `-desk-shell`, `-desk.spec`, `-desk-lab`, `-desk-strategy-builder`,
-  `-workspace`, `-desk-risk-desk`, `-desk-top10`, `-desk-smart-money`, `-desk-portfolio-fno`, `-desk-risk-controls`,
-  `-desk-market`, `-sector-heatmap`, `-research`, `-screener`, `-shots`, `-live`, `-ops`, `-desk-retired`,
-  `-broker-paper`, `-screens`, `-builder`, `-kite-login-notice`.
-- Main-config specs: `research-access`, `research-move-odds`, `research-charts.spec` (it also matches
-  `staging-research-charts`), `filings-intelligence`, `research-paper-trades`, `research-paper-trade-chart`,
-  `strategy-config-bot-details`.
-```
-== playwright copilot-app
-  34 skipped
-  575 passed (8.5m)
+  55 skipped
+  477 passed (10.2m)
 == playwright main (desktop-chrome)
   5 skipped
-  152 passed (3.3m)
+  152 passed (3.0m)
 exit 0
 ```
-`grep -c '✘' run2.log` → `0`. No failures, so nothing needed a re-run.
+`grep -c '✘' run4.log` → `0`. All 19 `copilot-app-desk-retired` cases are among the passes.
 
-The 39 skips are all environment-gated or pre-existing:
-- `-shots` 7 (`SHOT_DIR`);
-- `-live` 6 (`LIVE_TOKEN_FILE` / `REPLAY_DIR`);
-- `-desk-strategy-builder` 14 (`SHOTS_DIR` screenshots);
-- `-desk-lab` 2, `-ops` 2, `-research` 2 and `-sector-heatmap` 1 (screenshot dirs);
-- `staging-research-charts` 4 (`STAGING_SESSION_FILE`);
-- `research-access` 1 (an existing `test.skip`).
+**Final commit: base comparison.** The same five specs on a clean `origin/dev` 329a3647 worktree and on the branch, one
+after the other: `copilot-app-desk-shell`, `-desk.spec`, `-sector-heatmap`, `-desk-market-desk`, `-desk-market-overview`.
+```
+origin/dev 329a3647:  8 failed · 15 skipped · 111 passed   (tsc: clean)
+branch:               8 failed · 10 skipped · 111 passed   (tsc: clean)
+```
+The 8 failures are the same cases on both. They are in `copilot-app-desk.spec`: "header and Overview · design fidelity"
+×6, "phone M1 Overview" and "frame · fidelity screenshots". They test the old `tradingdesk/OverviewTab.tsx` cards, which
+#373 (Market Overview) unmounted, and #373's report shows that spec was not in its run. **They were already failing on
+dev and are not caused by this branch.** The 5 fewer skips are the step-6 skips this branch removes (`desk.spec` ×4,
+`sector-heatmap` ×1).
+
+**Earlier runs.**
+- On the 0f076b9b base, before the merges:
+  - run 1 (new and rewritten specs): `79 passed` + `33 passed`, `exit 0`;
+  - run 2 (the full list): `575 passed, 34 skipped` + `152 passed, 5 skipped`, 0 `✘`.
+- Run 3, after merging #373: `573 passed, 10 failed`. Eight were the base failures above. The other two did not repeat:
+  - SH-22 passes in the comparison run;
+  - "the desk's sector card links to the heatmap" was rewritten by #375 (cc8b316c) and passes after that merge.
+
+**Skips in run 4.** Run 4 has 55 skips:
+- the 34 environment-gated ones listed before:
+  - `-shots` 7 (`SHOT_DIR`);
+  - `-live` 6 (`LIVE_TOKEN_FILE` / `REPLAY_DIR`);
+  - `-desk-strategy-builder` 14 (`SHOTS_DIR`);
+  - `-desk-lab` 2, `-ops` 2, `-research` 2 (screenshot dirs);
+  - `staging-research-charts` 4 (`STAGING_SESSION_FILE`);
+  - `research-access` 1 (an existing skip);
+- **#373's 22 skips for the old Overview cards and the market pulse**: `desk-market` 18 and `desk-top10` 4.
 
 **Code check (RM-9b):** in `src/`, the deleted views and names appear only in the redirect tables:
 ```
@@ -179,6 +184,15 @@ routes.tsx:148:      <Route path="/pro-trader" element={<Navigate to="/app/trade
 pages/CopilotApp/lib/retired-views.ts:38:    case "tool/optlab":
 pages/CopilotApp/lib/retired-views.ts:41:    case "tool/fnolab":
 ```
+
+## Left for the coordinator: #373's "step 6" leftovers (not in the approved scope A list)
+- #373 unmounted the old Overview (`tradingdesk/OverviewTab.tsx`, 1,917 lines). The import graph on the final commit
+  shows that nothing imports it. Its spec notes say "deleted or re-hosted in step 6".
+- #373 also unmounted the market pulse (`ScannerPulse.tsx`).
+- #373 skipped 22 cases for these two (`desk-market` ×18 including two `describe.skip`, `desk-top10` F-30 … F-34), and
+  left 8 failing `copilot-app-desk.spec` cases on the same cards (above).
+- Whether they are deleted or re-hosted is a product decision that is not in PLAN §4's list. I left them as they are.
+  Deleting `OverviewTab.tsx` would also let those 22 skips and 8 failing cases go.
 
 ## Test case results
 
@@ -188,12 +202,12 @@ pages/CopilotApp/lib/retired-views.ts:41:    case "tool/fnolab":
 | RM-2, RM-3 … RM-3e | PASS | desk-retired RM-2, RM-3 ×9 (`rd-live` / `risk-decisions` render on the redirected places) |
 | RM-4, RM-5 | PASS | desk-retired ×2 |
 | RM-6, RM-7 | PASS | desk-retired ×3; research-paper-trades TC-P23 |
-| RM-8 | PASS | desk-shell SH-17 / SH-19 (run 2) |
+| RM-8 | PASS | desk-shell SH-17 / SH-19 (run 2 and the final comparison run) |
 | RM-9, RM-9b | PASS | desk-retired RM-9; the grep above |
 | RM-10, RM-10b | PASS | tsc clean, build OK, graph has no unresolved import; the kept files are present |
-| RM-11 | PASS | copilot-app-broker-paper (run 1 and run 2) |
-| RM-12 | PASS | research-paper-trades, research-paper-trade-chart (run 1 and run 2) |
-| RM-13 | PASS | run 2: 575 + 152 passed, 0 failed |
+| RM-11 | PASS | copilot-app-broker-paper (runs 1, 2 and 4) |
+| RM-12 | PASS | research-paper-trades, research-paper-trade-chart (runs 1, 2 and 4) |
+| RM-13 | PASS | final commit: run 4 477 + 152 passed, 0 failed; the comparison run's 8 failures are identical on `origin/dev` |
 | RM-14, RM-15 | PASS | specs deleted; `test.skip(` 39 → 24; no "Superseded" comment left |
 | RM-16, RM-17 | DONE (report) | the counts and the orphaned routes above |
 
