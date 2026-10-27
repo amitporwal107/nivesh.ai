@@ -31,6 +31,10 @@ const STOCKS_KEY = ["copilot", "desk", "top10", "stocks"] as const;
 const FNO_KEY = ["copilot", "desk", "top10", "fno"] as const;
 
 const shared = { retry: false, staleTime: TOP10_STALE_MS, gcTime: 2 * TOP10_STALE_MS, refetchOnWindowFocus: false } as const;
+/** The ideas and board routes build every idea's plan on the server (the scanner read, the strategy fit, the TradePlan); on
+ *  staging that took 12–16 s on 27 Oct, over the app's 15 s default, so the Top AI candidates showed "the request took too
+ *  long". These two calls wait up to 45 s. */
+export const TOP10_TIMEOUT_MS = 45_000;
 
 export function useTop10Stocks(enabled = true) {
   return useQuery<IdeasBoard>({
@@ -38,7 +42,7 @@ export function useTop10Stocks(enabled = true) {
     enabled,
     ...shared,
     queryFn: async ({ signal }) => {
-      const res = await http({ method: "POST", path: IDEAS_PATH, body: TOP10_STOCKS_BODY, signal, noRetry: true });
+      const res = await http({ method: "POST", path: IDEAS_PATH, body: TOP10_STOCKS_BODY, signal, noRetry: true, timeoutMs: TOP10_TIMEOUT_MS });
       const r = IdeasSchema.safeParse(res.data);
       if (!r.success) throw new ApiError("contract_drift", "The stock ideas were not in the expected form.", { cause: r.error });
       return r.data;
@@ -52,7 +56,7 @@ export function useTop10Fno(enabled = true) {
     enabled,
     ...shared,
     queryFn: async ({ signal }) => {
-      const res = await http({ method: "POST", path: TOP_PATH, body: TOP10_FNO_BODY, signal, noRetry: true });
+      const res = await http({ method: "POST", path: TOP_PATH, body: TOP10_FNO_BODY, signal, noRetry: true, timeoutMs: TOP10_TIMEOUT_MS });
       const r = TopSchema.safeParse(res.data);
       if (!r.success) throw new ApiError("contract_drift", "The F&O ideas were not in the expected form.", { cause: r.error });
       return r.data;
