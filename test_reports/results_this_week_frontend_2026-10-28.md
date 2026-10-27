@@ -119,4 +119,19 @@ Running 125 tests using 3 workers
 ## Inputs required from user
 - none
 
+
+## Addendum (00:43 IST, coordinator): contract test on REAL results-file bodies
+`e2e/tests/copilot-app-results-file-contract.spec.ts` renders real `results-stock-v1` bodies captured read-only on staging from
+PR #381's final code (`e2e/fixtures/results_file_staging_20261027.json`): MANKIND (3 results-day analyses, sentiment moderately
+positive, track across the 27 Oct expiry), BAJAJ-AUTO (no analysis — scanned PDF; after = "rollover 79.8 % vs its usual 86.0 %
+(lower than usual)") and HEROMOTOCO (upcoming). It caught two over-strict checks of mine (capitalisation; "to buy 70 %" quoted
+from MANKIND's acquisition filing — the wording rule now covers the app's own sections only); the screens rendered correctly.
+Run (contract + results-this-week + results-week (+contract) + results chip + AI watchlist + watchlists):
+```
+tsc: OK (no errors)
+✓ built in 24.30s
+  4 skipped
+  65 passed (42.5s)
+```
+
 ## Verdict: PASS
