@@ -330,3 +330,27 @@ test.describe("AI scanner watchlist · phone", () => {
     expect(over).toBeLessThanOrEqual(0);
   });
 });
+
+
+// ── Phase 2.1: a stored row records its TradePlan (test_reports/p2_trade_plan_lifecycle_TESTCASES.md UI-2) ──────────
+// The plan is the shared contract fixture's (contract-trade-plan-paper.json; MOCK — the RELIANCE-like world of
+// backend/tests/test_strategy_plan.py), stored on the row as the nightly job stores it (ai_watchlist_build.cash_entry).
+const PLANS = fixture("contract-trade-plan-paper.json");
+test.describe("AI scanner watchlist — trade plans (Phase 2.1)", () => {
+  test("UI-2 a stored cash row records the stored plan's levels with plan_ref; a day stored before plans keeps the scanner's", async ({ page }) => {
+    const withPlan = { ...ICICI, trade_plan_id: PLANS.cash.trade_plan.plan_id, trade_plan: PLANS.cash.trade_plan };
+    const seen = await open(page, { day: () => ({ status: 200, body: { ...DAY26, cash: [withPlan, CRISIL] } }) });
+    const icici = page.getByTestId("aiw-cash-ICICIBANK");
+    await icici.getByTestId("aiw-cash-paper").click(SLOW);
+    await expect(icici.getByTestId("aiw-paper-plan")).toHaveAttribute("data-plan-id", PLANS.cash.trade_plan.plan_id);
+    await expect(icici.getByTestId("aiw-paper-qty")).toHaveValue("208");
+    await icici.getByTestId("aiw-paper-add").click();
+    await expect(icici.getByTestId("aiw-paper-done")).toContainText("208 ICICIBANK");
+    // The contract body, with the row's own quantity and list date (both informational to the route).
+    expect(seen.paper).toEqual([{ ...PLANS.cash.body, quantity: 208, source: { ...PLANS.cash.body.source, signal_date: "2026-10-26" } }]);
+    // CRISIL was stored without a plan (a day before plans existed): it still records the scanner's levels, as before.
+    const crisil = page.getByTestId("aiw-cash-CRISIL");
+    await crisil.getByTestId("aiw-cash-paper").click();
+    await expect(crisil.getByTestId("aiw-paper-plan")).toHaveCount(0);
+  });
+});

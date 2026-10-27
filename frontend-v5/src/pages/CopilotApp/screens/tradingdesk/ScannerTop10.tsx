@@ -42,6 +42,7 @@ import {
   TOP10, fnoUniverseNotes, mergeFno, planParamsFor, preferredStrategy, sizedShares, useTop10Fno, useTop10Stocks, type FnoKind, type FnoRow,
 } from "./top10-data";
 import { Widget } from "./widget";
+import { PlanPaperTrade } from "./PlanPaperTrade";
 
 const STOCKS_ANCHOR = "desk-top10-stocks";
 const FNO_ANCHOR = "desk-top10-fno";
@@ -70,8 +71,21 @@ function BoardHead({ title, sub, actions }: { title: string; sub: ReactNode; act
 
 // ── stocks ───────────────────────────────────────────────────────────────
 
-/** A paper trade at the scanner's own levels, with the plan's sized share count to start from. */
+/** A paper trade at the idea's TradePlan levels (Phase 2.1), with `plan_ref`. A route older than plans sends no
+ *  `trade_plan` at all; only then is the trade recorded at the scanner's own levels, as before. */
 function StockPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: string | null }) {
+  if (idea.trade_plan !== undefined) {
+    if (!idea.trade_plan) {
+      return <span data-testid="desk-top10-paper-none" style={quiet}>{idea.symbol} has no trade plan on this scan (no entry with a stop below it). Open the plan to see why.</span>;
+    }
+    const bucket = idea.scanner.bucket;
+    return <PlanPaperTrade tp={idea.trade_plan} symbol={idea.symbol} sized={sizedShares(idea)} testPrefix="desk-top10-paper"
+      source={{ kind: "scanner", ...(bucket ? { bucket } : {}), ...(scanDate ? { signal_date: scanDate } : {}) }} />;
+  }
+  return <ScannerLevelsPaperTrade idea={idea} scanDate={scanDate} />;
+}
+
+function ScannerLevelsPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: string | null }) {
   const paper = useAddPaperTrade();
   const id = useId();
   const sized = sizedShares(idea);

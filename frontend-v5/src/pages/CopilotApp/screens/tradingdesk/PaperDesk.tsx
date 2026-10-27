@@ -29,6 +29,7 @@ import {
   costsBreakdownText, useClosePaperTrade, useDeleteAlert, useDeskAlerts, usePaperTrades, writeProblem,
   type DeskAlert, type EntryRule, type EntryStatus, type ExitReason, type PaperTrade, type StrategyExitReason, type StrategyPaperTrade,
 } from "./desk-trading";
+import { RollAction } from "./RollAction";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${fmtNum(n)} ${n === 1 ? one : many}`;
 
@@ -120,6 +121,7 @@ function wordsFor(investor: boolean) {
 const STRATEGY_REASON: Record<StrategyExitReason, { label: string; investor: string; tone: Tone }> = {
   ...REASON,
   expiry: { label: "Expired", investor: "Expired", tone: "ink" },
+  roll: { label: "Rolled", investor: "Moved to the next expiry", tone: "ink" },
 };
 
 const DIRECTION_WORD: Record<string, { trader: string; investor: string }> = {
@@ -204,7 +206,8 @@ function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: bool
     "or when every leg has expired",
   ].filter(Boolean).join(", ");
   const rows: Array<[string, ReactNode, string]> = [
-    ["Plan", <>{t.summaryText} · {dir}{t.referencePrice != null ? ` · ${t.underlying} was ${fmtPrice(t.referencePrice)}` : ""}{t.strategyPlanId ? ` · plan ${t.strategyPlanId}` : ""}</>, "plan"],
+    ["Plan", <>{t.summaryText} · {dir}{t.referencePrice != null ? ` · ${t.underlying} was ${fmtPrice(t.referencePrice)}` : ""}{t.strategyPlanId ? ` · plan ${t.strategyPlanId}` : ""}{t.tradePlanId ? ` · trade plan ${t.tradePlanId}` : ""}</>, "plan"],
+    ["Lifecycle", <>{t.state ? t.state.replace(/_/g, " ").toLowerCase() : "—"}{t.rolledFrom ? ` · rolled from ${t.rolledFrom}` : ""}{t.rolledTo ? ` · rolled to ${t.rolledTo}` : ""}</>, "state"],
     ["Exit rule", levels, "exit-rule"],
     ["Exit", t.status === "closed" ? <>{reason ?? "—"}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitNote ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{t.exitNote}</span> : null}</> : "Open", "exit"],
     [w.premium, <><span title={premiumTitle(t.netPremiumRs)}>{t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"}</span>{t.markPremiumRs != null ? ` at entry · ${fmtINR(t.markPremiumRs, { signed: true })} at the marks` : ""}</>, "premium"],
@@ -226,6 +229,7 @@ function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: bool
         ))}
       </dl>
       {t.riskNote && <span data-testid="desk-paper-strategy-risk" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{t.riskNote}</span>}
+      {t.status === "open" && <div className="flex"><RollAction t={t} testPrefix="desk-record-roll" /></div>}
       <div className="flex flex-col" style={{ gap: 4 }}>
         <span className="cp-eyebrow">{w.legs}</span>
         <div data-testid="desk-paper-strategy-legs" style={{ border: "1px solid var(--cp-line)", borderRadius: 10, overflowX: "auto" }}>
@@ -382,12 +386,15 @@ export function PaperTradesBlock() {
       },
       { key: "rec", header: "", width: "78px", align: "right", render: (t) => <RecordToggle t={{ symbol: t.underlying }} open={record === t.id} onToggle={() => toggle(t)} /> },
       ...(isOpen ? [{
-        key: "act", header: "", width: "72px", align: "right" as const,
+        key: "act", header: "", width: "140px", align: "right" as const,
         render: (t: StrategyPaperTrade) => (
-          <button type="button" className="cp-chip" data-testid="desk-strategy-close" aria-label={`Close the ${t.underlying} strategy paper trade`} disabled={close.isPending}
-            onClick={() => { close.reset(); setConfirm(t.id); }} style={{ padding: "3px 10px", fontSize: 12 }}>
-            Close
-          </button>
+          <span className="flex items-start justify-end" style={{ gap: 6 }}>
+            <RollAction t={t} testPrefix="desk-strategy-roll" />
+            <button type="button" className="cp-chip" data-testid="desk-strategy-close" aria-label={`Close the ${t.underlying} strategy paper trade`} disabled={close.isPending}
+              onClick={() => { close.reset(); setConfirm(t.id); }} style={{ padding: "3px 10px", fontSize: 12 }}>
+              Close
+            </button>
+          </span>
         ),
       }] : []),
     ];
