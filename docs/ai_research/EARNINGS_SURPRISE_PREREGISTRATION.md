@@ -290,6 +290,43 @@ in the background. None of its output had been read. No statistic had been seen.
 - Where T1 and T2 give different labels, the results document says so.
 - The holdout run (§8) uses T2.
 
+## Amendment A3 — registered 2026-10-27 (IST), before any study output was read
+**State when this was registered.** The T1 and T2 runs of `run_study.py` finished at 18:36 and 18:38 IST and wrote
+their `result.json` files and run logs, including the F5 (H5 as registered) statistics. None of these files, logs or
+task outputs had been opened or read. No statistic had been seen.
+
+**What changed in the live code.**
+- The scanner's results signal was first committed as `backend/services/results_week/signal.py` in `3581de52` at
+  18:12:52 IST, 81 seconds after A1. A1's "no code found" was therefore true when written.
+- `790d8132` changed the rule. The coordinator puts the change at ~19:33 IST; the commit is stamped 19:36:50 IST. Two
+  changes:
+  - a profit fall (PAT YoY < 0, a loss turning into a profit excepted) is never "strong";
+  - a rated "below" alongside a strong PAT rise is no longer "weak": it gets no signal.
+
+**How the live rule at `790d8132` differs from A1.1 (which stays the registered H5).**
+- (i) "Above" and "below" are the **per-metric** rated verdicts: any of PAT or revenue. A1.1 uses the headline verdict.
+- (ii) PAT YoY < 0 (not loss → profit) gives no signal.
+- (iii) WEAK = (PAT YoY ≤ −10 % and revenue YoY < +5 %) or (a metric rated below and PAT is not up ≥ 20 % or
+  loss → profit). Any other rated below gives no signal.
+- (iv) WEAK is checked first, so there is no "conflict" group.
+- (v) The filing-analysis fallback (±5 when figures are not stored yet) is not tested. Every studied event has stored
+  figures, and the analyses are not point-in-time.
+- (vi) Its `surprise()` is `scoring.py` at `790d8132`.
+
+**Added: H5-L (secondary, labelled "new live rule").**
+- `figures_facts` and `classify_figures` are imported from `signal.py` + `scoring.py` at `790d8132` and fed the same
+  inputs as S7. In the growth-only seasons (Oct–Nov 2025, Jan–Feb 2026) no metric is rated, so the verdict clauses are
+  empty, as they are live for an unrated name.
+- Same tests and statistics as F5 (D5 and R5 for STRONG and WEAK; R1 reported), in its own Holm family **F5L**.
+- **Decision:** the A1.1 rule is applied to F5 (the registered result) and to F5L. The recommended live points for each
+  of STRONG and WEAK are the **smaller in magnitude** of the two outcomes. Both are reported.
+
+**Not changed.**
+- S7 stays pinned to `scoring.py` at `9f78c6ee`.
+- The live ideas and OI rules changed after that commit, for example in `315c54c8` (total-OI thresholds 0.5 % / 2 %,
+  expiry-week handling). Those later rules are **not tested** here, and the results document lists them.
+- T2 timing governs (A2).
+
 ## Log
 | When (IST) | What | Commit |
 |---|---|---|
