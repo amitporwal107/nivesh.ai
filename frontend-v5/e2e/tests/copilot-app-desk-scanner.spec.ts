@@ -2508,7 +2508,8 @@ test.describe("Smart trading desk · fidelity screenshots", () => {
       test(`SHOT ${tab} at ${vp.name}`, async ({ page }) => {
         await page.setViewportSize({ width: vp.width, height: vp.height });
         await deskMocks(page);
-        await page.goto(`${DESK}?tab=${tab}&sym=FIXBRK`);
+        // The chart with its risk desk is Market Desk › Stock Research (the old ?tab=chart opens Trade Desk › Chart Analysis).
+        await page.goto(tab === "chart" ? `${DESK}?tab=market&view=research&sym=FIXBRK` : `${DESK}?tab=${tab}&sym=FIXBRK`);
         const ready = async () => {
           if (tab === "scanner") await expect(page.getByTestId("desk-scan-row-FIXBRK")).toBeVisible();
           else {
