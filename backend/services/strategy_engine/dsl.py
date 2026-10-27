@@ -12,7 +12,10 @@ Document shape (v1):
       "asset_class":  "STOCK" | "MF",
       "name":         str,
       "description":  str (optional),
-      "universe":     {"type": "index"|"custom"|"category", "ref": str},
+      "universe":     {"type": "index"|"custom"|"category"|"market", "ref": str},
+                    market = a whole-market, point-in-time universe (STOCK only): ref "LIQUID_EQ" is
+                    services/strategy_engine/liquid_universe.py (liquid-eq-v1), survivorship-free;
+                    index refs use the latest constituent snapshot (survivorship bias, labelled).
       "entry":        {"all_of": [Predicate, …], "any_of": [Predicate, …]?},
       "exit":         {"stoploss_pct": num, "target_rr": num,
                        "max_hold_days": int, "trailing_atr_mult": num?,
@@ -61,7 +64,9 @@ DSL_VERSION = "1"
 
 ASSET_CLASSES = {"STOCK", "MF"}
 
-UNIVERSE_TYPES = {"index", "custom", "category"}
+UNIVERSE_TYPES = {"index", "custom", "category", "market"}
+# Whole-market universes (type "market"), built point-in-time from each date's prices (liquid_universe.py).
+MARKET_REFS = {"LIQUID_EQ"}
 
 # Phase 1: only `feature` namespace fully wired. Other namespaces accepted
 # at validation time so Phase 2 specs round-trip cleanly, but the compiler
@@ -212,7 +217,13 @@ def _validate_universe(uni: Any, asset_class: Optional[str]) -> List[DSLError]:
                              "MF strategies cannot use index universes (use 'category' or 'custom')"))
     if asset_class == "STOCK" and t == "category":
         errs.append(DSLError("$.universe.type",
-                             "STOCK strategies cannot use category universes (use 'index' or 'custom')"))
+                             "STOCK strategies cannot use category universes (use 'index', 'market' or 'custom')"))
+    if t == "market":
+        if asset_class == "MF":
+            errs.append(DSLError("$.universe.type",
+                                 "MF strategies cannot use market universes (use 'category' or 'custom')"))
+        if isinstance(ref, str) and ref.strip() and ref.strip().upper() not in MARKET_REFS:
+            errs.append(DSLError("$.universe.ref", f"market universe must be one of {sorted(MARKET_REFS)}"))
     return errs
 
 

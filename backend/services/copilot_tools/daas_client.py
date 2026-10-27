@@ -1041,6 +1041,25 @@ async def get_adjusted_prices_bulk(
     return data if isinstance(data, dict) else {}
 
 
+async def get_prices_eod_on(on: str, series: str = "EQ", timeout: float = 30.0) -> List[Dict[str, Any]]:
+    """Every symbol's raw bhavcopy bar for one session (GET /prices/eod?on=&series=), all pages. Used by the strategy
+    backtest's point-in-time liquid universe (services/strategy_engine/liquid_universe.py). [] when the session has no rows;
+    a DaaS failure raises DaasError (a backtest must not run on a silently empty universe)."""
+    sc = strategy_creds()
+    out: List[Dict[str, Any]] = []
+    offset, limit = 0, 5000
+    while True:
+        params = {"on": on, "series": series, "limit": limit, "offset": offset}
+        data = await _retry(lambda: _get("/prices/eod", params=dict(params), timeout=timeout, creds=sc))
+        rows = (data or {}).get("data") if isinstance(data, dict) else None
+        rows = rows if isinstance(rows, list) else []
+        out.extend(r for r in rows if isinstance(r, dict))
+        nxt = ((data or {}).get("pagination") or {}).get("next_offset") if isinstance(data, dict) else None
+        if not rows or nxt is None or len(rows) < limit:
+            return out
+        offset = int(nxt)
+
+
 async def get_index_constituents(
     index_name: str, on: Optional[str] = None, timeout: float = 15.0,
 ) -> List[str]:

@@ -39,13 +39,13 @@ def test_shape(monkeypatch):
     assert res.status_code == 200
     b = res.json()
     assert b["read_only"] is True and b["status"] == "template"
-    assert b["calculation_version"] == CALCULATION_VERSION == "payoff-v1"
+    assert b["calculation_version"] == CALCULATION_VERSION == "payoff-v2"   # desk cost card since 2026-10-27
     assert b["count"] == len(b["templates"]) == len(tp.CATALOG)
     for t in b["templates"]:
         assert set(t) >= {"name", "label", "kind", "legs", "params", "calculation_version"}
         assert t["kind"] in ("option", "future", "cash")
         assert t["legs"] and all(l["side"] in ("buy", "sell") for l in t["legs"])
-        assert t["calculation_version"] == "payoff-v1"
+        assert t["calculation_version"] == "payoff-v2"
 
 
 def test_catalog_matches_the_template_functions():

@@ -10,7 +10,8 @@ as_of_date, ranked by the spec's `ranking.by` field, capped at
 `ranking.limit`. The same query shape works for backtest sweeps
 (parameterise as_of_date) and live runs (one date).
 
-Phase-1 scope: only `feature.*` predicates and `index|custom` universes.
+Phase-1 scope: only `feature.*` predicates and `index|custom|market` universes. A `market` universe (liquid-eq-v1) is
+computed point-in-time by the provider and bound per date as the array parameter `:universe_members`.
 Phase-2 will extend with fundamental.* / shareholding.* / institutional.* /
 sector.* once those snapshots land.
 
@@ -88,6 +89,7 @@ def compile_stock_query(
     *,
     as_of_date_param: str = "as_of_date",
     point_in_time_universe: bool = False,
+    universe_members_param: str = "universe_members",
 ) -> Tuple[str, Dict[str, Any]]:
     """Compile a STOCK strategy DSL into (sql, params).
 
@@ -125,7 +127,7 @@ def compile_stock_query(
 
     # ── Universe ────────────────────────────────────────────────────
     uni = spec["universe"]
-    where_parts.append(_compile_universe(uni, add_param, point_in_time_universe))
+    where_parts.append(_compile_universe(uni, add_param, point_in_time_universe, universe_members_param))
 
     # ── Entry predicates ────────────────────────────────────────────
     entry = spec["entry"]
@@ -197,9 +199,13 @@ SELECT f.symbol,
 
 # ── Internal helpers ────────────────────────────────────────────────
 def _compile_universe(uni: Dict[str, Any], add_param,
-                      point_in_time: bool = False) -> str:
+                      point_in_time: bool = False, members_param: str = "universe_members") -> str:
     t = uni["type"]
     ref = uni["ref"]
+    if t == "market":
+        # Point-in-time members of the date (liquid_universe.membership), bound per date by the provider: the rule needs
+        # each symbol's last 20 bars, which one SQL predicate per row cannot express cheaply, so it is computed once.
+        return f"f.symbol = ANY(:{members_param})"
     if t == "index":
         key = ref.upper()
         if key not in INDEX_REFS:
@@ -216,7 +222,7 @@ def _compile_universe(uni: Dict[str, Any], add_param,
         return (f"f.symbol = ANY (SELECT unnest(symbols) FROM user_universes "
                 f"WHERE id = {param})")
     raise CompileError(f"universe type {t!r} not supported in Phase 1 "
-                       f"(allowed: index, custom)")
+                       f"(allowed: index, custom, market)")
 
 
 def _compile_predicate(p: Dict[str, Any], add_param) -> str:

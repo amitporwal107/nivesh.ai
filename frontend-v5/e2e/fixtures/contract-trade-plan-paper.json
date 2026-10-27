@@ -13,7 +13,7 @@
     "fno": "2026-10-19"
    },
    "rules_version": "strategy-rules.v1.6 (2026-10-27)",
-   "calculation_version": "payoff-v1",
+   "calculation_version": "payoff-v2",
    "sent_to_broker": false,
    "selection": {
     "source": "AI scanner (watchlist + picks), end of day",
@@ -100,12 +100,12 @@
      "direction": "bullish",
      "fno_eligible": true,
      "plan_id": "plan_7699ae19c963dcfb",
-     "trade_plan_id": "tp_72c320934b57496f",
+     "trade_plan_id": "tp_219b48e5aaa9c06a",
      "trade_plan": {
       "schema": "trade-plan-v1",
       "rules_version": "trade-plan-v1.1 (2026-10-27)",
       "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
-      "calculation_version": "payoff-v1",
+      "calculation_version": "payoff-v2",
       "strategy": {
        "segment": "cash",
        "family": "breakout_continuation",
@@ -429,7 +429,7 @@
        "strategy_plan_id": "plan_7699ae19c963dcfb",
        "candidate_id": "cash:breakout_continuation"
       },
-      "plan_id": "tp_72c320934b57496f",
+      "plan_id": "tp_219b48e5aaa9c06a",
       "lineage_key": "tl_06792eb0f4ab97e7",
       "lifecycle": {
        "status": "proposed",
@@ -586,22 +586,22 @@
      "strategies": [
       {
        "id": "cash:breakout_continuation",
-       "trade_plan_id": "tp_72c320934b57496f",
+       "trade_plan_id": "tp_219b48e5aaa9c06a",
        "segment": "cash",
        "family": "breakout_continuation",
        "label": "Breakout continuation (long)",
        "status": "candidate",
        "reasons": [],
        "legs_text": "Buy 1 shares ICICIBANK",
-       "max_loss": -81.18,
+       "max_loss": -91.02,
        "max_loss_basis": "loss at the stop (net); gaps can exceed it",
-       "capital_at_risk": 1240.6,
+       "capital_at_risk": 1249.23,
        "max_profit": null,
        "profit_unbounded": true,
        "breakeven": [
         1200.0
        ],
-       "reward_risk_net": 0.48,
+       "reward_risk_net": 0.32,
        "reward_risk_gross": 2.0,
        "sizing": {
         "status": "incomplete",
@@ -627,7 +627,7 @@
       },
       {
        "id": "futures:long_buildup_continuation",
-       "trade_plan_id": "tp_19ffca02c92b2ac7",
+       "trade_plan_id": "tp_807244b6954569b4",
        "segment": "futures",
        "family": "long_buildup_continuation",
        "label": "Long futures: build-up with cash confirmation",
@@ -639,15 +639,15 @@
         }
        ],
        "legs_text": "Buy 1 lot ICICIBANK future, 27 Oct",
-       "max_loss": -13584.12,
+       "max_loss": -13754.49,
        "max_loss_basis": "loss at the stop (net); gaps can exceed it; futures losses can exceed margin",
-       "capital_at_risk": 300940.38,
+       "capital_at_risk": 300960.44,
        "max_profit": null,
        "profit_unbounded": true,
        "breakeven": [
         1203.0
        ],
-       "reward_risk_net": 0.84,
+       "reward_risk_net": 0.82,
        "reward_risk_gross": 0.89,
        "sizing": {
         "status": "incomplete",
@@ -674,7 +674,7 @@
       },
       {
        "id": "options:long_call",
-       "trade_plan_id": "tp_3a1e8444871d1822",
+       "trade_plan_id": "tp_fb53d8cd46adcdac",
        "segment": "options",
        "family": "long_call",
        "label": "Long call",
@@ -682,19 +682,19 @@
        "reasons": [
         {
          "code": "reward_risk_below_minimum",
-         "message": "Reward : risk -0.04 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
+         "message": "Reward : risk -0.05 at the base level is below the minimum 1.5 (the default, change it in the inputs)."
         }
        ],
        "legs_text": "Buy 1 lot ICICIBANK 1200 call, 24 Nov",
        "max_loss": -13000.0,
        "max_loss_basis": "defined max loss at expiry (gross)",
-       "capital_at_risk": 13046.5,
+       "capital_at_risk": 13059.55,
        "max_profit": null,
        "profit_unbounded": true,
        "breakeven": [
         1252.0
        ],
-       "reward_risk_net": -0.04,
+       "reward_risk_net": -0.05,
        "reward_risk_gross": -0.04,
        "sizing": {
         "status": "incomplete",
@@ -720,7 +720,7 @@
       },
       {
        "id": "options:bull_call_spread",
-       "trade_plan_id": "tp_660714feceb4f16d",
+       "trade_plan_id": "tp_b44a271b6cdc7af8",
        "segment": "options",
        "family": "bull_call_spread",
        "label": "Bull call spread (debit)",
@@ -729,13 +729,13 @@
        "legs_text": "Buy 1 lot ICICIBANK 1200 call + Sell 1 lot ICICIBANK 1250 call, 24 Nov",
        "max_loss": -3500.0,
        "max_loss_basis": "defined max loss at expiry (gross)",
-       "capital_at_risk": 3591.25,
+       "capital_at_risk": 3629.75,
        "max_profit": 9000.0,
        "profit_unbounded": false,
        "breakeven": [
         1214.0
        ],
-       "reward_risk_net": 2.48,
+       "reward_risk_net": 2.44,
        "reward_risk_gross": 2.57,
        "sizing": {
         "status": "incomplete",
@@ -761,7 +761,7 @@
       },
       {
        "id": "combination:covered_call",
-       "trade_plan_id": "tp_95d07139fc2b5e6b",
+       "trade_plan_id": "tp_71a7651b616489b1",
        "segment": "combination",
        "family": "covered_call",
        "label": "Covered call (shares + short call)",
@@ -770,13 +770,13 @@
        "legs_text": "Buy 250 shares ICICIBANK + Sell 1 lot ICICIBANK 1250 call, 24 Nov",
        "max_loss": -290500.0,
        "max_loss_basis": "defined max loss at expiry (gross); for a structure that holds shares or a future this is the loss if the price falls to the long put's strike, or to zero without a put",
-       "capital_at_risk": 290734.75,
+       "capital_at_risk": 291123.62,
        "max_profit": 22000.0,
        "profit_unbounded": false,
        "breakeven": [
         1162.0
        ],
-       "reward_risk_net": 25.13,
+       "reward_risk_net": 13.51,
        "reward_risk_gross": 44.0,
        "sizing": {
         "status": "incomplete",
@@ -929,10 +929,10 @@
       "direction": "bullish",
       "instrument": "all"
      },
-     "build_ms": 55
+     "build_ms": 253
     }
    ],
-   "elapsed_ms": 61,
+   "elapsed_ms": 260,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -945,7 +945,7 @@
    "schema": "trade-plan-v1",
    "rules_version": "trade-plan-v1.1 (2026-10-27)",
    "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
-   "calculation_version": "payoff-v1",
+   "calculation_version": "payoff-v2",
    "strategy": {
     "segment": "cash",
     "family": "breakout_continuation",
@@ -1269,7 +1269,7 @@
     "strategy_plan_id": "plan_7699ae19c963dcfb",
     "candidate_id": "cash:breakout_continuation"
    },
-   "plan_id": "tp_72c320934b57496f",
+   "plan_id": "tp_219b48e5aaa9c06a",
    "lineage_key": "tl_06792eb0f4ab97e7",
    "lifecycle": {
     "status": "proposed",
@@ -1294,7 +1294,7 @@
    "entry_rule": "at_once",
    "max_hold_sessions": 10,
    "plan_ref": {
-    "plan_id": "tp_72c320934b57496f",
+    "plan_id": "tp_219b48e5aaa9c06a",
     "candidate_id": "cash:breakout_continuation",
     "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }

@@ -43,6 +43,7 @@ from services.ai_trader import config as ai_config
 from services.ai_trader.config import ConfigValidationError
 from services.strategy_engine import dsl as dsl_mod
 from services.strategy_engine import backtest as bt
+from services.strategy_engine import liquid_universe
 from services.strategy_engine.compiler_stock import compile_stock_query, to_asyncpg, CompileError
 from services.strategy_engine.market_data import get_provider
 from services.strategy_engine.evaluator import EvalError
@@ -232,6 +233,12 @@ async def create_universe(request: Request, body: UniverseCreate):
 # return_60d_pct of constituents; trend = 1M-vs-3M momentum. Both are real, populated
 # columns (verified on staging). No number is fabricated — a basket with no metric
 # shows null. Result cached per snapshot date (values change once/day).
+# The whole-market, point-in-time universe (liquid-eq-v1): the default for an "all stocks" universe. A backtest on it
+# has no survivorship bias; the index presets below are applied with their LATEST constituents to every past date.
+_MARKET_PRESETS = [
+    {"ref": liquid_universe.REF, "name": liquid_universe.LABEL, "description": liquid_universe.DESCRIPTION,
+     "survivorship": "point_in_time"},
+]
 _INDEX_PRESETS = [
     {"ref": "NIFTY50",  "name": "Nifty 50",  "description": "Largest 50 by free-float — most liquid."},
     {"ref": "NIFTY100", "name": "Nifty 100", "description": "Top 100 by free-float market cap."},
@@ -320,6 +327,13 @@ async def universe_catalog(request: Request):
     catalog: List[Dict[str, Any]] = [
         {"kind": "broad", "category": "Broad Market", "ref": p["ref"], "id": None,
          "name": p["name"], "description": p["description"], "symbol_count": None,
+         "universe": {"type": "market", "ref": p["ref"]}, "survivorship": p["survivorship"], "default": True,
+         "_universe": {"type": "market", "ref": p["ref"]}}
+        for p in _MARKET_PRESETS
+    ] + [
+        {"kind": "broad", "category": "Broad Market", "ref": p["ref"], "id": None,
+         "name": p["name"], "description": p["description"], "symbol_count": None,
+         "universe": {"type": "index", "ref": p["ref"]}, "survivorship": "latest_snapshot",
          "_universe": {"type": "index", "ref": p["ref"]}}
         for p in _INDEX_PRESETS
     ]
@@ -330,6 +344,7 @@ async def universe_catalog(request: Request):
             "category": "Sector" if is_sector else "Index Theme",
             "ref": None, "id": str(r["id"]), "name": r["name"],
             "description": r["description"], "symbol_count": len(r["symbols"] or []),
+            "universe": {"type": "custom", "ref": str(r["id"])}, "survivorship": "custom_universe",
             "_universe": {"type": "custom", "ref": str(r["id"])},
         })
 
@@ -1003,6 +1018,9 @@ async def run_backtest_endpoint(request: Request, strategy_id: str, body: Backte
     return {
         "run_id": run_id,
         "metrics": result.metrics,
+        # What reproduces this run (data watermark, code, rule and cost-model versions, universe): the same
+        # block GET /runs/{run_id} returns for any stored run (backtest.run_provenance).
+        "provenance": bt.run_provenance({"metrics": result.metrics, "version_id": v["id"]}),
         "equity_curve": result.equity_curve,
         "trade_count": len(result.trades),
         # What the run actually used, and where each number came from — the caller should not
@@ -1042,8 +1060,13 @@ async def get_run(request: Request, run_id: str):
             "SELECT * FROM strategy_trades WHERE run_id = $1 ORDER BY entry_date",
             run_id,
         )
+        version = await conn.fetchrow("SELECT definition FROM strategy_versions WHERE id = $1", run["version_id"])
     return {
         "run": _serialise(run),
+        # Every run, older ones included, is read through one normaliser: a field the run never recorded is null
+        # and named in provenance.not_recorded (runs before provenance-v1 lack the code version, the spec hash is
+        # derived from the immutable strategy version, and so on). Nothing is guessed.
+        "provenance": bt.run_provenance(dict(run), version["definition"] if version else None),
         "trades": [_serialise(t) for t in trades],
     }
 

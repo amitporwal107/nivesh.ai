@@ -1,0 +1,300 @@
+# Backend unit tests on every pull request to dev and main (Phase 4.1: "tests run in CI and fail when a regression changes
+# expected results without an intentional update").
+#
+# What runs: an explicit ALLOWLIST of backend/tests files that collect and pass with no Mongo, no Postgres, no running API
+# server, no secrets and no env files: the PRD worked examples A-H, the exit rules, the order-path guard, the risk, cost,
+# strategy, backtest and desk suites, and every other suite that met that bar in a clean python:3.11-slim run on 2026-10-27
+# (236 files, about 6,300 tests), plus the Phase 1 risk suites merged later that day and this PR's new suites. A suite left out needs a live service, a deployed API URL (REACT_APP_BACKEND_URL), a local
+# env/fixture file, or fails on this tree already; the list of exclusions and the reason for each is in the PR that added this
+# file. Add a new suite here when it is written; move a suite out only with a reason in the PR.
+#
+# Dependencies are resolved the way the production image does (deploy/nivesh-app/Dockerfile.backend.prod): uv, the same two
+# overrides, and emergentintegrations left out (it lives on a private index; nothing here imports it). Every version is
+# pinned: the runner image, Python, the actions (by commit SHA), uv, and backend/requirements.txt itself (all ==).
+#
+# No secrets: the env below is placeholders so deps.py imports; nothing connects to them.
+name: Backend — unit tests
+
+on:
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Backend unit tests (allowlist)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      MONGO_URL: mongodb://localhost:27017
+      DB_NAME: unit_test
+      OPENAI_API_KEY: unit-test-placeholder
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.11.17"
+      - name: Install dependencies
+        run: |
+          pip install --quiet --disable-pip-version-check uv==0.13.0
+          grep -v '^emergentintegrations' requirements.txt > /tmp/req.txt
+          printf 'openai>=2.26.0\npdfminer.six==20251230\n' > /tmp/overrides.txt
+          uv pip install --system --no-cache --override /tmp/overrides.txt -r /tmp/req.txt
+      - name: Unit tests
+        run: >-
+          python -m pytest -q -p no:cacheprovider
+          tests/test_action_badge_sub_action.py
+          tests/test_action_recommendation_schema.py
+          tests/test_advisor_prompt_context.py
+          tests/test_ai_trader.py
+          tests/test_ai_trader_config_risk.py
+          tests/test_ai_trader_execution.py
+          tests/test_ai_trader_strategy.py
+          tests/test_ai_watchlist.py
+          tests/test_alternative_finder.py
+          tests/test_backfill_trade_lifecycle.py
+          tests/test_backtest_exit_rules.py
+          tests/test_backtest_provenance.py
+          tests/test_broker_angelone.py
+          tests/test_broker_connect_native_routes.py
+          tests/test_broker_contract_chart.py
+          tests/test_broker_fenix_reader.py
+          tests/test_broker_funds_read.py
+          tests/test_broker_groww.py
+          tests/test_broker_hub_reads.py
+          tests/test_broker_icicidirect.py
+          tests/test_broker_live_holdings.py
+          tests/test_broker_motilal.py
+          tests/test_broker_native_routes.py
+          tests/test_broker_sessions.py
+          tests/test_broker_sync_snapshots.py
+          tests/test_capital_gains_indexation.py
+          tests/test_card_tax_block.py
+          tests/test_cas_api_client.py
+          tests/test_cas_import_all.py
+          tests/test_cas_statement_period.py
+          tests/test_cas_transactions.py
+          tests/test_charting_feature_flag.py
+          tests/test_chartink_desk.py
+          tests/test_chartink_picks.py
+          tests/test_chartink_strategy.py
+          tests/test_chat_persona_routing.py
+          tests/test_chat_session_patch.py
+          tests/test_circulars_route.py
+          tests/test_concentration_fund_names.py
+          tests/test_consolidation_score_engine.py
+          tests/test_copilot_advisor_self_mode.py
+          tests/test_copilot_agents_oneshot.py
+          tests/test_copilot_backtest.py
+          tests/test_copilot_market_sectors_asof.py
+          tests/test_copilot_market_sources.py
+          tests/test_copilot_market_tool_paths.py
+          tests/test_copilot_mf_single_fund_resolution.py
+          tests/test_copilot_persona_prompt_selection.py
+          tests/test_copilot_phase_ab.py
+          tests/test_copilot_portfolio_summaries.py
+          tests/test_core_exceptions.py
+          tests/test_cost_basis_from_snapshots.py
+          tests/test_daas_key_resolution.py
+          tests/test_data_health.py
+          tests/test_decision_engine_trim_rank.py
+          tests/test_desk_alerts.py
+          tests/test_desk_copilot_prompt.py
+          tests/test_desk_exit_job.py
+          tests/test_desk_market_routes.py
+          tests/test_desk_overview_backend.py
+          tests/test_desk_paper_safety.py
+          tests/test_desk_paper_sim.py
+          tests/test_desk_strategy_trades.py
+          tests/test_desk_trading.py
+          tests/test_deterministic_insights.py
+          tests/test_docling_cas_parser.py
+          tests/test_event_ai_ingest.py
+          tests/test_event_ai_insight.py
+          tests/test_events_calendar_routes.py
+          tests/test_execution_modes.py
+          tests/test_exit_rules.py
+          tests/test_exit_score_engine.py
+          tests/test_filings_provenance.py
+          tests/test_fno_backtest.py
+          tests/test_fno_candidates.py
+          tests/test_fno_expiry_study.py
+          tests/test_fno_forward.py
+          tests/test_fno_idea_paper_trade_contract.py
+          tests/test_fno_iv_history.py
+          tests/test_fno_margin.py
+          tests/test_fno_quotes.py
+          tests/test_fno_roll.py
+          tests/test_fno_routes.py
+          tests/test_fund_clusterer.py
+          tests/test_gmail_cas_flatten.py
+          tests/test_goal_engine.py
+          tests/test_grade_band_collapse.py
+          tests/test_groww_phase1.py
+          tests/test_groww_stock_scraper.py
+          tests/test_groww_v3_primitives.py
+          tests/test_holding_action_score.py
+          tests/test_holding_name_canonicalization.py
+          tests/test_holdings_reconcile.py
+          tests/test_honesty_safety_pass.py
+          tests/test_hybrid_cas_parser.py
+          tests/test_index_tape_as_of.py
+          tests/test_insight_card.py
+          tests/test_instrument_research_widget.py
+          tests/test_intent_routing.py
+          tests/test_kite_intraday.py
+          tests/test_kite_live_feed.py
+          tests/test_kite_login_needed.py
+          tests/test_kite_platform_login.py
+          tests/test_liquid_universe.py
+          tests/test_live_quote_cache.py
+          tests/test_llm_input_hardening.py
+          tests/test_llm_pii_guard.py
+          tests/test_macro_calendar_routes.py
+          tests/test_macro_regime_history.py
+          tests/test_magic_link_email.py
+          tests/test_markets_evidence_routes.py
+          tests/test_markets_home_daas.py
+          tests/test_masterdata_broker_rows.py
+          tests/test_mf_cards.py
+          tests/test_mf_category_enricher.py
+          tests/test_mf_holdings_resolver.py
+          tests/test_mf_lookthrough_view.py
+          tests/test_moneycontrol_client.py
+          tests/test_move_odds_diagnostics.py
+          tests/test_move_odds_filing_analysis.py
+          tests/test_move_odds_live.py
+          tests/test_move_odds_routes.py
+          tests/test_movers_odds_badge_direction.py
+          tests/test_movers_proxy.py
+          tests/test_movers_v4.py
+          tests/test_nidp_classifier_window.py
+          tests/test_nidp_cron_schedules.py
+          tests/test_nidp_feed_health.py
+          tests/test_nidp_fno_bhavcopy_parser.py
+          tests/test_nidp_nse_equity_master_parser.py
+          tests/test_nidp_nse_financials_parser.py
+          tests/test_nidp_nse_shareholding_parser.py
+          tests/test_nidp_price_adjuster_factors.py
+          tests/test_nidp_rag_eval.py
+          tests/test_nidp_screener_cashflow.py
+          tests/test_nidp_screener_fetch_block_check.py
+          tests/test_nidp_screener_parsers.py
+          tests/test_nidp_screener_sector.py
+          tests/test_nidp_stamp_broadcast_at.py
+          tests/test_nidp_vision_fallback.py
+          tests/test_nidp_writer_annual_guard.py
+          tests/test_nidp_yahoo_fundamentals.py
+          tests/test_nivesh_cas_cdsl.py
+          tests/test_nsdl_cas_row_assembly.py
+          tests/test_oms_contract.py
+          tests/test_onboarding_state_sources.py
+          tests/test_openalgo_client.py
+          tests/test_option_pricing.py
+          tests/test_order_path_guard.py
+          tests/test_otp_email.py
+          tests/test_ownership_reaction.py
+          tests/test_paper_account.py
+          tests/test_paper_exit_rules.py
+          tests/test_paper_fills_pnl.py
+          tests/test_paper_reconcile.py
+          tests/test_paper_trades_routes.py
+          tests/test_payoff_cost_card.py
+          tests/test_portfolio_desk.py
+          tests/test_portfolio_health.py
+          tests/test_portfolio_holding_risk.py
+          tests/test_portfolio_import_preview.py
+          tests/test_portfolio_intelligence_pairwise_overlap.py
+          tests/test_portfolio_result_transformer.py
+          tests/test_portfolio_risk_drawdown.py
+          tests/test_portfolio_scope.py
+          tests/test_portfolio_sync_to_nidp.py
+          tests/test_positional_calibration.py
+          tests/test_positional_desk_fields.py
+          tests/test_positional_engine.py
+          tests/test_positional_runner_guards.py
+          tests/test_positional_scan_universe.py
+          tests/test_positional_scenario.py
+          tests/test_positional_signal_history.py
+          tests/test_prd_worked_examples.py
+          tests/test_query_suggestions.py
+          tests/test_rate_limit_identity.py
+          tests/test_rec_center_summary.py
+          tests/test_regime_fit.py
+          tests/test_regime_fit_distinct.py
+          tests/test_release_docs.py
+          tests/test_research_chart.py
+          tests/test_research_chart_layouts.py
+          tests/test_research_chart_live.py
+          tests/test_research_chart_live_analysis.py
+          tests/test_research_drawings.py
+          tests/test_research_feature_flags.py
+          tests/test_research_providers.py
+          tests/test_research_watchlist_history.py
+          tests/test_reversal_backtest.py
+          tests/test_reversal_candidates.py
+          tests/test_reversal_rules.py
+          tests/test_risk_controls.py
+          tests/test_risk_entry_paths.py
+          tests/test_risk_equity.py
+          tests/test_risk_gate.py
+          tests/test_risk_gate_ai_trader.py
+          tests/test_risk_gate_desk_journal.py
+          tests/test_risk_migration.py
+          tests/test_risk_replay.py
+          tests/test_risk_route_inventory.py
+          tests/test_risk_routes.py
+          tests/test_risk_service.py
+          tests/test_rs63_readiness.py
+          tests/test_scan_rules_v2.py
+          tests/test_scanner_bar_integrity.py
+          tests/test_scheme_resolver.py
+          tests/test_screen_to_strategy.py
+          tests/test_screener_contract.py
+          tests/test_screeners_run.py
+          tests/test_sebi_category_master_vocab.py
+          tests/test_selection_ranking.py
+          tests/test_shareholding_period_merge.py
+          tests/test_smart_money_flows_tail.py
+          tests/test_statement_exports.py
+          tests/test_stock_scoring.py
+          tests/test_stocks_insights_nonstring_fields.py
+          tests/test_stocks_insights_thematic.py
+          tests/test_strategy_backtest_adjusted.py
+          tests/test_strategy_backtest_sizing.py
+          tests/test_strategy_config.py
+          tests/test_strategy_engine.py
+          tests/test_strategy_evidence_sources.py
+          tests/test_strategy_ideas.py
+          tests/test_strategy_levels.py
+          tests/test_strategy_market_data.py
+          tests/test_strategy_payoff.py
+          tests/test_strategy_plan.py
+          tests/test_strategy_plan_templates_route.py
+          tests/test_strategy_screen.py
+          tests/test_switch_cost_framework.py
+          tests/test_switch_decision_engine.py
+          tests/test_symbol_lookup.py
+          tests/test_trade_lifecycle.py
+          tests/test_trade_lifecycle_routes.py
+          tests/test_trade_plan.py
+          tests/test_trade_plan_contract.py
+          tests/test_upload_validation_logging.py
+          tests/test_v3_debt_scoring.py
+          tests/test_v3_explainer.py
+          tests/test_v3_scoring.py
+          tests/test_v3_weights.py
+          tests/test_verify_nidp_data_lake_script.py
+          tests/test_watchlist_fno_chain_expiry.py
+          tests/test_watchlists.py
