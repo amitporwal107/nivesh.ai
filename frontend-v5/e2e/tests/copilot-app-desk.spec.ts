@@ -941,7 +941,9 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
     await expect(desk(page)).toHaveAttribute("data-symbol", "TESTPICK");
     await page.goto(`${DESK}?tab=overview`);
     await page.getByTestId("desk-top-opps-all").click();
-    await expect(desk(page)).toHaveAttribute("data-tab", "scanner");
+    // The scanner list is Market Overview › "All scanner candidates" since the 2026-10-27 redesign (?section=scanner).
+    await expect(desk(page)).toHaveAttribute("data-tab", "overview");
+    await expect(page).toHaveURL(/[?&]section=scanner(&|$)/);
   });
 
   // Superseded by the desk redesign (2026-10-27): the portfolio and risk tiles left Market Overview (market part only); the real portfolio

@@ -55,8 +55,8 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "watchlists", label: "Watchlists & alerts" },
   ],
   risk: [
-    { key: "limits", label: "Limits & budgets" },
-    { key: "controls", label: "Controls & profile" },
+    { key: "limits", label: "Exposure & limits" },
+    { key: "controls", label: "Policy & runtime" },
     { key: "log", label: "Decision log" },
   ],
 };
