@@ -316,7 +316,8 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-read-first")).toHaveCount(0);
 
     // Sub-tabs: the design's four, in order; OI build-up first and open.
-    await expect(page.getByRole("tablist", { name: "Options and futures views" }).getByRole("tab")).toHaveText(["OI build-up · F&O stocks", "Candidates", "NIFTY & BANKNIFTY", "Option chain OI · NIFTY", "Paper strategies"]);
+    // Desk redesign (2026-10-27): "Paper strategies" left this row for Trade Desk › New trade (copilot-app-desk-shell SH-9).
+    await expect(page.getByRole("tablist", { name: "Options and futures views" }).getByRole("tab")).toHaveText(["OI build-up · F&O stocks", "Candidates", "NIFTY & BANKNIFTY", "Option chain OI · NIFTY"]);
     await expect(page.getByTestId("desk-fno-view-buildup")).toHaveAttribute("aria-selected", "true");
 
     // Weekly: the other expiry's chain.
@@ -358,7 +359,9 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await page.getByTestId("desk-fno-expiry-date").selectOption("2026-11-24");
     await byDate;
     // The strategy builder prices on the chosen expiry and offers the ones listed within three months.
-    await page.getByTestId("desk-fno-view-strategies").click();
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there. Its own expiry row picks the same date.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
+    await page.getByTestId("desk-fno-expiry-date").selectOption("2026-11-24");
     await expect(page.getByTestId("desk-builder-expiry")).toContainText("24 Nov");
     const pickB = page.waitForRequest((r) => r.url().includes("/api/fno/NIFTY/chain?expiry=2026-10-27"));
     await page.getByTestId("desk-builder-expiry-2026-10-27").click();
@@ -805,18 +808,16 @@ test.describe("Smart trading desk — Options & futures lab", () => {
 
   test("paper strategies: Build a strategy opens the Strategy Builder for the stock with the chain date as its source; an index has no such button", async ({ page }) => {
     await fnoData(page);
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-strategies").click();
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
     await page.getByTestId("desk-strat-mode-ideas").click();
     await expect(page.getByTestId("desk-fno-strat-build")).toHaveCount(0);       // NIFTY is an index: plans are for one stock
-    await page.getByTestId("desk-fno-view-buildup").click();
-    await page.locator('[data-testid="desk-buildup-row"][data-symbol="FIXFNO"]').focus();
-    await page.keyboard.press("Enter");
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there. FIXFNO is loaded there by URL.
+    await page.goto(`${DESK}?tab=fno&lab=strategies&lab_sym=FIXFNO`);
     await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
-    await page.getByTestId("desk-fno-view-strategies").click();
     await page.getByTestId("desk-strat-mode-ideas").click();
     await page.getByTestId("desk-fno-strat-build").click();
-    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/[?&]tab=trade&view=new(&|$)/); // was view=strategy (More · Strategy Builder) before the redesign
     await expect(page).toHaveURL(/sym=FIXFNO/);
     await expect(page).toHaveURL(/src_kind=lab/);
     await expect(page).toHaveURL(/src_date=2026-10-12/);
@@ -834,10 +835,10 @@ test.describe("Smart trading desk — Options & futures lab", () => {
       // backend/routes/desk_trading.py: 201 with the stored trade
       return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ trade: { id: "t-lab-1", status: "open", ...body, opened_at: "2026-10-14T10:00:00+00:00" } }) });
     });
-    await page.goto(`${DESK}?tab=fno`);
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
 
     // NIFTY (an index): its build-up is the scan's index-futures row, the same source as the stats tile (short build-up).
-    await page.getByTestId("desk-fno-view-strategies").click();
     await page.getByTestId("desk-strat-mode-ideas").click();
     await expect(page.getByTestId("desk-fno-strat-title")).toHaveText("NIFTY · 27 Oct");
     await expect(page.getByTestId("desk-fno-strat-buildup")).toHaveText(LABEL[NIFTY_FUT.label as string]);
@@ -942,8 +943,8 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await page.route("**/api/desk/paper-trades*", (route) => (route.request().method() === "POST"
       ? route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "open_trade_limit" }) })
       : route.fallback()));
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-strategies").click();
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
     await page.getByTestId("desk-strat-mode-ideas").click();
     await page.getByTestId("desk-fno-strat-all").click();
     await page.locator('[data-testid="desk-fno-strat-row"][data-symbol="FIXSHORT"]').click();
@@ -974,8 +975,8 @@ test.describe("Smart trading desk — Options & futures lab", () => {
   test("paper strategies: a neutral reading names an iron condor, held back when the expected move reaches past a wall", async ({ page }) => {
     await fnoData(page);
     await stockFno(page, "FIXFLAT");
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-strategies").click();
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
     await page.getByTestId("desk-strat-mode-ideas").click();
     await page.getByTestId("desk-fno-strat-all").click();
     await expect(page.locator('[data-testid="desk-fno-strat-row"][data-symbol="FIXFLAT"] [data-col="options"]')).toHaveText("Iron condor");
@@ -1057,7 +1058,8 @@ test.describe("Smart trading desk — Options & futures lab at 390px", () => {
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
 
-    await page.getByTestId("desk-fno-view-strategies").click();
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
     await page.getByTestId("desk-strat-mode-ideas").click();
     await page.locator('[data-testid="desk-fno-strat-row"][data-symbol="FIXFNO"]').click();
     await expect(page.getByTestId("desk-fno-strat-cash-name")).toHaveText("Delivery long");
@@ -1310,7 +1312,8 @@ test.describe("Smart trading desk — Options & futures lab · Candidates", () =
   test("TC-3 the Candidates tab sits after OI build-up and requests the route once", async ({ page }) => {
     const hits = await openCandidates(page);
     await expect(page.getByTestId("desk-fno-candidates")).toBeVisible();
-    await expect(page.getByRole("tablist", { name: "Options and futures views" }).getByRole("tab")).toHaveText(["OI build-up · F&O stocks", "Candidates", "NIFTY & BANKNIFTY", "Option chain OI · NIFTY", "Paper strategies"]);
+    // Desk redesign (2026-10-27): "Paper strategies" left this row for Trade Desk › New trade (copilot-app-desk-shell SH-9).
+    await expect(page.getByRole("tablist", { name: "Options and futures views" }).getByRole("tab")).toHaveText(["OI build-up · F&O stocks", "Candidates", "NIFTY & BANKNIFTY", "Option chain OI · NIFTY"]);
     await expect(page.getByTestId("desk-fno-view-candidates")).toHaveAttribute("aria-selected", "true");
     expect(hits).toHaveLength(1);
   });
@@ -1703,8 +1706,8 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
       return route.fulfill({ status: m.status, contentType: "application/json", body: JSON.stringify(m.body) });
     });
     (page as Page & { marginBodies?: unknown[] }).marginBodies = marginBodies;
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-strategies").click();
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
     return bodies;
   }
   const legs = (page: Page) => page.getByTestId("desk-builder-leg");
@@ -2046,8 +2049,8 @@ test.describe("Smart trading desk — Options & futures lab · compare structure
     await page.route("**/api/fno/margin", (route) => route.fulfill({ status: marginStatus, contentType: "application/json", body: JSON.stringify(marginStatus === 200
       ? { required_margin: 50000, initial_margin: 51000, charges: { per_order: [], total: { brokerage: 40, stt: 0, exchange: 5, sebi: 0, stamp_duty: 0, gst: 8, total: 53 } }, as_of: "2026-10-24", source: "Zerodha margin calculator", note: "x", sent_to_broker: false }
       : { detail: "kite_session_unavailable" }) }));
-    await page.goto(`${DESK}?tab=fno`);
-    await page.getByTestId("desk-fno-view-strategies").click();
+    // Desk redesign (2026-10-27): the paper strategies are on Trade Desk › New trade; the old URL redirects there.
+    await page.goto(`${DESK}?tab=fno&lab=strategies`);
     await page.getByTestId("desk-strat-mode-compare").click();
     await expect(page.getByTestId("desk-compare-row").first()).toBeVisible();
   }

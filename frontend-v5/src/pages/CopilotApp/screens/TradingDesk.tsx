@@ -508,7 +508,7 @@ export default function TradingDeskScreen() {
       if (el || tries > 40) {
         if (scrollTimer.current) window.clearInterval(scrollTimer.current);
         scrollTimer.current = null;
-        el?.scrollIntoView({ block: "start", behavior: "smooth" });
+        el?.scrollIntoView({ block: "start" });
       }
     }, 150);
   }, []);

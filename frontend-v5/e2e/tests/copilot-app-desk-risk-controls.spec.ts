@@ -21,6 +21,10 @@ import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 
 const DESK = "/v5/app/trader/desk";
 const RISK = `${DESK}?tab=more&view=risk`;
+// Desk redesign (2026-10-27): Risk controls is the Risk Desk, split into three views; the old URL above redirects to Limits.
+const RISK_LIMITS = `${DESK}?tab=risk&view=limits`;
+const RISK_CONTROLS = `${DESK}?tab=risk&view=controls`;
+const RISK_LOG = `${DESK}?tab=risk&view=log`;
 
 const reply = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 const inr = (n: number) => `₹${new Intl.NumberFormat("en-IN").format(Math.round(n))}`;
@@ -145,7 +149,9 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await deskBase(page);
   });
 
-  test("RC-1 More lists Risk controls and opens ?tab=more&view=risk; its chip is pressed and the Copilot chip is not", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): there is no More list or More chip row. The old URL's redirect to Risk Desk
+  // and the tabs are covered by copilot-app-desk-shell.spec.ts SH-9 / SH-3; rewritten in step 6.
+  test.skip("RC-1 More lists Risk controls and opens ?tab=more&view=risk; its chip is pressed and the Copilot chip is not", async ({ page }) => {
     await riskMocks(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${DESK}?tab=more`);
@@ -176,7 +182,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
   test("RC-2 status off: both controls in words and pills, the data modes, live authorization, the scope note and the trust line", async ({ page }) => {
     const writes = recordWrites(page);
     await riskMocks(page);
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     const kill = page.getByTestId("risk-kill");
     await expect(kill).toHaveAttribute("data-state", "off");
     await expect(kill.getByTestId("risk-kill-pill")).toHaveText("Off");
@@ -212,7 +218,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(pill).toHaveText("Kill switch on");
     await expect(pill).toHaveAttribute("data-control", "kill_switch");
     await pill.click();
-    await expect(page).toHaveURL(/[?&]view=risk(&|$)/);
+    await expect(page).toHaveURL(/[?&]tab=risk&view=controls(&|$)/); // was ?tab=more&view=risk before the 2026-10-27 redesign
 
     const kill = page.getByTestId("risk-kill");
     await expect(kill).toHaveAttribute("data-state", "on");
@@ -236,7 +242,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
   test("RC-4 trip: a reason is required, a confirmation follows, then exactly one PUT; Cancel sends nothing; the status re-reads", async ({ page }) => {
     const writes = recordWrites(page);
     const calls = await riskMocks(page, { audit: [] });
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     const kill = page.getByTestId("risk-kill");
 
     // Cancel at the reason step.
@@ -289,7 +295,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
 
   test("RC-5 reset: absent without can_reset; with it, one PUT {enabled:false}; a 403 admin_required says only an admin can", async ({ page }) => {
     const calls = await riskMocks(page, { status: status({ ...KILL_ON, can_reset: true }) });
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     const kill = page.getByTestId("risk-kill");
     await expect(kill.getByTestId("risk-kill-admin-only")).toHaveCount(0);
     await kill.getByTestId("risk-kill-off").click();
@@ -308,7 +314,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
   test("RC-5b a 403 admin_required on reset keeps the confirmation open with the admin message", async ({ page }) => {
     // The status says can_reset (stale), the server refuses: the server's answer wins.
     const calls = await riskMocks(page, { status: status({ ...KILL_ON, can_reset: true }), putReply: { status: 403, body: { detail: { code: "admin_required" } } } });
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     const kill = page.getByTestId("risk-kill");
     await kill.getByTestId("risk-kill-off").click();
     await kill.getByTestId("risk-kill-reason").fill("Try to clear");
@@ -323,7 +329,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
 
   test("RC-6 halt: the same pattern on PUT /api/risk/halt; halted without can_reset says only an admin can lift it", async ({ page }) => {
     const calls = await riskMocks(page);
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     const halt = page.getByTestId("risk-halt");
     await halt.getByTestId("risk-halt-on").click();
     await halt.getByTestId("risk-halt-reason").fill("Results week");
@@ -380,7 +386,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
 
   test("RC-8 decisions newest first with reasons and a monospace correlation id; the audit timeline newest first, append only", async ({ page }) => {
     await riskMocks(page);
-    await page.goto(RISK);
+    await page.goto(RISK_LOG);
     const rows = page.getByTestId("risk-decision");
     await expect(rows).toHaveCount(DECISIONS.decisions.length);
     await expect(rows.getByTestId("risk-decision-symbol")).toHaveText(DECISION_ORDER);
@@ -418,7 +424,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
 
   test("RC-9 no decisions and no control changes are said, nothing invented", async ({ page }) => {
     await riskMocks(page, { decisions: { decisions: [], count: 0 }, audit: [] });
-    await page.goto(RISK);
+    await page.goto(RISK_LOG);
     await expect(page.getByTestId("risk-decisions-empty")).toContainText("No risk decisions yet");
     await expect(page.getByTestId("risk-decisions-empty")).toContainText("Each paper write the gate checks is recorded here, allowed or blocked.");
     await expect(page.getByTestId("risk-audit-empty")).toContainText("No control changes yet");
@@ -428,7 +434,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
 
   test("RC-10 a status without a boolean kill_switch is unknown: never Off, no controls, no header pill", async ({ page }) => {
     await riskMocks(page, { status: { kill_switch: "yes", halted: true } as Status });
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     await expect(page.getByTestId("risk-status-unknown").getByRole("alert")).toContainText("The risk status was not in the expected form — the kill switch and halt state is unknown, not off");
     await expect(page.getByTestId("risk-kill")).toHaveCount(0);
     await expect(page.getByTestId("risk-halt")).toHaveCount(0);
@@ -447,15 +453,19 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
   for (const code of [503, 500]) {
     test(`RC-11 status ${code}: an error with Retry, no controls and no claim that anything is off; the other cards still load`, async ({ page }) => {
       const calls = await riskMocks(page, { statusReply: { status: code, body: { detail: "upstream_unavailable" } } });
-      await page.goto(RISK);
+      await page.goto(RISK_CONTROLS);
       const err = page.getByTestId("risk-status-error");
       await expect(err.getByRole("alert")).toContainText("Your risk controls didn’t load — the server reported an error", { timeout: 15_000 });
       await expect(err).toContainText("Their state is unknown here. This screen does not assume the kill switch or the halt is off.");
       await expect(page.getByTestId("risk-kill")).toHaveCount(0);
       await expect(page.getByTestId("desk-risk-pill")).toHaveCount(0);
       await expect(page.getByTestId("risk-scope-note")).toHaveCount(0);
+      await page.goto(RISK_LIMITS); // the other cards are in the Risk Desk's other views
       await expect(page.getByTestId("risk-policy-table")).toBeVisible();
+      await page.goto(RISK_LOG);
       await expect(page.getByTestId("risk-decision")).toHaveCount(DECISIONS.decisions.length);
+      await page.goto(RISK_CONTROLS);
+      await expect(err.getByRole("alert")).toContainText("Your risk controls didn’t load — the server reported an error", { timeout: 15_000 });
       const before = calls.statusReads;
       await err.getByRole("button", { name: /Retry/ }).click();
       await expect.poll(() => calls.statusReads).toBeGreaterThan(before);
@@ -465,18 +475,20 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
   test("RC-12 policy, decisions and audit failures each show their own error; the status card still works", async ({ page }) => {
     const fail = { status: 500, body: { detail: "fixture failure" } };
     await riskMocks(page, { policyReply: fail, decisionsReply: fail, auditReply: fail });
-    await page.goto(RISK);
+    await page.goto(RISK_LIMITS); // each card is in its Risk Desk view
     await expect(page.getByTestId("risk-policy-error").getByRole("alert")).toContainText("The policy limits didn’t load", { timeout: 15_000 });
+    await expect(page.getByTestId("risk-policy-table")).toHaveCount(0);
+    await page.goto(RISK_LOG);
     await expect(page.getByTestId("risk-decisions-error").getByRole("alert")).toContainText("Risk decisions didn’t load", { timeout: 15_000 });
     await expect(page.getByTestId("risk-audit-error").getByRole("alert")).toContainText("Control changes didn’t load", { timeout: 15_000 });
+    await page.goto(RISK_CONTROLS);
     await expect(page.getByTestId("risk-kill-pill")).toHaveText("Off");
     await expect(page.getByTestId("risk-kill-on")).toBeEnabled();
-    await expect(page.getByTestId("risk-policy-table")).toHaveCount(0);
   });
 
   test("RC-13 a server 422 invalid_input shows the server's words with the code", async ({ page }) => {
     await riskMocks(page, { putReply: { status: 422, body: { detail: { code: "invalid_input", message: "a reason is required" } } } });
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     const kill = page.getByTestId("risk-kill");
     await kill.getByTestId("risk-kill-on").click();
     await kill.getByTestId("risk-kill-reason").fill("x");
@@ -488,7 +500,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
 
   test("RC-14 keyboard: the whole trip flow works from the keyboard; the reason field and buttons are labelled", async ({ page }) => {
     const calls = await riskMocks(page);
-    await page.goto(RISK);
+    await page.goto(RISK_CONTROLS);
     const on = page.getByRole("button", { name: "Turn kill switch on" });
     await on.focus();
     await expect(on).toBeFocused();
@@ -529,14 +541,21 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(pill).toHaveText("Kill switch on");
     await noSideScroll(page);
     await pill.click();
-    await expect(page).toHaveURL(/[?&]view=risk(&|$)/);
-    await expect(page.getByTestId("desk-bottom-more")).toHaveAttribute("aria-current", "page");
-    await expect(page.getByTestId("desk-more-risk")).toHaveAttribute("aria-pressed", "true");
-    for (const id of ["risk-status", "risk-policy", "risk-decisions", "risk-audit"]) await expect(page.getByTestId(id)).toBeVisible();
+    // Desk redesign (2026-10-27): the pill opens Risk Desk › Controls & profile (was More · Risk controls); the bottom bar's
+    // 04 Risk and the view switcher mark it. The cards are split over the three Risk Desk views.
+    await expect(page).toHaveURL(/[?&]tab=risk&view=controls(&|$)/);
+    await expect(page.getByTestId("desk-bottom-risk")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("desk-view-controls")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("risk-status")).toBeVisible();
     await expect(page.getByTestId("risk-last-reason")).toHaveText(`“${long}”`);
+    await noSideScroll(page);
+    await page.goto(RISK_LOG);
+    for (const id of ["risk-decisions", "risk-audit"]) await expect(page.getByTestId(id)).toBeVisible();
     await expect(page.getByTestId("risk-decision-cid")).toHaveText(longCid);
     await expect(page.getByTestId("risk-audit-reason")).toHaveText(`“${long}”`);
     await noSideScroll(page);
+    await page.goto(RISK_LIMITS);
+    await expect(page.getByTestId("risk-policy")).toBeVisible();
     // The policy table fits the phone: all four columns, no scroll inside its box either.
     const table = page.getByTestId("risk-policy-table");
     await table.scrollIntoViewIfNeeded();
