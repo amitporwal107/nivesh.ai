@@ -93,8 +93,10 @@ test.describe("AI scanner — results chip", () => {
     await expect(page.getByTestId("desk-scan-results-STRONGA-detail")).toBeVisible();
     await expect(page.getByTestId("desk-scan-results-STRONGA-detail")).toContainText("Filing analysis moderately positive (mock)");
     await expect(page.getByTestId("desk-scan-results-STRONGA-sum")).toHaveText("score 86 = technical 76 + results +10");
-    // opening the chip did not open the row's chart
-    expect(new URL(page.url()).searchParams.get("tab")).toBe("scanner");
+    // opening the chip did not open the row's chart: still Market Overview's scanner list (the desk shell #369 redirects
+    // the old ?tab=scanner to ?tab=overview&section=scanner; the chart would be another place)
+    const at = new URL(page.url()).searchParams;
+    expect([at.get("tab"), at.get("section")]).toEqual(["overview", "scanner"]);
     // RS-2 weak, from the filing analysis
     await expect(page.getByTestId("desk-scan-results-WEAKB")).toHaveAttribute("data-strength", "weak");
     await expect(page.getByTestId("desk-scan-results-WEAKB-chip")).toHaveText(/Weak results −10 · figures pending$/);

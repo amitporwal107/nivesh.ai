@@ -31,7 +31,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const load = (name: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", name), "utf-8"));
 const DESK = "/v5/app/trader/desk";
 const SCANNER = `${DESK}?tab=scanner`;
-const RISK = `${DESK}?tab=more&view=risk`;
+// Desk redesign (2026-10-27): the risk profile is on Risk Desk › Controls & profile (was More · Risk controls, ?tab=more&view=risk).
+const RISK = `${DESK}?tab=risk&view=controls`;
 const SLOW = { timeout: 15_000 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

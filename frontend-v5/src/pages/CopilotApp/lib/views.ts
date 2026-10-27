@@ -27,8 +27,8 @@ export interface NavItem {
 }
 
 /**
- * The sector rotation heatmap. A reachable screen (screens/index.ts) that no rail lists: the Trader rail is
- * deliberately limited, so it opens from the Screener, from the desk's sector card, and by URL.
+ * The sector rotation heatmap (screens/index.ts), which no rail lists. In Trader mode this route opens the desk's
+ * Market Desk › Sector Rotation (index.tsx); it opens from the Screener, the desk's sector card, and by URL.
  */
 export const SECTOR_HEATMAP_VIEW = "tool/sector-heatmap";
 
@@ -73,12 +73,13 @@ export function allToolsNav(mode: Mode): NavItem[] {
   return mode === "trader" ? TRADER_TOOLS : mode === "advisor" ? ADVISOR_TOOLS : INVESTOR_TOOLS;
 }
 
-/** The tools the Trader rail lists. The other Trader screens remain reachable by direct URL. */
+/**
+ * The tools the Trader rail lists: the Smart trading desk only (the owner's decision of 2026-10-27, 16:30). The Screener,
+ * Stock research and Sector rotation are views of its Market Desk, and in Trader mode their old routes open those views
+ * (index.tsx, screens/tradingdesk/desk-nav.ts TRADER_TOOL_TO_DESK). The other Trader screens remain reachable by URL.
+ */
 const TRADER_RAIL_TOOLS: NavItem[] = [
   { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
-  { view: "tool/screener", label: "Screener" },
-  { view: "tool/research", label: "Stock research" },
-  { view: SECTOR_HEATMAP_VIEW, label: "Sector rotation" },
 ];
 
 /** Tools shown in the rail for a mode. */
@@ -111,10 +112,10 @@ export const INTERNAL_NAV: NavItem[] = [
   { view: "ops/kpis", label: "KPIs" },
 ];
 
-/** Where each mode lands when it is selected. */
+/** Where each mode lands when it is selected. Trader: the Smart trading desk's Market Overview (the redesign of 2026-10-27). */
 export const MODE_HOME: Record<Mode, string> = {
   investor: "",
-  trader: "trader",
+  trader: "trader/desk",
   advisor: "advisor",
 };
 

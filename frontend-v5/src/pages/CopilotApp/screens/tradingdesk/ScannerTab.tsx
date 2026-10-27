@@ -1145,9 +1145,14 @@ const ScannerTop10 = lazy(() => import("./ScannerTop10").then((m) => ({ default:
 /** Results week ideas (docs/EARNINGS_SURPRISE_TRACKER.md §4c, §6): its own chunk and files (resultsweek/). */
 const ResultsWeekIdeas = lazy(() => import("./resultsweek/ResultsWeekIdeas"));
 
-/** The tab: the market pulse, the Top 10 boards and the results week ideas (each loads on its own), then the scanner list. */
-export default function ScannerTab() {
+/**
+ * The tab: the market pulse, the Top 10 boards and the results week ideas (each loads on its own), then the scanner list.
+ * `listOnly` (Market Overview, the desk redesign of 2026-10-27): the list alone, under "All scanner candidates"; the page
+ * shows the pulse, the Top 10 and the results week ideas above it once.
+ */
+export default function ScannerTab({ listOnly = false }: { listOnly?: boolean } = {}) {
   const { mobile } = useCopilotShell();
+  if (listOnly) return <ScannerList />;
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
       <Suspense fallback={<LoadingBlock label="Loading the market pulse" rows={1} />}><ScannerPulse /></Suspense>

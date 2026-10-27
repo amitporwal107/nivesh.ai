@@ -45,4 +45,20 @@ Screenshots (agent run, mock data, 1440 and 390): test_reports/screens_results_w
 - The real staging smoke (the deployed screen calling the deployed GET /api/desk/results-week) needs PR #371 and this PR merged and deployed.
 - The response is ~1.6–1.8 MB uncompressed (the frontend nginx gzips JSON); load time in the browser on staging not measured.
 
+
+## Addendum (22:10 IST): merged origin/dev (desk shell redesign #369) into this branch
+- Conflict in ScannerTab.tsx resolved by keeping dev's `listOnly` (Market Overview hosts the list); the Results week ideas
+  block now also sits right after the Top 10 on **Market Overview** (TradingDesk.tsx `Hosted id="results-week-ideas"`). The
+  Results week view stays in the Events tab, which the shell hosts under Market Desk › Market Intelligence. Old
+  `?tab=events` / `?tab=scanner` links redirect there.
+- RS-1/2/3 now expects the shell's canonical place after the redirect (`tab=overview&section=scanner`).
+- Full run after the merge (typecheck + 29 desk/results spec files): `tsc: OK (no errors)`; `668 passed, 33 failed, 31 skipped (18.8m)`.
+  32 failures are `copilot-app-desk-strategy-graphs.spec.ts`, which by its own header fails under the standard build by design
+  (needs VITE_STRATEGY_HARNESS=1 via e2e/fe-run-stgraph.sh); 1 was RS-1/2/3 (the URL above), fixed. Rerun of the results specs:
+```
+✓ built in 24.94s
+  2 skipped
+  13 passed (21.5s)
+```
+
 ## Verdict: PASS

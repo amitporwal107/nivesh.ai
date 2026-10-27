@@ -128,19 +128,21 @@ export function useAiWatchlist(date: string | null) {
   });
 }
 
-// ── links into the trading desk (/app/trader/desk; its URL state: TradingDesk.tsx, FnoTab.tsx) ──
+// ── links into the trading desk (/app/trader/desk; its places: tradingdesk/desk-nav.ts, the lab's params: FnoTab.tsx) ──
 
 const desk = (q: Record<string, string>) => `trader/desk?${new URLSearchParams(q).toString()}`;
+/** Market Desk › Smart Money, scrolled to its F&O section. */
+const deskFno = (q: Record<string, string>) => desk({ tab: "market", view: "smartmoney", section: "fno", ...q });
 
-export const deskChart = (sym: string) => desk({ tab: "chart", sym });
-export const deskTrades = () => desk({ tab: "portfolio" });
-export const deskChain = (sym: string) => desk({ tab: "fno", lab: "chain", lab_sym: sym });
-export const deskBuildup = (sym: string, index: boolean) => desk(index ? { tab: "fno", lab: "indices", lab_sym: sym } : { tab: "fno", lab_sym: sym });
-export const deskLab = (sym: string, index: boolean) => desk({ tab: "fno", lab: index ? "indices" : "candidates", lab_sym: sym, lab_focus: sym });
+export const deskChart = (sym: string) => desk({ tab: "market", view: "research", sym });
+export const deskTrades = () => desk({ tab: "trade", view: "paper" });
+export const deskChain = (sym: string) => deskFno({ lab: "chain", lab_sym: sym });
+export const deskBuildup = (sym: string, index: boolean) => deskFno(index ? { lab: "indices", lab_sym: sym } : { lab_sym: sym });
+export const deskLab = (sym: string, index: boolean) => deskFno({ lab: index ? "indices" : "candidates", lab_sym: sym, lab_focus: sym });
 
 /** The Strategy Builder with the idea's plan, as the ideas board opens it (IdeasBoard openPlan). */
 export function deskPlan(e: CashEntry, listDate: string): string {
-  const q: Record<string, string> = { tab: "more", view: "strategy", mode: "stock", build: "1" };
+  const q: Record<string, string> = { tab: "trade", view: "new", mode: "stock", build: "1" };
   for (const [k, v] of Object.entries({ sym: e.symbol, direction: e.direction ?? "", ...paramsFromPlanInputs(e.plan_inputs) })) if (v) q[k] = v;
   q.src_kind = "ideas";
   if (e.scanner.bucket) q.src_bucket = e.scanner.bucket;

@@ -223,7 +223,9 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await mockSmartMoney(page);
   });
 
-  test("TC-F1: it is the sixth primary tab and pushes More to 07", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): Smart Money is a Market Desk view, not a numbered tab. Covered by
+  // copilot-app-desk-shell.spec.ts SH-3 / SH-9; rewritten in step 6.
+  test.skip("TC-F1: it is the sixth primary tab and pushes More to 07", async ({ page }) => {
     await page.goto(DESK);
     const tabs = page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab");
     await expect(tabs).toHaveCount(7);
@@ -235,7 +237,7 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
   test("TC-F2: the five design panels are all present, and nothing is scored", async ({ page }) => {
     await page.goto(SM);
     await expect(screen(page)).toBeVisible(SLOW);
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "smartmoney");
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "smartmoney"); // a Market Desk view since 2026-10-27
     for (const id of ["desk-smart-money-feed-strips", "desk-smart-money-chart", "desk-smart-money-sector-bars",
                       "desk-smart-money-legend", "desk-smart-money-rail", "desk-smart-money-disclaimer"]) {
       await expect(page.getByTestId(id)).toBeVisible();
@@ -477,7 +479,9 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     }
   });
 
-  test("TC-F20: on a phone it is in the bottom bar as Flows, and the rail stacks", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the phone bar holds 01–04 and Copilot; Smart Money is under 03 Market.
+  // Covered by copilot-app-desk-shell.spec.ts SH-22; rewritten in step 6.
+  test.skip("TC-F20: on a phone it is in the bottom bar as Flows, and the rail stacks", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(SM);
     await expect(screen(page)).toBeVisible(SLOW);

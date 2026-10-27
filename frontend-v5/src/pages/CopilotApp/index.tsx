@@ -26,6 +26,7 @@ import { useThreadEngine } from "./lib/use-thread-engine";
 import { useThreadTurns } from "./lib/use-thread-turns";
 import { APP_BASE, MODE_HOME, threadIdOf, threadView, viewOf, viewPath, type Mode } from "./lib/views";
 import { ADMIN_SCREENS, SCREENS } from "./screens";
+import { TRADER_TOOL_TO_DESK } from "./screens/tradingdesk/desk-nav";
 import { Composer, type ComposerHandle } from "./shell/Composer";
 import { ClientBar } from "./shell/ClientBar";
 import { Evidence } from "./shell/Evidence";
@@ -136,12 +137,13 @@ export default function CopilotAppPage() {
 
   // Screens that dock their own Copilot panel from 1400px; the shell's ask box
   // would be a second input for the same thing, so it is hidden there. Below
-  // 1400px the trading desk shows its Copilot full height under More · AI
-  // Copilot (?tab=more), and the ask box is hidden on that view too. On a
-  // phone the desk has a bottom navigation bar and its ask box lives in More ·
-  // AI Copilot (desk PRD §3.1; the user's decision of 2026-10-14), so the
-  // shell's ask box is hidden on every desk view there: never two ask boxes.
-  const deskCopilotView = !wide && view === "trader/desk" && new URLSearchParams(location.search).get("tab") === "more";
+  // 1400px the trading desk shows its Copilot full height at ?tab=copilot (the
+  // old desk's ?tab=more redirects there), and the ask box is hidden on that
+  // view too. On a phone the desk has a bottom navigation bar whose Copilot
+  // holds its ask box (the user's decision of 2026-10-14), so the shell's ask
+  // box is hidden on every desk view there: never two ask boxes.
+  const deskTab = new URLSearchParams(location.search).get("tab");
+  const deskCopilotView = !wide && view === "trader/desk" && (deskTab === "copilot" || deskTab === "more");
   const deskPhoneView = mobile && view === "trader/desk";
   const ownAskBox = (wide && DOCKED_ASK_VIEWS.has(view)) || deskCopilotView || deskPhoneView;
 
@@ -164,6 +166,9 @@ export default function CopilotAppPage() {
   if (me.data && me.data.onboardingCompleted === false && view !== "onboarding") {
     return <Navigate to={viewPath("onboarding")} replace />;
   }
+  // Trader mode: the Screener, Stock research and Sector rotation are views of the desk's Market Desk (2026-10-27).
+  const deskView = mode === "trader" ? TRADER_TOOL_TO_DESK[view] : undefined;
+  if (deskView) return <Navigate to={viewPath(deskView)} replace />;
   const AdminScreen = ADMIN_SCREENS[view] as (typeof ADMIN_SCREENS)[string] | undefined;
   const PlainScreen = SCREENS[view] as (typeof SCREENS)[string] | undefined;
   if (AdminScreen && me.data && !isAdmin) return <Navigate to={APP_BASE} replace />;

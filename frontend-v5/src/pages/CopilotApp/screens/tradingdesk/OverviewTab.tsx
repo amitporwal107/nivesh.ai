@@ -100,7 +100,11 @@ function useWidth(): [(el: HTMLElement | null) => void, number | null] {
   return [setEl, w];
 }
 
-export default function OverviewTab() {
+/**
+ * `marketOnly` (Market Overview, the desk redesign of 2026-10-27): the market part only. The portfolio snapshot and the
+ * risk summary are account content; the real portfolio is the desk's "My portfolio" (PortfolioTab.tsx).
+ */
+export default function OverviewTab({ marketOnly = false }: { marketOnly?: boolean } = {}) {
   const home = useMarketOverview();
   const macro = useMacroToday();
   const sectors = useSectorReturns();
@@ -110,7 +114,7 @@ export default function OverviewTab() {
   const full = w >= FULL_GRID_MIN;
   const two = w >= 640;
 
-  if (mobile) return <MobileOverview home={home} macro={macro} />;
+  if (mobile) return <MobileOverview home={home} macro={macro} marketOnly={marketOnly} />;
 
   return (
     <div ref={ref} data-testid="desk-overview" data-layout={full ? "full" : "compact"} className="flex min-w-0 flex-col" style={{ gap: 20 }}>
@@ -121,12 +125,14 @@ export default function OverviewTab() {
         <SectorCard q={sectors} />
       </div>
       <TopOpportunitiesCard />
-      <div className="grid" style={{ gridTemplateColumns: two ? "minmax(0,7fr) minmax(0,5fr)" : "minmax(0,1fr)", gap: 16, alignItems: "start" }}>
+      <div className="grid" style={{ gridTemplateColumns: two && !marketOnly ? "minmax(0,7fr) minmax(0,5fr)" : "minmax(0,1fr)", gap: 16, alignItems: "start" }}>
         <KeyEventsCard />
-        <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
-          <PortfolioSnapshotCard />
-          <RiskSummaryCard />
-        </div>
+        {!marketOnly && (
+          <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
+            <PortfolioSnapshotCard />
+            <RiskSummaryCard />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1614,7 +1620,7 @@ function RiskSummaryCard() {
 
 // ── phone (design §11 M1) ────────────────────────────────────────────────
 
-function MobileOverview({ home, macro }: { home: HomeQuery; macro: MacroQuery }) {
+function MobileOverview({ home, macro, marketOnly }: { home: HomeQuery; macro: MacroQuery; marketOnly?: boolean }) {
   const now = istParts(useNow());
   return (
     <div data-testid="desk-overview" data-layout="mobile" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
@@ -1633,10 +1639,12 @@ function MobileOverview({ home, macro }: { home: HomeQuery; macro: MacroQuery })
       <DataAsOfLine home={home} macro={macro} compact />
       <MobilePulse home={home} macro={macro} />
       <TopOpportunities />
-      <div className="grid" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
-        <PortfolioTile />
-        <RiskTile />
-      </div>
+      {!marketOnly && (
+        <div className="grid" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
+          <PortfolioTile />
+          <RiskTile />
+        </div>
+      )}
       <KeyEventsCard compact />
     </div>
   );
