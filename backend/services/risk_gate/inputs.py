@@ -40,8 +40,45 @@ _sector_cache: Dict[str, Any] = {"at": 0.0, "map": None, "as_of": None, "index":
 _sector_lock = asyncio.Lock()
 
 
+#: F&O index underlyings: nidp.prices_eod has no rows for them (checked on staging 2026-10-27: BANKNIFTY, NIFTY and
+#: FINNIFTY returned no bars), so their last close comes from the NSE index itself (nidp.index_eod, DaaS
+#: /v1/indices/{index}/eod), which was current to the last session.
+INDEX_UNDERLYINGS = {"NIFTY": "Nifty 50", "BANKNIFTY": "Nifty Bank", "FINNIFTY": "Nifty Financial Services",
+                     "MIDCPNIFTY": "Nifty Midcap Select", "NIFTYNXT50": "Nifty Next 50"}
+#: Their sector for the concentration limit (they are on no constituent list): a sectoral index is its sector (a bank
+#: index concentrates in Financial Services like the banks in it); a broad index is "Broad market index". Versioned.
+INDEX_SECTORS_VERSION = "index-sectors-v1"
+INDEX_SECTORS = {"NIFTY": "Broad market index", "BANKNIFTY": "Financial Services", "FINNIFTY": "Financial Services",
+                 "MIDCPNIFTY": "Broad market index", "NIFTYNXT50": "Broad market index"}
+INDEX_SOURCE = "NSE index end-of-day (nidp.index_eod via DaaS /v1/indices/{index}/eod)"
+
+
+async def _index_bars(symbol: str, today: date) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"bars": [], "last_close": None, "last_close_as_of": None, "adv_rs": None, "adv_sessions": 0,
+                           "source": INDEX_SOURCE, "error": None}
+    index = INDEX_UNDERLYINGS[symbol]
+    try:
+        body = await daas_client._get(f"/indices/{quote(index, safe='')}/eod",
+                                      params={"start": (today - timedelta(days=BAR_LOOKBACK_DAYS)).isoformat(),
+                                              "limit": 100}, timeout=15.0)
+    except Exception as exc:  # noqa: BLE001 — reported as unreadable, the decision blocks
+        out["error"] = f"the index's end-of-day closes could not be read ({type(exc).__name__})"
+        return out
+    rows = [r for r in ((body or {}).get("data") or []) if isinstance(r, dict) and r.get("close_price")]
+    bars = sorted(({"date": date.fromisoformat(str(r["as_of_date"])[:10]), "open": r.get("open_price"),
+                    "high": r.get("high_price"), "low": r.get("low_price"), "close": float(r["close_price"]),
+                    "volume": None, "series": "INDEX"} for r in rows), key=lambda b: b["date"])
+    out["bars"] = bars
+    if bars:
+        out["last_close"], out["last_close_as_of"] = bars[-1]["close"], bars[-1]["date"].isoformat()
+    return out
+
+
 async def instrument(symbol: str, today: date) -> Dict[str, Any]:
-    """{bars, last_close, last_close_as_of, adv_rs, adv_sessions, source, error}."""
+    """{bars, last_close, last_close_as_of, adv_rs, adv_sessions, source, error}. An F&O index underlying reads its
+    NSE index's closes (INDEX_UNDERLYINGS); it has no traded value (adv_rs None: the liquidity rule is for shares)."""
+    if symbol.upper() in INDEX_UNDERLYINGS:
+        return await _index_bars(symbol.upper(), today)
     out: Dict[str, Any] = {"bars": [], "last_close": None, "last_close_as_of": None, "adv_rs": None, "adv_sessions": 0,
                            "source": BARS_SOURCE, "error": None}
     try:
@@ -105,7 +142,11 @@ async def _sector_map() -> Dict[str, Any]:
 
 
 async def sector_of(symbol: str) -> Dict[str, Any]:
-    """{sector, as_of, source, error}. sector None when the share is on no list or the lists cannot be read."""
+    """{sector, as_of, source, error}. sector None when the share is on no list or the lists cannot be read. An F&O index
+    underlying has the sector INDEX_SECTORS names."""
+    if symbol.upper() in INDEX_SECTORS:
+        return {"sector": INDEX_SECTORS[symbol.upper()], "as_of": None, "source": f"{INDEX_SECTORS_VERSION} (index underlying)",
+                "error": None}
     if not daas_client.is_configured():
         return {"sector": None, "as_of": None, "source": SECTOR_SOURCE, "error": "the data platform is not configured"}
     try:

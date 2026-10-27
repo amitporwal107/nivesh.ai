@@ -288,3 +288,25 @@ def test_freshness_counts_weekday_sessions_from_the_reference_session():
     assert not old["ok"] and old["age_sessions"] == 4 and "budget is 2" in old["reason"]
     assert not fresh.assess("x", None, budget_sessions=2, now=NOW)["ok"]
     assert fresh.known("x", "IT")["ok"] and not fresh.known("x", None)["ok"]
+
+
+# ── index underlyings (found by the staging probe, 2026-10-27) ───────────────
+def test_an_index_underlying_reads_its_nse_index_close_and_a_named_sector(monkeypatch):
+    """nidp.prices_eod has no BANKNIFTY / NIFTY rows on staging, so the last close comes from the NSE index's own
+    end-of-day closes, and the sector from inputs.INDEX_SECTORS. MOCK rows shaped like /v1/indices/{index}/eod."""
+    import importlib
+    from services.copilot_tools import daas_client
+    from services.risk_gate import inputs as real_inputs
+    inputs = importlib.reload(real_inputs)
+    asked = []
+
+    async def fake_get(path, params=None, timeout=10.0, *, creds=None):
+        asked.append(path)
+        return {"data": [{"as_of_date": "2026-10-26", "close_price": 54366.7, "high_price": 54500.0, "low_price": 54100.0},
+                         {"as_of_date": "2026-10-23", "close_price": 54287.35}]}
+    monkeypatch.setattr(daas_client, "_get", fake_get)
+    out = run(inputs.instrument("BANKNIFTY", date(2026, 10, 27)))
+    assert (out["last_close"], out["last_close_as_of"], out["adv_rs"]) == (54366.7, "2026-10-26", None)
+    assert asked == ["/indices/Nifty%20Bank/eod"] and [b["date"].isoformat() for b in out["bars"]] == ["2026-10-23", "2026-10-26"]
+    assert run(inputs.sector_of("BANKNIFTY"))["sector"] == "Financial Services"
+    assert run(inputs.sector_of("NIFTY"))["sector"] == "Broad market index"
