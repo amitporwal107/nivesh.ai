@@ -107,7 +107,7 @@ exit 0
 -  266 [copilot-app] › e2e/tests/copilot-app-sector-heatmap.spec.ts:427:8 › Sector heatmap — entry points › it is a Trader rail item named Sector rotation and ope
 -  271 [copilot-app] › e2e/tests/copilot-app-sector-heatmap.spec.ts:520:3 › Sector heatmap — screenshots › desktop 1440, zoomed, and phone 390
 ```
-The other 7 skips are skipped on dev too (screenshot runs, a removed Flows tab, an old rail entry, OV-007/008).
+The other 7 skips are static `test.skip` lines in specs this branch does not change (screenshot runs, a removed Flows tab, an old rail entry, OV-007/008).
 
 ### 4. Staging, read-only (the data the tab reads)
 ```
