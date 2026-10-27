@@ -45,6 +45,13 @@ LIVE_SHA = hashlib.sha256(Path(LIVE_SCORING).read_bytes()).hexdigest()
 # Amendment A2: TIMING=first_filing (T2, governs) uses the earlier of broadcast_at and the earliest NSE "Outcome of Board
 # Meeting" filing on the broadcast's IST date or the meeting date; TIMING=broadcast (T1) is the §5 rule as registered.
 TIMING = os.environ.get("TIMING", "broadcast")
+# Amendment A3 (H5-L): the live results signal at 790d8132 — signal.py + scoring.py in a package directory (with empty
+# __init__.py and loaders.py), fetched with `git show 790d8132:backend/services/results_week/{signal,scoring}.py`.
+LIVE_SIGNAL_DIR = os.environ.get("LIVE_SIGNAL_DIR", "/tmp/es/sigpkg")
+sys.path.insert(0, LIVE_SIGNAL_DIR)
+from rw790 import signal as SIG  # noqa: E402
+SIG_SHA = hashlib.sha256((Path(LIVE_SIGNAL_DIR) / "rw790" / "signal.py").read_bytes()
+                         + (Path(LIVE_SIGNAL_DIR) / "rw790" / "scoring.py").read_bytes()).hexdigest()
 assert TIMING in ("broadcast", "first_filing"), TIMING
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -257,6 +264,7 @@ def main(data: Path, out: Path) -> int:
     counts["calibration_n"] = {m: cal[m].n for m in cal}
     counts["live_scoring_sha256"] = LIVE_SHA
     counts["timing"] = TIMING
+    counts["live_signal_sha256"] = SIG_SHA
     srw = {m: [r for r in srw_records(store, m) if r["target"] <= CAL_FREEZE] for m in ("revenue", "pat")}
     cal_srw = {m: de.Calibration(srw[m], m) for m in srw}
     counts["srw_calibration_n"] = {m: cal_srw[m].n for m in cal_srw}
@@ -601,6 +609,9 @@ def main(data: Path, out: Path) -> int:
                 weak = weak_growth or v_ == "below"
                 h5[variant] = "conflict" if (strong and weak) else "strong" if strong else "weak" if weak else "unflagged"
             h5_live = h5["full"] if full_season else h5["growth"]
+            # H5-L: the live rule at 790d8132 (amendment A3)
+            facts = SIG.figures_facts({"period_label": a["period_label"], "metrics": a["metrics"]}, l_rows)
+            h5_l = None if facts is None else (SIG.classify_figures(facts)[0] or "unflagged")
 
             events.append({
                 "season": t_iso, "symbol": sym, "basis": a["basis"], "event_date": ev["event_date"].isoformat(),
@@ -620,7 +631,7 @@ def main(data: Path, out: Path) -> int:
                 "l_surprise": lsur["value"], "l_z": lsur.get("z"), "l_verdict": l_verdict, "l_trend": l_trend,
                 "l_quality": l_quality, "l_composite": l_comp, "l_upcoming": l_up, "l_declared": l_decl,
                 "h5_variant": "full" if full_season else "growth_only", "h5": h5_live, "h5_growth": h5["growth"],
-                "h5_full": h5["full"] if full_season else None,
+                "h5_full": h5["full"] if full_season else None, "h5_l": h5_l,
             })
 
     pd.DataFrame(events).to_csv(out / "events.csv", index=False)
@@ -644,7 +655,8 @@ def main(data: Path, out: Path) -> int:
             "l_verdict": {k: int(v) for k, v in g.loc[g["liquid"].fillna(False).astype(bool), "l_verdict"].value_counts().items()},
             "l_composite": int(g.loc[g["liquid"].fillna(False).astype(bool), "l_composite"].notna().sum()),
             "l_upcoming": int(g["l_upcoming"].notna().sum()), "l_declared": int(g["l_declared"].notna().sum()),
-            "h5": {k: int(v) for k, v in g.loc[g["liquid"].fillna(False).astype(bool), "h5"].value_counts().items()}}
+            "h5": {k: int(v) for k, v in g.loc[g["liquid"].fillna(False).astype(bool), "h5"].value_counts().items()},
+            "h5_l": {k: int(v) for k, v in g.loc[g["liquid"].fillna(False).astype(bool), "h5_l"].value_counts().items()}}
     (out / "counts.json").write_text(json.dumps(counts, indent=1, default=str))
     print(json.dumps(counts, indent=1, default=str))
     return 0

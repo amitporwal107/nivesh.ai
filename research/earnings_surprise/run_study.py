@@ -230,7 +230,7 @@ def main(events_csv: Path, out: Path) -> int:
         R["counts"][s] = {"events": int(len(g)), "liquid": int(len(gl)), "R5x": int(gl["R5x"].notna().sum()),
                           "R1x": int(gl["R1x"].notna().sum()), "D5x": int(gl["D5x"].notna().sum()),
                           "verdict": gl["verdict"].value_counts().to_dict(), "l_verdict": gl["l_verdict"].value_counts().to_dict(),
-                          "h5": gl["h5"].value_counts().to_dict(), "fno_m1": int(gl["fno_m1"].sum()), "fno_s": int(gl["fno_s"].sum())}
+                          "h5": gl["h5"].value_counts().to_dict(), "h5_l": gl["h5_l"].value_counts().to_dict(), "fno_m1": int(gl["fno_m1"].sum()), "fno_s": int(gl["fno_s"].sum())}
 
     # F1 registered formulas
     F1 = [run_test("H1-R5", L, "diff", PRIMARY, y="R5x_w", group="verdict", a="above", b="below"),
@@ -252,10 +252,18 @@ def main(events_csv: Path, out: Path) -> int:
           run_test("H5-WEAK-D5", L, "diff", ALL4, y="D5x_w", group="h5", a="weak", b="unflagged", direction=-1),
           run_test("H5-WEAK-R5", L, "diff", ALL4, y="R5x_w", group="h5", a="weak", b="unflagged", direction=-1)]
     family(F5)
-    R["families"] = {"F1": F1, "F7": F7, "F5": F5}
+    # F5L the new live rule at 790d8132 (amendment A3), its own Holm family
+    F5L = [run_test("H5L-STRONG-D5", L, "diff", ALL4, y="D5x_w", group="h5_l", a="strong", b="unflagged"),
+           run_test("H5L-STRONG-R5", L, "diff", ALL4, y="R5x_w", group="h5_l", a="strong", b="unflagged"),
+           run_test("H5L-WEAK-D5", L, "diff", ALL4, y="D5x_w", group="h5_l", a="weak", b="unflagged", direction=-1),
+           run_test("H5L-WEAK-R5", L, "diff", ALL4, y="R5x_w", group="h5_l", a="weak", b="unflagged", direction=-1)]
+    family(F5L)
+    R["families"] = {"F1": F1, "F7": F7, "F5": F5, "F5L": F5L}
     sec = R["secondary"]
     sec["H5-R1"] = [run_test("H5-STRONG-R1", L, "diff", ALL4, y="R1x_w", group="h5", a="strong", b="unflagged"),
-                    run_test("H5-WEAK-R1", L, "diff", ALL4, y="R1x_w", group="h5", a="weak", b="unflagged", direction=-1)]
+                    run_test("H5-WEAK-R1", L, "diff", ALL4, y="R1x_w", group="h5", a="weak", b="unflagged", direction=-1),
+                    run_test("H5L-STRONG-R1", L, "diff", ALL4, y="R1x_w", group="h5_l", a="strong", b="unflagged"),
+                    run_test("H5L-WEAK-R1", L, "diff", ALL4, y="R1x_w", group="h5_l", a="weak", b="unflagged", direction=-1)]
     sec["H5-full-2seasons"] = [run_test(f"H5full-{g}-{m}", L, "diff", PRIMARY, y=f"{m}x_w", group="h5_full", a=g, b="unflagged",
                                         direction=+1 if g == "strong" else -1) for g in ("strong", "weak") for m in ("D5", "R5")]
     sec["H5-growth-4seasons"] = [run_test(f"H5growth-{g}-{m}", L, "diff", ALL4, y=f"{m}x_w", group="h5_growth", a=g, b="unflagged",
@@ -292,7 +300,7 @@ def main(events_csv: Path, out: Path) -> int:
     ex["E2"] = [run_test("E2-outlook", L, "ic", ("2026-06-30",), score="outlook", y="R5x", min_n=MIN_IC_FNO),
                 run_test("E2-composite+outlook", L[L["outlook"].notna()], "ic", ("2026-06-30",), score="composite_outlook", y="R5x", min_n=MIN_IC_FNO)]
     # registered decisions
-    v = {t["name"]: t for t in F1 + F7 + F5}
+    v = {t["name"]: t for t in F1 + F7 + F5 + F5L}
     dec: Dict[str, Any] = {}
     for out_name, h, s7 in (("verdict pills", "H1-R5", "S7-H1-R5"), ("composite score", "H2", "S7-H2"),
                             ("upcoming ideas order", "H3", "S7-H3"), ("declared ideas order", "H4", "S7-H4")):
@@ -306,16 +314,21 @@ def main(events_csv: Path, out: Path) -> int:
         else:
             lab = "no measurable skill so far"
         dec[out_name] = {"registered": a_, "live_code": b_, "label": lab}
-    boost = {}
-    for grp, dname, rname, pts in (("STRONG", "H5-STRONG-D5", "H5-STRONG-R5", 10), ("WEAK", "H5-WEAK-D5", "H5-WEAK-R5", -10)):
-        dt, rt = v[dname], v[rname]
-        if dt["verdict"] == "PASS":
-            val = pts
-        elif rt["verdict"] == "PASS" and dt.get("estimate") is not None and dt["estimate"] * (1 if pts > 0 else -1) > 0:
-            val = pts // 2
-        else:
-            val = 0
-        boost[grp] = {"D5": dt["verdict"], "R5": rt["verdict"], "points": val, "reversed_flag": dt["verdict"] == "REVERSED"}
+    def boost_points(prefix: str) -> Dict[str, Any]:
+        out_ = {}
+        for grp, pts in (("STRONG", 10), ("WEAK", -10)):
+            dt, rt = v[f"{prefix}-{grp}-D5"], v[f"{prefix}-{grp}-R5"]
+            if dt["verdict"] == "PASS":
+                val = pts
+            elif rt["verdict"] == "PASS" and dt.get("estimate") is not None and dt["estimate"] * (1 if pts > 0 else -1) > 0:
+                val = pts // 2
+            else:
+                val = 0
+            out_[grp] = {"D5": dt["verdict"], "R5": rt["verdict"], "points": val, "reversed_flag": dt["verdict"] == "REVERSED"}
+        return out_
+    reg, liv = boost_points("H5"), boost_points("H5L")
+    boost = {"registered_H5": reg, "live_rule_H5L": liv,
+             "recommended": {g: min((reg[g]["points"], liv[g]["points"]), key=abs) for g in ("STRONG", "WEAK")}}
     dec["results_strength_boost"] = boost
     dec["harmful_components_provisional"] = [t["name"] for t in sec["S6"] if t.get("harmful_provisional")]
     R["decisions"] = dec

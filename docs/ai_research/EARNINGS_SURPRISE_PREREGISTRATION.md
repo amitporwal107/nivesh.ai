@@ -333,3 +333,5 @@ task outputs had been opened or read. No statistic had been seen.
 | 2026-10-27 18:00:31 | Registered before any verdict, score or return was computed; pushed to origin 18:00:35 | `b341511143eda11b4467c13d5772189b85c4c904` |
 | 2026-10-27 | This log row added (no change to §1–§10) | `dc0f86be` |
 | 2026-10-27 18:11:31 | Amendment A1 (H5, S7) registered before any statistic; pushed 18:11:35 | `c5bc89a1bb70b7eea68d9b6efbdb7f8565e74e4b` |
+| 2026-10-27 18:19:16 | Amendment A2 (T2 timing governs) registered before any study output was read; pushed 18:19:20 | `168c8fd419ccc7c1e26e28e774467ae6ea372d87` |
+| 2026-10-27 19:39:19 | Amendment A3 (H5-L, the live rule at `790d8132`) registered before any study output was read; pushed 19:39:22 | `517cefcffa6ac8e7fa466c916bc010ebea5f6b20` |
