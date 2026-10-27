@@ -1,146 +1,162 @@
-# Functionality Verification Report — Phase 3 decision cards, carry-forward tags, Phase 0 follow-ups
+# Functionality Verification Report — Phase 3 decision cards, account sizing, carry-forward tags, Phase 0 follow-ups
 
-- **Branch:** `feat/p3-decision-cards`. Head `cbf890ca`: origin/dev `87a90bca` (Phase 1 #363) merged in at `2fb3b9d1`.
+- **Branch:** `feat/p3-decision-cards`, head `a3b2568e`.
+  - origin/dev `87a90bca` (Phase 1, #363) merged in at `2fb3b9d1`.
+  - origin/dev `7a44f84c` (Phase 4, #364) merged in at `fa3d2b33`.
 - **Date:** 2026-10-27
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER)
-- **Environment:** local containers only. The backend ran in `nivesh/backend:staging` (pytest); the frontend in
-  `playwright:v1.47.0-jammy` (tsc, production build, mocked APIs). **Not deployed, and nothing was written to staging**,
-  as the brief requires.
+- **Environment:** local containers only.
+  - Backend: pytest in `nivesh/backend:staging`.
+  - Frontend: tsc, production build and Playwright with mocked APIs, in `playwright:v1.47.0-jammy`.
+  - **Not deployed. Nothing was written to staging** (the brief forbids it).
 - **Changed areas:** backend routes/services: yes · frontend src: yes
-- **Test cases:** `test_reports/p3_decision_cards_TESTCASES.md`, committed (`7fe1f12b`) before any implementation.
+- **Test cases:** `test_reports/p3_decision_cards_TESTCASES.md`.
+  - The original cases were committed (`7fe1f12b`) before any code.
+  - Addendum 1 covers the Phase 1 wiring.
+  - Addendum 2 covers the sizing and lineage fix. Its cases were written before that code changed.
 
 ## Summary
 
-### One decision card for every surface
-`tradingdesk/decision/DecisionCard.tsx` renders every criteria-3.1 field from the TradePlan. It has two forms:
-- a **row** form (one line plus an expander), used by the Top 10 stock and F&O rows, the AI watchlist's cash and F&O rows,
-  and the Top-by-regime cards;
-- a **full** form, used by the lab focus panel, the Strategy Builder's candidate, and the paper-trade record (read by id).
+### The decision card
+One card (`tradingdesk/decision/DecisionCard.tsx`) shows every criteria-3.1 field. It is used by:
+- the Top 10 stock and F&O rows, the AI watchlist rows and the Top-by-regime cards (row form);
+- the lab focus panel, the Builder's selected candidate and the paper-trade record (full form).
 
-A field the plan lacks is labelled "unavailable" with the reason.
+The levels come from the TradePlan (v1.1 adds evidence, warnings and gap risk).
 
-### What the TradePlan now carries
-The backend plan (v1.1) now carries:
-- **evidence**: regime, trend, RS, momentum, volume and structure;
-- **warnings**: event, liquidity, concentration (checked at entry) and correlation (not computed anywhere, said so);
-- **`costs.gap_risk`**.
+### Size, risk and costs (release blocker fixed: option a)
+- The size, rupee risk, costs and % of equity are the **universal risk service's own sizing for the signed-in account**:
+  `account_size` on `GET /api/desk/trade-plans/{id}`, from `services/risk_gate/plan_sizing.py`.
+- It is worked out with the service's own `gather()` and `decide()` on a neutral book. That sizing applies:
+  - the per-trade budget (est-risk-v1: the stop's loss + desk-cost-v2 costs + 1% gap stress, within the profile's
+    per-trade % of paper equity);
+  - the position and liquidity caps;
+  - the VIX and BEAR factors;
+  - the share and lot rounding.
+- It is then **confirmed** by a second `decide()` at exactly that size. A third `decide()` on the real book names what
+  portfolio limits would cut today, and the budgets left.
+- Nothing is recorded.
+- A plan the route cannot size shows **no size**, never the plan's own input-based number.
 
-### Phase 1 risk seam
-`GET /api/desk/trade-plans/{id}` now returns the user's newest universal-risk decision on the plan (`risk_decision`).
-The card is "Risk-approved" only on a real ALLOW made under the current limits version, and "Provisional" with no
-decision. A REDUCE shows the size it allows. A BLOCK disables the action while it still applies: same session, same
-limits, and, if the kill switch or halt caused it, while that control is still on. "% of equity" uses the risk
-profile's paper equity.
+### Approval and the action gate
+- "Risk-approved" appears only on a real ALLOW decision.
+- One action gate covers the card and every paper-trade button. It refuses what the service would refuse:
+  - no size it allows;
+  - a size it would cut again;
+  - a structure row whose lots exceed the allowed size.
 
-### Consistency
-- Every view reads the plan by `plan_id` from one cache.
-- The newest version the user may open is shown, with a "Plan changed" note.
-- A plan that names the plan it `supersedes` refreshes the older plan's reading.
+### Version identity (finding 2 fixed)
+- `sizing_inputs` is part of each plan's content and lineage.
+- A sized plan and the same setup unsized are separate lineages, so no "Plan changed" appears between them.
+
+### Shared plan status (fixed while verifying)
+- One user's refused submission no longer shows a shared plan as Rejected to everyone.
 
 ### Carry-forward and Phase 0 follow-ups
-- Carry-forward tags on the watchlist and the Top 10.
-- **P0 (a):** the F&O idea POST sends an Idempotency-Key.
-- **P0 (b):** the job time reads 22:45 IST.
-- **P0 (c):** the AI watchlist day stores and shows `scan_basis`.
-- **P0 (d):** `GET /api/admin/risk/jobs/positional_engine` answers.
+- Carry-forward tags: shipped.
+- Phase 0 (a) to (d): shipped.
 
 ## Test Cases (results)
 
 | ID | Result | Evidence |
 |----|--------|----------|
-| BE-1, BE-1b | PASS | `test_decision_cards.py` |
-| BE-2, BE-2b | PASS | `test_decision_cards.py` |
-| BE-3 | PASS | `test_decision_cards.py` |
-| BE-4 | PASS | `test_decision_cards.py` (versions filtered per reader) |
-| BE-5 | PASS | `test_decision_cards.py` |
-| BE-6, BE-6b, BE-6c | PASS | `test_decision_cards.py` |
-| BE-7 (8 statuses), BE-7b, BE-7c | PASS | `test_decision_cards.py` |
-| BE-8, BE-8b | PASS | `test_decision_card_contract.py`: the fixtures are rebuilt from the real routes and compared |
-| BE-9 | PASS | `test_trade_plan_contract.py` and `test_fno_idea_paper_trade_contract.py`, with the regenerated fixture |
+| BE-1 … BE-7 (evidence, warnings, gap risk, versions, scan basis, carry-forward, scanner job health) | PASS | `test_decision_cards.py` |
+| BE-8, BE-8b, BE-11, BE-11b (contract, real decisions) | PASS | `test_decision_card_contract.py`: fixtures rebuilt from the real routes and compared |
+| BE-9 | PASS | `test_trade_plan_contract.py`, `test_fno_idea_paper_trade_contract.py` |
 | BE-10 | PASS | `test_order_path_guard.py` |
-| BE-11, BE-11b (added with Phase 1) | PASS | real allow, reduce and block on the plan route; a validation refusal is not read as a decision |
-| UI-1 … UI-6 | PASS | `copilot-app-desk-decision-cards.spec.ts` |
-| UI-7, UI-7b (cross-view consistency) | PASS | same spec |
-| UI-8a … UI-8g (empty, stale, rejected, provisional, approved, reduce, block, stale block) | PASS | same spec |
-| UI-9, UI-9b, UI-9c (plan change refresh) | PASS | same spec |
-| UI-10 … UI-13, UI-15, UI-16 | PASS | same spec |
-| UI-14 (22:45 IST) | PASS | `copilot-app-ai-watchlist.spec.ts` F-8 |
-| REG-1 | PASS | the "fails on branch, passes on dev" list is empty (below) |
+| **SZ-1** (acceptance) | PASS | **default profile:** the plan's own 113 is reduced by the route to exactly the card's 83, and 83 is ALLOWED; **loosest profile:** the card's size is allowed |
+| SZ-2, SZ-3, SZ-5, SZ-6 | PASS | `test_plan_sizing.py` |
+| SZ-4 | PASS | BEAR: the card's size carries the factor once and is `not_confirmed` |
+| SZ-4b | **XFAIL (strict)** | Phase 1 finding below: in BEAR the card's size is not allowed as is |
+| BE-12 | PASS | `test_plan_sizing.py`: a refusal by user B does not change user A's status |
+| UI-1 … UI-20 (29 cases) | PASS | `copilot-app-desk-decision-cards.spec.ts`, including UI-17 (the card shows 83 and the POST sends 83), UI-18 (portfolio note), UI-19 (BEAR) and UI-20 (F&O over budget) |
+| UI-14 | PASS | `copilot-app-ai-watchlist.spec.ts` F-8 |
+| REG-1 | PASS | the "fails on branch, passes on dev" lists below are empty |
 
 ## API / Endpoint Tests
 
-- **Staging:** NOT RUN. The branch is not deployed, and the brief forbids staging writes. A signed-in GET would also need a
-  user session token. See `OVERRIDE_p3_decision_cards.md`.
-- **pytest, focused** (`python -m pytest tests/test_decision_cards.py tests/test_decision_card_contract.py tests/test_trade_plan_contract.py tests/test_fno_idea_paper_trade_contract.py tests/test_order_path_guard.py tests/test_ai_watchlist.py tests/test_desk_exit_job.py -q -rs`, at `cbf890ca`):
-  ```
-  SKIPPED [1] tests/test_decision_card_contract.py:48: writes the fixtures only when asked
-  95 passed, 1 skipped, 3 warnings in 18.80s
-  ```
-- **pytest, desk/plan/risk subset.** Files: `test_trade_plan*`, `test_trade_lifecycle*`, `test_fno_*`,
-  `test_ai_watchlist*`, `test_desk_*`, `test_strategy_*`, `test_order_path_guard*`, `test_positional*`, `test_scan*`,
-  `test_risk_*`, `test_paper_*`, `test_regime*` and `test_decision_card*`.
-  - branch `cbf890ca`: `1854 passed, 8 skipped, 4 warnings in 72.06s (0:01:12)` · exit 0
-  - plain origin/dev `87a90bca` (a full `git archive` export, deleted afterwards): `1828 passed, 7 skipped, 4 warnings in 84.65s (0:01:24)` · exit 0
-  - The extra 26 passes and 1 skip on the branch are the new tests (the skip is the fixture writer). No failure on either side.
+### Staging
+NOT RUN. The branch is not deployed and staging writes are forbidden. See `OVERRIDE_p3_decision_cards.md`.
+
+### pytest, CI allowlist
+The 244 files of `.github/workflows/backend-tests.yml`, plus this branch's 3 new files. Branch head `a3b2568e`:
+```
+3 failed, 6471 passed, 28 skipped, 1 xfailed, 15 warnings in 221.47s (0:03:41)
+FAILED tests/test_cas_api_client.py::test_sandbox_parse_and_map
+FAILED tests/test_cas_api_client.py::test_convenience_helper_returns_list
+FAILED tests/test_nidp_stamp_broadcast_at.py::test_run_commits_in_batches
+XFAIL tests/test_plan_sizing.py::test_sz4b_in_a_bear_regime_the_cards_size_is_allowed_as_is
+```
+
+### pytest, same allowlist on plain origin/dev `7a44f84c`
+Run on a full `git archive` export, deleted afterwards:
+```
+3 failed, 6438 passed, 27 skipped, 15 warnings in 203.23s (0:03:23)
+FAILED tests/test_cas_api_client.py::test_sandbox_parse_and_map
+FAILED tests/test_cas_api_client.py::test_convenience_helper_returns_list
+FAILED tests/test_nidp_stamp_broadcast_at.py::test_run_commits_in_batches
+```
+The same 3 failures happen without this branch (environment-dependent). **Fails on branch, passes on dev: none.**
 
 ## UI / Playwright Tests
 
-Command: `run-fe.sh` (tsc, production build, Playwright with 4 workers, mocked API). Specs:
-`copilot-app-desk*.spec.ts`, `copilot-app-ai-watchlist.spec.ts`, `copilot-app-watchlists.spec.ts` and
-`copilot-app-workspace.spec.ts`.
+Spec set: `copilot-app-desk*.spec.ts`, `copilot-app-ai-watchlist.spec.ts`, `copilot-app-watchlists.spec.ts` and
+`copilot-app-workspace.spec.ts`. Runner: `run-fe.sh` (tsc, production build, 4 workers).
 
-- **branch `cbf890ca`:**
+- **Branch head `a3b2568e`:**
   ```
   tsc: clean
   32 failed
   16 skipped
-  691 passed (11.7m)
+  695 passed (8.0m)
   ```
-- **origin/dev `87a90bca`** (export):
+  The 29 decision-card cases all pass.
+- **origin/dev `7a44f84c`:**
   ```
   32 failed
   16 skipped
-  666 passed (10.0m)
+  666 passed (7.7m)
   ```
-- **The 32 failures are the same on both sides.** All are in `copilot-app-desk-strategy-graphs.spec.ts`
-  (`getByTestId('payoff-svg')` not found on dev too). `comm -13 dev.failed branch.failed` printed nothing, so
-  **"fails on branch, passes on dev" is empty**. desk-lab TC-7 and TC-34 passed in both runs; no rerun was needed.
-- **Decision-card spec:** all 25 cases ✓ in the branch run (UI-1 … UI-16, as listed above).
+- **Comparison:** all 32 failures, on both sides, are in `copilot-app-desk-strategy-graphs.spec.ts` (`payoff-svg` not
+  found). `comm -13 dev.failed branch.failed` printed nothing, so **fails on branch, passes on dev: none**.
+- An earlier branch run (`27a43116`) also had desk-lab TC-7 failing. That case is known to be timing-flaky; it passed
+  rerun alone (`1 passed (2.9s)`) and passed in the final run.
 
 ## Data Correctness
 
-- The decision fixture is real route output. `contract-decision-card.json` is written by pytest from the real routes,
-  using the conftest's MOCK sector and market state, and compared by BE-8b.
-- Its three decisions are the universal risk service's own answers on the same plan:
-  - **allow:** 113 shares, estimated risk ₹6,308.33;
-  - **reduce:** 83 shares, `per_trade_risk_exceeded`;
-  - **block:** `kill_switch_on`.
-- **No staging data was read.** UNVERIFIED: real `ai_watchlist_days.notes.scan_basis` and real `carried` values after
-  the next job run; the real `GET /api/admin/risk/jobs/positional_engine` answer.
+- `contract-decision-card.json` is real route output for:
+  - the sizing of three profiles (loosest: 666 shares; default: 83; BEAR: 41, not allowed as is);
+  - the three decisions (allow, reduce, block);
+  - an F&O plan over the default budget (refused).
+- It uses the conftest's MOCK sector and market state.
+- **UNVERIFIED on staging:** real `account_size` values, `ai_watchlist_days.notes.scan_basis`, `carried`, and the scanner's
+  job health.
 
 ## Findings for the owner
 
-1. **🔴 Release-blocker class (Phase 3 exit gate), NOT fixed here.** The plan sizes the stop plus costs inside the
-   plan's stated capital × risk %. The risk service also adds a 1% **gap stress** and uses the account's paper equity.
-   The real fixture shows the result: the plan says 113 shares (₹4,997.53 risk at 0.5%), but under the owner's
-   default profile the service REDUCES the same plan to 83 shares.
-   - The card shows both figures once a submission has been decided.
-   - There is no preview, so before submission the card can only show the plan's size, marked "Provisional".
-   - Proposed fix: size the plan with `risk_gate.estimate` and the profile's equity, or add a read-only decision
-     preview route. This is an owner decision for Phase 1/2 code.
-2. A plan's lineage ignores the sizing inputs. A Builder plan with capital and the board's unsized plan for the same
-   setup day therefore become versions of each other, and the card follows the newest. Rebuilding cannot clear a
-   "changed" block on a Builder or F&O row; cash rows record the shown version, so they are not affected.
-3. Correlation is computed nowhere; the card says so. Concentration is checked by the risk service at entry, not shown
-   ahead of a submission.
+1. **🔴 Phase 1 defect: no desk share entry is ever allowed in a BEAR or high-VIX regime.**
+   - The governor applies its 0.5 factor to whatever size is submitted. Submitted at the size it allows (41), a request
+     is cut again (20), and so on.
+   - The desk path accepts only an ALLOW, so every share paper trade is refused (409 risk_reduce).
+   - The desk regime's trend was down on 21–26 Oct, so this may be the live state on staging. UNVERIFIED: I did not
+     query staging.
+   - The card says so ("not allowed as is", and the action is off), and the strict xfail `test_sz4b` flips when the
+     defect is fixed.
+   - Proposed fix: apply the factor to the caps, not to the request: `allowed = min(q, floor(min(caps) × factor))`.
+   - This is Phase 1 / AI-trader governor code, so I did not change it.
+2. Each card's plan read runs one risk-service snapshot (`gather`) for the sizing. A Top 10 page makes up to about 20 of
+   these. The cost on staging is UNVERIFIED.
+3. Correlation is not computed anywhere; the card says so.
 
 ## Inputs required from user
 
-- A deploy of this branch to staging, and a signed-in session token, to run the staging API checks
-  (`GET /api/desk/trade-plans/{id}` with `risk_decision`, the AI watchlist day, `GET /api/admin/risk/jobs/positional_engine`).
+- A staging deploy and a signed-in session token, to run the staging checks.
 
 ## Verdict: BLOCKED
 
 The verdict is BLOCKED for two reasons:
-- the staging checks were not run, because the brief forbids staging writes and deploys;
-- the plan-size vs risk-service-size gap above is open.
+- the staging checks have not been run;
+- finding 1 (BEAR/VIX) is an open Phase 1 defect that the card can only report.
+
+The Phase 3 release blocker itself (a displayed size that differs from the approved size) is closed. SZ-1 shows it on
+the real route when no portfolio limit binds; finding 1 is the exception.
