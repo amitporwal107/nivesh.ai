@@ -137,8 +137,10 @@ def window(first: Optional[date], event_date: Optional[date], sessions: Sequence
 
 def session_rows(win: Sequence[Tuple[int, date]], sym: str, bars: Dict[date, Tuple[Optional[float], Optional[float]]],
                  nifty: Dict[date, float], by_day: Dict[str, Dict[str, Dict[str, Any]]], sessions: Sequence[date],
-                 vol_base: Optional[float]) -> List[Dict[str, Any]]:
-    """§9b track.sessions (without the per-day contract extras, added by the caller)."""
+                 vol_base: Optional[float], expiries: Sequence[date] = ()) -> List[Dict[str, Any]]:
+    """§9b track.sessions (without the per-day contract extras, added by the caller). A session whose one-day OI change
+    straddles a monthly expiry (the expiry day itself, or the session after it) has no state: OI is not comparable."""
+    exp = set(expiries)
     ss = sorted(sessions)
     out = []
     for rel, d in win:
@@ -151,11 +153,15 @@ def session_rows(win: Sequence[Tuple[int, date]], sym: str, bars: Dict[date, Tup
         fut = None
         if bu:
             t = sc.total_block(bu, None, None)
+            straddles = d in exp or (prev is not None and prev in exp)
+            st = None if straddles else (t["state_1s"] if t else None)
             fut = {"total_oi": sc.num(bu.get("oi")), "oi_pct": t["oi_chg_pct_1s"] if t else None,
                    "near_price": sc.num(bu.get("close") if bu.get("close") is not None else bu.get("fut_close")),
-                   "price_pct": t["price_chg_pct_1s"] if t else None, "state": t["state_1s"] if t else None,
-                   "text": sc.BUILDUP_TEXT.get(t["state_1s"], "no clear signal") if t and t["state_1s"] else None,
-                   "next_premium_pct": None, "expiry_day": False, "carry_vs_usual_pp": None}
+                   "price_pct": t["price_chg_pct_1s"] if t else None, "state": st,
+                   "text": ("expiry: OI not comparable" if straddles else
+                            (sc.BUILDUP_TEXT.get(st, "no clear signal") if st else None)),
+                   "oi_comparable": not straddles,
+                   "next_premium_pct": None, "expiry_day": d in exp, "carry_vs_usual_pp": None}
         out.append({"date": d.isoformat(), "rel": rel, "close": c, "chg_pct": sc.r2(chg),
                     "excess_pct": sc.r2(chg - n_chg) if chg is not None and n_chg is not None else None,
                     "volume_x": sc.r1(v / vol_base) if v is not None and vol_base else None, "fut": fut, "pcr_next": None})

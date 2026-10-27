@@ -221,3 +221,28 @@ def test_route_past_day_uses_the_stored_snapshot(monkeypatch):
     assert client(monkeypatch, body=WEEK).get("/api/desk/results-week/stock/MANKIND?date=2026-10-26").status_code == 404
     c = client(monkeypatch, body={}, stored=WEEK)
     assert c.get("/api/desk/results-week/stock/MANKIND?date=2026-10-26").status_code == 200
+
+
+# ── expiry sessions and the first public filing (added after the staging dry run of 28 Oct) ───────────────────────
+
+def test_a_session_straddling_an_expiry_has_no_state():
+    bars = {d: (100.0, 1000.0) for d in SESS}
+    by = {d.isoformat(): {"MOCK": bu(100, -6.08, 100.0, 8.24)} for d in SESS}
+    _, win = tr.window(date(2026, 10, 28), None, SESS, date(2026, 10, 28))
+    rows = {r["date"]: r for r in tr.session_rows(win, "MOCK", bars, {}, by, SESS, None, expiries=[date(2026, 10, 27)])}
+    assert rows["2026-10-27"]["fut"]["state"] is None and rows["2026-10-27"]["fut"]["text"] == "expiry: OI not comparable"
+    assert rows["2026-10-27"]["fut"]["expiry_day"] is True and rows["2026-10-28"]["fut"]["oi_comparable"] is False
+    assert rows["2026-10-26"]["fut"]["state"] == "short_covering" and rows["2026-10-26"]["fut"]["oi_comparable"] is True
+
+
+def test_the_first_public_results_filing_decides_the_reaction_session():
+    from services.results_week import build
+    ev = {"event_date": "2026-10-27", "filing": None,
+          "metrics": [{"key": "pat", "filed": {"broadcast_at": "2026-10-27T10:44:04+00:00"}}]}         # staging: BAJAJ-AUTO, 16:14 IST
+    exch = [datetime(2026, 10, 27, 9, 51, 27, tzinfo=timezone.utc),                                     # 15:21 IST outcome filing
+            datetime(2026, 10, 20, 5, 0, tzinfo=timezone.utc)]                                          # an older filing: ignored
+    t = build.filed_at_of(ev, exch)
+    assert t == datetime(2026, 10, 27, 9, 51, 27, tzinfo=timezone.utc)
+    from services.results_week import scoring as sc
+    assert sc.first_session(t, SESS) == date(2026, 10, 27)                       # before the close: reacts the same day
+    assert sc.first_session(build.filed_at_of(ev), SESS) == date(2026, 10, 28)    # figures time alone: the next day

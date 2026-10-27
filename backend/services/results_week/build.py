@@ -33,9 +33,13 @@ def status_of(ev: Dict[str, Any]) -> str:
     return "upcoming"
 
 
-def filed_at_of(ev: Dict[str, Any]) -> Optional[datetime]:
-    """When the market could know: the earliest of the outcome filing's time and the figures' broadcast time."""
+def filed_at_of(ev: Dict[str, Any], exchange: Sequence[datetime] = ()) -> Optional[datetime]:
+    """When the market could know: the earliest of the outcome filing's time, the figures' broadcast time and the first
+    results filing on the exchange dated the meeting day or the day after (IST)."""
     cands = [sc.parse_ts((ev.get("filing") or {}).get("filed_at"))]
+    ev_d = _ev_date(ev)
+    if ev_d:
+        cands += [t for t in exchange if ev_d <= t.astimezone(IST).date() <= ev_d + timedelta(days=1)]
     for m in ev.get("metrics") or []:
         if isinstance(m, dict) and isinstance(m.get("filed"), dict):
             cands.append(sc.parse_ts(m["filed"].get("broadcast_at")))
@@ -137,7 +141,7 @@ def assemble_row(ev: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
             gaps.append(f"past results reactions: {ctx['hist_gaps'].get(sym) or 'not read'}")
 
     # reaction vs Nifty — once the outcome is filed. Figures not stored yet: the analysed filing's own time stands in
-    filed_at = filed_at_of(ev)
+    filed_at = filed_at_of(ev, (ctx.get("exchange_filings") or {}).get(sym) or ())
     if filed_at is None and doc is not None:
         filed_at = sc.parse_ts(doc.get("event_ts"))
     reaction = None
@@ -303,6 +307,9 @@ async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> D
             loaders.prices(filed_syms, lo - timedelta(days=PRICE_LOOKBACK_DAYS), day),
             loaders.technicals(syms_all, day),
         )
+    exch, exch_gap = await loaders.first_results_filings(lo - timedelta(days=1), min(day, max(ev_dates + [day])) + timedelta(days=1))
+    if exch_gap:
+        gaps.append(exch_gap)
     for g in (fin_src, hist_src, bu_gap, nf_gap, an_gap, px_gap, tech_gap):
         if g:
             gaps.append(g)
@@ -324,7 +331,7 @@ async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> D
             gaps.append(f"3-session total OI: {back_gap}")
         if fno_syms and len(deep_gaps) == len(fno_syms):
             gaps.append("OI by expiry: the futures contracts could not be read for any F&O stock")
-    ctx = {"fin": fin, "fin_gaps": fin_gaps, "hist": hist, "hist_gaps": hist_gaps, "buildup": bu, "buildup_as_of": bu_as_of,
+    ctx = {"exchange_filings": exch, "fin": fin, "fin_gaps": fin_gaps, "hist": hist, "hist_gaps": hist_gaps, "buildup": bu, "buildup_as_of": bu_as_of,
            "buildup_gap": bu_gap, "nifty": nf, "nifty_gap": nf_gap, "analysis": an, "analysis_gap": an_gap,
            "prices": px, "prices_gap": px_gap, "tech": tech, "tech_gap": tech_gap, "sessions": sess, "cutoff": cutoff,
            "fno_day": fno_day, "back_rows": back_rows, "back_date": back_date, "deep": deep, "deep_gaps": deep_gaps}

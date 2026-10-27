@@ -77,6 +77,11 @@ def item_of(doc: Dict[str, Any], urls: Dict[str, str]) -> Dict[str, Any]:
             "url": urls.get(aid or "")}
 
 
+def _ist(iso: Optional[str]) -> str:
+    t = sc.parse_ts(iso)
+    return t.astimezone(loaders.IST).strftime("%d %b %Y, %H:%M") if t else "time not recorded"
+
+
 def split_commentary(docs: Sequence[Dict[str, Any]], filed_at: Optional[datetime], urls: Dict[str, str]
                      ) -> Dict[str, Any]:
     """pre / results / post by time against the results filing; one item per filing (the latest analysis of it)."""
@@ -106,7 +111,7 @@ def split_commentary(docs: Sequence[Dict[str, Any]], filed_at: Optional[datetime
     if rated:
         best = max(rated, key=lambda i: ((i["confidence"] or 0), i["at"] or ""))
         sentiment = {"band": best["band"], "impact": best["impact"], "confidence": best["confidence"],
-                     "basis": f"the filing analysis of “{best['title']}” ({(best['at'] or '')[:16].replace('T', ' ')} UTC)",
+                     "basis": f"the filing analysis of “{best['title']}” ({_ist(best['at'])} IST)",
                      "n": len(rated)}
     return {"pre": pre, "results": res, "post": post, "sentiment": sentiment, "analysed": len(items)}
 
@@ -241,7 +246,6 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
     bars = (px or {}).get(sym, {})
 
     # the track
-    sessions_out = track.session_rows(win, sym, bars, nf or {}, by_day, sess, track.volume_base(bars, w_start, sess))
     notes: List[str] = []
     expiries: List[date] = []
     if row.get("fno"):
@@ -249,6 +253,8 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
             expiries = await loaders.fno_expiries(sym)
         except Exception as e:  # noqa: BLE001
             gaps.append(f"F&O expiries could not be read ({loaders._why(e)})")
+    sessions_out = track.session_rows(win, sym, bars, nf or {}, by_day, sess, track.volume_base(bars, w_start, sess), expiries)
+    if row.get("fno"):
         extra = [s for s in sessions_out if s["rel"] == -1] + sessions_out[-1:]
         for s in {x["date"]: x for x in extra}.values():
             d = date.fromisoformat(s["date"])
@@ -260,7 +266,7 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
             if s["fut"] is not None:
                 s["fut"]["next_premium_pct"] = track.next_premium(fut, d)
                 legs = sc._contract_day(fut)
-                s["fut"]["expiry_day"] = bool(legs) and str(legs[0].get("expiry_date") or "")[:10] == s["date"]
+                s["fut"]["expiry_day"] = s["fut"]["expiry_day"] or (bool(legs) and str(legs[0].get("expiry_date") or "")[:10] == s["date"])
                 rb = (row.get("fno_buildup") or {})
                 if s["fut"]["expiry_day"] and str(rb.get("as_of") or "")[:10] == s["date"]:
                     s["fut"]["carry_vs_usual_pp"] = track.roll_carry(rb.get("rollover"))
