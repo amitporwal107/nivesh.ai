@@ -33,7 +33,8 @@ SELECTION_RULE = ("The scanner's merged list (watchlist and picks, picks win for
                   "then only stocks that pass the scan snapshot's eligibility gates (a price and previous close, 20-session traded value, reference "
                   "data, series EQ or BE, not an ETF, price band at least 10%, not at its band limit, and traded value of at least "
                   f"Rs {setup_rules.LIQUIDITY['min_traded_value_cr']:g} crore a day); the top N that pass. When the snapshot cannot be read, "
-                  "the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate.")
+                  "the scanner's own liquid flag (the same crore gate on its 20-session average) is the only gate. "
+                  "Strong results add up to +10 points, weak results subtract up to 10; this adjustment has not been tested yet.")
 
 EXCLUSION_TEXT = {
     "missing_price": "no usable last close or previous close in the scan snapshot",

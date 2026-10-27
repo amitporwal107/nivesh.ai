@@ -166,6 +166,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--skip-if-done", action="store_true", help="Do nothing when the day is already stored")
     p.add_argument("--dry-run", action="store_true", help="Build and print, write nothing (no Chartink fetch either)")
     p.add_argument("--symbols", default="", help="Comma-separated symbols whose full rows are printed")
+    p.add_argument("--signals", action="store_true",
+                   help="Also print the AI scanner's results signal (§4d) as of now: strong / weak symbols with reasons (reads only)")
     args = p.parse_args(argv)
     if args.date:
         try:
@@ -177,7 +179,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         day = datetime.now(IST).date()
     show = [s.strip() for s in args.symbols.split(",") if s.strip()]
     log.info("results week: date=%s skip_if_done=%s dry_run=%s", day, args.skip_if_done, args.dry_run)
+    if args.signals:
+        asyncio.run(print_signals())
     return asyncio.run(run(day, skip_if_done=args.skip_if_done, dry_run=args.dry_run, show=show))
+
+
+async def print_signals(now: Optional[datetime] = None) -> None:
+    """The results signal the scanner routes would apply now (services/results_week/signal.compute). Reads only."""
+    from services.results_week import signal as rs
+
+    now = now or datetime.now(timezone.utc)
+    try:
+        sigs, gaps = await rs.compute(now)
+    except Exception as e:  # noqa: BLE001
+        log.error("results signal unavailable: %s: %s", type(e).__name__, e)
+        return
+    rows = sorted(sigs.items(), key=lambda kv: (-kv[1]["points"], kv[0]))
+    print(json.dumps({"results_signal_as_of": now.isoformat(), "rule": rs.RULE_TEXT, "gaps": gaps,
+                      "strong": [f"{k} {v['points']:+.1f} [{v['basis']}, session {v['sessions_since']}] · {' · '.join(v['reasons'])}" for k, v in rows if v["strength"] == "strong"],
+                      "weak": [f"{k} {v['points']:+.1f} [{v['basis']}, session {v['sessions_since']}] · {' · '.join(v['reasons'])}" for k, v in rows if v["strength"] == "weak"]},
+                     indent=1, default=str))
 
 
 if __name__ == "__main__":

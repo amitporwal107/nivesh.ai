@@ -35,7 +35,8 @@ PASS_KEYS = ("capital", "risk_budget_inr", "risk_pct", "max_allocation_pct", "mi
 RANKING_NOTE = ("Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the "
                 "viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure "
                 "(a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital "
-                "at risk beside it. No probability and no composite score is produced.")
+                "at risk beside it. No probability and no composite score is produced. "
+                "Strong results add up to +10 points, weak results subtract up to 10; this adjustment has not been tested yet.")
 
 
 CHARTINK_RANKING = (" With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of "
