@@ -207,4 +207,5 @@ label rests on R5). Composite score ← **H2**. Upcoming ideas order ← **H3**.
 ## Log
 | When (IST) | What | Commit |
 |---|---|---|
-| 2026-10-27 | Registered before any verdict, score or return was computed | (this file's first commit; see `git log -- docs/ai_research/EARNINGS_SURPRISE_PREREGISTRATION.md`) |
+| 2026-10-27 18:00:31 | Registered before any verdict, score or return was computed; pushed to origin 18:00:35 | `b341511143eda11b4467c13d5772189b85c4c904` |
+| 2026-10-27 | This log row added (no change to §1–§10) | the commit after `b3415111` |
