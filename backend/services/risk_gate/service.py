@@ -824,7 +824,9 @@ async def enter(db, req: EntryRequest, *, reserve: bool = True, accept_reduce: b
     await rc.ensure_indexes(db)
     if reserve:
         try:
-            await acct.sweep_orphans(db, req.user_id, exists=lambda e: _exists(db, e), now=moment)
+            # The age of a reservation is judged on the clock that stamped it (the real one, paper_account._iso), never
+            # on an injected decision time: a decision clock ahead of it would read an in-flight reservation as old.
+            await acct.sweep_orphans(db, req.user_id, exists=lambda e: _exists(db, e))
         except Exception as e:  # noqa: BLE001 — a failed sweep leaves the budget conservative, never looser
             logger.warning("risk_service: orphan sweep failed for %s (%s)", req.user_id, type(e).__name__)
     snapshot = await gather(db, req, moment)
