@@ -253,7 +253,7 @@ const BANNED = [/\bpicks?\b/i, /recommend/i, /\bbuy\b/i, /\bsell\b/i, /beat the 
 test.describe("Results This Week — Watchlist page (desktop 1440)", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
 
-  test("TC-W1 the block sits right after the AI scanner watchlist; title, week, counts, basis", async ({ page }) => {
+  test("TC-W1 the block is the page's first block, above the AI scanner watchlist; title, week, counts, basis", async ({ page }) => {
     const seen = await setup(page);
     await openPage(page);
     await expect(page.getByTestId("rtw-title")).toHaveText("Results This Week · Mon 26 Oct – Sat 31 Oct");
@@ -261,7 +261,7 @@ test.describe("Results This Week — Watchlist page (desktop 1440)", () => {
     await expect(page.getByTestId("rtw-basis")).toHaveText("vs historical trend · not analyst consensus");
     expect(seen.rw[0]).toContain("/api/desk/results-week?date=2026-10-27");
     const y = async (id: string) => (await page.getByTestId(id).boundingBox())!.y;
-    expect(await y("ai-scanner-watchlist")).toBeLessThan(await y("results-this-week"));
+    expect(await y("results-this-week")).toBeLessThan(await y("ai-scanner-watchlist"));
     await expect(page.getByTestId("watchlist-count")).toBeVisible(SLOW);
     expect(await y("results-this-week")).toBeLessThan(await y("watchlist-count"));
     await expect(page.getByTestId("rtw-ideas-note")).toContainText(NOTE);

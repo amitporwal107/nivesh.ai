@@ -41,8 +41,10 @@ export default function WatchlistScreen() {
         title="Stocks you follow, and what you want to be told"
         sub="The AI scanner's daily ideas, your own lists, the research watchlist with live prices, this week's results names, your saved screens as watchlists, the price levels the scanner is watching, and your filing alerts."
       />
-      <AiScannerWatchlist />
+      {/* Results This Week first: the AI scanner watchlist below it expands to ~5,000 px of plan cards, and the owner could
+          not find this block under it on Trade Desk › Watchlists (28 Oct). */}
       <ResultsThisWeek />
+      <AiScannerWatchlist />
       <PersonalLists />
       <ResearchWatchlist />
       <ScreenWatchlists />

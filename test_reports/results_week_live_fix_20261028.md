@@ -33,4 +33,15 @@ week 2026-10-28 in 9.8s; 429/exchange gaps: []  (only the standing "no news feed
 ## UNVERIFIED
 - The deployed route after this merge (re-run the live checks).
 
+
+## Addendum (01:13 IST): Results This Week moved to the top of the Watchlist page
+The owner could not find the block: on Trade Desk › Watchlists it sat ~5,679 px down, under the AI scanner watchlist's plan cards
+(live probe). It is now the first block of the Watchlist page (same page on the sidebar and on Trade Desk › Watchlists).
+```
+tsc: OK (no errors)
+✓ built in 24.75s
+2 skipped
+78 passed (52.8s)
+```
+
 ## Verdict: PASS
