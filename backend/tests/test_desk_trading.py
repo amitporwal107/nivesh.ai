@@ -64,7 +64,10 @@ class _Cursor:
         self._docs = docs
 
     def sort(self, key: str, direction: int) -> "_Cursor":
-        self._docs = sorted(self._docs, key=lambda d: str(d.get(key) or ""), reverse=direction < 0)
+        def k(d):                      # numbers sort as numbers (a plan's version 10 after 9), anything else as text
+            v = d.get(key)
+            return (1, v, "") if isinstance(v, (int, float)) and not isinstance(v, bool) else (0, 0, str(v or ""))
+        self._docs = sorted(self._docs, key=k, reverse=direction < 0)
         return self
 
     async def to_list(self, length: Optional[int]) -> List[Dict[str, Any]]:
@@ -129,7 +132,7 @@ class FakeCollection:
         # $inc / $setOnInsert / upsert are modelled because the paper account keeps its cash and
         # blocked figures that way (services/paper_account). A fixture that cannot express them would
         # fail every trade create, which is a gap in the fixture, not in the account.
-        known = {"$set", "$inc", "$setOnInsert", "$push"}
+        known = {"$set", "$inc", "$setOnInsert", "$push", "$addToSet"}
         assert set(update) <= known, f"the fake collection does not know {set(update) - known}"
         for d in self.docs:
             if _matches(d, query):
@@ -138,7 +141,12 @@ class FakeCollection:
                 for key, delta in (update.get("$inc") or {}).items():
                     d[key] = (d.get(key) or 0) + delta
                 for key, value in (update.get("$push") or {}).items():
-                    d.setdefault(key, []).append(copy.deepcopy(value))
+                    # {"$each": [...]} appends every item, as Mongo does (services/trade_lifecycle writes events so)
+                    items = value["$each"] if isinstance(value, dict) and set(value) == {"$each"} else [value]
+                    d.setdefault(key, []).extend(copy.deepcopy(items))
+                for key, value in (update.get("$addToSet") or {}).items():
+                    if value not in d.setdefault(key, []):
+                        d[key].append(copy.deepcopy(value))
                 return _Result(matched=1)
         if upsert:
             doc = copy.deepcopy(update.get("$setOnInsert") or {})
@@ -170,7 +178,9 @@ class FakeDb:
                      _rc.DECISIONS: FakeCollection(),
                      _acct.ACCOUNTS: FakeCollection(), _acct.LEDGER: FakeCollection(),
                      # the evening script's lease and heartbeat (services/job_runs)
-                     "job_runs": FakeCollection(), "job_locks": FakeCollection()}
+                     "job_runs": FakeCollection(), "job_locks": FakeCollection(),
+                     # canonical TradePlans (services/strategy_plan/trade_plan.py) a paper trade may cite
+                     "trade_plans": FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"

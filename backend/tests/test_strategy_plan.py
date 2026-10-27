@@ -431,7 +431,15 @@ def test_cash_without_a_scanner_setup_or_before_the_trigger():
     assert codes(cand(none, "cash:scanner")) == ["no_setup"] and none["status"] == "no_trade"
     wait = build(world(scanner_bucket=bucket("pre_breakout")), instrument="cash")
     c = cand(wait, "cash:breakout_watch")
-    assert c["status"] == "wait" and wait["status"] == "wait" and "1195" in c["entry"]["logic"] and c["legs"] == []
+    assert c["status"] == "wait" and wait["status"] == "wait" and "1195" in c["entry"]["logic"]
+    # Phase 2.1: the setup that has not triggered is planned AT its trigger (WAIT_FOR_CONFIRMATION), with the stop's
+    # method as data — it used to carry no levels at all, so no surface could show the trade it waits for.
+    # MOCK close 1200 sits above this trigger, so the desk's rule (frontend entryRuleFor) makes it a pullback limit;
+    # a trigger above the close is a buy-stop (test_trade_plan.py covers both).
+    assert c["entry"]["trigger"] == 1195.0 and c["entry"]["order_type"] == "limit_pullback" and c["entry"]["desk_entry_rule"] == "pullback_to"
+    assert c["invalidation"]["technical"]["price"] == 1160.0 and c["invalidation"]["technical"]["method"] == "atr"
+    assert [t["r_multiple"] for t in c["targets"] if t["name"] in ("base", "optimistic")] == [2.0, 3.0]
+    assert codes(c)[-1] == "setup_not_triggered" and not c["actionable"]
     down = build(world(scanner_bucket=src_fail("db down", "x")), instrument="cash")
     assert down["status"] == "insufficient_data" and codes(cand(down, "cash:scanner")) == ["scanner_unavailable"]
 
