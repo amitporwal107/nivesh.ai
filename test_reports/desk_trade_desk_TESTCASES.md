@@ -41,6 +41,9 @@ PR B. The TD cases below keep their meaning; their places move:
 | CH-1 | Chart Analysis | Live chart ticket from an idea | e2e | with `tp=` the ticket shows the risk service's account_size; no slider, no size field, no capital × risk-% calculator |
 | CH-2 | Chart Analysis | Live chart without an idea | edge | "No idea with a plan for X today, so there is no ticket", with the Ranked candidates link |
 | CH-3 | Chart Analysis | Signal record | e2e | "not available yet" with the reason (no route serves the signal history) |
+| CH-4 | Chart Analysis | chart links (owner's design) | e2e | the journal's Chart, scanner rows, idea cards, AI watchlist rows, the header search and the old `?tab=chart` open Trade Desk › Chart Analysis › Live chart; Market Desk › Stock Research stays reachable from its switcher |
+| AS-5 | AI Scanner | Chartink sources in one place | e2e | only in Signal library & sources; Market Desk › Screener has no copy (its link goes there); `?tab=market&view=screener&section=chartink` and `?tab=more&view=chartink` redirect there |
+| WG-1 | widgets | desk-widgets after #373 | e2e | the widget cases run on Market Overview's panels (mo-strip, mo-paper) instead of the removed pulse and sector cards |
 
 ## Design (API + UI)
 

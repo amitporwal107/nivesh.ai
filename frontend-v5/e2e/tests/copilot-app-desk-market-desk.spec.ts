@@ -219,12 +219,15 @@ test.describe("MOCK — not real data: Market Desk · the frame", () => {
     await expect(strip).toContainText("the scanner’s first idea");
   });
 
-  test("MD-9 Screener with its Chartink sources", async ({ page }) => {
+  test("MD-9 Screener; its Chartink sources link opens Trade Desk › AI Scanner › Signal library (the owner's design)", async ({ page }) => {
     await page.goto(`${DESK}?tab=market&view=screener`);
     await expect(page.getByTestId("desk-panel-screener").getByTestId("screen-tool-screener")).toBeAttached({ timeout: 15_000 });
-    await expect(page.getByTestId("desk-section-chartink-title")).toHaveText("Chartink sources");
+    await expect(page.getByTestId("desk-section-chartink-title")).toHaveCount(0);
     await page.getByTestId("md-jump-chartink").click();
-    await expectAt(page, "screener", { section: "chartink" });
+    await expect.poll(() => params(page).get("tab")).toBe("trade");
+    await expect.poll(() => params(page).get("sub")).toBe("library");
+    await expect.poll(() => params(page).get("section")).toBe("chartink");
+    await expect(page.getByTestId("desk-panel-chartink")).toBeVisible({ timeout: 15_000 });
   });
 
   test("MD-10 watchlists and scorecard are Trade Desk's now: their Market Desk URLs open Trade Desk", async ({ page }) => {

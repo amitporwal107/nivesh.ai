@@ -755,7 +755,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-rank-m10")).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => rowOrder(page)).toEqual(want);
     await page.getByTestId(`desk-scan-row-${want[0]}`).getByTestId("desk-scan-setup").click();
-    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
+    await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/sc_risk=medium/);
     // Since step 3 the scanner list is Trade Desk › AI Scanner › Ranked candidates (the tab's default): back to the tab.
     await page.getByTestId("desk-tab-trade").click();
@@ -889,7 +889,7 @@ test.describe("Smart trading desk · AI scanner", () => {
 
     // Open analysis: the Chart tab with that stock.
     await uvol.getByTestId("desk-scan-act-open").click();
-    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
+    await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=UVOL1(&|$)/);
   });
 
@@ -963,7 +963,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-row-FIXACC")).toHaveAttribute("data-selected", "true");
     await expect(page.getByTestId("desk-scan-row-FIXBRK")).toHaveAttribute("data-selected", "false");
     await page.getByTestId("desk-scan-row-FIXPRE").getByTestId("desk-scan-setup").click();
-    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
+    await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=FIXPRE(&|$)/);
     await expect(page.getByTestId("desk-chart-symbol")).toHaveText("FIXPRE");
   });

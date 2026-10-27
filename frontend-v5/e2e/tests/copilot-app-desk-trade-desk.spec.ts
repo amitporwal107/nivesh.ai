@@ -503,7 +503,7 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await expect(page.getByTestId("td-journal").getByTestId("td-journal-flag")).toContainText(`Gapped through the stop: filled at the open. ${GAP}`);
   });
 
-  test("TD-20 the drawer links to the chart and to the plan's decision card", async ({ page }) => {
+  test("TD-20 the journal links to Chart Analysis › Live chart and to the plan's decision card", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
@@ -511,8 +511,9 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await expect(page.getByTestId("td-journal-plan-card")).toContainText(CASH_PLAN.plan_id);
     await expect(page.getByTestId("td-journal-dc")).toHaveAttribute("data-store", "read", SLOW);
     await page.getByTestId("td-journal-chart").click();
-    await expect.poll(() => params(page).get("tab")).toBe("market");
-    expect(params(page).get("view")).toBe("research");
+    await expect.poll(() => params(page).get("tab")).toBe("trade");
+    await expect.poll(() => params(page).get("view")).toBe("chart");
+    expect(params(page).get("sub")).toBe("live");
     expect(params(page).get("sym")).toBe("INFY");
   });
 
@@ -768,6 +769,12 @@ test.describe("MOCK — not real data: Trade Desk · AI Scanner and Chart Analys
     await expect(page.getByTestId("desk-signal-categories")).toContainText("Breakouts");
     await expect(page.getByTestId("desk-signal-categories")).toContainText("not a prediction");
     await expect(page.getByTestId("desk-section-chartink-title")).toHaveText("Chartink sources");
+    // The only place: Market Desk › Screener has no copy, and its old ?section=chartink URL lands here.
+    await page.goto(`${DESK}?tab=market&view=screener&section=chartink`);
+    await expect.poll(() => params(page).get("sub")).toBe("library");
+    await page.goto(`${DESK}?tab=market&view=screener`);
+    await expect(page.getByTestId("desk-panel-screener")).toBeAttached(SLOW);
+    await expect(page.getByTestId("desk-section-chartink-title")).toHaveCount(0);
   });
 
   test("AS-3 Scorecard: the real study (no measurable skill, RS63 awaiting confirmation), then the F&O forward test", async ({ page }) => {

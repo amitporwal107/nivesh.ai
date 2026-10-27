@@ -43,7 +43,7 @@ const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "market/smartmoney": [["desk-panel-smartmoney", null], ["desk-panel-fno", "desk-fno"]],
   "market/sectors": [["desk-panel-sectors", "screen-tool-sector-heatmap"]],
   "market/research": [["desk-panel-chart", null]],
-  "market/screener": [["desk-panel-screener", "screen-tool-screener"], ["desk-panel-chartink", "chartink-settings"]],
+  "market/screener": [["desk-panel-screener", "screen-tool-screener"]],
   // The Risk Desk tab (step 4, tradingdesk/tabs/risk-desk) replaces the re-hosted Risk controls, F&O Live and Audit.
   "risk/limits": [["risk-desk", "rd-limits-card"], ["risk-desk", "risk-policy"]],
   "risk/controls": [["risk-desk", "risk-status"], ["risk-desk", "risk-audit"], ["risk-desk", "risk-profile"], ["risk-desk", "rd-live"]],
@@ -247,14 +247,14 @@ test.describe("MOCK — not real data: desk shell · redirects from the old URLs
     { from: "?tab=intel", tab: "market", view: "intel" },
     { from: "?tab=intel&in_chip=flows", tab: "market", view: "intel", extra: { in_chip: "flows" } },
     { from: "?tab=events", tab: "market", view: "intel", extra: { section: "events" } },
-    { from: "?tab=chart&sym=RELIANCE", tab: "market", view: "research", extra: { sym: "RELIANCE" } },
+    { from: "?tab=chart&sym=RELIANCE", tab: "trade", view: "chart", extra: { sub: "live", sym: "RELIANCE" } },
     { from: "?tab=smartmoney", tab: "market", view: "smartmoney" },
     { from: "?tab=fno", tab: "market", view: "smartmoney", extra: { section: "fno" } },
     { from: "?tab=fno&lab=chain&lab_sym=BANKNIFTY", tab: "market", view: "smartmoney", extra: { section: "fno", lab: "chain", lab_sym: "BANKNIFTY" } },
     { from: "?tab=fno&lab=strategies&lab_sym=NIFTY", tab: "trade", view: "lab", extra: { sub: "build", section: "fno", lab_sym: "NIFTY" } },
     { from: "?tab=more&view=strategy&mode=stock&sym=INFY", tab: "trade", view: "lab", extra: { sub: "build", mode: "stock", sym: "INFY" } },
     { from: "?tab=more&view=risk", tab: "risk", view: "limits" },
-    { from: "?tab=more&view=chartink", tab: "market", view: "screener", extra: { section: "chartink" } },
+    { from: "?tab=more&view=chartink", tab: "trade", view: "scanner", extra: { sub: "library", section: "chartink" } },
     { from: "?tab=portfolio", tab: "portfolio", view: null },
   ];
   for (const c of CASES) {
