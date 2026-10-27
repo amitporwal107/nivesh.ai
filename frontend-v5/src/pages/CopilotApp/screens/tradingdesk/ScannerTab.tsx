@@ -45,6 +45,7 @@ import {
 import { ENTRY_RULE_SHORT, entryRuleFor, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import ReversalPanel from "./ReversalPanel";
+import { RiskReduceOffer } from "./RiskReduce";
 import { TrustLine } from "./trust";
 import { Widget } from "./widget";
 import { ChartinkTag, ChartinkTrust } from "./chartink/ChartinkParts";
@@ -750,6 +751,10 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
       </span>
       {done?.isSuccess && <span role="status" data-testid="desk-scan-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(done.variables?.quantity ?? null)} {r.symbol} at {fmtPrice(done.variables?.entry_price ?? null)}. No order is placed.</span>}
       {done?.isError && <span role="alert" data-testid="desk-scan-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(done.error)}</span>}
+      {done?.isError && (
+        <RiskReduceOffer error={done.error} testId="desk-scan-paper-reduce"
+          onAccept={(n) => { const last = done.variables; if (!last) return; setQty(String(n)); paper.mutate({ ...last, quantity: n }); }} />
+      )}
     </span>
   );
 }

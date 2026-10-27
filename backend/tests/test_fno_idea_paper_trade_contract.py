@@ -60,6 +60,22 @@ def exchange_lots(monkeypatch):
     monkeypatch.setattr(reference, "lookup", lookup)
 
 
+@pytest.fixture(autouse=True)
+def underlying_bar(world, monkeypatch):
+    """MOCK — not real data: BANKNIFTY's last close on 21 Oct at the idea's reference price. The universal risk service
+    reads an index underlying's close on the server from its NSE index (services/risk_gate/inputs.INDEX_UNDERLYINGS:
+    BANKNIFTY -> Nifty Bank, /v1/indices/{index}/eod), and refuses when there is none."""
+    from services.copilot_tools import daas_client
+    prices_get = daas_client._get
+
+    async def fake_get(path, params=None, timeout=10.0, *, creds=None):
+        if path.startswith("/indices/"):
+            return {"data": [{"as_of_date": "2026-10-21", "close_price": 54976.9, "high_price": 55120.0,
+                              "low_price": 54810.0}]}
+        return await prices_get(path, params, timeout, creds=creds)
+    monkeypatch.setattr(daas_client, "_get", fake_get)
+
+
 # ── B-1, B-2: the bodies the button sends open a trade ───────────────────────
 @pytest.mark.parametrize("variant", ["body_with_levels", "body_without_levels"])
 def test_the_body_the_idea_button_sends_opens_a_strategy_trade_with_its_signal(api, world, variant):

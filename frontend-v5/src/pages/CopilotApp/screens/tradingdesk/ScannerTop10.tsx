@@ -32,6 +32,7 @@ import { BUCKET_LABEL, type SetupBucket } from "./desk-data";
 import { ENTRY_RULE_SHORT, entryRuleFor, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { Segmented } from "./fno-parts";
 import { CashLevels, IdeaLevels, useIdeaLevels } from "./IdeaLevels";
+import { RiskReduceOffer } from "./RiskReduce";
 import { DASH, StatusPill, noteStyle, ratio, rupeesAbs } from "./strategy/plan-format";
 import type { PlanStatus } from "./strategy/plan-contract";
 import type { Idea } from "./strategy/ideas-contract";
@@ -122,6 +123,10 @@ function ScannerLevelsPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: str
       </span>
       {paper.isSuccess && <span role="status" data-testid="desk-top10-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {idea.symbol} at {fmtPrice(entry)}.</span>}
       {paper.isError && <span role="alert" data-testid="desk-top10-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}
+      {paper.isError && paper.variables && (
+        <RiskReduceOffer error={paper.error} testId="desk-top10-paper-reduce"
+          onAccept={(n) => { const last = paper.variables; if (!last) return; setQty(String(n)); paper.mutate({ ...last, quantity: n }); }} />
+      )}
     </span>
   );
 }

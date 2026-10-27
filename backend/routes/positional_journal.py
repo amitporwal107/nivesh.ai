@@ -31,8 +31,10 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from deps import db, get_current_user
+from services import paper_account as acct
 from services import risk_controls as rc
 from services import risk_gate
+from services.risk_gate import service as risk_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/positional/journal", tags=["positional-journal"])
@@ -159,59 +161,60 @@ def _exit_ladder(trade: dict, ltp: Optional[float]) -> List[Dict[str, Any]]:
     return levels
 
 
-# ── the kill switch (the F&O risk gate's flag off) ─────────────────────
-async def _kill_switch(request: Request, user: dict, *, path: str, symbol: Any = None,
-                       requested_qty: Optional[float] = None) -> None:
-    """409 risk_blocked when the user's kill switch or halt is on (or the controls cannot be read: fail closed),
-    recorded with the path, the symbol and the request's correlation id. Nothing is written before it."""
-    try:
-        await rc.assert_allowed(db, user["user_id"], "journal_trade")
-    except rc.RiskBlocked as blocked:
-        sym = symbol.strip().upper()[:20] if isinstance(symbol, str) and symbol.strip() else None
-        detail = blocked.detail("journal_trade")
-        await rc.record_decision(db, user["user_id"], action="journal_trade", outcome="blocked", symbol=sym,
-                                 requested_qty=requested_qty, reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
-                                 correlation_id=risk_gate.correlation_id(request), detail=detail, path=path)
-        raise HTTPException(status_code=409, detail=detail)
+# ── the universal risk service (services/risk_gate/service.py) ──────────
+def _entry(request: Request, user: dict, **kw: Any) -> risk_service.EntryRequest:
+    """The journal's request to the risk service: the share, the capital or fill, the levels. Everything else (the
+    last close, the sector, the account, the limits) is resolved on the server. The journal records the user's own
+    trades; the platform places nothing, so the mode is "paper"."""
+    return risk_service.EntryRequest(correlation_id=risk_gate.correlation_id(request), user_id=user["user_id"],
+                                     actor_id=rc.session_actor(user), mode="paper", instrument="cash", store=COL, **kw)
+
+
+def _plan_fills(doc: dict, fill: Optional[dict] = None) -> Dict[str, float]:
+    qty = cost = 0.0
+    for f in list(doc.get("fills") or []) + ([fill] if fill else []):
+        if (f.get("kind") or "ENTRY").upper() == "ENTRY":
+            qty += float(f.get("qty") or 0)
+            cost += float(f.get("qty") or 0) * float(f.get("price") or 0)
+    return {"cumulative_qty": qty, "cumulative_notional_rs": round(cost, 2),
+            "cumulative_avg": round(cost / qty, 4) if qty else 0.0}
 
 
 # ── CRUD ────────────────────────────────────────────────────────────────
 @router.post("")
 async def create_trade(request: Request):
-    """Open a new trade journal entry."""
+    """Open a new trade journal entry: a capital plan for one share with its stop and target. The risk service
+    judges the PLAN (its quantity at the last close, the stop, the target) against the account's limits and reserves
+    its budget; ENTRY fills later must stay inside it (add_exceeds_original_budget). 409 risk_blocked /
+    risk_reduce (with the capital that fits) / 503 risk_decision_unrecorded; nothing is written on a refusal."""
     user = await get_current_user(request)
-    gated = await risk_gate.enabled_for(db, user)
     try:
         body = await request.json()
     except ValueError:
         body = None
-    # Same kill switch as the other position-creating paths; this one had no risk gate either. With the
-    # F&O risk gate on, the same controls are the gate's first check. The body is only read here, for the
-    # symbol on the refusal's record; nothing is validated or written before the check.
-    if not gated:
-        await _kill_switch(request, user, path="journal_create",
-                           symbol=body.get("nse_symbol") if isinstance(body, dict) else None)
     if not isinstance(body, dict):
         raise HTTPException(400, "nse_symbol and capital_alloc_rs are required")
     sym = (body.get("nse_symbol") or "").upper().strip()
-    cap = float(body.get("capital_alloc_rs") or 0)
+    try:
+        cap = float(body.get("capital_alloc_rs") or 0)
+        stop = float(body.get("stop_loss") or 0)
+        target = float(body.get("target") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "capital_alloc_rs, stop_loss and target must be numbers")
     if not sym or cap <= 0:
         raise HTTPException(400, "nse_symbol and capital_alloc_rs are required")
-    decision = None
-    if gated:
-        # The journal records the user's own trades; the platform places nothing, so the gate sees "paper".
-        # The capital allocated is the capital at risk: a long share position can lose all of it.
-        decision = await risk_gate.enforce(db, risk_gate.cash_request(
-            user, risk_gate.correlation_id(request), path="journal_create", mode="paper", action="open",
-            symbol=sym, quantity=None, capital_at_risk_rs=cap))
+    trade_id = str(uuid4())
+    decision = await risk_service.enforce(db, _entry(
+        request, user, path="journal_create", action="open", symbol=sym, notional_rs=cap,
+        stop_price=stop or None, target_price=target or None, trade_id=trade_id))
 
     trade = {
-        "_id":              str(uuid4()),
+        "_id":              trade_id,
         "user_id":          user["user_id"],
         "nse_symbol":       sym,
         "capital_alloc_rs": cap,
-        "stop_loss":        float(body.get("stop_loss") or 0),
-        "target":           float(body.get("target") or 0),
+        "stop_loss":        stop,
+        "target":           target,
         "plan_source":      (body.get("plan_source") or "MANUAL").upper(),
         "pick_signal_date": body.get("pick_signal_date"),
         "entry_plan":       body.get("entry_plan") or {},
@@ -223,9 +226,16 @@ async def create_trade(request: Request):
         "created_at":       _now(),
         "updated_at":       _now(),
     }
-    if decision is not None:
-        risk_gate.stamp(trade, decision)
-    await db[COL].insert_one(trade)
+    risk_service.stamp(trade, decision)
+    trade["paper_reserved_rs"] = float(decision["budget"].get("funding_rs") or 0.0)
+    trade["risk_plan"] = {"reserved_risk_rs": (decision.get("estimated_risk_rs") or {}).get("total"),
+                          "planned_qty": decision.get("approved_qty"),
+                          "planned_entry": decision.get("planned_entry_price"), "plan_notional_rs": cap}
+    try:
+        await db[COL].insert_one(trade)
+    except Exception:
+        await risk_service.release_unused(db, user["user_id"], decision, reason="journal insert failed")
+        raise
     return _public(trade)
 
 
@@ -308,8 +318,8 @@ async def add_fill(request: Request, trade_id: str):
 
     Only the owner's OPEN trade takes a fill (409 trade_not_open otherwise), and the write is filtered
     on both, so a fill can never land on another user's trade or on a closed one. An ENTRY fill (it adds to the
-    position) is checked first: by the F&O risk gate when it is on, else by the kill switch and the halt. An EXIT
-    fill reduces risk and is not checked.
+    position) is judged first by the universal risk service (an add inside the plan's budget). An EXIT fill reduces
+    risk and is not checked.
     """
     user = await get_current_user(request)
     uid = user["user_id"]
@@ -330,25 +340,31 @@ async def add_fill(request: Request, trade_id: str):
     }
     if fill["qty"] <= 0 or fill["price"] <= 0:
         raise HTTPException(400, "qty and price must be > 0")
+    decision = None
     if fill["kind"] == "ENTRY":
-        if await risk_gate.enabled_for(db, user):
-            decision = await risk_gate.enforce(db, risk_gate.cash_request(
-                user, risk_gate.correlation_id(request), path="journal_fill", mode="paper", action="add",
-                symbol=doc.get("nse_symbol"), quantity=fill["qty"], capital_at_risk_rs=fill["qty"] * fill["price"]))
-            risk_gate.stamp(fill, decision)
-        else:
-            # An ENTRY fill adds to the position, so the kill switch applies with the flag off too. It used to be
-            # checked only inside the gate: with the flag off (staging's setting) a Rs 1 crore fill was accepted
-            # with the kill switch on, although the flag's own description says "Off = the kill-switch check only".
-            await _kill_switch(request, user, path="journal_fill", symbol=doc.get("nse_symbol"),
-                               requested_qty=fill["qty"])
+        # An ENTRY fill adds to the position: the risk service judges it as an ADD — the kill switch, the halts, the
+        # loss limits, fresh inputs, and the position kept inside the plan's reserved budget (no averaging past it).
+        # A trade recorded before Phase 1 holds no plan: the fill is then sized and reserved on its own.
+        plan = doc.get("risk_plan") or {}
+        add_plan = ({"reserved_risk_rs": plan.get("reserved_risk_rs"), "plan_notional_rs": doc.get("capital_alloc_rs"),
+                     **_plan_fills(doc, fill)} if plan.get("reserved_risk_rs") is not None else None)
+        decision = await risk_service.enforce(db, _entry(
+            request, user, path="journal_fill", action="add", symbol=doc.get("nse_symbol"), quantity=fill["qty"],
+            entry_price=fill["price"], stop_price=float(doc.get("stop_loss") or 0) or None,
+            target_price=float(doc.get("target") or 0) or None, trade_id=trade_id, add_plan=add_plan))
+        fill["correlation_id"] = decision["correlation_id"]
+        fill["risk_decision_id"] = decision["decision_id"]
+        fill["risk_reservation_id"] = decision.get("reservation_id")
 
+    inc = {"paper_reserved_rs": float(decision["budget"].get("funding_rs") or 0.0)} if decision and decision.get("reservation_id") else {}
     res = await db[COL].update_one(
         {"_id": trade_id, "user_id": uid, "status": "OPEN"},
-        {"$push": {"fills": fill}, "$set": {"updated_at": _now()}},
+        {"$push": {"fills": fill}, "$set": {"updated_at": _now()}, **({"$inc": inc} if inc else {})},
     )
     if not res.matched_count:
-        # Closed (or deleted) between the read and the write.
+        # Closed (or deleted) between the read and the write: a reservation taken for this fill goes back.
+        if decision is not None:
+            await risk_service.release_unused(db, uid, decision, reason="journal trade not open at the fill write")
         raise HTTPException(status_code=409, detail="trade_not_open")
     updated = await db[COL].find_one({"_id": trade_id, "user_id": uid})
     return {
@@ -372,8 +388,8 @@ async def close_trade(request: Request, trade_id: str):
         raise HTTPException(400, "status must be CLOSED or STOPPED")
 
     pnl = _compute_pnl(doc, None)
-    await db[COL].update_one(
-        {"_id": trade_id},
+    res = await db[COL].update_one(
+        {"_id": trade_id, "user_id": user["user_id"], "status": "OPEN"},
         {"$set": {
             "status":            status_new,
             "closed_at":         _now(),
@@ -382,6 +398,12 @@ async def close_trade(request: Request, trade_id: str):
             "updated_at":        _now(),
         }},
     )
+    if not res.matched_count:
+        # Only an OPEN trade closes, once: a second close would release its reservation twice.
+        raise HTTPException(status_code=409, detail="trade_not_open")
+    # The journal's P&L is the user's own and is not posted to paper cash; its funds and risk budget come back.
+    await acct.release(db, user["user_id"], doc.get("paper_reserved_rs"), net_pnl=None, trade_id=trade_id,
+                       symbol=doc.get("nse_symbol"))
     return {"ok": True, "status": status_new, "pnl": pnl}
 
 
@@ -389,9 +411,14 @@ async def close_trade(request: Request, trade_id: str):
 async def delete_trade(request: Request, trade_id: str):
     """Hard-delete a trade entry (use sparingly — prefer close)."""
     user = await get_current_user(request)
+    doc = await db[COL].find_one({"_id": trade_id, "user_id": user["user_id"]})
     res = await db[COL].delete_one({"_id": trade_id, "user_id": user["user_id"]})
     if res.deleted_count == 0:
         raise HTTPException(404, "trade not found")
+    if doc and doc.get("status") == "OPEN":
+        # A deleted open trade frees what it reserved (funds and risk), exactly once.
+        await acct.release(db, user["user_id"], doc.get("paper_reserved_rs"), net_pnl=None, trade_id=trade_id,
+                           symbol=doc.get("nse_symbol"))
     return {"ok": True, "deleted": trade_id}
 
 

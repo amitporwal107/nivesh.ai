@@ -75,11 +75,11 @@ def test_k1_to_k3_the_desk_refuses_cash_and_structures_while_a_control_is_on(cap
     assert gate.db.trades.docs == [] and untouched_account(gate)
     rows = decisions(gate)
     assert len(rows) == 2 and {row["outcome"] for row in rows} == {"blocked"}
-    if gate_on:
-        assert {row["source"] for row in rows} == {"risk_gate"}
-    else:
-        assert [(row["path"], row["symbol"], row["correlation_id"], row["reasons"][0]["code"]) for row in rows] == [
-            ("desk_paper_trade", "FIXA", "corr-ks", "RISK_CONTROL"), ("desk_paper_trade", "FIXU", "corr-ks", "RISK_CONTROL")]
+    # Phase 1: the universal risk service decides with the flag on OR off, so both settings answer the same way.
+    code = "kill_switch_on" if field == "kill_switch" else "trading_halted"
+    assert {row["source"] for row in rows} == {"risk_service"}
+    assert [(row["path"], row["symbol"], row["correlation_id"], row["reasons"][0]["code"]) for row in rows] == [
+        ("desk_paper_trade", "FIXA", "corr-ks", code), ("desk_paper_trade", "FIXU", "corr-ks", code)]
 
 
 @pytest.mark.parametrize("gate_on", [False, True])
@@ -123,7 +123,9 @@ def test_i1_i2_the_same_key_twice_is_one_trade_and_one_reservation(capi, gate, b
     assert doc["idempotency_key"] == KEY and doc["request_fingerprint"] == svc.request_fingerprint(body)
     assert [a for a, _ in ledger(gate)] == ["reserve"]
     assert account(gate)["blocked_rs"] == doc["paper_reserved_rs"]
-    assert decisions(gate) == []                                   # a replay is not a refusal
+    # One decision: the first submit's (allowed, Phase 1 records every decision). A replay is not decided again.
+    assert [(row["outcome"], row["_id"]) for row in decisions(gate)] == [("allowed", doc["risk_decision_id"])]
+    assert len(account(gate)["reservations"]) == 1
 
 
 def test_i3_the_same_key_with_another_body_is_a_conflict_and_records_it(capi, gate):
@@ -134,7 +136,7 @@ def test_i3_the_same_key_with_another_body_is_a_conflict_and_records_it(capi, ga
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "idempotency_conflict" and r.json()["detail"]["existing_trade_id"] == first["id"]
     assert len(gate.db.trades.docs) == 1 and [a for a, _ in ledger(gate)] == ["reserve"]
-    (row,) = decisions(gate)
+    (row,) = [row for row in decisions(gate) if row["outcome"] == "blocked"]
     assert (row["reasons"][0]["code"], row["correlation_id"], row["requested_qty"]) == ("idempotency_conflict", "corr-i3", 20)
 
 
@@ -171,8 +173,10 @@ def test_i5_a_race_on_one_key_answers_with_the_winners_trade_and_returns_the_los
     r = capi.post(TRADES_URL, json=trade_body(), headers=headers)
     assert r.status_code == 200 and r.json()["replayed"] is True and r.json()["trade"]["id"] == first["id"]
     assert len(col.docs) == 1
-    assert ledger(gate) == [("reserve", 1000.0), ("reserve", 1000.0), ("release", 1000.0)]
-    assert account(gate)["blocked_rs"] == 1000.0                     # net: one reservation
+    # Phase 1: the retry is refused BEFORE it reserves (the risk service's already-held check reads the winner's open
+    # position), and the route answers with the winner's trade. One reservation, never two.
+    assert ledger(gate) == [("reserve", 1000.0)]
+    assert account(gate)["blocked_rs"] == 1000.0 and len(account(gate)["reservations"]) == 1
 
 
 def test_i6_i7_a_second_open_trade_in_the_symbol_is_refused_with_the_existing_id(capi, gate):
@@ -186,7 +190,7 @@ def test_i6_i7_a_second_open_trade_in_the_symbol_is_refused_with_the_existing_id
         assert (detail["code"], detail["existing_trade_id"], detail["symbol"]) == ("duplicate_open_trade", first["id"], "FIXA")
         assert "not supported yet" in detail["message"]
     assert len(gate.db.trades.docs) == 1 and [a for a, _ in ledger(gate)] == ["reserve"]
-    assert [(row["reasons"][0]["code"], row["correlation_id"]) for row in decisions(gate)] == [
+    assert [(row["reasons"][0]["code"], row["correlation_id"]) for row in decisions(gate) if row["outcome"] == "blocked"] == [
         ("duplicate_open_trade", "corr-dup")] * 2
 
 
@@ -253,9 +257,12 @@ def test_i12_a_race_on_the_open_position_index_is_a_duplicate_and_returns_the_re
 
     monkeypatch.setattr(col, "find", find)
     r = capi.post(TRADES_URL, json=trade_body(quantity=5), headers=A)
-    assert r.status_code == 409 and r.json()["detail"]["existing_trade_id"] == first["id"]
+    # Phase 1: the duplicate check's stale read no longer reaches the insert: the risk service sees the open position
+    # and refuses (ALREADY_HELD), before anything is reserved. (The atomic reservation's held_symbols would refuse it
+    # too, and the unique index after that.)
+    assert r.status_code == 409 and "ALREADY_HELD" in [x["code"] for x in r.json()["detail"]["reasons"]]
     assert len(col.docs) == 1
-    assert ledger(gate) == [("reserve", 1000.0), ("reserve", 500.0), ("release", 500.0)]
+    assert ledger(gate) == [("reserve", 1000.0)]
     assert account(gate)["blocked_rs"] == 1000.0
 
 
@@ -350,25 +357,36 @@ def test_f8_with_the_gate_on_its_own_lot_check_decides_and_the_desk_does_not_loo
     monkeypatch.setattr(reference, "lookup", counting)
     gate.refs[EXPIRY] = _listed(75)
     r = capi.post(TRADES_URL, json=strategy_body(), headers=A)
-    assert r.status_code == 409 and [x["code"] for x in r.json()["detail"]["reasons"]] == ["lot_size_mismatch"] * 2
-    assert calls == ["FIXU"]                                          # the gate's one lookup
+    # Phase 1: the desk's own lot check runs whatever the flag says and refuses first (422); the service is not reached.
+    assert r.status_code == 422 and code_of(r) == "lot_size_mismatch"
+    assert calls == ["FIXU"]                                          # one lookup
 
 
 # ── The refusal audit ────────────────────────────────────────────────────────
 def _fill_the_book(world):
-    for i in range(svc.MAX_OPEN_TRADES):
+    """MOCK: 10 open positions with marks: the governor's open-position limit, now on every path (Phase 1)."""
+    import copy
+    from tests.test_desk_trading import HISTORY
+    for i in range(10):
         world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), world.now), "_id": f"t{i}"})
+        world.rows[f"FX{i}"] = copy.deepcopy(HISTORY["FIXA"])
+
+
+def _spend_the_cash(world):
+    """MOCK: Rs 500 left available (cash Rs 10 lakh, Rs 9,99,500 blocked by positions not in this book)."""
+    world.db.cols[acct.ACCOUNTS].docs.append({"user_id": "user_a", "cash_rs": 1_000_000.0, "blocked_rs": 999_500.0,
+                                              "starting_capital_rs": 1_000_000.0})
 
 
 REFUSALS = [
     ("kill switch", lambda w: run(rc.set_control(w.db, "user_a", field="kill_switch", value=True, reason="s", actor="user_a")),
-     trade_body(), 409, "RISK_CONTROL", "FIXA"),
+     trade_body(), 409, "kill_switch_on", "FIXA"),
     ("validator", None, trade_body(stop_price=120.0), 422, "stop_not_below_entry", "FIXA"),
     ("unparseable body", None, None, 422, "invalid_body", None),
     ("duplicate", lambda w: w.db.trades.docs.append({**svc.new_trade("user_a", trade_body(), w.now), "open_key": "cash:FIXA"}),
      trade_body(), 409, "duplicate_open_trade", "FIXA"),
-    ("funds", None, trade_body(quantity=200_000), 409, "insufficient_paper_funds", "FIXA"),
-    ("open-trade limit", _fill_the_book, trade_body(), 409, "open_trade_limit", "FIXA"),
+    ("funds", _spend_the_cash, trade_body(), 409, "insufficient_paper_funds", "FIXA"),
+    ("open-position limit", _fill_the_book, trade_body(), 409, "MAX_POSITIONS", "FIXA"),
     ("lot size", None, strategy_body(legs=[call("buy", 1300, 40, lot_size=1), call("sell", 1360, 15, lot_size=1)]), 422,
      "lot_size_mismatch", "FIXU"),
 ]
@@ -388,7 +406,10 @@ def test_a1_every_refusal_is_recorded_with_its_code_path_and_correlation_id(capi
     (row,) = decisions(gate)
     assert (row["action"], row["outcome"], row["path"], row["correlation_id"]) == (
         "desk_paper_trade", "blocked", "desk_paper_trade", "corr-a1")
-    assert row["reasons"][0]["code"] == code and row["symbol"] == symbol and row["detail"]["http_status"] == status
+    assert code in [x["code"] for x in row["reasons"]] and row["symbol"] == symbol
+    assert row["policy_version"] == "universal-risk-v1"
+    if row.get("source") != "risk_service":                          # the desk's own refusals carry the HTTP status
+        assert row["detail"]["http_status"] == status
 
 
 def test_a2_a_refusal_stands_when_its_record_cannot_be_written(capi, gate, monkeypatch):
