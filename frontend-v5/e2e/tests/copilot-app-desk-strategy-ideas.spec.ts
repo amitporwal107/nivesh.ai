@@ -533,7 +533,8 @@ test.describe("MOCK - not real data: Strategy Builder, from AI opportunities", (
     expect(q.get("mode")).toBe("ideas");
     expect(q.has("focus")).toBe(false);
     await expect(page.getByTestId("ideas-view")).toBeVisible();
-    expect(st.ideas).toHaveLength(1);
+    // Desk redesign (2026-10-27): Market Overview also hosts the Top 10, which posts { limit: 10 }; the board posted once.
+    expect(st.ideas.filter((b) => b.limit !== 10)).toHaveLength(1);
 
     await page.goto(DESK);
     const rowLink = page.locator('li:has([data-testid="desk-opp"][data-symbol="TESTBRK"])').getByTestId("desk-opp-strategies");

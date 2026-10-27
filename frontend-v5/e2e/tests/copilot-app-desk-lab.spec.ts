@@ -1911,7 +1911,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     await expect(why).not.toContainText("long shares only");
     await expect(page.getByTestId("desk-builder-full")).toBeEnabled();
     await page.getByTestId("desk-builder-full").click();
-    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/[?&]view=new(&|$)/); // was view=strategy (More · Strategy Builder) before the 2026-10-27 redesign
     await expect(page).toHaveURL(/src_kind=lab/);
   });
 

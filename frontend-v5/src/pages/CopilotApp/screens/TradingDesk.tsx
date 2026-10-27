@@ -45,7 +45,7 @@ import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
 import { DeskProvider, type DeskPersona, type DeskState, type DeskTab, type LabView } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import {
-  DESK_SECTIONS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, crumbsOf, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
+  DESK_SECTIONS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
   type DeskLocation, type DeskPlace, type DeskSection,
 } from "./tradingdesk/desk-nav";
 import { usePaperTrades } from "./tradingdesk/desk-trading";
@@ -462,7 +462,7 @@ export default function TradingDeskScreen() {
       const v = view === undefined ? defaultView(tab) : view;
       if (v) p.set("view", v);
       for (const [k, val] of Object.entries(extra ?? {})) p.set(k, val);
-      return p;
+      return canonical(p);
     }, { replace: true });
   }, [setParams]);
 
@@ -473,7 +473,7 @@ export default function TradingDeskScreen() {
         if (v === null) p.delete(k);
         else p.set(k, v);
       }
-      return p;
+      return canonical(p);
     }, { replace: true });
   }, [setParams]);
 

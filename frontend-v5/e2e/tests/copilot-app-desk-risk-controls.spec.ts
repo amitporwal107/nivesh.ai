@@ -204,6 +204,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(page.getByTestId("risk-scope")).toHaveText(`Covers: ${SCOPE}.`);
     await expect(page.getByTestId("risk-scope-note")).toHaveText(`Not covered: ${NOT_IN_SCOPE}.`);
     await expect(page.getByTestId("risk-trust-status")).toHaveText("Risk controls · risk-controls-v1");
+    await page.getByTestId("desk-view-limits").click(); // the gate pill heads the policy card, on Limits & budgets since 2026-10-27
     await expect(page.getByTestId("risk-gate-on")).toHaveText("Gate on");
     // Off: no header pill, and reading the screen writes nothing.
     await expect(page.getByTestId("desk-risk-pill")).toHaveCount(0);
@@ -286,6 +287,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(kill.getByTestId("risk-kill-off")).toHaveCount(0);
     await expect(kill.getByTestId("risk-kill-admin-only")).toHaveText("Only an admin can turn the kill switch off.");
     // The audit re-reads and shows the change; the header pill appears.
+    await page.getByTestId("desk-view-log").click(); // control changes are on Decision log since 2026-10-27
     await expect(page.getByTestId("risk-audit-event")).toHaveCount(1);
     await expect(page.getByTestId("risk-audit-change")).toHaveText("Kill switch: off → on");
     await expect(page.getByTestId("risk-audit-reason")).toHaveText("“Stop for today”");
@@ -441,6 +443,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(page.getByTestId("risk-status")).not.toContainText("Off");
     await expect(page.getByTestId("desk-risk-pill")).toHaveCount(0);
     // The rest of the page still reads.
+    await page.getByTestId("desk-view-limits").click(); // the policy card is on Limits & budgets since 2026-10-27
     await expect(page.getByTestId("risk-policy-table")).toBeVisible();
 
     // mockApi's catch-all {} (what every other desk spec answers): also unknown, also no pill.

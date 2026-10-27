@@ -39,7 +39,10 @@ test.describe("desk widget template", () => {
   });
 
   test("TC-1 every widget on every desk tab has a toggle and a resize handle, with unique ids", async ({ page }) => {
-    const tabs = ["overview", "scanner", "intel", "chart", "portfolio", "smartmoney", "events", "fno"];
+    // Desk redesign (2026-10-27): the old tabs' screens now share pages, so the walk visits each new place once (the old
+    // scanner, events and fno URLs land on Market Overview, Market Intelligence and Smart Money), and has more widgets a page.
+    test.setTimeout(90_000);
+    const tabs = ["overview&section=scanner", "market&view=intel", "market&view=research", "portfolio", "market&view=smartmoney", "trade&view=paper"];
     const seen = new Set<string>();
     let total = 0;
     for (const tab of tabs) {

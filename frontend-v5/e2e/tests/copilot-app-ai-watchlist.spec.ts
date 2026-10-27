@@ -203,7 +203,7 @@ test.describe("AI scanner watchlist", () => {
       .toEqual(["trade", "new", "stock", "1", "ICICIBANK", "options:bull_call_spread", "ideas", "2026-10-26"]);
     await page.goBack();
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chart").click(SLOW);
-    expect([params(page).get("tab"), params(page).get("sym")]).toEqual(["chart", "ICICIBANK"]);
+    expect([params(page).get("tab"), params(page).get("sym")]).toEqual(["market", "ICICIBANK"]); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await page.goBack();
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chain").click(SLOW);
     expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["fno", "chain", "ICICIBANK"]);
@@ -256,7 +256,7 @@ test.describe("AI scanner watchlist", () => {
     await page.goBack();
     await page.getByTestId("aiw-seg-fno").click(SLOW);
     await page.getByTestId("aiw-fno-MPHASIS").getByTestId("aiw-fno-buildup").click();
-    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["fno", null, "MPHASIS"]);
+    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["market", null, "MPHASIS"]); // the lab is Smart Money's F&O section since 2026-10-27
   });
 
   test("L-1 an F&O idea with levels stored with the day: shown labelled and dated, and its paper trade posts the contract body", async ({ page }) => {

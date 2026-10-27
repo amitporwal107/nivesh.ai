@@ -304,7 +304,7 @@ test.describe("Smart trading desk — shell", () => {
 
     // Lower case in the link is read as the NSE symbol.
     await page.goto(`${DESK}?tab=chart&sym=reliance`);
-    await expect(desk(page)).toHaveAttribute("data-tab", "chart");
+    await expect(desk(page)).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await expect(desk(page)).toHaveAttribute("data-symbol", "RELIANCE");
     await expect(page.getByTestId("desk-tab-chart")).toHaveAttribute("aria-selected", "true");
     // Changing tab keeps the stock (the link's own spelling stays in the URL).
@@ -317,7 +317,7 @@ test.describe("Smart trading desk — shell", () => {
     await page.goto(`${DESK}?tab=chart&sym=${encodeURIComponent("M&M")}`);
     await expect(desk(page)).toHaveAttribute("data-symbol", "M&M");
     await page.goto(`${DESK}?tab=chart&sym=${encodeURIComponent("<img src=x>")}`);
-    await expect(desk(page)).toHaveAttribute("data-tab", "chart");
+    await expect(desk(page)).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await expect(desk(page)).toHaveAttribute("data-symbol", "");
   });
 
@@ -636,12 +636,12 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     await expect(desk(page)).toHaveAttribute("data-tab", "overview");
     await expect(page.getByTestId("desk-search")).toHaveValue("");
     await page.getByTestId("desk-search-picked").getByRole("button", { name: /Chart/ }).click();
-    await expect(desk(page)).toHaveAttribute("data-tab", "chart");
+    await expect(desk(page)).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await page.getByTestId("desk-search").fill("Why is IT strong today?");
     await page.getByTestId("desk-search").press("Enter");
     await expect.poll(() => chat.streams.length).toBe(1);
     expect(chat.streams[0]).toMatchObject({ message: "Why is IT strong today?", persona: "trader" });
-    await expect(desk(page)).toHaveAttribute("data-tab", "chart");
+    await expect(desk(page)).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
 
     // In NSE hours: the live tape says so; delayed quotes say delayed.
     await page.route("**/api/markets/home", (route) => json(route, { ...HOME, market_state: "open", is_live: true }));
@@ -937,7 +937,7 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
 
     // A row opens its chart; See all opens the scanner.
     await rows.first().click();
-    await expect(desk(page)).toHaveAttribute("data-tab", "chart");
+    await expect(desk(page)).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await expect(desk(page)).toHaveAttribute("data-symbol", "TESTPICK");
     await page.goto(`${DESK}?tab=overview`);
     await page.getByTestId("desk-top-opps-all").click();
