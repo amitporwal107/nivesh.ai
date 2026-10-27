@@ -114,13 +114,13 @@ export function regimeFactor(regime: string | null, vix: number | null): RegimeF
   let factor = 1;
   const parts: string[] = [];
   const deferred = vix != null && vix >= VIX_DEFER_AT;
-  if (vix != null && vix >= VIX_REDUCE_AT && vix < VIX_DEFER_AT) {
-    factor *= SIZE_FACTOR;
-    parts.push(`India VIX ${vix} (at or above ${VIX_REDUCE_AT})`);
-  }
   if (regime === "BEAR") {
     factor *= SIZE_FACTOR;
     parts.push("BEAR regime");
+  }
+  if (vix != null && vix >= VIX_REDUCE_AT && vix < VIX_DEFER_AT) {
+    factor *= SIZE_FACTOR;
+    parts.push(`India VIX ${vix}, at or above ${VIX_REDUCE_AT}`);
   }
   return { factor: deferred ? null : factor, parts, regimeKnown: regime != null, deferred };
 }

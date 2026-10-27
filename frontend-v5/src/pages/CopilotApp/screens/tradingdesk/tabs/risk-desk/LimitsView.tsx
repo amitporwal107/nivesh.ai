@@ -110,7 +110,9 @@ function LimitRows({ view }: { view: RiskProfileView }) {
 
 function Reserved({ view, maxPositions }: { view: RiskProfileView; maxPositions: number }) {
   const l = view.live;
-  const reserved = l?.open.riskRs ?? null;
+  // Reserved at entry by the risk service; older routes send only the total.
+  const reserved = l ? l.open.reservedRiskRs ?? l.open.riskRs : null;
+  const legacy = l?.open.legacyRiskRs ?? null;
   const cap = l?.budgetsRs.open_risk ?? null;
   const n = l?.open.positions ?? null;
   return (
@@ -119,7 +121,12 @@ function Reserved({ view, maxPositions }: { view: RiskProfileView; maxPositions:
         <span data-testid="rd-reserved" style={{ fontSize: 14, color: "var(--cp-ink)", overflowWrap: "anywhere" }}>
           Open risk reserved {reserved == null ? UNKNOWN : fmtINR(reserved)} of {cap == null ? UNKNOWN : fmtINR(cap)} ({limitText("max_open_risk_pct", view.profile.limits.max_open_risk_pct ?? null)})
         </span>
-        <UseBar used={reserved} limit={cap} label="Open risk reserved" />
+        <UseBar used={l?.open.riskRs ?? null} limit={cap} label="Open risk" />
+        {legacy != null && legacy > 0 && (
+          <span data-testid="rd-reserved-legacy" style={{ ...quiet, overflowWrap: "anywhere" }}>
+            Plus {fmtINR(legacy)} estimated on positions opened before the risk profile (not reserved). The open-risk limit counts both: {fmtINR(l?.open.riskRs ?? null)}.
+          </span>
+        )}
         <span style={quiet}>Each entry reserves its estimated risk when it is allowed: the loss at the stop, plus round-trip costs and a gap stress. Closing the trade releases it.</span>
       </div>
       <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>

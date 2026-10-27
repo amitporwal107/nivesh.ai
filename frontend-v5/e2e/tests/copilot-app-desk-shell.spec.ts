@@ -40,9 +40,10 @@ const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "market/research": [["desk-panel-chart", null]],
   "market/screener": [["desk-panel-screener", "screen-tool-screener"], ["desk-panel-chartink", "chartink-settings"]],
   "market/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
-  "risk/limits": [["risk-controls", "risk-policy"]],
-  "risk/controls": [["risk-controls", "risk-status"], ["risk-controls", "risk-profile"], ["desk-panel-live", null]],
-  "risk/log": [["risk-controls", "risk-decisions"], ["risk-controls", "risk-audit"], ["desk-panel-audit", null]],
+  // The Risk Desk tab (step 4, tradingdesk/tabs/risk-desk) replaces the re-hosted Risk controls, F&O Live and Audit.
+  "risk/limits": [["risk-desk", "rd-limits-card"], ["risk-desk", "risk-policy"]],
+  "risk/controls": [["risk-desk", "risk-status"], ["risk-desk", "risk-audit"], ["risk-desk", "risk-profile"], ["risk-desk", "rd-live"]],
+  "risk/log": [["risk-desk", "risk-decisions"]],
 };
 const LOCATIONS = ["overview", ...Object.keys(VIEW_HOST), "portfolio"];
 const urlOf = (loc: string) => {

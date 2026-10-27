@@ -97,7 +97,11 @@ export interface RiskLive {
   open: {
     positions: number | null;
     legacyPositions: number | null;
+    /** Total open risk: reserved at entry plus the estimate on positions opened before the profile (risk_book.read). */
     riskRs: number | null;
+    /** The part reserved at entry by the risk service's decisions; null when the route did not send it. */
+    reservedRiskRs: number | null;
+    legacyRiskRs: number | null;
     exposureRs: number | null;
     sectors: Array<{ sector: string; rs: number }>;
   };
@@ -166,7 +170,8 @@ function readLive(v: unknown): { live: RiskLive | null; error: string | null } {
       day: readPeriod(l.day), week: readPeriod(l.week),
       open: {
         positions: num(open.positions), legacyPositions: num(open.legacy_positions),
-        riskRs: num(open.risk_rs), exposureRs: num(open.exposure_rs), sectors,
+        riskRs: num(open.risk_rs), reservedRiskRs: num(open.reserved_risk_rs), legacyRiskRs: num(open.legacy_risk_rs),
+        exposureRs: num(open.exposure_rs), sectors,
       },
       budgetsRs: Object.fromEntries(Object.values(BUDGET_OF).map((k) => [k, num(budgets[k])])),
     },
