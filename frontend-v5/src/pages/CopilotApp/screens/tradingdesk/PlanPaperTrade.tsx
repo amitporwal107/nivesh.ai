@@ -8,7 +8,7 @@
  * applies). A 409 risk_reduce offers the size the risk service allows (RiskReduce.tsx). The body is pinned by
  * e2e/fixtures/contract-trade-plan-paper.json. Simulated; nothing is sent to a broker.
  */
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Btn, fmtNum } from "../../components/ui";
 import { fmtPrice } from "../trading/parts";
 import { ENTRY_RULE_SHORT, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type EntryRule, type NewPaperTrade } from "./desk-trading";
@@ -40,8 +40,13 @@ export function PlanPaperTrade({ tp: rowPlan, symbol, source, sized, testPrefix 
   // A share trade is built from the plan alone, so it records whichever version the card shows.
   const view = usePlanView(rowPlan, { recordsShownPlan: true });
   const tp = view?.plan ?? rowPlan;
+  // The quantity is the risk service's size for this account (account_size), the size a submission is approved at when no
+  // portfolio limit binds; filled in once it is read, unless the user has typed one. Without it the field starts as before.
+  const accountQty = view?.accountSize?.status === "sized" ? view.accountSize.quantity : null;
   const planSized = tp.size?.status === "complete" && tp.size.quantity != null ? tp.size.quantity : null;
-  const [qty, setQty] = useState(planSized != null ? String(planSized) : sized != null ? String(sized) : "");
+  const [qty, setQty] = useState(accountQty != null ? String(accountQty) : planSized != null ? String(planSized) : sized != null ? String(sized) : "");
+  const [typed, setTyped] = useState(false);
+  useEffect(() => { if (!typed && accountQty != null) setQty(String(accountQty)); }, [accountQty, typed]);
   const blocked = view?.gate ?? null;
   const q = Number(qty.trim());
   const ok = /^\d+$/.test(qty.trim()) && q >= 1 && q <= 1_000_000;
@@ -58,7 +63,7 @@ export function PlanPaperTrade({ tp: rowPlan, symbol, source, sized, testPrefix 
         <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
           <label htmlFor={id} style={quiet}>Shares</label>
           <input id={id} data-testid={`${testPrefix}-qty`} inputMode="numeric" value={qty} placeholder="Qty"
-            onChange={(e) => { paper.reset(); setQty(e.target.value); }}
+            onChange={(e) => { paper.reset(); setTyped(true); setQty(e.target.value); }}
             style={{ width: 80, height: 30, padding: "0 8px", borderRadius: 8, border: "1px solid var(--line-2)", background: "var(--bg-2)", color: "var(--cp-ink)", fontSize: 12.5 }} />
           <Btn variant="primary" data-testid={`${testPrefix}-add`} disabled={!body || paper.isPending || paper.isSuccess}
             onClick={() => { if (body) paper.mutate(body); }} style={{ padding: "5px 12px", fontSize: 12 }}>
@@ -69,7 +74,7 @@ export function PlanPaperTrade({ tp: rowPlan, symbol, source, sized, testPrefix 
       <span style={quiet}>
         At the plan’s levels (<span data-testid={`${testPrefix}-rule`} data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>)
         {maxHoldNote(maxHoldFor(planMaxHold(tp)))}
-        {planSized != null ? `; ${fmtNum(planSized)} is the plan’s sized quantity` : ""}. Plan {tp.plan_id}
+        {accountQty != null ? `; ${fmtNum(accountQty)} is the risk service’s size for your account` : planSized != null ? `; ${fmtNum(planSized)} is the plan’s sized quantity` : ""}. Plan {tp.plan_id}
         {tp.version != null && tp.version > 1 ? ` (version ${tp.version})` : ""}. Simulated; nothing is sent to a broker.
       </span>
       {paper.isSuccess && <span role="status" data-testid={`${testPrefix}-done`} style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {symbol} at {fmtPrice(tp.entry.price ?? null)}.</span>}

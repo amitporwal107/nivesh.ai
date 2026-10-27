@@ -118,6 +118,10 @@ def test_be11_the_plan_route_carries_only_real_risk_decisions(built):
     assert blocked["paper_status"] == 409 and blocked["paper_detail"]["code"] == "risk_blocked"
     bd = blocked["trade_plan_response"]["risk_decision"]
     assert bd["outcome"] == "block" and "kill_switch_on" in [r["code"] for r in bd["reasons"]]
+    # a BEAR regime: the size carries the factor once and is not allowed as is (Phase 1 finding); F&O over the budget
+    bear = b["cash"]["bear_default_response"]["account_size"]
+    assert bear["status"] == "not_confirmed" and [f["code"] for f in bear["factors"]] == ["BEAR_REGIME"]
+    assert b["fno"]["trade_plan_response_default"]["account_size"]["status"] == "not_sizable"
     # the profile the card reads its equity basis from
     p = b["risk_profile"]
     assert p["live"]["equity"]["equity_rs"] == 1000000.0 and p["profile"]["capital_basis"] == "paper_equity"

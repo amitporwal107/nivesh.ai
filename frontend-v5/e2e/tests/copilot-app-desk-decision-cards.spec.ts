@@ -39,26 +39,32 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const n2 = (n: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 const rs = (n: number) => `₹${n2(n)}`;
 const targets = (tp: { targets: Array<{ price: number; r_multiple: number }> }) => tp.targets.map((t) => `${rs(t.price)} (${n2(t.r_multiple)}R)`).join(" · ");
-const pctOf = (risk: number) => n2(Math.round((risk / EQUITY) * 100 * 1000) / 1000);
+const int = (n: number) => new Intl.NumberFormat("en-IN").format(n);
+/** The account's size, risk and costs: the route's `account_size` (the risk service's own sizing), never the plan's own. */
+const sized = (a: { quantity: number | null; lots: number | null; lot_size: number | null; estimated_risk_rs: { total: number; costs: number }; risk_pct_of_equity: number }) => ({
+  size: a.lots != null ? `Size ${a.lots} lot${a.lots === 1 ? "" : "s"} × ${a.lot_size}` : `Size ${int(a.quantity as number)} shares`,
+  risk: `Risk ${rs(a.estimated_risk_rs.total)} (${n2(a.risk_pct_of_equity)}% of equity)`,
+  costs: `Est. costs ${rs(a.estimated_risk_rs.costs)}`,
+});
 const EXPECT_CASH = {
   entry: `Entry ${rs(CASH.entry.price)} (at the close)`,
   stop: `Stop ${rs(CASH.stop.price)} (${CASH.stop.atr_multiple}×ATR below ${CASH.stop.measured_from})`,
   targets: `Targets ${targets(CASH)}`,
-  size: `Size ${new Intl.NumberFormat("en-IN").format(CASH.size.quantity)} shares`,
-  risk: `Risk ${rs(CASH.size.risk_rs)} (${pctOf(CASH.size.risk_rs)}% of equity)`,
-  costs: `Est. costs ${rs(CASH.costs.breakdown_at_stop.total)}`,
+  ...sized(CARD.cash.trade_plan_response.account_size),
 };
 const EXPECT_FNO = {
   entry: `Entry net premium ${rs(Math.abs(FNO.entry.net_premium_rs))} debit (at the premiums)`,
   stop: `Stop ${rs(FNO.stop.price)} (underlying invalidation)`,
   targets: `Targets ${targets(FNO)}`,
-  size: `Size ${FNO.size.lots} lot × ${FNO.size.lot_size}`,
-  risk: `Risk ${rs(FNO.size.risk_rs)} (${pctOf(FNO.size.risk_rs)}% of equity)`,
-  costs: `Est. costs ${rs(FNO.costs.breakdown_round_trip_at_entry.total)}`,
+  ...sized(FNO_GET.account_size),
 };
 const LINE = ["entry", "stop", "targets", "size", "risk", "costs"] as const;
 
+/** Waits until the card has read its plan from GET /api/desk/trade-plans/{id} (status, sizing, risk decision). */
+const ready = (card: Locator) => expect(card).toHaveAttribute("data-store", "read", SLOW);
+
 async function lineOf(card: Locator) {
+  await ready(card);
   const out: Record<string, string> = {};
   for (const k of LINE) out[k] = (await card.getByTestId(`dc-${k}`).innerText()).replace(/\s+/g, " ").trim();
   return out;
@@ -200,7 +206,7 @@ test.describe("Decision cards — the surfaces", () => {
     const fc = page.getByTestId("cand-decision-card");
     await expect(fc).toHaveAttribute("data-plan-id", fut.trade_plan.plan_id, SLOW);
     await expect(fc.getByTestId("dc-status")).toHaveText("Rejected");
-    await expect(fc.getByTestId("dc-size")).toContainText(`unavailable: the smallest size is more than the risk budget (${rs(fut.trade_plan.size.risk_budget_rs)})`);
+    await expect(fc.getByTestId("dc-size")).toContainText("unavailable: the plan was not sized for your account");     // MOCK answer without account_size
     await expect(fc.getByTestId("dc-sec-setup")).toContainText(`lot ${new Intl.NumberFormat("en-IN").format(fut.trade_plan.instrument.lot_size)}`);
     await expect(fc.getByTestId("dc-rejection")).toContainText(fut.trade_plan.eligibility.reasons[0].message.slice(0, 30));
     await expect(fc.getByTestId("dc-action")).toHaveAttribute("data-enabled", "false");
@@ -314,7 +320,8 @@ test.describe("Decision cards — states", () => {
     await setup(page);
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
-    await expect(card).toHaveAttribute("data-approval", "provisional", SLOW);
+    await ready(card);
+    await expect(card).toHaveAttribute("data-approval", "provisional");
     const provisional = await card.evaluate((el) => getComputedStyle(el).borderStyle);
     // the REAL allow decision on this plan (contract fixture: loosest profile, 113 shares written)
     await setup(page, { plans: { [CASH.plan_id]: { status: 200, body: CARD.cash.allowed.trade_plan_response } } });
@@ -335,7 +342,8 @@ test.describe("Decision cards — states", () => {
     await setup(page, { profile: { status: 200, body: profile }, plans: { [CASH.plan_id]: { status: 200, body: CARD.cash.allowed.trade_plan_response } } });
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
-    await expect(card).toHaveAttribute("data-approval", "provisional", SLOW);
+    await ready(card);
+    await expect(card).toHaveAttribute("data-approval", "provisional");
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-risk-stale")).toContainText("your risk profile has changed since (now rp-9-MOCKCHANGED)");
   });
@@ -357,29 +365,37 @@ test.describe("Decision cards — states", () => {
     await setup(page, { killSwitch: true, plans: { [CASH.plan_id]: { status: 200, body: blocked } } });   // its kill switch is still on
     await page.goto(SCANNER);
     const b = stockRow(page).getByTestId("desk-top10-card");
-    await expect(b).toHaveAttribute("data-approval", "block", SLOW);
-    await expect(b.getByTestId("dc-action")).toContainText("Paper trade off: Blocked by the risk service");
+    await ready(b);
+    await expect(b).toHaveAttribute("data-approval", "block");
+    // the switch is still on, so the account's sizing refuses it too (that reason is given first), and the action is off
+    await expect(b.getByTestId("dc-action")).toContainText("Paper trade off: The risk service would refuse this plan for your account: The kill switch is on");
     await stockRow(page).getByTestId("desk-top10-stock-paper").click();
-    await expect(stockRow(page).getByTestId("desk-top10-paper-blocked")).toContainText("Blocked by the risk service");
+    await expect(stockRow(page).getByTestId("desk-top10-paper-blocked")).toContainText("The kill switch is on");
   });
 
+/** MOCK combination: the REAL block decision of the kill-switch user, with the REAL sizing of an account whose switch is off
+ *  (both from the contract fixture), as the plan route would answer once the switch was turned off. */
+const blockedThenSwitchOff = () => ({ ...clone(CARD.cash.blocked.trade_plan_response), account_size: CARD.cash.trade_plan_response.account_size });
+
   test("UI-8f2 a block the kill switch caused stops applying once the switch is off", async ({ page }) => {
-    const blocked = CARD.cash.blocked.trade_plan_response;
+    const blocked = blockedThenSwitchOff();
     await page.clock.setFixedTime(new Date(blocked.risk_decision.at));
     await setup(page, { killSwitch: false, plans: { [CASH.plan_id]: { status: 200, body: blocked } } });
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
-    await expect(card).toHaveAttribute("data-approval", "provisional", SLOW);
+    await ready(card);
+    await expect(card).toHaveAttribute("data-approval", "provisional");
     await expect(card.getByTestId("dc-action")).toHaveAttribute("data-enabled", "true");
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-risk-stale")).toContainText("the kill switch or halt that caused it is now off");
   });
 
   test("UI-8g a block from an earlier session no longer decides the plan: the next submission is decided again", async ({ page }) => {
-    await setup(page, { plans: { [CASH.plan_id]: { status: 200, body: CARD.cash.blocked.trade_plan_response } } });
+    await setup(page, { plans: { [CASH.plan_id]: { status: 200, body: blockedThenSwitchOff() } } });
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
-    await expect(card).toHaveAttribute("data-approval", "provisional", SLOW);
+    await ready(card);
+    await expect(card).toHaveAttribute("data-approval", "provisional");
     await expect(card.getByTestId("dc-action")).toHaveAttribute("data-enabled", "true");
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-risk-stale")).toContainText("decided in an earlier session");
@@ -461,13 +477,76 @@ test.describe("Decision cards — a changed plan", () => {
 // ── UI-10 … UI-16 ─────────────────────────────────────────────────────────
 
 test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () => {
-  test("UI-10 % of equity comes from the risk profile; without it the % is unavailable and says why", async ({ page }) => {
-    await setup(page, { profile: { status: 500, body: { detail: "MOCK: profile store down" } } });
+  test("UI-10 a plan the route could not size for the account shows no size, never the plan's own number", async ({ page }) => {
+    // MOCK: the route's answer when the account's book cannot be read (plan_sizing status "unavailable"), and no profile
+    const body = { ...clone(CARD.cash.trade_plan_response), account_size: { status: "unavailable", reason: "MOCK: your paper equity could not be read", version: "plan-sizing-v1" } };
+    await setup(page, { profile: { status: 500, body: { detail: "MOCK: profile store down" } }, plans: { [CASH.plan_id]: { status: 200, body } } });
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
-    await expect(card.getByTestId("dc-risk")).toHaveText(`Risk ${rs(CASH.size.risk_rs)} (% of equity unavailable)`, SLOW);
+    await expect(card.getByTestId("dc-size")).toHaveText("Size unavailable: MOCK: your paper equity could not be read", SLOW);
+    await expect(card.getByTestId("dc-risk")).toHaveText("Risk unavailable");
+    await expect(card.getByTestId("dc-costs")).toHaveText("Est. costs unavailable");
+    expect(await card.getByTestId("dc-line").innerText()).not.toContain(int(CASH.size.quantity));
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-equity")).toContainText("Unavailable: the risk profile could not be read");
+  });
+
+  test("UI-17 the card's size is the risk service's for this account; the paper trade sends exactly it", async ({ page }) => {
+    // the REAL answer for a default-profile user (contract fixture: user_c, before submitting): 83, where the plan's own is 113
+    const before = CARD.cash.reduced.trade_plan_response_before;
+    const a = before.account_size;
+    const profile = clone(CARD.risk_profile_default);
+    const seen = await setup(page, { profile: { status: 200, body: profile }, plans: { [CASH.plan_id]: { status: 200, body: before } } });
+    await page.goto(SCANNER);
+    const card = stockRow(page).getByTestId("desk-top10-card");
+    expect(a.quantity).toBeLessThan(CASH.size.quantity);
+    await expect(card.getByTestId("dc-size")).toHaveText(sized(a).size, SLOW);
+    await expect(card.getByTestId("dc-risk")).toHaveText(sized(a).risk);
+    await card.getByTestId("dc-toggle").click();
+    await expect(card.getByTestId("dc-binding")).toContainText(a.binding[0].message);
+    await expect(card.getByTestId("dc-own-size")).toContainText(`${int(CASH.size.quantity)} shares`);
+    await expect(card.getByTestId("dc-own-size")).toContainText("a what-if, not what the risk service approves");
+    await stockRow(page).getByTestId("desk-top10-stock-paper").click();
+    await expect(stockRow(page).getByTestId("desk-top10-paper-qty")).toHaveValue(String(a.quantity));
+    await stockRow(page).getByTestId("desk-top10-paper-add").click();
+    await expect(stockRow(page).getByTestId("desk-top10-paper-done")).toBeVisible();
+    // the body the backend contract test sends through the real route, where it is ALLOWED at exactly this size
+    expect(seen.paper[0]).toMatchObject({ quantity: a.quantity, plan_ref: { plan_id: CASH.plan_id } });
+  });
+
+  test("UI-18 portfolio limits: 'may be reduced at submission', with the budgets left in the risk profile", async ({ page }) => {
+    await setup(page);
+    await page.goto(SCANNER);
+    const card = stockRow(page).getByTestId("desk-top10-card");
+    await card.getByTestId("dc-toggle").click(SLOW);
+    const pf = CARD.cash.trade_plan_response.account_size.portfolio;
+    await expect(card.getByTestId("dc-portfolio")).toContainText("May be reduced by portfolio limits at submission");
+    await expect(card.getByTestId("dc-budgets-left")).toContainText(`open risk ${rs(pf.remaining.open_risk_rs)}`);
+    await expect(card.getByTestId("dc-budgets-left")).toContainText(`${pf.remaining.positions} more positions`);
+  });
+
+  test("UI-19 BEAR regime: the size carries the factor, and since the service cuts any submitted size again the action is off", async ({ page }) => {
+    const bear = CARD.cash.bear_default_response;           // REAL answer: default profile, BEAR regime (contract fixture)
+    await setup(page, { profile: { status: 200, body: CARD.risk_profile_default }, plans: { [CASH.plan_id]: { status: 200, body: bear } } });
+    await page.goto(SCANNER);
+    const card = stockRow(page).getByTestId("desk-top10-card");
+    await expect(card.getByTestId("dc-size")).toHaveText(`Size ${int(bear.account_size.quantity)} shares (not allowed as is)`, SLOW);
+    await expect(card.getByTestId("dc-action")).toContainText(`Paper trade off: The risk service would not take this size as it is: it cuts it again to ${bear.account_size.confirm_size}`);
+    await card.getByTestId("dc-toggle").click();
+    await expect(card.getByTestId("dc-factors")).toContainText("The market regime is BEAR; size is cut.");
+    await stockRow(page).getByTestId("desk-top10-stock-paper").click();
+    await expect(stockRow(page).getByTestId("desk-top10-paper-blocked")).toContainText("cuts it again");
+  });
+
+  test("UI-20 an F&O row whose one lot is over the per-trade budget shows no size and cannot be submitted", async ({ page }) => {
+    const def = CARD.fno.trade_plan_response_default;      // REAL answer: default profile (contract fixture)
+    await setup(page, { profile: { status: 200, body: CARD.risk_profile_default }, plans: { [FNO.plan_id]: { status: 200, body: def } } });
+    await page.goto(WATCHLIST);
+    await page.getByTestId("aiw-seg-fno").click(SLOW);
+    const row = page.getByTestId("aiw-fno-BANKNIFTY");
+    await expect(row.getByTestId("aiw-fno-card").getByTestId("dc-size")).toHaveText(`Size unavailable: the risk service would refuse it (${def.account_size.blocking[0].message})`, SLOW);
+    await expect(row.getByTestId("idea-paper-trade")).toBeDisabled();
+    await expect(row.getByTestId("idea-paper-trade")).toHaveAttribute("title", /The risk service would refuse this plan for your account: The smallest valid size/);
   });
 
   test("UI-11 390px: the row card and its expanded sections fit, on the Top 10 and the watchlist", async ({ page }) => {

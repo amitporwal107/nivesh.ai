@@ -37,6 +37,8 @@ export function PlanActions({ built, savedId, onSaved, c, askDesk }: PlanActions
   // still applies). The Builder records the candidate's own legs, so it cannot record a newer version.
   const view = usePlanView(c?.trade_plan ?? null);
   const blocker = c ? paperBlocker(plan, c) ?? view?.gate ?? null : "Select a candidate first.";
+  // A share trade records the risk service's size for the account (the decision card's), not the plan's what-if sizing.
+  const accountQty = view?.accountSize?.status === "sized" ? view.accountSize.quantity : null;
 
   /** The saved id: the plan's, or save it now and say so. Null when the save failed (the failure is on screen). */
   async function ensureSaved(why: string): Promise<string | null> {
@@ -67,8 +69,9 @@ export function PlanActions({ built, savedId, onSaved, c, askDesk }: PlanActions
     setMsg(null);
     if (c.segment === "cash") {
       try {
-        const t = await share.mutateAsync(cashPaperBody(plan, c));
-        say("paper", "ok", `Paper trade recorded: ${c.legs[0].quantity} ${plan.underlying.symbol} shares${t?.id ? ` (${t.id})` : ""}. No order is placed; it is marked against end-of-day closes.`);
+        const body = cashPaperBody(plan, c, accountQty);
+        const t = await share.mutateAsync(body);
+        say("paper", "ok", `Paper trade recorded: ${body.quantity} ${plan.underlying.symbol} shares${t?.id ? ` (${t.id})` : ""}. No order is placed; it is marked against end-of-day closes.`);
       } catch (e) {
         say("paper", "bad", `Paper trade not recorded: ${writeProblem(e)}`);
       }

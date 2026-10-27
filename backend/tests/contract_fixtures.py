@@ -150,6 +150,20 @@ def decision_card() -> Dict[str, Any]:
                              "paper_status": r.status_code, "paper_detail": r.json().get("detail") if r.status_code >= 400 else None,
                              "trade_plan_response": c.get(f"/api/desk/trade-plans/{pid}", headers=h).json()}
         default_profile = TestClient(app).get("/api/risk/profile", headers={"X-Test-User": "user_c"}).json()
+        # The same plan for user_e (the owner's default profile, nothing open) in a BEAR regime: the governor's 0.5 factor
+        # (the snapshot's market state as tests/conftest.py stubs it, with the regime BEAR), and the F&O plan for a
+        # default-profile user: one lot over the per-trade budget.
+        from services.risk_gate import inputs as risk_inputs
+        calm = risk_inputs.market_state
+
+        async def bear_market():
+            return {**(await calm()), "regime": "BEAR"}
+        user_e = {"X-Test-User": "user_e"}
+        assert c.post("/api/desk/strategy/ideas", json=SIZED, headers=user_e).status_code == 200
+        mp.setattr(risk_inputs, "market_state", bear_market)
+        bear_get = c.get(f"/api/desk/trade-plans/{pid}", headers=user_e).json()
+        mp.setattr(risk_inputs, "market_state", calm)
+        fno_default_get = c.get(f"/api/desk/trade-plans/{ftp['plan_id']}", headers=user_e).json()
     top_fno = copy.deepcopy(top)
     top_fno.pop("classes", None)
     top_fno["classes"] = {k: v for k, v in top["classes"].items() if k != "cash"}
@@ -166,11 +180,13 @@ def decision_card() -> Dict[str, Any]:
                   "account_size is the risk service's own sizing for that user (services/risk_gate/plan_sizing.py). fno: the "
                   "REAL 2026-10-21 staging capture desk-strategy-top.json with the plans the board builds for it."),
         "cash": {"ideas_request": SIZED, "ideas_response": ideas, "builder_response": builder, "trade_plan_response": cash_get,
-                 "body": body, "allowed": answers["user_a"], "reduced": answers["user_c"], "blocked": answers["user_d"]},
+                 "body": body, "allowed": answers["user_a"], "reduced": answers["user_c"], "blocked": answers["user_d"],
+                 "bear_default_response": bear_get},
         "risk_profile": profile,
         "risk_profile_default": default_profile,
         "futures": {"builder_response": futures},
-        "fno": {"idea_underlying": "BANKNIFTY", "top_response": top_fno, "trade_plan_response": fno_get},
+        "fno": {"idea_underlying": "BANKNIFTY", "top_response": top_fno, "trade_plan_response": fno_get,
+                "trade_plan_response_default": fno_default_get},
         "ai_watchlist_day": day_response,
         "paper_account": account,
     }

@@ -6,8 +6,10 @@
  *          Top 10 stock and F&O rows, the AI watchlist's cash and F&O rows, the Top-by-regime cards
  *   full   every section open: the lab's focus panel, the Strategy Builder's selected candidate, the paper-trade record
  *
- * Every figure is the TradePlan's (plan-view.ts reads it by id); a field the plan does not carry says "unavailable" and
- * why, never a guess. "Provisional" (no risk decision, amber, dashed) and "Risk-approved" (an actual allow decision of the
+ * Every level is the TradePlan's (plan-view.ts reads it by id); the size, the rupee risk, the costs and the % of equity are
+ * the universal risk service's own sizing of the plan for the signed-in account (`account_size`, backend
+ * risk_gate/plan_sizing.py), so the size shown is the size a submission is approved at when no portfolio limit binds. A
+ * field that is not there says "unavailable" and why, never a guess and never the plan's own input-based size. "Provisional" (no risk decision, amber, dashed) and "Risk-approved" (an actual allow decision of the
  * universal risk service, mint, solid) look different, and the badge says it in words. The scanner's rank and score are
  * not a prediction, a probability or an edge; the card says so. Ideas, not recommendations; nothing places an order.
  */
@@ -60,26 +62,35 @@ export function targetsText(tp: TradePlan): string {
   return ts.length ? ts.map((t) => `${fmtPrice(t.price)}${t.r_multiple != null ? ` (${fmtNum(t.r_multiple, 2)}R)` : ""}`).join(" · ") : UNAVAILABLE;
 }
 
-export function sizeText(tp: TradePlan): string {
-  const s = rec(tp.size);
-  if (s.status === "too_small") return `${UNAVAILABLE}: the smallest size is more than the risk budget (${fmtPrice(numOr(s.risk_budget_rs))})`;
-  if (s.status !== "complete") {
-    const miss = Array.isArray(s.missing) && s.missing.length ? `: needs ${(s.missing as unknown[]).map(String).join(", ")}` : "";
-    return `${UNAVAILABLE}${miss}`;
-  }
-  const lots = numOr(s.lots), lot = numOr(s.lot_size), qty = numOr(s.quantity);
-  if (lots != null) return `${fmtNum(lots)} lot${lots === 1 ? "" : "s"}${lot != null ? ` × ${fmtNum(lot)}` : ""}`;
-  return qty != null ? `${fmtNum(qty)} ${segOf(tp) === "cash" ? "shares" : "units"}` : UNAVAILABLE;
+const firstMessage = (rs: Array<{ message: string | null }>) => rs.map((r) => r.message).find(Boolean) ?? null;
+
+/** The account's size: the risk service's sizing (account_size), never the plan's own input-based size. */
+export function sizeText(v: PlanView): string {
+  const a = v.accountSize;
+  if (!a) return v.store === "pending" ? "sizing for your account…" : `${UNAVAILABLE}: the plan was not sized for your account`;
+  if (a.status === "unavailable") return `${UNAVAILABLE}: ${a.reason ?? "the sizing could not be worked out"}`;
+  if (a.status === "not_sizable") return `${UNAVAILABLE}: the risk service would refuse it (${firstMessage(a.blocking) ?? "see the sizing"})`;
+  const n = a.lots != null
+    ? `${fmtNum(a.lots)} lot${a.lots === 1 ? "" : "s"}${a.lotSize != null ? ` × ${fmtNum(a.lotSize)}` : ""}`
+    : a.quantity != null ? `${fmtNum(a.quantity)} shares` : UNAVAILABLE;
+  return a.status === "not_confirmed" ? `${n} (not allowed as is)` : n;
 }
 
 export function riskText(v: PlanView): string {
-  const rs = v.plan.size?.risk_rs ?? null;
-  if (rs == null) return UNAVAILABLE;
-  const pct = v.riskPctOfEquity != null ? `${fmtNum(v.riskPctOfEquity, 2)}% of equity` : "% of equity unavailable";
-  return `${fmtPrice(rs)} (${pct})`;
+  const a = v.accountSize;
+  const total = a && (a.status === "sized" || a.status === "not_confirmed") ? a.estimatedRisk?.total ?? null : null;
+  if (total == null) return UNAVAILABLE;
+  return `${fmtPrice(total)} (${a?.riskPctOfEquity != null ? `${fmtNum(a.riskPctOfEquity, 2)}% of equity` : "% of equity unavailable"})`;
 }
 
-function costsTotal(tp: TradePlan): number | null {
+/** The round-trip costs at the account's size (the risk estimate's), else none. */
+function costsTotal(v: PlanView): number | null {
+  const a = v.accountSize;
+  return a && (a.status === "sized" || a.status === "not_confirmed") ? a.estimatedRisk?.costs ?? null : null;
+}
+
+/** The plan's own cost card total (at its own size), for the details only. */
+function planCostsTotal(tp: TradePlan): number | null {
   const c = rec(tp.costs);
   return numOr(rec(c.breakdown_at_stop).total) ?? numOr(rec(c.breakdown_round_trip_at_entry).total);
 }
@@ -189,6 +200,7 @@ function Sections({ v }: { v: PlanView }) {
   const warnings = Array.isArray(p.warnings) ? (p.warnings as Raw[]) : null;
   const flags = (Array.isArray(p.risk_flags) ? (p.risk_flags as Raw[]) : []).filter((f) => f.code !== "warning" || str(f.message));
   const bd = readCostsBreakdown(costs.breakdown_at_stop ?? costs.breakdown_round_trip_at_entry);
+  const a = v.accountSize;
   const opt = rec(exit.options);
   const trailing = rec(exit.trailing), trend = rec(exit.trend), time = rec(exit.time);
   const dates = Object.entries(tp.data_as_of ?? {}).filter(([, d]) => !!d && /^\d{4}-\d{2}-\d{2}/.test(d));
@@ -222,20 +234,41 @@ function Sections({ v }: { v: PlanView }) {
         )) : <NA why="the plan has no target on the profit side" />}
         <Row k="R (risk a unit)">{tp.r_per_unit != null ? fmtPrice(tp.r_per_unit) : UNAVAILABLE}</Row>
       </Section>
-      <Section title="Size and risk" testId="dc-sec-size">
-        <Row k="Size">{sizeText(tp)}</Row>
-        <Row k="Sizing basis">{size.status === "complete" ? `${str(size.binding) ? humaniseTag(String(size.binding)) : "the plan's rule"}${numOr(size.risk_budget_rs) != null ? ` · risk budget ${fmtPrice(numOr(size.risk_budget_rs))}` : ""}${size.costs_included ? " · costs included" : ""}` : <NA why={`the plan was sized without ${(Array.isArray(size.missing) ? size.missing : []).map(String).join(", ") || "its inputs"}`} />}</Row>
-        <Row k="Risk at the stop">{riskText(v)}</Row>
+      <Section title="Size and risk (your account)" testId="dc-sec-size">
+        <Row k="Size" testId="dc-size-text">{sizeText(v)}</Row>
+        <Row k="Sized by">{a?.basis ?? <NA why="the plan route did not size this plan for your account" />}</Row>
+        {a?.perTradeBudgetRs != null && <Row k="Per-trade budget">{fmtPrice(a.perTradeBudgetRs)} of {fmtPrice(a.equityRs)} paper equity{a.limitsVersion ? ` · limits ${a.limitsVersion}` : ""}</Row>}
+        {a && a.binding.length > 0 && <Row k="Limited by" testId="dc-binding">{a.binding.map((r) => r.message).join("; ")}</Row>}
+        {a && a.factors.length > 0 && <Row k="Regime / volatility" testId="dc-factors"><span style={{ color: "var(--amber)" }}>{a.factors.map((r) => r.message).join("; ")}</span></Row>}
+        {a?.status === "not_confirmed" && <Row k="Not allowed as is" testId="dc-not-confirmed"><span style={{ color: "var(--amber)" }}>Submitted at this size the risk service cuts it again{a.confirmSize != null ? ` (to ${fmtNum(a.confirmSize)})` : ""}: {a.confirmReasons.map((r) => r.message).join("; ")}.</span></Row>}
+        {a?.status === "not_sizable" && <Row k="Refused" testId="dc-not-sizable"><span style={{ color: "var(--cp-danger)" }}>{a.blocking.map((r) => r.message).join("; ")}</span></Row>}
+        <Row k="Risk at the stop">{riskText(v)}{a?.estimatedRisk ? <span style={{ ...quiet, display: "block" }}>stop {fmtPrice(a.estimatedRisk.gross)} + costs {fmtPrice(a.estimatedRisk.costs)} + gap stress {fmtPrice(a.estimatedRisk.gapStress)}</span> : null}</Row>
         <Row k="Equity basis" testId="dc-equity">
           {v.equity.rs != null
             ? <>{fmtPrice(v.equity.rs)} paper equity (risk profile{v.equity.effectiveFrom ? `, effective ${fmtDay(v.equity.effectiveFrom.slice(0, 10))}` : ""}){v.equity.label ? ` · ${v.equity.label}` : ""}{v.equity.basis ? <span style={{ ...quiet, display: "block" }}>{v.equity.basis}</span> : null}</>
             : <NA why={v.equity.error ?? "no equity basis"} />}
         </Row>
-        {numOr(size.risk_pct_of_equity) != null && <Row k="On the plan's capital">{fmtNum(numOr(size.risk_pct_of_equity), 2)}% of {str(size.equity_basis) ?? "the capital in the plan inputs"}</Row>}
+        {a?.portfolio && (
+          <Row k="At submission" testId="dc-portfolio">
+            <span>{a.portfolioNote ?? "May be reduced by portfolio limits at submission."}</span>
+            {a.portfolio.reasons.length > 0 && <span style={{ display: "block", color: "var(--amber)" }}>With your open positions now: {a.portfolio.sizeNow != null ? `at most ${fmtNum(a.portfolio.sizeNow)}` : "—"} ({a.portfolio.reasons.map((r) => r.message).join("; ")})</span>}
+            <span data-testid="dc-budgets-left" style={{ ...quiet, display: "block" }}>
+              Left in your risk profile: open risk {fmtPrice(numOr(a.portfolio.remaining.open_risk_rs))} · exposure {fmtPrice(numOr(a.portfolio.remaining.exposure_rs))}
+              {str(a.portfolio.remaining.sector) ? ` · ${str(a.portfolio.remaining.sector)} ${fmtPrice(numOr(a.portfolio.remaining.sector_rs))}` : ""}
+              {numOr(a.portfolio.remaining.positions) != null ? ` · ${fmtNum(numOr(a.portfolio.remaining.positions))} more positions` : ""}
+            </span>
+          </Row>
+        )}
+        {size.status === "complete" && (
+          <Row k="The plan's own sizing" testId="dc-own-size">
+            <span style={quiet}>{numOr(size.lots) != null ? `${fmtNum(numOr(size.lots))} lot(s)` : `${fmtNum(numOr(size.quantity))} ${segOf(tp) === "cash" ? "shares" : "units"}`} at {str(size.equity_basis) ?? "the plan's inputs"}{numOr(size.risk_rs) != null ? `, risk ${fmtPrice(numOr(size.risk_rs))}` : ""}: a what-if, not what the risk service approves for your account.</span>
+          </Row>
+        )}
         <Row k="Risk check"><RiskCheck v={v} /></Row>
       </Section>
       <Section title="Costs and gap risk" testId="dc-sec-costs">
-        <Row k="Estimated costs">{costsTotal(tp) != null ? `${fmtPrice(costsTotal(tp))} · ${costsBreakdownText(bd, (n) => fmtPrice(n)) ?? ""}` : <NA why="the cost card could not price this plan" />}{str(costs.basis) ? <span style={{ ...quiet, display: "block" }}>{str(costs.basis)}; {str(costs.model) ?? "cost model —"}</span> : null}</Row>
+        <Row k="Estimated costs">{costsTotal(v) != null ? `${fmtPrice(costsTotal(v))} at your size, entry to the stop (the risk estimate's)` : <NA why="no size for your account" />}</Row>
+        <Row k="Cost card">{planCostsTotal(tp) != null ? `${fmtPrice(planCostsTotal(tp))} · ${costsBreakdownText(bd, (n) => fmtPrice(n)) ?? ""}` : <NA why="the cost card could not price this plan" />}{str(costs.basis) ? <span style={{ ...quiet, display: "block" }}>{str(costs.basis)} (the plan's own size); {str(costs.model) ?? "cost model —"}</span> : null}</Row>
         <Row k="Not included">{Array.isArray(costs.excluded) && costs.excluded.length ? (costs.excluded as unknown[]).map(String).join(", ") : "—"}</Row>
         <Row k="Gap and slippage" testId="dc-gap">{str(costs.gap_risk) ?? <NA why="this plan was stored before plans carried it" />}</Row>
       </Section>
@@ -290,9 +323,10 @@ export function DecisionCardView({ v, variant, testId = "dc" }: { v: PlanView; v
   const a = APPROVAL[v.risk.state];
   const stale = staleText(tp);
   const shown = variant === "full" || open;
-  const costs = costsTotal(tp);
+  const costs = costsTotal(v);
   return (
     <div data-testid={testId} data-plan-id={tp.plan_id} data-row-plan-id={v.rowPlan.plan_id} data-variant={variant} data-approval={v.risk.state} data-status={v.status}
+      data-store={v.store} data-size-status={v.accountSize?.status ?? "none"}
       className="flex min-w-0 flex-col"
       style={{ gap: 6, padding: "8px 10px", borderRadius: 10, border: `1px ${a.dashed ? "dashed" : "solid"} ${a.border}`, background: "var(--bg-1)" }}>
       <div className="flex min-w-0 flex-wrap items-center" style={{ gap: "4px 8px" }}>
@@ -306,8 +340,8 @@ export function DecisionCardView({ v, variant, testId = "dc" }: { v: PlanView; v
         <Item k="Entry" v={entryText(tp)} testId="dc-entry" />
         <Item k="Stop" v={stopText(tp)} testId="dc-stop" />
         <Item k="Targets" v={targetsText(tp)} testId="dc-targets" />
-        <Item k="Size" v={sizeText(tp)} testId="dc-size" />
-        <Item k="Risk" v={riskText(v)} testId="dc-risk" title={v.equity.rs != null ? `% of the risk profile's paper equity ${fmtPrice(v.equity.rs)}` : v.equity.error ?? undefined} />
+        <Item k="Size" v={sizeText(v)} testId="dc-size" title="The risk service's sizing for your account: what a submission is approved at when no portfolio limit binds" />
+        <Item k="Risk" v={riskText(v)} testId="dc-risk" title="Stop + costs + gap stress at your size (the risk service's estimate), as a % of your paper equity" />
         <Item k="Est. costs" v={costs != null ? fmtPrice(costs) : UNAVAILABLE} testId="dc-costs" />
         <Item k="Horizon" v={horizonText(tp)} testId="dc-horizon" />
       </div>
