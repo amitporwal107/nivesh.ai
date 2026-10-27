@@ -13,8 +13,8 @@ profile.
   SZ-2  the estimate the card shows is the decision's estimate (loss at the stop + costs + gap stress).
   SZ-3  open positions do not change the account size; they show as "may be reduced at submission" with the size
         allowed today and the budgets left.
-  SZ-4  BEAR regime: the size carries the governor's 0.5 factor once; the service then cuts any submitted size again,
-        so the card says "not_confirmed" (finding for Phase 1; the strict xfail flips when it is fixed).
+  SZ-4  BEAR regime: the size carries the governor's 0.5 factor once, and that size is confirmed and allowed as is
+        (the Phase 1 re-halving was fixed in #365; until then the card said "not_confirmed").
   SZ-5  an F&O board plan is sized at the lots its row records: allowed within the budget, refused (not_sizable,
         min_lot_exceeds_budget) when one lot is over it.
   SZ-6  a plan sized with capital and the same setup unsized are separate lineages: neither is a version of the other.
@@ -106,7 +106,9 @@ def test_sz3_open_positions_leave_the_size_and_show_what_would_be_cut_today(worl
     assert rem["positions"] == before["portfolio"]["remaining"]["positions"] - 1
 
 
-def test_sz4_bear_regime_sizes_with_the_factor_once_and_says_the_service_cuts_again(world, risk_mock_inputs):
+def test_sz4_bear_regime_sizes_with_the_factor_once_and_that_size_is_confirmed(world, risk_mock_inputs):
+    """Until #365 the service halved any submitted size again in a BEAR market, so this card said "not_confirmed"
+    and the submit was reduced. The factor now cuts the limit, not the ask: the card's size is confirmed as is."""
     idea = idea_for(world, "user_c")
     pid = idea["trade_plan"]["plan_id"]
     bull = account_size(world, "user_c", pid)["quantity"]
@@ -114,14 +116,9 @@ def test_sz4_bear_regime_sizes_with_the_factor_once_and_says_the_service_cuts_ag
     size = account_size(world, "user_c", pid)
     assert size["quantity"] == bull // 2                         # the governor's bear_regime_size_factor 0.5, once
     assert [f["code"] for f in size["factors"]] == ["BEAR_REGIME"]
-    assert size["status"] == "not_confirmed" and size["confirm_outcome"] == "reduce"
-    assert size["confirm_size"] == size["quantity"] // 2         # submitted as is, it is halved again
-    r = submit(world, "user_c", idea, size["quantity"])
-    assert r.status_code == 409 and r.json()["detail"]["approved_qty"] == size["confirm_size"], r.text
+    assert size["status"] == "sized" and "confirm_outcome" not in size, size
 
 
-@pytest.mark.xfail(strict=True, reason="Phase 1 finding: the governor re-applies its BEAR / VIX factor to a size already "
-                                       "cut, so no share entry is ever ALLOWED on the desk in those regimes (owner decision)")
 def test_sz4b_in_a_bear_regime_the_cards_size_is_allowed_as_is(world, risk_mock_inputs):
     risk_mock_inputs["regime"] = "BEAR"
     idea = idea_for(world, "user_c")
