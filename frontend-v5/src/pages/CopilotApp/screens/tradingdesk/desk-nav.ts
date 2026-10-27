@@ -6,7 +6,9 @@
  *
  *   01 Market Overview   tab=overview     one page (no views)
  *   02 Trade Desk        tab=trade        paper (Paper trades) · new (New trade)
- *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener · watchlists
+ *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener
+ *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
+ *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
  *   04 Risk Desk         tab=risk         limits · controls · log
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
  *   AI Copilot           tab=copilot      the Copilot full height, where it is not docked (under 1400px)
@@ -50,7 +52,6 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" },
     { key: "screener", label: "Screener" },
-    { key: "watchlists", label: "Watchlists & alerts" },
   ],
   risk: [
     { key: "limits", label: "Exposure & limits" },
@@ -110,6 +111,12 @@ export function canonical(params: URLSearchParams): URLSearchParams {
   return out;
 }
 
+/**
+ * Market Desk views that moved to Trade Desk (Watchlists; AI Scanner › Scorecard). `?tab=market&view=<one>` opens Trade
+ * Desk's default view until the Trade Desk tab gives them their own places.
+ */
+export const MOVED_TO_TRADE: ReadonlySet<string> = new Set(["watchlists", "scorecard"]);
+
 /** The old desk's tabs and More views (before 2026-10-27). */
 const OLD_TABS = new Set(["scanner", "intel", "events", "chart", "smartmoney", "fno", "more"]);
 
@@ -139,6 +146,10 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     return set("overview", null);
   }
   if (tab === null) return null; // the bare desk URL is Market Overview
+  if (tab === "market" && MOVED_TO_TRADE.has(params.get("view") ?? "")) {
+    // Watchlists and the Idea scorecard belong to Trade Desk (the owner's design; 27 Oct 19:40 IST).
+    return set("trade", defaultView("trade"));
+  }
   if (isPlace(tab)) {
     // A new URL. A missing or unknown view becomes the tab's default; a view on a tab without views is dropped.
     const loc = locationOf(params);
