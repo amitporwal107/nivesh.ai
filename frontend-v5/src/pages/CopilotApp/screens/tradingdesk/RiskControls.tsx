@@ -1,5 +1,5 @@
 /**
- * More · Risk controls (?tab=more&view=risk) — the Risk Control Center: the user's kill switch and trading halt, the
+ * Risk Desk (?tab=risk&view=limits|controls|log; before 2026-10-27 More · Risk controls) — the Risk Control Center: the user's kill switch and trading halt, the
  * limits the policy gate applies to paper writes, and the append-only record of every gate decision and control change.
  *
  *   01 Kill switch & halt     state in words, who set it, when and why; turn on with a reason and a confirmation;
@@ -602,8 +602,16 @@ function Card({ id, num, title, testId, actions, children }: { id: string; num: 
   );
 }
 
-export default function RiskControls() {
+/** The Risk Control Center's parts, as the desk's Risk Desk splits them into views (TradingDesk.tsx). */
+export type RiskSection = "status" | "policy" | "decisions" | "audit" | "profile";
+
+/**
+ * `sections` (the desk redesign of 2026-10-27): the parts this Risk Desk view shows. Left out, all five, as before.
+ * Each view keeps the header with what the controls cover.
+ */
+export default function RiskControls({ sections }: { sections?: readonly RiskSection[] } = {}) {
   const { mobile } = useCopilotShell();
+  const has = (s: RiskSection) => !sections || sections.includes(s);
   const status = useRiskStatus();
   const policy = useRiskPolicy();
   const audit = useRiskAudit();
@@ -615,7 +623,7 @@ export default function RiskControls() {
     <div data-testid="risk-controls" className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
       <header className="flex flex-col" style={{ gap: 8 }}>
         <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
-          <span className="cp-eyebrow">More</span>
+          <span className="cp-eyebrow">Risk Desk</span>
           <span className="cp-pill" data-tone="mint">Paper only</span>
         </span>
         <h1 className="cp-display m-0" data-testid="risk-title" style={{ fontSize: mobile ? 28 : 34, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
@@ -628,21 +636,21 @@ export default function RiskControls() {
         {s?.notInScope && <p data-testid="risk-scope-note" role="note" className="m-0" style={quiet}>Not covered: {s.notInScope}.</p>}
       </header>
 
-      <Card id="status" num="01" title="Kill switch & halt" testId="risk-status">
+      {has("status") && <Card id="status" num="01" title="Kill switch & halt" testId="risk-status">
         <StatusBody q={status} />
-      </Card>
+      </Card>}
 
-      <Card
+      {has("policy") && <Card
         id="policy" num="02" title="Policy limits" testId="risk-policy"
         actions={gate === false
           ? <span data-testid="risk-gate-off"><Pill tone="amber">Gate off for your account</Pill></span>
           : gate === true ? <span data-testid="risk-gate-on"><Pill tone="mint">Gate on</Pill></span> : undefined}
       >
         <PolicyBody q={policy} gateEnabled={gate} />
-      </Card>
+      </Card>}
 
-      <div className="grid" style={{ gap: mobile ? 12 : 16, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", alignItems: "start" }}>
-        <Card id="decisions" num="03" title="Recent risk decisions" testId="risk-decisions">
+      {(has("decisions") || has("audit")) && <div className="grid" style={{ gap: mobile ? 12 : 16, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", alignItems: "start" }}>
+        {has("decisions") && <Card id="decisions" num="03" title="Recent risk decisions" testId="risk-decisions">
           {decisions.isPending && <LoadingBlock label="Loading risk decisions" rows={3} />}
           {decisions.isError && <div data-testid="risk-decisions-error"><QueryProblem what="Risk decisions" error={decisions.error} onRetry={() => { void decisions.refetch(); }} /></div>}
           {decisions.isSuccess && (decisions.data.decisions.length === 0
@@ -653,9 +661,9 @@ export default function RiskControls() {
               </ol>
             ))}
           {decisions.isSuccess && <TrustLine source={SOURCE} method={decisions.data.policyVersion} maker="rules" testId="risk-trust-decisions" />}
-        </Card>
+        </Card>}
 
-        <Card id="audit" num="04" title="Control changes" testId="risk-audit">
+        {has("audit") && <Card id="audit" num="04" title="Control changes" testId="risk-audit">
           {audit.isPending && <LoadingBlock label="Loading control changes" rows={3} />}
           {audit.isError && <div data-testid="risk-audit-error"><QueryProblem what="Control changes" error={audit.error} onRetry={() => { void audit.refetch(); }} /></div>}
           {audit.isSuccess && (audit.data.events.length === 0
@@ -667,12 +675,12 @@ export default function RiskControls() {
             ))}
           {audit.isSuccess && audit.data.appendOnly && <span data-testid="risk-audit-append-only" style={quiet}>Append only: no change is edited or deleted.</span>}
           {audit.isSuccess && <TrustLine source={SOURCE} method={audit.data.policyVersion} testId="risk-trust-audit" />}
-        </Card>
-      </div>
+        </Card>}
+      </div>}
 
-      <Card id="profile" num="05" title="Risk profile" testId="risk-profile">
+      {has("profile") && <Card id="profile" num="05" title="Risk profile" testId="risk-profile">
         <ProfileBody q={profile} />
-      </Card>
+      </Card>}
     </div>
   );
 }

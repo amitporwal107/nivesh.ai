@@ -1276,7 +1276,8 @@ function YourTrades() {
   );
 }
 
-function PaperCard() {
+/** "Paper trades · predicted vs actual". Also on the desk's Trade Desk › Paper trades (TradingDesk.tsx). */
+export function PaperCard() {
   const q = usePaperTrades();
   const ev = usePaperEvaluation("forward", "P5-NEXT");
   const closed = q.data ? q.data.summary?.closed ?? q.data.trades.filter((t) => t.status === "closed").length : null;
@@ -1303,7 +1304,8 @@ function PaperCard() {
   );
 }
 
-function PaperLists() {
+/** Your paper-trade and alert lists (PaperDesk.tsx). Also on the desk's Trade Desk › Paper trades (TradingDesk.tsx). */
+export function PaperLists() {
   const q = usePaperTrades();
   return (
     <ModuleCard title="Your paper trades and price alerts" pill={<span className="cp-pill" data-tone="amber">Simulated · no orders</span>} testId="desk-portfolio-paper">
@@ -1390,7 +1392,11 @@ function PhoneRisk({ view }: { view: PortfolioView }) {
 
 // ── tab ──────────────────────────────────────────────────────────────────
 
-export default function PortfolioTab() {
+/**
+ * `withPaper={false}` is the desk's "My portfolio" (the redesign of 2026-10-27): the real, broker-read portfolio only.
+ * The paper cards (PaperCard, PaperLists) belong to Trade Desk, so they are left out.
+ */
+export default function PortfolioTab({ withPaper = true }: { withPaper?: boolean } = {}) {
   const { mobile } = useCopilotShell();
   const [importing, setImporting] = useState(false);
   const openImport = () => setImporting(true);
@@ -1399,9 +1405,9 @@ export default function PortfolioTab() {
       <div data-testid="desk-portfolio" data-layout="phone" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
         <PhonePortfolio onImport={openImport} />
         {importing && <ImportCard onClose={() => setImporting(false)} />}
-        <PaperCard />
+        {withPaper && <PaperCard />}
         <BrokerPositions />
-        <PaperLists />
+        {withPaper && <PaperLists />}
       </div>
     );
   }
@@ -1409,11 +1415,11 @@ export default function PortfolioTab() {
     <div data-testid="desk-portfolio" data-layout="desktop" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
       <div className="grid items-start" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,340px),1fr))", gap: 16 }}>
         <HubCard onImport={openImport} />
-        <PaperCard />
+        {withPaper && <PaperCard />}
       </div>
       {importing && <ImportCard onClose={() => setImporting(false)} />}
       <BrokerPositions />
-      <PaperLists />
+      {withPaper && <PaperLists />}
       <Footnote>Holdings and risk figures are as Nivesh last valued them; broker connections are read-only and nothing here places an order.</Footnote>
     </div>
   );
