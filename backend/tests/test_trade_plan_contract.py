@@ -48,6 +48,12 @@ DESK_NOW = datetime(2026, 10, 20, 5, 0, tzinfo=timezone.utc)          # 10:30 IS
 
 @pytest.fixture
 def surfaces(monkeypatch):
+    return make_surfaces(monkeypatch)
+
+
+def make_surfaces(monkeypatch):
+    """The real Strategy and desk routes on one in-memory Mongo with the MOCK world; also used outside pytest by
+    tests/contract_fixtures.py, which writes the shared browser/route fixtures from it."""
     db = FakeDb()
     monkeypatch.setattr(route, "db", db)
     monkeypatch.setattr(desk_route, "db", db)

@@ -202,6 +202,9 @@ def shape_day(list_date: str, ideas: Dict[str, Any], top: Dict[str, Any], now: d
             "cash_caveats": ideas.get("caveats") or [],
             "cash_data_as_of": ideas.get("data_as_of"),
             "cash_rules_version": ideas.get("rules_version"),
+            # The scanner's engine version, price basis and data-quality status for the scan the cash list was built
+            # on (#355, services/positional_engine/scan_meta.basis_for_date), as the ideas route answered it that day.
+            "scan_basis": (ideas.get("selection") or {}).get("scan_basis"),
             "fno_ranking": top.get("ranking_note"),
             "fno_gaps": top.get("gaps") or [],
             "fno_rules_version": top.get("rules_version"),

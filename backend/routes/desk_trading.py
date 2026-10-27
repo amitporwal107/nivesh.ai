@@ -394,7 +394,10 @@ async def get_trade_plan(request: Request, plan_id: str) -> Dict[str, Any]:
     if tp is None:
         raise HTTPException(status_code=404, detail="plan_not_found")
     trades = await db[svc.TRADES].find({"user_id": uid, "trade_plan_id": plan_id}).to_list(svc.MAX_OPEN_TRADES * 2)
-    versions = await db[tpm.COLLECTION].find({"lineage_key": tp.get("lineage_key")}).sort("version", 1).to_list(50)
+    # Only the versions this user may open (their own plans and those a system job built): another user's plan in the same
+    # lineage is not theirs to read, and a card that switches to "the newest version" must be able to load it.
+    versions = [v for v in await db[tpm.COLLECTION].find({"lineage_key": tp.get("lineage_key")}).sort("version", 1).to_list(50)
+                if tpm.readable_by(v, uid)]
     states = [lifecycle.current_state(t) for t in trades]
     rejected = [e for e in tp.get("events") or [] if e.get("to") == lifecycle.REJECTED]
     status = lifecycle.plan_status(states + ([lifecycle.REJECTED] if rejected and not trades else []))

@@ -100,10 +100,10 @@
      "direction": "bullish",
      "fno_eligible": true,
      "plan_id": "plan_7699ae19c963dcfb",
-     "trade_plan_id": "tp_6347b7723c8a8dbd",
+     "trade_plan_id": "tp_8a74951be31981f4",
      "trade_plan": {
       "schema": "trade-plan-v1",
-      "rules_version": "trade-plan-v1 (2026-10-27)",
+      "rules_version": "trade-plan-v1.1 (2026-10-27)",
       "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
       "calculation_version": "payoff-v1",
       "strategy": {
@@ -221,7 +221,8 @@
         "DP charges",
         "income tax",
         "gap slippage beyond the cost card's slippage"
-       ]
+       ],
+       "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
       },
       "exit_plan": {
        "stop": {
@@ -307,6 +308,91 @@
         "content_hash": "c7d9653ff8772e5f"
        }
       ],
+      "evidence": {
+       "items": [
+        {
+         "key": "regime",
+         "label": "Market regime",
+         "status": "ok",
+         "direction": "supports",
+         "text": "Desk regime is Bullish (macro_engine.classify_desk_regime, session 2026-10-19).",
+         "as_of": "2026-10-19",
+         "source": "MOCK macro_engine.classify_desk_regime"
+        },
+        {
+         "key": "trend",
+         "label": "Trend",
+         "status": "ok",
+         "direction": "supports",
+         "text": "Trend up: close 1200.00 vs EMA50 1150.00, EMA20 1190.00.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "relative_strength",
+         "label": "Relative strength",
+         "status": "ok",
+         "direction": "supports",
+         "text": "63-session return +3.00% against the benchmark.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "momentum",
+         "label": "Momentum",
+         "status": "ok",
+         "direction": "supports",
+         "text": "MACD histogram +1.50, 20-day change +4.00%.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "volume",
+         "label": "Volume",
+         "status": "ok",
+         "direction": "neutral",
+         "text": "Relative volume 1.8x; average traded value 500.0 Cr a day.",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        },
+        {
+         "key": "structure",
+         "label": "Price structure",
+         "status": "ok",
+         "direction": "neutral",
+         "text": "20-session support 1130.0 and resistance 1290.0. Bull flag (bullish) is confirmed: closed beyond the level",
+         "as_of": "2026-10-19",
+         "source": "MOCK nidp.prices_eod_adjusted"
+        }
+       ],
+       "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"
+      },
+      "warnings": [
+       {
+        "key": "event",
+        "label": "Event",
+        "status": "clear",
+        "text": "No results date inside the 10-day horizon. No ex-date inside the horizon."
+       },
+       {
+        "key": "liquidity",
+        "label": "Liquidity",
+        "status": "clear",
+        "text": "Eligible for the scanner universe. Relative volume 1.8x; average traded value 500.0 Cr a day."
+       },
+       {
+        "key": "concentration",
+        "label": "Concentration",
+        "status": "at_entry",
+        "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+       },
+       {
+        "key": "correlation",
+        "label": "Correlation",
+        "status": "unavailable",
+        "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+       }
+      ],
       "risk_flags": [
        {
         "code": "warning",
@@ -342,7 +428,7 @@
        "strategy_plan_id": "plan_7699ae19c963dcfb",
        "candidate_id": "cash:breakout_continuation"
       },
-      "plan_id": "tp_6347b7723c8a8dbd",
+      "plan_id": "tp_8a74951be31981f4",
       "lineage_key": "tl_3719a268ef01487d",
       "lifecycle": {
        "status": "proposed",
@@ -499,7 +585,7 @@
      "strategies": [
       {
        "id": "cash:breakout_continuation",
-       "trade_plan_id": "tp_6347b7723c8a8dbd",
+       "trade_plan_id": "tp_8a74951be31981f4",
        "segment": "cash",
        "family": "breakout_continuation",
        "label": "Breakout continuation (long)",
@@ -540,7 +626,7 @@
       },
       {
        "id": "futures:long_buildup_continuation",
-       "trade_plan_id": "tp_1a8a541351ad027a",
+       "trade_plan_id": "tp_f1f4826bb7fa9d7b",
        "segment": "futures",
        "family": "long_buildup_continuation",
        "label": "Long futures: build-up with cash confirmation",
@@ -587,7 +673,7 @@
       },
       {
        "id": "options:long_call",
-       "trade_plan_id": "tp_595ab60cb67ac6cc",
+       "trade_plan_id": "tp_09bdde2053a0588f",
        "segment": "options",
        "family": "long_call",
        "label": "Long call",
@@ -633,7 +719,7 @@
       },
       {
        "id": "options:bull_call_spread",
-       "trade_plan_id": "tp_1e66ea50216c8956",
+       "trade_plan_id": "tp_6c9aedc48c77e69b",
        "segment": "options",
        "family": "bull_call_spread",
        "label": "Bull call spread (debit)",
@@ -674,7 +760,7 @@
       },
       {
        "id": "combination:covered_call",
-       "trade_plan_id": "tp_5d65e249d0477158",
+       "trade_plan_id": "tp_3ad6551ea666bd43",
        "segment": "combination",
        "family": "covered_call",
        "label": "Covered call (shares + short call)",
@@ -842,10 +928,10 @@
       "direction": "bullish",
       "instrument": "all"
      },
-     "build_ms": 53
+     "build_ms": 81
     }
    ],
-   "elapsed_ms": 58,
+   "elapsed_ms": 86,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -856,7 +942,7 @@
   },
   "trade_plan": {
    "schema": "trade-plan-v1",
-   "rules_version": "trade-plan-v1 (2026-10-27)",
+   "rules_version": "trade-plan-v1.1 (2026-10-27)",
    "strategy_rules_version": "strategy-rules.v1.6 (2026-10-27)",
    "calculation_version": "payoff-v1",
    "strategy": {
@@ -974,7 +1060,8 @@
      "DP charges",
      "income tax",
      "gap slippage beyond the cost card's slippage"
-    ]
+    ],
+    "gap_risk": "A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the desk's fill model), which can be worse than the stop. The cost estimate's slippage (0.05% a side) covers the spread, not a gap."
    },
    "exit_plan": {
     "stop": {
@@ -1060,6 +1147,91 @@
      "content_hash": "c7d9653ff8772e5f"
     }
    ],
+   "evidence": {
+    "items": [
+     {
+      "key": "regime",
+      "label": "Market regime",
+      "status": "ok",
+      "direction": "supports",
+      "text": "Desk regime is Bullish (macro_engine.classify_desk_regime, session 2026-10-19).",
+      "as_of": "2026-10-19",
+      "source": "MOCK macro_engine.classify_desk_regime"
+     },
+     {
+      "key": "trend",
+      "label": "Trend",
+      "status": "ok",
+      "direction": "supports",
+      "text": "Trend up: close 1200.00 vs EMA50 1150.00, EMA20 1190.00.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "relative_strength",
+      "label": "Relative strength",
+      "status": "ok",
+      "direction": "supports",
+      "text": "63-session return +3.00% against the benchmark.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "momentum",
+      "label": "Momentum",
+      "status": "ok",
+      "direction": "supports",
+      "text": "MACD histogram +1.50, 20-day change +4.00%.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "volume",
+      "label": "Volume",
+      "status": "ok",
+      "direction": "neutral",
+      "text": "Relative volume 1.8x; average traded value 500.0 Cr a day.",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     },
+     {
+      "key": "structure",
+      "label": "Price structure",
+      "status": "ok",
+      "direction": "neutral",
+      "text": "20-session support 1130.0 and resistance 1290.0. Bull flag (bullish) is confirmed: closed beyond the level",
+      "as_of": "2026-10-19",
+      "source": "MOCK nidp.prices_eod_adjusted"
+     }
+    ],
+    "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"
+   },
+   "warnings": [
+    {
+     "key": "event",
+     "label": "Event",
+     "status": "clear",
+     "text": "No results date inside the 10-day horizon. No ex-date inside the horizon."
+    },
+    {
+     "key": "liquidity",
+     "label": "Liquidity",
+     "status": "clear",
+     "text": "Eligible for the scanner universe. Relative volume 1.8x; average traded value 500.0 Cr a day."
+    },
+    {
+     "key": "concentration",
+     "label": "Concentration",
+     "status": "at_entry",
+     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+    },
+    {
+     "key": "correlation",
+     "label": "Correlation",
+     "status": "unavailable",
+     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+    }
+   ],
    "risk_flags": [
     {
      "code": "warning",
@@ -1095,7 +1267,7 @@
     "strategy_plan_id": "plan_7699ae19c963dcfb",
     "candidate_id": "cash:breakout_continuation"
    },
-   "plan_id": "tp_6347b7723c8a8dbd",
+   "plan_id": "tp_8a74951be31981f4",
    "lineage_key": "tl_3719a268ef01487d",
    "lifecycle": {
     "status": "proposed",
@@ -1118,12 +1290,12 @@
     "signal_date": "2026-10-19"
    },
    "entry_rule": "at_once",
+   "max_hold_sessions": 10,
    "plan_ref": {
-    "plan_id": "tp_6347b7723c8a8dbd",
+    "plan_id": "tp_8a74951be31981f4",
     "candidate_id": "cash:breakout_continuation",
-    "rules_version": "trade-plan-v1 (2026-10-27)"
-   },
-   "max_hold_sessions": 10
+    "rules_version": "trade-plan-v1.1 (2026-10-27)"
+   }
   },
   "bar": {
    "date": "2026-10-19",
@@ -1136,7 +1308,7 @@
   "idea_underlying": "BANKNIFTY",
   "trade_plan": {
    "schema": "trade-plan-v1",
-   "rules_version": "trade-plan-v1 (2026-10-27)",
+   "rules_version": "trade-plan-v1.1 (2026-10-27)",
    "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
    "calculation_version": "strategy-levels-v2",
    "strategy": {
@@ -1271,7 +1443,8 @@
     "excluded": [
      "exchange margin",
      "income tax"
-    ]
+    ],
+    "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
    },
    "exit_plan": {
     "stop": {
@@ -1344,6 +1517,91 @@
      "content_hash": null
     }
    ],
+   "evidence": {
+    "items": [
+     {
+      "key": "regime",
+      "label": "Market regime",
+      "status": "ok",
+      "direction": null,
+      "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+      "as_of": "2026-10-19",
+      "source": "desk-regime-v1"
+     },
+     {
+      "key": "trend",
+      "label": "Trend",
+      "status": "ok",
+      "direction": "supports",
+      "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+      "as_of": "2026-10-19",
+      "source": "regime-fit factor: direction"
+     },
+     {
+      "key": "relative_strength",
+      "label": "Relative strength",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     },
+     {
+      "key": "momentum",
+      "label": "Momentum",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     },
+     {
+      "key": "volume",
+      "label": "Volume",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     },
+     {
+      "key": "structure",
+      "label": "Price structure",
+      "status": "unavailable",
+      "direction": null,
+      "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+      "as_of": null,
+      "source": null
+     }
+    ],
+    "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+   },
+   "warnings": [
+    {
+     "key": "event",
+     "label": "Event",
+     "status": "unavailable",
+     "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+    },
+    {
+     "key": "liquidity",
+     "label": "Liquidity",
+     "status": "clear",
+     "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+    },
+    {
+     "key": "concentration",
+     "label": "Concentration",
+     "status": "at_entry",
+     "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+    },
+    {
+     "key": "correlation",
+     "label": "Correlation",
+     "status": "unavailable",
+     "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+    }
+   ],
    "risk_flags": [],
    "eligibility": {
     "eligible": true,
@@ -1362,7 +1620,7 @@
     "kind": "regime_fit_board",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
    },
-   "plan_id": "tp_8762cf979db7cb25",
+   "plan_id": "tp_da115be9a1a753cd",
    "lineage_key": "tl_996943749d42b931",
    "lifecycle": {
     "status": "proposed",
@@ -1431,9 +1689,9 @@
    },
    "note": "Top by regime \u2014 fit 92.5",
    "plan_ref": {
-    "plan_id": "tp_8762cf979db7cb25",
+    "plan_id": "tp_da115be9a1a753cd",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p",
-    "rules_version": "trade-plan-v1 (2026-10-27)"
+    "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }
   },
   "top_response": {
@@ -1557,7 +1815,7 @@
        "reference_price": 54976.9,
        "trade_plan": {
         "schema": "trade-plan-v1",
-        "rules_version": "trade-plan-v1 (2026-10-27)",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
         "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
         "calculation_version": "strategy-levels-v2",
         "strategy": {
@@ -1692,7 +1950,8 @@
          "excluded": [
           "exchange margin",
           "income tax"
-         ]
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
         },
         "exit_plan": {
          "stop": {
@@ -1765,6 +2024,91 @@
           "content_hash": null
          }
         ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
         "risk_flags": [],
         "eligibility": {
          "eligible": true,
@@ -1783,7 +2127,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
         },
-        "plan_id": "tp_8762cf979db7cb25",
+        "plan_id": "tp_da115be9a1a753cd",
         "lineage_key": "tl_996943749d42b931",
         "lifecycle": {
          "status": "proposed",
@@ -1791,7 +2135,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_8762cf979db7cb25"
+       "trade_plan_id": "tp_da115be9a1a753cd"
       },
       {
        "underlying": "NIFTY",
@@ -1887,7 +2231,7 @@
        "reference_price": 22811.35,
        "trade_plan": {
         "schema": "trade-plan-v1",
-        "rules_version": "trade-plan-v1 (2026-10-27)",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
         "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
         "calculation_version": "strategy-levels-v2",
         "strategy": {
@@ -2022,7 +2366,8 @@
          "excluded": [
           "exchange margin",
           "income tax"
-         ]
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
         },
         "exit_plan": {
          "stop": {
@@ -2095,6 +2440,91 @@
           "content_hash": null
          }
         ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
         "risk_flags": [],
         "eligibility": {
          "eligible": true,
@@ -2113,7 +2543,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "NIFTY:bear_put_spread:2026-10-27:buy22800p/sell22500p"
         },
-        "plan_id": "tp_e086434636b729ae",
+        "plan_id": "tp_35ac5c5c5a1b75df",
         "lineage_key": "tl_3c4a49f7b5b01363",
         "lifecycle": {
          "status": "proposed",
@@ -2121,7 +2551,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_e086434636b729ae"
+       "trade_plan_id": "tp_35ac5c5c5a1b75df"
       }
      ],
      "considered": 10,
@@ -2254,7 +2684,7 @@
        },
        "trade_plan": {
         "schema": "trade-plan-v1",
-        "rules_version": "trade-plan-v1 (2026-10-27)",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
         "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
         "calculation_version": "strategy-levels-v2",
         "strategy": {
@@ -2389,7 +2819,8 @@
          "excluded": [
           "exchange margin",
           "income tax"
-         ]
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
         },
         "exit_plan": {
          "stop": {
@@ -2462,6 +2893,91 @@
           "content_hash": null
          }
         ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
         "risk_flags": [
          {
           "code": "conflicts_with_cash_setup",
@@ -2490,7 +3006,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "MPHASIS:bear_put_spread:2026-10-27:buy2550p/sell2500p"
         },
-        "plan_id": "tp_86f547e7677658c5",
+        "plan_id": "tp_1188ce07ed22372d",
         "lineage_key": "tl_3aecca8bca2c63a0",
         "lifecycle": {
          "status": "proposed",
@@ -2498,7 +3014,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_86f547e7677658c5"
+       "trade_plan_id": "tp_1188ce07ed22372d"
       },
       {
        "underlying": "ICICIBANK",
@@ -2600,7 +3116,7 @@
        },
        "trade_plan": {
         "schema": "trade-plan-v1",
-        "rules_version": "trade-plan-v1 (2026-10-27)",
+        "rules_version": "trade-plan-v1.1 (2026-10-27)",
         "strategy_rules_version": "regime-fit-v1 (2026-10-22)",
         "calculation_version": "strategy-levels-v2",
         "strategy": {
@@ -2735,7 +3251,8 @@
          "excluded": [
           "exchange margin",
           "income tax"
-         ]
+         ],
+         "gap_risk": "Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole structure's value at once; its defined maximum loss bounds it."
         },
         "exit_plan": {
          "stop": {
@@ -2808,6 +3325,91 @@
           "content_hash": null
          }
         ],
+        "evidence": {
+         "items": [
+          {
+           "key": "regime",
+           "label": "Market regime",
+           "status": "ok",
+           "direction": null,
+           "text": "Desk regime Bearish \u00b7 India VIX 14.77 \u00b7 breadth down.",
+           "as_of": "2026-10-19",
+           "source": "desk-regime-v1"
+          },
+          {
+           "key": "trend",
+           "label": "Trend",
+           "status": "ok",
+           "direction": "supports",
+           "text": "The measured trend is down and the structure needs down (Nifty -2.66% against its 50-session average).",
+           "as_of": "2026-10-19",
+           "source": "regime-fit factor: direction"
+          },
+          {
+           "key": "relative_strength",
+           "label": "Relative strength",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "momentum",
+           "label": "Momentum",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "volume",
+           "label": "Volume",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          },
+          {
+           "key": "structure",
+           "label": "Price structure",
+           "status": "unavailable",
+           "direction": null,
+           "text": "Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's own evidence is in its Strategy Builder plan.",
+           "as_of": null,
+           "source": null
+          }
+         ],
+         "basis": "the F&O board's measured regime and fit factors (regime_fit)"
+        },
+        "warnings": [
+         {
+          "key": "event",
+          "label": "Event",
+          "status": "unavailable",
+          "text": "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy Builder plan does."
+         },
+         {
+          "key": "liquidity",
+          "label": "Liquidity",
+          "status": "clear",
+          "text": "Every leg has a premium, open interest and trades on the chain day (the board drops a strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."
+         },
+         {
+          "key": "concentration",
+          "label": "Concentration",
+          "status": "at_entry",
+          "text": "Depends on your account: position and sector exposure are checked by the account's risk decision at entry (the Phase 1 risk service), not stored on a plan that every user reads."
+         },
+         {
+          "key": "correlation",
+          "label": "Correlation",
+          "status": "unavailable",
+          "text": "Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked at entry, is the concentration control."
+         }
+        ],
         "risk_flags": [
          {
           "code": "conflicts_with_cash_setup",
@@ -2836,7 +3438,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "ICICIBANK:bear_put_spread:2026-10-27:buy1380p/sell1360p"
         },
-        "plan_id": "tp_6e6fa020a1343ff3",
+        "plan_id": "tp_93e0c36461c9972f",
         "lineage_key": "tl_fd951e92c1830e70",
         "lifecycle": {
          "status": "proposed",
@@ -2844,7 +3446,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_6e6fa020a1343ff3"
+       "trade_plan_id": "tp_93e0c36461c9972f"
       }
      ],
      "considered": 20,
