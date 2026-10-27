@@ -413,12 +413,12 @@ test.describe("Sector heatmap — entry points", () => {
     await expect(page.getByTestId("hm-verdict")).toBeVisible();
   });
 
-  test("the desk's sector card links to the heatmap", async ({ page }) => {
-    await open(page, { url: `${APP}/trader/desk` });
-    await page.route("**/api/markets/sector-returns", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ as_of: iso(0), source: "NSE index close", sessions: { "1d": 1, "1w": 5, "1m": 21 }, sectors: [] }) }));
-    await page.reload();
-    await page.getByTestId("desk-sector-heatmap-link").click();
-    await expect(page).toHaveURL(/\/app\/tool\/sector-heatmap$/);
+  // Desk redesign (2026-10-27): the old Overview's sector card is gone. Market Overview's strip links to Market Desk › Sector
+  // Rotation (covered by copilot-app-desk-market-overview.spec.ts: "mo-strip-sectors" → market/sectors); here the heatmap
+  // itself must open there.
+  test("the desk's Market Desk › Sector Rotation shows the heatmap", async ({ page }) => {
+    await open(page, { url: `${APP}/trader/desk?tab=market&view=sectors` });
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "sectors");
     await expect(page.getByTestId("hm-verdict")).toBeVisible();
   });
 
