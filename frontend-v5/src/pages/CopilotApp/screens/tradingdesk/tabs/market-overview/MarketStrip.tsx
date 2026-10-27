@@ -60,7 +60,7 @@ function IndexCell({ def, d }: { def: (typeof STRIP_INDICES)[number]; d: Markets
       <span data-testid="mo-index-change" className="cp-num" style={{ fontSize: 11, color: tone === "ink" ? "var(--cp-ink-2)" : toneColor(tone) }}>
         {ix ? `${fmtPoints(live ? live.change : ix.change)} (${fmtPct(pct, { signed: true, digits: 2 })})` : "Not in the response"}
       </span>
-      <span data-testid="mo-index-stamp" className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
+      <span data-testid="mo-index-stamp" data-mode={indexMode(d)} data-live={live ? live.kind : undefined} className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
         {live ? (live.kind === "close" ? closeLabel(live) : "Live · Kite") : `${MODE_WORD[indexMode(d)]}${stamp ? ` · ${stamp}` : ""}`}
       </span>
     </Cell>

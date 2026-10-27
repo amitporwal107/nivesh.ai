@@ -258,6 +258,51 @@ test.describe("MOCK — not real data: Market Overview · the market strip", () 
   });
 });
 
+// Kite's closing quote on an index cell: the same rule as the old Overview's tiles (useLiveOverlay with the cell's own bar
+// day), ported from copilot-app-desk-market.spec.ts TC-3 … TC-5. MOCK — not real data: the final snapshot below.
+test.describe("MOCK — not real data: Market Overview · index cells and Kite's closing quote", () => {
+  const finalSnapshot = {
+    as_of: "2026-10-23T11:02:24+00:00", data_at: "2026-10-23T11:02:27+00:00", age_seconds: 1, stale: false, stale_after_seconds: 75, cadence_seconds: 30,
+    mode: "closed", session: "closed", source: "rest", final: true, count: 1, missing: [], read_only: true,
+    quotes: { "NIFTY 50": { ltp: 22600, change: -87.65, change_pct: -0.39, open: 22690, high: 22710, low: 22580, close: 22687.65, volume: 0, oi: null, ts: "2026-10-23T15:29:00+05:30" } },
+  };
+  async function open(page: Page, tileDay: string | null) {
+    await setup(page);
+    const home = { ...HOME, as_of: "2026-10-19", indices: HOME.indices.map((i: Record<string, unknown>) => ({ ...i, as_of: tileDay })) };
+    if (tileDay === null) for (const i of home.indices) delete (i as { as_of?: unknown }).as_of;
+    await page.route("**/api/markets/home", (r) => json(r, home));
+    await page.route("**/api/live/**", (route) => route.fulfill(
+      new URL(route.request().url()).pathname.endsWith("/stream")
+        ? { status: 200, contentType: "text/event-stream", body: `retry: 100\n\nevent: snapshot\ndata: ${JSON.stringify(finalSnapshot)}\n\n` }
+        : { status: 200, contentType: "application/json", body: JSON.stringify(finalSnapshot) }));
+    await page.goto(DESK);
+    await expect(page.getByTestId("mo-index").first()).toBeVisible(SLOW);
+  }
+  const nifty = (page: Page) => page.locator('[data-testid="mo-index"][data-index="nifty"]');
+
+  test("MO-2b the cell already has its own 23 Oct bar: Kite's 23 Oct close is NOT shown", async ({ page }) => {
+    await open(page, "2026-10-23");
+    const stamp = nifty(page).getByTestId("mo-index-stamp");
+    await expect(stamp).toHaveAttribute("data-mode", "eod");
+    await expect(stamp).not.toHaveAttribute("data-live", /.+/);
+    await expect(stamp).not.toContainText("Kite");
+    await expect(nifty(page).getByTestId("mo-index-value")).toHaveText(n2(HOME.indices[0].value));
+  });
+
+  test("MO-2c the cell's own bar is older than Kite's final snapshot: Kite's close is shown, labelled Close", async ({ page }) => {
+    await open(page, "2026-10-22");
+    const stamp = nifty(page).getByTestId("mo-index-stamp");
+    await expect(stamp).toHaveAttribute("data-live", "close", SLOW);
+    await expect(stamp).toContainText("Close · 23 Oct · Kite");
+    await expect(nifty(page).getByTestId("mo-index-value")).toHaveText("22,600.00");
+  });
+
+  test("MO-2d an older backend without a cell date falls back to the page's day", async ({ page }) => {
+    await open(page, null);
+    await expect(nifty(page).getByTestId("mo-index-stamp")).toHaveAttribute("data-live", "close", SLOW);
+  });
+});
+
 // ── Top AI ideas ──────────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
