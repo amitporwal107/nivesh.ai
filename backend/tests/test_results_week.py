@@ -501,7 +501,7 @@ def test_b9_no_forbidden_wording_and_the_label_says_historical_trend(sources):
     b = body_of(sources)
     assert sc.forbidden_terms(b) == []
     assert "historical trend" in b["label"] and "not analyst consensus" in b["label"] and b["consensus_available"] is False
-    assert b["ideas"]["note"] == "Ordered for review, not a prediction. This ordering has not been tested yet."
+    assert b["ideas"]["note"] == "Ordered for review, not a prediction. Tested on past results seasons: this ordering showed no measurable skill so far."
     assert sc.forbidden_terms({"x": "We recommend this pick"}) == ["recommend", "pick"]
     assert sc.forbidden_terms({"x": "results beat the Street"}) == ["beat the street"]
 

@@ -342,7 +342,7 @@ async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> D
         "basis": sc.BASIS, "consensus_available": False, "label": sc.LABEL,
         "counts": counts_of(in_week), "counts_partial": not all(m["ok"] for m in win_meta[:len(week_wins)]),
         "results": in_week,
-        "ideas": {"fno": fno_ideas["items"], "all": all_ideas["items"], "note": sc.IDEAS_NOTE, "tested": False,
+        "ideas": {"fno": fno_ideas["items"], "all": all_ideas["items"], "note": sc.IDEAS_NOTE, "tested": True,
                   "weights": {"declared": sc.DECLARED_WEIGHTS, "upcoming": sc.UPCOMING_WEIGHTS},
                   "left_out": {"fno": fno_ideas["left_out"], "all": all_ideas["left_out"]},
                   "rule": "declared: filed in the last 3 sessions; upcoming: meeting on the date or in the next 5 sessions; "

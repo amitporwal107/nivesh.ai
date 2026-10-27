@@ -119,10 +119,10 @@ def meeting(status="declared", filed_state="figures", at="2026-10-26T15:29:10+00
 def test_strong_figures_full_on_the_first_reaction_session_then_decaying():
     rows = fin(140.0, 100.0, 1173.0, 1000.0, ebitda=316.0, ebitda4=250.0)      # PAT +40 %, revenue +17.3 %, margin +194 bps
     s = rs.signal_for(meeting(), rows, [], SESSIONS, utc(2026, 10, 27, 10, 0))
-    assert s["strength"] == "strong" and s["points"] == 10.0 and s["basis"] == "figures" and s["sessions_since"] == 0
+    assert s["strength"] == "strong" and s["points"] == 5.0 and s["basis"] == "figures" and s["sessions_since"] == 0
     assert s["reasons"][0] == "Q2 FY27 PAT +40.0 % YoY, revenue +17.3 %, EBITDA margin +194 bps (filed 26 Oct)"
     assert set(s) == {"strength", "points", "basis", "reasons", "filed_at", "sessions_since"}
-    assert rs.signal_for(meeting(), rows, [], SESSIONS, utc(2026, 10, 28, 10, 0))["points"] == 8.0
+    assert rs.signal_for(meeting(), rows, [], SESSIONS, utc(2026, 10, 28, 10, 0))["points"] == 4.0
     assert rs.signal_for(meeting(), rows, [], SESSIONS, utc(2026, 11, 3, 10, 0)) is None
 
 
@@ -137,18 +137,18 @@ def test_figures_pending_uses_the_filing_analysis_at_half_weight():
     doc = {"symbol": "MOCKCO", "mode": "single_full", "event_type": "RESULTS", "event_ts": datetime(2026, 10, 26, 11, 0),
            "analyzed_at": datetime(2026, 10, 26, 12, 0), "net_band": "moderately_positive", "confidence_score": 82}
     s = rs.signal_for(meeting(filed_state="pending"), None, [doc], SESSIONS, utc(2026, 10, 27, 10, 0))
-    assert s["basis"] == "filing_analysis" and s["points"] == 5.0 and s["sessions_since"] == 0
+    assert s["basis"] == "filing_analysis" and s["points"] == 2.5 and s["sessions_since"] == 0
     assert s["reasons"] == ["Filing analysis: moderately positive, confidence 82 % (figures not filed yet)"]
     neg = dict(doc, net_band="moderately_negative")
-    w = rs.signal_for(meeting(filed_state="pending"), None, [neg], SESSIONS, utc(2026, 10, 28, 10, 0))
-    assert w["strength"] == "weak" and w["points"] == -4.0
+    # weak makes no adjustment since the study (PR #374): no signal at all
+    assert rs.signal_for(meeting(filed_state="pending"), None, [neg], SESSIONS, utc(2026, 10, 28, 10, 0)) is None
     assert rs.signal_for(meeting(status="upcoming", filed_state=None), None, [doc], SESSIONS, utc(2026, 10, 27, 10, 0)) is None
 
 
 def test_weak_figures():
     rows = fin(80.0, 100.0, 1020.0, 1000.0)                                  # PAT −20 %, revenue +2 %
     s = rs.signal_for(meeting(), rows, [], SESSIONS, utc(2026, 10, 27, 10, 0))
-    assert s["strength"] == "weak" and s["points"] == -10.0
+    assert s is None                                                          # weak: classified, but 0 points since PR #374
 
 
 def test_apply_adjusts_final_score_and_keeps_the_base():
@@ -261,8 +261,8 @@ def test_picks_a_boosted_stock_at_base_rank_31_enters_the_top_30(monkeypatch):
     assert s30["final_score"] == 0.75 and s30["base_final_score"] == 0.65 and s30["results_signal"]["points"] == 10.0
     scores = [p["final_score"] for p in d["picks"]]
     assert scores == sorted(scores, reverse=True)                                  # the order follows the adjusted score
-    assert d["results_signal"]["applied"] == 1 and d["results_signal"]["tested"] is False
-    assert "this adjustment has not been tested yet" in d["results_signal"]["rule"]
+    assert d["results_signal"]["applied"] == 1 and d["results_signal"]["tested"] is True
+    assert "Tested on four past results seasons" in d["results_signal"]["rule"]
     assert any("LIMIT" in q and a[-1] == 31 for q, a in seen if "positional_signals" in q and "ANY(" not in q)
 
 

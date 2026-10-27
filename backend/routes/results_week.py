@@ -4,7 +4,7 @@ GET /api/desk/results-week?date=YYYY-MM-DD
     the date's week of results meetings (Monday .. Saturday), each declared result rated "vs historical trend" (the
     company's own past quarters, not analyst consensus), the Earnings Intelligence Score with its coverage, the market
     reaction vs Nifty, the OI build-up, the AI scanner's technicals and your Chartink confirmation; plus two idea lists
-    (F&O names / all names) ordered for review, labelled not yet tested.
+    (F&O names / all names) ordered for review, labelled with the study's result (no measurable skill so far).
 
     date omitted → today (IST), built live and cached for CACHE_S (a build that takes longer than LIVE_WAIT_S answers
     with the previous build, or 503 {code: building, retry_after_s} before the first one). A past date answers from the nightly snapshot

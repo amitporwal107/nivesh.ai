@@ -145,4 +145,15 @@ Staging data test (read-only overlay, rs.compute at ~19:33 IST 27 Oct): signals 
 WESTLIFE, MGEL, GAEL: no signal; MANKIND, SONACOMS, APLAPOLLO, ITCHOTELS, SUPREMEIND strong +10 (figures); TATACONSUM, PAYTM strong +5
 (filing analysis, figures pending); MARUTI weak −5 (filing analysis); ATHERENERG no signal (other-income red flag, by design).
 
+
+## Addendum (22:16 IST, coordinator): boost values from the pre-registered study (PR #374)
+Registered decision applied: STRONG +5 / WEAK 0 (filing-analysis fallback, untested: +2.5 / 0); `tested: true`; the ideas
+note now says "no measurable skill so far" (H3/H4 FAIL). Weights unchanged. Tests:
+```
+pytest (results, positional, strategy-plan suites): 1 failed, 308 passed — the failure is tests/test_symbol_lookup.py::test_warm_search_is_fast_on_a_large_universe, a timing test; alone: 1 passed, 2 warnings in 6.10s
+```
+Staging data test (read-only overlay, 22:15 IST): 73 strong (figures, +5), no weak adjustments, no gaps; MANKIND, SONACOMS,
+APLAPOLLO, ITCHOTELS, SUPREMEIND +5; TATACONSUM no signal (figures landed 20:33: PAT +16.2 %, revenue +14.0 %, margin +30 bps =
+1 of 4); PAYTM no signal (PAT +971 %, revenue +28.5 %, margin +324 bps, but other income 61 % of PBT: red-flag veto).
+
 ## Verdict: PASS

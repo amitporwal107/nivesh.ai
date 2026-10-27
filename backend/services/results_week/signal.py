@@ -7,7 +7,8 @@ time by GET /api/positional/picks and /watchlist, before their sort, min-score f
 `final_score` becomes clamp(base + points / 100, 0, 1), so every merge that ranks by final_score uses it unchanged.
 Stage and actionability are untouched.
 
-Every constant below is a provisional research setting, not validated; the adjustment has not been tested (RULE_TEXT).
+Points follow the pre-registered study (docs/ai_research/EARNINGS_SURPRISE_RESULTS.md, PR #374): STRONG +5, WEAK 0
+(was +10 / −10). The filing-analysis fallback was not tested; it keeps half the figures points. See RULE_TEXT.
 A source failure means no adjustment and a gap, never a crash and never a guessed signal.
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ from . import loaders, scoring as sc
 
 logger = logging.getLogger(__name__)
 
-RULE_TEXT = "Strong results add up to +10 points, weak results subtract up to 10; this adjustment has not been tested yet."
+RULE_TEXT = ("Strong results add up to +5 points; weak results make no adjustment. Tested on four past results seasons (PR #374): strong results explained the results-day move, with little evidence after it; confirmation on the Oct–Nov 2026 season is pending.")
 
 # Window and decay: a results filing counts for WINDOW_SESSIONS sessions, counted from the first session that can react
 # to it (§4a: filed before the 15:30 IST close on a session day → that session, else the next). That session is 0 (full
@@ -38,7 +39,7 @@ STRONG_MIN_MET = 2                 # … or a RATED §4a metric verdict "above" 
 # "below". WEAK on the figures (−10): PAT YoY ≤ −10 % with revenue YoY < +5 %, or a rated verdict below / well below.
 PAT_YOY_WEAK_PCT = -10.0
 REVENUE_YOY_WEAK_BELOW_PCT = 5.0
-FIGURES_POINTS = {"strong": 10.0, "weak": -10.0}
+FIGURES_POINTS = {"strong": 5.0, "weak": 0.0}     # study H5 (PR #374): +5 / 0
 RED_FLAGS = ("exceptional_items", "other_income")
 
 # Figures not stored yet: the filing analysis (Mongo event_ai_analysis) at confidence ≥ 75 — moderately positive or
@@ -46,7 +47,7 @@ RED_FLAGS = ("exceptional_items", "other_income")
 FILING_MIN_CONFIDENCE = 75.0
 POSITIVE_BANDS = ("moderately_positive", "strongly_positive", "extremely_positive")
 NEGATIVE_BANDS = ("moderately_negative", "strongly_negative", "extremely_negative")
-FILING_POINTS = {"strong": 5.0, "weak": -5.0}
+FILING_POINTS = {"strong": 2.5, "weak": 0.0}      # untested: half the figures points
 
 CACHE_S = 600.0                    # ≤ 10 minutes
 FAIL_CACHE_S = 60.0                # a failure is retried after a minute, not on every scanner request
@@ -212,7 +213,7 @@ def apply(rows: List[Dict[str, Any]], signals: Dict[str, Dict[str, Any]], key: s
 
 
 def meta(signals: Dict[str, Dict[str, Any]], gap: Optional[str], applied: int) -> Dict[str, Any]:
-    return {"rule": RULE_TEXT, "tested": False, "signals": len(signals), "applied": applied, "gap": gap,
+    return {"rule": RULE_TEXT, "tested": True, "signals": len(signals), "applied": applied, "gap": gap,
             "source": "results meetings in the last 5 sessions (DaaS expectations), stored quarters (DaaS financials), "
                       "filing analysis (Mongo event_ai_analysis)"}
 

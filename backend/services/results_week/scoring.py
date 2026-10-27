@@ -17,7 +17,7 @@ MARKET_CLOSE_IST = time(15, 30)
 
 BASIS = "historical_trend"
 LABEL = "vs historical trend (the company's own past quarters), not analyst consensus"
-IDEAS_NOTE = "Ordered for review, not a prediction. This ordering has not been tested yet."
+IDEAS_NOTE = ("Ordered for review, not a prediction. Tested on past results seasons: this ordering showed no measurable skill so far.")
 OUTLOOK_LABEL = "filing analysis, not a guidance tracker"
 
 REASON_NO_BASELINE = "not rated: no reliable baseline"

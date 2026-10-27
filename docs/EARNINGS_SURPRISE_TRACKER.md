@@ -111,6 +111,8 @@ mixed · 0–44 below (provisional). The headline verdict is the §4a verdict; t
 - Chartink hits are shown, never scored.
 
 ### 4d. Results signal in the AI scanner (owner, 27 Oct evening: "show extra strength signal for strong-results candidate stocks in the AI scanner")
+
+**Validated 27 Oct (PR #374, pre-registered study, 4 past seasons):** STRONG names led unflagged ones by +2.90 pp over 5 sessions, but by only +0.42 pp after the reaction day (Holm p 0.054); WEAK lagged by −1.57 pp over 5 sessions and showed nothing after. Per the registered rule the points are now STRONG +5 / WEAK 0 (filing-analysis fallback untested: +2.5 / 0), `tested: true`, pending the Oct–Nov 2026 holdout. The ideas orders (§4c) showed no measurable skill so far (H3 IC +0.04, H4 IC +0.05, both FAIL); their note says so. Weights unchanged.
 Applied at READ time by `GET /api/positional/picks` and `/api/positional/watchlist` (code `services/results_week/signal.py`);
 the engine's stored scores (`positional_signals`, `stock_technical_features`) stay purely technical. Each row gains
 `results_signal` = `{strength: "strong"|"weak", points, basis: "figures"|"filing_analysis", reasons: [...], filed_at,
@@ -119,19 +121,19 @@ route's sort, min_score filter and limit (the top rows by base score plus every 
 filtered, sorted and cut), so a boosted stock just outside the base top N can enter and a weak one can leave. Stage and
 actionability are unchanged. Every merge that ranks by `final_score` (desk-data.ts mergeSetups, selection.merge_setups) uses
 it unchanged; `selection.SELECTION_RULE` and `ideas.RANKING_NOTE` say "Strong results add up to +10 points, weak results
-subtract up to 10; this adjustment has not been tested yet." Both responses carry `results_signal: {rule, tested: false,
+subtract up to 10; this adjustment has not been tested yet." (superseded 27 Oct by the study: see the note below) Both responses carry `results_signal: {rule, tested: false,
 signals, applied, gap, source}`.
 - Window: a results meeting declared within the last 5 sessions; only filings broadcast before now. `sessions_since` counts
   from the FIRST REACTION SESSION (the §4c reaction rule: broadcast before 15:30 IST on a session day → that session = 0;
   after 15:30 or on a non-session day → the next session = 0). MANKIND, filed 20:59 IST on 26 Oct, gets +10 on 27 Oct, 8 on
   28 Oct, … 0 from the 5th session after 27 Oct.
-- STRONG on figures (+10): the quarter's figures stored and ≥ 2 of: PAT YoY ≥ +20 % (loss → profit counts as met); revenue
+- STRONG on figures (+5 since the study, PR #374; was +10): the quarter's figures stored and ≥ 2 of: PAT YoY ≥ +20 % (loss → profit counts as met); revenue
   YoY ≥ +10 %; EBITDA margin YoY ≥ +50 bps; a rated §4a metric verdict "above" — and no red flag (exceptional items > 20 % of
   PBT, other income > 30 % of PBT), no rated below, and **PAT not down YoY** (any fall blocks "strong"; a loss turning into
   a profit is not a fall).
-- STRONG on the filing analysis (+5, figures pending): `event_ai_analysis` results band moderately positive or better at
+- STRONG on the filing analysis (+2.5, figures pending; untested, half the figures points): `event_ai_analysis` results band moderately positive or better at
   confidence ≥ 75.
-- WEAK (−10; −5 on the filing analysis): PAT YoY ≤ −10 % with revenue YoY < +5 %, or a rated verdict below / well below
+- WEAK (0 since the study: classified, but no adjustment and no chip; was −10 / −5): PAT YoY ≤ −10 % with revenue YoY < +5 %, or a rated verdict below / well below
   WITHOUT a strong PAT rise (PAT YoY ≥ +20 % or loss → profit), or (figures pending) band moderately negative or worse at
   confidence ≥ 75. Weak is checked first. A rated below together with a strong PAT rise is mixed: no adjustment.
 - Decay: points × (1 − sessions_since / 5). Cached ≤ 10 min; bounded by 25 s; any source failure → no adjustment and a gap.
@@ -194,7 +196,7 @@ composes them from the desk's existing routes and components.
       "chartink": {"scans": [names], "scan_date"} | null,     // the signed-in user's hits on the date; [] = not hit; null = none stored
       "evidence": [ {"label","url"} ], "gaps": [] } ],
   "ideas": { "fno": [ {"rank","symbol","name","phase": "declared|upcoming","event_date","signal","parts": {name: {"value","weight"}},"missing","why"} ],
-             "all": [ ... ], "note": "Ordered for review, not a prediction. This ordering has not been tested yet.",
+             "all": [ ... ], "note": "Ordered for review, not a prediction. Tested on past results seasons: this ordering showed no measurable skill so far.",
              "tested": false, "weights", "left_out", "rule" },
   "rules": {...}, "sources": {...per source: source, ok, …; chartink: {connected, scan_date, symbols, note}}, "gaps": [ ... ], "read_only": true }
 ```
