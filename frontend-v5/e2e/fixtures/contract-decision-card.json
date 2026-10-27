@@ -906,10 +906,10 @@
       "capital": 1000000,
       "risk_pct": 0.5
      },
-     "build_ms": 210
+     "build_ms": 301
     }
    ],
-   "elapsed_ms": 211,
+   "elapsed_ms": 302,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -9738,11 +9738,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T08:05:49.164424+00:00",
+    "created_at": "2026-10-27T08:41:32.690048+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T08:05:49.164424+00:00",
+     "at": "2026-10-27T08:41:32.690048+00:00",
      "after_approval": false
     }
    },
@@ -9810,7 +9810,7 @@
     {
      "plan_id": "tp_2de66265bb4979a3",
      "version": 1,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -10183,11 +10183,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T08:05:49.164424+00:00",
+      "at": "2026-10-27T08:41:32.690048+00:00",
       "after_approval": false
      }
     },
@@ -10255,7 +10255,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T08:05:49.164424+00:00",
+      "created_at": "2026-10-27T08:41:32.690048+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -10591,11 +10591,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T08:05:49.164424+00:00",
+      "at": "2026-10-27T08:41:32.690048+00:00",
       "after_approval": false
      }
     },
@@ -10603,7 +10603,7 @@
      "status": "open",
      "trades": [
       {
-       "id": "6b204f77-61e3-4ff1-8390-c4ed16c31ecf",
+       "id": "7f54425f-7fdc-46a5-ba6c-5883f5466265",
        "state": "POSITION_OPEN",
        "status": "open"
       }
@@ -10611,11 +10611,11 @@
      "rejections": []
     },
     "risk_decision": {
-     "decision_id": "a1c3a207-9e28-49c8-a0b5-b1686cd022df",
+     "decision_id": "f085e618-e9c8-44b0-a99c-4688d4349557",
      "outcome": "allow",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "6b204f77-61e3-4ff1-8390-c4ed16c31ecf",
+     "trade_id": "7f54425f-7fdc-46a5-ba6c-5883f5466265",
      "requested_qty": 666,
      "approved_qty": 666,
      "requested_lots": null,
@@ -10718,7 +10718,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T08:05:49.164424+00:00",
+      "created_at": "2026-10-27T08:41:32.690048+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -11073,11 +11073,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T08:05:49.164424+00:00",
+      "at": "2026-10-27T08:41:32.690048+00:00",
       "after_approval": false
      }
     },
@@ -11151,7 +11151,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T08:05:49.164424+00:00",
+      "created_at": "2026-10-27T08:41:32.690048+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -11161,7 +11161,7 @@
    "paper_status": 409,
    "paper_detail": {
     "code": "risk_reduce",
-    "decision_id": "5a00e401-ae77-4e5b-8cd8-ab68bb60cd4e",
+    "decision_id": "8fbf67ae-a6a0-4ba5-be43-c0e7bb7bdc97",
     "outcome": "reduce",
     "requested_qty": 113,
     "approved_qty": 83,
@@ -11239,7 +11239,7 @@
     },
     "policy_version": "universal-risk-v1",
     "limits_version": "rp-0-7e7c3751",
-    "correlation_id": "c27a0fbd35e042f0b3c8928de72ffb8d",
+    "correlation_id": "8bfcb9f7033047a49ee25c0be22ed260",
     "reservation_id": null,
     "freshness": {
      "last_close": {
@@ -11607,11 +11607,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T08:05:49.164424+00:00",
+      "at": "2026-10-27T08:41:32.690048+00:00",
       "after_approval": false
      }
     },
@@ -11631,17 +11631,17 @@
         "POSITION_SIZE"
        ],
        "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "5a00e401-ae77-4e5b-8cd8-ab68bb60cd4e",
+       "risk_decision_id": "8fbf67ae-a6a0-4ba5-be43-c0e7bb7bdc97",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
     },
     "risk_decision": {
-     "decision_id": "5a00e401-ae77-4e5b-8cd8-ab68bb60cd4e",
+     "decision_id": "8fbf67ae-a6a0-4ba5-be43-c0e7bb7bdc97",
      "outcome": "reduce",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "ca95b989-f5c0-46ad-88a3-f0bb3b9398f6",
+     "trade_id": "3e680f3c-e668-401d-92be-ba0e1dbe7c17",
      "requested_qty": 113,
      "approved_qty": 83,
      "requested_lots": null,
@@ -11737,7 +11737,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T08:05:49.164424+00:00",
+      "created_at": "2026-10-27T08:41:32.690048+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -12092,11 +12092,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T08:05:49.164424+00:00",
+      "at": "2026-10-27T08:41:32.690048+00:00",
       "after_approval": false
      }
     },
@@ -12154,7 +12154,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T08:05:49.164424+00:00",
+      "created_at": "2026-10-27T08:41:32.690048+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -12164,7 +12164,7 @@
    "paper_status": 409,
    "paper_detail": {
     "code": "risk_blocked",
-    "decision_id": "b63ce70e-de3f-4641-97a6-676e17cf013a",
+    "decision_id": "a503fdf7-d33d-467f-8c94-413b8b2ac15b",
     "outcome": "block",
     "requested_qty": 666,
     "approved_qty": 0,
@@ -12232,7 +12232,7 @@
     },
     "policy_version": "universal-risk-v1",
     "limits_version": "rp-1-258b9566",
-    "correlation_id": "fefefde48f0047a4bcf43206ff1cec70",
+    "correlation_id": "d7bef181265b4baebf3d449416c3b1a2",
     "reservation_id": null,
     "freshness": {
      "last_close": {
@@ -12600,11 +12600,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T08:05:49.164424+00:00",
+      "at": "2026-10-27T08:41:32.690048+00:00",
       "after_approval": false
      }
     },
@@ -12623,17 +12623,17 @@
         "kill_switch_on"
        ],
        "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "b63ce70e-de3f-4641-97a6-676e17cf013a",
+       "risk_decision_id": "a503fdf7-d33d-467f-8c94-413b8b2ac15b",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
     },
     "risk_decision": {
-     "decision_id": "b63ce70e-de3f-4641-97a6-676e17cf013a",
+     "decision_id": "a503fdf7-d33d-467f-8c94-413b8b2ac15b",
      "outcome": "block",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "c5cb7ea9-8a02-41b5-a9b0-e4d2d7d171ba",
+     "trade_id": "cf42981a-9e64-485d-98db-d2646c20da3b",
      "requested_qty": 666,
      "approved_qty": 0,
      "requested_lots": null,
@@ -12707,7 +12707,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T08:05:49.164424+00:00",
+      "created_at": "2026-10-27T08:41:32.690048+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -13042,11 +13042,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T08:05:49.164424+00:00",
+    "created_at": "2026-10-27T08:41:32.690048+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T08:05:49.164424+00:00",
+     "at": "2026-10-27T08:41:32.690048+00:00",
      "after_approval": false
     }
    },
@@ -13096,31 +13096,21 @@
     "lot_size": null,
     "requested_lots": null,
     "estimated_risk_rs": {
-     "gross": 800.0,
-     "costs": 123.36,
-     "gap_stress": 232.0,
-     "stop_based": 923.36,
-     "total": 1155.36,
+     "gross": 1640.0,
+     "costs": 203.34,
+     "gap_stress": 475.6,
+     "stop_based": 1843.34,
+     "total": 2318.94,
      "basis": "shares: qty x (entry - stop) + round-trip costs + gap stress",
      "gap_stress_pct": 1.0,
      "version": "est-risk-v1"
     },
-    "risk_pct_of_equity": 0.116,
+    "risk_pct_of_equity": 0.232,
     "blocking": [],
-    "status": "not_confirmed",
-    "confirm_outcome": "reduce",
-    "confirm_size": 20,
-    "confirm_reasons": [
-     {
-      "code": "BEAR_REGIME",
-      "check": "governor",
-      "severity": "reduce",
-      "message": "The market regime is BEAR; size is cut."
-     }
-    ],
+    "status": "sized",
     "portfolio": {
-     "outcome": "reduce",
-     "size_now": 20,
+     "outcome": "allow",
+     "size_now": 41,
      "reasons": [],
      "remaining": {
       "open_risk_rs": 30000.0,
@@ -13137,7 +13127,7 @@
     {
      "plan_id": "tp_2de66265bb4979a3",
      "version": 1,
-     "created_at": "2026-10-27T08:05:49.164424+00:00",
+     "created_at": "2026-10-27T08:41:32.690048+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -18245,11 +18235,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T08:05:49.478942+00:00",
+    "created_at": "2026-10-27T08:41:32.915947+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T08:05:49.478942+00:00",
+     "at": "2026-10-27T08:41:32.915947+00:00",
      "after_approval": false
     }
    },
@@ -18311,7 +18301,7 @@
     {
      "plan_id": "tp_dd8a6714e0150b58",
      "version": 1,
-     "created_at": "2026-10-27T08:05:49.478942+00:00",
+     "created_at": "2026-10-27T08:41:32.915947+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -18644,11 +18634,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T08:05:49.478942+00:00",
+    "created_at": "2026-10-27T08:41:32.915947+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T08:05:49.478942+00:00",
+     "at": "2026-10-27T08:41:32.915947+00:00",
      "after_approval": false
     }
    },
@@ -18700,7 +18690,7 @@
     {
      "plan_id": "tp_dd8a6714e0150b58",
      "version": 1,
-     "created_at": "2026-10-27T08:05:49.478942+00:00",
+     "created_at": "2026-10-27T08:41:32.915947+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }

@@ -525,17 +525,25 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await expect(card.getByTestId("dc-budgets-left")).toContainText(`${pf.remaining.positions} more positions`);
   });
 
-  test("UI-19 BEAR regime: the size carries the factor, and since the service cuts any submitted size again the action is off", async ({ page }) => {
-    const bear = CARD.cash.bear_default_response;           // REAL answer: default profile, BEAR regime (contract fixture)
-    await setup(page, { profile: { status: 200, body: CARD.risk_profile_default }, plans: { [CASH.plan_id]: { status: 200, body: bear } } });
+  test("UI-19 BEAR regime: the size carries the factor once, and that size is sent as is", async ({ page }) => {
+    // REAL answer: default profile, BEAR regime (contract fixture). Until #365 the service halved any submitted size
+    // again, so this card said "(not allowed as is)" and the action was off; now the halved size is allowed.
+    const bear = CARD.cash.bear_default_response;
+    const a = bear.account_size;
+    expect(a.status).toBe("sized");
+    const seen = await setup(page, { profile: { status: 200, body: CARD.risk_profile_default }, plans: { [CASH.plan_id]: { status: 200, body: bear } } });
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
-    await expect(card.getByTestId("dc-size")).toHaveText(`Size ${int(bear.account_size.quantity)} shares (not allowed as is)`, SLOW);
-    await expect(card.getByTestId("dc-action")).toContainText(`Paper trade off: The risk service would not take this size as it is: it cuts it again to ${bear.account_size.confirm_size}`);
+    await expect(card.getByTestId("dc-size")).toHaveText(sized(a).size, SLOW);
+    await expect(card.getByTestId("dc-size")).not.toContainText("not allowed as is");
+    await expect(card.getByTestId("dc-action")).not.toContainText("Paper trade off");
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-factors")).toContainText("The market regime is BEAR; size is cut.");
     await stockRow(page).getByTestId("desk-top10-stock-paper").click();
-    await expect(stockRow(page).getByTestId("desk-top10-paper-blocked")).toContainText("cuts it again");
+    await expect(stockRow(page).getByTestId("desk-top10-paper-qty")).toHaveValue(String(a.quantity));
+    await stockRow(page).getByTestId("desk-top10-paper-add").click();
+    await expect(stockRow(page).getByTestId("desk-top10-paper-done")).toBeVisible();
+    expect(seen.paper[0]).toMatchObject({ quantity: a.quantity, plan_ref: { plan_id: CASH.plan_id } });
   });
 
   test("UI-20 an F&O row whose one lot is over the per-trade budget shows no size and cannot be submitted", async ({ page }) => {
