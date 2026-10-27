@@ -23,9 +23,11 @@
  *   Refresh cooldown: retry_after_s 420 -> ceil(420 / 60) = 7 minutes.
  *
  * Cases: CK-1 connect (client checks, 422, success) · CK-2 scan table states · CK-3 toggles and direction PATCH bodies · CK-4 refresh and
- * cooldown · CK-5 disconnect confirmation · CK-6 honest states (error, unreachable, partial, no hits, not connected) · CK-7 Overview merge
- * (desktop) · CK-8 Overview degrades · CK-9 Overview phone · CK-10 Scanner chip, URL and filter · CK-11 ideas board source tags and switch ·
+ * cooldown · CK-5 disconnect confirmation · CK-6 honest states (error, unreachable, partial, no hits, not connected) · CK-10 Scanner chip,
+ * URL and filter · CK-11 ideas board source tags and switch ·
  * CK-12 plan evidence item and candidate label · CK-13 persona · CK-14 390px settings · CK-15 reads only, no order controls.
+ * CK-7 … CK-9 (the old Overview's Chartink merge, its degraded states and its phone layout) and CK-16's Overview check left
+ * with OverviewTab in the desk redesign's step 6.
  */
 import fs from "fs";
 import path from "path";
@@ -433,116 +435,6 @@ test.describe("MOCK - not real data: Chartink scans as opportunity sources", () 
     await expect(row(page2, "1001").getByTestId("ck-scan-hits")).toHaveText("5"); // the table reads the saved last run, not the hits call
   });
 
-  // ── CK-7 ─────────────────────────────────────────────────────────────
-
-  test("CK-7 Overview (desktop): the AI row is tagged, a separated sub-list shows the first four Chartink-only stocks with icon, price, % change, scans and F&O, and each opens its chart", async ({ page }) => {
-    await open(page, DESK);
-    const card = page.getByTestId("desk-opps-card");
-    // AI rows are unchanged, with the tag.
-    await expect(card.getByTestId("desk-opp")).toHaveCount(1);
-    await expect(card.getByTestId("desk-opp-symbol")).toHaveText("TESTBRK");
-    await expect(card.getByTestId("desk-opp").getByTestId("ck-tag")).toHaveText("Also on Chartink: Volume Burst Sample (+1)");
-    await expect(card.getByTestId("desk-opp").getByTestId("ck-tag")).toHaveAttribute("title", "Volume Burst Sample; Gap Fill Sample");
-
-    // The sub-list: 4 of the 5 Chartink-only stocks, in the route's order.
-    await expect(page.getByTestId("desk-ck-title")).toHaveText("From your Chartink scans (not in the AI scan)");
-    const only = card.getByTestId("ck-only");
-    await expect(only).toHaveCount(4);
-    await expect(only.locator('[data-testid="ck-only-symbol"]')).toHaveText(["QUBEX", "ZEDCO", "WIDGETCO", "PLANETX"]);
-    const q = only.nth(0);
-    await expect(q.getByTestId("ck-only-price")).toContainText("1,250.50");
-    await expect(q.getByTestId("ck-only-change")).toContainText("1.2");
-    await expect(q.getByTestId("ck-only-scans")).toHaveText("Chartink: Volume Burst Sample, Weak Close Sample");
-    await expect(q.getByTestId("ck-only-score")).toHaveText("No AI score");
-    await expect(q.getByTestId("ck-fno")).toHaveCount(0);
-    await expect(q.locator("img, svg, [data-testid*='icon']").first()).toBeVisible();
-    await expect(only.nth(1).getByTestId("ck-fno")).toHaveText("F&O"); // ZEDCO
-    await expect(only.nth(2).getByTestId("ck-fno")).toHaveCount(0); // WIDGETCO: F&O unknown, so no tag
-    await expect(page.getByTestId("desk-ck-more")).toHaveText("1 more in AI Scanner · Chartink scans.");
-
-    // The trust line: source, mode as returned, "Chartink fetched <time IST>", not validated.
-    const trust = page.getByTestId("desk-ck-trust");
-    await expect(trust).toContainText("Chartink scans (your dashboard)");
-    await expect(trust).toContainText("Chartink fetched");
-    await expect(trust).toContainText("10:30 IST");
-    await expect(trust).toContainText("not validated");
-    await expect(trust).toHaveAttribute("data-mode", "eod");
-    await card.getByTestId("desk-ck-title").scrollIntoViewIfNeeded();
-    await card.evaluate((el) => el.scrollIntoView({ block: "start" }));
-    await shot(page, "overview", 1440);
-
-    // A row opens its Chart tab; the header link opens the settings.
-    await only.nth(1).click();
-    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
-    await expect(page).toHaveURL(/sym=ZEDCO/);
-    await page.goto(DESK);
-    await page.getByTestId("desk-opps-chartink").click();
-    await expect(page).toHaveURL(/section=chartink/);
-    await expect(page.getByTestId("chartink-settings")).toBeVisible();
-  });
-
-  // ── CK-8 ─────────────────────────────────────────────────────────────
-
-  test("CK-8 not connected: one line with a way in, and the AI rows are as before; a failing source or failing hits degrades to the AI scanner with one line", async ({ page }) => {
-    await open(page, DESK, { source: null });
-    await expect(page.getByTestId("desk-opp")).toHaveCount(1);
-    await expect(page.getByTestId("ck-tag")).toHaveCount(0);
-    await expect(page.getByTestId("desk-ck-connect")).toHaveText("Connect your Chartink dashboard to add your scans here ›");
-    await expect(page.getByTestId("ck-only")).toHaveCount(0);
-    await page.getByTestId("ck-connect-link").click();
-    await expect(page).toHaveURL(/section=chartink/);
-
-    const p2 = await page.context().newPage();
-    const st = await open(p2, DESK, { hits: { status: 500 } });
-    await expect(p2.getByTestId("desk-opp")).toHaveCount(1);
-    await expect(p2.getByTestId("desk-ck-degraded")).toContainText("Your Chartink scans didn’t load, so only the AI scanner is shown.");
-    await expect(p2.getByTestId("ck-tag")).toHaveCount(0);
-    await expect(p2.getByTestId("desk-opp-symbol")).toHaveText("TESTBRK");
-    expect(st.hitsCalls).toBe(1);
-
-    const p3 = await page.context().newPage();
-    await open(p3, DESK, { source: { status: 500 } });
-    await expect(p3.getByTestId("desk-opp")).toHaveCount(1);
-    await expect(p3.getByTestId("desk-ck-degraded")).toBeVisible();
-  });
-
-  test("CK-8b stale hits show the route's note on the Overview and the settings; an unreadable AI scanner (in_ai_scanner null) claims no overlap", async ({ page }) => {
-    const stale = "These hits are from 2026-10-14, 6 day(s) before today: refresh to update them.";
-    await open(page, DESK, { hits: { ...HITS, is_today: false, age_days: 6, stale_note: stale } as typeof HITS });
-    await expect(page.getByTestId("desk-ck-stale")).toHaveText(stale);
-    await expect(page.getByTestId("desk-ck-trust")).toHaveAttribute("data-status", "stale");
-
-    const p2 = await page.context().newPage();
-    const unsure = { ...HITS, symbols: HITS.symbols.map((x) => ({ ...x, in_ai_scanner: null, ai_score: null })), source_failures: ["The AI scanner could not be read"] } as unknown as typeof HITS;
-    await open(p2, DESK, { hits: unsure });
-    await expect(p2.getByTestId("ck-tag").first()).toBeVisible();
-    await expect(p2.getByTestId("ck-only")).toHaveCount(0);
-    await expect(p2.getByTestId("desk-ck-unsure")).toContainText("The AI scanner could not be read, so these stocks are not compared with it: The AI scanner could not be read.");
-    await open(await page.context().newPage(), SETTINGS, { hits: unsure }).then(() => undefined);
-  });
-
-  // ── CK-9 ─────────────────────────────────────────────────────────────
-
-  test("CK-9 Overview (phone, 390px): the same tag and sub-list, with no sideways page scroll", async ({ page }) => {
-    await open(page, DESK, {}, 390);
-    const card = page.getByTestId("desk-top-opps");
-    await expect(card.getByTestId("desk-top-opp")).toHaveCount(1);
-    await expect(card.getByTestId("ck-tag")).toHaveText("Also on Chartink: Volume Burst Sample (+1)");
-    await expect(page.getByTestId("desk-top-ck-title")).toHaveText("From your Chartink scans (not in the AI scan)");
-    await expect(card.getByTestId("ck-only")).toHaveCount(4);
-    await expect(card.getByTestId("ck-only").nth(0).getByTestId("ck-only-score")).toHaveText("No AI score");
-    await expect(page.getByTestId("desk-top-ck-trust")).toContainText("Chartink fetched");
-    await card.evaluate((el) => el.scrollIntoView({ block: "start" }));
-    const s = await sideways(page);
-    expect(s.doc).toBeLessThanOrEqual(0);
-    expect(s.scroll).toBeLessThanOrEqual(0);
-    await shot(page, "overview", 390);
-
-    const p2 = await page.context().newPage();
-    await open(p2, DESK, { source: null }, 390);
-    await expect(p2.getByTestId("desk-top-ck-connect")).toContainText("Connect your Chartink dashboard to add your scans here");
-  });
-
   // ── CK-10 ────────────────────────────────────────────────────────────
 
   test("CK-10 AI Scanner: the Chartink scans chip lists the five Chartink-only stocks, most scans first, with no AI score; All includes them; the AI row is tagged; the On Chartink filter and the URL keep it", async ({ page }) => {
@@ -755,11 +647,6 @@ test.describe("MOCK - not real data: Chartink scans as opportunity sources", () 
     await expect(page.getByTestId("chartink-refresh-result")).toContainText("14 of 14 scans ran");
     await page.getByTestId("chartink-refresh").click();
     await expect(page.getByTestId("chartink-cooldown")).toHaveText("Chartink was refreshed a moment ago. Try again in 9 minutes.");
-    // The Overview takes the first four of the 157 and says how many more.
-    await page.goto(DESK);
-    await expect(page.getByTestId("ck-only")).toHaveCount(4);
-    await expect(page.getByTestId("desk-ck-more")).toHaveText("153 more in AI Scanner · Chartink scans.");
-    await expect(page.getByTestId("desk-ck-unknown")).toContainText("2 codes from your scans are not shown as stocks");
   });
 
   // ── CK-15 ────────────────────────────────────────────────────────────

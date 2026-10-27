@@ -20,8 +20,9 @@
  *   Payoff mock (POST /api/desk/strategy/payoff): cash buy 100 shares at 250 -> P&L at 275 = (275 - 250) x 100 = 2,500.
  *
  * Cases: PK-1 settings list (order, icon, score and its label, chips, reasons, trust) · PK-2 strategies expand, payoff, open in Strategy Builder
- * PK-3 breakdown with source and as-of · PK-4 Wait / No trade and the shortfall · PK-5 honest states · PK-6 Overview top 3 and See all
- * PK-7 ideas board filter · PK-8 390px, no sideways scroll · PK-9 reads only, no order controls.
+ * PK-3 breakdown with source and as-of · PK-4 Wait / No trade and the shortfall · PK-5 honest states · PK-7 ideas board filter ·
+ * PK-8 390px, no sideways scroll · PK-9 reads only, no order controls. PK-6 (the old Overview's top 3) left with OverviewTab in the
+ * desk redesign's step 6.
  */
 import fs from "fs";
 import path from "path";
@@ -398,37 +399,6 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     expect(st.picksCalls).toBe(0);
   });
 
-  // ── PK-6 ─────────────────────────────────────────────────────────────
-
-  test("PK-6 Overview: the top 3 picks with score, label and chips, 'See all' opens the Chartink settings; the 4th is counted, not shown", async ({ page }) => {
-    await open(page, DESK);
-    const sec = page.getByTestId("desk-ck-picks");
-    await expect(sec.getByTestId("desk-ck-picks-title")).toHaveText("Best picks from my Chartink scans");
-    const cards = sec.getByTestId("ck-pick");
-    await expect(cards).toHaveCount(3);
-    await expect(cards.locator('[data-testid="ck-pick-symbol"]')).toHaveText(["ZEDCO", "MOONCORP", "TESTBRK"]);
-    await expect(cards.first().locator('[data-testid="entity-icon"]').first()).toBeVisible();
-    await expect(cards.first().getByTestId("ck-pick-score")).toHaveText("86.7/100");
-    await expect(cards.first().getByTestId("ck-pick-score-label")).toHaveText("evidence score — not a probability");
-    await expect(cards.first().getByTestId("ck-pick-factor")).toHaveCount(10);
-    await expect(cards.first().getByTestId("ck-pick-trust")).toContainText("Chartink scans (your dashboard)");
-    await expect(sec.getByTestId("desk-ck-picks-more")).toHaveText("1 more in Chartink scans · Best picks.");
-    await expect(sec.getByTestId("desk-ck-picks-wait-count")).toContainText("2 evaluated stocks are Wait / No trade");
-    await sec.getByTestId("desk-ck-picks-all").click();
-    await expect(page).toHaveURL(/section=chartink/);
-    await expect(page.getByTestId("ck-picks").getByTestId("ck-pick")).toHaveCount(4);
-  });
-
-  test("PK-6b Overview with a failing picks route: an error with Retry, and the rest of the card is unaffected", async ({ page }) => {
-    const st = await open(page, DESK, { picks: [{ status: 500, body: { detail: "boom" } }, { status: 200, body: BODY() }] });
-    const sec = page.getByTestId("desk-ck-picks");
-    await expect(sec.getByTestId("desk-ck-picks-error")).toContainText("Your Chartink best picks didn’t load");
-    await expect(page.getByTestId("desk-opps-card")).toBeVisible();
-    await sec.getByRole("button", { name: /Retry/ }).click();
-    await expect(sec.getByTestId("ck-pick")).toHaveCount(3);
-    expect(st.picksCalls).toBe(2);
-  });
-
   // ── PK-7 ─────────────────────────────────────────────────────────────
 
   test("PK-7 Strategy Builder ideas board: a source filter 'Chartink best picks' shows the picks in place of the ideas, and 'All ideas' brings them back", async ({ page }) => {
@@ -463,11 +433,12 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
 
   // ── PK-8 ─────────────────────────────────────────────────────────────
 
-  for (const [name, url] of [["settings", SETTINGS], ["overview", DESK], ["ideas", IDEAS]] as const) {
+  // The old Overview's top-3 picks (and its 390px case) left with OverviewTab in the desk redesign's step 6.
+  for (const [name, url] of [["settings", SETTINGS], ["ideas", IDEAS]] as const) {
     test(`PK-8 390px ${name}: the picks do not scroll the page sideways`, async ({ page }) => {
       await open(page, url, {}, 390);
       if (name === "ideas") await page.getByTestId("ideas-source-ck_picks").click();
-      const sel = name === "settings" ? "ck-picks" : name === "overview" ? "desk-top-ck-picks" : "ideas-ck-picks";
+      const sel = name === "settings" ? "ck-picks" : "ideas-ck-picks";
       const sec = page.getByTestId(sel);
       await expect(sec.getByTestId("ck-pick").first()).toBeVisible();
       await sec.getByTestId("ck-pick-strategy-toggle").first().click();
