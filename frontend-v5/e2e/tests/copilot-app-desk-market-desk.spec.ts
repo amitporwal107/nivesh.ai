@@ -37,7 +37,7 @@ const VIEWS = [
  * Where the Idea scorecard is mounted. Null until the Trade Desk tab (AI Scanner › Scorecard) mounts
  * tradingdesk/scorecard/IdeaScorecard.tsx; the SC-* cases are skipped while it is null.
  */
-const SCORECARD_URL: string | null = null;
+const SCORECARD_URL: string | null = "/v5/app/trader/desk?tab=trade&view=scanner&sub=scorecard"; // Trade Desk › AI Scanner › Scorecard (step 3 PR B)
 const needsScorecard = () => test.skip(!SCORECARD_URL, "The Idea scorecard is mounted by the Trade Desk tab (AI Scanner › Scorecard); set SCORECARD_URL");
 
 // backend/routes/markets.py :: GET /api/markets/sector-heatmap — synthetic: 8 sectors, the index's weighted change

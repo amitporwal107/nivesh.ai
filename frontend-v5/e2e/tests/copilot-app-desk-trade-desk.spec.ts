@@ -324,15 +324,14 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
 // ── navigation and Open & pending ────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
-  test("NV-1 / NV-2 / TD-7 five sections in the design's order; ?tab=trade opens Paper Trading › Live desk; sub-views and the four-deep crumb", async ({ page }) => {
+  test("NV-1 / NV-2 / TD-7 five sections in the design's order; ?tab=trade opens AI Scanner › Ranked candidates; sub-views and the four-deep crumb", async ({ page }) => {
     await setup(page);
     await page.goto(`${DESK}?tab=trade`);
-    await expect.poll(() => params(page).get("view")).toBe("paper");
-    await expect.poll(() => params(page).get("sub")).toBe("live");
+    await expect.poll(() => params(page).get("view")).toBe("scanner");
+    await expect.poll(() => params(page).get("sub")).toBe("ranked");
     await expect(page.getByTestId("desk-views").getByRole("button")).toHaveText(["AI Scanner", "Chart Analysis", "Strategy Lab", "Paper Trading", "Watchlists"]);
     const trail = page.getByTestId("desk-trail");
-    await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›Live desk$/);
-    await expect(page.getByTestId("td-view-open")).toBeVisible(SLOW);
+    await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›AI Scanner›Ranked candidates$/);
     const SUBS: Record<string, string[]> = {
       scanner: ["Ranked candidates", "Signal library & sources", "Scorecard"], chart: ["Live chart", "Signal record"],
       lab: ["Build a trade", "Backtest & validation"], paper: ["Live desk", "Trade journal"], watchlists: [],
@@ -738,6 +737,82 @@ test.describe("MOCK — not real data: Trade Desk · close, errors, records", ()
     await expect(bridge.getByTestId("td-bridge-note")).toContainText("Cost card desk-flat-v1");
     await expect(page.getByTestId("td-journal-rec-exit-rules")).toHaveText("ATR trailing stop (2×ATR14) (exit-rules-v1) · opt-in research rule");
     await expect(page.getByTestId("td-journal-rec-exit")).toContainText("weird_exit");
+  });
+});
+
+// ── PR B: AI Scanner and Chart Analysis ──────────────────────────────────
+
+const SCORECARD = load("desk-idea-scorecard.json"); // staging's real GET /api/desk/idea-scorecard body of 27 Oct (#375)
+
+test.describe("MOCK — not real data: Trade Desk · AI Scanner and Chart Analysis", () => {
+  test("AS-1 Ranked candidates: the Top 10 cards and every scanner candidate; the old scanner URLs land here", async ({ page }) => {
+    await setup(page);
+    for (const from of ["?tab=scanner", "?tab=overview&section=scanner", "?tab=trade"]) {
+      await page.goto(`${DESK}${from}`);
+      await expect.poll(() => params(page).get("view"), from).toBe("scanner");
+      await expect.poll(() => params(page).get("sub"), from).toBe("ranked");
+    }
+    await expect(page.getByTestId("desk-panel-top10")).toBeVisible(SLOW);
+    await expect(page.getByTestId("desk-section-scanner-title")).toHaveText("All scanner candidates");
+    await expect(page.getByTestId("desk-panel-scanner")).toBeAttached(SLOW);
+    await page.getByTestId("desk-tab-overview").click();
+    await expect(page.getByTestId("market-overview")).toBeVisible(SLOW);
+    await expect(page.getByTestId("desk-scanner-toggle")).toHaveCount(0);
+  });
+
+  test("AS-2 Signal library & sources: the scanner's categories with their rules, and Chartink sources", async ({ page }) => {
+    await setup(page);
+    await page.goto(`${DESK}?tab=trade&view=scanner&sub=library`);
+    const cats = page.getByTestId("desk-signal-category");
+    await expect(cats.first()).toBeVisible(SLOW);
+    await expect(page.getByTestId("desk-signal-categories")).toContainText("Breakouts");
+    await expect(page.getByTestId("desk-signal-categories")).toContainText("not a prediction");
+    await expect(page.getByTestId("desk-section-chartink-title")).toHaveText("Chartink sources");
+  });
+
+  test("AS-3 Scorecard: the real study (no measurable skill, RS63 awaiting confirmation), then the F&O forward test", async ({ page }) => {
+    await setup(page);
+    await page.route("**/api/desk/idea-scorecard", (r) => json(r, SCORECARD));
+    await page.goto(`${DESK}?tab=trade&view=scanner&sub=scorecard`);
+    await expect(page.getByTestId("sc-verdict")).toHaveText("keep B0; the current ranking shows no measurable skill", SLOW);
+    await expect(page.getByTestId("sc-body")).not.toContainText(/beats the (random )?baseline|precision@/i);
+    await expect(page.getByTestId("desk-trail")).toHaveText(/^▸Trading desk›Trade Desk›AI Scanner›Scorecard$/);
+    await expect(page.getByTestId("desk-section-forward-test-title")).toHaveText("F&O signal · forward test");
+  });
+
+  test("AS-4 Market Overview's \"See all ›\" opens Ranked candidates and \"Scorecard →\" opens Scorecard", async ({ page }) => {
+    await setup(page);
+    await page.goto(`${DESK}?tab=overview`);
+    await page.getByTestId("desk-top10-see-all").click(SLOW);
+    await expect.poll(() => params(page).get("view")).toBe("scanner");
+    await expect.poll(() => params(page).get("sub")).toBe("ranked");
+    await page.goto(`${DESK}?tab=overview`);
+    await page.getByTestId("desk-top10-scorecard").click(SLOW);
+    await expect.poll(() => params(page).get("sub")).toBe("scorecard");
+  });
+
+  test("CH-1 Live chart: the ticket beside the chart is the account_size one (from ?tp= or today's idea); no calculator, no slider", async ({ page }) => {
+    await setup(page);
+    await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=ICICIBANK&tp=${CASH_PLAN.plan_id}`);
+    const ticket = page.getByTestId("td-chart-ticket");
+    await expect(ticket).toHaveAttribute("data-source", "url", SLOW);
+    await expect(ticket.getByTestId("td-ticket-size")).toHaveAttribute("data-qty", "666", SLOW);
+    await expect(ticket.locator('input, [role="slider"], input[type="range"]')).toHaveCount(0);
+    await expect(page.getByTestId("desk-scn-out-gross")).toHaveCount(0);           // the old capital × risk-% calculator
+    await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=ICICIBANK`);
+    await expect(page.getByTestId("td-chart-ticket")).toHaveAttribute("data-source", "top10", SLOW);
+    await expect(page.getByTestId("td-ticket-size")).toHaveAttribute("data-qty", "666", SLOW);
+  });
+
+  test("CH-2 / CH-3 a stock with no idea has no ticket, said with the way to the ideas; Signal record is not available yet", async ({ page }) => {
+    await setup(page);
+    await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=NOIDEA`);
+    await expect(page.getByTestId("td-chart-ticket")).toHaveAttribute("data-source", "none", SLOW);
+    await expect(page.getByTestId("td-chart-ticket")).toContainText("No idea with a plan for NOIDEA today, so there is no ticket");
+    await page.getByTestId("td-chart-ticket-ideas").click();
+    await expect.poll(() => params(page).get("sub")).toBe("ranked");
+    await page.goto(`${DESK}?tab=trade&view=chart&sub=record`);
+    await expect(page.getByTestId("desk-trade-record-pending")).toContainText("not available yet", SLOW);
   });
 });
 

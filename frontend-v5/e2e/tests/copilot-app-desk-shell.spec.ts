@@ -34,7 +34,7 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
 };
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
-  "trade/scanner": [["desk-panel-scanner", null]],
+  "trade/scanner": [["desk-panel-top10", "desk-top10"], ["desk-panel-scanner", null]],
   "trade/chart": [["desk-panel-chart", null]],
   "trade/lab": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
   "trade/paper": [["desk-panel-trade-desk", "td-view-open"]],
@@ -49,8 +49,8 @@ const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "risk/controls": [["risk-desk", "risk-status"], ["risk-desk", "risk-audit"], ["risk-desk", "risk-profile"], ["risk-desk", "rd-live"]],
   "risk/log": [["risk-desk", "risk-decisions"]],
 };
-/** A tab whose default view is not its first: Trade Desk opens Paper Trading until the AI Scanner section is built. */
-const DEFAULT_VIEW: Record<string, string> = { trade: "paper" };
+/** A tab whose default view is not its first (none since step 3 PR B: Trade Desk opens AI Scanner). */
+const DEFAULT_VIEW: Record<string, string> = {};
 const LOCATIONS = ["overview", ...Object.keys(VIEW_HOST), "portfolio"];
 const urlOf = (loc: string) => {
   const [tab, view] = loc.split("/");
@@ -194,7 +194,7 @@ test.describe("MOCK — not real data: desk shell · tabs and views", () => {
 });
 
 test.describe("MOCK — not real data: desk shell · Market Overview", () => {
-  test("SH-4 / SH-6 / SH-8 Market Overview and the Top AI ideas once; scanner list collapsed until opened; no portfolio snapshot or risk summary", async ({ page }) => {
+  test("SH-4 / SH-6 / SH-8 Market Overview and the Top AI ideas once; the scanner list is on Trade Desk › AI Scanner; no portfolio snapshot or risk summary", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
     const panel = page.getByTestId("desk-panel-overview");
@@ -204,16 +204,9 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     await expect(panel.getByTestId("desk-panel-pulse")).toHaveCount(0);
     await expect(panel.getByTestId("desk-panel-top10")).toHaveCount(1);
     await expect(panel.getByTestId("desk-top10")).toHaveCount(1);
-    const toggle = page.getByTestId("desk-scanner-toggle");
-    await expect(toggle).toHaveText(/All scanner candidates/);
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // Step 3 PR B: "All scanner candidates" moved to Trade Desk › AI Scanner › Ranked candidates.
+    await expect(page.getByTestId("desk-scanner-toggle")).toHaveCount(0);
     await expect(page.getByTestId("desk-panel-scanner")).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect.poll(() => params(page).get("section")).toBe("scanner");
-    await expect(page.getByTestId("desk-panel-scanner")).toBeVisible();
-    // The pulse and the Top 10 are not mounted a second time by the scanner list.
-    await expect(panel.getByTestId("desk-top10")).toHaveCount(1);
     await expect(page.getByTestId("desk-snapshot-card")).toHaveCount(0);
     await expect(page.getByTestId("desk-risk-card")).toHaveCount(0);
   });
@@ -250,7 +243,7 @@ test.describe("MOCK — not real data: desk shell · redirects from the old URLs
   test.beforeEach(async ({ page }) => { await deskApi(page); });
 
   const CASES: Array<{ from: string; tab: string; view: string | null; extra?: Record<string, string>; gone?: string[] }> = [
-    { from: "?tab=scanner", tab: "overview", view: null, extra: { section: "scanner" } },
+    { from: "?tab=scanner", tab: "trade", view: "scanner", extra: { sub: "ranked" } },
     { from: "?tab=intel", tab: "market", view: "intel" },
     { from: "?tab=intel&in_chip=flows", tab: "market", view: "intel", extra: { in_chip: "flows" } },
     { from: "?tab=events", tab: "market", view: "intel", extra: { section: "events" } },
@@ -276,9 +269,9 @@ test.describe("MOCK — not real data: desk shell · redirects from the old URLs
     });
   }
 
-  test("SH-9 ?tab=scanner opens the scanner list expanded", async ({ page }) => {
+  test("SH-9 ?tab=scanner opens Trade Desk › AI Scanner › Ranked candidates with the scanner list", async ({ page }) => {
     await page.goto(`${DESK}?tab=scanner`);
-    await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expectAt(page, "trade", "scanner", { sub: "ranked" });
     await expect(page.getByTestId("desk-panel-scanner")).toBeVisible();
   });
 
@@ -402,13 +395,11 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     }
   });
 
-  test("SH-20 repointed links: Market Overview's \"All scanner candidates\" expands the list; the AI watchlist's links use the new URLs", async ({ page }) => {
+  test("SH-20 repointed links: Market Overview's \"See all ›\" opens AI Scanner › Ranked candidates; the AI watchlist's links use the new URLs", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
-    // Step 2: the old Overview's "See all" link is gone with its card; the list's own toggle opens it.
-    await page.getByTestId("desk-scanner-toggle").click();
-    await expectAt(page, "overview", null, { section: "scanner" });
-    await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.getByTestId("desk-top10-see-all").click();
+    await expectAt(page, "trade", "scanner", { sub: "ranked" });
     // The AI watchlist's desk links (workspace/ai-watchlist-data.ts) are built for the new URLs.
     await page.goto(`${APP}/page/watchlist`);
     await expect(page.getByTestId("screen-page-watchlist")).toBeVisible();

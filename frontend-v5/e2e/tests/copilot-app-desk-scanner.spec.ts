@@ -757,11 +757,9 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId(`desk-scan-row-${want[0]}`).getByTestId("desk-scan-setup").click();
     await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
     await expect(page).toHaveURL(/sc_risk=medium/);
-    // Since the 2026-10-27 redesign the scanner list is Market Overview › "All scanner candidates": back to the tab, open the section.
-    await page.getByTestId("desk-tab-overview").click();
-    await expect(page).toHaveURL(/[?&]tab=overview(&|$)/);
-    await page.getByTestId("desk-scanner-toggle").click();
-    await expect(page).toHaveURL(/[?&]section=scanner(&|$)/);
+    // Since step 3 the scanner list is Trade Desk › AI Scanner › Ranked candidates (the tab's default): back to the tab.
+    await page.getByTestId("desk-tab-trade").click();
+    await expect(page).toHaveURL(/[?&]tab=trade&view=scanner&sub=ranked(&|$)/);
     await expect(page).toHaveURL(/sc_risk=medium/);
     await expect(page.getByTestId("desk-scan-cat-momentum")).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => rowOrder(page)).toEqual(want);
