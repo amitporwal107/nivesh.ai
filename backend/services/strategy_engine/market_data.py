@@ -60,7 +60,7 @@ class MarketDataProvider(ABC):
 
     @abstractmethod
     async def exit_bars(self, symbols: List[str], as_of: date) -> Dict[str, Dict[str, Any]]:
-        """{symbol: {high, low, close}} adjusted, for one date."""
+        """{symbol: {open, high, low, close}} adjusted, for one date (the open fills a gap through the stop)."""
 
 
 # ── SQL backend (co-located dev / unit tests) ───────────────────────────────
@@ -254,7 +254,7 @@ class DaasMarketDataProvider(MarketDataProvider):
             ar = self._adj.get(sym, {}).get(key)
             if not ar:
                 continue
-            out[sym] = {"symbol": sym, "high": ar.get("adj_high"),
+            out[sym] = {"symbol": sym, "open": ar.get("adj_open"), "high": ar.get("adj_high"),
                         "low": ar.get("adj_low"), "close": ar.get("adj_close")}
         return out
 
