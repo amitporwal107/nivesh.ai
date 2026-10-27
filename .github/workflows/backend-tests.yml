@@ -118,6 +118,7 @@ jobs:
           tests/test_desk_overview_backend.py
           tests/test_desk_paper_safety.py
           tests/test_desk_paper_sim.py
+          tests/test_desk_paper_trade_check.py
           tests/test_desk_redesign_routes.py
           tests/test_desk_strategy_trades.py
           tests/test_desk_trading.py
@@ -286,6 +287,7 @@ jobs:
           tests/test_strategy_engine.py
           tests/test_strategy_evidence_sources.py
           tests/test_strategy_ideas.py
+          tests/test_strategy_instances.py
           tests/test_strategy_levels.py
           tests/test_strategy_market_data.py
           tests/test_strategy_payoff.py
@@ -293,6 +295,7 @@ jobs:
           tests/test_strategy_plan_templates_route.py
           tests/test_strategy_templates_first_wave.py
           tests/test_strategy_screen.py
+          tests/test_strategy_templates_illustration.py
           tests/test_switch_cost_framework.py
           tests/test_switch_decision_engine.py
           tests/test_symbol_lookup.py
