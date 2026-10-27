@@ -334,9 +334,9 @@ test.describe("Scanner — Top 10 ideas", () => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-trades").click();
-    // Desk redesign (2026-10-27): the paper trades are on Trade Desk › Paper trades (they were on Portfolio & Risk).
+    // Desk redesign (2026-10-27): the paper trades are on Trade Desk › Open & pending (step 3; the old view=paper lands there).
     await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "trade");
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "paper");
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "open");
   });
 
   test("F-7 the F&O board asks for one row per underlying and merges both classes in the route's order", async ({ page }) => {

@@ -152,14 +152,18 @@ const backtest = (index: boolean) => ({
     entry_timing: "next_open", price_basis: "adjusted close", not_recorded: [], complete: true },
 });
 
-interface Seen { listGets: number; posts: Array<Record<string, unknown>>; keys: Array<string | undefined>; payoffs: Array<Record<string, unknown>>; backtests: Array<{ id: string; body: unknown }> }
+interface Seen {
+  listGets: number; posts: Array<Record<string, unknown>>; keys: Array<string | undefined>; payoffs: Array<Record<string, unknown>>;
+  backtests: Array<{ id: string; body: unknown }>; closes: Array<{ path: string; body: unknown }>;
+}
 interface Opts {
   trades?: Array<Record<string, unknown>>; bookExtra?: Record<string, unknown>; profile?: unknown; exit?: { status: number; body: unknown };
-  plan?: unknown; post?: Array<{ status: number; body: unknown }>; phone?: boolean; roll?: unknown;
+  plan?: unknown; post?: Array<{ status: number; body: unknown }>; phone?: boolean; roll?: unknown; close?: { status: number; body: unknown };
+  list?: { status: number; body: unknown };
 }
 
 async function setup(page: Page, o: Opts = {}): Promise<Seen> {
-  const seen: Seen = { listGets: 0, posts: [], keys: [], payoffs: [], backtests: [] };
+  const seen: Seen = { listGets: 0, posts: [], keys: [], payoffs: [], backtests: [], closes: [] };
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   // Anything not answered below: a 404 in the API's shape, so no request leaves the page.
   await page.route("**/api/**", (r) => json(r, { detail: "MOCK: not mocked in this spec" }, 404));
@@ -187,6 +191,11 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
     const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string);
     return id === CASH_PLAN.plan_id ? json(r, o.plan ?? CARD.cash.trade_plan_response) : json(r, { detail: "plan_not_found" }, 404);
   });
+  await page.route("**/api/desk/paper-trades/*/close", (r) => {
+    seen.closes.push({ path: new URL(r.request().url()).pathname, body: r.request().postDataJSON() });
+    const a = o.close ?? { status: 200, body: { trade: { id: "closed" } } };
+    return json(r, a.body, a.status);
+  });
   await page.route("**/api/desk/paper-trades/*/roll", (r) => json(r, o.roll ?? { eligible: false, refusal: { code: "roll_chain_not_ready", message: "The 27 Oct F&O bhavcopy is published after 22:15 IST; a roll is priced on it." } }));
   const posts = [...(o.post ?? [])];
   await page.route("**/api/desk/paper-trades*", (r) => {
@@ -197,7 +206,7 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
       return json(r, a.body, a.status);
     }
     seen.listGets += 1;
-    return json(r, book(o.trades ?? ALL, o.bookExtra));
+    return o.list ? json(r, o.list.body, o.list.status) : json(r, book(o.trades ?? ALL, o.bookExtra));
   });
   await page.route("**/api/strategy-builder/strategies", (r) => json(r, STRATEGIES));
   await page.route("**/api/strategy-builder/strategies/*/backtest", (r) => {
@@ -591,6 +600,80 @@ test.describe("MOCK — not real data: Trade Desk · New trade", () => {
     await bt.getByTestId("td-bt-strategy").selectOption("st-nifty");
     await bt.getByTestId("td-bt-run").click();
     await expect(bt.getByTestId("td-bt-survivorship")).toContainText("Survivorship bias: NIFTY 50 applied with its latest constituents");
+  });
+});
+
+// ── PaperDesk's behaviours, on the Trade Desk (its old mount is replaced by this tab) ──────────────────
+
+test.describe("MOCK — not real data: Trade Desk · close, errors, records", () => {
+  test("TD-37 Close asks first; Cancel sends nothing; Yes posts {} to …/{id}/close and the list is read again", async ({ page }) => {
+    const seen = await setup(page);
+    await page.goto(TD("open"));
+    await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
+    await page.getByTestId("td-journal-close").click();
+    await expect(page.getByTestId("td-journal-close-confirm")).toContainText(`Close the INFY paper trade at its last end-of-day close (₹${n2(1538.1)})? It is simulated: no order is placed.`);
+    await page.getByTestId("td-journal-close-no").click();
+    expect(seen.closes).toHaveLength(0);
+    await page.getByTestId("td-journal-close").click();
+    const before = seen.listGets;
+    await page.getByTestId("td-journal-close-yes").click();
+    await expect.poll(() => seen.closes.length).toBe(1);
+    expect(seen.closes[0]).toEqual({ path: "/api/desk/paper-trades/pt-open/close", body: {} });
+    await expect.poll(() => seen.listGets).toBeGreaterThan(before);
+    // A waiting entry is cancelled, not closed.
+    await page.getByTestId("td-journal-dismiss").click();
+    await page.getByTestId("td-pending").getByRole("row").filter({ hasText: "HDFCBANK" }).click();
+    await expect(page.getByTestId("td-journal-close")).toHaveText("Cancel paper trade");
+  });
+
+  test("TD-38 a refused close keeps the server's words, and the confirmation stays usable", async ({ page }) => {
+    const seen = await setup(page, { close: { status: 409, body: { detail: "trade_already_closed" } } });
+    await page.goto(TD("open"));
+    await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
+    await page.getByTestId("td-journal-close").click();
+    await page.getByTestId("td-journal-close-yes").click();
+    await expect(page.getByTestId("td-journal-close-confirm").getByRole("alert")).toHaveText("That paper trade is already closed. (trade_already_closed)");
+    expect(seen.closes).toHaveLength(1);
+    await expect(page.getByTestId("td-journal-close-yes")).toBeEnabled();
+  });
+
+  test("TD-39 the list fails (502) or is not enabled (403): said, never an empty book", async ({ page }) => {
+    await setup(page, { list: { status: 502, body: { detail: "upstream_unavailable" } } });
+    await page.goto(TD("open"));
+    await expect(page.getByTestId("td-trades-error").getByRole("alert")).toContainText("Your paper trades didn’t load", { timeout: 20_000 });
+    await expect(page.getByTestId("td-open-empty")).toHaveCount(0);
+    await page.unroute("**/api/desk/paper-trades*");
+    await page.route("**/api/desk/paper-trades*", (r) => json(r, { detail: "forbidden" }, 403));
+    await page.reload();
+    await expect(page.getByTestId("td-trades-error")).toContainText("Your paper trades is not enabled for this account", SLOW);
+  });
+
+  test("TD-40 a strategy row without its legs or signal is a loud contract error, not a dropped trade", async ({ page }) => {
+    const broken = { ...CONDOR, legs: [] };
+    await setup(page, { trades: [OPEN, broken] });
+    await page.goto(TD("open"));
+    await expect(page.getByTestId("td-trades-error")).toContainText("unexpected response shape", { timeout: 20_000 });
+    await expect(page.getByTestId("td-positions")).toHaveCount(0);
+  });
+
+  test("TD-41 a flat-cost trade's bridge shows brokerage and slippage only; research exit rules and an unknown exit reason are shown as sent", async ({ page }) => {
+    const flat = cash({ id: "pt-flat", symbol: "FLATCO", status: "closed", state: "CLOSED", exit_price: 104, exit_reason: "weird_exit", exit_session: "2026-10-24", closed_at: "2026-10-24T15:30:00+00:00",
+      realized_pnl_rs: 40, gross_pnl_rs: 40, costs_rs: 41.04, net_pnl_rs: -1.04, last_close: null, unrealized_pnl_rs: null,
+      cost_model: { name: "flat", version: "desk-flat-v1", slippage_pct_per_side: 0.05, brokerage_rs_per_side: 20 },
+      costs_breakdown: { brokerage: 40, stt: 0, exchange: 0, sebi: 0, stamp: 0, gst: 0, slippage: 1.04, total: 41.04 },
+      exit_rules: [{ code: "trailing_atr", version: "exit-rules-v1", label: "ATR trailing stop (2×ATR14)", params: {} }] });
+    await setup(page, { trades: [flat] });
+    await page.goto(TD("closed"));
+    const row = page.getByTestId("td-closed").getByRole("row").filter({ hasText: "FLATCO" });
+    await expect(row.getByTestId("td-closed-reason")).toHaveText("weird_exit", SLOW);
+    await row.click();
+    const bridge = page.getByTestId("td-journal-bridge");
+    await expect(bridge.getByTestId("td-bridge-brokerage")).toHaveText(`Brokerage−₹${n2(40)}`);
+    await expect(bridge.getByTestId("td-bridge-slippage")).toHaveText(`Slippage−₹${n2(1.04)}`);
+    for (const k of ["stt", "exchange", "sebi", "stamp", "gst"]) await expect(bridge.getByTestId(`td-bridge-${k}`)).toHaveCount(0);
+    await expect(bridge.getByTestId("td-bridge-note")).toContainText("Cost card desk-flat-v1");
+    await expect(page.getByTestId("td-journal-rec-exit-rules")).toHaveText("ATR trailing stop (2×ATR14) (exit-rules-v1) · opt-in research rule");
+    await expect(page.getByTestId("td-journal-rec-exit")).toContainText("weird_exit");
   });
 });
 

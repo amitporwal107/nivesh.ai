@@ -42,7 +42,7 @@ test.describe("desk widget template", () => {
     // Desk redesign (2026-10-27): the old tabs' screens now share pages, so the walk visits each new place once (the old
     // scanner, events and fno URLs land on Market Overview, Market Intelligence and Smart Money), and has more widgets a page.
     test.setTimeout(90_000);
-    const tabs = ["overview&section=scanner", "market&view=intel", "market&view=research", "portfolio", "market&view=smartmoney", "trade&view=paper"];
+    const tabs = ["overview&section=scanner", "market&view=intel", "market&view=research", "portfolio", "market&view=smartmoney", "trade&view=open"];
     const seen = new Set<string>();
     let total = 0;
     for (const tab of tabs) {

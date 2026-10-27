@@ -30,6 +30,8 @@ import { EXIT_WORDS, FLAG_LEAD, Kv, PAPER_ONLY, Pnl, STATE_WORDS, StatePill, ent
 
 export type JournalTrade = { kind: "cash"; t: PaperTrade } | { kind: "strategy"; t: StrategyPaperTrade };
 
+const ENTRY_STATUS_WORD: Record<string, string> = { assumed: "Filled when recorded", reached: "Entry reached", waiting: "Waiting for entry", not_reached: "Entry not reached" };
+
 const dayShort = (iso: string | null) => {
   if (!iso) return "";
   const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00+05:30` : iso);
@@ -263,8 +265,10 @@ export function JournalDrawer({ item, onClose, onChart }: { item: JournalTrade; 
         <Block title="The record" testId="td-journal-record">
           <Kv testPrefix="td-journal-rec" rows={[
             ["Entry rule", entryRuleLine(c), "rule"],
+            ["Entry", `${c.entryStatus ? ENTRY_STATUS_WORD[c.entryStatus] : "not recorded"}${c.entrySession ? ` · ${fmtDay(c.entrySession)}` : ""}${c.simEntryPrice != null ? ` · simulated at ${fmtPrice(c.simEntryPrice)}` : ""}`, "entry"],
             ["Exit rule", `stop ${fmtPrice(c.currentStop ?? c.stop)}, target ${c.target != null ? fmtPrice(c.target) : "none"}${c.maxHoldSessions != null ? `, or the close of session ${c.maxHoldSessions} held` : ""}; a session touching both takes the stop`, "exit-rule"],
             ["Exit", c.status === "closed" ? `${exitW?.label ?? c.exitReasonCode ?? "—"}${c.exitSession ? ` · ${fmtDay(c.exitSession)}` : ""}${c.exitPrice != null ? ` · ${fmtPrice(c.exitPrice)}` : ""}` : "Open", "exit"],
+            ["Research exit rules", c.exitRules.length ? c.exitRules.map((r) => `${r.label}${r.version ? ` (${r.version})` : ""} · opt-in research rule`).join("; ") : "None: stop, target and time only", "exit-rules"],
             ["MFE · MAE", `${c.mfePct != null ? fmtPct(c.mfePct, { signed: true, digits: 2 }) : "—"} · ${c.maePct != null ? fmtPct(c.maePct, { signed: true, digits: 2 }) : "—"}`, "excursion"],
             ["Signal", `${c.signalAt ? stamp(c.signalAt) : c.source?.signalDate ? `${fmtDay(c.source.signalDate)} (scan date)` : "not recorded"}${c.source?.kind ? ` · ${c.source.kind}${c.source.bucket ? ` ${c.source.bucket.replace(/_/g, " ")}` : ""}` : ""}`, "signal"],
             ["Versions", `rules ${c.rulesVersion ?? "not recorded"}${c.exitRulesVersion ? ` · exits ${c.exitRulesVersion}` : ""}`, "versions"],

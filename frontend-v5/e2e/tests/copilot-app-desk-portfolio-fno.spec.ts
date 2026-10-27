@@ -555,13 +555,10 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-volatility-value")).toHaveText("18.5%");
     await expect(page.getByTestId("desk-risk-volatility")).toHaveAttribute("data-value", pct1(14.2));
 
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    // Right card: the paper record's 403 says "not enabled"; your desk trades still show; the meta counts your closed trades.
-    await expect(page.getByTestId("desk-portfolio-record-title")).toHaveText("Paper trades · predicted vs actual");
-    await expect(page.getByTestId("desk-paper-card-closed")).toHaveText(`${summarize(paperTrades()).closed} closed`);
-    await expect(page.getByTestId("desk-paper-no-access")).toContainText("not enabled for this account");
-    await expect(page.getByTestId("desk-record-predicted")).toHaveCount(0);
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
+    await page.goto(`${DESK}?tab=trade&view=open`);
+    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("desk-portfolio-record-title")).toHaveCount(0);
 
     await page.goto(`${DESK}?tab=portfolio`);
     // The broker block (live holdings and positions per account) stays in the tab; this account is not read live, so its stored rows say so.
@@ -571,7 +568,7 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("broker-stored-asof")).toHaveText(/^3 holdings · as of last sync 12 Oct, 3:42\s?pm$/i);
   });
 
-  test("TC-28 over the shared fixtures: positions from the route, within the limit; the model's record forward then replay, tiles and calibration from the payload", async ({ page }) => {
+  test("TC-28 over the shared fixtures: positions from the route, within the limit", async ({ page }) => {
     await mockPaper(page);
     await mockDeskLists(page);
     await portfolioData(page);
@@ -595,37 +592,7 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-sector")).toContainText(`${classified?.name} is ${classified?.pct.toFixed(1)}% of sector exposure, under the ${conc.sector.caution_pct}% cap`);
     await expect(page.getByTestId("desk-risk-sector")).toHaveAttribute("data-level", "low");
 
-    // The model's record: forward first and named; the forward fixture has no outcomes yet, so every tile is "—".
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await expect(page.getByTestId("desk-paper-sample-forward")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("desk-paper-sample-note")).toContainText("Forward sample");
-    await expect(page.getByTestId("desk-paper-statement")).toContainText("Not established: 0 counted sessions");
-    for (const id of ["predicted", "realised", "net", "false"]) await expect(page.getByTestId(`desk-record-${id}`)).toHaveText("—");
-    await expect(page.getByTestId("desk-calibration-none")).toBeVisible();
-
-    // Replay: tiles and calibration over the selected five a session (paper-evaluation-replay-P5-NEXT.json).
-    await page.getByTestId("desk-paper-sample-replay").click();
-    await expect(page.getByTestId("desk-paper-sample-note")).toContainText("Replay sample");
-    const ev = load("paper-evaluation-replay-P5-NEXT.json").data.evaluation as {
-      headline_mode: string; costs: { base: number }; modes: Array<{ mode: string; net_mean: number | null; closed_trades: number }>; buckets: { selected: Bucket[] };
-    };
-    const t = tilesOf(ev.buckets.selected);
-    await expect(page.getByTestId("desk-record-predicted")).toHaveText(pct1(t.predicted));
-    await expect(page.getByTestId("desk-record-realised")).toHaveText(pct1(t.realised));
-    await expect(page.getByTestId("desk-record-false")).toHaveText(t.misses.toLocaleString("en-IN"));
-    const head = ev.modes.find((m) => m.mode === ev.headline_mode);
-    const net = (head?.net_mean as number) * 100;
-    await expect(page.getByTestId("desk-record-net")).toHaveText(`${net < 0 ? MINUS : "+"}${Math.abs(net).toFixed(2)}%`);
-    await expect(page.getByTestId("desk-portfolio-record")).toContainText(`after ${ev.costs.base.toFixed(2)}% costs · ${head?.closed_trades.toLocaleString("en-IN")} trades`);
-    const used = ev.buckets.selected.filter((b) => b.n > 0);
-    const bars = page.getByTestId("desk-calibration-row");
-    await expect(bars).toHaveCount(used.length);
-    const b10 = used.find((b) => b.lo === 0.1) as Bucket;
-    const row10 = page.locator('[data-testid="desk-calibration-row"][data-lo="10"]');
-    await expect(row10.getByTestId("desk-calibration-predicted")).toHaveText(`${((b10.predicted_mean as number) * 100).toFixed(0)}%`);
-    await expect(row10.getByTestId("desk-calibration-realised")).toHaveText(`${((b10.model_label_rate as number) * 100).toFixed(0)}%`);
-    await expect(row10).toContainText(`n ${b10.n}`);
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. The model's forward / replay record that followed here left with that card.
   });
 
   test("TC-29 an empty portfolio shows the empty state, and its button opens broker connections", async ({ page }) => {
@@ -633,13 +600,10 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await mockDeskLists(page, { empty: true });
     await mockSingleRoute(page, "**/api/portfolio/holdings-enriched*", "empty-portfolio.json");
     await portfolioData(page);
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    // Paper trades and alerts do not depend on holdings: their empty states show.
-    await expect(page.getByTestId("desk-paper-trades-empty")).toContainText("No paper trades yet");
-    await expect(page.getByTestId("desk-alerts-empty")).toContainText("No price alerts");
-    await expect(page.getByTestId("desk-paper-today-none")).toHaveText("No paper trade added today.");
-    await expect(page.getByTestId("desk-paper-last5-none")).toHaveText("No closed paper trades yet.");
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
+    await page.goto(`${DESK}?tab=trade&view=open`);
+    // Paper trades do not depend on holdings: Trade Desk's empty state shows.
+    await expect(page.getByTestId("td-open-empty")).toContainText("No open paper trades", { timeout: 15_000 });
 
     await page.goto(`${DESK}?tab=portfolio`);
     const empty = page.getByTestId("desk-portfolio-empty");
@@ -801,7 +765,9 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
     await expect(page.getByTestId("desk-mcap-error").getByRole("alert")).toContainText("The market-cap split didn’t load", { timeout: 15_000 });
   });
 
-  test("your paper trades: open marks, closed exits and reasons, the summary; Close asks first, then posts {} to …/{id}/close", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-8/TD-9/TD-22/TD-23 (rows, marks, exits, summary) and TD-37 (Close asks first, posts {}).
+  test.skip("your paper trades: open marks, closed exits and reasons, the summary; Close asks first, then posts {} to …/{id}/close", async ({ page }) => {
     const calls = await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -876,7 +842,9 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
     await expect(block.getByTestId("desk-paper-confirm")).toHaveCount(0);
   });
 
-  test("your paper trades: a refused close shows the server's words; missing marks are said, not made up; errors and 403", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-38 (refused close), TD-12 (missing marks), TD-39 (502 and 403).
+  test.skip("your paper trades: a refused close shows the server's words; missing marks are said, not made up; errors and 403", async ({ page }) => {
     const calls = await mockDeskLists(page, { closeReply: { status: 409, body: { detail: "trade_already_closed" } } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -909,7 +877,9 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
     await expect(page.getByTestId("desk-paper-trades-error")).toContainText("Your paper trades is not enabled for this account");
   });
 
-  test("your price alerts: levels, status, fired session, last close; Delete asks first, then sends DELETE …/{id}", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: none on Trade Desk: alerts are managed in Market Desk › Market Intelligence (IntelTab) and move to Watchlists & alerts in step 4.
+  test.skip("your price alerts: levels, status, fired session, last close; Delete asks first, then sends DELETE …/{id}", async ({ page }) => {
     const calls = await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -947,7 +917,9 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
     await expect(block.locator('[data-testid="desk-alert-row"][data-id="al-003"]')).toHaveCount(0);
   });
 
-  test("your price alerts: a failed read with retry", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: none on Trade Desk: see the alerts test above.
+  test.skip("your price alerts: a failed read with retry", async ({ page }) => {
     const calls = await mockDeskLists(page, { alertList: { status: 502, body: { detail: "upstream_unavailable" } } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -1120,9 +1092,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(page.getByTestId("desk-portfolio-trust")).toHaveAttribute("data-mode", "eod");
     await expect(page.getByTestId("desk-portfolio-trust")).toContainText("Stored holdings in Nivesh");
     await expect(page.getByTestId("desk-risk-trust")).toHaveAttribute("data-maker", "rules");
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    for (const id of ["desk-paper-card-trust", "desk-paper-lists-trust"]) await expect(page.getByTestId(id)).toBeVisible();
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. Its own rules line says what the marks are.
+    await page.goto(`${DESK}?tab=trade&view=open`);
+    await expect(page.getByTestId("td-rules-note")).toContainText("end-of-day daily bars", { timeout: 15_000 });
   });
 
   test("§8.3 read live: cash from the brokers' funds read, live value checked line by line against the last sync; duplicates and a missing price are said", async ({ page }) => {
@@ -1301,7 +1273,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     expect(ok.commits).toHaveLength(0);
   });
 
-  test("desk cost card: a trade opened under desk-cost-v2 shows its costs by component and what they include; a flat-model trade keeps its own line", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-17 (desk-cost-v2 bridge) and TD-41 (a flat-model trade).
+  test.skip("desk cost card: a trade opened under desk-cost-v2 shows its costs by component and what they include; a flat-model trade keeps its own line", async ({ page }) => {
     // paper_fills_pnl follow-up "statutory charges". MOCK — not real data: the figures are the backend's hand-computed
     // card example (backend/tests/test_desk_paper_sim.py: 10 bought at 100, sold at 110 → costs 50.58, net 49.42).
     const card = trade({
@@ -1328,7 +1302,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText("+ STT, exchange, SEBI, stamp duty and GST (desk cost card, desk-cost-v2)");
   });
 
-  test("§13.4 paper trades: entry rule and status, costs, gross and net, MFE / MAE, flags and versions in each trade's record; a waiting entry cancels", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-8, TD-14 … TD-18 (the journal record) and TD-37 (a waiting entry cancels).
+  test.skip("§13.4 paper trades: entry rule and status, costs, gross and net, MFE / MAE, flags and versions in each trade's record; a waiting entry cancels", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -1381,7 +1357,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(block.getByTestId("desk-paper-confirm-yes")).toHaveText("Cancel paper trade");
   });
 
-  test("p2 exits TC-71: a trailing-stop exit, the versioned stop history and the opt-in rule label; no rule says None; an unknown reason shows its code", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-18 (stop history) and TD-41 (opt-in rule label, unknown reason shown as sent).
+  test.skip("p2 exits TC-71: a trailing-stop exit, the versioned stop history and the opt-in rule label; no rule says None; an unknown reason shows its code", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: exitsBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -1421,7 +1399,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(rec2.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Stop ${paise(100)}, target ${paise(115)}`);
   });
 
-  test("p2 exits TC-71: an open trade whose stop the trail raised shows the stop in force; investor wording for a trailing stop", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-9 and TD-18 (the stop in force); investor wording is not on Trade Desk yet.
+  test.skip("p2 exits TC-71: an open trade whose stop the trail raised shows the stop in force; investor wording for a trailing stop", async ({ page }) => {
     const raised = trade({ ...trailTrade(), id: "pt-raised", symbol: "FIXRAISE", status: "open", closed_at: null, exit_price: null, exit_reason: null, exit_session: null,
       realized_pnl_rs: null, last_close: 1070, last_close_date: "2026-10-14", unrealized_pnl_rs: 700, gross_pnl_rs: 700 });
     const book = { ...simBook(), trades: [raised, trailTrade()] };
@@ -1436,7 +1416,7 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Exit if wrong ${paise(970)} (now ${paise(1040)}), exit if right ${paise(1200)}`);
   });
 
-  test("investor wording: plain labels for the risk rows, the paper-trade columns and the record", async ({ page }) => {
+  test("investor wording: plain labels for the risk rows and the overview", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio&persona=investor`);
@@ -1446,15 +1426,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     const o = page.getByTestId("desk-portfolio-overview");
     await expect(o).toContainText("These totals add up");
     await expect(o).toContainText("Gain on paper");
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper&persona=investor`);
-    const block = page.getByTestId("desk-paper-trades");
-    await expect(block.getByTestId("desk-paper-closed-table").getByRole("columnheader")).toContainText(["After costs", "Best point / Worst point"]);
-    const closedRow = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXSIM" });
-    await expect(closedRow.getByTestId("desk-paper-reason")).toContainText("Exit if wrong");
-    await closedRow.getByTestId("desk-paper-record-toggle").click();
-    await expect(block.getByTestId("desk-paper-record")).toContainText("When it buys");
-    await expect(block.getByTestId("desk-paper-record-rule")).toContainText(`Buy above ${paise(100)}`);
+    // Desk redesign step 3: the paper-trade half of this test checked PaperDesk's investor labels; Trade Desk (tabs/trade-desk)
+    // does not apply the investor wording yet (a gap named in the step 3 PR), so only My portfolio's wording is checked here.
   });
 
   test("390px: the overview, the import preview and a trade record fit without sideways scroll", async ({ page }) => {
@@ -1472,10 +1445,10 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(card.getByTestId("desk-import-row")).toHaveCount(4);
     await page.getByTestId("desk-risk-liquidity-rule-toggle").click();
     await page.getByTestId("desk-risk-liquidity-toggle").click();
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await page.getByTestId("desk-paper-closed-table").getByTestId("desk-paper-record-toggle").click();
-    await expect(page.getByTestId("desk-paper-record")).toBeVisible();
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. A trade's record is its journal drawer.
+    await page.goto(`${DESK}?tab=trade&view=closed`);
+    await page.getByTestId("td-closed").getByRole("row").nth(1).click({ timeout: 15_000 });
+    await expect(page.getByTestId("td-journal")).toBeVisible();
     const o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
@@ -1498,9 +1471,9 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await page.getByTestId("desk-portfolio-import-open").click();
     await page.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
     await page.getByTestId("desk-import-preview").click();
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await page.getByTestId("desk-paper-closed-table").getByTestId("desk-paper-record-toggle").first().click();
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it. A trade's record is its journal drawer.
+    await page.goto(`${DESK}?tab=trade&view=closed`);
+    await page.getByTestId("td-closed").getByRole("row").nth(1).click({ timeout: 15_000 });
     await page.setViewportSize({ width: 1440, height: 4200 });
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOTS}/prd-portfolio-after-1440-tall.png` });
@@ -1533,10 +1506,9 @@ test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
     await expect(page.getByTestId("desk-portfolio")).toHaveAttribute("data-layout", "phone");
     await expect(page.getByTestId("desk-risk-overall")).toBeVisible();
     await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="unsplit"]')).toBeVisible();
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await expect(page.getByTestId("desk-paper-open-table")).toBeVisible();
-    await expect(page.getByTestId("desk-alert-row")).toHaveCount(3);
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
+    await page.goto(`${DESK}?tab=trade&view=open`);
+    await expect(page.getByTestId("td-positions")).toBeVisible({ timeout: 15_000 });
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     await expect(page.getByTestId("broker-live-row")).toHaveCount(2);
@@ -1685,10 +1657,9 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     expect(o.scroll).toBeLessThanOrEqual(1);
     await page.getByTestId("desk-risk-correlation-toggle").click();
     await expect(page.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await page.getByTestId("desk-paper-sample-replay").click();
-    await expect(page.getByTestId("desk-calibration-row").first()).toBeVisible();
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
+    await page.goto(`${DESK}?tab=trade&view=open`);
+    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
     o = await sideways(page);
     expect(o.doc).toBeLessThanOrEqual(1);
     expect(o.scroll).toBeLessThanOrEqual(1);
@@ -1703,9 +1674,9 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("desk-portfolio-hub")).toBeVisible();
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await page.getByTestId("desk-paper-sample-replay").click();
+    // Desk redesign step 3 (2026-10-27): Trade Desk is the desk paper trades only (tabs/trade-desk, copilot-app-desk-trade-desk.spec.ts); PaperDesk's lists, the price alerts (now managed in Market Desk › Market Intelligence) and the positional model's "predicted vs actual" card are not mounted on it.
+    await page.goto(`${DESK}?tab=trade&view=open`);
+    await expect(page.getByTestId("td-view-open")).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-1440.png` });
     await page.setViewportSize({ width: 1440, height: 2000 });
@@ -1801,7 +1772,9 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     await mockPaper(page);
   });
 
-  test("a spread and a future are listed beside the share trades with premium, mark, gross and net; share rows are unchanged", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-10 (every leg, net P/L) and TD-9 (share rows).
+  test.skip("a spread and a future are listed beside the share trades with premium, mark, gross and net; share rows are unchanged", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -1837,7 +1810,9 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     await expect(section.getByTestId("desk-strategy-rules")).toContainText("Futures losses can exceed the margin posted");
   });
 
-  test("the record lists each leg with entry, mark and mark date, the immutable signal, the lifecycle log and the flags", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-10, TD-19 and TD-21 (legs, events, flags, signal in the journal).
+  test.skip("the record lists each leg with entry, mark and mark date, the immutable signal, the lifecycle log and the flags", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -1887,7 +1862,9 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     expect(await rec2.getByTestId("desk-paper-flag").evaluateAll((els) => els.map((e) => e.getAttribute("data-code")))).toEqual(["no_mark"]);
   });
 
-  test("investor wording and a close confirmation that posts the same close route", async ({ page }) => {
+  // Desk redesign step 3 (2026-10-27): PaperDesk is no longer mounted on Trade Desk (tabs/trade-desk replaces it; the component
+  // is deleted in step 6). Covered now by copilot-app-desk-trade-desk.spec.ts: TD-37 (the close route); investor wording is not on Trade Desk yet.
+  test.skip("investor wording and a close confirmation that posts the same close route", async ({ page }) => {
     const calls = await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
@@ -1908,10 +1885,10 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     const broken = { ...spreadTrade(), legs: [] };
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([broken]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await expect(page.getByTestId("desk-paper-trades-error")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("desk-strategy-trades")).toHaveCount(0);
+    // Desk redesign step 3: Trade Desk › Open & pending reads the list with the same contract.
+    await page.goto(`${DESK}?tab=trade&view=open`);
+    await expect(page.getByTestId("td-trades-error")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("td-structures")).toHaveCount(0);
   });
 });
 
@@ -1950,25 +1927,25 @@ test.describe("Smart trading desk — F&O roll", () => {
       gets += 1;
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(preview) });
     });
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
+    // Desk redesign step 3: the F&O structures, with Roll, are on Trade Desk › Open & pending (StructureCard, RollAction "td-roll").
+    await page.goto(`${DESK}?tab=trade&view=open`);
     return { posts, gets: () => gets };
   }
 
   test("UI-4 the confirmation shows both legs and their prices, and Roll posts once", async ({ page }) => {
     const calls = await rollPage(page, ROLL_PREVIEW);
-    const row = page.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" });
-    await row.getByTestId("desk-strategy-roll-open").click({ timeout: 15_000 });
-    const dlg = row.getByTestId("desk-strategy-roll-confirm");
+    const row = page.getByTestId("td-structure").filter({ hasText: "Long future" });
+    await row.getByTestId("td-roll-open").click({ timeout: 15_000 });
+    const dlg = row.getByTestId("td-roll-confirm");
     await expect(dlg).toContainText("Both sides at the");
-    await expect(dlg.getByTestId("desk-strategy-roll-old-leg")).toContainText("Buy 1 lot future 27 Oct");
-    await expect(dlg.getByTestId("desk-strategy-roll-old-price")).toHaveText("1,301.50");
-    await expect(dlg.getByTestId("desk-strategy-roll-new-leg")).toContainText("Buy 1 lot future 24 Nov");
-    await expect(dlg.getByTestId("desk-strategy-roll-new-price")).toHaveText("1,309.20");
+    await expect(dlg.getByTestId("td-roll-old-leg")).toContainText("Buy 1 lot future 27 Oct");
+    await expect(dlg.getByTestId("td-roll-old-price")).toHaveText("1,301.50");
+    await expect(dlg.getByTestId("td-roll-new-leg")).toContainText("Buy 1 lot future 24 Nov");
+    await expect(dlg.getByTestId("td-roll-new-price")).toHaveText("1,309.20");
     expect(calls.posts).toEqual([]);                                     // nothing is recorded until Roll is pressed
-    await dlg.getByTestId("desk-strategy-roll-submit").click();
-    await expect(dlg.getByTestId("desk-strategy-roll-done")).toContainText("st-rolled");
-    await expect(dlg.getByTestId("desk-strategy-roll-submit")).toBeDisabled();
+    await dlg.getByTestId("td-roll-submit").click();
+    await expect(dlg.getByTestId("td-roll-done")).toContainText("st-rolled");
+    await expect(dlg.getByTestId("td-roll-submit")).toBeDisabled();
     expect(calls.posts.map((p) => ({ path: p.path, body: p.body }))).toEqual([{ path: "/api/desk/paper-trades/st-future/roll", body: {} }]);
     expect(calls.posts[0].key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
@@ -1976,20 +1953,20 @@ test.describe("Smart trading desk — F&O roll", () => {
   test("UI-4b a roll the route refuses shows its reason and offers no Roll button", async ({ page }) => {
     const calls = await rollPage(page, { eligible: false, trade_id: "st-future", refusal: { code: "roll_chain_not_ready",
       message: "The NSE F&O bhavcopy for 2026-10-27 is not in yet: it lands after 22:15 IST, and the roll records both sides at that day's close. Try again once it is in." } });
-    const row = page.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" });
-    await row.getByTestId("desk-strategy-roll-open").click({ timeout: 15_000 });
-    await expect(row.getByTestId("desk-strategy-roll-refused")).toHaveAttribute("data-code", "roll_chain_not_ready");
-    await expect(row.getByTestId("desk-strategy-roll-refused")).toContainText("22:15 IST");
-    await expect(row.getByTestId("desk-strategy-roll-submit")).toHaveCount(0);
+    const row = page.getByTestId("td-structure").filter({ hasText: "Long future" });
+    await row.getByTestId("td-roll-open").click({ timeout: 15_000 });
+    await expect(row.getByTestId("td-roll-refused")).toHaveAttribute("data-code", "roll_chain_not_ready");
+    await expect(row.getByTestId("td-roll-refused")).toContainText("22:15 IST");
+    await expect(row.getByTestId("td-roll-submit")).toHaveCount(0);
     expect(calls.posts).toEqual([]);
   });
 
   test("UI-4c the trade record offers the same roll", async ({ page }) => {
     await rollPage(page, ROLL_PREVIEW);
-    await page.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" }).getByTestId("desk-paper-record-toggle").click({ timeout: 15_000 });
-    const rec = page.getByTestId("desk-paper-strategy-record");
-    await rec.getByTestId("desk-record-roll-open").click();
-    await expect(rec.getByTestId("desk-record-roll-new-price")).toHaveText("1,309.20");
+    await page.getByTestId("td-structure").filter({ hasText: "Long future" }).getByTestId("td-structure-journal").click({ timeout: 15_000 });
+    const rec = page.getByTestId("td-journal");
+    await rec.getByTestId("td-journal-roll-open").click();
+    await expect(rec.getByTestId("td-journal-roll-new-price")).toHaveText("1,309.20");
   });
 });
 
