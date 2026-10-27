@@ -1797,6 +1797,11 @@ const ROLL_PREVIEW = {
 };
 
 test.describe("Smart trading desk — F&O roll", () => {
+  test.beforeEach(async ({ page }) => {
+    await deskBase(page);
+    await mockPaper(page);
+  });
+
   async function rollPage(page: Page, preview: unknown) {
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
