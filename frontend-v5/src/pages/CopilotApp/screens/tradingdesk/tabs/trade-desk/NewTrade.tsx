@@ -159,7 +159,7 @@ function TicketBody({ tp: rowPlan, source }: { tp: TradePlan; source: NewPaperTr
   );
 }
 
-function Ticket({ planId, source, onOverview }: { planId: string | null; source: NewPaperTrade["source"] | null; onOverview: () => void }) {
+export function Ticket({ planId, source, onOverview }: { planId: string | null; source: NewPaperTrade["source"] | null; onOverview: () => void }) {
   const q = usePlanResponse(planId);
   let body: ReactNode;
   if (!planId) {

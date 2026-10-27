@@ -304,6 +304,35 @@ function bucketRule(b: SetupBucket, rules: ScanRules | null): string {
   return `15-day range under ${th(t, "range_15d_below_pct")}%, volume contracting, at least ${th(t, "higher_lows_min")} higher low and small upper wicks.`;
 }
 
+/**
+ * Trade Desk › AI Scanner › Signal library & sources: the scanner's signal categories, each with the rule and thresholds the
+ * route sent (GET /api/positional/watchlist + picks via useDeskScanner; the universe categories' thresholds come with the
+ * universe read when the list has loaded it). End of day; rules-based; not predictions.
+ */
+export function SignalCategories() {
+  const scan = useDeskScanner();
+  const rules = scan.data?.rules ?? null;
+  const cats = CATS.filter((c) => c.bucket || c.ucat);
+  return (
+    <section data-testid="desk-signal-categories" aria-label="The scanner's signal categories" className="flex min-w-0 flex-col" style={{ gap: 8 }}>
+      <h3 className="cp-eyebrow m-0">The scanner's signal categories · end of day, rules-based</h3>
+      {scan.isPending ? <LoadingBlock label="Reading the scanner's rules" rows={2} /> : (
+        <ul className="m-0 flex flex-col" style={{ gap: 6, padding: 0, listStyle: "none" }}>
+          {cats.map((c) => (
+            <li key={c.key} data-testid="desk-signal-category" data-key={c.key} className="flex min-w-0 flex-col" style={{ gap: 2, padding: "8px 12px", borderRadius: 10, border: "1px solid var(--cp-line)", background: "var(--bg-1)" }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--cp-ink)" }}>{c.label}</span>
+              <span style={{ fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
+                {c.bucket ? bucketRule(c.bucket, rules) : c.ucat && rules?.categories[c.ucat] ? universeRule(c.ucat, rules) : "A universe category: its thresholds come with the full scanner list (Ranked candidates)."}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>A category says which rule a stock met at the close; it is not a prediction. Reversal candidates and results-day momentum have no published thresholds here.</span>
+    </section>
+  );
+}
+
 function universeRule(c: UniverseCategory, rules: ScanRules | null): string {
   const t = rules?.categories[c];
   if (!t) return "The route did not send this rule's thresholds.";

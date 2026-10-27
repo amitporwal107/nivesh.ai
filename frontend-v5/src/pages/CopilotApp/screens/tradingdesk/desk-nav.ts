@@ -79,9 +79,9 @@ export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
   "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }],
 };
 
-/** A tab whose default view is not its first (the design's order is kept in SECTION_VIEWS). Trade Desk opens Paper
- *  Trading until the AI Scanner section is built (step 3, PR B). */
-const DEFAULT_VIEW: Partial<Record<DeskSection, string>> = { trade: "paper" };
+/** A tab whose default view is not its first (the design's order is kept in SECTION_VIEWS). None today: Trade Desk opens
+ *  its first section, AI Scanner › Ranked candidates (step 3, PR B). */
+const DEFAULT_VIEW: Partial<Record<DeskSection, string>> = {};
 
 export const subViewsOf = (tab: DeskPlace, view: string | null): readonly DeskViewDef[] => (view ? SUB_VIEWS[`${tab}/${view}`] ?? [] : []);
 export const defaultSub = (tab: DeskPlace, view: string | null): string | null => subViewsOf(tab, view)[0]?.key ?? null;
@@ -186,6 +186,11 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     return set("overview", null);
   }
   if (tab === null) return null; // the bare desk URL is Market Overview
+  if (tab === "overview" && params.get("section") === "scanner") {
+    // Market Overview's collapsed "All scanner candidates" moved to Trade Desk › AI Scanner › Ranked candidates (PR B).
+    p.delete("section");
+    return set("trade", "scanner", undefined, "ranked");
+  }
   if (tab === "trade") {
     // Trade Desk's views before the owner's workbench structure (step 3, first cut): their new sections.
     const old = params.get("view");
@@ -204,7 +209,7 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     return loc.view === params.get("view") && (loc.sub ?? null) === params.get("sub") ? null : set(loc.tab, loc.view, undefined, loc.sub ?? undefined);
   }
   switch (tab) {
-    case "scanner": return set("overview", null, "scanner");
+    case "scanner": return set("trade", "scanner", undefined, "ranked");
     case "intel": return set("market", "intel");
     case "events": return set("market", "intel", "events");
     case "chart": return set("market", "research");
@@ -231,7 +236,7 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
 export function placeOfOldTab(old: string): { tab: DeskPlace; view: string | null; section?: string } {
   switch (old) {
     case "overview": return { tab: "overview", view: null };
-    case "scanner": return { tab: "overview", view: null, section: "scanner" };
+    case "scanner": return { tab: "trade", view: "scanner" };
     case "intel": return { tab: "market", view: "intel" };
     case "events": return { tab: "market", view: "intel", section: "events" };
     case "chart": return { tab: "market", view: "research" };

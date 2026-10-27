@@ -65,6 +65,10 @@ const PortfolioTab = lazy(() => import("./tradingdesk/PortfolioTab"));
 const TradeDeskTab = lazy(() => import("./tradingdesk/tabs/trade-desk/TradeDeskTab"));
 const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
 const ForwardTestPanel = lazy(() => import("./tradingdesk/FnoForwardTest").then((m) => ({ default: m.ForwardTestPanel })));
+const ScannerTop10 = lazy(() => import("./tradingdesk/ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
+const SignalCategories = lazy(() => import("./tradingdesk/ScannerTab").then((m) => ({ default: m.SignalCategories })));
+const IdeaScorecard = lazy(() => import("./tradingdesk/scorecard/IdeaScorecard"));
+const ChartTicket = lazy(() => import("./tradingdesk/tabs/trade-desk/ChartTicket").then((m) => ({ default: m.ChartTicket })));
 const Watchlist = lazy(() => import("./Watchlist"));
 const RiskDeskTab = lazy(() => import("./tradingdesk/tabs/risk-desk/RiskDeskTab"));
 
@@ -571,14 +575,12 @@ export default function TradingDeskScreen() {
       </div>
     );
   } else if (loc.tab === "overview") {
-    const scannerOpen = section === "scanner";
     content = (
       <Hosted id="market-overview" name="Market Overview">
         <MarketOverview
-          scannerOpen={scannerOpen}
-          onToggleScanner={() => setParam({ tab: "overview", section: scannerOpen ? null : "scanner" })}
           onOpenTradeDesk={() => goPlace("trade", "paper")}
-          onOpenTrade={() => goPlace("trade")}
+          onOpenTrade={() => goPlace("trade", "scanner", { sub: "ranked" })}
+          onOpenScorecard={() => goPlace("trade", "scanner", { sub: "scorecard" })}
           onOpenMarket={(view) => goPlace("market", view ?? undefined)}
         />
       </Hosted>
@@ -589,21 +591,37 @@ export default function TradingDeskScreen() {
     // sources and chart until step 3 PR B builds them.
     switch (loc.view) {
       case "scanner":
+        // AI Scanner: Ranked candidates (the Top 10 decision cards and every scanner candidate), Signal library & sources
+        // (the scanner's categories and your Chartink sources), Scorecard (the ideas' study, then the F&O forward test).
         content = loc.sub === "library"
-          ? <Hosted id="chartink" name="Chartink sources"><ChartinkSettings asSection /></Hosted>
+          ? (
+            <>
+              <Hosted id="signal-categories" name="the signal categories"><SignalCategories /></Hosted>
+              <Section id="chartink" title="Chartink sources"><ChartinkSettings asSection /></Section>
+            </>
+          )
           : loc.sub === "scorecard"
             ? (
               <>
-                <p data-testid="desk-trade-scorecard-pending" className="m-0" style={lineStyle}>The ideas' scorecard (GET /api/desk/idea-scorecard) is built in the next step of the redesign; the AI ideas are ranked, not predicted.</p>
-                <Hosted id="forward-test" name="the F&O forward test"><ForwardTestPanel /></Hosted>
+                <Hosted id="scorecard" name="the Idea scorecard"><IdeaScorecard /></Hosted>
+                <Section id="forward-test" title="F&O signal · forward test"><ForwardTestPanel /></Section>
               </>
             )
-            : <Hosted id="scanner" name="the scanner list"><ScannerTab listOnly /></Hosted>;
+            : (
+              <>
+                <Hosted id="top10" name="the Top 10 ideas"><ScannerTop10 onScorecard={() => goPlace("trade", "scanner", { sub: "scorecard" })} /></Hosted>
+                <Section id="scanner" title="All scanner candidates"><ScannerTab listOnly /></Section>
+              </>
+            );
         break;
       case "chart":
         content = loc.sub === "record"
-          ? <p data-testid="desk-trade-record-pending" className="m-0" style={lineStyle}>Signal record: not available yet. It needs a route that serves a signal's revisions (positional_signals_history); it is built in the next step.</p>
-          : <Hosted id="chart" name="Chart Analysis"><ChartTab /></Hosted>;
+          ? <p data-testid="desk-trade-record-pending" className="m-0" style={lineStyle}>Signal record: not available yet. No route serves a signal's levels, lifecycle and revisions (the positional_signals_history table has no route), so nothing is shown rather than a made-up record.</p>
+          : (
+            <Hosted id="chart" name="Chart Analysis">
+              <ChartTab riskPanel={(sym) => <ChartTicket symbol={sym} onIdeas={() => goPlace("trade", "scanner", { sub: "ranked" })} />} />
+            </Hosted>
+          );
         break;
       case "watchlists":
         content = <Hosted id="watchlists" name="Watchlists"><Watchlist /></Hosted>;
