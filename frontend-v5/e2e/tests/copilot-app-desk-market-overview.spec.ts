@@ -507,7 +507,7 @@ test.describe("MOCK — not real data: Market Overview · events and the Trade D
     await expect(ev.getByTestId("mo-event")).toHaveAttribute("data-id", F_TODAY.id);
     await expect(ev.getByTestId("mo-event-title")).toHaveText(F_TODAY.docLabel);
     await ev.getByTestId("mo-event-stock").click();
-    await expect.poll(() => `${params(page).get("tab")}/${params(page).get("view")}/${params(page).get("sym")}`).toBe(`market/research/${SYM}`);
+    await expect.poll(() => `${params(page).get("tab")}/${params(page).get("view")}/${params(page).get("sym")}`).toBe(`trade/chart/${SYM}`); // a symbol's chart is Trade Desk › Chart Analysis › Live chart (owner's design)
   });
 
   test("MO-24b a day with no filing for the listed names says so", async ({ page }) => {

@@ -378,10 +378,9 @@ test.describe("Smart trading desk — shell", () => {
     await expect(page).not.toHaveURL(/persona=/);
 
     // The thread survives moving between tabs.
-    // Desk redesign (2026-10-27): the scanner list is Market Overview's "All scanner candidates" (was the AI Scanner tab).
-    await page.getByTestId("desk-tab-trade").click();
+    // Desk redesign step 3: the scanner list is Trade Desk › AI Scanner › Ranked candidates (the tab's default).
     await page.getByTestId("desk-tab-overview").click();
-    await page.getByTestId("desk-scanner-toggle").click();
+    await page.getByTestId("desk-tab-trade").click();
     await expect(dock.getByTestId("dock-turn")).toHaveCount(2);
     // Beside the dock the desk is too narrow for the scanner's columns, so its rows show as cards.
     await expect(page.getByTestId("desk-scan-cards")).toBeVisible();
@@ -415,8 +414,8 @@ test.describe("Smart trading desk — shell", () => {
     await expect(page.getByTestId("desk-docked-note")).toHaveCount(0);
     await expect(page.getByTestId("composer-input")).toBeVisible();
     // Without the dock there is room for the scanner's full table.
-    // Desk redesign (2026-10-27): the scanner list is Market Overview's "All scanner candidates".
-    await page.getByTestId("desk-scanner-toggle").click();
+    // Desk redesign step 3: the scanner list is Trade Desk › AI Scanner › Ranked candidates (the tab's default).
+    await page.getByTestId("desk-tab-trade").click();
     await expect(page.getByTestId("desk-scan-table")).toBeVisible();
     await expect(page.getByTestId("desk-scan-cards")).toHaveCount(0);
 
