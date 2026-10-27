@@ -16,7 +16,7 @@ mounted on the same database. MOCK — not real data: FIXA..FIXD / FIXU, every p
 from __future__ import annotations
 
 import copy
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict
 
 import pytest
@@ -199,7 +199,9 @@ def _sector_full(h):
     _account(h, exposure_rs=250_000.0, sector_rs={"MOCK_SECTOR": 250_000.0}, reservations=[
         {"id": "r-sector", "trade_id": "t-elsewhere", "store": desk.TRADES, "kind": "cash", "symbol": "OTHER",
          "sector": "MOCK Sector", "sector_key": "MOCK_SECTOR", "risk_rs": 0.0, "exposure_rs": 250_000.0, "funding_rs": 0.0,
-         "positions": 0, "at": NOW.isoformat()}])
+         # stamped on the REAL clock, like every reservation: the orphan sweep judges age on it (a fixture-clock stamp
+         # reads as days old and is swept as an orphan, since t-elsewhere is never written)
+         "positions": 0, "at": datetime.now(timezone.utc).isoformat()}])
 
 
 def _closed(h, *, closed_at: str, net: float, symbol: str = "FIXZ"):
