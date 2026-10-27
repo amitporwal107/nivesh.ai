@@ -28,6 +28,20 @@ PR B. The TD cases below keep their meaning; their places move:
 | NV-4 | nav | Watchlists moved | e2e | Trade Desk › Watchlists mounts the Watchlist page; Market Desk lists Market Intelligence · Smart Money · Sector Rotation · Stock Research · Screener |
 | NV-5 | journal | the trade picker | e2e | a Live desk row opens Trade journal with `trade=<id>`; the picker switches trades; with no id the newest closed trade is shown |
 
+## PR B: AI Scanner and Chart Analysis (written before the PR B spec changes)
+
+`?tab=trade` now opens AI Scanner › Ranked candidates (NV-1 changes accordingly).
+
+| ID | Area | Scenario | Type | Expected |
+|----|------|----------|------|----------|
+| AS-1 | AI Scanner | Ranked candidates | e2e | the Top 10 decision cards and "All scanner candidates" (ScannerTab list); Market Overview no longer has the list; `?tab=scanner` and `?tab=overview&section=scanner` land here |
+| AS-2 | AI Scanner | Signal library & sources | e2e | the scanner's categories, each with its rule from the route; Chartink sources below |
+| AS-3 | AI Scanner | Scorecard | e2e | the Idea scorecard from GET /api/desk/idea-scorecard ("no measurable skill", RS63 awaiting confirmation, nulls shown as "—"); the F&O forward test below; #375's SCORECARD_URL cases run here |
+| AS-4 | Market Overview | links | e2e | "See all ›" opens Ranked candidates; "Scorecard →" opens Scorecard |
+| CH-1 | Chart Analysis | Live chart ticket from an idea | e2e | with `tp=` the ticket shows the risk service's account_size; no slider, no size field, no capital × risk-% calculator |
+| CH-2 | Chart Analysis | Live chart without an idea | edge | "No idea with a plan for X today, so there is no ticket", with the Ranked candidates link |
+| CH-3 | Chart Analysis | Signal record | e2e | "not available yet" with the reason (no route serves the signal history) |
+
 ## Design (API + UI)
 
 URL: `/app/trader/desk?tab=trade&view=open|closed|new`. `view=paper` (the shell's old view) redirects to `open`.
