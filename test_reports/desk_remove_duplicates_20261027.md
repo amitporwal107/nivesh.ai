@@ -1,7 +1,7 @@
 # Functionality Verification Report — Desk redesign step 6: remove the duplicate trading screens (scope A)
 
 - **Branch:** `feat/desk-remove-duplicates` (from `origin/dev` 0f076b9b; `origin/dev` merged in twice while this was
-  built: #371/#373 Market Overview, then #375 Market Desk; final base 329a3647)
+  built: #371/#373 Market Overview, then #375 Market Desk; then #372/#374/#378; final base 18b4870d)
 - **Date:** 2026-10-27
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER)
 - **Environment:** offline: tsc, the production build and Playwright against mocked APIs (`MOCK — not real data`), in
@@ -159,6 +159,16 @@ The 8 failures are the same cases on both. They are in `copilot-app-desk.spec`: 
 #373 (Market Overview) unmounted, and #373's report shows that spec was not in its run. **They were already failing on
 dev and are not caused by this branch.** The 5 fewer skips are the step-6 skips this branch removes (`desk.spec` ×4,
 `sector-heatmap` ×1).
+
+**Last merge (#372, #374, #378, base 18b4870d).** It merged cleanly; the branch's own numstat against dev is unchanged.
+Run 5 (`copilot-app-desk-retired`, `-broker-paper`, `-kite-login-notice`, `-desk-top10`, `-screens`) on 739aabda:
+```
+tsc: clean
+✓ built in 29.04s
+  4 skipped
+  103 passed (2.0m)
+exit 0
+```
 
 **Earlier runs.**
 - On the 0f076b9b base, before the merges:
