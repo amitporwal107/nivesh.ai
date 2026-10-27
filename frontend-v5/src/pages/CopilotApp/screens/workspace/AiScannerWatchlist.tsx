@@ -34,6 +34,7 @@ import { StatusPill, ratio, rupeesAbs } from "../tradingdesk/strategy/plan-forma
 import type { PlanStatus } from "../tradingdesk/strategy/plan-contract";
 import { IdeaActions } from "../tradingdesk/strategy/TopByRegime";
 import { StoredIdeaLevels, readStoredLevels } from "../tradingdesk/IdeaLevels";
+import { RiskReduceOffer } from "../tradingdesk/RiskReduce";
 import { legSlot, legsForBoard, liveNetPremium, useFnoLive, type LiveAnswer } from "../tradingdesk/strategy/top-live";
 import {
   deskBuildup, deskChain, deskChart, deskLab, deskPlan, deskTrades, useAiWatchlist, type AiWatchDay, type CashEntry, type FnoEntry,
@@ -108,6 +109,10 @@ function CashPaperTrade({ e, listDate }: { e: CashEntry; listDate: string }) {
       <span style={quiet}>At the scanner’s levels on {shortDay(listDate)}: entry {fmtPrice(entry)} (<span data-testid="aiw-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. Simulated; nothing is sent to a broker.</span>
       {paper.isSuccess && <span role="status" data-testid="aiw-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {e.symbol} at {fmtPrice(entry)}.</span>}
       {paper.isError && <span role="alert" data-testid="aiw-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}
+      {paper.isError && paper.variables && (
+        <RiskReduceOffer error={paper.error} testId="aiw-paper-reduce"
+          onAccept={(n) => { const last = paper.variables; if (!last) return; setQty(String(n)); paper.mutate({ ...last, quantity: n }); }} />
+      )}
     </span>
   );
 }

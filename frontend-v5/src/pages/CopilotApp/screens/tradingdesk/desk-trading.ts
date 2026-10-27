@@ -46,7 +46,7 @@ import { ApiError } from "@/services/api/errors";
 import { correlationId } from "@/lib/observability";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { num } from "./desk-data";
-import { riskBlockedText } from "./risk-controls";
+import { bareReason, detailOf, orderReasons, readReasons, riskBlockedText, type RiskReason } from "./risk-controls";
 
 type Raw = Record<string, unknown>;
 const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
@@ -120,12 +120,66 @@ const CODE_TEXT: Record<string, string> = {
   upstream_unavailable: "The data platform could not be reached right now.",
 };
 
+/**
+ * A 409 `risk_reduce` from a paper write (backend/services/risk_gate/service.py `refusal`): the universal risk policy
+ * would take the entry only at a smaller size, and NOTHING was recorded. Shares for a share trade, lots per leg for a
+ * structure; a size the body does not carry as a whole number is null. Null for any other error.
+ */
+export interface RiskReduce {
+  approvedQty: number | null;
+  approvedLots: number | null;
+  requestedQty: number | null;
+  requestedLots: number | null;
+  approvedNotionalRs: number | null;
+  /** The reasons the size was cut, reductions first (info notes only when nothing else was sent). */
+  reasons: RiskReason[];
+}
+
+const whole = (v: unknown): number | null => {
+  const n = num(v);
+  return n != null && Number.isInteger(n) && n >= 0 ? n : null;
+};
+
+export function riskReduceOf(e: unknown): RiskReduce | null {
+  const d = detailOf(e);
+  if (d.code !== "risk_reduce") return null;
+  const rs = num(d.approved_notional_rs);
+  return {
+    approvedQty: whole(d.approved_qty),
+    approvedLots: whole(d.approved_lots),
+    requestedQty: whole(d.requested_qty),
+    requestedLots: whole(d.requested_lots),
+    approvedNotionalRs: rs != null && rs > 0 ? rs : null,
+    reasons: orderReasons(readReasons(d.reasons)),
+  };
+}
+
+const plural = (n: number, one: string, many: string) => `${n.toLocaleString("en-IN")} ${n === 1 ? one : many}`;
+
+/** "The risk policy allows at most 59 shares (you asked 85): <reasons>. Nothing was recorded. (risk_reduce)" — null
+ *  when the body names no approved size (writeProblem then shows the server's own sentence). */
+function riskReduceText(r: RiskReduce): string | null {
+  const size = r.approvedQty != null
+    ? { at: plural(r.approvedQty, "share", "shares"), asked: r.requestedQty }
+    : r.approvedLots != null
+      ? { at: `${plural(r.approvedLots, "lot", "lots")} per leg`, asked: r.requestedLots }
+      : null;
+  if (!size) return null;
+  const asked = size.asked != null ? ` (you asked ${size.asked.toLocaleString("en-IN")})` : "";
+  const why = r.reasons.length ? `: ${r.reasons.map((x) => bareReason(x.message)).join("; ")}` : "";
+  return `The risk policy allows at most ${size.at}${asked}${why}. Nothing was recorded. (risk_reduce)`;
+}
+
 /** The server's own words for a failed write: its code in plain words with the code beside it, else its text. A 409
- *  risk_blocked says which control blocked it and where the controls are (riskBlockedText, risk-controls.ts). */
+ *  risk_blocked says which control blocked it and where the controls are (riskBlockedText, risk-controls.ts); a 409
+ *  risk_reduce names the size the policy allows and why (riskReduceOf). */
 export function writeProblem(e: unknown): string {
   if (e instanceof ApiError) {
     const blocked = riskBlockedText(e);
     if (blocked) return blocked;
+    const reduce = riskReduceOf(e);
+    const reduced = reduce && riskReduceText(reduce);
+    if (reduced) return reduced;
     // A refusal sent as {code, message} (a duplicate with the existing trade's id, an exchange lot, funds): the
     // server's own sentence, which names the specifics, with the code beside it.
     const code = str(rec(rec(e.body).detail).code);
