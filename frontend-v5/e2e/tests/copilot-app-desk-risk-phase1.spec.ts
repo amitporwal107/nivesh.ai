@@ -147,7 +147,8 @@ test.describe("MOCK — not real data: Phase 1 universal risk · paper-trade ref
     await expect(icici.getByTestId("desk-top10-paper-reduce")).toHaveCount(0);
     expect(posts).toHaveLength(2);
     // The same trade, only the quantity changed; a different body is a new submission with its own key.
-    expect(posts[0].body).toEqual({ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
+    // The fields this test is about (the Top 10 body also carries other fields, e.g. max_hold_sessions from #361).
+    expect(posts[0].body).toMatchObject({ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
       source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" }, entry_rule: "at_once" });
     expect(posts[1].body).toEqual({ ...posts[0].body, quantity: 95 });
     expect(posts[0].key).toMatch(UUID);
