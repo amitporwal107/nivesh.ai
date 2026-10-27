@@ -263,3 +263,60 @@ Report every result, including nulls; weights change only by the registered rule
 - TC-F4 Scanner shows Results week ideas with the F&O | All toggle and the "not yet tested" note.
 - TC-F5 loading, empty and error states.
 - TC-F6 390 px width: no horizontal page scroll.
+
+## 9. P1.5 — "Results This Week" watchlist and the per-stock results file (owner, 27 Oct, ~23:40 IST)
+Owner: "show this week's results stocks and provide an early commentary of the unaudited result … analyst views, company
+presentations and pre-result commentary, post-result commentary and results sentiment … track signals cash and F/O before
+and post result … add those stocks to a watchlist named Results This Week and score them (technical / fundamental, results
+booster, F&O position build-up before and after results)."
+
+Reading taken (stated to the owner): "Results This Week" is a SYSTEM list, rebuilt from the results-week data every day,
+shown on the Watchlist page (first, after the AI scanner watchlist; the desk hosts that page under Market Desk › Watchlists).
+Analyst views: no source is connected (the Trendlyne MCP has only corporate events; no consensus feed) → shown as "not
+connected", never invented.
+
+### 9a. List: `GET /api/desk/results-week` (unchanged) — each F&O row gains `fno_track`
+`fno_track: {before: Snap | null, after: Snap | null}`; Snap = `{date, state, text, price_pct, oi_pct}` from DaaS
+`/desk/fno-buildup?date=` (before = the session before the first reaction session; after = the latest loaded session).
+Non-F&O rows: `fno_track: null`. Expiry-week dampening (§4c) applies to the label only.
+
+### 9b. Per-stock results file: `GET /api/desk/results-week/stock/{symbol}?date=YYYY-MM-DD`
+Signed in (401 otherwise); 422 bad symbol/date; 404 `{code: "no_results_meeting"}` when the symbol has no results meeting in
+the week of `date`. Body:
+```
+{ schema: "results-stock-v1", symbol, name, sector, event_date, status: declared|pending|upcoming, filed_at, first_reaction_session,
+  period_label, row: <the results-week row for this symbol>,
+  preview: { as_of, lines: [string], expected: {revenue: {low, mid, high, reliable, note}, pat: {...}},
+             last_quarters: [{period_end, revenue, ebitda, pat, ebitda_margin_pct, revenue_yoy_pct, pat_yoy_pct}],
+             past_reactions: {n, event_day_avg_pct, d1_avg_pct, w1_avg_pct, up_share_pct} | null,
+             positioning: {state, text, price_pct, oi_pct, as_of} | null },
+  commentary: { pre: [Item], results: [Item], post: [Item],
+                sentiment: {band, impact, confidence, basis, n} | null,
+                coverage: {analysed, note} },
+  analyst_views: { available: false, note },
+  track: { sessions: [{date, rel, close, chg_pct, excess_pct, volume_x,
+                       fut: {total_oi, oi_pct, near_price, price_pct, state, text, next_premium_pct, expiry_day,
+                             carry_vs_usual_pp} | null,
+                       pcr_next} ],
+           before: Snap | null, after: Snap | null, notes: [string] },
+  sources: {..}, gaps: [string] }
+Item = { at, kind: results|presentation|press_release|earnings_call|business_update|board_outcome|other, title, band,
+         impact, confidence, summary, positives: [string], negatives: [string], announcement_id, url }
+```
+- `rel`: 0 = the first reaction session (filed before 15:30 IST on a session day → that day, else the next session);
+  sessions from rel −5 to the latest loaded (≤ +5). Upcoming: rel counts to the meeting date.
+- `fut.carry_vs_usual_pp` only on a monthly-expiry day: later-month OI ÷ the eve's total OI − 1, minus the stock's own
+  average of the same over its last 5 expiries (the expiry-day trap: unrolled contracts expire, so "less OI" is normal).
+- Commentary comes only from stored filing analyses (Mongo `event_ai_analysis`, full analyses, not the importance filter);
+  pre = before the results filing, results = the results filing and documents filed with it (same day), post = after it.
+  A filing without an analysis is counted in `coverage`, never summarised by us.
+- `preview.lines` are deterministic sentences from the data (expected range, last 4 quarters' trend, past reactions,
+  positioning); no LLM text, no prediction.
+
+### 9c. Screens
+- Watchlist page: "Results This Week" block (`data-testid="results-this-week"`), F&O / All toggle, rows: symbol, date ·
+  status, verdict, earnings score, signal (ideas order), results booster chip (from the scanner rows' `results_signal`),
+  F&O before → after, reaction vs Nifty, sentiment band; row → the results file.
+- Results file (drawer, `data-testid="results-file"`), opened from that list and from the Events › Results week rows:
+  sections Preview · Pre-result filings · The result (early commentary on the unaudited result + sentiment) · Post-result ·
+  Analyst views (not connected) · Cash & F&O tracker (table rel −5 … +5; before vs after summary) · Scores.

@@ -233,3 +233,15 @@ the same day with `conflicts_with_cash_setup` (not tradeable that day). Nothing 
 Request/response shapes are defined in code (Pydantic v2 backend; Zod on frontend) and the
 OpenAPI specs above — those are authoritative. Document only endpoints that exist; mark
 `PLANNED` otherwise.
+
+### GET /api/desk/results-week/stock/{symbol}?date=YYYY-MM-DD — one stock's results file (signed in)
+Spec: docs/EARNINGS_SURPRISE_TRACKER.md §9b. Read-only. 401 signed out · 422 `invalid_symbol` / bad or future date ·
+404 `no_results_meeting` (no results meeting in the week of `date`) · 404 `not_stored` (a past day with no snapshot).
+Body `results-stock-v1`: the week's `row` for the stock; `preview` (deterministic lines: baseline range, latest quarter,
+past reactions, positioning going in; `last_quarters`, `past_reactions`, `expected`); `commentary` {pre, results, post,
+sentiment, coverage} from stored filing analyses only (Mongo event_ai_analysis), each item with summary, positives,
+negatives, amounts, open questions and the exchange attachment link; `analyst_views` {available: false, note} (no source
+connected); `track` {sessions rel −5…+4 with cash close, change, vs Nifty, volume ×, futures total OI / price / state,
+next-month premium and PCR (session before the result and latest only), expiry flag, `carry_vs_usual_pp`; before; after;
+notes}. Across a monthly expiry total OI is not compared; the standard rollover % vs the stock's own past expiries is used.
+The list (GET /api/desk/results-week) rows gain `fno_track` {before, after} for F&O names (§9a).

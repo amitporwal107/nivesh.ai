@@ -875,7 +875,7 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     await page.goto(TD("closed"));
     await expect(page.getByTestId("td-view-closed")).toBeVisible(SLOW);
     expect(wordingOf(await page.getByTestId("td-tab").innerText())).not.toMatch(BANNED);
-    await page.goto(`${DESK}?tab=trade&view=watchlists`);
+    await page.goto(`${DESK}?tab=trade&view=watchlists&wl=all`);
     await expect(page.getByTestId("desk-views")).toBeVisible(SLOW);
     expect(wordingOf(await page.getByTestId("desk-views").innerText())).not.toMatch(BANNED);
     await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));

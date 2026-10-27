@@ -249,6 +249,7 @@ jobs:
           tests/test_research_providers.py
           tests/test_research_watchlist_history.py
           tests/test_results_signal.py
+          tests/test_results_stock.py
           tests/test_results_week.py
           tests/test_reversal_backtest.py
           tests/test_reversal_candidates.py

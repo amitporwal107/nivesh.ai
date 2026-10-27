@@ -317,7 +317,7 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
       delivery: { active: false, note: "Fixture delivery note." },
       updatedAt: "2026-10-12T10:00:00+00:00",
     });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
 
     // The research watchlist the product already publishes, with its live quote and disclaimer.
     await expect(page.getByTestId("watchlist-count")).toHaveText("Research watchlist · 1 stock");
@@ -479,7 +479,7 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
   });
 
   test("the engineering 'needs' list on a not-connected block is shown to admins only", async ({ page }) => {
-    await page.goto(`${APP}/page/watchlist`); // fixture user is an admin
+    await page.goto(`${APP}/page/watchlist?wl=all`); // fixture user is an admin
     await expect(page.getByTestId("watchlist-alerts-nc").getByTestId("not-connected-needs")).toBeVisible();
     await json(page, "**/api/auth/me", { user_id: "u_plain", email: "user@example.test", name: "Fixture User", is_admin: false, onboarding_completed: true });
     await page.reload();
