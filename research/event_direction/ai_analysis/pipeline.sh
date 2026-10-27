@@ -4,6 +4,7 @@
 # model calls use. Safe to re-run: every stage skips what it has already done.
 #
 #   DAYS=3 MAX_FILINGS=250 MAX_FILTER=250 MAX_ANALYSES=40 ./pipeline.sh
+#   REOCR_SINCE=2026-10-20 ./pipeline.sh   # also OCR filings collected before OCR existed (see ocr.py)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,7 +36,8 @@ fi
 echo "== collect"
 sudo docker run --rm --user "$(id -u):$(id -g)" --env-file "$ENVF" -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
   -v "$HERE":/pipeline:ro -v "$WORK":/work --entrypoint python "$IMAGE" \
-  /pipeline/collect.py --out /work --days "${DAYS:-3}" --max "${MAX_FILINGS:-250}" "${LIST_ARGS[@]}"
+  /pipeline/collect.py --out /work --days "${DAYS:-3}" --max "${MAX_FILINGS:-250}" "${LIST_ARGS[@]}" \
+  --max-ocr "${MAX_OCR:-30}" ${REOCR_SINCE:+--reocr-since "$REOCR_SINCE"}
 
 echo "== analyse"
 python3 "$HERE/analyse.py" --work "$WORK" --max-filter "${MAX_FILTER:-250}" --max-analyses "${MAX_ANALYSES:-40}"

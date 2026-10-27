@@ -30,6 +30,31 @@ def post(url: str, key: str, docs: list[dict]) -> dict:
         raise RuntimeError(f"ingest API returned HTTP {e.code}: {e.read()[:200].decode(errors='replace')}") from e
 
 
+def sent_key(d: dict) -> str:
+    return f"{d['_id']}|{d.get('analyzed_at')}"
+
+
+def unsent(docs: list[dict], sent: set[str]) -> tuple[list[dict], dict[str, list[str]]]:
+    """The documents still to post, one per _id (the latest), and every sent-key each covers.
+
+    A document made again (a filing judged again after OCR read its scanned pages) keeps its _id,
+    so "sent" is per version: `_id|analyzed_at`. Lines written before that are a bare _id and
+    stand for the first version of that _id only. The API replaces by _id, so only the latest
+    version is posted; the versions it supersedes are recorded as sent with it."""
+    latest: dict[str, dict] = {}
+    copies: dict[str, list[str]] = {}
+    first: set[str] = set()
+    for d in docs:
+        i = d["_id"]
+        is_first = i not in first
+        first.add(i)
+        if sent_key(d) in sent or (is_first and i in sent):
+            continue
+        latest[i] = d
+        copies.setdefault(i, []).append(sent_key(d))
+    return list(latest.values()), copies
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Post event AI analysis documents to the backend")
     p.add_argument("--work", required=True, type=Path)
@@ -43,7 +68,7 @@ def main(argv=None) -> int:
     docs_path, sent_path = a.work / "docs.jsonl", a.work / "ingested.txt"
     docs = [json.loads(line) for line in docs_path.read_text().splitlines() if line.strip()] if docs_path.exists() else []
     sent = set(sent_path.read_text().split()) if sent_path.exists() else set()
-    todo = [d for d in docs if d["_id"] not in sent]
+    todo, copies = unsent(docs, sent)
     tally = {"docs": len(docs), "to_post": len(todo), "posted": 0, "rejected": 0}
 
     url = a.app_url.rstrip("/") + "/api/internal/event-ai-analysis/bulk"
@@ -55,7 +80,7 @@ def main(argv=None) -> int:
             print(f"rejected by the API — {r.get('_id')}: {r.get('reason')}", file=sys.stderr)
         ok = [d["_id"] for d in batch if d["_id"] not in bad]
         with open(sent_path, "a") as fh:
-            fh.write("".join(f"{i}\n" for i in ok))
+            fh.write("".join(f"{k}\n" for i in ok for k in copies[i]))
         tally["posted"] += len(ok)
         tally["rejected"] += len(bad)
     print(json.dumps(tally))

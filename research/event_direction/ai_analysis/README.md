@@ -16,7 +16,7 @@ DAYS=3 MAX_FILINGS=250 MAX_FILTER=250 MAX_ANALYSES=40 ./pipeline.sh
 
 | Stage | File | Where | What it does |
 |---|---|---|---|
-| collect | `collect.py` | backend image (needs httpx, pdfplumber) | Lists filings from the NIDP data API, downloads each PDF from the exchange archive, keeps the first 12,000 characters of text |
+| collect | `collect.py`, `ocr.py` | backend image (needs httpx, pdfplumber; tesseract + pdftoppm for OCR) | Lists filings from the NIDP data API, downloads each PDF from the exchange archive, OCRs the pages that are scanned images, keeps the first 12,000 characters of text |
 | analyse | `analyse.py` | host | Importance filter in batches of 20, then one full analysis per kept filing |
 | ingest | `ingest.py` | host | `POST /api/internal/event-ai-analysis/bulk` (Mongo `event_ai_analysis`) |
 
@@ -55,6 +55,26 @@ the model. The filing text itself is never stored.
   It must equal the backend's `EVENT_AI_INGEST_KEY` secret (Admin → Secrets). The backend loads
   secrets at startup, so restart it after changing the secret.
 - **Working files:** `work/` (git-ignored): `filings/<id>.json`, `docs.jsonl`, `ingested.txt`.
+
+## Scanned pages (OCR)
+
+Many results filings are a typed cover letter followed by scanned result pages (Bajaj Auto, 27 Oct
+2026: 1,446 characters of cover letter and 19 image pages). `ocr.py` reads every page (of the first
+eight) with fewer than 200 characters of text through `pdftoppm` (300 dpi, greyscale) and
+`tesseract` (`--psm 4`, measured to read results tables correctly; about 5 s a page). Each OCR'd page
+is marked in the text as read by OCR, so the model knows its figures can carry recognition errors.
+The status is then `OK_OCR`, and the record lists `low_text_pages`, `ocr_pages` and `ocr`.
+
+- **Without tesseract** (the backend image before it was added) the text is the text layer alone,
+  as before, and the record still lists the pages with no text. When tesseract arrives, those
+  filings (within the run's `DAYS`) are collected again and OCR'd, up to `MAX_OCR` (30) a run.
+- **Filings collected before OCR existed** do not list their pages. `REOCR_SINCE=YYYY-MM-DD`
+  collects again those from that date with no text, or with under 4,000 characters on a subject
+  that carries figures (results, presentations, press releases, call transcripts, business updates).
+- **Judged and analysed again:** every verdict and analysis records the hash of the text it was
+  made from. When OCR changes a filing's text, the filing is judged and analysed again; the new
+  document keeps its `_id`, so the API replaces the old one. `ingested.txt` records versions
+  (`_id|analyzed_at`) so the new version is posted; older bare-`_id` lines stand for the first version.
 
 ## Changing a prompt
 

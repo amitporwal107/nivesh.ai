@@ -113,8 +113,13 @@ def main(argv=None) -> int:
     analysis_prompt = (HERE / "prompts" / "analysis_v1.md").read_text()
     f_sha, a_sha = core.prompt_sha(filter_prompt), core.prompt_sha(analysis_prompt)
     filings, docs = load_filings(a.work), load_docs(a.work)
+    # The latest document per filing wins; one made of an older text (before OCR read the scanned
+    # pages) is not current, so that filing is judged and analysed again.
     verdicts = {d["announcement_id"]: d for d in docs if d.get("mode") == core.FILTER_MODE and d.get("prompt_sha256") == f_sha}
-    analysed = {d["announcement_id"] for d in docs if d.get("mode") == core.ANALYSIS_MODE and d.get("prompt_sha256") == a_sha}
+    verdicts = {k: v for k, v in verdicts.items() if k not in filings or core.is_current(v, filings[k])}
+    latest_analysis = {d["announcement_id"]: d for d in docs
+                       if d.get("mode") == core.ANALYSIS_MODE and d.get("prompt_sha256") == a_sha}
+    analysed = {k for k, d in latest_analysis.items() if k not in filings or core.is_current(d, filings[k])}
     tally = {"filings": len(filings), "filter_calls": 0, "filtered": 0, "kept": 0, "filter_problems": 0,
              "analysed": 0, "analysis_failed": 0, "call_errors": 0, "model": MODEL}
 

@@ -232,7 +232,17 @@ def _base(filing: dict, mode: str, sha: str, model_tag: str, now: datetime) -> d
             "source": source, "symbol": filing.get("symbol"), "company": filing.get("company"),
             "exchange_category": filing.get("title"), "event_ts": filing.get("when"), "mode": mode,
             "tool_isolation": ISOLATED, "prompt_sha256": sha, "model_tag": model_tag,
-            "analyzed_at": now.isoformat(), "text_status": filing.get("text_status")}
+            "analyzed_at": now.isoformat(), "text_status": filing.get("text_status"),
+            "text_sha256": text_sha(filing.get("text") or ""), "ocr_pages": filing.get("ocr_pages") or []}
+
+
+def is_current(doc: dict, filing: dict) -> bool:
+    """Was this verdict or analysis made of the filing's text as it is now? A document made before
+    OCR read the filing's scanned pages is not (the text grew), so it is made again."""
+    sha = doc.get("text_sha256")
+    if sha:
+        return sha == text_sha(filing.get("text") or "")
+    return not filing.get("ocr_pages")
 
 
 def filter_doc(filing: dict, verdict: dict, sha: str, model_tag: str, now: datetime) -> dict:
