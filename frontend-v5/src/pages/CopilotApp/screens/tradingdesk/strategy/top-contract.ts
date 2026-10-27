@@ -10,6 +10,7 @@
  * side rather than pretending one ranking covers both.
  */
 import { z } from "zod";
+import { TradePlanOrNull } from "./trade-plan";
 
 const Num = z.number().nullable().optional();
 
@@ -66,6 +67,12 @@ const OptionIdeaBase = z.object({
   fit: z.object({ score: z.number(), because: z.array(FitFactorSchema).default([]) }),
   data_as_of: z.record(z.string(), z.string().nullable()).nullable().optional(),
   price_source: z.string().nullable().optional(),
+  /** Phase 2.1: the idea's canonical TradePlan; the paper trade cites it (plan_ref) and records its levels. */
+  trade_plan_id: z.string().nullable().optional(),
+  trade_plan: TradePlanOrNull,
+  /** N13: a bearish structure on a stock that is a bullish cash setup the same day; not tradeable today. */
+  conflicts_with_cash_setup: z.object({ message: z.string().nullable().optional(), cash_direction: z.string().nullable().optional() })
+    .passthrough().nullable().optional().catch(null),
 });
 
 /** With `distinct: true` each idea is the best structure of its underlying, and the next ones (best first, no rank of

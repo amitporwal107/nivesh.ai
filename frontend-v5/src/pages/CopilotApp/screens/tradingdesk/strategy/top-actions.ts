@@ -21,6 +21,7 @@ import { http } from "@/services/api/http";
 import type { Levels } from "../FnoLevels";
 import type { PayoffRequest } from "./strategy-contract";
 import type { OptionIdeaCore as OptionIdea, TopBoard } from "./top-contract";
+import { planBlocker, planRefOf, primaryTarget, type TradePlan } from "./trade-plan";
 
 export const PAPER_TRADES_PATH = "/api/desk/paper-trades";
 
@@ -105,8 +106,29 @@ export function tradeLevels(direction: Direction, reference: number, levels: Lev
   return out;
 }
 
+/** The underlying stop and target 1 of the idea's TradePlan (Phase 2.1), as the route takes them, and the levels
+ *  engine version they came from. The plan's levels are the strategy-levels engine's own (computed with the same
+ *  request and references the row's levels call sends), so the row and the trade cannot differ. */
+export function planLevels(tp: TradePlan, direction: Direction, reference: number): { levels: { stop_underlying?: number; target_underlying?: number }; version: string | null } {
+  const out: { stop_underlying?: number; target_underlying?: number } = {};
+  if (direction !== "neutral") {
+    const up = direction === "bullish";
+    const stop = tp.stop.method === "underlying" ? tp.stop.price : null;
+    const target = primaryTarget(tp)?.price ?? null;
+    if (stop != null && stop > 0 && (up ? stop < reference : stop > reference)) out.stop_underlying = stop;
+    if (target != null && target > 0 && (up ? target > reference : target < reference)) out.target_underlying = target;
+  }
+  const opt = (tp.exit_plan as { options?: { version?: string | null } } | undefined)?.options;
+  return { levels: out, version: opt?.version ?? null };
+}
+
 /** Why an idea cannot be recorded as a paper trade, or null when it can. */
 export function paperTradeProblem(idea: OptionIdea, rulesVersion: string | null | undefined): string | null {
+  if (idea.conflicts_with_cash_setup) return idea.conflicts_with_cash_setup.message ?? "This view conflicts with the stock's cash setup today.";
+  if (idea.trade_plan) {
+    const blocked = planBlocker(idea.trade_plan);
+    if (blocked) return blocked;
+  }
   if (idea.reference_price == null || !idea.legs.length) return "This idea has no priced legs to record.";
   if (!DIRECTION[idea.view ?? ""]) return "This idea has no direction to record.";
   if (!idea.data_as_of?.chain) return "This idea has no data date, so it cannot be recorded with its signal.";
@@ -117,7 +139,7 @@ export function paperTradeProblem(idea: OptionIdea, rulesVersion: string | null 
 /** The signal the route requires (services/desk_strategy_trades.clean_signal): when (the chain's data date), by which
  *  rules (the board's version), from what (the board, the chain, the regime, and the levels engine when its levels are
  *  recorded) and why (the fit score and its reasons). */
-function signalFor(idea: OptionIdea, rulesVersion: string, levels: Levels | null): Record<string, unknown> {
+function signalFor(idea: OptionIdea, rulesVersion: string, levels: Pick<Levels, "version"> | null): Record<string, unknown> {
   const chain = idea.data_as_of?.chain as string;
   const refs: Array<{ kind: string; ref: string; as_of: string }> = [
     { kind: "regime_fit_board", ref: clip(`${idea.underlying} ${idea.structure}${idea.expiry ? ` ${idea.expiry}` : ""}`, 120), as_of: chain },
@@ -148,8 +170,10 @@ export function paperTradeBodyFor(idea: OptionIdea, ctx: PaperContext): Record<s
   if (paperTradeProblem(idea, ctx.rulesVersion)) return null;
   const direction = DIRECTION[idea.view ?? ""];
   const reference = idea.reference_price as number;
-  const levels = tradeLevels(direction, reference, ctx.levels);
-  const recorded = Object.keys(levels).length ? (ctx.levels as Levels) : null;
+  // With a TradePlan the trade records the PLAN's levels and cites it; without one (an older route) the row's levels.
+  const fromPlan = idea.trade_plan ? planLevels(idea.trade_plan, direction, reference) : null;
+  const levels = fromPlan ? fromPlan.levels : tradeLevels(direction, reference, ctx.levels);
+  const recorded = Object.keys(levels).length ? (fromPlan ? { version: fromPlan.version ?? "strategy levels" } : (ctx.levels as Levels)) : null;
   return {
     kind: "strategy",
     underlying: idea.underlying,
@@ -170,6 +194,7 @@ export function paperTradeBodyFor(idea: OptionIdea, ctx: PaperContext): Record<s
     })),
     signal: signalFor(idea, ctx.rulesVersion as string, recorded),
     note: `Top by regime — fit ${idea.fit.score}`,
+    ...(idea.trade_plan ? { plan_ref: planRefOf(idea.trade_plan) } : {}),
   };
 }
 

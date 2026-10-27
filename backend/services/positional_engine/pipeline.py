@@ -252,8 +252,24 @@ async def _write_signal(conn, scan_date: date, scored: dict) -> None:
         "scan_hits": s["scan_hits"],
         "reasons": scored.get("reasons", []),
     }
-    await conn.execute(
-        """
+    args = (
+        scored["nse_symbol"], scan_date,
+        s["final_score"], s["confidence"], s["stage"],
+        plan["timeframe_days_min"], plan["timeframe_days_max"],
+        plan["entry"], plan["stoploss"], plan["target"], plan["risk_reward"],
+        payload["scan_hits"],
+        json.dumps(payload["reasons"]),
+        ENGINE_VERSION,
+    )
+    if await signal_history_ready(conn):
+        # N17: the row a re-run replaces is copied into positional_signals_history in the SAME statement, and the
+        # live row's revision goes up; identical levels write no history. N13: the stop's method is stored as data.
+        await conn.execute(VERSIONED_SIGNAL_SQL, *args, json.dumps(plan.get("stop_method")) if plan.get("stop_method") else None)
+        return
+    await conn.execute(LEGACY_SIGNAL_SQL, *args)
+
+
+LEGACY_SIGNAL_SQL = """
         INSERT INTO positional_signals (
             nse_symbol, signal_date, final_score, confidence, stage,
             timeframe_days_min, timeframe_days_max,
@@ -276,15 +292,99 @@ async def _write_signal(conn, scan_date: date, scored: dict) -> None:
             reasons = EXCLUDED.reasons,
             engine_version = EXCLUDED.engine_version,
             computed_at = NOW()
-        """,
-        scored["nse_symbol"], scan_date,
-        s["final_score"], s["confidence"], s["stage"],
-        plan["timeframe_days_min"], plan["timeframe_days_max"],
-        plan["entry"], plan["stoploss"], plan["target"], plan["risk_reward"],
-        payload["scan_hits"],
-        json.dumps(payload["reasons"]),
-        ENGINE_VERSION,
-    )
+        """
+
+# The columns a superseded row keeps (positional_signals_history, migration 025), in this order.
+_HISTORY_COLS = ("nse_symbol, signal_date, revision, final_score, confidence, stage, timeframe_days_min, "
+                 "timeframe_days_max, entry_price, stoploss, target_price, risk_reward, source_scans, reasons, "
+                 "engine_version, stop_method, computed_at, superseded_by")
+_HISTORY_SELECT = ("nse_symbol, signal_date, COALESCE(revision, 1), final_score, confidence, stage, timeframe_days_min, "
+                   "timeframe_days_max, entry_price, stoploss, target_price, risk_reward, source_scans, reasons, "
+                   "engine_version, stop_method, computed_at")
+
+VERSIONED_SIGNAL_SQL = f"""
+        WITH prev AS (
+            SELECT * FROM positional_signals WHERE nse_symbol = $1 AND signal_date = $2 FOR UPDATE
+        ), hist AS (
+            INSERT INTO positional_signals_history ({_HISTORY_COLS})
+            SELECT {_HISTORY_SELECT}, 'rerun' FROM prev
+             WHERE (prev.entry_price, prev.stoploss, prev.target_price, prev.risk_reward, prev.stage,
+                    prev.final_score, prev.timeframe_days_min, prev.timeframe_days_max, prev.engine_version)
+                   IS DISTINCT FROM ($8::numeric(14,4), $9::numeric(14,4), $10::numeric(14,4), $11::numeric(6,2),
+                                     $5::text, $3::numeric(5,4), $6::integer, $7::integer, $14::text)
+            ON CONFLICT DO NOTHING
+            RETURNING 1
+        )
+        INSERT INTO positional_signals (
+            nse_symbol, signal_date, final_score, confidence, stage,
+            timeframe_days_min, timeframe_days_max,
+            entry_price, stoploss, target_price, risk_reward,
+            source_scans, reasons, engine_version, stop_method, revision
+        ) VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15::jsonb,
+            1 + COALESCE((SELECT MAX(revision) FROM positional_signals_history
+                          WHERE nse_symbol = $1 AND signal_date = $2), 0)
+        )
+        ON CONFLICT (nse_symbol, signal_date) DO UPDATE SET
+            final_score = EXCLUDED.final_score,
+            confidence = EXCLUDED.confidence,
+            stage = EXCLUDED.stage,
+            timeframe_days_min = EXCLUDED.timeframe_days_min,
+            timeframe_days_max = EXCLUDED.timeframe_days_max,
+            entry_price = EXCLUDED.entry_price,
+            stoploss = EXCLUDED.stoploss,
+            target_price = EXCLUDED.target_price,
+            risk_reward = EXCLUDED.risk_reward,
+            source_scans = EXCLUDED.source_scans,
+            reasons = EXCLUDED.reasons,
+            engine_version = EXCLUDED.engine_version,
+            stop_method = EXCLUDED.stop_method,
+            revision = COALESCE(positional_signals.revision, 1) + (SELECT COUNT(*)::int FROM hist),
+            computed_at = NOW()
+        """
+
+_HISTORY_READY_TTL_S = 300.0
+_history_ready: Dict[str, float] = {}          # "ok" | "missing" -> monotonic time it was last checked
+
+
+async def signal_history_ready(conn) -> bool:
+    """Whether migration 025 is applied (positional_signals.revision / stop_method and positional_signals_history).
+    Without it the old upsert is kept, so a deploy that has not run the migration still scores, and an ERROR says
+    that signal history is NOT being recorded. A positive answer is kept for the process; a negative one is
+    re-checked after five minutes."""
+    import time as _time
+
+    now = _time.monotonic()
+    if "ok" in _history_ready:
+        return True
+    if now - _history_ready.get("missing", -1e9) < _HISTORY_READY_TTL_S:
+        return False
+    row = await conn.fetchrow(
+        "SELECT to_regclass('positional_signals_history') IS NOT NULL AS hist, "
+        "       (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'positional_signals' "
+        "          AND column_name IN ('revision', 'stop_method')) AS cols")
+    ok = bool(row and row["hist"] and int(row["cols"] or 0) == 2)
+    if ok:
+        _history_ready["ok"] = now
+        return True
+    _history_ready["missing"] = now
+    logger.error("positional: migration 025 (positional_signals_history) is not applied: a re-run OVERWRITES signal "
+                 "levels without keeping the old ones (finding N17). Apply backend/migrations/025_positional_signals_history.sql.")
+    return False
+
+
+async def _copy_day_to_history(conn, scan_date: date) -> int:
+    """Before a day is rewritten (write_scored with replace), keep every signal row it deletes."""
+    if not await signal_history_ready(conn):
+        return 0
+    res = await conn.execute(
+        f"INSERT INTO positional_signals_history ({_HISTORY_COLS}) "
+        f"SELECT {_HISTORY_SELECT}, 'replace' FROM positional_signals WHERE signal_date = $1 "
+        "ON CONFLICT DO NOTHING", scan_date)
+    try:
+        return int(str(res).split()[-1])
+    except (ValueError, IndexError):
+        return 0
 
 
 # ── Main run ─────────────────────────────────────────────────────────────
@@ -438,6 +538,7 @@ async def write_scored(conn, scan_date: date, scored_rows: List[dict], *, replac
     existing features and signals are deleted first, so a symbol no longer scored or no longer actionable does not
     keep a stale row."""
     if replace:
+        await _copy_day_to_history(conn, scan_date)          # N17: a rewritten day keeps its old signals
         await conn.execute("DELETE FROM positional_signals WHERE signal_date = $1", scan_date)
         await conn.execute("DELETE FROM stock_technical_features WHERE as_of_date = $1", scan_date)
     for scored in scored_rows:

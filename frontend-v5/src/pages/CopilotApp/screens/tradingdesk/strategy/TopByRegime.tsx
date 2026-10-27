@@ -98,6 +98,16 @@ export function IdeaActions({ idea, onViewTrades, rulesVersion, levels }: {
 
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 10 }}>
+      {idea.conflicts_with_cash_setup ? (
+        <span data-testid="idea-cash-conflict" role="note" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>
+          Conflicts with the cash setup: {idea.conflicts_with_cash_setup.message ?? "the stock is a bullish cash setup today."}
+        </span>
+      ) : null}
+      {idea.trade_plan ? (
+        <span data-testid="idea-plan-id" data-plan-id={idea.trade_plan.plan_id} style={{ fontSize: 11.5, color: "var(--cp-ink-3)" }}>
+          Plan {idea.trade_plan.plan_id} · {idea.trade_plan.eligibility.state.replace(/_/g, " ").toLowerCase()}
+        </span>
+      ) : null}
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
         <button
           type="button" className="cp-chip" data-testid="idea-payoff-toggle"

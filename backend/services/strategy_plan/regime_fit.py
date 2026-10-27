@@ -843,7 +843,7 @@ async def build_top(request: Any, user_id: str, *, limit: int = 5,
             gap = (f"The option chain is from {newest} but the market regime was last classified on "
                    f"{regime_day}: the fit is scored against the older regime.")
 
-    return {
+    out_top = {
         "schema": "desk.strategy.top.v1",
         "rules_version": REGIME_FIT_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -857,6 +857,56 @@ async def build_top(request: Any, user_id: str, *, limit: int = 5,
         "gaps": GAPS,
         "sent_to_broker": False,
     }
+    flag_cash_conflicts(out_top)
+    await asyncio.to_thread(attach_trade_plans, out_top)
+    return out_top
+
+
+# ── one direction per instrument per day (N13), and the canonical plan of each idea (Phase 2.1) ──
+CONFLICT_RULE = ("One direction per instrument per day: every stock on the stock F&O board is one of the AI scanner's "
+                 "bullish cash setups today, an instrument-level trigger; a bearish structure on it comes from the market "
+                 "regime. The cash setup's direction stands, so this view is shown for information and cannot be recorded "
+                 "as a paper trade today.")
+
+
+def _all_ideas(top: Dict[str, Any], classes: Sequence[str] = ("index_options", "stock_fno")) -> List[Tuple[str, Dict[str, Any]]]:
+    out: List[Tuple[str, Dict[str, Any]]] = []
+    for cls in classes:
+        for i in ((top.get("classes") or {}).get(cls) or {}).get("ideas") or []:
+            out.append((cls, i))
+            out += [(cls, a) for a in i.get("alternatives") or []]
+    return out
+
+
+def flag_cash_conflicts(top: Dict[str, Any]) -> None:
+    """Mark a bearish stock F&O idea on a stock that is a bullish cash setup the same day (study B5: UNIONBANK, COFORGE,
+    LAURUSLABS, MPHASIS and FEDERALBNK on 26 Oct were bullish cash ideas and bearish F&O ideas)."""
+    for cls, idea in _all_ideas(top, ("stock_fno",)):
+        if idea.get("view") == "down":
+            idea["conflicts_with_cash_setup"] = {"cash_direction": "bullish", "fno_direction": "bearish",
+                                                 "source": "the AI scanner's setup list", "message": CONFLICT_RULE}
+
+
+def attach_trade_plans(top: Dict[str, Any]) -> None:
+    """Each option idea (and each alternative) carries its TradePlan: the legs, the strategy-levels engine's underlying
+    stop and target 1 with the premium stop / T1 / T2, computed with the same request and references the browser and
+    the AI watchlist job send (ai_watchlist_build.payoff_request_for / levels_refs_for), on the chain's own date."""
+    from datetime import date as _date
+
+    from services import ai_watchlist_build as awb
+
+    from . import trade_plan as tpm
+    for _cls, idea in _all_ideas(top):
+        chain_day = (idea.get("data_as_of") or {}).get("chain")
+        try:
+            tp = tpm.from_fno_idea(idea, board_rules_version=top.get("rules_version"),
+                                   refs=awb.levels_refs_for(top, idea.get("underlying")),
+                                   today=_date.fromisoformat(chain_day) if chain_day else _date.today())
+        except Exception as e:  # noqa: BLE001 — one idea's plan failing is reported on the idea, never drops the board
+            logger.warning("regime_fit: trade plan for %s failed: %s", idea.get("underlying"), _why(e))
+            tp = None
+        idea["trade_plan"] = tp
+        idea["trade_plan_id"] = tp["plan_id"] if tp else None
 
 
 async def _cash_class(request: Any, user_id: str, limit: int) -> Dict[str, Any]:

@@ -349,7 +349,8 @@ def test_chartink_screen_signal_qualifies_with_levels_from_the_atr_rule():
     assert p["status"] == "plan" and p["preferred"] == "cash:chartink_screen_signal" and [x["id"] for x in p["candidates"]] == ["cash:chartink_screen_signal"]
     # the levels are the chart engine's ATR rule: stop 1160 (hypothetical_levels), entry the last close 1200, ATR 20, resistance 1290
     assert c["invalidation"]["technical"]["price"] == 1160.0 and c["legs"][0]["entry_price"] == 1200.0
-    assert c["targets"] == cd.scenario_levels(1200.0, True, 1160.0, 20.0, 1290.0)
+    assert c["targets"] == [{**lv, "r_multiple": round(abs(lv["price"] - 1200.0) / 40.0, 2)}          # targets now carry R (Phase 2.1)
+                            for lv in cd.scenario_levels(1200.0, True, 1160.0, 20.0, 1290.0)]
     assert "ATR" in c["invalidation"]["technical"]["basis"] and RULES["chartink"]["levels_label"] in c["invalidation"]["technical"]["basis"]
     assert RULES["chartink"]["levels_label"] == "rule-based levels; the scan is the user's Chartink scan, not validated"
     assert any(w == "Rule-based levels; the scan is the user's Chartink scan, not validated." for w in c["warnings"])

@@ -39,6 +39,7 @@
  * Reads trust nothing: a missing or non-numeric field is null, never 0, and a
  * body without the list the route always sends throws a contract error.
  */
+import type { PlanRef } from "./strategy/trade-plan";
 import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
@@ -348,7 +349,7 @@ export interface PaperTrade {
 
 // ── strategy paper trades (kind "strategy": futures and option structures, rules desk-paper-v3) ──
 
-export type StrategyExitReason = ExitReason | "expiry";
+export type StrategyExitReason = ExitReason | "expiry" | "roll";
 /** The premium levels stored on a strategy trade at entry (services/strategy_levels.py), per unit of the position's lot
  *  multiple; the whole structure is evaluated against them on its end-of-day marks. */
 export interface PremiumPlan {
@@ -371,7 +372,7 @@ function readPremiumPlan(v: unknown): PremiumPlan | null {
     unitShares: num(p.unit_shares), version: str(p.version), source: str(p.source),
   };
 }
-const STRATEGY_EXIT_REASONS: readonly string[] = [...EXIT_REASONS, "expiry"];
+const STRATEGY_EXIT_REASONS: readonly string[] = [...EXIT_REASONS, "expiry", "roll"];
 export type StrategyDirection = "bullish" | "bearish" | "neutral";
 const DIRECTIONS: readonly string[] = ["bullish", "bearish", "neutral"];
 export type LegKind = "future" | "option" | "cash";
@@ -435,6 +436,11 @@ export interface StrategyPaperTrade {
   /** "Bull call spread 1300/1360 · 27 Oct · 2 lots", from the route. */
   summaryText: string;
   strategyPlanId: string | null;
+  /** Phase 2.2: the lifecycle state (POSITION_OPEN, CLOSED, ...), the TradePlan the trade cites, and a roll's links. */
+  state: string | null;
+  tradePlanId: string | null;
+  rolledTo: string | null;
+  rolledFrom: string | null;
   referencePrice: number | null;
   stopUnderlying: number | null;
   targetUnderlying: number | null;
@@ -657,6 +663,10 @@ function readStrategyTrade(v: unknown): StrategyPaperTrade {
     family: str(t.family), familyName: str(t.family_name),
     summaryText: str(t.summary_text) ?? `${underlying} strategy`,
     strategyPlanId: str(t.strategy_plan_id),
+    state: str(t.state),
+    tradePlanId: str(rec(t.plan_ref).plan_id),
+    rolledTo: str(t.rolled_to),
+    rolledFrom: str(rec(t.rolled_from).trade_id),
     referencePrice: price(t.reference_price), stopUnderlying: price(t.stop_underlying), targetUnderlying: price(t.target_underlying),
     note: str(t.note), openedAt: str(t.opened_at), closedAt: str(t.closed_at),
     exitReason: reason && STRATEGY_EXIT_REASONS.includes(reason) ? (reason as StrategyExitReason) : null,
@@ -742,6 +752,8 @@ export interface NewPaperTrade {
   signal_at?: string;
   strategy_version?: string;
   rationale?: string;
+  /** Phase 2.1: the TradePlan whose levels these are; the route refuses levels that are not the plan's. */
+  plan_ref?: PlanRef;
 }
 
 /** The `Idempotency-Key` header the paper-trade route takes (backend/routes/desk_trading.py). */
@@ -825,6 +837,7 @@ export interface NewStrategyPaperTrade {
   };
   max_hold_sessions?: number;
   note?: string;
+  plan_ref?: PlanRef;
 }
 
 export function useAddStrategyPaperTrade() {
@@ -1097,4 +1110,73 @@ export function tradeReturnPct(t: PaperTrade): number | null {
 export function tradeR(t: PaperTrade): number | null {
   if (t.exitPrice == null || t.entry == null || t.stop == null || !(t.entry > t.stop)) return null;
   return (t.exitPrice - t.entry) / (t.entry - t.stop);
+}
+
+
+// ── F&O roll (backend services/fno_roll.py; GET / POST /api/desk/paper-trades/{id}/roll) ──────────────────────────
+export interface RollLegView { label: string; price: number | null; strike: number | null; expiry: string | null }
+export interface RollPreview {
+  eligible: boolean;
+  /** Why it cannot roll, in the route's words (e.g. roll_chain_not_ready before the 22:15 IST F&O bhavcopy). */
+  refusal: { code: string; message: string } | null;
+  session: string | null;
+  priceSource: string | null;
+  strikeShift: number | null;
+  oldLegs: RollLegView[];
+  newLegs: RollLegView[];
+  newExpiry: string | null;
+  oldGrossRs: number | null;
+  oldNetRs: number | null;
+  newCostsRs: number | null;
+  newNetPremiumRs: number | null;
+  notes: string[];
+}
+
+function readRollPreview(v: unknown): RollPreview {
+  const d = rec(v);
+  const p = rec(d.preview);
+  const refusal = rec(d.refusal);
+  const legs = (xs: unknown, priceKey: string): RollLegView[] => (Array.isArray(xs) ? xs : []).map((x) => {
+    const l = rec(x);
+    return { label: str(l.label) ?? "—", price: num(l[priceKey]), strike: num(l.strike), expiry: str(l.expiry) };
+  });
+  const costs = rec(p.costs);
+  return {
+    eligible: d.eligible === true,
+    refusal: d.eligible === true ? null : { code: str(refusal.code) ?? "roll_refused", message: str(refusal.message) ?? "This trade cannot be rolled." },
+    session: str(p.session), priceSource: str(p.price_source), strikeShift: num(p.strike_shift),
+    oldLegs: legs(rec(p.old).legs, "close"), newLegs: legs(rec(p.new).legs, "entry_price"), newExpiry: str(rec(p.new).expiry),
+    oldGrossRs: num(rec(p.old).gross_pnl_rs), oldNetRs: num(costs.old_net_pnl_rs),
+    newCostsRs: num(rec(costs.new_round_trip_estimate).total), newNetPremiumRs: num(rec(p.new).net_premium_rs),
+    notes: (Array.isArray(p.notes) ? p.notes : []).map(String),
+  };
+}
+
+/** The roll preview for one open strategy trade (read only; nothing is written). Loaded only while `id` is set. */
+export function useRollPreview(id: string | null) {
+  return useQuery({
+    queryKey: [...PAPER_KEY, "roll", id],
+    enabled: !!id,
+    staleTime: 30_000,
+    queryFn: async () => readRollPreview((await http({ method: "GET", path: `/api/desk/paper-trades/${encodeURIComponent(id as string)}/roll` })).data),
+  });
+}
+
+/** POST the roll. One Idempotency-Key per confirmation; the route also answers a repeat with the same pair. */
+export function useRollTrade() {
+  const qc = useQueryClient();
+  const submission = useSubmissionKey();
+  return useMutation({
+    mutationFn: async (id: string): Promise<{ newId: string | null; replayed: boolean }> => {
+      const body = {};
+      const headers = { [IDEMPOTENCY_HEADER]: submission.keyFor({ roll: id }) };
+      const res = await http({ method: "POST", path: `/api/desk/paper-trades/${encodeURIComponent(id)}/roll`, body, headers, noRetry: true });
+      const d = rec(res.data);
+      return { newId: str(rec(d.new).id), replayed: d.replayed === true };
+    },
+    onSuccess: () => {
+      submission.done();
+      return qc.invalidateQueries({ queryKey: PAPER_KEY });
+    },
+  });
 }

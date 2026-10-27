@@ -679,3 +679,64 @@ test.describe("Phone (390px)", () => {
     expect(over).toBeLessThanOrEqual(0);
   });
 });
+
+// ── Phase 2.1: every row records the TradePlan's levels (test_reports/p2_trade_plan_lifecycle_TESTCASES.md UI-1, UI-3) ──
+// The ideas and the F&O board come from the shared contract fixture contract-trade-plan-paper.json, whose bodies
+// backend/tests/test_trade_plan_contract.py sends through the real route. Cash: MOCK — the RELIANCE-like world of
+// backend/tests/test_strategy_plan.py; F&O: the REAL 2026-10-21 capture with the plans the backend builds for it.
+const PLANS = load("contract-trade-plan-paper.json");
+const planBoard = () => {
+  const b = JSON.parse(JSON.stringify(PLANS.fno.top_response));
+  delete b.classes.cash;
+  return b;
+};
+
+test.describe("Top 10 — trade plans (Phase 2.1)", () => {
+  test("UI-1 a stock row shows its plan (entry, stop method, targets in R) and records exactly the plan's levels with plan_ref", async ({ page }) => {
+    const seen = await desk(page, { ideas: { status: 200, body: PLANS.cash.ideas_response } });
+    await page.goto(SCANNER);
+    const sym = PLANS.cash.body.symbol;
+    const row = page.getByTestId(`desk-top10-stock-${sym}`);
+    await row.getByTestId("desk-top10-stock-paper").click(SLOW);
+    const line = row.getByTestId("desk-top10-paper-plan");
+    await expect(line).toHaveAttribute("data-plan-id", PLANS.cash.trade_plan.plan_id);
+    await expect(line).toContainText("Stop ₹1,160 (1.5×ATR below 1195)");
+    await expect(line).toContainText("₹1,280 (2R)");
+    await expect(line).not.toContainText("2 x ATR");
+    await expect(row.getByTestId("desk-top10-paper-rule")).toHaveAttribute("data-rule", "at_once");
+    await row.getByTestId("desk-top10-paper-qty").fill(String(PLANS.cash.body.quantity));
+    await row.getByTestId("desk-top10-paper-add").click();
+    await expect(row.getByTestId("desk-top10-paper-done")).toBeVisible();
+    expect(seen.paper).toEqual([PLANS.cash.body]);
+    expect(seen.paperKeys[0]).toMatch(UUID);
+  });
+
+  test("UI-1b a plan its own rules reject cannot be added and the row says why", async ({ page }) => {
+    const ideas = JSON.parse(JSON.stringify(PLANS.cash.ideas_response));
+    ideas.ideas[0].trade_plan.eligibility = { eligible: false, paper_eligible: false, state: "REJECTED", status: "no_trade",
+      reasons: [{ code: "reward_risk_below_minimum", message: "Reward : risk 0.9 at the base level is below the minimum 1.5." }] };
+    const seen = await desk(page, { ideas: { status: 200, body: ideas } });
+    await page.goto(SCANNER);
+    const row = page.getByTestId(`desk-top10-stock-${PLANS.cash.body.symbol}`);
+    await row.getByTestId("desk-top10-stock-paper").click(SLOW);
+    await expect(row.getByTestId("desk-top10-paper-blocked")).toContainText("This plan is rejected: Reward : risk 0.9");
+    await expect(row.getByTestId("desk-top10-paper-add")).toHaveCount(0);
+    expect(seen.paper).toEqual([]);
+  });
+
+  test("UI-3 an F&O row cites its plan; a bearish stock idea on a bullish cash setup says so and cannot be recorded", async ({ page }) => {
+    const seen = await desk(page, { top: { status: 200, body: planBoard() } });
+    await page.goto(SCANNER);
+    const bank = page.getByTestId(`desk-top10-fno-${PLANS.fno.idea_underlying}`);
+    await expect(bank.getByTestId("idea-plan-id").first()).toHaveAttribute("data-plan-id", PLANS.fno.trade_plan.plan_id, SLOW);
+    await expect(bank.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
+    await bank.getByTestId("idea-paper-trade").first().click();
+    await expect(bank.getByTestId("idea-paper-trade").first()).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([PLANS.fno.body]);
+    const conflicted = planBoard().classes.stock_fno.ideas.find((i: { conflicts_with_cash_setup?: unknown }) => i.conflicts_with_cash_setup);
+    expect(conflicted, "the real capture's bearish stock ideas are flagged").toBeTruthy();
+    const row = page.getByTestId(`desk-top10-fno-${conflicted.underlying}`);
+    await expect(row.getByTestId("idea-cash-conflict").first()).toContainText("One direction per instrument per day");
+    await expect(row.getByTestId("idea-paper-trade").first()).toBeDisabled();
+  });
+});

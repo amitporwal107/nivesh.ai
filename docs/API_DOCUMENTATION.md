@@ -196,6 +196,19 @@ Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days fr
   `stock_ohlcv` breadth. Not a record of what the desk showed that day. A missing input skips its check and says so; no
   trend inputs means `key: null`. An unreadable store is 502 `macro_unavailable`.
 
+## Trade plans, lifecycle and F&O roll (`/api/desk`, signed-in; Phase 2.1 / 2.2)
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/desk/trade-plans/{plan_id}` | `plan` (TradePlan `trade-plan-v1`: entry + order type, stop + method, `r_per_unit`, targets with `r_multiple`, size, desk-cost-v2 costs, `exit_plan`, eligibility, data timestamps), `lifecycle.status` DERIVED from your trades (`proposed` → `approved` / `triggered` / `open` / `closed` / `rejected`), `versions[]`. 404 `plan_not_found` |
+| `POST /api/desk/paper-trades` + `plan_ref {plan_id, candidate_id?, rules_version?}` | as before; the levels must be the plan's: 404 `plan_not_found`, 409 `plan_ref_mismatch` / `plan_not_eligible` / `plan_levels_mismatch`. Every trade now carries `state` and `transitions[]` (lifecycle `trade-lifecycle-v1`) |
+| `GET /api/desk/paper-trades/{id}/roll?strike_mode=distance\|same` | `{eligible, preview \| refusal}`: both legs at session D's NSE bhavcopy `close_price`, the next listed expiry, desk-cost-v2 costs. Read only |
+| `POST /api/desk/paper-trades/{id}/roll` `{strike_mode?}` | 201 `{old, new}` (old `exit_reason: roll`, `rolled_to`; new `rolled_from`); a repeat answers 200 `replayed`. 409 `roll_chain_not_ready` (before the 22:15 IST F&O bhavcopy), `strike_not_listed`, `roll_not_due`, `exit_rule_fired`, `insufficient_paper_funds`, the kill switch / risk gate refusals |
+
+`POST /api/desk/strategy/plan`, `/ideas` and `/top` now carry each candidate's / idea's `trade_plan` (+ `trade_plan_id`) and
+store it insert-once in Mongo `trade_plans` (their only write). `/top` flags a bearish stock F&O idea on a bullish cash setup
+the same day with `conflicts_with_cash_setup` (not tradeable that day). Nothing here places an order.
+
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.
 

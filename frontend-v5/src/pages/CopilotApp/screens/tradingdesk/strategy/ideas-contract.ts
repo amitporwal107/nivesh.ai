@@ -9,6 +9,7 @@
  * Extra fields pass through. Nothing here recomputes a figure.
  */
 import { z } from "zod";
+import { TradePlanOrNull } from "./trade-plan";
 
 const numOrNull = z.number().nullable().catch(null);
 const strOrNull = z.string().nullable().catch(null);
@@ -107,6 +108,9 @@ export const IdeaSchema = z.object({
   direction: z.string().catch(""),
   fno_eligible: z.boolean().catch(false),
   plan_id: strOrNull,
+  /** Phase 2.1: the idea's canonical TradePlan (its cash candidate's levels); undefined from a route older than plans. */
+  trade_plan_id: strOrNull.optional(),
+  trade_plan: TradePlanOrNull,
   plan_status: z.string().catch("insufficient_data"),
   status_reasons: z.array(ReasonSchema).catch([]),
   would_change_if: strList,

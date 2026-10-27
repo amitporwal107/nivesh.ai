@@ -1878,6 +1878,83 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
   });
 });
 
+// ── F&O roll (test_reports/p2_trade_plan_lifecycle_TESTCASES.md UI-4; backend services/fno_roll.py) ──────────────
+// MOCK — not real data: the preview below is in the shape GET /api/desk/paper-trades/{id}/roll returns; its arithmetic is
+// the route's (backend/tests/test_fno_roll.py checks it against a fixture chain).
+const ROLL_PREVIEW = {
+  eligible: true, trade_id: "st-future", orders: "Paper trades are simulated and never create a broker order.",
+  preview: {
+    session: "2026-10-27", sessions_to_expiry: 0, rules_version: "desk-roll-v1 (2026-10-27)", price_source: "NSE F&O bhavcopy close_price",
+    underlying_close: 1302.5, strike_mode: "distance", strike_shift: 0,
+    old: { trade_id: "st-future", expiry: "2026-10-27", legs: [{ index: 0, label: "Buy 1 lot future 27 Oct", entry_price: 1290, close: 1301.5, pnl_rs: 5750 }], gross_pnl_rs: 5750 },
+    new: { expiry: "2026-11-24", legs: [{ kind: "future", side: "buy", lots: 1, lot_size: 500, entry_price: 1309.2, expiry: "2026-11-24", strike: null, option_type: null, label: "Buy 1 lot future 24 Nov" }], net_premium_rs: null },
+    carried_levels: { stop_underlying: 1250, target_underlying: null }, notes: [],
+    costs: { old_round_trip: { total: 123.4 }, old_net_pnl_rs: 5626.6, new_round_trip_estimate: { total: 118.2 }, model: "desk-cost-v2", new_model: "desk-cost-v2" },
+  },
+};
+
+test.describe("Smart trading desk — F&O roll", () => {
+  test.beforeEach(async ({ page }) => {
+    await deskBase(page);
+    await mockPaper(page);
+  });
+
+  async function rollPage(page: Page, preview: unknown) {
+    await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    const posts: Array<{ path: string; body: unknown; key: string | undefined }> = [];
+    let gets = 0;
+    await page.route("**/api/desk/paper-trades/*/roll*", (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (route.request().method() === "POST") {
+        posts.push({ path, body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] });
+        return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ old: { id: "st-future" }, new: { id: "st-rolled" }, replayed: false }) });
+      }
+      gets += 1;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(preview) });
+    });
+    await page.goto(`${DESK}?tab=portfolio`);
+    return { posts, gets: () => gets };
+  }
+
+  test("UI-4 the confirmation shows both legs and their prices, and Roll posts once", async ({ page }) => {
+    const calls = await rollPage(page, ROLL_PREVIEW);
+    const row = page.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" });
+    await row.getByTestId("desk-strategy-roll-open").click({ timeout: 15_000 });
+    const dlg = row.getByTestId("desk-strategy-roll-confirm");
+    await expect(dlg).toContainText("Both sides at the");
+    await expect(dlg.getByTestId("desk-strategy-roll-old-leg")).toContainText("Buy 1 lot future 27 Oct");
+    await expect(dlg.getByTestId("desk-strategy-roll-old-price")).toHaveText("1,301.50");
+    await expect(dlg.getByTestId("desk-strategy-roll-new-leg")).toContainText("Buy 1 lot future 24 Nov");
+    await expect(dlg.getByTestId("desk-strategy-roll-new-price")).toHaveText("1,309.20");
+    expect(calls.posts).toEqual([]);                                     // nothing is recorded until Roll is pressed
+    await dlg.getByTestId("desk-strategy-roll-submit").click();
+    await expect(dlg.getByTestId("desk-strategy-roll-done")).toContainText("st-rolled");
+    await expect(dlg.getByTestId("desk-strategy-roll-submit")).toBeDisabled();
+    expect(calls.posts.map((p) => ({ path: p.path, body: p.body }))).toEqual([{ path: "/api/desk/paper-trades/st-future/roll", body: {} }]);
+    expect(calls.posts[0].key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  test("UI-4b a roll the route refuses shows its reason and offers no Roll button", async ({ page }) => {
+    const calls = await rollPage(page, { eligible: false, trade_id: "st-future", refusal: { code: "roll_chain_not_ready",
+      message: "The NSE F&O bhavcopy for 2026-10-27 is not in yet: it lands after 22:15 IST, and the roll records both sides at that day's close. Try again once it is in." } });
+    const row = page.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" });
+    await row.getByTestId("desk-strategy-roll-open").click({ timeout: 15_000 });
+    await expect(row.getByTestId("desk-strategy-roll-refused")).toHaveAttribute("data-code", "roll_chain_not_ready");
+    await expect(row.getByTestId("desk-strategy-roll-refused")).toContainText("22:15 IST");
+    await expect(row.getByTestId("desk-strategy-roll-submit")).toHaveCount(0);
+    expect(calls.posts).toEqual([]);
+  });
+
+  test("UI-4c the trade record offers the same roll", async ({ page }) => {
+    await rollPage(page, ROLL_PREVIEW);
+    await page.getByTestId("desk-strategy-open-table").getByRole("row").filter({ hasText: "Long future" }).getByTestId("desk-paper-record-toggle").click({ timeout: 15_000 });
+    const rec = page.getByTestId("desk-paper-strategy-record");
+    await rec.getByTestId("desk-record-roll-open").click();
+    await expect(rec.getByTestId("desk-record-roll-new-price")).toHaveText("1,309.20");
+  });
+});
+
 // ── the forward test panel (FnoForwardTest.tsx; GET /api/fno/forward-test, backend/services/fno_forward) ─────────────────
 // MOCK — not real data: invented counts in the shape the route sends.
 test.describe("Smart trading desk — Portfolio & risk · F&O forward test", () => {

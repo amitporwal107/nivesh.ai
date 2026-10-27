@@ -38,6 +38,7 @@ import { legSlot, legsForBoard, liveNetPremium, useFnoLive, type LiveAnswer } fr
 import {
   deskBuildup, deskChain, deskChart, deskLab, deskPlan, deskTrades, useAiWatchlist, type AiWatchDay, type CashEntry, type FnoEntry,
 } from "./ai-watchlist-data";
+import { PlanPaperTrade } from "../tradingdesk/PlanPaperTrade";
 
 type Segment = "cash" | "fno";
 type BuildupData = ReturnType<typeof useBuildup>["data"];
@@ -78,7 +79,18 @@ function OiLine({ sym, index, scan }: { sym: string; index: boolean; scan: Build
 
 // ── cash ─────────────────────────────────────────────────────────────────
 
+/** A paper trade at the stored row's TradePlan (Phase 2.1: the plan the job stored that day, cited by id). A day stored
+ *  before plans existed has none; only then is the trade recorded at the scanner's levels, as it was. */
 function CashPaperTrade({ e, listDate }: { e: CashEntry; listDate: string }) {
+  if (e.trade_plan) {
+    const bucket = e.scanner.bucket;
+    return <PlanPaperTrade tp={e.trade_plan} symbol={e.symbol} sized={e.sized_shares ?? null} testPrefix="aiw-paper"
+      source={{ kind: "scanner", ...(bucket ? { bucket } : {}), signal_date: e.scanner.close_date ?? listDate }} />;
+  }
+  return <ScannerLevelsPaperTrade e={e} listDate={listDate} />;
+}
+
+function ScannerLevelsPaperTrade({ e, listDate }: { e: CashEntry; listDate: string }) {
   const paper = useAddPaperTrade();
   const id = useId();
   const [qty, setQty] = useState(e.sized_shares != null ? String(e.sized_shares) : "");
