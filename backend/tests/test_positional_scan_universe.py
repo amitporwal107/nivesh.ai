@@ -90,6 +90,10 @@ def _client(monkeypatch, *, handler=None, daas=None, model_denied: Optional[str]
     monkeypatch.setattr(route.daas_client, "get_raw", get_raw)
     monkeypatch.setattr(route.daas_client, "is_configured", lambda: configured)
     monkeypatch.setattr(route, "_move_odds_denied", denied)
+    # §4d results signal: none in these route tests (its own tests are in tests/test_results_week.py)
+    async def no_results_signal(*a, **kw):
+        return {}, None
+    monkeypatch.setattr(route.results_signal, "current", no_results_signal)
     route._snapshot_cache.update(at=float("-inf"), body=None)
     route._model_cache.clear()
     app = FastAPI()

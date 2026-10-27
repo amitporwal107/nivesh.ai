@@ -209,6 +209,23 @@ Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days fr
 store it insert-once in Mongo `trade_plans` (their only write). `/top` flags a bearish stock F&O idea on a bullish cash setup
 the same day with `conflicts_with_cash_setup` (not tradeable that day). Nothing here places an order.
 
+## Results week — earnings vs historical trend (`/api/desk/results-week`, signed-in, read-only)
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/desk/results-week?date=YYYY-MM-DD` (default today IST) | the week's (Mon–Sat) results meetings from DaaS `/desk/events-calendar/expectations` (universe all): per row `status` declared / pending / upcoming, `verdict` vs historical trend (not analyst consensus; `null` with its `reason` when not rated), the Earnings Intelligence `score` with `coverage`, `components` (surprise, trend, outlook = filing analysis, quality, past_reactions), `reaction` vs Nifty, `fno_buildup` (total OI across every expiry, by expiry, rollover, options; F&O names only), `technical`, your `chartink` scans; plus `counts`, `ideas {fno, all, note, tested: false}`, `sources`, `gaps`. Full shape: `docs/EARNINGS_SURPRISE_TRACKER.md` §5 |
+
+- Today is built live and cached ≤ 10 min; a build longer than 45 s answers with the previous build, or 503 `{code: building,
+  retry_after_s}` (Retry-After) before the first. A past date answers from the nightly snapshot (Mongo `results_week_days`,
+  `scripts/build_results_week.py`, insert-once): 404 `not_stored` when none. Malformed or future date → 422 `invalid_date`.
+  401 signed out. The results calendar unreadable → 502 `upstream_unavailable`; any other failing source nulls its block and
+  is named in `gaps`. Market strip and macro calendar are NOT here: the screen uses the desk's existing routes.
+- Ideas are ordered for review, not a prediction, and not yet tested. Nothing places an order.
+- `GET /api/positional/picks` and `/watchlist` rows also carry `results_signal` (`{strength, points, basis, reasons,
+  filed_at, sessions_since}` or null) and `base_final_score`; `final_score` = clamp(base + points/100, 0, 1), applied before
+  each route's sort, `min_score` and limit; each response carries `results_signal {rule, tested, signals, applied, gap,
+  source}`. Rules: `docs/EARNINGS_SURPRISE_TRACKER.md` §4d.
+
 ## Standard error shape
 `{ "error": { "code", "message", "details": {} } }` — `400/401/403/404/409/422/429/500`.
 

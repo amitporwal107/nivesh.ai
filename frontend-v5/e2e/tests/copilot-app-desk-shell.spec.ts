@@ -188,12 +188,14 @@ test.describe("MOCK — not real data: desk shell · tabs and views", () => {
 });
 
 test.describe("MOCK — not real data: desk shell · Market Overview", () => {
-  test("SH-4 / SH-6 / SH-8 overview, pulse and Top 10 once; scanner list collapsed until opened; no portfolio snapshot or risk summary", async ({ page }) => {
+  test("SH-4 / SH-6 / SH-8 Market Overview and the Top AI ideas once; scanner list collapsed until opened; no portfolio snapshot or risk summary", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
     const panel = page.getByTestId("desk-panel-overview");
-    await expect(panel.getByTestId("desk-overview")).toBeVisible();
-    await expect(panel.getByTestId("desk-panel-pulse")).toHaveCount(1);
+    // Step 2 (Market Overview): the old Overview cards and the market pulse became the market strip and events today.
+    await expect(panel.getByTestId("market-overview")).toBeVisible();
+    await expect(panel.getByTestId("mo-strip")).toBeVisible();
+    await expect(panel.getByTestId("desk-panel-pulse")).toHaveCount(0);
     await expect(panel.getByTestId("desk-panel-top10")).toHaveCount(1);
     await expect(panel.getByTestId("desk-top10")).toHaveCount(1);
     const toggle = page.getByTestId("desk-scanner-toggle");
@@ -210,20 +212,31 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     await expect(page.getByTestId("desk-risk-card")).toHaveCount(0);
   });
 
-  test("SH-7 the open paper trades line counts open trades and opens Trade Desk", async ({ page }) => {
+  // Step 2 (Market Overview): the line reads the risk service's book (GET /api/risk/profile), never GET
+  // /api/desk/paper-trades (it applies exits). MOCK — not real data: a minimal profile in the route's shape.
+  const profile = (positions: number, riskRs: number) => ({
+    profile: { limits: { max_open_risk_pct: 3 } },
+    live: { equity: { equity_rs: 1000000, unknown_reasons: [] }, open: { positions, risk_rs: riskRs }, day: {}, week: {}, budgets_rs: {} },
+  });
+
+  test("SH-7 the open-risk KPI and the paper trades panel count the open book and open Trade Desk", async ({ page }) => {
     await deskApi(page);
+    await page.route("**/api/risk/profile", (route) => json(route, profile(2, 15000)));
     await page.goto(DESK);
-    const line = page.getByTestId("desk-open-trades-line");
-    await expect(line).toContainText("2 open paper trades");
-    await line.getByTestId("desk-open-trades-link").click();
+    await expect(page.getByTestId("mo-kpi-risk-value")).toHaveText("1.5%");
+    await expect(page.getByTestId("mo-kpi-risk-sub")).toHaveText("limit 3%");
+    await expect(page.getByTestId("mo-paper-summary")).toContainText("2 open positions");
+    await page.getByTestId("mo-paper-link").click();
     await expectAt(page, "trade", "paper");
     await expect(page.getByTestId("desk-panel-paper")).toBeVisible();
   });
 
-  test("SH-7 no open paper trades says so", async ({ page }) => {
+  test("SH-7 no open positions says so", async ({ page }) => {
     await deskApi(page, { trades: [] });
+    await page.route("**/api/risk/profile", (route) => json(route, profile(0, 0)));
     await page.goto(DESK);
-    await expect(page.getByTestId("desk-open-trades-line")).toContainText("No open paper trades");
+    await expect(page.getByTestId("mo-paper-summary")).toHaveText("No open positions");
+    await expect(page.getByTestId("mo-kpi-risk-value")).toHaveText("0%");
   });
 });
 
@@ -384,10 +397,11 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     }
   });
 
-  test("SH-20 repointed links: Overview's scanner link expands the list; Top 10's trades link and the AI watchlist's links use the new URLs", async ({ page }) => {
+  test("SH-20 repointed links: Market Overview's \"All scanner candidates\" expands the list; the AI watchlist's links use the new URLs", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
-    await page.getByTestId("desk-opps-all").click();
+    // Step 2: the old Overview's "See all" link is gone with its card; the list's own toggle opens it.
+    await page.getByTestId("desk-scanner-toggle").click();
     await expectAt(page, "overview", null, { section: "scanner" });
     await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "true");
     // The AI watchlist's desk links (workspace/ai-watchlist-data.ts) are built for the new URLs.

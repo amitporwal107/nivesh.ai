@@ -135,6 +135,7 @@ from routes.risk_controls import router as risk_controls_router, admin_router as
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
+from routes.results_week import router as results_week_router  # Trading desk: results week, earnings vs historical trend (/api/desk/results-week)
 from routes.strategy_plan import router as strategy_plan_router  # Strategy Builder: POST /api/desk/strategy/payoff (pure calculation)
 from routes.circulars import router as circulars_router  # Trading desk: SEBI circulars (/api/markets/circulars)
 
@@ -290,6 +291,7 @@ app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-swit
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(desk_chartink_router)     # /api/desk/chartink/*
+app.include_router(results_week_router)      # /api/desk/results-week
 app.include_router(strategy_plan_router)     # /api/desk/strategy/payoff
 app.include_router(circulars_router)         # /api/markets/circulars
 

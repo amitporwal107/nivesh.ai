@@ -410,8 +410,12 @@ async function overviewExtras(page: Page, o: { watch?: unknown; macro?: unknown 
   if (o.macro) await page.route("**/api/macro/today", (route) => json(route, o.macro));
 }
 
+// RETIRED by the desk redesign step 2 (Market Overview, 2026-10-27): the old Overview cards (tradingdesk/OverviewTab.tsx) are
+// no longer mounted on the desk. Market Overview's strip and events replace them (copilot-app-desk-market-overview.spec.ts,
+// which also carries TC-3 … TC-5's Kite-close rule as MO-2b … MO-2d). OverviewTab is deleted or re-hosted in step 6.
+// The cases marked test.skip below test those cards; the rest still run.
 test.describe("Smart trading desk — Overview", () => {
-  test("TC-8 (OV-001): the four index cards equal the /home payload, each with its time and end-of-day / delayed / live label; the lines are daily closes", async ({ page }) => {
+  test.skip("TC-8 (OV-001): the four index cards equal the /home payload, each with its time and end-of-day / delayed / live label; the lines are daily closes", async ({ page }) => {
     await deskApi(page);
     await page.goto(`${DESK}?tab=overview`);
     const tiles = page.getByTestId("desk-index-tile");
@@ -442,7 +446,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-index-trust")).toHaveAttribute("data-mode", "live");
   });
 
-  test("TC-9 (OV-002): breadth counts, unchanged, A/D ratio and the advancing share from the payload, the universe named, no invented trend", async ({ page }) => {
+  test.skip("TC-9 (OV-002): breadth counts, unchanged, A/D ratio and the advancing share from the payload, the universe named, no invented trend", async ({ page }) => {
     await deskApi(page);
     await page.goto(`${DESK}?tab=overview`);
     const b = HOME.breadth;
@@ -481,7 +485,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-breadth-ratio")).toHaveText("A/D ratio —");
   });
 
-  test("TC-10 (OV-003): each of the five regimes comes from the route's rule — label, segment, meaning, evidence, thresholds on the card, invalidation", async ({ page }) => {
+  test.skip("TC-10 (OV-003): each of the five regimes comes from the route's rule — label, segment, meaning, evidence, thresholds on the card, invalidation", async ({ page }) => {
     await deskApi(page);
     for (const key of SEGMENTS) {
       const r = REGIMES[key];
@@ -523,7 +527,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-verdict-reason")).toHaveText(HOME.verdict_reason);
   });
 
-  test("TC-10 (OV-003): sector leadership, important events and risks beside the regime; a skipped check is said, not guessed", async ({ page }) => {
+  test.skip("TC-10 (OV-003): sector leadership, important events and risks beside the regime; a skipped check is said, not guessed", async ({ page }) => {
     await deskApi(page);
     const skipped = regime("bullish", { nifty: 25100, avg: 25000, vix: null, adv: null, dec: null, trend: "up", breadth: null }, [
       { input: "nifty_close", condition: "below", level: 25000, then: "bearish" }],
@@ -544,7 +548,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-pulse-event")).toHaveCount(3);
   });
 
-  test("TC-10: no regime block, a rule that could not classify, and the macro route's uninitialised answer are honest not-available states", async ({ page }) => {
+  test.skip("TC-10: no regime block, a rule that could not classify, and the macro route's uninitialised answer are honest not-available states", async ({ page }) => {
     await deskApi(page);
     await page.goto(`${DESK}?tab=overview`);
     // MACRO_BULL carries no `regime` (an older backend): the engine's BULL is NOT turned into a regime here.
@@ -568,7 +572,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-insight")).not.toContainText("initialising");
   });
 
-  test("TC-11 (OV-004): sector strength — 1D / 1W / 1M, source and as-of, leaders by exact sector match", async ({ page }) => {
+  test.skip("TC-11 (OV-004): sector strength — 1D / 1W / 1M, source and as-of, leaders by exact sector match", async ({ page }) => {
     const calls = await deskApi(page);
     await page.goto(`${DESK}?tab=overview`);
     const tiles = page.getByTestId("desk-sector-tile");
@@ -608,7 +612,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page).toHaveURL(/[?&]sym=TESTIT/);
   });
 
-  test("TC-11 (OV-004): sort, filter with clear, breadth within a sector where a list exists (else “—” with the reason), and a sector's stocks", async ({ page }) => {
+  test.skip("TC-11 (OV-004): sort, filter with clear, breadth within a sector where a list exists (else “—” with the reason), and a sector's stocks", async ({ page }) => {
     await deskApi(page, { sectors: { status: 200, body: SECTORS_ISB } });
     await overviewExtras(page);
     await page.goto(`${DESK}?tab=overview`);
@@ -659,7 +663,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page).toHaveURL(new RegExp(`[?&]sym=${BANK_ROWS[0].symbol}`));
   });
 
-  test("TC-11: sector returns — a failed read shows an error with retry, 403 says not enabled, an empty list says so; a failed leader read only drops the leaders", async ({ page }) => {
+  test.skip("TC-11: sector returns — a failed read shows an error with retry, 403 says not enabled, an empty list says so; a failed leader read only drops the leaders", async ({ page }) => {
     const calls = await deskApi(page, { sectors: { status: 502, body: { detail: "upstream_unavailable" } } });
     await page.route("**/api/positional/market-dashboard", (route) => json(route, { detail: "fixture failure" }, 500));
     await page.goto(`${DESK}?tab=overview`);
@@ -683,7 +687,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.locator('[data-testid="desk-sector-breadth"][data-has="true"]')).toHaveCount(0);
   });
 
-  test("OV-005b: with a published, uncalibrated move-odds run the Overview withholds the probability and shows the model as evidence", async ({ page }) => {
+  test.skip("OV-005b: with a published, uncalibrated move-odds run the Overview withholds the probability and shows the model as evidence", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await deskApi(page);
     await overviewExtras(page);
@@ -708,7 +712,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(ev).toContainText("out of sample Jan–Aug 2025: top-10 hit rate 31.0% vs a base rate of 8.1% over 165 sessions");
   });
 
-  test("OV-005: Top AI opportunities — symbol, price and its date, score vs probability labelled, horizon, setup, evidence, against, liquidity, risk class; a row opens the chart", async ({ page }) => {
+  test.skip("OV-005: Top AI opportunities — symbol, price and its date, score vs probability labelled, horizon, setup, evidence, against, liquidity, risk class; a row opens the chart", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await deskApi(page);
     await overviewExtras(page);
@@ -780,7 +784,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page).toHaveURL(/[?&]sym=TESTBRK/);
   });
 
-  test("OV-005: no setups in the scan is an honest empty state; a failed live check says so on each pick", async ({ page }) => {
+  test.skip("OV-005: no setups in the scan is an honest empty state; a failed live check says so on each pick", async ({ page }) => {
     await deskApi(page);
     await page.route("**/api/positional/watchlist*", (route) => json(route, { as_of_date: "2026-10-13", buckets: { breakout_confirmed: [], pre_breakout: [], trend_continuation: [], true_accumulation: [] } }));
     await page.route("**/api/positional/picks*", (route) => json(route, { signal_date: "2026-10-13", count: 0, picks: [] }));
@@ -792,7 +796,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.locator('[data-testid="desk-opp"][data-symbol="TESTPICK"]').getByTestId("desk-opp-against")).toHaveText("− Against: — the live check didn’t load", SLOW);
   });
 
-  test("OV-006: Key market events — the key filings, a deal, a SEBI circular and the FII / DII session, newest first, each with time, stock and source; never “verified”", async ({ page }) => {
+  test.skip("OV-006: Key market events — the key filings, a deal, a SEBI circular and the FII / DII session, newest first, each with time, stock and source; never “verified”", async ({ page }) => {
     await deskApi(page);
     await overviewExtras(page);
     await page.goto(`${DESK}?tab=overview`);
@@ -832,7 +836,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page).toHaveURL(/[?&]tab=market&view=intel/); // Market Intelligence is a Market Desk view since 2026-10-27
   });
 
-  test("§3.2 / §16.3: every Overview card carries a trust line; the investor wording is plain, the data the same", async ({ page }) => {
+  test.skip("§3.2 / §16.3: every Overview card carries a trust line; the investor wording is plain, the data the same", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await deskApi(page, { macro: withRegime(REGIMES.mixed) });
     await overviewExtras(page);
@@ -863,7 +867,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-regime-input-breadth")).toContainText(`${int(REGIMES.mixed.inputs.advances!)} up`);
   });
 
-  test("TC-12: a failed market overview shows an error with retry while the regime and sectors still render", async ({ page }) => {
+  test.skip("TC-12: a failed market overview shows an error with retry while the regime and sectors still render", async ({ page }) => {
     const calls = await deskApi(page, { home: { status: 500, body: { detail: "fixture failure" } }, macro: withRegime(REGIMES.bullish) });
     await page.goto(`${DESK}?tab=overview`);
     const problem = page.getByTestId("desk-index-error");
@@ -1477,7 +1481,10 @@ test.describe("Smart trading desk — Market intelligence", () => {
 
 // ── 390px ───────────────────────────────────────────────────────────────
 
-test.describe("Smart trading desk — Overview and Market intelligence at 390px", () => {
+// RETIRED by the desk redesign step 2 (Market Overview, 2026-10-27): the old Overview cards (tradingdesk/OverviewTab.tsx) are
+// no longer mounted on the desk. Market Overview's strip and events replace them (copilot-app-desk-market-overview.spec.ts,
+// which also carries TC-3 … TC-5's Kite-close rule as MO-2b … MO-2d). OverviewTab is deleted or re-hosted in step 6.
+test.describe.skip("Smart trading desk — Overview and Market intelligence at 390px", () => {
   test("TC-7: no sideways scroll on either tab", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await deskApi(page, { macro: withRegime(REGIMES.bullish) });
@@ -1630,7 +1637,10 @@ test.describe("Smart trading desk — Market intelligence · design fidelity", (
 
 // ── Kite's closing quote vs the tile's OWN daily-bar day (fix: index tape end-of-day day) ────────────────────────────
 // MOCK — not real data: the home payload's `as_of` is the breadth/dashboard day (19 Oct, stale); each tile carries `as_of`, its own latest daily bar.
-test.describe("Smart trading desk — Overview · index tiles and Kite's closing quote", () => {
+// RETIRED by the desk redesign step 2 (Market Overview, 2026-10-27): the old Overview cards (tradingdesk/OverviewTab.tsx) are
+// no longer mounted on the desk. Market Overview's strip and events replace them (copilot-app-desk-market-overview.spec.ts,
+// which also carries TC-3 … TC-5's Kite-close rule as MO-2b … MO-2d). OverviewTab is deleted or re-hosted in step 6.
+test.describe.skip("Smart trading desk — Overview · index tiles and Kite's closing quote", () => {
   const finalSnapshot = {
     as_of: "2026-10-23T11:02:24+00:00", data_at: "2026-10-23T11:02:27+00:00", age_seconds: 1, stale: false, stale_after_seconds: 75, cadence_seconds: 30,
     mode: "closed", session: "closed", source: "rest", final: true, count: 1, missing: [], read_only: true,
