@@ -12,6 +12,13 @@ Public (auth-required):
        stored score); `final_score` = clamp(base + points / 100, 0, 1), applied before the sort, min_score and limit.
        Stage is unchanged; the stored scores are never written.
   GET  /api/positional/picks/{symbol}?date=
+  GET  /api/positional/signals/{symbol}/record?date=YYYY-MM-DD
+       One scanner signal's record: the live revision (levels, stop_method, setup, computed_at) and every earlier
+       revision kept in positional_signals_history (migration 025), each with the fields that changed in the
+       revision that replaced it; plus the evaluated outcomes (positional_outcomes) as its state. Read only; nothing
+       is inferred: a revision is shown only if a row stores it. date defaults to the symbol's latest signal date.
+       404 when neither table has the signal; 503 when migration 025 is not applied (pipeline.signal_history_ready)
+       or the database is unavailable.
   GET  /api/positional/picks/mine          — portfolio-aware filtered picks
   GET  /api/positional/scenario?entry=&stop=&target=&capital=&risk_pct=… — trade scenario calculator (PRD §8.5/§8.6);
        pure, read-only, nothing is sent to a broker
@@ -944,6 +951,134 @@ async def get_pick_detail(request: Request,
         "signal": dict(sig) if sig else None,
         "features": dict(feat) if feat else None,
         "scan_hits": [r["scan_name"] for r in scans],
+    }
+
+
+# ── Signal record (revision history) ─────────────────────────────────────
+_SIGNAL_COLS = ("COALESCE(revision, 1) AS revision, final_score, confidence, stage, timeframe_days_min, "
+                "timeframe_days_max, entry_price, stoploss, target_price, risk_reward, source_scans, reasons, "
+                "engine_version, stop_method, computed_at")
+#: What a revision is compared on, as (the field name in the answer, how to read it from a revision).
+_RECORD_FIELDS = (
+    ("entry", lambda r: r["levels"]["entry"]), ("stop", lambda r: r["levels"]["stop"]),
+    ("target", lambda r: r["levels"]["target"]), ("risk_reward", lambda r: r["levels"]["risk_reward"]),
+    ("stop_method", lambda r: r["stop_method"]), ("stage", lambda r: r["setup"]["stage"]),
+    ("confidence", lambda r: r["setup"]["confidence"]), ("final_score", lambda r: r["setup"]["final_score"]),
+    ("timeframe_days_min", lambda r: r["setup"]["timeframe_days_min"]),
+    ("timeframe_days_max", lambda r: r["setup"]["timeframe_days_max"]),
+    ("source_scans", lambda r: r["setup"]["source_scans"]), ("reasons", lambda r: r["setup"]["reasons"]),
+    ("engine_version", lambda r: r["setup"]["engine_version"]),
+)
+
+
+def _jsonb(v):
+    """A JSONB column as data (asyncpg may hand it back as text)."""
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except (TypeError, ValueError):
+            return v
+    return v
+
+
+def _iso(v):
+    return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+def _signal_revision(row) -> Dict[str, Any]:
+    """One stored row (live or history) in the record's shape. Every value is the row's own; nothing is filled in."""
+    out = {
+        "revision": int(row["revision"]),
+        "levels": {"entry": _num(row["entry_price"]), "stop": _num(row["stoploss"]),
+                   "target": _num(row["target_price"]), "risk_reward": _num(row["risk_reward"])},
+        "stop_method": _jsonb(row["stop_method"]),
+        "setup": {"stage": row["stage"], "confidence": row["confidence"], "final_score": _num(row["final_score"]),
+                  "timeframe_days_min": row["timeframe_days_min"], "timeframe_days_max": row["timeframe_days_max"],
+                  "source_scans": list(row["source_scans"]) if row["source_scans"] is not None else None,
+                  "reasons": _jsonb(row["reasons"]), "engine_version": row["engine_version"]},
+        "computed_at": _iso(row["computed_at"]),
+    }
+    if "superseded_by" in row.keys():
+        out["superseded_at"] = _iso(row["superseded_at"])
+        out["superseded_by"] = row["superseded_by"]
+    return out
+
+
+def _revision_changes(old: Dict[str, Any], new: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [{"field": name, "from": get(old), "to": get(new)} for name, get in _RECORD_FIELDS if get(old) != get(new)]
+
+
+@router.get("/signals/{symbol}/record")
+async def get_signal_record(request: Request,
+                            symbol: str,
+                            date: Optional[str] = Query(None, alias="date")):
+    """Public (auth), read only: a scanner signal's live revision and every superseded one (see the module docstring)."""
+    await get_current_user(request)
+    sym = symbol.upper().strip()
+    if not re.fullmatch(r"[A-Z0-9&\-]{1,32}", sym):
+        raise HTTPException(status_code=400, detail=f"Invalid symbol: {symbol}")
+    sig_date = _parse_date(date)
+    pool = await pg_client.get_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="signal_record_unavailable: the database is not reachable")
+    async with pool.acquire() as conn:
+        if not await pipeline.signal_history_ready(conn):
+            raise HTTPException(status_code=503, detail="signal_history_not_ready: migration 025 "
+                                                        "(positional_signals_history) is not applied, so no revision "
+                                                        "history can be read")
+        if sig_date is None:
+            sig_date = await conn.fetchval(
+                "SELECT GREATEST((SELECT MAX(signal_date) FROM positional_signals WHERE nse_symbol = $1), "
+                "(SELECT MAX(signal_date) FROM positional_signals_history WHERE nse_symbol = $1))", sym)
+            if sig_date is None:
+                raise HTTPException(status_code=404, detail=f"No scanner signal for {sym}")
+        live = await conn.fetchrow(
+            f"SELECT {_SIGNAL_COLS} FROM positional_signals WHERE nse_symbol = $1 AND signal_date = $2", sym, sig_date)
+        history = await conn.fetch(
+            f"SELECT {_SIGNAL_COLS}, superseded_at, superseded_by FROM positional_signals_history "
+            "WHERE nse_symbol = $1 AND signal_date = $2 ORDER BY revision", sym, sig_date)
+        if live is None and not history:
+            raise HTTPException(status_code=404, detail=f"No scanner signal for {sym} on {sig_date}")
+        outcomes_error = None
+        try:
+            outcome_rows = await conn.fetch(
+                "SELECT horizon_days, outcome, realised_return_pct, bars_to_outcome, evaluated_at "
+                "FROM positional_outcomes WHERE nse_symbol = $1 AND signal_date = $2 ORDER BY horizon_days",
+                sym, sig_date)
+        except Exception as e:  # noqa: BLE001 — the outcomes table is optional to the record; say it was unreadable
+            logger.warning("positional: signal record outcomes unreadable for %s %s (%s)", sym, sig_date, e)
+            outcome_rows, outcomes_error = None, "positional_outcomes could not be read"
+
+    current = _signal_revision(live) if live is not None else None
+    revisions = [_signal_revision(r) for r in history]
+    for i, rev in enumerate(revisions):
+        nxt = revisions[i + 1] if i + 1 < len(revisions) else current
+        rev["replaced_by_revision"] = nxt["revision"] if nxt else None
+        rev["changes"] = _revision_changes(rev, nxt) if nxt else None
+    outcomes = None if outcome_rows is None else [
+        {"horizon_days": r["horizon_days"], "outcome": r["outcome"], "realised_return_pct": _num(r["realised_return_pct"]),
+         "bars_to_outcome": r["bars_to_outcome"], "evaluated_at": _iso(r["evaluated_at"])} for r in outcome_rows]
+    if current is None:
+        note = "The live signal row is gone (a day rewrite removed it); only its superseded revisions are stored."
+    elif not revisions:
+        note = "No earlier revision is stored: the levels have not changed since the signal was first written."
+    else:
+        note = None
+    return {
+        "symbol": sym,
+        "signal_date": str(sig_date),
+        "current": current,
+        "revisions": revisions,
+        "revision_count": len(revisions) + (1 if current else 0),
+        "state": {"live": current is not None,
+                  "stage": current["setup"]["stage"] if current else None,
+                  "outcomes": outcomes, "outcomes_error": outcomes_error,
+                  "outcomes_basis": "positional_outcomes: target / stop hit per horizon, written by the outcome job; "
+                                    "empty until a horizon is evaluated"},
+        "note": note,
+        "source": "positional_signals (the live revision) and positional_signals_history (each superseded revision, "
+                  "copied unchanged when a re-run changed it or a day rewrite replaced it; migration 025)",
+        "read_only": True,
     }
 
 

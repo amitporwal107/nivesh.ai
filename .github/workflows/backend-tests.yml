@@ -232,6 +232,7 @@ jobs:
           tests/test_positional_scan_universe.py
           tests/test_positional_scenario.py
           tests/test_positional_signal_history.py
+          tests/test_positional_signal_record.py
           tests/test_prd_worked_examples.py
           tests/test_query_suggestions.py
           tests/test_rate_limit_identity.py
@@ -289,6 +290,7 @@ jobs:
           tests/test_strategy_payoff.py
           tests/test_strategy_plan.py
           tests/test_strategy_plan_templates_route.py
+          tests/test_strategy_templates_first_wave.py
           tests/test_strategy_screen.py
           tests/test_switch_cost_framework.py
           tests/test_switch_decision_engine.py
