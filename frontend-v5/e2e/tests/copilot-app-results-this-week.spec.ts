@@ -12,11 +12,20 @@
  * not their figures. Every expected value below is worked out from these payloads. Mocked APIs, production build — see
  * pw.copilot-app.config.ts. The clock is fixed at Tue 27 Oct 2026, 11:30 IST.
  *
+ * Except TC-W14, which is REAL DATA: e2e/fixtures/results_week_staging_20261027.json, the GET /api/desk/results-week body
+ * built read-only on staging for 2026-10-27 (committed with the contract spec), before `fno_track` existed — so it also
+ * exercises the older-route path on real rows. Its expected order is read from the fixture's own ideas, not the screen.
+ *
  * Screenshots (1440 and 390, the list and the file) only when RTW_SHOTS names a directory, in a run with network so
  * fonts load; the TC run itself is offline.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { mockApi } from "../helpers/api-mock";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 const PAGE = "/v5/app/page/watchlist";
 const EVENTS = "/v5/app/trader/desk?tab=events";
@@ -542,6 +551,38 @@ test.describe("Results This Week — Watchlist page (desktop 1440)", () => {
       for (const b of BANNED) expect(text, `banned wording ${b}`).not.toMatch(b);
     }
     await expect(page.getByTestId("rtw-disclaimer")).toHaveText("For review only; nothing here places an order or is sent to a broker.");
+  });
+});
+
+test.describe("Results This Week — REAL staging list capture (desktop 1440)", () => {
+  test.use({ viewport: { width: 1440, height: 1000 } });
+
+  test("TC-W14 the block renders the real 27 Oct body: F&O order = the fixture's ideas.fno among its F&O rows; no page error", async ({ page }) => {
+    const REAL = JSON.parse(fs.readFileSync(path.join(here, "..", "fixtures", "results_week_staging_20261027.json"), "utf8"));
+    type R = { symbol: string; fno?: boolean; status?: string; score?: { value?: number | null } };
+    type I = { symbol: string; rank?: number };
+    const fnoSyms = new Set((REAL.results as R[]).filter((r) => r.fno === true).map((r) => r.symbol));
+    const allSyms = new Set((REAL.results as R[]).map((r) => r.symbol));
+    const ranked = [...(REAL.ideas.fno as I[])].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)).map((i) => i.symbol).filter((s, i, xs) => fnoSyms.has(s) && xs.indexOf(s) === i);
+    const rankedAll = [...(REAL.ideas.all as I[])].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)).map((i) => i.symbol).filter((s, i, xs) => allSyms.has(s) && xs.indexOf(s) === i);
+    expect(ranked.length).toBeGreaterThan(0);
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await setup(page, { rw: () => ({ body: REAL }) });
+    await openPage(page);
+    await expect(page.getByTestId("rtw-seg-fno")).toHaveText(`F&O · ${fnoSyms.size}`);
+    await expect(page.getByTestId("rtw-seg-all")).toHaveText(`All · ${allSyms.size}`);
+    const n = Math.min(ranked.length, 20);
+    expect((await order(page)).slice(0, n)).toEqual(ranked.slice(0, n));
+    await page.getByTestId("rtw-seg-all").click();
+    const m = Math.min(rankedAll.length, 20);
+    expect((await order(page)).slice(0, m)).toEqual(rankedAll.slice(0, m));
+    // this capture predates fno_track: the part is hidden, not shown empty
+    await expect(page.locator("[data-testid^='rtw-fno-']")).toHaveCount(0);
+    expect(await over(page)).toBeLessThanOrEqual(0);
+    const text = await page.getByTestId("results-this-week").innerText();
+    for (const b of BANNED) expect(text, `banned wording ${b}`).not.toMatch(b);
+    expect(errors).toEqual([]);
   });
 });
 
