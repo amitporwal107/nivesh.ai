@@ -521,7 +521,7 @@ export const IDEAS_FOOTER = "Ideas, not recommendations. The rank orders ideas; 
  * /api/risk/freshness), for the STALE DATA mark. `onScorecard`: where "Scorecard →" goes (Market Desk; the Idea
  * scorecard view is added there by step 4).
  */
-export function ScannerTop10({ referenceSession = null, onScorecard }: { referenceSession?: string | null; onScorecard?: () => void } = {}) {
+export function ScannerTop10({ referenceSession = null, onScorecard, onSeeAll }: { referenceSession?: string | null; onScorecard?: () => void; onSeeAll?: () => void } = {}) {
   const { mobile } = useCopilotShell();
   const [which, setWhich] = useState<"stocks" | "fno">("stocks");
   // Both boards are asked for on load, so the toggle shows the other one at once (one cache each, top10-data.ts).
@@ -531,8 +531,11 @@ export function ScannerTop10({ referenceSession = null, onScorecard }: { referen
     <Widget
       id="scanner.top10"
       testId="desk-top10"
-      title="Top AI ideas"
+      title="Top AI candidates"
       meta={<span style={{ fontSize: 9.5 }}>End of day · ideas for review, not recommendations</span>}
+      actions={onSeeAll ? (
+        <button type="button" data-testid="desk-top10-see-all" onClick={onSeeAll} className="cp-chip" title="Every ranked candidate: Trade Desk › AI Scanner">See all ›</button>
+      ) : undefined}
       bodyStyle={{ padding: mobile ? 14 : 18 }}
     >
       <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>

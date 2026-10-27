@@ -80,6 +80,24 @@ export function useRiskFreshness() {
   });
 }
 
+// ── GET /api/desk/paper-account (read-only: cash, capital at risk, starting capital) ──
+
+export interface PaperAccount { startingRs: number | null; cashRs: number | null; blockedRs: number | null; availableRs: number | null; stored: boolean }
+
+export function readPaperAccount(body: unknown): PaperAccount {
+  const d = rec(body);
+  return { startingRs: num(d.starting_capital_rs), cashRs: num(d.cash_rs), blockedRs: num(d.blocked_rs), availableRs: num(d.available_rs), stored: d.stored === true };
+}
+
+export function usePaperAccount() {
+  return useQuery<PaperAccount>({
+    queryKey: ["copilot", "desk", "paper-account"],
+    staleTime: 30_000,
+    retry: (n, e) => !(e instanceof ApiError && (e.status === 401 || e.status === 403)) && n < 1,
+    queryFn: async ({ signal }) => readPaperAccount((await http({ path: "/api/desk/paper-account", signal, noRetry: true })).data),
+  });
+}
+
 // ── the regime line ──────────────────────────────────────────────────────
 
 export const BEAR_NOTE = "New-trade size limits are halved in BEAR.";

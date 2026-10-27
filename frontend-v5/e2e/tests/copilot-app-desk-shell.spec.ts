@@ -218,13 +218,14 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     live: { equity: { equity_rs: 1000000, unknown_reasons: [] }, open: { positions, risk_rs: riskRs }, day: {}, week: {}, budgets_rs: {} },
   });
 
-  test("SH-7 the Trade Desk line counts open positions and open risk and opens Trade Desk", async ({ page }) => {
+  test("SH-7 the open-risk KPI and the paper trades panel count the open book and open Trade Desk", async ({ page }) => {
     await deskApi(page);
     await page.route("**/api/risk/profile", (route) => json(route, profile(2, 15000)));
     await page.goto(DESK);
-    const line = page.getByTestId("mo-trades-line");
-    await expect(line).toContainText("2 open positions · open risk 1.5% of 3%");
-    await line.getByTestId("mo-trades-link").click();
+    await expect(page.getByTestId("mo-kpi-risk-value")).toHaveText("1.5%");
+    await expect(page.getByTestId("mo-kpi-risk-sub")).toHaveText("limit 3%");
+    await expect(page.getByTestId("mo-paper-summary")).toContainText("2 open positions");
+    await page.getByTestId("mo-paper-link").click();
     await expectAt(page, "trade", "paper");
     await expect(page.getByTestId("desk-panel-paper")).toBeVisible();
   });
@@ -233,7 +234,8 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     await deskApi(page, { trades: [] });
     await page.route("**/api/risk/profile", (route) => json(route, profile(0, 0)));
     await page.goto(DESK);
-    await expect(page.getByTestId("mo-trades-line")).toContainText("No open positions · open risk 0% of 3%");
+    await expect(page.getByTestId("mo-paper-summary")).toHaveText("No open positions");
+    await expect(page.getByTestId("mo-kpi-risk-value")).toHaveText("0%");
   });
 });
 

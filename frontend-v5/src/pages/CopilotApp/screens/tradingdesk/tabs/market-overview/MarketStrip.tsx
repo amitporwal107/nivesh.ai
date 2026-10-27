@@ -212,7 +212,7 @@ export function MarketStrip({ onSectors, onIntel }: { onSectors: () => void; onI
   const sectors = useSectorReturns();
   const d = home.data;
   return (
-    <Widget id="overview.strip" testId="mo-strip" title="Market" meta={<span style={{ fontSize: 9.5 }}>End of day unless marked live</span>} bodyStyle={{ padding: mobile ? 14 : 18 }}>
+    <Widget id="overview.strip" testId="mo-strip" title="Market regime" meta={<span style={{ fontSize: 9.5 }}>End of day unless marked live</span>} bodyStyle={{ padding: mobile ? 14 : 18 }}>
       <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
         {home.isPending ? (
           <span style={quiet}>Loading the index tape…</span>

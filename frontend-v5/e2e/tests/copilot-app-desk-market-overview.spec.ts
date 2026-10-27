@@ -96,10 +96,10 @@ interface Opts {
   plans?: Record<string, { status: number; body: unknown }>; paperStatus?: Array<{ status: number; body: unknown }>; killSwitch?: boolean;
   phone?: boolean; filings?: unknown[];
 }
-interface Seen { paperGets: string[]; paperPosts: Array<Record<string, unknown>> }
+interface Seen { paperGets: string[]; paperPosts: Array<Record<string, unknown>>; alertGets: string[] }
 
 async function setup(page: Page, o: Opts = {}): Promise<Seen> {
-  const seen: Seen = { paperGets: [], paperPosts: [] };
+  const seen: Seen = { paperGets: [], paperPosts: [], alertGets: [] };
   await page.clock.setFixedTime(NOW);
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await mockApi(page, "populated");
@@ -133,7 +133,8 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
   await page.route("**/api/risk/status", (r) => json(r, { kill_switch: !!o.killSwitch, halted: false, policy_version: "MOCK" }));
   await page.route("**/api/desk/ai-watchlist*", (r) => json(r, o.day ?? CARD.ai_watchlist_day));
   await page.route("**/api/fno/scan/buildup*", (r) => json(r, { as_of: "2026-10-19", indices: [], counts: {}, sources: {}, master: {}, risk_flag_text: {}, rows: [] }));
-  await page.route("**/api/desk/alerts*", (r) => json(r, { as_of: "2026-10-19", alerts: [] }));
+  await page.route("**/api/desk/alerts*", (r) => { seen.alertGets.push(r.request().url()); return json(r, { as_of: "2026-10-19", alerts: [] }); });
+  await page.route("**/api/desk/paper-account", (r) => json(r, CARD.paper_account));
   const answers = [...(o.paperStatus ?? [])];
   await page.route("**/api/desk/paper-trades*", (r) => {
     if (r.request().method() === "POST") {
@@ -155,19 +156,21 @@ const params = (page: Page) => new URL(page.url()).searchParams;
 // ── the page ──────────────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Market Overview · the page", () => {
-  test("MO-1 the panels in order; no old Overview cards, pulse, account KPIs, paper-trades table or feed KPI", async ({ page }) => {
+  test("MO-1 the design's panels in order: KPIs, market regime, Top AI candidates, paper trades, alerts and events; no old Overview cards or pulse", async ({ page }) => {
     await setup(page);
     await page.goto(DESK);
     const p = panel(page);
     await expect(p.getByTestId("market-overview")).toBeVisible(SLOW);
-    const ids = ["mo-trades-line", "mo-strip", "desk-top10", "mo-events", "desk-scanner-toggle"];
+    const ids = ["mo-kpis", "mo-strip", "desk-top10", "mo-paper", "mo-events", "desk-scanner-toggle"];
     for (const id of ids) await expect(p.getByTestId(id)).toBeVisible(SLOW);
     const tops = await Promise.all(ids.map(async (id) => (await p.getByTestId(id).boundingBox())?.y ?? -1));
     expect(tops).toEqual([...tops].sort((a, b) => a - b));
     for (const gone of ["desk-overview", "desk-pulse", "desk-panel-pulse", "desk-open-trades-line", "desk-paper-trades", "desk-snapshot-card", "desk-risk-card"]) {
       await expect(p.getByTestId(gone)).toHaveCount(0);
     }
-    await expect(p).not.toContainText(/paper equity|day net p\/l|feed live/i);
+    await expect(page.getByTestId("mo-strip")).toContainText("Market regime");
+    await expect(page.getByTestId("desk-top10")).toContainText("Top AI candidates");
+    await expect(page.getByTestId("mo-events")).toContainText("Alerts and events");
     await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByTestId("desk-panel-scanner")).toHaveCount(0);
   });
@@ -467,6 +470,13 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     await foot.getByTestId("desk-top10-scorecard").click();
     await expect.poll(() => params(page).get("tab")).toBe("market");
   });
+
+  test("MO-23b See all › opens Trade Desk (the AI Scanner's ranked candidates once the next nav PR adds its section)", async ({ page }) => {
+    await setup(page);
+    await page.goto(DESK);
+    await page.getByTestId("desk-top10-see-all").click(SLOW);
+    await expect.poll(() => params(page).get("tab")).toBe("trade");
+  });
 });
 
 // ── events, the Trade Desk line, read-only, wording, phone ────────────────
@@ -489,34 +499,52 @@ test.describe("MOCK — not real data: Market Overview · events and the Trade D
     await expect(page.getByTestId("mo-events-empty")).toContainText("No results or filings today for the", SLOW);
   });
 
-  test("MO-25 the Trade Desk line: open positions and open risk against the limit, from the risk profile", async ({ page }) => {
+  test("MO-25 KPIs and the paper trades panel: equity, day net P/L, open risk vs 3%, candidates and feed; held rows open Trade Desk", async ({ page }) => {
     const p = clone(CARD.risk_profile_default);
     p.live.open.positions = 3;
     p.live.open.risk_rs = 12000;
-    p.live.equity.equity_rs = 1000000;
+    p.live.open.exposure_rs = 250000;
+    p.live.open.held_symbols = ["ICICIBANK", "INFY"];
+    p.live.equity.equity_rs = 1038420;
+    p.live.day.pnl_rs = 8137;
     await setup(page, { profile: { status: 200, body: p } });
     await page.goto(DESK);
-    const line = page.getByTestId("mo-trades-line");
-    await expect(line.getByTestId("mo-trades-text")).toHaveText("3 open positions · open risk 1.2% of 3%", SLOW);
-    await line.getByTestId("mo-trades-link").click();
+    const start = CARD.paper_account.starting_capital_rs;
+    await expect(page.getByTestId("mo-kpi-equity-value")).toHaveText("₹10,38,420", SLOW);
+    await expect(page.getByTestId("mo-kpi-equity-sub")).toHaveText(`start ₹${int(start)} · +${(((1038420 - start) / start) * 100).toFixed(1)}%`);
+    await expect(page.getByTestId("mo-kpi-day-value")).toHaveText("+₹8,137");
+    await expect(page.getByTestId("mo-kpi-day-sub")).toHaveText("net of costs, before income tax");
+    await expect(page.getByTestId("mo-kpi-risk-value")).toHaveText(`${((12000 / 1038420) * 100).toFixed(1)}%`);
+    await expect(page.getByTestId("mo-kpi-risk-sub")).toHaveText("limit 3%");
+    const fnoRows = ["index_options", "stock_fno"].reduce((n, k) => n + CARD.fno.top_response.classes[k].ideas.length, 0);
+    await expect(page.getByTestId("mo-kpi-candidates-value")).toHaveText(String(CARD.cash.ideas_response.ideas.length + Math.min(fnoRows, 10)));
+    await expect(page.getByTestId("mo-kpi-feed-value")).toHaveText("Closed");             // MOCK feed: mode "expired"
+    const panel = page.getByTestId("mo-paper");
+    await expect(panel.getByTestId("mo-paper-summary")).toHaveText("3 open positions · exposure ₹2,50,000 · open risk ₹12,000");
+    await expect(panel.getByTestId("mo-paper-row")).toHaveCount(2);
+    await expect(panel.getByTestId("mo-paper-more")).toContainText("1 more");
+    await panel.locator('[data-testid="mo-paper-row"][data-symbol="INFY"]').click();
     await expect.poll(() => `${params(page).get("tab")}/${params(page).get("view")}`).toBe("trade/paper");
   });
 
   test("MO-26 no open positions", async ({ page }) => {
     await setup(page, { profile: { status: 200, body: CARD.risk_profile_default } });
     await page.goto(DESK);
-    await expect(page.getByTestId("mo-trades-text")).toHaveText("No open positions · open risk 0% of 3%", SLOW);
+    await expect(page.getByTestId("mo-kpi-risk-value")).toHaveText("0%", SLOW);
+    await expect(page.getByTestId("mo-paper-summary")).toHaveText("No open positions");
+    await expect(page.getByTestId("mo-paper-row")).toHaveCount(0);
   });
 
-  test("MO-27 the risk profile failing says so; the link still works", async ({ page }) => {
+  test("MO-27 the risk profile failing says so in the KPIs and the panel; the panel link still works", async ({ page }) => {
     await setup(page, { profile: { status: 500, body: { detail: "MOCK: upstream" } } });
     await page.goto(DESK);
-    await expect(page.getByTestId("mo-trades-text")).toHaveText("Open positions and open risk didn’t load", SLOW);
-    await page.getByTestId("mo-trades-link").click();
+    await expect(page.getByTestId("mo-paper-error")).toContainText("Open positions didn’t load", SLOW);
+    await expect(page.getByTestId("mo-kpi-equity-sub")).toContainText("the risk profile didn’t load");
+    await page.getByTestId("mo-paper-all").click();
     await expect.poll(() => params(page).get("tab")).toBe("trade");
   });
 
-  test("MO-28 this tab never reads GET /api/desk/paper-trades (it applies exits)", async ({ page }) => {
+  test("MO-28 this tab never reads GET /api/desk/paper-trades (it applies exits) or GET /api/desk/alerts (it fires alerts)", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(DESK);
     await ready(stockRow(page).getByTestId("desk-top10-card"));
@@ -525,8 +553,9 @@ test.describe("MOCK — not real data: Market Overview · events and the Trade D
     await page.getByTestId("desk-top10-drawer-close").click();
     await page.getByTestId("desk-top10-switch-fno").click();
     await expect(page.getByTestId("desk-top10-fno-BANKNIFTY")).toBeVisible(SLOW);
-    await expect(page.getByTestId("mo-trades-text")).not.toHaveText(/Reading/);
+    await expect(page.getByTestId("mo-paper-summary")).toBeVisible();
     expect(seen.paperGets).toEqual([]);
+    expect(seen.alertGets).toEqual([]);
   });
 
   test("MO-29 wording: ideas and candidates, never picks, suggestions or recommended", async ({ page }) => {

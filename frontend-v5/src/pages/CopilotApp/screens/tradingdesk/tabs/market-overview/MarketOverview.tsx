@@ -1,34 +1,34 @@
 /**
- * Smart trading desk · 01 Market Overview — the trader's first stop (the owner's workflow of 2026-10-27: log in → Market
- * Overview → Trade Desk → Market Desk → Risk Desk; docs/desk_redesign_20261027/PLAN.md step 2). One page, top to bottom:
+ * Smart trading desk · 01 Market Overview — the trader's first stop, in the owner's design's structure (PLAN.md 1-REVISED,
+ * 27 Oct 19:40 IST). One page, top to bottom:
  *
- *   the Trade Desk line     "N open positions · open risk x% of 3% · Trade Desk ›"   GET /api/risk/profile (useRiskProfile)
- *   the market strip        MarketStrip.tsx: NIFTY 50, Nifty Bank, India VIX, breadth, the regime the risk service uses
+ *   KPIs                    OverviewKpis.tsx: paper equity, day net P/L, open risk vs its limit, candidates, feed
+ *   Market regime           MarketStrip.tsx: NIFTY 50, Nifty Bank, India VIX, breadth, the regime the risk service uses
  *                           (with its as-of date and the BEAR note), last session's FII / DII, the day's sector moves
- *   Top AI ideas            ScannerTop10.tsx: Cash | F&O, decision-card rows, the drawer with the full card and Paper trade
- *   Events today            EventsToday.tsx: results and filings today for the names on today's ideas
- *   All scanner candidates  the full scanner list (ScannerTab listOnly), collapsed until opened (?section=scanner)
+ *   Top AI candidates       ScannerTop10.tsx: Cash | F&O, decision-card rows, the drawer with the full card and Paper trade;
+ *                           "See all ›" opens Trade Desk (its AI Scanner section key comes with the next nav PR)
+ *   Paper trades            OverviewKpis.tsx PaperTradesPanel: the open book, read-only, rows to Trade Desk
+ *   Alerts and events       EventsToday.tsx: results and filings today for the names on today's ideas; the alerts link
+ *   All scanner candidates  the full scanner list (ScannerTab listOnly), collapsed until opened (?section=scanner); it
+ *                           moves to Trade Desk › AI Scanner in the next PR
  *
- * Not on this page, by the plan: account KPIs (Trade Desk and Risk Desk have them; this page keeps one line), a
- * paper-trades table (Trade Desk), and a feed KPI (the header's status chip). This tab never reads GET
- * /api/desk/paper-trades: that route applies exits as it lists, so it is not a read-only call.
+ * This tab never reads GET /api/desk/paper-trades or GET /api/desk/alerts: those routes apply exits or fire alerts as
+ * they list, so they are not read-only calls.
  *
  * Wording: ideas and candidates, never picks, recommendations or suggestions. Nothing here places an order.
  */
-import { Suspense, lazy, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { LoadingBlock } from "../../../../components/ui";
 import { useCopilotShell } from "../../../../lib/shell-context";
 import { useDesk } from "../../context";
-import { useRiskProfile } from "../../risk-profile";
 import { ScannerTop10 } from "../../ScannerTop10";
 import { EventsToday } from "./EventsToday";
 import { MarketStrip } from "./MarketStrip";
-import { tradeDeskLine, useRiskFreshness } from "./overview-data";
+import { OverviewKpis, PaperTradesPanel } from "./OverviewKpis";
+import { useRiskFreshness } from "./overview-data";
 
 const ScannerTab = lazy(() => import("../../ScannerTab"));
-
-const link: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)" };
 
 /** One panel: its own error boundary and loading state (`desk-panel-<id>`, as the shell names hosted screens). */
 function Panel({ id, name, children }: { id: string; name: string; children: ReactNode }) {
@@ -38,19 +38,6 @@ function Panel({ id, name, children }: { id: string; name: string; children: Rea
         <Suspense fallback={<LoadingBlock label={`Loading ${name}`} rows={3} />}>{children}</Suspense>
       </SafeWidget>
     </div>
-  );
-}
-
-/** The one line to Trade Desk, from the risk service's book (GET /api/risk/profile; read-only). */
-function TradeDeskLine({ onOpen }: { onOpen: () => void }) {
-  const q = useRiskProfile();
-  const line = q.data ? tradeDeskLine(q.data) : null;
-  const text = q.isPending ? "Reading your open positions…" : line ? line.text : "Open positions and open risk didn’t load";
-  return (
-    <p data-testid="mo-trades-line" data-state={q.isPending ? "loading" : line ? "ok" : "error"} className="m-0" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}
-      title="As the risk service counts your book: open desk paper trades and F&O structures, plus any open journal trades, against your risk profile's open-risk limit.">
-      <span data-testid="mo-trades-text">{text}</span> · <button type="button" data-testid="mo-trades-link" onClick={onOpen} style={link}>Trade Desk ›</button>
-    </p>
   );
 }
 
@@ -85,23 +72,28 @@ export interface MarketOverviewProps {
   onToggleScanner: () => void;
   /** Trade Desk › Paper trades. */
   onOpenTradeDesk: () => void;
+  /** Trade Desk at its default view (the AI Scanner's ranked candidates once the next nav PR adds the section key). */
+  onOpenTrade: () => void;
   /** Market Desk, at a view (null: its default view). */
   onOpenMarket: (view: string | null) => void;
 }
 
-export default function MarketOverview({ scannerOpen, onToggleScanner, onOpenTradeDesk, onOpenMarket }: MarketOverviewProps) {
+export default function MarketOverview({ scannerOpen, onToggleScanner, onOpenTradeDesk, onOpenTrade, onOpenMarket }: MarketOverviewProps) {
   const { mobile } = useCopilotShell();
   const desk = useDesk();
   const fresh = useRiskFreshness();
   return (
     <div data-testid="market-overview" className="flex min-w-0 flex-col" style={{ gap: mobile ? 14 : 20 }}>
-      <TradeDeskLine onOpen={onOpenTradeDesk} />
-      <Panel id="strip" name="the market strip"><MarketStrip onSectors={() => onOpenMarket("sectors")} onIntel={() => desk.openIntel()} /></Panel>
-      <Panel id="top10" name="the Top AI ideas">
+      <Panel id="kpis" name="the KPIs"><OverviewKpis /></Panel>
+      <Panel id="strip" name="the market regime"><MarketStrip onSectors={() => onOpenMarket("sectors")} onIntel={() => desk.openIntel()} /></Panel>
+      <Panel id="top10" name="the Top AI candidates">
         {/* The Idea scorecard view is added to Market Desk by step 4; until then "Scorecard →" opens Market Desk. */}
-        <ScannerTop10 referenceSession={fresh.data?.referenceSession ?? null} onScorecard={() => onOpenMarket(null)} />
+        <ScannerTop10 referenceSession={fresh.data?.referenceSession ?? null} onScorecard={() => onOpenMarket(null)} onSeeAll={onOpenTrade} />
       </Panel>
-      <Panel id="events-today" name="today’s events"><EventsToday /></Panel>
+      <div className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "repeat(auto-fit,minmax(min(100%,340px),1fr))", gap: mobile ? 14 : 20, alignItems: "start" }}>
+        <Panel id="paper" name="the paper trades"><PaperTradesPanel onOpen={onOpenTradeDesk} /></Panel>
+        <Panel id="events-today" name="alerts and events"><EventsToday onAlerts={onOpenTradeDesk} /></Panel>
+      </div>
       <ScannerSection open={scannerOpen} onToggle={onToggleScanner} />
     </div>
   );

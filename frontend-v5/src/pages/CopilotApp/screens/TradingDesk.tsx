@@ -4,9 +4,9 @@
  * four numbered tabs, "My portfolio", and at most two levels (tab → view). The places and every old URL's redirect
  * are in tradingdesk/desk-nav.ts.
  *
- *   01 Market Overview   one page (tradingdesk/tabs/market-overview, step 2): the Trade Desk line · the market strip ·
- *                        Top AI ideas (ScannerTop10, the decision cards and their drawer) · events today · "All scanner
- *                        candidates" (ScannerTab's list, collapsed)
+ *   01 Market Overview   one page (tradingdesk/tabs/market-overview, step 2, the design's structure): KPIs · market regime ·
+ *                        Top AI candidates (ScannerTop10, the decision cards and their drawer) · paper trades · alerts and
+ *                        events · "All scanner candidates" (ScannerTab's list, collapsed)
  *   02 Trade Desk        paper   Paper trades: "predicted vs actual" and your paper-trade and alert lists (PortfolioTab's
  *                                PaperCard and PaperLists; PaperDesk cannot split open and closed trades yet)
  *                        new     New trade: the Strategy Builder, with the F&O lab's paper strategies and leg builder
@@ -566,6 +566,7 @@ export default function TradingDeskScreen() {
           scannerOpen={scannerOpen}
           onToggleScanner={() => setParam({ tab: "overview", section: scannerOpen ? null : "scanner" })}
           onOpenTradeDesk={() => goPlace("trade", "paper")}
+          onOpenTrade={() => goPlace("trade")}
           onOpenMarket={(view) => goPlace("market", view ?? undefined)}
         />
       </Hosted>

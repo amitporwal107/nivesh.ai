@@ -9,7 +9,14 @@ Written **before** the implementation (2026-10-27), from `docs/desk_redesign_202
 risk profile, the stored AI watchlist day, the real allow / reduce / block answers). Anything else is an inline MOCK in
 the route's real shape, labelled `MOCK — not real data`.
 
-## The page (tab=overview), top to bottom
+## Revision (owner, 27 Oct 19:40 IST, PLAN.md "1-REVISED")
+
+The page follows the owner's design's structure: **KPIs** (paper equity, day net P/L, open risk vs 3%, candidates, feed) ·
+**Market regime** · **Top AI candidates** ("See all ›" → Trade Desk) · **Paper trades** (read-only, from
+`GET /api/risk/profile`) · **Alerts and events**. The one-line Trade Desk link of the first plan is replaced by the KPIs and
+the panel. MO-1 and MO-25 … MO-28 below are revised accordingly (and MO-23b added); the rest are unchanged.
+
+## The page (tab=overview), top to bottom (first plan; see the revision above)
 
 | Panel | What it shows | Route(s) it reads |
 |---|---|---|

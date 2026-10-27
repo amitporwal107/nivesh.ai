@@ -63,7 +63,7 @@ function EventRow({ e, onStock }: { e: IntelEvent; onStock: (sym: string) => voi
   );
 }
 
-export function EventsToday() {
+export function EventsToday({ onAlerts }: { onAlerts?: () => void } = {}) {
   const { mobile } = useCopilotShell();
   const desk = useDesk();
   const names = useWatchedNames();
@@ -74,7 +74,7 @@ export function EventsToday() {
   const loading = all.status === "loading" && results.status === "loading";
   const failed = all.status === "error" && results.status === "error";
   return (
-    <Widget id="overview.events.today" testId="mo-events" title="Events today" meta={<span style={{ fontSize: 9.5 }}>Results and filings · names on today’s ideas</span>} bodyStyle={{ padding: mobile ? 14 : 18 }}>
+    <Widget id="overview.events.today" testId="mo-events" title="Alerts and events" meta={<span style={{ fontSize: 9.5 }}>Results and filings today · names on today’s ideas</span>} bodyStyle={{ padding: mobile ? 14 : 18 }}>
       <div className="flex min-w-0 flex-col" style={{ gap: 8 }}>
         {loading ? (
           <LoadingBlock label="Loading today’s filings" rows={2} />
@@ -88,6 +88,12 @@ export function EventsToday() {
           <ul data-testid="mo-events-list" className="m-0 flex flex-col p-0" style={{ listStyle: "none" }}>
             {shown.map((e) => <EventRow key={e.id} e={e} onStock={(s) => desk.openChart(s)} />)}
           </ul>
+        )}
+        {onAlerts && (
+          <span data-testid="mo-alerts-line" style={{ ...quiet, fontSize: 11.5 }}>
+            Your price and event alerts are on Trade Desk (listing them checks and fires them, so this page does not read them).{" "}
+            <button type="button" data-testid="mo-alerts-link" onClick={onAlerts} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)" }}>Alerts ›</button>
+          </span>
         )}
         <span data-testid="mo-events-legend" style={{ ...quiet, fontSize: 11.5 }}>
           From Market Intelligence’s newest filings and results of the week, dated today (IST).{" "}
