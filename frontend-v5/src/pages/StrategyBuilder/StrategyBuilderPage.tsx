@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Globe2, Lock, FlaskConical, Play, Save, Download, Copy,
-  Check, AlertTriangle, ChevronRight, Sparkles,
+  Check, ChevronRight, Sparkles,
   Search, Target, Building2, TrendingUp, TrendingDown, Minus,
 } from "lucide-react";
 import {
@@ -28,9 +28,10 @@ import {
   getStrategyConfig, putStrategyConfig, defaultBotConfig,
   type TemplateItem, type UniverseItem, type ScreenResult,
   type BacktestResult, type UniverseRef, type CatalogUniverse, type BotConfig,
-  type BotConfigSchema,
+  type BotConfigSchema, LIQUID_UNIVERSE, LIQUID_UNIVERSE_LABEL,
 } from "@/services/strategyBuilder";
 import BotDetailsPanel from "./BotDetailsPanel";
+import { UniverseBasisNote } from "./UniverseBasisNote";
 
 // ── Types ───────────────────────────────────────────────────────────
 interface Predicate {
@@ -86,7 +87,7 @@ export default function StrategyBuilderPage() {
 
   const [step, setStep] = useState<StepIdx>(0);
   const [furthest, setFurthest] = useState<StepIdx>(0);
-  const [universe, setUniverse] = useState<UniverseRef>({ type: "index", ref: "NIFTY500" });
+  const [universe, setUniverse] = useState<UniverseRef>(LIQUID_UNIVERSE);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [templateKey, setTemplateKey] = useState<string | null>(null);
   const [definition, setDefinition] = useState<StrategyDef | null>(null);
@@ -283,7 +284,9 @@ export default function StrategyBuilderPage() {
   // Symbols shown read-only in Bot details: what the screen actually selected
   // from the chosen universe (the universe is the symbol source here).
   const screenSymbols = (screen?.candidates ?? []).map((c) => c.symbol);
-  const universeLabel = universe.type === "index"
+  const universeLabel = universe.type === "market"
+    ? LIQUID_UNIVERSE_LABEL
+    : universe.type === "index"
     ? universe.ref
     : customs.find((u) => u.id === universe.ref)?.name
       ?? catalog.find((c) => c.id === universe.ref)?.name
@@ -431,14 +434,11 @@ export default function StrategyBuilderPage() {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {fc.map((c) => {
-                      const sel = c.kind === "broad"
-                        ? universe.type === "index" && universe.ref === c.ref
-                        : universe.type === "custom" && universe.ref === c.id;
+                      const u = catalogUniverse(c);
+                      const sel = universe.type === u.type && universe.ref === u.ref;
                       return (
                         <UniverseCard key={c.ref ?? c.id ?? c.name} card={c} selected={sel}
-                          onSelect={() => c.kind === "broad"
-                            ? setUniverse({ type: "index", ref: c.ref as string })
-                            : setUniverse({ type: "custom", ref: c.id as string })} />
+                          onSelect={() => setUniverse(u)} />
                       );
                     })}
                   </div>
@@ -623,10 +623,7 @@ export default function StrategyBuilderPage() {
               Position sizing uses the engine's own slot count — it isn't a config field yet.
             </p>
 
-            <p className="flex items-start gap-1.5 text-[11px] text-warm">
-              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              Indicative only — universe uses the latest constituents snapshot (some survivorship bias). Past performance ≠ future results.
-            </p>
+            <UniverseBasisNote universe={universe} metrics={result ? metrics : null} testPrefix="backtest" />
 
             {result && (result.metrics?.reason === "no_data" ? (
               <p className="text-[13px] text-ink-3">No data in this window — try a different range.</p>
@@ -774,7 +771,7 @@ function UniverseCard({ card, selected, onSelect }: {
   const r = card.return_3m_pct;
   const Icon = card.kind === "broad" ? Globe2 : card.kind === "index-theme" ? Building2 : Target;
   return (
-    <button type="button" onClick={onSelect}
+    <button type="button" onClick={onSelect} aria-pressed={selected}
       data-testid={`universe-card-${card.ref ?? card.id}`}
       className={cn("text-left p-3 rounded-xl border transition-colors flex flex-col gap-1.5",
         selected ? "border-accent bg-accent/5 ring-1 ring-accent/30"
@@ -803,6 +800,12 @@ function UniverseCard({ card, selected, onSelect }: {
       </div>
     </button>
   );
+}
+
+/** The universe a catalog card selects: the backend's own `universe` when it sends one, else the older kind/ref/id rule. */
+function catalogUniverse(c: CatalogUniverse): UniverseRef {
+  if (c.universe?.type && c.universe.ref) return c.universe;
+  return c.kind === "broad" ? { type: "index", ref: c.ref as string } : { type: "custom", ref: c.id as string };
 }
 
 function TrendPill({ trend, label }: { trend?: string | null; label: string }) {
