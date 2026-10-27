@@ -15,6 +15,8 @@ Endpoints (all under /api/desk):
                                          desk-paper-v3): {kind, underlying, direction, family, reference_price, stop_underlying?,
                                          target_underlying?, legs[1-4], signal{signal_at, rule_version, evidence_summary, ...},
                                          strategy_plan_id?, max_hold_sessions?, note?}; the signal and legs are saved once, never edited
+    POST   /paper-trades/check         — the same body, validated the same way: the risk service's decision for it on your
+                                         account now (allow / reduce / block with reasons); writes and reserves nothing
     GET    /paper-trades/{id}          — one trade with its lifecycle log (and, for a strategy, its signal); read-only
     POST   /paper-trades/{id}/close    — {exit_price?}: close at that price, or at the last end-of-day close ("manual");
                                          a trade whose conditional entry was not reached is "cancelled" (no P&L)
@@ -435,6 +437,49 @@ def _with_lifecycle(out: Dict[str, Any], doc: Dict[str, Any]) -> Dict[str, Any]:
 PLAN_RISK_BASIS = ("The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this "
                    "plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides "
                    "at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.")
+
+
+CHECK_BASIS = ("The risk service's decision for this structure on your account now (services/risk_gate/service.decide), "
+               "the same code the paper-trade POST runs; nothing was recorded or reserved, and the POST decides again.")
+
+
+@router.post("/paper-trades/check")
+async def check_paper_trade(request: Request) -> Dict[str, Any]:
+    """The risk service's answer for a paper trade that is NOT submitted (Strategy Lab › Build a trade, the Checks card).
+    The body is the POST /paper-trades body; it is validated by the same code (422 with the same detail), then the risk
+    service gathers this account's book and decides (`risk_service.gather` + `decide`). Nothing is written: no trade, no
+    risk_decisions row, no refusal record, no reservation, no Idempotency-Key. An open duplicate is reported, not refused.
+    The fill check of an at-once cash entry (the last session's range) is the POST's, not this route's. Nothing is sent to
+    a broker."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    body = await _body(request)
+    if isinstance(body, dict) and "plan_ref" in body:
+        body = {k: v for k, v in body.items() if k != "plan_ref"}     # a TradePlan link changes no risk number
+    try:
+        if isinstance(body, dict) and body.get("kind") == strat.KIND:
+            doc = strat.new_strategy_trade(uid, body)
+            await strat.check_exchange_lots(doc)
+        else:
+            if isinstance(body, dict) and "kind" in body:
+                if body["kind"] != "cash":
+                    raise svc.DeskInputError("invalid_kind")
+                body = {k: v for k, v in body.items() if k != "kind"}
+            doc = svc.new_trade(uid, body)
+    except svc.DeskInputError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail())
+    doc["open_key"] = strat.structure_key(doc) if doc.get("kind") == strat.KIND else svc.open_key(doc)
+    existing = await _open_duplicate(uid, doc)
+    fno_additional = await risk_gate.enabled_for(db, user)
+    req = _entry_request(user, risk_gate.correlation_id(request), doc, fno_additional)
+    decision = risk_service.decide(req, await risk_service.gather(db, req, svc.utcnow()))
+    keys = ("outcome", "reasons", "requested_lots", "approved_lots", "requested_qty", "approved_qty", "estimated_risk_rs",
+            "budget", "limits_version", "freshness")
+    return {"checked": True, "recorded": False, **{k: decision.get(k) for k in keys},
+            "policy_version": risk_service.POLICY_VERSION,
+            "duplicate": None if existing is None else {"existing_trade_id": existing["_id"],
+                                                        "message": _duplicate_detail(doc, existing)["message"]},
+            "basis": CHECK_BASIS, "sent_to_broker": False}
 
 
 def _public_decision(row: Dict[str, Any]) -> Dict[str, Any]:
