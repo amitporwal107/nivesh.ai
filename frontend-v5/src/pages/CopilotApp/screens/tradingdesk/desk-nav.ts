@@ -15,6 +15,8 @@
  *                                         The old Trade Desk views land in their sections: view=open / paper → paper live,
  *                                         closed → paper journal, new → lab build; Market Desk's watchlists → here.
  *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener
+ *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
+ *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
  *   04 Risk Desk         tab=risk         limits · controls · log
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
  *   AI Copilot           tab=copilot      the Copilot full height, where it is not docked (under 1400px)
@@ -146,6 +148,12 @@ export function canonical(params: URLSearchParams): URLSearchParams {
   return out;
 }
 
+/**
+ * Market Desk views that moved to Trade Desk (Watchlists; AI Scanner › Scorecard). `?tab=market&view=<one>` opens Trade
+ * Desk's default view until the Trade Desk tab gives them their own places.
+ */
+export const MOVED_TO_TRADE: ReadonlySet<string> = new Set(["watchlists", "scorecard"]);
+
 /** The old desk's tabs and More views (before 2026-10-27). */
 const OLD_TABS = new Set(["scanner", "intel", "events", "chart", "smartmoney", "fno", "more"]);
 
@@ -185,7 +193,10 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
       return old === "new" ? set("trade", "lab", undefined, "build") : set("trade", "paper", undefined, old === "closed" ? "journal" : "live");
     }
   }
-  if (tab === "market" && params.get("view") === "watchlists") return set("trade", "watchlists");
+  if (tab === "market" && MOVED_TO_TRADE.has(params.get("view") ?? "")) {
+    // Watchlists and the Idea scorecard belong to Trade Desk (the owner's design; 27 Oct 19:40 IST).
+    return params.get("view") === "scorecard" ? set("trade", "scanner", undefined, "scorecard") : set("trade", "watchlists");
+  }
   if (isPlace(tab)) {
     // A new URL. A missing or unknown view becomes the tab's default, a missing or unknown sub-view the view's; a view
     // on a tab without views, or a sub-view on a view without them, is dropped.

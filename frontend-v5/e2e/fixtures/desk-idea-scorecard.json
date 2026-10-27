@@ -1,0 +1,487 @@
+{
+ "study": {
+  "id": "p4_adx_rs",
+  "phase": "4.3",
+  "title": "ADX and relative-strength variants of the AI scanner score",
+  "run_date": "2026-10-27",
+  "registration_commit": "4c408401",
+  "code_sha": "4c408401+run_study(uncommitted)",
+  "signal_dates": 385,
+  "sessions": 634,
+  "input_hash": "65483cfc3d3d077b65ab3cbcb0dee2caf65b72bce169e584840d3c34ff473365",
+  "bar_rows": 1098819,
+  "outcome": "10-session excess return, entry at the next session's open"
+ },
+ "splits": [
+  {
+   "name": "discovery",
+   "from": "2025-02-17",
+   "to": "2026-02-11",
+   "dates": 233,
+   "names_per_date_median": 511.0,
+   "coverage_top_movers_outside_universe": 0.6673,
+   "arms": [
+    {
+     "arm": "B0",
+     "label": "the current ranking",
+     "rank_ic": {
+      "mean": 0.0085,
+      "nw_t": 0.43,
+      "se": 0.0198,
+      "n": 233
+     },
+     "vs_b0": null,
+     "permutation_p": null,
+     "top_decile_net_mean": 0.0023,
+     "top_decile_hit_rate": 0.4959,
+     "top_minus_median": 0.00498
+    },
+    {
+     "arm": "A1",
+     "label": "current ranking + an ADX term",
+     "rank_ic": {
+      "mean": 0.0002,
+      "nw_t": 0.01,
+      "se": 0.0193,
+      "n": 233
+     },
+     "vs_b0": {
+      "delta_ic": -0.0084,
+      "nw_t": -2.8,
+      "se": 0.003,
+      "n": 233,
+      "permutation_p": 0.997,
+      "by_regime": {
+       "up": {
+        "n": 191,
+        "delta_ic": -0.0095,
+        "nw_t": -2.69
+       },
+       "down": {
+        "n": 42,
+        "delta_ic": -0.0032,
+        "nw_t": -1.23
+       }
+      }
+     },
+     "permutation_p": 0.997,
+     "top_decile_net_mean": 0.00215,
+     "top_decile_hit_rate": 0.4906,
+     "top_minus_median": 0.00483
+    },
+    {
+     "arm": "A2",
+     "label": "RS63 vs Nifty 50 replaces the sector term",
+     "rank_ic": {
+      "mean": 0.0048,
+      "nw_t": 0.23,
+      "se": 0.0209,
+      "n": 233
+     },
+     "vs_b0": {
+      "delta_ic": -0.0037,
+      "nw_t": -0.98,
+      "se": 0.0038,
+      "n": 233,
+      "permutation_p": 0.8042,
+      "by_regime": {
+       "up": {
+        "n": 191,
+        "delta_ic": -0.0039,
+        "nw_t": -0.89
+       },
+       "down": {
+        "n": 42,
+        "delta_ic": -0.0031,
+        "nw_t": -0.56
+       }
+      }
+     },
+     "permutation_p": 0.8042,
+     "top_decile_net_mean": 0.00169,
+     "top_decile_hit_rate": 0.4898,
+     "top_minus_median": 0.00437
+    },
+    {
+     "arm": "A3",
+     "label": "A2 + an ADX term",
+     "rank_ic": {
+      "mean": -0.0039,
+      "nw_t": -0.19,
+      "se": 0.0202,
+      "n": 233
+     },
+     "vs_b0": {
+      "delta_ic": -0.0124,
+      "nw_t": -3.24,
+      "se": 0.0038,
+      "n": 233,
+      "permutation_p": 0.997,
+      "by_regime": {
+       "up": {
+        "n": 191,
+        "delta_ic": -0.0135,
+        "nw_t": -3.17
+       },
+       "down": {
+        "n": 42,
+        "delta_ic": -0.0076,
+        "nw_t": -1.25
+       }
+      }
+     },
+     "permutation_p": 0.997,
+     "top_decile_net_mean": 0.0017,
+     "top_decile_hit_rate": 0.4897,
+     "top_minus_median": 0.00438
+    }
+   ]
+  },
+  {
+   "name": "validation",
+   "from": "2026-02-12",
+   "to": "2026-06-15",
+   "dates": 71,
+   "names_per_date_median": 549.0,
+   "coverage_top_movers_outside_universe": 0.7741,
+   "arms": [
+    {
+     "arm": "B0",
+     "label": "the current ranking",
+     "rank_ic": {
+      "mean": 0.0011,
+      "nw_t": 0.03,
+      "se": 0.0328,
+      "n": 71
+     },
+     "vs_b0": null,
+     "permutation_p": null,
+     "top_decile_net_mean": 0.00263,
+     "top_decile_hit_rate": 0.4761,
+     "top_minus_median": 0.00626
+    },
+    {
+     "arm": "A1",
+     "label": "current ranking + an ADX term",
+     "rank_ic": {
+      "mean": -0.0034,
+      "nw_t": -0.11,
+      "se": 0.0322,
+      "n": 71
+     },
+     "vs_b0": {
+      "delta_ic": -0.0045,
+      "nw_t": -1.07,
+      "se": 0.0042,
+      "n": 71,
+      "permutation_p": 0.8162,
+      "by_regime": {
+       "up": {
+        "n": 11,
+        "delta_ic": -0.0158,
+        "nw_t": -4.03
+       },
+       "down": {
+        "n": 60,
+        "delta_ic": -0.0025,
+        "nw_t": -0.54
+       }
+      }
+     },
+     "permutation_p": 0.8162,
+     "top_decile_net_mean": -0.00059,
+     "top_decile_hit_rate": 0.4647,
+     "top_minus_median": 0.00304
+    },
+    {
+     "arm": "A2",
+     "label": "RS63 vs Nifty 50 replaces the sector term",
+     "rank_ic": {
+      "mean": 0.0121,
+      "nw_t": 0.34,
+      "se": 0.0359,
+      "n": 71
+     },
+     "vs_b0": {
+      "delta_ic": 0.0109,
+      "nw_t": 2.75,
+      "se": 0.004,
+      "n": 71,
+      "permutation_p": 0.035,
+      "by_regime": {
+       "up": {
+        "n": 11,
+        "delta_ic": 0.02,
+        "nw_t": 4.46
+       },
+       "down": {
+        "n": 60,
+        "delta_ic": 0.0093,
+        "nw_t": 2.11
+       }
+      }
+     },
+     "permutation_p": 0.035,
+     "top_decile_net_mean": 0.00277,
+     "top_decile_hit_rate": 0.4734,
+     "top_minus_median": 0.0064
+    },
+    {
+     "arm": "A3",
+     "label": "A2 + an ADX term",
+     "rank_ic": {
+      "mean": 0.0068,
+      "nw_t": 0.19,
+      "se": 0.035,
+      "n": 71
+     },
+     "vs_b0": {
+      "delta_ic": 0.0057,
+      "nw_t": 1.22,
+      "se": 0.0046,
+      "n": 71,
+      "permutation_p": 0.1379,
+      "by_regime": {
+       "up": {
+        "n": 11,
+        "delta_ic": 0.002,
+        "nw_t": 1.4
+       },
+       "down": {
+        "n": 60,
+        "delta_ic": 0.0064,
+        "nw_t": 1.17
+       }
+      }
+     },
+     "permutation_p": 0.1379,
+     "top_decile_net_mean": 0.00123,
+     "top_decile_hit_rate": 0.4753,
+     "top_minus_median": 0.00487
+    }
+   ]
+  },
+  {
+   "name": "test",
+   "from": "2026-06-16",
+   "to": "2026-10-09",
+   "dates": 81,
+   "names_per_date_median": 597.0,
+   "coverage_top_movers_outside_universe": 0.7331,
+   "arms": [
+    {
+     "arm": "B0",
+     "label": "the current ranking",
+     "rank_ic": {
+      "mean": 0.0075,
+      "nw_t": 0.41,
+      "se": 0.0182,
+      "n": 81
+     },
+     "vs_b0": null,
+     "permutation_p": null,
+     "top_decile_net_mean": -0.00992,
+     "top_decile_hit_rate": 0.4494,
+     "top_minus_median": 0.00555
+    },
+    {
+     "arm": "A1",
+     "label": "current ranking + an ADX term",
+     "rank_ic": {
+      "mean": 0.0106,
+      "nw_t": 0.51,
+      "se": 0.0206,
+      "n": 81
+     },
+     "vs_b0": {
+      "delta_ic": 0.0031,
+      "nw_t": 0.87,
+      "se": 0.0036,
+      "n": 81,
+      "permutation_p": 0.2298,
+      "by_regime": {
+       "up": {
+        "n": 0,
+        "delta_ic": null,
+        "nw_t": null
+       },
+       "down": {
+        "n": 81,
+        "delta_ic": 0.0031,
+        "nw_t": 0.87
+       }
+      }
+     },
+     "permutation_p": 0.2298,
+     "top_decile_net_mean": -0.0094,
+     "top_decile_hit_rate": 0.458,
+     "top_minus_median": 0.00606
+    },
+    {
+     "arm": "A2",
+     "label": "RS63 vs Nifty 50 replaces the sector term",
+     "rank_ic": {
+      "mean": 0.0197,
+      "nw_t": 0.98,
+      "se": 0.0202,
+      "n": 81
+     },
+     "vs_b0": {
+      "delta_ic": 0.0122,
+      "nw_t": 3.18,
+      "se": 0.0038,
+      "n": 81,
+      "permutation_p": 0.007,
+      "by_regime": {
+       "up": {
+        "n": 0,
+        "delta_ic": null,
+        "nw_t": null
+       },
+       "down": {
+        "n": 81,
+        "delta_ic": 0.0122,
+        "nw_t": 3.18
+       }
+      }
+     },
+     "permutation_p": 0.007,
+     "top_decile_net_mean": -0.00885,
+     "top_decile_hit_rate": 0.4572,
+     "top_minus_median": 0.00661
+    },
+    {
+     "arm": "A3",
+     "label": "A2 + an ADX term",
+     "rank_ic": {
+      "mean": 0.0202,
+      "nw_t": 0.91,
+      "se": 0.0223,
+      "n": 81
+     },
+     "vs_b0": {
+      "delta_ic": 0.0127,
+      "nw_t": 2.09,
+      "se": 0.0061,
+      "n": 81,
+      "permutation_p": 0.045,
+      "by_regime": {
+       "up": {
+        "n": 0,
+        "delta_ic": null,
+        "nw_t": null
+       },
+       "down": {
+        "n": 81,
+        "delta_ic": 0.0127,
+        "nw_t": 2.09
+       }
+      }
+     },
+     "permutation_p": 0.045,
+     "top_decile_net_mean": -0.00816,
+     "top_decile_hit_rate": 0.4659,
+     "top_minus_median": 0.0073
+    }
+   ]
+  }
+ ],
+ "decision": {
+  "verdict": "keep B0; the current ranking shows no measurable skill",
+  "study_verdict": "keep B0 (no arm met every pre-registered condition)",
+  "adopted": null,
+  "per_arm": {
+   "A1": {
+    "checks": {
+     "a_validation": false,
+     "b_test": false,
+     "c_test_net_spread_not_below_B0": true,
+     "d_test_same_sign_both_regimes": false
+    },
+    "adopt": false
+   },
+   "A2": {
+    "checks": {
+     "a_validation": true,
+     "b_test": true,
+     "c_test_net_spread_not_below_B0": true,
+     "d_test_same_sign_both_regimes": false
+    },
+    "adopt": false
+   },
+   "A3": {
+    "checks": {
+     "a_validation": false,
+     "b_test": true,
+     "c_test_net_spread_not_below_B0": true,
+     "d_test_same_sign_both_regimes": false
+    },
+    "adopt": false
+   }
+  }
+ },
+ "rs63": {
+  "arm": "A2",
+  "label": "RS63 vs Nifty 50 replaces the sector term",
+  "status": "promising, awaiting its pre-registered confirmation",
+  "adopted": false,
+  "confirmation": "docs/ai_research/P4_RS63_CONFIRMATION_PREREGISTRATION.md"
+ },
+ "coverage": {
+  "discovery": {
+   "top_movers_outside_universe": 0.6673,
+   "names_per_date_median": 511.0
+  },
+  "validation": {
+   "top_movers_outside_universe": 0.7741,
+   "names_per_date_median": 549.0
+  },
+  "test": {
+   "top_movers_outside_universe": 0.7331,
+   "names_per_date_median": 597.0
+  }
+ },
+ "units": {
+  "rank_ic": "mean daily Spearman rank correlation between the score and the 10-session excess return",
+  "nw_t": "Newey-West t-statistic, lag 9",
+  "permutation_p": "one-sided block-permutation p of the difference with B0 (10-session blocks, 1,000 draws)",
+  "top_decile_net_mean": "mean 10-session return of the arm's highest-scored 10%, net of the study's costs, as a fraction (-0.00992 = -0.99%)",
+  "top_decile_hit_rate": "share of the top decile with an excess return above 0, as a fraction",
+  "coverage_top_movers_outside_universe": "share of each day's top-decile forward movers outside the scanner's universe, as a fraction"
+ },
+ "disclaimer": "Ideas, not recommendations. The rank orders ideas; this study found no measurable ranking skill, so the rank is not a prediction.",
+ "sources": [
+  {
+   "path": "research/p4_adx_rs/results_20261027/result.json",
+   "role": "every number on this scorecard",
+   "present": true,
+   "sha256": "4b3eff97d09f854397fe4ca11a0895d159920b3ce093d6063b2b9d6d6426ebd8",
+   "bytes": 7927,
+   "reason": null
+  },
+  {
+   "path": "docs/ai_research/P4_ADX_RS_PREREGISTRATION.md",
+   "role": "the pre-registered rule",
+   "present": false,
+   "sha256": null,
+   "bytes": null,
+   "reason": "not readable here (FileNotFoundError)"
+  },
+  {
+   "path": "docs/ai_research/P4_ADX_RS_RESULTS.md",
+   "role": "the write-up the verdict and the RS63 status are taken from",
+   "present": false,
+   "sha256": null,
+   "bytes": null,
+   "reason": "not readable here (FileNotFoundError)"
+  },
+  {
+   "path": "docs/ai_research/P4_RS63_CONFIRMATION_PREREGISTRATION.md",
+   "role": "the RS63 confirmation test, registered, not yet run",
+   "present": false,
+   "sha256": null,
+   "bytes": null,
+   "reason": "not readable here (FileNotFoundError)"
+  }
+ ]
+}

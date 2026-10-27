@@ -28,6 +28,7 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
   market: [
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" },
+    // Watchlists and the Idea scorecard are Trade Desk's (owner, 27 Oct 19:40 IST): copilot-app-desk-market-desk.spec.ts
   ],
   risk: [{ key: "limits", label: "Exposure & limits" }, { key: "controls", label: "Policy & runtime" }, { key: "log", label: "Decision log" }],
 };
