@@ -34,6 +34,12 @@ Endpoints (all under /api/desk):
                                        — {as_of, checked_through, alerts, conditions, check_errors, ...}; checks every
                                          active alert first. A fired alert carries `reason` and `evidence`
     DELETE /alerts/{id}                — 204
+    GET    /paper-account/corrections  — your reconciliation corrections: reason, decision (exclude / void / ...), date,
+                                         in force or reverted (services/paper_reconcile.corrections); read-only
+    GET    /exit-job-status            — when exits were last checked and ok | running | late | missed, by the admin
+                                         job-health rule (services/job_runs.trader_status); read-only, applies nothing
+    GET    /idea-scorecard             — the Phase 4.3 study's committed results for the AI ideas' ranking
+                                         (services/idea_scorecard.py); 503 when the committed files cannot be read
 
 Limits: 100 open paper trades and 50 active alerts per user (409 open_trade_limit / active_alert_limit). An active
 alert identical to one the user already has (same condition, stock, level and settings) is 409 duplicate_alert.
@@ -69,7 +75,10 @@ from deps import db, get_current_user
 from services import desk_alerts as alerts_svc
 from services import desk_strategy_trades as strat
 from services import desk_trading as svc
+from services import idea_scorecard as scorecard
+from services import job_runs
 from services import paper_account as acct
+from services import paper_reconcile as reconcile
 from services import risk_controls as rc
 from services import risk_gate
 from services.risk_gate import plan_sizing
@@ -81,6 +90,9 @@ from services.strategy_plan import trade_plan as tpm
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/desk", tags=["desk"])
+
+#: The evening exit check's job name in services/job_runs (scripts/check_desk_alerts.py).
+EXIT_JOB = "check_desk_alerts"
 
 _ID_MAX = 64
 
@@ -492,6 +504,14 @@ async def paper_account(request: Request) -> Dict[str, Any]:
     left. `blocked_rs` is CAPITAL AT RISK, not exchange margin — this system has no margin source."""
     user = await get_current_user(request)
     return await acct.read(db, user["user_id"])
+
+
+@router.get("/paper-account/corrections")
+async def paper_account_corrections(request: Request) -> Dict[str, Any]:
+    """Your paper account's reconciliation corrections (services/paper_reconcile.py): each additive entry with its
+    reason, the owner's decision (exclude, void, ...) and its date, and whether a revert has cancelled it. Read-only."""
+    user = await get_current_user(request)
+    return await reconcile.corrections(db, user["user_id"])
 
 
 @router.get("/paper-trades")
@@ -952,3 +972,25 @@ async def delete_alert(request: Request, alert_id: str) -> Response:
         raise HTTPException(status_code=404, detail="alert_not_found")
     logger.info("desk: user %s deleted alert %s", uid, alert_id)
     return Response(status_code=204)
+
+
+# ── read-only status for the desk (no database write, nothing applied) ──────
+@router.get("/exit-job-status")
+async def exit_job_status(request: Request) -> Dict[str, Any]:
+    """When exits were last checked: the evening job's last successful run and the session it covered, and
+    ok | running | late | missed by the admin route's own rule (services/job_runs.trader_status). Reads the job's
+    heartbeat only. It does NOT apply exits; GET /paper-trades does that."""
+    await get_current_user(request)
+    return await job_runs.read_trader_status(db, EXIT_JOB, job_runs.utcnow())
+
+
+@router.get("/idea-scorecard")
+async def idea_scorecard(request: Request) -> Dict[str, Any]:
+    """The AI ideas' scorecard: the Phase 4.3 pre-registered study's committed results (services/idea_scorecard.py),
+    nulls and negatives as they are. 503 with the reason when the committed results cannot be read."""
+    await get_current_user(request)
+    try:
+        return scorecard.load()
+    except scorecard.ScorecardUnavailable as e:
+        logger.warning("desk: idea scorecard unavailable (%s: %s)", e.code, e.reason)
+        raise HTTPException(status_code=503, detail=e.detail())

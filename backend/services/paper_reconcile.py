@@ -30,6 +30,7 @@ Nothing here places an order or imports a broker.
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -524,6 +525,64 @@ async def revert(db, run_id: str, revert_run_id: str, *, snapshot: Optional[str]
                                        "snapshot": snapshot, "note": f"Reverses {key} (run {run_id})."})
         report["moved" if moved else "already_applied"].append(rkey)
     return report
+
+
+# ── the user's own corrections (GET /api/desk/paper-account/corrections) ─────
+#: What the corrections list reads of a ledger row: an allow-list. Never user_id, snapshot, stamp or policy_version.
+CORRECTION_FIELDS = ("_id", "action", "at", "reason_code", "trade_id", "symbol", "note", "cash_delta_rs",
+                     "blocked_delta_rs", "reverts", "run_id", "actor")
+MAX_CORRECTIONS = 1000
+REASON_LABELS = {
+    OPEN_UNRESERVED: "An open position held no reservation",
+    PNL_NOT_IN_CASH: "A closed trade's P&L had not reached cash",
+    PNL_MISSING: "A closed trade had no P&L on record",
+    ORPHAN_RESERVATION: "Capital was reserved for a trade that was never stored",
+    RESERVATION_MISMATCH: "The ledger's reservation did not match the trade",
+    PNL_POSTED_MISMATCH: "The P&L in cash differed from the trade's net P&L",
+    REVERT: "Reverses an earlier correction",
+}
+_DECISION_RE = re.compile(r"^Owner decision '([a-z_]+)'")
+
+
+def decision_of(note: Any) -> Optional[str]:
+    """The owner's option named in a correction's note ("Owner decision 'exclude': ..."), or None: an entry the dry
+    run proposed (a reservation, a release) or a revert carries no decision."""
+    m = _DECISION_RE.match(note) if isinstance(note, str) else None
+    return m.group(1) if m else None
+
+
+async def corrections(db, user_id: str) -> Dict[str, Any]:
+    """The user's correction rows (ledger action `adjust`), newest first, each with the decision it records and
+    whether it is still in force. One read, filtered to this user, with the allow-list projection. Writes nothing."""
+    rows = await db[acct.LEDGER].find({"user_id": user_id, "action": acct.ADJUST}, _projection(CORRECTION_FIELDS)) \
+        .sort("at", -1).to_list(MAX_CORRECTIONS + 1)
+    truncated = len(rows) > MAX_CORRECTIONS
+    rows = rows[:MAX_CORRECTIONS]
+    applied, _reverted = active_keys(rows)
+    reverted_by = {str(r["reverts"]): str(r.get("_id")) for r in rows if r.get("reverts")}
+    out = []
+    for r in rows:
+        key = str(r.get("_id"))
+        is_revert = bool(r.get("reverts"))
+        decision = decision_of(r.get("note"))
+        out.append({
+            "id": key, "at": r.get("at"), "reason_code": r.get("reason_code"),
+            "reason": REASON_LABELS.get(r.get("reason_code")), "decision": decision,
+            "kind": "revert" if is_revert else ("owner_decision" if decision else "proposed"),
+            "trade_id": r.get("trade_id"), "symbol": r.get("symbol"),
+            "cash_delta_rs": r.get("cash_delta_rs"), "blocked_delta_rs": r.get("blocked_delta_rs"),
+            "note": r.get("note"), "reverts": r.get("reverts"), "reverted_by": reverted_by.get(key),
+            "in_force": is_revert or key in applied, "run_id": r.get("run_id"), "actor": r.get("actor"),
+        })
+    live = [c for c in out if c["in_force"] and c["kind"] != "revert"]
+    return {"corrections": out, "count": len(out), "truncated": truncated,
+            "counts": {"in_force": len(live), "excluded": sum(1 for c in live if c["decision"] == "exclude"),
+                       "voided": sum(1 for c in live if c["decision"] == "void"),
+                       "reverted": sum(1 for c in out if c["reverted_by"]),
+                       "by_reason_code": _count(str(c["reason_code"]) for c in out)},
+            "append_only": True, "plan_version": PLAN_VERSION,
+            "note": ("Corrections are added to the ledger, never edited or deleted. A revert adds the opposite entry; "
+                     "the original stays and is marked not in force.")}
 
 
 def check(data: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
