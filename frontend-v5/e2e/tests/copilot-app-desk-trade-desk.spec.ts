@@ -623,26 +623,14 @@ test.describe("MOCK — not real data: Trade Desk · New trade", () => {
     await expect(page.getByTestId("td-ticket-answer-text")).toHaveText(`Not recorded: ${unfillable.message}`);
   });
 
-  test("TD-31 / TD-32 the F&O builder offers only the backend catalog; the first wave is marked; payoff with Greeks", async ({ page }) => {
-    const seen = await setup(page);
+  test("TD-31 / TD-32 Build a trade is the owner's four-step wizard on the backend catalog (the F&O builder panel is replaced)", async ({ page }) => {
+    await setup(page);
     await page.goto(TD("new"));
-    await expect(page.getByTestId("td-template")).toHaveCount(TEMPLATES.templates.length, SLOW);
-    const wave = page.getByTestId("td-first-wave-item");
-    await expect(wave).toHaveText([
-      "Covered call: not in the backend catalog yet", "Bull put credit spread: not in the backend catalog yet", "Bear call credit spread: not in the backend catalog yet",
-      "Iron condor: available", "Protective put / collar: not in the backend catalog yet",
-    ]);
-    const fno = page.getByTestId("desk-panel-fno");
-    await expect(fno.getByTestId("desk-builder-tile-buy_call")).toBeVisible(SLOW);
-    await expect(fno.getByTestId("desk-builder-tile-bull_call_spread")).toBeVisible();
-    await expect(fno.getByTestId("desk-builder-tile-sell_put")).toHaveCount(0);
-    await expect(fno.getByTestId("desk-builder-tile-bull_put_spread")).toHaveCount(0);
-    await fno.getByTestId("desk-builder-view-neutral").click();
-    await expect(fno.getByTestId("desk-builder-tile-iron_butterfly")).toHaveCount(0);
-    await fno.getByTestId("desk-builder-tile-iron_condor").click();
-    await expect(fno.getByTestId("payoff-summary")).toBeVisible(SLOW);
-    await expect(fno.getByTestId("payoff-leg-greeks")).toBeVisible();
-    expect(seen.payoffs.some((p) => (p.legs as unknown[]).length === 4 && !!p.pre_expiry)).toBe(true);
+    // Details: copilot-app-desk-strategy-wizard.spec.ts (WZ-1 … WZ-19).
+    await expect(page.getByTestId("wz-stepper")).toBeVisible(SLOW);
+    await expect(page.getByTestId("wz-card")).toHaveCount(TEMPLATES.templates.length, SLOW);
+    await expect(page.getByTestId("desk-panel-fno")).toHaveCount(0);
+    await expect(page.getByTestId("td-from-idea")).toHaveAttribute("aria-expanded", "false");
   });
 
   test("TD-33 backtest provenance: liquid-eq-v1 point-in-time, code, data to, cost model, slippage sweep; an index shows survivorship", async ({ page }) => {
@@ -850,7 +838,7 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     for (const [view, root] of [["open", "td-view-open"], ["closed", "td-view-journal"], ["new", "td-view-build"], ["backtest", "td-view-backtest"]]) {
       await page.goto(TD(view));
       await expect(page.getByTestId(root)).toBeVisible(SLOW);
-      if (view === "new") await expect(page.getByTestId("td-template").first()).toBeVisible(SLOW);
+      if (view === "new") await expect(page.getByTestId("wz-card").first()).toBeVisible(SLOW);
       await noSideScroll(page);
     }
     await page.goto(TD("open"));
@@ -880,7 +868,7 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     expect(wordingOf(await page.getByTestId("desk-views").innerText())).not.toMatch(BANNED);
     await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));
     await expect(page.getByTestId("td-ticket-size")).toHaveAttribute("data-qty", "666", SLOW);
-    for (const id of ["td-ticket", "td-templates"]) {
+    for (const id of ["td-ticket", "wz-templates"]) {
       expect(wordingOf(await page.getByTestId(id).innerText()), id).not.toMatch(BANNED);
     }
     await expect(page.getByTestId("td-ticket")).toContainText("nothing is sent to a broker");
