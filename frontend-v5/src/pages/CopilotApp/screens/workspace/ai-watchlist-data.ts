@@ -51,6 +51,9 @@ export const CashEntrySchema = z.object({
 export const FnoEntrySchema = OptionIdeaSchema.extend({
   kind: z.enum(["index", "stock"]).catch("stock"),
   rank: z.number(),
+  /** The levels engine's answer stored with the day's list (services/ai_watchlist_build.levels_for); absent on a day
+   *  stored before the job kept them. `result` is parsed by tradingdesk/IdeaLevels.tsx readStoredLevels. */
+  strategy_levels: z.object({ as_of: str, computed_at: str, result: z.unknown(), error: str }).partial().nullable().catch(null),
   ...Listing,
 });
 
@@ -61,7 +64,7 @@ export const DaySchema = z.object({
   cash: z.array(CashEntrySchema),
   fno: z.array(FnoEntrySchema),
   notes: z.object({
-    cash_ranking: str, cash_caveats: strs, fno_ranking: str, fno_gaps: strs, fno_staleness: str, fno_chain_as_of: str,
+    cash_ranking: str, cash_caveats: strs, fno_ranking: str, fno_gaps: strs, fno_staleness: str, fno_chain_as_of: str, fno_rules_version: str,
     fno_skipped: z.array(z.object({ underlying: str }).passthrough()).catch([]),
     regime: z.object({ available: z.boolean().nullable().catch(null), label: str, as_of: str, trend: str, india_vix: num }).partial().nullable().catch(null),
   }).partial().catch({}),

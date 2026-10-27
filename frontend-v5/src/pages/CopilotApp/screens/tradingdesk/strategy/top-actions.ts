@@ -7,13 +7,20 @@
  * Both reuse what the desk already has rather than adding a second way to price or record a structure,
  * so an idea opened here and the same idea built in "One stock" cannot disagree.
  *
+ * The paper-trade body carries the idea's `signal` (its data date, the board's rules version, the sources and the fit
+ * reasons), which the route requires (services/desk_strategy_trades.clean_signal; without it every button was refused
+ * with 422 invalid_signal). When the levels engine answered for the idea, the trade also records the underlying stop
+ * and target 1 the row shows. The exact body is pinned by e2e/fixtures/contract-fno-idea-paper-trade.json, which the
+ * Playwright specs compare against and backend/tests/test_fno_idea_paper_trade_contract.py sends through the real route.
+ *
  * Nothing places a real order. The paper-trade route is the desk's own simulator and the Kite wrapper
  * behind the live feed exposes no order method at all.
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
+import type { Levels } from "../FnoLevels";
 import type { PayoffRequest } from "./strategy-contract";
-import type { OptionIdeaCore as OptionIdea } from "./top-contract";
+import type { OptionIdeaCore as OptionIdea, TopBoard } from "./top-contract";
 
 export const PAPER_TRADES_PATH = "/api/desk/paper-trades";
 
@@ -53,25 +60,103 @@ export function payoffRequestFor(idea: OptionIdea): PayoffRequest | null {
   };
 }
 
-/** The paper-trade body for one idea.
+export interface LevelsRefs { put_wall: null; call_wall: null; expected_move: number | null }
+
+/** The levels engine's references for an idea on a board: no open-interest walls (a board does not carry them) and the
+ *  expected move the board measured for the underlying, the index class first. The nightly AI watchlist job sends the
+ *  same (backend services/ai_watchlist_build.levels_refs_for), so a stored day's levels are the live row's levels. */
+export function levelsRefsFor(board: Pick<TopBoard, "classes"> | null | undefined, underlying: string): LevelsRefs {
+  let move: number | null = null;
+  for (const cls of [board?.classes.index_options, board?.classes.stock_fno]) {
+    for (const u of cls?.underlyings ?? []) {
+      if (move == null && u.underlying === underlying && u.expected_move != null) move = u.expected_move;
+    }
+  }
+  return { put_wall: null, call_wall: null, expected_move: move };
+}
+
+/** What a paper trade needs besides the idea: the board's rules version, and the levels the row shows (if any). */
+export interface PaperContext {
+  /** The board's `rules_version` (a stored list's `notes.fno_rules_version`). */
+  rulesVersion: string | null | undefined;
+  /** The levels engine's answer for this idea, when the row shows one. Without it no level is recorded. */
+  levels?: Levels | null;
+}
+
+type Direction = "bullish" | "bearish" | "neutral";
+const CONTROL = /[\u0000-\u001f\u007f]+/g;
+/** The route refuses control characters and over-long text (desk_strategy_trades._text). */
+const clip = (s: string, n: number) => {
+  const t = s.replace(CONTROL, " ").trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+};
+
+/** The underlying stop and target 1 from the levels engine, as the route takes them (stop_underlying /
+ *  target_underlying). Only when the engine answered for this idea, its view is the idea's own direction, and each level
+ *  lies on the side of the reference price the route requires (bullish: stop below, target above; bearish: the
+ *  reverse). A neutral idea, no answer or a level on the wrong side records nothing: no level is ever made up. */
+export function tradeLevels(direction: Direction, reference: number, levels: Levels | null | undefined): { stop_underlying?: number; target_underlying?: number } {
+  if (!levels?.valid || direction === "neutral" || levels.underlying.view !== direction) return {};
+  const { stop, target } = levels.underlying;
+  const out: { stop_underlying?: number; target_underlying?: number } = {};
+  const up = direction === "bullish";
+  if (stop != null && stop > 0 && (up ? stop < reference : stop > reference)) out.stop_underlying = stop;
+  if (target != null && target > 0 && (up ? target > reference : target < reference)) out.target_underlying = target;
+  return out;
+}
+
+/** Why an idea cannot be recorded as a paper trade, or null when it can. */
+export function paperTradeProblem(idea: OptionIdea, rulesVersion: string | null | undefined): string | null {
+  if (idea.reference_price == null || !idea.legs.length) return "This idea has no priced legs to record.";
+  if (!DIRECTION[idea.view ?? ""]) return "This idea has no direction to record.";
+  if (!idea.data_as_of?.chain) return "This idea has no data date, so it cannot be recorded with its signal.";
+  if (!rulesVersion?.trim()) return "The board sent no rules version, so the idea cannot be recorded with its signal.";
+  return null;
+}
+
+/** The signal the route requires (services/desk_strategy_trades.clean_signal): when (the chain's data date), by which
+ *  rules (the board's version), from what (the board, the chain, the regime, and the levels engine when its levels are
+ *  recorded) and why (the fit score and its reasons). */
+function signalFor(idea: OptionIdea, rulesVersion: string, levels: Levels | null): Record<string, unknown> {
+  const chain = idea.data_as_of?.chain as string;
+  const refs: Array<{ kind: string; ref: string; as_of: string }> = [
+    { kind: "regime_fit_board", ref: clip(`${idea.underlying} ${idea.structure}${idea.expiry ? ` ${idea.expiry}` : ""}`, 120), as_of: chain },
+    { kind: "option_chain", ref: clip(idea.price_source ?? "NSE F&O bhavcopy close", 120), as_of: chain },
+  ];
+  const regimeAt = idea.data_as_of?.regime;
+  if (regimeAt) refs.push({ kind: "market_regime", ref: "desk market regime", as_of: clip(regimeAt, 40) });
+  if (levels) refs.push({ kind: "strategy_levels", ref: clip(levels.version ?? "strategy levels", 120), as_of: chain });
+  const why = idea.fit.because.map((f) => `${f.state}: ${f.text}`).join(" ");
+  return {
+    signal_at: chain,
+    rule_version: rulesVersion.trim(),
+    source_refs: refs,
+    evidence_summary: clip(`Fit ${idea.fit.score} to the measured regime.${why ? ` ${why}` : ""}`, 1000),
+  };
+}
+
+/** The paper-trade body for one idea, or null when it cannot be recorded (paperTradeProblem says why).
  *
- *  Two mappings the route requires and the idea does not already use:
+ *  Mappings the route requires and the idea does not already use:
  *    * the leg's `quantity` is the route's `lots`, and the route REFUSES an unknown leg field
  *      (LEG_FIELDS), so `iv_pct` is dropped rather than passed through;
- *    * the idea's view (up/down/flat) becomes bullish/bearish/neutral.
- *  No stop or target is sent: the route validates those against the reference price per direction, and
- *  a regime-fit idea carries neither, so inventing one here would be inventing a level the engine never
- *  produced. */
-export function paperTradeBodyFor(idea: OptionIdea): Record<string, unknown> | null {
-  if (idea.reference_price == null || !idea.legs.length) return null;
-  const direction = DIRECTION[idea.view ?? ""] ?? null;
-  if (!direction) return null;
+ *    * the idea's view (up/down/flat) becomes bullish/bearish/neutral;
+ *    * the `signal` (signalFor) is built from the idea and the board.
+ *  The stop and target are the levels engine's (tradeLevels), only when the row shows its answer; otherwise none is
+ *  sent and the trade exits at expiry or by hand. */
+export function paperTradeBodyFor(idea: OptionIdea, ctx: PaperContext): Record<string, unknown> | null {
+  if (paperTradeProblem(idea, ctx.rulesVersion)) return null;
+  const direction = DIRECTION[idea.view ?? ""];
+  const reference = idea.reference_price as number;
+  const levels = tradeLevels(direction, reference, ctx.levels);
+  const recorded = Object.keys(levels).length ? (ctx.levels as Levels) : null;
   return {
     kind: "strategy",
     underlying: idea.underlying,
     direction,
     family: KNOWN_FAMILIES.has(idea.structure) ? idea.structure : "custom",
-    reference_price: idea.reference_price,
+    reference_price: reference,
+    ...levels,
     legs: idea.legs.map((l) => ({
       kind: l.kind,
       side: l.side,
@@ -83,6 +168,7 @@ export function paperTradeBodyFor(idea: OptionIdea): Record<string, unknown> | n
       option_type: l.option_type ?? null,
       price_source: l.price_source ?? null,
     })),
+    signal: signalFor(idea, ctx.rulesVersion as string, recorded),
     note: `Top by regime — fit ${idea.fit.score}`,
   };
 }

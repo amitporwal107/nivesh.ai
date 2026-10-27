@@ -7,7 +7,9 @@ The system caller (deps.system_caller), the shaping of a day (services/ai_watchl
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+import json
+from datetime import date, datetime, timezone
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -19,6 +21,7 @@ from routes import ai_watchlist as route
 from scripts import build_ai_watchlist as job
 from services import ai_watchlist_build as build
 from services import ai_watchlist_store as store
+from services import strategy_levels
 
 SYS = build.SYSTEM_USER
 
@@ -131,6 +134,57 @@ def test_a_day_carries_the_notes_and_never_claims_a_broker_send():
     n = d["notes"]
     assert (n["fno_staleness"], n["fno_chain_as_of"], n["regime"]["as_of"]) == ("older regime", "2026-10-26", "2026-10-23")
     assert n["fno_skipped"] == [{"underlying": "PREMEXPLN"}] and n["fno_unavailable"] == [{"underlying": "X"}]
+
+
+# ── stored levels (test_reports/fno_idea_paper_trade_TESTCASES.md B-7, B-8) ──
+
+# The REAL staging capture of POST /api/desk/strategy/top (2026-10-21) the browser specs use; see also
+# tests/test_fno_idea_paper_trade_contract.py, which pins the browser's levels request for its BANKNIFTY idea.
+CAPTURED_TOP = Path(__file__).resolve().parents[2] / "frontend-v5" / "e2e" / "fixtures" / "desk-strategy-top.json"
+LIST_NOW = datetime(2026, 10, 21, 14, 45, tzinfo=timezone.utc)
+
+
+def captured_top():
+    assert CAPTURED_TOP.exists(), f"{CAPTURED_TOP} (the real board capture) must be present"
+    return json.loads(CAPTURED_TOP.read_text(encoding="utf-8"))
+
+
+def test_each_fno_entry_stores_the_levels_engines_answer_for_that_idea_on_the_list_day():
+    top = captured_top()
+    d = build.shape_day("2026-10-21", {"ideas": []}, top, LIST_NOW)
+    assert [e["underlying"] for e in d["fno"]] == ["MPHASIS", "ICICIBANK", "BANKNIFTY", "NIFTY"]
+    for e in d["fno"]:
+        refs = build.levels_refs_for(top, e["underlying"])
+        want = strategy_levels.compute(build.payoff_request_for(e), refs, date(2026, 10, 21))
+        assert e["strategy_levels"] == {"as_of": "2026-10-21", "computed_at": LIST_NOW.isoformat(), "refs": refs, "result": want, "error": None}
+        assert want["valid"] is True and want["sent_to_broker"] is False
+        assert refs["expected_move"] is not None and refs["put_wall"] is None and refs["call_wall"] is None
+    assert d["sent_to_broker"] is False
+
+
+def test_an_idea_that_cannot_be_priced_or_an_engine_failure_keeps_the_day_and_says_why(monkeypatch, caplog):
+    unpriced = {"classes": {"index_options": {"ideas": [opt("NIFTY", 90.0, 1.0)]}}}          # no reference price
+    lv = build.shape_day("2026-10-26", {"ideas": []}, unpriced, LIST_NOW)["fno"][0]["strategy_levels"]
+    assert lv["result"] is None and lv["error"].startswith("The idea has no reference price")
+
+    def boom(*a, **k):
+        raise ZeroDivisionError("MOCK engine failure")
+    monkeypatch.setattr(strategy_levels, "compute", boom)
+    with caplog.at_level("WARNING"):
+        d = build.shape_day("2026-10-21", {"ideas": []}, captured_top(), LIST_NOW)
+    assert len(d["fno"]) == 4
+    assert all(e["strategy_levels"]["result"] is None and "ZeroDivisionError" in e["strategy_levels"]["error"] for e in d["fno"])
+    assert "levels for BANKNIFTY failed: ZeroDivisionError" in caplog.text
+
+
+def test_the_dry_run_summary_names_each_entrys_levels_or_why_there_are_none():
+    top = captured_top()
+    d = build.shape_day("2026-10-21", {"ideas": []}, top, LIST_NOW)
+    bank = next(e for e in d["fno"] if e["underlying"] == "BANKNIFTY")
+    assert job.levels_text(bank) == "levels bearish: stop 55271.88 / target 54641.63"
+    assert job.levels_text({"strategy_levels": {"error": "no prices"}}) == "levels: no prices"
+    assert job.levels_text({"strategy_levels": {"result": {"valid": False, "problems": [{"message": "bad"}]}}}) == "levels: not valid (bad)"
+    assert job.levels_text({}) == "levels: none stored"
 
 
 # ── B-4 … B-6: the job ────────────────────────────────────────────────────
