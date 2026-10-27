@@ -699,13 +699,6 @@ export function useDeskOdds(head: MoveHead = "p_up5_1d") {
   });
 }
 
-/** "p_up5_1d" → "P(+5% next session)". */
-export function headLabel(head: MoveHead): string {
-  const m = /^p_(up|down)(\d+)_1d$/.exec(head);
-  if (!m) return head;
-  return `P(${m[1] === "up" ? "+" : "−"}${m[2]}% next session)`;
-}
-
 /**
  * PRD §5.8: "A probability is displayed only when supported by an appropriate calibration process." The desk shows a
  * model probability only when its route marks the estimate calibrated. GET /api/move-odds/latest publishes the

@@ -1,7 +1,7 @@
 /**
- * F&O lab — pieces shared by its kept screens (Programs, LiveDesk, KiteSessions, Audit) and the Risk Desk (design:
- * docs/ai_research/designs/Nivesh F&O Desk (1).html). The lab's frame, its tab list and mode strip were removed with
- * the frame in the desk redesign's step 6 (2026-10-27).
+ * F&O lab — pieces shared by Audit.tsx and the Risk Desk (design: docs/ai_research/designs/Nivesh F&O Desk (1).html).
+ * The lab's frame and its other screens (Programs, Live desk, Kite sessions, Replay, Certification, Shadow, Market
+ * Intelligence) were removed in the desk redesign's step 6 (2026-10-27).
  *
  * The product implements the design's "today" state only: every value comes from an endpoint, and a part that is not
  * built says so with its backlog tag (PRD v2.1 §24) instead of showing sample numbers. The design's "target" state is
@@ -35,20 +35,6 @@ export function SourceCards({ items, testId = "fnolab-sources" }: { items: Sourc
           <span className="cp-mono-note" style={{ overflowWrap: "anywhere" }}>{f.sub}</span>
         </div>
       ))}
-    </div>
-  );
-}
-
-/**
- * A part of the design that is not built yet. Unlike NotConnected, the backlog tag is shown to everyone: the design puts
- * it on the screen so a reader can see what closes the gap.
- */
-export function GapNote({ tag, title, children, testId = "fnolab-gap" }: { tag: string; title: ReactNode; children?: ReactNode; testId?: string }) {
-  return (
-    <div data-testid={testId} data-tag={tag} className="flex flex-col items-start" style={{ gap: 8, padding: "16px 18px", borderRadius: 14, border: "1px dashed var(--line-3)", background: "var(--bg-1)" }}>
-      <span className="cp-pill" data-tone="amber">Not built yet · {tag}</span>
-      <span style={{ fontFamily: "var(--display)", fontSize: 21, lineHeight: 1.2 }}>{title}</span>
-      {children && <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)", maxWidth: 680 }}>{children}</div>}
     </div>
   );
 }
