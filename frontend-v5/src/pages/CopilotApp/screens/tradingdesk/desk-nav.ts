@@ -198,6 +198,10 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
       return old === "new" ? set("trade", "lab", undefined, "build") : set("trade", "paper", undefined, old === "closed" ? "journal" : "live");
     }
   }
+  if (tab === "market" && params.get("view") === "screener" && params.get("section") === "chartink") {
+    // Chartink sources moved from Market Desk › Screener to Trade Desk › AI Scanner › Signal library & sources (owner's design).
+    return set("trade", "scanner", "chartink", "library");
+  }
   if (tab === "market" && MOVED_TO_TRADE.has(params.get("view") ?? "")) {
     // Watchlists and the Idea scorecard belong to Trade Desk (the owner's design; 27 Oct 19:40 IST).
     return params.get("view") === "scorecard" ? set("trade", "scanner", undefined, "scorecard") : set("trade", "watchlists");
@@ -212,7 +216,7 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     case "scanner": return set("trade", "scanner", undefined, "ranked");
     case "intel": return set("market", "intel");
     case "events": return set("market", "intel", "events");
-    case "chart": return set("market", "research");
+    case "chart": return set("trade", "chart", undefined, "live");
     case "smartmoney": return set("market", "smartmoney");
     case "fno":
       if (params.get("lab") === "strategies") {
@@ -224,7 +228,7 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
       const view = params.get("view");
       if (view === "strategy") return set("trade", "lab", undefined, "build");
       if (view === "risk") return set("risk", "limits");
-      if (view === "chartink") return set("market", "screener", "chartink");
+      if (view === "chartink") return set("trade", "scanner", "chartink", "library");
       p.delete("view");
       return docked ? set("overview", null) : set("copilot", null);
     }
@@ -239,7 +243,7 @@ export function placeOfOldTab(old: string): { tab: DeskPlace; view: string | nul
     case "scanner": return { tab: "trade", view: "scanner" };
     case "intel": return { tab: "market", view: "intel" };
     case "events": return { tab: "market", view: "intel", section: "events" };
-    case "chart": return { tab: "market", view: "research" };
+    case "chart": return { tab: "trade", view: "chart" };
     case "smartmoney": return { tab: "market", view: "smartmoney" };
     case "fno": return { tab: "market", view: "smartmoney", section: "fno" };
     case "portfolio": return { tab: "portfolio", view: null };

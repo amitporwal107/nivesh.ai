@@ -134,15 +134,16 @@ const desk = (q: Record<string, string>) => `trader/desk?${new URLSearchParams(q
 /** Market Desk › Smart Money, scrolled to its F&O section. */
 const deskFno = (q: Record<string, string>) => desk({ tab: "market", view: "smartmoney", section: "fno", ...q });
 
-export const deskChart = (sym: string) => desk({ tab: "market", view: "research", sym });
-export const deskTrades = () => desk({ tab: "trade", view: "paper" });
+/** Trade Desk › Chart Analysis › Live chart (the owner's design: a symbol's chart is on Trade Desk). */
+export const deskChart = (sym: string) => desk({ tab: "trade", view: "chart", sub: "live", sym });
+export const deskTrades = () => desk({ tab: "trade", view: "paper", sub: "live" });
 export const deskChain = (sym: string) => deskFno({ lab: "chain", lab_sym: sym });
 export const deskBuildup = (sym: string, index: boolean) => deskFno(index ? { lab: "indices", lab_sym: sym } : { lab_sym: sym });
 export const deskLab = (sym: string, index: boolean) => deskFno({ lab: index ? "indices" : "candidates", lab_sym: sym, lab_focus: sym });
 
 /** The Strategy Builder with the idea's plan, as the ideas board opens it (IdeasBoard openPlan). */
 export function deskPlan(e: CashEntry, listDate: string): string {
-  const q: Record<string, string> = { tab: "trade", view: "new", mode: "stock", build: "1" };
+  const q: Record<string, string> = { tab: "trade", view: "lab", sub: "build", mode: "stock", build: "1" };
   for (const [k, v] of Object.entries({ sym: e.symbol, direction: e.direction ?? "", ...paramsFromPlanInputs(e.plan_inputs) })) if (v) q[k] = v;
   q.src_kind = "ideas";
   if (e.scanner.bucket) q.src_bucket = e.scanner.bucket;

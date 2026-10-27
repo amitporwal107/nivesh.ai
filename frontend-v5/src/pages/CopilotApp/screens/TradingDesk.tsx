@@ -101,6 +101,7 @@ function matchSetup(setups: DeskSetup[], text: string): string | null {
 /** The old tab name a place stands for (DeskState.tab; the hosted screens were written against these names). */
 function oldTabOf(loc: DeskLocation): DeskTab {
   if (loc.tab === "portfolio") return "portfolio";
+  if (loc.tab === "trade" && loc.view === "chart") return "chart";
   if (loc.tab !== "market") return "overview";
   return loc.view === "research" ? "chart" : loc.view === "smartmoney" ? "smartmoney" : loc.view === "intel" ? "intel" : "overview";
 }
@@ -376,7 +377,7 @@ function useDockChips(loc: DeskLocation, symbol: string | null): string[] {
   const sym = symbol ?? top ?? null;
   return useMemo(() => {
     const out: string[] = [];
-    if (loc.tab === "market" && loc.view === "research" && sym) {
+    if (((loc.tab === "market" && loc.view === "research") || (loc.tab === "trade" && loc.view === "chart")) && sym) {
       out.push(`Explain the ${sym} setup and what would invalidate it`);
       out.push(`Size a trade in ${sym} with 1% risk`);
     } else if (loc.tab === "market" && loc.view === "smartmoney") {
@@ -498,7 +499,9 @@ export default function TradingDeskScreen() {
       else goPlace(pl.tab, pl.view);
     },
     symbol,
-    openChart: (s) => goPlace("market", "research", { sym: s.toUpperCase() }),
+    // The owner's design: a symbol's chart is Trade Desk › Chart Analysis › Live chart (Market Desk › Stock Research stays for
+    // company research, reached from the Market Desk switcher).
+    openChart: (s) => goPlace("trade", "chart", { sub: "live", sym: s.toUpperCase() }),
     setSymbol: (s) => setParam({ sym: s.toUpperCase() }),
     openStrategy: (s, src) => goPlace("trade", "lab", {
       sym: s.toUpperCase(),
@@ -506,7 +509,8 @@ export default function TradingDeskScreen() {
     }),
     openStrategyIdeas: (focus) => goPlace("trade", "lab", { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) }),
     openStrategyPlan: (p) => goPlace("trade", "lab", { ...p, mode: "stock", build: "1" }),
-    openChartink: () => goSection("market", "screener", "chartink"),
+    // Chartink sources live only in Trade Desk › AI Scanner › Signal library & sources (the owner's design).
+    openChartink: () => goPlace("trade", "scanner", { sub: "library", section: "chartink" }),
     openLab: (view, opts) => {
       const extra = {
         ...(opts?.symbol ? { lab_sym: opts.symbol.toUpperCase() } : {}),
@@ -539,7 +543,7 @@ export default function TradingDeskScreen() {
       setPicked(sym);
     } else if (SYMBOL_TOKEN.test(t)) {
       setPicked(null);
-      if (loc.tab === "market" && loc.view === "research") desk.setSymbol(t);
+      if ((loc.tab === "market" && loc.view === "research") || (loc.tab === "trade" && loc.view === "chart")) desk.setSymbol(t);
       else desk.openChart(t);
     } else {
       setPicked(null);
