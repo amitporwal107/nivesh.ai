@@ -282,15 +282,17 @@ def test_sc7_a_file_that_contradicts_the_fixed_verdict_is_not_served(h, tmp_path
     assert r.status_code == 503 and r.json()["detail"]["code"] == "scorecard_out_of_date"
 
 
-def test_sc8_missing_documents_are_reported_not_blocking(h, tmp_path, monkeypatch):
-    """Staging mounts research/ into the backend container but not docs/."""
+def test_sc8_documents_are_listed_as_references_never_opened(h, tmp_path, monkeypatch):
+    """Staging mounts research/ into the backend container but not docs/: the documents are references, not files the
+    route reads, so their absence is not reported as an error (audit 2026-10-28: "not readable (FileNotFoundError)")."""
     monkeypatch.setattr(scorecard, "REPO_ROOT", _copy_study(tmp_path, docs=False))
     r = h.get("/api/desk/idea-scorecard")
     assert r.status_code == 200
     srcs = r.json()["sources"]
-    assert srcs[0]["present"] is True
-    assert [s["present"] for s in srcs[1:]] == [False, False, False]
-    assert all(s["sha256"] is None and s["reason"] for s in srcs[1:])
+    assert srcs[0]["present"] is True and srcs[0]["kind"] == "data"
+    assert [s["path"] for s in srcs[1:]] == [rel for rel, _ in scorecard.DOCUMENTS]
+    assert all(s["kind"] == "reference" and s["present"] is None and s["sha256"] is None for s in srcs[1:])
+    assert "Error" not in json.dumps(srcs)
 
 
 # ── EX: when exits were last checked ─────────────────────────────────────────

@@ -4,7 +4,9 @@
  *   GET /api/desk/idea-scorecard   the Phase 4.3 pre-registered study as committed (backend/services/idea_scorecard.py):
  *                                  `study`, `splits[]` (discovery / validation / test, each with its arms B0 A1 A2 A3),
  *                                  `decision` (the verdict and each arm's pre-registered checks), `rs63`, `coverage`,
- *                                  `units`, `disclaimer`, `sources[]` (path, role, sha256, bytes, present, reason).
+ *                                  `units`, `disclaimer`, `sources[]` (path, role, kind, sha256, bytes, present, reason):
+ *                                  kind "data" is result.json, read and hashed; kind "reference" is a study document the
+ *                                  server lists and never opens (present null; the backend image has no docs/).
  *                                  503 {detail: {code: scorecard_unavailable | scorecard_out_of_date, reason}} when the
  *                                  committed results cannot be served as they are.
  *
@@ -75,6 +77,8 @@ export interface ArmChecks {
 export interface Source {
   path: string;
   role: string | null;
+  /** "data" (read and hashed by the server) or "reference" (listed, never opened); null from an older server. */
+  kind: string | null;
   present: boolean | null;
   sha256: string | null;
   bytes: number | null;
@@ -163,7 +167,7 @@ export function readScorecard(body: unknown): IdeaScorecard {
     sources: (Array.isArray(b.sources) ? b.sources : []).flatMap((v) => {
       const x = rec(v);
       const path = str(x.path);
-      return path ? [{ path, role: str(x.role), present: bool(x.present), sha256: str(x.sha256), bytes: num(x.bytes), reason: str(x.reason) }] : [];
+      return path ? [{ path, role: str(x.role), kind: str(x.kind), present: bool(x.present), sha256: str(x.sha256), bytes: num(x.bytes), reason: str(x.reason) }] : [];
     }),
   };
 }

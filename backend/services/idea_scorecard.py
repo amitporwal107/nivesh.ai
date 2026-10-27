@@ -9,8 +9,12 @@ no B0 Newey-West t of 2 or more in any split. Otherwise the answer is `Scorecard
 
 WHAT IT REFUSES
 A missing, unreadable or incomplete `result.json` raises ScorecardUnavailable with the reason; the route answers 503.
-A missing write-up document is reported as `present: false` and does not block the answer. Staging mounts
-`research/` into the backend container but not `docs/`.
+
+WHAT IT NEVER OPENS
+The three study documents under `docs/` are listed in `sources` as references (`kind: "reference"`, path and role) and
+are never opened: the backend image ships `research/` but not `docs/`, so opening them on staging failed with
+FileNotFoundError and the Sources table printed that error to the owner. The two sentences this route needs from the
+write-up are the constants VERDICT and RS63_STATUS below, so nothing here depends on a document being on disk.
 
 Wording: the scanner produces IDEAS. Nothing here calls them picks or recommendations (SEBI).
 """
@@ -74,15 +78,11 @@ class ScorecardUnavailable(RuntimeError):
         return {"code": self.code, "reason": self.reason, "study_id": STUDY_ID}
 
 
-def _source(root: Path, rel: str, role: str) -> Dict[str, Any]:
-    path = root / rel
-    try:
-        data = path.read_bytes()
-    except OSError as e:
-        return {"path": rel, "role": role, "present": False, "sha256": None, "bytes": None,
-                "reason": f"not readable here ({type(e).__name__})"}
-    return {"path": rel, "role": role, "present": True, "sha256": hashlib.sha256(data).hexdigest(),
-            "bytes": len(data), "reason": None}
+def _reference(rel: str, role: str) -> Dict[str, Any]:
+    """A study document, listed as a reference and NOT opened (the backend image has no docs/). `present` is null:
+    the server did not look, so it claims neither that the file is there nor that it is missing."""
+    return {"path": rel, "role": role, "kind": "reference", "present": None, "sha256": None, "bytes": None,
+            "reason": "a reference; the server does not open it"}
 
 
 def _need(obj: Any, *keys: str) -> Any:
@@ -151,6 +151,16 @@ def load(root: Optional[Path] = None) -> Dict[str, Any]:
         raise ScorecardUnavailable("scorecard_unavailable", f"{RESULT_PATH} is not valid JSON")
     if not isinstance(result, dict):
         raise ScorecardUnavailable("scorecard_unavailable", f"{RESULT_PATH} is not a JSON object")
+    try:
+        return _body(result, raw)
+    except (AttributeError, TypeError, KeyError, IndexError) as e:
+        # Valid JSON in the wrong shape (a list where an object belongs, say): a 503 with the reason, never a 500.
+        raise ScorecardUnavailable("scorecard_unavailable",
+                                   f"{RESULT_PATH} is not in the expected shape ({type(e).__name__})")
+
+
+def _body(result: Dict[str, Any], raw: bytes) -> Dict[str, Any]:
+    """The answer built from the parsed `result.json` (and its bytes, for the sha256)."""
     _check_text(result)
 
     splits = []
@@ -171,9 +181,9 @@ def load(root: Optional[Path] = None) -> Dict[str, Any]:
         })
     decision = _need(result, "decision")
     watermark = result.get("watermark") or {}
-    sources = [{"path": RESULT_PATH, "role": "every number on this scorecard", "present": True,
+    sources = [{"path": RESULT_PATH, "role": "every number on this scorecard", "kind": "data", "present": True,
                 "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw), "reason": None}]
-    sources += [_source(root, rel, role) for rel, role in DOCUMENTS]
+    sources += [_reference(rel, role) for rel, role in DOCUMENTS]
     return {
         "study": {"id": STUDY_ID, "phase": STUDY_PHASE, "title": STUDY_TITLE, "run_date": RUN_DATE,
                   "registration_commit": result.get("registration_commit"), "code_sha": result.get("code_sha"),
