@@ -4,11 +4,12 @@
  * four numbered tabs, "My portfolio", and at most two levels (tab → view). The places and every old URL's redirect
  * are in tradingdesk/desk-nav.ts.
  *
- *   01 Market Overview   one page: the market part of OverviewTab · ScannerPulse · ScannerTop10 (with the decision
- *                        cards) · "All scanner candidates" (ScannerTab's list, collapsed) · "N open paper trades"
- *   02 Trade Desk        open · closed · new: tabs/trade-desk/TradeDeskTab.tsx (step 3) — the header strip, Open & pending,
- *                        Closed & journal (the journal drawer) and New trade (the risk-service ticket, the F&O builder,
- *                        the Strategy Builder, the backtest)
+ *   01 Market Overview   one page (tradingdesk/tabs/market-overview, step 2, the design's structure): KPIs · market regime ·
+ *                        Top AI candidates (ScannerTop10, the decision cards and their drawer) · paper trades · alerts and
+ *                        events
+ *   02 Trade Desk        the owner's workbench (step 3): AI Scanner (ranked · library · scorecard) · Chart Analysis (live ·
+ *                        record) · Strategy Lab (build · backtest) · Paper Trading (live · journal) · Watchlists; the
+ *                        sections are tabs/trade-desk and the screens they host
  *   03 Market Desk       intel · smartmoney · sectors · research · screener · watchlists (IntelTab + EventsTab;
  *                        SmartMoneyTab + the F&O lab's build-up, candidates, indices and chain; SectorHeatmap;
  *                        ChartTab; Screener + Chartink sources; the Watchlist page)
@@ -24,7 +25,6 @@
  *   GET /api/markets/home                   `market_state` and `is_live` for the market-status pill (useMarketOverview)
  *   GET /api/risk/status                    the "Kill switch on" / "Trading halted" pill, shown only for a known "on" (useRiskStatus)
  *   GET /api/positional/watchlist + picks   the scanner list the header search matches a stock against (useDeskScanner)
- *   GET /api/desk/paper-trades              Market Overview's "N open paper trades" line (usePaperTrades)
  *
  * The place lives in the URL (?tab=&view=, plus the stock ?sym=, the wording ?persona= and the hosted screens' own
  * params); a tab or view change drops the previous view's params (desk-nav.ts VIEW_PARAMS). The breadcrumb is the
@@ -49,7 +49,6 @@ import {
   subViewsOf,
   type DeskLocation, type DeskPlace, type DeskSection,
 } from "./tradingdesk/desk-nav";
-import { usePaperTrades } from "./tradingdesk/desk-trading";
 import { DeskTrail } from "./tradingdesk/DeskTrail";
 import { SymbolSearch } from "./tradingdesk/SymbolSearch";
 import { istParts, marketStatus, useNow } from "./tradingdesk/overview-data";
@@ -57,10 +56,7 @@ import { useRiskStatus } from "./tradingdesk/risk-controls";
 
 // ── the hosted screens, each in its own chunk ────────────────────────────
 
-const OverviewTab = lazy(() => import("./tradingdesk/OverviewTab"));
-const ScannerTab = lazy(() => import("./tradingdesk/ScannerTab"));
-const ScannerPulse = lazy(() => import("./tradingdesk/ScannerPulse").then((m) => ({ default: m.ScannerPulse })));
-const ScannerTop10 = lazy(() => import("./tradingdesk/ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
+const MarketOverview = lazy(() => import("./tradingdesk/tabs/market-overview/MarketOverview"));
 const IntelTab = lazy(() => import("./tradingdesk/IntelTab"));
 const EventsTab = lazy(() => import("./tradingdesk/EventsTab"));
 const ChartTab = lazy(() => import("./tradingdesk/ChartTab"));
@@ -342,23 +338,6 @@ function SubViewSwitcher({ subs, sub, onPick, bleed }: { subs: readonly { key: s
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)" };
 const lineStyle: CSSProperties = { fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" };
 
-/** Market Overview's one line to Trade Desk: how many paper trades are open (GET /api/desk/paper-trades). */
-function OpenTradesLine({ onOpen }: { onOpen: () => void }) {
-  const q = usePaperTrades();
-  let text: string;
-  if (q.isPending) text = "Reading your paper trades";
-  else if (q.isError) text = "Your paper trades didn’t load";
-  else {
-    const n = q.data.trades.filter((t) => t.status === "open").length + q.data.strategyTrades.filter((t) => t.status === "open").length;
-    text = n === 0 ? "No open paper trades" : `${n} open paper ${n === 1 ? "trade" : "trades"}`;
-  }
-  return (
-    <p data-testid="desk-open-trades-line" className="m-0" style={lineStyle}>
-      {text} · <button type="button" data-testid="desk-open-trades-link" onClick={onOpen} style={linkBtn}>Trade Desk ›</button>
-    </p>
-  );
-}
-
 /** Trade Desk's one line where paper and real are easiest to confuse. */
 function PaperRealLine({ onOpen }: { onOpen: () => void }) {
   return (
@@ -387,31 +366,6 @@ function Section({ id, title, children }: { id: string; title: string; children:
     <section aria-label={title} className="flex min-w-0 flex-col" style={{ gap: 14, paddingTop: 18, borderTop: "1px solid var(--cp-line)" }}>
       <h2 className="cp-eyebrow m-0" data-testid={`desk-section-${id}-title`}>{title}</h2>
       <Hosted id={id} name={title}>{children}</Hosted>
-    </section>
-  );
-}
-
-/** Market Overview's "All scanner candidates": the full scanner list, collapsed until opened (?section=scanner). */
-function ScannerSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  return (
-    <section aria-label="All scanner candidates" className="flex min-w-0 flex-col" style={{ gap: 14, paddingTop: 18, borderTop: "1px solid var(--cp-line)" }}>
-      <button
-        type="button"
-        data-testid="desk-scanner-toggle"
-        aria-expanded={open}
-        aria-controls="desk-scanner-list"
-        onClick={onToggle}
-        className="flex items-center self-start"
-        style={{ gap: 10, padding: "8px 14px", borderRadius: 999, border: "1px solid var(--line-2)", background: open ? "var(--bg-3)" : "transparent", cursor: "pointer", fontFamily: "var(--sans)", fontSize: 13, fontWeight: 500, color: "var(--cp-ink)" }}
-      >
-        <span aria-hidden style={{ color: "var(--mint)", fontFamily: "var(--mono)" }}>{open ? "−" : "+"}</span>
-        All scanner candidates
-      </button>
-      {open && (
-        <div id="desk-scanner-list">
-          <Hosted id="scanner" name="the scanner list"><ScannerTab listOnly /></Hosted>
-        </div>
-      )}
     </section>
   );
 }
@@ -624,13 +578,15 @@ export default function TradingDeskScreen() {
   } else if (loc.tab === "overview") {
     const scannerOpen = section === "scanner";
     content = (
-      <>
-        <OpenTradesLine onOpen={() => goPlace("trade", "paper")} />
-        <Hosted id="overview-market" name="Market Overview"><OverviewTab marketOnly /></Hosted>
-        <Hosted id="pulse" name="the market pulse"><ScannerPulse /></Hosted>
-        <Hosted id="top10" name="the Top 10 ideas"><ScannerTop10 /></Hosted>
-        <ScannerSection open={scannerOpen} onToggle={() => setParam({ section: scannerOpen ? null : "scanner" })} />
-      </>
+      <Hosted id="market-overview" name="Market Overview">
+        <MarketOverview
+          scannerOpen={scannerOpen}
+          onToggleScanner={() => setParam({ tab: "overview", section: scannerOpen ? null : "scanner" })}
+          onOpenTradeDesk={() => goPlace("trade", "paper")}
+          onOpenTrade={() => goPlace("trade")}
+          onOpenMarket={(view) => goPlace("market", view ?? undefined)}
+        />
+      </Hosted>
     );
   } else if (loc.tab === "trade") {
     // The owner's workbench (PLAN.md "1-REVISED"): five sections with sub-views. Paper Trading and Strategy Lab are
