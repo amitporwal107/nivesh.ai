@@ -164,6 +164,7 @@ jobs:
           tests/test_llm_input_hardening.py
           tests/test_llm_pii_guard.py
           tests/test_macro_calendar_routes.py
+          tests/test_macro_ingest_schedule.py
           tests/test_macro_regime_history.py
           tests/test_magic_link_email.py
           tests/test_markets_evidence_routes.py
