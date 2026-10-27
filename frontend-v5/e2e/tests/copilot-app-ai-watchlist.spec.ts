@@ -295,8 +295,9 @@ test.describe("AI scanner watchlist", () => {
   });
 
   test("F-8 nothing stored yet says when the job runs; a failing route offers a retry and the page stays", async ({ page }) => {
-    await open(page, { day: () => ({ status: 200, body: { list_date: null, available_dates: [], cash: [], fno: [], notes: {}, rules: {}, empty_reason: "No list is stored yet. The job runs each weekday at 20:15 IST, after the AI scanner's 19:45 run, and keeps every day's list." } }) });
-    await expect(page.getByTestId("aiw-empty")).toContainText("20:15 IST", SLOW);
+    // the route's own sentence (backend/routes/ai_watchlist.NO_LIST_YET): the job runs at 22:45 IST, after the F&O bhavcopy
+    await open(page, { day: () => ({ status: 200, body: { list_date: null, available_dates: [], cash: [], fno: [], notes: {}, rules: {}, empty_reason: "No list is stored yet. The job runs each weekday at 22:45 IST, after the AI scanner's run and the day's NSE F&O bhavcopy, and keeps every day's list." } }) });
+    await expect(page.getByTestId("aiw-empty")).toContainText("22:45 IST", SLOW);
     await page.unrouteAll({ behavior: "ignoreErrors" });
     await open(page, { day: () => ({ status: 500, body: { detail: "boom" } }) });
     await expect(page.getByTestId("aiw-error")).toBeVisible({ timeout: 20_000 });

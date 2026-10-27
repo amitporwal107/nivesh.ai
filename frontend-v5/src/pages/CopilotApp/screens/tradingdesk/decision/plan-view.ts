@@ -274,7 +274,7 @@ export function usePlanView(rowPlan: TradePlan | null | undefined, opts: { recor
     return {
       rowPlan, plan, changed,
       status: cardStatus(plan, shownResp?.status ?? null),
-      statusFromLifecycle: !!shownResp?.status,
+      statusFromLifecycle: !!shownResp?.status && shownResp.status !== "proposed",
       store,
       risk,
       riskBasis: shownResp?.riskBasis ?? null,

@@ -308,8 +308,8 @@ def _size(c: Dict[str, Any], inputs: Dict[str, Any], lot: int) -> Dict[str, Any]
             "lots": sz.get("quantity") if done and lot > 1 else None, "lot_size": lot,
             "risk_budget_rs": r2(sz.get("risk_budget_inr")), "risk_rs": r2(risk) if done else None,
             "risk_pct_of_equity": (round(float(risk) / float(capital) * 100, 3) if done and risk is not None and capital else None),
-            "equity_basis": ("the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)"
-                             if capital else None),
+            "equity_basis": ("the capital stated in the plan inputs (the account's paper equity is its risk profile's, "
+                             "GET /api/risk/profile)" if capital else None),
             "binding": sz.get("binding") if done else None, "missing": list(sz.get("missing") or []),
             "costs_included": bool(sz.get("costs_included"))}
 

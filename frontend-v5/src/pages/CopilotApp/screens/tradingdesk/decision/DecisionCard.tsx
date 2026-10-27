@@ -62,6 +62,7 @@ export function targetsText(tp: TradePlan): string {
 
 export function sizeText(tp: TradePlan): string {
   const s = rec(tp.size);
+  if (s.status === "too_small") return `${UNAVAILABLE}: the smallest size is more than the risk budget (${fmtPrice(numOr(s.risk_budget_rs))})`;
   if (s.status !== "complete") {
     const miss = Array.isArray(s.missing) && s.missing.length ? `: needs ${(s.missing as unknown[]).map(String).join(", ")}` : "";
     return `${UNAVAILABLE}${miss}`;
@@ -190,7 +191,7 @@ function Sections({ v }: { v: PlanView }) {
   const bd = readCostsBreakdown(costs.breakdown_at_stop ?? costs.breakdown_round_trip_at_entry);
   const opt = rec(exit.options);
   const trailing = rec(exit.trailing), trend = rec(exit.trend), time = rec(exit.time);
-  const dates = Object.entries(tp.data_as_of ?? {}).filter(([, d]) => d);
+  const dates = Object.entries(tp.data_as_of ?? {}).filter(([, d]) => !!d && /^\d{4}-\d{2}-\d{2}/.test(d));
   const reasons = tp.eligibility.reasons.map((r) => r.message || r.code).filter(Boolean) as string[];
   return (
     <div data-testid="dc-sections" className="flex min-w-0 flex-col" style={{ gap: 8 }}>

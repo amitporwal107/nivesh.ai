@@ -105,7 +105,7 @@
      "direction": "bullish",
      "fno_eligible": true,
      "plan_id": "plan_21486406d987195f",
-     "trade_plan_id": "tp_f2177a8ce8ec4ac5",
+     "trade_plan_id": "tp_080ead65efb32c2f",
      "trade_plan": {
       "schema": "trade-plan-v1",
       "rules_version": "trade-plan-v1.1 (2026-10-27)",
@@ -200,7 +200,7 @@
        "risk_budget_rs": 5000.0,
        "risk_rs": 4997.53,
        "risk_pct_of_equity": 0.5,
-       "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+       "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
        "binding": "risk_budget",
        "missing": [],
        "costs_included": true
@@ -417,7 +417,7 @@
        "strategy_plan_id": "plan_21486406d987195f",
        "candidate_id": "cash:breakout_continuation"
       },
-      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "plan_id": "tp_080ead65efb32c2f",
       "lineage_key": "tl_3719a268ef01487d",
       "lifecycle": {
        "status": "proposed",
@@ -574,7 +574,7 @@
      "strategies": [
       {
        "id": "cash:breakout_continuation",
-       "trade_plan_id": "tp_f2177a8ce8ec4ac5",
+       "trade_plan_id": "tp_080ead65efb32c2f",
        "segment": "cash",
        "family": "breakout_continuation",
        "label": "Breakout continuation (long)",
@@ -609,7 +609,7 @@
       },
       {
        "id": "futures:long_buildup_continuation",
-       "trade_plan_id": "tp_3f1d10a7ccaa87b8",
+       "trade_plan_id": "tp_bc75fabad578fddd",
        "segment": "futures",
        "family": "long_buildup_continuation",
        "label": "Long futures: build-up with cash confirmation",
@@ -901,10 +901,10 @@
       "capital": 1000000,
       "risk_pct": 0.5
      },
-     "build_ms": 54
+     "build_ms": 75
     }
    ],
-   "elapsed_ms": 55,
+   "elapsed_ms": 76,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -2826,7 +2826,7 @@
        "risk_budget_rs": 5000.0,
        "risk_rs": 4997.53,
        "risk_pct_of_equity": 0.5,
-       "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+       "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
        "binding": "risk_budget",
        "missing": [],
        "costs_included": true
@@ -3043,7 +3043,7 @@
        "strategy_plan_id": "plan_21486406d987195f",
        "candidate_id": "cash:breakout_continuation"
       },
-      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "plan_id": "tp_080ead65efb32c2f",
       "lineage_key": "tl_3719a268ef01487d",
       "lifecycle": {
        "status": "proposed",
@@ -3868,7 +3868,7 @@
        "risk_budget_rs": 5000.0,
        "risk_rs": null,
        "risk_pct_of_equity": null,
-       "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+       "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
        "binding": null,
        "missing": [],
        "costs_included": true
@@ -4095,7 +4095,7 @@
        "strategy_plan_id": "plan_21486406d987195f",
        "candidate_id": "futures:long_buildup_continuation"
       },
-      "plan_id": "tp_3f1d10a7ccaa87b8",
+      "plan_id": "tp_bc75fabad578fddd",
       "lineage_key": "tl_61917277a5da8796",
       "lifecycle": {
        "status": "proposed",
@@ -9270,8 +9270,8 @@
    ],
    "sent_to_broker": false,
    "trade_plans": {
-    "cash:breakout_continuation": "tp_f2177a8ce8ec4ac5",
-    "futures:long_buildup_continuation": "tp_3f1d10a7ccaa87b8",
+    "cash:breakout_continuation": "tp_080ead65efb32c2f",
+    "futures:long_buildup_continuation": "tp_bc75fabad578fddd",
     "options:long_call": "tp_9af882fd8544dc44",
     "options:bull_call_spread": "tp_4b19a64feacd2e98",
     "combination:covered_call": "tp_f9f6b71af03b78f0"
@@ -9372,7 +9372,7 @@
      "risk_budget_rs": 5000.0,
      "risk_rs": 4997.53,
      "risk_pct_of_equity": 0.5,
-     "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+     "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
      "binding": "risk_budget",
      "missing": [],
      "costs_included": true
@@ -9589,7 +9589,7 @@
      "strategy_plan_id": "plan_21486406d987195f",
      "candidate_id": "cash:breakout_continuation"
     },
-    "plan_id": "tp_f2177a8ce8ec4ac5",
+    "plan_id": "tp_080ead65efb32c2f",
     "lineage_key": "tl_3719a268ef01487d",
     "lifecycle": {
      "status": "proposed",
@@ -9599,11 +9599,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T06:19:08.309230+00:00",
+    "created_at": "2026-10-27T06:30:12.405665+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T06:19:08.309230+00:00",
+     "at": "2026-10-27T06:30:12.405665+00:00",
      "after_approval": false
     },
     "events": []
@@ -9617,9 +9617,9 @@
    "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
    "versions": [
     {
-     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "plan_id": "tp_080ead65efb32c2f",
      "version": 1,
-     "created_at": "2026-10-27T06:19:08.309230+00:00",
+     "created_at": "2026-10-27T06:30:12.405665+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -9640,7 +9640,7 @@
    "entry_rule": "at_once",
    "max_hold_sessions": 10,
    "plan_ref": {
-    "plan_id": "tp_f2177a8ce8ec4ac5",
+    "plan_id": "tp_080ead65efb32c2f",
     "candidate_id": "cash:breakout_continuation",
     "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }
@@ -9743,7 +9743,7 @@
       "risk_budget_rs": 5000.0,
       "risk_rs": 4997.53,
       "risk_pct_of_equity": 0.5,
-      "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+      "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
       "binding": "risk_budget",
       "missing": [],
       "costs_included": true
@@ -9960,7 +9960,7 @@
       "strategy_plan_id": "plan_21486406d987195f",
       "candidate_id": "cash:breakout_continuation"
      },
-     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "plan_id": "tp_080ead65efb32c2f",
      "lineage_key": "tl_3719a268ef01487d",
      "lifecycle": {
       "status": "open",
@@ -9970,11 +9970,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T06:19:08.309230+00:00",
+     "created_at": "2026-10-27T06:30:12.405665+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T06:19:08.309230+00:00",
+      "at": "2026-10-27T06:30:12.405665+00:00",
       "after_approval": false
      },
      "events": []
@@ -9983,7 +9983,7 @@
      "status": "open",
      "trades": [
       {
-       "id": "29bf0591-52e0-43f0-8742-f603ef46e8ba",
+       "id": "69ad252f-97b7-4edd-8ef7-5407252a45ae",
        "state": "POSITION_OPEN",
        "status": "open"
       }
@@ -9991,11 +9991,11 @@
      "rejections": []
     },
     "risk_decision": {
-     "decision_id": "e48c651d-e5f9-4a42-808b-2ff549d13818",
+     "decision_id": "68716c56-61e9-4f9f-8664-5ab8f60b5ffb",
      "outcome": "allow",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "29bf0591-52e0-43f0-8742-f603ef46e8ba",
+     "trade_id": "69ad252f-97b7-4edd-8ef7-5407252a45ae",
      "requested_qty": 113,
      "approved_qty": 113,
      "requested_lots": null,
@@ -10017,9 +10017,9 @@
     "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
     "versions": [
      {
-      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "plan_id": "tp_080ead65efb32c2f",
       "version": 1,
-      "created_at": "2026-10-27T06:19:08.309230+00:00",
+      "created_at": "2026-10-27T06:30:12.405665+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -10031,7 +10031,7 @@
    "paper_status": 409,
    "paper_detail": {
     "code": "risk_reduce",
-    "decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+    "decision_id": "bf08b6f3-f183-441d-bdb6-d8a19b30f92e",
     "outcome": "reduce",
     "requested_qty": 113,
     "approved_qty": 83,
@@ -10109,7 +10109,7 @@
     },
     "policy_version": "universal-risk-v1",
     "limits_version": "rp-0-7e7c3751",
-    "correlation_id": "3da624155fe0496794f2559e67679ed8",
+    "correlation_id": "e170bfbb9ae945a9a126b0728d0d3b85",
     "reservation_id": null,
     "freshness": {
      "last_close": {
@@ -10245,7 +10245,7 @@
       "risk_budget_rs": 5000.0,
       "risk_rs": 4997.53,
       "risk_pct_of_equity": 0.5,
-      "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+      "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
       "binding": "risk_budget",
       "missing": [],
       "costs_included": true
@@ -10462,7 +10462,7 @@
       "strategy_plan_id": "plan_21486406d987195f",
       "candidate_id": "cash:breakout_continuation"
      },
-     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "plan_id": "tp_080ead65efb32c2f",
      "lineage_key": "tl_3719a268ef01487d",
      "lifecycle": {
       "status": "rejected",
@@ -10472,11 +10472,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T06:19:08.309230+00:00",
+     "created_at": "2026-10-27T06:30:12.405665+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T06:19:08.309230+00:00",
+      "at": "2026-10-27T06:30:12.405665+00:00",
       "after_approval": false
      },
      "events": [
@@ -10490,8 +10490,8 @@
        "rejection_reasons": [
         "risk_reduce"
        ],
-       "plan_id": "tp_f2177a8ce8ec4ac5",
-       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "plan_id": "tp_080ead65efb32c2f",
+       "risk_decision_id": "bf08b6f3-f183-441d-bdb6-d8a19b30f92e",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
@@ -10510,18 +10510,18 @@
        "rejection_reasons": [
         "risk_reduce"
        ],
-       "plan_id": "tp_f2177a8ce8ec4ac5",
-       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "plan_id": "tp_080ead65efb32c2f",
+       "risk_decision_id": "bf08b6f3-f183-441d-bdb6-d8a19b30f92e",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
     },
     "risk_decision": {
-     "decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+     "decision_id": "bf08b6f3-f183-441d-bdb6-d8a19b30f92e",
      "outcome": "reduce",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "e1ba4138-0bbc-4cf4-bb88-6f9d96bafba4",
+     "trade_id": "c85ede1b-9c37-4efa-a3fd-910a9765066b",
      "requested_qty": 113,
      "approved_qty": 83,
      "requested_lots": null,
@@ -10556,9 +10556,9 @@
     "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
     "versions": [
      {
-      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "plan_id": "tp_080ead65efb32c2f",
       "version": 1,
-      "created_at": "2026-10-27T06:19:08.309230+00:00",
+      "created_at": "2026-10-27T06:30:12.405665+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -10570,7 +10570,7 @@
    "paper_status": 409,
    "paper_detail": {
     "code": "risk_blocked",
-    "decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+    "decision_id": "2bd3ccfc-bd41-44c1-a7e1-c6e8922c5197",
     "outcome": "block",
     "requested_qty": 113,
     "approved_qty": 0,
@@ -10638,7 +10638,7 @@
     },
     "policy_version": "universal-risk-v1",
     "limits_version": "rp-1-258b9566",
-    "correlation_id": "0303dae2203f429b80c50b05cbaf6034",
+    "correlation_id": "e2d160d9ec454bf3bf0b08b8e19c6461",
     "reservation_id": null,
     "freshness": {
      "last_close": {
@@ -10774,7 +10774,7 @@
       "risk_budget_rs": 5000.0,
       "risk_rs": 4997.53,
       "risk_pct_of_equity": 0.5,
-      "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+      "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
       "binding": "risk_budget",
       "missing": [],
       "costs_included": true
@@ -10991,7 +10991,7 @@
       "strategy_plan_id": "plan_21486406d987195f",
       "candidate_id": "cash:breakout_continuation"
      },
-     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "plan_id": "tp_080ead65efb32c2f",
      "lineage_key": "tl_3719a268ef01487d",
      "lifecycle": {
       "status": "rejected",
@@ -11001,11 +11001,11 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T06:19:08.309230+00:00",
+     "created_at": "2026-10-27T06:30:12.405665+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T06:19:08.309230+00:00",
+      "at": "2026-10-27T06:30:12.405665+00:00",
       "after_approval": false
      },
      "events": [
@@ -11019,8 +11019,8 @@
        "rejection_reasons": [
         "risk_reduce"
        ],
-       "plan_id": "tp_f2177a8ce8ec4ac5",
-       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "plan_id": "tp_080ead65efb32c2f",
+       "risk_decision_id": "bf08b6f3-f183-441d-bdb6-d8a19b30f92e",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       },
       {
@@ -11033,8 +11033,8 @@
        "rejection_reasons": [
         "kill_switch_on"
        ],
-       "plan_id": "tp_f2177a8ce8ec4ac5",
-       "risk_decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+       "plan_id": "tp_080ead65efb32c2f",
+       "risk_decision_id": "2bd3ccfc-bd41-44c1-a7e1-c6e8922c5197",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
@@ -11053,8 +11053,8 @@
        "rejection_reasons": [
         "risk_reduce"
        ],
-       "plan_id": "tp_f2177a8ce8ec4ac5",
-       "risk_decision_id": "ebb49f33-ee26-4a80-9d44-089af305bae1",
+       "plan_id": "tp_080ead65efb32c2f",
+       "risk_decision_id": "bf08b6f3-f183-441d-bdb6-d8a19b30f92e",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       },
       {
@@ -11067,18 +11067,18 @@
        "rejection_reasons": [
         "kill_switch_on"
        ],
-       "plan_id": "tp_f2177a8ce8ec4ac5",
-       "risk_decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+       "plan_id": "tp_080ead65efb32c2f",
+       "risk_decision_id": "2bd3ccfc-bd41-44c1-a7e1-c6e8922c5197",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
     },
     "risk_decision": {
-     "decision_id": "8e4a44aa-93be-4351-a5ed-775610154651",
+     "decision_id": "2bd3ccfc-bd41-44c1-a7e1-c6e8922c5197",
      "outcome": "block",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "de950867-1539-4eac-a52e-1de71dcfed5e",
+     "trade_id": "f9f86e46-d8bd-460b-bac8-d6800331599a",
      "requested_qty": 113,
      "approved_qty": 0,
      "requested_lots": null,
@@ -11107,9 +11107,9 @@
     "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
     "versions": [
      {
-      "plan_id": "tp_f2177a8ce8ec4ac5",
+      "plan_id": "tp_080ead65efb32c2f",
       "version": 1,
-      "created_at": "2026-10-27T06:19:08.309230+00:00",
+      "created_at": "2026-10-27T06:30:12.405665+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -13249,7 +13249,7 @@
        "risk_budget_rs": 5000.0,
        "risk_rs": null,
        "risk_pct_of_equity": null,
-       "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+       "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
        "binding": null,
        "missing": [],
        "costs_included": true
@@ -13476,7 +13476,7 @@
        "strategy_plan_id": "plan_64ddd0eda230f79a",
        "candidate_id": "futures:long_buildup_continuation"
       },
-      "plan_id": "tp_3f1d10a7ccaa87b8",
+      "plan_id": "tp_bc75fabad578fddd",
       "lineage_key": "tl_61917277a5da8796",
       "lifecycle": {
        "status": "proposed",
@@ -13795,7 +13795,7 @@
    ],
    "sent_to_broker": false,
    "trade_plans": {
-    "futures:long_buildup_continuation": "tp_3f1d10a7ccaa87b8"
+    "futures:long_buildup_continuation": "tp_bc75fabad578fddd"
    }
   }
  },
@@ -15963,11 +15963,11 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T06:19:08.391786+00:00",
+    "created_at": "2026-10-27T06:30:12.494828+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T06:19:08.391786+00:00",
+     "at": "2026-10-27T06:30:12.494828+00:00",
      "after_approval": false
     },
     "events": []
@@ -15983,7 +15983,7 @@
     {
      "plan_id": "tp_da115be9a1a753cd",
      "version": 1,
-     "created_at": "2026-10-27T06:19:08.391786+00:00",
+     "created_at": "2026-10-27T06:30:12.494828+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -16005,7 +16005,7 @@
     "name": null,
     "sector": "S",
     "plan_id": "plan_21486406d987195f",
-    "trade_plan_id": "tp_f2177a8ce8ec4ac5",
+    "trade_plan_id": "tp_080ead65efb32c2f",
     "trade_plan": {
      "schema": "trade-plan-v1",
      "rules_version": "trade-plan-v1.1 (2026-10-27)",
@@ -16100,7 +16100,7 @@
       "risk_budget_rs": 5000.0,
       "risk_rs": 4997.53,
       "risk_pct_of_equity": 0.5,
-      "equity_basis": "the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)",
+      "equity_basis": "the capital stated in the plan inputs (the account's paper equity is its risk profile's, GET /api/risk/profile)",
       "binding": "risk_budget",
       "missing": [],
       "costs_included": true
@@ -16317,7 +16317,7 @@
       "strategy_plan_id": "plan_21486406d987195f",
       "candidate_id": "cash:breakout_continuation"
      },
-     "plan_id": "tp_f2177a8ce8ec4ac5",
+     "plan_id": "tp_080ead65efb32c2f",
      "lineage_key": "tl_3719a268ef01487d",
      "lifecycle": {
       "status": "proposed",
@@ -16376,7 +16376,16 @@
      "risk_pct": 0.5
     },
     "earlier_list_dates": [],
-    "days_on_list": 1
+    "days_on_list": 1,
+    "levels_on_list": {
+     "list_date": "2026-10-19",
+     "entry": 1200.0,
+     "entry_kind": "price",
+     "stop": 1160.0,
+     "target": 1280.0,
+     "plan_id": "tp_080ead65efb32c2f",
+     "basis": "trade_plan"
+    }
    }
   ],
   "fno": [
@@ -16983,7 +16992,16 @@
      "error": null
     },
     "earlier_list_dates": [],
-    "days_on_list": 1
+    "days_on_list": 1,
+    "levels_on_list": {
+     "list_date": "2026-10-19",
+     "entry": -4331.25,
+     "entry_kind": "net_premium",
+     "stop": 2602.13,
+     "target": 2544.02,
+     "plan_id": "tp_1188ce07ed22372d",
+     "basis": "trade_plan"
+    }
    },
    {
     "underlying": "ICICIBANK",
@@ -17588,7 +17606,16 @@
      "error": null
     },
     "earlier_list_dates": [],
-    "days_on_list": 1
+    "days_on_list": 1,
+    "levels_on_list": {
+     "list_date": "2026-10-19",
+     "entry": -3885.0,
+     "entry_kind": "net_premium",
+     "stop": 1394.42,
+     "target": 1378.78,
+     "plan_id": "tp_93e0c36461c9972f",
+     "basis": "trade_plan"
+    }
    },
    {
     "underlying": "BANKNIFTY",
@@ -18177,7 +18204,16 @@
      "error": null
     },
     "earlier_list_dates": [],
-    "days_on_list": 1
+    "days_on_list": 1,
+    "levels_on_list": {
+     "list_date": "2026-10-19",
+     "entry": -8769.0,
+     "entry_kind": "net_premium",
+     "stop": 55271.88,
+     "target": 54641.63,
+     "plan_id": "tp_da115be9a1a753cd",
+     "basis": "trade_plan"
+    }
    },
    {
     "underlying": "NIFTY",
@@ -18766,7 +18802,16 @@
      "error": null
     },
     "earlier_list_dates": [],
-    "days_on_list": 1
+    "days_on_list": 1,
+    "levels_on_list": {
+     "list_date": "2026-10-19",
+     "entry": -7943.0,
+     "entry_kind": "net_premium",
+     "stop": 22865.45,
+     "target": 22589.17,
+     "plan_id": "tp_35ac5c5c5a1b75df",
+     "basis": "trade_plan"
+    }
    }
   ],
   "notes": {
