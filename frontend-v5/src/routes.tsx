@@ -143,10 +143,11 @@ export function AppRoutes() {
       <Route path="/flows" element={<RequireAuth><RouteErrorBoundary pageName="Flow Ledger"><FlowLedgerPage /></RouteErrorBoundary></RequireAuth>} />
 
       {/* Removed in the desk redesign's step 6 (2026-10-27, docs/desk_redesign_20261027/PLAN.md §4): the Pro Trader
-          basket page and the duplicate Strategy Builder URL. Both open the Smart trading desk's Trade Desk, where Strategy
-          Lab goes; the Strategy Builder page itself is still mounted at /app/trader/strategy. */}
-      <Route path="/pro-trader" element={<Navigate to="/app/trader/desk?tab=trade" replace />} />
-      <Route path="/strategy-builder" element={<Navigate to="/app/trader/desk?tab=trade" replace />} />
+          basket page and the duplicate Strategy Builder URL. Both open the desk's Trade Desk › Strategy Lab: the basket
+          builder's place is Build a trade, the Strategy Builder's backtest is Backtest & validation. The Strategy Builder
+          page itself is still mounted at /app/trader/strategy. */}
+      <Route path="/pro-trader" element={<Navigate to="/app/trader/desk?tab=trade&view=lab&sub=build" replace />} />
+      <Route path="/strategy-builder" element={<Navigate to="/app/trader/desk?tab=trade&view=lab&sub=backtest" replace />} />
 
       {/* Authenticated app — sidebar layout. RequireAppAccess confines a
           research-only user (research_only flag) to /research: every route in

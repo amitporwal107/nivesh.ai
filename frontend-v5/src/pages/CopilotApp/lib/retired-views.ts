@@ -6,7 +6,8 @@
  *   trader                  the old Trader landing           → the desk (Market Overview)
  *   tool/optlab             the Options lab                  → Market Desk › Smart Money, F&O section
  *   tool/fnolab?screen=mi   the F&O lab (its default screen) → Market Desk › Smart Money
- *              prog · replay · shadow                       → Trade Desk (Strategy Lab hosts programs and validation)
+ *              prog                                         → Trade Desk › Strategy Lab › Build a trade (the templates)
+ *              replay · shadow                              → Trade Desk › Strategy Lab › Backtest & validation
  *              live · cert                                  → Risk Desk › Policy & runtime (live readiness)
  *              audit                                        → Risk Desk › Decision log
  *
@@ -19,9 +20,9 @@ const DESK = "trader/desk";
 /** The F&O lab's `?screen=` → its desk place. A missing or unknown screen is the lab's own default, `mi`. */
 const FNOLAB_PLACE: Record<string, string> = {
   mi: "tab=market&view=smartmoney",
-  prog: "tab=trade",
-  replay: "tab=trade",
-  shadow: "tab=trade",
+  prog: "tab=trade&view=lab&sub=build",
+  replay: "tab=trade&view=lab&sub=backtest",
+  shadow: "tab=trade&view=lab&sub=backtest",
   live: "tab=risk&view=controls",
   cert: "tab=risk&view=controls",
   audit: "tab=risk&view=log",

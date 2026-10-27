@@ -55,6 +55,7 @@ const params = (page: Page) => new URL(page.url()).searchParams;
 const pathOf = (page: Page) => new URL(page.url()).pathname;
 
 async function expectDesk(page: Page, tab: string | null, view?: string | null, extra: Record<string, string | null> = {}) {
+  // `sub=` is Trade Desk's third level (tab → section → sub-view, #377).
   await expect.poll(() => pathOf(page)).toMatch(DESK_PATH);
   await expect.poll(() => params(page).get("tab")).toBe(tab);
   if (view !== undefined) await expect.poll(() => params(page).get("view")).toBe(view);
@@ -103,21 +104,21 @@ test.describe("MOCK — not real data: removed trading screens · Options lab an
     await expect(page.getByTestId("screen-tool-optlab")).toHaveCount(0);
   });
 
-  const LAB: Array<{ screen: string | null; tab: string; view?: string; host?: string }> = [
+  const LAB: Array<{ screen: string | null; tab: string; view?: string; sub?: string; host?: string }> = [
     { screen: null, tab: "market", view: "smartmoney" },
     { screen: "mi", tab: "market", view: "smartmoney" },
-    { screen: "prog", tab: "trade" },
-    { screen: "replay", tab: "trade" },
-    { screen: "shadow", tab: "trade" },
+    { screen: "prog", tab: "trade", view: "lab", sub: "build" },
+    { screen: "replay", tab: "trade", view: "lab", sub: "backtest" },
+    { screen: "shadow", tab: "trade", view: "lab", sub: "backtest" },
     { screen: "live", tab: "risk", view: "controls", host: "rd-live" },
     { screen: "cert", tab: "risk", view: "controls", host: "rd-live" },
     { screen: "audit", tab: "risk", view: "log", host: "risk-decisions" },
     { screen: "zzz", tab: "market", view: "smartmoney" },
   ];
   for (const c of LAB) {
-    test(`RM-3 tool/fnolab${c.screen ? `?screen=${c.screen}` : ""} → tab=${c.tab}${c.view ? `&view=${c.view}` : ""}`, async ({ page }) => {
+    test(`RM-3 tool/fnolab${c.screen ? `?screen=${c.screen}` : ""} → tab=${c.tab}${c.view ? `&view=${c.view}` : ""}${c.sub ? `&sub=${c.sub}` : ""}`, async ({ page }) => {
       await page.goto(`${APP}/tool/fnolab${c.screen ? `?screen=${c.screen}` : ""}`);
-      await expectDesk(page, c.tab, c.view, { screen: null });
+      await expectDesk(page, c.tab, c.view, { screen: null, ...(c.sub ? { sub: c.sub } : {}) });
       await expect(page.getByTestId("screen-tool-fnolab")).toHaveCount(0);
       if (c.host) await expect(page.getByTestId(c.host)).toBeVisible();
     });
@@ -130,11 +131,10 @@ test.describe("MOCK — not real data: removed trading screens · standalone URL
     await traderMode(page);
   });
 
-  for (const from of ["/v5/pro-trader", "/v5/strategy-builder"]) {
-    test(`RM-4 / RM-5 ${from} opens the desk's Trade Desk`, async ({ page }) => {
+  for (const [from, sub] of [["/v5/pro-trader", "build"], ["/v5/strategy-builder", "backtest"]]) {
+    test(`RM-4 / RM-5 ${from} opens Trade Desk › Strategy Lab › ${sub}`, async ({ page }) => {
       await page.goto(from);
-      await expectDesk(page, "trade");
-      await expect(page.getByTestId("strategy-builder-page")).toHaveCount(0);
+      await expectDesk(page, "trade", "lab", { sub });
     });
   }
 
