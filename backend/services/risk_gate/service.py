@@ -557,9 +557,12 @@ def decide(req: EntryRequest, snap: Dict[str, Any]) -> Dict[str, Any]:
         g_limits = gov.Limits(max_risk_per_trade_pct=limits["per_trade_risk_pct"], max_position_pct=limits["max_position_pct"],
                               max_sector_pct=limits["max_sector_pct"], max_drawdown_pct=limits["max_drawdown_pct"],
                               min_reward_risk=limits["min_reward_risk"], max_daily_loss_pct=limits["daily_loss_pct"])
+        # size_cap: the most shares this service's per-trade budget allows whatever was asked, so the governor's
+        # VIX/BEAR cut halves that limit too. It is not the ask: a reduced size sent again must come back allowed.
+        size_cap = est.max_cash_qty(per_budget, entry, stop, 10 ** 9, model) if req.action == "open" else None
         intent = gov.Intent(symbol=sym, quantity=int(approved_qty), entry_price=float(entry), stop_price=stop,
                             target_price=target if req.action == "open" else entry * 10, sector=sector,
-                            avg_daily_value=_f(inst.get("adv_rs")))
+                            avg_daily_value=_f(inst.get("adv_rs")), size_cap=size_cap)
         positions = risk_book.governor_positions(book)
         if req.action == "add":
             positions = [p for p in positions if p.symbol != sym]        # an add judges the plan, not "already held"
