@@ -103,7 +103,8 @@ export const VIEW_PARAMS = [
 const OLD_TABS = new Set(["scanner", "intel", "events", "chart", "smartmoney", "fno", "more"]);
 
 /**
- * The new URL for an old desk URL, or null when the URL is already a new one (or a test harness view). The params the
+ * The new URL for an old desk URL, or null when the URL is already a new one (TradingDesk.tsx leaves the strategy-graphs
+ * test harness alone before asking). The params the
  * hosted screens read are kept. `docked`: the Copilot is docked beside the desk (1400px and wider), so the old
  * More · AI Copilot page has no use there and More opens Market Overview.
  */
@@ -154,14 +155,6 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     }
     default: return null;
   }
-}
-
-/** The new URL params for a location (the desk's own links). */
-export function placeParams(tab: DeskPlace, view?: string | null, extra?: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = { tab };
-  const v = view ?? defaultView(tab);
-  if (v) out.view = v;
-  return { ...out, ...(extra ?? {}) };
 }
 
 /** The view an old tab name opens now (DeskState.openTab keeps its old names for the hosted screens). */
