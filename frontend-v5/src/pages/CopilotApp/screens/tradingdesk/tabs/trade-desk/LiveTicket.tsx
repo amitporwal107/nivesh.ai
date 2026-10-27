@@ -153,7 +153,8 @@ function TicketBody({ symbol, resp, riskRow, signalLabel }: { symbol: string; re
   };
   const body = shares != null && !v?.gate ? planCashBody(tp, symbol, shares, source) : null;
   const segment = tp.strategy.segment ?? tp.instrument.segment ?? "cash";
-  const direction = (tp.strategy.direction ?? "long").toUpperCase();
+  const dir = (tp.strategy.direction ?? "").toLowerCase();
+  const direction = dir === "bullish" || dir === "long" ? "LONG" : dir === "bearish" || dir === "short" ? "SHORT" : (dir || "direction not recorded").toUpperCase();
 
   let answer: Answer | null = null;
   if (submit.isError) answer = answerOf(submit.error, symbol);
