@@ -34,7 +34,8 @@ import { useCopilotShell } from "../../lib/shell-context";
 import { SymbolCell } from "../desk/parts";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk, type TrailFrom } from "./context";
-import { BUCKET_LABEL, type SetupBucket } from "./desk-data";
+import { BUCKET_LABEL, num, parseResultsSignal, useDeskScanner, type DeskSetup, type SetupBucket } from "./desk-data";
+import { ResultsSignalTag } from "./ResultsSignalTag";
 import { ENTRY_RULE_SHORT, entryRuleFor, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { Segmented } from "./fno-parts";
 import { CashLevels, IdeaLevels, useIdeaLevels } from "./IdeaLevels";
@@ -184,13 +185,17 @@ function useCloseDrawer(set: (at: DrawerAt | null) => void) {
   };
 }
 
-function StockRow({ idea, rank, scanDate, listed }: { idea: Idea; rank: number; scanDate: string | null; listed: AiWatchDay | undefined }) {
+function StockRow({ idea, rank, scanDate, listed, setup }: { idea: Idea; rank: number; scanDate: string | null; listed: AiWatchDay | undefined; setup: DeskSetup | undefined }) {
   const desk = useDesk();
   const [at, setAt] = useState<DrawerAt | null>(null);
   const close = useCloseDrawer(setAt);
   const pref = preferredStrategy(idea);
   const sc = idea.scanner;
-  const setup = sc.bucket && sc.bucket in BUCKET_LABEL ? BUCKET_LABEL[sc.bucket as SetupBucket] : null;
+  // The results adjustment: the ideas route's own scanner block when it carries one, else the same setup in the scanner read.
+  const rawSc = sc as Record<string, unknown>;
+  const signal = parseResultsSignal(rawSc.results_signal) ?? setup?.resultsSignal ?? null;
+  const baseScore = num(rawSc.base_score) ?? setup?.baseScore ?? null;
+  const setupWord = sc.bucket && sc.bucket in BUCKET_LABEL ? BUCKET_LABEL[sc.bucket as SetupBucket] : null;
   const status = (PLAN_STATUSES.includes(idea.plan_status) ? idea.plan_status : "insufficient_data") as PlanStatus;
   const go = (f: () => void) => { desk.noteFrom(FROM_STOCKS); f(); };
   const symbol = (
@@ -207,7 +212,8 @@ function StockRow({ idea, rank, scanDate, listed }: { idea: Idea; rank: number; 
         </span>
       </div>
       <div className="flex min-w-0 flex-col" style={{ gap: 4, paddingLeft: 32 }}>
-        <span style={{ ...quiet, color: "var(--cp-ink-2)" }}>{setup ?? "Scanner setup"}{sc.close != null ? ` · close ${fmtPrice(sc.close)}` : ""}</span>
+        <span style={{ ...quiet, color: "var(--cp-ink-2)" }}>{setupWord ?? "Scanner setup"}{sc.close != null ? ` · close ${fmtPrice(sc.close)}` : ""}</span>
+        <ResultsSignalTag signal={signal} score={sc.score} baseScore={baseScore} testId={`desk-top10-results-${idea.symbol}`} style={{ alignSelf: "flex-start" }} />
         <span data-testid="desk-top10-stock-strategy" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
           <span style={{ color: "var(--cp-ink-3)" }}>Strategy that fits: </span>
           {pref ? (
@@ -262,6 +268,8 @@ function StockBoard() {
   const scanDate = board?.selection.scan_date ?? null;
   const ideas = (board?.ideas ?? []).slice(0, TOP10);
   const listed = useAiWatchlist(null).data;
+  const setups = useDeskScanner().data?.setups;
+  const bySym = new Map((setups ?? []).map((s) => [s.symbol, s]));
   return (
     <section data-testid={STOCKS_ANCHOR} aria-label="Cash ideas" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
       <BoardHead
@@ -282,7 +290,7 @@ function StockBoard() {
         <p data-testid="desk-top10-stocks-empty" className="m-0" style={quiet}>{board?.selection.empty_reason ?? "The scanner has no setup that passed its gates on this scan."}</p>
       ) : (
         <ol data-testid="desk-top10-stocks-list" className="m-0 p-0" style={{ listStyle: "none" }}>
-          {ideas.map((idea, i) => <StockRow key={idea.symbol} idea={idea} rank={i + 1} scanDate={scanDate} listed={listed} />)}
+          {ideas.map((idea, i) => <StockRow key={idea.symbol} idea={idea} rank={i + 1} scanDate={scanDate} listed={listed} setup={bySym.get(idea.symbol)} />)}
         </ol>
       )}
       {board && (
