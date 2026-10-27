@@ -6,21 +6,21 @@
  *                   `account_size` for this account. The size is that number: no slider and no size field (REVIEW_lab_v5
  *                   §(d) 2). POST /api/desk/paper-trades (Idempotency-Key) answers allow / reduce ("Accept N?") / block, a
  *                   duplicate (409) or an impossible fill (422 entry_not_tradable), each in plain words.
- *   F&O builder     the F&O lab's leg builder (FnoTab "strategies": payoff-v2 net of statutory costs, Black-76 Greeks), its
- *                   tiles limited to GET /api/desk/strategy/templates; the owner's first-wave templates marked available or
- *                   not in the catalog yet
- *   Strategy Builder  unchanged (plans, candidates, "Paper trade this")
+ *   Wizard          the owner's four steps (lab/Wizard.tsx): choose template, configure, review & adjust, validate &
+ *                   paper-trade, on the catalog, the chain, payoff-v2, the margin calculator and the risk service
+ *   Strategy Builder  unchanged (plans, candidates, "Paper trade this"), under "From an idea"
  *   Backtest        GET /api/strategy-builder/strategies, POST …/strategies/{id}/backtest: provenance (universe basis and rule,
  *                   code version, data to, cost model, slippage sweep) and the survivorship warning for an index universe
  *
  * Ideas, not recommendations; paper only, nothing is sent to a broker.
  */
 import { Suspense, lazy, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
+import { StrategyWizard } from "./lab/Wizard";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { Btn, LoadingBlock, fmtINR, fmtNum, fmtPct } from "../../../../components/ui";
 import { useSavedStrategies } from "../../../workspace/strategies";
 import { fmtDay, fmtPrice } from "../../../trading/parts";
-import { useStrategyTemplates } from "../../../fnolab/governance-data";
 import { DecisionCardView } from "../../decision/DecisionCard";
 import { usePlanResponse, usePlanView } from "../../decision/plan-view";
 import { ENTRY_RULE_SHORT, riskReduceOf, useSubmitPaperTrade, writeProblem, type EntryRule, type NewPaperTrade } from "../../desk-trading";
@@ -32,7 +32,6 @@ import { survivorshipBiased, useBacktestRun, type BacktestRun } from "./trade-de
 import { PAPER_ONLY, Panel, linkBtn, quiet } from "./parts";
 
 const StrategyBuilder = lazy(() => import("../../strategy/StrategyBuilder"));
-const FnoTab = lazy(() => import("../../FnoTab"));
 
 /** A part of the page with its own error boundary and loading state; `desk-panel-<id>` as the shell named them. */
 function Part({ id, name, children }: { id: string; name: string; children: ReactNode }) {
@@ -183,51 +182,6 @@ export function Ticket({ planId, source, onOverview }: { planId: string | null; 
   return <Panel title="Ticket · from an idea" note="sized by the risk service" testId="td-ticket">{body}</Panel>;
 }
 
-// ── templates ────────────────────────────────────────────────────────────
-
-/** The owner's first-wave templates (27 Oct), by the backend catalog name each would have. */
-const FIRST_WAVE: Array<{ label: string; names: string[] }> = [
-  { label: "Covered call", names: ["covered_call"] },
-  { label: "Bull put credit spread", names: ["bull_put_spread"] },
-  { label: "Bear call credit spread", names: ["bear_call_spread"] },
-  { label: "Iron condor", names: ["iron_condor"] },
-  { label: "Protective put / collar", names: ["protective_put", "collar"] },
-];
-
-function Templates() {
-  const q = useStrategyTemplates();
-  let body: ReactNode;
-  if (q.isPending) body = <LoadingBlock label="Reading the template catalog" rows={1} />;
-  else if (q.isError) body = <span data-testid="td-templates-error" role="alert" style={{ ...quiet, color: "var(--amber)" }}>The template catalog did not load, so the builder shows every structure it can lay out; the payoff engine still prices each.</span>;
-  else {
-    const names = q.data.templates.map((t) => t.name);
-    body = (
-      <div className="flex min-w-0 flex-col" style={{ gap: 10 }}>
-        <div className="flex flex-wrap" style={{ gap: 6 }}>
-          {q.data.templates.map((t) => (
-            <span key={t.name} data-testid="td-template" data-name={t.name} className="cp-chip" style={{ padding: "4px 10px", fontSize: 12 }}>{t.label}</span>
-          ))}
-        </div>
-        <div data-testid="td-first-wave" className="flex min-w-0 flex-col" style={{ gap: 4 }}>
-          <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>First-wave templates</span>
-          <ul className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 16, fontSize: 12.5 }}>
-            {FIRST_WAVE.map((f) => {
-              const has = f.names.some((n) => names.includes(n));
-              return (
-                <li key={f.label} data-testid="td-first-wave-item" data-available={has ? "true" : "false"} style={{ color: has ? "var(--cp-ink)" : "var(--cp-ink-3)" }}>
-                  {f.label}: {has ? "available" : "not in the backend catalog yet"}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-        <span style={{ ...quiet, fontSize: 11.5 }}>Templates, not certified programs{q.data.calculationVersion ? ` · calculation ${q.data.calculationVersion}` : ""}. The builder below offers these structures only.</span>
-      </div>
-    );
-  }
-  return <Panel title="Strategy templates" note="GET /api/desk/strategy/templates" testId="td-templates">{body}</Panel>;
-}
-
 // ── backtest ─────────────────────────────────────────────────────────────
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -328,21 +282,32 @@ function Backtest() {
 
 // ── the sub-views ────────────────────────────────────────────────────────
 
-/** Strategy Lab › Build a trade: the ticket, the F&O builder, the Strategy Builder. */
-export function BuildTradeView({ planId, source, onOverview }: { planId: string | null; source: NewPaperTrade["source"] | null; onOverview: () => void }) {
-  const templates = useStrategyTemplates();
-  const catalog = templates.isSuccess ? templates.data.templates.map((t) => t.name) : null;
+/** Strategy Builder URL params (an idea's plan inputs, a saved plan, an auto-build): they open "From an idea" below. */
+const BUILDER_PARAMS = ["sym", "plan", "build", "cand", "direction", "instrument", "horizon", "focus", "mode"];
+
+/**
+ * Strategy Lab › Build a trade: the owner's four-step wizard (lab/Wizard.tsx). Above it, the ticket when an idea's plan
+ * is open (?tp=); below it, "From an idea · Strategy Builder" (the plans and candidates an idea or the scanner opens),
+ * open when the URL carries its inputs and folded otherwise.
+ */
+export function BuildTradeView({ planId, source, onOverview, onBacktest }: { planId: string | null; source: NewPaperTrade["source"] | null; onOverview: () => void; onBacktest: () => void }) {
+  const [params] = useSearchParams();
+  const fromIdea = BUILDER_PARAMS.some((k) => params.has(k));
+  const [open, setOpen] = useState(fromIdea);
+  const sym = (params.get("lab_sym") ?? params.get("sym") ?? "").toUpperCase();
+  const initial = /^[A-Z0-9&_-]{1,30}$/.test(sym) ? sym : "NIFTY";
   return (
     <div data-testid="td-view-build" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
-      <Ticket planId={planId} source={source} onOverview={onOverview} />
-      <section aria-label="F&O builder" className="flex min-w-0 flex-col" style={{ gap: 12, paddingTop: 16, borderTop: "1px solid var(--cp-line)" }}>
-        <h2 className="cp-eyebrow m-0" data-testid="desk-section-fno-title">F&amp;O builder · payoff net of statutory costs, with Greeks</h2>
-        <Templates />
-        <Part id="fno" name="the F&O builder"><FnoTab views={["strategies"]} asSection builderCatalog={catalog} /></Part>
-      </section>
-      <section aria-label="Strategy Builder" className="flex min-w-0 flex-col" style={{ gap: 12, paddingTop: 16, borderTop: "1px solid var(--cp-line)" }}>
-        <h2 className="cp-eyebrow m-0">Strategy Builder · plans and candidates</h2>
-        <Part id="strategy" name="the Strategy Builder"><StrategyBuilder /></Part>
+      {planId && <Ticket planId={planId} source={source} onOverview={onOverview} />}
+      <Part id="wizard" name="Build a trade"><StrategyWizard initialSymbol={initial} onBacktest={onBacktest} /></Part>
+      <section aria-label="From an idea" className="flex min-w-0 flex-col" style={{ gap: 12, paddingTop: 16, borderTop: "1px solid var(--cp-line)" }}>
+        <button type="button" data-testid="td-from-idea" aria-expanded={open || fromIdea} onClick={() => setOpen((o) => !o)}
+          className="flex items-center" style={{ gap: 8, padding: 0, border: 0, background: "none", cursor: "pointer", color: "var(--cp-ink-2)", textAlign: "left" }}>
+          <span aria-hidden="true" style={{ display: "inline-block", transform: open || fromIdea ? "rotate(90deg)" : undefined }}>›</span>
+          <span className="cp-eyebrow">From an idea · Strategy Builder (plans and candidates)</span>
+        </button>
+        {(open || fromIdea) ? <Part id="strategy" name="the Strategy Builder"><StrategyBuilder /></Part>
+          : <span style={quiet}>An idea from the scanner or Market Overview opens its plan here, with its candidates and “Paper trade this”.</span>}
       </section>
     </div>
   );
