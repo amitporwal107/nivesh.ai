@@ -25,12 +25,12 @@
 | RM-1b | Redirect | `/v5/app/trader?kite=connected` (the backend's default `KITE_LOGIN_RETURN_PATH` is `/v5/app/trader`) | e2e | Lands on the desk with `kite=connected` kept, and the "Kite connected" toast shows (the query string survives the redirect). |
 | RM-2 | Redirect | `/v5/app/tool/optlab` | e2e | `/v5/app/trader/desk?tab=market&view=smartmoney&section=fno`; `screen-tool-optlab` never renders. |
 | RM-3 | Redirect | `/v5/app/tool/fnolab` bare, and `?screen=mi` | e2e | `tab=market&view=smartmoney`. |
-| RM-3b | Redirect | `?screen=prog`, `?screen=replay`, `?screen=shadow` | e2e | `tab=trade` (Trade Desk; Strategy Lab will host Programs and backtest/validation). |
+| RM-3b | Redirect | `?screen=prog`; `?screen=replay`, `?screen=shadow` | e2e | `tab=trade&view=lab&sub=build`; `tab=trade&view=lab&sub=backtest` (Trade Desk › Strategy Lab, which #377 added; a bare `tab=trade` now opens AI Scanner). |
 | RM-3c | Redirect | `?screen=live`, `?screen=cert` | e2e | `tab=risk&view=controls`; the live-trading readiness block (`rd-live`) renders there. |
 | RM-3d | Redirect | `?screen=audit` | e2e | `tab=risk&view=log`; the decision log (`risk-decisions`) renders. |
 | RM-3e | Redirect | `?screen=zzz` (unknown) | edge | Same as bare (`tab=market&view=smartmoney`), never a blank page or the app home. |
-| RM-4 | Redirect | `/v5/pro-trader` | e2e | `/v5/app/trader/desk?tab=trade`. |
-| RM-5 | Redirect | `/v5/strategy-builder` | e2e | `/v5/app/trader/desk?tab=trade`. |
+| RM-4 | Redirect | `/v5/pro-trader` | e2e | `/v5/app/trader/desk?tab=trade&view=lab&sub=build`. |
+| RM-5 | Redirect | `/v5/strategy-builder` | e2e | `/v5/app/trader/desk?tab=trade&view=lab&sub=backtest`. |
 | RM-6 | Redirect | `/v5/research?screen=paper` and `/v5/research?screen=lab` (account with `move_odds` and `sim_lab`) | e2e | `/v5/app/page/paper`; `screen-page-paper` renders. |
 | RM-7 | Research rail | `/v5/research` with `move_odds`, `sim_lab` and `charting` | e2e | Rail lists Feed, Alerts, Odds, Charts; no Paper (`rail-paper`) and no Lab (`rail-lab`). |
 | RM-8 | Rail | Trader mode Tools | e2e | No "Trader desk", "Options lab", "F&O lab" (SH-17 already asserts it; kept green). |
@@ -46,9 +46,17 @@
 | RM-16 | Count | `git diff --stat origin/dev` | report | Files and lines deleted, reported. |
 | RM-17 | Backend | Orphaned backend routes | report | Listed for a follow-up (none deleted here). |
 
+## Extension (coordinator, 27 Oct): the unmounted screens and the old-Overview tests
+
+| ID | Area | Scenario | Type | Expected |
+|---|---|---|---|---|
+| RM-18 | Delete | `tradingdesk/OverviewTab.tsx`, `ScannerPulse.tsx`, `fnolab/Programs.tsx`, `LiveDesk.tsx`, `KiteSessions.tsx` | build | No importer on dev or on the open desk branches (checked with `git grep` over origin/*); tsc clean after each; the import graph has no unresolved import and no unreachable CopilotApp file. Market Overview imports nothing from them. |
+| RM-19 | Prune | What only those screens used: `overview-data.ts` exports, `desk-data` `headLabel`, `fnolab/parts` `GapNote` | build | tsc clean; nothing on dev or #376 / #377 uses a removed name; `governance-data.ts` stays whole (#377's Strategy Lab imports `useStrategyTemplates`). |
+| RM-20 | Tests | #373's 22 skipped cases ("deleted or re-hosted in step 6") and the 8 `copilot-app-desk.spec` cases that fail on clean dev | e2e | Removed, with only the fixtures they used. The case in their describe that still passes ("header search") stays. |
+| RM-21 | Ports | Checks still meaningful and uncovered by Market Overview's spec | e2e | MO-32 the header's market-status pill (closed / live / delayed / Market open with the holiday list read / an NSE holiday); MO-33 a failed `GET /api/markets/home`; MO-34 a failed or empty `GET /api/markets/sector-returns`. Pass. |
+| RM-22 | Regression | `copilot-app.spec`, `-desk.spec`, `-desk-market-overview`, `-desk-shell`, `-desk-retired`, `-desk-risk-desk`, `-desk-widgets`, plus `-desk-market`, `-desk-top10`, `-desk-scanner`, `-desk-market-desk`, `-desk-trade-desk`, `-kite-login-notice`, `-broker-paper` (`-fnolab-governance` no longer exists: this PR deletes it) | e2e | Pass; a failure counts only if it repeats. |
+
 ## Not covered here
 - Staging with real data: the branch is not deployed before merge (OVERRIDE report).
-- `fnolab/Programs`, `LiveDesk`, `KiteSessions` and the `Audit` screen are kept but not mounted until Strategy Lab and
-  Risk Desk host them; their old e2e cases stay in git history (named in the report) for when they are re-hosted.
 - `staging-paper-trades.spec.ts` and `strategy-builder-live.spec.ts` need a real staging session; their navigation is
   rewritten but they are not run here.
