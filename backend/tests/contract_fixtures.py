@@ -113,6 +113,9 @@ def decision_card() -> Dict[str, Any]:
         c = _surfaces(mp)
         ideas = c.post("/api/desk/strategy/ideas", json=SIZED, headers=A).json()
         idea = ideas["ideas"][0]
+        sym = idea["symbol"]
+        # MOCK: the session the entry traded in (the risk service reads the last close and traded value from it)
+        c.rows[sym] = [dict(bar("2026-10-19", 1215.0, 1185.0, 1200.0), symbol=sym)]
         builder = c.post("/api/desk/strategy/plan", json=idea["plan_inputs"], headers=A).json()
         futures = c.post("/api/desk/strategy/plan", json={**idea["plan_inputs"], "instrument": "futures"}, headers=A).json()
         ftp = _fno_idea(top)["trade_plan"]
@@ -128,22 +131,25 @@ def decision_card() -> Dict[str, Any]:
         app.include_router(risk_route.router)
         profile = TestClient(app).get("/api/risk/profile", headers=A).json()
         # Real risk-service decisions on the same plan (the card's approval badge reads only these):
-        #   user_a, the loosest profile (tests/risk_helpers.py): ALLOW, and the trade is written;
-        #   user_c, the owner's default profile (0.5% a trade): REDUCE, nothing written;
-        #   user_d, the loosest profile with its kill switch on: BLOCK, nothing written.
-        sym = idea["symbol"]
-        c.rows[sym] = [dict(bar("2026-10-19", 1215.0, 1185.0, 1200.0), symbol=sym)]       # MOCK: the session the entry traded in
-        body = cash_body(idea, ideas["selection"]["scan_date"], idea["trade_plan"]["size"]["quantity"] or 1)
+        #   user_a, the loosest profile (tests/risk_helpers.py), the CARD's size (account_size): ALLOW, the trade is written;
+        #   user_c, the owner's default profile (0.5% a trade), the plan's OWN size: REDUCE to the card's size, nothing written;
+        #   user_d, the loosest profile with its kill switch on, the card's size: BLOCK, nothing written.
+        scan = ideas["selection"]["scan_date"]
+        body = cash_body(idea, scan, cash_get["account_size"]["quantity"])
+        own_body = cash_body(idea, scan, idea["trade_plan"]["size"]["quantity"])
         from tests.risk_helpers import loose_profile_doc
         c.db.cols["risk_profiles"].docs.append(loose_profile_doc("user_d"))
         asyncio.run(rc.set_control(c.db, "user_d", field="kill_switch", value=True, reason="MOCK: decision-card fixture", actor="user_d"))
         answers = {}
-        for user in ("user_a", "user_c", "user_d"):
+        for user, sent in (("user_a", body), ("user_c", own_body), ("user_d", body)):
             h = {"X-Test-User": user}
             assert c.post("/api/desk/strategy/ideas", json=SIZED, headers=h).status_code == 200      # the user's own copy of the plan
-            r = c.post("/api/desk/paper-trades", json=copy.deepcopy(body), headers=h)
-            answers[user] = {"paper_status": r.status_code, "paper_detail": r.json().get("detail") if r.status_code >= 400 else None,
+            before = c.get(f"/api/desk/trade-plans/{pid}", headers=h).json()
+            r = c.post("/api/desk/paper-trades", json=copy.deepcopy(sent), headers=h)
+            answers[user] = {"sent": sent, "trade_plan_response_before": before,
+                             "paper_status": r.status_code, "paper_detail": r.json().get("detail") if r.status_code >= 400 else None,
                              "trade_plan_response": c.get(f"/api/desk/trade-plans/{pid}", headers=h).json()}
+        default_profile = TestClient(app).get("/api/risk/profile", headers={"X-Test-User": "user_c"}).json()
     top_fno = copy.deepcopy(top)
     top_fno.pop("classes", None)
     top_fno["classes"] = {k: v for k, v in top["classes"].items() if k != "cash"}
@@ -156,11 +162,13 @@ def decision_card() -> Dict[str, Any]:
         "about": ("Phase 3 decision cards: ONE plan_id per instrument across the Top 10, the AI watchlist, the Strategy Builder and "
                   "GET /api/desk/trade-plans/{id}, generated from the backend's own routes by tests/contract_fixtures.py and "
                   "checked against them by tests/test_decision_card_contract.py. cash: MOCK — not real data (the "
-                  "RELIANCE-like world of backend/tests/test_strategy_plan.py), sized with capital 10,00,000 and risk 0.5%. fno: the "
+                  "RELIANCE-like world of backend/tests/test_strategy_plan.py), its plan sized by its inputs (capital 10,00,000, risk 0.5%); every "
+                  "account_size is the risk service's own sizing for that user (services/risk_gate/plan_sizing.py). fno: the "
                   "REAL 2026-10-21 staging capture desk-strategy-top.json with the plans the board builds for it."),
         "cash": {"ideas_request": SIZED, "ideas_response": ideas, "builder_response": builder, "trade_plan_response": cash_get,
                  "body": body, "allowed": answers["user_a"], "reduced": answers["user_c"], "blocked": answers["user_d"]},
         "risk_profile": profile,
+        "risk_profile_default": default_profile,
         "futures": {"builder_response": futures},
         "fno": {"idea_underlying": "BANKNIFTY", "top_response": top_fno, "trade_plan_response": fno_get},
         "ai_watchlist_day": day_response,

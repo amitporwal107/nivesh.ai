@@ -22,6 +22,7 @@ import pytest
 
 from services.strategy_plan import trade_plan as tpm
 from tests import contract_fixtures as cf
+from tests.test_fno_idea_paper_trade_contract import exchange_lots  # noqa: F401  (autouse: the MOCK exchange lot of the capture)
 
 PAPER = "contract-trade-plan-paper.json"
 CARD = "contract-decision-card.json"
@@ -108,7 +109,10 @@ def test_be11_the_plan_route_carries_only_real_risk_decisions(built):
     reduced = b["cash"]["reduced"]
     assert reduced["paper_status"] == 409 and reduced["paper_detail"]["code"] == "risk_reduce", reduced["paper_detail"]
     rd = reduced["trade_plan_response"]["risk_decision"]
-    assert rd["outcome"] == "reduce" and 0 < rd["approved_qty"] < b["cash"]["body"]["quantity"]
+    # the plan's own 113 is cut to exactly the size the card showed this user before submitting (plan_sizing)
+    assert rd["outcome"] == "reduce" and rd["approved_qty"] == reduced["trade_plan_response_before"]["account_size"]["quantity"]
+    assert rd["approved_qty"] < reduced["sent"]["quantity"] == b["cash"]["ideas_response"]["ideas"][0]["trade_plan"]["size"]["quantity"]
+    assert allowed["sent"]["quantity"] == allowed["trade_plan_response_before"]["account_size"]["quantity"]
     assert rd["decision_id"] == reduced["paper_detail"]["decision_id"]
     blocked = b["cash"]["blocked"]
     assert blocked["paper_status"] == 409 and blocked["paper_detail"]["code"] == "risk_blocked"

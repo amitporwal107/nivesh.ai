@@ -23,7 +23,8 @@ Endpoints (all under /api/desk):
     POST   /paper-trades/{id}/roll     — {strike_mode?}: close the old structure and open the same one on the next
                                          expiry at D's close, through the same risk checks as any entry; linked both ways
     GET    /trade-plans/{plan_id}      — a TradePlan with its lifecycle status derived from your trades, the versions you
-                                         may open, and your newest risk-service decision on it (`risk_decision`, or null)
+                                         may open, your newest risk-service decision on it (`risk_decision`, or null), and
+                                         the size the risk service would allow YOUR account (`account_size`, plan_sizing.py)
     POST   /alerts                     — {condition, ...the condition's fields, note?} → 201 {alert}
              above | below  {symbol, level}            filing    {symbol, impact?: "any"|"high"}
              category       {category, symbol?}        volume    {symbol, multiple}
@@ -71,6 +72,7 @@ from services import desk_trading as svc
 from services import paper_account as acct
 from services import risk_controls as rc
 from services import risk_gate
+from services.risk_gate import plan_sizing
 from services.risk_gate import service as risk_service
 from services import trade_lifecycle as lifecycle
 from services import fno_roll as roll
@@ -441,8 +443,11 @@ async def _plan_risk_decision(uid: str, plan_id: str, trades: List[Dict[str, Any
     ids = [t["risk_decision_id"] for t in trades if t.get("risk_decision_id")]
     rows = await db[rc.DECISIONS].find({"user_id": uid, "source": risk_service.SOURCE,
                                         "$or": [{"_id": {"$in": ids}}, {"detail.lifecycle.plan_id": plan_id}]}
-                                       ).sort("at", -1).to_list(1)
-    return _public_decision(rows[0]) if rows else None
+                                       ).sort("at", -1).to_list(200)
+    # Newest first; at the same instant the decision that wrote a trade is the later one (a refusal writes nothing, so a
+    # submission that succeeded followed it).
+    best = max(rows, key=lambda r: (str(r.get("at") or ""), r["_id"] in ids), default=None)
+    return _public_decision(best) if best else None
 
 
 @router.get("/trade-plans/{plan_id}")
@@ -469,6 +474,9 @@ async def get_trade_plan(request: Request, plan_id: str) -> Dict[str, Any]:
                                         "rejections": rejected[-20:]},
             "risk_decision": await _plan_risk_decision(uid, plan_id, trades),
             "risk_decision_basis": PLAN_RISK_BASIS,
+            # Phase 3 release blocker: the size the card shows is the risk service's own sizing for YOUR account
+            # (services/risk_gate/plan_sizing.py), never a size worked out another way.
+            "account_size": await plan_sizing.size_for(db, plan, uid),
             "versions": [{"plan_id": v["_id"], "version": v.get("version"), "created_at": v.get("created_at"),
                           "revalidation_ok": (v.get("revalidation") or {}).get("ok"), "supersedes": v.get("supersedes")} for v in versions],
             "sent_to_broker": False}

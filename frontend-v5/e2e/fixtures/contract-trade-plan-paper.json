@@ -100,7 +100,7 @@
      "direction": "bullish",
      "fno_eligible": true,
      "plan_id": "plan_7699ae19c963dcfb",
-     "trade_plan_id": "tp_8a74951be31981f4",
+     "trade_plan_id": "tp_72c320934b57496f",
      "trade_plan": {
       "schema": "trade-plan-v1",
       "rules_version": "trade-plan-v1.1 (2026-10-27)",
@@ -203,6 +203,7 @@
        ],
        "costs_included": false
       },
+      "sizing_inputs": null,
       "costs": {
        "model": "desk-cost-v2",
        "basis": "a round trip of 1 unit(s) from the entry to the stop",
@@ -428,8 +429,8 @@
        "strategy_plan_id": "plan_7699ae19c963dcfb",
        "candidate_id": "cash:breakout_continuation"
       },
-      "plan_id": "tp_8a74951be31981f4",
-      "lineage_key": "tl_3719a268ef01487d",
+      "plan_id": "tp_72c320934b57496f",
+      "lineage_key": "tl_06792eb0f4ab97e7",
       "lifecycle": {
        "status": "proposed",
        "state": "TRADE_ELIGIBLE",
@@ -585,7 +586,7 @@
      "strategies": [
       {
        "id": "cash:breakout_continuation",
-       "trade_plan_id": "tp_8a74951be31981f4",
+       "trade_plan_id": "tp_72c320934b57496f",
        "segment": "cash",
        "family": "breakout_continuation",
        "label": "Breakout continuation (long)",
@@ -626,7 +627,7 @@
       },
       {
        "id": "futures:long_buildup_continuation",
-       "trade_plan_id": "tp_f1f4826bb7fa9d7b",
+       "trade_plan_id": "tp_19ffca02c92b2ac7",
        "segment": "futures",
        "family": "long_buildup_continuation",
        "label": "Long futures: build-up with cash confirmation",
@@ -673,7 +674,7 @@
       },
       {
        "id": "options:long_call",
-       "trade_plan_id": "tp_09bdde2053a0588f",
+       "trade_plan_id": "tp_3a1e8444871d1822",
        "segment": "options",
        "family": "long_call",
        "label": "Long call",
@@ -719,7 +720,7 @@
       },
       {
        "id": "options:bull_call_spread",
-       "trade_plan_id": "tp_6c9aedc48c77e69b",
+       "trade_plan_id": "tp_660714feceb4f16d",
        "segment": "options",
        "family": "bull_call_spread",
        "label": "Bull call spread (debit)",
@@ -760,7 +761,7 @@
       },
       {
        "id": "combination:covered_call",
-       "trade_plan_id": "tp_3ad6551ea666bd43",
+       "trade_plan_id": "tp_95d07139fc2b5e6b",
        "segment": "combination",
        "family": "covered_call",
        "label": "Covered call (shares + short call)",
@@ -928,10 +929,10 @@
       "direction": "bullish",
       "instrument": "all"
      },
-     "build_ms": 55
+     "build_ms": 54
     }
    ],
-   "elapsed_ms": 61,
+   "elapsed_ms": 59,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -1042,6 +1043,7 @@
     ],
     "costs_included": false
    },
+   "sizing_inputs": null,
    "costs": {
     "model": "desk-cost-v2",
     "basis": "a round trip of 1 unit(s) from the entry to the stop",
@@ -1267,8 +1269,8 @@
     "strategy_plan_id": "plan_7699ae19c963dcfb",
     "candidate_id": "cash:breakout_continuation"
    },
-   "plan_id": "tp_8a74951be31981f4",
-   "lineage_key": "tl_3719a268ef01487d",
+   "plan_id": "tp_72c320934b57496f",
+   "lineage_key": "tl_06792eb0f4ab97e7",
    "lifecycle": {
     "status": "proposed",
     "state": "TRADE_ELIGIBLE",
@@ -1292,7 +1294,7 @@
    "entry_rule": "at_once",
    "max_hold_sessions": 10,
    "plan_ref": {
-    "plan_id": "tp_8a74951be31981f4",
+    "plan_id": "tp_72c320934b57496f",
     "candidate_id": "cash:breakout_continuation",
     "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }
@@ -1427,6 +1429,7 @@
     ],
     "costs_included": true
    },
+   "sizing_inputs": null,
    "costs": {
     "model": "desk-cost-v2",
     "basis": "every leg, entry and exit side, at the entry premiums",
@@ -1620,8 +1623,8 @@
     "kind": "regime_fit_board",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
    },
-   "plan_id": "tp_da115be9a1a753cd",
-   "lineage_key": "tl_996943749d42b931",
+   "plan_id": "tp_dd8a6714e0150b58",
+   "lineage_key": "tl_c1fb512c39c8050b",
    "lifecycle": {
     "status": "proposed",
     "state": "TRADE_ELIGIBLE",
@@ -1689,7 +1692,7 @@
    },
    "note": "Top by regime \u2014 fit 92.5",
    "plan_ref": {
-    "plan_id": "tp_da115be9a1a753cd",
+    "plan_id": "tp_dd8a6714e0150b58",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p",
     "rules_version": "trade-plan-v1.1 (2026-10-27)"
    }
@@ -1934,6 +1937,7 @@
          ],
          "costs_included": true
         },
+        "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
          "basis": "every leg, entry and exit side, at the entry premiums",
@@ -2127,15 +2131,15 @@
          "kind": "regime_fit_board",
          "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
         },
-        "plan_id": "tp_da115be9a1a753cd",
-        "lineage_key": "tl_996943749d42b931",
+        "plan_id": "tp_dd8a6714e0150b58",
+        "lineage_key": "tl_c1fb512c39c8050b",
         "lifecycle": {
          "status": "proposed",
          "state": "TRADE_ELIGIBLE",
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_da115be9a1a753cd"
+       "trade_plan_id": "tp_dd8a6714e0150b58"
       },
       {
        "underlying": "NIFTY",
@@ -2350,6 +2354,7 @@
          ],
          "costs_included": true
         },
+        "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
          "basis": "every leg, entry and exit side, at the entry premiums",
@@ -2543,15 +2548,15 @@
          "kind": "regime_fit_board",
          "candidate_id": "NIFTY:bear_put_spread:2026-10-27:buy22800p/sell22500p"
         },
-        "plan_id": "tp_35ac5c5c5a1b75df",
-        "lineage_key": "tl_3c4a49f7b5b01363",
+        "plan_id": "tp_f2656d1385527057",
+        "lineage_key": "tl_48d5fadb0543af06",
         "lifecycle": {
          "status": "proposed",
          "state": "TRADE_ELIGIBLE",
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_35ac5c5c5a1b75df"
+       "trade_plan_id": "tp_f2656d1385527057"
       }
      ],
      "considered": 10,
@@ -2803,6 +2808,7 @@
          ],
          "costs_included": true
         },
+        "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
          "basis": "every leg, entry and exit side, at the entry premiums",
@@ -3006,15 +3012,15 @@
          "kind": "regime_fit_board",
          "candidate_id": "MPHASIS:bear_put_spread:2026-10-27:buy2550p/sell2500p"
         },
-        "plan_id": "tp_1188ce07ed22372d",
-        "lineage_key": "tl_3aecca8bca2c63a0",
+        "plan_id": "tp_191627a18412dccf",
+        "lineage_key": "tl_d3d1bbb5d79ee965",
         "lifecycle": {
          "status": "proposed",
          "state": "REJECTED",
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_1188ce07ed22372d"
+       "trade_plan_id": "tp_191627a18412dccf"
       },
       {
        "underlying": "ICICIBANK",
@@ -3235,6 +3241,7 @@
          ],
          "costs_included": true
         },
+        "sizing_inputs": null,
         "costs": {
          "model": "desk-cost-v2",
          "basis": "every leg, entry and exit side, at the entry premiums",
@@ -3438,15 +3445,15 @@
          "kind": "regime_fit_board",
          "candidate_id": "ICICIBANK:bear_put_spread:2026-10-27:buy1380p/sell1360p"
         },
-        "plan_id": "tp_93e0c36461c9972f",
-        "lineage_key": "tl_fd951e92c1830e70",
+        "plan_id": "tp_18163aca5fb6e1f3",
+        "lineage_key": "tl_4bd179e6a223992e",
         "lifecycle": {
          "status": "proposed",
          "state": "REJECTED",
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_93e0c36461c9972f"
+       "trade_plan_id": "tp_18163aca5fb6e1f3"
       }
      ],
      "considered": 20,

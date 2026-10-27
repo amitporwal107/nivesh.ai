@@ -31,8 +31,12 @@ level a second time: the AI scanner is the SETUP SOURCE (trigger, stop and how t
     costs.gap_risk  the gap and slippage sentence for the plan's segment
 
 Store: Mongo `trade_plans`, `_id = plan_id`, insert-once. A plan with new content but the same lineage (instrument,
-segment, family, direction and setup day) is stored as the next VERSION with `supersedes` and a `revalidation`
-record; a version that fails revalidation is stored not eligible, so it can be read but not traded.
+segment, family, direction, setup day and SIZING INPUTS) is stored as the next VERSION with `supersedes` and a
+`revalidation` record; a version that fails revalidation is stored not eligible, so it can be read but not traded.
+`sizing_inputs` (the capital, risk budget, risk %, allocation cap and cost settings the plan was sized with; null for a
+plan sized by no input: a board idea or a roll) is part of both the content and the lineage, so a plan the Builder sized
+with your capital and the same setup unsized on a board are separate lineages, never "a newer version" of each other.
+The size a card SHOWS is neither: it is the risk service's sizing for the signed-in account (risk_gate/plan_sizing.py).
 
 Ideas, not recommendations; nothing here is sent to a broker.
 """
@@ -60,6 +64,7 @@ ORDER_TEXT = {
 }
 DEFAULT_ENTRY_WINDOW = 5          # sessions a conditional entry waits (services/desk_trading.DEFAULT_ENTRY_WINDOW)
 STOP_METHODS = ("structural", "atr", "capital", "premium", "underlying", "unknown")
+SIZING_INPUT_KEYS = ("capital", "risk_budget_inr", "risk_pct", "max_allocation_pct", "costs")
 NOT_HASHED = ("plan_id", "_id", "created_at", "version", "supersedes", "revalidation", "owners", "lifecycle", "source",
               "events", "lineage_key", "stored", "store_error")
 EXITS_OWNER = "feat/p2-exits-backtest"
@@ -299,6 +304,13 @@ def _exit_plan(stop: Dict[str, Any], targets: List[Dict[str, Any]], max_sessions
     }
 
 
+def sizing_inputs(inputs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The plan inputs that change its size (or its costs); None for an unsized plan (no capital, risk budget, risk % or
+    cost settings: the allocation cap alone, a default, sizes nothing)."""
+    got = {k: inputs.get(k) for k in SIZING_INPUT_KEYS if inputs.get(k) is not None}
+    return got if any(k in got for k in ("capital", "risk_budget_inr", "risk_pct", "costs")) else None
+
+
 def _size(c: Dict[str, Any], inputs: Dict[str, Any], lot: int) -> Dict[str, Any]:
     sz = c.get("sizing") or {}
     capital = inputs.get("capital")
@@ -361,6 +373,7 @@ def linear_plan(plan: Dict[str, Any], c: Dict[str, Any]) -> Optional[Dict[str, A
         "r_per_unit": r2(abs(float(entry) - float(stop))),
         "targets": targets,
         "size": _size(c, inputs, lot),
+        "sizing_inputs": sizing_inputs(inputs),
         "costs": {"model": model.get("version"), "basis": f"a round trip of {units} unit(s) from the entry to the stop",
                   "units": units, "breakdown_at_stop": desk.round_trip_breakdown(units, float(entry), float(stop), model, segment=seg, long=up),
                   "excluded": ["DP charges", "income tax", "gap slippage beyond the cost card's slippage"],
@@ -433,7 +446,8 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
                    setup: Optional[Dict[str, Any]] = None, source: Optional[Dict[str, Any]] = None,
                    lineage: Optional[Dict[str, Any]] = None, underlying_stop: Optional[Dict[str, Any]] = None,
                    underlying_targets: Optional[Sequence[Dict[str, Any]]] = None, primary: str = "t1",
-                   evidence: Optional[Dict[str, Any]] = None, warnings: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                   evidence: Optional[Dict[str, Any]] = None, warnings: Optional[List[Dict[str, Any]]] = None,
+                   sized_with: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The TradePlan of an options structure: an F&O board idea, a plan builder's options candidate, or a roll. The
     stop a paper trade evaluates is the underlying's (stop.method "underlying", from the levels engine); the premium
     stop and T1 / T2 travel in exit_plan.options. Without `evidence` / `warnings` (a roll) every line says it was not
@@ -501,6 +515,7 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
                  "risk_budget_rs": None, "risk_rs": r2(capital_at_risk_rs if capital_at_risk_rs is not None else (abs(max_loss_rs) if max_loss_rs is not None else None)),
                  "risk_pct_of_equity": None, "equity_basis": None, "binding": "the structure's lots",
                  "missing": ["capital (no equity basis on a board idea)"], "costs_included": capital_at_risk_rs is not None},
+        "sizing_inputs": sized_with,
         "costs": {"model": dict(desk.COST_MODEL).get("version"), "basis": "every leg, entry and exit side, at the entry premiums",
                   "breakdown_round_trip_at_entry": breakdown, "excluded": ["exchange margin", "income tax"],
                   "gap_risk": gap_risk_text("options", None)},
@@ -583,7 +598,8 @@ def from_plan(plan: Dict[str, Any], today: date) -> Dict[str, Dict[str, Any]]:
                                      "rationale": ((c.get("invalidation") or {}).get("technical") or {}).get("basis")},
                     underlying_targets=[{"name": t["name"], "price": t.get("price"), "rule": t.get("rule")} for t in c.get("targets") or []],
                     primary="base", setup=c.get("setup"),
-                    evidence=ledger_evidence(plan.get("evidence") or []), warnings=ledger_warnings(plan.get("evidence") or [], c))
+                    evidence=ledger_evidence(plan.get("evidence") or []), warnings=ledger_warnings(plan.get("evidence") or [], c),
+                    sized_with=sizing_inputs(plan.get("inputs") or {}))
             else:
                 tp = None
         except Exception as exc:  # noqa: BLE001 — one candidate's plan failing must not lose the others; logged
@@ -600,11 +616,12 @@ def content(tp: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def lineage_key(tp: Dict[str, Any]) -> str:
-    """Plans that are versions of one another: the same instrument, segment, family, direction and setup day."""
+    """Plans that are versions of one another: the same instrument, segment, family, direction, setup day and sizing
+    inputs (a plan sized with your capital and the same setup unsized are separate lineages)."""
     st, ins, d = tp.get("strategy") or {}, tp.get("instrument") or {}, tp.get("data_as_of") or {}
     day = (tp.get("setup") or {}).get("signal_date") or d.get("price") or d.get("chain") or d.get("fno")
     return "tl_" + _digest({"symbol": ins.get("symbol"), "segment": st.get("segment"), "family": st.get("family"),
-                            "direction": st.get("direction"), "day": day})
+                            "direction": st.get("direction"), "day": day, "sizing": tp.get("sizing_inputs")})
 
 
 def finalize(tp: Dict[str, Any]) -> Dict[str, Any]:
