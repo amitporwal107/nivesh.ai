@@ -100,7 +100,7 @@
      "direction": "bullish",
      "fno_eligible": true,
      "plan_id": "plan_7699ae19c963dcfb",
-     "trade_plan_id": "tp_48c67016c13f12c7",
+     "trade_plan_id": "tp_6347b7723c8a8dbd",
      "trade_plan": {
       "schema": "trade-plan-v1",
       "rules_version": "trade-plan-v1 (2026-10-27)",
@@ -248,7 +248,7 @@
        "primary_target": "base",
        "time": {
         "max_sessions": 10,
-        "basis": "the plan's horizon in sessions"
+        "basis": "the setup's maximum horizon in sessions, else the plan's horizon"
        },
        "trailing": {
         "enabled": false,
@@ -342,7 +342,7 @@
        "strategy_plan_id": "plan_7699ae19c963dcfb",
        "candidate_id": "cash:breakout_continuation"
       },
-      "plan_id": "tp_48c67016c13f12c7",
+      "plan_id": "tp_6347b7723c8a8dbd",
       "lineage_key": "tl_3719a268ef01487d",
       "lifecycle": {
        "status": "proposed",
@@ -499,7 +499,7 @@
      "strategies": [
       {
        "id": "cash:breakout_continuation",
-       "trade_plan_id": "tp_48c67016c13f12c7",
+       "trade_plan_id": "tp_6347b7723c8a8dbd",
        "segment": "cash",
        "family": "breakout_continuation",
        "label": "Breakout continuation (long)",
@@ -540,7 +540,7 @@
       },
       {
        "id": "futures:long_buildup_continuation",
-       "trade_plan_id": "tp_87a51862112f1115",
+       "trade_plan_id": "tp_1a8a541351ad027a",
        "segment": "futures",
        "family": "long_buildup_continuation",
        "label": "Long futures: build-up with cash confirmation",
@@ -587,7 +587,7 @@
       },
       {
        "id": "options:long_call",
-       "trade_plan_id": "tp_bd1f8816144c404c",
+       "trade_plan_id": "tp_595ab60cb67ac6cc",
        "segment": "options",
        "family": "long_call",
        "label": "Long call",
@@ -633,7 +633,7 @@
       },
       {
        "id": "options:bull_call_spread",
-       "trade_plan_id": "tp_44ab0b9b539cb699",
+       "trade_plan_id": "tp_1e66ea50216c8956",
        "segment": "options",
        "family": "bull_call_spread",
        "label": "Bull call spread (debit)",
@@ -674,7 +674,7 @@
       },
       {
        "id": "combination:covered_call",
-       "trade_plan_id": "tp_5456866a08a8d507",
+       "trade_plan_id": "tp_5d65e249d0477158",
        "segment": "combination",
        "family": "covered_call",
        "label": "Covered call (shares + short call)",
@@ -842,10 +842,10 @@
       "direction": "bullish",
       "instrument": "all"
      },
-     "build_ms": 55
+     "build_ms": 53
     }
    ],
-   "elapsed_ms": 60,
+   "elapsed_ms": 58,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -1001,7 +1001,7 @@
     "primary_target": "base",
     "time": {
      "max_sessions": 10,
-     "basis": "the plan's horizon in sessions"
+     "basis": "the setup's maximum horizon in sessions, else the plan's horizon"
     },
     "trailing": {
      "enabled": false,
@@ -1095,7 +1095,7 @@
     "strategy_plan_id": "plan_7699ae19c963dcfb",
     "candidate_id": "cash:breakout_continuation"
    },
-   "plan_id": "tp_48c67016c13f12c7",
+   "plan_id": "tp_6347b7723c8a8dbd",
    "lineage_key": "tl_3719a268ef01487d",
    "lifecycle": {
     "status": "proposed",
@@ -1119,10 +1119,11 @@
    },
    "entry_rule": "at_once",
    "plan_ref": {
-    "plan_id": "tp_48c67016c13f12c7",
+    "plan_id": "tp_6347b7723c8a8dbd",
     "candidate_id": "cash:breakout_continuation",
     "rules_version": "trade-plan-v1 (2026-10-27)"
-   }
+   },
+   "max_hold_sessions": 10
   },
   "bar": {
    "date": "2026-10-19",
@@ -1307,20 +1308,25 @@
     },
     "options": {
      "status": "ok",
-     "source": "strategy-levels-v2",
+     "version": "strategy-levels-v2",
      "as_of": "2026-10-21",
      "kind": "debit",
-     "entry_premium": 292.3,
-     "premium_stop": 204.61,
-     "t1": 379.99,
-     "t2": 467.68,
+     "entry": 292.3,
+     "planned_stop": 204.61,
+     "target_1": 379.99,
+     "target_2": 467.68,
+     "unit_shares": 30,
      "underlying_stop": 55271.88,
      "underlying_t1": 54641.63,
      "underlying_t2": 54362.19,
-     "greek_review": "net delta rises above -0.084 (30% of the entry delta -0.279)",
+     "greek_review": {
+      "entry_delta_per_unit": -0.279,
+      "view": "bearish",
+      "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+     },
      "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
      "expiry_flags": [],
-     "evaluation": "not evaluated here: feat/p2-exits-backtest"
+     "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
     }
    },
    "evidence_refs": [
@@ -1356,7 +1362,7 @@
     "kind": "regime_fit_board",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
    },
-   "plan_id": "tp_103ec92fccbfbb5b",
+   "plan_id": "tp_8762cf979db7cb25",
    "lineage_key": "tl_996943749d42b931",
    "lifecycle": {
     "status": "proposed",
@@ -1425,7 +1431,7 @@
    },
    "note": "Top by regime \u2014 fit 92.5",
    "plan_ref": {
-    "plan_id": "tp_103ec92fccbfbb5b",
+    "plan_id": "tp_8762cf979db7cb25",
     "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p",
     "rules_version": "trade-plan-v1 (2026-10-27)"
    }
@@ -1723,20 +1729,25 @@
          },
          "options": {
           "status": "ok",
-          "source": "strategy-levels-v2",
+          "version": "strategy-levels-v2",
           "as_of": "2026-10-21",
           "kind": "debit",
-          "entry_premium": 292.3,
-          "premium_stop": 204.61,
-          "t1": 379.99,
-          "t2": 467.68,
+          "entry": 292.3,
+          "planned_stop": 204.61,
+          "target_1": 379.99,
+          "target_2": 467.68,
+          "unit_shares": 30,
           "underlying_stop": 55271.88,
           "underlying_t1": 54641.63,
           "underlying_t2": 54362.19,
-          "greek_review": "net delta rises above -0.084 (30% of the entry delta -0.279)",
+          "greek_review": {
+           "entry_delta_per_unit": -0.279,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+          },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
-          "evaluation": "not evaluated here: feat/p2-exits-backtest"
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
          }
         },
         "evidence_refs": [
@@ -1772,7 +1783,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "BANKNIFTY:bear_put_spread:2026-10-27:buy55000p/sell54100p"
         },
-        "plan_id": "tp_103ec92fccbfbb5b",
+        "plan_id": "tp_8762cf979db7cb25",
         "lineage_key": "tl_996943749d42b931",
         "lifecycle": {
          "status": "proposed",
@@ -1780,7 +1791,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_103ec92fccbfbb5b"
+       "trade_plan_id": "tp_8762cf979db7cb25"
       },
       {
        "underlying": "NIFTY",
@@ -2048,20 +2059,25 @@
          },
          "options": {
           "status": "ok",
-          "source": "strategy-levels-v2",
+          "version": "strategy-levels-v2",
           "as_of": "2026-10-21",
           "kind": "debit",
-          "entry_premium": 122.2,
-          "premium_stop": 85.54,
-          "t1": 158.86,
-          "t2": 195.52,
+          "entry": 122.2,
+          "planned_stop": 85.54,
+          "target_1": 158.86,
+          "target_2": 195.52,
+          "unit_shares": 65,
           "underlying_stop": 22865.45,
           "underlying_t1": 22589.17,
           "underlying_t2": 22454.17,
-          "greek_review": "net delta rises above -0.075 (30% of the entry delta -0.251)",
+          "greek_review": {
+           "entry_delta_per_unit": -0.251,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.075 (30% of the entry delta -0.251)"
+          },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
-          "evaluation": "not evaluated here: feat/p2-exits-backtest"
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
          }
         },
         "evidence_refs": [
@@ -2097,7 +2113,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "NIFTY:bear_put_spread:2026-10-27:buy22800p/sell22500p"
         },
-        "plan_id": "tp_e1c6e9a7ba5e83c6",
+        "plan_id": "tp_e086434636b729ae",
         "lineage_key": "tl_3c4a49f7b5b01363",
         "lifecycle": {
          "status": "proposed",
@@ -2105,7 +2121,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_e1c6e9a7ba5e83c6"
+       "trade_plan_id": "tp_e086434636b729ae"
       }
      ],
      "considered": 10,
@@ -2410,20 +2426,25 @@
          },
          "options": {
           "status": "ok",
-          "source": "strategy-levels-v2",
+          "version": "strategy-levels-v2",
           "as_of": "2026-10-21",
           "kind": "debit",
-          "entry_premium": 15.75,
-          "premium_stop": 11.02,
-          "t1": 20.48,
-          "t2": 25.2,
+          "entry": 15.75,
+          "planned_stop": 11.02,
+          "target_1": 20.48,
+          "target_2": 25.2,
+          "unit_shares": 275,
           "underlying_stop": 2602.13,
           "underlying_t1": 2544.02,
           "underlying_t2": 2518.79,
-          "greek_review": "net delta rises above -0.049 (30% of the entry delta -0.162)",
+          "greek_review": {
+           "entry_delta_per_unit": -0.162,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.049 (30% of the entry delta -0.162)"
+          },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
-          "evaluation": "not evaluated here: feat/p2-exits-backtest"
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
          }
         },
         "evidence_refs": [
@@ -2469,7 +2490,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "MPHASIS:bear_put_spread:2026-10-27:buy2550p/sell2500p"
         },
-        "plan_id": "tp_8621ef0dd22838fc",
+        "plan_id": "tp_86f547e7677658c5",
         "lineage_key": "tl_3aecca8bca2c63a0",
         "lifecycle": {
          "status": "proposed",
@@ -2477,7 +2498,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_8621ef0dd22838fc"
+       "trade_plan_id": "tp_86f547e7677658c5"
       },
       {
        "underlying": "ICICIBANK",
@@ -2751,20 +2772,25 @@
          },
          "options": {
           "status": "ok",
-          "source": "strategy-levels-v2",
+          "version": "strategy-levels-v2",
           "as_of": "2026-10-21",
           "kind": "debit",
-          "entry_premium": 5.55,
-          "premium_stop": 3.88,
-          "t1": 7.21,
-          "t2": 8.88,
+          "entry": 5.55,
+          "planned_stop": 3.88,
+          "target_1": 7.21,
+          "target_2": 8.88,
+          "unit_shares": 700,
           "underlying_stop": 1394.42,
           "underlying_t1": 1378.78,
           "underlying_t2": 1372.16,
-          "greek_review": "net delta rises above -0.066 (30% of the entry delta -0.221)",
+          "greek_review": {
+           "entry_delta_per_unit": -0.221,
+           "view": "bearish",
+           "review_when": "net delta rises above -0.066 (30% of the entry delta -0.221)"
+          },
           "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
           "expiry_flags": [],
-          "evaluation": "not evaluated here: feat/p2-exits-backtest"
+          "evaluation": "on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan (feat/p2-exits-backtest)"
          }
         },
         "evidence_refs": [
@@ -2810,7 +2836,7 @@
          "kind": "regime_fit_board",
          "candidate_id": "ICICIBANK:bear_put_spread:2026-10-27:buy1380p/sell1360p"
         },
-        "plan_id": "tp_240b0e22429635e4",
+        "plan_id": "tp_6e6fa020a1343ff3",
         "lineage_key": "tl_fd951e92c1830e70",
         "lifecycle": {
          "status": "proposed",
@@ -2818,7 +2844,7 @@
          "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})"
         }
        },
-       "trade_plan_id": "tp_240b0e22429635e4"
+       "trade_plan_id": "tp_6e6fa020a1343ff3"
       }
      ],
      "considered": 20,

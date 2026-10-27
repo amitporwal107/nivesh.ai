@@ -84,3 +84,9 @@ export function planBlocker(tp: TradePlan): string | null {
   const state = tp.eligibility.state.replace(/_/g, " ").toLowerCase();
   return `This plan is ${state}${why ? `: ${why}` : "."}`;
 }
+
+/** The plan's time exit (exit_plan.time.max_sessions: the setup's maximum horizon in sessions), when it has one. */
+export function planMaxHold(tp: TradePlan): number | null {
+  const t = (tp.exit_plan as { time?: { max_sessions?: unknown } } | undefined)?.time?.max_sessions;
+  return typeof t === "number" && Number.isInteger(t) && t >= 1 ? t : null;
+}

@@ -140,8 +140,8 @@ def test_a_strategy_trade_at_its_plans_legs_and_levels_opens_and_stores_the_prem
     [doc] = world.db.trades.docs
     assert doc["trade_plan_id"] == tp["plan_id"] and doc["state"] == "POSITION_OPEN"
     opt = doc["exit_plan"]["options"]
-    assert opt["status"] == "ok" and opt["premium_stop"] == tp["exit_plan"]["options"]["premium_stop"]
-    assert "feat/p2-exits-backtest" in opt["evaluation"]
+    assert opt["status"] == "ok" and opt["planned_stop"] == tp["exit_plan"]["options"]["planned_stop"]
+    assert "premium_plan" in opt["evaluation"]
     assert doc["entry_record_hash"] == strat.record_hash(doc)                     # the immutable core is unchanged
 
 
@@ -163,7 +163,7 @@ def test_without_a_plan_a_strategy_trade_still_stores_the_engines_premium_levels
     want = tpm.options_exit(tpm.compute_levels("BANKNIFTY", IDEA["reference_price"], "2026-10-21", [
         {**l, "quantity": l["quantity"]} for l in IDEA["legs"]], {"put_wall": None, "call_wall": None, "expected_move": None},
         date(2026, 10, 22))[0], as_of="2026-10-21")
-    assert doc["exit_plan"]["options"]["premium_stop"] == want["premium_stop"] and doc["exit_plan"]["source"] == "entry"
+    assert doc["exit_plan"]["options"]["planned_stop"] == want["planned_stop"] and doc["exit_plan"]["source"] == "entry"
 
 
 def test_closing_a_strategy_trade_writes_exit_pending_and_closed_in_the_same_update(world):
@@ -278,3 +278,18 @@ def test_a_close_from_a_stale_copy_rereads_the_state_and_writes_no_duplicate_eve
     doc = world.db.trades.docs[0]
     assert [e["to"] for e in doc["transitions"]] == ["TRADE_ELIGIBLE", "ENTRY_TRIGGERED", "POSITION_OPEN", "EXIT_PENDING", "CLOSED"]
     assert lc.consistent(doc) == (True, [])
+
+
+# ── 2.6 seam: the premium plan stored at entry is the one the exits work evaluates ──
+def test_the_stored_premium_plan_is_read_by_the_exit_rules(api, world):
+    world.now = CLOCK
+    r = api.post(TRADES_URL, json=copy.deepcopy(CONTRACT["body_with_levels"]), headers=A)
+    assert r.status_code == 201, r.text
+    [doc] = world.db.trades.docs
+    opt = doc["exit_plan"]["options"]
+    plan = strat.premium_plan(doc)                         # services/desk_strategy_trades (feat/p2-exits-backtest)
+    assert plan is not None, opt
+    assert (plan["kind"], plan["entry_per_unit"], plan["stop_per_unit"], plan["t1_per_unit"], plan["t2_per_unit"], plan["unit_shares"]) == (
+        opt["kind"], opt["entry"], opt["planned_stop"], opt["target_1"], opt["target_2"], opt["unit_shares"])
+    assert plan["unit_shares"] == 30 and plan["source"] == "exit_plan.options"
+    assert plan["greek_review"]["entry_delta_per_unit"] == opt["greek_review"]["entry_delta_per_unit"] and plan["greek_review"]["view"] == "bearish"

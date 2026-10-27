@@ -9,8 +9,8 @@
 import { useId, useState } from "react";
 import { Btn, fmtNum } from "../../components/ui";
 import { fmtPrice } from "../trading/parts";
-import { ENTRY_RULE_SHORT, useAddPaperTrade, writeProblem, type EntryRule, type NewPaperTrade } from "./desk-trading";
-import { planBlocker, planLine, planRefOf, primaryTarget, type TradePlan } from "./strategy/trade-plan";
+import { ENTRY_RULE_SHORT, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type EntryRule, type NewPaperTrade } from "./desk-trading";
+import { planBlocker, planLine, planMaxHold, planRefOf, primaryTarget, type TradePlan } from "./strategy/trade-plan";
 
 const quiet = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" } as const;
 const RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
@@ -20,9 +20,11 @@ export function planCashBody(tp: TradePlan, symbol: string, quantity: number, so
   const rule = tp.entry.desk_entry_rule ?? "";
   if (entry == null || stop == null || !(entry > stop) || !RULES.includes(rule)) return null;
   const target = primaryTarget(tp)?.price ?? null;
+  // The plan's time exit (the setup's maximum horizon in sessions) is the trade's max hold, as the rows send it.
+  const maxHold = maxHoldFor(planMaxHold(tp));
   return {
     symbol, quantity, entry_price: entry, stop_price: stop, target_price: target != null && target > entry ? target : null,
-    source, entry_rule: rule as EntryRule, plan_ref: planRefOf(tp),
+    source, entry_rule: rule as EntryRule, ...(maxHold != null ? { max_hold_sessions: maxHold } : {}), plan_ref: planRefOf(tp),
   };
 }
 
@@ -59,6 +61,7 @@ export function PlanPaperTrade({ tp, symbol, source, sized, testPrefix }: {
       )}
       <span style={quiet}>
         At the plan’s levels (<span data-testid={`${testPrefix}-rule`} data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>)
+        {maxHoldNote(maxHoldFor(planMaxHold(tp)))}
         {planSized != null ? `; ${fmtNum(planSized)} is the plan’s sized quantity` : ""}. Plan {tp.plan_id}
         {tp.version != null && tp.version > 1 ? ` (version ${tp.version})` : ""}. Simulated; nothing is sent to a broker.
       </span>

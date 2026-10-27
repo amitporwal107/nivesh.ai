@@ -150,7 +150,7 @@ def _exit_plan(stop: Dict[str, Any], targets: List[Dict[str, Any]], max_sessions
         "stop": {"price": stop.get("price"), "method": stop.get("method")},
         "targets": [{"name": t["name"], "price": t["price"], "r_multiple": t["r_multiple"]} for t in targets],
         "primary_target": prim,
-        "time": {"max_sessions": max_sessions, "basis": "the plan's horizon in sessions" if max_sessions else None},
+        "time": {"max_sessions": max_sessions, "basis": "the setup's maximum horizon in sessions, else the plan's horizon" if max_sessions else None},
         # Research options (decision D4): opt-in, versioned, evaluated by the exits branch. Recorded here as "not
         # enabled" so a reader never has to guess whether a trailing or trend exit applies.
         "trailing": {"enabled": False, "atr_multiple": None, "owner": EXITS_OWNER},
@@ -199,7 +199,10 @@ def linear_plan(plan: Dict[str, Any], c: Dict[str, Any]) -> Optional[Dict[str, A
     stop_b = {"price": r2(stop), "method": inv.get("method") or "unknown", "atr": inv.get("atr"),
               "atr_multiple": inv.get("atr_multiple"), "distance_atr": inv.get("distance_atr"), "swing_ref": inv.get("swing_ref"),
               "measured_from": inv.get("measured_from"), "rationale": inv.get("basis"), "invalidation": inv.get("meaning")}
-    max_sessions = inputs.get("horizon_days")
+    # Decision D4: the time exit is the SETUP's maximum horizon in sessions (the scanner's timeframe_days_max, which the
+    # desk rows send as max_hold_sessions since feat/p2-exits-backtest), else the plan's own horizon.
+    tf = (c.get("setup") or {}).get("timeframe_days") or [None, None]
+    max_sessions = tf[1] if isinstance(tf, list) and len(tf) == 2 and isinstance(tf[1], int) and tf[1] >= 1 else inputs.get("horizon_days")
     tp = {
         "schema": SCHEMA, "rules_version": RULES_VERSION, "strategy_rules_version": plan.get("rules_version"),
         "calculation_version": plan.get("calculation_version"),
@@ -242,20 +245,24 @@ def _levels_request(underlying: str, reference: float, as_of: Optional[str], leg
 
 
 def options_exit(levels: Optional[Dict[str, Any]], *, as_of: Optional[str], error: Optional[str] = None) -> Dict[str, Any]:
-    """`exit_plan.options` from a strategy_levels answer: the structure's premium stop and T1 / T2, the underlying
-    levels they correspond to, the Greek review rule and the expiry flag. Stored at entry; EVALUATING them is the exits
-    branch's (feat/p2-exits-backtest)."""
+    """`exit_plan.options` from a strategy_levels answer, under strategy_levels' OWN names: the seam the exits work
+    reads (services/desk_strategy_trades.premium_plan: kind, entry, planned_stop, target_1, target_2 per unit,
+    unit_shares, version, greek_review {entry_delta_per_unit, view}). Also the underlying levels those premiums
+    correspond to and the expiry flags. Stored at entry; EVALUATED by desk_strategy_trades (feat/p2-exits-backtest)."""
     if not levels or not levels.get("valid"):
         return {"status": "unavailable", "reason": error or ((levels or {}).get("reason") or "the levels engine gave no answer"),
-                "evaluation": f"not evaluated here: {EXITS_OWNER}"}
+                "evaluation": f"none: no premium levels ({EXITS_OWNER} evaluates them when present)"}
     prem, und, gr = levels.get("premium") or {}, levels.get("underlying") or {}, levels.get("greeks") or {}
-    return {"status": "ok", "source": levels.get("version"), "as_of": as_of, "kind": prem.get("kind"),
-            "entry_premium": prem.get("entry"), "premium_stop": prem.get("planned_stop"), "t1": prem.get("target_1"),
-            "t2": prem.get("target_2"), "underlying_stop": und.get("stop"), "underlying_t1": und.get("target"),
-            "underlying_t2": und.get("target_2"), "greek_review": gr.get("review_when"),
+    view = und.get("view")
+    return {"status": "ok", "version": levels.get("version"), "as_of": as_of, "kind": prem.get("kind"),
+            "entry": prem.get("entry"), "planned_stop": prem.get("planned_stop"), "target_1": prem.get("target_1"),
+            "target_2": prem.get("target_2"), "unit_shares": (levels.get("unit") or {}).get("shares"),
+            "underlying_stop": und.get("stop"), "underlying_t1": und.get("target"), "underlying_t2": und.get("target_2"),
+            "greek_review": ({"entry_delta_per_unit": gr.get("net_delta_per_share"), "view": view, "review_when": gr.get("review_when")}
+                             if gr.get("net_delta_per_share") is not None else None),
             "expiry_rule": "settle at intrinsic on the expiry date (services/desk_strategy_trades)",
             "expiry_flags": [f.get("code") for f in levels.get("flags") or []],
-            "evaluation": f"not evaluated here: {EXITS_OWNER}"}
+            "evaluation": f"on the whole structure's end-of-day marks by services/desk_strategy_trades.premium_plan ({EXITS_OWNER})"}
 
 
 def compute_levels(underlying: str, reference: float, as_of: Optional[str], legs: Sequence[Dict[str, Any]],
@@ -314,7 +321,7 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
                             "r_multiple": r_multiple(float(price), reference, risk_u, up) if risk_u else None,
                             "rule": lv.get("rule"), "primary": lv["name"] == primary})
     stop_b = {"price": r2(stop_u), "method": "underlying" if stop_u is not None else "premium",
-              "premium_stop": opt.get("premium_stop"), "atr": None, "atr_multiple": None, "distance_atr": None,
+              "premium_stop": opt.get("planned_stop"), "atr": None, "atr_multiple": None, "distance_atr": None,
               "swing_ref": None, "measured_from": r2(reference),
               "rationale": stop_why if stop_u is not None else "no underlying stop: the structure's premium stop and its max loss bound it",
               "invalidation": "the thesis is wrong if the underlying closes beyond this level"}

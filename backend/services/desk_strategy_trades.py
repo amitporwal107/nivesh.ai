@@ -19,10 +19,13 @@ Only `close_strategy_trade` writes to a stored strategy trade, and only the clos
 Marks (end of day, nothing is filled in):
     future leg   the contract's settle_price that session (nidp.fno_bhavcopy through the data platform's
                  GET /v1/fno/{symbol}/history)
-    option leg   the contract's settle_price, else its close_price, that session; on its expiry date it is SETTLED at
-                 intrinsic value against the underlying's closing price that day (call: max(U − K, 0), put:
-                 max(K − U, 0)); U is the underlying's end-of-day close (nidp.prices_eod), else the bhavcopy's own
-                 underlying_price on the expiry date, else the leg stays unsettled and says so
+    option leg   the contract's close_price that session — NEVER its settle_price: on an option's expiry day the NSE
+                 F&O bhavcopy's settle_price column holds the UNDERLYING's price, not a premium (56 of 56 legs checked
+                 on staging), and for a contract that did not trade it is the exchange's theoretical price, so marking
+                 at it shows a P&L nobody could have taken. On its expiry date the leg is SETTLED at intrinsic value
+                 against the underlying's closing price that day (call: max(U − K, 0), put: max(K − U, 0)); U is the
+                 underlying's end-of-day close (nidp.prices_eod), else the bhavcopy's own underlying_price on the
+                 expiry date, else the leg stays unsettled and says so
     cash leg     the underlying's end-of-day close
     A leg with no row on a session keeps its last mark and is flagged `no_mark`; before its first row it has no
     mark and the strategy has no P&L. A missing price is never replaced by the entry price or by zero.
@@ -31,13 +34,25 @@ Costs: services/strategy_engine's model per leg per side: slippage % of the trad
 side is charged for every leg, including at expiry settlement (conservative), and on an open trade it is estimated at
 the last marks.
 
-Exit rules (end of day, in this order, from the first session strictly after the IST date the trade was opened):
-    stop      the underlying's bar touches `stop_underlying` (bullish: low <= stop; bearish: high >= stop); both stop
-              and target inside one session count as the stop (a daily bar does not show which came first)
-    target    the underlying's bar touches `target_underlying`
+Exit rules (end of day, in this order, from the first session strictly after the IST date the trade was opened; the
+underlying's levels are evaluated by services/exit_rules.step, exit-rules-v1, the function the cash trades and the
+backtest use):
+    stop      the underlying's bar touches `stop_underlying` (bullish: low <= stop; bearish: high >= stop), or opens
+              through it (flagged `gap_through_stop`); both stop and target inside one session count as the stop
+              (a daily bar does not show which came first); then the PREMIUM stop (below)
+    target    the underlying's bar touches `target_underlying`; then the premium target 1
     expiry    every leg that has an expiry has been settled
     time      `max_hold_sessions` sessions held
     manual    the user closes it, at the last marks
+    Premium levels (Phase 2.6): when the trade stores the strategy_levels plan at entry (`exit_plan.options`: kind
+    debit|credit, entry, planned_stop, target_1, target_2, unit_shares, version; the parallel TradePlan work stores it,
+    feat/p2-trade-plan-lifecycle), the WHOLE structure is evaluated on its end-of-day marks each session: a debit
+    structure worth no more than planned_stop a unit (a credit one costing at least planned_stop a unit to buy back)
+    closes as `stop`, worth at least target_1 (costing at most target_1) as `target`, with `exit_basis: "premium"`.
+    target_2 is shown, not acted on: partial exits are not modelled. Without that field, only the rules above apply.
+    The Greek review (`exit_plan.options.greek_review`) is a FLAG event, never an exit: the structure's net delta per
+    unit (Black-76 at each option's close-price implied volatility, the underlying's close carried to expiry) crossing
+    the strategy_levels review level is flagged once.
     The legs are closed at that session's marks (end-of-day settle / close), never at the underlying's touch price:
     the touch is intraday, the option marks are not, and the trade says so (`exit_marked_at_session_marks`).
 MFE / MAE are the highest / lowest end-of-session strategy P&L from the first session held through the exit session.
@@ -48,13 +63,17 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from services import desk_cost_card as cost_card
 from services import desk_trading as base
+from services import exit_rules as er
+from services import option_pricing as op
 from services import paper_account
 from services import trade_lifecycle as lifecycle
 from services.copilot_tools import daas_client
@@ -89,7 +108,7 @@ MAX_FLAGS = 60
 
 MARK_BASIS_TEXT = {
     "settle": "the contract's end-of-day settle price",
-    "close": "the contract's end-of-day close (no settle price that day)",
+    "close": "the contract's end-of-day close (an option is never marked at its settle price)",
     "expiry_intrinsic": "settled at intrinsic value against the underlying's close on the expiry date",
     "final_settle": "the future's final settle price on its expiry date",
     "underlying_close": "the underlying's end-of-day close",
@@ -104,6 +123,8 @@ FUTURES_HEDGED_NOTE = ("This structure holds a future: margin calls, gaps and da
 EXIT_TEXT = {
     "stop": "The underlying's end-of-day bar touched the plan's invalidation level.",
     "target": "The underlying's end-of-day bar touched the plan's target level.",
+    "premium_stop": "The whole structure's value on the end-of-day marks reached its premium stop (strategy_levels).",
+    "premium_target": "The whole structure's value on the end-of-day marks reached its premium target 1 (strategy_levels).",
     "expiry": "Every leg with an expiry has expired and been settled.",
     "time": "Held for the most sessions the plan allows.",
     "manual": "Closed by you at the last end-of-day marks.",
@@ -510,7 +531,14 @@ def simulate_strategy(trade: Dict[str, Any], bars: List[Dict[str, Any]], leg_row
               for _ in legs]
     out: Dict[str, Any] = {"entry_status": "assumed", "observations": 0, "held_sessions": 0, "checked_through": None,
                            "legs": states, "gross_pnl_rs": None, "mfe_rs": None, "mae_rs": None,
-                           "last_mark_session": None, "flags": flags, "exit": None}
+                           "last_mark_session": None, "flags": flags, "exit": None,
+                           "structure_value_per_unit": None, "exit_rules_version": er.VERSION}
+    plan = premium_plan(trade)
+    rules = er.Rules(side="short" if direction == "bearish" else "long",
+                     target=target if direction in ("bullish", "bearish") else None,
+                     max_hold_sessions=int(max_hold) if max_hold else None)
+    level_state = er.start(float(trade.get("reference_price") or 1.0),
+                           stop if direction in ("bullish", "bearish") else None, rules)
     if bars:
         timeline = [b["date"] for b in bars if b["date"] > opened]
     else:
@@ -546,11 +574,12 @@ def simulate_strategy(trade: Dict[str, Any], bars: List[Dict[str, Any]], leg_row
                 continue                                        # settled, or not possible yet: the last mark stays (flagged)
             mark, basis = None, None
             if row is not None:
-                settle, close = _positive(row.get("settle_price")), _positive(row.get("close_price"))
                 if leg["kind"] == "future":
-                    mark, basis = settle, "settle"
+                    mark, basis = _positive(row.get("settle_price")), "settle"
                 else:
-                    mark, basis = (settle, "settle") if settle is not None else (close, "close")
+                    # An option is marked at its CLOSE only (see the module docstring: its settle_price is the
+                    # underlying's price on an expiry day and a theoretical price when it did not trade).
+                    mark, basis = _positive(row.get("close_price")), "close"
             if mark is not None:
                 st.update(mark=mark, mark_date=day, mark_basis=basis, missing_run=False)
             else:
@@ -562,7 +591,11 @@ def simulate_strategy(trade: Dict[str, Any], bars: List[Dict[str, Any]], leg_row
             pnl_path.append(gross)
             out["mfe_rs"], out["mae_rs"] = max(pnl_path), min(pnl_path)
             out["last_mark_session"] = day
-        exit_ = _exit_for_session(trade, bar, day, direction, stop, target, states, legs, out, flags, max_hold)
+        if plan is not None:
+            out["structure_value_per_unit"] = structure_value_per_unit(legs, states, plan)
+            _greek_review(trade, plan, legs, states, bar, by_day, day, flags)
+        level_state, exit_ = _exit_for_session(trade, bar, day, direction, stop, target, states, legs, out, flags, max_hold,
+                                               level_state, rules, plan)
         if exit_ is not None:
             out["exit"] = exit_
             for st in states:
@@ -619,39 +652,157 @@ def _settle_leg(flags, st, index, leg, expiry: date, bar_by_day, rows: Dict[date
                        f"{source} ({base._rupees(spot)}).", day, value, index))
 
 
-def _exit_for_session(trade, bar, day, direction, stop, target, states, legs, out, flags, max_hold) -> Optional[Dict[str, Any]]:
-    hit_stop = hit_target = False
+def _exit_for_session(trade, bar, day, direction, stop, target, states, legs, out, flags, max_hold,
+                      level_state: er.State, rules: er.Rules, plan: Optional[Dict[str, Any]]):
+    """(the level state after this session, the exit or None). Order: the underlying's stop (exit_rules.step: gap,
+    then intrabar touch) → the premium stop → the underlying's target → premium target 1 → expiry → time."""
+    expired = any(leg.get("expiry") for leg in legs) and all(st["settled"] for leg, st in zip(legs, states) if leg.get("expiry"))
+    step_ex: Optional[Dict[str, Any]] = None
     if bar is not None:
-        if direction == "bullish":
-            hit_stop = stop is not None and bar["low"] <= stop
-            hit_target = target is not None and bar["high"] >= target
-        elif direction == "bearish":
-            hit_stop = stop is not None and bar["high"] >= stop
-            hit_target = target is not None and bar["low"] <= target
+        # The session count is the trade's own (a session without an underlying bar still counts as held).
+        level_state = replace(level_state, sessions_held=out["held_sessions"] - 1)
+        try:
+            level_state, step_ex = er.step(level_state, bar, rules, expired=expired)
+        except er.IncompleteBar:
+            step_ex = None
+        if step_ex is not None:
+            level_state = replace(level_state, closed=False)          # the legs, not the step, decide the close
     elif (stop is not None or target is not None) and not any(f["code"] == "underlying_bar_missing" for f in flags):
         flags.append(_flag("underlying_bar_missing", "The underlying has no end-of-day bar this session; its stop and target "
                            "were not checked for it.", day))
-    reason = None
+    premium = _premium_exit(plan, out.get("structure_value_per_unit"))
+    reason: Optional[str] = None
+    basis: Optional[str] = None
     note: Optional[str] = None
-    if hit_stop:
-        reason = "stop"
-        if hit_target:
+    kind = step_ex["reason"] if step_ex else None
+    if kind == "stop":
+        reason, basis = "stop", "underlying"
+        if step_ex["both_in_range"]:
             note = base.BOTH_IN_RANGE_NOTE
             flags.append(_flag("both_in_range", base.BOTH_IN_RANGE_NOTE, day))
-        gap = bar["open"] is not None and ((bar["open"] < stop) if direction == "bullish" else (bar["open"] > stop))
-        if gap:
+        if step_ex["gapped"]:
             flags.append(_flag("gap_through_stop", f"The underlying opened at {base._rupees(bar['open'])}, beyond the invalidation "
                                "level: a real exit would have been worse than the session's closing marks may show.", day, bar["open"]))
-    elif hit_target:
-        reason = "target"
-    elif any(leg.get("expiry") for leg in legs) and all(st["settled"] for leg, st in zip(legs, states) if leg.get("expiry")):
+    elif premium == "stop":
+        reason, basis, note = "stop", "premium", EXIT_TEXT["premium_stop"]
+    elif kind == "target":
+        reason, basis = "target", "underlying"
+    elif premium == "target":
+        reason, basis, note = "target", "premium", EXIT_TEXT["premium_target"]
+    elif kind == "expiry" or (bar is None and expired):
         reason = "expiry"
-    elif max_hold and out["held_sessions"] >= int(max_hold):
+    elif kind == "time" or (bar is None and max_hold and out["held_sessions"] >= int(max_hold)):
         reason = "time"
     if reason is None:
-        return None
+        return level_state, None
     flags.append(_flag("exit_marked_at_session_marks", SESSION_MARKS_NOTE, day))
-    return {"exit_reason": reason, "exit_session": day, "exit_note": note or EXIT_TEXT[reason]}
+    return level_state, {"exit_reason": reason, "exit_session": day, "exit_note": note or EXIT_TEXT[reason], "exit_basis": basis}
+
+
+# ── premium levels and the Greek review (Phase 2.6) ─────────────────────────
+def premium_plan(trade: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The strategy_levels plan stored on the trade at entry (`exit_plan.options`), normalised, or None when the trade
+    has none (then only the underlying, expiry and time rules apply). THE SEAM with the TradePlan work: it reads
+    kind (debit|credit), entry, planned_stop, target_1, target_2 (per unit), unit_shares, version, greek_review — the
+    names strategy_levels.compute returns. A structure with a non-option leg gets no premium levels."""
+    ep = trade.get("exit_plan")
+    opts = ep.get("options") if isinstance(ep, dict) else None
+    if not isinstance(opts, dict):
+        return None
+    if any(leg.get("kind") != "option" for leg in trade.get("legs") or []):
+        return None
+    kind = opts.get("kind")
+    entry, stop = _positive(opts.get("entry")), _positive(opts.get("planned_stop"))
+    t1, t2 = _positive(opts.get("target_1")), _positive(opts.get("target_2"))
+    unit = _positive(opts.get("unit_shares"))
+    if kind not in ("debit", "credit") or entry is None or stop is None or unit is None:
+        return None
+    return {"kind": kind, "entry_per_unit": entry, "stop_per_unit": stop, "t1_per_unit": t1, "t2_per_unit": t2,
+            "unit_shares": unit, "version": opts.get("version"), "source": "exit_plan.options",
+            "greek_review": opts.get("greek_review") if isinstance(opts.get("greek_review"), dict) else None}
+
+
+def public_premium_plan(plan: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    return None if plan is None else {k: v for k, v in plan.items() if k != "greek_review"}
+
+
+def structure_value_per_unit(legs: List[Dict[str, Any]], states: List[Dict[str, Any]], plan: Dict[str, Any]) -> Optional[float]:
+    """The whole structure on its marks, per unit: a debit structure's sale value, a credit structure's buy-back cost.
+    None while any leg has no mark (nothing is assumed)."""
+    if any(st["mark"] is None for st in states):
+        return None
+    value = sum(_sign(leg) * float(st["mark"]) * _qty(leg) for leg, st in zip(legs, states)) / plan["unit_shares"]
+    return round(value if plan["kind"] == "debit" else -value, 4)
+
+
+def _premium_exit(plan: Optional[Dict[str, Any]], value: Optional[float]) -> Optional[str]:
+    if plan is None or value is None:
+        return None
+    if plan["kind"] == "debit":
+        if value <= plan["stop_per_unit"]:
+            return "stop"
+        if plan["t1_per_unit"] is not None and value >= plan["t1_per_unit"]:
+            return "target"
+    else:
+        if value >= plan["stop_per_unit"]:
+            return "stop"
+        if plan["t1_per_unit"] is not None and value <= plan["t1_per_unit"]:
+            return "target"
+    return None
+
+
+GREEK_KEEP = 0.30           # strategy_levels.S["delta_keep"]: review when a directional delta falls to 30 % of its entry
+GREEK_NEUTRAL_LIMIT = 0.20  # strategy_levels.S["neutral_delta_limit"]
+
+
+def net_delta_per_unit(legs: List[Dict[str, Any]], states: List[Dict[str, Any]], spot: Optional[float], day: date,
+                       unit: float) -> Optional[float]:
+    """The structure's net delta per unit at this session's close: each option's Black-76 delta at the implied
+    volatility of its close mark, the forward taken as the underlying's close carried to expiry (option_pricing's
+    last-resort forward: dividends ignored). None when any input is missing or a volatility cannot be solved."""
+    if spot is None:
+        return None
+    total = 0.0
+    for leg, st in zip(legs, states):
+        if leg["kind"] != "option" or st["mark"] is None or st["settled"]:
+            return None
+        t = op.year_fraction(op.days_between(day, date.fromisoformat(leg["expiry"])))
+        if t <= 0:
+            return None
+        kind = "CE" if leg["option_type"] == "call" else "PE"
+        fwd = spot * math.exp(op.RISK_FREE_RATE * t)
+        vol = op.implied_vol(kind, float(st["mark"]), fwd, float(leg["strike"]), t)
+        d = op.delta(kind, fwd, float(leg["strike"]), t, vol) if vol else None
+        if d is None:
+            return None
+        total += _sign(leg) * d * _qty(leg)
+    return total / unit
+
+
+def _greek_review(trade, plan, legs, states, bar, by_day, day, flags) -> None:
+    """Flag (once) the session the structure's net delta crosses its review level; never an exit."""
+    rule = plan.get("greek_review")
+    if not rule or any(f["code"] == "greek_review" for f in flags):
+        return
+    d0 = rule.get("entry_delta_per_unit")
+    if not isinstance(d0, (int, float)) or isinstance(d0, bool):
+        return
+    spot = _positive(bar["close"]) if bar else None
+    if spot is None:
+        spot = next((_positive(rows.get(day, {}).get("underlying_price")) for rows in by_day if rows.get(day)), None)
+    delta = net_delta_per_unit(legs, states, spot, day, plan["unit_shares"])
+    if delta is None:
+        return
+    view = rule.get("view") or trade.get("direction")
+    if view == "bullish":
+        crossed, level = delta < GREEK_KEEP * d0, f"below {round(GREEK_KEEP * d0, 3)}"
+    elif view == "bearish":
+        crossed, level = delta > GREEK_KEEP * d0, f"above {round(GREEK_KEEP * d0, 3)}"
+    else:
+        crossed, level = abs(delta) > GREEK_NEUTRAL_LIMIT, f"beyond ±{GREEK_NEUTRAL_LIMIT}"
+    if crossed and len(flags) < MAX_FLAGS:
+        flags.append(_flag("greek_review", f"Net delta {round(delta, 3)} a unit is {level} (entry {round(d0, 3)}): the "
+                           "strategy_levels Greek rule says review the position. A flag, not an exit.", day, round(delta, 4)))
 
 
 # ── costs and money figures ─────────────────────────────────────────────────
@@ -752,6 +903,7 @@ def net_premium(legs: List[Dict[str, Any]], prices: List[Optional[float]]) -> Op
 # ── writes (idempotent: the status is part of the filter) ────────────────────
 async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_session: Optional[date],
                                exit_note: Optional[str], sim: Dict[str, Any], now: Optional[datetime] = None,
+                               exit_basis: Optional[str] = None,
                                extra: Optional[Dict[str, Any]] = None) -> Tuple[Optional[Dict[str, Any]], bool]:
     """(the trade as stored afterwards, True when THIS call closed it). Writes the closing fields only: the signal,
     legs and levels are never in the update. Never touches a trade that is not open. `extra` adds closing fields
@@ -767,6 +919,9 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
                  for i, (leg, st) in enumerate(zip(legs, sim["legs"]))]
     events = list(trade.get("events") or [])
     session_text = exit_session.isoformat() if exit_session else None
+    for f in sim.get("flags") or []:
+        if f.get("code") == "greek_review":
+            events.append({"type": "greek_review", "at": stamp, "session": f.get("session"), "text": f.get("text")})
     if exit_reason != "manual":
         events.append({"type": "exit_rule_fired", "at": stamp, "session": session_text, "reason": exit_reason,
                        "text": exit_note or EXIT_TEXT.get(exit_reason, exit_reason)})
@@ -779,6 +934,9 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
         "exit_session": session_text,
         "exit_note": exit_note,
         "exit_legs": exit_legs,
+        "exit_basis": exit_basis,
+        "structure_value_per_unit": sim.get("structure_value_per_unit"),
+        "exit_rules_version": sim.get("exit_rules_version"),
         "realized_pnl_rs": gross,
         "costs_rs": costs,
         "costs_breakdown": breakdown,
@@ -888,7 +1046,14 @@ async def apply_exits(db, trades: List[Dict[str, Any]], *, persist: bool = True
         if trade.get("status") != "open" or sim is None or sim["exit"] is None or not persist:
             out.append(trade)
             continue
-        stored, mine = await close_strategy_trade(db, trade, **sim["exit"], sim=sim)
+        try:
+            stored, mine = await close_strategy_trade(db, trade, **sim["exit"], sim=sim)
+        except Exception as exc:  # noqa: BLE001 — one failed write must not leave every other trade unmanaged
+            # Left open (the close filters on status, so the next run retries it safely) and reported to the job.
+            logger.exception("desk_strategy: closing %s by the %s rule failed: %r", trade["_id"], sim["exit"]["exit_reason"], exc)
+            sim["close_failed"] = True
+            out.append(trade)
+            continue
         if mine:
             logger.info("desk_strategy: trade %s (%s) closed by the %s rule on %s", trade["_id"], trade["underlying"],
                         sim["exit"]["exit_reason"], sim["exit"]["exit_session"])
@@ -974,6 +1139,9 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         "mark_error": mark_error if is_open else None,
         "flags": flags,
         "event_count": len(doc.get("events") or []),
+        "premium_plan": public_premium_plan(premium_plan(doc)),
+        "structure_value_per_unit": (sim.get("structure_value_per_unit") if sim else None) if is_open else doc.get("structure_value_per_unit"),
+        "exit_basis": None if is_open else doc.get("exit_basis"),
     }
     if detail:
         out["events"] = list(doc.get("events") or [])

@@ -269,10 +269,18 @@ def mark_executed(ticket: Dict[str, Any], trade: Dict[str, Any], *, now: Optiona
     return {"status": "executed_paper", "trade_id": trade["_id"], "confirmed_at": stamp, "updated_at": stamp}
 
 
-def trade_body(ticket: Dict[str, Any], *, rationale: str) -> Dict[str, Any]:
+#: The desk's longest time exit (services/desk_trading.MAX_HOLD_SESSIONS); a strategy holding longer is capped to it.
+DESK_MAX_HOLD_SESSIONS = 250
+
+
+def trade_body(ticket: Dict[str, Any], *, rationale: str, exit_spec: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The `desk_trading.new_trade` body for a ticket's paper trade: the governor's approved quantity, the ticket's
-    own stop and target, and the provenance the PRD asks for (source kind, strategy version, rationale)."""
-    return {
+    own stop and target, and the provenance the PRD asks for (source kind, strategy version, rationale).
+
+    `exit_spec` is the strategy's `spec.exit`, so the paper trade exits the way the backtest that promoted the strategy
+    did (finding N15): `max_hold_days` (sessions held, as the backtest counts them) becomes the trade's
+    `max_hold_sessions`, capped at the desk's 250, and `trailing_atr_mult` the trade's opt-in ATR trail (k, ATR 14)."""
+    body = {
         "symbol": ticket["symbol"],
         "quantity": ticket["quantity"],
         "entry_price": ticket["entry_price"],
@@ -283,6 +291,20 @@ def trade_body(ticket: Dict[str, Any], *, rationale: str) -> Dict[str, Any]:
         "strategy_version": ticket.get("strategy_version"),
         "rationale": rationale,
     }
+    exit_spec = exit_spec if isinstance(exit_spec, dict) else {}
+    hold = exit_spec.get("max_hold_days")
+    if isinstance(hold, int) and not isinstance(hold, bool) and hold >= 1:
+        body["max_hold_sessions"] = min(hold, DESK_MAX_HOLD_SESSIONS)
+    rules: Dict[str, Any] = {}
+    k = exit_spec.get("trailing_atr_mult")
+    if isinstance(k, (int, float)) and not isinstance(k, bool) and k > 0:
+        rules["trailing_atr"] = {"k": float(k)}
+    period = exit_spec.get("trend_ema_period")
+    if isinstance(period, int) and not isinstance(period, bool) and period >= 2:
+        rules["trend_ema"] = {"period": period}
+    if rules:
+        body["exit_rules"] = rules
+    return body
 
 
 def ticket_text(ticket: Dict[str, Any]) -> str:

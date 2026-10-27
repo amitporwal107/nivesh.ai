@@ -169,7 +169,7 @@ def test_one_fno_plan_id_carries_identical_levels_on_the_board_the_stored_row_an
     [entry] = [e for e in day["fno"] if e.get("trade_plan_id") == tp["plan_id"]]
     shown = entry["strategy_levels"]["result"]                 # what the stored row displays
     assert (tp["stop"]["price"], tpm.primary_target(tp)["price"]) == (shown["underlying"]["stop"], shown["underlying"]["target"])
-    assert tp["exit_plan"]["options"]["premium_stop"] == shown["premium"]["planned_stop"]
+    assert tp["exit_plan"]["options"]["planned_stop"] == shown["premium"]["planned_stop"]
 
     asyncio.run(tpm.store(surfaces.db, copy.deepcopy(tp), "system:ai-watchlist"))
     monkeypatch.setattr(svc, "utcnow", lambda: CLOCK)          # the contract body's clock: after its chain day

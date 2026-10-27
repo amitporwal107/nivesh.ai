@@ -41,7 +41,7 @@ const FNO = [
 ];
 const ICICI = {
   rank: 1, symbol: "ICICIBANK", name: "ICICI Bank Ltd", sector: "Banks", direction: "bullish", fno_eligible: true, source: "ai_scanner",
-  scanner: { bucket: "breakout_confirmed", status: "confirmed", score: 86, close: 1200, close_date: "2026-10-26", entry: 1200, stop: 1160, target: 1280, reasons: [] },
+  scanner: { bucket: "breakout_confirmed", status: "confirmed", score: 86, close: 1200, close_date: "2026-10-26", entry: 1200, stop: 1160, target: 1280, reasons: [], horizon_days: 15 },
   plan_status: "plan", status_reasons: [],
   preferred: { id: "options:bull_call_spread", segment: "options", label: "Bull call spread 1200/1250", status: "candidate", legs_text: "Buy 1,200 call at 52.00; sell 1,250 call at 38.00", max_loss: -7000, reward_risk_net: 2.4 },
   sized_shares: 208, plan_inputs: { underlying: "ICICIBANK", direction: "bullish", instrument: "all", capital: 1000000 },
@@ -188,8 +188,10 @@ test.describe("AI scanner watchlist", () => {
     await icici.getByTestId("aiw-paper-add").click();
     await expect(icici.getByTestId("aiw-paper-done")).toContainText("208 ICICIBANK");
     // paper_fills_pnl TESTCASES ER-3: entry 1200 at the list's close 1200 fills at once.
+    // p2_exits_backtest TC-70: the scanner's holding window (horizon_days 15) is sent as the time exit.
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-26" }, entry_rule: "at_once" }]);
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-26" }, entry_rule: "at_once", max_hold_sessions: 15 }]);
+    await expect(icici).toContainText("exits after 15 sessions held");
     // desk_paper_safety TESTCASES UI-4: the submission carries one Idempotency-Key (a UUID).
     expect(seen.paperKeys).toHaveLength(1);
     expect(seen.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);

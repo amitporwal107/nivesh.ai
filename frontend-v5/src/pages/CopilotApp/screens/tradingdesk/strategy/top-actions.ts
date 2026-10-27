@@ -118,8 +118,8 @@ export function planLevels(tp: TradePlan, direction: Direction, reference: numbe
     if (stop != null && stop > 0 && (up ? stop < reference : stop > reference)) out.stop_underlying = stop;
     if (target != null && target > 0 && (up ? target > reference : target < reference)) out.target_underlying = target;
   }
-  const opt = (tp.exit_plan as { options?: { source?: string | null } } | undefined)?.options;
-  return { levels: out, version: opt?.source ?? null };
+  const opt = (tp.exit_plan as { options?: { version?: string | null } } | undefined)?.options;
+  return { levels: out, version: opt?.version ?? null };
 }
 
 /** Why an idea cannot be recorded as a paper trade, or null when it can. */

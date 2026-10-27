@@ -750,7 +750,9 @@ async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict
     rationale = (f"AI Trader {ticket['mode']} signal from {strategy_doc.get('name') or 'a strategy'} "
                  f"({strategy_doc.get('version')}) on {ticket['signal_date']}; risk governor "
                  f"{(ticket.get('decision') or {}).get('action')}.")
-    trade = desk.new_trade(uid, execution.trade_body(ticket, rationale=rationale[:desk.NOTE_MAX]))
+    # The strategy's own exits (time in sessions, the ATR trail) travel with the paper trade (N15).
+    trade = desk.new_trade(uid, execution.trade_body(ticket, rationale=rationale[:desk.NOTE_MAX],
+                                                     exit_spec=(strategy_doc.get("spec") or {}).get("exit")))
     trade.update(risk or {})
     # This path inserts into desk.TRADES directly rather than through POST /api/desk/paper-trades, so
     # it has to charge the paper account itself. Without this the AI trader could open positions the

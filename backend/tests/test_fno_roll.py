@@ -6,7 +6,9 @@ desk cost card and the paper account, with the in-memory Mongo of tests/test_des
 MOCK — not real data: the NIFTY chain below. It is shaped exactly as GET /v1/fno/{symbol}?on=… and
 GET /v1/fno/{symbol}/history send nidp.fno_bhavcopy rows. On the 2026-10-27 expiry day every expiring option's
 `settle_price` is the UNDERLYING's settlement price (22753.2), as the idea-persistence study measured on staging
-(56 of 56 legs): a roll that read it would book a 22,000-rupee premium. The roll must use `close_price`.
+(56 of 56 legs): a roll that read it would book a 22,000-rupee premium. The roll must use `close_price`. Before the
+roll session the spread trades between its premium stop and its premium target 1 (stored at entry, evaluated by the exit
+rules since feat/p2-exits-backtest), so no rule closes it first.
 """
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ from tests.test_desk_trading import A, TRADES_URL, api, world  # noqa: F401  (fi
 OPENED = datetime(2026, 10, 20, 5, 0, tzinfo=timezone.utc)            # Tue 20 Oct, 10:30 IST
 ROLL_EVENING = datetime(2026, 10, 27, 17, 0, tzinfo=timezone.utc)     # Tue 27 Oct, 22:30 IST: after the 22:15 F&O ingest
 OLD_EXPIRY, NEXT_EXPIRY = "2026-10-27", "2026-11-03"
-U_D = 22753.2
+U_D = 22690.0
 
 
 def frow(day, expiry, strike, ot, close, settle=None, underlying=U_D, lot=75):
@@ -38,8 +40,10 @@ def frow(day, expiry, strike, ot, close, settle=None, underlying=U_D, lot=75):
 
 
 def day_rows(day="2026-10-27", missing=()):
-    rows = [frow(day, OLD_EXPIRY, 22600.0, "CE", 155.0, settle=U_D), frow(day, OLD_EXPIRY, 22800.0, "CE", 4.5, settle=U_D),
-            frow(day, OLD_EXPIRY, None, None, 22755.0)]
+    expiry_day = day == OLD_EXPIRY                 # on the expiry day an option's settle_price is the UNDERLYING's
+    rows = [frow(day, OLD_EXPIRY, 22600.0, "CE", 90.5, settle=U_D if expiry_day else None),
+            frow(day, OLD_EXPIRY, 22800.0, "CE", 0.5, settle=U_D if expiry_day else None),
+            frow(day, OLD_EXPIRY, None, None, 22692.0)]
     for k in range(22500, 23251, 50):
         if float(k) in missing:
             continue
@@ -114,10 +118,10 @@ def test_a_roll_closes_both_legs_at_the_close_and_opens_the_same_structure_on_th
     assert pre["eligible"] is True, pre
     p = pre["preview"]
     assert p["session"] == "2026-10-27" and p["sessions_to_expiry"] == 0
-    assert [l["close"] for l in p["old"]["legs"]] == [155.0, 4.5]                      # close_price, never the 22753.2 settle
-    # distance mode: 22600 + (22753.2 - 22500) = 22853.2 -> the nearest listed strike 22850: every strike +250
-    assert p["strike_shift"] == 250.0 and [l["strike"] for l in p["new"]["legs"]] == [22850.0, 23050.0]
-    assert p["new"]["expiry"] == NEXT_EXPIRY and [l["entry_price"] for l in p["new"]["legs"]] == [125.0, 25.0]
+    assert [l["close"] for l in p["old"]["legs"]] == [90.5, 0.5]                       # close_price, never the 22690 settle
+    # distance mode: 22600 + (22690 - 22500) = 22790 -> the nearest listed strike 22800: every strike +200
+    assert p["strike_shift"] == 200.0 and [l["strike"] for l in p["new"]["legs"]] == [22800.0, 23000.0]
+    assert p["new"]["expiry"] == NEXT_EXPIRY and [l["entry_price"] for l in p["new"]["legs"]] == [150.0, 50.0]
     assert p["costs"]["new_model"] == "desk-cost-v2" and p["costs"]["new_round_trip_estimate"]["total"] > 0
     assert p["costs"]["old_round_trip"]["total"] > 0
     assert len(chain.db.trades.docs) == 1                                               # the preview wrote nothing
@@ -126,8 +130,8 @@ def test_a_roll_closes_both_legs_at_the_close_and_opens_the_same_structure_on_th
     assert r.status_code == 201, r.text
     old, new = (next(d for d in chain.db.trades.docs if d["_id"] == i) for i in (tid, r.json()["new"]["id"]))
     assert old["status"] == "closed" and old["exit_reason"] == "roll" and old["exit_session"] == "2026-10-27"
-    assert [(l["exit_mark"], l["mark_basis"]) for l in old["exit_legs"]] == [(155.0, "roll_close"), (4.5, "roll_close")]
-    assert old["realized_pnl_rs"] == round((155.0 - 120.0) * 75 - (4.5 - 40.0) * 75, 2)
+    assert [(l["exit_mark"], l["mark_basis"]) for l in old["exit_legs"]] == [(90.5, "roll_close"), (0.5, "roll_close")]
+    assert old["realized_pnl_rs"] == round((90.5 - 120.0) * 75 - (0.5 - 40.0) * 75, 2)
     assert old["costs_breakdown"]["total"] > 0 and old["state"] == "CLOSED"
     assert [t["to"] for t in old["transitions"]][-2:] == ["EXIT_PENDING", "CLOSED"] and old["transitions"][-1]["source"] == "roll"
     # the link, both ways, and the plan's lineage
@@ -136,11 +140,13 @@ def test_a_roll_closes_both_legs_at_the_close_and_opens_the_same_structure_on_th
     plan = next(d for d in chain.db["trade_plans"].docs if d["_id"] == new["trade_plan_id"])
     assert plan["lineage"]["rolled_from_trade_id"] == tid and plan["source"]["kind"] == "roll"
     assert [(l["strike"], l["expiry"], l["entry_price"], l["lots"], l["lot_size"]) for l in new["legs"]] == [
-        (22850.0, NEXT_EXPIRY, 125.0, 1, 75), (23050.0, NEXT_EXPIRY, 25.0, 1, 75)]
+        (22800.0, NEXT_EXPIRY, 150.0, 1, 75), (23000.0, NEXT_EXPIRY, 50.0, 1, 75)]
     assert new["family"] == "bull_call_spread" and new["direction"] == "bullish" and new["reference_price"] == U_D
     assert (new["stop_underlying"], new["target_underlying"]) == (22300.0, 22900.0)      # carried: still on the right side
     assert new["state"] == "POSITION_OPEN" and new["transitions"][0]["source"] == "roll"
     assert new["exit_plan"]["options"]["status"] in ("ok", "unavailable")
+    old_plan = old["exit_plan"]["options"]                  # the premium plan stored at the old entry did not fire first
+    assert old_plan["status"] == "ok" and old_plan["planned_stop"] < 90.5 - 0.5 < old_plan["target_1"]
     acc = run_read(chain)
     assert acc["blocked_rs"] == new["paper_reserved_rs"]                                # the old reservation was released
 
@@ -174,10 +180,10 @@ def test_before_the_days_bhavcopy_is_in_the_roll_is_refused_and_nothing_changes(
 # ── RL-3: a strike that is not listed ────────────────────────────────────────
 def test_a_strike_not_listed_on_the_next_expiry_is_refused_by_name(api, chain):
     tid = open_old(api, chain)
-    chain.state["day"]["2026-10-27"] = day_rows(missing=(23050.0,))
+    chain.state["day"]["2026-10-27"] = day_rows(missing=(23000.0,))
     r = api.post(roll_url(tid), json={}, headers=A)
     d = r.json()["detail"]
-    assert r.status_code == 409 and d["code"] == "strike_not_listed" and d["strike"] == 23050.0 and "23050" in d["message"]
+    assert r.status_code == 409 and d["code"] == "strike_not_listed" and d["strike"] == 23000.0 and "23000" in d["message"]
     assert [x["status"] for x in chain.db.trades.docs] == ["open"]
 
 

@@ -193,8 +193,8 @@ def test_an_fno_board_idea_plan_carries_the_levels_engine_exit_plan():
     from services import ai_watchlist_build as b
     want = strategy_levels.compute(b.payoff_request_for(IDEA), refs, date(2026, 10, 21))
     opt = tp["exit_plan"]["options"]
-    assert opt["status"] == "ok" and opt["premium_stop"] == want["premium"]["planned_stop"]
-    assert (opt["t1"], opt["t2"]) == (want["premium"]["target_1"], want["premium"]["target_2"])
+    assert opt["status"] == "ok" and opt["planned_stop"] == want["premium"]["planned_stop"]
+    assert (opt["target_1"], opt["target_2"], opt["unit_shares"]) == (want["premium"]["target_1"], want["premium"]["target_2"], want["unit"]["shares"])
     assert tp["stop"]["price"] == want["underlying"]["stop"] and tp["stop"]["method"] == "underlying"
     assert tpm.primary_target(tp)["price"] == want["underlying"]["target"]
     assert tp["strategy"]["direction"] == "bearish" and tp["entry"]["order_type"] == "at_premium"

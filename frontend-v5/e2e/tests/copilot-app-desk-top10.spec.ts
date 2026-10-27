@@ -262,8 +262,10 @@ test.describe("Scanner — Top 10 ideas", () => {
     await icici.getByTestId("desk-top10-paper-add").click();
     await expect(icici.getByTestId("desk-top10-paper-done")).toContainText("208 ICICIBANK");
     // paper_fills_pnl TESTCASES ER-2: the entry 1200 is the scan's close 1200 (a BREAKOUT entry), so it fills at once.
+    // p2_exits_backtest TC-70: the scanner's holding window (horizon_days 10) is sent as the time exit.
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" }, entry_rule: "at_once" }]);
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" }, entry_rule: "at_once", max_hold_sessions: 10 }]);
+    await expect(icici).toContainText("exits after 10 sessions held");
     // desk_paper_safety TESTCASES UI-1: one Idempotency-Key with the submission (a header; the body is unchanged).
     expect(seen.paperKeys).toHaveLength(1);
     expect(seen.paperKeys[0]).toMatch(UUID);
