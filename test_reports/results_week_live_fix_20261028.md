@@ -79,4 +79,32 @@ The 4 skipped are the opt-in screenshot runs (`shots 1440`, `shots 390` in two s
 ## UNVERIFIED
 - The deployed page after this merge (re-run the live checks on staging).
 
+## Addendum (02:35 IST): management commentary before the results
+Owner, 28 Oct: "management pre results commentary analysis if the results are not declared yet". The results file read
+filing analyses from only 21 days before the meeting, so last quarter's call, presentations and business updates never showed.
+Now analyses from up to 100 days before are kept when they are management's own material (call transcripts, presentations,
+business updates); other older analyses are not. The coverage note counts them separately; links come from a 300-row
+filings read, the filings count stays the 21-day window. Backend only (the page shows the note as sent).
+
+Test cases (`backend/tests/test_results_stock.py`):
+- older filings are kept only when they are management's own; one filing analysed twice counts once; order oldest first;
+- filing links reach back 100 days, the count is the recent window only (DaaS mocked).
+```
+150 passed, 2 warnings in 8.97s      (test_results_stock, test_results_week, test_results_signal, test_desk_paper_safety)
+```
+Staging dry run (new code in a temporary copy inside the backend container, read-only, day 2026-10-28): 65 upcoming names
+have older management analyses. Sample:
+```
+JSWENERGY (meeting 2026-10-28): 7 analysed management filings from 2026-07-20 on (General Updates ×6 …), links yes
+RPGLIFE   (meeting 2026-10-29): 6 (Investor Presentation 2026-09-02, General Updates …), links yes
+APARINDS  (meeting 2026-10-29): 4 (Investor Presentation 2026-07-24, General Updates …), links yes
+DEEPAKNTR (meeting 2026-10-29): 3 (General Updates …), links yes
+```
+Known gap (not fixed here): earnings-call transcripts are never analysed. NSE files them under "Analysts/Institutional
+Investor Meet/Con. Call Updates", which the analysis pipeline treats as routine; 237 of 412 upcoming names have a last-quarter
+transcript in nidp.corporate_announcements (245 filings). Needs a guidance read per transcript (owner's call on cost).
+
+## UNVERIFIED
+- The deployed page after this merge (re-run the live checks on staging).
+
 ## Verdict: PASS

@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 SCHEMA = "results-stock-v1"
 RESULT_WORD = "RESULT"          # event_type is written by the analysis model: RESULTS, QUARTERLY RESULTS, …
 COMMENTARY_BACK_DAYS = 21       # filing analyses from 3 weeks before the meeting
+MGMT_BACK_DAYS = 100            # … plus management's own material since the previous results (last quarter's call, presentations, business updates)
+MGMT_KINDS = ("earnings_call", "presentation", "business_update")
+ANN_LIMIT = 300                 # exchange filings read for links and the count (newest first)
 RESULT_BEFORE_H, RESULT_AFTER_H = 6, 36   # an analysis this close to the results filing belongs to "the result"
 ANALYST_NOTE = ("No analyst-views source is connected: the Trendlyne connection returns corporate events only and no "
                 "consensus or brokerage feed is held. Nothing on this page is an analyst view.")
@@ -182,10 +185,11 @@ def preview_lines(row: Dict[str, Any], quarters: Sequence[Dict[str, Any]], past:
     return lines
 
 
-async def announcements(sym: str, since: date) -> Tuple[Dict[str, str], Optional[int], Optional[str]]:
-    """({announcement_id: attachment url}, number of exchange filings since `since`, gap) from DaaS /announcements."""
+async def announcements(sym: str, since: date, count_since: Optional[date] = None) -> Tuple[Dict[str, str], Optional[int], Optional[str]]:
+    """({announcement_id: attachment url} since `since`, number of exchange filings since `count_since` (default
+    `since`), gap) from DaaS /announcements."""
     try:
-        st, body = await loaders.daas_get("/announcements", {"symbol": sym, "filed_from": since.isoformat(), "limit": 100})
+        st, body = await loaders.daas_get("/announcements", {"symbol": sym, "filed_from": since.isoformat(), "limit": ANN_LIMIT})
     except Exception as e:  # noqa: BLE001
         return {}, None, f"exchange filings list could not be read ({loaders._why(e)})"
     if st != 200 or not isinstance(body, dict):
@@ -193,7 +197,26 @@ async def announcements(sym: str, since: date) -> Tuple[Dict[str, str], Optional
     rows = body.get("data") or body.get("rows") or body.get("announcements") or []
     urls = {str(r.get("announcement_id")): r.get("attachment_url") for r in rows
             if isinstance(r, dict) and r.get("announcement_id") and r.get("attachment_url")}
-    return urls, len(rows), None
+    if count_since is None or count_since <= since:
+        return urls, len(rows), None
+    cut = datetime.combine(count_since, datetime.min.time(), loaders.IST)
+    n = sum(1 for r in rows if isinstance(r, dict)
+            and (sc.parse_ts(r.get("broadcast_at")) or sc.parse_ts(r.get("filed_at")) or cut) >= cut)
+    return urls, n, None
+
+
+def keep_for_commentary(docs: List[Dict[str, Any]], recent_since: datetime) -> Tuple[List[Dict[str, Any]], int]:
+    """Analyses from the last COMMENTARY_BACK_DAYS, plus older ones only when they are management's own material
+    (MGMT_KINDS: what management said since the previous results). (kept, number of older management filings)."""
+    kept, older = [], set()
+    for d in docs:
+        at = sc.parse_ts(d.get("event_ts"))
+        if at is None or at >= recent_since:
+            kept.append(d)
+        elif kind_of(d) in MGMT_KINDS:
+            kept.append(d)
+            older.add(str(d.get("announcement_id") or id(d)))
+    return kept, len(older)
 
 
 async def all_analyses(db, sym: str, start: datetime, end: datetime) -> Tuple[List[Dict[str, Any]], Optional[str]]:
@@ -226,13 +249,14 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
     w_start = win[0][1] if win else (latest or day)
 
     since = (anchor or ev_d or day) - timedelta(days=COMMENTARY_BACK_DAYS)
-    a_start = datetime.combine(since, datetime.min.time(), loaders.IST)
+    mgmt_since = (anchor or ev_d or day) - timedelta(days=MGMT_BACK_DAYS)
+    a_start = datetime.combine(mgmt_since, datetime.min.time(), loaders.IST)
     bu_days = [d for _, d in win]
     reads = await asyncio.gather(
         loaders.prices([sym], w_start - timedelta(days=45), day),
         loaders.nifty(w_start - timedelta(days=10), day),
         all_analyses(db, sym, a_start, now),
-        announcements(sym, since),
+        announcements(sym, mgmt_since, count_since=since),
         loaders.history([sym]),
         loaders.quarterly({sym: row.get("basis") != "standalone"}),
         *(loaders.buildup(d, fallback=False) for d in bu_days),
@@ -290,10 +314,15 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
     ft = track.fno_track(row, sess, fno_latest, by_day, expiries) if row.get("fno") else None
 
     # commentary
+    docs, n_mgmt = keep_for_commentary(docs, datetime.combine(since, datetime.min.time(), loaders.IST))
     com = split_commentary(docs, filed_at, urls)
-    coverage_note = (f"{com['analysed']} of {n_filings} exchange filings since {since.isoformat()} have a stored analysis; "
+    recent = com["analysed"] - n_mgmt
+    coverage_note = (f"{recent} of {n_filings} exchange filings since {since.isoformat()} have a stored analysis; "
                      "the others are not summarised here." if n_filings is not None else
-                     f"{com['analysed']} filings since {since.isoformat()} have a stored analysis.")
+                     f"{recent} filings since {since.isoformat()} have a stored analysis.")
+    if n_mgmt:
+        coverage_note += (f" Also shown before the results: {n_mgmt} analysed management filing{'s' if n_mgmt != 1 else ''} "
+                          f"(call transcripts, presentations, business updates) from {mgmt_since.isoformat()} on.")
     if row.get("status") != "upcoming" and not com["results"]:
         coverage_note += " The results filing itself has no full analysis yet (or its document could not be read)."
 
@@ -319,7 +348,8 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
                     "lines": preview_lines(row, quarters, past, before), "expected": expected, "last_quarters": quarters,
                     "past_reactions": past, "positioning": before},
         "commentary": {"pre": com["pre"], "results": com["results"], "post": com["post"], "sentiment": com["sentiment"],
-                       "coverage": {"analysed": com["analysed"], "filings": n_filings, "note": coverage_note}},
+                       "coverage": {"analysed": com["analysed"], "filings": n_filings, "management_filings": n_mgmt,
+                                    "note": coverage_note}},
         "analyst_views": {"available": False, "note": ANALYST_NOTE},
         "track": {"sessions": sessions_out, "before": (ft or {}).get("before"), "after": (ft or {}).get("after"), "notes": notes},
         "sources": {"commentary": "stored filing analyses (Mongo event_ai_analysis, full analyses, tools off), exchange filings (DaaS /announcements)",
