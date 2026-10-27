@@ -651,7 +651,7 @@ async def latest_state() -> Optional[Dict[str, Any]]:
                 )
             if fallback and fallback["date"]:
                 logger.info(
-                    "latest_state: %s has no Nifty (likely NSE holiday) — "
+                    "latest_state: no macro_daily Nifty for %s (not ingested yet, or not a session) — "
                     "falling back to %s",
                     state["date"], fallback["date"],
                 )

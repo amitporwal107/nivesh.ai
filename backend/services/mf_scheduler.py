@@ -185,10 +185,9 @@ async def _benchmark_refresh_job():
 
 
 async def _macro_intelligence_job():
-    """Daily macro intelligence refresh — runs 18:35 IST (5 min after the
-    benchmark job) per Macro PRD. Ingests crude/USDINR/yield/Nifty via
-    yfinance, computes features, classifies regime, persists everything
-    so /api/macro/today returns fresh data the next morning."""
+    """Daily macro intelligence refresh — runs 19:30 IST on weekdays, with a 21:30 IST retry. Ingests Nifty 50 and
+    India VIX from the warehouse (yfinance as fallback) and the global series from yfinance, computes features,
+    classifies regime, persists everything so /api/macro/today and the risk service read the session that closed."""
     try:
         from services import macro_engine
         out = await macro_engine.run_daily()
@@ -340,15 +339,25 @@ def start():
     # (Nifty 50, Midcap 150, Smallcap 250, Bank, IT, etc.) from yfinance,
     # upserts OHLC into market_index_data, recomputes returns/volatility/
     # drawdown, busts the latest-snapshot Redis cache.
+    # The trigger names its timezone: a CronTrigger without one runs in the process's zone (UTC in the backend
+    # image), so "18:30" ran at 00:00 IST.
     _scheduler.add_job(
-        _benchmark_refresh_job, CronTrigger(hour=18, minute=30),
+        _benchmark_refresh_job, CronTrigger(hour=18, minute=30, timezone="Asia/Kolkata"),
         id="benchmark_index_daily", replace_existing=True, max_instances=1,
     )
-    # Macro Intelligence layer: 18:35 IST — 5 min after the benchmark job
-    # so the regime classifier has fresh Nifty close to compare to its 50DMA.
+    # Macro Intelligence layer: 19:30 IST on weekdays, after the warehouse's NSE index close lands (about 19:00 IST),
+    # and again at 21:30 IST in case that close was late (the upsert is idempotent). Until 2026-10-27 the trigger had
+    # no timezone and ran at 00:05 IST, when yfinance often left out the session that had just closed, so macro_daily
+    # lagged (21 and 26 Oct were never stored) and the risk service's regime read three sessions old.
     _scheduler.add_job(
-        _macro_intelligence_job, CronTrigger(hour=18, minute=35),
+        _macro_intelligence_job,
+        CronTrigger(day_of_week="mon-fri", hour=19, minute=30, timezone="Asia/Kolkata"),
         id="macro_intelligence_daily", replace_existing=True, max_instances=1,
+    )
+    _scheduler.add_job(
+        _macro_intelligence_job,
+        CronTrigger(day_of_week="mon-fri", hour=21, minute=30, timezone="Asia/Kolkata"),
+        id="macro_intelligence_retry", replace_existing=True, max_instances=1,
     )
     # Gmail auto-import: monthly, 1st of month 06:30 IST — pull new ECAS
     # statements (NSDL priority, then CDSL). On-demand sync is available
