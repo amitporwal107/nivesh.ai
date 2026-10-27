@@ -187,12 +187,14 @@ test.describe("MOCK — not real data: desk shell · tabs and views", () => {
 });
 
 test.describe("MOCK — not real data: desk shell · Market Overview", () => {
-  test("SH-4 / SH-6 / SH-8 overview, pulse and Top 10 once; scanner list collapsed until opened; no portfolio snapshot or risk summary", async ({ page }) => {
+  test("SH-4 / SH-6 / SH-8 Market Overview and the Top AI ideas once; scanner list collapsed until opened; no portfolio snapshot or risk summary", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
     const panel = page.getByTestId("desk-panel-overview");
-    await expect(panel.getByTestId("desk-overview")).toBeVisible();
-    await expect(panel.getByTestId("desk-panel-pulse")).toHaveCount(1);
+    // Step 2 (Market Overview): the old Overview cards and the market pulse became the market strip and events today.
+    await expect(panel.getByTestId("market-overview")).toBeVisible();
+    await expect(panel.getByTestId("mo-strip")).toBeVisible();
+    await expect(panel.getByTestId("desk-panel-pulse")).toHaveCount(0);
     await expect(panel.getByTestId("desk-panel-top10")).toHaveCount(1);
     await expect(panel.getByTestId("desk-top10")).toHaveCount(1);
     const toggle = page.getByTestId("desk-scanner-toggle");
@@ -209,20 +211,29 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     await expect(page.getByTestId("desk-risk-card")).toHaveCount(0);
   });
 
-  test("SH-7 the open paper trades line counts open trades and opens Trade Desk", async ({ page }) => {
+  // Step 2 (Market Overview): the line reads the risk service's book (GET /api/risk/profile), never GET
+  // /api/desk/paper-trades (it applies exits). MOCK — not real data: a minimal profile in the route's shape.
+  const profile = (positions: number, riskRs: number) => ({
+    profile: { limits: { max_open_risk_pct: 3 } },
+    live: { equity: { equity_rs: 1000000, unknown_reasons: [] }, open: { positions, risk_rs: riskRs }, day: {}, week: {}, budgets_rs: {} },
+  });
+
+  test("SH-7 the Trade Desk line counts open positions and open risk and opens Trade Desk", async ({ page }) => {
     await deskApi(page);
+    await page.route("**/api/risk/profile", (route) => json(route, profile(2, 15000)));
     await page.goto(DESK);
-    const line = page.getByTestId("desk-open-trades-line");
-    await expect(line).toContainText("2 open paper trades");
-    await line.getByTestId("desk-open-trades-link").click();
+    const line = page.getByTestId("mo-trades-line");
+    await expect(line).toContainText("2 open positions · open risk 1.5% of 3%");
+    await line.getByTestId("mo-trades-link").click();
     await expectAt(page, "trade", "paper");
     await expect(page.getByTestId("desk-panel-paper")).toBeVisible();
   });
 
-  test("SH-7 no open paper trades says so", async ({ page }) => {
+  test("SH-7 no open positions says so", async ({ page }) => {
     await deskApi(page, { trades: [] });
+    await page.route("**/api/risk/profile", (route) => json(route, profile(0, 0)));
     await page.goto(DESK);
-    await expect(page.getByTestId("desk-open-trades-line")).toContainText("No open paper trades");
+    await expect(page.getByTestId("mo-trades-line")).toContainText("No open positions · open risk 0% of 3%");
   });
 });
 

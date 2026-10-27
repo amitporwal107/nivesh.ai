@@ -197,22 +197,25 @@ async function desk(page: Page, over: { top?: { status: number; body: unknown };
 }
 
 const params = (page: Page) => new URL(page.url()).searchParams;
+// Market Overview (desk redesign step 2): one board at a time (Cash | F&O), and a row's levels, links and paper trade are in
+// its drawer ("Full card ›" / "Paper trade"), which is rendered inside the row.
+const showFno = (page: Page) => page.getByTestId("desk-top10-switch-fno").click(SLOW);
+const openCard = (row: ReturnType<Page["getByTestId"]>, kind: "stock" | "fno" = "stock") => row.getByTestId(`desk-top10-${kind}-open`).click(SLOW);
+const closeDrawer = (page: Page) => page.keyboard.press("Escape");
 const trailText = async (page: Page) => (await page.getByTestId("desk-trail").innerText()).replace(/\s+/g, " ").trim();
 
 // ── layout and the two boards ─────────────────────────────────────────────
 
 test.describe("Scanner — Top 10 ideas", () => {
-  test("F-1 market pulse, then the Top 10 boards, then the scanner list", async ({ page }) => {
+  test("F-1 the Top AI ideas, then the scanner list (the market pulse is now the Market Overview's strip and events)", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
-    const pulse = page.getByTestId("desk-pulse");
     const top = page.getByTestId("desk-top10");
     const list = page.getByTestId("desk-scanner");
-    await expect(pulse).toBeVisible();
     await expect(top).toBeVisible();
     await expect(list).toBeVisible(SLOW);
-    const y = async (l: typeof pulse) => (await l.boundingBox())!.y;
-    expect(await y(pulse)).toBeLessThan(await y(top));
+    await expect(page.getByTestId("desk-pulse")).toHaveCount(0);
+    const y = async (l: typeof top) => (await l.boundingBox())!.y;
     expect(await y(top)).toBeLessThan(await y(list));
   });
 
@@ -234,6 +237,7 @@ test.describe("Scanner — Top 10 ideas", () => {
   test("F-3 Strategy › opens the plan in the Strategy Builder with its inputs and the strategy that fits", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-plan").click();
     await expect(page.getByTestId("desk-panel-strategy")).toBeVisible(SLOW);
     const p = params(page);
@@ -245,7 +249,11 @@ test.describe("Scanner — Top 10 ideas", () => {
     await desk(page);
     await page.goto(SCANNER);
     await expect(page.getByTestId("desk-top10-stock-AARTIDRUGS")).toBeVisible(SLOW);
+    await openCard(page.getByTestId("desk-top10-stock-AARTIDRUGS"));
+    await expect(page.getByTestId("desk-top10-stock-AARTIDRUGS").getByTestId("desk-top10-stock-chart")).toBeVisible();
     await expect(page.getByTestId("desk-top10-stock-AARTIDRUGS").getByTestId("desk-top10-stock-chain")).toHaveCount(0);
+    await closeDrawer(page);
+    await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-chain").click();
     await expect(page.getByTestId("desk-fno")).toBeVisible(SLOW);
     expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["fno", "chain", "ICICIBANK"]);
@@ -285,6 +293,7 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(fed.getByTestId("desk-top10-paper-rule")).toHaveText("filled when a later session pulls back to it");
     await fed.getByTestId("desk-top10-paper-add").click();
     await expect(fed.getByTestId("desk-top10-paper-done")).toBeVisible();
+    await closeDrawer(page);
     const trg = page.getByTestId("desk-top10-stock-TRIGGERCO");
     await trg.getByTestId("desk-top10-stock-paper").click();
     await expect(trg.getByTestId("desk-top10-paper-rule")).toHaveAttribute("data-rule", "break_above");
@@ -332,6 +341,7 @@ test.describe("Scanner — Top 10 ideas", () => {
   test("F-6 View trades › opens Portfolio & Risk", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-trades").click();
     await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "portfolio");
   });
@@ -339,6 +349,7 @@ test.describe("Scanner — Top 10 ideas", () => {
   test("F-7 the F&O board asks for one row per underlying and merges both classes in the route's order", async ({ page }) => {
     const seen = await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
     const rows = page.getByTestId("desk-top10-fno-list").locator(":scope > li");
     await expect(rows).toHaveCount(4, SLOW);
     expect(seen.top[0]).toEqual({ limit: 10, classes: ["index_options", "stock_fno"], distinct: true });
@@ -353,6 +364,7 @@ test.describe("Scanner — Top 10 ideas", () => {
   test("F-8 All / Indices / Stocks counts and filtering", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
     await expect(page.getByTestId("desk-top10-fno-filter-all")).toContainText("All 4", SLOW);
     await expect(page.getByTestId("desk-top10-fno-filter-index")).toContainText("Indices 2");
     await expect(page.getByTestId("desk-top10-fno-filter-stock")).toContainText("Stocks 2");
@@ -364,18 +376,24 @@ test.describe("Scanner — Top 10 ideas", () => {
   test("F-9 the other structures on an underlying sit behind its row", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
     const bank = page.getByTestId("desk-top10-fno-BANKNIFTY");
+    await openCard(bank, "fno");
     await expect(bank.getByTestId("desk-top10-fno-more")).toContainText("1 other structure on BANKNIFTY", SLOW);
     await bank.getByTestId("desk-top10-fno-more").locator("summary").click();
     await expect(bank.getByTestId("desk-top10-fno-alt-BANKNIFTY-long_put")).toContainText("Long put 55000");
+    await closeDrawer(page);
+    await openCard(page.getByTestId("desk-top10-fno-SB1"), "fno");
     await expect(page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-more")).not.toContainText("other structure");
   });
 
   test("F-10 payoff is asked for only when opened; the paper trade posts the idea as a strategy", async ({ page }) => {
     const seen = await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
     const sb1 = page.getByTestId("desk-top10-fno-SB1");
     await expect(sb1).toBeVisible(SLOW);
+    await sb1.getByTestId("desk-top10-fno-paper").click();
     expect(seen.payoff).toBe(0);
     await sb1.getByTestId("idea-payoff-toggle").first().click();
     await expect.poll(() => seen.payoff).toBe(1);
@@ -389,22 +407,26 @@ test.describe("Scanner — Top 10 ideas", () => {
   test("F-15 one board failing leaves the other board and the scanner list in place", async ({ page }) => {
     await desk(page, { top: { status: 502, body: { detail: "upstream_unavailable" } } });
     await page.goto(SCANNER);
+    await showFno(page);
     await expect(page.getByTestId("desk-top10-fno").getByRole("button", { name: /retry/i })).toBeVisible(SLOW);
+    await page.getByTestId("desk-top10-switch-stocks").click();
     await expect(page.getByTestId("desk-top10-stocks-list").locator(":scope > li")).toHaveCount(3);
     await expect(page.getByTestId("desk-scanner")).toBeVisible();
   });
 
-  test("F-16 / F-17 the boards and the pulse say ideas, never picks, and show the routes' own caveats and dates", async ({ page }) => {
+  test("F-16 / F-17 the boards say ideas, never picks, and show the routes' own caveats and dates", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await expect(page.getByTestId("desk-top10-stocks-list")).toBeVisible(SLOW);
+    await expect(page.getByTestId("desk-top10-stocks-note")).toContainText("It is not a probability of profit.");
+    const cash = await page.getByTestId("desk-top10").innerText();
+    await showFno(page);
     await expect(page.getByTestId("desk-top10-fno-list")).toBeVisible(SLOW);
-    await expect(page.getByTestId("desk-pulse-events")).toBeVisible(SLOW);
-    const text = (await page.getByTestId("desk-top10").innerText()) + (await page.getByTestId("desk-pulse").innerText());
+    const text = cash + (await page.getByTestId("desk-top10").innerText());
     expect(text).not.toMatch(/\bpicks?\b/i);
     expect(text).not.toMatch(/\bsuggested\b/i);
-    expect(text.replace(/not recommendations?/gi, "")).not.toMatch(/recommend/i);
+    expect(text.replace(/not (a )?recommendations?/gi, "")).not.toMatch(/recommend/i);
     await expect(page.getByTestId("desk-top10-fno-note")).toContainText("not a forecast");
-    await expect(page.getByTestId("desk-top10-stocks-note")).toContainText("It is not a probability of profit.");
     await expect(page.getByTestId("desk-top10-fno-regime")).toContainText("measured 19 Oct");
     await expect(page.getByTestId("desk-top10-fno-regime")).toContainText("regime was last classified");
     await expect(page.getByTestId("desk-top10-fno-skipped")).toContainText("PREMEXPLN");
@@ -419,7 +441,9 @@ test.describe("Scanner — Top 10 ideas: provisional levels", () => {
   test("L-1 the BANKNIFTY F&O row shows the engine's levels, labelled and dated, with the full plan and no new entry control", async ({ page }) => {
     const seen = await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
     const row = page.getByTestId("desk-top10-fno-BANKNIFTY");
+    await openCard(row, "fno");
     const lv = row.getByTestId("idea-levels");
     await expect(lv).toHaveAttribute("data-state", "ok", SLOW);
     expect(seen.levels.filter((b) => b.payoff?.underlying === "BANKNIFTY")).toEqual([CONTRACT.levels_request]);
@@ -435,13 +459,17 @@ test.describe("Scanner — Top 10 ideas: provisional levels", () => {
     expect(seen.levels.filter((b) => b.payoff?.underlying === "BANKNIFTY")).toHaveLength(1);
     await expect(row.getByTestId("desk-top10-fno-alt-BANKNIFTY-long_put").getByTestId("idea-levels")).toHaveCount(0);
     // an idea the engine did not accept says so instead of showing numbers
+    await closeDrawer(page);
+    await openCard(page.getByTestId("desk-top10-fno-SB1"), "fno");
     await expect(page.getByTestId("desk-top10-fno-SB1").getByTestId("idea-levels")).toHaveAttribute("data-state", "invalid");
   });
 
   test("L-2 the BANKNIFTY row's paper trade posts exactly the shared contract body", async ({ page }) => {
     const seen = await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
     const row = page.getByTestId("desk-top10-fno-BANKNIFTY");
+    await row.getByTestId("desk-top10-fno-paper").click(SLOW);
     await expect(row.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
     await row.getByTestId("idea-paper-trade").first().click();
     await expect(row.getByTestId("idea-paper-trade").first()).toHaveText("Added to paper trades");
@@ -452,6 +480,7 @@ test.describe("Scanner — Top 10 ideas: provisional levels", () => {
     await desk(page);
     await page.goto(SCANNER);
     const icici = page.getByTestId("desk-top10-stock-ICICIBANK");
+    await openCard(icici);
     const lv = icici.getByTestId("desk-top10-stock-levels");
     await expect(lv).toHaveAttribute("data-state", "ok", SLOW);
     await expect(icici.getByTestId("desk-top10-stock-paper")).toHaveAttribute("aria-expanded", "false");
@@ -466,6 +495,8 @@ test.describe("Scanner — Top 10 ideas: provisional levels", () => {
   test("L-4 the lab's focus card shows the same levels and posts the same contract body", async ({ page }) => {
     const seen = await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
+    await openCard(page.getByTestId("desk-top10-fno-BANKNIFTY"), "fno");
     await page.getByTestId("desk-top10-fno-BANKNIFTY").getByTestId("desk-top10-fno-lab").click(SLOW);
     const focus = page.getByTestId("desk-lab-focus");
     await expect(focus.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
@@ -482,6 +513,8 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
   test("F-11 a stock idea opens Candidates with the idea in focus and its card outlined", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
+    await openCard(page.getByTestId("desk-top10-fno-SB1"), "fno");
     await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-lab").click();
     await expect(page.getByTestId("desk-lab-focus")).toBeVisible(SLOW);
     expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_focus"), params(page).get("lab_sym")]).toEqual(["fno", "candidates", "SB1", "SB1"]);
@@ -496,6 +529,8 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
   test("F-12 an index idea opens the index workspace with the idea in focus", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
+    await openCard(page.getByTestId("desk-top10-fno-BANKNIFTY"), "fno");
     await page.getByTestId("desk-top10-fno-BANKNIFTY").getByTestId("desk-top10-fno-lab").click();
     await expect(page.getByTestId("desk-lab-focus")).toHaveAttribute("data-symbol", "BANKNIFTY", SLOW);
     expect([params(page).get("lab"), params(page).get("lab_sym"), params(page).get("lab_focus")]).toEqual(["indices", "BANKNIFTY", "BANKNIFTY"]);
@@ -553,6 +588,8 @@ test.describe("Desk breadcrumb", () => {
   test("F-21 / F-22 / F-27 the path is recorded, a crumb returns to that exact view, and scrolls back to the board", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
+    await openCard(page.getByTestId("desk-top10-fno-SB1"), "fno");
     await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-lab").click();
     await expect(page.getByTestId("desk-cand-card-SB1")).toBeVisible(SLOW);
     await page.getByTestId("desk-cand-buildup-SB1").click();
@@ -575,6 +612,7 @@ test.describe("Desk breadcrumb", () => {
   test("F-23 / F-24 a main tab starts the trail again; Trading desk opens the Overview", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-chart").click(SLOW);
     await expect(page.getByTestId("desk-trail-here")).toHaveText("Chart Analysis · ICICIBANK");
     await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "1");
@@ -588,6 +626,8 @@ test.describe("Desk breadcrumb", () => {
   test("F-25 a reload keeps the trail", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
+    await showFno(page);
+    await openCard(page.getByTestId("desk-top10-fno-SB1"), "fno");
     await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-chain").click(SLOW);
     await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "1");
     await page.reload();
@@ -664,11 +704,10 @@ test.describe("Scanner — market pulse", () => {
 test.describe("Phone (390px)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("F-26 breadcrumb, pulse and both boards (one at a time) render with no sideways scroll", async ({ page }) => {
+  test("F-26 breadcrumb and both boards (one at a time) render with no sideways scroll", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await expect(page.getByTestId("desk-trail")).toBeVisible();
-    await expect(page.getByTestId("desk-pulse")).toBeVisible();
     await expect(page.getByTestId("desk-top10-stocks-list").locator(":scope > li")).toHaveCount(3, SLOW);
     await page.getByTestId("desk-top10-switch-fno").click();
     await expect(page.getByTestId("desk-top10-fno-list").locator(":scope > li")).toHaveCount(4, SLOW);
@@ -727,7 +766,9 @@ test.describe("Top 10 — trade plans (Phase 2.1)", () => {
   test("UI-3 an F&O row cites its plan; a bearish stock idea on a bullish cash setup says so and cannot be recorded", async ({ page }) => {
     const seen = await desk(page, { top: { status: 200, body: planBoard() } });
     await page.goto(SCANNER);
+    await showFno(page);
     const bank = page.getByTestId(`desk-top10-fno-${PLANS.fno.idea_underlying}`);
+    await bank.getByTestId("desk-top10-fno-paper").click(SLOW);
     await expect(bank.getByTestId("idea-plan-id").first()).toHaveAttribute("data-plan-id", PLANS.fno.trade_plan.plan_id, SLOW);
     await expect(bank.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
     await bank.getByTestId("idea-paper-trade").first().click();
@@ -735,7 +776,9 @@ test.describe("Top 10 — trade plans (Phase 2.1)", () => {
     expect(seen.paper).toEqual([PLANS.fno.body]);
     const conflicted = planBoard().classes.stock_fno.ideas.find((i: { conflicts_with_cash_setup?: unknown }) => i.conflicts_with_cash_setup);
     expect(conflicted, "the real capture's bearish stock ideas are flagged").toBeTruthy();
+    await closeDrawer(page);
     const row = page.getByTestId(`desk-top10-fno-${conflicted.underlying}`);
+    await openCard(row, "fno");
     await expect(row.getByTestId("idea-cash-conflict").first()).toContainText("One direction per instrument per day");
     await expect(row.getByTestId("idea-paper-trade").first()).toBeDisabled();
   });
