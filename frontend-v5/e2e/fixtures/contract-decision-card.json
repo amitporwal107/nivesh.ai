@@ -906,10 +906,10 @@
       "capital": 1000000,
       "risk_pct": 0.5
      },
-     "build_ms": 257
+     "build_ms": 210
     }
    ],
-   "elapsed_ms": 259,
+   "elapsed_ms": 211,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",
@@ -9738,14 +9738,13 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T07:33:13.504131+00:00",
+    "created_at": "2026-10-27T08:05:49.164424+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T07:33:13.504131+00:00",
+     "at": "2026-10-27T08:05:49.164424+00:00",
      "after_approval": false
-    },
-    "events": []
+    }
    },
    "lifecycle": {
     "status": "proposed",
@@ -9772,7 +9771,7 @@
       "code": "NET_EXPOSURE",
       "check": "governor",
       "severity": "reduce",
-      "message": "Size limited by net exposure."
+      "message": "Net exposure: at most 80% of your paper equity in the market"
      }
     ],
     "quantity": 666,
@@ -9811,7 +9810,7 @@
     {
      "plan_id": "tp_2de66265bb4979a3",
      "version": 1,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -10184,14 +10183,13 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T07:33:13.504131+00:00",
+      "at": "2026-10-27T08:05:49.164424+00:00",
       "after_approval": false
-     },
-     "events": []
+     }
     },
     "lifecycle": {
      "status": "proposed",
@@ -10218,7 +10216,7 @@
        "code": "NET_EXPOSURE",
        "check": "governor",
        "severity": "reduce",
-       "message": "Size limited by net exposure."
+       "message": "Net exposure: at most 80% of your paper equity in the market"
       }
      ],
      "quantity": 666,
@@ -10257,7 +10255,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T07:33:13.504131+00:00",
+      "created_at": "2026-10-27T08:05:49.164424+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -10593,20 +10591,19 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T07:33:13.504131+00:00",
+      "at": "2026-10-27T08:05:49.164424+00:00",
       "after_approval": false
-     },
-     "events": []
+     }
     },
     "lifecycle": {
      "status": "open",
      "trades": [
       {
-       "id": "088c3e22-af89-45a6-9c0a-8d76ce288986",
+       "id": "6b204f77-61e3-4ff1-8390-c4ed16c31ecf",
        "state": "POSITION_OPEN",
        "status": "open"
       }
@@ -10614,11 +10611,11 @@
      "rejections": []
     },
     "risk_decision": {
-     "decision_id": "24797fc6-0eca-4ea3-8dfc-45f9c88df32f",
+     "decision_id": "a1c3a207-9e28-49c8-a0b5-b1686cd022df",
      "outcome": "allow",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "088c3e22-af89-45a6-9c0a-8d76ce288986",
+     "trade_id": "6b204f77-61e3-4ff1-8390-c4ed16c31ecf",
      "requested_qty": 666,
      "approved_qty": 666,
      "requested_lots": null,
@@ -10663,7 +10660,7 @@
        "code": "NET_EXPOSURE",
        "check": "governor",
        "severity": "reduce",
-       "message": "Size limited by net exposure."
+       "message": "Net exposure: at most 80% of your paper equity in the market"
       }
      ],
      "quantity": 664,
@@ -10721,7 +10718,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T07:33:13.504131+00:00",
+      "created_at": "2026-10-27T08:05:49.164424+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -11076,14 +11073,13 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T07:33:13.504131+00:00",
+      "at": "2026-10-27T08:05:49.164424+00:00",
       "after_approval": false
-     },
-     "events": []
+     }
     },
     "lifecycle": {
      "status": "proposed",
@@ -11110,13 +11106,13 @@
        "code": "per_trade_risk_exceeded",
        "check": "per_trade_risk",
        "severity": "reduce",
-       "message": "Estimated risk Rs 46,202.29 exceeds the per-trade budget Rs 5,000.00; at most 89 shares fit."
+       "message": "Per-trade risk budget Rs 5,000.00 (the stop's loss + costs + 1% gap stress)"
       },
       {
        "code": "POSITION_SIZE",
        "check": "governor",
        "severity": "reduce",
-       "message": "Size limited by position size."
+       "message": "Position size: at most 10% of your paper equity in one position"
       }
      ],
      "quantity": 83,
@@ -11155,7 +11151,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T07:33:13.504131+00:00",
+      "created_at": "2026-10-27T08:05:49.164424+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -11165,7 +11161,7 @@
    "paper_status": 409,
    "paper_detail": {
     "code": "risk_reduce",
-    "decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
+    "decision_id": "5a00e401-ae77-4e5b-8cd8-ab68bb60cd4e",
     "outcome": "reduce",
     "requested_qty": 113,
     "approved_qty": 83,
@@ -11243,7 +11239,7 @@
     },
     "policy_version": "universal-risk-v1",
     "limits_version": "rp-0-7e7c3751",
-    "correlation_id": "f2faae013b4d48dfb61b22eb222da4c5",
+    "correlation_id": "c27a0fbd35e042f0b3c8928de72ffb8d",
     "reservation_id": null,
     "freshness": {
      "last_close": {
@@ -11611,29 +11607,13 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T07:33:13.504131+00:00",
+      "at": "2026-10-27T08:05:49.164424+00:00",
       "after_approval": false
-     },
-     "events": [
-      {
-       "from": "TRADE_ELIGIBLE",
-       "to": "REJECTED",
-       "at": "2026-10-20T05:00:00+00:00",
-       "session": "2026-10-20",
-       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
-       "source": "desk_paper_trade",
-       "rejection_reasons": [
-        "risk_reduce"
-       ],
-       "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
-       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-      }
-     ]
+     }
     },
     "lifecycle": {
      "status": "rejected",
@@ -11644,23 +11624,24 @@
        "to": "REJECTED",
        "at": "2026-10-20T05:00:00+00:00",
        "session": "2026-10-20",
-       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
+       "reason": "Estimated risk Rs 6,308.33 exceeds the per-trade budget Rs 5,000.00; at most 89 shares fit.; Size limited by position size.",
        "source": "desk_paper_trade",
        "rejection_reasons": [
-        "risk_reduce"
+        "per_trade_risk_exceeded",
+        "POSITION_SIZE"
        ],
        "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
+       "risk_decision_id": "5a00e401-ae77-4e5b-8cd8-ab68bb60cd4e",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
     },
     "risk_decision": {
-     "decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
+     "decision_id": "5a00e401-ae77-4e5b-8cd8-ab68bb60cd4e",
      "outcome": "reduce",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "c6a4b90f-24b8-419d-831f-06abfa58c176",
+     "trade_id": "ca95b989-f5c0-46ad-88a3-f0bb3b9398f6",
      "requested_qty": 113,
      "approved_qty": 83,
      "requested_lots": null,
@@ -11711,13 +11692,13 @@
        "code": "per_trade_risk_exceeded",
        "check": "per_trade_risk",
        "severity": "reduce",
-       "message": "Estimated risk Rs 46,202.29 exceeds the per-trade budget Rs 5,000.00; at most 89 shares fit."
+       "message": "Per-trade risk budget Rs 5,000.00 (the stop's loss + costs + 1% gap stress)"
       },
       {
        "code": "POSITION_SIZE",
        "check": "governor",
        "severity": "reduce",
-       "message": "Size limited by position size."
+       "message": "Position size: at most 10% of your paper equity in one position"
       }
      ],
      "quantity": 83,
@@ -11756,7 +11737,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T07:33:13.504131+00:00",
+      "created_at": "2026-10-27T08:05:49.164424+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -12104,56 +12085,25 @@
      "plan_id": "tp_2de66265bb4979a3",
      "lineage_key": "tl_feb753aa838873c2",
      "lifecycle": {
-      "status": "rejected",
+      "status": "proposed",
       "state": "TRADE_ELIGIBLE",
       "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})",
       "derived": true
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T07:33:13.504131+00:00",
+      "at": "2026-10-27T08:05:49.164424+00:00",
       "after_approval": false
-     },
-     "events": [
-      {
-       "from": "TRADE_ELIGIBLE",
-       "to": "REJECTED",
-       "at": "2026-10-20T05:00:00+00:00",
-       "session": "2026-10-20",
-       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
-       "source": "desk_paper_trade",
-       "rejection_reasons": [
-        "risk_reduce"
-       ],
-       "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
-       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-      }
-     ]
+     }
     },
     "lifecycle": {
-     "status": "rejected",
+     "status": "proposed",
      "trades": [],
-     "rejections": [
-      {
-       "from": "TRADE_ELIGIBLE",
-       "to": "REJECTED",
-       "at": "2026-10-20T05:00:00+00:00",
-       "session": "2026-10-20",
-       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
-       "source": "desk_paper_trade",
-       "rejection_reasons": [
-        "risk_reduce"
-       ],
-       "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
-       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-      }
-     ]
+     "rejections": []
     },
     "risk_decision": null,
     "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
@@ -12175,7 +12125,7 @@
        "code": "NET_EXPOSURE",
        "check": "governor",
        "severity": "reduce",
-       "message": "Size limited by net exposure."
+       "message": "Net exposure: at most 80% of your paper equity in the market"
       }
      ],
      "status": "not_sizable",
@@ -12204,7 +12154,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T07:33:13.504131+00:00",
+      "created_at": "2026-10-27T08:05:49.164424+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -12214,7 +12164,7 @@
    "paper_status": 409,
    "paper_detail": {
     "code": "risk_blocked",
-    "decision_id": "ff7f0e32-7501-4bc8-ada4-83c787da6be4",
+    "decision_id": "b63ce70e-de3f-4641-97a6-676e17cf013a",
     "outcome": "block",
     "requested_qty": 666,
     "approved_qty": 0,
@@ -12282,7 +12232,7 @@
     },
     "policy_version": "universal-risk-v1",
     "limits_version": "rp-1-258b9566",
-    "correlation_id": "0ad2c62a144e4e21ae13f3f7fef9043c",
+    "correlation_id": "fefefde48f0047a4bcf43206ff1cec70",
     "reservation_id": null,
     "freshness": {
      "last_close": {
@@ -12650,43 +12600,13 @@
      },
      "version": 1,
      "supersedes": null,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation": {
       "ok": true,
       "problems": [],
-      "at": "2026-10-27T07:33:13.504131+00:00",
+      "at": "2026-10-27T08:05:49.164424+00:00",
       "after_approval": false
-     },
-     "events": [
-      {
-       "from": "TRADE_ELIGIBLE",
-       "to": "REJECTED",
-       "at": "2026-10-20T05:00:00+00:00",
-       "session": "2026-10-20",
-       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
-       "source": "desk_paper_trade",
-       "rejection_reasons": [
-        "risk_reduce"
-       ],
-       "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
-       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-      },
-      {
-       "from": "TRADE_ELIGIBLE",
-       "to": "REJECTED",
-       "at": "2026-10-20T05:00:00+00:00",
-       "session": "2026-10-20",
-       "reason": "The kill switch is on (MOCK: decision-card fixture).",
-       "source": "desk_paper_trade",
-       "rejection_reasons": [
-        "kill_switch_on"
-       ],
-       "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "ff7f0e32-7501-4bc8-ada4-83c787da6be4",
-       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-      }
-     ]
+     }
     },
     "lifecycle": {
      "status": "rejected",
@@ -12697,37 +12617,23 @@
        "to": "REJECTED",
        "at": "2026-10-20T05:00:00+00:00",
        "session": "2026-10-20",
-       "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
-       "source": "desk_paper_trade",
-       "rejection_reasons": [
-        "risk_reduce"
-       ],
-       "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
-       "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-      },
-      {
-       "from": "TRADE_ELIGIBLE",
-       "to": "REJECTED",
-       "at": "2026-10-20T05:00:00+00:00",
-       "session": "2026-10-20",
        "reason": "The kill switch is on (MOCK: decision-card fixture).",
        "source": "desk_paper_trade",
        "rejection_reasons": [
         "kill_switch_on"
        ],
        "plan_id": "tp_2de66265bb4979a3",
-       "risk_decision_id": "ff7f0e32-7501-4bc8-ada4-83c787da6be4",
+       "risk_decision_id": "b63ce70e-de3f-4641-97a6-676e17cf013a",
        "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
       }
      ]
     },
     "risk_decision": {
-     "decision_id": "ff7f0e32-7501-4bc8-ada4-83c787da6be4",
+     "decision_id": "b63ce70e-de3f-4641-97a6-676e17cf013a",
      "outcome": "block",
      "at": "2026-10-20T05:00:00+00:00",
      "symbol": "ICICIBANK",
-     "trade_id": "c38415fb-cfff-4917-acec-5610dac302cf",
+     "trade_id": "c5cb7ea9-8a02-41b5-a9b0-e4d2d7d171ba",
      "requested_qty": 666,
      "approved_qty": 0,
      "requested_lots": null,
@@ -12772,7 +12678,7 @@
        "code": "NET_EXPOSURE",
        "check": "governor",
        "severity": "reduce",
-       "message": "Size limited by net exposure."
+       "message": "Net exposure: at most 80% of your paper equity in the market"
       }
      ],
      "status": "not_sizable",
@@ -12801,7 +12707,7 @@
      {
       "plan_id": "tp_2de66265bb4979a3",
       "version": 1,
-      "created_at": "2026-10-27T07:33:13.504131+00:00",
+      "created_at": "2026-10-27T08:05:49.164424+00:00",
       "revalidation_ok": true,
       "supersedes": null
      }
@@ -13129,84 +13035,25 @@
     "plan_id": "tp_2de66265bb4979a3",
     "lineage_key": "tl_feb753aa838873c2",
     "lifecycle": {
-     "status": "rejected",
+     "status": "proposed",
      "state": "TRADE_ELIGIBLE",
      "derived_from": "the linked paper trades, on read (GET /api/desk/trade-plans/{plan_id})",
      "derived": true
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T07:33:13.504131+00:00",
+    "created_at": "2026-10-27T08:05:49.164424+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T07:33:13.504131+00:00",
+     "at": "2026-10-27T08:05:49.164424+00:00",
      "after_approval": false
-    },
-    "events": [
-     {
-      "from": "TRADE_ELIGIBLE",
-      "to": "REJECTED",
-      "at": "2026-10-20T05:00:00+00:00",
-      "session": "2026-10-20",
-      "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
-      "source": "desk_paper_trade",
-      "rejection_reasons": [
-       "risk_reduce"
-      ],
-      "plan_id": "tp_2de66265bb4979a3",
-      "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
-      "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-     },
-     {
-      "from": "TRADE_ELIGIBLE",
-      "to": "REJECTED",
-      "at": "2026-10-20T05:00:00+00:00",
-      "session": "2026-10-20",
-      "reason": "The kill switch is on (MOCK: decision-card fixture).",
-      "source": "desk_paper_trade",
-      "rejection_reasons": [
-       "kill_switch_on"
-      ],
-      "plan_id": "tp_2de66265bb4979a3",
-      "risk_decision_id": "ff7f0e32-7501-4bc8-ada4-83c787da6be4",
-      "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-     }
-    ]
+    }
    },
    "lifecycle": {
-    "status": "rejected",
+    "status": "proposed",
     "trades": [],
-    "rejections": [
-     {
-      "from": "TRADE_ELIGIBLE",
-      "to": "REJECTED",
-      "at": "2026-10-20T05:00:00+00:00",
-      "session": "2026-10-20",
-      "reason": "The risk policy allows at most 83 shares. Nothing was recorded; submit again at that size.",
-      "source": "desk_paper_trade",
-      "rejection_reasons": [
-       "risk_reduce"
-      ],
-      "plan_id": "tp_2de66265bb4979a3",
-      "risk_decision_id": "26132a73-0c1d-4efb-b1c1-d9a7f47ae0df",
-      "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-     },
-     {
-      "from": "TRADE_ELIGIBLE",
-      "to": "REJECTED",
-      "at": "2026-10-20T05:00:00+00:00",
-      "session": "2026-10-20",
-      "reason": "The kill switch is on (MOCK: decision-card fixture).",
-      "source": "desk_paper_trade",
-      "rejection_reasons": [
-       "kill_switch_on"
-      ],
-      "plan_id": "tp_2de66265bb4979a3",
-      "risk_decision_id": "ff7f0e32-7501-4bc8-ada4-83c787da6be4",
-      "lifecycle_version": "trade-lifecycle-v1 (2026-10-27)"
-     }
-    ]
+    "rejections": []
    },
    "risk_decision": null,
    "risk_decision_basis": "The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.",
@@ -13235,13 +13082,13 @@
       "code": "per_trade_risk_exceeded",
       "check": "per_trade_risk",
       "severity": "reduce",
-      "message": "Estimated risk Rs 46,202.29 exceeds the per-trade budget Rs 5,000.00; at most 89 shares fit."
+      "message": "Per-trade risk budget Rs 5,000.00 (the stop's loss + costs + 1% gap stress)"
      },
      {
       "code": "POSITION_SIZE",
       "check": "governor",
       "severity": "reduce",
-      "message": "Size limited by position size."
+      "message": "Position size: at most 10% of your paper equity in one position"
      }
     ],
     "quantity": 41,
@@ -13290,7 +13137,7 @@
     {
      "plan_id": "tp_2de66265bb4979a3",
      "version": 1,
-     "created_at": "2026-10-27T07:33:13.504131+00:00",
+     "created_at": "2026-10-27T08:05:49.164424+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -18398,14 +18245,13 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T07:33:13.811140+00:00",
+    "created_at": "2026-10-27T08:05:49.478942+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T07:33:13.811140+00:00",
+     "at": "2026-10-27T08:05:49.478942+00:00",
      "after_approval": false
-    },
-    "events": []
+    }
    },
    "lifecycle": {
     "status": "proposed",
@@ -18465,7 +18311,7 @@
     {
      "plan_id": "tp_dd8a6714e0150b58",
      "version": 1,
-     "created_at": "2026-10-27T07:33:13.811140+00:00",
+     "created_at": "2026-10-27T08:05:49.478942+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }
@@ -18798,14 +18644,13 @@
     },
     "version": 1,
     "supersedes": null,
-    "created_at": "2026-10-27T07:33:13.811140+00:00",
+    "created_at": "2026-10-27T08:05:49.478942+00:00",
     "revalidation": {
      "ok": true,
      "problems": [],
-     "at": "2026-10-27T07:33:13.811140+00:00",
+     "at": "2026-10-27T08:05:49.478942+00:00",
      "after_approval": false
-    },
-    "events": []
+    }
    },
    "lifecycle": {
     "status": "proposed",
@@ -18855,7 +18700,7 @@
     {
      "plan_id": "tp_dd8a6714e0150b58",
      "version": 1,
-     "created_at": "2026-10-27T07:33:13.811140+00:00",
+     "created_at": "2026-10-27T08:05:49.478942+00:00",
      "revalidation_ok": true,
      "supersedes": null
     }

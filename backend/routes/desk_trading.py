@@ -465,9 +465,13 @@ async def get_trade_plan(request: Request, plan_id: str) -> Dict[str, Any]:
     versions = [v for v in await db[tpm.COLLECTION].find({"lineage_key": tp.get("lineage_key")}).sort("version", 1).to_list(50)
                 if tpm.readable_by(v, uid)]
     states = [lifecycle.current_state(t) for t in trades]
-    rejected = [e for e in tp.get("events") or [] if e.get("to") == lifecycle.REJECTED]
+    # YOUR refused submissions of this plan only. The plan document is shared (a system job's plan is everyone's), and its
+    # `events` hold every user's refusals, so reading them made one user's refusal show the plan as rejected to all.
+    # Each refusal's decision row (risk service or desk validation) carries its REJECTED event under detail.lifecycle.
+    mine = await db[rc.DECISIONS].find({"user_id": uid, "detail.lifecycle.plan_id": plan_id}).sort("at", 1).to_list(200)
+    rejected = [r["detail"]["lifecycle"] for r in mine if (r["detail"]["lifecycle"] or {}).get("to") == lifecycle.REJECTED]
     status = lifecycle.plan_status(states + ([lifecycle.REJECTED] if rejected and not trades else []))
-    plan = {k: v for k, v in tp.items() if k not in ("_id", "owners")}
+    plan = {k: v for k, v in tp.items() if k not in ("_id", "owners", "events")}
     plan["lifecycle"] = {**(plan.get("lifecycle") or {}), "status": status, "derived": True}
     return {"plan": plan, "lifecycle": {"status": status, "trades": [{"id": t["_id"], "state": s, "status": t.get("status")}
                                                                      for t, s in zip(trades, states)],

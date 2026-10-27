@@ -154,3 +154,20 @@ def test_sz6_a_plan_sized_with_capital_and_the_same_setup_unsized_are_separate_l
         assert [v["plan_id"] for v in got["versions"]] == [tp["plan_id"]]
         # either way the card shows the ACCOUNT's size, not the plan's own
         assert got["account_size"]["status"] == "sized"
+
+
+def test_be12_one_users_refused_submission_does_not_mark_the_shared_plan_rejected_for_others(world):
+    """The plan document is shared; its status for a reader comes from THAT reader's trades and refusals only."""
+    from services import risk_controls as rc
+    idea = idea_for(world, "user_a")
+    pid = idea["trade_plan"]["plan_id"]
+    world.db.cols["risk_profiles"].docs.append(loose_profile_doc("user_d"))
+    asyncio.run(rc.set_control(world.db, "user_d", field="kill_switch", value=True, reason="MOCK: test", actor="user_d"))
+    assert world.post("/api/desk/strategy/ideas", json=SIZED, headers=H("user_d")).status_code == 200
+    r = submit(world, "user_d", idea, 10)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "risk_blocked", r.text
+    mine = world.get(f"/api/desk/trade-plans/{pid}", headers=H("user_d")).json()
+    other = world.get(f"/api/desk/trade-plans/{pid}", headers=H("user_a")).json()
+    assert mine["lifecycle"]["status"] == "rejected" and len(mine["lifecycle"]["rejections"]) == 1
+    assert other["lifecycle"]["status"] == "proposed" and other["lifecycle"]["rejections"] == []
+    assert "events" not in other["plan"]

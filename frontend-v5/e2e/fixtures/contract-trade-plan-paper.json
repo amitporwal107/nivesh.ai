@@ -929,10 +929,10 @@
       "direction": "bullish",
       "instrument": "all"
      },
-     "build_ms": 253
+     "build_ms": 288
     }
    ],
-   "elapsed_ms": 260,
+   "elapsed_ms": 294,
    "caveats": [
     "Conditional research ideas, not advice and not an instruction to trade.",
     "End-of-day data: nothing here is live. F&O data is one NSE bhavcopy per day.",

@@ -50,6 +50,34 @@ def _reasons(rs: List[Dict[str, Any]], keep) -> List[Dict[str, Any]]:
     return [{k: r.get(k) for k in ("code", "check", "severity", "message")} for r in rs if keep(r)]
 
 
+_LIMIT_TEXT = {
+    "POSITION_SIZE": "Position size: at most {limit:g}% of your paper equity in one position",
+    "LIQUIDITY": "Liquidity: at most {limit:g}% of the stock's average daily traded value",
+    "RISK_PER_TRADE": "Risk per trade: the stop distance within {limit:g}% of your paper equity",
+    "NET_EXPOSURE": "Net exposure: at most {limit:g}% of your paper equity in the market",
+    "SECTOR_LIMIT": "Sector: at most {limit:g}% of your paper equity in one sector",
+}
+
+
+def _binding(rs: List[Dict[str, Any]], budget: Optional[float], size: int, unit: str) -> List[Dict[str, Any]]:
+    """The limits that set the size, in words about the size found (the service's own messages describe the sizing probe,
+    a request nobody made)."""
+    out = []
+    for r in rs:
+        if r.get("severity") != "reduce" or r.get("code") in FACTOR_CODES:
+            continue
+        code, limit = r.get("code"), r.get("limit")
+        if code == "per_trade_risk_exceeded":
+            text = (f"Per-trade risk budget Rs {budget:,.2f} (the stop's loss + costs + {est.GAP_STRESS_PCT:g}% gap stress)"
+                    if budget is not None else "Per-trade risk budget")
+        elif code in _LIMIT_TEXT and isinstance(limit, (int, float)):
+            text = _LIMIT_TEXT[code].format(limit=limit)
+        else:
+            text = r.get("message")
+        out.append({"code": code, "check": r.get("check"), "severity": "reduce", "message": text})
+    return out
+
+
 def _is_portfolio(r: Dict[str, Any]) -> bool:
     return r.get("check") in PORTFOLIO_CHECKS or (r.get("check") == "governor" and r.get("code") in PORTFOLIO_GOVERNOR)
 
@@ -168,8 +196,9 @@ async def _size_for(db, tp: Dict[str, Any], user_id: str, now: datetime) -> Dict
     first_reasons = first.get("reasons") or []
     blocks = _reasons(first_reasons, lambda r: _blocking(r) and not _is_portfolio(r))
     factors = _reasons(first_reasons, lambda r: r.get("code") in FACTOR_CODES)
-    binding = _reasons(first_reasons, lambda r: r.get("severity") == "reduce" and r.get("code") not in FACTOR_CODES)
-    base.update(per_trade_budget_rs=(first.get("budget") or {}).get("per_trade_budget_rs"), factors=factors, binding=binding)
+    per_budget = (first.get("budget") or {}).get("per_trade_budget_rs")
+    binding = _binding(first_reasons, per_budget, size, base["unit"])
+    base.update(per_trade_budget_rs=per_budget, factors=factors, binding=binding)
     if first["outcome"] == "block" or size < 1:
         return {**base, "status": "not_sizable", "quantity": None, "lots": None, "blocking": blocks or _reasons(
             first_reasons, _blocking), "estimated_risk_rs": first.get("estimated_risk_rs")}

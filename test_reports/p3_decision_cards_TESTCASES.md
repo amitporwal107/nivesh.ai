@@ -101,3 +101,22 @@ The risk seam is wired to the real service instead of "Risk check: pending":
 - **UI-8e:** "Risk-approved" only on a real ALLOW under the current limits version (UI-8e2: other limits → provisional).
 - **UI-8f, UI-8f2, UI-8g:** a block disables the action only while it applies.
 - **UI-10:** % of equity uses `GET /api/risk/profile`'s paper equity, not the paper account's cash.
+
+## Addendum 2 (2026-10-27): the card's size is the risk service's size; separate lineages
+
+The coordinator's instruction, option (a) for the release blocker (finding 1) and the fix for finding 2. These cases
+were written before the code changed.
+
+| ID | Area | Scenario | Type | Expected |
+|----|------|----------|------|----------|
+| SZ-1 | sizing | Same plan and user (default profile; loosest profile): GET `account_size`, then POST /paper-trades | api (real routes) | Submitting the card's size is ALLOWED. The plan's own 113 is REDUCED to exactly the card's size. |
+| SZ-2 | sizing | The card's estimate vs the decision's | api | `estimated_risk_rs.total` is equal; `risk_pct_of_equity` = total / paper equity. |
+| SZ-3 | sizing | An open position | api | The neutral account size does not see it. `portfolio` shows the size allowed today (ALREADY_HELD) and the budgets left. |
+| SZ-4 | sizing | BEAR regime | api | The size carries the 0.5 factor once. Status `not_confirmed`: the service cuts the submitted size again. A strict xfail records the Phase 1 finding. |
+| SZ-5 | sizing | F&O board plan | api | Sized at the row's lots: 1 lot within the loosest budget; `not_sizable` (min_lot_exceeds_budget) under the default profile. |
+| SZ-6 | lineage | Same setup, sized with capital vs unsized | api | Different lineage keys, each version 1, no `supersedes`. The card shows the account size either way. |
+| UI-10 | card | `account_size` unavailable | e2e | "Size unavailable: <reason>", Risk and Est. costs unavailable. Never the plan's own 113. |
+| UI-17 | card | Default profile (real 83 vs the plan's 113) | e2e | The line shows 83; the details show 113 as a what-if. The paper input defaults to 83 and the POST body sends 83. |
+| UI-18 | card | Portfolio note | e2e | "May be reduced by portfolio limits at submission" and the budgets left. |
+| UI-19 | card | BEAR (real `not_confirmed` answer) | e2e | "Size 41 shares (not allowed as is)"; the action is off, giving the cut again to 20. |
+| UI-20 | card | F&O over the per-trade budget (real) | e2e | Size unavailable, with the service's refusal; the F&O action is disabled with that reason. |
