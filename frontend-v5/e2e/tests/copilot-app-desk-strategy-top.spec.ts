@@ -168,7 +168,8 @@ test.describe("Strategy Builder — Top by regime", () => {
     await page.route("**/api/desk/strategy/top", (route) =>
       route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "upstream" }) }));
     await page.goto(URL);
-    await expect(page.getByRole("alert")).toBeVisible();
+    // Desk redesign (2026-10-27): New trade also hosts the F&O lab, whose reads fail here too, so the alert is read in the Builder.
+    await expect(page.getByTestId("desk-panel-strategy").getByRole("alert")).toBeVisible();
   });
 });
 

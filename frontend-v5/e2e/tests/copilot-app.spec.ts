@@ -509,12 +509,11 @@ test.describe("Copilot app — desktop", () => {
     for (const name of ["Risk", "Goals", "Tax"]) await expect(rail.getByRole("button", { name, exact: true })).toBeVisible();
     await pill.click();
     await expect(pill).toContainText("Trader");
-    await expect(page).toHaveURL(/\/v5\/app\/trader$/);
-    // Trader mode lists only the Smart trading desk, the Screener, Stock research and Sector rotation.
+    // Desk redesign (2026-10-27, owner): Trader mode lands on the Smart trading desk, and its rail lists only the desk; the
+    // Screener, Stock research and Sector rotation are Market Desk views (copilot-app-desk-shell.spec.ts SH-17 / SH-19).
+    await expect(page).toHaveURL(/\/v5\/app\/trader\/desk$/);
     await expect(rail.getByRole("button", { name: /Smart trading desk/ })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Screener" })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Stock research" })).toBeVisible();
-    await expect(rail.getByRole("button", { name: "Sector rotation" })).toBeVisible();
+    for (const moved of ["Screener", "Stock research", "Sector rotation"]) await expect(rail.getByRole("button", { name: moved, exact: true })).toHaveCount(0);
     for (const gone of [/Trader desk/, /Options lab/, /Strategy builder/, /Markets/, /Watchlist/, /Paper trades/]) {
       await expect(rail.getByRole("button", { name: gone })).toHaveCount(0);
     }

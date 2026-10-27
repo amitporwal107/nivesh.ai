@@ -39,7 +39,10 @@ test.describe("desk widget template", () => {
   });
 
   test("TC-1 every widget on every desk tab has a toggle and a resize handle, with unique ids", async ({ page }) => {
-    const tabs = ["overview", "scanner", "intel", "chart", "portfolio", "smartmoney", "events", "fno"];
+    // Desk redesign (2026-10-27): the old tabs' screens now share pages, so the walk visits each new place once (the old
+    // scanner, events and fno URLs land on Market Overview, Market Intelligence and Smart Money), and has more widgets a page.
+    test.setTimeout(90_000);
+    const tabs = ["overview&section=scanner", "market&view=intel", "market&view=research", "portfolio", "market&view=smartmoney", "trade&view=paper"];
     const seen = new Set<string>();
     let total = 0;
     for (const tab of tabs) {
@@ -67,23 +70,25 @@ test.describe("desk widget template", () => {
     }
   });
 
+  // Desk redesign (2026-10-27): Market Overview also hosts the scanner's pulse strip (also "desk-pulse"), so the card's
+  // body is read inside the card.
   test("TC-2 collapse hides the body, keeps the header, and survives a reload", async ({ page }) => {
     const card = page.getByTestId("desk-pulse-card");
     const toggle = page.getByTestId("desk-pulse-card-collapse");
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByTestId("desk-pulse")).toBeVisible();
+    await expect(page.getByTestId("desk-pulse-card").getByTestId("desk-pulse")).toBeVisible();
     const open = await box(page, "desk-pulse-card");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(card).toHaveAttribute("data-collapsed", "true");
-    await expect(page.getByTestId("desk-pulse")).toBeHidden();
+    await expect(page.getByTestId("desk-pulse-card").getByTestId("desk-pulse")).toBeHidden();
     await expect(page.getByTestId("desk-pulse-title")).toBeVisible();
     expect((await box(page, "desk-pulse-card")).height).toBeLessThan(open.height / 2);
     await page.reload();
     await expect(page.getByTestId("desk-pulse-card")).toHaveAttribute("data-collapsed", "true");
-    await expect(page.getByTestId("desk-pulse")).toBeHidden();
+    await expect(page.getByTestId("desk-pulse-card").getByTestId("desk-pulse")).toBeHidden();
     await page.getByTestId("desk-pulse-card-collapse").click();
-    await expect(page.getByTestId("desk-pulse")).toBeVisible();
+    await expect(page.getByTestId("desk-pulse-card").getByTestId("desk-pulse")).toBeVisible();
     // Back to its natural state, nothing left saved.
     expect(await page.evaluate(() => window.localStorage.getItem("nv.desk.widget.v1.overview.pulse"))).toBeNull();
   });

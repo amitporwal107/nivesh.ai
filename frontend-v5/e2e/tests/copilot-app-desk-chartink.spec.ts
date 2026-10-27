@@ -473,11 +473,11 @@ test.describe("MOCK - not real data: Chartink scans as opportunity sources", () 
 
     // A row opens its Chart tab; the header link opens the settings.
     await only.nth(1).click();
-    await expect(page).toHaveURL(/tab=chart/);
+    await expect(page).toHaveURL(/tab=market&view=research/); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await expect(page).toHaveURL(/sym=ZEDCO/);
     await page.goto(DESK);
     await page.getByTestId("desk-opps-chartink").click();
-    await expect(page).toHaveURL(/view=chartink/);
+    await expect(page).toHaveURL(/section=chartink/);
     await expect(page.getByTestId("chartink-settings")).toBeVisible();
   });
 
@@ -490,7 +490,7 @@ test.describe("MOCK - not real data: Chartink scans as opportunity sources", () 
     await expect(page.getByTestId("desk-ck-connect")).toHaveText("Connect your Chartink dashboard to add your scans here ›");
     await expect(page.getByTestId("ck-only")).toHaveCount(0);
     await page.getByTestId("ck-connect-link").click();
-    await expect(page).toHaveURL(/view=chartink/);
+    await expect(page).toHaveURL(/section=chartink/);
 
     const p2 = await page.context().newPage();
     const st = await open(p2, DESK, { hits: { status: 500 } });
@@ -723,13 +723,10 @@ test.describe("MOCK - not real data: Chartink scans as opportunity sources", () 
     expect(s.scroll).toBeLessThanOrEqual(0);
     await shot(page, "settings", 390);
 
-    // More lists it, with its note (desktop with the dock: the More list).
+    // Desk redesign (2026-10-27): no More list; the old URL opens Market Desk › Screener's "Chartink sources".
     const p2 = await page.context().newPage();
-    await open(p2, `${DESK}?tab=more`, {});
-    await expect(p2.getByTestId("desk-more-item-chartink")).toContainText("Chartink scans");
-    await expect(p2.getByTestId("desk-more-item-chartink")).toContainText("Use your Chartink scans as opportunity sources");
-    await p2.getByTestId("desk-more-item-chartink").click();
-    await expect(p2).toHaveURL(/view=chartink/);
+    await open(p2, `${DESK}?tab=more&view=chartink`, {});
+    await expect(p2).toHaveURL(/section=chartink/);
     await expect(p2.getByTestId("chartink-settings")).toBeVisible();
   });
 
