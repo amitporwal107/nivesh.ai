@@ -204,6 +204,70 @@ label rests on R5). Composite score ← **H2**. Upcoming ideas order ← **H3**.
   commit. Nothing is written to the warehouse, the app database or Mongo.
 - Every result is reported, including nulls, with per-season tables. Deviations from this file are listed as deviations.
 
+## Amendment A1 — registered 2026-10-27 (IST), before any statistic for any hypothesis was computed
+**State at registration:** §1–§10 are unchanged. The dataset has been built (`research/earnings_surprise/build_dataset.py`,
+committed with this amendment); its run printed row counts only. No mean, difference, IC or p-value has been computed for
+any hypothesis, and no return has been inspected. Two new facts arrived after the registration commit `b3415111`:
+(1) the owner added a "results strength" boost to the live AI scanner (~18:05 IST, rule relayed by the coordinator); it is
+registered here as **H5** (H4 was already taken by the declared order); (2) the P1 implementation landed
+(`backend/services/results_week/scoring.py`, commit `9f78c6ee` on `feat/earnings-surprise-tracker`, 18:03–18:07 IST) and
+differs from §4 in several constants; its version of H1–H4 is registered as **S7**.
+
+### A1.1 H5 — the scanner's results-strength boost
+No code for the boost was found in any worktree at registration, so the rule is pinned from the relayed live constants.
+On the target quarter Q, the event's basis, stored values:
+- **PAT YoY** = PAT(Q) ÷ PAT(Q−4) − 1 when PAT(Q−4) > 0. *Loss → profit* (PAT(Q−4) ≤ 0 < PAT(Q)) counts as ≥ +20 %;
+  *profit → loss* (PAT(Q−4) > 0 ≥ PAT(Q)) counts as ≤ −10 %. Otherwise undefined (criterion not met).
+- **Revenue YoY** when revenue(Q−4) > 0. **EBITDA-margin change** YoY in basis points, when both revenues > 0 and both
+  EBITDA are stored.
+- **Rated verdict** = the live headline verdict (`scoring.surprise` at `9f78c6ee`: weighted z, band-width cap; S7 inputs).
+- **Red flags:** exceptional items > 20 % of PBT; other income > 30 % of PBT (both only with PBT > 0); verdict below (which
+  includes "well below").
+- **STRONG** = at least 2 of {PAT YoY ≥ +20 %, revenue YoY ≥ +10 %, margin change ≥ +50 bps, verdict above} **and** no red
+  flag. **WEAK** = (PAT YoY ≤ −10 % **and** revenue YoY < +5 %) **or** verdict below. A name meeting both is put in neither
+  group and counted. **Unflagged** = the other results names in the same sample.
+- **Variant per season** (stated exactly): the verdict exists only where the full baseline does.
+  - Oct–Nov 2025 and Jan–Feb 2026: **growth-only** (three growth criteria, red flags without the verdict, WEAK without the
+    verdict clause). The growth criteria need only Q−4, which every studied season has.
+  - Apr–May 2026 and Jul–Aug 2026: **full rule**. A name without a rated verdict there is judged on the other parts,
+    exactly as the live rule would judge it.
+- **Sample:** §5's events and liquid universe, all four seasons.
+- **Outcomes:** R5 and R1 as §5, and **D5** (adj_close(S+5) ÷ adj_close(S) − 1 minus Nifty). The boost is applied by the
+  nightly scan after the figures are stored, so D5, the return after the reaction day, is the part it can act on.
+- **Statistics:** as §6 for H1: per-season difference of winsorised means (group − unflagged), equal-weight mean over the
+  seasons with ≥ 30 names in each group, stratified date-cluster bootstrap (10,000 draws, seed 20261027), Welch t on pooled
+  events, cross-season t (k = 4).
+- **Family F5** (Holm, α = 0.05 one-sided): STRONG−unflagged > 0 on D5 and on R5; WEAK−unflagged < 0 on D5 and on R5.
+  R1 is reported for both groups without a decision. Secondary (no decision): the full rule on its two seasons only; the
+  growth-only rule on all four seasons.
+- **Decision (STRONG; WEAK mirrored with the sign reversed, −10 / −5 / 0):**
+  - **keep +10**: STRONG D5 passes (Holm-adjusted p < 0.05, same sign in every eligible season);
+  - **+5**: not the above, but STRONG R5 passes **and** the pooled D5 estimate is > 0;
+  - **0**: everything else, including R5 passing with D5 ≤ 0 (the strength is priced on the reaction day, and a boost
+    applied after it adds nothing measurable). A significantly reversed D5 (Holm, opposite sign) also gives 0 and is
+    flagged to the owner.
+  - The holdout run (§8) repeats the D5 and R5 tests on Oct–Nov 2026; a kept or halved value that fails there goes to 0.
+
+### A1.2 S7 — the live code's version of H1–H4
+`scoring.py` at `9f78c6ee` differs from §4 in:
+- the headline verdict thresholds the weighted z (§4.2 thresholds the clamped score);
+- a band wider than 0.35 (PAT) / 0.20 (revenue) relative half-width is not rated;
+- trend items are weighted YoY 2 · QoQ 1 · margin 2, and one item is enough;
+- OI states are graded 100 / 75 / 50 / 25 / 0 and called only when |price| ≥ 0.5 %, |OI| ≥ 3 % and futures turnover
+  ≥ ₹50 cr;
+- reaction = clamp(50 + 10 · excess % · w), with w = the volume multiple clamped to [0.5, 2];
+- past reactions = the mean event-day × next-day move, scored clamp(50 + 10 · mean);
+- a name is ordered only when parts carrying ≥ 50 % of its list's weight are present.
+
+S7 runs H1–H4 with those functions imported from that commit, fed the same point-in-time inputs as §4–§5: DaaS-shaped
+metrics from `answer()`, merged quarter rows, adjusted closes and volumes, OI with turnover from the bhavcopy, past
+reactions from adjusted closes. The technical part stays the B0 replay (§4.7). The live part reads the scanner's stored
+final score, which cannot be replayed. **Family F7** = the S7 versions of {H1-R5, H1-R1, H2, H3, H4}, Holm as §6.
+
+**Label rule (amends §9, conservatively):** an on-screen label may say "early evidence" only if both the registered test
+and its S7 counterpart PASS. If either fails, the label is "no measurable skill". If either is REVERSED, the label is
+"reversed in testing". §9(b) is unchanged.
+
 ## Log
 | When (IST) | What | Commit |
 |---|---|---|
