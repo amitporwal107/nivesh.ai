@@ -15,7 +15,7 @@ import copy
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import loaders, scoring as sc
+from . import loaders, scoring as sc, track
 
 IST = sc.IST
 STATUS_ORDER = {"declared": 0, "pending": 1, "upcoming": 2}
@@ -226,6 +226,42 @@ async def build_day(day: date, *, now: Optional[datetime] = None, live: bool = T
         return await _build_day(day, now=now, live=live, db=db)
 
 
+async def attach_fno_track(rows: List[Dict[str, Any]], sess: Sequence[date], fno_day: Optional[date],
+                           bu: Dict[str, Dict[str, Any]], fno_syms: Sequence[str], gaps: List[str]) -> None:
+    """§9a: `fno_track` {before, after} on every F&O row (null on the others). One cached /desk/fno-buildup read per
+    distinct "session before the first reaction session", plus the latest (already read as `bu`). The expiry list comes
+    from one underlying's expiries (the monthly expiry is market-wide); its failure only drops the expiry note."""
+    for r in rows:
+        r["fno_track"] = None
+    if not fno_day or not fno_syms:
+        return
+    by_day: Dict[str, Dict[str, Dict[str, Any]]] = {fno_day.isoformat(): bu}
+    pres = set()
+    for r in rows:
+        if r.get("fno"):
+            first = track._first_reaction(r, sess)
+            pre = track.pre_session(first, sess) if first and first <= fno_day else None
+            if pre and pre.isoformat() not in by_day:
+                pres.add(pre)
+    reads = await asyncio.gather(*(loaders.buildup(d, fallback=False) for d in sorted(pres)), return_exceptions=True)
+    missing = []
+    for d, res in zip(sorted(pres), reads):
+        if isinstance(res, BaseException) or not res[0]:
+            missing.append(d.isoformat())
+            continue
+        by_day[d.isoformat()] = res[0]
+    if missing:
+        gaps.append(f"F&O before-results snapshots could not be read for {', '.join(missing)}")
+    try:
+        expiries = await loaders.fno_expiries(fno_syms[0])
+    except Exception:  # noqa: BLE001
+        expiries = []
+        gaps.append("F&O expiry list could not be read: a window spanning an expiry is not labelled")
+    for r in rows:
+        if r.get("fno"):
+            r["fno_track"] = track.fno_track(r, sess, fno_day, by_day, expiries)
+
+
 async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> Dict[str, Any]:
     if db is None:
         from deps import db as _db
@@ -294,6 +330,7 @@ async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> D
            "fno_day": fno_day, "back_rows": back_rows, "back_date": back_date, "deep": deep, "deep_gaps": deep_gaps}
 
     rows = [assemble_row(e, ctx) for e in evs]
+    await attach_fno_track(rows, sess, fno_day, bu, fno_syms, gaps)
     in_week = [r for r in rows if r["event_date"] and mon.isoformat() <= str(r["event_date"])[:10] <= sat.isoformat()]
     in_week.sort(key=lambda r: (STATUS_ORDER[r["status"]], str(r["event_date"]), r["symbol"]))
     fno_ideas = sc.order_ideas(rows, day, sess, fno_list=True)
