@@ -202,7 +202,6 @@ const params = (page: Page) => new URL(page.url()).searchParams;
 const showFno = (page: Page) => page.getByTestId("desk-top10-switch-fno").click(SLOW);
 const openCard = (row: ReturnType<Page["getByTestId"]>, kind: "stock" | "fno" = "stock") => row.getByTestId(`desk-top10-${kind}-open`).click(SLOW);
 const closeDrawer = (page: Page) => page.keyboard.press("Escape");
-const trailText = async (page: Page) => (await page.getByTestId("desk-trail").innerText()).replace(/\s+/g, " ").trim();
 
 // ── layout and the two boards ─────────────────────────────────────────────
 
@@ -580,136 +579,14 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
   });
 });
 
-// ── the breadcrumb trail ──────────────────────────────────────────────────
-
-test.describe("Desk breadcrumb", () => {
-  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
-  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
-  test.skip("F-20 on load: Trading desk › AI Scanner", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await expect(page.getByTestId("desk-trail-here")).toHaveText("AI Scanner");
-    await expect(page.getByTestId("desk-trail-here")).toHaveAttribute("aria-current", "page");
-    await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "0");
-    expect(await trailText(page)).toBe("Trading desk › AI Scanner");
-  });
-
-  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
-  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
-  test.skip("F-21 / F-22 / F-27 the path is recorded, a crumb returns to that exact view, and scrolls back to the board", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await showFno(page);
-    await openCard(page.getByTestId("desk-top10-fno-SB1"), "fno");
-    await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-lab").click();
-    await expect(page.getByTestId("desk-cand-card-SB1")).toBeVisible(SLOW);
-    await page.getByTestId("desk-cand-buildup-SB1").click();
-    await expect(page.getByTestId("desk-trail-here")).toHaveText("F&O Lab · OI build-up · SB1");
-    expect(await trailText(page)).toBe("Trading desk › AI Scanner · Top 10 F&O ideas › F&O Lab · Candidates · SB1 › F&O Lab · OI build-up · SB1");
-
-    // Back one step: the exact URL, focus included, and the later step dropped.
-    await page.getByTestId("desk-trail-crumb-1").click();
-    expect([params(page).get("lab"), params(page).get("lab_focus")]).toEqual(["candidates", "SB1"]);
-    await expect(page.getByTestId("desk-lab-focus")).toBeVisible();
-    await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "1");
-
-    // Back to the scanner, scrolled to the F&O board.
-    await page.getByTestId("desk-trail-crumb-0").click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "scanner");
-    await expect(page.getByTestId("desk-top10-fno")).toBeInViewport(SLOW);
-    await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "0");
-  });
-
-  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
-  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
-  test.skip("F-23 / F-24 a main tab starts the trail again; Trading desk opens the Overview", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
-    await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-chart").click(SLOW);
-    await expect(page.getByTestId("desk-trail-here")).toHaveText("Chart Analysis · ICICIBANK");
-    await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "1");
-    await page.getByTestId("desk-tab-intel").click();
-    await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "0");
-    expect(await trailText(page)).toBe("Trading desk › Market Intelligence");
-    await page.getByTestId("desk-trail-root").click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "overview");
-  });
-
-  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
-  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
-  test.skip("F-25 a reload keeps the trail", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await showFno(page);
-    await openCard(page.getByTestId("desk-top10-fno-SB1"), "fno");
-    await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-chain").click(SLOW);
-    await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "1");
-    await page.reload();
-    await expect(page.getByTestId("desk-trail-crumb-0")).toHaveText("AI Scanner · Top 10 F&O ideas");
-    await expect(page.getByTestId("desk-trail-here")).toHaveText("F&O Lab · Option chain · SB1");
-  });
-});
+// The breadcrumb-trail cases left in the desk redesign's step 6: the breadcrumb is the location (copilot-app-desk-shell.spec.ts SH-11).
 
 // ── market pulse, and Market Intelligence's URL state ─────────────────────
 
-// RETIRED by the desk redesign step 2 (Market Overview, 2026-10-27): the market pulse (tradingdesk/ScannerPulse.tsx) is no
-// longer mounted; its FII / DII, sector moves and events are Market Overview's strip and events today
-// (copilot-app-desk-market-overview.spec.ts). F-30 … F-34 are skipped; F-35 (Market Intelligence) still runs. ScannerPulse is
-// deleted or re-hosted in step 6.
+// The market pulse (tradingdesk/ScannerPulse.tsx) left the desk in step 2 and was deleted in step 6, with F-30 … F-34: its
+// FII / DII, sector moves and events are Market Overview's strip and events (copilot-app-desk-market-overview.spec.ts
+// MO-8, MO-9, MO-24, MO-33, MO-34). F-35 (Market Intelligence) still runs.
 test.describe("Scanner — market pulse", () => {
-  test.skip("F-30 / F-31 the latest events and the three indicators, from their routes, with dates", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await expect(page.getByTestId("desk-pulse-event-ann-001")).toContainText("Financial results for the quarter ended September 2026", SLOW);
-    // Desk redesign (2026-10-27): the strip is read in its section (Market Overview has a second pulse card).
-    const ids = await page.getByTestId("desk-panel-pulse").getByTestId("desk-pulse-events").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    expect(ids).toEqual(["desk-pulse-event-ann-001", "desk-pulse-event-ann-002"]);   // newest first
-    await expect(page.getByTestId("desk-pulse-fii")).toHaveText("−₹1,000 cr");      // 2026-10-13, the newest session
-    await expect(page.getByTestId("desk-pulse-dii")).toHaveText("+₹800 cr");
-    await expect(page.getByTestId("desk-pulse-flows")).toContainText("13 Oct 2026");
-    await expect(page.getByTestId("desk-pulse-sm-fii")).toHaveText("−₹98,383 cr");
-    await expect(page.getByTestId("desk-pulse-sm-dii")).toHaveText("+₹1,98,123 cr");
-    await expect(page.getByTestId("desk-pulse-sm-mf")).toContainText("46.0% of Nifty 500 names");
-    // Sector moves of 1% or more only: IT and Realty, not Bank (+0.3%).
-    await expect(page.getByTestId("desk-pulse-sector")).toHaveCount(2);
-    await expect(page.getByTestId("desk-pulse-sectors")).not.toContainText("Nifty Bank");
-  });
-
-  test.skip("F-32 an event opens Market Intelligence with that event selected", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-event-ann-002").click(SLOW);
-    // Desk redesign (2026-10-27): Market Intelligence is a Market Desk view; the breadcrumb is the location (SH-11), so no "from" crumb.
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "intel");
-    expect(params(page).get("in_ev")).toBe("ann-002");
-    await expect(page.getByTestId("desk-event-detail")).toHaveAttribute("data-id", "ann-002", SLOW);
-  });
-
-  test.skip("F-33 the pulse opens Market Intelligence, its FII / DII chip, and Smart Money", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-flows").click(SLOW);
-    expect(params(page).get("in_chip")).toBe("flows");
-    await expect(page.getByTestId("desk-intel-chip-flows")).toHaveAttribute("aria-pressed", "true", SLOW);
-    // Desk redesign (2026-10-27): back to Market Overview by URL (the breadcrumb no longer records the path); the targets are Market Desk views.
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-open-smartmoney").click(SLOW);
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "smartmoney");
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-open-intel").click(SLOW);
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "intel");
-    expect(params(page).get("in_chip")).toBeNull();
-  });
-
-  test.skip("F-34 a failed source shows in its own tile; the rest still show", async ({ page }) => {
-    await desk(page);
-    await page.route("**/api/markets/smart-money/summary*", (r) => json(r, { error: { message: "upstream_unavailable" } }, 502));
-    await page.goto(SCANNER);
-    await expect(page.getByTestId("desk-pulse-smartmoney")).toContainText("didn’t load", SLOW);
-    await expect(page.getByTestId("desk-pulse-fii")).toHaveText("−₹1,000 cr");
-  });
-
   test("F-35 Market Intelligence keeps its chip in the URL across a reload", async ({ page }) => {
     await desk(page);
     await page.goto(`${DESK}?tab=intel`);

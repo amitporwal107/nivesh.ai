@@ -20,10 +20,9 @@
  * The category, the ranking and every filter live in the URL (sc_*), so a reload, a shared link or a trip to another
  * tab keeps them (PRD §5.8). Missing figures show "—" and a filter never treats them as passing.
  *
- * Above the list (the user's requirement of 2026-10-25): the market pulse (ScannerPulse.tsx — the latest events and FII / DII,
- * smart-money and sector indicators, opening Market Intelligence and Smart Money) and the Top 10 stock and F&O ideas
- * (ScannerTop10.tsx). Each loads on its own, from its own code chunk (the boards carry the Strategy Builder's payoff charts);
- * the list never waits for them.
+ * Above the list: the Top 10 stock and F&O ideas (ScannerTop10.tsx). Each loads on its own, from its own code chunk (the
+ * boards carry the Strategy Builder's payoff charts); the list never waits for them. The market pulse that sat above them
+ * (ScannerPulse.tsx) was removed in the desk redesign's step 6: Market Overview's market strip and events replaced it.
  */
 import { Flash } from "../../components/LiveBits";
 import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
@@ -1169,22 +1168,20 @@ const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
 
 // ── the tab ──────────────────────────────────────────────────────────────
 
-const ScannerPulse = lazy(() => import("./ScannerPulse").then((m) => ({ default: m.ScannerPulse })));
 const ScannerTop10 = lazy(() => import("./ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
 /** Results week ideas (docs/EARNINGS_SURPRISE_TRACKER.md §4c, §6): its own chunk and files (resultsweek/). */
 const ResultsWeekIdeas = lazy(() => import("./resultsweek/ResultsWeekIdeas"));
 
 /**
- * The tab: the market pulse, the Top 10 boards and the results week ideas (each loads on its own), then the scanner list.
+ * The tab: the Top 10 boards and the results week ideas (each loads on its own), then the scanner list.
  * `listOnly` (Market Overview, the desk redesign of 2026-10-27): the list alone, under "All scanner candidates"; the page
- * shows the pulse, the Top 10 and the results week ideas above it once.
+ * shows the market strip and the Top 10 above it once.
  */
 export default function ScannerTab({ listOnly = false }: { listOnly?: boolean } = {}) {
   const { mobile } = useCopilotShell();
   if (listOnly) return <ScannerList />;
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
-      <Suspense fallback={<LoadingBlock label="Loading the market pulse" rows={1} />}><ScannerPulse /></Suspense>
       <Suspense fallback={<LoadingBlock label="Loading the Top 10 ideas" rows={2} />}><ScannerTop10 /></Suspense>
       <Suspense fallback={<LoadingBlock label="Loading the results week ideas" rows={2} />}><ResultsWeekIdeas /></Suspense>
       <ScannerList />

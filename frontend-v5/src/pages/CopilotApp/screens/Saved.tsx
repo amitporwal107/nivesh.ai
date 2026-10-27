@@ -7,7 +7,7 @@ import {
   type Tone,
 } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
-import { threadView } from "../lib/views";
+import { STRATEGY_BUILDER_VIEW, threadView, viewPath } from "../lib/views";
 import { useThematicPrefs } from "./markets/hooks";
 import { LoadError } from "./markets/parts";
 import { NothingToExport, downloadHoldings, useToggleStarredQuestion, type ExportFormat } from "./workspace/saved-data";
@@ -247,7 +247,7 @@ function SavedScreens() {
                     actions={
                       <>
                         {!funds && <CardAction onClick={() => go(WATCHLIST_VIEW)} testId="saved-strategy-watchlist">Today’s stocks ›</CardAction>}
-                        <Link to="/strategy-builder" className="cp-link" style={{ fontSize: 13 }}>Backtest in the strategy builder ›</Link>
+                        <Link to={viewPath(STRATEGY_BUILDER_VIEW)} className="cp-link" style={{ fontSize: 13 }}>Backtest in the strategy builder ›</Link>
                       </>
                     }
                   />
