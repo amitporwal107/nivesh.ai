@@ -42,7 +42,7 @@ import { fmtDay, fmtPrice } from "../trading/parts";
 import { setupLabel, useDeskLevels, useScenario, useStockOdds, type DeskLevels, type Scenario, type ScenarioInputs } from "./chart-data";
 import { useDesk } from "./context";
 import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup, type SetupStatus } from "./desk-data";
-import { costsBreakdownText, readCostsBreakdown, useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
+import { costsBreakdownText, maxHoldFor, maxHoldNote, readCostsBreakdown, useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
 import { largestGap, type DailyBar } from "./indicators";
 import { TrustLine } from "./trust";
 import { Widget } from "./widget";
@@ -1031,6 +1031,8 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
   else if (!s || !sent) paperWhy = st.read.problems.length || (st.current && st.q.data?.valid === false) ? "Fix the scenario’s inputs first." : "Working out the quantity…";
   else if (qty == null || qty < 1) paperWhy = "The risk budget fits no whole share; pick more capital or a larger risk.";
   else {
+    // The setup's holding window (the scanner's timeframe_days_max) is the time exit: closed at that session's close.
+    const maxHold = maxHoldFor(setup.daysMax);
     paperBody = {
       symbol,
       quantity: qty,
@@ -1038,8 +1040,9 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
       stop_price: sent.stop,
       target_price: sendTarget,
       source: { kind: "scanner", ...(setup.bucket ? { bucket: setup.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
+      ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
     };
-    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, stop ${fmtPrice(sent.stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
+    paperWhy = `Simulated: ${fmtNum(qty)} shares at ${fmtPrice(sent.entry)}, stop ${fmtPrice(sent.stop)}${sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}${maxHoldNote(maxHold)}${phone ? ` (sized at ${fmtINR(sent.capital)} with ${plainNum(sent.riskPct)}% risk)` : ""}. No order is placed; it is marked against end-of-day closes.`;
   }
 
   const level = setup?.trigger ?? setup?.entry ?? null;

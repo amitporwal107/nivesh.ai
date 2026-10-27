@@ -276,15 +276,17 @@ def test_an_open_strategy_is_marked_leg_by_leg_on_the_bhavcopy(api, sworld):
     body = trades(api)
     t = only_strategy(body)
     assert t["status"] == "open"
+    # p2_exits_backtest TC-40: an option is marked at its CLOSE, never its settle price (the fixture's settle is the close + 1):
+    # was (50, settle) and (20, settle).
     assert [(leg["mark"], leg["mark_date"], leg["mark_basis"]) for leg in t["legs"]] == [
-        (50.0, "2026-10-13", "settle"), (20.0, "2026-10-13", "settle")]
-    assert [leg["pnl_rs"] for leg in t["legs"]] == [2500.0, -1250.0]        # (50−40)×250 and −(20−15)×250
-    assert t["gross_pnl_rs"] == 1250.0 and t["unrealized_pnl_rs"] == 1250.0
-    assert t["mark_premium_rs"] == -7500.0                                  # −50 × 250 + 20 × 250
-    # The desk cost card: entry 33.10 + 32.68; the exit side estimated at the marks, sell 50×250 = 12,500: 20 + 18.75 STT
-    # + 4.44 exch + 0.01 SEBI + 4.40 GST + 6.25 slippage = 53.85, buy 20×250 = 5,000: 20 + 1.78 + 0.01 + 0.15 stamp
-    # + 3.92 + 2.50 = 28.36; 147.99 (95.625 under the flat model)
-    assert t["costs_rs"] == 147.99
+        (49.0, "2026-10-13", "close"), (19.0, "2026-10-13", "close")]
+    assert [leg["pnl_rs"] for leg in t["legs"]] == [2250.0, -1000.0]        # (49−40)×250 and −(19−15)×250
+    assert t["gross_pnl_rs"] == 1250.0 and t["unrealized_pnl_rs"] == 1250.0  # the +1 on both legs cancels in the spread
+    assert t["mark_premium_rs"] == -7500.0                                  # −49 × 250 + 19 × 250
+    # The desk cost card: entry 33.10 + 32.68; the exit side estimated at the marks, sell 49×250 = 12,250: 20 + 18.38 STT
+    # + 4.35 exch + 0.01 SEBI + 4.38 GST + 6.13 slippage = 53.25, buy 19×250 = 4,750: 20 + 1.69 exch + 0.14 stamp
+    # + 3.90 GST + 2.38 slippage = 28.11; 147.14 (was 147.99 at the settle marks 50 / 20)
+    assert t["costs_rs"] == 147.14
     assert t["net_pnl_rs"] == pytest.approx(1250.0 - t["costs_rs"], abs=0.01)
     assert t["costs_basis"].startswith("entry and exit sides")
     assert (t["mfe_rs"], t["mae_rs"], t["held_sessions"], t["checked_through"]) == (1250.0, 1250.0, 1, "2026-10-13")
@@ -297,17 +299,20 @@ def test_the_target_on_the_underlying_closes_every_leg_at_the_session_marks(api,
     body = trades(api)
     t = only_strategy(body)
     assert (t["status"], t["exit_reason"], t["exit_session"]) == ("closed", "target", "2026-10-15")
-    assert [leg["mark"] for leg in t["legs"]] == [110.0, 60.0]
-    assert [leg["pnl_rs"] for leg in t["legs"]] == [17500.0, -11250.0]
+    assert [leg["mark"] for leg in t["legs"]] == [109.0, 59.0]                # p2_exits_backtest TC-40: an option is marked at its CLOSE, never its settle price (the fixture's settle is the close + 1) (was 110 / 60)
+    assert [leg["pnl_rs"] for leg in t["legs"]] == [17250.0, -11000.0]     # (109−40)×250, −(59−15)×250 (were 17,500 / −11,250)
     assert t["gross_pnl_rs"] == 6250.0 and t["realized_pnl_rs"] == 6250.0 and t["unrealized_pnl_rs"] is None
-    assert t["costs_rs"] == 193.8 and t["net_pnl_rs"] == 6056.2
-    assert t["costs_breakdown"] == {"brokerage": 80.0, "stt": 46.88, "exchange": 19.98, "sebi": 0.06, "stamp": 0.75,
-                                    "gst": 18.0, "slippage": 28.13, "total": 193.8}
+    # Entry buy 40×250 33.10 + sell 15×250 32.68; exit sell 109×250 89.57 + buy 59×250 37.62 (desk cost card, options):
+    # STT 5.63 + 40.88, exchange 3.55 + 1.33 + 9.68 + 5.24, SEBI 0.01 + 0.03 + 0.01, stamp 0.30 + 0.44,
+    # GST 4.24 + 3.84 + 5.35 + 4.55, slippage 5.00 + 1.88 + 13.63 + 7.38 → 192.97 (was 193.80 at the settle marks)
+    assert t["costs_rs"] == 192.97 and t["net_pnl_rs"] == 6057.03
+    assert t["costs_breakdown"] == {"brokerage": 80.0, "stt": 46.51, "exchange": 19.8, "sebi": 0.05, "stamp": 0.74,
+                                    "gst": 17.98, "slippage": 27.89, "total": 192.97}
     assert (t["mfe_rs"], t["mae_rs"], t["held_sessions"]) == (6250.0, -1250.0, 3)
     assert t["mark_premium_rs"] == -12500.0
     assert "exit_marked_at_session_marks" in [f["code"] for f in t["flags"]]
     assert body["summary"]["closed"] == 1 and body["summary"]["realized_pnl_rs"] == 6250.0
-    assert body["summary"]["net_realized_pnl_rs"] == pytest.approx(6056.2, abs=0.001)
+    assert body["summary"]["net_realized_pnl_rs"] == pytest.approx(6057.03, abs=0.001)
 
 
 def test_exits_are_idempotent_and_the_lifecycle_log_records_state_changes_only(api, sworld):
@@ -333,7 +338,9 @@ def test_a_stop_and_a_target_in_one_session_count_as_the_stop_and_a_gap_is_flagg
 
 
 def test_a_bearish_trade_is_stopped_when_the_high_reaches_the_stop(api, sworld):
-    sworld.contracts[("option", 1200.0, "PE")] = [crow("2026-10-13", 20), crow("2026-10-14", 12)]
+    # p2_exits_backtest TC-40: the rows now carry a close (the mark) and a different settle (never the mark); they had a
+    # settle only, which marked the put at settle.
+    sworld.contracts[("option", 1200.0, "PE")] = [crow("2026-10-13", 21, 20), crow("2026-10-14", 13, 12)]
     open_strategy(api, direction="bearish", family="long_put", reference_price=1215.0, stop_underlying=1250.0,
                   target_underlying=1150.0, legs=[put("buy", 1200, 25)])
     sworld.rows["FIXU"] = [UNDERLYING[0], obar("2026-10-13", 1220, 1235, 1205, 1210), obar("2026-10-14", 1215, 1252, 1210, 1240)]
@@ -373,9 +380,10 @@ def test_a_leg_with_no_row_keeps_its_last_mark_and_is_flagged_never_filled_in(ap
     sworld.rows["FIXU"] = UNDERLYING[:3]
     sworld.contracts[("option", 1360.0, "CE")] = CALL_1360[:1]                  # no 1360 row on 14 Oct
     t = only_strategy(trades(api))
-    assert [leg["mark"] for leg in t["legs"]] == [30.0, 20.0] and t["legs"][1]["mark_date"] == "2026-10-13"
+    # p2_exits_backtest TC-40: an option is marked at its CLOSE, never its settle price (the fixture's settle is the close + 1) (was 30 / 20)
+    assert [leg["mark"] for leg in t["legs"]] == [29.0, 19.0] and t["legs"][1]["mark_date"] == "2026-10-13"
     assert [(f["code"], f["leg"], f["session"]) for f in t["flags"] if f["code"] == "no_mark"] == [("no_mark", 1, "2026-10-14")]
-    # 1300: (30 − 40) × 250 = −2,500 · 1360 kept at 20: −(20 − 15) × 250 = −1,250  → −3,750
+    # 1300: (29 − 40) × 250 = −2,750 · 1360 kept at 19: −(19 − 15) × 250 = −1,000  → −3,750
     assert t["gross_pnl_rs"] == -3750.0
 
 
@@ -555,9 +563,9 @@ def test_a_manual_close_returns_the_reservation_and_books_the_net_pnl(api, sworl
     sworld.rows["FIXU"] = UNDERLYING[:3]
     assert api.post(f"{TRADES_URL}/{sworld.db.trades.docs[0]['_id']}/close", json={}, headers=A).status_code == 200
     stored = sworld.db.trades.docs[0]
-    # 14 Oct marks 30 / 10: gross −1,250; costs 33.10 + 32.68 (entry) + sell 30×250 = 41.75 + buy 10×250 = 25.98 = 133.51;
-    # net −1,383.51 (−1,341.875 under the flat model)
-    assert stored["net_pnl_rs"] == pytest.approx(-1383.51, abs=0.001)
+    # 14 Oct CLOSE marks 29 / 9 (TC-40; were the settle marks 30 / 10): gross −1,250 (unchanged: the +1 cancels); costs
+    # 33.10 + 32.68 (entry) + sell 29×250 = 41.17 + buy 9×250 = 25.74 = 132.69; net −1,382.69 (was −1,383.51)
+    assert stored["net_pnl_rs"] == pytest.approx(-1382.69, abs=0.001)
     a = _account(sworld.db)
     assert a["blocked_rs"] == 0.0
     assert a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + stored["net_pnl_rs"], abs=0.01)
@@ -570,9 +578,11 @@ def test_an_exit_rule_close_returns_the_reservation_too(api, sworld):
     trades(api)                                                    # the list read fires the target (15 Oct)
     stored = sworld.db.trades.docs[0]
     assert (stored["status"], stored["exit_reason"]) == ("closed", "target")
-    assert stored["net_pnl_rs"] == pytest.approx(6056.2, abs=0.001)  # 6,250 − 193.80
+    # TC-40: closing CLOSE marks 109 / 59 (were settle 110 / 60): gross 6,250 unchanged; costs 33.10 + 32.68 + sell
+    # 109×250 = 89.57 + buy 59×250 = 37.62 = 192.97 (was 193.80) → net 6,057.03 (was 6,056.20)
+    assert stored["net_pnl_rs"] == pytest.approx(6057.03, abs=0.001)
     a = _account(sworld.db)
-    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6056.2, abs=0.001)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
     trades(api)                                                    # a second read changes nothing
     assert len(_releases(sworld.db)) == 1
 
@@ -592,7 +602,7 @@ def test_two_closes_racing_release_the_capital_once(api, sworld):
     assert second[0]["exit_reason"] == "target"                    # the first close stands
     assert len(_releases(sworld.db)) == 1
     a = _account(sworld.db)
-    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6056.2, abs=0.001)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
 
 
 def test_a_structure_opened_before_the_account_existed_releases_nothing_but_books_its_pnl(sworld):
@@ -604,7 +614,7 @@ def test_a_structure_opened_before_the_account_existed_releases_nothing_but_book
     assert mine is True
     a = _account(sworld.db)
     assert a["blocked_rs"] == 0.0, "the account must not be credited for a reservation it never took"
-    assert a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6056.2, abs=0.001)
+    assert a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
 
 
 def test_a_close_with_an_unknown_pnl_returns_the_reservation_and_assumes_no_pnl(api, sworld):
@@ -649,7 +659,7 @@ def test_the_evening_script_closes_the_strategy_and_returns_its_capital_once(api
     doc = sworld.db.trades.docs[0]
     assert (doc["status"], doc["exit_reason"], doc["exit_session"]) == ("closed", "target", "2026-10-15")
     a = _account(sworld.db)
-    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6056.2, abs=0.001)
+    assert a["blocked_rs"] == 0.0 and a["cash_rs"] == pytest.approx(acct.DEFAULT_CAPITAL + 6057.03, abs=0.001)
 
     writes = sworld.db.trades.writes + sworld.db[acct.ACCOUNTS].writes
     again = asyncio.run(script.run(sworld.db))

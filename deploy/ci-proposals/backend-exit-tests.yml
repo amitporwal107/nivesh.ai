@@ -1,0 +1,52 @@
+# PROPOSAL — NOT ENABLED. GitHub only runs workflows under .github/workflows/; this file lives outside it on purpose.
+#
+# Why: CI today (.github/workflows/ci.yml) only runs `py_compile` over backend/ on pull requests to main, so no pytest
+# runs anywhere in CI and the Phase 4.1 criterion "tests run in CI and fail when a regression changes expected results"
+# is not met. This is the smallest job that would close it for the exit rules and the PRD worked examples: four test
+# files, no database, no network (the tests use in-memory fakes), about 15 s of test time after the install.
+#
+# To enable (an owner decision): move this file to .github/workflows/backend-exit-tests.yml. Widening it to the whole
+# backend/tests suite is a separate step: that suite has known collection errors outside a configured environment
+# (see memory note "provider-credentials-and-test-harness"), so it should be baselined first.
+name: Backend — exit rules and PRD examples
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths:
+      - "backend/services/exit_rules.py"
+      - "backend/services/strategy_engine/**"
+      - "backend/services/desk_trading.py"
+      - "backend/services/desk_strategy_trades.py"
+      - "backend/services/desk_cost_card.py"
+      - "backend/services/strategy_plan/**"
+      - "backend/tests/test_exit_rules.py"
+      - "backend/tests/test_backtest_exit_rules.py"
+      - "backend/tests/test_paper_exit_rules.py"
+      - "backend/tests/test_prd_worked_examples.py"
+
+jobs:
+  exit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # Placeholders only so deps.py imports; nothing connects (the tests use in-memory fakes).
+      MONGO_URL: mongodb://localhost:27017
+      DB_NAME: unit_test
+      OPENAI_API_KEY: unit-test-placeholder
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: >-
+          python -m pytest -q -p no:cacheprovider
+          tests/test_exit_rules.py tests/test_backtest_exit_rules.py
+          tests/test_paper_exit_rules.py tests/test_prd_worked_examples.py

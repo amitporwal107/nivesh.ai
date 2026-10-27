@@ -82,13 +82,16 @@ def spec(*, stoploss_pct=5, target_rr=2, max_hold_days=30) -> dict:
 
 
 def run(monkeypatch, provider, *, capital, max_positions, s=None,
-        slippage_pct=0.0, brokerage_inr=20.0):
+        slippage_pct=0.0, brokerage_inr=20.0, cost_model=bt.COST_FLAT):
+    # The hand arithmetic in this file is the FLAT model (₹20 a side, nothing else), so it names it: since
+    # exit-rules-v1 the engine's default is the desk cost card (desk-cost-v2: brokerage + STT, exchange, SEBI, stamp,
+    # GST), whose own arithmetic is pinned in tests/test_backtest_exit_rules.py. These numbers are unchanged.
     monkeypatch.setattr(bt, "get_provider", lambda pool=None: provider)
     return asyncio.run(bt.run_backtest(
         None, s or spec(),
         from_date=provider._dates[0], to_date=provider._dates[-1],
         starting_capital=capital, max_positions=max_positions,
-        slippage_pct=slippage_pct, brokerage_inr=brokerage_inr,
+        slippage_pct=slippage_pct, brokerage_inr=brokerage_inr, cost_model=cost_model,
     ))
 
 

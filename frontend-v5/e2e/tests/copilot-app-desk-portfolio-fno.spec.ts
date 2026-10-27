@@ -995,6 +995,35 @@ function simBook() {
   };
 }
 
+// ── exits (backend/services/exit_rules.py, exit-rules-v1): the opt-in ATR trail, the stop history, new exit reasons ──
+// MOCK — not real data. PRD Example H as a paper trade: entry 1000, initial stop 970, ATR 20, k 2. The 14 Oct session's
+// high 1080 raises the stop AFTER the bar to 1080 − 2 × 20 = 1040 (in force from 15 Oct); the 15 Oct low 1035 reaches it, so
+// the trade closes at 1040 as a trailing stop: gross (1040 − 1000) × 10 = +₹400.
+const TRAIL_RULE = { code: "trailing_atr", version: "trail-atr-v1", label: "ATR trailing stop: 2 × ATR(14) below the highest high since entry", params: { k: 2, atr_period: 14 } };
+const trailTrade = (): Trade => trade({
+  id: "pt-trail", symbol: "FIXTRAIL", quantity: 10, entry_price: 1000, stop_price: 970, target_price: 1200, status: "closed",
+  opened_at: "2026-10-12T05:00:00+00:00", closed_at: "2026-10-15T15:00:00+00:00", exit_price: 1040, exit_reason: "trailing_stop", exit_session: "2026-10-15",
+  realized_pnl_rs: 400, gross_pnl_rs: 400, costs_rs: null, net_pnl_rs: null, rules_version: "desk-paper-v2", entry_rule: "at_once", entry_status: "assumed",
+  sim_entry_price: 1000, observations: 3, held_sessions: 3, flags: [],
+  exit_rules: [TRAIL_RULE], exit_rules_version: "exit-rules-v1", current_stop: 1040, stop_version: 2,
+  stop_history: [
+    { session: null, stop: 970, reason: "initial", version: 1 },
+    { session: "2026-10-14", stop: 1040, reason: "trailing_atr", version: 2 },
+  ],
+});
+/** An open trade with no opt-in rule (the default) and a stop that never moved. */
+const plainOpenTrade = (): Trade => ({ ...waitTrade(), exit_rules: [], exit_rules_version: "exit-rules-v1", current_stop: 100, stop_version: 1,
+  stop_history: [{ session: null, stop: 100, reason: "initial", version: 1 }] });
+/** A reason this screen does not know yet: shown as its raw code, never a crash and never dropped. */
+const futureReasonTrade = (): Trade => trade({
+  id: "pt-new", symbol: "FIXNEW", quantity: 5, entry_price: 200, stop_price: 190, status: "closed", closed_at: "2026-10-15T15:00:00+00:00",
+  exit_price: 205, exit_reason: "some_new_reason", exit_session: "2026-10-15", realized_pnl_rs: 25,
+});
+function exitsBook() {
+  const trades = [plainOpenTrade(), trailTrade(), futureReasonTrade()];
+  return { ...simBook(), trades, summary: { ...summarize(trades), unmarked_open: 0, entry_pending: 1, not_entered: 0 } };
+}
+
 /** POST /api/portfolio/upload/preview (backend/routes/upload.py): four rows, one of each outcome; nothing saved. */
 const PREVIEW_REPLY = {
   preview_id: "imp_fixture0001", status: "open", created_at: "2026-10-14T06:00:00+00:00", expires_at: "2026-10-14T06:30:00+00:00",
@@ -1336,6 +1365,59 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(block.getByTestId("desk-paper-confirm-yes")).toHaveText("Cancel paper trade");
   });
 
+  test("p2 exits TC-71: a trailing-stop exit, the versioned stop history and the opt-in rule label; no rule says None; an unknown reason shows its code", async ({ page }) => {
+    await mockDeskLists(page, { paperList: { status: 200, body: exitsBook() } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-paper-trades");
+    const closed = block.getByTestId("desk-paper-closed-table");
+    const trail = closed.getByRole("row").filter({ hasText: "FIXTRAIL" });
+    await expect(trail.getByTestId("desk-paper-reason")).toHaveAttribute("data-reason", "trailing_stop");
+    await expect(trail.getByTestId("desk-paper-reason")).toHaveText("Trailing stop");
+    // A reason the screen does not know: the raw code on a neutral pill.
+    const unknown = closed.getByRole("row").filter({ hasText: "FIXNEW" });
+    await expect(unknown.getByTestId("desk-paper-reason")).toHaveAttribute("data-reason", "some_new_reason");
+    await expect(unknown.getByTestId("desk-paper-reason")).toHaveText("some_new_reason");
+
+    await trail.getByTestId("desk-paper-record-toggle").click();
+    const rec = block.getByTestId("desk-paper-record");
+    await expect(rec).toHaveAttribute("data-id", "pt-trail");
+    await expect(rec.getByTestId("desk-paper-record-exit")).toHaveText(`Trailing stop · ${dayY("2026-10-15")} · ${paise(1040)}`);
+    const versions = rec.getByTestId("desk-paper-stop-version");
+    await expect(versions).toHaveCount(2);
+    expect(await versions.evaluateAll((els) => els.map((e) => e.getAttribute("data-reason")))).toEqual(["initial", "trailing_atr"]);
+    await expect(versions.nth(0)).toHaveText(`${paise(970)} · at entry · initial stop`);
+    await expect(versions.nth(1)).toHaveText(`${paise(1040)} · set at the ${dayY("2026-10-14")} close, in force from the next session · raised by the ATR trail`);
+    const rules = rec.getByTestId("desk-paper-exit-rule");
+    await expect(rules).toHaveCount(1);
+    await expect(rules.first()).toHaveAttribute("data-code", "trailing_atr");
+    await expect(rules.first()).toHaveText(`${TRAIL_RULE.label} (trail-atr-v1) · opt-in research rule`);
+    await expect(rec.getByTestId("desk-paper-record-version")).toHaveText("desk-paper-v2 · exits exit-rules-v1");
+
+    // The open trade with no opt-in rule: the default exits only, and its one (initial) stop version.
+    await block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXWAIT" }).getByTestId("desk-paper-record-toggle").click();
+    const rec2 = block.getByTestId("desk-paper-record");
+    await expect(rec2).toHaveAttribute("data-id", "pt-wait");
+    await expect(rec2.getByTestId("desk-paper-record-exit-rules")).toHaveText("None — stop, target and time only");
+    await expect(rec2.getByTestId("desk-paper-exit-rule")).toHaveCount(0);
+    await expect(rec2.getByTestId("desk-paper-stop-version")).toHaveCount(1);
+    await expect(rec2.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Stop ${paise(100)}, target ${paise(115)}`);
+  });
+
+  test("p2 exits TC-71: an open trade whose stop the trail raised shows the stop in force; investor wording for a trailing stop", async ({ page }) => {
+    const raised = trade({ ...trailTrade(), id: "pt-raised", symbol: "FIXRAISE", status: "open", closed_at: null, exit_price: null, exit_reason: null, exit_session: null,
+      realized_pnl_rs: null, last_close: 1070, last_close_date: "2026-10-14", unrealized_pnl_rs: 700, gross_pnl_rs: 700 });
+    const book = { ...simBook(), trades: [raised, trailTrade()] };
+    await mockDeskLists(page, { paperList: { status: 200, body: book } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio&persona=investor`);
+    const block = page.getByTestId("desk-paper-trades");
+    await expect(block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXTRAIL" }).getByTestId("desk-paper-reason")).toHaveText("Locked-in exit");
+    await block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXRAISE" }).getByTestId("desk-paper-record-toggle").click();
+    const rec = block.getByTestId("desk-paper-record");
+    await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Exit if wrong ${paise(970)} (now ${paise(1040)}), exit if right ${paise(1200)}`);
+  });
+
   test("investor wording: plain labels for the risk rows, the paper-trade columns and the record", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
@@ -1624,7 +1706,7 @@ const STRATEGY_SIGNAL = {
 };
 const stLeg = (o: Record<string, unknown>) => ({
   kind: "option", lot_size: 250, lots: 1, expiry: "2026-10-27", price_source: "NSE F&O bhavcopy close, 2026-10-09", mark_source: "NSE F&O bhavcopy (nidp.fno_bhavcopy via the data platform), end of day",
-  mark_basis_text: "the contract's end-of-day settle price", flags: [], ...o,
+  mark_basis_text: "the contract's end-of-day close (no settle price that day)", flags: [], ...o,
 });
 const spreadTrade = () => ({
   id: "st-spread", kind: "strategy", symbol: "FIXU", underlying: "FIXU", direction: "bullish", family: "bull_call_spread", family_name: "Bull call spread",
@@ -1634,9 +1716,15 @@ const spreadTrade = () => ({
   rules_version: "desk-paper-v3", cost_model: STRATEGY_COST_MODEL, risk: { defined_risk: true, futures_exposure: false, note: null },
   signal: STRATEGY_SIGNAL, entry_record_hash: "a".repeat(64), entry_record_intact: true,
   legs: [
-    stLeg({ index: 0, side: "buy", option_type: "call", strike: 1300, entry_price: 40, label: "Buy 1 lot call 1300 27 Oct", mark: 110, mark_date: "2026-10-15", mark_basis: "settle", pnl_rs: 17500 }),
-    stLeg({ index: 1, side: "sell", option_type: "call", strike: 1360, entry_price: 15, label: "Sell 1 lot call 1360 27 Oct", mark: 60, mark_date: "2026-10-15", mark_basis: "settle", pnl_rs: -11250 }),
+    // Options are marked at their close, never the settle price (on an expiry day the bhavcopy's option settle holds the
+    // underlying's price): backend/services/desk_strategy_trades.py, p2 exits TC-40.
+    stLeg({ index: 0, side: "buy", option_type: "call", strike: 1300, entry_price: 40, label: "Buy 1 lot call 1300 27 Oct", mark: 110, mark_date: "2026-10-15", mark_basis: "close", pnl_rs: 17500 }),
+    stLeg({ index: 1, side: "sell", option_type: "call", strike: 1360, entry_price: 15, label: "Sell 1 lot call 1360 27 Oct", mark: 60, mark_date: "2026-10-15", mark_basis: "close", pnl_rs: -11250 }),
   ],
+  // The strategy_levels premium plan stored at entry, per unit (unit = 250 shares): debit 40 − 15 = 25; stop at 70% = 17.50;
+  // T1 +30% = 32.50; T2 +60% = 40.00. The structure is worth 110 − 60 = 50 a unit at the 15 Oct marks. MOCK — not real data.
+  premium_plan: { kind: "debit", entry_per_unit: 25, stop_per_unit: 17.5, t1_per_unit: 32.5, t2_per_unit: 40, unit_shares: 250, version: "strategy-levels-v2", source: "exit_plan.options" },
+  structure_value_per_unit: 50, exit_basis: "underlying",
   net_premium_rs: -6250, mark_premium_rs: -12500, gross_pnl_rs: 6250, costs_rs: 108.13, costs_basis: "entry and exit sides, every leg, at the closing marks", net_pnl_rs: 6141.87,
   unrealized_pnl_rs: null, realized_pnl_rs: 6250, mfe_rs: 6250, mae_rs: -1250, observations: 3, held_sessions: 3, checked_through: "2026-10-15",
   last_mark_date: "2026-10-15", mark_error: null, event_count: 4,
@@ -1650,9 +1738,10 @@ const spreadTrade = () => ({
 });
 const futureTrade = () => ({
   ...spreadTrade(), id: "st-future", family: "long_future", family_name: "Long future", direction: "bullish", summary_text: "Long future · 27 Oct · 1 lot",
+  premium_plan: null, structure_value_per_unit: null, exit_basis: null,
   stop_underlying: null, target_underlying: null, status: "open", closed_at: null, exit_reason: null, exit_session: null, exit_note: null, opened_at: "2026-10-13T05:00:00+00:00",
   risk: { defined_risk: true, futures_exposure: true, note: "Futures losses can exceed the margin posted; this record is a simulation and the loss is not capped by the structure." },
-  legs: [stLeg({ index: 0, kind: "future", side: "buy", option_type: null, strike: null, entry_price: 1215, label: "Buy 1 lot future 27 Oct", mark: 1230, mark_date: "2026-10-15", mark_basis: "settle", pnl_rs: 3750 })],
+  legs: [stLeg({ index: 0, kind: "future", side: "buy", option_type: null, strike: null, entry_price: 1215, label: "Buy 1 lot future 27 Oct", mark: 1230, mark_date: "2026-10-15", mark_basis: "settle", mark_basis_text: "the contract's end-of-day settle price", pnl_rs: 3750 })],
   net_premium_rs: null, mark_premium_rs: null, gross_pnl_rs: 3750, costs_rs: 345.63, net_pnl_rs: 3404.37, unrealized_pnl_rs: 3750, realized_pnl_rs: null, mfe_rs: 3750, mae_rs: 3750, held_sessions: 2,
   flags: [{ code: "no_mark", text: "Leg 1: No price for this contract in the bhavcopy this session; it keeps its last mark (₹1,230.00, 2026-10-15). Not filled in from any other price.", session: "2026-10-16", price: 1230, leg: 0 }],
   events: [
@@ -1727,6 +1816,12 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     await expect(legs.nth(0)).toContainText("Buy 1 lot call 1300 27 Oct");
     await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-entry")).toHaveText(paise(40));
     await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-mark")).toContainText(paise(110));
+    // p2 exits TC-72: an option leg's mark basis is its close, and the note says why never the settle price.
+    await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-mark")).toContainText("close");
+    await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-mark")).not.toContainText("settle");
+    await expect(rec.getByTestId("desk-paper-strategy-marks-note")).toContainText("an option at its close, never its settle price");
+    await expect(rec.getByTestId("desk-paper-strategy-record-premium-plan")).toHaveText(
+      `Debit ${paise(25)} a unit · stop ${paise(17.5)} · T1 ${paise(32.5)} · T2 ${paise(40)} · unit = 250 shares · now ${paise(50)}The whole structure on its end-of-day marks (what it would sell for); strategy-levels-v2.`);
     await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-date")).toHaveText(/15 Oct/);
     await expect(legs.nth(0).getByTestId("desk-paper-strategy-leg-pnl")).toHaveText(rupees(17500, true));
     await expect(legs.nth(1).getByTestId("desk-paper-strategy-leg-entry")).toHaveText(paise(15));
@@ -1744,7 +1839,7 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     // Costs and the exit.
     await expect(rec.getByTestId("desk-paper-strategy-record-premium")).toContainText(rupees(-6250, true));
     await expect(rec.getByTestId("desk-paper-record-net")).toHaveText(rupees(6141.87, true));
-    await expect(rec.getByTestId("desk-paper-strategy-record-exit")).toContainText("Target");
+    await expect(rec.getByTestId("desk-paper-strategy-record-exit")).toContainText("Target (underlying levels)");
     await expect(rec.getByTestId("desk-paper-strategy-record-version")).toHaveText("desk-paper-v3");
     expect(await rec.getByTestId("desk-paper-flag").evaluateAll((els) => els.map((e) => e.getAttribute("data-code")))).toEqual(["exit_marked_at_session_marks"]);
     // The open future's record shows the no_mark flag and the futures-loss warning.
@@ -1752,6 +1847,8 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     const rec2 = block.getByTestId("desk-paper-strategy-record");
     await expect(rec2).toHaveAttribute("data-id", "st-future");
     await expect(rec2.getByTestId("desk-paper-strategy-risk")).toContainText("Futures losses can exceed the margin posted");
+    await expect(rec2.getByTestId("desk-paper-strategy-leg-mark").first()).toContainText("settle");
+    await expect(rec2.getByTestId("desk-paper-strategy-record-premium-plan")).toHaveCount(0);
     expect(await rec2.getByTestId("desk-paper-flag").evaluateAll((els) => els.map((e) => e.getAttribute("data-code")))).toEqual(["no_mark"]);
   });
 
