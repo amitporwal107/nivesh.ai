@@ -7,15 +7,21 @@
  *   02 Policy limits          limit, used and remaining where the route gives usage; "Gate off for your account"
  *   03 Recent risk decisions  allow / block, path, symbol, reasons and correlation id, newest first
  *   04 Control changes        who changed which control, from what to what, and why, newest first
+ *   05 Risk profile           the eight limits the universal risk service applies to every paper entry (value, the
+ *                             rupee budget now, and each one's definition: how it is measured, when it resets, what a
+ *                             breach does); the equity they are measured against (paper equity, peak, drawdown, day and
+ *                             week P&L, open risk; the starting capital is a simulation default); the profile's version
+ *                             and effective date; its change log; and a form to tighten a limit (only an admin loosens)
  *
  * Reads and writes: risk-controls.ts (GET /api/risk/status, /policy, /audit, /decisions; PUT /api/risk/kill-switch,
- * /api/risk/halt). The controls block NEW paper positions only: no order is placed anywhere in this system, and open
- * positions are untouched (the route's own `not_in_scope`, shown at the top). An unreadable status is said to be
- * unknown, never shown as "off", and offers no controls.
+ * /api/risk/halt) and risk-profile.ts (GET and PUT /api/risk/profile). The controls block NEW paper positions only: no
+ * order is placed anywhere in this system, and open positions are untouched (the route's own `not_in_scope`, shown at
+ * the top). An unreadable status is said to be unknown, never shown as "off", and offers no controls; an unreadable
+ * figure in the profile reads "unknown", never 0.
  */
 import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { Btn, EmptyBlock, ErrorBlock, LoadingBlock, Pill, TONE_COLOR, fmtINR, fmtNum, type Tone } from "../../components/ui";
+import { Btn, EmptyBlock, ErrorBlock, LoadingBlock, Pill, TONE_COLOR, fmtINR, fmtNum, fmtPct, type Tone } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
 import { INPUT_STYLE, QueryProblem } from "../trading/parts";
 import { stampIst } from "./overview-data";
@@ -23,6 +29,10 @@ import {
   controlProblem, useRiskAudit, useRiskDecisions, useRiskPolicy, useRiskStatus, useSetHalt, useSetKillSwitch,
   type RiskAuditEvent, type RiskDecision, type RiskPolicy, type RiskStatus,
 } from "./risk-controls";
+import {
+  BUDGET_OF, LOOSEN_ADMIN_ONLY, isLooser, profileProblem, useRiskProfile, useSetRiskProfile,
+  type PeriodPnl, type ProfileChange, type RiskProfileView,
+} from "./risk-profile";
 import { TrustLine } from "./trust";
 import { Widget } from "./widget";
 
@@ -339,6 +349,247 @@ function AuditItem({ e }: { e: RiskAuditEvent }) {
   );
 }
 
+// ── 05 risk profile ──────────────────────────────────────────────────────
+
+const PROFILE_SOURCE = "Risk profile";
+const UNKNOWN = "unknown";
+const plainNum = (v: number) => new Intl.NumberFormat("en-IN", { maximumFractionDigits: 4 }).format(v);
+
+/** "0.5%", "10%"; "1.5 : 1" for the minimum reward:risk; "unknown" when the route sent no number. */
+function limitText(field: string, v: number | null): string {
+  if (v == null) return UNKNOWN;
+  return field === "min_reward_risk" ? `${plainNum(v)} : 1` : `${plainNum(v)}%`;
+}
+const labelOf = (view: RiskProfileView, field: string) => view.definitions[field]?.label ?? field;
+const rupeesOr = (n: number | null) => (n == null ? UNKNOWN : fmtINR(n));
+const unknownWhy = (reasons: string[]) => (reasons.length ? `${UNKNOWN}: ${reasons.join("; ")}` : UNKNOWN);
+
+function ProfileLimits({ view }: { view: RiskProfileView }) {
+  const { mobile } = useCopilotShell();
+  const cell = (st: CSSProperties): CSSProperties => (mobile ? { ...st, padding: "8px 5px" } : st);
+  const budget = (field: string): { text: string; title?: string } => {
+    const key = BUDGET_OF[field];
+    if (!key) return { text: "—", title: "Judged as a percentage or a ratio; there is no rupee budget for it." };
+    if (!view.live) return { text: UNKNOWN, title: "The live figures could not be read." };
+    const rs = view.live.budgetsRs[key] ?? null;
+    return rs == null ? { text: UNKNOWN, title: "Paper equity is unknown, so the budget is too." } : { text: fmtINR(rs) };
+  };
+  const defLine = (k: string, v: string | null) => v && <span style={{ display: "block", overflowWrap: "anywhere" }}><span style={{ color: "var(--cp-ink-2)" }}>{k}:</span> {v}</span>;
+  return (
+    <div className="cp-scroll overflow-x-auto">
+      <table data-testid="risk-profile-table" aria-label="Risk profile limits: the value and the rupee budget now" style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr className="cp-mono-note">
+            <th scope="col" style={cell(th)}>Limit</th>
+            <th scope="col" style={cell({ ...th, textAlign: "right" })}>Set to</th>
+            <th scope="col" style={cell({ ...th, textAlign: "right" })}>Budget now</th>
+          </tr>
+        </thead>
+        <tbody>
+          {view.fields.map((f) => {
+            const def = view.definitions[f];
+            const b = budget(f);
+            return (
+              <tr key={f} data-testid={`risk-profile-limit-${f}`}>
+                <th scope="row" style={cell({ ...td, textAlign: "left", fontWeight: 400, color: "var(--cp-ink)" })}>
+                  {def && (def.basis || def.reset || def.breach) ? (
+                    <details data-testid={`risk-profile-def-${f}`}>
+                      <summary data-testid={`risk-profile-limit-${f}-label`} style={{ cursor: "pointer" }}>{def.label}</summary>
+                      <span className="flex flex-col" style={{ ...quiet, gap: 4, marginTop: 6 }}>
+                        {defLine("Measured as", def.basis)}
+                        {defLine("Resets", def.reset)}
+                        {defLine("On a breach", def.breach)}
+                      </span>
+                    </details>
+                  ) : <span data-testid={`risk-profile-limit-${f}-label`}>{labelOf(view, f)}</span>}
+                </th>
+                <td data-testid={`risk-profile-limit-${f}-value`} className="cp-num" style={cell({ ...td, textAlign: "right", whiteSpace: "nowrap" })}>{limitText(f, view.profile.limits[f] ?? null)}</td>
+                <td data-testid={`risk-profile-limit-${f}-budget`} className="cp-num" title={b.title} style={cell({ ...td, textAlign: "right", whiteSpace: "nowrap" })}>{b.text}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Stat({ k, testId, value, note }: { k: string; testId: string; value: ReactNode; note?: ReactNode }) {
+  return (
+    <div data-testid={testId} className="flex min-w-0 flex-col" style={{ gap: 2 }}>
+      <span className="cp-eyebrow">{k}</span>
+      <span data-testid={`${testId}-value`} className="cp-num" style={{ fontSize: 13.5, color: "var(--cp-ink)", overflowWrap: "anywhere" }}>{value}</span>
+      {note && <span style={{ ...quiet, overflowWrap: "anywhere" }}>{note}</span>}
+    </div>
+  );
+}
+
+const pnlText = (p: PeriodPnl) => (p.pnlRs == null ? unknownWhy(p.unknownReasons) : fmtINR(p.pnlRs, { signed: true }));
+
+function ProfileEquity({ view }: { view: RiskProfileView }) {
+  const p = view.profile;
+  const l = view.live;
+  const start = p.startingCapitalRs != null ? fmtINR(p.startingCapitalRs) : UNKNOWN;
+  return (
+    <div data-testid="risk-profile-equity" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
+      <span className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}>Measured against</span>
+      {l ? (
+        <div className="grid" style={{ gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,150px),1fr))" }}>
+          <Stat k="Paper equity" testId="risk-profile-equity-now" value={l.equityRs != null ? fmtINR(l.equityRs) : unknownWhy(l.unknownReasons)}
+            note={l.marksAsOf ? `Marks as of ${stampIst(l.marksAsOf) ?? l.marksAsOf}` : undefined} />
+          <Stat k="Peak" testId="risk-profile-peak" value={rupeesOr(l.peakRs)} />
+          <Stat k="Drawdown" testId="risk-profile-drawdown" value={l.drawdownPct == null ? UNKNOWN : `${fmtPct(l.drawdownPct, { digits: 2 })} below the peak`} />
+          <Stat k="Today" testId="risk-profile-day" value={pnlText(l.day)} note={l.day.start ? `Since ${at(l.day.start)}` : undefined} />
+          <Stat k="This week" testId="risk-profile-week" value={pnlText(l.week)} note={l.week.start ? `Since ${at(l.week.start)}` : undefined} />
+          <Stat k="Open risk" testId="risk-profile-open" value={rupeesOr(l.open.riskRs)}
+            note={`${l.open.positions == null ? "Open positions unknown" : `${fmtNum(l.open.positions)} open ${l.open.positions === 1 ? "position" : "positions"}`}${l.open.legacyPositions ? ` (${fmtNum(l.open.legacyPositions)} from before the risk profile)` : ""}; exposure ${rupeesOr(l.open.exposureRs)}`} />
+        </div>
+      ) : (
+        <span data-testid="risk-profile-live-error" role="note" style={{ ...quiet, color: "var(--cp-ink-2)" }}>
+          The live figures could not be read ({view.liveError ?? "no reason given"}), so paper equity, P&amp;L, open risk and the rupee budgets are unknown here.
+        </span>
+      )}
+      {l && l.open.sectors.length > 0 && (
+        <span data-testid="risk-profile-sectors" style={{ ...quiet, overflowWrap: "anywhere" }}>
+          Exposure by sector: {l.open.sectors.slice(0, 6).map((s) => `${s.sector} ${fmtINR(s.rs)}`).join(" · ")}
+        </span>
+      )}
+      <span data-testid="risk-profile-starting" style={{ ...quiet, overflowWrap: "anywhere" }}>
+        Starting capital {start}, {p.startingCapitalLabel ?? "simulation default"}.
+      </span>
+      {p.capitalBasisText && <span data-testid="risk-profile-basis" style={{ ...quiet, overflowWrap: "anywhere" }}>Every percentage is of {p.capitalBasisText}.</span>}
+    </div>
+  );
+}
+
+function ProfileChangeItem({ c, view }: { c: ProfileChange; view: RiskProfileView }) {
+  return (
+    <li data-testid="risk-profile-change" className="flex min-w-0 flex-col" style={{ gap: 4, padding: "10px 0 10px 14px", borderLeft: "2px solid var(--line-2)" }}>
+      <span className="cp-mono-note">
+        {at(c.at)} · <span data-testid="risk-profile-change-actor">{c.actor ?? "unknown"}</span>{c.actorIsAdmin ? " (admin)" : ""}
+      </span>
+      {c.fields.length > 0
+        ? c.fields.map((f) => (
+          <span key={f.field} data-testid="risk-profile-change-field" style={{ fontSize: 13, color: "var(--cp-ink)" }}>
+            {labelOf(view, f.field)}: {limitText(f.field, f.before)} → {limitText(f.field, f.after)}{f.loosened ? " (loosened)" : ""}
+          </span>
+        ))
+        : <span style={{ fontSize: 13, color: "var(--cp-ink)" }}>{c.action ?? "Change"}</span>}
+      {c.reason && <span data-testid="risk-profile-change-reason" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>“{c.reason}”</span>}
+      {c.versionAfter != null && <span className="cp-mono-note">version {c.versionAfter}</span>}
+    </li>
+  );
+}
+
+function ProfileForm({ view }: { view: RiskProfileView }) {
+  const m = useSetRiskProfile();
+  const id = useId();
+  const [field, setField] = useState(view.fields[0] ?? "");
+  const [value, setValue] = useState("");
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const current = view.profile.limits[field] ?? null;
+  const range = view.ranges[field] ?? null;
+  const v = value.trim() === "" ? null : Number(value.trim());
+  const typed = v != null && Number.isFinite(v) ? v : null;
+  const looser = isLooser(field, current, typed);
+  const direction = typed == null || current == null ? null
+    : typed === current ? "Same as now."
+    : looser ? (view.canLoosen ? "Looser than now." : `Looser than now. ${LOOSEN_ADMIN_ONLY}`)
+    : "Tighter than now.";
+  const edit = () => { m.reset(); setProblem(null); };
+  const submit = () => {
+    if (typed == null) { setProblem("Enter the new value as a number."); return; }
+    if (range && (typed < range[0] || typed > range[1])) { setProblem(`Enter a value from ${plainNum(range[0])} to ${plainNum(range[1])}.`); return; }
+    if (!reason.trim()) { setProblem("Give a reason: it is recorded in the change log."); return; }
+    setProblem(null);
+    m.mutate({ changes: { [field]: typed }, reason: reason.trim() }, { onSuccess: () => { setValue(""); setReason(""); } });
+  };
+  const sense = field === "min_reward_risk" ? "higher is tighter" : "lower is tighter";
+  return (
+    <div data-testid="risk-profile-form" className="flex min-w-0 flex-col" style={{ gap: 8, paddingTop: 12, borderTop: "1px solid var(--cp-line)" }}>
+      <span className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}>{view.canLoosen ? "Change a limit" : "Tighten a limit"}</span>
+      {!view.canLoosen && <span data-testid="risk-profile-admin-note" style={quiet}>{LOOSEN_ADMIN_ONLY}</span>}
+      <div className="grid" style={{ gap: 8, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,200px),1fr))", alignItems: "end" }}>
+        <span className="flex min-w-0 flex-col" style={{ gap: 4 }}>
+          <label htmlFor={`${id}-field`} style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>Limit</label>
+          <select id={`${id}-field`} data-testid="risk-profile-field" value={field} onChange={(e) => { edit(); setField(e.target.value); }} style={{ ...INPUT_STYLE, fontFamily: "var(--sans)" }}>
+            {view.fields.map((f) => <option key={f} value={f}>{labelOf(view, f)} (now {limitText(f, view.profile.limits[f] ?? null)})</option>)}
+          </select>
+        </span>
+        <span className="flex min-w-0 flex-col" style={{ gap: 4 }}>
+          <label htmlFor={`${id}-value`} style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>New value{field === "min_reward_risk" ? " (reward : 1)" : " (%)"}</label>
+          <input id={`${id}-value`} data-testid="risk-profile-value" inputMode="decimal" value={value} aria-describedby={`${id}-hint`}
+            onChange={(e) => { edit(); setValue(e.target.value); }} style={INPUT_STYLE} />
+        </span>
+      </div>
+      <span id={`${id}-hint`} data-testid="risk-profile-hint" style={quiet}>
+        Now {limitText(field, current)}{range ? `; from ${plainNum(range[0])} to ${plainNum(range[1])}` : ""} ({sense}).{direction ? ` ${direction}` : ""}
+      </span>
+      <label htmlFor={`${id}-reason`} style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>Why (required; recorded in the change log)</label>
+      <textarea id={`${id}-reason`} data-testid="risk-profile-reason" rows={2} maxLength={MAX_REASON} value={reason}
+        onChange={(e) => { edit(); setReason(e.target.value); }} style={{ ...INPUT_STYLE, fontFamily: "var(--sans)", resize: "vertical" }} />
+      <span>
+        <Btn variant="primary" data-testid="risk-profile-submit" disabled={m.isPending} aria-busy={m.isPending} onClick={submit}>{m.isPending ? "Saving…" : "Save the change"}</Btn>
+      </span>
+      {problem && <span data-testid="risk-profile-form-error" role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>{problem}</span>}
+      {m.isError && <span data-testid="risk-profile-save-error" role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>{profileProblem(m.error)}</span>}
+      {m.isSuccess && (
+        <span data-testid="risk-profile-saved" role="status" style={{ fontSize: 12, color: "var(--mint)" }}>
+          Saved{m.data.profile.effectiveFrom ? `, in effect from ${at(m.data.profile.effectiveFrom)}` : ""}. The change is in the log above.
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ProfileBody({ q }: { q: UseQueryResult<RiskProfileView> }) {
+  if (q.isPending) return <LoadingBlock label="Loading your risk profile" rows={4} />;
+  if (q.isError) return <div data-testid="risk-profile-error"><QueryProblem what="Your risk profile" error={q.error} onRetry={() => { void q.refetch(); }} /></div>;
+  const view = q.data;
+  const p = view.profile;
+  const namedText = p.name ? view.namedProfiles[p.name] ?? null : null;
+  const est = view.estimate;
+  return (
+    <div className="flex min-w-0 flex-col" style={{ gap: 14 }}>
+      <div data-testid="risk-profile-meta" className="flex min-w-0 flex-col" style={{ gap: 4 }}>
+        <span className="flex min-w-0 flex-wrap items-center" style={{ gap: 8 }}>
+          <span data-testid="risk-profile-name"><Pill tone={p.name === "custom" ? "indigo" : "ink"}>{p.name ?? "profile not named"}</Pill></span>
+          <span data-testid="risk-profile-version" style={mono}>version {p.version != null ? fmtNum(p.version) : UNKNOWN} · {p.limitsVersion ?? "limits version not sent"}</span>
+        </span>
+        {namedText && <span data-testid="risk-profile-name-text" style={quiet}>{namedText}</span>}
+        <span data-testid="risk-profile-effective" style={{ fontSize: 13, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
+          {p.effectiveFrom ? `In effect since ${at(p.effectiveFrom)}.` : p.stored ? "In effect; the date it took effect was not sent." : "The defaults: no change has been made for this account."}
+          {p.setBy && <>{" "}Set by <span data-testid="risk-profile-set-by" style={mono}>{p.setBy}</span>{p.reason ? <>: <span data-testid="risk-profile-set-reason" style={{ overflowWrap: "anywhere" }}>“{p.reason}”</span></> : null}.</>}
+        </span>
+      </div>
+
+      <ProfileLimits view={view} />
+      <ProfileEquity view={view} />
+
+      <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
+        <span className="cp-eyebrow" style={{ color: "var(--cp-ink-2)" }}>Change log</span>
+        {view.changes.length === 0
+          ? <span data-testid="risk-profile-changes-empty" style={quiet}>No change on record yet.</span>
+          : (
+            <ol data-testid="risk-profile-changes" className="m-0 flex flex-col p-0" style={{ listStyle: "none", gap: 2 }}>
+              {view.changes.map((c, i) => <ProfileChangeItem key={`${c.at ?? ""}-${i}`} c={c} view={view} />)}
+            </ol>
+          )}
+      </div>
+
+      <ProfileForm view={view} />
+
+      {est && (
+        <span data-testid="risk-profile-estimate" style={{ ...quiet, overflowWrap: "anywhere" }}>
+          A share entry’s estimated risk is its loss at the stop plus round-trip costs{est.costModel ? ` (${est.costModel})` : ""}{est.gapStressText ? ` and ${est.gapStressText}` : est.gapStressPct != null ? ` and a ${plainNum(est.gapStressPct)}% gap stress` : ""}.
+        </span>
+      )}
+      <TrustLine source={PROFILE_SOURCE} mode="eod" maker="rules" method={view.riskPolicyVersion} testId="risk-trust-profile" />
+    </div>
+  );
+}
+
 // ── the view ─────────────────────────────────────────────────────────────
 
 function Card({ id, num, title, testId, actions, children }: { id: string; num: string; title: ReactNode; testId: string; actions?: ReactNode; children: ReactNode }) {
@@ -357,6 +608,7 @@ export default function RiskControls() {
   const policy = useRiskPolicy();
   const audit = useRiskAudit();
   const decisions = useRiskDecisions();
+  const profile = useRiskProfile();
   const s = status.data?.known ? status.data : null;
   const gate = s?.gateEnabled ?? null;
   return (
@@ -417,6 +669,10 @@ export default function RiskControls() {
           {audit.isSuccess && <TrustLine source={SOURCE} method={audit.data.policyVersion} testId="risk-trust-audit" />}
         </Card>
       </div>
+
+      <Card id="profile" num="05" title="Risk profile" testId="risk-profile">
+        <ProfileBody q={profile} />
+      </Card>
     </div>
   );
 }

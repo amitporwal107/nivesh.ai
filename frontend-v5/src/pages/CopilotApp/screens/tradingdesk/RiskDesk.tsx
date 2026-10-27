@@ -44,6 +44,7 @@ import { useDesk } from "./context";
 import { LIQUID_MIN_CR, PROBABILITY_WITHHELD, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, type DeskSetup, type SetupStatus } from "./desk-data";
 import { costsBreakdownText, maxHoldFor, maxHoldNote, readCostsBreakdown, useAddAlert, useAddPaperTrade, writeProblem, type NewAlert, type NewPaperTrade } from "./desk-trading";
 import { largestGap, type DailyBar } from "./indicators";
+import { RiskReduceOffer } from "./RiskReduce";
 import { TrustLine } from "./trust";
 import { Widget } from "./widget";
 
@@ -1089,6 +1090,10 @@ function DeskActions({ symbol, setup, st, phone }: { symbol: string; setup: Desk
         </Outcome>
       )}
       {paperDone?.isError && <Outcome ok={false} testId="desk-risk-paper-error">Not added — {writeProblem(paperDone.error)}</Outcome>}
+      {paperDone?.isError && (
+        <RiskReduceOffer error={paperDone.error} testId="desk-risk-paper-reduce"
+          onAccept={(n) => { const last = paperDone.variables; if (last) paper.mutate({ ...last, quantity: n }); }} />
+      )}
       {alertDone?.isSuccess && (
         <Outcome ok testId="desk-risk-alert-done" onOpen={() => openTab("portfolio")} openLabel="See your alerts ›">
           Alert set: {symbol} above {fmtPrice(alertDone.variables?.level ?? null)}, checked against end-of-day highs.

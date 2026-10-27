@@ -258,13 +258,16 @@ def test_defined_risk_structures_and_a_plain_futures_leg_are_accepted(api, sworl
 
 
 def test_strategy_trades_count_against_the_open_limit_with_share_trades(api, sworld):
-    for i in range(99):                                          # 99 symbols: one symbol twice is now a duplicate
+    """Phase 1: one open-position limit (the governor's 10) for shares and structures together, on every path."""
+    from tests.test_desk_trading import HISTORY
+    for i in range(9):                                           # 9 symbols: one symbol twice is now a duplicate
         sworld.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), NOW), "_id": f"t{i}"})
-    open_strategy(api)                                           # the 100th
+        sworld.rows[f"FX{i}"] = copy.deepcopy(HISTORY["FIXA"])   # MOCK marks, so equity is known
+    open_strategy(api)                                           # the 10th
     r = post_strategy(api, legs=[call("buy", 1310, 35), call("sell", 1370, 12)])   # another structure: not a duplicate
-    assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
+    assert r.status_code == 409 and "max_positions" in [x["code"] for x in r.json()["detail"]["reasons"]]
     r = api.post(TRADES_URL, json=trade_body(), headers=A)
-    assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
+    assert r.status_code == 409 and "MAX_POSITIONS" in [x["code"] for x in r.json()["detail"]["reasons"]]
 
 
 # ── marks, P&L and the exit rules ────────────────────────────────────────────

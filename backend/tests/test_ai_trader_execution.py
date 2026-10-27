@@ -58,18 +58,21 @@ AS_OF = "2026-10-20"                                          # Tuesday, the sig
 CAPITAL = 1_000_000.0
 
 
+def _approved_at_1pct() -> int:
+    """Phase 1: the size the universal risk service approves for the fixture intent (500 x Rs 200, stop Rs 180, sized
+    by the AI trader on the GROSS stop distance at 1%): the largest quantity whose loss at the stop PLUS round-trip costs
+    PLUS the 1% gap stress fits the same Rs 10,000 budget (services/risk_gate/estimate.max_cash_qty)."""
+    from services.risk_gate import estimate
+    return estimate.max_cash_qty(CAPITAL * 0.01, 200.0, 180.0, 500, desk.COST_MODEL)
+
+
+APPROVED = _approved_at_1pct()
+
+
 # ── the in-memory collections (equality filters, the one $in the routes use, the account's $expr) ─────
 def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
-    for key, want in query.items():
-        if key == "$expr":          # the paper account's conditional reserve (services/paper_account.reserve)
-            if not mongo_expr(doc, want):
-                return False
-        elif isinstance(want, dict) and set(want) == {"$in"}:
-            if doc.get(key) not in want["$in"]:
-                return False
-        elif doc.get(key) != want:
-            return False
-    return True
+    from tests import mongo_ops                     # Mongo's filter semantics, shared by every risk fake
+    return mongo_ops.match(doc, query)
 
 
 class _Cursor:
@@ -78,6 +81,10 @@ class _Cursor:
 
     def sort(self, key, direction):
         self._docs = sorted(self._docs, key=lambda d: str(d.get(key) or ""), reverse=direction < 0)
+        return self
+
+    def limit(self, n):
+        self._docs = self._docs[:n]
         return self
 
     async def to_list(self, length):
@@ -114,20 +121,25 @@ class Coll:
         self.docs.append(copy.deepcopy(doc))
 
     async def update_one(self, q, update, upsert=False):
+        from tests import mongo_ops
         for d in self.docs:
             if _matches(d, q):
                 self.writes += 1
-                d.update(copy.deepcopy(update.get("$set") or {}))
-                for key, value in (update.get("$push") or {}).items():
-                    d.setdefault(key, []).append(copy.deepcopy(value))
+                mongo_ops.apply(d, update)
                 return _Res(matched=1)
         if upsert:
-            # The equity high-water mark upserts its first row (services/risk_equity.observe).
-            doc = copy.deepcopy(update.get("$setOnInsert") or {})
-            doc.update(copy.deepcopy(update.get("$set") or {}))
+            doc = {k: v for k, v in q.items() if not k.startswith("$") and not isinstance(v, dict)}
+            mongo_ops.apply(doc, update, inserting=True)
             self.docs.append(doc)
             self.writes += 1
             return _Res(matched=0)
+        return _Res()
+
+    async def delete_one(self, q):
+        for i, d in enumerate(self.docs):
+            if _matches(d, q):
+                del self.docs[i]
+                return _Res(deleted=1)
         return _Res()
 
 
@@ -209,7 +221,7 @@ class World:
 
 
 @pytest.fixture
-def world(monkeypatch) -> World:
+def world(monkeypatch, risk_mock_inputs) -> World:
     w = World()
     monkeypatch.setattr(route, "db", w.db)
     monkeypatch.setattr(route, "_indexes_ready", False)
@@ -221,8 +233,44 @@ def world(monkeypatch) -> World:
         return [dict(row) for row in w.candidates]
 
     monkeypatch.setattr(route, "_screen", fake_screen)
-    monkeypatch.setattr(route, "_market", lambda as_of: w.market)
     monkeypatch.setattr(route, "_evidence_for", lambda as_of: ["MOCK evidence"])
+    # Phase 1: the risk service resolves the market state, the bars and the account on the server. MOCK: the market
+    # state follows w.market (tests/conftest.py risk_mock_inputs), every symbol's end-of-day bars sit flat at its
+    # candidate's close (or w.prices), and the users run under the loosest allowed profile (tests/risk_helpers.py) so
+    # the governor's own rules, not the owner's 0.5% budget, decide these mechanics tests.
+    from datetime import timedelta
+    from services import data_freshness as fresh
+    from tests.risk_helpers import loose_profile_doc, mock_bars
+
+    class _MarketView:
+        def __init__(self, state):
+            self.state = state
+
+    def sync_market():
+        risk_mock_inputs["vix"], risk_mock_inputs["regime"] = w.market.vix, w.market.regime
+        risk_mock_inputs["market_error"] = None if (w.market.vix is not None and w.market.regime is not None) else "MOCK: unknown"
+
+    w.sync_market = sync_market
+    w.prices, w.volumes = {}, {}
+    w.risk_inputs = risk_mock_inputs
+
+    async def fetch_bars(symbol, start):
+        sync_market()
+        price = w.prices.get(symbol) or next((c["close"] for c in w.candidates if c["symbol"] == symbol), None)
+        volume = w.volumes.get(symbol, 10_000_000.0)
+        if price is None:
+            price = next((float(d["entry_price"]) for d in w.db.trades.docs if d.get("symbol") == symbol), 100.0)
+        last = fresh.previous_session(NOW.astimezone(desk.IST).date())
+        days = sorted({last - timedelta(days=k) for k in range(0, 40) if (last - timedelta(days=k)).weekday() < 5
+                       and last - timedelta(days=k) >= start})
+        return mock_bars(float(price), days=days, volume=volume)
+    monkeypatch.setattr(desk, "fetch_bars", fetch_bars)
+    # The engineering comparison profile is gov-v1's own limits (1% / 10% / 30% / 3% / 15% / 1.5), the ones these
+    # tests were written against; the owner defaults are tested in tests/test_risk_service.py.
+    from services import risk_profile
+    eng = risk_profile.NAMED[risk_profile.ENGINEERING]
+    w.db["risk_profiles"].docs.extend({**loose_profile_doc(u), "profile": risk_profile.ENGINEERING, "limits": dict(eng)}
+                                      for u in ("user_a", "user_b"))
     return w
 
 
@@ -492,17 +540,19 @@ def test_a_cleared_paper_intent_opens_exactly_one_trade_at_the_governors_quantit
     body = signals(api)
     assert (body["candidates"], body["created"], body["existing"]) == (1, 1, 0)
     ticket = body["tickets"][0]
-    assert (ticket["status"], ticket["quantity"], ticket["requested_quantity"]) == ("executed_paper", 500, 500)
-    assert ticket["decision"]["action"] == "approve" and ticket["trade_id"]
+    assert (ticket["status"], ticket["quantity"], ticket["requested_quantity"]) == ("executed_paper", APPROVED, 500)
+    # Phase 1: reduced from the gross-sized 500 because the estimate now carries costs and the gap stress.
+    assert ticket["decision"]["action"] == "reduce" and ticket["trade_id"] and APPROVED < 500
+    assert "per_trade_risk_exceeded" in ticket["reason_codes"]
 
     assert len(world.db.trades.docs) == 1
     trade = world.db.trades.docs[0]
     assert (trade["_id"], trade["user_id"], trade["symbol"]) == (ticket["trade_id"], "user_a", "MOCKA")
     assert (trade["quantity"], trade["entry_price"], trade["stop_price"], trade["target_price"]) == \
-        (500, 200.0, 180.0, 240.0)
+        (APPROVED, 200.0, 180.0, 240.0)
     assert trade["source"] == {"kind": "ai_trader", "bucket": None, "signal_date": AS_OF}
     assert (trade["strategy_version"], trade["signal_at"], trade["status"]) == ("mockversion000001", AS_OF, "open")
-    assert trade["rules_version"] == desk.RULES_VERSION and "risk governor approve" in trade["rationale"]
+    assert trade["rules_version"] == desk.RULES_VERSION and "risk decision reduce (universal-risk-v1)" in trade["rationale"]
     assert ticket["text"] and execution.SELF_PLACE_LINE in ticket["text"]
 
 
@@ -587,48 +637,47 @@ def test_a_signal_date_older_than_the_last_few_sessions_is_refused(api, world):
 
 
 def test_the_sector_of_a_position_opened_in_this_run_counts_towards_the_sector_limit(api, world):
-    """Four candidates in one sector at Rs 1,00,000 each would be 40% of capital against a 30% sector limit. The
-    position just opened carries the sector its ticket already records, so the fourth is refused."""
+    """Four candidates in one sector would be well over the 30% sector limit. Phase 1: the sector is resolved on the
+    server (MOCK: all four "IT"), each position just opened is in the account's reservation with its sector, and the
+    fourth gets only what is left of the sector budget (reduced to fit) — never more than 30% of equity in total."""
     world.db.strategies.docs.append(strategy_record())
+    world.risk_inputs["sectors"].update({s: "IT" for s in ("MOCKA", "MOCKB", "MOCKC", "MOCKD")})
     world.candidates = [candidate(s, 200.0, sector="IT") for s in ("MOCKA", "MOCKB", "MOCKC", "MOCKD")]
     by_symbol = {t["symbol"]: t for t in signals(api)["tickets"]}
     assert [by_symbol[s]["status"] for s in ("MOCKA", "MOCKB", "MOCKC")] == ["executed_paper"] * 3
-    assert by_symbol["MOCKD"]["status"] == "rejected"
-    assert "SECTOR_LIMIT" in by_symbol["MOCKD"]["reason_codes"]
-    # The sector of every position in this book is known, so the refusal names the sector itself and not an unknown.
-    assert "SECTOR_EXPOSURE_UNKNOWN" not in by_symbol["MOCKD"]["reason_codes"]
-    assert sum(1 for t in world.db.trades.docs if (t.get("source") or {}).get("kind") == "ai_trader") == 3
-
+    d = by_symbol["MOCKD"]
+    assert d["quantity"] < APPROVED and ("sector_exceeded" in d["reason_codes"] or "SECTOR_LIMIT" in d["reason_codes"])
+    it = sum(t["quantity"] * t["entry_price"] for t in world.db.trades.docs)
+    assert it <= 0.30 * CAPITAL + 1e-6
 
 def test_the_book_tells_the_governor_the_sector_of_every_position_it_can_resolve(api, world):
-    """A position's sector comes from the ticket that opened it. A trade the user opened by hand has no ticket, so it
-    has no sector, and the governor is told that rather than shown a zero."""
+    """Phase 1: the shared book (services/risk_book.py) resolves every position's sector on the server, a hand-opened
+    desk trade included; one the classification does not know stays None (counted against every sector)."""
+    from services import risk_book
+    from services.risk_gate import inputs
     world.db.strategies.docs.append(strategy_record())
+    world.risk_inputs["sectors"].update({"MOCKA": "Mock Sector", "MANUAL": None})
     signals(api)
     world.db.trades.docs.append(held("user_a", "MANUAL", 100.0))        # opened on the desk, not by a strategy
-    book = asyncio.run(route._portfolio("user_a", CAPITAL))
-    assert {p.symbol: p.sector for p in book.positions} == {"MOCKA": "Mock Sector", "MANUAL": None}
+    book = asyncio.run(risk_book.read(world.db, "user_a", now=NOW, sector_of=inputs.sector_of))
+    assert {p.symbol: p.sector for p in risk_book.governor_positions(book)} == {"MOCKA": "Mock Sector", "MANUAL": None}
 
 
 def test_a_hand_opened_book_is_counted_as_unknown_sector_not_as_diversified(api, world):
-    """The one path where the route's half of the sector limit and the governor's half meet: desk trades the user
-    opened by hand have no ticket, so their sector cannot be resolved. The book is handed over with those sectors
-    unknown, and the governor counts their value against the sector allowance and says it did (PRD B5, F3.3). A
-    ticket stored with a blank sector is the same unknown, which is why nothing here normalises it."""
+    """Hand-opened positions whose sector the classification does not know are counted against the new entry's sector
+    budget (conservative), by the governor (SECTOR_EXPOSURE_UNKNOWN, SECTOR_LIMIT) and by the service's own check."""
     world.db.strategies.docs.append(strategy_record())
     for i in range(3):                                    # MOCK - not real data: Rs 1,00,000 each, 30% of capital
         world.db.trades.docs.append(desk.new_trade("user_a", {
-            "symbol": f"HAND{i}", "quantity": 1000, "entry_price": 100.0, "stop_price": 90.0,
+            "symbol": f"HAND{i}", "quantity": 1000, "entry_price": 100.0, "stop_price": 99.0,
             "target_price": 130.0}, NOW))
-    world.db.tickets.docs.append({"_id": "t-blank", "user_id": "user_a", "strategy_id": "strat-0",
-                                  "trade_id": world.db.trades.docs[0]["_id"], "sector": ""})
-    book = asyncio.run(route._portfolio("user_a", CAPITAL))
-    assert [p.sector for p in book.positions] == ["", None, None]
+        world.risk_inputs["sectors"][f"HAND{i}"] = None
+        world.prices[f"HAND{i}"] = 100.0
 
     ticket = signals(api)["tickets"][0]
     assert ticket["status"] == "rejected" and ticket["trade_id"] is None
     assert "SECTOR_EXPOSURE_UNKNOWN" in ticket["reason_codes"]
-    assert "SECTOR_LIMIT" in ticket["reason_codes"]
+    assert "SECTOR_LIMIT" in ticket["reason_codes"] or "sector_exceeded" in ticket["reason_codes"]
     unknown = next(r for r in ticket["decision"]["reasons"] if r["code"] == "SECTOR_EXPOSURE_UNKNOWN")
     assert unknown["value"] == 300_000.0 and unknown["severity"] == "info"
     assert not any((t.get("source") or {}).get("kind") == "ai_trader" for t in world.db.trades.docs)
@@ -695,7 +744,7 @@ def assisted_ticket(api, world, uid="user_a", capital=CAPITAL):
 
 def test_an_assisted_signal_waits_for_the_user_and_records_no_trade_yet(api, world):
     ticket = assisted_ticket(api, world)
-    assert (ticket["status"], ticket["quantity"], ticket["trade_id"]) == ("awaiting_confirmation", 500, None)
+    assert (ticket["status"], ticket["quantity"], ticket["trade_id"]) == ("awaiting_confirmation", APPROVED, None)
     assert ticket["expires_at"] == "2026-10-21T10:00:00+00:00"     # the next session's close, 15:30 IST
     assert world.db.trades.docs == []
     assert ticket["text"] and execution.SELF_PLACE_LINE in ticket["text"]
@@ -706,10 +755,10 @@ def test_confirming_re_runs_the_governor_then_records_a_shadow_trade_and_returns
     r = api.post(f"{BASE}/tickets/{ticket['id']}/confirm", headers=A)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["ticket"]["status"] == "executed_paper" and body["ticket"]["quantity"] == 500
-    assert body["trade"]["quantity"] == 500 and body["trade"]["symbol"] == "MOCKA"
+    assert body["ticket"]["status"] == "executed_paper" and body["ticket"]["quantity"] == APPROVED
+    assert body["trade"]["quantity"] == APPROVED and body["trade"]["symbol"] == "MOCKA"
     assert body["trade"]["source"]["kind"] == "ai_trader"
-    for part in ("MOCKA", "500", "200.00", "180.00", "240.00"):
+    for part in ("MOCKA", str(APPROVED), "200.00", "180.00", "240.00"):
         assert part in body["text"], body["text"]
     assert execution.SELF_PLACE_LINE in body["text"]
     assert len(world.db.trades.docs) == 1
@@ -720,25 +769,24 @@ def test_confirming_re_runs_the_governor_then_records_a_shadow_trade_and_returns
 
 
 def test_confirming_never_approves_more_than_the_governor_allowed_on_the_signal_date(api, world):
-    """The confirm re-run may lower the size or refuse it, never raise it. An elevated VIX halved the size when the
-    ticket was made; the same index row is not there yet when the user confirms the next morning, and that unknown
-    must not hand back the shares the volatility rule took away (PRD F5.2, B5)."""
+    """The confirm re-run may lower the size or refuse it, never raise it: it starts from the size approved on the
+    signal date. An elevated VIX halved the size when the ticket was made. Phase 1: when today's market state is
+    unknown the confirm is REFUSED (market_state_unknown, fail closed) rather than judged without it, and the ticket
+    waits; once the state is readable again the confirm goes through at no more than the signal-date size."""
     world.market = Market(vix=28.0, regime="BULL")
     ticket = assisted_ticket(api, world)
-    assert (ticket["quantity"], ticket["requested_quantity"]) == (250, 500)
+    assert (ticket["quantity"], ticket["requested_quantity"]) == (APPROVED // 2, 500)
     assert "VIX_REDUCE" in ticket["reason_codes"]
 
     world.market = Market()                 # MOCK - not real data: today's VIX row has not landed yet
     r = api.post(f"{BASE}/tickets/{ticket['id']}/confirm", headers=A)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["ticket"]["quantity"] == 250
-    assert body["ticket"]["decision"]["action"] == "reduce"
-    assert "SIZE_CAPPED_AT_SIGNAL" in body["ticket"]["reason_codes"]
-    assert body["trade"]["quantity"] == 250
-    assert "250 share(s)" in body["text"], body["text"]
-    assert world.db.tickets.docs[0]["quantity"] == 250
+    assert r.status_code == 409 and "market_state_unknown" in r.json()["detail"]["reason_codes"]
+    assert world.db.tickets.docs[0]["status"] == "awaiting_confirmation" and world.db.trades.docs == []
 
+    world.market = Market(vix=15.0, regime="BULL")          # calm again: still never above the signal-date size
+    r = api.post(f"{BASE}/tickets/{ticket['id']}/confirm", headers=A)
+    assert r.status_code == 200, r.text
+    assert r.json()["ticket"]["quantity"] == APPROVED // 2 and r.json()["trade"]["quantity"] == APPROVED // 2
 
 def test_confirming_is_refused_with_the_new_reasons_when_the_book_now_breaches_a_limit(api, world):
     ticket = assisted_ticket(api, world)
@@ -771,7 +819,7 @@ def test_a_confirm_the_desk_refuses_leaves_the_ticket_answerable(api, world, mon
     r = api.post(f"{BASE}/tickets/{ticket['id']}/confirm", headers=A)
     assert (r.status_code, r.json()["detail"]) == (422, "invalid_quantity"), r.text
     stored = world.db.tickets.docs[0]
-    assert (stored["status"], stored["quantity"], stored["trade_id"]) == ("awaiting_confirmation", 500, None)
+    assert (stored["status"], stored["quantity"], stored["trade_id"]) == ("awaiting_confirmation", APPROVED, None)
     assert world.db.trades.docs == []
 
     monkeypatch.setattr(desk, "new_trade", real_new_trade)
@@ -781,6 +829,9 @@ def test_a_confirm_the_desk_refuses_leaves_the_ticket_answerable(api, world, mon
 
 
 def test_the_liquidity_limit_is_re_applied_on_confirm_from_the_value_the_ticket_stored(api, world):
+    # Phase 1: the average traded value is resolved ON THE SERVER from the bars (MOCK: 2,000 shares a day at Rs 200 =
+    # Rs 4,00,000), never taken from the candidate row or the ticket.
+    world.volumes["MOCKA"] = 2000.0
     world.candidates = [{**candidate("MOCKA", 200.0), "avg_daily_value": 400_000.0}]
     ticket = assisted_ticket(api, world)
     assert (ticket["quantity"], ticket["avg_daily_value"]) == (100, 400_000.0)   # 5% of Rs 4,00,000 at Rs 200
@@ -788,7 +839,8 @@ def test_the_liquidity_limit_is_re_applied_on_confirm_from_the_value_the_ticket_
     r = api.post(f"{BASE}/tickets/{ticket['id']}/confirm", headers=A)
     assert r.status_code == 200, r.text
     codes = r.json()["ticket"]["reason_codes"]
-    assert "LIQUIDITY" in codes and "LIQUIDITY_UNKNOWN" not in codes
+    # The confirm starts from the 100 approved on the signal date, which the server-side ADV still allows.
+    assert "LIQUIDITY_UNKNOWN" not in codes and "liquidity_unknown" not in codes
     assert r.json()["trade"]["quantity"] == 100
 
 
@@ -1114,44 +1166,49 @@ def test_a_promotion_that_passes_is_stored_with_the_paper_tally_the_gate_read(ap
 
 # ── what the governor is handed: the book and the market ─────────────────────
 def test_the_book_handed_to_the_governor_is_the_users_own_open_trades_and_todays_pnl(world):
+    """Phase 1: services/risk_book.read is the one book. Only this user's open trades; today's P&L counts a trade
+    closed today (its net result less its value at the previous close), not one closed on an earlier session."""
+    from services import risk_book
     world.db.trades.docs.append(held("user_a", "MOCKA", 100.0))
     world.db.trades.docs.append(held("user_b", "MOCKB", 100.0))              # another user's book
     closed = held("user_a", "MOCKC", 50.0)
-    closed.update({"status": "closed", "closed_at": "2026-10-21T04:00:00+00:00", "realized_pnl_rs": -1200.0})
+    closed.update({"status": "closed", "closed_at": "2026-10-21T04:00:00+00:00", "realized_pnl_rs": -1200.0,
+                   "net_pnl_rs": -1200.0, "exit_price": 38.0, "opened_at": "2026-10-21T03:50:00+00:00"})
     world.db.trades.docs.append(closed)
     stale = held("user_a", "MOCKD", 50.0)
-    stale.update({"status": "closed", "closed_at": "2026-10-19T04:00:00+00:00", "realized_pnl_rs": -9999.0})
+    stale.update({"status": "closed", "closed_at": "2026-10-19T04:00:00+00:00", "realized_pnl_rs": -9999.0,
+                  "net_pnl_rs": -9999.0})
     world.db.trades.docs.append(stale)                                        # closed on an earlier session
 
-    book = asyncio.run(route._portfolio("user_a", CAPITAL))
-    assert book.capital == CAPITAL
-    assert [(p.symbol, p.quantity, p.price) for p in book.positions] == [("MOCKA", 1, 100.0)]
-    assert book.realized_pnl_today == -1200.0
-    assert book.drawdown_pct is None and book.kill_switch is False
+    book = asyncio.run(risk_book.read(world.db, "user_a", now=NOW))
+    assert [(p.symbol, p.quantity, p.price) for p in risk_book.governor_positions(book)] == [("MOCKA", 1, 100.0)]
+    # -1,200 realised today plus MOCKA's net mark move since it opened today (1 share at 100, marked at its 200 close,
+    # less costs); the -9,999 closed on an earlier session is not today's.
+    assert book["day"]["pnl_rs"] is not None and -1200.0 < book["day"]["pnl_rs"] < -1000.0
+    assert book["equity"]["equity_rs"] is not None and book["drawdown_pct"] == 0.0
 
 
-def test_the_market_handed_to_the_governor_is_read_from_the_evidence_and_unknowns_stay_unknown(monkeypatch):
-    from services.ai_trader import evidence as ev
+def test_the_market_state_is_read_on_the_server_and_unknowns_stay_unknown(monkeypatch):
+    """Phase 1: India VIX and the regime come from the desk regime (services/risk_gate/inputs.market_state); trend up
+    is BULL, down BEAR; an unavailable regime is unknown with its reason, never filled in."""
+    from services.risk_gate import inputs
+    from services.strategy_plan import regime_fit
+    real = inputs.market_state.__wrapped__ if hasattr(inputs.market_state, "__wrapped__") else None
+    del real
+    import importlib
+    fresh_inputs = importlib.reload(inputs)
 
-    def made_up(as_of):
-        """MOCK - not real data: shaped like services/ai_trader/context.py's market_context output."""
-        base = dict(skill="market_intelligence", symbol=None, as_of=as_of, horizon="market",
-                    interpretation="mock", confidence=0.5, decision_impact="neutral")
-        return [ev.Evidence(observation="regime", data={"regime": {"value": "BEAR", "status": "OK", "reason": None}},
-                            **base),
-                ev.Evidence(observation="vix", data={"india_vix": 28.5}, **base),
-                ev.unavailable("market_intelligence", None, as_of, "market", "breadth", "NO_DATA_FOR_DATE")]
+    async def made_up():
+        return {"available": True, "trend": "down", "india_vix": 28.5, "as_of": "2026-10-20", "key": "mock"}
+    monkeypatch.setattr(regime_fit, "read_regime", made_up)
+    out = asyncio.run(fresh_inputs.market_state())
+    assert (out["vix"], out["regime"], out["as_of"], out["error"]) == (28.5, "BEAR", "2026-10-20", None)
 
-    monkeypatch.setattr(route, "market_context", made_up)
-    market = route._market(AS_OF)
-    assert (market.vix, market.regime) == (28.5, "BEAR")
-
-    def unavailable_engine(as_of):
-        raise route._research.ResearchUnavailable("the research package is not on this host")
-
-    monkeypatch.setattr(route, "market_context", unavailable_engine)
-    blind = route._market(AS_OF)
-    assert blind.vix is None and blind.regime is None          # never filled in, so the governor says it skipped
+    async def unavailable():
+        return {"available": False, "reason": "macro_state is empty"}
+    monkeypatch.setattr(regime_fit, "read_regime", unavailable)
+    blind = asyncio.run(fresh_inputs.market_state())
+    assert blind["vix"] is None and blind["regime"] is None and blind["error"] == "macro_state is empty"
 
 
 # ── the outcome journal ──────────────────────────────────────────────────────

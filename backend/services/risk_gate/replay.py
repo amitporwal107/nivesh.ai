@@ -74,6 +74,8 @@ def _not_replayable(row: Dict[str, Any], reason: str) -> Dict[str, Any]:
 
 def replay(row: Dict[str, Any]) -> Dict[str, Any]:
     snapshot = row.get("snapshot")
+    if row.get("source") == "risk_service":
+        return _replay_service(row)
     if row.get("source") != "risk_gate":
         return _not_replayable(row, "This decision came from the kill-switch stream, not the F&O risk gate; "
                                     "only gate decisions store the inputs a replay needs.")
@@ -130,6 +132,55 @@ def replay(row: Dict[str, Any]) -> Dict[str, Any]:
         "replay_version": REPLAY_VERSION,
         "writes": "none",
     }
+
+
+def _replay_service(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A universal risk service decision (services/risk_gate/service.py): decide() again on the stored snapshot."""
+    from . import service
+
+    snapshot = row.get("snapshot")
+    if not isinstance(snapshot, dict):
+        return _not_replayable(row, "This row records a reservation refused after the decision; the decision it "
+                                    "supersedes carries the snapshot." if row.get("supersedes") else
+                                    "This decision has no stored snapshot.")
+    if row.get("snapshot_version") != service.SNAPSHOT_VERSION:
+        return _not_replayable(row, f"The snapshot is version {row.get('snapshot_version')!r}; this code reads "
+                                    f"{service.SNAPSHOT_VERSION}.")
+    try:
+        req = service.EntryRequest(**(snapshot.get("request") or {}))
+        body = service.decide(req, snapshot)
+    except (TypeError, ValidationError):
+        return _not_replayable(row, "The stored request no longer fits the service's request contract.")
+    except Exception as e:  # noqa: BLE001 — a replay that cannot run is reported, never a 500
+        return _not_replayable(row, f"The replay could not run on the stored snapshot ({type(e).__name__}).")
+    snapshot_ok = service.snapshot_hash(snapshot) == row.get("snapshot_hash")
+    inputs_ok = service.inputs_hash(req) == row.get("inputs_hash")
+    outcome_then = {"allowed": "allow", "reduced": "reduce", "blocked": "block"}.get(row.get("outcome"))
+    reasons_then, reasons_now = _codes(row.get("reasons")), [r["code"] for r in body["reasons"]]
+    checks_then, checks_now = _checks(row.get("checks")), _checks(body["checks"])
+    qty_then = (row.get("approved_qty"), row.get("approved_lots"))
+    qty_now = (body.get("approved_qty"), body.get("approved_lots"))
+    differences: List[str] = []
+    for ok, text in ((snapshot_ok, "The stored snapshot does not hash to the recorded snapshot hash."),
+                     (inputs_ok, "The stored request does not hash to the recorded inputs hash."),
+                     (outcome_then == body["outcome"], f"Outcome was {outcome_then}, replays as {body['outcome']}."),
+                     (reasons_then == reasons_now, "The reason codes differ."),
+                     (checks_then == checks_now, "The check results differ."),
+                     (qty_then == qty_now, "The approved size differs."),
+                     (row.get("policy_version") == service.POLICY_VERSION,
+                      f"The policy was {row.get('policy_version')}, it is {service.POLICY_VERSION} now.")):
+        if not ok:
+            differences.append(text)
+    return {"decision_id": row.get("_id"), "replayable": True, "match": not differences,
+            "outcome_then": outcome_then, "outcome_now": body["outcome"], "reasons_then": reasons_then,
+            "reasons_now": reasons_now, "checks_then": checks_then, "checks_now": checks_now,
+            "approved_then": qty_then, "approved_now": qty_now, "inputs_hash_match": inputs_ok,
+            "snapshot_hash_match": snapshot_ok, "policy_version_then": row.get("policy_version"),
+            "policy_version_now": service.POLICY_VERSION, "snapshot_version": row.get("snapshot_version"),
+            "differences": differences,
+            "replayed_on": "the request and every server-resolved input as stored (the book, the last close, the "
+                           "sector, the market state, the exchange reference); the bars themselves are not stored",
+            "replay_version": REPLAY_VERSION, "writes": "none"}
 
 
 # ── lineage ──────────────────────────────────────────────────────────────────

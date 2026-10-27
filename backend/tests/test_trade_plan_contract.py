@@ -55,6 +55,10 @@ def make_surfaces(monkeypatch):
     """The real Strategy and desk routes on one in-memory Mongo with the MOCK world; also used outside pytest by
     tests/contract_fixtures.py, which writes the shared browser/route fixtures from it."""
     db = FakeDb()
+    # MOCK: the loosest allowed risk profile (tests/risk_helpers.py): this suite tests the plan's levels end to end,
+    # not the Phase 1 limits (tests/test_risk_entry_paths.py).
+    from tests.risk_helpers import loose_profile_doc
+    db.cols["risk_profiles"].docs.extend(loose_profile_doc(u) for u in ("user_a", "user_b", "u1"))
     monkeypatch.setattr(route, "db", db)
     monkeypatch.setattr(desk_route, "db", db)
     monkeypatch.setattr(route, "utcnow", lambda: NOW)

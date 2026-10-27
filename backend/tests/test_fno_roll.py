@@ -207,7 +207,10 @@ def test_a_roll_the_account_cannot_fund_is_refused_before_anything_closes(api, c
     tid = open_old(api, chain)
     chain.db[acct.ACCOUNTS].docs[0]["cash_rs"] = 100.0                                     # MOCK: a nearly empty account
     r = api.post(roll_url(tid), json={}, headers=A)
-    assert r.status_code == 409 and r.json()["detail"]["code"] == "insufficient_paper_funds"
+    # Phase 1: the roll's new structure is judged by the universal risk service before anything closes; with Rs 100 of
+    # cash the funds (and the per-trade budget) refuse it there.
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "risk_blocked"
+    assert "insufficient_paper_funds" in [x["code"] for x in r.json()["detail"]["reasons"]]
     assert [d["status"] for d in chain.db.trades.docs] == ["open"]
 
 
@@ -245,3 +248,23 @@ def test_an_exit_the_rules_took_before_the_roll_wins():
     assert roll.exit_before_roll({"exit": {"exit_reason": "expiry", "exit_session": d}}, d) is None
     assert roll.exit_before_roll({"exit": {"exit_reason": "stop", "exit_session": d}}, d)["exit_reason"] == "stop"
     assert roll.exit_before_roll({"exit": None}, d) is None
+
+
+# ── Phase 1: the roll is judged by the universal risk service (feat/p1-universal-risk) ──────────────────────────
+def test_p1_the_rolls_new_structure_is_decided_by_the_risk_service_and_reserved_after_the_old_one_closes(api, chain):
+    """The new structure is decided on path desk_paper_roll against the book WITHOUT the one it replaces
+    (replaces_trade_id), recorded, and reserved only after the old one closed: the account then holds exactly one
+    reservation, the new trade's, and its counters equal its entries."""
+    tid = open_old(api, chain)
+    r = api.post(roll_url(tid), json={}, headers=A)
+    assert r.status_code == 201, r.text
+    new_id = r.json()["new"]["id"]
+    rows = [d for d in chain.db[rc.DECISIONS].docs if d.get("source") == "risk_service"]
+    roll_rows = [d for d in rows if d["path"] == "desk_paper_roll"]
+    assert len(roll_rows) == 1 and roll_rows[0]["outcome"] == "allowed"
+    assert roll_rows[0]["snapshot"]["request"]["replaces_trade_id"] == tid
+    new = next(d for d in chain.db.trades.docs if d["_id"] == new_id)
+    assert new["risk_reservation_id"] == roll_rows[0]["_id"] and new["risk_policy_version"] == "universal-risk-v1"
+    (account,) = chain.db[acct.ACCOUNTS].docs
+    assert [e["trade_id"] for e in account["reservations"]] == [new_id]
+    assert acct.reservation_invariants(account) == []
