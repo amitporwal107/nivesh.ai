@@ -1,6 +1,8 @@
 """Strategy ideas from the AI opportunities (user requirement 2026-10-20). One call selects the top scanner setups
 (selection.py) and builds a full strategy plan for each with instrument "all" (cash, futures, options and combinations), from the
-scanner data already read for the request. Read-only; nothing is sent to a broker; nothing is written.
+scanner data already read for the request. Nothing is sent to a broker. Each idea carries its canonical TradePlan
+(`trade_plan`, trade_plan.py: the cash candidate's levels, which the row shows and its paper trade records); the route
+stores those plans insert-once (routes/strategy_plan.py), which is the only write.
 
 The response carries, per idea, the strategies side by side with the payoff engine's figures (max loss, max profit, breakevens, net
 reward : risk, capital at risk): nothing is calculated again here. `plan_inputs` is the exact body that rebuilds the idea's plan through
@@ -125,7 +127,8 @@ def strategies_of(plan: Dict[str, Any], symbol: str) -> List[Dict[str, Any]]:
         a = rows.get(c["id"], {})
         ex = ((c.get("payoff") or {}).get("expiry")) or {}
         why = (c.get("why_qualifies") or [None])[0] or next((r["message"] for r in c.get("reasons") or []), "")
-        out.append({"id": c["id"], "segment": c["segment"], "family": c["family"], "label": c["label"], "status": c["status"],
+        out.append({"id": c["id"], "trade_plan_id": (c.get("trade_plan") or {}).get("plan_id"),
+                    "segment": c["segment"], "family": c["family"], "label": c["label"], "status": c["status"],
                     "reasons": [{"code": r.get("code"), "message": r.get("message")} for r in c.get("reasons") or []],
                     "legs_text": legs_text(symbol, c.get("legs") or []), "max_loss": _loss(a.get("max_loss")), "max_loss_basis": a.get("max_loss_basis"),
                     "capital_at_risk": a.get("capital_at_risk"), "max_profit": ex.get("max_profit"), "profit_unbounded": bool(ex.get("profit_unbounded")),
@@ -160,11 +163,19 @@ def chartink_part(setup: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return {k: ch.get(k) for k in ("scans", "count", "fetched_at")} if ch else None
 
 
+def cash_trade_plan(plan: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The idea's canonical TradePlan: its cash candidate's (the levels the row shows and its paper trade records)."""
+    return next((c.get("trade_plan") for c in plan.get("candidates") or [] if c.get("segment") == "cash" and c.get("trade_plan")), None)
+
+
 def idea_of(rank: int, setup: Dict[str, Any], plan: Dict[str, Any], snaps: Dict[str, Any], passed: Dict[str, Any], ms: int) -> Dict[str, Any]:
     sym = setup["symbol"]
     sm = plan.get("evidence_summary") or {}
+    tp = cash_trade_plan(plan)
     return {"rank": rank, "symbol": sym, "name": setup.get("name"), "source": setup.get("source") or "ai_scanner", "chartink": chartink_part(setup),
-            "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": fno_eligible(snaps), "plan_id": plan["plan_id"], "plan_status": plan["status"], "status_reasons": plan.get("status_reasons") or [],
+            "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": fno_eligible(snaps), "plan_id": plan["plan_id"],
+            "trade_plan_id": tp["plan_id"] if tp else None, "trade_plan": tp,
+            "plan_status": plan["status"], "status_reasons": plan.get("status_reasons") or [],
             "would_change_if": plan.get("would_change_if") or [], "headline": plan.get("headline"),
             "evidence_summary": {g: sm.get(g) for g in ev.GROUPS if g in sm}, "oi_view": oi_view(snaps), "preferred": plan.get("preferred"),
             "strategies": strategies_of(plan, sym), "data_as_of": plan.get("data_as_of"), "plan_inputs": plan_body(sym, passed), "build_ms": ms}
@@ -174,7 +185,7 @@ def failed_idea(rank: int, setup: Dict[str, Any], passed: Dict[str, Any], err: B
     msg = f"{type(err).__name__}: {str(err)[:200]}"
     return {"rank": rank, "symbol": setup["symbol"], "name": setup.get("name"), "source": setup.get("source") or "ai_scanner", "chartink": chartink_part(setup),
             "scanner": scanner_view(setup), "direction": "bullish", "fno_eligible": None,
-            "plan_id": None, "plan_status": "insufficient_data",
+            "plan_id": None, "trade_plan_id": None, "trade_plan": None, "plan_status": "insufficient_data",
             "status_reasons": [{"code": "idea_build_failed", "message": f"The strategies for this stock could not be built: {msg}"}],
             "would_change_if": ["idea_build_failed: The data sources answering; rebuild the plan from the Strategy Builder."], "headline": None,
             "evidence_summary": {}, "oi_view": None, "preferred": None, "strategies": [], "data_as_of": None,

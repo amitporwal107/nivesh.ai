@@ -58,7 +58,10 @@ class _Cursor:
         self._docs = docs
 
     def sort(self, key: str, direction: int) -> "_Cursor":
-        self._docs = sorted(self._docs, key=lambda d: str(d.get(key) or ""), reverse=direction < 0)
+        def k(d):                      # numbers sort as numbers (a plan's version 10 after 9), anything else as text
+            v = d.get(key)
+            return (1, v, "") if isinstance(v, (int, float)) and not isinstance(v, bool) else (0, 0, str(v or ""))
+        self._docs = sorted(self._docs, key=k, reverse=direction < 0)
         return self
 
     def limit(self, n: int) -> "_Cursor":
@@ -124,9 +127,10 @@ class FakeCollection:
         self.docs.append(copy.deepcopy(doc))
 
     async def update_one(self, query, update, upsert=False):
-        # $inc / $setOnInsert / upsert / $push / $pull / $max on dotted paths are modelled (tests/mongo_ops.py) because
-        # the paper account keeps its cash, blocked funds and risk reservation that way (services/paper_account). A
-        # fixture that cannot express them would fail every trade create, which is a gap in the fixture, not the code.
+        # $inc / $setOnInsert / upsert / $push ($each too: services/trade_lifecycle writes events so) / $pull / $max on
+        # dotted paths are modelled (tests/mongo_ops.py) because the paper account keeps its cash, blocked funds and risk
+        # reservation that way (services/paper_account). A fixture that cannot express them would fail every trade
+        # create, which is a gap in the fixture, not the code.
         for d in self.docs:
             if _matches(d, query):
                 self.writes += 1
@@ -163,7 +167,9 @@ class FakeDb:
                      "job_runs": FakeCollection(), "job_locks": FakeCollection(),
                      # the universal risk service: the profile, its audit and the journal the risk book reads
                      "risk_profiles": FakeCollection(), "risk_profile_audit": FakeCollection(),
-                     "trade_journal": FakeCollection(), "live_authorizations": FakeCollection()}
+                     "trade_journal": FakeCollection(), "live_authorizations": FakeCollection(),
+                     # canonical TradePlans (services/strategy_plan/trade_plan.py) a paper trade may cite
+                     "trade_plans": FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"

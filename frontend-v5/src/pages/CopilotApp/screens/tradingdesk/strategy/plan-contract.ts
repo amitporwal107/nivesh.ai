@@ -14,6 +14,7 @@
  * and the route checks its fingerprint, so nothing is stripped from it here).
  */
 import { z } from "zod";
+import { TradePlanOrNull } from "./trade-plan";
 import { ExpirySchema, PreExpirySchema, CostsSchema, MarginSchema, type PayoffLeg } from "./strategy-contract";
 
 const numOrNull = z.number().nullable().catch(null);
@@ -205,6 +206,8 @@ export const CandidateSchema = z.object({
   warnings: z.array(z.string()).catch([]),
   actionable: z.boolean().catch(false),
   sent_to_broker: z.boolean().catch(false),
+  /** Phase 2.1: the candidate's canonical TradePlan; the paper trade cites it and records its levels. */
+  trade_plan: TradePlanOrNull,
 }).passthrough();
 export type Candidate = z.infer<typeof CandidateSchema>;
 

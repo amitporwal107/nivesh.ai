@@ -36,6 +36,7 @@ ROUTE_DECORATORS = {"post", "put", "patch", "delete", "get", "api_route"}
 #: out of the scan (renamed, moved) fails here instead of passing unseen.
 EXPECTED_PATHS = {
     ("routes/desk_trading.py", "create_paper_trade"),            # P1 cash, P2 strategy
+    ("routes/desk_trading.py", "roll_paper_trade"),              # P7 the F&O roll's new structure (#362)
     ("routes/positional_journal.py", "create_trade"),            # P3
     ("routes/positional_journal.py", "add_fill"),                # P4
     ("routes/ai_trader.py", "strategy_signals"),                 # P5

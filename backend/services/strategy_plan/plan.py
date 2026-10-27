@@ -30,7 +30,8 @@ INSTRUMENTS = ("cash", "futures", "options", "combination", "all")
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9&\-]{1,20}$")
 
 LIFECYCLE = {"status": "draft", "states": ["draft", "saved", "paper_traded", "reviewed", "expired", "invalidated", "closed"],
-             "note": "A saved plan is a research record. No live order submission exists: sent_to_broker is false."}
+             "note": "A saved plan is a research record. No live order submission exists: sent_to_broker is false. The status a "
+                     "reader sees is derived from the paper trades of its candidates' TradePlans (GET /api/desk/strategy/plans/{id})."}
 
 
 def canonical(obj: Any) -> str:
@@ -453,6 +454,13 @@ def build_plan(inputs: Dict[str, Any], snaps: Dict[str, Any], now: datetime, tod
         "caveats": caveats(snaps),
         "sent_to_broker": False,
     }
+    # Phase 2.1: every candidate with levels carries its canonical TradePlan (trade_plan.py), the one object every
+    # surface and the paper-trade route read by id. Built from the candidate; nothing is recomputed.
+    from . import trade_plan as tpm
+    tps = tpm.from_plan(plan, today)
+    for c in cands:
+        c["trade_plan"] = tps.get(c["id"])
+    plan["trade_plans"] = {cid: tp["plan_id"] for cid, tp in tps.items()}
     return plan
 
 

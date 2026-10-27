@@ -18,6 +18,11 @@ Endpoints (all under /api/desk):
     GET    /paper-trades/{id}          — one trade with its lifecycle log (and, for a strategy, its signal); read-only
     POST   /paper-trades/{id}/close    — {exit_price?}: close at that price, or at the last end-of-day close ("manual");
                                          a trade whose conditional entry was not reached is "cancelled" (no P&L)
+    GET    /paper-trades/{id}/roll     — preview of an F&O roll (services/fno_roll.py): both legs at session D's NSE
+                                         bhavcopy close, the next listed expiry, costs; or the reason it cannot roll
+    POST   /paper-trades/{id}/roll     — {strike_mode?}: close the old structure and open the same one on the next
+                                         expiry at D's close, through the same risk checks as any entry; linked both ways
+    GET    /trade-plans/{plan_id}      — a TradePlan with its lifecycle status derived from your trades
     POST   /alerts                     — {condition, ...the condition's fields, note?} → 201 {alert}
              above | below  {symbol, level}            filing    {symbol, impact?: "any"|"high"}
              category       {category, symbol?}        volume    {symbol, multiple}
@@ -52,8 +57,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import timedelta
-from typing import Any, Dict, List, Optional
+from datetime import date, timedelta
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pymongo.errors import DuplicateKeyError
@@ -66,6 +71,9 @@ from services import paper_account as acct
 from services import risk_controls as rc
 from services import risk_gate
 from services.risk_gate import service as risk_service
+from services import trade_lifecycle as lifecycle
+from services import fno_roll as roll
+from services.strategy_plan import trade_plan as tpm
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +122,8 @@ class _Refusals:
         self.uid, self.cid = uid, cid
         self.symbol: Optional[str] = None
         self.quantity: Optional[int] = None
+        self.plan_id: Optional[str] = None            # the TradePlan the request named, once it is known
+        self.plan_state: Optional[str] = None
 
     def note(self, body: Any) -> None:
         if not isinstance(body, dict):
@@ -127,13 +137,42 @@ class _Refusals:
                      text: Optional[str] = None) -> HTTPException:
         code = code or (detail if isinstance(detail, str) else detail.get("code"))
         text = text or (detail.get("message") if isinstance(detail, dict) else None) or code
+        # Phase 2.2: a refused open is a REJECTED lifecycle event. There is no trade document to carry it, so it is
+        # recorded on the refusal's own risk_decisions row and, when the request named a TradePlan, on the plan.
+        rejected = lifecycle.rejection_record(frm=self.plan_state, reason=text, source="desk_paper_trade",
+                                              at=svc.utcnow(), codes=[code], plan_id=self.plan_id)
         await rc.record_decision(db, self.uid, action="desk_paper_trade", outcome="blocked", symbol=self.symbol,
                                  requested_qty=self.quantity,
                                  reasons=[{"code": code, "text": text, "check": "request", "severity": "block"}],
                                  correlation_id=self.cid, path="desk_paper_trade",
                                  policy_version=risk_service.POLICY_VERSION, source="desk_validation",
-                                 detail={"http_status": status, **(detail if isinstance(detail, dict) else {"code": detail})})
+                                 detail={"http_status": status, **(detail if isinstance(detail, dict) else {"code": detail}),
+                                         "lifecycle": rejected})
+        await self.plan_event(rejected)
         return HTTPException(status_code=status, detail=detail)
+
+    def rejection(self, source: str = "desk_paper_trade") -> Dict[str, Any]:
+        """The lifecycle context the risk service puts on the row of a refused open (Phase 2.2 REJECTED)."""
+        return {"source": source, "plan_id": self.plan_id, "plan_state": self.plan_state}
+
+    async def plan_event(self, rejected: Dict[str, Any]) -> None:
+        if self.plan_id:
+            try:
+                await db[tpm.COLLECTION].update_one({"_id": self.plan_id}, {"$push": {"events": rejected}})
+            except Exception as exc:  # noqa: BLE001 — fail-open like record_decision: the refusal stands, the miss is logged
+                logger.error("desk: the REJECTED event for plan %s could not be written: %r", self.plan_id, exc)
+
+    async def risk_refused(self, exc: HTTPException, source: str = "desk_paper_trade") -> None:
+        """A refusal by the risk service: its row already carries the REJECTED event (rejection()); the plan gets it too,
+        with the decision's id and codes."""
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        if not self.plan_id or not detail.get("decision_id"):
+            return
+        codes = [r.get("code") for r in detail.get("reasons") or [] if r.get("severity") in risk_service.BLOCKING] \
+            or [detail.get("code")]
+        await self.plan_event(lifecycle.rejection_record(frm=self.plan_state, reason=str(detail.get("message")), source=source,
+                                                         at=svc.utcnow(), codes=codes, plan_id=self.plan_id,
+                                                         risk_decision_id=detail["decision_id"]))
 
 
 async def _open_duplicate(uid: str, doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -212,6 +251,10 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
         prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": key})
         if prior is not None:
             return await _replay(ref, prior, fingerprint, response)
+    plan_ref_raw = None
+    if isinstance(body, dict) and "plan_ref" in body:
+        body = dict(body)
+        plan_ref_raw = body.pop("plan_ref")             # checked against the stored TradePlan below, never trusted as sent
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
             doc = strat.new_strategy_trade(uid, body)
@@ -225,6 +268,10 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
             doc = svc.new_trade(uid, body)
     except svc.DeskInputError as exc:
         raise await ref.refuse(422, exc.detail())
+    if plan_ref_raw is not None:
+        await _attach_plan(ref, uid, doc, plan_ref_raw)
+    if doc.get("kind") == strat.KIND:
+        _store_premium_levels(doc)
     doc["open_key"] = strat.structure_key(doc) if doc.get("kind") == strat.KIND else svc.open_key(doc)
     existing = await _open_duplicate(uid, doc)
     if existing is not None:
@@ -245,14 +292,16 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
     # THE risk decision (Phase 1): recorded first, then the funds and the risk budget reserved in one atomic update.
     # 409 risk_blocked / risk_reduce (nothing written, nothing reserved) or 503 risk_decision_unrecorded.
     try:
-        decision = await risk_service.enforce(db, _entry_request(user, ref.cid, doc, fno_additional))
-    except HTTPException:
+        decision = await risk_service.enforce(db, _entry_request(user, ref.cid, doc, fno_additional),
+                                              rejection=ref.rejection())
+    except HTTPException as exc:
         # A retry that raced its own first attempt: the first one's position now holds the symbol, so the service
         # refuses this one (already held). The client gets the trade its key already made, never a refusal of it.
         if key is not None:
             prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": key})
             if prior is not None:
                 return await _replay(ref, prior, fingerprint, response)
+        await ref.risk_refused(exc)
         raise
     risk_service.stamp(doc, decision)
     doc["paper_reserved_rs"] = float(decision["budget"].get("funding_rs") or 0.0)
@@ -264,6 +313,7 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
         await risk_service.release_unused(db, uid, decision, reason=why)
 
     await svc.ensure_indexes(db)
+    svc.open_lifecycle(doc)               # Phase 2.2: state + the opening events, with the risk decision id stamped above
     open_filter = {"user_id": uid, "status": "open"}
     if await db[svc.TRADES].count_documents(open_filter) >= svc.MAX_OPEN_TRADES:
         await give_back("open_trade_limit")
@@ -295,7 +345,100 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
 
 
 def _public(doc: Dict[str, Any]) -> Dict[str, Any]:
-    return strat.public_strategy_trade(doc, detail=True) if doc.get("kind") == strat.KIND else svc.public_trade(doc)
+    out = strat.public_strategy_trade(doc, detail=True) if doc.get("kind") == strat.KIND else svc.public_trade(doc)
+    return _with_lifecycle(out, doc)
+
+
+_PLAN_REF_FIELDS = {"plan_id", "candidate_id", "rules_version"}
+
+
+async def _attach_plan(ref: "_Refusals", uid: str, doc: Dict[str, Any], raw: Any) -> None:
+    """Phase 2.1: a paper trade that names a TradePlan (`plan_ref {plan_id, candidate_id?, rules_version?}`) is recorded
+    only at that plan's levels. The plan must exist and be readable by the user (404 plan_not_found), match the ref
+    (409 plan_ref_mismatch), still pass revalidation and be tradeable (409 plan_not_eligible), and the request's levels
+    must be the plan's (409 plan_levels_mismatch). The trade then stores `plan_ref`, `trade_plan_id` and the plan's
+    levels as `plan_levels`."""
+    if not isinstance(raw, dict) or set(raw) - _PLAN_REF_FIELDS or not isinstance(raw.get("plan_id"), str):
+        raise await ref.refuse(422, {"code": "invalid_plan_ref", "message": "plan_ref must be {plan_id, candidate_id?, rules_version?}."})
+    tp = await tpm.load(db, raw["plan_id"], uid)
+    ref.plan_id = raw["plan_id"] if tp is not None else None
+    if tp is None:
+        raise await ref.refuse(404, {"code": "plan_not_found", "message": f"No trade plan {raw['plan_id'][:40]} that you can use."})
+    ref.plan_state = (tp.get("eligibility") or {}).get("state")
+    for k, have in (("candidate_id", (tp.get("strategy") or {}).get("candidate_id")), ("rules_version", tp.get("rules_version"))):
+        if raw.get(k) is not None and raw[k] != have:
+            raise await ref.refuse(409, {"code": "plan_ref_mismatch", "message": f"{k} {raw[k]} is not the plan's ({have})."})
+    elig = tp.get("eligibility") or {}
+    problems = tpm.validate({k: v for k, v in tp.items() if k != "_id"})
+    if problems or not elig.get("paper_eligible"):
+        why = [p["message"] for p in problems] or [r.get("message") or r.get("code") for r in elig.get("reasons") or []] \
+            or [f"the plan's state is {elig.get('state')}"]
+        raise await ref.refuse(409, {"code": "plan_not_eligible", "plan_id": tp["plan_id"], "state": elig.get("state"),
+                                     "message": "This plan cannot be paper traded: " + "; ".join(str(w) for w in why[:5])})
+    mism = tpm.strategy_mismatches(tp, doc) if doc.get("kind") == strat.KIND else tpm.cash_mismatches(tp, doc)
+    if mism:
+        raise await ref.refuse(409, {"code": "plan_levels_mismatch", "plan_id": tp["plan_id"], "mismatches": mism[:10],
+                                     "message": "The request's levels are not the plan's: " + "; ".join(mism[:3])})
+    doc["plan_ref"] = tpm.plan_ref_of(tp)
+    doc["trade_plan_id"] = tp["plan_id"]
+    doc["plan_levels"] = tpm.canonical_levels(tp)
+    if doc.get("kind") == strat.KIND and (tp.get("exit_plan") or {}).get("options"):
+        doc["exit_plan"] = {"options": tp["exit_plan"]["options"], "source": "trade_plan"}
+
+
+def _store_premium_levels(doc: Dict[str, Any]) -> None:
+    """Phase 2.6, storage only: the strategy-levels engine's premium stop and T1 / T2 (and the underlying levels they
+    correspond to) are stored on the strategy trade at entry, from its own legs and the signal's data date. EVALUATING
+    them is the exits branch's (feat/p2-exits-backtest): nothing here closes a trade on them."""
+    if doc.get("exit_plan"):
+        return
+    legs = [{"kind": l["kind"], "side": l["side"], "quantity": l["lots"], "lot_size": l["lot_size"], "entry_price": l["entry_price"],
+             "expiry": l.get("expiry"), "strike": l.get("strike"), "option_type": l.get("option_type"),
+             "price_source": l.get("price_source")} for l in doc["legs"]]
+    as_of = str((doc.get("signal") or {}).get("signal_at") or "")[:10] or None
+    if not any(l["kind"] == "option" for l in legs):
+        doc["exit_plan"] = {"options": {"status": "not_applicable", "reason": "no option leg",
+                                        "evaluation": f"not evaluated here: {tpm.EXITS_OWNER}"}, "source": "entry"}
+        return
+    levels, err = tpm.compute_levels(doc["underlying"], float(doc["reference_price"]), as_of, legs,
+                                     {"put_wall": None, "call_wall": None, "expected_move": None}, svc.ist_date(doc["opened_at"]))
+    doc["exit_plan"] = {"options": tpm.options_exit(levels, as_of=as_of, error=err), "source": "entry"}
+
+
+def _with_lifecycle(out: Dict[str, Any], doc: Dict[str, Any]) -> Dict[str, Any]:
+    """The lifecycle and plan fields every trade response carries."""
+    out["state"] = lifecycle.current_state(doc)
+    out["transitions"] = list(doc.get("transitions") or [])
+    out["plan_ref"] = doc.get("plan_ref")
+    out["plan_levels"] = doc.get("plan_levels")
+    out["exit_plan"] = doc.get("exit_plan")
+    out["rolled_from"] = doc.get("rolled_from")
+    out["rolled_to"] = doc.get("rolled_to")
+    return out
+
+
+@router.get("/trade-plans/{plan_id}")
+async def get_trade_plan(request: Request, plan_id: str) -> Dict[str, Any]:
+    """One TradePlan with its DERIVED lifecycle status (proposed until one of your paper trades cites it; then the
+    furthest of approved / triggered / open / closed / rejected), its versions and the trades that cite it."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    tp = await tpm.load(db, plan_id, uid)
+    if tp is None:
+        raise HTTPException(status_code=404, detail="plan_not_found")
+    trades = await db[svc.TRADES].find({"user_id": uid, "trade_plan_id": plan_id}).to_list(svc.MAX_OPEN_TRADES * 2)
+    versions = await db[tpm.COLLECTION].find({"lineage_key": tp.get("lineage_key")}).sort("version", 1).to_list(50)
+    states = [lifecycle.current_state(t) for t in trades]
+    rejected = [e for e in tp.get("events") or [] if e.get("to") == lifecycle.REJECTED]
+    status = lifecycle.plan_status(states + ([lifecycle.REJECTED] if rejected and not trades else []))
+    plan = {k: v for k, v in tp.items() if k not in ("_id", "owners")}
+    plan["lifecycle"] = {**(plan.get("lifecycle") or {}), "status": status, "derived": True}
+    return {"plan": plan, "lifecycle": {"status": status, "trades": [{"id": t["_id"], "state": s, "status": t.get("status")}
+                                                                     for t, s in zip(trades, states)],
+                                        "rejections": rejected[-20:]},
+            "versions": [{"plan_id": v["_id"], "version": v.get("version"), "created_at": v.get("created_at"),
+                          "revalidation_ok": (v.get("revalidation") or {}).get("ok"), "supersedes": v.get("supersedes")} for v in versions],
+            "sent_to_broker": False}
 
 
 @router.get("/paper-account")
@@ -332,11 +475,12 @@ async def list_paper_trades(request: Request, status_filter: str = Query("all", 
     for doc in sorted((d for d in evaluated if d.get("status") == "open" and d["_id"] not in closed_ids),
                       key=_sort_key("opened_at"), reverse=True):
         mark, mark_error = svc.mark_for(doc["symbol"], bars, errors)
-        trades.append(svc.public_trade(doc, mark, mark_error, counts["checked_through"].get(doc["_id"]),
-                                       sim=counts["paths"].get(doc["_id"])))
+        trades.append(_with_lifecycle(svc.public_trade(doc, mark, mark_error, counts["checked_through"].get(doc["_id"]),
+                                                       sim=counts["paths"].get(doc["_id"])), doc))
     for doc in sorted((d for d in strategy_evaluated if d.get("status") == "open" and d["_id"] not in closed_ids),
                       key=_sort_key("opened_at"), reverse=True):
-        trades.append(strat.public_strategy_trade(doc, strategy_sims.get(doc["_id"]), strategy_errors.get(doc["_id"]), detail=True))
+        trades.append(_with_lifecycle(strat.public_strategy_trade(doc, strategy_sims.get(doc["_id"]), strategy_errors.get(doc["_id"]),
+                                                                  detail=True), doc))
     trades.sort(key=lambda t: str(t.get("opened_at") or ""), reverse=True)        # cash and strategy trades, newest first
     trades.extend(_public(d) for d in closed_docs)
 
@@ -423,7 +567,7 @@ async def close_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
     if not mine or stored is None:
         raise HTTPException(status_code=409, detail="trade_already_closed")
     logger.info("desk: user %s closed paper trade %s at %s", uid, trade_id, exit_price)
-    return {"trade": svc.public_trade(stored), **_price_context()}
+    return {"trade": _with_lifecycle(svc.public_trade(stored), stored), **_price_context()}
 
 
 async def _close_strategy(doc: Dict[str, Any], body: Dict[str, Any]) -> Dict[str, Any]:
@@ -447,7 +591,189 @@ async def _close_strategy(doc: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
     if not mine or stored is None:
         raise HTTPException(status_code=409, detail="trade_already_closed")
     logger.info("desk: user %s closed strategy paper trade %s", doc["user_id"], doc["_id"])
-    return {"trade": strat.public_strategy_trade(stored, detail=True), **_price_context()}
+    return {"trade": _with_lifecycle(strat.public_strategy_trade(stored, detail=True), stored), **_price_context()}
+
+
+# ── F&O roll (option C) ──────────────────────────────────────────────────────
+async def _roll_inputs(doc: Dict[str, Any], strike_mode: str) -> Dict[str, Any]:
+    """(preview with costs) for an open strategy trade, or RollRefused. Reads the calendar and D's bhavcopy."""
+    if doc.get("kind") != strat.KIND:
+        raise roll.RollRefused(422, "not_a_strategy_trade", "Only a futures / options strategy paper trade can be rolled.")
+    if doc.get("status") != "open":
+        raise roll.RollRefused(409, "trade_already_closed", "This paper trade is closed.")
+    expiries = sorted({leg["expiry"] for leg in doc["legs"] if leg.get("expiry")})
+    if not expiries:
+        raise roll.RollRefused(422, "nothing_to_roll", "This trade has no futures or options leg.")
+    today = svc.ist_date(svc.utcnow().isoformat())
+    session, left, _hol = await roll.calendar_for(today, date.fromisoformat(expiries[0]))
+    rows = await roll.fetch_day_rows(doc["underlying"], session)
+    preview = roll.plan_roll(doc, rows, session, left, strike_mode=strike_mode)
+    preview["costs"] = roll.preview_costs(doc, preview)
+    return preview
+
+
+def _roll_mode(body: Any) -> str:
+    if not isinstance(body, dict) or set(body) - {"strike_mode"}:
+        raise HTTPException(status_code=422, detail="unknown_field")
+    mode = body.get("strike_mode", "distance")
+    if mode not in roll.STRIKE_MODES:
+        raise HTTPException(status_code=422, detail={"code": "invalid_strike_mode", "message": "strike_mode is distance or same."})
+    return mode
+
+
+@router.get("/paper-trades/{trade_id}/roll")
+async def preview_roll(request: Request, trade_id: str, strike_mode: str = Query("distance")) -> Dict[str, Any]:
+    """What a roll would record, read only: both legs at session D's bhavcopy close, the new expiry and strikes, costs on
+    both legs; `eligible: false` with the reason when it cannot roll (nothing is written either way)."""
+    user = await get_current_user(request)
+    doc = await db[svc.TRADES].find_one({"_id": trade_id, "user_id": user["user_id"]}) if len(trade_id) <= _ID_MAX else None
+    if not doc:
+        raise HTTPException(status_code=404, detail="trade_not_found")
+    if strike_mode not in roll.STRIKE_MODES:
+        raise HTTPException(status_code=422, detail={"code": "invalid_strike_mode", "message": "strike_mode is distance or same."})
+    try:
+        preview = await _roll_inputs(doc, strike_mode)
+    except roll.RollRefused as no:
+        return {"eligible": False, "refusal": no.detail(), "trade_id": trade_id, "rules_version": roll.ROLL_RULES_VERSION,
+                "orders": svc.ORDERS_NOTE}
+    preview.pop("body", None)
+    return {"eligible": True, "preview": preview, "trade_id": trade_id, "orders": svc.ORDERS_NOTE}
+
+
+async def _roll_replay(uid: str, old: Dict[str, Any], response: Response) -> Dict[str, Any]:
+    new = await db[svc.TRADES].find_one({"_id": old["rolled_to"], "user_id": uid})
+    response.status_code = 200
+    return {"old": _public(old), "new": _public(new) if new else None, "replayed": True, **_price_context()}
+
+
+def _roll_request(user: Dict[str, Any], ref: "_Refusals", new_doc: Dict[str, Any], old_id: str,
+                  fno_additional: bool) -> risk_service.EntryRequest:
+    return _entry_request(user, ref.cid, new_doc, fno_additional).model_copy(
+        update={"path": "desk_paper_roll", "replaces_trade_id": old_id})
+
+
+async def _roll_risk(user: Dict[str, Any], ref: "_Refusals", new_doc: Dict[str, Any], old_id: str) -> Tuple[Any, Dict[str, Any]]:
+    """The roll's new structure passes the SAME decision as any entry (services/risk_gate/service.py, path
+    desk_paper_roll): the desk's own exchange-lot check (422), then every core risk check, judged against the book
+    WITHOUT the structure it replaces (`replaces_trade_id`: that one is closed first, its funds credited). Decided and
+    recorded here; the reservation is taken after the old structure closes (risk_service.reserve_decided)."""
+    try:
+        await strat.check_exchange_lots(new_doc)
+    except svc.DeskInputError as exc:
+        raise await ref.refuse(422, exc.detail())
+    req = _roll_request(user, ref, new_doc, old_id, await risk_gate.enabled_for(db, user))
+    try:
+        decision = await risk_service.enforce(db, req, reserve=False, rejection=ref.rejection("desk_paper_roll"))
+    except HTTPException as exc:
+        await ref.risk_refused(exc, "desk_paper_roll")
+        raise
+    return req, decision
+
+
+@router.post("/paper-trades/{trade_id}/roll", status_code=201)
+async def roll_paper_trade(request: Request, response: Response, trade_id: str) -> Dict[str, Any]:
+    """Roll an open F&O strategy paper trade to the next listed expiry at session D's bhavcopy close (both sides).
+    Order: checks and the preview (nothing written) → the new structure's risk checks → funds after the old trade's
+    release → close the old one (`exit_reason roll`, `rolled_to`) → reserve and insert the new one (`rolled_from`,
+    a TradePlan with the lineage). A second click finds the old trade rolled and answers the same pair (200,
+    `replayed`). Nothing is sent to a broker."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    body = await _body(request, allow_empty=True)
+    mode = _roll_mode(body)
+    old = await db[svc.TRADES].find_one({"_id": trade_id, "user_id": uid}) if len(trade_id) <= _ID_MAX else None
+    if not old:
+        raise HTTPException(status_code=404, detail="trade_not_found")
+    if old.get("status") == "closed" and old.get("exit_reason") == "roll" and old.get("rolled_to"):
+        return await _roll_replay(uid, old, response)
+    ref = _Refusals(uid, risk_gate.correlation_id(request))
+    ref.symbol = old.get("underlying")
+    try:
+        preview = await _roll_inputs(old, mode)
+    except roll.RollRefused as no:
+        raise await ref.refuse(no.status, no.detail())
+    session = date.fromisoformat(preview["session"])
+    try:
+        bars, rows = await strat.fetch_inputs(old)
+    except svc.PricesUnavailable:
+        raise await ref.refuse(503, "prices_unavailable")
+    sim = strat.simulate_strategy(old, bars, rows)
+    ruled = roll.exit_before_roll(sim, session)
+    if ruled is not None:
+        raise await ref.refuse(409, {"code": "exit_rule_fired", "message": f"The trade's own {ruled['exit_reason']} exit fired on "
+                                     f"{ruled['exit_session'].isoformat()}; it closes by that rule, not by a roll."})
+    try:
+        new_doc = strat.new_strategy_trade(uid, preview["body"], now=svc.utcnow())
+    except svc.DeskInputError as exc:
+        raise await ref.refuse(422, exc.detail())
+    risk_req, risk_decision = await _roll_risk(user, ref, new_doc, old["_id"])
+    need = acct.reservation_for(new_doc, strat.exposure_rs(new_doc))
+    old_net = (preview["costs"] or {}).get("old_net_pnl_rs")
+    have = (await acct.read(db, uid))["available_rs"] + float(old.get("paper_reserved_rs") or 0) + float(old_net or 0)
+    if need is None or need > have + 1e-6:
+        raise await ref.refuse(409, {"code": "insufficient_paper_funds", "needed_rs": need, "available_after_close_rs": round(have, 2),
+                                     "message": "After the old structure is closed the paper account would not fund the new one; nothing was rolled."})
+    # The new structure's TradePlan, with the lineage (the old trade and its plan).
+    tp = tpm.structure_plan(
+        underlying=new_doc["underlying"], reference=float(new_doc["reference_price"]), direction=new_doc["direction"],
+        family=new_doc["family"], label=strat.FAMILIES.get(new_doc["family"]), legs=[{**l, "quantity": l["lots"]} for l in new_doc["legs"]],
+        levels=None, levels_error="computed at entry (exit_plan.options)", as_of=preview["session"],
+        data_as_of={"chain": preview["session"]}, rules={"board": roll.ROLL_RULES_VERSION, "levels": None},
+        candidate_id=f"roll:{old['_id']}", status="candidate", reasons=[],
+        source={"kind": "roll", "rolled_from_trade_id": old["_id"]},
+        lineage={"rolled_from_trade_id": old["_id"], "rolled_from_plan_id": old.get("trade_plan_id")},
+        underlying_stop={"price": new_doc.get("stop_underlying"), "rationale": "carried from the rolled trade"},
+        underlying_targets=[{"name": "t1", "price": new_doc.get("target_underlying"), "rule": "carried from the rolled trade"}])
+    await tpm.store_many(db, [tp], uid)
+    new_doc.update(plan_ref=tpm.plan_ref_of(tp), trade_plan_id=tp["plan_id"], plan_levels=tpm.canonical_levels(tp),
+                   rolled_from={"trade_id": old["_id"], "session": preview["session"], "plan_id": old.get("trade_plan_id"),
+                                "strike_shift": preview["strike_shift"], "strike_mode": mode},
+                   idempotency_key=f"roll:{old['_id']}"[:64], request_fingerprint=svc.request_fingerprint({"roll": old["_id"], "mode": mode}))
+    _store_premium_levels(new_doc)
+    new_doc["open_key"] = strat.structure_key(new_doc)
+    roll_note = f"Rolled to {new_doc['_id']} at the {preview['session']} NSE bhavcopy close."
+    stored_old, mine = await strat.close_strategy_trade(db, old, exit_reason="roll", exit_session=session, exit_note=roll_note,
+                                                        sim=roll.roll_sim(sim, preview, session),
+                                                        extra={"rolled_to": new_doc["_id"], "roll": {k: preview[k] for k in (
+                                                            "session", "rules_version", "price_source", "strike_mode", "strike_shift")}})
+    if not mine:
+        fresh = await db[svc.TRADES].find_one({"_id": trade_id, "user_id": uid})
+        if fresh and fresh.get("rolled_to"):
+            return await _roll_replay(uid, fresh, response)
+        raise HTTPException(status_code=409, detail="trade_already_closed")
+    # The old structure is closed and its funds and risk released: now the new one's funds AND risk budget, in one
+    # atomic reservation under the decision's id (another entry may have taken the budget in between).
+    reserved = await risk_service.reserve_decided(db, risk_req.model_copy(update={"trade_id": new_doc["_id"]}),
+                                                  risk_decision, rejection=ref.rejection("desk_paper_roll"))
+    if not reserved.get("reservation_id"):
+        codes = [r["code"] for r in reserved["reasons"] if r.get("check") == "reservation"]
+        await db[svc.TRADES].update_one({"_id": trade_id, "user_id": uid},
+                                        {"$set": {"rolled_to": None, "roll_failed": {"reason": ",".join(codes) or "reservation_refused",
+                                                                                     "risk_decision_id": reserved["decision_id"]}}})
+        logger.error("desk: roll of %s closed the old trade but could not reserve the new one (%s)", trade_id, codes)
+        raise await ref.refuse(409, {"code": "roll_open_failed", "reasons": reserved["reasons"],
+                                     "decision_id": reserved["decision_id"],
+                                     "message": "The old structure was closed at the roll close, but the new one could "
+                                                "not be reserved: " + ", ".join(codes) + "."})
+    risk_service.stamp(new_doc, reserved)
+    new_doc["paper_reserved_rs"] = float(reserved["budget"].get("funding_rs") or 0.0)
+    await svc.ensure_indexes(db)
+    svc.open_lifecycle(new_doc)
+    try:
+        await db[svc.TRADES].insert_one(new_doc)
+    except DuplicateKeyError:
+        await risk_service.release_unused(db, uid, reserved, reason="roll insert lost to a duplicate")
+        prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": new_doc["idempotency_key"]})
+        await db[svc.TRADES].update_one({"_id": trade_id, "user_id": uid}, {"$set": {"rolled_to": prior["_id"] if prior else None}})
+        if prior is not None:
+            return await _roll_replay(uid, {**stored_old, "rolled_to": prior["_id"]}, response)
+        raise
+    await rc.record_decision(db, uid, action="desk_paper_roll", outcome="allowed", symbol=new_doc.get("underlying"),
+                             requested_qty=None, reasons=[{"code": "roll", "text": roll_note}], correlation_id=ref.cid,
+                             path="desk_paper_roll", detail={"old": trade_id, "new": new_doc["_id"], "session": preview["session"]})
+    logger.info("desk: user %s rolled strategy paper trade %s to %s on %s", uid, trade_id, new_doc["_id"], preview["session"])
+    preview.pop("body", None)
+    return {"old": _public(stored_old), "new": _public(new_doc), "preview": preview, "replayed": False, **_price_context()}
 
 
 @router.get("/paper-trades/{trade_id}")
@@ -467,7 +793,7 @@ async def get_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
                 sim = strat.simulate_strategy(doc, bars, rows)
             except svc.PricesUnavailable:
                 error = svc.PRICES_UNAVAILABLE
-        trade = strat.public_strategy_trade(doc, sim, error, detail=True)
+        trade = _with_lifecycle(strat.public_strategy_trade(doc, sim, error, detail=True), doc)
         pending = sim["exit"] if sim else None
         trade["pending_exit"] = ({"exit_reason": pending["exit_reason"], "exit_session": pending["exit_session"].isoformat(),
                                   "exit_note": pending["exit_note"]} if pending else None)
@@ -482,7 +808,7 @@ async def get_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
             pending = sim["exit"]
         except svc.PricesUnavailable:
             mark_error = svc.PRICES_UNAVAILABLE
-    trade = svc.public_trade(doc, mark, mark_error, sim=sim)
+    trade = _with_lifecycle(svc.public_trade(doc, mark, mark_error, sim=sim), doc)
     trade["kind"] = "cash"
     trade["events"] = _cash_events(trade)
     trade["pending_exit"] = ({"exit_reason": pending["exit_reason"], "exit_session": pending["exit_session"].isoformat(),

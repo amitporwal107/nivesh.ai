@@ -167,7 +167,8 @@ async def _structure_inputs(docs: List[Dict[str, Any]]) -> Tuple[Dict[str, Any],
 
 
 # ── the book ─────────────────────────────────────────────────────────────────
-async def read(db, user_id: str, *, now: Optional[datetime] = None, sector_of=None) -> Dict[str, Any]:
+async def read(db, user_id: str, *, now: Optional[datetime] = None, sector_of=None,
+               exclude: Optional[set] = None) -> Dict[str, Any]:
     """The whole book (see the module docstring). `sector_of(symbol)` is awaited for legacy positions with no stored
     sector. Raises only when a store cannot be read at all; every unknown figure is None with a reason."""
     moment = now or desk.utcnow()
@@ -278,11 +279,28 @@ async def read(db, user_id: str, *, now: Optional[datetime] = None, sector_of=No
         peak = float(equity)
     drawdown = None if equity is None or peak <= 0 else round(max(0.0, (peak - equity) / peak * 100.0), 4)
 
-    reserved = acct.reservation_summary(account_doc)
+    # `exclude` (an F&O roll: the structure being replaced) leaves those trades out of the BUDGETS — their reservation
+    # entries, positions, exposure, sector and held symbol — and credits the funds they block to `available_rs`. They
+    # stay in equity and the period P&L, which closing them only turns from unrealised into realised.
+    excluded = [d for d in open_docs if d["_id"] in (exclude or set())]
+    budget_doc = account_doc
+    if excluded and account_doc is not None:
+        gone = [e for e in (account_doc.get("reservations") or []) if e.get("trade_id") in exclude]
+        budget_doc = dict(account_doc, reservations=[e for e in account_doc.get("reservations") or [] if e not in gone])
+        for k, v in acct._entries_inc(gone, sign=-1).items():
+            if "." in k:
+                group, key = k.split(".", 1)
+                budget_doc[group] = dict(budget_doc.get(group) or {})
+                budget_doc[group][key] = (budget_doc[group].get(key) or 0) + v
+            else:
+                budget_doc[k] = (budget_doc.get(k) or 0) + v
+        credit = sum(float(d.get("paper_reserved_rs") or 0.0) for d in excluded)
+        account = dict(account, available_rs=round(account["available_rs"] + credit, 2))
+    reserved = acct.reservation_summary(budget_doc)
     reserved_ids = {r.get("trade_id") for r in reserved["entries"]}
     legacy: List[Dict[str, Any]] = []
     positions: List[Dict[str, Any]] = []
-    for doc in open_docs:
+    for doc in (d for d in open_docs if d["_id"] not in (exclude or set())):
         sym = doc.get("underlying") if doc.get("kind") == strat.KIND else doc.get("symbol")
         entry = next((r for r in reserved["entries"] if r.get("trade_id") == doc["_id"]), None)
         pos = {"trade_id": doc["_id"], "store": desk.TRADES, "kind": doc.get("kind") or "cash", "symbol": sym,

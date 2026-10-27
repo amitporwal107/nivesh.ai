@@ -11,6 +11,7 @@
  */
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
+import { TradePlanOrNull } from "../tradingdesk/strategy/trade-plan";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import { paramsFromPlanInputs } from "../tradingdesk/strategy/ideas-data";
@@ -45,6 +46,9 @@ export const CashEntrySchema = z.object({
     .nullable().catch(null),
   sized_shares: num,
   plan_inputs: z.record(z.unknown()).catch({}),
+  /** Phase 2.1: the TradePlan the job stored with the row (absent on days stored before plans). */
+  trade_plan_id: z.string().nullable().optional().catch(null),
+  trade_plan: TradePlanOrNull,
   ...Listing,
 });
 

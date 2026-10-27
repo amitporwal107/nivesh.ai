@@ -184,14 +184,16 @@ def apply(doc: Dict[str, Any], update: Dict[str, Any], *, inserting: bool = Fals
         if arr is None:
             arr = []
             _set_path(doc, k, arr)
-        arr.append(copy.deepcopy(v))
+        items = v["$each"] if isinstance(v, dict) and set(v) == {"$each"} else [v]
+        arr.extend(copy.deepcopy(items))
     for k, v in (update.get("$addToSet") or {}).items():
         arr = _get_one(doc, k)
         if arr is None:
             arr = []
             _set_path(doc, k, arr)
-        if v not in arr:
-            arr.append(copy.deepcopy(v))
+        for item in (v["$each"] if isinstance(v, dict) and set(v) == {"$each"} else [v]):
+            if item not in arr:
+                arr.append(copy.deepcopy(item))
     for k, cond in (update.get("$pull") or {}).items():
         arr = _get_one(doc, k)
         if not isinstance(arr, list):

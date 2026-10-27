@@ -75,6 +75,7 @@ from services import desk_trading as base
 from services import exit_rules as er
 from services import option_pricing as op
 from services import paper_account
+from services import trade_lifecycle as lifecycle
 from services.copilot_tools import daas_client
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,8 @@ MARK_BASIS_TEXT = {
     "expiry_intrinsic": "settled at intrinsic value against the underlying's close on the expiry date",
     "final_settle": "the future's final settle price on its expiry date",
     "underlying_close": "the underlying's end-of-day close",
+    "roll_close": "the contract's NSE bhavcopy close_price on the roll session (never the settle price, which on an "
+                  "expiry date holds the underlying's settlement price)",
 }
 LEG_MARK_SOURCE = "NSE F&O bhavcopy (nidp.fno_bhavcopy via the data platform), end of day"
 UNBOUNDED_NOTE = ("Futures losses can exceed the margin posted; this record is a simulation and the loss is not capped "
@@ -125,6 +128,7 @@ EXIT_TEXT = {
     "expiry": "Every leg with an expiry has expired and been settled.",
     "time": "Held for the most sessions the plan allows.",
     "manual": "Closed by you at the last end-of-day marks.",
+    "roll": "Rolled to the next expiry: every leg closed at the roll session's NSE bhavcopy close.",
 }
 SESSION_MARKS_NOTE = ("The legs are closed at that session's end-of-day marks, not at the underlying's intraday touch price.")
 
@@ -899,9 +903,11 @@ def net_premium(legs: List[Dict[str, Any]], prices: List[Optional[float]]) -> Op
 # ── writes (idempotent: the status is part of the filter) ────────────────────
 async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_session: Optional[date],
                                exit_note: Optional[str], sim: Dict[str, Any], now: Optional[datetime] = None,
-                               exit_basis: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], bool]:
+                               exit_basis: Optional[str] = None,
+                               extra: Optional[Dict[str, Any]] = None) -> Tuple[Optional[Dict[str, Any]], bool]:
     """(the trade as stored afterwards, True when THIS call closed it). Writes the closing fields only: the signal,
-    legs and levels are never in the update. Never touches a trade that is not open."""
+    legs and levels are never in the update. Never touches a trade that is not open. `extra` adds closing fields
+    (a roll's `rolled_to`). The lifecycle events of the close go in the same conditional update (Phase 2.2)."""
     stamp = base._iso(now or base.utcnow())
     legs = trade["legs"]
     exit_marks = [st["mark"] for st in sim["legs"]]
@@ -943,9 +949,22 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
         "checked_through": sim["checked_through"].isoformat() if sim["checked_through"] else None,
         "events": events,
         "updated_at": stamp,
+        **(extra or {}),
     }
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
-    res = await db[base.TRADES].update_one({**owner, "status": "open"}, {"$set": change})
+    user_close = exit_reason == "manual"
+    try:
+        transitions = lifecycle.close_events(
+            trade, exit_reason=exit_reason, at=stamp, session=session_text, fill_price=None, est_costs_rs=costs,
+            source="roll" if exit_reason == "roll" else ("user" if user_close else "desk_paper_simulator"),
+            actor=trade.get("user_id") if user_close or exit_reason == "roll" else "exit_rule", note=exit_note)
+    except lifecycle.InvalidTransition as exc:
+        logger.error("desk_strategy: trade %s is open but its lifecycle says %s: closed without new events", trade["_id"], exc)
+        transitions = []
+    if transitions:
+        transitions[-1]["fill_price"] = [leg["exit_mark"] for leg in exit_legs]           # every leg's closing mark
+    res = await db[base.TRADES].update_one({**owner, "status": "open", **lifecycle.state_filter(trade)},
+                                           lifecycle.update_for(transitions, change))
     if res.matched_count:
         # As the cash close (desk_trading.close_trade): the account gets back exactly what this structure
         # reserved when it was opened (its capital at risk), plus or minus its net P&L. Here rather than in the
@@ -953,7 +972,10 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
         # too; only the call that matched the open trade releases, so a racing second close releases nothing.
         await paper_account.release(db, trade["user_id"], trade.get("paper_reserved_rs"),
                                     net_pnl=change["net_pnl_rs"], trade_id=trade["_id"], symbol=trade.get("symbol"))
-        return {**trade, **change}, True
+        done = {**trade, **change}
+        if transitions:
+            done.update(state=transitions[-1]["to"], transitions=list(trade.get("transitions") or []) + transitions)
+        return done, True
     return await db[base.TRADES].find_one(owner), False
 
 

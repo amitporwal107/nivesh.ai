@@ -90,7 +90,7 @@ logger = logging.getLogger(__name__)
 POLICY_VERSION = "universal-risk-v1"
 SNAPSHOT_VERSION = "risk-service-snapshot-v1"
 SOURCE = "risk_service"
-PATHS = ("desk_paper_trade", "journal_create", "journal_fill", "ai_trader_signal", "ai_trader_confirm")
+PATHS = ("desk_paper_trade", "desk_paper_roll", "journal_create", "journal_fill", "ai_trader_signal", "ai_trader_confirm")
 ACTIONS = ("open", "add")
 INSTRUMENTS = ("cash", "structure")
 MAX_ENTRY_DISTANCE_PCT = 20.0
@@ -139,6 +139,8 @@ class EntryRequest(BaseModel):
     cost_model: Optional[Dict[str, Any]] = None  # the server's own snapshot (desk COST_MODEL), set by the route
     add_plan: Optional[Dict[str, Any]] = None    # an add (journal fill): the plan it must stay within, from the server
     fno_additional: bool = False                 # the fno_risk_gate rollout flag, judged by the route on the session
+    replaces_trade_id: Optional[str] = None      # an F&O roll: the open structure this one replaces (closed before it
+                                                 # opens), left out of the budgets and its funds credited
 
 
 def inputs_hash(req: EntryRequest) -> str:
@@ -171,7 +173,8 @@ async def gather(db, req: EntryRequest, now: datetime) -> Dict[str, Any]:
     snap["controls"] = await risk_book.controls(db, req.user_id)
     snap["live_allowed"] = (await modes.is_live_allowed(db, req.user_id)) if req.mode == "live" else None
     try:
-        snap["book"] = await risk_book.read(db, req.user_id, now=now, sector_of=inputs.sector_of)
+        snap["book"] = await risk_book.read(db, req.user_id, now=now, sector_of=inputs.sector_of,
+                                            exclude={req.replaces_trade_id} if req.replaces_trade_id else None)
         snap["book_error"] = None
     except Exception as e:  # noqa: BLE001 — fail closed: every limit that needs the book blocks
         logger.error("risk_service: the book of %s could not be read (%s)", req.user_id, type(e).__name__)
@@ -765,9 +768,22 @@ def decide(req: EntryRequest, snap: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ── record and reserve ───────────────────────────────────────────────────────
+def _rejected_event(rejection: Optional[Dict[str, Any]], body: Dict[str, Any], decision_id: str, at: str) -> Optional[Dict[str, Any]]:
+    """Phase 2.2's REJECTED lifecycle event for a refused open (services/trade_lifecycle.rejection_record), carrying
+    this decision's id and blocking codes; None when the caller gave no lifecycle context."""
+    if rejection is None:
+        return None
+    from services import trade_lifecycle as lc
+    blocking = [r for r in body["reasons"] if r["severity"] in BLOCKING] or body["reasons"]
+    reason = "; ".join(r["message"] for r in blocking[:3]) or ("reduced: " + str(body.get("approved_qty")))
+    return lc.rejection_record(frm=rejection.get("plan_state"), reason=reason, source=rejection.get("source") or SOURCE,
+                               at=at, codes=[r["code"] for r in blocking] or ["risk_reduce"],
+                               plan_id=rejection.get("plan_id"), risk_decision_id=decision_id)
+
+
 async def _persist(db, req: EntryRequest, body: Dict[str, Any], *, decision_id: str, at: str,
                    snapshot: Optional[Dict[str, Any]], supersedes: Optional[str] = None,
-                   reservation_id: Optional[str] = None) -> None:
+                   reservation_id: Optional[str] = None, lifecycle: Optional[Dict[str, Any]] = None) -> None:
     row = {
         "_id": decision_id, "user_id": req.user_id, "at": at, "action": req.path, "path": req.path,
         "outcome": {"allow": "allowed", "reduce": "reduced", "block": "blocked"}[body["outcome"]],
@@ -786,6 +802,8 @@ async def _persist(db, req: EntryRequest, body: Dict[str, Any], *, decision_id: 
     }
     if supersedes:
         row["supersedes"] = supersedes
+    if lifecycle is not None:
+        row["detail"]["lifecycle"] = lifecycle           # where Phase 2.2's refusals keep it (routes/desk_trading._Refusals)
     if snapshot is not None:
         row.update(snapshot=snapshot, snapshot_version=SNAPSHOT_VERSION, snapshot_hash=snapshot_hash(snapshot))
     try:
@@ -816,10 +834,49 @@ async def _exists(db, entry: Dict[str, Any]) -> bool:
     return await db[store].find_one({"_id": entry.get("trade_id")}) is not None
 
 
+def _entry_for(req: EntryRequest, body: Dict[str, Any], decision_id: str) -> Dict[str, Any]:
+    cash = req.instrument == "cash"
+    return {"id": decision_id, "trade_id": req.trade_id, "store": req.store, "path": req.path,
+            "kind": "cash" if cash else "structure", "symbol": (req.symbol or "").strip().upper(),
+            "sector": body.get("sector"), "funding_rs": float(body["budget"].get("funding_rs") or 0.0),
+            "risk_rs": float((body.get("estimated_risk_rs") or {}).get("total") or 0.0),
+            "exposure_rs": float(body["budget"].get("new_exposure_rs") or 0.0),
+            "positions": 0 if req.action == "add" else 1, "held": cash and req.action == "open"}
+
+
+async def _reserve(db, req: EntryRequest, out: Dict[str, Any], caps: Dict[str, Any], *,
+                   rejection: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Take the reservation for an allowed (or accepted reduced) decision; a refusal by the account is recorded as a
+    second, blocking row that supersedes the decision, and returned in its place."""
+    decision_id = out["decision_id"]
+    try:
+        await acct.reserve_entry(db, req.user_id, _entry_for(req, out, decision_id), caps)
+    except acct.ReservationRefused as refused:
+        cash = req.instrument == "cash"
+        codes = refused.which or ["reservation_refused"]
+        lost = {**{k: out[k] for k in ("requested_qty", "requested_lots", "planned_entry_price", "estimated_risk_rs",
+                                        "budget", "freshness", "sector", "limits_version", "profile", "checks")},
+                "outcome": "block", "approved_qty": 0 if cash else None, "approved_lots": None if cash else 0,
+                "approved_notional_rs": None,
+                "reasons": out["reasons"] + [{"code": c, "check": "reservation", "severity": "block", "value": None,
+                                              "limit": None, "message": "Another entry took this budget between the "
+                                              "decision and the reservation; nothing was reserved."} for c in codes]}
+        second = str(uuid.uuid4())
+        at = desk.utcnow().astimezone(timezone.utc).isoformat()
+        await _persist(db, req, lost, decision_id=second, at=at, snapshot=None, supersedes=decision_id,
+                       lifecycle=_rejected_event(rejection, lost, second, at))
+        return {**out, **lost, "decision_id": second, "supersedes": decision_id, "reservation_id": None}
+    return {**out, "reservation_id": decision_id}
+
+
 async def enter(db, req: EntryRequest, *, reserve: bool = True, accept_reduce: bool = False,
-                now: Optional[datetime] = None) -> Dict[str, Any]:
+                now: Optional[datetime] = None, rejection: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Decide, record, and (when the decision allows, or reduces and `accept_reduce`) reserve. Returns the decision;
-    raises DecisionUnrecorded. Never raises for a bad input: that is a block with a reason."""
+    raises DecisionUnrecorded. Never raises for a bad input: that is a block with a reason.
+
+    `reserve=False` decides and records only; an allowed decision then carries its reservation caps (`_caps`) for
+    `reserve_decided`, which a roll calls once the structure it replaces is closed. `rejection` ({source, plan_id,
+    plan_state}) puts Phase 2.2's REJECTED lifecycle event on the row of a refused open."""
     moment = now or desk.utcnow()
     await rc.ensure_indexes(db)
     if reserve:
@@ -833,38 +890,28 @@ async def enter(db, req: EntryRequest, *, reserve: bool = True, accept_reduce: b
     body = decide(req, snapshot)
     decision_id = str(uuid.uuid4())
     at = moment.astimezone(timezone.utc).isoformat()
-    take = reserve and (body["outcome"] == "allow" or (body["outcome"] == "reduce" and accept_reduce))
+    usable = body["outcome"] == "allow" or (body["outcome"] == "reduce" and accept_reduce)
+    take = reserve and usable
+    add_free = req.action == "add" and req.add_plan and req.add_plan.get("reserved_risk_rs") is not None
     await _persist(db, req, body, decision_id=decision_id, at=at, snapshot=snapshot,
-                   reservation_id=decision_id if take else None)
+                   reservation_id=decision_id if take and not add_free else None,
+                   lifecycle=None if usable else _rejected_event(rejection, body, decision_id, at))
     out = {"decision_id": decision_id, "at": at, "correlation_id": req.correlation_id, "policy_version": POLICY_VERSION,
            "inputs_hash": inputs_hash(req), "snapshot_hash": snapshot_hash(snapshot), "reservation_id": None, **body}
-    if not take:
-        return out
-    book = snapshot["book"]
-    cash = req.instrument == "cash"
-    est_total = float((body.get("estimated_risk_rs") or {}).get("total") or 0.0)
-    add_free = req.action == "add" and req.add_plan and req.add_plan.get("reserved_risk_rs") is not None
-    if add_free:
+    if not usable or add_free:
         return out                                            # an add within its plan's reservation reserves nothing new
-    entry = {"id": decision_id, "trade_id": req.trade_id, "store": req.store, "path": req.path,
-             "kind": "cash" if cash else "structure", "symbol": (req.symbol or "").strip().upper(),
-             "sector": body.get("sector"), "funding_rs": float(body["budget"].get("funding_rs") or 0.0),
-             "risk_rs": est_total, "exposure_rs": float(body["budget"].get("new_exposure_rs") or 0.0),
-             "positions": 0 if req.action == "add" else 1, "held": cash and req.action == "open"}
-    try:
-        await acct.reserve_entry(db, req.user_id, entry, _caps(body, book))
-    except acct.ReservationRefused as refused:
-        codes = refused.which or ["reservation_refused"]
-        lost = {**body, "outcome": "block", "approved_qty": 0 if cash else None, "approved_lots": None if cash else 0,
-                "reasons": body["reasons"] + [{"code": c, "check": "reservation", "severity": "block", "value": None,
-                                               "limit": None, "message": "Another entry took this budget between the "
-                                               "decision and the reservation; nothing was reserved."} for c in codes]}
-        second = str(uuid.uuid4())
-        await _persist(db, req, lost, decision_id=second, at=desk.utcnow().astimezone(timezone.utc).isoformat(),
-                       snapshot=None, supersedes=decision_id)
-        return {**out, **lost, "decision_id": second, "supersedes": decision_id, "reservation_id": None}
-    out["reservation_id"] = decision_id
-    return out
+    caps = _caps(body, snapshot["book"])
+    if not reserve:
+        out["_caps"] = caps
+        return out
+    return await _reserve(db, req, out, caps, rejection=rejection)
+
+
+async def reserve_decided(db, req: EntryRequest, decision: Dict[str, Any], *,
+                          rejection: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Take the reservation of a decision made with `reserve=False` (an F&O roll, after the old structure closed).
+    Returns the decision with its reservation id, or the superseding blocking decision when the account refused."""
+    return await _reserve(db, req, {k: v for k, v in decision.items() if k != "_caps"}, decision["_caps"], rejection=rejection)
 
 
 async def release_unused(db, user_id: str, decision: Dict[str, Any], *, reason: str) -> bool:
@@ -905,11 +952,13 @@ def unrecorded(correlation_id: str) -> HTTPException:
         "message": "The risk decision could not be recorded, so nothing was written. Try again."})
 
 
-async def enforce(db, req: EntryRequest, *, now: Optional[datetime] = None) -> Dict[str, Any]:
-    """For a path that writes only at the size asked for (the desk, the journal): the decision when it ALLOWS (with
-    its reservation taken); otherwise raises 409 risk_blocked / risk_reduce, or 503 when it could not be recorded."""
+async def enforce(db, req: EntryRequest, *, now: Optional[datetime] = None, reserve: bool = True,
+                  rejection: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """For a path that writes only at the size asked for (the desk, the journal, the roll): the decision when it ALLOWS
+    (with its reservation taken, unless `reserve=False`); otherwise raises 409 risk_blocked / risk_reduce, or 503 when
+    it could not be recorded."""
     try:
-        decision = await enter(db, req, reserve=True, accept_reduce=False, now=now)
+        decision = await enter(db, req, reserve=reserve, accept_reduce=False, now=now, rejection=rejection)
     except DecisionUnrecorded:
         raise unrecorded(req.correlation_id)
     if decision["outcome"] != "allow":

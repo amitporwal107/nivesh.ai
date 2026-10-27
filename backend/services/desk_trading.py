@@ -107,6 +107,7 @@ from urllib.parse import quote
 
 from services import desk_cost_card as cost_card
 from services import exit_rules as er
+from services import trade_lifecycle as lifecycle
 from services.copilot_tools import daas_client
 from services.strategy_engine.backtest import DEFAULT_BROKERAGE_INR, DEFAULT_SLIPPAGE_PCT
 
@@ -970,18 +971,84 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
         "updated_at": stamp,
     }
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
-    res = await db[TRADES].update_one({**owner, "status": "open"}, {"$set": change})
-    if res.matched_count:
-        # The account gets back exactly what this trade reserved, plus or minus its net P&L. The
-        # figure comes from the trade, not from a fresh calculation: recomputing it at today's prices
-        # is how a paper account silently drifts away from the positions that made it. Released here
-        # rather than in the route so an AUTOMATIC exit (apply_trade_exits) frees the capital too.
-        from services import paper_account as _acct
-        await _acct.release(db, trade["user_id"], trade.get("paper_reserved_rs"),
-                            net_pnl=change.get("net_pnl_rs"), trade_id=trade["_id"],
-                            symbol=trade.get("symbol"))
-        return {**trade, **change}, True
+    # Phase 2.2: the lifecycle events of this close (services/trade_lifecycle.close_events) are written in the SAME
+    # conditional update that changes the status, filtered on the state the events start from. When that state moved
+    # in between (the entry fill was recorded by another read) the events are worked out again from the stored state.
+    for _ in range(3):
+        events = _close_lifecycle(trade, change, path, sim, exit_reason, exit_session, exit_price, costs)
+        res = await db[TRADES].update_one({**owner, "status": "open", **lifecycle.state_filter(trade)},
+                                          lifecycle.update_for(events, change))
+        if res.matched_count:
+            # The account gets back exactly what this trade reserved, plus or minus its net P&L. The
+            # figure comes from the trade, not from a fresh calculation: recomputing it at today's prices
+            # is how a paper account silently drifts away from the positions that made it. Released here
+            # rather than in the route so an AUTOMATIC exit (apply_trade_exits) frees the capital too.
+            from services import paper_account as _acct
+            await _acct.release(db, trade["user_id"], trade.get("paper_reserved_rs"),
+                                net_pnl=change.get("net_pnl_rs"), trade_id=trade["_id"],
+                                symbol=trade.get("symbol"))
+            done = {**trade, **change}
+            if events:
+                done.update(state=events[-1]["to"], transitions=list(trade.get("transitions") or []) + events)
+            return done, True
+        fresh = await db[TRADES].find_one(owner)
+        if fresh is None or fresh.get("status") != "open":
+            return fresh, False
+        trade = {**trade, "state": fresh.get("state"), "transitions": fresh.get("transitions")}
+    logger.error("desk_trading: trade %s could not be closed: its lifecycle state kept moving", trade["_id"])
     return await db[TRADES].find_one(owner), False
+
+
+def _close_lifecycle(trade: Dict[str, Any], change: Dict[str, Any], path: Dict[str, Any], sim: Optional[Dict[str, Any]],
+                     exit_reason: str, exit_session: Optional[date], exit_price: Optional[float],
+                     costs: Optional[float]) -> List[Dict[str, Any]]:
+    """The close's lifecycle events. A trade whose stored state cannot close (a state machine violation on a document
+    that is still `open`) is closed without new events and the inconsistency is logged, so a position is never left
+    unmanaged because its audit trail is broken."""
+    user_close = exit_reason in ("manual", "cancelled")
+    entered = path.get("entry_status") in ENTERED if sim is not None or path.get("entry_status") else None
+    try:
+        return lifecycle.close_events(
+            trade, exit_reason=exit_reason, at=change["closed_at"], session=exit_session, fill_price=exit_price,
+            est_costs_rs=costs, entry_session=path.get("entry_session"), entry_fill=path.get("sim_entry_price"),
+            entered=entered, source="roll" if exit_reason == "roll" else ("user" if user_close else "desk_paper_simulator"),
+            actor=trade.get("user_id") if user_close else "exit_rule", note=change.get("exit_note"))
+    except lifecycle.InvalidTransition as exc:
+        logger.error("desk_trading: trade %s is open but its lifecycle says %s: closed without new events", trade["_id"], exc)
+        return []
+
+
+async def record_entry_fill(db, trade: Dict[str, Any], sim: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A conditional entry the bars show reached (and no exit yet): TRADE_ELIGIBLE → ENTRY_TRIGGERED → POSITION_OPEN,
+    written once with the fill and its slippage (filter: still open, still TRADE_ELIGIBLE). A second evaluation finds
+    the state moved and writes nothing. Returns the trade as stored afterwards, or None when nothing was written."""
+    if sim.get("entry_status") != "reached" or trade.get("status") != "open":
+        return None
+    events = lifecycle.entry_fill_events(trade, session=sim.get("entry_session"), fill_price=sim.get("sim_entry_price"),
+                                         at=_iso(utcnow()))
+    if not events:
+        return None
+    owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
+    res = await db[TRADES].update_one({**owner, "status": "open", **lifecycle.state_filter(trade)},
+                                      lifecycle.update_for(events, {"updated_at": _iso(utcnow())}))
+    if not res.matched_count:
+        return None
+    return {**trade, "state": events[-1]["to"], "transitions": list(trade.get("transitions") or []) + events}
+
+
+def open_lifecycle(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Stamp a NEW trade (cash or strategy) with its opening lifecycle state and events, right before it is inserted
+    (after the risk gate has stamped its decision id, so the events carry it)."""
+    est = None
+    if doc.get("kind") != "strategy":
+        try:
+            est = estimated_costs(doc)["at_stop"]
+        except (KeyError, TypeError, ValueError):
+            est = None
+    events = lifecycle.opening_events(doc, est_costs_rs=est)
+    doc["state"] = events[-1]["to"]
+    doc["transitions"] = events
+    return doc
 
 
 async def fire_alert(db, alert: Dict[str, Any], *, fired_session: date, fired_price: float,
@@ -1019,6 +1086,8 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
         counts["checked_through"][trade["_id"]] = sim["checked_through"]
         counts["paths"][trade["_id"]] = sim
         if exit_ is None:
+            if persist:
+                trade = await record_entry_fill(db, trade, sim) or trade      # Phase 2.2: a conditional entry that filled
             if persist and trade.get("exit_rules") and sim["stop_version"] > int(trade.get("stop_version") or 1):
                 trade = await record_stop(db, trade, sim, counts)
             out.append(trade)

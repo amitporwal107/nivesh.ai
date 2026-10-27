@@ -96,6 +96,15 @@ async def run(list_date: str, *, skip_if_done: bool, dry_run: bool) -> int:
     if dry_run:
         log.info("dry run: nothing written")
         return 0
+    # Phase 2.1: the day's TradePlans are stored (insert-once, owner = the job) BEFORE the day, so every plan_id a
+    # stored row names can be cited by a paper trade. A plan that cannot be stored is marked on the row (stored: false).
+    from deps import db
+    from services.ai_watchlist_build import SYSTEM_USER, trade_plans_of_day
+    from services.strategy_plan import trade_plan as tpm
+    plans = trade_plans_of_day(doc)
+    await tpm.store_many(db, plans, SYSTEM_USER["user_id"])
+    log.info("trade plans: %d stored, %d not stored", sum(1 for p in plans if p.get("stored")),
+             sum(1 for p in plans if p.get("stored") is False))
     if not await store.insert_day(doc):
         log.warning("%s was stored by another run meanwhile: nothing written", list_date)
         return 3

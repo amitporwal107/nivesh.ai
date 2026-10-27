@@ -413,7 +413,10 @@ def test_underlying_bars_missing_means_no_stop_check_and_a_flag(api, sworld):
     sworld.rows["FIXU"] = []
     t = only_strategy(trades(api))
     assert "underlying_bars_missing" in [f["code"] for f in t["flags"]]
-    assert t["status"] == "open" and t["gross_pnl_rs"] == 6250.0           # marks still come from the bhavcopy rows
+    assert t["gross_pnl_rs"] == 6250.0                                     # marks still come from the bhavcopy rows
+    # Integrated with feat/p2-trade-plan-lifecycle: the route stores strategy_levels' premium plan at entry
+    # (exit_plan.options), and on those marks the whole spread is worth its premium target 1, so it closes by that rule.
+    assert t["premium_plan"] is not None and (t["status"], t["exit_reason"]) == ("closed", "target")
 
 
 def test_prices_unavailable_keeps_the_trade_listed_with_no_marks(api, sworld):
@@ -533,7 +536,11 @@ def test_the_list_carries_both_kinds_and_the_share_rules_ignore_strategy_documen
     body = trades(api)
     kinds = {t["id"]: t["kind"] for t in body["trades"]}
     assert kinds == {cash["id"]: "cash", s["id"]: "strategy"}
-    assert body["summary"]["open"] == 2 and body["summary"]["closed"] == 0
+    # The spread reaches the premium target 1 stored at entry (exit_plan.options, feat/p2-trade-plan-lifecycle) on its
+    # marks, so the summary counts it closed; the share trade stays open under its own rule.
+    strat_row = next(t for t in body["trades"] if t["kind"] == "strategy")
+    assert (strat_row["status"], strat_row["exit_reason"]) == ("closed", "target")
+    assert body["summary"]["open"] == 1 and body["summary"]["closed"] == 1
     shares = [t for t in body["trades"] if t["kind"] == "cash"]
     assert shares[0]["rules_version"] == "desk-paper-v2" and body["rules_version"] == "desk-paper-v2"
     assert body["strategy_rules_version"] == "desk-paper-v3"

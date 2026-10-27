@@ -46,6 +46,19 @@ call_iv, call_iv_price, put_iv, put_iv_price, atm_iv, reason`. Written only by `
 (nightly cron documented in the script, not installed); see `backend/services/fno_iv_history.py`. A session that was
 not read has no document; nothing is interpolated.
 
+Desk trade plans and lifecycle (Phase 2.1 / 2.2): `trade_plans` — one TradePlan per `_id` = `plan_id` (`"tp_"` + a hash of
+its content, `backend/services/strategy_plan/trade_plan.py`), inserted once; `owners[]` (who built it; a `system:` owner is
+readable by everyone), `lineage_key` + `version` + `supersedes` + `revalidation{ok, problems, after_approval}` for a changed
+plan of the same instrument / family / day, `events[]` (REJECTED records of refused opens). `desk_paper_trades` and
+`ai_trader_tickets` gain `state` and append-only `transitions[]` (`backend/services/trade_lifecycle.py`); trades also
+`plan_ref`, `trade_plan_id`, `plan_levels`, `exit_plan.options` (strategy_levels premium stop / T1 / T2, stored, evaluated
+by the exits work), `rolled_from` / `rolled_to`. Backfill for older documents: `backend/scripts/backfill_trade_lifecycle.py`
+(dry run by default).
+
+Postgres migration 025: `positional_signals.revision`, `positional_signals.stop_method` (JSONB) and
+`positional_signals_history` (a scanner re-run or day rewrite keeps the row it replaces; PK
+`(nse_symbol, signal_date, revision)`).
+
 ## Conventions
 snake_case tables/columns · UUID PKs (`uuid-ossp`) on app PG · timestamps UTC · money as
 `NUMERIC`, never float · NAV `NUMERIC(12,4)`.
