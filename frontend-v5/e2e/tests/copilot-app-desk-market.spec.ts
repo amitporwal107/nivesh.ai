@@ -110,8 +110,6 @@ const SECTOR_RETURNS = {
     { index: "Nifty Realty", sector: "Realty", date: "2026-10-10", close: 980.4, ret_1d_pct: -1.6, ret_1w_pct: -3.05, ret_1m_pct: 4.4 },
   ],
 };
-const PERIOD_KEY = { "1d": "ret_1d_pct", "1w": "ret_1w_pct", "1m": "ret_1m_pct" } as const;
-  [...SECTOR_RETURNS.sectors].sort((a, b) => ((b[PERIOD_KEY[period]] as number | null) ?? -Infinity) - ((a[PERIOD_KEY[period]] as number | null) ?? -Infinity));
 
 // backend/routes/positional.py (get_watchlist, get_picks): three setups; only TESTPICK carries a score.
 const WATCHLIST = { as_of_date: "2026-10-13", buckets: {
@@ -289,7 +287,7 @@ function regime(key: string | null, i: { nifty: number | null; avg: number | nul
 }
 
 // The old Overview cards (tradingdesk/OverviewTab.tsx) left the desk in step 2 (Market Overview) and were deleted in step 6,
-// with their cases (TC-7 … TC-12, OV-005 … OV-006, §3.2). Market Overview's strip and events replace them
+// with their cases (TC-3 … TC-12, OV-005 … OV-008, §3.2). Market Overview's strip and events replace them
 // (copilot-app-desk-market-overview.spec.ts: MO-2 … MO-9, MO-2b … MO-2d for the Kite close, MO-24, MO-30, and MO-33 / MO-34
 // for a failed market or sector read). The case below runs on the current desk.
 test.describe("Smart trading desk — Overview", () => {
