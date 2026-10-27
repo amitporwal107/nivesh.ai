@@ -8,4 +8,4 @@ Public entry points:
     pipeline.score_symbol(symbol, ohlcv) — single-symbol path (testable)
 """
 
-ENGINE_VERSION = "positional.v1.0"
+ENGINE_VERSION = "positional.v1.1"   # v1.1: features on split/bonus-adjusted bars (price_adjustment); weights unchanged

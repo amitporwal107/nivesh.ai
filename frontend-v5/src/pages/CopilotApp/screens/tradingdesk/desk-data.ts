@@ -148,6 +148,9 @@ export interface DeskSetup {
   /** Which routes have this stock. */
   inPicks: boolean;
   inWatchlist: boolean;
+  /** How the scanner treated this row's prices: "warehouse_adjusted", "raw_no_factors" (no split/bonus factors: raw
+   *  prices) or "raw" (scored before engine v1.1). Never shown as adjusted unless the route says so. */
+  priceBasis?: string | null;
 }
 
 export interface DeskScanner {
@@ -164,6 +167,63 @@ export interface DeskScanner {
   classifierVersion: string | null;
   rulesVersion: string | null;
   engineVersions: string[];
+  /** What the served date's results were computed on (backend scan_meta.basis_for_date); null when no route sent it. */
+  scanBasis: ScanBasis | null;
+}
+
+/** The engine version, price basis, exceptions and data-quality status of the served scan date. */
+export interface ScanBasis {
+  date: string | null;
+  engineVersions: string[];
+  /** corp_action_adjusted | raw | mixed; null when the route could not read it (`unavailable` says why). */
+  priceBasis: string | null;
+  /** Rows scored on raw prices although the day is adjusted (no warehouse factors for the symbol). */
+  rawSymbols: string[];
+  /** Symbols not scored after a price break cut their history; null when the run did not record it. */
+  notScored: string[] | null;
+  /** clean | warnings | not_checked */
+  dataQuality: string;
+  warnings: number | null;
+  unavailable: string | null;
+}
+
+export function parseScanBasis(v: unknown): ScanBasis | null {
+  const b = rec(v);
+  if (!Object.keys(b).length) return null;
+  const exc = rec(b.exceptions);
+  const dq = rec(b.data_quality);
+  const names = (x: unknown) => arr(x).map((e) => str(rec(e).symbol)).filter((s): s is string => Boolean(s));
+  return {
+    date: str(b.date),
+    engineVersions: arr(b.engine_versions).filter((x): x is string => typeof x === "string" && Boolean(x)),
+    priceBasis: str(b.price_basis),
+    rawSymbols: names(exc.raw_prices),
+    notScored: Array.isArray(exc.not_scored_after_truncation) ? names(exc.not_scored_after_truncation) : null,
+    dataQuality: str(dq.status) ?? "not_checked",
+    warnings: num(dq.warnings),
+    unavailable: str(b.unavailable),
+  };
+}
+
+/** The desk's one quiet line: "Engine positional.v1.1 · adjusted prices · data checks: clean". */
+export function scanBasisLine(b: ScanBasis | null, engineVersions: string[]): string {
+  if (!b) return "Engine, price basis and data checks: not published for this scan";
+  if (b.unavailable) return `Engine, price basis and data checks: unavailable (${b.unavailable})`;
+  const engines = b.engineVersions.length ? b.engineVersions : engineVersions;
+  const parts = [engines.length ? `Engine ${engines.join(", ")}` : "Engine unknown"];
+  if (b.priceBasis === "corp_action_adjusted") {
+    const extra = [b.rawSymbols.length ? `${b.rawSymbols.length} on raw prices` : null,
+      b.notScored?.length ? `${b.notScored.length} not scored after a price break` : null].filter(Boolean);
+    parts.push(`adjusted prices${extra.length ? ` (${extra.join(", ")})` : ""}`);
+  } else if (b.priceBasis === "raw") {
+    parts.push("raw prices, not adjusted for splits or bonuses");
+  } else {
+    parts.push("mixed price basis");
+  }
+  const dq = b.dataQuality === "clean" ? "clean"
+    : b.dataQuality === "warnings" ? `${b.warnings ?? "?"} warning${b.warnings === 1 ? "" : "s"}` : "not run";
+  parts.push(`data checks: ${dq}`);
+  return parts.join(" · ");
 }
 
 function statusOf(bucket: SetupBucket | null, stage: string | null): SetupStatus {
@@ -180,13 +240,13 @@ interface WatchItem {
   symbol: string; bucket: SetupBucket; sector: string | null; stage: string | null; confidence: string | null; score: number | null;
   close: number | null; trigger: number | null; stop: number | null; atrPct: number | null; rsi14: number | null; ema20: number | null;
   sma50: number | null; why: string | null; signals: Record<string, number | null>; resistance: number | null; support: number | null;
-  spark: number[]; sparkEnd: string | null; avgTradedCr: number | null;
+  spark: number[]; sparkEnd: string | null; avgTradedCr: number | null; priceBasis: string | null;
 }
 
 interface PickItem {
   symbol: string; stage: string | null; confidence: string | null; score: number | null; entry: number | null; stop: number | null;
   target: number | null; riskReward: number | null; daysMin: number | null; daysMax: number | null; reasons: string[]; scans: string[];
-  spark: number[]; sparkEnd: string | null; avgTradedCr: number | null;
+  spark: number[]; sparkEnd: string | null; avgTradedCr: number | null; priceBasis: string | null;
 }
 
 /** GET /api/positional/watchlist's body (its `buckets` already checked by the shared read). */
@@ -209,6 +269,7 @@ function parseWatch(d: Raw): { asOf: string | null; items: WatchItem[] } {
         atrPct: num(r.atr_pct), rsi14: num(r.rsi_14), ema20: price(r.ema_20), sma50: price(r.sma_50),
         why: str(r.why), signals, resistance: price(r.resistance_level), support: price(r.support_level),
         spark: closes(r.spark_closes), sparkEnd: str(r.spark_end), avgTradedCr: nonNeg(r.avg_traded_value_cr_20d),
+        priceBasis: str(r.price_basis),
       });
     }
   }
@@ -228,6 +289,7 @@ function parsePicks(d: Raw): { signalDate: string | null; items: PickItem[] } {
       entry: price(p.entry_price), stop: price(p.stoploss), target: price(p.target_price), riskReward: num(p.risk_reward),
       daysMin: num(p.timeframe_days_min), daysMax: num(p.timeframe_days_max), reasons: strList(p.reasons), scans: strList(p.source_scans),
       spark: closes(p.spark_closes), sparkEnd: str(p.spark_end), avgTradedCr: nonNeg(p.avg_traded_value_cr_20d),
+      priceBasis: str(p.price_basis),
     });
   }
   return { signalDate: str(d.signal_date), items };
@@ -259,6 +321,7 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       riskReward: null, daysMin: null, daysMax: null, atrPct: w.atrPct, rsi14: w.rsi14, ema20: w.ema20, sma50: w.sma50,
       why: w.why, reasons: [], scans: [], signals: w.signals, inPicks: false, inWatchlist: true,
       resistance: w.resistance, support: w.support, spark: w.spark, sparkEnd: w.sparkEnd, avgTradedCr: w.avgTradedCr,
+      priceBasis: w.priceBasis,
     });
   }
   for (const p of picks) {
@@ -268,6 +331,7 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       confidence: p.confidence, close: null, trigger: null, entry: null, stop: null, target: null, riskReward: null,
       daysMin: null, daysMax: null, atrPct: null, rsi14: null, ema20: null, sma50: null, why: null, reasons: [], scans: [],
       signals: {}, inPicks: true, inWatchlist: false, resistance: null, support: null, spark: [], sparkEnd: null, avgTradedCr: null,
+      priceBasis: p.priceBasis,
     };
     // The pick's plan wins when it has one; the bucket keeps saying where the setup stands.
     const entry = p.entry ?? base.entry;
@@ -309,6 +373,7 @@ export function toDeskScanner(r: ScannerRoutes): DeskScanner {
     classifierVersion: str(rec(r.watch)._classifier_version),
     rulesVersion: rules?.version ?? str(rec(r.picks).rules_version),
     engineVersions: [...versions].sort(),
+    scanBasis: parseScanBasis(rec(r.watch).scan_basis) ?? parseScanBasis(rec(r.picks).scan_basis),
   };
 }
 
