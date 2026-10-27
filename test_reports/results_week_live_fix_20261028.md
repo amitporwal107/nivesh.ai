@@ -79,7 +79,7 @@ The 4 skipped are the opt-in screenshot runs (`shots 1440`, `shots 390` in two s
 ## UNVERIFIED
 - The deployed page after this merge (re-run the live checks on staging).
 
-## Addendum (02:35 IST): management commentary before the results
+## Addendum (02:05 IST): management commentary before the results
 Owner, 28 Oct: "management pre results commentary analysis if the results are not declared yet". The results file read
 filing analyses from only 21 days before the meeting, so last quarter's call, presentations and business updates never showed.
 Now analyses from up to 100 days before are kept when they are management's own material (call transcripts, presentations,
