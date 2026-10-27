@@ -56,3 +56,42 @@ def admin_email() -> str:
 @pytest.fixture(scope="session")
 def user_email() -> str:
     return os.environ["NIVESH_TEST_USER_EMAIL"]
+
+
+# ── the universal risk service's server-resolved inputs (services/risk_gate/inputs.py) ──────────────────────────
+# MOCK — not real data. Every desk / journal / AI-trader route now asks the risk service, which reads the sector
+# (index_constituents) and the market state (the desk regime) on the server and BLOCKS when either is unknown. Unit
+# tests have no data platform, so by default they get a known sector and a fresh, calm market state, dated at the
+# reference session of whatever clock the test fixed (services/desk_trading.utcnow). The instrument's bars are NOT
+# faked here: they come from each harness's own fake data platform, and fail closed without one.
+# Tests of the fail-closed paths override `risk_mock_inputs` (tests/test_risk_service.py).
+RISK_MOCK_SECTOR = "MOCK Sector"
+
+
+@pytest.fixture(autouse=True)
+def risk_mock_inputs(monkeypatch):
+    try:
+        from services import data_freshness as fresh
+        from services import desk_trading as desk
+        from services.risk_gate import inputs
+    except Exception:  # noqa: BLE001 — a suite that cannot import the backend has nothing to patch
+        yield None
+        return
+    state = {"sector": RISK_MOCK_SECTOR, "sectors": {}, "vix": 14.0, "regime": "BULL", "market_error": None,
+             "market_as_of": None}
+
+    async def sector_of(symbol):
+        sector = state["sectors"].get(str(symbol).upper(), state["sector"])
+        return {"sector": sector, "as_of": None, "source": "MOCK sector (tests/conftest.py)",
+                "error": None if sector else f"{symbol} is on none of the MOCK lists"}
+
+    async def market_state():
+        if state["market_error"]:
+            return {"vix": None, "regime": None, "as_of": None, "key": None, "source": "MOCK", "error": state["market_error"]}
+        as_of = state["market_as_of"] or fresh.reference_session(desk.utcnow()).isoformat()
+        return {"vix": state["vix"], "regime": state["regime"], "as_of": as_of, "key": "mock", "source": "MOCK regime",
+                "error": None}
+
+    monkeypatch.setattr(inputs, "sector_of", sector_of)
+    monkeypatch.setattr(inputs, "market_state", market_state)
+    yield state

@@ -71,7 +71,7 @@ RANGES = {
     "daily_loss_pct": (0.1, 20.0),
     "weekly_loss_pct": (0.1, 40.0),
     "max_drawdown_pct": (1.0, 50.0),
-    "min_reward_risk": (0.5, 10.0),
+    "min_reward_risk": (0.0, 10.0),            # 0 = the reward must at least cover the costs (admin only)
 }
 
 OWNER_DEFAULT = "owner-default-2026-10-27"

@@ -60,6 +60,14 @@ def exchange_lots(monkeypatch):
     monkeypatch.setattr(reference, "lookup", lookup)
 
 
+@pytest.fixture(autouse=True)
+def underlying_bar(world):
+    """MOCK — not real data: one BANKNIFTY end-of-day bar on 21 Oct at the idea's reference price. The universal risk
+    service reads the underlying's last close on the server (Phase 1) and refuses when there is none."""
+    from tests.test_desk_paper_sim import obar
+    world.rows["BANKNIFTY"] = [obar("2026-10-21", 54900.0, 55120.0, 54810.0, 54976.9)]
+
+
 # ── B-1, B-2: the bodies the button sends open a trade ───────────────────────
 @pytest.mark.parametrize("variant", ["body_with_levels", "body_without_levels"])
 def test_the_body_the_idea_button_sends_opens_a_strategy_trade_with_its_signal(api, world, variant):

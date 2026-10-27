@@ -37,7 +37,8 @@ from routes import desk_trading as route
 from services import desk_trading as svc
 from services import paper_account as _acct
 from services import risk_controls as _rc
-from tests.test_paper_account import mongo_expr
+from tests import mongo_ops
+from tests.test_paper_account import mongo_expr  # noqa: F401  (re-exported for older importers)
 
 TRADES_URL = "/api/desk/paper-trades"
 ALERTS_URL = "/api/desk/alerts"
@@ -48,15 +49,8 @@ NOW = datetime(2026, 10, 12, 5, 0, tzinfo=timezone.utc)          # Monday 10:30 
 
 # ── an in-memory Mongo collection ────────────────────────────────────────────
 def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
-    for key, cond in query.items():
-        if key == "$expr":          # the paper account's conditional reserve (services/paper_account.reserve)
-            if not mongo_expr(doc, cond):
-                return False
-            continue
-        assert not isinstance(cond, dict), f"the fake collection does not know {cond}"
-        if doc.get(key) != cond:
-            return False
-    return True
+    """Mongo's filter semantics for the operators the desk and the risk reservation use (tests/mongo_ops.py)."""
+    return mongo_ops.match(doc, query)
 
 
 class _Cursor:
@@ -65,6 +59,10 @@ class _Cursor:
 
     def sort(self, key: str, direction: int) -> "_Cursor":
         self._docs = sorted(self._docs, key=lambda d: str(d.get(key) or ""), reverse=direction < 0)
+        return self
+
+    def limit(self, n: int) -> "_Cursor":
+        self._docs = self._docs[:n]
         return self
 
     async def to_list(self, length: Optional[int]) -> List[Dict[str, Any]]:
@@ -126,25 +124,17 @@ class FakeCollection:
         self.docs.append(copy.deepcopy(doc))
 
     async def update_one(self, query, update, upsert=False):
-        # $inc / $setOnInsert / upsert are modelled because the paper account keeps its cash and
-        # blocked figures that way (services/paper_account). A fixture that cannot express them would
-        # fail every trade create, which is a gap in the fixture, not in the account.
-        known = {"$set", "$inc", "$setOnInsert", "$push"}
-        assert set(update) <= known, f"the fake collection does not know {set(update) - known}"
+        # $inc / $setOnInsert / upsert / $push / $pull / $max on dotted paths are modelled (tests/mongo_ops.py) because
+        # the paper account keeps its cash, blocked funds and risk reservation that way (services/paper_account). A
+        # fixture that cannot express them would fail every trade create, which is a gap in the fixture, not the code.
         for d in self.docs:
             if _matches(d, query):
                 self.writes += 1
-                d.update(copy.deepcopy(update.get("$set") or {}))
-                for key, delta in (update.get("$inc") or {}).items():
-                    d[key] = (d.get(key) or 0) + delta
-                for key, value in (update.get("$push") or {}).items():
-                    d.setdefault(key, []).append(copy.deepcopy(value))
+                mongo_ops.apply(d, update)
                 return _Result(matched=1)
         if upsert:
-            doc = copy.deepcopy(update.get("$setOnInsert") or {})
-            doc.update(copy.deepcopy(update.get("$set") or {}))
-            for key, delta in (update.get("$inc") or {}).items():
-                doc[key] = (doc.get(key) or 0) + delta
+            doc: Dict[str, Any] = {k: v for k, v in query.items() if not k.startswith("$") and not isinstance(v, dict)}
+            mongo_ops.apply(doc, update, inserting=True)
             self.writes += 1
             self.docs.append(doc)
             return _Result(matched=0)
@@ -170,7 +160,10 @@ class FakeDb:
                      _rc.DECISIONS: FakeCollection(),
                      _acct.ACCOUNTS: FakeCollection(), _acct.LEDGER: FakeCollection(),
                      # the evening script's lease and heartbeat (services/job_runs)
-                     "job_runs": FakeCollection(), "job_locks": FakeCollection()}
+                     "job_runs": FakeCollection(), "job_locks": FakeCollection(),
+                     # the universal risk service: the profile, its audit and the journal the risk book reads
+                     "risk_profiles": FakeCollection(), "risk_profile_audit": FakeCollection(),
+                     "trade_journal": FakeCollection(), "live_authorizations": FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"
@@ -185,11 +178,13 @@ class FakeDb:
         return self.cols[svc.ALERTS]
 
 
-def bar(day: str, high: Optional[float], low: Optional[float], close: Optional[float], series: str = "EQ") -> Dict[str, Any]:
-    """One row the way GET /v1/prices/eod/{symbol} sends it (row_to_dict of nidp.prices_eod)."""
+def bar(day: str, high: Optional[float], low: Optional[float], close: Optional[float], series: str = "EQ",
+        volume: float = 1_000_000) -> Dict[str, Any]:
+    """One row the way GET /v1/prices/eod/{symbol} sends it (row_to_dict of nidp.prices_eod). MOCK volume 10 lakh
+    shares (was 1,000): the risk service's liquidity rule caps a position at 5% of the average traded value."""
     return {"as_of_date": day, "symbol": None, "series": series, "isin": None, "prev_close": None,
             "open_price": None, "high_price": high, "low_price": low, "close_price": close,
-            "volume": 1000, "turnover": None, "trades": None, "deliv_qty": None, "deliv_pct": None}
+            "volume": volume, "turnover": None, "trades": None, "deliv_qty": None, "deliv_pct": None}
 
 
 # MOCK — not real data: FIXA trades around ₹100, FIXB around ₹500.
@@ -253,6 +248,9 @@ def world(monkeypatch) -> World:
 
     monkeypatch.setattr(svc.daas_client, "_get", fake_get)
     monkeypatch.setattr(svc.daas_client, "is_configured", lambda: w.configured)
+    # MOCK: the mechanics suites run under the loosest allowed risk profile (tests/risk_helpers.py)
+    from tests.risk_helpers import loose_profile_doc
+    w.db.cols["risk_profiles"].docs.extend(loose_profile_doc(u) for u in ("user_a", "user_b"))
     return w
 
 
@@ -264,6 +262,8 @@ def api(world) -> TestClient:
 
 
 def trade_body(**over) -> Dict[str, Any]:
+    # MOCK. On Rs 1,000 of notional the Rs 20-a-side brokerage makes reward:risk after costs 0.49: the owner's default
+    # profile refuses it, which is why this mechanics suite runs under tests/risk_helpers.loose_profile_doc.
     body = {"symbol": "FIXA", "quantity": 10, "entry_price": 100.0, "stop_price": 95.0, "target_price": 110.0}
     body.update(over)
     return body
@@ -353,7 +353,8 @@ def test_open_a_paper_trade_stores_it_for_the_user_and_returns_201(api, world):
     # completed session traded (the fill model, paper_fills_pnl TESTCASES FM-1); before that check, nothing was read.
     assert t["last_close"] is None and t["unrealized_pnl_rs"] is None and t["realized_pnl_rs"] is None
     assert body["price_basis"] == "end of day" and "nidp.prices_eod" in body["source"]
-    assert [c["symbol"] for c in world.calls] == ["M&M"]
+    # Read twice: the at-once range check, and the risk service's own server-side read of the last close (Phase 1).
+    assert [c["symbol"] for c in world.calls] == ["M&M", "M&M"]
     [stored] = world.db.trades.docs
     assert stored["_id"] == t["id"] and stored["user_id"] == "user_a" and len(t["id"]) == 36
     # The two unique partial indexes behind the duplicate and idempotency rules (TESTCASES I-13).
@@ -365,12 +366,16 @@ def test_open_a_paper_trade_stores_it_for_the_user_and_returns_201(api, world):
     assert stored["open_key"] == "cash:M&M" and "idempotency_key" not in stored        # no key was sent
 
 
-def test_target_may_be_null_or_left_out(api):
-    assert open_trade(api, target_price=None)["target_price"] is None
-    # Another symbol: a second open trade in FIXA would be the duplicate the desk now refuses.
+def test_a_trade_without_a_target_is_refused_by_the_risk_policy(api, world):
+    """Phase 1 behaviour change: the validator still accepts a null target, but the universal risk service needs one to
+    check reward against risk (min_reward_risk), so the entry is refused with target_required and nothing is written."""
+    r = api.post(TRADES_URL, json=trade_body(target_price=None), headers=A)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "risk_blocked"
+    assert "target_required" in [x["code"] for x in r.json()["detail"]["reasons"]]
     body = trade_body(symbol="FIXB", entry_price=500.0, stop_price=480.0)
     del body["target_price"]
-    assert api.post(TRADES_URL, json=body, headers=A).json()["trade"]["target_price"] is None
+    assert api.post(TRADES_URL, json=body, headers=A).status_code == 409
+    assert world.db.trades.docs == []
 
 
 @pytest.mark.parametrize("over, code", [
@@ -414,33 +419,32 @@ def test_open_refuses_a_body_that_is_not_a_json_object(api, world):
     assert world.db.trades.docs == []
 
 
-def test_a_user_may_hold_100_open_trades_and_the_101st_is_409(api, world):
-    # 100 different symbols: the same symbol twice would be refused as a duplicate before the limit is reached.
-    for i in range(100):
+def test_the_open_position_limit_now_comes_first_and_is_per_user(api, world):
+    """Phase 1: every account is held to the governor's 10 open positions on every path (services/risk_gate/service.py),
+    so the 100-trade cap below is a backstop the route no longer reaches. 10 positions on record (different symbols)
+    make the 11th a refusal with MAX_POSITIONS; another user is unaffected; a closed one frees a slot."""
+    for i in range(10):
         world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), NOW), "_id": f"t{i}"})
+        world.rows[f"FX{i}"] = copy.deepcopy(HISTORY["FIXA"])          # MOCK marks, so equity is known
     r = api.post(TRADES_URL, json=trade_body(), headers=A)
-    assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
-    assert len(world.db.trades.docs) == 100
+    assert r.status_code == 409 and "MAX_POSITIONS" in [x["code"] for x in r.json()["detail"]["reasons"]]
+    assert len(world.db.trades.docs) == 10
     assert api.post(TRADES_URL, json=trade_body(), headers=B).status_code == 201       # per user
     world.db.trades.docs[0]["status"] = "closed"                                        # closed ones do not count
     assert api.post(TRADES_URL, json=trade_body(), headers=A).status_code == 201
 
 
-def test_two_opens_that_race_past_the_count_do_not_exceed_the_limit(api, world, monkeypatch):
-    for i in range(100):
-        world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), NOW), "_id": f"t{i}"})
-    real = world.db.trades.count_documents
-    seen = []
-
-    async def first_count_is_stale(query):
-        seen.append(query)
-        n = await real(query)
-        return 99 if len(seen) == 1 else n                 # the pre-check read before the other insert landed
-
-    monkeypatch.setattr(world.db.trades, "count_documents", first_count_is_stale)
+def test_the_open_trade_backstop_gives_the_reservation_back(api, world, monkeypatch):
+    """The 100-trade cap (here 1) still answers 409 open_trade_limit, and the reservation the risk service took for the
+    refused trade is given back: no funds and no risk stay reserved."""
+    monkeypatch.setattr(svc, "MAX_OPEN_TRADES", 1)
+    world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol="FX0"), NOW), "_id": "t0"})
+    world.rows["FX0"] = copy.deepcopy(HISTORY["FIXA"])                  # MOCK marks, so equity is known
     r = api.post(TRADES_URL, json=trade_body(), headers=A)
     assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
-    assert len(world.db.trades.docs) == 100
+    (acct_doc,) = world.db.cols["paper_accounts"].docs
+    assert acct_doc["blocked_rs"] == 0 and acct_doc.get("open_risk_rs", 0) == 0 and acct_doc["reservations"] == []
+    assert len(world.db.trades.docs) == 1
 
 
 # ── GET /paper-trades: marks and the exit rule ───────────────────────────────
@@ -507,7 +511,8 @@ def test_a_session_that_touches_both_counts_as_the_stop_and_says_so(api, world):
 
 
 def test_without_a_target_only_the_stop_can_close_it(api, world):
-    open_trade(api, target_price=None)
+    # A trade with no target can only be on record from before Phase 1 (the risk policy now needs one), so it is seeded.
+    world.db.trades.docs.append(svc.new_trade("user_a", trade_body(target_price=None), world.now))
     world.add("FIXA", bar("2026-10-13", 500, 99, 400))
     [row] = trades(api)["trades"]
     assert row["status"] == "open" and row["unrealized_pnl_rs"] == 3000.0 and row["checked_through"] == "2026-10-13"
@@ -556,7 +561,10 @@ def test_two_trades_in_one_symbol_share_one_read_from_the_earliest_open(api, wor
     # like staging's ICICIBANK x2, or by the AI trader), and the list must read them once.
     world.db.trades.docs.append(svc.new_trade("user_a", trade_body(quantity=5), world.now))
     world.now = datetime(2026, 10, 20, 6, 0, tzinfo=timezone.utc)
-    open_trade(api, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=None)
+    # MOCK: the sessions up to the 19th, so the risk service's last close is fresh on the 20th (else last_close_stale).
+    world.add("FIXA", bar("2026-10-19", 102, 99, 101))
+    world.add("FIXB", bar("2026-10-19", 506, 498, 502))
+    open_trade(api, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=560.0)
     world.calls.clear()
     body = trades(api)
     assert sorted((c["symbol"], c["start"]) for c in world.calls) == [("FIXA", "2026-09-28"), ("FIXB", "2026-10-06")]
@@ -577,7 +585,7 @@ def test_every_page_is_read_so_an_early_stop_is_not_missed(api, world, monkeypat
 
 def test_when_the_data_platform_fails_the_list_still_answers_with_null_marks(api, world):
     open_trade(api)
-    open_trade(api, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=None)
+    open_trade(api, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=560.0)
     world.fail["FIXA"] = svc.daas_client.DaasError("DAAS /prices/eod/FIXA returned HTTP 502", status_code=502)
     body = trades(api)
     by = {t["symbol"]: t for t in body["trades"]}
@@ -612,7 +620,7 @@ def test_a_symbol_the_platform_has_no_prices_for_says_so(api, world):
 
 def test_the_status_filter_lists_one_kind_but_the_summary_covers_all(api, world):
     open_trade(api)
-    t2 = open_trade(api, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=None)
+    t2 = open_trade(api, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=560.0)
     assert api.post(f"{TRADES_URL}/{t2['id']}/close", json={"exit_price": 520.0}, headers=A).status_code == 200
     assert [t["symbol"] for t in trades(api, status="open")["trades"]] == ["FIXA"]
     closed = trades(api, status="closed")
@@ -782,7 +790,7 @@ def test_delete_an_alert_is_204_then_404(api, world):
 def _seed_two_users(api, world):
     ta = open_trade(api, A)
     tb = open_trade(api, B, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=508.0)
-    tc = open_trade(api, B, quantity=3, stop_price=90.0, target_price=None)
+    tc = open_trade(api, B, quantity=3, stop_price=90.0, target_price=130.0)
     aa = make_alert(api, A, symbol="FIXB", level=507.0)
     ab = make_alert(api, B, condition="below", level=80.0)
     world.add("FIXA", bar("2026-10-13", 103, 94.5, 97))

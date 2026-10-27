@@ -40,11 +40,8 @@ EXP = "2026-10-27"
 
 # ── an in-memory Mongo stand-in, shared by the other risk test files ─────────
 def _matches(doc: Dict[str, Any], query: Dict[str, Any]) -> bool:
-    for key, cond in query.items():
-        assert not isinstance(cond, dict), f"the fake collection does not know {cond}"
-        if doc.get(key) != cond:
-            return False
-    return True
+    from tests import mongo_ops                     # Mongo's filter semantics, shared by every risk fake
+    return mongo_ops.match(doc, query)
 
 
 class _Result:
@@ -103,20 +100,16 @@ class FakeCollection:
         self.docs.append(copy.deepcopy(doc))
 
     async def update_one(self, query, update, upsert=False):
+        from tests import mongo_ops
         self._maybe_fail("update_one")
         self.update_filters.append(dict(query))
-        assert set(update) <= {"$set", "$setOnInsert", "$push", "$inc"}, update
         for d in self.docs:
             if _matches(d, query):
-                d.update(copy.deepcopy(update.get("$set") or {}))
-                for key, value in (update.get("$push") or {}).items():
-                    d.setdefault(key, []).append(copy.deepcopy(value))
-                for key, delta in (update.get("$inc") or {}).items():
-                    d[key] = (d.get(key) or 0) + delta
+                mongo_ops.apply(d, update)
                 return _Result(matched=1)
         if upsert:
-            doc = copy.deepcopy(update.get("$setOnInsert") or {})
-            doc.update(copy.deepcopy(update.get("$set") or {}))
+            doc = {k: v for k, v in query.items() if not k.startswith("$") and not isinstance(v, dict)}
+            mongo_ops.apply(doc, update, inserting=True)
             self.docs.append(doc)
         return _Result()
 
@@ -526,7 +519,7 @@ def test_record_decision_keeps_its_signature_and_still_fails_open():
     # `path` (keyword, optional) was added so desk and journal refusals carry the gate's path names; every older
     # caller is unchanged.
     assert params == ["db", "user_id", "action", "outcome", "symbol", "requested_qty", "approved_qty", "reasons",
-                      "limits_version", "correlation_id", "detail", "path", "now"]
+                      "limits_version", "correlation_id", "detail", "path", "now", "policy_version", "source"]
     db = FakeDB()
     db.fail[(rc.DECISIONS, "insert_one")] = RuntimeError("down")
     assert run(rc.record_decision(db, "u1", action="x", outcome="allowed")) is None

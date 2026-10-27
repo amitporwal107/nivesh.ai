@@ -31,7 +31,8 @@ def obar(day: str, open_: Optional[float], high: Optional[float], low: Optional[
     """One /v1/prices/eod row with an open price (the first version's harness sends none)."""
     return {"as_of_date": day, "symbol": None, "series": series, "isin": None, "prev_close": None,
             "open_price": open_, "high_price": high, "low_price": low, "close_price": close,
-            "volume": 1000, "turnover": None, "trades": None, "deliv_qty": None, "deliv_pct": None}
+            # MOCK volume 10 lakh shares (was 1,000): the risk service caps a position at 5% of the traded value.
+            "volume": 1_000_000, "turnover": None, "trades": None, "deliv_qty": None, "deliv_pct": None}
 
 
 def side(price: float, qty: int) -> float:
@@ -107,7 +108,8 @@ def test_create_defaults_are_the_first_versions_behaviour(api):
     assert t["signal_at"] is None and t["strategy_version"] is None and t["rationale"] is None
     # No target: the estimate at the target is null, never 0. (Another user: a second open FIXA trade for the same
     # user is refused as a duplicate.)
-    t2 = open_trade(api, who=B, target_price=None)
+    # A trade with no target can only be on record from before Phase 1 (the risk policy now needs one): built directly.
+    t2 = svc.public_trade(svc.new_trade("user_b", trade_body(target_price=None), NOW))
     assert t2["est_costs_rs"]["at_target"] is None and t2["est_costs_rs"]["at_stop"] == round(buy(100, 10) + sell(95, 10), 2) == 50.36
 
 
@@ -271,7 +273,8 @@ def test_break_above_entry_session_touching_the_stop_counts_as_the_stop_and_says
 
 
 def test_pullback_entry_session_does_not_count_the_target(api, world):
-    open_trade(api, entry_price=99.0, stop_price=95.0, target_price=103.0, entry_rule="pullback_to")
+    # 100 shares (MOCK): at 10 the costs exceed the Rs 4 move to the target, which the risk policy refuses.
+    open_trade(api, quantity=100, entry_price=99.0, stop_price=95.0, target_price=103.0, entry_rule="pullback_to")
     world.add("FIXA", obar("2026-10-13", 102, 104, 98.5, 100), obar("2026-10-14", 100, 103.5, 99.5, 103))
     t = only(trades(api))
     # 13 Oct: the low 98.5 fills at 99; its high 104 may have come first, so the target counts from 14 Oct.
@@ -311,7 +314,7 @@ def test_closing_a_waiting_trade_cancels_it_without_pnl(api, world):
 
 
 def test_a_waiting_trade_cannot_be_closed_blind_when_prices_fail(api, world):
-    t = open_trade(api, entry_price=106.0, stop_price=100.0, entry_rule="break_above")
+    t = open_trade(api, entry_price=106.0, stop_price=100.0, target_price=130.0, entry_rule="break_above")
     world.fail["FIXA"] = svc.daas_client.DaasError("down")
     r = api.post(f"{TRADES_URL}/{t['id']}/close", json={"exit_price": 107}, headers=A)
     assert (r.status_code, r.json()["detail"]) == (503, "prices_unavailable")
@@ -329,7 +332,7 @@ def test_a_manual_close_records_costs_net_and_the_path(api, world):
 
 
 def test_another_users_waiting_trade_is_404(api, world):
-    t = open_trade(api, A, entry_price=106.0, stop_price=100.0, entry_rule="break_above")
+    t = open_trade(api, A, entry_price=106.0, stop_price=100.0, target_price=130.0, entry_rule="break_above")
     r = api.post(f"{TRADES_URL}/{t['id']}/close", json={}, headers=B)
     assert (r.status_code, r.json()["detail"]) == (404, "trade_not_found")
     assert trades(api, B)["trades"] == []

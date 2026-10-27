@@ -247,6 +247,12 @@ async def read(db, user_id: str, *, now: Optional[datetime] = None, sector_of=No
             realised = doc.get("net_pnl_rs")
             if realised is None and doc.get("exit_reason") in NO_POSITION_EXITS:
                 realised = 0.0
+            if realised is None and doc.get("realized_pnl_rs") is not None and doc.get("kind") in (None, "cash") \
+                    and doc.get("exit_price") is not None:
+                # A share trade closed before net P&L was stored: its recorded gross less the costs the desk's own cost
+                # function prices at its recorded fill and exit (never a made-up price).
+                fill = doc.get("sim_entry_price") or doc.get("entry_price")
+                realised = float(doc["realized_pnl_rs"]) - desk.trade_costs(doc, float(fill), float(doc["exit_price"]))
             if realised is None:
                 whys.append(f"{doc.get('symbol')}: closed with no net P&L on record")
                 continue

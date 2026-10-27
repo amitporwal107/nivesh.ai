@@ -244,7 +244,16 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
             raise await ref.refuse(422, exc.detail())
     # THE risk decision (Phase 1): recorded first, then the funds and the risk budget reserved in one atomic update.
     # 409 risk_blocked / risk_reduce (nothing written, nothing reserved) or 503 risk_decision_unrecorded.
-    decision = await risk_service.enforce(db, _entry_request(user, ref.cid, doc, fno_additional))
+    try:
+        decision = await risk_service.enforce(db, _entry_request(user, ref.cid, doc, fno_additional))
+    except HTTPException:
+        # A retry that raced its own first attempt: the first one's position now holds the symbol, so the service
+        # refuses this one (already held). The client gets the trade its key already made, never a refusal of it.
+        if key is not None:
+            prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": key})
+            if prior is not None:
+                return await _replay(ref, prior, fingerprint, response)
+        raise
     risk_service.stamp(doc, decision)
     doc["paper_reserved_rs"] = float(decision["budget"].get("funding_rs") or 0.0)
     if key is not None:
