@@ -715,3 +715,18 @@ def test_b11_store_strips_the_per_user_column(sources):
     s = build.strip_chartink(b)
     assert all(r["chartink"] is None for r in s["results"]) and s["sources"]["chartink"] is None
     json.dumps(s, default=str)                                         # storable
+
+
+def test_a_pending_row_without_a_filing_entry_reacts_from_the_analysed_filings_time(sources):
+    """TATACONSUM / PAYTM on staging 27 Oct: figures pending, no `filing` in the calendar row, but the filing analysis holds
+    the filing's time. MOCK row FFF, analysed filing at 26 Oct 11:30 UTC (17:00 IST, after the close → 27 Oct)."""
+    EVENTS.append(ev("FFF", "2026-10-26", "declared", "pending", False, [metric("revenue", None, None, None, reliable=False),
+                                                                        metric("pat", None, None, None, reliable=False)]))
+    ANALYSIS.append(dict(ANALYSIS[0], symbol="FFF", event_ts=datetime(2026, 10, 26, 11, 30)))
+    try:
+        fff = next(r for r in body_of(sources)["results"] if r["symbol"] == "FFF")
+    finally:
+        EVENTS.pop()
+        ANALYSIS.pop()
+    assert fff["status"] == "pending" and fff["filed_at"] == "2026-10-26T11:30:00+00:00"
+    assert fff["reaction"]["first_session"] == "2026-10-27" and fff["components"]["outlook"]["analysed"] is True

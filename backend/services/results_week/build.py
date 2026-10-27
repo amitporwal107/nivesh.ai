@@ -108,6 +108,7 @@ def assemble_row(ev: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
         ql["quarter"] = tr["quarter"]
 
     # outlook (filing analysis)
+    doc = None
     if status == "upcoming":
         ol = sc.outlook(None, declared=False)
     elif ctx["analysis_gap"]:
@@ -135,8 +136,10 @@ def assemble_row(ev: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
             comps["past_reactions"] = None
             gaps.append(f"past results reactions: {ctx['hist_gaps'].get(sym) or 'not read'}")
 
-    # reaction vs Nifty — once the outcome is filed
+    # reaction vs Nifty — once the outcome is filed. Figures not stored yet: the analysed filing's own time stands in
     filed_at = filed_at_of(ev)
+    if filed_at is None and doc is not None:
+        filed_at = sc.parse_ts(doc.get("event_ts"))
     reaction = None
     if status != "upcoming":
         if ctx["prices_gap"]:
