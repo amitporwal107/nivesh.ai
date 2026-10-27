@@ -203,6 +203,23 @@ export function useRiskAudit() {
 export interface RiskReason {
   code: string | null;
   message: string;
+  /** The universal risk service's severity (block, halt, reject, defer, reduce, info); null on older shapes. */
+  severity: string | null;
+}
+
+/** The severities that refuse an entry (backend/services/risk_gate/service.py BLOCKING). */
+const BLOCKING = new Set(["block", "halt", "reject", "defer"]);
+
+/**
+ * Blocking reasons first, then the rest (a size reduction), each group in the order sent. A reason with no severity
+ * (the older gate and kill-switch shapes) counts as blocking, so those keep their order. An `info` note is kept only
+ * when nothing else was sent: it explains, it does not refuse.
+ */
+export function orderReasons(reasons: RiskReason[]): RiskReason[] {
+  const rank = (r: RiskReason) => (r.severity == null || BLOCKING.has(r.severity) ? 0 : r.severity === "info" ? 2 : 1);
+  const ranked = reasons.map((r, i) => ({ r, i, k: rank(r) })).sort((a, b) => a.k - b.k || a.i - b.i);
+  const main = ranked.filter((x) => x.k < 2);
+  return (main.length ? main : ranked).map((x) => x.r);
 }
 
 export interface RiskDecision {
@@ -227,11 +244,11 @@ export interface RiskDecisions {
 export function readReasons(v: unknown): RiskReason[] {
   if (!Array.isArray(v)) return [];
   return v.flatMap((x): RiskReason[] => {
-    if (typeof x === "string") return x.trim() ? [{ code: null, message: x.trim() }] : [];
+    if (typeof x === "string") return x.trim() ? [{ code: null, message: x.trim(), severity: null }] : [];
     const r = rec(x);
     const code = str(r.code);
     const message = str(r.message) ?? code;
-    return message ? [{ code, message }] : [];
+    return message ? [{ code, message, severity: str(r.severity)?.toLowerCase() ?? null }] : [];
   });
 }
 
@@ -281,20 +298,23 @@ export const useSetKillSwitch = () => useSetControl("/api/risk/kill-switch");
 export const useSetHalt = () => useSetControl("/api/risk/halt");
 
 /** The `detail` object of an error body, if the route sent one. */
-function detailOf(e: unknown): Raw {
+export function detailOf(e: unknown): Raw {
   return e instanceof ApiError ? rec(rec(e.body).detail) : {};
 }
 
+/** A reason without its own closing full stop, so a joined sentence ends with exactly one. */
+export const bareReason = (t: string) => t.replace(/[.\s]+$/, "");
+
 /**
  * A 409 `risk_blocked` from any paper write, in plain words, pointing to the controls; null for any other error.
- * The gate sends `reasons`; the older kill-switch refusal sends `message` and the stored `reason` instead.
+ * The universal risk service and the gate send `reasons` (listed blocking first, orderReasons); the older
+ * kill-switch refusal sends `message` and the stored `reason` instead.
  */
 export function riskBlockedText(e: unknown): string | null {
   const d = detailOf(e);
   if (d.code !== "risk_blocked") return null;
-  // Each piece loses its own closing full stop, so the joined sentence ends with exactly one.
-  const bare = (t: string) => t.replace(/[.\s]+$/, "");
-  const reasons = readReasons(d.reasons).map((r) => bare(r.message));
+  const bare = bareReason;
+  const reasons = orderReasons(readReasons(d.reasons)).map((r) => bare(r.message));
   const msg = str(d.message);
   const message = msg ? bare(msg) : null;
   const stored = str(d.reason);

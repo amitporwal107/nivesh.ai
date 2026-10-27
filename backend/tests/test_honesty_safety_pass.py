@@ -76,11 +76,15 @@ def test_exposure_is_none_when_a_leg_cannot_be_measured():
 def test_the_risk_book_no_longer_filters_strategies_out():
     """_portfolio kept only kind in (None, "cash"); strategy trades are stored with kind="strategy",
     so every F&O position was invisible and the book read as empty with a full risk budget."""
-    from routes import ai_trader
+    # Phase 1: the book moved to services/risk_book.py (shared by every entry path); it reads strategies too and
+    # measures an unreserved one by its exposure.
+    from services import risk_book
 
-    src = inspect.getsource(ai_trader._portfolio)
-    assert 'if d.get("kind") in (None, "cash")]' not in src, "the derivatives-excluding filter is back"
-    assert "desk_strategy.KIND" in src and "exposure_rs" in src
+    src = inspect.getsource(risk_book.read) + inspect.getsource(risk_book.legacy_estimate)
+    # Cash and structures are split to be MARKED differently, never to drop the structures.
+    assert 'struct_docs = [d for d in open_docs + recent_closed if d.get("kind") == strat.KIND]' in src
+    assert "structure_value(" in src and "exposure_rs" in src
+    assert 'p["kind"] == "strategy"' in inspect.getsource(risk_book.governor_positions)
 
 
 # ── Defect 3: paper fills that cannot lose to a gap ─────────────────────────

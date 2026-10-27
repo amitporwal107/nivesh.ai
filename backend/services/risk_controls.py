@@ -239,7 +239,9 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
                           correlation_id: Optional[str] = None,
                           detail: Optional[Dict[str, Any]] = None,
                           path: Optional[str] = None,
-                          now: Optional[datetime] = None) -> Optional[str]:
+                          now: Optional[datetime] = None,
+                          policy_version: Optional[str] = None,
+                          source: Optional[str] = None) -> Optional[str]:
     """Append one risk decision to `risk_decisions`. Returns the event id, or None if it could not be
     written.
 
@@ -270,11 +272,13 @@ async def record_decision(db, user_id: str, *, action: str, outcome: str,
         "approved_qty": approved_qty,
         "reasons": reasons or [],
         "limits_version": limits_version,
-        "policy_version": POLICY_VERSION,
+        "policy_version": policy_version or POLICY_VERSION,
         "correlation_id": correlation_id,
         "path": path,
         "detail": detail or {},
     }
+    if source:
+        row["source"] = source
     try:
         await db[DECISIONS].insert_one(row)
     except Exception as e:  # noqa: BLE001

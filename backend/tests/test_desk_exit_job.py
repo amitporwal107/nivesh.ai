@@ -69,7 +69,7 @@ def seed(api, world):
     """Three trades and one alert over two users; the 2026-10-13 bars stop one trade and hit another's target."""
     ta = open_trade(api, A)                                                                   # FIXA stop 95
     tb = open_trade(api, B, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=508.0)
-    tc = open_trade(api, B, quantity=3, stop_price=90.0, target_price=None)                  # stays open
+    tc = open_trade(api, B, quantity=3, stop_price=90.0, target_price=130.0)                 # stays open (Phase 1: a target)
     make_alert(api, A, symbol="FIXB", level=507.0)
     world.add("FIXA", bar("2026-10-13", 103, 94.5, 97))
     world.add("FIXB", bar("2026-10-13", 509, 499, 507))

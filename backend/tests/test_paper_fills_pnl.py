@@ -108,8 +108,11 @@ def test_fm4_unreadable_prices_refuse_an_at_once_entry_rather_than_assume_it(api
     r = _post(api, trade_body())
     assert (r.status_code, r.json()["detail"]) == (503, "prices_unavailable")
     assert world.db.trades.docs == [] and world.db.cols[acct.ACCOUNTS].docs == []
-    # A conditional entry needs no fill now, so it is still recorded; it waits for bars that show its level.
-    assert _post(api, trade_body(entry_rule="break_above", entry_price=106.0)).status_code == 201
+    # Phase 1: a conditional entry needs no fill now, but the risk service needs the instrument's last close, read on
+    # the server; unreadable prices refuse it too (fail closed, last_close_unknown), and nothing is written.
+    r = _post(api, trade_body(entry_rule="break_above", entry_price=106.0))
+    assert r.status_code == 409 and "last_close_unknown" in [x["code"] for x in r.json()["detail"]["reasons"]]
+    assert world.db.trades.docs == []
 
 
 def test_fm12_partial_exits_are_not_modelled_a_close_takes_no_quantity(api, world):

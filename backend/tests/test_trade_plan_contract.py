@@ -49,6 +49,10 @@ DESK_NOW = datetime(2026, 10, 20, 5, 0, tzinfo=timezone.utc)          # 10:30 IS
 @pytest.fixture
 def surfaces(monkeypatch):
     db = FakeDb()
+    # MOCK: the loosest allowed risk profile (tests/risk_helpers.py): this suite tests the plan's levels end to end,
+    # not the Phase 1 limits (tests/test_risk_entry_paths.py).
+    from tests.risk_helpers import loose_profile_doc
+    db.cols["risk_profiles"].docs.extend(loose_profile_doc(u) for u in ("user_a", "user_b", "u1"))
     monkeypatch.setattr(route, "db", db)
     monkeypatch.setattr(desk_route, "db", db)
     monkeypatch.setattr(route, "utcnow", lambda: NOW)
