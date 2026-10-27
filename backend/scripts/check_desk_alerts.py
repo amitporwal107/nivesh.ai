@@ -351,6 +351,9 @@ def _log_result(result: Dict[str, Any]) -> None:
         result["latest_session"], result["session"], result["trades_checked"], result["closed_by_reason"],
         result["errors"], result["open_trades_behind"],
     )
+    if result.get("exits_failed"):
+        log.warning("%d exit(s) could not be written and stay open for the next run: %s", result["exits_failed"],
+                    ", ".join(result.get("exits_failed_ids") or []))
     if result["symbols_failed"]:
         log.warning("no prices could be read for: %s", ", ".join(result["symbols_failed"]))
     if result["symbols_without_prices"]:
