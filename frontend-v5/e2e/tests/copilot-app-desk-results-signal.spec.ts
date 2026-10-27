@@ -45,13 +45,13 @@ const idea = (rank: number, symbol: string, sc: Record<string, unknown>) => ({
 const RANKING_NOTE = "Ranked by the scanner's final score, which now includes a provisional results adjustment that has not been tested yet (mock note).";
 /** The route's order = final_score order (STRONGA 86, PLAINC 80, WEAKB 62). STRONGA's scanner block has no results_signal (the
  *  screen joins the scanner read); WEAKB's carries it (passthrough). */
-const IDEAS = {
+const ideasBody = (withSignals: boolean) => ({
   generated_at: "2026-10-27T05:00:00+00:00", data_as_of: { mode: "end_of_day", scanner_watchlist: "2026-10-27", scanner_picks: "2026-10-27", scan_eligibility: null, price: "2026-10-27", fno: null },
   caveats: [], rules_version: "strategy-rules-v2", calculation_version: "payoff-v1", sent_to_broker: false, ranking_note: RANKING_NOTE,
   selection: { source: "positional_watchlist", scan_date: "2026-10-27", rule: "MOCK", considered: 3, selected: 3, excluded: [], limit: 10, empty_reason: null, gate: null, source_failures: [] },
   inputs: { defaults_applied: [] },
-  ideas: [idea(1, "STRONGA", scanner(86)), idea(2, "PLAINC", scanner(80)), idea(3, "WEAKB", scanner(62, { results_signal: WEAK, base_score: 72 }))],
-};
+  ideas: [idea(1, "STRONGA", scanner(86)), idea(2, "PLAINC", scanner(80)), idea(3, "WEAKB", scanner(62, withSignals ? { results_signal: WEAK, base_score: 72 } : {}))],
+});
 const RW = {
   date: "2026-10-27", as_of: "2026-10-27T11:20:00+05:30", week: { from: "2026-10-26", to: "2026-10-31" }, basis: "historical_trend", consensus_available: false, label: "mock",
   counts: {}, results: [],
@@ -66,7 +66,7 @@ async function setup(page: Page, withSignals = true) {
   await page.route("**/api/positional/watchlist*", (r) => json(r, watchlist(withSignals)));
   await page.route("**/api/positional/picks*", (r) => json(r, PICKS));
   await page.route("**/api/move-odds/**", (r) => json(r, { detail: "feature_not_enabled" }, 403));
-  await page.route("**/api/desk/strategy/ideas", (r) => json(r, IDEAS));
+  await page.route("**/api/desk/strategy/ideas", (r) => json(r, ideasBody(withSignals)));
   await page.route("**/api/desk/strategy/top", (r) => json(r, { detail: "mock: not under test" }, 503));
   await page.route("**/api/desk/results-week*", (r) => json(r, RW));
 }

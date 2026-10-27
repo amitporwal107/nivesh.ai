@@ -40,16 +40,17 @@ const RESULTS = [
   row("MOCKA", "2026-10-26", "declared", true, {
     verdict: { label: "above", intensity: "outstanding", reason: "PAT 2.5 band-widths above the baseline mid (mock)" },
     score: { value: 82, band: "above", coverage: { present: ["surprise", "trend", "outlook", "quality"], missing: [] } },
+    // the committed backend's shapes (services/results_week/scoring.py: surprise / trend / quality / outlook / reaction)
     components: {
-      surprise: { score: 88, metrics: [
-        metric("pat", rng(1100, 1200, 1300), 1450, { vs_mid_pct: 20.8, z: 2.5, verdict: "above" }),
-        metric("revenue", rng(9000, 9400, 9800), 9800, { vs_mid_pct: 4.3, z: 1.0, verdict: "in_line" }),
-      ] },
-      trend: { revenue_yoy_pct: 12.1, revenue_qoq_pct: 3.4, ebitda_yoy_pct: 18.0, ebitda_qoq_pct: 5.1, pat_yoy_pct: 28.5, pat_qoq_pct: 9.2, ebitda_margin_change_pp: 1.2, score: 74 },
-      outlook: { net_impact_score: 46, net_band: "moderately_positive", confidence_score: 70, summary: "Order book and margins guided higher (mock).", label: "filing analysis, not a guidance tracker" },
-      quality: { flags: [], not_checked: ["cash flow"] },
+      surprise: { value: 88, used: ["pat", "revenue"], weights: { pat: 0.6, revenue: 0.4 }, z: 1.9, metrics: {
+        pat: metric("pat", rng(1100, 1200, 1300), 1450, { vs_mid_pct: 20.8, z: 2.5, verdict: "above", intensity: "outstanding", score: 100 }),
+        revenue: metric("revenue", rng(9000, 9400, 9800), 9800, { vs_mid_pct: 4.3, z: 1.0, verdict: "in_line", score: 75 }),
+      } },
+      trend: { value: 74, quarter: "2026-09-30", yoy_pct: { revenue: 12.1, ebitda: 18.0, pat: 28.5 }, qoq_pct: { revenue: 3.4, ebitda: 5.1, pat: 9.2 }, ebitda_margin_pct: 21.0, ebitda_margin_change_pp: 1.2, missing: [] },
+      outlook: { value: 73, label: "filing analysis, not a guidance tracker", analysed: true, net_impact_score: 46, net_band: "moderately_positive", confidence_score: 70, summary: "Order book and margins guided higher (mock).", reason: null },
+      quality: { value: 100, flags: [], checked: ["exceptional_items", "other_income", "tax_rate", "profit_vs_revenue"], not_checked: ["cash_flow: not stored"] },
     },
-    reaction: { excess_vs_nifty_pct: 5.6, stock_pct: 5.1, nifty_pct: -0.5, session: "2026-10-27", volume_x: 3.2 },
+    reaction: { filed_at: "2026-10-26T18:40:00+05:30", filed_after_close: true, first_session: "2026-10-27", previous_session: "2026-10-26", stock_return_pct: 5.1, nifty_return_pct: -0.5, excess_pct: 5.6, volume_x: 3.2, score: 100 },
     // The coming-months F&O block (coordinator, 27 Oct): `total` is the headline; by expiry, rollover, next-expiry options.
     fno_buildup: {
       as_of: "2026-10-26", state: "long_buildup", text: "long build-up", price_chg_pct: 2.1, oi_chg_pct: 8.4,
@@ -73,7 +74,7 @@ const RESULTS = [
       surprise: { metrics: [metric("pat", rng(200, 220, 240), 226, { vs_mid_pct: 2.7, z: 0.3, verdict: "in_line" }), metric("revenue", rng(1500, 1600, 1700), 1580, { vs_mid_pct: -1.3, z: -0.2, verdict: "in_line" })] },
       trend: { revenue_yoy_pct: 6.0, revenue_qoq_pct: 1.0, pat_yoy_pct: 4.0, pat_qoq_pct: -2.0 },
       outlook: null,
-      quality: { flags: ["Other income above 30% of PBT"], not_checked: ["cash flow"] },
+      quality: { value: 85, flags: [{ code: "other_income", text: "other income is 34 % of PBT (over 30 %)", value_pct: 34 }], checked: ["other_income", "tax_rate"], not_checked: ["cash_flow: not stored"] },
     },
     reaction: { excess_vs_nifty_pct: -0.8, stock_pct: -1.3, nifty_pct: -0.5, session: "2026-10-27" },
     chartink: { scans: [], scan_date: "2026-10-26" },
@@ -81,7 +82,7 @@ const RESULTS = [
   row("MOCKC", "2026-10-26", "declared", true, {
     verdict: { label: null, intensity: null, reason: "not rated: no reliable baseline" },
     score: { value: null, band: null, coverage: { present: ["quality"], missing: ["surprise", "trend", "outlook"] } },
-    components: { surprise: { metrics: [metric("pat", null, 210, { reliable: false, note: "Profit near zero in the base quarter (mock)." })] }, trend: null, outlook: null, quality: { flags: [], not_checked: ["cash flow"] } },
+    components: { surprise: { metrics: [metric("pat", null, 210, { reliable: false, note: "Profit near zero in the base quarter (mock)." })] }, trend: null, outlook: null, quality: { value: 100, flags: [], checked: ["tax_rate"], not_checked: ["cash_flow: not stored"] } },
     gaps: ["Quarterly history short: 3 quarters on file (mock gap)"],
   }),
   row("MOCKD", "2026-10-27", "declared", true, {
@@ -91,15 +92,18 @@ const RESULTS = [
       surprise: { metrics: [metric("pat", rng(300, 340, 380), 244, { vs_mid_pct: -28.2, z: -2.4, verdict: "below" }), metric("revenue", rng(2000, 2100, 2200), 1990, { vs_mid_pct: -5.2, z: -1.1, verdict: "below" })] },
       trend: { revenue_yoy_pct: -3.0, revenue_qoq_pct: -1.0, pat_yoy_pct: -22.0, pat_qoq_pct: -15.0 },
       outlook: { net_impact_score: -40, net_band: "moderately_negative" },
-      quality: { flags: [], not_checked: [] },
+      quality: { value: 100, flags: [], checked: ["tax_rate"], not_checked: [] },
     },
     reaction: { excess_vs_nifty_pct: -4.1, stock_pct: -4.6, nifty_pct: -0.5, session: "2026-10-27" },
     fno_buildup: { state: "short_buildup", date: "2026-10-26" },
   }),
   row("MOCKP", "2026-10-27", "pending", true, { gaps: ["Figures not in the warehouse yet (mock gap)"] }),
   row("MOCKU1", "2026-10-28", "upcoming", true, {
-    components: { surprise: { metrics: [metric("pat", rng(500, 540, 580), null), metric("revenue", rng(4000, 4200, 4400), null)] }, trend: null, outlook: null, quality: null },
-    past_reactions: { n: 8, event_day_avg_pct: 1.2, d1_avg_pct: 0.4, w1_avg_pct: 2.4 },
+    components: {
+      surprise: { value: null, metrics: { pat: metric("pat", rng(500, 540, 580), null), revenue: metric("revenue", rng(4000, 4200, 4400), null) } },
+      trend: null, outlook: null, quality: { value: null, flags: [], checked: [], not_checked: [], reason: "results not declared yet" },
+      past_reactions: { n: 8, mean_two_session_pct: 1.6, score: 66, stats: { event_day: { avg: 1.2, min: -2.0, max: 4.0 }, d1: { avg: 0.4 }, w1: { avg: 2.4 } } },
+    },
     fno_buildup: { state: "short_covering", date: "2026-10-26" },
     technical: { stage: "setup_forming", score: 58 },
   }),
@@ -116,7 +120,7 @@ const RW = {
   results: RESULTS,
   ideas: {
     fno: [
-      { rank: 1, symbol: "MOCKA", phase: "declared", signal: 78.4, parts: { earnings: 82, reaction: 74, oi: 70, technical: 61 }, why: "Above trend on PAT (+20.8% vs mid); long build-up (mock)" },
+      { rank: 1, symbol: "MOCKA", phase: "declared", signal: 78.4, parts: { earnings: { value: 82, weight: 40 }, reaction: { value: 74, weight: 20 }, oi: { value: 70, weight: 20 }, technical: { value: 61, weight: 20 } }, missing: [], why: "Above trend on PAT (+20.8% vs mid); long build-up (mock)" },
       { rank: 2, symbol: "MOCKU1", phase: "upcoming", signal: 64, parts: { technical: 58, oi: 66, past_reactions: 70, trend: null }, why: ["Short covering into results", "Past results averaged +2.4% in a week (mock)"] },
     ],
     all: [
@@ -242,6 +246,7 @@ test.describe("Results week — Events view (desktop 1440)", () => {
     await expect(page.getByTestId("results-week-verdict-MOCKB")).toHaveText("In line");
     await expect(page.getByTestId("results-week-outlook-MOCKB")).toHaveText("not analysed");
     await expect(page.getByTestId("results-week-quality-MOCKB")).toContainText("1 flag");
+    await expect(page.getByTestId("results-week-quality-MOCKB")).toHaveAttribute("title", "other income is 34 % of PBT (over 30 %)");
     await expect(page.getByTestId("results-week-verdict-MOCKC")).toHaveText("Not rated");
     await expect(page.getByTestId("results-week-vsmid-MOCKC-pat")).toHaveText("no baseline");
     await expect(page.getByTestId("results-week-reaction-MOCKC")).toHaveText("not available");
@@ -267,7 +272,7 @@ test.describe("Results week — Events view (desktop 1440)", () => {
     await expect(page.getByTestId("results-week-drawer-coverage")).toContainText("Surprise vs historical trend");
     await expect(page.getByTestId("results-week-drawer-metric-pat")).toContainText("₹1,450 cr");
     await expect(page.getByTestId("results-week-drawer-outlook")).toContainText("FILING ANALYSIS, NOT A GUIDANCE TRACKER", { ignoreCase: true });
-    await expect(page.getByTestId("results-week-drawer-quality")).toContainText("Not checked: cash flow.");
+    await expect(page.getByTestId("results-week-drawer-quality")).toContainText("Not checked: cash flow: not stored.");
     await expect(page.getByTestId("results-week-drawer-fno-headline")).toHaveText("Fresh long build-up · OI +9.6%");
     await expect(page.getByTestId("results-week-drawer-past")).toContainText("Based on 2 past results");
     await expect(page.getByTestId("results-week-drawer-evidence").getByRole("link", { name: "Outcome of board meeting (mock)" })).toHaveAttribute("href", "https://www.nseindia.com/mock-a");
