@@ -158,8 +158,8 @@ test.describe("Decision cards — the surfaces", () => {
   test("UI-2 a Top 10 F&O row (options): lots, rupee risk, the premium stop, and the provisional badge", async ({ page }) => {
     await setup(page);
     await page.goto(SCANNER);
-    const toFno = page.getByTestId("desk-top10-switch-fno");
-    if (await toFno.isVisible().catch(() => false)) await toFno.click();
+    // Market Overview (step 2): one board at a time, so the F&O board is always one click away.
+    await page.getByTestId("desk-top10-switch-fno").click(SLOW);
     const card = bankRow(page).getByTestId("desk-top10-fno-card");
     await expect(card).toHaveAttribute("data-plan-id", FNO.plan_id, SLOW);
     expect(await lineOf(card)).toEqual(EXPECT_FNO);
@@ -251,8 +251,8 @@ test.describe("Decision cards — 3.2 consistency", () => {
     await setup(page);
     const lines: Array<Record<string, string>> = [];
     await page.goto(SCANNER);
-    const toFno = page.getByTestId("desk-top10-switch-fno");
-    if (await toFno.isVisible().catch(() => false)) await toFno.click();
+    // Market Overview (step 2): one board at a time, so the F&O board is always one click away.
+    await page.getByTestId("desk-top10-switch-fno").click(SLOW);
     const t = bankRow(page).getByTestId("desk-top10-fno-card");
     await expect(t).toHaveAttribute("data-plan-id", FNO.plan_id, SLOW);
     lines.push(await lineOf(t));
@@ -467,7 +467,8 @@ test.describe("Decision cards — a changed plan", () => {
     // Desk redesign (2026-10-27): the Top 10 is on Market Overview (was the AI Scanner tab).
     await page.getByTestId("desk-tab-overview").click();
     await expect(stockRow(page).getByTestId("desk-top10-card")).toHaveAttribute("data-plan-id", V2_ID, SLOW);
-    // back to the Builder from the row: it builds the same plan (version 1) again; its cached reading was refreshed
+    // back to the Builder from the row (its links are in the row's drawer): it builds the same plan (version 1) again; its cached reading was refreshed
+    await stockRow(page).getByTestId("desk-top10-stock-open").click();
     await stockRow(page).getByTestId("desk-top10-stock-plan").click();
     const card = page.getByTestId("cand-decision-card");
     await expect(card).toHaveAttribute("data-plan-id", V2_ID, SLOW);
@@ -609,15 +610,18 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
   test("UI-13 the F&O idea's paper trade sends an Idempotency-Key; a retry after a failure reuses it, a new submission gets a new one", async ({ page }) => {
     const seen = await setup(page, { paperStatus: [502, 201, 201] });
     await page.goto(SCANNER);
-    const toFno = page.getByTestId("desk-top10-switch-fno");
-    if (await toFno.isVisible().catch(() => false)) await toFno.click();
+    // Market Overview (step 2): one board at a time, so the F&O board is always one click away.
+    await page.getByTestId("desk-top10-switch-fno").click(SLOW);
     const bank = bankRow(page);
     await expect(bank.getByTestId("desk-top10-fno-card")).toBeVisible(SLOW);
+    await bank.getByTestId("desk-top10-fno-paper").click();                // the paper trade is in the row's drawer
     const btn = bank.getByTestId("idea-paper-trade").first();
     await btn.click();
     await expect(bank.getByTestId("idea-paper-error").first()).toBeVisible();
     await btn.click();                                                     // the user retries the same idea
     await expect(btn).toHaveText("Added to paper trades");
+    await page.keyboard.press("Escape");                                   // close BANKNIFTY's drawer, open NIFTY's
+    await page.getByTestId("desk-top10-fno-NIFTY").getByTestId("desk-top10-fno-paper").click();
     const nifty = page.getByTestId("desk-top10-fno-NIFTY").getByTestId("idea-paper-trade").first();
     await nifty.click();
     await expect(nifty).toHaveText("Added to paper trades");

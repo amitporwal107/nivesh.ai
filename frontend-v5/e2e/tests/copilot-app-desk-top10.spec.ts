@@ -648,8 +648,12 @@ test.describe("Desk breadcrumb", () => {
 
 // ── market pulse, and Market Intelligence's URL state ─────────────────────
 
+// RETIRED by the desk redesign step 2 (Market Overview, 2026-10-27): the market pulse (tradingdesk/ScannerPulse.tsx) is no
+// longer mounted; its FII / DII, sector moves and events are Market Overview's strip and events today
+// (copilot-app-desk-market-overview.spec.ts). F-30 … F-34 are skipped; F-35 (Market Intelligence) still runs. ScannerPulse is
+// deleted or re-hosted in step 6.
 test.describe("Scanner — market pulse", () => {
-  test("F-30 / F-31 the latest events and the three indicators, from their routes, with dates", async ({ page }) => {
+  test.skip("F-30 / F-31 the latest events and the three indicators, from their routes, with dates", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await expect(page.getByTestId("desk-pulse-event-ann-001")).toContainText("Financial results for the quarter ended September 2026", SLOW);
@@ -667,7 +671,7 @@ test.describe("Scanner — market pulse", () => {
     await expect(page.getByTestId("desk-pulse-sectors")).not.toContainText("Nifty Bank");
   });
 
-  test("F-32 an event opens Market Intelligence with that event selected", async ({ page }) => {
+  test.skip("F-32 an event opens Market Intelligence with that event selected", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-pulse-event-ann-002").click(SLOW);
@@ -677,7 +681,7 @@ test.describe("Scanner — market pulse", () => {
     await expect(page.getByTestId("desk-event-detail")).toHaveAttribute("data-id", "ann-002", SLOW);
   });
 
-  test("F-33 the pulse opens Market Intelligence, its FII / DII chip, and Smart Money", async ({ page }) => {
+  test.skip("F-33 the pulse opens Market Intelligence, its FII / DII chip, and Smart Money", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-pulse-flows").click(SLOW);
@@ -693,7 +697,7 @@ test.describe("Scanner — market pulse", () => {
     expect(params(page).get("in_chip")).toBeNull();
   });
 
-  test("F-34 a failed source shows in its own tile; the rest still show", async ({ page }) => {
+  test.skip("F-34 a failed source shows in its own tile; the rest still show", async ({ page }) => {
     await desk(page);
     await page.route("**/api/markets/smart-money/summary*", (r) => json(r, { error: { message: "upstream_unavailable" } }, 502));
     await page.goto(SCANNER);

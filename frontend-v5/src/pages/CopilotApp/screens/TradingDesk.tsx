@@ -564,7 +564,7 @@ export default function TradingDeskScreen() {
       <Hosted id="market-overview" name="Market Overview">
         <MarketOverview
           scannerOpen={scannerOpen}
-          onToggleScanner={() => setParam({ section: scannerOpen ? null : "scanner" })}
+          onToggleScanner={() => setParam({ tab: "overview", section: scannerOpen ? null : "scanner" })}
           onOpenTradeDesk={() => goPlace("trade", "paper")}
           onOpenMarket={(view) => goPlace("market", view ?? undefined)}
         />

@@ -394,10 +394,11 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     }
   });
 
-  test("SH-20 repointed links: Overview's scanner link expands the list; Top 10's trades link and the AI watchlist's links use the new URLs", async ({ page }) => {
+  test("SH-20 repointed links: Market Overview's \"All scanner candidates\" expands the list; the AI watchlist's links use the new URLs", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
-    await page.getByTestId("desk-opps-all").click();
+    // Step 2: the old Overview's "See all" link is gone with its card; the list's own toggle opens it.
+    await page.getByTestId("desk-scanner-toggle").click();
     await expectAt(page, "overview", null, { section: "scanner" });
     await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "true");
     // The AI watchlist's desk links (workspace/ai-watchlist-data.ts) are built for the new URLs.
