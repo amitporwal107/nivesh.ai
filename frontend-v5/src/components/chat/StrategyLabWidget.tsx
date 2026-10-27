@@ -16,15 +16,16 @@ import { useEffect, useState } from "react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
-import { Globe2, Lock, Play, Check, AlertTriangle, Download, Save, Sparkles, Rocket } from "lucide-react";
+import { Globe2, Lock, Play, Check, Download, Save, Sparkles, Rocket } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToastStore } from "@/stores/toast.store";
 import {
   listTemplates, listUniverses, createUniverse, screenStrategy,
   createStrategy, updateStrategy, runBacktest,
   type TemplateItem, type UniverseItem, type ScreenResult,
-  type BacktestResult, type UniverseRef,
+  type BacktestResult, type UniverseRef, LIQUID_UNIVERSE, LIQUID_UNIVERSE_LABEL,
 } from "@/services/strategyBuilder";
+import { UniverseBasisNote } from "@/pages/StrategyBuilder/UniverseBasisNote";
 
 const STEPS = ["Universe", "Strategy", "Screen", "Backtest", "Execute"] as const;
 type StepIdx = 0 | 1 | 2 | 3 | 4;
@@ -37,12 +38,15 @@ interface StrategyDef {
   [k: string]: unknown;
 }
 
-const PREBUILT = [
+// The first is the whole-market, point-in-time universe (survivorship-free, the default); the index presets apply their
+// latest constituents to every past date in a backtest (survivorship bias, warned on the result).
+const PREBUILT: { type: UniverseRef["type"]; ref: string; name: string; blurb: string }[] = [
+  { type: LIQUID_UNIVERSE.type, ref: LIQUID_UNIVERSE.ref, name: LIQUID_UNIVERSE_LABEL, blurb: "Liquid on each date, incl. later delisted — no survivorship bias." },
   { ref: "NIFTY50", name: "Nifty 50", blurb: "Largest 50 — most liquid." },
   { ref: "NIFTY100", name: "Nifty 100", blurb: "Top 100 by free-float." },
   { ref: "NIFTY200", name: "Nifty 200", blurb: "Large + midcap mix." },
   { ref: "NIFTY500", name: "Nifty 500", blurb: "Full breadth." },
-];
+].map((u) => ({ type: "index" as const, ...u }));
 
 const today = () => new Date().toISOString().slice(0, 10);
 const monthsAgo = (m: number) => { const d = new Date(); d.setMonth(d.getMonth() - m); return d.toISOString().slice(0, 10); };
@@ -58,7 +62,7 @@ const predText = (p: Predicate) =>
 
 // Contextual "AI QuantAssist" guidance per step.
 const GUIDANCE: Record<StepIdx, string> = {
-  0: "Pick the pool of stocks to screen against. Nifty 500 gives broad market coverage.",
+  0: "Pick the pool of stocks to screen against. All liquid NSE stocks is point-in-time: a backtest on it has no survivorship bias.",
   1: "Choose a factor template — each is an editable rule set (quality, value, momentum…).",
   2: "Run the entry rules against the latest data to see the ranked candidates.",
   3: "Backtest across a window. Slippage + brokerage are baked in; prices are corp-action adjusted.",
@@ -70,7 +74,7 @@ export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; s
 
   const [step, setStep] = useState<StepIdx>(0);
   const [furthest, setFurthest] = useState<StepIdx>(0);
-  const [universe, setUniverse] = useState<UniverseRef>(data?.universe ?? { type: "index", ref: "NIFTY500" });
+  const [universe, setUniverse] = useState<UniverseRef>(data?.universe ?? LIQUID_UNIVERSE);
   const [templates, setTemplates] = useState<TemplateItem[]>([]);
   const [templateKey, setTemplateKey] = useState<string | null>(null);
   const [definition, setDefinition] = useState<StrategyDef | null>(null);
@@ -212,10 +216,10 @@ export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; s
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {uniTab === "public" && PREBUILT.map((u) => {
-              const sel = universe.type === "index" && universe.ref === u.ref;
+              const sel = universe.type === u.type && universe.ref === u.ref;
               return (
                 <button key={u.ref} type="button" data-testid={`lab-universe-${u.ref}`}
-                  onClick={() => setUniverse({ type: "index", ref: u.ref })}
+                  onClick={() => setUniverse({ type: u.type, ref: u.ref })}
                   className={cn("text-left p-3 rounded-lg border transition-colors",
                     sel ? "border-accent bg-accent/5 ring-1 ring-accent/30" : "border-hairline hover:border-accent/40 bg-surface-2")}>
                   <div className="flex items-center justify-between">
@@ -329,10 +333,7 @@ export function StrategyLabWidget({ data }: { data?: { universe?: UniverseRef; s
               <Play className="h-3.5 w-3.5" />{running ? "Running…" : "Run backtest"}
             </button>
           </div>
-          <p className="flex items-start gap-1.5 text-[11px] text-warm">
-            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            Indicative — latest-constituents snapshot (some survivorship bias). Past performance ≠ future results.
-          </p>
+          <UniverseBasisNote universe={universe} metrics={result ? metrics : null} testPrefix="lab-backtest" />
           {result && (result.metrics?.reason === "no_data" ? (
             <p className="text-[13px] text-ink-3">No data in this window — try a wider range.</p>
           ) : (

@@ -181,7 +181,7 @@ def compute(body: Dict[str, Any], refs: Optional[Dict[str, Any]] = None, today: 
         per_leg.append({"index": i, "side": l.get("side"), "option_type": l.get("option_type"), "strike": l.get("strike"), "expiry": l.get("expiry"), "entry_price": _r(_n(l.get("entry_price"))),
                         "delta": _r(None if _n(gg.get("delta")) is None else gg["delta"] / q, 3), "theta": _r(None if _n(gg.get("theta")) is None else gg["theta"] / q, 3), "vega": _r(None if _n(gg.get("vega")) is None else gg["vega"] / q, 3)})
     c = out.get("costs") or {}
-    costs = {"model": c.get("model"), "entry": _r(_n(c.get("entry"))), "exit_at_expiry": _r(_n(c.get("exit_at_expiry"))), "round_trip": _r(_n(c.get("round_trip"))), "excluded": c.get("excluded") or [],
+    costs = {"model": c.get("model"), "version": c.get("version"), "calculation_version": out.get("calculation_version"), "entry": _r(_n(c.get("entry"))), "exit_at_expiry": _r(_n(c.get("exit_at_expiry"))), "round_trip": _r(_n(c.get("round_trip"))), "excluded": c.get("excluded") or [],
              "max_loss_gross_total": _r(ml), "capital_at_risk": _n(out.get("capital_at_risk")), "capital_at_risk_basis": out.get("capital_at_risk_basis")}
     rnd = lambda d: {k: (_r(v, 2) if isinstance(v, float) else v) for k, v in d.items()}
     prem = {**{k: (_r(v) if isinstance(v, float) else v) for k, v in prem.items() if k != "risk_boundary"}, "risk_boundary": rnd(prem["risk_boundary"])}

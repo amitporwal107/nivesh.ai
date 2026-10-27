@@ -58,7 +58,11 @@ export interface BacktestMetrics {
   profit_factor?: number;
   avg_holding_days?: number;
   price_basis?: string;
+  /** "point_in_time" (the liquid market universe), "latest_snapshot" / "present_day_fallback" (an index universe:
+   *  survivorship bias, explained in universe_warning), "custom_universe". */
   universe_basis?: string;
+  universe_warning?: string | null;
+  universe_rule?: { version?: string; [k: string]: unknown } | null;
   reason?: string;
   [k: string]: unknown;
 }
@@ -87,7 +91,17 @@ export interface BacktestResult {
   trades: BacktestTrade[];
 }
 
-export type UniverseRef = { type: "index" | "custom"; ref: string };
+export type UniverseRef = { type: "index" | "custom" | "market"; ref: string };
+
+/** The whole-market, point-in-time universe (backend liquid_universe.py, liquid-eq-v1): survivorship-free in a
+ *  backtest, and the default "all stocks" universe. */
+export const LIQUID_UNIVERSE: UniverseRef = { type: "market", ref: "LIQUID_EQ" };
+export const LIQUID_UNIVERSE_LABEL = "All liquid NSE stocks (point-in-time)";
+
+/** True when a backtest's universe carried survivorship bias (an index applied with its latest constituents). */
+export function survivorshipBiased(m: BacktestMetrics | undefined | null): boolean {
+  return m?.universe_basis === "latest_snapshot" || m?.universe_basis === "present_day_fallback";
+}
 
 /** A curated universe from GET /universe-catalog: an index preset, a sector basket,
  *  or an index-theme basket, each with a REAL median 3M return + momentum trend
@@ -95,8 +109,13 @@ export type UniverseRef = { type: "index" | "custom"; ref: string };
 export interface CatalogUniverse {
   kind: "broad" | "sector" | "index-theme";
   category: string;                 // "Broad Market" | "Sector" | "Index Theme"
-  ref: string | null;               // set for broad → {type:"index", ref}
+  ref: string | null;               // set for broad → {type:"index", ref} (or the market universe)
   id: string | null;                // set for sector/index-theme → {type:"custom", ref:id}
+  /** The exact universe to select (newer backends); older ones leave it out and kind/ref/id decide. */
+  universe?: UniverseRef | null;
+  /** "point_in_time" | "latest_snapshot" | "custom_universe" */
+  survivorship?: string | null;
+  default?: boolean;
   name: string;
   description?: string | null;
   symbol_count?: number | null;

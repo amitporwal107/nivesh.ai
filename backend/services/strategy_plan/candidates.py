@@ -92,8 +92,8 @@ def scenario_levels(entry: float, up: bool, stop: float, atr: Optional[float], n
 def _cost_model(inputs: Dict[str, Any]) -> Dict[str, Any]:
     """The plan's cost inputs as a desk cost-model snapshot (services/desk_trading.COST_MODEL, the desk cost card): the
     request's `costs` (slippage_pct, brokerage_per_side) where given, the card for the rest, statutory charges always.
-    So the plan sizes with the costs a paper trade of it records. (The payoff engine's own net figures, payoff.py, still
-    charge slippage and brokerage only: a separate change, said in the PR.)"""
+    So the plan sizes with the costs a paper trade of it records. The payoff engine's net figures (payoff.py, payoff-v2)
+    are priced with the same card and the same request overrides, so the net reward : risk and the sizing agree."""
     c = inputs.get("costs") or {}
     model = dict(desk_costs.COST_MODEL)
     if c.get("slippage_pct") is not None:

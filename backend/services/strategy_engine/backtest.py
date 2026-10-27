@@ -14,12 +14,13 @@ metrics["universe_basis"] which the run records for audit):
     the hold no longer fabricates a gain/loss. The features-derived ATR is
     rescaled by cumulative_adj_factor onto that basis.
 
-  • Universe membership is point-in-time when nidp.index_constituents is
-    populated for the chosen index (survivorship-correct; real Nifty
-    50/100/200/500 distinction). When that table is empty for the index
-    the runner falls back to the legacy present-day `sm.is_nifty_100`
-    set and LOGS it — never silently empty, but that fallback path does
-    carry survivorship bias (recorded as universe_basis="present_day_fallback").
+  • Universe (metrics["universe_basis"], ["universe_warning"], ["universe_rule"]; market_data.py):
+    the market universe LIQUID_EQ (liquid_universe.py, liquid-eq-v1) is point-in-time and
+    survivorship-free: each date's members come from that date's prices and the 29 sessions before
+    it. An index universe on the DaaS backend applies the LATEST constituent snapshot to every date
+    (universe_basis="latest_snapshot", with a survivorship-bias warning); on the SQL backend it is
+    point-in-time when nidp.index_constituents has the index, else the legacy present-day set
+    (universe_basis="present_day_fallback", warned too).
 
   • One trade per (symbol, entry_date) — once we open a position we
     don't re-enter on the next bar even if the rule still fires. Live
@@ -72,6 +73,12 @@ COSTS (`cost_model`, recorded in metrics):
     deployment exposes one, and a SHA-256 of the engine's own source files) and
     `data_watermark` (the newest session the data platform held when the run
     ended); persist_run writes the watermark to strategy_runs.snapshot_as_of.
+    metrics["provenance"] (PROVENANCE_VERSION) gathers what reproduces a run: the data watermark,
+    the code version, the rule version (DSL version, a SHA-256 of the canonical spec, the exit-rules
+    version and — written by persist_run — the strategy_versions id), the cost model with its
+    parameters, the universe and its rule, and the entry timing. `run_provenance` reads the same
+    block from ANY stored run, older ones included: a field a run never recorded is null and listed
+    in `not_recorded`, never guessed.
 
   • Pure-async + asyncpg — caller passes a pool; we never open our own
     connection so transaction boundaries stay with the caller.
@@ -164,7 +171,9 @@ def side_charges(cost_model: str, qty: int, price: float, side: str, brokerage_i
 
 # ── reproducibility ─────────────────────────────────────────────────
 _ENGINE_FILES = ("strategy_engine/backtest.py", "strategy_engine/market_data.py", "strategy_engine/backtest_sql.py",
-                 "exit_rules.py", "desk_cost_card.py")
+                 "strategy_engine/liquid_universe.py", "strategy_engine/dsl.py", "strategy_engine/compiler_stock.py",
+                 "strategy_engine/evaluator.py", "exit_rules.py", "desk_cost_card.py")
+PROVENANCE_VERSION = "provenance-v1"
 
 
 def _git_head(start: Path) -> Optional[str]:
@@ -214,6 +223,76 @@ def code_version() -> Dict[str, Any]:
         except OSError:
             h.update(rel.encode() + b"\0missing")
     return {"git_sha": sha, "git_sha_source": source, "engine_sha256": h.hexdigest(), "exit_rules_version": er.VERSION}
+
+
+def spec_sha256(spec: Dict[str, Any]) -> str:
+    """SHA-256 of the canonical JSON of a strategy spec (keys sorted, no whitespace): the same rules hash the same however
+    the JSON was ordered or stored."""
+    return hashlib.sha256(json.dumps(spec, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+
+def _cost_model_record(cost_model: str, slippage_pct: float, brokerage_inr: float) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"version": cost_model, "slippage_pct_per_side": round(slippage_pct * 100.0, 6),
+                           "slippage_basis": "in the fill prices", "brokerage_rs_per_side": float(brokerage_inr)}
+    if cost_model == COST_CARD:
+        out.update(statutory="STT, exchange transaction charge, SEBI fee, stamp duty and GST, equity delivery",
+                   source=cost_card.SNAPSHOT["source"])
+    else:
+        out.update(statutory=None, source="services/strategy_engine/backtest.py (flat brokerage per side)")
+    return out
+
+
+def run_provenance(run: Dict[str, Any], definition: Any = None) -> Dict[str, Any]:
+    """What reproduces a stored run (a strategy_runs row: metrics, snapshot_as_of, version_id), read the same way for every
+    run. A run before provenance-v1 lacks some fields: they are null and named in `not_recorded`. `definition` (the run's
+    strategy_versions row, immutable) lets the spec hash be derived at read time for such a run, and says so."""
+    m = run.get("metrics") or {}
+    if isinstance(m, str):
+        try:
+            m = json.loads(m)
+        except ValueError:
+            m = {}
+    rec = m.get("provenance") or {}
+    wm = rec.get("data_watermark") or m.get("data_watermark") or {}
+    snap = run.get("snapshot_as_of")
+    snap = snap.isoformat() if hasattr(snap, "isoformat") else snap
+    data = {"snapshot_as_of": snap or wm.get("latest_session_available"),
+            "window_last_session": wm.get("window_last_session")}
+    rule = dict(rec.get("rule_version") or {})
+    rule.setdefault("strategy_version_id", str(run["version_id"]) if run.get("version_id") is not None else None)
+    if not rule.get("spec_sha256") and definition is not None:
+        spec = json.loads(definition) if isinstance(definition, str) else definition
+        rule.update(spec_sha256=spec_sha256(spec), dsl_version=(spec or {}).get("version"),
+                    spec_sha256_source="derived at read time from the immutable strategy_versions row")
+    rule.setdefault("exit_rules_version", m.get("exit_rules_version"))
+    cost = rec.get("cost_model")
+    if cost is None and m.get("cost_model"):
+        cost = {"version": m.get("cost_model"), "slippage_pct_per_side": (m["slippage_pct_per_side"] * 100.0
+                                                                          if m.get("slippage_pct_per_side") is not None else None)}
+    universe = rec.get("universe") or ({"basis": m.get("universe_basis"), "warning": m.get("universe_warning"),
+                                        "rule": m.get("universe_rule")} if m.get("universe_basis") else None)
+    out = {"schema": rec.get("schema"), "data": data, "code_version": rec.get("code_version") or m.get("code_version"),
+           "rule_version": rule, "cost_model": cost, "universe": universe,
+           "entry_timing": rec.get("entry_timing") or m.get("entry_timing"),
+           "price_basis": m.get("price_basis")}
+    missing = []
+    if not data["snapshot_as_of"]:
+        missing.append("data_watermark")
+    if not out["code_version"]:
+        missing.append("code_version")
+    if not rule.get("spec_sha256"):
+        missing.append("rule_version.spec_sha256")
+    if not rule.get("exit_rules_version"):
+        missing.append("rule_version.exit_rules_version")
+    if not cost:
+        missing.append("cost_model")
+    if not universe:
+        missing.append("universe")
+    if not out["entry_timing"]:
+        missing.append("entry_timing")
+    out["not_recorded"] = missing
+    out["complete"] = not missing
+    return out
 
 
 def _num(v: Any) -> Optional[float]:
@@ -522,6 +601,18 @@ async def run_backtest(
     # what actually ran rather than trust a static claim (CONTEXT §1). The
     # provider reports the basis it actually used (price + universe membership).
     metrics.update(provider.basis)
+    uni = spec.get("universe") or {}
+    metrics["provenance"] = {
+        "schema": PROVENANCE_VERSION,
+        "data_watermark": metrics["data_watermark"],
+        "code_version": metrics["code_version"],
+        "rule_version": {"dsl_version": spec.get("version"), "spec_sha256": spec_sha256(spec),
+                         "exit_rules_version": er.VERSION, "strategy_version_id": None},
+        "cost_model": _cost_model_record(cost_model, slippage_pct, brokerage_inr),
+        "universe": {"type": uni.get("type"), "ref": uni.get("ref"), "basis": metrics.get("universe_basis"),
+                     "warning": metrics.get("universe_warning"), "rule": metrics.get("universe_rule")},
+        "entry_timing": entry_timing,
+    }
 
     return BacktestResult(trades=closed_trades, equity_curve=equity_curve, metrics=metrics)
 
@@ -747,6 +838,9 @@ async def persist_run(pool, *, strategy_id, version_id, spec, result: BacktestRe
     platform held when the run ended), NULL when it could not be read. The code version is in metrics.code_version.
     Older rows without either stay readable: nothing reads them as required."""
     run_id = str(uuid.uuid4())
+    prov = result.metrics.get("provenance")
+    if isinstance(prov, dict):
+        prov.setdefault("rule_version", {})["strategy_version_id"] = str(version_id) if version_id is not None else None
     wm = (result.metrics.get("data_watermark") or {}).get("latest_session_available")
     snapshot_as_of = date.fromisoformat(wm) if wm else None
     async with pool.acquire() as conn:

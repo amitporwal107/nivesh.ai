@@ -92,19 +92,21 @@
   "note": "per share x the position's size (lot size x lots)"
  },
  "costs": {
-  "model": "slippage % of traded value + flat brokerage, each side, each leg",
-  "entry": 48.74,
-  "exit_at_expiry": 20.35,
-  "round_trip": 69.09,
+  "model": "the desk cost card desk-cost-v2 (services/desk_cost_card.py): brokerage, STT, exchange transaction charge, SEBI fee, stamp duty, GST and slippage, per leg and per order side, by segment (cash as equity delivery, futures, options on the premium)",
+  "version": "desk-cost-v2",
+  "calculation_version": "payoff-v2",
+  "entry": 70.2,
+  "exit_at_expiry": 25.29,
+  "round_trip": 95.49,
   "excluded": [
-   "taxes",
-   "STT",
-   "exchange and statutory charges",
+   "DP charges",
+   "IPFT and clearing charges",
+   "income tax on gains",
    "dividends",
    "funding"
   ],
   "max_loss_gross_total": -8769.0,
-  "capital_at_risk": 8857.74,
+  "capital_at_risk": 8886.4,
   "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded"
  },
  "scenarios": [
@@ -153,7 +155,7 @@
  "risk_reward": 2.08,
  "max_profit_total": 18231.0,
  "max_loss_total": -8769.0,
- "capital_at_risk": 8857.74,
+ "capital_at_risk": 8886.4,
  "days_to_expiry": 6,
  "flags": [],
  "expiry": "2026-10-27"

@@ -14,7 +14,8 @@ Model, stated once:
       vega   P&L change per volatility point, INR;   rho  P&L change per 1 percentage point of the rate, INR,
       with the carried-spot forward moving with the rate: ∂P/∂r = T·(Δ_F·F − P).
     They are None when the leg is at or past expiry (T ≤ 0): no time left, the formulas are undefined.
-  · Exit costs: the position is closed at the modelled value on the evaluation date, same cost model as the expiry view.
+  · Exit costs: the position is closed at the modelled value on the evaluation date, same cost model as the expiry view
+    (the desk cost card, payoff-v2: each leg's exit side priced by its segment on that value).
 """
 from __future__ import annotations
 
@@ -78,7 +79,7 @@ def _leg_greeks(leg, ref, t, vol, rate):
 
 
 def pre_expiry(legs: Sequence[Dict[str, Any]], ref: float, grid: Sequence[float], as_of, spec: Dict[str, Any],
-               slip: float, brok: float, default_rate: float) -> Dict[str, Any]:
+               model: Dict[str, Any], default_rate: float) -> Dict[str, Any]:
     day = spec["date"]
     rate = default_rate if spec.get("rate_pct") is None else spec["rate_pct"] / 100.0
     shift = spec["iv_shift_pct"]
@@ -132,11 +133,11 @@ def pre_expiry(legs: Sequence[Dict[str, Any]], ref: float, grid: Sequence[float]
                 p = prepared[l["index"]]
                 px = _px(l, s, p["t"], p["vol"], rate)
                 gsum += l["sign"] * (px - l["entry_price"]) * l["units"]
-                exit_c = exit_cost_for_value(px, l["units"], slip, brok)
+                exit_c = exit_cost_for_value(l, px, model)
             else:
                 gsum += leg_gross(l, s)
-                exit_c = exit_cost_for_value(s, l["units"], slip, brok)
-            csum += entry_cost(l, slip, brok) + exit_c
+                exit_c = exit_cost_for_value(l, s, model)
+            csum += entry_cost(l, model) + exit_c
         gross_arr.append(r2(gsum))
         net_arr.append(r2(gsum - csum))
     out.update({"grid": [r2(s) for s in grid], "gross": gross_arr, "net": net_arr})
