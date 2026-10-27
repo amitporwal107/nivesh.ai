@@ -1,5 +1,5 @@
 /**
- * Market Desk › Idea scorecard (?tab=market&view=scorecard) — how well the AI ideas' ranking has done, from the Phase 4.3
+ * The Idea scorecard (the owner's design: Trade Desk › AI Scanner › Scorecard; the Trade Desk tab mounts it) — how well the AI ideas' ranking has done, from the Phase 4.3
  * pre-registered study as committed (GET /api/desk/idea-scorecard; scorecard-data.ts). Market Overview's Top AI ideas
  * footer links here ("Scorecard →").
  *
@@ -13,8 +13,8 @@
  * prediction, and nothing places an order.
  */
 import type { CSSProperties, ReactNode } from "react";
-import { Pill } from "../../../../components/ui";
-import { useCopilotShell } from "../../../../lib/shell-context";
+import { Pill } from "../../../components/ui";
+import { useCopilotShell } from "../../../lib/shell-context";
 import {
   CHECK_LABEL, SPLIT_LABEL, fmtDate, fmtIc, fmtP, fmtRet, fmtShare, fmtT, unavailableOf, useIdeaScorecard, ScorecardContractError,
   type ArmChecks, type IdeaScorecard as Scorecard, type SplitResult,

@@ -287,7 +287,7 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(kill.getByTestId("risk-kill-off")).toHaveCount(0);
     await expect(kill.getByTestId("risk-kill-admin-only")).toHaveText("Only an admin can turn the kill switch off.");
     // The audit re-reads and shows the change; the header pill appears.
-    await page.getByTestId("desk-view-log").click(); // control changes are on Decision log since 2026-10-27
+    // Risk Desk tab (step 4): control changes sit beside the controls, on Controls & profile.
     await expect(page.getByTestId("risk-audit-event")).toHaveCount(1);
     await expect(page.getByTestId("risk-audit-change")).toHaveText("Kill switch: off → on");
     await expect(page.getByTestId("risk-audit-reason")).toHaveText("“Stop for today”");
@@ -409,11 +409,14 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(rows.nth(1).getByTestId("risk-decision-outcome")).toHaveText("Allowed");
     await expect(rows.nth(1).getByTestId("risk-decision-reasons")).toHaveText("within every limit");
     await expect(rows.nth(1).getByTestId("risk-decision-path")).toHaveText("journal_trade");
-    // An old row's outcome is shown as given, not turned into Allowed or Blocked; no reasons, no list.
-    await expect(rows.nth(2).getByTestId("risk-decision-outcome")).toHaveText("reduced");
+    // "reduced" is the universal risk service's word for a size cut (risk_gate/service.py _persist): Reduced. No reasons, no list.
+    await expect(rows.nth(2).getByTestId("risk-decision-outcome")).toHaveText("Reduced");
     await expect(rows.nth(2).getByTestId("risk-decision-reasons")).toHaveCount(0);
-    await expect(page.getByTestId("risk-trust-decisions")).toHaveText("Risk controls · Rules-based · risk-controls-v1");
+    // Risk Desk tab (step 4): each row names its policy and limits versions (none on these rows) instead of one trust line.
+    await expect(rows.nth(2).getByTestId("risk-decision-versions")).toHaveText("policy not recorded · limits not recorded");
 
+    // Control changes are on Controls & profile since the Risk Desk tab (step 4).
+    await page.goto(RISK_CONTROLS);
     const ev = page.getByTestId("risk-audit-event");
     await expect(ev).toHaveCount(2);
     await expect(ev.getByTestId("risk-audit-change")).toHaveText(["Kill switch: off → on", "Trading halt: not halted → halted"]);
@@ -429,6 +432,8 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await page.goto(RISK_LOG);
     await expect(page.getByTestId("risk-decisions-empty")).toContainText("No risk decisions yet");
     await expect(page.getByTestId("risk-decisions-empty")).toContainText("Each paper write the gate checks is recorded here, allowed or blocked.");
+    await expect(page.getByTestId("risk-decision")).toHaveCount(0);
+    await page.goto(RISK_CONTROLS); // control changes: Controls & profile (Risk Desk tab, step 4)
     await expect(page.getByTestId("risk-audit-empty")).toContainText("No control changes yet");
     await expect(page.getByTestId("risk-decision")).toHaveCount(0);
     await expect(page.getByTestId("risk-audit-event")).toHaveCount(0);
@@ -483,8 +488,8 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(page.getByTestId("risk-policy-table")).toHaveCount(0);
     await page.goto(RISK_LOG);
     await expect(page.getByTestId("risk-decisions-error").getByRole("alert")).toContainText("Risk decisions didn’t load", { timeout: 15_000 });
+    await page.goto(RISK_CONTROLS); // control changes: Controls & profile (Risk Desk tab, step 4)
     await expect(page.getByTestId("risk-audit-error").getByRole("alert")).toContainText("Control changes didn’t load", { timeout: 15_000 });
-    await page.goto(RISK_CONTROLS);
     await expect(page.getByTestId("risk-kill-pill")).toHaveText("Off");
     await expect(page.getByTestId("risk-kill-on")).toBeEnabled();
   });
@@ -551,11 +556,13 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await expect(page.getByTestId("desk-view-controls")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("risk-status")).toBeVisible();
     await expect(page.getByTestId("risk-last-reason")).toHaveText(`“${long}”`);
+    // Control changes are beside the controls since the Risk Desk tab (step 4).
+    await expect(page.getByTestId("risk-audit")).toBeVisible();
+    await expect(page.getByTestId("risk-audit-reason")).toHaveText(`“${long}”`);
     await noSideScroll(page);
     await page.goto(RISK_LOG);
-    for (const id of ["risk-decisions", "risk-audit"]) await expect(page.getByTestId(id)).toBeVisible();
+    await expect(page.getByTestId("risk-decisions")).toBeVisible();
     await expect(page.getByTestId("risk-decision-cid")).toHaveText(longCid);
-    await expect(page.getByTestId("risk-audit-reason")).toHaveText(`“${long}”`);
     await noSideScroll(page);
     await page.goto(RISK_LIMITS);
     await expect(page.getByTestId("risk-policy")).toBeVisible();

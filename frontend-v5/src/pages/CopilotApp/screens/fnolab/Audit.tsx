@@ -102,7 +102,8 @@ function ReplayPanel({ d }: { d: AuditDecision }) {
   );
 }
 
-function Lineage({ d }: { d: AuditDecision }) {
+/** One decision's ten lineage steps with its replay (also on Risk Desk › Decision log). */
+export function Lineage({ d }: { d: AuditDecision }) {
   const q = useDecisionLineage(d.id);
   const [node, setNode] = useState("risk_decision");
   const steps = q.data?.steps ?? [];

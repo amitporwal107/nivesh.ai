@@ -1,5 +1,5 @@
 /**
- * Market Desk › Idea scorecard — the data (docs/desk_redesign_20261027/PLAN.md §2a, the P4 row).
+ * The Idea scorecard — the data (docs/desk_redesign_20261027/PLAN.md §2a, the P4 row).
  *
  *   GET /api/desk/idea-scorecard   the Phase 4.3 pre-registered study as committed (backend/services/idea_scorecard.py):
  *                                  `study`, `splits[]` (discovery / validation / test, each with its arms B0 A1 A2 A3),

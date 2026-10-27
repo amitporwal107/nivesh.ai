@@ -4,7 +4,8 @@
  * switcher (the shell's), then a view head (eyebrow, one sentence, the parts of the view and where related data lives),
  * then the view. At most two levels: tab → view; `section=` scrolls to a part of a view.
  *
- *   intel       Market Intelligence   IntelTab (filings, SEBI circulars, bulk / block deals) + the Events calendar (EventsTab)
+ *   intel       Market Intelligence   IntelTab (filings, SEBI circulars, bulk / block deals), the sector-rotation readout
+ *                                     (SectorReadout.tsx) and the Events calendar (EventsTab), as the owner's design draws it
  *   smartmoney  Smart Money           SmartMoneyTab (FII / DII, sector flows, MF evidence) + the F&O section: the F&O lab's
  *                                     build-up, candidates, indices and option chain (FnoTab). The option chain lives here
  *                                     only; Stock Research links here for its stock.
@@ -13,22 +14,28 @@
  *                                     symbol strip: the stock shown, its option chain in Smart Money › F&O, and the full
  *                                     chart workspace
  *   screener    Screener              Screener + the Chartink sources (ChartinkSettings)
- *   watchlists  Watchlists & alerts   the Watchlist page
- *   scorecard   Idea scorecard        IdeaScorecard.tsx: the Phase 4.3 study (GET /api/desk/idea-scorecard)
  *
- * The hosted screens are re-hosted as they are (each keeps its own spec). This file reads one route itself, through the
- * scanner hook the chart already uses: GET /api/positional/watchlist + picks (useDeskScanner) — the stock Stock Research
- * shows when no ?sym= is chosen (ChartTab's own fallback, so the strip and the chart name the same stock).
+ * Watchlists and the Idea scorecard are Trade Desk's in the owner's design (27 Oct 19:40 IST): the scorecard component is
+ * tradingdesk/scorecard/IdeaScorecard.tsx, for the Trade Desk tab to mount; ?tab=market&view=watchlists|scorecard opens
+ * Trade Desk (desk-nav.ts MOVED_TO_TRADE).
+ *
+ * The hosted screens are re-hosted as they are (each keeps its own spec). This file reads, itself: GET
+ * /api/positional/watchlist + picks (useDeskScanner) — the stock Stock Research shows when no ?sym= is chosen (ChartTab's
+ * own fallback, so the strip and the chart name the same stock); and, through SectorReadout, GET
+ * /api/markets/sector-heatmap?index=NIFTY50 (the Sector Rotation view's own default query and cache).
  *
  * Wording: ideas and candidates, never picks, recommendations or suggestions. Nothing here places an order.
  */
-import { Suspense, lazy, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, type CSSProperties, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { LoadingBlock } from "../../../../components/ui";
 import { useCopilotShell } from "../../../../lib/shell-context";
 import { fullChartHref } from "../../chart-data";
 import { useDesk, type LabView } from "../../context";
 import { useDeskScanner } from "../../desk-data";
+import { VIEW_PARAMS, canonical } from "../../desk-nav";
+import { SectorReadout } from "./SectorReadout";
 
 const IntelTab = lazy(() => import("../../IntelTab"));
 const EventsTab = lazy(() => import("../../EventsTab"));
@@ -38,13 +45,11 @@ const ChartTab = lazy(() => import("../../ChartTab"));
 const ChartinkSettings = lazy(() => import("../../chartink/ChartinkSettings"));
 const SectorHeatmap = lazy(() => import("../../../SectorHeatmap"));
 const Screener = lazy(() => import("../../../Screener"));
-const Watchlist = lazy(() => import("../../../Watchlist"));
-const IdeaScorecard = lazy(() => import("./IdeaScorecard"));
 
 /** The F&O lab's views on Smart Money: build-up, candidates, indices and the option chain. */
 const SMART_MONEY_LAB: readonly LabView[] = ["buildup", "candidates", "indices", "chain"];
 
-export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener" | "watchlists" | "scorecard";
+export type MarketView = "intel" | "smartmoney" | "sectors" | "research" | "screener";
 
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)", textAlign: "left" };
 
@@ -144,9 +149,24 @@ function SymbolStrip() {
   );
 }
 
+/** Open another Market Desk view, dropping the old view's params (as the shell's goPlace does). */
+function useGoView() {
+  const [, setParams] = useSearchParams();
+  return useCallback((view: MarketView) => {
+    setParams((prev) => {
+      const p = new URLSearchParams(prev);
+      for (const k of [...VIEW_PARAMS, "view", "section"]) p.delete(k);
+      p.set("tab", "market");
+      p.set("view", view);
+      return canonical(p);
+    }, { replace: true });
+  }, [setParams]);
+}
+
 export default function MarketDesk({ view }: { view: string | null }) {
   const desk = useDesk();
-  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener", "watchlists", "scorecard"] as const).find((x) => x === view) ?? "intel";
+  const goView = useGoView();
+  const v: MarketView = (["intel", "smartmoney", "sectors", "research", "screener"] as const).find((x) => x === view) ?? "intel";
   const jump = (section: string, go: () => void) => () => { go(); scrollTo(section); };
 
   switch (v) {
@@ -171,7 +191,7 @@ export default function MarketDesk({ view }: { view: string | null }) {
             view={v}
             label="Sector Rotation"
             line="Which sectors lead and which lag: the index heatmap, and under it the rotation matrix."
-            elsewhere={<>Sector flows from disclosed mutual-fund holdings are in <button type="button" data-testid="md-to-smartmoney" onClick={() => desk.openTab("smartmoney")} style={linkBtn}>Smart Money ›</button></>}
+            elsewhere={<>Sector flows from disclosed mutual-fund holdings are in <button type="button" data-testid="md-to-smartmoney" onClick={() => goView("smartmoney")} style={linkBtn}>Smart Money ›</button></>}
           />
           <Hosted id="sectors" name="Sector Rotation"><SectorHeatmap /></Hosted>
         </>
@@ -203,39 +223,20 @@ export default function MarketDesk({ view }: { view: string | null }) {
           <Section id="chartink" title="Chartink sources"><ChartinkSettings asSection /></Section>
         </>
       );
-    case "watchlists":
-      return (
-        <>
-          <ViewHead
-            view={v}
-            label="Watchlists & alerts"
-            line="The stocks you follow: your own lists, saved screens, the levels the scanner watches and your filing alerts."
-          />
-          <Hosted id="watchlists" name="Watchlists & alerts"><Watchlist /></Hosted>
-        </>
-      );
-    case "scorecard":
-      return (
-        <>
-          <ViewHead
-            view={v}
-            label="Idea scorecard"
-            line="Has the AI ideas’ ranking shown any skill? The pre-registered study’s answer, nulls included."
-            elsewhere={<>Today’s ideas are on <button type="button" data-testid="md-to-overview" onClick={() => desk.openTab("overview")} style={linkBtn}>Market Overview ›</button></>}
-          />
-          <Hosted id="scorecard" name="the Idea scorecard"><IdeaScorecard /></Hosted>
-        </>
-      );
     default:
       return (
         <>
           <ViewHead
             view="intel"
             label="Market Intelligence"
-            line="What the market disclosed: exchange filings, SEBI circulars and bulk and block deals, with the events calendar below."
-            parts={[{ id: "events", label: "Events calendar", onClick: jump("events", () => desk.openTab("events")) }]}
+            line="What the market disclosed: exchange filings, SEBI circulars and bulk and block deals, with the sector rotation and the events calendar below."
+            parts={[
+              { id: "readout", label: "Sector rotation", onClick: () => document.querySelector('[data-testid="md-readout"]')?.scrollIntoView({ block: "start" }) },
+              { id: "events", label: "Events calendar", onClick: jump("events", () => desk.openTab("events")) },
+            ]}
           />
           <Hosted id="intel" name="Market Intelligence"><IntelTab /></Hosted>
+          <SectorReadout onOpenRotation={() => goView("sectors")} />
           <Section id="events" title="Events calendar"><EventsTab /></Section>
         </>
       );
