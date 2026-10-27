@@ -44,4 +44,39 @@ tsc: OK (no errors)
 78 passed (52.8s)
 ```
 
+## Addendum (01:50 IST): left panel of watchlists; no overlapping text
+Owner, 28 Oct: "the text is overlapping in the UI and distorted" and "a list of watchlists in the left panel; once a user clicks
+the watchlist, its content is displayed in the rest of the screen".
+
+Test cases (in `copilot-app-results-this-week.spec.ts`):
+- TC-W15 at 1600 / 1440 / 1100 px: the block shows rows when it is ≥ 1080 px wide, cards when not; in rows, no cell's widest
+  descendant ends past the next cell's left edge; no sideways page scroll.
+- TC-W16 (1440): the panel lists every watchlist; a click shows that list alone, sets `?wl=` and `aria-current`; a link opens it.
+- TC-W17 (390 phone): the panel is a row of chips; a chip switches the list; no sideways page scroll.
+- Existing specs updated for the new URLs (`?wl=all`, `?wl=screens`) and the layout-agnostic date/reaction text.
+
+Measured block width on the Watchlist page (temporary log, removed): 1100 px screen → 552 px (cards); 1440 → 892 px (cards);
+1600 → 1052 px (cards). The page was capped at 1040 px, so the table could never show; it is now 1360 px, so screens ≈ 1700 px
+and wider get rows. Screenshot at 1440 checked by eye: cards, no overlap.
+
+Run (11 specs, Docker Playwright 1.47, build with VITE_BASE=/v5/):
+```
+tsc: OK (no errors)
+✓ built in 24.37s
+4 skipped
+221 passed (2.8m)
+```
+The three new layout/panel tests:
+```
+✓  138 [copilot-app] › e2e/tests/copilot-app-results-this-week.spec.ts:679:5 › Results This Week — layout never overlaps › TC-W15 at 1600px: rows when the block is wide enough, cards when not; no cell runs into the next (1.1s)
+✓  139 [copilot-app] › e2e/tests/copilot-app-results-this-week.spec.ts:679:5 › Results This Week — layout never overlaps › TC-W15 at 1440px: rows when the block is wide enough, cards when not; no cell runs into the next (1.1s)
+✓  140 [copilot-app] › e2e/tests/copilot-app-results-this-week.spec.ts:679:5 › Results This Week — layout never overlaps › TC-W15 at 1100px: rows when the block is wide enough, cards when not; no cell runs into the next (1.1s)
+✓  142 [copilot-app] › e2e/tests/copilot-app-results-this-week.spec.ts:736:3 › Watchlist page — left panel › TC-W17 phone: the panel is a row of chips; a chip switches the list; no sideways page scroll (1.1s)
+✓  141 [copilot-app] › e2e/tests/copilot-app-results-this-week.spec.ts:713:3 › Watchlist page — left panel › TC-W16 the panel lists every watchlist; a click shows that list alone and puts it in the URL; a link opens it (2.6s)
+```
+The 4 skipped are the opt-in screenshot runs (`shots 1440`, `shots 390` in two specs).
+
+## UNVERIFIED
+- The deployed page after this merge (re-run the live checks on staging).
+
 ## Verdict: PASS
