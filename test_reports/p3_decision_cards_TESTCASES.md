@@ -91,3 +91,13 @@
 | UI-15 | P0 (c) | Day block with `notes.scan_basis`, and without it | e2e | Engine version, price basis and data-quality status are shown, or "Scan basis: not recorded for this day". |
 | UI-16 | wording | Cards | e2e | No "pick", "recommended" or "suggested". The "not a prediction" note is on the card. No confidence or edge language for the rank or score. |
 | REG-1 | regression | Every spec in the run set on the branch vs plain origin/dev | e2e | No case fails on the branch and passes on dev. desk-lab TC-7 and TC-34 are rerun alone if they fail. |
+
+## Addendum (2026-10-27, after Phase 1 #363 merged into origin/dev mid-task; coordinator's instruction)
+
+The risk seam is wired to the real service instead of "Risk check: pending":
+- **BE-11 (added):** `GET /api/desk/trade-plans/{id}` returns `risk_decision`, the user's newest universal-risk decision
+  on a submission citing the plan (allow / reduce / block), or null. A desk validation refusal is not a risk decision.
+- **UI-8d:** "Provisional · no risk decision yet".
+- **UI-8e:** "Risk-approved" only on a real ALLOW under the current limits version (UI-8e2: other limits → provisional).
+- **UI-8f, UI-8f2, UI-8g:** a block disables the action only while it applies.
+- **UI-10:** % of equity uses `GET /api/risk/profile`'s paper equity, not the paper account's cash.
