@@ -137,7 +137,7 @@ signals, applied, gap, source}`.
 - Decay: points × (1 − sessions_since / 5). Cached ≤ 10 min; bounded by 25 s; any source failure → no adjustment and a gap.
 - Reasons are factual, from the data, e.g. "Q2 FY27 PAT +40.0 % YoY, revenue +17.3 %, EBITDA margin +207 bps (filed 26 Oct)",
   "Filing analysis: moderately positive, confidence 80 % (figures not filed yet)".
-- Changed 27 Oct (coordinator, before merge) after the staging dry run showed "strong" on a profit fall (WESTLIFE PAT −107 %,
+- Changed 27 Oct (coordinator, ~19:33 IST, before merge) after the staging dry run showed "strong" on a profit fall (WESTLIFE PAT −107 %,
   MGEL −48 %, via revenue + margin) and "weak" on a profit jump (GAEL PAT +247 % with a rated revenue below): the PAT-not-down
   condition and the "below without a strong PAT rise" condition above. Still as designed: a red flag vetoes a strong quarter
   (ATHERENERG: loss → profit, revenue +63 %, margin +1552 bps, but other income ≈ 50× a barely positive PBT, so the profit

@@ -141,7 +141,7 @@ in tests/test_results_signal.py; the old "a rated below wins" case changed on pu
 pytest tests/test_results_signal.py tests/test_results_week.py tests/test_positional_engine.py tests/test_positional_scan_universe.py tests/test_positional_desk_fields.py
 170 passed, 2 warnings in 8.38s
 ```
-Staging data test (read-only overlay, rs.compute at ~19:50 IST 27 Oct): signals strong/figures 56, weak/figures 12, strong/filing 9, weak/filing 3, no gaps;
+Staging data test (read-only overlay, rs.compute at ~19:33 IST 27 Oct): signals strong/figures 56, weak/figures 12, strong/filing 9, weak/filing 3, no gaps;
 WESTLIFE, MGEL, GAEL: no signal; MANKIND, SONACOMS, APLAPOLLO, ITCHOTELS, SUPREMEIND strong +10 (figures); TATACONSUM, PAYTM strong +5
 (filing analysis, figures pending); MARUTI weak −5 (filing analysis); ATHERENERG no signal (other-income red flag, by design).
 
