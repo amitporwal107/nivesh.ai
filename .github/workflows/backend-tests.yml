@@ -114,6 +114,7 @@ jobs:
           tests/test_desk_alerts.py
           tests/test_desk_copilot_prompt.py
           tests/test_desk_exit_job.py
+          tests/test_desk_live_chart.py
           tests/test_desk_market_routes.py
           tests/test_desk_overview_backend.py
           tests/test_desk_paper_safety.py

@@ -458,7 +458,7 @@ def test_no_read_inside_the_first_minute_after_close_and_none_stops_the_ticker()
 
 def test_gateway_exposes_no_order_surface():
     names = {n for n in dir(gw.ReadOnlyKite) if not n.startswith("_")}
-    assert names == {"instruments", "quote", "profile", "historical_data"}
+    assert names == {"instruments", "quote", "profile", "historical_data", "historical_data_oi"}
 
 
 def test_no_order_method_is_referenced_in_the_package_or_routes():
