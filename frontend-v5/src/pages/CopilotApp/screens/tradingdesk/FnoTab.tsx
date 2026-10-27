@@ -524,7 +524,12 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
  * row). A view the host does not show falls back to its first. `asSection`: the lab is a part of a page with its own
  * headline, so its title is a level-2 heading (one h1 a page).
  */
-export default function FnoTab({ views: only, asSection = false }: { views?: readonly LabView[]; asSection?: boolean } = {}) {
+export default function FnoTab({ views: only, asSection = false, builderCatalog }: {
+  views?: readonly LabView[];
+  asSection?: boolean;
+  /** Trade Desk › New trade: the paper-strategy builder offers only these backend template names (FnoBuilder BuilderView `catalog`). */
+  builderCatalog?: readonly string[] | null;
+} = {}) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
@@ -689,7 +694,7 @@ export default function FnoTab({ views: only, asSection = false }: { views?: rea
             <Segmented<"builder" | "compare" | "ideas"> label="Paper strategies mode" testId="desk-strat-mode" value={stratMode} onChange={setStratMode}
               options={[{ value: "builder", label: "Builder" }, { value: "compare", label: "Compare" }, { value: "ideas", label: "Rule-based ideas" }]} />
             {stratMode === "builder"
-              ? <BuilderView symbol={symbol} state={oc.state} expiryChoice={{ options: oc.list.filter((e) => e.days_to_expiry > 0 && e.days_to_expiry <= BUILDER_EXPIRY_DAYS), onPick: setPicked }} />
+              ? <BuilderView symbol={symbol} state={oc.state} catalog={builderCatalog} expiryChoice={{ options: oc.list.filter((e) => e.days_to_expiry > 0 && e.days_to_expiry <= BUILDER_EXPIRY_DAYS), onPick: setPicked }} />
               : stratMode === "compare"
                 ? <CompareView symbol={symbol} state={oc.state} />
                 : <StrategiesView symbol={symbol} state={oc.state} near={near} futuresNote={futuresNote} onLoad={pick} />}

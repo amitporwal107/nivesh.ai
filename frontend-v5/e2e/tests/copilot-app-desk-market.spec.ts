@@ -661,7 +661,7 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await expect(impact.getByTestId("desk-event-history")).toContainText("— No study of how prices reacted to this kind of event is published yet");
     // A peer opens its chart.
     await peers.nth(1).click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "chart"); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=PEERTWO/);
   });
 

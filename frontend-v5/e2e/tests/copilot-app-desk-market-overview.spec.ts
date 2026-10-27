@@ -161,7 +161,7 @@ test.describe("MOCK — not real data: Market Overview · the page", () => {
     await page.goto(DESK);
     const p = panel(page);
     await expect(p.getByTestId("market-overview")).toBeVisible(SLOW);
-    const ids = ["mo-kpis", "mo-strip", "desk-top10", "mo-paper", "mo-events", "desk-scanner-toggle"];
+    const ids = ["mo-kpis", "mo-strip", "desk-top10", "mo-paper", "mo-events"];
     for (const id of ids) await expect(p.getByTestId(id)).toBeVisible(SLOW);
     const tops = await Promise.all(ids.map(async (id) => (await p.getByTestId(id).boundingBox())?.y ?? -1));
     expect(tops).toEqual([...tops].sort((a, b) => a - b));
@@ -171,21 +171,20 @@ test.describe("MOCK — not real data: Market Overview · the page", () => {
     await expect(page.getByTestId("mo-strip")).toContainText("Market regime");
     await expect(page.getByTestId("desk-top10")).toContainText("Top AI candidates");
     await expect(page.getByTestId("mo-events")).toContainText("Alerts and events");
-    await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "false");
+    // Step 3 PR B: "All scanner candidates" is Trade Desk › AI Scanner › Ranked candidates.
+    await expect(page.getByTestId("desk-scanner-toggle")).toHaveCount(0);
     await expect(page.getByTestId("desk-panel-scanner")).toHaveCount(0);
   });
 
-  test("MO-31 All scanner candidates opens the list and puts section=scanner in the URL; ?tab=scanner opens it", async ({ page }) => {
+  test("MO-31 All scanner candidates is Trade Desk › AI Scanner › Ranked candidates: ?tab=scanner and ?section=scanner open it", async ({ page }) => {
     await setup(page);
-    await page.goto(DESK);
-    const toggle = page.getByTestId("desk-scanner-toggle");
-    await toggle.click(SLOW);
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect.poll(() => params(page).get("section")).toBe("scanner");
+    for (const from of ["?tab=scanner", "?tab=overview&section=scanner"]) {
+      await page.goto(`${DESK}${from}`);
+      await expect.poll(() => params(page).get("tab"), from).toBe("trade");
+      await expect.poll(() => params(page).get("view"), from).toBe("scanner");
+      await expect.poll(() => params(page).get("sub"), from).toBe("ranked");
+    }
     await expect(page.getByTestId("desk-panel-scanner")).toBeVisible(SLOW);
-    await page.goto(`${DESK}?tab=scanner`);
-    await expect.poll(() => params(page).get("tab")).toBe("overview");
-    await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "true", SLOW);
   });
 });
 
@@ -502,20 +501,24 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     expect(seen.paperPosts).toHaveLength(0);
   });
 
-  test("MO-23 the footer: ideas, not recommendations; no measurable ranking skill; Scorecard → opens Market Desk", async ({ page }) => {
+  test("MO-23 the footer: ideas, not recommendations; no measurable ranking skill; Scorecard → opens Trade Desk › AI Scanner › Scorecard", async ({ page }) => {
     await setup(page);
     await page.goto(DESK);
     const foot = page.getByTestId("desk-top10-footer");
     await expect(foot).toHaveText("Ideas, not recommendations. The rank orders ideas; our test found no measurable ranking skill. Scorecard →", SLOW);
     await foot.getByTestId("desk-top10-scorecard").click();
-    await expect.poll(() => params(page).get("tab")).toBe("market");
+    await expect.poll(() => params(page).get("tab")).toBe("trade");
+    await expect.poll(() => params(page).get("view")).toBe("scanner");
+    await expect.poll(() => params(page).get("sub")).toBe("scorecard");
   });
 
-  test("MO-23b See all › opens Trade Desk (the AI Scanner's ranked candidates once the next nav PR adds its section)", async ({ page }) => {
+  test("MO-23b See all › opens Trade Desk › AI Scanner › Ranked candidates", async ({ page }) => {
     await setup(page);
     await page.goto(DESK);
     await page.getByTestId("desk-top10-see-all").click(SLOW);
     await expect.poll(() => params(page).get("tab")).toBe("trade");
+    await expect.poll(() => params(page).get("view")).toBe("scanner");
+    await expect.poll(() => params(page).get("sub")).toBe("ranked");
   });
 });
 
@@ -530,7 +533,7 @@ test.describe("MOCK — not real data: Market Overview · events and the Trade D
     await expect(ev.getByTestId("mo-event")).toHaveAttribute("data-id", F_TODAY.id);
     await expect(ev.getByTestId("mo-event-title")).toHaveText(F_TODAY.docLabel);
     await ev.getByTestId("mo-event-stock").click();
-    await expect.poll(() => `${params(page).get("tab")}/${params(page).get("view")}/${params(page).get("sym")}`).toBe(`market/research/${SYM}`);
+    await expect.poll(() => `${params(page).get("tab")}/${params(page).get("view")}/${params(page).get("sym")}`).toBe(`trade/chart/${SYM}`); // a symbol's chart is Trade Desk › Chart Analysis › Live chart (owner's design)
   });
 
   test("MO-24b a day with no filing for the listed names says so", async ({ page }) => {

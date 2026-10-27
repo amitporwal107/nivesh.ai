@@ -237,10 +237,15 @@ test.describe("Scanner — Top 10 ideas", () => {
     await desk(page);
     await page.goto(SCANNER);
     await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
+    // The Strategy Builder takes ?cand= once and then drops it from the URL ("used once", StrategyBuilder.tsx), so the
+    // URL the click produced is recorded as it lands instead of read after the builder has run.
+    const urls: string[] = [];
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) urls.push(f.url()); });
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-plan").click();
     await expect(page.getByTestId("desk-panel-strategy")).toBeVisible(SLOW);
-    const p = params(page);
-    expect([p.get("tab"), p.get("view"), p.get("sym"), p.get("mode"), p.get("build")]).toEqual(["trade", "new", "ICICIBANK", "stock", "1"]); // was more/strategy before the 2026-10-27 redesign
+    const landed = [page.url(), ...urls].find((u) => new URL(u).searchParams.get("cand")) ?? page.url();
+    const p = new URL(landed).searchParams;
+    expect([p.get("tab"), p.get("view"), p.get("sym"), p.get("mode"), p.get("build")]).toEqual(["trade", "lab", "ICICIBANK", "stock", "1"]); // Strategy Lab (was view=new; before that more/strategy)
     expect([p.get("cand"), p.get("src_kind"), p.get("src_date"), p.get("direction")]).toEqual(["options:bull_call_spread", "ideas", "2026-10-19", "bullish"]);
   });
 
@@ -342,7 +347,7 @@ test.describe("Scanner — Top 10 ideas", () => {
     await page.goto(SCANNER);
     await openCard(page.getByTestId("desk-top10-stock-ICICIBANK"));
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-trades").click();
-    // Desk redesign (2026-10-27): the paper trades are on Trade Desk › Paper trades (they were on Portfolio & Risk).
+    // Desk redesign (2026-10-27): the paper trades are on Trade Desk › Paper Trading › Live desk (step 3).
     await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "trade");
     await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "paper");
   });
@@ -569,7 +574,7 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
     await expect(page.getByTestId("desk-fno-view-buildup")).toHaveAttribute("aria-selected", "true");
     await page.getByTestId("desk-fno-view-candidates").click();
     await page.getByTestId("desk-cand-strategy-open-LB1").click();
-    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym"), params(page).get("src_kind")]).toEqual(["trade", "new", "LB1", "lab"]); // was more/strategy before the 2026-10-27 redesign
+    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym"), params(page).get("src_kind")]).toEqual(["trade", "lab", "LB1", "lab"]); // Strategy Lab (was view=new; before that more/strategy)
     expect(params(page).get("lab")).toBeNull();                       // a tab change drops the lab's own params
   });
 });

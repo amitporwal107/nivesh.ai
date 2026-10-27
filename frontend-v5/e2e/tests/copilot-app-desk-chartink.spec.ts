@@ -473,7 +473,7 @@ test.describe("MOCK - not real data: Chartink scans as opportunity sources", () 
 
     // A row opens its Chart tab; the header link opens the settings.
     await only.nth(1).click();
-    await expect(page).toHaveURL(/tab=market&view=research/); // the Chart tab is Market Desk › Stock Research since 2026-10-27
+    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/sym=ZEDCO/);
     await page.goto(DESK);
     await page.getByTestId("desk-opps-chartink").click();

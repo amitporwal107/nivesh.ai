@@ -200,10 +200,10 @@ test.describe("AI scanner watchlist", () => {
     await expect(page).toHaveURL(/\/v5\/app\/trader\/desk\?/);
     const p = params(page);
     expect([p.get("tab"), p.get("view"), p.get("mode"), p.get("build"), p.get("sym"), p.get("cand"), p.get("src_kind"), p.get("src_date")])
-      .toEqual(["trade", "new", "stock", "1", "ICICIBANK", "options:bull_call_spread", "ideas", "2026-10-26"]);
+      .toEqual(["trade", "lab", "stock", "1", "ICICIBANK", "options:bull_call_spread", "ideas", "2026-10-26"]); // Strategy Lab › Build a trade
     await page.goBack();
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chart").click(SLOW);
-    expect([params(page).get("tab"), params(page).get("sym")]).toEqual(["market", "ICICIBANK"]); // the Chart tab is Market Desk › Stock Research since 2026-10-27
+    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym")]).toEqual(["trade", "chart", "ICICIBANK"]); // Trade Desk › Chart Analysis › Live chart
     await page.goBack();
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chain").click(SLOW);
     expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["market", "chain", "ICICIBANK"]); // the lab is Smart Money's F&O section since 2026-10-27

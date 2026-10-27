@@ -227,10 +227,9 @@ test.describe("Smart trading desk — shell", () => {
     await expect(page).not.toHaveURL(/persona=/);
 
     // The thread survives moving between tabs.
-    // Desk redesign (2026-10-27): the scanner list is Market Overview's "All scanner candidates" (was the AI Scanner tab).
-    await page.getByTestId("desk-tab-trade").click();
+    // Desk redesign step 3: the scanner list is Trade Desk › AI Scanner › Ranked candidates (the tab's default).
     await page.getByTestId("desk-tab-overview").click();
-    await page.getByTestId("desk-scanner-toggle").click();
+    await page.getByTestId("desk-tab-trade").click();
     await expect(dock.getByTestId("dock-turn")).toHaveCount(2);
     // Beside the dock the desk is too narrow for the scanner's columns, so its rows show as cards.
     await expect(page.getByTestId("desk-scan-cards")).toBeVisible();
@@ -264,8 +263,8 @@ test.describe("Smart trading desk — shell", () => {
     await expect(page.getByTestId("desk-docked-note")).toHaveCount(0);
     await expect(page.getByTestId("composer-input")).toBeVisible();
     // Without the dock there is room for the scanner's full table.
-    // Desk redesign (2026-10-27): the scanner list is Market Overview's "All scanner candidates".
-    await page.getByTestId("desk-scanner-toggle").click();
+    // Desk redesign step 3: the scanner list is Trade Desk › AI Scanner › Ranked candidates (the tab's default).
+    await page.getByTestId("desk-tab-trade").click();
     await expect(page.getByTestId("desk-scan-table")).toBeVisible();
     await expect(page.getByTestId("desk-scan-cards")).toHaveCount(0);
 
@@ -360,17 +359,17 @@ test.describe("Smart trading desk — header search", () => {
     // TATASTEEL is not one of the mocked scanner setups (TESTBRK, TESTPRE, TESTPICK); lower case is read as the symbol.
     await page.getByTestId("desk-search").fill("tatasteel");
     await page.getByTestId("desk-search").press("Enter");
-    // Desk redesign (2026-10-27): the Chart tab is Market Desk › Stock Research.
-    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/);
+    // The owner's design: a symbol's chart is Trade Desk › Chart Analysis › Live chart.
+    await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/);
     await expect(page).toHaveURL(/[?&]sym=TATASTEEL(&|$)/);
-    await expect(desk(page)).toHaveAttribute("data-view", "research");
+    await expect(desk(page)).toHaveAttribute("data-view", "chart");
     await expect(desk(page)).toHaveAttribute("data-symbol", "TATASTEEL");
     await expect(page.getByTestId("desk-search-picked")).toHaveCount(0);
     // Already on the Chart tab: the stock changes, the tab stays.
     await page.getByTestId("desk-search").fill("M&M");
     await page.getByTestId("desk-search").press("Enter");
     await expect(desk(page)).toHaveAttribute("data-symbol", "M&M");
-    await expect(desk(page)).toHaveAttribute("data-view", "research");
+    await expect(desk(page)).toHaveAttribute("data-view", "chart");
     expect(chat.streams).toHaveLength(0);
     // More than one word is a question for the Copilot (More · AI Copilot below 1400px).
     await page.getByTestId("desk-search").fill("what about steel stocks");
