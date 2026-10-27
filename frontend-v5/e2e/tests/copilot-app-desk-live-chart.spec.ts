@@ -408,6 +408,13 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis › Live ch
     await expect.poll(() => params(page).get("sub")).toBe("ranked");
   });
 
+  test("TC-10 a symbol with no prices says so instead of an error", async ({ page }) => {
+    await setup(page);
+    await page.goto(LIVE("QQZZ"));
+    await expect(page.getByTestId("lc-noprices")).toContainText("No prices on record for QQZZ", SLOW);
+    await expect(page.getByTestId("lc-error")).toHaveCount(0);
+  });
+
   test("TC-24 390 px: the columns stack, no sideways scroll", async ({ page }) => {
     await setup(page, { phone: true });
     await page.goto(LIVE("ICICIBANK", `&tp=${CASH_PLAN.plan_id}`));

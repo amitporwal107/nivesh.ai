@@ -18,6 +18,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
+import { ApiError } from "@/services/api/errors";
 import { ErrorBlock, LoadingBlock, TONE_COLOR, fmtNum } from "../../../../components/ui";
 import { useCopilotShell } from "../../../../lib/shell-context";
 import { useLiveMeta, useLiveOverlay } from "../../../../lib/useLiveQuotes";
@@ -307,7 +308,13 @@ export default function LiveChartView({ onIdeas, onStrategyLab, onRiskPolicy }: 
 
   let chartCard: ReactNode;
   if (q.isPending) chartCard = <LoadingBlock label={`Reading ${symbol}'s chart`} rows={6} />;
-  else if (q.isError || !d) chartCard = <div data-testid="lc-error"><ErrorBlock error={q.error} onRetry={() => q.refetch()} /></div>;
+  else if (q.error instanceof ApiError && q.error.status === 404) {
+    chartCard = (
+      <p data-testid="lc-noprices" role="note" className="m-0" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>
+        No prices on record for {symbol}, so there is no chart. Search another stock above, or check the symbol on Market Desk › Stock Research.
+      </p>
+    );
+  } else if (q.isError || !d) chartCard = <div data-testid="lc-error"><ErrorBlock error={q.error} onRetry={() => q.refetch()} /></div>;
   else {
     const lastPrice = quote?.kind === "live" ? quote.ltp : d.last.price;
     const lastAt = quote?.kind === "live" ? istTime(quote.ts) : daily ? fmtDay(d.last.at) : istTime(d.last.at);
