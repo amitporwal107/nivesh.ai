@@ -518,15 +518,23 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
 
 // ── tab ──────────────────────────────────────────────────────────────────
 
-export default function FnoTab() {
+/**
+ * `views` (the desk redesign of 2026-10-27): the lab views this host shows. Market Desk › Smart Money shows the build-up,
+ * candidates, index and chain views; Trade Desk › New trade shows the paper strategies (with one view there is no view
+ * row). A view the host does not show falls back to its first. `asSection`: the lab is a part of a page with its own
+ * headline, so its title is a level-2 heading (one h1 a page).
+ */
+export default function FnoTab({ views: only, asSection = false }: { views?: readonly LabView[]; asSection?: boolean } = {}) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
+  const Title = asSection ? "h2" : "h1";
   // The view, the loaded underlying and a Top 10 idea in focus live in the URL (?lab=&lab_sym=&lab_focus=), so the
   // Scanner can open the lab on any of them and the breadcrumb can come back to it.
   const [params, setParams] = useSearchParams();
   const rawView = params.get("lab");
-  const view: LabView = isLabView(rawView) ? rawView : "buildup";
+  const allowed = (v: LabView) => !only || only.includes(v);
+  const view: LabView = isLabView(rawView) && allowed(rawView) ? rawView : only?.[0] ?? "buildup";
   const symbol = labSymbol(params.get("lab_sym")) ?? FNO_INDICES[0].symbol;
   const focus = labSymbol(params.get("lab_focus"));
   const setLab = (patch: { view?: LabView; symbol?: string; focus?: string | null }) => setParams((prev) => {
@@ -563,13 +571,13 @@ export default function FnoTab() {
         : row ? { status: "ok", label: row.label, priceChgPct: row.priceChgPct, oiChgPct: row.oiChgPct, asOf: scan.data.asOf }
           : { status: "absent" };
 
-  const views: Array<{ key: LabView; label: string }> = [
+  const views: Array<{ key: LabView; label: string }> = ([
     { key: "buildup", label: "OI build-up · F&O stocks" },
     { key: "candidates", label: "Candidates" },
     { key: "indices", label: "NIFTY & BANKNIFTY" },
     { key: "chain", label: `Option chain OI · ${symbol}` },
     { key: "strategies", label: "Paper strategies" },
-  ];
+  ] as Array<{ key: LabView; label: string }>).filter((v) => allowed(v.key));
 
   return (
     <div data-testid="desk-fno" data-symbol={symbol} className="flex flex-col min-w-0" style={{ gap: mobile ? 16 : 20 }}>
@@ -581,9 +589,9 @@ export default function FnoTab() {
             <Pill tone="indigo">Analysis only</Pill>
             <Pill>End of day</Pill>
           </span>
-          <h1 data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
+          <Title data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
             Build, test and understand <em>option trades</em>.
-          </h1>
+          </Title>
         </div>
         <SpotBlock symbol={symbol} state={oc.state} futures={fq.data} />
       </div>
@@ -633,7 +641,7 @@ export default function FnoTab() {
         </div>
       )}
 
-      <UnderlineTabs<LabView> tabs={views} value={view} onChange={setView} label="Options and futures views" idPrefix="desk-fno-view" />
+      {views.length > 1 && <UnderlineTabs<LabView> tabs={views} value={view} onChange={setView} label="Options and futures views" idPrefix="desk-fno-view" />}
 
       <div role="tabpanel" aria-label={views.find((v) => v.key === view)?.label} className="flex flex-col min-w-0" style={{ gap: 12 }}>
         {view === "buildup" && (

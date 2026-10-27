@@ -1140,9 +1140,14 @@ const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
 const ScannerPulse = lazy(() => import("./ScannerPulse").then((m) => ({ default: m.ScannerPulse })));
 const ScannerTop10 = lazy(() => import("./ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
 
-/** The tab: the market pulse and the Top 10 boards (each loads on its own), then the scanner list. */
-export default function ScannerTab() {
+/**
+ * The tab: the market pulse and the Top 10 boards (each loads on its own), then the scanner list. `listOnly` (Market
+ * Overview, the desk redesign of 2026-10-27): the list alone, under "All scanner candidates"; the page shows the pulse
+ * and the Top 10 above it once.
+ */
+export default function ScannerTab({ listOnly = false }: { listOnly?: boolean } = {}) {
   const { mobile } = useCopilotShell();
+  if (listOnly) return <ScannerList />;
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
       <Suspense fallback={<LoadingBlock label="Loading the market pulse" rows={1} />}><ScannerPulse /></Suspense>

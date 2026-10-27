@@ -192,20 +192,19 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
   test("SB-1 More lists it with its note; the URL carries sym, direction, instrument; intraday is disabled with its reason; defaults are blank until built", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await setup(page);
-    await page.goto(`${DESK}?tab=more`);
-    const item = page.getByTestId("desk-more-item-strategy");
-    await expect(item).toContainText("Strategy Builder");
-    await expect(item).toContainText("Cash, futures and options plans for one stock, with the evidence and the payoff");
-    await item.click();
-    await expect(page).toHaveURL(/tab=more/);
-    await expect(page).toHaveURL(/view=strategy/);
+    // Desk redesign (2026-10-27): the Strategy Builder is Trade Desk › New trade; there is no More list (and no More note).
+    await page.goto(DESK);
+    await page.getByTestId("desk-tab-trade").click();
+    await page.getByTestId("desk-view-new").click();
+    await expect(page).toHaveURL(/tab=trade/);
+    await expect(page).toHaveURL(/view=new/);
     // With no stock in the URL the Builder opens on the AI opportunities board (spec -strategy-ideas); One stock is the other mode.
     await expect(page.getByTestId("builder-mode-ideas")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("builder-mode-stock").click();
     await expect(page).toHaveURL(/mode=stock/);
     await expect(page.getByTestId("strategy-builder")).toBeVisible();
     await expect(page.getByTestId("builder-empty")).toContainText("No plan yet");
-    await expect(page.getByTestId("desk-more-strategy")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("desk-view-new")).toHaveAttribute("aria-pressed", "true"); // was More's Strategy Builder chip
 
     // A deep link preselects the stock, the direction and the instrument.
     await page.goto(`${BUILDER}&sym=RELIANCE&direction=bearish&instrument=futures&horizon=longer_term`);
@@ -791,8 +790,8 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     const region = page.getByRole("region", { name: /Candidates compared/ });
     expect(await region.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
     await expect(region).toHaveAttribute("tabindex", "0");
-    // The bottom bar keeps More highlighted.
-    await expect(page.getByTestId("desk-bottom-more")).toHaveAttribute("aria-current", "page");
+    // The bottom bar keeps the Builder's tab highlighted (// Desk redesign (2026-10-27): 02 Trade; it was More).
+    await expect(page.getByTestId("desk-bottom-trade")).toHaveAttribute("aria-current", "page");
     // No order, buy or broker button anywhere on the screen.
     const labels = await page.getByTestId("strategy-builder").getByRole("button").allTextContents();
     expect(labels.filter((t) => /place order|submit order|send to broker|execute|buy now|sell now/i.test(t))).toEqual([]);
