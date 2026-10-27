@@ -439,7 +439,7 @@ def test_ideas_response_shape_and_ranking(client):
     assert r.status_code == 200
     b = r.json()
     assert {"generated_at", "data_as_of", "rules_version", "calculation_version", "sent_to_broker", "selection", "inputs", "ranking_note", "ideas"} <= set(b)
-    assert b["sent_to_broker"] is False and b["rules_version"] == STRATEGY_RULES_VERSION and b["calculation_version"] == "payoff-v1"
+    assert b["sent_to_broker"] is False and b["rules_version"] == STRATEGY_RULES_VERSION and b["calculation_version"] == "payoff-v2"
     s = b["selection"]
     assert {"source", "scan_date", "rule", "considered", "selected", "excluded", "limit"} <= set(s) and s["limit"] == 6 and s["selected"] == 6
     assert s["excluded"][0]["symbol"] == "ZZZ" and client.state["limit"] == 6

@@ -160,10 +160,18 @@ def test_tc60_example_f_payoff_and_rejection_against_2500():
     gross = _payoff({"slippage_pct": 0, "brokerage_per_side": 0})
     ex = gross["expiry"]
     assert (ex["max_loss"], ex["max_profit"], ex["breakevens"], ex["net_premium"]) == (-4500.0, 5500.0, [25090.0], -4500.0)
-    assert gross["capital_at_risk"] == 4500.0                            # 90 × 50
+    # The PRD's ₹4,500 (90 × 50) is the gross maximum loss. payoff-v2 prices costs with the desk cost card, whose statutory
+    # charges apply even with slippage and brokerage set to 0 (payoff-v1 gave exactly 4,500 here):
+    #   entry BUY 25000C 11,000: exch 3.91 + SEBI 0.01 + stamp 0.33 + GST 18% × 3.92 = 0.71 = 4.96
+    #   entry SELL 25200C 6,500: STT 9.75 + exch 2.31 + SEBI 0.01 + GST 18% × 2.32 = 0.42 = 12.49 ; worthless exits 0 -> 4,517.45
+    assert gross["capital_at_risk"] == 4517.45
     with_costs = _payoff(None)
-    assert with_costs["capital_at_risk"] == 4588.75                     # the engine's default costs on top
-    for car in (gross["capital_at_risk"], with_costs["capital_at_risk"]):
+    # The card's defaults (payoff-v1: 4,588.75 = 4,500 + 25.50 + 23.25 + 2 × 20):
+    #   entry BUY 11,000: 20 + 3.91 + 0.01 + 0.33 + GST 18% × 23.92 = 4.31 + slippage 5.50 = 34.06
+    #   entry SELL 6,500: 20 + STT 9.75 + 2.31 + 0.01 + GST 18% × 22.32 = 4.02 + slippage 3.25 = 39.34
+    #   the two worthless exits, charged for capital at risk: (20 + GST 3.60) × 2 = 47.20 -> 4,620.60
+    assert with_costs["capital_at_risk"] == 4620.6
+    for car in (-ex["max_loss"], gross["capital_at_risk"], with_costs["capital_at_risk"]):
         s = cd.size_position(inputs(2500), risk_per_unit=car, value_per_unit=car, unit="lots", lot_units=1, per_unit_label="x")
         assert (s["status"], s["quantity"]) == ("too_small", 0)        # one lot exceeds ₹2,500: rejected
 

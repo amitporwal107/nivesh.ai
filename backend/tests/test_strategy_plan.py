@@ -411,10 +411,13 @@ def test_cash_breakout_continuation_sizing_and_net_ratio_by_hand():
     t = {x["name"]: x["price"] for x in c["targets"]}
     assert t == {"conservative": 1220.0, "base": 1280.0, "optimistic": 1320.0}
     # gross at base 80 x 208 = 16640 ; gross loss at stop 40 x 208 = 8320 -> 2.0
-    # costs: entry 249600 x .0005 + 20 = 144.8; exit at 1280 266240 x .0005 + 20 = 153.12; exit at 1160 241280 x .0005 + 20 = 140.64
-    # net reward 16640 - 144.8 - 153.12 = 16342.08 ; net risk 8320 + 144.8 + 140.64 = 8605.44 -> 1.90
+    # Net, payoff-v2 (the desk cost card, the same pricing as the sizing above; payoff-v1 charged 0.05% + ₹20 only and gave
+    # 16342.08 / 8605.44 = 1.90, so the plan's ratio and its sizing disagreed): entry 444.77 (above); exit at 1280, SELL
+    # 2,66,240 = 20 + 266.24 STT + 8.17 exch + 0.27 SEBI + 5.12 GST + 133.12 slippage = 432.92; exit at the stop 394.55 (above).
+    # net reward 16640 - 444.77 - 432.92 = 15762.31 ; net risk 8320 + 444.77 + 394.55 = 9159.32 (= risk_at_stop_net_inr) -> 1.72
     rr = c["risk_reward"]
-    assert rr["gross"] == 2.0 and rr["net"] == round(16342.08 / 8605.44, 2) and rr["level"] == "base"
+    assert rr["gross"] == 2.0 and rr["net"] == round(15762.31 / 9159.32, 2) == 1.72 and rr["level"] == "base"
+    assert (rr["reward_net"], rr["risk_net"]) == (15762.31, 9159.32) and rr["risk_net"] == s["risk_at_stop_net_inr"]
     assert c["invalidation"]["technical"]["price"] == 1160.0 and "does not guarantee" in c["invalidation"]["execution_stop"]["note"]
     assert c["payoff"]["valid"] and c["payoff"]["sent_to_broker"] is False and c["sent_to_broker"] is False
 
@@ -737,7 +740,7 @@ def test_plan_object_has_every_required_block_and_no_opaque_confidence():
     for key in ("plan_id", "summary", "thesis", "evidence", "candidates", "alternatives", "failure_conditions", "validation", "lifecycle", "generated_at",
                 "data_as_of", "source_snapshots", "rules_version", "calculation_version", "headline", "scenarios", "inputs_hash", "would_change_if"):
         assert key in p, key
-    assert p["rules_version"] == STRATEGY_RULES_VERSION and p["calculation_version"] == "payoff-v1" and p["rules"]["version"] == STRATEGY_RULES_VERSION
+    assert p["rules_version"] == STRATEGY_RULES_VERSION and p["calculation_version"] == "payoff-v2" and p["rules"]["version"] == STRATEGY_RULES_VERSION
     h = p["headline"]
     assert set(h) >= {"technical_setup", "fundamental_context", "model_estimate", "data_quality"}
     assert h["model_estimate"]["status"] == "withheld" and h["model_estimate"]["value"] is None and h["confidence"] is None
@@ -777,7 +780,7 @@ def test_reproducibility_same_inputs_same_snapshots_same_plan():
 def test_explain_plan_context_quotes_exact_ids_versions_and_legs():
     p = build(instrument="options")
     text = explain_plan_context(p, "abc123", "2026-10-20T04:00:00+00:00")
-    assert p["plan_id"] in text and "abc123" in text and STRATEGY_RULES_VERSION in text and "payoff-v1" in text
+    assert p["plan_id"] in text and "abc123" in text and STRATEGY_RULES_VERSION in text and "payoff-v2" in text
     leg = cand(p, "options:bull_call_spread")["legs"][0]
     assert f"@ {leg['entry_price']}" in text and "call 1200" in text and "price as of 2026-10-19" in text and "sent to a broker" in text
 
