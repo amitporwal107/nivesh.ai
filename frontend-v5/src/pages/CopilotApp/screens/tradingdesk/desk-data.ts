@@ -151,7 +151,45 @@ export interface DeskSetup {
   /** How the scanner treated this row's prices: "warehouse_adjusted", "raw_no_factors" (no split/bonus factors: raw
    *  prices) or "raw" (scored before engine v1.1). Never shown as adjusted unless the route says so. */
   priceBasis?: string | null;
+  /** The scanner's results adjustment (route field `results_signal`), already inside `score`; null = none on this row,
+   *  undefined = an older route that does not send the field. */
+  resultsSignal?: ResultsSignal | null;
+  /** The technical score before that adjustment (`base_final_score` × 100); null when the route did not send it. */
+  baseScore?: number | null;
 }
+
+/**
+ * The scanner's results adjustment on a setup (owner requirement 2026-10-27, "extra strength signal for strong-results
+ * candidates"): `final_score` already includes `points`, so the ranking needs no change here. Provisional and not yet
+ * tested; the screen says so. `basis` "filing_analysis" = the figures are not filed yet, the filing analysis was read.
+ */
+export interface ResultsSignal {
+  strength: "strong" | "weak";
+  /** On the 0–100 score scale (+10, +5, −10); null when the route sent none. */
+  points: number | null;
+  basis: "figures" | "filing_analysis" | null;
+  reasons: string[];
+  filedAt: string | null;
+  sessionsSince: number | null;
+}
+
+/** The route's `results_signal`, or null for anything that is not one (an old route, a malformed block): never an error. */
+export function parseResultsSignal(v: unknown): ResultsSignal | null {
+  const r = rec(v);
+  const strength = str(r.strength)?.toLowerCase();
+  if (strength !== "strong" && strength !== "weak") return null;
+  const basis = str(r.basis)?.toLowerCase();
+  return {
+    strength,
+    points: num(r.points),
+    basis: basis === "figures" || basis === "filing_analysis" ? basis : null,
+    reasons: strList(r.reasons),
+    filedAt: str(r.filed_at),
+    sessionsSince: num(r.sessions_since),
+  };
+}
+
+const hundred = (v: unknown): number | null => { const n = num(v); return n != null ? n * 100 : null; };
 
 export interface DeskScanner {
   /** Session the watchlist was computed for. */
@@ -241,13 +279,18 @@ interface WatchItem {
   close: number | null; trigger: number | null; stop: number | null; atrPct: number | null; rsi14: number | null; ema20: number | null;
   sma50: number | null; why: string | null; signals: Record<string, number | null>; resistance: number | null; support: number | null;
   spark: number[]; sparkEnd: string | null; avgTradedCr: number | null; priceBasis: string | null;
+  resultsSignal: ResultsSignal | null | undefined; baseScore: number | null;
 }
 
 interface PickItem {
   symbol: string; stage: string | null; confidence: string | null; score: number | null; entry: number | null; stop: number | null;
   target: number | null; riskReward: number | null; daysMin: number | null; daysMax: number | null; reasons: string[]; scans: string[];
   spark: number[]; sparkEnd: string | null; avgTradedCr: number | null; priceBasis: string | null;
+  resultsSignal: ResultsSignal | null | undefined; baseScore: number | null;
 }
+
+/** An older route sends no `results_signal` key at all (undefined); a row without an adjustment sends null. */
+const signalOf = (r: Raw): ResultsSignal | null | undefined => ("results_signal" in r ? parseResultsSignal(r.results_signal) : undefined);
 
 /** GET /api/positional/watchlist's body (its `buckets` already checked by the shared read). */
 function parseWatch(d: Raw): { asOf: string | null; items: WatchItem[] } {
@@ -270,6 +313,7 @@ function parseWatch(d: Raw): { asOf: string | null; items: WatchItem[] } {
         why: str(r.why), signals, resistance: price(r.resistance_level), support: price(r.support_level),
         spark: closes(r.spark_closes), sparkEnd: str(r.spark_end), avgTradedCr: nonNeg(r.avg_traded_value_cr_20d),
         priceBasis: str(r.price_basis),
+        resultsSignal: signalOf(r), baseScore: hundred(r.base_final_score),
       });
     }
   }
@@ -290,6 +334,7 @@ function parsePicks(d: Raw): { signalDate: string | null; items: PickItem[] } {
       daysMin: num(p.timeframe_days_min), daysMax: num(p.timeframe_days_max), reasons: strList(p.reasons), scans: strList(p.source_scans),
       spark: closes(p.spark_closes), sparkEnd: str(p.spark_end), avgTradedCr: nonNeg(p.avg_traded_value_cr_20d),
       priceBasis: str(p.price_basis),
+      resultsSignal: signalOf(p), baseScore: hundred(p.base_final_score),
     });
   }
   return { signalDate: str(d.signal_date), items };
@@ -321,7 +366,7 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       riskReward: null, daysMin: null, daysMax: null, atrPct: w.atrPct, rsi14: w.rsi14, ema20: w.ema20, sma50: w.sma50,
       why: w.why, reasons: [], scans: [], signals: w.signals, inPicks: false, inWatchlist: true,
       resistance: w.resistance, support: w.support, spark: w.spark, sparkEnd: w.sparkEnd, avgTradedCr: w.avgTradedCr,
-      priceBasis: w.priceBasis,
+      priceBasis: w.priceBasis, resultsSignal: w.resultsSignal, baseScore: w.baseScore,
     });
   }
   for (const p of picks) {
@@ -331,7 +376,7 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       confidence: p.confidence, close: null, trigger: null, entry: null, stop: null, target: null, riskReward: null,
       daysMin: null, daysMax: null, atrPct: null, rsi14: null, ema20: null, sma50: null, why: null, reasons: [], scans: [],
       signals: {}, inPicks: true, inWatchlist: false, resistance: null, support: null, spark: [], sparkEnd: null, avgTradedCr: null,
-      priceBasis: p.priceBasis,
+      priceBasis: p.priceBasis, resultsSignal: p.resultsSignal, baseScore: p.baseScore,
     };
     // The pick's plan wins when it has one; the bucket keeps saying where the setup stands.
     const entry = p.entry ?? base.entry;
@@ -341,6 +386,9 @@ export function mergeSetups(watch: WatchItem[], picks: PickItem[]): DeskSetup[] 
       ...base,
       stage: base.stage ?? p.stage,
       score: p.score ?? base.score,
+      // The adjustment travels with the score it is inside: the pick's when the pick has a score, else the watchlist's.
+      resultsSignal: p.score != null ? p.resultsSignal ?? base.resultsSignal : base.resultsSignal ?? p.resultsSignal,
+      baseScore: p.score != null ? p.baseScore ?? base.baseScore : base.baseScore ?? p.baseScore,
       confidence: p.confidence ?? base.confidence,
       entry, stop, target,
       riskReward: p.riskReward ?? rewardToRisk(entry, stop, target),

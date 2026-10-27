@@ -14,7 +14,7 @@ import { LoadingBlock, fmtNum } from "../../../components/ui";
 import { useDesk } from "../context";
 import { fmtExpVal, useEventHistory } from "../events-data";
 import {
-  BASIS_LABEL, VERDICT_WORD, componentWord, metricWord, plainWords, type RwMetric, type RwResult,
+  BASIS_LABEL, VERDICT_WORD, buildupWord, componentWord, metricWord, plainWords, type RwBuildup, type RwMetric, type RwOptions, type RwResult,
 } from "./results-week-data";
 import { BuildupText, Chip, NA, Pct, VerdictPill, eyebrow, fmtD, line, mono, quiet } from "./parts";
 
@@ -51,12 +51,82 @@ function MetricBlock({ m, declared }: { m: RwMetric; declared: boolean }) {
         <span style={{ ...mono, fontSize: 10, letterSpacing: "0.12em" }}>{metricWord(m.key)}</span>
         {declared && (m.verdict ? <VerdictPill label={m.verdict} intensity={null} small /> : <NA text="not rated" />)}
       </span>
-      <KV k="Expected (historical trend)">{usable ? `${fmtExpVal(m.expected?.low, u)} – ${fmtExpVal(m.expected?.high, u)}` : <NA text="no reliable baseline" />}</KV>
+      <div className="flex flex-col" style={{ gap: 1, padding: "3px 0" }}>
+        <span style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>Expected range (historical trend)</span>
+        <span className="cp-num" style={{ fontSize: 12.5 }}>{usable ? `${fmtExpVal(m.expected?.low, u)} – ${fmtExpVal(m.expected?.high, u)}` : <NA text="no reliable baseline" />}</span>
+      </div>
       {usable && m.expected?.mid != null && <KV k="Baseline mid">{fmtExpVal(m.expected.mid, u)}</KV>}
       {declared && <KV k="Filed">{m.filed != null ? fmtExpVal(m.filed, u) : <NA text="not filed yet" />}</KV>}
       {declared && <KV k="vs baseline mid"><Pct v={m.vsMid} /></KV>}
       {declared && <KV k="z (band widths from mid)">{m.z != null ? fmtNum(m.z, 2) : <NA />}</KV>}
       {m.note && <span style={{ ...quiet, fontSize: 11.5 }}>{m.note}</span>}
+    </div>
+  );
+}
+
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const LEG_WORD: Record<string, string> = { near: "Near", next: "Next", far: "Far" };
+const strike = (v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const p1 = (v: number, dp = 1) => `${v.toFixed(dp)}%`;
+const rangeText = (lo: number | null, hi: number | null, dp = 1) => (lo != null && hi != null ? `${p1(lo, dp)}–${p1(hi, dp)}` : "not available");
+const OI_NOTE = "open interest cannot tell buyers from writers";
+
+/** "Nov: PCR 0.71→0.43 · puts added most at 2,280 · calls at 2,500 · open interest cannot tell buyers from writers". */
+export function optionsLine(o: RwOptions | null, fallbackExpiry: string | null): string {
+  const exp = o?.expiry ?? fallbackExpiry;
+  const label = exp ? MON[Number(exp.slice(5, 7)) - 1] ?? "Next expiry" : "Next expiry";
+  if (!o) return `${label} options: not available`;
+  const pcr = o.pcr != null ? (o.pcrPrev != null ? `PCR ${o.pcrPrev.toFixed(2)}→${o.pcr.toFixed(2)}` : `PCR ${o.pcr.toFixed(2)}`) : "PCR not available";
+  const puts = o.mostPutAdded != null ? `puts added most at ${strike(o.mostPutAdded)}` : "put additions not available";
+  const calls = o.mostCallAdded != null ? `calls at ${strike(o.mostCallAdded)}` : "call additions not available";
+  return `${label}: ${pcr} · ${puts} · ${calls} · ${o.note ?? OI_NOTE}`;
+}
+
+/** The F&O block: headline, the three futures expiries, rollover and next-month premium vs their own ranges, the option chain. */
+function FnoMonths({ r }: { r: RwResult }) {
+  const b: RwBuildup | null = r.buildup;
+  if (r.fno === false) return <NA text="not an F&O stock" />;
+  if (!b) return <NA testId="results-week-drawer-fno-na" />;
+  const legs = b.legs;
+  const nextExpiry = legs?.find((l) => l.leg === "next")?.expiry ?? null;
+  const ro = b.rollover;
+  const cols = "52px 78px repeat(3,minmax(0,1fr)) minmax(0,1.3fr)";
+  return (
+    <div className="flex flex-col" style={{ gap: 6 }}>
+      <div data-testid="results-week-drawer-fno-headline"><BuildupText b={b} fno={r.fno} /></div>
+      <KV k="Open interest · 1 / 3 sessions"><Pct v={b.oiChange} na="n/a" /> / <Pct v={b.oi3} na="n/a" /></KV>
+      <KV k="Price · 1 / 3 sessions"><Pct v={b.priceChange} dp={2} na="n/a" /> / <Pct v={b.price3} dp={2} na="n/a" /></KV>
+      <div data-testid="results-week-drawer-fno-expiries" role="table" aria-label="Futures by expiry" className="flex flex-col" style={{ marginTop: 4 }}>
+        <div role="row" className="grid" style={{ gridTemplateColumns: cols, gap: 6, ...mono, fontSize: 8.5, letterSpacing: "0.1em", color: "var(--cp-ink-3)", paddingBottom: 4 }}>
+          <span role="columnheader">MONTH</span><span role="columnheader">EXPIRY</span><span role="columnheader" style={{ textAlign: "right" }}>PRICE</span>
+          <span role="columnheader" style={{ textAlign: "right" }}>OI</span><span role="columnheader" style={{ textAlign: "right" }}>BASIS</span><span role="columnheader" style={{ textAlign: "right" }}>STATE</span>
+        </div>
+        {legs ? ["near", "next", "far"].map((k) => {
+          const l = legs.find((x) => x.leg.toLowerCase() === k);
+          return (
+            <div key={k} role="row" data-testid={`results-week-drawer-fno-leg-${k}`} className="grid" style={{ gridTemplateColumns: cols, gap: 6, alignItems: "baseline", padding: "4px 0", borderTop: line, fontSize: 12 }}>
+              <span role="cell" style={{ color: "var(--cp-ink-2)" }}>{LEG_WORD[k]}</span>
+              {l ? (
+                <>
+                  <span role="cell" className="cp-num" style={{ fontSize: 11 }}>{l.expiry ? fmtD(l.expiry) : <NA text="n/a" />}</span>
+                  <span role="cell" style={{ textAlign: "right" }}><Pct v={l.pricePct} dp={2} na="n/a" /></span>
+                  <span role="cell" style={{ textAlign: "right" }}><Pct v={l.oiPct} na="n/a" /></span>
+                  <span role="cell" style={{ textAlign: "right" }}><Pct v={l.basisPct} dp={2} na="n/a" /></span>
+                  <span role="cell" style={{ textAlign: "right", fontSize: 11, color: "var(--cp-ink-2)" }}>{l.state ? buildupWord(l.state).word : <NA text="n/a" />}</span>
+                </>
+              ) : <span role="cell" style={{ gridColumn: "2 / -1" }}><NA /></span>}
+            </div>
+          );
+        }) : <div style={{ borderTop: line, padding: "4px 0" }}><NA text="expiry-wise futures not available" /></div>}
+      </div>
+      <KV k="Rollover vs its own range">
+        <span data-testid="results-week-drawer-fno-rollover">{ro?.pct != null ? `${p1(ro.pct)} (range ${rangeText(ro.min, ro.max)})` : <NA />}</span>
+      </KV>
+      <KV k="Next-month premium vs its range">
+        <span data-testid="results-week-drawer-fno-premium">{ro?.premiumPct != null ? `${p1(ro.premiumPct, 2)} (range ${rangeText(ro.premiumMin, ro.premiumMax, 2)})` : <NA />}</span>
+      </KV>
+      <p data-testid="results-week-drawer-fno-options" className="m-0" style={{ fontSize: 12, lineHeight: 1.5, color: b.options ? "var(--cp-ink-2)" : "var(--cp-ink-3)" }}>{optionsLine(b.options, nextExpiry)}</p>
+      <span style={{ ...quiet, fontSize: 11 }}>NSE F&amp;O bhavcopy{b.date ? ` · session ${fmtD(b.date)}` : ""}{b.why ? ` · ${b.why}` : ""}.</span>
     </div>
   );
 }
@@ -147,7 +217,7 @@ export function ResultsWeekDrawer({ r, onClose, mobile }: { r: RwResult; onClose
 
           <Section title="Surprise vs historical trend" testId="results-week-drawer-surprise" note={s?.score != null ? `COMPONENT ${fmtNum(s.score, 0)}/100` : undefined}>
             {s && s.metrics.length ? (
-              <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 8 }}>
+              <div className="flex flex-col" style={{ gap: 8 }}>
                 {s.metrics.map((m) => <MetricBlock key={m.key} m={m} declared={declared} />)}
               </div>
             ) : <NA text="no reliable baseline" />}
@@ -178,7 +248,7 @@ export function ResultsWeekDrawer({ r, onClose, mobile }: { r: RwResult; onClose
                 {o.summary && <p className="m-0" style={{ ...quiet, fontSize: 12, color: "var(--cp-ink-2)" }}>{o.summary}</p>}
                 <span style={{ ...quiet, fontSize: 11 }}>An AI reading of the results filing, labelled as such.</span>
               </div>
-            ) : <NA text="not analysed" testId="results-week-drawer-outlook-na" />}
+            ) : <NA text={r.outlookReason ?? "not analysed"} testId="results-week-drawer-outlook-na" />}
           </Section>
 
           <Section title="Earnings quality" testId="results-week-drawer-quality">
@@ -203,15 +273,8 @@ export function ResultsWeekDrawer({ r, onClose, mobile }: { r: RwResult; onClose
             ) : <NA text={declared ? "not available" : "no reaction yet: results not declared"} />}
           </Section>
 
-          <Section title="Futures OI build-up" testId="results-week-drawer-oi">
-            {r.buildup ? (
-              <div className="flex flex-col">
-                <KV k="State"><BuildupText state={r.buildup.state} fno={r.fno} /></KV>
-                <KV k="OI change"><Pct v={r.buildup.oiChange} /></KV>
-                <KV k="Price change"><Pct v={r.buildup.priceChange} /></KV>
-                {r.buildup.date && <KV k="Session">{fmtD(r.buildup.date)}</KV>}
-              </div>
-            ) : <BuildupText state={null} fno={r.fno} />}
+          <Section title="F&O: coming months" testId="results-week-drawer-fno">
+            <FnoMonths r={r} />
           </Section>
 
           <Section title="Technicals" testId="results-week-drawer-technical">

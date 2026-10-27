@@ -15,6 +15,8 @@ import { ErrorBlock, LoadingBlock, fmtNum } from "../../../components/ui";
 import { useCopilotShell } from "../../../lib/shell-context";
 import { SymbolCell } from "../../desk/parts";
 import { useDesk, type TrailFrom } from "../context";
+import { useDeskScanner, type DeskSetup } from "../desk-data";
+import { ResultsSignalTag } from "../ResultsSignalTag";
 import { Segmented } from "../fno-parts";
 import { istParts, useNow } from "../overview-data";
 import { Widget } from "../widget";
@@ -27,7 +29,7 @@ const DEFAULT_NOTE = "Ordered for review, not a prediction. This ordering has no
 const SHOWN = 15;
 type List = "fno" | "all";
 
-function IdeaRow({ idea, i }: { idea: RwIdea; i: number }) {
+function IdeaRow({ idea, i, setup }: { idea: RwIdea; i: number; setup: DeskSetup | undefined }) {
   const desk = useDesk();
   const rank = idea.rank ?? i + 1;
   return (
@@ -52,6 +54,7 @@ function IdeaRow({ idea, i }: { idea: RwIdea; i: number }) {
             ? idea.parts.map((p) => <Chip key={p.key} tone={p.value == null ? "muted" : "ink"} title={p.value == null ? `${p.label}: not available` : undefined}>{p.label} {p.value != null ? fmtNum(p.value, 0) : "n/a"}</Chip>)
             : <NA text="parts not reported" />}
         </span>
+        <ResultsSignalTag signal={idea.resultsSignal ?? setup?.resultsSignal} score={setup?.score} baseScore={setup?.baseScore} testId={`results-week-idea-results-${idea.symbol}`} style={{ alignSelf: "flex-start" }} />
         {idea.why.length > 0 && <span data-testid="results-week-idea-why" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--cp-ink-2)" }}>{idea.why.join(" · ")}</span>}
         <span className="flex flex-wrap" style={{ gap: 6, paddingTop: 2 }}>
           <button type="button" className="cp-chip" data-testid="results-week-idea-chart" onClick={() => { desk.noteFrom(FROM); desk.openChart(idea.symbol); }} style={{ fontSize: 12, padding: "5px 11px" }}>Chart ›</button>
@@ -67,6 +70,8 @@ export function ResultsWeekIdeas() {
   const q = useResultsWeek(today);
   const [list, setList] = useState<List>("fno");
   const [all, setAll] = useState(false);
+  const setups = useDeskScanner().data?.setups;
+  const bySym = new Map((setups ?? []).map((s) => [s.symbol, s]));
   const d = q.data;
   const ideas = d ? (list === "fno" ? d.ideas.fno : d.ideas.all) : [];
   const shown = all ? ideas : ideas.slice(0, SHOWN);
@@ -92,7 +97,7 @@ export function ResultsWeekIdeas() {
         <p data-testid="results-week-ideas-empty" className="m-0" style={quiet}>No results-week ideas in this list today.</p>
       ) : (
         <ol data-testid="results-week-ideas-list" className="m-0 p-0" style={{ listStyle: "none" }}>
-          {shown.map((idea, i) => <IdeaRow key={`${list}-${idea.symbol}`} idea={idea} i={i} />)}
+          {shown.map((idea, i) => <IdeaRow key={`${list}-${idea.symbol}`} idea={idea} i={i} setup={bySym.get(idea.symbol)} />)}
         </ol>
       )}
       {d && ideas.length > SHOWN && (

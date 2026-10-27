@@ -47,6 +47,7 @@ import { QueryProblem } from "../trading/parts";
 import { useBrokerAccounts } from "../trading/queries";
 import { useDesk, type DeskPersona } from "./context";
 import { Widget } from "./widget";
+import { ResultsSignalTag } from "./ResultsSignalTag";
 import { BUCKET_LABEL, LIQUID_MIN_CR, PROBABILITY_WITHHELD, headLabel, modelEvidence, probabilityGate, useDeskOdds, useDeskScanner, useScanUniverse, type DeskSetup, type SetupBucket } from "./desk-data";
 import { GROUP_COLOR, eventWhen, useIntelEvents, type IntelEvent } from "./intel-data";
 import {
@@ -1259,7 +1260,7 @@ function TopOpportunitiesCard() {
       <ChartinkPicks variant="top" testId="desk-ck-picks" />
       <div className="flex flex-col" style={{ gap: 6, padding: "10px 18px", borderTop: line }}>
         <span data-testid="desk-opps-legend" style={{ fontSize: 11.5, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
-          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>Score</b> is the scanner’s rules-based score, 0–100: a rank, not a probability.{" "}
+          <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>Score</b> is the scanner’s rules-based score, 0–100: a rank, not a probability. A results chip (“Strong results +10”, “Weak results −10”) means that provisional, not yet tested results adjustment is inside the score.{" "}
           <b style={{ fontWeight: 500, color: "var(--cp-ink-2)" }}>{headLabel("p_up5_1d")}</b> is the move-odds model’s estimate for the next session only, and it is {PROBABILITY_WITHHELD.toLowerCase()} on every row: <span data-testid="desk-opps-prob-why">{oddsWhy}</span>
           {evidence && <> Model evidence, not a probability: <span data-testid="desk-opps-prob-evidence">{evidence}</span>.</>}{" "}
           Horizon = the pick’s planned holding window. Liquidity: 20-session average traded value, liquid at ₹{fmtNum(LIQUID_MIN_CR)} Cr a day or more. Risk: {RISK_BANDS_TEXT}.{" "}
@@ -1342,7 +1343,8 @@ function OppCardRow({ s, rank, persona, watchAsOf, name, live, probabilityWhy, c
           {up != null && <span data-testid="desk-opp-upside" className="cp-num" style={{ fontSize: 10.5, color: up < 0 ? "var(--cp-danger)" : "var(--mint)", whiteSpace: "nowrap" }}>to target {fmtPct(up, { signed: true, digits: 1 })}</span>}
         </span>
       </button>
-      <div style={{ padding: "0 18px 10px 52px" }}>
+      <div className="flex flex-wrap items-start" style={{ padding: "0 18px 10px 52px", gap: "6px 12px" }}>
+        <ResultsSignalTag signal={s.resultsSignal} score={s.score} baseScore={s.baseScore} testId={`desk-opp-results-${s.symbol}`} />
         <button type="button" data-testid="desk-opp-strategies" aria-label={`${s.symbol}: strategies for this idea`} onClick={() => openStrategyIdeas(s.symbol)} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 11.5, color: "var(--mint)" }}>Strategies ›</button>
       </div>
     </li>

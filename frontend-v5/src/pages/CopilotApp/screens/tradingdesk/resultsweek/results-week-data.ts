@@ -22,6 +22,7 @@ import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
+import { parseResultsSignal, type ResultsSignal } from "../desk-data";
 
 // ── tolerant readers ─────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ const rec = (v: unknown): Raw => (isRec(v) ? v : {});
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
 const bool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
-const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x.trim() : str(rec(x).label) ?? str(rec(x).name) ?? str(rec(x).code) ?? "")).filter(Boolean) : []);
+const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x.trim() : str(rec(x).text) ?? str(rec(x).label) ?? str(rec(x).name) ?? str(rec(x).code) ?? "")).filter(Boolean) : []);
 /** The first path that holds a value: "a.b" walks objects. */
 function at(o: unknown, paths: string[]): unknown {
   for (const p of paths) {
@@ -80,11 +81,35 @@ export interface RwOutlook {
   summary: string | null;
   label: string | null;
 }
-export interface RwQuality { flags: string[]; notChecked: string[] }
+export interface RwQuality { flags: string[]; notChecked: string[]; checked: string[] }
 export interface RwReaction { excess: number | null; stock: number | null; nifty: number | null; session: string | null; volumeX: number | null; note: string | null }
-export interface RwBuildup { state: string | null; date: string | null; oiChange: number | null; priceChange: number | null }
+/** One futures expiry (near / next / far) in the coming-months view. */
+export interface RwFnoLeg { leg: string; expiry: string | null; pricePct: number | null; oiPct: number | null; basisPct: number | null; state: string | null }
+export interface RwRollover { pct: number | null; min: number | null; max: number | null; premiumPct: number | null; premiumMin: number | null; premiumMax: number | null }
+export interface RwOptions {
+  expiry: string | null; pcr: number | null; pcrPrev: number | null; putAdded: number | null; callAdded: number | null;
+  maxPut: number | null; maxCall: number | null; mostPutAdded: number | null; mostCallAdded: number | null; note: string | null;
+}
+export interface RwBuildup {
+  /** The headline (the route's `total` when it sends one, else the block's own state). */
+  state: string | null;
+  text: string | null;
+  /** Fresh positions or a rollover, when the route says which. */
+  positions: "fresh" | "rollover" | null;
+  date: string | null;
+  /** One session, percent. */
+  oiChange: number | null;
+  priceChange: number | null;
+  /** Three sessions, percent. */
+  oi3: number | null;
+  price3: number | null;
+  why: string | null;
+  legs: RwFnoLeg[] | null;
+  rollover: RwRollover | null;
+  options: RwOptions | null;
+}
 export interface RwTechnical { stage: string | null; score: number | null; setup: string | null; trend: string | null; note: string | null }
-export interface RwPast { n: number | null; eventDay: number | null; d1: number | null; w1: number | null }
+export interface RwPast { n: number | null; twoSession: number | null; eventDay: number | null; d1: number | null; w1: number | null }
 export interface RwResult {
   id: string;
   symbol: string;
@@ -100,6 +125,8 @@ export interface RwResult {
   surprise: { metrics: RwMetric[]; score: number | null } | null;
   trend: RwTrend | null;
   outlook: RwOutlook | null;
+  /** Why the outlook is missing ("not analysed", "the filing analysis store could not be read", …). */
+  outlookReason: string | null;
   quality: RwQuality | null;
   reaction: RwReaction | null;
   buildup: RwBuildup | null;
@@ -110,7 +137,11 @@ export interface RwResult {
   gaps: string[];
 }
 export interface RwIdeaPart { key: string; label: string; value: number | null }
-export interface RwIdea { rank: number | null; symbol: string; name: string | null; phase: Phase | null; signal: number | null; signalLabel: string | null; parts: RwIdeaPart[]; why: string[] }
+export interface RwIdea {
+  rank: number | null; symbol: string; name: string | null; phase: Phase | null; signal: number | null; signalLabel: string | null; parts: RwIdeaPart[]; why: string[];
+  /** The AI scanner's results adjustment, when the route repeats it on the idea (else the screen joins the scanner read). */
+  resultsSignal: ResultsSignal | null;
+}
 export interface RwCounts { declared: number | null; pending: number | null; upcoming: number | null; above: number | null; inLine: number | null; below: number | null; notRated: number | null }
 export interface ResultsWeek {
   date: string;
@@ -120,6 +151,8 @@ export interface ResultsWeek {
   consensusAvailable: boolean;
   label: string | null;
   counts: RwCounts;
+  /** The route could not read every day's meetings: the counts may be short. */
+  countsPartial: boolean;
   results: RwResult[];
   ideas: { fno: RwIdea[]; all: RwIdea[]; note: string | null };
   sources: Array<[string, string]>;
@@ -136,6 +169,7 @@ const Envelope = z.object({
   consensus_available: z.boolean().nullable().optional(),
   label: z.string().nullable().optional(),
   counts: z.record(z.string(), z.unknown()).nullable().optional(),
+  counts_partial: z.boolean().nullable().optional(),
   results: z.array(z.record(z.string(), z.unknown())),
   ideas: z.record(z.string(), z.unknown()).nullable().optional(),
   sources: z.unknown().optional(),
@@ -199,18 +233,21 @@ const growth = (t: unknown, m: string): RwGrowth => ({
 });
 function readTrend(v: unknown): RwTrend | null {
   if (!isRec(v)) return null;
-  return {
+  const t: RwTrend = {
     revenue: growth(v, "revenue"), ebitda: growth(v, "ebitda"), pat: growth(v, "pat"),
     marginChangePp: numAt(v, ["ebitda_margin_change_pp", "ebitda_margin_change", "margin_change_pp", "ebitda_margin.change_pp"]),
-    score: numAt(v, ["score"]),
+    score: numAt(v, ["value", "score"]),
   };
+  // No stored quarter: every figure is missing, so the whole block is "not available", not a row of blanks.
+  const any = [t.revenue, t.ebitda, t.pat].some((g) => g.yoy != null || g.qoq != null) || t.marginChangePp != null || t.score != null;
+  return any ? t : null;
 }
 
 function readOutlook(v: unknown): RwOutlook | null {
   if (!isRec(v)) return null;
   const o: RwOutlook = {
     netImpact: numAt(v, ["net_impact_score", "net_impact"]),
-    score: numAt(v, ["score"]),
+    score: numAt(v, ["value", "score"]),
     band: strAt(v, ["net_band", "band"]),
     confidence: numAt(v, ["confidence_score", "confidence"]),
     summary: strAt(v, ["summary", "sum", "analysis.sum"]),
@@ -222,7 +259,10 @@ function readOutlook(v: unknown): RwOutlook | null {
 
 function readQuality(v: unknown): RwQuality | null {
   if (!isRec(v)) return null;
-  return { flags: strs(v.flags), notChecked: strs(v.not_checked) };
+  const q: RwQuality = { flags: strs(v.flags), notChecked: strs(v.not_checked).map((x) => x.replace(/_/g, " ")), checked: strs(v.checked) };
+  // Nothing checked and no flag (e.g. results not declared yet): not a clean bill, just not checked.
+  if (!q.flags.length && !q.checked.length && num(v.value) == null) return null;
+  return q;
 }
 
 function readReaction(v: unknown): RwReaction | null {
@@ -238,15 +278,58 @@ function readReaction(v: unknown): RwReaction | null {
   return r.excess == null && r.stock == null && r.nifty == null ? (r.note ? r : null) : r;
 }
 
+const LEG_ORDER = ["near", "next", "far"];
+function readLeg(v: unknown, fallback: string): RwFnoLeg {
+  return {
+    leg: strAt(v, ["leg", "label", "name", "month"]) ?? fallback,
+    expiry: day(at(v, ["expiry", "expiry_date"])),
+    pricePct: numAt(v, ["price_pct", "price_chg_pct", "price_change_pct"]),
+    oiPct: numAt(v, ["oi_pct", "oi_chg_pct", "oi_change_pct"]),
+    basisPct: numAt(v, ["basis_pct", "basis"]),
+    state: strAt(v, ["state"]),
+  };
+}
+function readLegs(v: unknown): RwFnoLeg[] | null {
+  if (Array.isArray(v)) return v.length ? v.map((x, i) => readLeg(x, LEG_ORDER[i] ?? `expiry ${i + 1}`)) : null;
+  if (isRec(v)) { const legs = LEG_ORDER.filter((k) => isRec(v[k])).map((k) => readLeg(v[k], k)); return legs.length ? legs : null; }
+  return null;
+}
+const pair = (v: unknown): [number | null, number | null] => (Array.isArray(v) ? [num(v[0]), num(v[1])] : [num(rec(v).min), num(rec(v).max)]);
+function readRollover(v: unknown): RwRollover | null {
+  if (!isRec(v)) return null;
+  const [min, max] = pair(v.own_range);
+  const [pmin, pmax] = pair(v.premium_range);
+  const r: RwRollover = { pct: numAt(v, ["pct", "rollover_pct"]), min, max, premiumPct: numAt(v, ["next_premium_pct", "premium_pct"]), premiumMin: pmin, premiumMax: pmax };
+  return r.pct == null && r.premiumPct == null ? null : r;
+}
+function readOptions(v: unknown): RwOptions | null {
+  if (!isRec(v)) return null;
+  const o: RwOptions = {
+    expiry: day(v.expiry), pcr: num(v.pcr), pcrPrev: num(v.pcr_prev), putAdded: num(v.put_oi_added), callAdded: num(v.call_oi_added),
+    maxPut: num(v.max_put_strike), maxCall: num(v.max_call_strike), mostPutAdded: num(v.most_put_added_strike), mostCallAdded: num(v.most_call_added_strike),
+    note: str(v.note),
+  };
+  return o.pcr == null && o.mostPutAdded == null && o.mostCallAdded == null && o.maxPut == null && o.maxCall == null ? null : o;
+}
 function readBuildup(v: unknown): RwBuildup | null {
   if (!isRec(v)) return null;
+  const t = isRec(v.total) ? v.total : v;
+  const pos = (strAt(t, ["positions", "kind", "nature"]) ?? "").toLowerCase();
   const b: RwBuildup = {
-    state: strAt(v, ["state", "buildup", "label", "signal"]),
-    date: day(at(v, ["date", "as_of", "trade_date"])),
-    oiChange: numAt(v, ["oi_change_pct", "oi_chg_pct", "oi_pct"]),
-    priceChange: numAt(v, ["price_change_pct", "price_chg_pct", "price_pct"]),
+    state: strAt(t, ["state", "buildup", "label"]) ?? strAt(v, ["state", "buildup", "label"]),
+    text: strAt(t, ["text"]) ?? strAt(v, ["text"]),
+    positions: pos === "fresh" || t.fresh === true ? "fresh" : pos === "rollover" || t.fresh === false ? "rollover" : null,
+    date: day(at(v, ["as_of", "date", "trade_date"])),
+    oiChange: numAt(t, ["oi_pct.1", "oi_pct.d1", "oi_pct.1s", "oi_pct_1", "oi_pct_1s", "oi_pct_1d", "oi_pct", "oi_chg_pct", "oi_change_pct"]) ?? numAt(v, ["oi_chg_pct", "oi_change_pct"]),
+    priceChange: numAt(t, ["price_pct.1", "price_pct.d1", "price_pct.1s", "price_pct_1", "price_pct_1s", "price_pct_1d", "price_pct", "price_chg_pct", "price_change_pct"]) ?? numAt(v, ["price_chg_pct", "price_change_pct"]),
+    oi3: numAt(t, ["oi_pct.3", "oi_pct.d3", "oi_pct.3s", "oi_pct_3", "oi_pct_3s", "oi_pct_3d"]),
+    price3: numAt(t, ["price_pct.3", "price_pct.d3", "price_pct.3s", "price_pct_3", "price_pct_3s", "price_pct_3d"]),
+    why: strAt(t, ["why"]) ?? strAt(v, ["why"]),
+    legs: readLegs(v.by_expiry),
+    rollover: readRollover(v.rollover),
+    options: readOptions(v.options_next_expiry),
   };
-  return b.state == null && b.oiChange == null ? null : b;
+  return b.state == null && b.oiChange == null && !b.legs && !b.rollover && !b.options ? null : b;
 }
 
 function readTechnical(v: unknown): RwTechnical | null {
@@ -262,15 +345,16 @@ function readTechnical(v: unknown): RwTechnical | null {
 }
 
 function readPast(row: Raw): RwPast | null {
-  const v = at(row, ["past_reactions", "past_results", "history", "reaction.past"]);
+  const v = at(row, ["components.past_reactions", "past_reactions", "past_results", "history", "reaction.past"]);
   if (!isRec(v)) return null;
   const p: RwPast = {
     n: numAt(v, ["n", "count"]),
+    twoSession: numAt(v, ["mean_two_session_pct"]),
     eventDay: numAt(v, ["event_day_avg_pct", "event_day.avg", "stats.event_day.avg", "event_day_pct", "avg_event_day_pct"]),
     d1: numAt(v, ["d1_avg_pct", "d1.avg", "stats.d1.avg", "d1_pct", "avg_d1_pct"]),
     w1: numAt(v, ["w1_avg_pct", "w1.avg", "stats.w1.avg", "w1_pct", "avg_w1_pct"]),
   };
-  return p.eventDay == null && p.d1 == null && p.w1 == null ? null : p;
+  return p.eventDay == null && p.d1 == null && p.w1 == null && p.twoSession == null ? null : p;
 }
 
 const safeUrl = (u: unknown): string | null => {
@@ -302,6 +386,7 @@ function readResult(row: Raw, i: number): RwResult | null {
     surprise: readSurprise(comp.surprise),
     trend: readTrend(comp.trend),
     outlook: readOutlook(comp.outlook),
+    outlookReason: strAt(comp.outlook, ["reason"]),
     quality: readQuality(comp.quality),
     reaction: readReaction(row.reaction),
     buildup: readBuildup(row.fno_buildup),
@@ -352,6 +437,7 @@ function readIdea(v: unknown): RwIdea | null {
     signalLabel: typeof r.signal === "string" ? str(r.signal) : str(rec(r.signal).label),
     parts: readParts(r.parts),
     why: typeof why === "string" ? [why] : strs(why),
+    resultsSignal: parseResultsSignal(r.results_signal),
   };
 }
 
@@ -377,6 +463,7 @@ export function readResultsWeek(data: unknown): ResultsWeek {
     basis: d.basis ?? null,
     consensusAvailable: d.consensus_available === true,
     label: d.label ?? null,
+    countsPartial: d.counts_partial === true,
     counts: {
       declared: num(c.declared), pending: num(c.declared_pending), upcoming: num(c.upcoming),
       above: num(c.above), inLine: num(c.in_line), below: num(c.below), notRated: num(c.not_rated),
@@ -420,16 +507,27 @@ export const COMPONENT_WORD: Record<string, string> = {
 };
 export const componentWord = (k: string) => COMPONENT_WORD[k] ?? k.replace(/_/g, " ");
 
-const BUILDUP: Record<string, { word: string; tone: "up" | "down" }> = {
+const BUILDUP: Record<string, { word: string; tone: "up" | "down" | null }> = {
   long_buildup: { word: "Long build-up", tone: "up" },
   short_covering: { word: "Short covering", tone: "up" },
   short_buildup: { word: "Short build-up", tone: "down" },
   long_unwinding: { word: "Long unwinding", tone: "down" },
+  no_clear_buildup: { word: "No clear build-up", tone: null },
 };
 export function buildupWord(state: string | null): { word: string; tone: "up" | "down" | null } {
   if (!state) return { word: "not available", tone: null };
   const k = state.toLowerCase().replace(/[\s-]+/g, "_").replace("build_up", "buildup");
-  return BUILDUP[k] ?? { word: state.replace(/_/g, " "), tone: null };
+  const b = BUILDUP[k];
+  return b ?? { word: state.replace(/_/g, " "), tone: null };
+}
+
+/** "Fresh long build-up · OI +9.6%" — the headline of a row's F&O block (state, fresh vs rollover, one-session OI). */
+export function buildupHeadline(b: RwBuildup): { text: string; tone: "up" | "down" | null } {
+  const w = buildupWord(b.state);
+  const base = w.word !== "not available" ? w.word : b.text ? b.text.replace(/^\w/, (c) => c.toUpperCase()) : "State not called";
+  const head = b.positions ? `${b.positions === "fresh" ? "Fresh" : "Rollover"} ${base.replace(/^\w/, (c) => c.toLowerCase())}` : base;
+  const oi = b.oiChange != null ? ` · OI ${b.oiChange >= 0.05 ? "+" : b.oiChange <= -0.05 ? "−" : ""}${Math.abs(b.oiChange).toFixed(1)}%` : "";
+  return { text: `${head}${oi}`, tone: w.tone };
 }
 /** "moderately_positive" → "moderately positive". */
 export const plainWords = (s: string | null) => (s ? s.replace(/_/g, " ") : null);

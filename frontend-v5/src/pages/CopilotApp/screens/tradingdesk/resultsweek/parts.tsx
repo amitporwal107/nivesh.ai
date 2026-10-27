@@ -3,7 +3,7 @@
  * the build-up word and the type styles the Events calendar already uses (mono eyebrows, the desk's colour tokens).
  */
 import type { CSSProperties, ReactNode } from "react";
-import { INTENSITY_WORD, VERDICT_WORD, buildupWord, type Intensity, type Verdict } from "./results-week-data";
+import { INTENSITY_WORD, VERDICT_WORD, buildupHeadline, type Intensity, type RwBuildup, type Verdict } from "./results-week-data";
 
 export const MINUS = "−";
 export const mono: CSSProperties = { fontFamily: "var(--mono)" };
@@ -63,12 +63,13 @@ export function VerdictPill({ label, intensity, reason, testId, small }: { label
   );
 }
 
-export function BuildupText({ state, fno, testId }: { state: string | null; fno: boolean | null; testId?: string }) {
+/** The row's OI chip: the F&O block's headline ("Fresh long build-up · OI +9.6%"); "not F&O" / "not available" otherwise. */
+export function BuildupText({ b, fno, testId }: { b: RwBuildup | null; fno: boolean | null; testId?: string }) {
   if (fno === false) return <NA text="not F&O" testId={testId} />;
-  if (!state) return <NA testId={testId} />;
-  const b = buildupWord(state);
-  const c = b.tone === "up" ? "var(--mint)" : b.tone === "down" ? "var(--cp-danger)" : "var(--cp-ink-2)";
-  return <span data-testid={testId} style={{ fontSize: 12, color: c, whiteSpace: "nowrap" }}>{b.word}</span>;
+  if (!b || (b.state == null && b.oiChange == null && !b.text)) return <NA testId={testId} />;
+  const h = buildupHeadline(b);
+  const c = h.tone === "up" ? "var(--mint)" : h.tone === "down" ? "var(--cp-danger)" : "var(--cp-ink-2)";
+  return <span data-testid={testId} title={b.why ?? undefined} style={{ fontSize: 12, color: c, whiteSpace: "nowrap" }}>{h.text}</span>;
 }
 
 export function Chip({ children, testId, title, tone = "ink" }: { children: ReactNode; testId?: string; title?: string; tone?: "ink" | "mint" | "amber" | "muted" }) {

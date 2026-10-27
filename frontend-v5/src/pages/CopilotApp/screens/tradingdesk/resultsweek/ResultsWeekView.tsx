@@ -63,7 +63,7 @@ function Growth({ r }: { r: RwResult }) {
 
 function Outlook({ r }: { r: RwResult }) {
   const o = r.outlook;
-  if (!o) return <NA text="not analysed" testId={`results-week-outlook-${r.symbol}`} />;
+  if (!o) return <NA text={r.outlookReason && /could not be read/.test(r.outlookReason) ? "not read" : "not analysed"} testId={`results-week-outlook-${r.symbol}`} />;
   return (
     <span data-testid={`results-week-outlook-${r.symbol}`} style={{ fontSize: 12 }} title="Filing analysis, not a guidance tracker">
       {plainWords(o.band) ?? "band n/a"}{o.netImpact != null && <span className="cp-num" style={{ color: "var(--cp-ink-3)" }}> ({o.netImpact > 0 ? "+" : ""}{fmtNum(o.netImpact, 0)})</span>}
@@ -108,6 +108,9 @@ function PastCell({ r }: { r: RwResult }) {
   const p = r.past;
   const id = `results-week-past-${r.symbol}`;
   if (!p) return <NA testId={id} />;
+  if (p.eventDay == null && p.w1 == null) {
+    return <span data-testid={id} className="flex items-baseline" style={{ gap: 5, fontSize: 11.5, whiteSpace: "nowrap" }} title="Average two-session move on past results"><Pct v={p.twoSession} na="n/a" /><span style={{ ...mono, fontSize: 9.5, color: "var(--cp-ink-3)" }}>2 sessions{p.n != null ? ` · n=${p.n}` : ""}</span></span>;
+  }
   return (
     <span data-testid={id} className="flex items-baseline" style={{ gap: 5, fontSize: 11.5, whiteSpace: "nowrap" }} title="Average move on past results: event day · one week later">
       <Pct v={p.eventDay} na="n/a" /><span style={{ color: "var(--cp-ink-4)" }}>·</span><Pct v={p.w1} na="n/a" />
@@ -136,11 +139,11 @@ const td: CSSProperties = { padding: "9px 10px", borderTop: line, verticalAlign:
 function DeclaredTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResult) => void }) {
   return (
     <div className="cp-scroll" style={{ overflowX: "auto" }}>
-      <table data-testid="results-week-declared-table" style={{ width: "100%", minWidth: 1060, borderCollapse: "collapse" }}>
+      <table data-testid="results-week-declared-table" style={{ width: "100%", minWidth: 1180, borderCollapse: "collapse" }}>
         <thead>
           <tr>
             <th style={{ ...th, width: "22%" }}>Company</th><th style={th}>Verdict</th><th style={th}>PAT vs mid</th><th style={th}>Revenue vs mid</th>
-            <th style={th} title="Year on year · quarter on quarter">YoY · QoQ</th><th style={th}>Outlook</th><th style={th}>Quality</th><th style={th}>Reaction</th><th style={th}>Chartink</th>
+            <th style={th} title="Year on year · quarter on quarter">YoY · QoQ</th><th style={th}>Outlook</th><th style={th}>Quality</th><th style={th}>Reaction</th><th style={th}>OI build-up</th><th style={th}>Chartink</th>
           </tr>
         </thead>
         <tbody>
@@ -148,7 +151,7 @@ function DeclaredTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
             <tr key={r.id} data-testid={`results-week-row-${r.symbol}`} data-status={r.status} onClick={() => onOpen(r)} className="cp-row-link" style={{ cursor: "pointer" }}>
               <td style={{ ...td, maxWidth: 260 }}><Company r={r} onOpen={onOpen} /></td>
               <td style={td}>
-                <span className="flex flex-col" style={{ gap: 3 }}>
+                <span className="flex flex-col items-start" style={{ gap: 3 }}>
                   <VerdictPill label={r.verdict.label} intensity={r.verdict.intensity} reason={r.verdict.reason} testId={`results-week-verdict-${r.symbol}`} />
                   {r.score.value != null && <span className="cp-num" style={{ fontSize: 10, color: "var(--cp-ink-3)" }} title="Earnings Intelligence Score, 0–100 (provisional)">score {fmtNum(r.score.value, 0)}</span>}
                 </span>
@@ -159,6 +162,7 @@ function DeclaredTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
               <td style={td}><Outlook r={r} /></td>
               <td style={td}><Quality r={r} /></td>
               <td style={td}><Reaction r={r} /></td>
+              <td style={td}><BuildupText b={r.buildup} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></td>
               <td style={{ ...td, maxWidth: 200 }}><Chartink r={r} /></td>
             </tr>
           ))}
@@ -182,7 +186,7 @@ function UpcomingTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
               <td style={td}><ExpectedRange r={r} k="pat" /></td>
               <td style={td}><ExpectedRange r={r} k="revenue" /></td>
               <td style={td}><PastCell r={r} /></td>
-              <td style={td}><BuildupText state={r.buildup?.state ?? null} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></td>
+              <td style={td}><BuildupText b={r.buildup} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></td>
               <td style={td}>{r.technical?.stage ? <span data-testid={`results-week-stage-${r.symbol}`} style={{ fontSize: 12 }}>{plainWords(r.technical.stage)}</span> : <NA testId={`results-week-stage-${r.symbol}`} />}</td>
             </tr>
           ))}
@@ -227,6 +231,7 @@ function DeclaredCards({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
             <Field k="OUTLOOK"><Outlook r={r} /></Field>
             <Field k="QUALITY"><Quality r={r} /></Field>
             <Field k="CHARTINK"><Chartink r={r} max={1} /></Field>
+            <span style={{ gridColumn: "1 / -1" }}><Field k="OI BUILD-UP"><BuildupText b={r.buildup} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></Field></span>
           </span>
         </Card>
       ))}
@@ -244,7 +249,7 @@ function UpcomingCards({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
             <Field k="EXPECTED PAT"><ExpectedRange r={r} k="pat" /></Field>
             <Field k="EXPECTED REVENUE"><ExpectedRange r={r} k="revenue" /></Field>
             <Field k="PAST REACTIONS"><PastCell r={r} /></Field>
-            <Field k="OI BUILD-UP"><BuildupText state={r.buildup?.state ?? null} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></Field>
+            <Field k="OI BUILD-UP"><BuildupText b={r.buildup} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></Field>
           </span>
         </Card>
       ))}
@@ -279,6 +284,7 @@ function Counts({ d, mobile }: { d: ResultsWeek; mobile: boolean }) {
         <Count k="below" label="Below" v={c.below} testId="results-week-count-below" tone="var(--cp-danger)" />
         <Count k="not_rated" label="Not rated" v={c.notRated} testId="results-week-count-not-rated" tone="var(--cp-ink-3)" />
       </div>
+      {d.countsPartial && <span data-testid="results-week-counts-partial" style={{ ...quiet, fontSize: 11.5, color: "var(--amber)" }}>Some days’ meetings could not be read: the counts may be short.</span>}
     </section>
   );
 }
@@ -394,16 +400,16 @@ export function ResultsWeekView({ today, viewSwitch }: { today: string; viewSwit
 
   return (
     <div data-testid="desk-events" data-view="results-week" className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
-      {mobile && <div className="flex items-center" style={{ gap: 8 }}><span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Results week</span><div style={{ marginLeft: "auto" }}>{viewSwitch}</div></div>}
+      {mobile && <div className="flex items-center" style={{ gap: 8 }}><span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Events calendar</span><div style={{ marginLeft: "auto" }}>{viewSwitch}</div></div>}
       <Widget
         id="events.resultsweek"
         testId="results-week"
         num={mobile ? undefined : "03"}
         title="Results week"
         meta={<>{fmtD(week.from)} – {fmtD(week.to)}{d?.asOf ? ` · as of ${d.asOf.slice(0, 16).replace("T", " ")}` : ""}</>}
-        actions={mobile ? undefined : viewSwitch}
         bodyStyle={{ padding: mobile ? 14 : 18, gap: 18 }}
       >
+        {!mobile && <div className="flex flex-wrap items-center justify-end" style={{ gap: 10 }}>{viewSwitch}</div>}
         <div data-testid="results-week-basis" className="flex flex-col" style={{ gap: 4, padding: "10px 12px", borderRadius: 10, background: "var(--bg-0)", border: "1px solid var(--line-2)" }}>
           <span style={{ ...eyebrow, color: "var(--cp-ink)", lineHeight: 1.5 }}>{BASIS_LABEL}</span>
           <span style={{ ...quiet, fontSize: 11.5 }}>No analyst consensus is held: each verdict compares the filed quarter with a range built from the company’s own past quarters. Thresholds are provisional and are being validated; a verdict is not a price prediction.</span>

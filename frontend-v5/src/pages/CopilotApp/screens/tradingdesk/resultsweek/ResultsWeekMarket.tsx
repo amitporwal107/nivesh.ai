@@ -44,11 +44,11 @@ export function MarketStrip({ mobile }: { mobile: boolean }) {
   return (
     <section data-testid="results-week-market" aria-label="Market strip" className="flex min-w-0 flex-col" style={{ gap: 8 }}>
       <span style={eyebrow}>Market · last close</span>
-      <div className="grid" style={{ gridTemplateColumns: mobile ? "repeat(2,minmax(0,1fr))" : "repeat(6,minmax(0,1fr))", gap: 8 }}>
+      <div className="grid" style={{ gridTemplateColumns: mobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fit,minmax(150px,1fr))", gap: 8 }}>
         {STRIP_INDICES.map(({ name, vix }) => {
           const ix = d ? findIndex(d, name, vix) : null;
           return (
-            <Tile key={name} label={name} testId={`results-week-market-${name.toLowerCase().replace(/\s+/g, "-")}`} sub={ix?.as_of ? `close of ${fmtD(ix.as_of.slice(0, 10))}` : d ? `as of ${istDay(d.as_of) ?? "—"}` : undefined}>
+            <Tile key={name} label={name} testId={`results-week-market-${name.toLowerCase().replace(/\s+/g, "-")}`} sub={ix?.as_of ? `${fmtD(ix.as_of.slice(0, 10))} close` : d ? `as of ${istDay(d.as_of) ?? "—"}` : undefined}>
               {ix?.value != null ? (
                 <>
                   <span>{fmtLevel(ix.value)}</span>
@@ -58,15 +58,15 @@ export function MarketStrip({ mobile }: { mobile: boolean }) {
             </Tile>
           );
         })}
-        <Tile label="FII / DII · cash" testId="results-week-market-flows" sub={f?.as_of ? `NSE provisional · ${fmtD(f.as_of.slice(0, 10))}` : undefined}>
+        <Tile label="FII / DII · cash" testId="results-week-market-flows" sub={f?.as_of ? `${fmtD(f.as_of.slice(0, 10))} · provisional` : undefined}>
           {f && (f.fii_net_cr != null || f.dii_net_cr != null) ? (
-            <span style={{ fontSize: 12 }}>
-              FII <span style={{ color: toneOf(f.fii_net_cr) }}>{f.fii_net_cr != null ? fmtCr(f.fii_net_cr, { signed: true }) : "n/a"}</span>
-              {" · "}DII <span style={{ color: toneOf(f.dii_net_cr) }}>{f.dii_net_cr != null ? fmtCr(f.dii_net_cr, { signed: true }) : "n/a"}</span>
+            <span style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 1 }}>
+              <span>FII <span style={{ color: toneOf(f.fii_net_cr) }}>{f.fii_net_cr != null ? fmtCr(f.fii_net_cr, { signed: true }) : "n/a"}</span></span>
+              <span>DII <span style={{ color: toneOf(f.dii_net_cr) }}>{f.dii_net_cr != null ? fmtCr(f.dii_net_cr, { signed: true }) : "n/a"}</span></span>
             </span>
           ) : homeMiss()}
         </Tile>
-        <Tile label="Sectors · 1 day" testId="results-week-market-sectors" sub={sec.data?.asOf ? `NSE sectoral indices · ${fmtD(sec.data.asOf.slice(0, 10))}` : undefined}>
+        <Tile label="Sectors · 1 day" testId="results-week-market-sectors" sub={sec.data?.asOf ? `${fmtD(sec.data.asOf.slice(0, 10))} · strongest, weakest` : undefined}>
           {best ? (
             <span style={{ fontSize: 12, display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{best.sector} <span style={{ color: toneOf(best.ret["1d"]) }}>{fmtPct(best.ret["1d"], { signed: true, digits: 1 })}</span></span>

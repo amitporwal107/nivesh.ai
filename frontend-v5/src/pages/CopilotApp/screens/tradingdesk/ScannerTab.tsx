@@ -38,6 +38,7 @@ import { AddToList } from "../workspace/PersonalLists";
 import { usePersonalList, usePersonalLists } from "../workspace/personal-lists";
 import { STATUS_LABEL, lastMove, oddsLabel, scanDateLabel, setupLabel, type UpHead } from "./chart-data";
 import { useDesk } from "./context";
+import { ResultsSignalTag } from "./ResultsSignalTag";
 import {
   probabilityGate, riskClassOf, scanBasisLine, useDeskOdds, useDeskScanner, useScanUniverse,
   type DeskOdds, type DeskSetup, type RiskClass, type ScanRules, type ScanUniverse, type SetupBucket, type UniverseCategory, type UniverseRow,
@@ -924,6 +925,7 @@ function ScanTable({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
             </div>
             {isFno(r, fno) && <div style={{ padding: "0 18px 8px 50px" }}><FnoLine r={r} fno={fno} plain={plain} /></div>}
             {r.ck && <div style={{ padding: "0 18px 8px 50px" }}><ChartinkTag hit={r.ck} /></div>}
+            {r.s?.resultsSignal && <div style={{ padding: "0 18px 8px 50px" }}><ResultsSignalTag signal={r.s.resultsSignal} score={r.s.score} baseScore={r.s.baseScore} testId={`desk-scan-results-${r.symbol}`} /></div>}
             {expanded && (
               <div id={`desk-scan-actions-${r.symbol}`} style={{ padding: "0 18px 12px 50px" }}>
                 <ActionPanel r={r} signalDate={signalDate(r)} onOpen={onOpen} plain={plain} />
@@ -976,6 +978,7 @@ function ScanCards({ rows, selected, onOpen, head, plain, gate, uni, uniError, m
             </span>
             <FnoLine r={r} fno={fno} plain={plain} />
             {r.ck && <ChartinkTag hit={r.ck} />}
+            <ResultsSignalTag signal={r.s?.resultsSignal} score={r.s?.score} baseScore={r.s?.baseScore} testId={`desk-scan-results-${r.symbol}`} style={{ alignSelf: "flex-start" }} />
             <span className="flex min-w-0 flex-wrap items-center" style={{ gap: 8 }}>
               <button type="button" data-testid="desk-scan-act" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : r.symbol)}
                 style={{ padding: "4px 10px", borderRadius: 999, border: "1px solid var(--line-2)", background: expanded ? "var(--bg-3)" : "transparent", color: "var(--cp-ink-2)", fontSize: 11.5, cursor: "pointer", fontFamily: "var(--sans)" }}>
@@ -1119,7 +1122,7 @@ function AboutModel({ odds, uni, engineVersions, classifier, rulesVersion }: { o
     <details data-testid="desk-scan-about-model" style={{ fontSize: 12, lineHeight: 1.55, color: "var(--cp-ink-3)" }}>
       <summary data-testid="desk-scan-about-toggle" style={{ cursor: "pointer", color: "var(--cp-ink-2)" }}>About the model</summary>
       <span className="flex flex-col" style={{ gap: 6, paddingTop: 6 }}>
-        <span><b style={b}>Score</b> is the end-of-day positional scanner’s rules-based score (final_score × 100) from its trend, breakout, volume and accumulation checks. It ranks setups; it is not a probability.{engineVersions.length ? ` Engine ${engineVersions.join(", ")}.` : ""}{classifier ? ` Classifier ${classifier}.` : ""}{rulesVersion ? ` Rules ${rulesVersion}.` : ""} <span className="cp-mono-note">backend/services/positional_engine/ · setup_rules.py</span></span>
+        <span><b style={b}>Score</b> is the end-of-day positional scanner’s rules-based score (final_score × 100) from its trend, breakout, volume and accumulation checks. It ranks setups; it is not a probability. A row with a results chip (“Strong results +10”, “Weak results −10”) has that provisional, not yet tested results adjustment inside its score; the chip shows technical + results.{engineVersions.length ? ` Engine ${engineVersions.join(", ")}.` : ""}{classifier ? ` Classifier ${classifier}.` : ""}{rulesVersion ? ` Rules ${rulesVersion}.` : ""} <span className="cp-mono-note">backend/services/positional_engine/ · setup_rules.py</span></span>
         <span data-testid="desk-scan-about-odds"><b style={b}>Move-odds model</b> gives next-session estimates only: the chance the next session’s high reaches the previous close plus 5% or 10%. Each night’s estimates are frozen as a hashed snapshot and published unchanged; its record comes from a pre-registered test window.{run ? ` Published run: model ${run.model}${run.refit ? `, ${run.refit} refit` : ""}${run.train_end ? `, trained to ${fmtDay(run.train_end)}` : ""}, ${fmtNum(run.scored)} of ${fmtNum(run.universe_size)} stocks scored on data of ${fmtDay(run.data_as_of)}.` : " No published run is available to this view, so none of its figures are shown."}{record ? ` Out-of-sample window: ${record.window_label}.` : ""} <span className="cp-mono-note">backend/nidp/migrations/149_tpd_move_odds_publish.sql</span></span>
         <span><b style={b}>Model rank</b> is the stock’s estimate as a percentile among the eligible stocks the model scored{uni?.model.rankedEligible != null ? ` (${fmtNum(uni.model.rankedEligible)} on this scan)` : ""}. It is an order, not a probability. <span className="cp-mono-note">setup_rules.py · rank_percentiles</span></span>
         <span><b style={b}>Probability</b> is shown only when its route marks it calibrated (PRD §5.8). The move-odds route sends a band record but no calibration flag, so the column says “Withheld”.</span>
