@@ -477,3 +477,18 @@ test.describe("Results week — screenshots", () => {
     });
   }
 });
+
+test.describe("Results week — Scanner ideas after the study (desktop 1440)", () => {
+  test.use({ viewport: { width: 1440, height: 1000 } });
+
+  test("TC-F4b once the backend says tested, the badge says no measurable skill so far and the note carries the study's result", async ({ page }) => {
+    // MOCK — not real data: the same payload with the backend's post-study flag and note (PR #374)
+    const STUDY_NOTE = "Ordered for review, not a prediction. Tested on past results seasons: this ordering showed no measurable skill so far.";
+    const body = { ...RW, ideas: { ...(RW as any).ideas, tested: true, note: STUDY_NOTE } };
+    await setup(page, () => ({ body }));
+    await page.goto(SCANNER);
+    await expect(page.getByTestId("results-week-ideas")).toBeVisible(SLOW);
+    await expect(page.getByTestId("results-week-ideas-untested")).toHaveText("NO MEASURABLE SKILL SO FAR");
+    await expect(page.getByTestId("results-week-ideas-note")).toContainText(STUDY_NOTE);
+  });
+});

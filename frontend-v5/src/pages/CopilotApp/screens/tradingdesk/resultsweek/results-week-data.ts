@@ -154,7 +154,8 @@ export interface ResultsWeek {
   /** The route could not read every day's meetings: the counts may be short. */
   countsPartial: boolean;
   results: RwResult[];
-  ideas: { fno: RwIdea[]; all: RwIdea[]; note: string | null };
+  /** `tested`: the backend's flag; true once the pre-registered study has run (its result is in `note`). */
+  ideas: { fno: RwIdea[]; all: RwIdea[]; note: string | null; tested: boolean };
   sources: Array<[string, string]>;
   gaps: string[];
 }
@@ -469,7 +470,7 @@ export function readResultsWeek(data: unknown): ResultsWeek {
       above: num(c.above), inLine: num(c.in_line), below: num(c.below), notRated: num(c.not_rated),
     },
     results: d.results.map(readResult).filter((r): r is RwResult => r != null),
-    ideas: { fno: list(ideas.fno), all: list(ideas.all), note: str(ideas.note) },
+    ideas: { fno: list(ideas.fno), all: list(ideas.all), note: str(ideas.note), tested: ideas.tested === true },
     sources: readSources(d.sources),
     gaps: strs(d.gaps),
   };

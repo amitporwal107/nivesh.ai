@@ -61,4 +61,15 @@ Screenshots (agent run, mock data, 1440 and 390): test_reports/screens_results_w
   13 passed (21.5s)
 ```
 
+
+## Addendum (22:21 IST): the ideas badge follows the backend's `tested` flag (study PR #374)
+"NO MEASURABLE SKILL SO FAR" when `ideas.tested` is true (the backend's note carries the result), "NOT YET TESTED" otherwise
+(older backend). New case TC-F4b. Run (results specs, results chip, Top 10, desk shell):
+```
+tsc: OK (no errors)
+✓ built in 37.06s
+  10 skipped
+  61 passed (2.3m)
+```
+
 ## Verdict: PASS

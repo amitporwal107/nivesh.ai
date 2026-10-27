@@ -40,7 +40,7 @@ function IdeaRow({ idea, i, setup }: { idea: RwIdea; i: number; setup: DeskSetup
           <SymbolCell symbol={idea.symbol} name={idea.name} sub={idea.name ?? undefined} testId="results-week-idea-symbol" size={24} />
         </span>
         <span className="flex flex-none flex-col items-end" style={{ gap: 3 }}>
-          <span data-testid="results-week-idea-signal" className="cp-num" style={{ fontSize: 12 }} title="The route's early-signal order value, 0–100. Not a probability; not yet tested.">
+          <span data-testid="results-week-idea-signal" className="cp-num" style={{ fontSize: 12 }} title="The route's early-signal order value, 0–100. Not a probability; see the note below for how it tested.">
             {idea.signal != null ? `Signal ${fmtNum(idea.signal, 0)}` : idea.signalLabel ?? "Signal n/a"}
           </span>
           <span data-testid="results-week-idea-phase" style={{ ...mono, fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", padding: "2px 7px", borderRadius: 999, border: `1px solid ${idea.phase === "declared" ? "var(--mint-line)" : "var(--line-2)"}`, color: idea.phase === "declared" ? "var(--mint)" : "var(--cp-ink-2)" }}>
@@ -81,7 +81,7 @@ export function ResultsWeekIdeas() {
       testId={ANCHOR}
       title="Results week ideas"
       meta={<span style={{ fontSize: 9.5 }}>Ordered for review · vs historical trend · end of day</span>}
-      actions={<span data-testid="results-week-ideas-untested" style={{ ...mono, fontSize: 9, letterSpacing: "0.12em", padding: "3px 8px", borderRadius: 999, border: "1px solid var(--amber-line)", color: "var(--amber)" }}>NOT YET TESTED</span>}
+      actions={<span data-testid="results-week-ideas-untested" style={{ ...mono, fontSize: 9, letterSpacing: "0.12em", padding: "3px 8px", borderRadius: 999, border: "1px solid var(--amber-line)", color: "var(--amber)" }}>{d?.ideas.tested ? "NO MEASURABLE SKILL SO FAR" : "NOT YET TESTED"}</span>}
       bodyStyle={{ padding: mobile ? 14 : 18, gap: 10 }}
     >
       <div className="flex flex-wrap items-center justify-between" style={{ gap: 8 }}>
