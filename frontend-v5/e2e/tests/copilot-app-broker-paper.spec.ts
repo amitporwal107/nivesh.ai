@@ -1,5 +1,5 @@
 /**
- * One-screen Copilot app (/v5/app) — Trader desk and Paper trades.
+ * One-screen Copilot app (/v5/app) — the broker block on the desk's My portfolio, and Paper trades.
  *
  * MOCK — not real data: every /api response here is a fixture or an inline
  * payload in the shape the real route returns (source named beside each), with
@@ -7,11 +7,14 @@
  * copied from the screen. Mocked APIs, production build — see
  * pw.copilot-app.config.ts.
  *
- * Covers the blocks wired in screens/Trader.tsx, screens/Paper.tsx and
- * screens/desk/*: the broker block (holdings a broker read stored, its empty
- * and error states, open positions read live per account, the funds gap), the company icon on every row that
- * names a stock, the paper-trade summary and its "Full record" view, and a
- * 390px pass with no sideways page scroll.
+ * Covers the blocks wired in screens/Paper.tsx and screens/desk/*: the broker block (holdings a broker read stored,
+ * its empty and error states, open positions read live per account, the funds gap), the company icon on every row that
+ * names a stock, the paper-trade summary and its "Full record" view, and a 390px pass with no sideways page scroll.
+ *
+ * The broker block (desk/BrokerPositions.tsx) was on the old Trader landing (/app/trader) until the desk redesign's
+ * step 6 (2026-10-27) removed that screen; the same component is mounted on the Smart trading desk's My portfolio
+ * (tradingdesk/PortfolioTab.tsx), so these cases open it there. The landing's journal, watch-level and scanner rows
+ * were retired with it (the desk's paper trades replace the journal).
  */
 import { test, expect, type Page } from "@playwright/test";
 import fs from "fs";
@@ -19,6 +22,8 @@ import path from "path";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 
 const APP = "/v5/app";
+/** The desk's My portfolio, which mounts the broker block. */
+const PORTFOLIO = `${APP}/trader/desk?tab=portfolio`;
 const FX = path.join(process.cwd(), "e2e", "fixtures");
 const load = (name: string) => JSON.parse(fs.readFileSync(path.join(FX, name), "utf-8"));
 const has = (name: string) => fs.existsSync(path.join(FX, name));
@@ -73,20 +78,12 @@ async function mockAskBodies(page: Page, frame: Record<string, unknown> = { type
   return bodies;
 }
 
-// Shapes: backend/routes/positional_journal.py (list_trades, trade_summary), backend/routes/positional.py (get_watchlist, get_picks).
-const JOURNAL_SUMMARY = { open_count: 1, closed_count: 2, gross_long_rs: 10000, invested_rs: 10000, realized_pnl_rs: 600, win_count: 1, loss_count: 1, win_rate_pct: 50.0, needs_hedge: false, suggested_hedge: null };
-const JOURNAL = { count: 3, live: true, trades: [
-  { nse_symbol: "TESTOPEN", status: "OPEN", plan_source: "MANUAL", stop_loss: 95, target: 120, opened_at: "2026-10-01T04:00:00+00:00", closed_at: null, live_price: 110, pnl: { qty_in: 100, qty_out: 0, held_qty: 100, avg_buy: 100, invested_rs: 10000, realized_pnl_rs: 0, unrealized_pnl_rs: 1000 } },
-  { nse_symbol: "TESTWIN", status: "CLOSED", plan_source: "POSITIONAL_PICK", stop_loss: 190, target: 230, opened_at: "2026-09-01T04:00:00+00:00", closed_at: "2026-09-07T04:00:00+00:00", live_price: null, realized_pnl_rs: 1000, realized_pnl_pct: 10, pnl: { qty_in: 50, qty_out: 50, held_qty: 0, avg_buy: 200, invested_rs: 10000, realized_pnl_rs: 1000, unrealized_pnl_rs: 0 } },
-  { nse_symbol: "TESTLOSS", status: "STOPPED", plan_source: "MANUAL", stop_loss: 96, target: 0, opened_at: "2026-09-10T04:00:00+00:00", closed_at: "2026-09-12T04:00:00+00:00", live_price: null, realized_pnl_rs: -400, realized_pnl_pct: -4, pnl: { qty_in: 100, qty_out: 100, held_qty: 0, avg_buy: 100, invested_rs: 10000, realized_pnl_rs: -400, unrealized_pnl_rs: 0 } },
-] };
+// Shapes: backend/routes/positional.py (get_watchlist, get_picks): the scanner reads the desk frame may make.
 const WATCHLIST = { as_of_date: "2026-10-12", buckets: { breakout_confirmed: [{ nse_symbol: "TESTBRK", sector: "Capital Goods", close_price: 510.0, trigger_price: 500.0, stop_price: 477.5, atr_pct: 2.94, why: "Fixture reason" }], pre_breakout: [], true_accumulation: [], trend_continuation: [] } };
 const PICKS = { signal_date: "2026-10-12", count: 1, picks: [{ nse_symbol: "TESTPICK", signal_date: "2026-10-12", final_score: 0.812, confidence: "HIGH", stage: "BREAKOUT", timeframe_days_min: 5, timeframe_days_max: 15, entry_price: 505.0, stoploss: 480.0, target_price: 555.0, risk_reward: 2.0, source_scans: ["btst.breakout_confirmation"], reasons: ["Fixture scanner reason"] }] };
 
-/** The desk's own data: a journal, watch levels and scanner picks. The broker routes are set per test. */
+/** The desk's own scanner data: watch levels and scanner picks. The broker routes are set per test. */
 async function deskData(page: Page) {
-  await json(page, "**/api/positional/journal/summary/portfolio", JOURNAL_SUMMARY);
-  await json(page, /\/api\/positional\/journal(\?.*)?$/, JOURNAL);
   await json(page, "**/api/positional/watchlist*", WATCHLIST);
   await json(page, "**/api/positional/picks*", PICKS);
 }
@@ -243,7 +240,7 @@ async function mockPaper(page: Page, over: { portfolio?: { status: number; body:
   });
 }
 
-test.describe("Trader desk — broker block", () => {
+test.describe("My portfolio — broker block", () => {
   test.beforeEach(async ({ page }) => {
     await populated(page);
     await deskData(page);
@@ -252,7 +249,7 @@ test.describe("Trader desk — broker block", () => {
   test("an account that is not read live says why; its holdings stored at the last sync are listed as such, never as live", async ({ page }) => {
     const sent = await mockAsk(page);
     const calls = await brokerData(page);
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
 
     await expect(page.getByTestId("trader-broker-status")).toHaveText("1 account connected");
     // copilot-trader-broker-accounts.json: one Zerodha account, connected through OpenAlgo, so the live read lists it as not readable
@@ -316,7 +313,7 @@ test.describe("Trader desk — broker block", () => {
     const sent = await mockAsk(page);
     const positions = { as_of: AS_OF, kind: "net", segment: "all", accounts: [POSITIONS.accounts[0], { ...ICICI, ok: true, error: null, as_of: AS_OF, positions: [], counts: { total: 0, fno: 0, intraday: 0 } }] };
     const calls = await brokerData(page, { accounts: TWO_ACCOUNTS, live: TWO_LIVE, positions });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
 
     await expect(page.getByTestId("trader-broker-status")).toHaveText("2 accounts connected");
     await expect(page.getByTestId("broker-account-card")).toHaveCount(2);
@@ -391,7 +388,7 @@ test.describe("Trader desk — broker block", () => {
 
   test("open positions are read live per account, with an All / F&O switch; F&O rows keep their contract", async ({ page }) => {
     await brokerData(page, { accounts: ZU_ACCOUNTS, live: ZU_LIVE, positions: POSITIONS, holdings: [...load("copilot-trader-holdings.json"), UPSTOX_STORED] });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
 
     const zerodha = card(page, ZERODHA);
     const positions = zerodha.getByTestId("trader-positions-account");
@@ -432,7 +429,7 @@ test.describe("Trader desk — broker block", () => {
 
   test("an account whose session ended says so, offers Reconnect, and lists its stored rows as of the last sync", async ({ page }) => {
     const calls = await brokerData(page, { accounts: ZU_ACCOUNTS, live: ZU_LIVE, positions: POSITIONS, holdings: [...load("copilot-trader-holdings.json"), UPSTOX_STORED] });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
 
     const upstox = card(page, UPSTOX);
     await expect(upstox.getByTestId("trader-broker-account")).toContainText("Upstox");
@@ -465,7 +462,7 @@ test.describe("Trader desk — broker block", () => {
     const ok = { as_of: AS_OF, accounts: [liveAccount(ZERODHA, [ALPHA])] };
     const positions = { ...POSITIONS, accounts: [POSITIONS.accounts[0]] };
     const calls = await brokerData(page, { accounts: { accounts: [accountRow(ZERODHA)] }, live: (n: number) => (n === 0 ? failed : ok), positions });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
 
     const zerodha = card(page, ZERODHA);
     await expect(zerodha.getByTestId("broker-live-status")).toHaveText("Live read failed");
@@ -516,7 +513,7 @@ test.describe("Trader desk — broker block", () => {
       "Show the FIXGAMMA chart with support and resistance. My broker account has a short position of 275 in a future expiring 27 Oct 2026, at an average of ₹1,770.00.",
     ];
     for (let i = 0; i < expected.length; i += 1) {
-      await page.goto(`${APP}/trader`);
+      await page.goto(PORTFOLIO);
       await page.getByTestId("trader-positions-account").nth(0).getByTestId("broker-position-row").nth(i).click();
       await expect.poll(() => asked.length).toBe(i + 1);
     }
@@ -548,7 +545,7 @@ test.describe("Trader desk — broker block", () => {
     await brokerData(page, { positions: book });
 
     for (let i = 0; i < rows.length; i += 1) {
-      await page.goto(`${APP}/trader`);
+      await page.goto(PORTFOLIO);
       await page.getByTestId("trader-positions-account").nth(0).getByTestId("broker-position-row").nth(i).click();
       await expect.poll(() => asked.length).toBe(i + 1);
     }
@@ -561,7 +558,7 @@ test.describe("Trader desk — broker block", () => {
     // question about the same position, and must not fall back to the share.
     const asked = await mockAskBodies(page, { type: "error", content: "fixture: the answer could not be finished" });
     await brokerData(page, { positions: POSITIONS });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
     await page.getByTestId("trader-positions-account").nth(0).getByTestId("broker-position-row").nth(2).click();
     await expect.poll(() => asked.length).toBe(1);
 
@@ -583,7 +580,7 @@ test.describe("Trader desk — broker block", () => {
   test("open positions: an account with none, the feature switched off, a failed read and a wrong-shaped answer each say so", async ({ page }) => {
     const empty = { ...POSITIONS, accounts: [{ ...POSITIONS.accounts[0], positions: [], counts: { total: 0, fno: 0, intraday: 0 } }] };
     await brokerData(page, { accounts: { accounts: [accountRow(ZERODHA)] }, live: { as_of: AS_OF, accounts: [liveAccount(ZERODHA, [ALPHA])] }, positions: empty });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
     await expect(page.getByTestId("trader-positions-none")).toHaveText("No open positions in this account.");
     await expect(page.getByTestId("trader-positions-filter-fno")).toHaveText("F&O · 0");
 
@@ -615,7 +612,7 @@ test.describe("Trader desk — broker block", () => {
 
   test("live holdings: the feature switched off, a failed read and a wrong-shaped answer each say so, and the stored rows stay labelled", async ({ page }) => {
     await brokerData(page, { live: { status: 403, error: "FORBIDDEN", code: "AUTH-003", message: "feature_not_enabled", details: [] }, liveStatus: 403 });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
     const zerodha = card(page, ZERODHA);
     await expect(page.getByTestId("trader-holdings-off")).toContainText("Reading holdings live from a broker is not switched on for this account.");
     // The stored rows are shown, as of the last sync — never as live.
@@ -643,14 +640,15 @@ test.describe("Trader desk — broker block", () => {
 
   test("no broker account: says so, links to Broker connections, and reads nothing", async ({ page }) => {
     const calls = await brokerData(page, { accounts: { accounts: [] } });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
     await expect(page.getByTestId("trader-broker-status")).toHaveText("No broker connected");
     const none = page.getByTestId("trader-broker-none");
     await expect(none).toContainText("No broker account is connected");
     await expect(page.getByTestId("broker-account-card")).toHaveCount(0);
     await expect(page.getByTestId("trader-positions-not-connected")).toBeVisible();
     await page.waitForLoadState("networkidle");
-    expect(calls).toEqual({ live: [], positions: [], stored: [] });
+    // No broker is read. (My portfolio's own hub card reads the stored holdings, so that route is not asserted here.)
+    expect({ live: calls.live, positions: calls.positions }).toEqual({ live: [], positions: [] });
     await none.getByRole("button", { name: "Broker connections" }).click();
     await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
   });
@@ -662,7 +660,7 @@ test.describe("Trader desk — broker block", () => {
     // only statement rows come back: nothing from either broker is stored
     const statementOnly = (load("copilot-trader-holdings.json") as Array<{ broker_account_id?: string }>).filter((h) => !h.broker_account_id);
     await brokerData(page, { accounts, live, positions, holdings: statementOnly });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
 
     const zerodha = card(page, ZERODHA);
     await expect(zerodha.getByTestId("broker-live-holdings-empty")).toHaveText("No holdings at Zerodha.");
@@ -680,7 +678,7 @@ test.describe("Trader desk — broker block", () => {
 
   test("broker connections fail: the block reports the error", async ({ page }) => {
     await json(page, "**/api/broker/accounts", { detail: "fixture failure" }, 500);
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
     const block = page.getByTestId("trader-broker-positions");
     await expect(block.getByRole("alert")).toContainText("Broker connections didn’t load", SLOW);
     await expect(page.getByTestId("broker-account-card")).toHaveCount(0);
@@ -689,7 +687,7 @@ test.describe("Trader desk — broker block", () => {
 
   test("stored rows fail or come back in the wrong shape: error, never an empty list", async ({ page }) => {
     await brokerData(page, { holdings: { detail: "fixture failure" }, holdingsStatus: 500 });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
     const zerodha = card(page, ZERODHA);
     await expect(zerodha.getByRole("alert").filter({ hasText: "didn’t load" })).toContainText("Holdings stored at the last sync didn’t load", SLOW);
     await expect(zerodha.getByTestId("broker-stored-none")).toHaveCount(0);
@@ -701,27 +699,6 @@ test.describe("Trader desk — broker block", () => {
     await expect(zerodha.getByRole("alert").filter({ hasText: "didn’t load" })).toContainText("unexpected response shape", SLOW);
     await expect(zerodha.getByTestId("broker-stored-none")).toHaveCount(0);
     await expect(zerodha.getByTestId("broker-stored-row")).toHaveCount(0);
-  });
-
-  test("journal, watch-level and scanner rows carry the company icon; risk limits stay declared missing", async ({ page }) => {
-    await brokerData(page, { accounts: { accounts: [] } });
-    await page.goto(`${APP}/trader`);
-    // The marked element is the name alone, so its text is exactly the symbol.
-    await expect(page.getByTestId("journal-open-row")).toHaveText(["TESTOPEN"]);
-    await expect(page.getByTestId("journal-closed-row")).toHaveText(["TESTLOSS", "TESTWIN"]); // latest close first
-    await expect(page.getByTestId("watch-row")).toHaveText(["TESTBRK"]);
-    await expect(page.getByTestId("scanner-pick-symbol")).toHaveText(["TESTPICK"]);
-    const iconIn = (rowText: string, key: string) =>
-      page.getByRole("row").filter({ hasText: rowText }).locator(`[data-testid="entity-icon"][data-kind="stock"][data-key="${key}"]`);
-    await expect(iconIn("TESTOPEN", "TESTOPEN")).toHaveCount(1);
-    await expect(iconIn("TESTWIN", "TESTWIN")).toHaveCount(1);
-    await expect(iconIn("TESTLOSS", "TESTLOSS")).toHaveCount(1);
-    await expect(iconIn("TESTBRK", "TESTBRK")).toHaveCount(1);
-    await expect(page.getByTestId("scanner-pick").locator('[data-testid="entity-icon"][data-key="TESTPICK"]')).toHaveCount(1);
-
-    const risk = page.getByTestId("trader-risk-rules-not-connected");
-    await expect(risk).toContainText("Risk limits are not stored yet");
-    await expect(risk.getByTestId("not-connected-needs")).toBeVisible(); // the fixture user is an admin
   });
 });
 
@@ -814,18 +791,18 @@ test.describe("Paper trades", () => {
   });
 });
 
-test.describe("Trader desk and Paper trades — phone (390×844)", () => {
+test.describe("My portfolio broker block and Paper trades — phone (390×844)", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
   test.beforeEach(async ({ page }) => { await populated(page); });
 
-  test("the desk with live holdings, positions and stored rows does not scroll sideways; each table scrolls inside itself", async ({ page }) => {
+  test("My portfolio with live holdings, positions and stored rows does not scroll sideways; each table scrolls inside itself", async ({ page }) => {
     await deskData(page);
     const accounts = { accounts: [...TWO_ACCOUNTS.accounts, accountRow(UPSTOX, { status: "expired", created_at: "2026-08-01T05:00:00+00:00" })] };
     const live = { as_of: AS_OF, accounts: [...TWO_LIVE.accounts, holdingsNotRead(UPSTOX, "BROKER_SESSION_EXPIRED")] };
     const positions = { ...POSITIONS, accounts: [POSITIONS.accounts[0], positionsNotRead(ICICI, "BROKER_READ_FAILED"), POSITIONS.accounts[1]] };
     await brokerData(page, { accounts, live, positions, holdings: [...load("copilot-trader-holdings.json"), UPSTOX_STORED] });
-    await page.goto(`${APP}/trader`);
+    await page.goto(PORTFOLIO);
     await expect(page.getByTestId("broker-live-row")).toHaveCount(5);
     await expect(page.getByTestId("broker-position-row")).toHaveCount(3);
     await expect(page.getByTestId("broker-stored-row")).toHaveCount(1);

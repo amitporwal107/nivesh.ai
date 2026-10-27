@@ -149,36 +149,6 @@ test.describe("MOCK — not real data: Smart trading desk · Risk controls", () 
     await deskBase(page);
   });
 
-  // Superseded by the desk redesign (2026-10-27): there is no More list or More chip row. The old URL's redirect to Risk Desk
-  // and the tabs are covered by copilot-app-desk-shell.spec.ts SH-9 / SH-3; rewritten in step 6.
-  test.skip("RC-1 More lists Risk controls and opens ?tab=more&view=risk; its chip is pressed and the Copilot chip is not", async ({ page }) => {
-    await riskMocks(page);
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`${DESK}?tab=more`);
-    const item = page.getByTestId("desk-more-list").getByTestId("desk-more-item-risk");
-    await expect(item).toContainText("Risk controls");
-    await expect(item).toContainText("Kill switch, trading halt, policy limits and every risk decision on your paper trades");
-    await item.click();
-    await expect(page).toHaveURL(/[?&]tab=more(&|$)/);
-    await expect(page).toHaveURL(/[?&]view=risk(&|$)/);
-    const panel = page.getByRole("tabpanel", { name: "Risk controls" });
-    await expect(panel).toHaveAttribute("data-testid", "desk-panel-risk");
-    await expect(panel.getByTestId("risk-controls")).toBeVisible();
-    await expect(page.getByTestId("risk-title")).toHaveText("Risk controls");
-    await expect(page.getByTestId("desk-more-risk")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("desk-more-copilot")).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByTestId("desk-tab-more")).toHaveAttribute("aria-selected", "true");
-
-    // Under 1400px (no dock) the chip row reaches it too, and another tab leaves it.
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(`${DESK}?tab=more`);
-    await page.getByTestId("desk-more-risk").click();
-    await expect(page.getByTestId("desk-panel-risk")).toBeVisible();
-    await page.getByTestId("desk-tab-overview").click();
-    await expect(page).not.toHaveURL(/view=risk/);
-    await expect(page.getByTestId("desk-panel-risk")).toHaveCount(0);
-  });
-
   test("RC-2 status off: both controls in words and pills, the data modes, live authorization, the scope note and the trust line", async ({ page }) => {
     const writes = recordWrites(page);
     await riskMocks(page);

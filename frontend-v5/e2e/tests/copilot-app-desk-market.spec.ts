@@ -832,53 +832,6 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page).toHaveURL(/[?&]tab=market&view=intel/); // Market Intelligence is a Market Desk view since 2026-10-27
   });
 
-  // Superseded by the desk redesign (2026-10-27): Market Overview is the market part only; the portfolio snapshot and the
-  // risk summary are not on it (the real portfolio is My portfolio). Covered by copilot-app-desk-shell.spec.ts SH-8 / SH-12.
-  test.skip("OV-007 / OV-008: portfolio snapshot and risk summary from the holdings on record; nothing connected shows the empty state, never made-up holdings", async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await deskApi(page);
-    await overviewExtras(page);
-    await page.goto(`${DESK}?tab=overview`);
-    const t = HOLDINGS.totals;
-    const cr = (n: number) => `₹${(n / 1e7).toFixed(2)} Cr`;
-    await expect(page.getByTestId("desk-snapshot-value")).toHaveText(cr(t.value_rs));
-    await expect(page.getByTestId("desk-snapshot-pnl")).toHaveText(`+₹${(t.pnl_rs / 1e5).toFixed(2)} L · +${t.pnl_pct.toFixed(1)}% unrealised`);
-    await expect(page.getByTestId("desk-snapshot-realised")).toContainText("Realised P&L —");
-    await expect(page.getByTestId("desk-snapshot-sync")).toContainText("Zerodha · last read");
-    // Allocation by asset type over the summed values of the fixture's holdings, largest first.
-    const lab: Record<string, string> = { equity: "Stocks", mutual_fund: "Mutual funds", etf: "ETFs" };
-    const by = new Map<string, number>();
-    for (const h of HOLDINGS.holdings) if (h.value_rs != null) by.set(h.asset_type, (by.get(h.asset_type) ?? 0) + h.value_rs);
-    const total = [...by.values()].reduce((a, b) => a + b, 0);
-    const alloc = [...by.entries()].sort((a, b) => b[1] - a[1]);
-    const items = page.getByTestId("desk-snapshot-alloc");
-    await expect(items).toHaveCount(alloc.length);
-    for (let k = 0; k < alloc.length; k += 1) await expect(items.nth(k)).toHaveText(`${lab[alloc[k][0]]} ${((alloc[k][1] / total) * 100).toFixed(1)}%`);
-    // Top five holdings by value, with icons.
-    const top = [...HOLDINGS.holdings].filter((h) => h.value_rs != null).sort((a, b) => (b.value_rs ?? 0) - (a.value_rs ?? 0)).slice(0, 5);
-    const hold = page.getByTestId("desk-snapshot-holding");
-    await expect(hold).toHaveCount(5);
-    for (let k = 0; k < 5; k += 1) await expect(hold.nth(k)).toContainText(top[k].nse_symbol ?? top[k].name);
-    // Risk summary: the largest direct stock against the 25% limit, the route's volatility band, liquidity "—" with its reason.
-    const stocks = HOLDINGS.holdings.filter((h) => h.asset_type === "equity" && h.weight_pct != null).sort((a, b) => (b.weight_pct ?? 0) - (a.weight_pct ?? 0));
-    await expect(page.getByTestId("desk-risk-position-value")).toHaveText(`${stocks[0].weight_pct!.toFixed(1)}% · Within limit`);
-    await expect(page.getByTestId("desk-risk-volatility-value")).toHaveText(`${(RISK.weighted_volatility * 100).toFixed(1)}% a year · High`);
-    await expect(page.getByTestId("desk-risk-liquidity-value")).toHaveText("—");
-    await expect(page.getByTestId("desk-risk-liquidity")).toContainText("No traded-value figure is read for holdings yet");
-    await expect(page.getByTestId("desk-risk-data")).toContainText(`risk figures cover ${RISK.coverage_pct.toFixed(1)}% of the value`);
-    await expect(page.getByTestId("desk-snapshot-trust")).toContainText("Your holdings on record (broker reads and imports)");
-    await expect(page.getByTestId("desk-risk-trust")).toContainText("Rules-based");
-
-    // Nothing connected: the empty state on both cards, with the way to connect; no figures.
-    await page.route("**/api/portfolio/holdings-enriched*", (route) => json(route, { holdings: [], alerts: [] }));
-    await page.reload();
-    await expect(page.getByTestId("desk-snapshot-empty")).toContainText("No portfolio connected");
-    await expect(page.getByTestId("desk-risk-empty")).toContainText("No portfolio connected");
-    await expect(page.getByTestId("desk-snapshot-value")).toHaveCount(0);
-    await page.getByTestId("desk-snapshot-empty").getByRole("button", { name: /Connect a broker/ }).click();
-    await expect(page).toHaveURL(/\/v5\/app\/page\/brokers$/);
-  });
-
   test("§3.2 / §16.3: every Overview card carries a trust line; the investor wording is plain, the data the same", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await deskApi(page, { macro: withRegime(REGIMES.mixed) });
