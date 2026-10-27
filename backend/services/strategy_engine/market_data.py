@@ -50,6 +50,8 @@ SURVIVORSHIP_WARNING = (
     "that left the index (including any later delisted) are missing and past results look better than they were. "
     f"Use \"{_lu.LABEL}\" for a survivorship-free run.")
 _EOD_CONCURRENCY = 8      # parallel one-session price reads for the liquid universe (DaaS)
+_LOOKBACK_BATCH = 35      # weekdays read per step while looking back for the 29 priced sessions before a window
+_LOOKBACK_STEPS = 4       # at most 140 weekdays back (the start of the price history ends the search earlier)
 
 
 def _market_universe(spec: Dict[str, Any]) -> bool:
@@ -114,17 +116,27 @@ class SqlMarketDataProvider(MarketDataProvider):
 
     async def _prepare_market(self, from_date: date, to_date: date) -> None:
         async with self._pool.acquire() as conn:
-            cal = await conn.fetch(
-                "SELECT DISTINCT as_of_date FROM nidp.stock_features_daily WHERE as_of_date <= $1 ORDER BY as_of_date",
-                to_date)
-            read, window = _lu.calendar_with_lookback([r["as_of_date"] for r in cal], from_date, to_date)
+            window = [r["as_of_date"] for r in await conn.fetch(
+                "SELECT DISTINCT as_of_date FROM nidp.stock_features_daily WHERE as_of_date BETWEEN $1 AND $2 "
+                "ORDER BY as_of_date", from_date, to_date)]
+            lookback = [r["as_of_date"] for r in await conn.fetch(
+                "SELECT DISTINCT as_of_date FROM nidp.prices_eod WHERE series = 'EQ' AND as_of_date < $1 "
+                f"ORDER BY as_of_date DESC LIMIT {_lu.LOOKBACK_SESSIONS}", from_date)]
+            read = sorted(lookback) + window
             rows = await conn.fetch(
                 "SELECT as_of_date, symbol, series, close_price, volume FROM nidp.prices_eod "
                 "WHERE as_of_date = ANY($1::date[]) AND series = 'EQ'", read) if read else []
+            # NSE's latest ETF list, as the DaaS backend reads it (an ETF is an ETF for life; see liquid_universe.py)
+            etf_rows = await conn.fetch(
+                "SELECT symbol FROM nidp.security_reference_daily WHERE is_etf AND as_of_date = "
+                "(SELECT MAX(as_of_date) FROM nidp.security_reference_daily)")
         by_day: Dict[date, List[Dict[str, Any]]] = {}
         for r in rows:
             by_day.setdefault(r["as_of_date"], []).append(dict(r))
-        members, report = _lu.membership(read, by_day, window)
+        etfs = {r["symbol"] for r in etf_rows}
+        members, report = _lu.membership(read, by_day, window, etfs)
+        report["etf_list"] = {"source": "nidp.security_reference_daily.is_etf", "count": len(etfs)}
+        report["lookback_sessions"] = len(lookback)
         self._members = {_iso(d): m for d, m in members.items()}
         self.basis.update(universe_basis="point_in_time", universe_rule=_lu.rule(), universe_report=report)
 
@@ -265,18 +277,52 @@ class DaasMarketDataProvider(MarketDataProvider):
         """The liquid universe's members per window date, from one bhavcopy read per session (the window plus the 29
         sessions before it). Returns the union, the only symbols whose features and bars are then fetched. A failed read
         raises: a backtest never runs on a silently thinner universe."""
-        all_sessions = [date.fromisoformat(x) for x in await dc.get_trading_calendar(None, _iso(to_date))]
-        read, window = _lu.calendar_with_lookback(all_sessions, from_date, to_date)
+        window = [date.fromisoformat(x) for x in await dc.get_trading_calendar(_iso(from_date), _iso(to_date))]
         sem = asyncio.Semaphore(_EOD_CONCURRENCY)
 
         async def one(d: date):
             async with sem:
                 return d, await dc.get_prices_eod_on(_iso(d), series=_lu.SERIES)
-        pairs = await asyncio.gather(*(one(d) for d in read))
-        members, report = _lu.membership(read, dict(pairs), window)
+
+        async def read_days(days: List[date]) -> Dict[date, List[Dict[str, Any]]]:
+            return dict(await asyncio.gather(*(one(d) for d in days)))
+        by_day = await read_days(window)
+        # The lookback: the 29 most recent days before the window that have EQ prices (weekdays without any are holidays).
+        lookback: List[date] = []
+        cursor = from_date
+        for _ in range(_LOOKBACK_STEPS):
+            cands = _lu.weekdays_before(cursor, _LOOKBACK_BATCH)
+            got = await read_days(cands)
+            for d in cands:
+                if got[d] and len(lookback) < _lu.LOOKBACK_SESSIONS:
+                    lookback.append(d)
+                    by_day[d] = got[d]
+            if len(lookback) >= _lu.LOOKBACK_SESSIONS or not any(got.values()):
+                break
+            cursor = cands[-1]
+        read = sorted(lookback) + window
+        etfs, etf_note = await self._etf_list(dc)
+        members, report = _lu.membership(read, by_day, window, etfs)
+        report["lookback_sessions"] = len(lookback)
+        report["etf_list"] = etf_note
         self._members = {_iso(d): m for d, m in members.items()}
         self.basis.update(universe_basis="point_in_time", universe_rule=_lu.rule(), universe_report=report)
         return set().union(*members.values()) if members else set()
+
+    @staticmethod
+    async def _etf_list(dc):
+        """(NSE's ETF list, a note on where it came from). The data API serves the flag only in the scan snapshot (the
+        latest list). If it cannot be read the universe keeps the name rule and the note says so; it is not guessed."""
+        try:
+            status, body = await dc.get_raw("/features/scan-snapshot", None, timeout=30.0)
+        except Exception as e:  # noqa: BLE001 — reported in the run, the name rule still applies
+            return set(), {"source": "unavailable", "error": f"{type(e).__name__}: {str(e)[:120]}", "count": 0}
+        rows = (body or {}).get("rows") if status == 200 and isinstance(body, dict) else None
+        if not isinstance(rows, list):
+            return set(), {"source": "unavailable", "error": f"scan snapshot HTTP {status}", "count": 0}
+        etfs = {str(r["symbol"]).upper() for r in rows if isinstance(r, dict) and r.get("symbol") and r.get("is_etf")}
+        return etfs, {"source": "DaaS /features/scan-snapshot (nidp.security_reference_daily.is_etf, latest list)",
+                      "reference_as_of": (body or {}).get("reference_as_of"), "count": len(etfs)}
 
     def _membership(self, as_of: date) -> set:
         """Symbols in the universe as of `as_of` — the date's own members for a market universe; otherwise the most

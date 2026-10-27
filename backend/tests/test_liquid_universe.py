@@ -39,11 +39,13 @@ def row(sym: str, close: float, volume: float, series: str = "EQ") -> Dict[str, 
 def market(n_sessions: int = 60, *, dead_until: int = 44, gaps=frozenset(range(5, 16))) -> Dict[date, List[Dict[str, Any]]]:
     """LIQ: close 100 × 2,000,000 = ₹20 crore every session.  DEAD: ₹30 crore until session `dead_until`, then gone
     (delisted).  THIN: ₹5 crore.  CHEAP: close 15 with ₹30 crore.  NIFTYBEES / GOLDETF: ₹50 crore, ETF names.
-    BESER: series BE only.  GAPPY: ₹20 crore but missing on the 11 sessions in `gaps`."""
+    GOLDCASE: ₹50 crore, an ETF only NSE's list names.  BESER: series BE only.  GAPPY: ₹20 crore but missing on the 11
+    sessions in `gaps`."""
     by: Dict[date, List[Dict[str, Any]]] = {}
     for i, d in enumerate(S[:n_sessions]):
         rows = [row("LIQ", 100.0, 2_000_000), row("THIN", 100.0, 500_000), row("CHEAP", 15.0, 20_000_000),
-                row("NIFTYBEES", 250.0, 2_000_000), row("GOLDETF", 50.0, 10_000_000), row("BESER", 100.0, 5_000_000, "BE")]
+                row("NIFTYBEES", 250.0, 2_000_000), row("GOLDETF", 50.0, 10_000_000), row("GOLDCASE", 50.0, 10_000_000),
+                row("BESER", 100.0, 5_000_000, "BE")]
         if i <= dead_until:
             rows.append(row("DEAD", 300.0, 1_000_000))
         if i not in gaps:
@@ -54,14 +56,17 @@ def market(n_sessions: int = 60, *, dead_until: int = 44, gaps=frozenset(range(5
 
 # ── TC-LU-1: each condition of the rule ──────────────────────────────────────
 
+ETF_LIST = {"GOLDCASE", "NIFTYBEES"}
+
+
 def test_tc_lu1_each_condition():
-    members, report = lu.membership(S, market())
+    members, report = lu.membership(S, market(), etf_symbols=ETF_LIST)
     # session index 19 is the 20th session: LIQ has its 20 bars, median ₹20 crore -> in. Index 18: only 19 bars -> out.
     assert "LIQ" in members[S[19]] and "LIQ" not in members[S[18]]
     for d in S[19:]:
         assert "THIN" not in members[d]                       # median ₹5 crore < ₹10 crore
         assert "CHEAP" not in members[d]                      # close 15 < ₹20
-        assert not {"NIFTYBEES", "GOLDETF"} & members[d]      # ETF names
+        assert not {"NIFTYBEES", "GOLDETF", "GOLDCASE"} & members[d]   # NSE's ETF list, and ETF names
         assert "BESER" not in members[d]                      # series BE only
     # GAPPY misses sessions 5..15 (11 of them). Bars in the 30-session window ending at index i: at 19, sessions 0..4 and
     # 16..19 = 9; at 29 (window 0..29) 30 − 11 = 19; at 34 (window 5..34) still 19 -> out throughout. At 35 the window is
@@ -69,6 +74,11 @@ def test_tc_lu1_each_condition():
     assert all("GAPPY" not in members[S[i]] for i in range(0, 35))
     assert "GAPPY" in members[S[35]]
     assert report["sessions_without_prices"] == [] and report["members_per_session"]["max"] == 3
+
+
+def test_tc_lu1_without_the_list_only_the_name_rule_catches_etfs():
+    members, _ = lu.membership(S, market())
+    assert "GOLDCASE" in members[S[30]] and "GOLDETF" not in members[S[30]] and "NIFTYBEES" not in members[S[30]]
 
 
 def test_tc_lu1_the_floor_is_inclusive_and_uses_the_median():
@@ -94,9 +104,10 @@ def test_tc_lu2_membership_never_reads_the_future():
         cut = {d: rows for d, rows in market().items() if d <= S[k]}
         part, _ = lu.membership(S[:k + 1], cut)
         assert part[S[k]] == full[S[k]], k
-    # and it does not depend on where a window starts: the members of session 50 read with a 29-session lookback
-    read, window = lu.calendar_with_lookback(S, S[50], S[55])
-    assert read[0] == S[21] and window == S[50:56]
+    # and it does not depend on where a window starts: the members of sessions 50..55 read with a 29-session lookback
+    lookback = sorted(d for d in lu.weekdays_before(S[50], 29))
+    assert lookback == S[21:50]                                          # the synthetic calendar has no holidays
+    read, window = lookback + S[50:56], S[50:56]
     sub, _ = lu.membership(read, {d: market()[d] for d in read}, window)
     assert all(sub[d] == full[d] for d in window)
 
@@ -146,13 +157,15 @@ def test_tc_lu5_the_compiler_binds_the_members_per_date():
 # ── TC-LU-6 / TC-LU-8 / TC-LU-9: the DaaS provider ──────────────────────────
 
 class FakeDaas:
-    def __init__(self, by_day, fail_on=None, constituents=None):
-        self.by_day, self.fail_on, self.constituents = by_day, fail_on, constituents or []
+    def __init__(self, by_day, fail_on=None, constituents=None, etf_reply=(200, {"reference_as_of": "2026-02-27",
+                 "rows": [{"symbol": "GOLDCASE", "is_etf": True}, {"symbol": "NIFTYBEES", "is_etf": True}, {"symbol": "LIQ", "is_etf": False}]})):
+        self.by_day, self.fail_on, self.constituents, self.etf_reply = by_day, fail_on, constituents or [], etf_reply
         self.eod_calls: List[str] = []
         self.feature_symbols: List[str] = []
 
     async def get_trading_calendar(self, start=None, end=None, timeout=15.0):
-        return [d.isoformat() for d in S if (start is None or d.isoformat() >= start) and (end is None or d.isoformat() <= end)]
+        # the FEATURE calendar; shorter than the price history, as on staging (features from session 30, prices from 0)
+        return [d.isoformat() for d in S[30:] if (start is None or d.isoformat() >= start) and (end is None or d.isoformat() <= end)]
 
     async def get_prices_eod_on(self, on, series="EQ", timeout=30.0):
         self.eod_calls.append(on)
@@ -180,11 +193,18 @@ class FakeDaas:
     async def get_index_constituents(self, index_name, on=None, timeout=15.0):
         return list(self.constituents)
 
+    async def get_raw(self, path, params=None, timeout=10.0):
+        assert path == "/features/scan-snapshot"
+        if isinstance(self.etf_reply, Exception):
+            raise self.etf_reply
+        return self.etf_reply
+
 
 @pytest.fixture
 def daas(monkeypatch):
     def install(fake):
-        for name in ("get_trading_calendar", "get_prices_eod_on", "get_features_bulk", "get_adjusted_prices_bulk", "get_index_constituents"):
+        for name in ("get_trading_calendar", "get_prices_eod_on", "get_features_bulk", "get_adjusted_prices_bulk",
+                     "get_index_constituents", "get_raw"):
             monkeypatch.setattr(dc, name, getattr(fake, name))
         return fake
     return install
@@ -195,8 +215,11 @@ def test_tc_lu6_daas_provider_reads_the_lookback_and_limits_each_date(daas):
     p = md.DaasMarketDataProvider(None)
     spec = _spec({"type": "market", "ref": "LIQUID_EQ"})
     asyncio.run(p.prepare(spec, S[40], S[50]))
-    # one price read per session: the 29 before the window and the 11 of the window
-    assert sorted(fake.eod_calls) == [d.isoformat() for d in S[11:51]]
+    # the window's 11 sessions, then one batch of 35 weekdays before it (S[5..39]): its 29 most recent priced days are
+    # the lookback, S[11..39]. The price history starts before the feature calendar, so the lookback is complete.
+    assert sorted(fake.eod_calls) == [d.isoformat() for d in S[5:51]]
+    assert p.basis["universe_report"]["lookback_sessions"] == 29
+    assert p.basis["universe_report"]["etf_list"]["count"] == 2 and "scan-snapshot" in p.basis["universe_report"]["etf_list"]["source"]
     # features only for the symbols that were ever members in the window
     assert sorted(set(fake.feature_symbols)) == ["DEAD", "GAPPY", "LIQ"]
     assert p.basis["universe_basis"] == "point_in_time" and p.basis["universe_rule"]["version"] == "liquid-eq-v1"
@@ -204,6 +227,35 @@ def test_tc_lu6_daas_provider_reads_the_lookback_and_limits_each_date(daas):
     on_44 = {r["symbol"] for r in asyncio.run(p.screen(spec, S[44]))}
     on_45 = {r["symbol"] for r in asyncio.run(p.screen(spec, S[45]))}
     assert "DEAD" in on_44 and "DEAD" not in on_45 and "LIQ" in on_45
+
+
+def test_tc_lu6_the_lookback_skips_weekdays_without_prices_and_stops_at_the_start_of_history(daas):
+    by = market()
+    for i in (35, 36, 37):                                               # three holidays just before the window
+        by[S[i]] = []
+    fake = daas(FakeDaas(by))
+    p = md.DaasMarketDataProvider(None)
+    asyncio.run(p.prepare(_spec({"type": "market", "ref": "LIQUID_EQ"}), S[40], S[42]))
+    assert p.basis["universe_report"]["lookback_sessions"] == 29
+    # 29 priced days back from S[39], skipping the three holidays, reaches S[8]: a second batch was not needed
+    assert set(fake.eod_calls) >= {d.isoformat() for d in S[8:43]}
+    assert p.basis["universe_report"]["sessions_without_prices"] == []   # holidays in the lookback are not sessions
+    # near the start of the price history the lookback is short, and says so
+    p2 = md.DaasMarketDataProvider(None)
+    asyncio.run(p2.prepare(_spec({"type": "market", "ref": "LIQUID_EQ"}), S[30], S[31]))
+    assert p2.basis["universe_report"]["lookback_sessions"] == 29        # S[1..29]
+    early = md.DaasMarketDataProvider(None)
+    asyncio.run(early.prepare(_spec({"type": "market", "ref": "LIQUID_EQ"}), S[10], S[31]))
+    assert early.basis["universe_report"]["lookback_sessions"] == 10     # only S[0..9] exist before S[10]
+
+
+def test_tc_lu8_an_unreadable_etf_list_is_reported_and_the_name_rule_still_applies(daas):
+    fake = daas(FakeDaas(market(), etf_reply=dc.DaasError("DAAS connectivity error", status_code=None)))
+    p = md.DaasMarketDataProvider(None)
+    asyncio.run(p.prepare(_spec({"type": "market", "ref": "LIQUID_EQ"}), S[40], S[42]))
+    note = p.basis["universe_report"]["etf_list"]
+    assert note["source"] == "unavailable" and "DaasError" in note["error"]
+    assert "GOLDCASE" in fake.feature_symbols and "NIFTYBEES" not in fake.feature_symbols
 
 
 def test_tc_lu8_a_failed_price_read_fails_the_run(daas):
@@ -244,8 +296,13 @@ class _Conn:
         self.by_day, self.screens = by_day, []
 
     async def fetch(self, sql, *args):
-        if "SELECT DISTINCT as_of_date FROM nidp.stock_features_daily WHERE as_of_date <=" in sql:
-            return [{"as_of_date": d} for d in S if d <= args[0]]
+        if "FROM nidp.stock_features_daily WHERE as_of_date BETWEEN" in sql:
+            return [{"as_of_date": d} for d in S[30:] if args[0] <= d <= args[1]]
+        if "SELECT DISTINCT as_of_date FROM nidp.prices_eod" in sql:
+            assert "LIMIT 29" in sql and "series = 'EQ'" in sql
+            return [{"as_of_date": d} for d in sorted((d for d in S if d < args[0] and self.by_day.get(d)), reverse=True)[:29]]
+        if "FROM nidp.security_reference_daily WHERE is_etf" in sql:
+            return [{"symbol": "GOLDCASE"}, {"symbol": "NIFTYBEES"}]
         if "FROM nidp.prices_eod" in sql:
             assert "series = 'EQ'" in sql
             return [{"as_of_date": d, **r} for d in args[0] for r in self.by_day.get(d, []) if r["series"] == "EQ"]
@@ -279,7 +336,8 @@ def test_tc_lu7_sql_provider_uses_the_same_rule_and_binds_members_per_date():
     sql, args = conn.screens[-1]
     n_base = len(to_asyncpg(*compile_stock_query(spec))[1])
     assert f"f.as_of_date = ${n_base + 1}" in sql and f"f.symbol = ANY(${n_base + 2})" in sql and ":universe_members" not in sql
-    assert args[-2] == S[45] and args[-1] == sorted(lu.membership(S, market(), [S[45]])[0][S[45]]) == ["GAPPY", "LIQ"]
+    assert args[-2] == S[45] and args[-1] == sorted(lu.membership(S, market(), [S[45]], ETF_LIST)[0][S[45]]) == ["GAPPY", "LIQ"]
+    assert p.basis["universe_report"]["etf_list"] == {"source": "nidp.security_reference_daily.is_etf", "count": 2}
 
 
 def test_tc_lu9_sql_index_fallback_is_warned():
@@ -337,3 +395,19 @@ def test_tc_lu10_the_catalog_lists_the_liquid_universe_first_as_the_default(monk
     assert [u["ref"] for u in idx] == ["NIFTY50", "NIFTY100", "NIFTY200", "NIFTY500"]
     assert all(u["survivorship"] == "latest_snapshot" and not u.get("default") for u in idx)
     route._CATALOG_CACHE.clear()
+
+
+# ── TC-LU-12 (contract): the browser spec's fixture carries the engine's own universe texts ─
+
+def test_tc_lu12_the_e2e_fixture_matches_the_engine():
+    import json
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[2] / "frontend-v5" / "e2e" / "fixtures" / "strategy-backtest-universe.json"
+    assert path.exists(), f"{path} is the shared browser/engine fixture and must be present"
+    fx = json.loads(path.read_text(encoding="utf-8"))
+    assert fx["index_run"]["metrics"]["universe_basis"] == "latest_snapshot"
+    assert fx["index_run"]["metrics"]["universe_warning"] == md.SURVIVORSHIP_WARNING
+    assert fx["liquid_run"]["metrics"]["universe_basis"] == "point_in_time"
+    assert fx["liquid_run"]["metrics"]["universe_rule"] == lu.rule()
+    first = fx["catalog"]["universes"][0]
+    assert first["universe"] == {"type": "market", "ref": lu.REF} and first["name"] == lu.LABEL and first["default"] is True

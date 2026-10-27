@@ -1,0 +1,143 @@
+{
+ "about": "MOCK — not real data. Backtest replies for the two universe kinds and the catalog's first cards, in the shapes backend/routes/strategy_builder.py returns. The universe fields are the backend's own: universe_warning is services/strategy_engine/market_data.SURVIVORSHIP_WARNING and universe_rule is liquid_universe.rule(); backend/tests/test_liquid_universe.py asserts they still match, so the browser spec and the engine cannot drift apart.",
+ "index_run": {
+  "metrics": {
+   "trade_count": 2,
+   "win_rate": 50.0,
+   "total_return_pct": 4.1,
+   "max_drawdown_pct": -2.3,
+   "price_basis": "corp_action_adjusted",
+   "universe_basis": "latest_snapshot",
+   "universe_warning": "Survivorship bias: this index universe uses the latest constituent snapshot for every date in the window, so stocks that left the index (including any later delisted) are missing and past results look better than they were. Use \"All liquid NSE stocks (point-in-time)\" for a survivorship-free run."
+  },
+  "equity_curve": [
+   {
+    "date": "2026-04-20",
+    "equity": 1000000
+   },
+   {
+    "date": "2026-10-20",
+    "equity": 1041000
+   }
+  ],
+  "trades": [
+   {
+    "symbol": "RELIANCE",
+    "entry_date": "2026-05-04",
+    "entry_price": 1200,
+    "exit_date": "2026-06-02",
+    "exit_price": 1260,
+    "exit_reason": "TARGET",
+    "pnl_pct": 5,
+    "holding_days": 29
+   },
+   {
+    "symbol": "TCS",
+    "entry_date": "2026-07-01",
+    "entry_price": 3400,
+    "exit_date": "2026-07-20",
+    "exit_price": 3298,
+    "exit_reason": "STOPLOSS",
+    "pnl_pct": -3,
+    "holding_days": 19
+   }
+  ]
+ },
+ "liquid_run": {
+  "metrics": {
+   "trade_count": 2,
+   "win_rate": 50.0,
+   "total_return_pct": 4.1,
+   "max_drawdown_pct": -2.3,
+   "price_basis": "corp_action_adjusted",
+   "universe_basis": "point_in_time",
+   "universe_rule": {
+    "version": "liquid-eq-v1",
+    "ref": "LIQUID_EQ",
+    "series": "EQ",
+    "min_close_rs": 20.0,
+    "min_median_traded_value_rs": 100000000.0,
+    "bars": 20,
+    "window_sessions": 30,
+    "traded_value": "raw close x volume",
+    "etf_exclusion": "NSE's ETF list (security_reference_daily.is_etf) and symbols ending in BEES or ETF",
+    "point_in_time": "each date's members are computed from bars on or before that date only",
+    "source": "services/strategy_engine/liquid_universe.py"
+   }
+  },
+  "equity_curve": [
+   {
+    "date": "2026-04-20",
+    "equity": 1000000
+   },
+   {
+    "date": "2026-10-20",
+    "equity": 1041000
+   }
+  ],
+  "trades": [
+   {
+    "symbol": "RELIANCE",
+    "entry_date": "2026-05-04",
+    "entry_price": 1200,
+    "exit_date": "2026-06-02",
+    "exit_price": 1260,
+    "exit_reason": "TARGET",
+    "pnl_pct": 5,
+    "holding_days": 29
+   },
+   {
+    "symbol": "TCS",
+    "entry_date": "2026-07-01",
+    "entry_price": 3400,
+    "exit_date": "2026-07-20",
+    "exit_price": 3298,
+    "exit_reason": "STOPLOSS",
+    "pnl_pct": -3,
+    "holding_days": 19
+   }
+  ]
+ },
+ "catalog": {
+  "as_of_date": "2026-10-20:0",
+  "return_window": "3M",
+  "count": 2,
+  "universes": [
+   {
+    "kind": "broad",
+    "category": "Broad Market",
+    "ref": "LIQUID_EQ",
+    "id": null,
+    "name": "All liquid NSE stocks (point-in-time)",
+    "description": "Every NSE EQ stock priced on the date with a 20-session median traded value of at least ₹10 crore and a close of at least ₹20, from data up to that date (liquid-eq-v1). Includes stocks later delisted: no survivorship bias.",
+    "symbol_count": null,
+    "universe": {
+     "type": "market",
+     "ref": "LIQUID_EQ"
+    },
+    "survivorship": "point_in_time",
+    "default": true,
+    "return_3m_pct": 3.4,
+    "trend": "steady",
+    "trend_label": "Steady"
+   },
+   {
+    "kind": "broad",
+    "category": "Broad Market",
+    "ref": "NIFTY500",
+    "id": null,
+    "name": "Nifty 500",
+    "description": "Full breadth — small / mid / large.",
+    "symbol_count": null,
+    "universe": {
+     "type": "index",
+     "ref": "NIFTY500"
+    },
+    "survivorship": "latest_snapshot",
+    "return_3m_pct": 4.2,
+    "trend": "steady",
+    "trend_label": "Steady"
+   }
+  ]
+ }
+}

@@ -7,7 +7,8 @@ On each session d, a symbol is a MEMBER when all of these hold, read from data u
   2. among the WINDOW_SESSIONS (30) sessions of the calendar ending at d, it has at least BARS (20) EQ bars with a close
      and a volume, and the MEDIAN of close × volume (₹ traded value) over its latest BARS of them is at least
      MIN_MEDIAN_TRADED_VALUE_RS (₹10 crore);
-  3. its symbol does not name an ETF (ends in BEES or ETF).
+  3. it is not an ETF: not on NSE's ETF list (nidp.security_reference_daily.is_etf, from eq_etfseclist.csv; the latest
+     list, passed in by the provider) and its symbol does not end in BEES or ETF.
 
 Why this shape (docs/ai_research/P4_POINT_IN_TIME_UNIVERSE.md):
   * The liquidity floor and the price floor are the Phase 4.3 study's (docs/ai_research/P4_ADX_RS_PREREGISTRATION.md §3:
@@ -16,12 +17,17 @@ Why this shape (docs/ai_research/P4_POINT_IN_TIME_UNIVERSE.md):
   * The median is over the symbol's own last 20 bars (as in the study), bounded to the last 30 sessions so one missing
     price session, or a short suspension, does not empty the universe, and membership on d never depends on where a
     backtest window starts. A symbol with fewer than 20 bars in those 30 sessions (a new listing, a long suspension) is out.
+  * Sessions: inside a backtest window, the engine's own calendar (the feature-store dates); before it, the
+    LOOKBACK_SESSIONS most recent days that have EQ prices. The price history is longer than the feature store's (on
+    staging, prices from 2024-04-01, features from 2025-12-29), so the first window date already has a full lookback.
   * Survivorship: a symbol is a member on every date it traded and passed, including symbols that were later delisted,
     merged or renamed; nothing is read from today's lists. Traded value is close × volume on the RAW bar, which a split or
     bonus does not change (the price falls by the factor the volume rises by), so no adjustment is needed.
-  * ETFs are excluded by name only: the warehouse's per-date ETF flag (nidp.security_reference_daily.is_etf) is not
-    served by the data API per date. An ETF whose symbol does not end in BEES or ETF is not caught (counted on staging in
-    the PR's data test).
+  * ETFs: NSE's latest list is read once per run (on the DaaS backend through the scan snapshot, the only place the data
+    API serves the flag). An ETF is an ETF for life, so a later list does not leak the future; a fund delisted before
+    that list is caught only by the name rule. On staging the name rule alone let
+    10 to 19 ETFs a day through (GOLD1, LIQUIDCASE, MON100, ...), all with feature rows a strategy could have bought. When
+    the list cannot be read the run goes on with the name rule and the report says so (`etf_list`).
 
 Pure: no I/O. The providers (market_data.py) fetch the bars and call `membership`.
 """
@@ -51,7 +57,8 @@ def rule() -> Dict[str, Any]:
     """The rule as recorded on a backtest run (metrics.universe_rule)."""
     return {"version": VERSION, "ref": REF, "series": SERIES, "min_close_rs": MIN_CLOSE_RS,
             "min_median_traded_value_rs": MIN_MEDIAN_TRADED_VALUE_RS, "bars": BARS, "window_sessions": WINDOW_SESSIONS,
-            "traded_value": "raw close x volume", "etf_exclusion": "symbol ends in " + " or ".join(ETF_SUFFIXES),
+            "traded_value": "raw close x volume",
+            "etf_exclusion": "NSE's ETF list (security_reference_daily.is_etf) and symbols ending in " + " or ".join(ETF_SUFFIXES),
             "point_in_time": "each date's members are computed from bars on or before that date only",
             "source": "services/strategy_engine/liquid_universe.py"}
 
@@ -84,13 +91,16 @@ def _bar(row: Mapping[str, Any]) -> Optional[Tuple[str, float, float]]:
 
 
 def membership(sessions: Sequence[date], bars_by_session: Mapping[date, Iterable[Mapping[str, Any]]],
-               wanted: Optional[Iterable[date]] = None) -> Tuple[Dict[date, Set[str]], Dict[str, Any]]:
+               wanted: Optional[Iterable[date]] = None,
+               etf_symbols: Iterable[str] = ()) -> Tuple[Dict[date, Set[str]], Dict[str, Any]]:
     """({session: members} for each wanted session, report).
 
     `sessions` is the trading calendar, ascending, covering at least LOOKBACK_SESSIONS before the first wanted date (fewer
     only at the start of the data). `bars_by_session[d]` holds that session's bhavcopy rows: {symbol, series, close_price
     (or close), volume}; rows of other series are ignored, a duplicate EQ row for a symbol keeps the first. `wanted`
-    defaults to every session. The report lists sessions inside a wanted window that had no rows at all."""
+    defaults to every session; `etf_symbols` is NSE's ETF list. The report lists sessions inside a wanted window that had
+    no rows at all."""
+    etfs = {str(x).upper() for x in etf_symbols}
     sessions = sorted(set(sessions))
     want = set(sessions if wanted is None else wanted)
     hist: Dict[str, Deque[Tuple[int, float]]] = {}
@@ -116,7 +126,7 @@ def membership(sessions: Sequence[date], bars_by_session: Mapping[date, Iterable
         lo = i - WINDOW_SESSIONS + 1
         members: Set[str] = set()
         for sym, close in today.items():
-            if close < MIN_CLOSE_RS or is_etf_name(sym):
+            if close < MIN_CLOSE_RS or sym in etfs or is_etf_name(sym):
                 continue
             dq = hist[sym]
             while dq and dq[0][0] < lo:
@@ -134,9 +144,13 @@ def membership(sessions: Sequence[date], bars_by_session: Mapping[date, Iterable
     return out, report
 
 
-def calendar_with_lookback(all_sessions: Sequence[date], from_date: date, to_date: date) -> Tuple[List[date], List[date]]:
-    """(the sessions to read: LOOKBACK_SESSIONS before from_date plus the window, the window's sessions)."""
-    ordered = sorted(set(all_sessions))
-    window = [d for d in ordered if from_date <= d <= to_date]
-    before = [d for d in ordered if d < from_date][-LOOKBACK_SESSIONS:]
-    return before + window, window
+def weekdays_before(day: date, n: int) -> List[date]:
+    """The `n` weekdays strictly before `day`, most recent first: the candidate lookback sessions. A provider keeps the ones
+    that have EQ prices (a weekday without any is a holiday, or a hole in the data) until it has LOOKBACK_SESSIONS."""
+    out: List[date] = []
+    d = day
+    while len(out) < n:
+        d = date.fromordinal(d.toordinal() - 1)
+        if d.weekday() < 5:
+            out.append(d)
+    return out
