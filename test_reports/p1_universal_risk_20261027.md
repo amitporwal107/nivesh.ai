@@ -1,6 +1,7 @@
 # Functionality Verification Report — Phase 1: Universal Risk Enforcement
 
-- **Branch:** feat/p1-universal-risk (off origin/dev 6a3ec2e3; origin/dev e704c231 merged in)
+- **Branch:** feat/p1-universal-risk (off origin/dev 6a3ec2e3; origin/dev e704c231 and then ce923426 merged in; final
+  merge commit 0b3a7c49)
 - **Date:** 2026-10-27
 - **Author:** Claude (FULL_STACK_DEVELOPER + QA_ENGINEER)
 - **Environment:** unit and integration tests in throwaway containers (nivesh/backend:staging image, `--network none`);
@@ -13,8 +14,15 @@
 
 **One risk decision on every position-creating path.** `services/risk_gate/service.py` (policy `universal-risk-v1`)
 grows the F&O gate into the single decision service, with `risk_governor.evaluate` as one of its checks. It is called
-before anything is written on six paths: desk cash POST, desk strategy POST, journal create, journal ENTRY fill,
-AI-trader signals and AI-trader confirm. No flag bypasses the core checks. `fno_risk_gate` now only adds the gate's fixed
+before anything is written on seven paths:
+- desk cash POST and desk strategy POST;
+- journal create and journal ENTRY fill;
+- AI-trader signals and AI-trader confirm;
+- the F&O Roll (#362). Its new structure is judged against the book without the structure it replaces, and reserved
+  after that one closes.
+
+A refused open carries Phase 2.2's REJECTED lifecycle event on its own `risk_decisions` row (`detail.lifecycle`, with
+the decision id) and on its TradePlan. No flag bypasses the core checks. `fno_risk_gate` now only adds the gate's fixed
 F&O structure checks.
 
 **What a decision does:**
@@ -43,7 +51,9 @@ service was drafted, before the new suites. The IDs below refer to it.
 | ID | Area | Scenario | Type | Expected | Result |
 |----|------|----------|------|----------|--------|
 | U-1 | inventory | every position-writing route calls the service | unit (AST) | no route missing | PASS |
-| U-2 | inventory | the six paths found, nothing unexpected | unit (AST) | exactly P1–P6 | PASS |
+| U-2 | inventory | the seven paths found, nothing unexpected | unit (AST) | exactly P1–P6 + the Roll | PASS |
+| U-6 | Roll (#362) | the Roll's new structure decided on `desk_paper_roll` with `replaces_trade_id`, reserved after the old one closes, one reservation left, invariants clean | api | as specified | PASS |
+| U-7 | lifecycle (#362) | a service refusal records REJECTED in the row's `detail.lifecycle` (Roll kill switch) | api | REJECTED | PASS |
 | U-3 | mandatory | flag off: every path judged, recorded, reserved | api (fakes) | rows `source=risk_service` | PASS |
 | U-4 | flag scope | the flag adds only the F&O structure checks | api | `futures_only` only with the flag | PASS |
 | U-5 | live | order-path guard; `LIVE_EXECUTION_AVAILABLE` False | unit | pass | PASS |
@@ -70,10 +80,11 @@ service was drafted, before the new suites. The IDs below refer to it.
 
 ## API / Endpoint Tests
 
-### pytest: risk, desk, journal, AI-trader and Phase 0 suites on the final code
+### pytest: risk, desk, journal, AI-trader, Phase 0 and dev's lifecycle, plan and Roll suites on the final merge (0b3a7c49)
 
 Includes the real-Mongo suite. A throwaway `mongo:7` on a private network: `docker network create p1-risk-mongo-net`,
-`docker run -d --rm --name p1-risk-mongo --network p1-risk-mongo-net mongo:7` (db version v7.0.43), removed afterwards.
+`docker run -d --rm --name p1-risk-mongo --network p1-risk-mongo-net mongo:7` (db version v7.0.43), removed afterwards
+(`mongo removed: 0` containers left).
 
 ```
 sudo docker run --rm --network p1-risk-mongo-net -v /home/deploy/nivesh-p1-risk:/work:ro -w /work/backend ... -e RISK_MONGO_URL=mongodb://p1-risk-mongo:27017 \
@@ -84,9 +95,12 @@ sudo docker run --rm --network p1-risk-mongo-net -v /home/deploy/nivesh-p1-risk:
   tests/test_ai_trader_execution.py tests/test_risk_gate_ai_trader.py tests/test_ai_trader.py tests/test_ai_trader_config_risk.py \
   tests/test_risk_routes.py tests/test_risk_replay.py tests/test_risk_controls.py tests/test_risk_equity.py tests/test_desk_exit_job.py \
   tests/test_paper_reconcile.py tests/test_honesty_safety_pass.py tests/test_exit_rules.py tests/test_paper_exit_rules.py \
-  tests/test_backtest_exit_rules.py tests/test_prd_worked_examples.py -q -p no:cacheprovider
-1249 passed, 5 warnings in 63.87s (0:01:03)
+  tests/test_backtest_exit_rules.py tests/test_prd_worked_examples.py tests/test_fno_roll.py tests/test_trade_lifecycle.py \
+  tests/test_trade_lifecycle_routes.py tests/test_trade_plan.py tests/test_trade_plan_contract.py tests/test_backfill_trade_lifecycle.py \
+  -q -p no:cacheprovider -rs
+1352 passed, 5 warnings in 66.19s (0:01:06)
 ```
+`-rs` listed no skips, so the 5 real-Mongo tests ran.
 
 ### Real MongoDB (R-1…R-7), verbatim
 
@@ -109,16 +123,22 @@ admitted against a cap of 7. The sweep now uses the real clock (commit 3f61a8ca)
 ### Full `backend/tests`: branch vs plain origin/dev (X-2)
 
 Both trees ran the whole suite in the same image, `--network none`. The many failures common to both are environment
-failures (no network, no Postgres), not regressions. Results, before the final rerun:
+failures (no network, no Postgres), not regressions.
+
+**Final, on merge 0b3a7c49 against origin/dev ce923426:**
 ```
-branch (merge d579dfb6): 580 failed, 6521 passed, 583 skipped, 46 warnings, 166 errors in 480.95s
-origin/dev e704c231:     628 failed, 6171 passed, 578 skipped, 45 warnings, 169 errors in 441.39s
-branch {'fail': 746, 'pass': 6521, 'skip': 583} dev {'fail': 797, 'pass': 6171, 'skip': 578}
+branch: 580 failed, 6631 passed, 584 skipped, 46 warnings, 166 errors in 441.39s (0:07:21)
+dev:    628 failed, 6277 passed, 579 skipped, 43 warnings, 169 errors in 395.45s (0:06:35)
+branch {'fail': 746, 'pass': 6631, 'skip': 584} dev {'fail': 797, 'pass': 6277, 'skip': 579}
 FAILS ON BRANCH, PASSES ON DEV: 0
 fail on branch, absent on dev: []
-pass on branch, fail on dev: 42
 ```
-The final rerun on the last commit is in the next section.
+
+**Earlier runs:**
+- **Merge d579dfb6 against e704c231:** also 0.
+- **The very first run, against 6a3ec2e3:** found 1 regression, `test_honesty_safety_pass` inspecting the moved
+  `_portfolio`, and 5 order-dependent sector cases (a fixture reservation stamped on the fixture clock). Both were fixed
+  in 25c4c54a.
 
 ### Staging API (signed-in)
 
@@ -127,26 +147,27 @@ token. The plan is in the PR body ("Staging verification plan").
 
 ## UI / Playwright Tests
 
-`run-fe.sh` runs tsc, the production build, vite preview and Playwright with mocked APIs and no network.
+`run-fe.sh` runs tsc, the production build, vite preview and Playwright with mocked APIs and no network. This is the
+final run, on merge 0b3a7c49.
 
 ```
-bash .../scratchpad/run-fe.sh /home/deploy/nivesh-p1-risk .../p1/fe_final.log e2e/tests/copilot-app-desk-risk-phase1.spec.ts \
+bash .../scratchpad/run-fe.sh /home/deploy/nivesh-p1-risk .../fe_final2.log e2e/tests/copilot-app-desk-risk-phase1.spec.ts \
   e2e/tests/copilot-app-desk-risk-controls.spec.ts e2e/tests/copilot-app-desk-top10.spec.ts e2e/tests/copilot-app-ai-watchlist.spec.ts \
   e2e/tests/copilot-app-desk-scanner.spec.ts
 == tsc
 tsc: clean
 == build
-✓ built in 31.80s
+✓ built in 26.55s
 == playwright
-  158 passed (2.6m)
+  162 passed (1.8m)
 exit 0
 ```
 
 **Two earlier runs failed, and both causes are fixed or explained:**
 - **Machine load.** One run overlapped two full backend suites on the same machine. Seven tests hit 5-second expectation
   timeouts; six passed when rerun alone.
-- **A real merge interaction.** In my new spec, dev's #361 added `max_hold_sessions` to the Top 10 body. The spec now
-  checks the fields it is about.
+- **A real merge interaction.** In my new spec, #361 added `max_hold_sessions` to the Top 10 body. The spec now checks
+  the fields it is about.
 
 All API responses in these specs are mocked. The screens were not run against the real backend.
 
