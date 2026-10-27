@@ -272,4 +272,5 @@ and its S7 counterpart PASS. If either fails, the label is "no measurable skill"
 | When (IST) | What | Commit |
 |---|---|---|
 | 2026-10-27 18:00:31 | Registered before any verdict, score or return was computed; pushed to origin 18:00:35 | `b341511143eda11b4467c13d5772189b85c4c904` |
-| 2026-10-27 | This log row added (no change to §1–§10) | the commit after `b3415111` |
+| 2026-10-27 | This log row added (no change to §1–§10) | `dc0f86be` |
+| 2026-10-27 18:11:31 | Amendment A1 (H5, S7) registered before any statistic; pushed 18:11:35 | `c5bc89a1bb70b7eea68d9b6efbdb7f8565e74e4b` |
