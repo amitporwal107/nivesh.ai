@@ -62,9 +62,23 @@ async def pooled() -> AsyncIterator[None]:
             _POOL.reset(token)
 
 
+RATE_LIMIT_RETRIES = 3                # a 429 from DaaS is retried after 1, 2 and 4 seconds (staging 28 Oct: the desk's
+RATE_LIMIT_BACKOFF_S = 1.0            # ideas engine and a results-week build together hit the DaaS rate limit)
+
+
 async def daas_get(path: str, params: Optional[Dict[str, Any]] = None, timeout: float = 20.0) -> Tuple[int, Any]:
     """(HTTP status, parsed JSON or None) like daas_client.get_raw; over the build's pooled client when there is one.
-    Connectivity failures raise daas_client.DaasError."""
+    A 429 (rate limited) is retried with back-off before it is returned. Connectivity failures raise DaasError."""
+    st, body = await _daas_get_once(path, params, timeout)
+    for i in range(RATE_LIMIT_RETRIES):
+        if st != 429:
+            break
+        await asyncio.sleep(RATE_LIMIT_BACKOFF_S * (2 ** i))
+        st, body = await _daas_get_once(path, params, timeout)
+    return st, body
+
+
+async def _daas_get_once(path: str, params: Optional[Dict[str, Any]], timeout: float) -> Tuple[int, Any]:
     client = _POOL.get()
     if client is None:
         return await daas_client.get_raw(path, params, timeout=timeout)

@@ -253,8 +253,12 @@ export function readResultsFile(data: unknown): ResultsFileData {
 const noRetry4xx = (count: number, e: unknown) =>
   !(e instanceof ApiError && (e.kind === "contract_drift" || (e.status != null && e.status >= 400 && e.status < 500))) && count < 1;
 
+/** The results file can take a while to build cold (several DaaS reads per stock); wait up to 45 s like the Top 10 (#378). */
+export const RESULTS_FILE_TIMEOUT_MS = 45_000;
+
 export async function fetchResultsFile(symbol: string, date: string, signal?: AbortSignal): Promise<ResultsFileData> {
-  const res = await http({ path: `/api/desk/results-week/stock/${encodeURIComponent(symbol)}`, query: { date }, signal });
+  // A cold build of one stock's file took 9–13 s on staging (28 Oct); the app's default wait is 15 s.
+  const res = await http({ path: `/api/desk/results-week/stock/${encodeURIComponent(symbol)}`, query: { date }, signal, timeoutMs: RESULTS_FILE_TIMEOUT_MS });
   return readResultsFile(res.data);
 }
 

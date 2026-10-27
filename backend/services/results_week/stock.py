@@ -220,6 +220,8 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
         gaps.append(cal_gap)
     first = track._first_reaction(row, sess)
     latest = max((s for s in sess if s <= day), default=None)
+    if latest is not None and await loaders.prices_loaded(latest) is False:
+        latest = max((s for s in sess if s < latest), default=None)     # today's session is not loaded yet (after midnight / before ~19:00)
     anchor, win = track.window(first, ev_d, sess, latest)
     w_start = win[0][1] if win else (latest or day)
 
@@ -283,7 +285,9 @@ async def build_stock(row: Dict[str, Any], day: date, *, db, now: Optional[datet
                 notes.append("This window " + track.EXPIRY_NOTE + ".")
     else:
         notes.append("Not in F&O: the track shows the cash market only.")
-    ft = track.fno_track(row, sess, latest, by_day, expiries) if row.get("fno") else None
+    # F&O lands later than prices (~22:15 IST): the "after" reading uses the latest session with F&O rows
+    fno_latest = max((date.fromisoformat(k) for k, v in by_day.items() if v), default=latest)
+    ft = track.fno_track(row, sess, fno_latest, by_day, expiries) if row.get("fno") else None
 
     # commentary
     com = split_commentary(docs, filed_at, urls)

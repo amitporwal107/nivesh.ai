@@ -246,3 +246,35 @@ def test_the_first_public_results_filing_decides_the_reaction_session():
     from services.results_week import scoring as sc
     assert sc.first_session(t, SESS) == date(2026, 10, 27)                       # before the close: reacts the same day
     assert sc.first_session(build.filed_at_of(ev), SESS) == date(2026, 10, 28)    # figures time alone: the next day
+
+
+# ── a rate-limited DaaS read is retried (staging 28 Oct: 429s during a build) ──────────────────────────────────────
+
+def test_daas_get_retries_a_429_then_answers(monkeypatch):
+    from services.results_week import loaders
+    calls = []
+
+    async def get_raw(path, params=None, timeout=20.0):
+        calls.append(path)
+        return (429, {"error": "rate limit"}) if len(calls) < 3 else (200, {"data": []})
+
+    async def no_sleep(s):
+        return None
+    monkeypatch.setattr(loaders.daas_client, "get_raw", get_raw)
+    monkeypatch.setattr(loaders.asyncio, "sleep", no_sleep)
+    assert asyncio.run(loaders.daas_get("/announcements")) == (200, {"data": []}) and len(calls) == 3
+
+
+def test_daas_get_gives_up_after_the_retries(monkeypatch):
+    from services.results_week import loaders
+    calls = []
+
+    async def get_raw(path, params=None, timeout=20.0):
+        calls.append(path)
+        return 429, None
+
+    async def no_sleep(s):
+        return None
+    monkeypatch.setattr(loaders.daas_client, "get_raw", get_raw)
+    monkeypatch.setattr(loaders.asyncio, "sleep", no_sleep)
+    assert asyncio.run(loaders.daas_get("/x"))[0] == 429 and len(calls) == 1 + loaders.RATE_LIMIT_RETRIES
