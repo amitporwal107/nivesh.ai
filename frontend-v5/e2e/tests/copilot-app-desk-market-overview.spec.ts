@@ -335,6 +335,20 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     await expect(card.getByTestId("dc-caveat")).toContainText("not a prediction");
   });
 
+  test("MO-10b a slow ideas answer (20 s, past the app's 15 s default) still fills the Top AI candidates, never 'took too long'", async ({ page }) => {
+    test.setTimeout(90_000);
+    // Staging, 27 Oct 23:05 IST: POST /api/desk/strategy/ideas took 15.6–16.0 s and the panel said "the request took too long".
+    await setup(page);
+    await page.route("**/api/desk/strategy/ideas", async (r) => {
+      await new Promise((res) => setTimeout(res, 20_000));
+      await r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(CARD.cash.ideas_response) });
+    });
+    await page.goto(DESK);
+    const card = stockRow(page).getByTestId("desk-top10-card");
+    await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id, { timeout: 40_000 });
+    await expect(page.getByText(/took too long/)).toHaveCount(0);
+  });
+
   test("MO-12 a real allow decision reads Risk-approved, solid mint", async ({ page }) => {
     await setup(page, { plans: { [CASH.plan_id]: { status: 200, body: CARD.cash.allowed.trade_plan_response } } });
     await page.goto(DESK);
