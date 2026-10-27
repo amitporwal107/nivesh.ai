@@ -259,3 +259,22 @@ def test_a_legacy_trade_without_state_closes_with_its_derived_history(api, world
     assert [e["derived"] for e in doc["transitions"]] == [True, True, True, False, False]
     assert lc.consistent(doc) == (True, [])
     assert t["id"] == doc["_id"]
+
+
+# ── LC-5 / LC-9: a close worked out from a stale copy re-reads the stored state and duplicates nothing ──
+def test_a_close_from_a_stale_copy_rereads_the_state_and_writes_no_duplicate_events(api, world):
+    from services import desk_trading as svc
+    api.post(TRADES_URL, json={"symbol": "FIXA", "quantity": 10, "entry_price": 103.0, "stop_price": 95.0,
+                               "target_price": 130.0, "entry_rule": "break_above"}, headers=A)
+    stale = copy.deepcopy(world.db.trades.docs[0])                    # TRADE_ELIGIBLE, as a racing reader saw it
+    world.add("FIXA", bar("2026-10-13", 104.0, 99.0, 103.5))
+    trades(api)                                                          # another read records the entry fill first
+    assert world.db.trades.docs[0]["state"] == "POSITION_OPEN"
+    sim = {"entry_status": "reached", "entry_session": date(2026, 10, 13), "sim_entry_price": 103.0, "observations": 1,
+           "held_sessions": 1, "checked_through": date(2026, 10, 13), "max_high": 104.0, "min_low": 99.0, "flags": [], "exit": None}
+    stored, mine = run(svc.close_trade(world.db, stale, exit_reason="manual", exit_price=103.5,
+                                       exit_session=date(2026, 10, 13), sim=sim))
+    assert mine and stored["state"] == "CLOSED"
+    doc = world.db.trades.docs[0]
+    assert [e["to"] for e in doc["transitions"]] == ["TRADE_ELIGIBLE", "ENTRY_TRIGGERED", "POSITION_OPEN", "EXIT_PENDING", "CLOSED"]
+    assert lc.consistent(doc) == (True, [])
