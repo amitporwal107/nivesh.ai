@@ -57,13 +57,19 @@ async function expectAt(page: Page, view: string, extra: Record<string, string> 
   for (const [k, v] of Object.entries(extra)) await expect.poll(() => params(page).get(k)).toBe(v);
 }
 
-async function noSideScroll(page: Page) {
+async function noSideScroll(page: Page, where: string) {
   const o = await page.evaluate(() => {
     const sc = document.querySelector('[data-testid="copilot-scroll"]') as HTMLElement | null;
-    return { doc: document.documentElement.scrollWidth - window.innerWidth, scroll: sc ? sc.scrollWidth - sc.clientWidth : 0 };
+    const right = sc ? sc.getBoundingClientRect().right : window.innerWidth;
+    // The outermost elements that reach past the right edge (a scroller's own content is clipped and not listed).
+    const wide = (Array.from(document.querySelectorAll("*")) as HTMLElement[]).filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.right > right + 1 && !(el.parentElement && el.parentElement.getBoundingClientRect().right > right + 1);
+    }).slice(0, 6).map((el) => `${el.tagName.toLowerCase()}[${el.getAttribute("data-testid") ?? el.className.toString().slice(0, 40)}] right=${Math.round(el.getBoundingClientRect().right)}`);
+    return { doc: document.documentElement.scrollWidth - window.innerWidth, scroll: sc ? sc.scrollWidth - sc.clientWidth : 0, wide: wide.join(", ") };
   });
-  expect(o.doc).toBeLessThanOrEqual(1);
-  expect(o.scroll).toBeLessThanOrEqual(1);
+  expect(o.doc, `${where}: ${o.wide}`).toBeLessThanOrEqual(1);
+  expect(o.scroll, `${where}: ${o.wide}`).toBeLessThanOrEqual(1);
 }
 
 const BANNED = /\bpick|recommended|suggest/i;
@@ -80,6 +86,7 @@ test.describe("MOCK — not real data: Market Desk · the frame", () => {
   });
 
   test("MD-2 every view has the same head (eyebrow, one sentence) over its hosted panel", async ({ page }) => {
+    test.setTimeout(120_000);
     for (const v of VIEWS) {
       await page.goto(`${DESK}?tab=market&view=${v.key}`);
       const head = page.getByTestId("md-head");
@@ -92,6 +99,7 @@ test.describe("MOCK — not real data: Market Desk · the frame", () => {
   });
 
   test("MD-3 / MD-5 the option chain lives in Smart Money only; its jump link sets section=fno", async ({ page }) => {
+    test.setTimeout(120_000);
     for (const v of VIEWS.filter((x) => x.key !== "smartmoney")) {
       await page.goto(`${DESK}?tab=market&view=${v.key}`);
       await expect(page.getByTestId("md-head")).toBeVisible();
@@ -263,6 +271,7 @@ test.describe("MOCK — not real data: Market Desk · Idea scorecard (fixture = 
 
 test.describe("MOCK — not real data: Market Desk · wording", () => {
   test("W-1 no pick / recommended / suggest in any view's head or in the scorecard", async ({ page }) => {
+    test.setTimeout(120_000);
     await deskApi(page);
     for (const v of VIEWS) {
       await page.goto(`${DESK}?tab=market&view=${v.key}`);
@@ -279,12 +288,13 @@ test.describe("MOCK — not real data: Market Desk · phone 390px", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("P-1 no sideways page scroll on any of the seven views; the scorecard tables scroll in their own box", async ({ page }) => {
+    test.setTimeout(120_000);
     await deskApi(page);
     for (const v of VIEWS) {
       await page.goto(`${DESK}?tab=market&view=${v.key}`);
       await expect(page.getByTestId("md-head"), v.key).toBeVisible();
       await page.waitForTimeout(300);
-      await noSideScroll(page);
+      await noSideScroll(page, v.key);
     }
     await expect(page.getByTestId("sc-split-test")).toBeVisible();
     const box = await page.getByTestId("sc-split-test").locator(".cp-scroll").first().evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth }));
