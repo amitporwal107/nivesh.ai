@@ -238,7 +238,7 @@ test.describe("Scanner — Top 10 ideas", () => {
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-plan").click();
     await expect(page.getByTestId("desk-panel-strategy")).toBeVisible(SLOW);
     const p = params(page);
-    expect([p.get("tab"), p.get("view"), p.get("sym"), p.get("mode"), p.get("build")]).toEqual(["trade", "new", "ICICIBANK", "stock", "1"]); // was more/strategy before the 2026-10-27 redesign
+    expect([p.get("tab"), p.get("view"), p.get("sym"), p.get("mode"), p.get("build")]).toEqual(["trade", "lab", "ICICIBANK", "stock", "1"]); // Strategy Lab (was view=new; before that more/strategy)
     expect([p.get("cand"), p.get("src_kind"), p.get("src_date"), p.get("direction")]).toEqual(["options:bull_call_spread", "ideas", "2026-10-19", "bullish"]);
   });
 
@@ -538,7 +538,7 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
     await expect(page.getByTestId("desk-fno-view-buildup")).toHaveAttribute("aria-selected", "true");
     await page.getByTestId("desk-fno-view-candidates").click();
     await page.getByTestId("desk-cand-strategy-open-LB1").click();
-    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym"), params(page).get("src_kind")]).toEqual(["trade", "new", "LB1", "lab"]); // was more/strategy before the 2026-10-27 redesign
+    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym"), params(page).get("src_kind")]).toEqual(["trade", "lab", "LB1", "lab"]); // Strategy Lab (was view=new; before that more/strategy)
     expect(params(page).get("lab")).toBeNull();                       // a tab change drops the lab's own params
   });
 });

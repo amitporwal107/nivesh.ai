@@ -366,7 +366,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
       await page.goto(`${DESK}${from}`);
       await expect.poll(() => params(page).get("tab"), from).toBe("trade");
       await expect.poll(() => params(page).get("view"), from).toBe(view);
-      expect(params(page).get("sub"), from).toBe(sub);
+      await expect.poll(() => params(page).get("sub"), from).toBe(sub);
       for (const [k, v] of Object.entries(extra ?? {})) expect(params(page).get(k), `${from} ${k}`).toBe(v);
     }
     await expect(page.getByTestId("desk-panel-watchlists")).toBeVisible(SLOW);

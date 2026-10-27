@@ -1989,9 +1989,9 @@ test.describe("Smart trading desk — Portfolio & risk · F&O forward test", () 
     await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await json(page, "**/api/fno/forward-test", body, status);
-    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await expect(page.getByTestId("desk-forward-test")).toBeVisible();
+    // Desk redesign step 3 (the owner's workbench): the F&O forward test is a signal's record, on Trade Desk › AI Scanner › Scorecard.
+    await page.goto(`${DESK}?tab=trade&view=scanner&sub=scorecard`);
+    await expect(page.getByTestId("desk-forward-test")).toBeVisible({ timeout: 15_000 });
   }
 
   test("TC-7 recording has started: the hypothesis, the counts, the progress to 30 sessions, and no performance number", async ({ page }) => {
@@ -2022,10 +2022,11 @@ test.describe("Smart trading desk — Portfolio & risk · F&O forward test", () 
     await expect(page.getByTestId("desk-forward-signals")).toHaveCount(0);
   });
 
-  test("TC-8 a failed read shows the panel's notice and leaves the paper trades", async ({ page }) => {
+  test("TC-8 a failed read shows the panel's notice and leaves the rest of the page", async ({ page }) => {
     await open(page, 502, { detail: "upstream_unavailable" });
     await expect(page.getByText("The forward test didn’t load").first()).toBeVisible();
-    await expect(page.getByTestId("desk-paper-trades")).toBeVisible();
+    // Its page is AI Scanner › Scorecard now (step 3); the scorecard's own note stays beside the failed panel.
+    await expect(page.getByTestId("desk-trade-scorecard-pending")).toBeVisible();
   });
 
   test("TC-8 at 390px the panel has no sideways overflow", async ({ page }) => {

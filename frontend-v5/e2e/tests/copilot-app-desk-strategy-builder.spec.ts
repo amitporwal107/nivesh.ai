@@ -192,10 +192,10 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
   test("SB-1 More lists it with its note; the URL carries sym, direction, instrument; intraday is disabled with its reason; defaults are blank until built", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await setup(page);
-    // Desk redesign (2026-10-27): the Strategy Builder is Trade Desk › New trade; there is no More list (and no More note).
+    // Desk redesign (2026-10-27): the Strategy Builder is Trade Desk › Strategy Lab › Build a trade; there is no More list (and no More note).
     await page.goto(DESK);
     await page.getByTestId("desk-tab-trade").click();
-    await page.getByTestId("desk-view-new").click();
+    await page.getByTestId("desk-view-lab").click();
     await expect(page).toHaveURL(/tab=trade/);
     await expect(page).toHaveURL(/view=lab&sub=build/);
     // With no stock in the URL the Builder opens on the AI opportunities board (spec -strategy-ideas); One stock is the other mode.
@@ -204,7 +204,8 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     await expect(page).toHaveURL(/mode=stock/);
     await expect(page.getByTestId("strategy-builder")).toBeVisible();
     await expect(page.getByTestId("builder-empty")).toContainText("No plan yet");
-    await expect(page.getByTestId("desk-view-new")).toHaveAttribute("aria-pressed", "true"); // was More's Strategy Builder chip
+    await expect(page.getByTestId("desk-view-lab")).toHaveAttribute("aria-pressed", "true"); // Strategy Lab (was New trade; before that More's Strategy Builder chip)
+    await expect(page.getByTestId("desk-sub-build")).toHaveAttribute("aria-pressed", "true");
 
     // A deep link preselects the stock, the direction and the instrument.
     await page.goto(`${BUILDER}&sym=RELIANCE&direction=bearish&instrument=futures&horizon=longer_term`);

@@ -69,6 +69,7 @@ const FnoTab = lazy(() => import("./tradingdesk/FnoTab"));
 const PortfolioTab = lazy(() => import("./tradingdesk/PortfolioTab"));
 const TradeDeskTab = lazy(() => import("./tradingdesk/tabs/trade-desk/TradeDeskTab"));
 const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
+const ForwardTestPanel = lazy(() => import("./tradingdesk/FnoForwardTest").then((m) => ({ default: m.ForwardTestPanel })));
 const RiskDeskTab = lazy(() => import("./tradingdesk/tabs/risk-desk/RiskDeskTab"));
 const SectorHeatmap = lazy(() => import("./SectorHeatmap"));
 const Screener = lazy(() => import("./Screener"));
@@ -640,7 +641,12 @@ export default function TradingDeskScreen() {
         content = loc.sub === "library"
           ? <Hosted id="chartink" name="Chartink sources"><ChartinkSettings asSection /></Hosted>
           : loc.sub === "scorecard"
-            ? <p data-testid="desk-trade-scorecard-pending" className="m-0" style={lineStyle}>The scorecard (GET /api/desk/idea-scorecard) is built in the next step of the redesign; the AI ideas are ranked, not predicted.</p>
+            ? (
+              <>
+                <p data-testid="desk-trade-scorecard-pending" className="m-0" style={lineStyle}>The ideas' scorecard (GET /api/desk/idea-scorecard) is built in the next step of the redesign; the AI ideas are ranked, not predicted.</p>
+                <Hosted id="forward-test" name="the F&O forward test"><ForwardTestPanel /></Hosted>
+              </>
+            )
             : <Hosted id="scanner" name="the scanner list"><ScannerTab listOnly /></Hosted>;
         break;
       case "chart":
