@@ -536,10 +536,12 @@ export function ScannerTop10({ referenceSession = null, onScorecard }: { referen
       bodyStyle={{ padding: mobile ? 14 : 18 }}
     >
       <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
-        <Segmented<"stocks" | "fno">
-          label="Top AI ideas: cash or F&O" testId="desk-top10-switch" value={which} onChange={setWhich}
-          options={[{ value: "stocks", label: "Cash" }, { value: "fno", label: "F&O" }]}
-        />
+        <div className="self-start">
+          <Segmented<"stocks" | "fno">
+            label="Top AI ideas: cash or F&O" testId="desk-top10-switch" value={which} onChange={setWhich}
+            options={[{ value: "stocks", label: "Cash" }, { value: "fno", label: "F&O" }]}
+          />
+        </div>
         <IdeasBasis which={which} referenceSession={referenceSession} />
         {which === "stocks" ? <StockBoard /> : <FnoBoard />}
         <p data-testid="desk-top10-footer" className="m-0" style={{ ...quiet, paddingTop: 10, borderTop: "1px solid var(--cp-line)" }}>
