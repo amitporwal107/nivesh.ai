@@ -931,11 +931,11 @@ export function useSubmitPaperTrade() {
   const qc = useQueryClient();
   const submission = useSubmissionKey();
   return useMutation({
-    mutationFn: async (body: NewPaperTrade): Promise<{ trade: PaperTrade | null; risk: WriteDecision | null; replayed: boolean }> => {
+    mutationFn: async (body: NewPaperTrade): Promise<{ tradeId: string | null; trade: PaperTrade | null; risk: WriteDecision | null; replayed: boolean }> => {
       const headers = { [IDEMPOTENCY_HEADER]: submission.keyFor(body) };
       const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, headers, noRetry: true });
       const d = rec(res.data);
-      return { trade: readTrade(d.trade), risk: readWriteDecision(d.risk), replayed: d.replayed === true };
+      return { tradeId: str(rec(d.trade).id), trade: readTrade(d.trade), risk: readWriteDecision(d.risk), replayed: d.replayed === true };
     },
     onSuccess: () => {
       submission.done();

@@ -23,7 +23,8 @@ const TABS = [
   { key: "risk", label: "Risk Desk", num: "04" },
 ];
 const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
-  trade: [{ key: "paper", label: "Paper trades" }, { key: "new", label: "New trade" }],
+  // Step 3 (Trade Desk tab): Open & pending · Closed & journal · New trade (copilot-app-desk-trade-desk.spec.ts covers their content).
+  trade: [{ key: "open", label: "Open & pending" }, { key: "closed", label: "Closed & journal" }, { key: "new", label: "New trade" }],
   market: [
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" }, { key: "watchlists", label: "Watchlists & alerts" },
@@ -32,7 +33,8 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
 };
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
-  "trade/paper": [["desk-panel-paper", "desk-paper-trades"]],
+  "trade/open": [["desk-panel-trade-desk", "td-view-open"]],
+  "trade/closed": [["desk-panel-trade-desk", "td-view-closed"]],
   "trade/new": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
   "market/intel": [["desk-panel-intel", null], ["desk-panel-events", null]],
   "market/smartmoney": [["desk-panel-smartmoney", null], ["desk-panel-fno", "desk-fno"]],
@@ -215,8 +217,8 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     const line = page.getByTestId("desk-open-trades-line");
     await expect(line).toContainText("2 open paper trades");
     await line.getByTestId("desk-open-trades-link").click();
-    await expectAt(page, "trade", "paper");
-    await expect(page.getByTestId("desk-panel-paper")).toBeVisible();
+    await expectAt(page, "trade", "open");
+    await expect(page.getByTestId("desk-panel-trade-desk")).toBeVisible();
   });
 
   test("SH-7 no open paper trades says so", async ({ page }) => {
@@ -316,10 +318,9 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
     await expect(page.getByTestId("desk-portfolio-record")).toHaveCount(0);
     await expect(page.getByTestId("desk-portfolio-paper")).toHaveCount(0);
     await expect(page.getByTestId("desk-paper-trades")).toHaveCount(0);
-    // They are on Trade Desk › Paper trades.
+    // They are on Trade Desk › Open & pending (step 3's tab).
     await page.getByTestId("desk-tab-trade").click();
-    await expect(page.getByTestId("desk-panel-trade").getByTestId("desk-portfolio-record")).toBeVisible();
-    await expect(page.getByTestId("desk-panel-trade").getByTestId("desk-paper-trades")).toBeVisible();
+    await expect(page.getByTestId("desk-panel-trade").getByTestId("td-view-open")).toBeVisible();
   });
 
   test("SH-14 Trade Desk says the trades are paper and links the real portfolio", async ({ page }) => {
@@ -349,7 +350,7 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
   });
 
   test("SH-24 no 'picks', 'recommended' or 'suggested' in the frame's words", async ({ page }) => {
-    for (const loc of ["overview", "trade/paper", "market/intel", "risk/limits", "portfolio"]) {
+    for (const loc of ["overview", "trade/open", "market/intel", "risk/limits", "portfolio"]) {
       await page.goto(urlOf(loc));
       await expect(page.getByTestId("desk-tabs")).toBeVisible();
       for (const id of ["desk-paper-banner", "desk-tabs", "desk-my-portfolio", "desk-trail", "desk-views", "desk-open-trades-line", "desk-paper-real-line"]) {
@@ -418,7 +419,7 @@ test.describe("MOCK — not real data: desk shell · phone 390px", () => {
 
   test("SH-21 / SH-15 no sideways scroll and the banner on every tab and on My portfolio", async ({ page }) => {
     await deskApi(page);
-    for (const loc of ["overview", "trade/paper", "trade/new", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
+    for (const loc of ["overview", "trade/open", "trade/new", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
       await page.goto(urlOf(loc));
       await expect(page.getByTestId("desk-paper-banner"), loc).toHaveText(BANNER);
       await expect(page.getByTestId(`desk-panel-${loc.split("/")[0]}`), loc).toBeVisible();

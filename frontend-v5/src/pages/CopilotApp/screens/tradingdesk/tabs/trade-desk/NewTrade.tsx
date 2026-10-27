@@ -103,7 +103,7 @@ function TicketBody({ tp: rowPlan, source }: { tp: TradePlan; source: NewPaperTr
   if (submit.isError) answer = answerOf(submit.error, symbol);
   else if (submit.isSuccess) {
     const r = submit.data.risk;
-    const id = submit.data.trade?.id ?? null;
+    const id = submit.data.tradeId;
     const qty = submit.variables?.quantity;
     answer = submit.data.replayed
       ? { kind: "duplicate", text: `This submission was already recorded${id ? ` (paper trade ${id})` : ""}: not added twice.`, reasons: [] }
