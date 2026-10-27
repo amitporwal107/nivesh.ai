@@ -551,10 +551,11 @@ test.describe("MOCK — not real data: Trade Desk · Closed & journal", () => {
 // ── New trade ────────────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · New trade", () => {
-  test("TD-24 no idea open: the ticket points to Market Overview › Top AI ideas", async ({ page }) => {
+  test("TD-24 no idea open: no ticket; From an idea points to Market Overview › Top AI ideas", async ({ page }) => {
     await setup(page);
     await page.goto(TD("new"));
-    await expect(page.getByTestId("td-ticket-none")).toBeVisible(SLOW);
+    await expect(page.getByTestId("td-from-idea-note")).toContainText("No idea open.", SLOW);
+    await expect(page.getByTestId("td-ticket")).toHaveCount(0);
     await page.getByTestId("td-ticket-overview").click();
     await expect.poll(() => params(page).get("tab")).toBe("overview");
   });

@@ -307,7 +307,11 @@ export function BuildTradeView({ planId, source, onOverview, onBacktest }: { pla
           <span className="cp-eyebrow">From an idea · Strategy Builder (plans and candidates)</span>
         </button>
         {(open || fromIdea) ? <Part id="strategy" name="the Strategy Builder"><StrategyBuilder /></Part>
-          : <span style={quiet}>An idea from the scanner or Market Overview opens its plan here, with its candidates and “Paper trade this”.</span>}
+          : (
+            <span data-testid="td-from-idea-note" style={quiet}>
+              No idea open. An idea from the scanner or <button type="button" data-testid="td-ticket-overview" style={linkBtn} onClick={onOverview}>Market Overview › Top AI ideas</button> opens its plan here, with its candidates and “Paper trade this”, and its ticket above the wizard.
+            </span>
+          )}
       </section>
     </div>
   );

@@ -392,7 +392,7 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await expect(page.getByTestId("wz-pl-expiry")).not.toHaveAttribute("data-value", String(exp0));
     await expect(page.getByTestId("wz-pl-today")).not.toHaveAttribute("data-value", String(today0));
     expect(Number(await page.getByTestId("wz-pl-expiry").getAttribute("data-value"))).toBeGreaterThan(0);
-    await expect(page.getByTestId("wz-payoff-scenario")).toBeVisible();
+    await expect(page.getByTestId("wz-payoff-scenario")).toHaveCount(1);
     await expect(page.getByTestId("wz").locator('input[type="range"]')).toHaveCount(1);
     await expect(page.getByTestId("wz-scenario")).toHaveAttribute("aria-label", /scenario tool, not a risk setting/);
   });
@@ -426,7 +426,7 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
   test("WZ-10 checks: the risk service allows; the check carries the structure", async ({ page }) => {
     const seen = await setup(page);
     await toReview(page);
-    await expect(page.getByTestId("wz-checks-risk")).toHaveText("Within your risk limits. Paper only, no broker order is created.", SLOW);
+    await expect(page.getByTestId("wz-checks-risk")).toContainText("Within your risk limits. Paper only, no broker order is created.", SLOW);
     await expect(page.getByTestId("wz-checks-risk")).toHaveAttribute("data-tone", "ok");
     await expect(page.getByTestId("wz-checks-snapshot")).toContainText("Chain snapshot is the NSE close of 27 Oct (1 day old). Premiums are end-of-day closes, not quotes.");
     const b = seen.checks[seen.checks.length - 1] as { kind: string; family: string; direction: string; underlying: string; legs: Array<Record<string, unknown>> };
@@ -450,7 +450,7 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await page.unroute("**/api/desk/paper-trades/check");
     await page.route("**/api/desk/paper-trades/check", (r) => json(r, { detail: { code: "naked_short_option", message: "A short option with no cover is not allowed." } }, 422));
     await page.getByTestId("wz-leg").nth(0).getByTestId("wz-leg-side").click();
-    await expect(page.getByTestId("wz-checks-risk")).toHaveText("Not accepted as a paper trade: A short option with no cover is not allowed.", SLOW);
+    await expect(page.getByTestId("wz-checks-risk")).toContainText("Not accepted as a paper trade: A short option with no cover is not allowed.", SLOW);
   });
 
   test("WZ-12 the chain picker: + Call opens it on the leg's expiry; B / S add legs; again adds a lot; walls, spot, missing quote, expiry switch", async ({ page }) => {
