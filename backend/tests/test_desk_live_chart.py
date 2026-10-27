@@ -412,3 +412,27 @@ def test_live_chart_plan_checks_and_signal_db_down(monkeypatch):
     b = c.get("/api/desk/live-chart/HDFCBANK?plan_id=tp_abc").json()
     assert b["markers_error"] == "the signal database is not reachable" and all(m["kind"] == "RVOL" for m in b["markers"])
     assert c.get("/api/desk/live-chart/HDFCBANK?interval=1m").status_code == 400
+
+
+def test_a_list_with_two_months_is_read_again_and_the_answer_says_which_are_missing(monkeypatch):
+    class TwoThenThree(FutKite):
+        def __init__(self):
+            super().__init__()
+            self.reads = 0
+
+        def instruments(self, ex):
+            self.reads += 1
+            rows = super().instruments(ex)
+            return rows if self.reads > 1 else [r for r in rows if r["instrument_token"] != 3]   # the far month not listed yet
+
+    monkeypatch.setattr(it, "NFO_REREAD_SECONDS", -1)
+    k = TwoThenThree()
+    s = _svc(k)
+    first = run(s.futures_bars("HDFCBANK", "15m", 2))
+    assert len(first["contracts"]) == 2
+    ans = ow.intraday_answer("HDFCBANK", {**first, "contracts": [{**c, "bars": [b for b in c["bars"]]} for c in first["contracts"]]},
+                             "15m", 15, 4, 1, datetime(2026, 10, 27, 11, 0, tzinfo=IST))
+    assert ans["missing_slots"] == ["far"] and "consolidated figure sums the 2 listed" in ans["missing_note"]
+    s._cache.clear()
+    again = run(s.futures_bars("HDFCBANK", "15m", 2))
+    assert len(again["contracts"]) == 3 and k.reads == 2

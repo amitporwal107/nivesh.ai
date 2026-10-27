@@ -150,6 +150,7 @@ def intraday_answer(symbol: str, raw: Dict[str, Any], interval: str, minutes: in
         w = trim(mark_complete(series_windows([c["bars"]], minutes, size), minutes, size, now), sessions)
         out_contracts.append({"slot": slot, "expiry": c.get("expiry"), "tradingsymbol": c.get("tradingsymbol"),
                               "lot_size": c.get("lot_size"), "windows": w, "counts": _counts(w)})
+    missing = [slot for slot in SLOTS[len(contracts):]]
     cons_w = trim(mark_complete(series_windows([c["bars"] for c in contracts], minutes, size), minutes, size, now), sessions) if contracts else []
     last_bar = max((c["bars"][-1][0] for c in contracts if c.get("bars")), default=None)
     return {
@@ -158,6 +159,9 @@ def intraday_answer(symbol: str, raw: Dict[str, Any], interval: str, minutes: in
         "contracts": out_contracts,
         "consolidated": {"slot": "consolidated", "expiries": [c.get("expiry") for c in contracts], "windows": cons_w, "counts": _counts(cons_w),
                          "basis": "the near month's price change; OI and volume summed over the expiries listed"},
+        "missing_slots": missing,
+        "missing_note": (f"Kite lists {len(contracts)} futures for {symbol} right now: after an expiry the new far month is listed later "
+                         f"in the morning, so the consolidated figure sums the {len(contracts)} listed.") if missing else None,
         "kite_reason": None, "note": NOTE, "read_only": True,
     }
 
@@ -198,5 +202,6 @@ def eod_answer(symbol: str, as_of: str, futures: Sequence[Dict[str, Any]], kite_
         "contracts": contracts,
         "consolidated": {"slot": "consolidated", "expiries": [f.get("expiry") for f in rows], "windows": cons, "counts": _counts(cons),
                          "basis": "the near month's price change; OI and volume summed over the expiries listed"},
+        "missing_slots": [slot for slot in SLOTS[len(rows):]], "missing_note": None,
         "kite_reason": kite_reason, "note": NOTE, "read_only": True,
     }

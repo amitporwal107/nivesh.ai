@@ -68,6 +68,7 @@ def _oi_bar(c: dict) -> Optional[list]:
 
 
 FUTURES_MAX = 3                            # current, next and far month
+NFO_REREAD_SECONDS = 1800
 
 
 def merge_live(bars: List[list], ltp: Optional[float], now: datetime, minutes: int) -> bool:
@@ -93,6 +94,7 @@ class IntradayService:
         self._last_call = 0.0
         self._inst: Tuple[Optional[date], Dict[str, int]] = (None, {})
         self._nfo: Tuple[Optional[date], Dict[str, List[Dict[str, Any]]]] = (None, {})
+        self._nfo_read_at = 0.0
         self._cache: Dict[Tuple[str, str, int], Tuple[float, dict]] = {}
 
     def _empty(self, symbol: str, interval: str, reason: str, now: datetime) -> Dict[str, Any]:
@@ -175,8 +177,13 @@ class IntradayService:
     async def _futures_for(self, kite, symbol: str, now: datetime) -> List[Dict[str, Any]]:
         """The underlying's futures still listed today, nearest expiry first, at most FUTURES_MAX."""
         day = now.astimezone(cfg.IST).date()
-        if self._nfo[0] != day:
+        listed = [c for c in self._nfo[1].get(gw.canon(symbol), []) if c["expiry"] >= day.isoformat()] if self._nfo[0] == day else []
+        # After an expiry Kite lists the new far month only later in the morning: a list read before that holds two months,
+        # so it is read again (at most every NFO_REREAD_SECONDS) while fewer than three are listed.
+        stale = self._nfo[0] == day and len(listed) < FUTURES_MAX and time.monotonic() - self._nfo_read_at > NFO_REREAD_SECONDS
+        if self._nfo[0] != day or stale:
             rows = await self._paced(kite.instruments, "NFO")
+            self._nfo_read_at = time.monotonic()
             m: Dict[str, List[Dict[str, Any]]] = {}
             for r in rows:
                 if r.get("instrument_type") != "FUT":
