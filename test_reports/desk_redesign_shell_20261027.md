@@ -119,3 +119,20 @@ UNVERIFIED: no staging run. The branch is not deployed until the PR is merged, a
 
 ## Verdict: BLOCKED
 Offline checks are not all green yet (run 3 in progress); the new shell spec passes 35/35; staging is not verified (OVERRIDE_desk_redesign_shell.md).
+
+## Final verification before merge (coordinator, 2026-10-27 18:50–19:05 IST)
+- **Full run 3** was built from `7ef83ad2` under load ~30 on 4 CPUs: `103 failed · 33 skipped · 787 passed (37.3m)`. 32
+  of the failures are strategy-graphs, which fails on dev too (it needs a harness build).
+- **Re-run of the 13 spec files that failed** in run 3 (everything except strategy-graphs), on `0cf7741b` at load ~4:
+  `2 failed · 24 skipped · 432 passed (7.8m)`. The rest were load timeouts.
+- **The 2 left were old-navigation expectations:**
+  - desk-scanner SP-5/6 clicked the removed `desk-tab-scanner`;
+  - desk M1 "See all" expected `data-tab=scanner`.
+
+  Both now follow the list to Market Overview › "All scanner candidates" (`6c304055`); the assertions on filters and rows
+  are unchanged.
+- **Re-run of those two spec files:** `4 skipped · 100 passed (1.5m) · exit 0`.
+- **Result:** no failure on the branch that passes on dev. tsc clean; build OK.
+
+## Verdict: PASS
+<!-- Scope: Playwright (mocked APIs) and build on the branch. Staging follows the merge. -->
