@@ -267,9 +267,11 @@ def test_i12_a_race_on_the_open_position_index_is_a_duplicate_and_returns_the_re
 
 
 def test_i14_a_strategy_close_frees_the_structure():
-    from tests.test_desk_trading import FakeDb
+    from tests.test_desk_trading import NOW, FakeDb
     db = FakeDb()
-    doc = strat.new_strategy_trade("user_a", strategy_body())
+    # A fixed clock, as the sister tests use: strategy_body()'s expiry is 2026-10-27, so the real clock made this test fail
+    # with expiry_in_past from 28 Oct.
+    doc = strat.new_strategy_trade("user_a", strategy_body(), NOW)
     doc["open_key"] = strat.structure_key(doc)
     db.trades.docs.append(doc)
     sim = {"legs": [{"mark": None, "mark_date": None, "mark_basis": None}] * 2, "gross_pnl_rs": None, "mfe_rs": None,
