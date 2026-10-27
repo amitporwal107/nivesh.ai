@@ -14,6 +14,9 @@
                                    sector exposure) and the change log
     PUT  /api/risk/profile         {changes: {limit: value, ...} | profile: name, reason}: tighten any limit; loosening
                                    needs an admin (403 admin_required); every change is recorded (risk_profile_audit)
+    GET  /api/risk/freshness?symbol=  the risk service's input freshness: the symbol's last close and sector (with a
+                                   symbol) and the market state, each with its as-of date, age in sessions, budget and
+                                   ok / stale / unknown, built by the same functions the decision uses; read-only
     GET  /api/risk/decisions/{id}/lineage  the decision's ten-step lineage: what is recorded and what is not
     POST /api/risk/decisions/{id}/replay   re-run the gate on the decision's stored snapshot and compare; writes nothing
                                    (both: the caller's own decision, or any for an admin; otherwise 404)
@@ -47,6 +50,8 @@ from typing import Any, Dict, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
 from deps import _is_role, db, get_current_user, require_role
+from services import data_freshness as fresh
+from services import desk_trading as desk
 from services import execution_modes as modes
 from services import job_runs
 from services import risk_controls as rc
@@ -193,6 +198,59 @@ async def live_readiness(request: Request) -> Dict[str, Any]:
 
     return await readiness.live_readiness(db, _uid(user), gate_enabled=lambda: risk_gate.enabled_for(db, user),
                                           feed_status=lambda: get_feed().read_status())
+
+
+def _freshness_status(rec: Dict[str, Any]) -> str:
+    """ok, or why not in the risk service's own terms: stale (dated, too old) or unknown (no value or no date)."""
+    if rec.get("ok"):
+        return "ok"
+    return "stale" if rec.get("age_sessions") is not None else "unknown"
+
+
+def _judged(rec: Dict[str, Any], **value: Any) -> Dict[str, Any]:
+    return {**rec, "status": _freshness_status(rec), **value}
+
+
+def _now():
+    return job_runs.utcnow()
+
+
+@router.get("/freshness")
+async def freshness(request: Request, symbol: str = Query(None, max_length=40)) -> Dict[str, Any]:
+    """How fresh the risk service's inputs are right now. The reads are inputs.instrument / sector_of / market_state
+    and the judgements are risk_service.last_close_freshness / sector_freshness / market_freshness: the functions
+    gather() and decide() use, with the same budgets. So this answer and a decision made at the same moment cannot
+    disagree. Without a symbol only the market state is judged. Read-only."""
+    await get_current_user(request)
+    sym = None
+    if symbol is not None and symbol.strip():
+        try:
+            sym = desk.clean_symbol(symbol)
+        except desk.DeskInputError as e:
+            raise HTTPException(status_code=422, detail=e.code)
+    now = _now()
+    market = await risk_inputs.market_state()
+    out: Dict[str, Any] = {
+        "market_state": _judged(risk_service.market_freshness(market, now), regime=market.get("regime"),
+                                vix=market.get("vix"), key=market.get("key")),
+    }
+    if sym:
+        inst = await risk_inputs.instrument(sym, fresh.ist_today(now))
+        inst.pop("bars", None)
+        sec = await risk_inputs.sector_of(sym)
+        out["last_close"] = _judged(risk_service.last_close_freshness(inst, now), value=inst.get("last_close"))
+        out["sector"] = _judged(risk_service.sector_freshness(sec), value=sec.get("sector"))
+    else:
+        skipped = {"status": "not_checked", "ok": None, "reason": "give ?symbol= to check a share's inputs"}
+        out["last_close"], out["sector"] = dict(skipped), dict(skipped)
+    judged = [rec for rec in out.values() if rec["status"] != "not_checked"]
+    return {"symbol": sym, "inputs": out, "all_ok": all(rec["ok"] for rec in judged),
+            "reference_session": fresh.reference_session(now).isoformat(), "as_of": now.isoformat(),
+            "budgets": {"last_close": risk_service.LAST_CLOSE_BUDGET, "market_state": risk_service.MARKET_STATE_BUDGET,
+                        "sector": None},
+            "calendar": fresh.CALENDAR_NOTE, "freshness_version": fresh.FRESHNESS_VERSION,
+            "risk_policy_version": risk_service.POLICY_VERSION,
+            "rule": "a new paper entry is blocked when any of its inputs is not ok (risk service check 'inputs')"}
 
 
 _DECISION = Path(..., min_length=1, max_length=64)
