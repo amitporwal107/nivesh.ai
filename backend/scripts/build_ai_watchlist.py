@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """build_ai_watchlist.py — store the day's AI scanner watchlist (Top 10 cash + Top 10 F&O ideas) for cron.
 
-Runs after the AI scanner (scripts/run_positional_engine.py, 19:45 IST): needs that day's scan in positional_signals,
-builds both lists with services/ai_watchlist_build.build_day (as the system caller) and stores them in
-ai_watchlist_days (services/ai_watchlist_store). A stored day is never rewritten.
+Runs after the AI scanner (scripts/run_positional_engine.py, 19:45 IST) and after the NIDP F&O bhavcopy (22:15 IST):
+needs that day's scan in positional_signals, builds both lists with services/ai_watchlist_build.build_day (as the system
+caller) and stores them in ai_watchlist_days (services/ai_watchlist_store). A stored day is never rewritten, so a day
+whose F&O half was built on another day's option chain (or on none) is refused, not stored (chain_refusal): a later
+run builds it once the chain is in (deploy/nivesh-staging/ai-watchlist.cron).
 
 Usage:
     docker exec nivesh-staging-app-backend python -m scripts.build_ai_watchlist                  # today (IST)
@@ -16,6 +18,7 @@ Exit codes:
   1 — the build failed
   2 — no AI scanner run for the date yet (nothing written)
   3 — the day was stored by another run meanwhile (nothing written)
+  4 — the F&O option chain is not the list date's, or the board read none (nothing written; a later run builds the day)
 """
 from __future__ import annotations
 
@@ -62,6 +65,7 @@ def summary(doc: Dict[str, Any]) -> Dict[str, Any]:
         "fno": [f"{e['rank']:02d} {e['underlying']} ({e['kind']}) · {e.get('name')} · fit {e.get('fit', {}).get('score')} · {levels_text(e)}" for e in doc["fno"]],
         "regime": doc["notes"].get("regime"),
         "fno_staleness": doc["notes"].get("fno_staleness"),
+        "fno_chain_dates": doc["notes"].get("fno_chain_dates"),
         "fno_unavailable": len(doc["notes"].get("fno_unavailable") or []),
     }
 
@@ -69,7 +73,7 @@ def summary(doc: Dict[str, Any]) -> Dict[str, Any]:
 async def run(list_date: str, *, skip_if_done: bool, dry_run: bool) -> int:
     from scripts.run_positional_engine import signals_on
     from services import ai_watchlist_store as store
-    from services.ai_watchlist_build import build_day
+    from services.ai_watchlist_build import build_day, chain_refusal
 
     if skip_if_done and not dry_run and await store.has_day(list_date):
         log.info("%s is already stored: nothing to do", list_date)
@@ -83,6 +87,10 @@ async def run(list_date: str, *, skip_if_done: bool, dry_run: bool) -> int:
     except Exception as e:  # noqa: BLE001
         log.error("build failed: %s: %s", type(e).__name__, str(e)[:200])
         return 1
+    why = chain_refusal(doc)
+    if why:
+        log.error("%s refused: %s. Nothing written; a later run builds the day once its F&O chain is in", list_date, why)
+        return 4
     log.info("built %s: %d cash, %d F&O", list_date, len(doc["cash"]), len(doc["fno"]))
     print(json.dumps(summary(doc), indent=1, default=str))
     if dry_run:

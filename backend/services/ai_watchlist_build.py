@@ -14,6 +14,9 @@
 Both builders call the desk's route functions, which check the signed-in user, so the build runs inside
 `deps.system_caller(SYSTEM_USER)` with an internal request object. Nothing is recomputed here: each entry is the route's
 answer for that day, kept as it was. Ideas for review, not recommendations; nothing places an order.
+
+A day is stored only when its F&O half was built on that day's option chain (chain_refusal): the NSE F&O bhavcopy lands
+after the equity scan (22:15 IST on staging), so an earlier run would otherwise keep the previous session's chain.
 """
 from __future__ import annotations
 
@@ -92,6 +95,34 @@ def fno_entries(top: Dict[str, Any], limit: int = TOP) -> List[Dict[str, Any]]:
     return out
 
 
+def chain_days(top: Dict[str, Any]) -> List[str]:
+    """Every option-chain day the F&O board read: each option class's `as_of` and each idea's (and alternative's)
+    `data_as_of.chain`, distinct and sorted."""
+    days = set()
+    for c in ((top.get("classes") or {}).get(k) or {} for k in ("index_options", "stock_fno")):
+        days.add(c.get("as_of"))
+        for i in c.get("ideas") or []:
+            for x in (i, *(i.get("alternatives") or [])):
+                days.add((x.get("data_as_of") or {}).get("chain"))
+    return sorted(d for d in days if isinstance(d, str) and d)
+
+
+def chain_refusal(doc: Dict[str, Any]) -> Optional[str]:
+    """Why the day must not be stored, or None. A day is stored only when its F&O half was built on that day's option
+    chain: every chain day the board read (notes.fno_chain_dates, and each stored F&O entry's) is the list date, and
+    there is at least one. A refused day is built by a later run, once that day's chain is in."""
+    day = doc["list_date"]
+    notes = doc.get("notes") or {}
+    days = set(notes.get("fno_chain_dates") or [])
+    days |= {(e.get("data_as_of") or {}).get("chain") for e in doc.get("fno") or []} - {None}
+    if not days:
+        reasons = sorted({str(u["reason"]) for u in notes.get("fno_unavailable") or [] if isinstance(u, dict) and u.get("reason")})
+        return f"the F&O board read no option chain for {day}" + (f" ({'; '.join(reasons[:3])})" if reasons else "")
+    if days != {day}:
+        return f"the F&O option chain is from {', '.join(sorted(days))}, not the list date {day}"
+    return None
+
+
 # The idea's legs as the payoff request takes them (frontend-v5 strategy/top-actions.ts payoffRequestFor, same keys).
 LEVEL_LEG_KEYS = ("kind", "side", "quantity", "lot_size", "entry_price", "expiry", "strike", "option_type", "price_source", "iv_pct")
 
@@ -167,6 +198,7 @@ def shape_day(list_date: str, ideas: Dict[str, Any], top: Dict[str, Any], now: d
             "fno_rules_version": top.get("rules_version"),
             "fno_staleness": top.get("staleness_note"),
             "fno_chain_as_of": (classes.get("index_options") or {}).get("as_of") or stock.get("as_of"),
+            "fno_chain_dates": chain_days(top),
             "fno_skipped": (stock.get("universe") or {}).get("skipped") or [],
             "fno_unavailable": [*((classes.get("index_options") or {}).get("unavailable") or []), *(stock.get("unavailable") or [])],
             "regime": {k: (top.get("regime") or {}).get(k) for k in ("available", "key", "label", "as_of", "trend", "india_vix",
