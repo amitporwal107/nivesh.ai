@@ -8,11 +8,17 @@
  * fixture's SB1 and LB2 (so the lab's focus can be checked against a real candidates payload shape), the board is marked
  * `distinct`, and one alternative is added to BANKNIFTY. Expected values are worked out from the payloads here, not
  * copied from the screen. Mocked APIs, production build — see pw.copilot-app.config.ts.
+ *
+ * L-1 … L-4 (test_reports/fno_idea_paper_trade_TESTCASES.md F-7, F-8): the provisional levels on the rows and the F&O
+ * paper-trade body, compared with the shared contract `contract-fno-idea-paper-trade.json` that
+ * backend/tests/test_fno_idea_paper_trade_contract.py sends through the real route. The levels reply for the contract
+ * idea is the real engine's answer (`desk-strategy-levels-banknifty.json`); every other idea gets a MOCK not-valid answer.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { isDeepStrictEqual } from "util";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +34,9 @@ const json = (route: Route, body: unknown, status = 200) =>
 // ── F&O board: POST /api/desk/strategy/top, distinct (backend/services/strategy_plan/regime_fit.py) ──
 
 const CAPTURED = load("desk-strategy-top.json");
+const CONTRACT = load("contract-fno-idea-paper-trade.json");
+const LEVELS = load(CONTRACT.levels_reply_fixture);
+const NOT_VALID = { valid: false, version: "strategy-levels-v2", problems: [{ code: "mock", message: "MOCK: not worked out in this test" }], sent_to_broker: false };
 function topBoard() {
   const b = JSON.parse(JSON.stringify(CAPTURED));
   b.limit = 10;
@@ -138,13 +147,13 @@ const PAYOFF = {
   loss_can_exceed_margin: false, caveats: [], sent_to_broker: false,
 };
 
-interface Seen { ideas: unknown[]; top: unknown[]; payoff: number; paper: Array<Record<string, unknown>>; paperKeys: Array<string | undefined> }
+interface Seen { ideas: unknown[]; top: unknown[]; payoff: number; paper: Array<Record<string, unknown>>; paperKeys: Array<string | undefined>; levels: Array<Record<string, any>> }
 
 /** A UUID v4, the shape of the Idempotency-Key the desk sends (lib/observability correlationId). */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 async function desk(page: Page, over: { top?: { status: number; body: unknown }; ideas?: { status: number; body: unknown } } = {}): Promise<Seen> {
-  const seen: Seen = { ideas: [], top: [], payoff: 0, paper: [], paperKeys: [] };
+  const seen: Seen = { ideas: [], top: [], payoff: 0, paper: [], paperKeys: [], levels: [] };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (r) => json(r, []));
@@ -169,6 +178,11 @@ async function desk(page: Page, over: { top?: { status: number; body: unknown };
     return over.top ? json(r, over.top.body, over.top.status) : json(r, TOP);
   });
   await page.route("**/api/desk/strategy/payoff", (r) => { seen.payoff += 1; return json(r, PAYOFF); });
+  await page.route("**/api/desk/strategy/levels", (r) => {
+    const body = r.request().postDataJSON();
+    seen.levels.push(body);
+    return json(r, isDeepStrictEqual(body, CONTRACT.levels_request) ? LEVELS : NOT_VALID);
+  });
   await page.route("**/api/filings/feed*", (r) => json(r, new URL(r.request().url()).searchParams.get("category") ? { ok: true, total: 0, facets: {}, rows: [] } : FEED));
   await page.route("**/api/markets/fii-dii*", (r) => json(r, FLOWS));
   await page.route("**/api/markets/sector-returns", (r) => json(r, SECTORS));
@@ -392,6 +406,71 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(page.getByTestId("desk-top10-fno-regime")).toContainText("measured 19 Oct");
     await expect(page.getByTestId("desk-top10-fno-regime")).toContainText("regime was last classified");
     await expect(page.getByTestId("desk-top10-fno-skipped")).toContainText("PREMEXPLN");
+  });
+});
+
+// ── provisional levels on the rows, and the F&O paper-trade contract ───────
+
+const f2 = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+test.describe("Scanner — Top 10 ideas: provisional levels", () => {
+  test("L-1 the BANKNIFTY F&O row shows the engine's levels, labelled and dated, with the full plan and no new entry control", async ({ page }) => {
+    const seen = await desk(page);
+    await page.goto(SCANNER);
+    const row = page.getByTestId("desk-top10-fno-BANKNIFTY");
+    const lv = row.getByTestId("idea-levels");
+    await expect(lv).toHaveAttribute("data-state", "ok", SLOW);
+    expect(seen.levels.filter((b) => b.payoff?.underlying === "BANKNIFTY")).toEqual([CONTRACT.levels_request]);
+    await expect(lv.getByTestId("idea-levels-label")).toHaveText("Provisional · research levels");
+    await expect(lv.getByTestId("idea-levels-asof")).toHaveText("end-of-day chain of 21 Oct 2026");
+    await expect(lv.getByTestId("idea-levels-stop")).toContainText(`(BANKNIFTY ${f2(LEVELS.underlying.stop)})`);
+    await expect(lv.getByTestId("idea-levels-t1")).toContainText(`(BANKNIFTY ${f2(LEVELS.underlying.target)})`);
+    await expect(lv.getByTestId("idea-levels-maxloss")).toContainText(`₹${Math.abs(LEVELS.max_loss_total).toLocaleString("en-IN")}`);
+    await expect(lv.locator("button")).toHaveCount(1);
+    await lv.getByTestId("idea-levels-plan").click();
+    await expect(lv.getByTestId("desk-levels")).toBeVisible();
+    // the alternative structure behind the row asks for no levels and shows none
+    expect(seen.levels.filter((b) => b.payoff?.underlying === "BANKNIFTY")).toHaveLength(1);
+    await expect(row.getByTestId("desk-top10-fno-alt-BANKNIFTY-long_put").getByTestId("idea-levels")).toHaveCount(0);
+    // an idea the engine did not accept says so instead of showing numbers
+    await expect(page.getByTestId("desk-top10-fno-SB1").getByTestId("idea-levels")).toHaveAttribute("data-state", "invalid");
+  });
+
+  test("L-2 the BANKNIFTY row's paper trade posts exactly the shared contract body", async ({ page }) => {
+    const seen = await desk(page);
+    await page.goto(SCANNER);
+    const row = page.getByTestId("desk-top10-fno-BANKNIFTY");
+    await expect(row.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
+    await row.getByTestId("idea-paper-trade").first().click();
+    await expect(row.getByTestId("idea-paper-trade").first()).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_with_levels]);
+  });
+
+  test("L-3 a stock row shows the scanner's entry, stop and target in the row, labelled with the scan date", async ({ page }) => {
+    await desk(page);
+    await page.goto(SCANNER);
+    const icici = page.getByTestId("desk-top10-stock-ICICIBANK");
+    const lv = icici.getByTestId("desk-top10-stock-levels");
+    await expect(lv).toHaveAttribute("data-state", "ok", SLOW);
+    await expect(icici.getByTestId("desk-top10-stock-paper")).toHaveAttribute("aria-expanded", "false");
+    await expect(lv.getByTestId("desk-top10-stock-levels-label")).toHaveText("Provisional · research levels");
+    await expect(lv.getByTestId("desk-top10-stock-levels-asof")).toHaveText("scan of 19 Oct 2026");
+    await expect(lv.getByTestId("desk-top10-stock-levels-entry")).toHaveText("Entry ₹1,200.00");
+    await expect(lv.getByTestId("desk-top10-stock-levels-stop")).toHaveText("Stop ₹1,160.00");
+    await expect(lv.getByTestId("desk-top10-stock-levels-target")).toHaveText("Target ₹1,280.00");
+    await expect(lv.locator("button, input")).toHaveCount(0);
+  });
+
+  test("L-4 the lab's focus card shows the same levels and posts the same contract body", async ({ page }) => {
+    const seen = await desk(page);
+    await page.goto(SCANNER);
+    await page.getByTestId("desk-top10-fno-BANKNIFTY").getByTestId("desk-top10-fno-lab").click(SLOW);
+    const focus = page.getByTestId("desk-lab-focus");
+    await expect(focus.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
+    await expect(focus.getByTestId("idea-levels-label")).toHaveText("Provisional · research levels");
+    await focus.getByTestId("idea-paper-trade").click();
+    await expect(focus.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_with_levels]);
   });
 });
 

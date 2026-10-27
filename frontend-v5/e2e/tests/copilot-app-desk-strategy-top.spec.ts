@@ -9,15 +9,27 @@
  * the gaps must be ON the page rather than behind a tooltip, the cash section must not claim a fit
  * ranking it does not have, and a theoretical reward:risk must never be presented as the ranking
  * number. Those are the properties that would quietly rot.
+ *
+ * The paper-trade cases are the browser half of a CONTRACT (Phase 0 release gate 7): the body the
+ * "Paper trade" button sends must equal `contract-fno-idea-paper-trade.json`, the same file
+ * backend/tests/test_fno_idea_paper_trade_contract.py sends through the real route and validator.
+ * The POST itself is still answered by a mock here (MOCK — not the real route); what proves the
+ * route accepts the body is that backend test, not this 201. The levels reply
+ * `desk-strategy-levels-banknifty.json` is the real engine's answer for the contract idea (pinned by
+ * the same backend test). Cases F-1 … F-6 of test_reports/fno_idea_paper_trade_TESTCASES.md.
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { isDeepStrictEqual } from "util";
 import { mockApi } from "../helpers/api-mock";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOP = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "desk-strategy-top.json"), "utf-8"));
+const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", name), "utf-8"));
+const TOP = fixture("desk-strategy-top.json");
+const CONTRACT = fixture("contract-fno-idea-paper-trade.json");
+const LEVELS = fixture(CONTRACT.levels_reply_fixture);
 const DESK = "/v5/app/trader/desk";
 const URL = `${DESK}?tab=more&view=strategy&mode=top`;
 
@@ -198,34 +210,6 @@ test.describe("Strategy Builder — Top by regime: payoff and paper trade", () =
     expect(body.legs[0].strike).toBe(idea.legs[0].strike);
   });
 
-  test("paper trade posts a strategy body the desk route accepts", async ({ page }) => {
-    let body: any = null;
-    await mockApi(page, "populated");
-    await page.route("**/api/desk/strategy/top", (r) =>
-      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
-    await page.route("**/api/desk/paper-trades", async (r) => {
-      body = JSON.parse(r.request().postData() || "{}");
-      return r.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ trade: { id: "t1" } }) });
-    });
-    await page.goto(URL);
-    const card = page.getByTestId("top-class-index_options").locator("article").first();
-    await card.getByTestId("idea-paper-trade").click();
-    await expect(card.getByTestId("idea-paper-trade")).toContainText("Added to paper trades");
-
-    const idea = TOP.classes.index_options.ideas[0];
-    expect(body.kind).toBe("strategy");
-    expect(body.underlying).toBe(idea.underlying);
-    expect(body.family).toBe(idea.structure);
-    expect(["bullish", "bearish", "neutral"]).toContain(body.direction);
-    // `quantity` on an idea leg is `lots` on the route, and an unknown leg field is REFUSED there.
-    expect(body.legs[0].lots).toBe(idea.legs[0].quantity);
-    expect(body.legs[0]).not.toHaveProperty("iv_pct");
-    expect(body.legs[0]).not.toHaveProperty("quantity");
-    // No stop or target is invented: the engine produced neither.
-    expect(body).not.toHaveProperty("stop_underlying");
-    expect(body).not.toHaveProperty("target_underlying");
-  });
-
   test("a refused paper trade says so and does not claim success", async ({ page }) => {
     await mockApi(page, "populated");
     await page.route("**/api/desk/strategy/top", (r) =>
@@ -237,6 +221,126 @@ test.describe("Strategy Builder — Top by regime: payoff and paper trade", () =
     await card.getByTestId("idea-paper-trade").click();
     await expect(card.getByTestId("idea-paper-error")).toBeVisible();
     await expect(card.getByTestId("idea-paper-trade")).not.toContainText("Added to paper trades");
+  });
+});
+
+// ── the paper-trade contract (gate 7) and the provisional levels (D4) ─────
+
+/** MOCK — POST /api/desk/strategy/levels: the real engine's answer for the contract idea's exact request, a not-valid
+ *  answer for any other idea (or a 503 with `fail`). */
+const NOT_VALID = { valid: false, version: "strategy-levels-v2", problems: [{ code: "mock", message: "MOCK: not worked out in this test" }], sent_to_broker: false };
+const f2 = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+interface Seen { levels: Array<Record<string, any>>; paper: Array<Record<string, unknown>> }
+
+async function contractBoard(page: Page, o: { board?: unknown; fail?: boolean; delayMs?: number } = {}): Promise<Seen> {
+  const seen: Seen = { levels: [], paper: [] };
+  await mockApi(page, "populated");
+  await page.route("**/api/desk/strategy/top", (r) =>
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(o.board ?? TOP) }));
+  await page.route("**/api/desk/strategy/levels", async (r: Route) => {
+    const body = r.request().postDataJSON();
+    seen.levels.push(body);
+    if (o.delayMs) await new Promise((res) => setTimeout(res, o.delayMs));
+    if (o.fail) return r.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "MOCK levels unavailable" }) });
+    const answer = isDeepStrictEqual(body, CONTRACT.levels_request) ? LEVELS : NOT_VALID;
+    return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(answer) });
+  });
+  await page.route("**/api/desk/paper-trades", (r) => {
+    if (r.request().method() === "POST") seen.paper.push(r.request().postDataJSON());
+    return r.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ trade: { id: "t1" } }) });
+  });
+  await page.goto(URL);
+  return seen;
+}
+
+const bankCard = (page: Page) => page.getByTestId(`top-idea-${CONTRACT.idea.underlying}-${CONTRACT.idea.structure}`);
+
+test.describe("Top by regime — the paper-trade contract and the provisional levels", () => {
+  test("F-1 / F-2 the levels request and the paper-trade body are exactly the shared contract", async ({ page }) => {
+    const seen = await contractBoard(page);
+    const card = bankCard(page);
+    await expect(card.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok");
+    expect(seen.levels.filter((b) => b.payoff?.underlying === CONTRACT.idea.underlying)).toEqual([CONTRACT.levels_request]);
+    await card.getByTestId("idea-paper-trade").click();
+    await expect(card.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_with_levels]);
+    await expect(card.getByTestId("idea-paper-done")).toContainText(`stop ${f2(LEVELS.underlying.stop)} and target ${f2(LEVELS.underlying.target)} on BANKNIFTY`);
+  });
+
+  test("F-3 when the levels do not load, the body is the contract's body without levels", async ({ page }) => {
+    const seen = await contractBoard(page, { fail: true });
+    const card = bankCard(page);
+    await expect(card.getByTestId("idea-levels")).toHaveAttribute("data-state", "failed");
+    await card.getByTestId("idea-paper-trade").click();
+    await expect(card.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_without_levels]);
+    await expect(card.getByTestId("idea-paper-done")).toContainText("no stop or target");
+  });
+
+  test("F-4 the levels block: labelled provisional, dated, the engine's figures, the full plan, and no new entry control", async ({ page }) => {
+    await contractBoard(page);
+    const card = bankCard(page);
+    const lv = card.getByTestId("idea-levels");
+    await expect(lv).toHaveAttribute("data-state", "ok");
+    await expect(lv.getByTestId("idea-levels-label")).toHaveText("Provisional · research levels");
+    await expect(lv.getByTestId("idea-levels-asof")).toHaveText("end-of-day chain of 21 Oct 2026");
+    await expect(lv.getByTestId("idea-levels-entry")).toHaveText(`Entry · net debit ${f2(LEVELS.premium.entry)}`);
+    await expect(lv.getByTestId("idea-levels-stop")).toHaveText(`Stop ${f2(LEVELS.premium.planned_stop)} (BANKNIFTY ${f2(LEVELS.underlying.stop)})`);
+    await expect(lv.getByTestId("idea-levels-t1")).toHaveText(`Target 1 ${f2(LEVELS.premium.target_1)} (BANKNIFTY ${f2(LEVELS.underlying.target)})`);
+    await expect(lv.getByTestId("idea-levels-t2")).toHaveText(`Target 2 ${f2(LEVELS.premium.target_2)} (BANKNIFTY ${f2(LEVELS.underlying.target_2)})`);
+    await expect(lv.getByTestId("idea-levels-maxloss")).toHaveText(`Max loss ₹${Math.abs(LEVELS.max_loss_total).toLocaleString("en-IN")} before costs`);
+    // The only control in the block is the full plan's toggle; the card keeps one Paper trade and no order-like button.
+    await expect(lv.locator("button")).toHaveCount(1);
+    await lv.getByTestId("idea-levels-plan").click();
+    await expect(lv.getByTestId("desk-levels")).toBeVisible();
+    await expect(lv.getByTestId("desk-levels-underlying")).toContainText(f2(LEVELS.underlying.stop));
+    await expect(lv.getByTestId("desk-levels")).not.toContainText("Zerodha");
+    await expect(lv.locator("button")).toHaveCount(1);
+    await expect(card.getByTestId("idea-paper-trade")).toHaveCount(1);
+    const labels = await card.locator("button").allInnerTexts();
+    expect(labels.filter((t) => /\b(buy|sell|order|place|execute|enter)\b/i.test(t))).toEqual([]);
+    const text = await card.innerText();
+    expect(text).not.toMatch(/\bpicks?\b/i);
+    expect(text).not.toMatch(/\b(suggested|recommended)\b/i);
+  });
+
+  test("F-5 the button waits for the levels, so the body carries the levels the row then shows", async ({ page }) => {
+    const seen = await contractBoard(page, { delayMs: 1500 });
+    const card = bankCard(page);
+    await expect(card.getByTestId("idea-levels")).toHaveAttribute("data-state", "pending");
+    await expect(card.getByTestId("idea-paper-trade")).toBeDisabled();
+    await expect(card.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok");
+    await card.getByTestId("idea-paper-trade").click();
+    await expect(card.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_with_levels]);
+  });
+
+  test("F-4b the engine's own warning (expiry week) is shown in the row's block, not only in the full plan", async ({ page }) => {
+    const flagged = { ...LEVELS, flags: [{ code: "expiry_week", message: "1 days to expiry: gamma can change quickly, so the levels can be overtaken fast." }] }; // MOCK flag
+    await mockApi(page, "populated");
+    await page.route("**/api/desk/strategy/top", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(TOP) }));
+    await page.route("**/api/desk/strategy/levels", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(isDeepStrictEqual(r.request().postDataJSON(), CONTRACT.levels_request) ? flagged : NOT_VALID) }));
+    await page.goto(URL);
+    const lv = bankCard(page).getByTestId("idea-levels");
+    await expect(lv).toHaveAttribute("data-state", "ok");
+    await expect(lv.getByTestId("idea-levels-flag")).toHaveText(flagged.flags[0].message);
+  });
+
+  test("F-6 a neutral idea records no stop or target even when the engine answered", async ({ page }) => {
+    const board = JSON.parse(JSON.stringify(TOP));
+    board.classes.index_options.ideas[0].view = "flat";             // MOCK: the same legs read as a neutral view
+    const seen = await contractBoard(page, { board });
+    const card = bankCard(page);
+    await expect(card.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok");
+    await card.getByTestId("idea-paper-trade").click();
+    await expect(card.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    const body = seen.paper[0] as Record<string, any>;
+    expect(body.direction).toBe("neutral");
+    expect(body).not.toHaveProperty("stop_underlying");
+    expect(body).not.toHaveProperty("target_underlying");
+    expect(body.signal).toEqual(CONTRACT.body_without_levels.signal);
   });
 });
 

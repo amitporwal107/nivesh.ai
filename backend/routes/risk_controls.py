@@ -16,6 +16,9 @@
     PUT  /api/admin/risk/{user_id}/kill-switch         admin only: {enabled: bool, reason: str}
     PUT  /api/admin/risk/{user_id}/halt                admin only: {enabled: bool, reason: str}
     PUT  /api/admin/risk/{user_id}/live-authorization  admin only: {granted: bool, reason: str}
+    GET  /api/admin/risk/jobs/{job}                    admin only: the scheduled job's last run, last success and
+                                                       health (ok | partial | failed | running | missed | no_data |
+                                                       skipped | never_run); services/job_runs. Reads only.
 
 Authority. Anyone may turn a control ON for their own account; clearing one is a reset and needs an admin (403
 {"code": "admin_required"}), because a switch the person under pressure can flip back off is not much of a switch.
@@ -37,6 +40,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 
 from deps import _is_role, db, get_current_user, require_role
 from services import execution_modes as modes
+from services import job_runs
 from services import risk_controls as rc
 from services import risk_gate
 from services.risk_gate import policy as risk_policy
@@ -259,3 +263,12 @@ async def admin_live_authorization(request: Request, user_id: str = _TARGET,
         raise _invalid(e)
     return {"live_authorization": auth, "live_execution_available": modes.LIVE_EXECUTION_AVAILABLE,
             "policy_version": rc.POLICY_VERSION}
+
+
+@admin_router.get("/jobs/{job}")
+async def admin_job_health(job: str = Path(..., min_length=1, max_length=64)) -> Dict[str, Any]:
+    """The scheduled job's newest run, newest successful run and health. "missed" means no run was recorded since the
+    job's latest scheduled slot plus its grace period (services/job_runs.SCHEDULES), so a weekend is not a miss."""
+    if job not in job_runs.SCHEDULES:
+        raise HTTPException(status_code=404, detail="unknown_job")
+    return await job_runs.read_health(db, job, job_runs.utcnow())

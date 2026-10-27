@@ -14,7 +14,7 @@ from datetime import date
 import pytest
 
 from scripts import run_positional_engine as runner
-from services.positional_engine import bhavcopy_ingester, pipeline, scan_config
+from services.positional_engine import bhavcopy_ingester, pipeline, scan_config, session_calendar
 
 DAY = date(2026, 10, 26)
 
@@ -25,7 +25,10 @@ def calls(monkeypatch):
 
     async def ingest(d):
         seen["ingest"] += 1
-        return seen.get("ingested", 0)
+        return {"date": d.isoformat(), "status": "written", "rows_written": 2925}
+
+    async def a_session(d):
+        return True, "weekday, not an NSE CM holiday"
 
     async def run_for_date(d):
         seen["pipeline"] += 1
@@ -35,7 +38,16 @@ def calls(monkeypatch):
         seen["scans"] += 1
         return []                       # no scans configured: the Chartink step never reaches the network
 
-    monkeypatch.setattr(bhavcopy_ingester, "ingest_for_date", ingest)
+    monkeypatch.setattr(bhavcopy_ingester, "ingest", ingest)
+    monkeypatch.setattr(session_calendar, "check_session", a_session)   # the calendar guard: tests/test_scanner_bar_integrity.py
+
+    async def ready(d, lead=(12, 1)):
+        return {"ready": True, "missing_year": None, "checked_years": [d.year], "reason": None}
+
+    async def quality(d):
+        return {"ok": True, "clean": True, "problems": [], "report": {}}
+    monkeypatch.setattr(session_calendar, "readiness", ready)
+    monkeypatch.setattr(runner, "quality", quality)
     monkeypatch.setattr(pipeline, "run_for_date", run_for_date)
     monkeypatch.setattr(scan_config, "load", load)
     return seen
@@ -96,6 +108,11 @@ def test_exit_code(monkeypatch, skipped, code):
     async def fake_run(d, **kw):
         return {"date": str(d), "steps": {}, "ok": skipped != "no_bars", **({"skipped": skipped} if skipped else {})}
 
+    async def no_record(*a, **kw):
+        return None
+    from services.positional_engine import scan_meta
+    monkeypatch.setattr(scan_meta, "start", no_record)
+    monkeypatch.setattr(scan_meta, "finish", no_record)
     monkeypatch.setattr(runner, "run", fake_run)
     monkeypatch.setattr("sys.argv", ["run_positional_engine", "--date", "2026-10-26", "--require-bars", "--skip-if-done"])
     assert runner.main() == code

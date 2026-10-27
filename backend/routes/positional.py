@@ -57,6 +57,7 @@ from services.positional_engine import (
     reversal_rules,
     reversal_service,
     scan_config,
+    scan_meta,
     setup_rules,
 )
 
@@ -158,7 +159,8 @@ async def _fetch_picks(signal_date: date,
         "       ps.entry_price, ps.stoploss, ps.target_price, ps.risk_reward, "
         "       ps.source_scans, ps.reasons, ps.engine_version, "
         "       stf.components->'pre_breakout' AS pre_breakout, "
-        "       stf.components->'raw' AS features_raw "
+        "       stf.components->'raw' AS features_raw, "
+        "       stf.components->'price_adjustment'->>'price_basis' AS price_basis "
         "FROM positional_signals ps "
         "LEFT JOIN stock_technical_features stf "
         "       ON stf.nse_symbol = ps.nse_symbol AND stf.as_of_date = ps.signal_date "
@@ -179,6 +181,8 @@ async def _fetch_picks(signal_date: date,
     out = []
     for r in rows:
         d = dict(r)
+        # warehouse_adjusted | raw_no_factors (scored on raw prices: no factors) | None (engine v1.0: raw prices)
+        d["price_basis"] = d.get("price_basis") or "raw"
         # asyncpg returns JSONB as string in some envs — coerce both blobs
         for key in ("pre_breakout", "features_raw"):
             v = d.get(key)
@@ -189,6 +193,21 @@ async def _fetch_picks(signal_date: date,
                     d[key] = None
         out.append(d)
     return out
+
+
+async def _scan_basis(d: Optional[date]) -> Optional[Dict[str, Any]]:
+    """The engine version, price basis, exceptions and data-quality status of the scan served for `d`
+    (scan_meta.basis_for_date). Unreadable → said so in the payload and the log, never shown as clean."""
+    if d is None:
+        return None
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"date": d.isoformat(), "unavailable": "no database pool"}
+    try:
+        return await scan_meta.basis_for_date(pool, db, d)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("positional: scan basis for %s unreadable: %s", d, e)
+        return {"date": d.isoformat(), "unavailable": f"scan basis unreadable ({type(e).__name__})"}
 
 
 # ── Public endpoints ─────────────────────────────────────────────────────
@@ -214,6 +233,9 @@ async def get_picks(request: Request,
         # PRD §5.8: the rules and engine versions behind these rows.
         "rules_version": setup_rules.RULES_VERSION,
         "engine_versions": sorted({p["engine_version"] for p in picks if p.get("engine_version")}),
+        # Owner decision 2026-10-27: results are published with their engine version, price basis, exceptions and
+        # data-quality status (services/positional_engine/scan_meta.py).
+        "scan_basis": await _scan_basis(sig_date),
     }
 
 
@@ -274,6 +296,7 @@ async def get_watchlist(request: Request, limit: int = 30):
                        stf.rsi_14, stf.atr_14,
                        stf.breakout_level, stf.support_level, stf.resistance_level,
                        stf.engine_version,
+                       stf.components->'price_adjustment'->>'price_basis' AS price_basis,
                        sm.sector
                 FROM stock_technical_features stf
                 LEFT JOIN stock_master sm ON sm.nse_symbol = stf.nse_symbol
@@ -394,6 +417,7 @@ async def get_watchlist(request: Request, limit: int = 30):
             "resistance_level": float(r["resistance_level"]) if r["resistance_level"] is not None else None,
             "support_level": float(r["support_level"]) if r["support_level"] is not None else None,
             "engine_version": r.get("engine_version"),
+            "price_basis": r.get("price_basis") or "raw",
             **_bar_fields(raw_bars_by_sym.get(sym, [])),
         }
 
@@ -459,6 +483,7 @@ async def get_watchlist(request: Request, limit: int = 30):
         # PRD §5.6 / §5.8: the thresholds these buckets used, with their version, and the engine that wrote the rows.
         "rules": rules,
         "engine_versions": sorted({r.get("engine_version") for r in cand_rows if r.get("engine_version")}),
+        "scan_basis": await _scan_basis(d),
     }
 
 

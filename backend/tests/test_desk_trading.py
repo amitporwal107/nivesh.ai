@@ -168,7 +168,9 @@ class FakeDb:
         self.cols = {svc.TRADES: FakeCollection(), svc.ALERTS: FakeCollection(),
                      _rc.CONTROLS: FakeCollection(), _rc.AUDIT: FakeCollection(),
                      _rc.DECISIONS: FakeCollection(),
-                     _acct.ACCOUNTS: FakeCollection(), _acct.LEDGER: FakeCollection()}
+                     _acct.ACCOUNTS: FakeCollection(), _acct.LEDGER: FakeCollection(),
+                     # the evening script's lease and heartbeat (services/job_runs)
+                     "job_runs": FakeCollection(), "job_locks": FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"
