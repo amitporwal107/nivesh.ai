@@ -6,7 +6,7 @@
  *
  *   01 Market Overview   tab=overview     one page (no views)
  *   02 Trade Desk        tab=trade        paper (Paper trades) · new (New trade)
- *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener · watchlists
+ *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener · watchlists · scorecard
  *   04 Risk Desk         tab=risk         limits · controls · log
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
  *   AI Copilot           tab=copilot      the Copilot full height, where it is not docked (under 1400px)
@@ -51,6 +51,7 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "research", label: "Stock Research" },
     { key: "screener", label: "Screener" },
     { key: "watchlists", label: "Watchlists & alerts" },
+    { key: "scorecard", label: "Idea scorecard" },
   ],
   risk: [
     { key: "limits", label: "Limits & budgets" },

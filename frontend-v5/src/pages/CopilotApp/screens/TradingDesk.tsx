@@ -9,9 +9,10 @@
  *   02 Trade Desk        paper   Paper trades: "predicted vs actual" and your paper-trade and alert lists (PortfolioTab's
  *                                PaperCard and PaperLists; PaperDesk cannot split open and closed trades yet)
  *                        new     New trade: the Strategy Builder, with the F&O lab's paper strategies and leg builder
- *   03 Market Desk       intel · smartmoney · sectors · research · screener · watchlists (IntelTab + EventsTab;
- *                        SmartMoneyTab + the F&O lab's build-up, candidates, indices and chain; SectorHeatmap;
- *                        ChartTab; Screener + Chartink sources; the Watchlist page)
+ *   03 Market Desk       intel · smartmoney · sectors · research · screener · watchlists · scorecard
+ *                        (tradingdesk/tabs/market-desk, step 5: one frame over IntelTab + EventsTab; SmartMoneyTab +
+ *                        the F&O lab's build-up, candidates, indices and chain; SectorHeatmap; ChartTab; Screener +
+ *                        Chartink sources; the Watchlist page; the Idea scorecard)
  *   04 Risk Desk         limits · controls · log (RiskControls split by section; the F&O lab's Live-readiness in
  *                        controls and its Audit in log)
  *   My portfolio         ?tab=portfolio: PortfolioTab without the paper cards (they are Trade Desk's), inside the frame
@@ -60,10 +61,7 @@ const OverviewTab = lazy(() => import("./tradingdesk/OverviewTab"));
 const ScannerTab = lazy(() => import("./tradingdesk/ScannerTab"));
 const ScannerPulse = lazy(() => import("./tradingdesk/ScannerPulse").then((m) => ({ default: m.ScannerPulse })));
 const ScannerTop10 = lazy(() => import("./tradingdesk/ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
-const IntelTab = lazy(() => import("./tradingdesk/IntelTab"));
-const EventsTab = lazy(() => import("./tradingdesk/EventsTab"));
-const ChartTab = lazy(() => import("./tradingdesk/ChartTab"));
-const SmartMoneyTab = lazy(() => import("./tradingdesk/SmartMoneyTab"));
+const MarketDesk = lazy(() => import("./tradingdesk/tabs/market-desk/MarketDesk"));
 const FnoTab = lazy(() => import("./tradingdesk/FnoTab"));
 const PortfolioTab = lazy(() => import("./tradingdesk/PortfolioTab"));
 const PaperCards = lazy(() => import("./tradingdesk/PortfolioTab").then((m) => ({
@@ -77,19 +75,14 @@ const PaperCards = lazy(() => import("./tradingdesk/PortfolioTab").then((m) => (
   },
 })));
 const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
-const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
 const RiskControls = lazy(() => import("./tradingdesk/RiskControls"));
 const LiveDesk = lazy(() => import("./fnolab/LiveDesk").then((m) => ({ default: m.LiveDesk })));
 const LabAudit = lazy(() => import("./fnolab/Audit").then((m) => ({ default: m.Audit })));
-const SectorHeatmap = lazy(() => import("./SectorHeatmap"));
-const Screener = lazy(() => import("./Screener"));
-const Watchlist = lazy(() => import("./Watchlist"));
 
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
 const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
 
-/** The F&O lab's views on Market Desk › Smart Money, and on Trade Desk › New trade. */
-const SMART_MONEY_LAB: readonly LabView[] = ["buildup", "candidates", "indices", "chain"];
+/** The F&O lab's views on Trade Desk › New trade (Market Desk › Smart Money's are in tabs/market-desk). */
 const NEW_TRADE_LAB: readonly LabView[] = ["strategies"];
 
 /** Symbols the URL may carry: the F&O routes' own rule (letters, digits, & and -). */
@@ -630,40 +623,12 @@ export default function TradingDeskScreen() {
       </>
     );
   } else if (loc.tab === "market") {
-    switch (loc.view) {
-      case "smartmoney":
-        content = (
-          <>
-            <Hosted id="smartmoney" name="Smart Money"><SmartMoneyTab /></Hosted>
-            <Section id="fno" title="F&O · build-up, candidates, indices and option chain"><FnoTab views={SMART_MONEY_LAB} asSection /></Section>
-          </>
-        );
-        break;
-      case "sectors":
-        content = <Hosted id="sectors" name="Sector Rotation"><SectorHeatmap /></Hosted>;
-        break;
-      case "research":
-        content = <Hosted id="chart" name="Stock Research"><ChartTab /></Hosted>;
-        break;
-      case "screener":
-        content = (
-          <>
-            <Hosted id="screener" name="the Screener"><Screener /></Hosted>
-            <Section id="chartink" title="Chartink sources"><ChartinkSettings asSection /></Section>
-          </>
-        );
-        break;
-      case "watchlists":
-        content = <Hosted id="watchlists" name="Watchlists & alerts"><Watchlist /></Hosted>;
-        break;
-      default:
-        content = (
-          <>
-            <Hosted id="intel" name="Market Intelligence"><IntelTab /></Hosted>
-            <Section id="events" title="Events calendar"><EventsTab /></Section>
-          </>
-        );
-    }
+    // Market Desk: its own frame (view head, symbol strip) over the hosted screens, plus the Idea scorecard.
+    content = (
+      <SafeWidget key="market" name="Trading desk · Market Desk">
+        <Suspense fallback={<LoadingBlock label="Loading Market Desk" rows={4} />}><MarketDesk view={loc.view} /></Suspense>
+      </SafeWidget>
+    );
   } else if (loc.tab === "risk") {
     content = loc.view === "controls" ? (
       <>

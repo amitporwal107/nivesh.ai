@@ -27,6 +27,7 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
   market: [
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" }, { key: "watchlists", label: "Watchlists & alerts" },
+    { key: "scorecard", label: "Idea scorecard" }, // step 5 (copilot-app-desk-market-desk.spec.ts)
   ],
   risk: [{ key: "limits", label: "Limits & budgets" }, { key: "controls", label: "Controls & profile" }, { key: "log", label: "Decision log" }],
 };
@@ -40,6 +41,7 @@ const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "market/research": [["desk-panel-chart", null]],
   "market/screener": [["desk-panel-screener", "screen-tool-screener"], ["desk-panel-chartink", "chartink-settings"]],
   "market/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
+  "market/scorecard": [["desk-panel-scorecard", null]],
   "risk/limits": [["risk-controls", "risk-policy"]],
   "risk/controls": [["risk-controls", "risk-status"], ["risk-controls", "risk-profile"], ["desk-panel-live", null]],
   "risk/log": [["risk-controls", "risk-decisions"], ["risk-controls", "risk-audit"], ["desk-panel-audit", null]],
