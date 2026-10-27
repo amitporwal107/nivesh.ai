@@ -73,6 +73,7 @@ from services import desk_trading as desk
 from services import desk_strategy_trades as desk_strategy
 from services import risk_controls as rc
 from services import risk_gate
+from services import trade_lifecycle as lifecycle
 from services import paper_account as pacct
 from services import risk_equity as req
 from services import pg_client
@@ -698,9 +699,10 @@ async def strategy_signals(strategy_id: str, body: SignalsBody, request: Request
                 made.append(ticket)
                 continue
             change = execution.mark_executed(ticket, trade)
-            await db[execution.TICKETS].update_one({"_id": ticket["_id"], "user_id": uid, "status": "confirmed"},
-                                                   {"$set": change})
-            ticket.update(change)
+            upd, after = _ticket_change(ticket, lifecycle.OPEN, change, reason=f"Paper trade {trade['_id']} recorded.",
+                                        actor="ai_trader", fill_price=trade.get("entry_price"))
+            await db[execution.TICKETS].update_one({"_id": ticket["_id"], "user_id": uid, "status": "confirmed"}, upd)
+            ticket.update(after)
             # The book the next intent is judged against includes the position just opened, with the sector the
             # ticket already carries, so the governor's sector limit sees it.
             portfolio = Portfolio(capital=portfolio.capital,
@@ -723,6 +725,18 @@ async def strategy_signals(strategy_id: str, body: SignalsBody, request: Request
         "tickets": [_public_ticket(t) for t in made + stored],
         "orders": ORDERS_NOTE,
     }
+
+
+def _ticket_change(ticket: Dict[str, Any], to: str, change: Dict[str, Any], *, reason: str, actor: Optional[str] = None,
+                   **fields: Any) -> tuple:
+    """(the Mongo update, the ticket as it will stand) for a status change that is also a lifecycle transition
+    (Phase 2.2): the event goes in the SAME update as the status; the caller's filter on the prior status pins it."""
+    at = change.get("updated_at") or desk.utcnow().isoformat()
+    events = lifecycle.ticket_step(ticket, to, at=at, reason=reason, actor=actor, **fields)
+    after = {**ticket, **change}
+    if events:
+        after.update(state=events[-1]["to"], transitions=list(ticket.get("transitions") or []) + events)
+    return lifecycle.update_for(events, change), after
 
 
 async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict[str, Any],
@@ -748,6 +762,8 @@ async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict
                                                          symbol=trade.get("symbol"))
     except pacct.InsufficientFunds as short:
         raise desk.DeskInputError("insufficient_paper_funds") from short
+    trade["ticket_id"] = ticket["_id"]                  # candidate (ticket) → position, linked by a stable id
+    desk.open_lifecycle(trade)
     await db[desk.TRADES].insert_one(trade)
     return trade
 
@@ -759,9 +775,10 @@ async def _reject_by_desk(uid: str, ticket: Dict[str, Any], code: str) -> Dict[s
     stamp = desk.utcnow().isoformat()
     change = {"status": "rejected", "governor_cleared": False, "rejected_by": "desk", "reject_reason": code,
               "rejected_at": stamp, "updated_at": stamp}
-    await db[execution.TICKETS].update_one({"_id": ticket["_id"], "user_id": uid, "status": "confirmed"},
-                                           {"$set": change})
-    return change
+    upd, after = _ticket_change(ticket, lifecycle.REJECTED, change, reason=f"The desk refused the paper trade ({code}).",
+                                actor="desk", rejection_reasons=[code])
+    await db[execution.TICKETS].update_one({"_id": ticket["_id"], "user_id": uid, "status": "confirmed"}, upd)
+    return {k: after[k] for k in after if k in change or k in ("state", "transitions")}
 
 
 @router.get("/tickets")
@@ -789,9 +806,11 @@ async def _expire_if_due(ticket: Dict[str, Any]) -> Dict[str, Any]:
     if ticket.get("status") != "awaiting_confirmation" or not execution.is_expired(ticket):
         return ticket
     change = {"status": "expired", "updated_at": desk.utcnow().isoformat()}
+    upd, after = _ticket_change(ticket, lifecycle.REJECTED, change, reason="Expired: not confirmed in its session.",
+                                actor="ai_trader", rejection_reasons=["expired"])
     await db[execution.TICKETS].update_one(
-        {"_id": ticket["_id"], "user_id": ticket["user_id"], "status": "awaiting_confirmation"}, {"$set": change})
-    return {**ticket, **change}
+        {"_id": ticket["_id"], "user_id": ticket["user_id"], "status": "awaiting_confirmation"}, upd)
+    return after
 
 
 @router.post("/tickets/{ticket_id}/confirm")
@@ -856,28 +875,32 @@ async def confirm_ticket(ticket_id: str, request: Request, user: dict = Depends(
     claim = {"status": "confirmed", "quantity": decision.approved_qty, "decision": decision.to_dict(),
              "reason_codes": [r.code for r in decision.reasons], "last_decision": decision.to_dict(),
              "last_decision_at": stamp, "updated_at": stamp, **(risk or {})}
+    claim_upd, confirmed = _ticket_change(ticket, lifecycle.TRIGGERED, claim, reason="Confirmed by you; the governor re-ran.",
+                                          actor=uid, risk_decision_id=(risk or {}).get("risk_decision_id"))
     res = await db[execution.TICKETS].update_one(
-        {"_id": ticket_id, "user_id": uid, "status": "awaiting_confirmation"}, {"$set": claim})
+        {"_id": ticket_id, "user_id": uid, "status": "awaiting_confirmation"}, claim_upd)
     if not res.matched_count:
         raise HTTPException(status_code=409, detail="ticket_not_awaiting_confirmation")
-    confirmed = {**ticket, **claim}
     try:
         trade = await _open_paper_trade(uid, confirmed, doc, risk)
     except Exception as exc:  # noqa: BLE001 — the claim is released whatever went wrong, then the error stands
         # "confirmed" is a transient status no route can answer, so a failed write must not leave the ticket in it:
         # put it back to awaiting_confirmation with the size the governor approved on the signal date, where it can
         # be confirmed again or expire with its session.
-        await db[execution.TICKETS].update_one(
-            {"_id": ticket_id, "user_id": uid, "status": "confirmed"},
-            {"$set": {"status": "awaiting_confirmation", "quantity": approved_at_signal,
-                      "updated_at": desk.utcnow().isoformat()}})
+        release_upd, _ = _ticket_change(confirmed, lifecycle.ELIGIBLE,
+                                        {"status": "awaiting_confirmation", "quantity": approved_at_signal,
+                                         "updated_at": desk.utcnow().isoformat()},
+                                        reason=f"The paper trade could not be recorded ({type(exc).__name__}); the claim is released.",
+                                        actor="ai_trader")
+        await db[execution.TICKETS].update_one({"_id": ticket_id, "user_id": uid, "status": "confirmed"}, release_upd)
         if isinstance(exc, desk.DeskInputError):
             raise HTTPException(status_code=422, detail=exc.code)
         raise
     executed = execution.mark_executed(confirmed, trade)
-    confirmed.update(executed)
-    await db[execution.TICKETS].update_one({"_id": ticket_id, "user_id": uid, "status": "confirmed"},
-                                           {"$set": executed})
+    exec_upd, after = _ticket_change(confirmed, lifecycle.OPEN, executed, reason=f"Paper shadow trade {trade['_id']} recorded.",
+                                     actor=uid, fill_price=trade.get("entry_price"))
+    confirmed.update(after)
+    await db[execution.TICKETS].update_one({"_id": ticket_id, "user_id": uid, "status": "confirmed"}, exec_upd)
     logger.info("ai_trader: user %s confirmed ticket %s (%s x%s) as paper shadow trade %s", uid, ticket_id,
                 confirmed["symbol"], confirmed["quantity"], trade["_id"])
     return {"ticket": _public_ticket(confirmed), "trade": desk.public_trade(trade),
@@ -903,13 +926,15 @@ async def reject_ticket(ticket_id: str, body: Optional[RejectBody] = None,
     stamp = desk.utcnow().isoformat()
     change = {"status": "rejected", "rejected_by": "user", "reject_reason": reason, "rejected_at": stamp,
               "updated_at": stamp}
+    upd, after = _ticket_change(ticket, lifecycle.REJECTED, change, reason="Turned down by you.", actor=uid,
+                                rejection_reasons=[reason] if reason else ["user_rejected"])
     res = await db[execution.TICKETS].update_one(
-        {"_id": ticket_id, "user_id": uid, "status": "awaiting_confirmation"}, {"$set": change})
+        {"_id": ticket_id, "user_id": uid, "status": "awaiting_confirmation"}, upd)
     if not res.matched_count:
         # A confirm that landed between the read and this write has the ticket; saying "rejected" would be a status
         # the database does not hold.
         raise HTTPException(status_code=409, detail="ticket_not_awaiting_confirmation")
-    return {"ticket": _public_ticket({**ticket, **change})}
+    return {"ticket": _public_ticket(after)}
 
 
 @router.get("/strategies/{strategy_id}/journal")

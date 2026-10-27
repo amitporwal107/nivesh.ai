@@ -65,6 +65,8 @@ from services import desk_trading as svc
 from services import paper_account as acct
 from services import risk_controls as rc
 from services import risk_gate
+from services import trade_lifecycle as lifecycle
+from services.strategy_plan import trade_plan as tpm
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,8 @@ class _Refusals:
         self.uid, self.cid = uid, cid
         self.symbol: Optional[str] = None
         self.quantity: Optional[int] = None
+        self.plan_id: Optional[str] = None            # the TradePlan the request named, once it is known
+        self.plan_state: Optional[str] = None
 
     def note(self, body: Any) -> None:
         if not isinstance(body, dict):
@@ -126,10 +130,20 @@ class _Refusals:
                      text: Optional[str] = None) -> HTTPException:
         code = code or (detail if isinstance(detail, str) else detail.get("code"))
         text = text or (detail.get("message") if isinstance(detail, dict) else None) or code
+        # Phase 2.2: a refused open is a REJECTED lifecycle event. There is no trade document to carry it, so it is
+        # recorded on the refusal's own risk_decisions row and, when the request named a TradePlan, on the plan.
+        rejected = lifecycle.rejection_record(frm=self.plan_state, reason=text, source="desk_paper_trade",
+                                              at=svc.utcnow(), codes=[code], plan_id=self.plan_id)
         await rc.record_decision(db, self.uid, action="desk_paper_trade", outcome="blocked", symbol=self.symbol,
                                  requested_qty=self.quantity, reasons=[{"code": code, "text": text}],
                                  correlation_id=self.cid, path="desk_paper_trade",
-                                 detail={"http_status": status, **(detail if isinstance(detail, dict) else {"code": detail})})
+                                 detail={"http_status": status, **(detail if isinstance(detail, dict) else {"code": detail}),
+                                         "lifecycle": rejected})
+        if self.plan_id:
+            try:
+                await db[tpm.COLLECTION].update_one({"_id": self.plan_id}, {"$push": {"events": rejected}})
+            except Exception as exc:  # noqa: BLE001 — fail-open like record_decision: the refusal stands, the miss is logged
+                logger.error("desk: the REJECTED event for plan %s could not be written: %r", self.plan_id, exc)
         return HTTPException(status_code=status, detail=detail)
 
 
@@ -199,6 +213,10 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
         prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": key})
         if prior is not None:
             return await _replay(ref, prior, fingerprint, response)
+    plan_ref_raw = None
+    if isinstance(body, dict) and "plan_ref" in body:
+        body = dict(body)
+        plan_ref_raw = body.pop("plan_ref")             # checked against the stored TradePlan below, never trusted as sent
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
             doc = strat.new_strategy_trade(uid, body)
@@ -213,6 +231,10 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
             doc = svc.new_trade(uid, body)
     except svc.DeskInputError as exc:
         raise await ref.refuse(422, exc.detail())
+    if plan_ref_raw is not None:
+        await _attach_plan(ref, uid, doc, plan_ref_raw)
+    if doc.get("kind") == strat.KIND:
+        _store_premium_levels(doc)
     doc["open_key"] = strat.structure_key(doc) if doc.get("kind") == strat.KIND else svc.open_key(doc)
     existing = await _open_duplicate(uid, doc)
     if existing is not None:
@@ -255,6 +277,7 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
     doc["paper_reserved_rs"] = reserved
 
     await svc.ensure_indexes(db)
+    svc.open_lifecycle(doc)               # Phase 2.2: state + the opening events, with the risk decision id stamped above
     open_filter = {"user_id": uid, "status": "open"}
     if await db[svc.TRADES].count_documents(open_filter) >= svc.MAX_OPEN_TRADES:
         await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
@@ -283,7 +306,100 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
 
 
 def _public(doc: Dict[str, Any]) -> Dict[str, Any]:
-    return strat.public_strategy_trade(doc, detail=True) if doc.get("kind") == strat.KIND else svc.public_trade(doc)
+    out = strat.public_strategy_trade(doc, detail=True) if doc.get("kind") == strat.KIND else svc.public_trade(doc)
+    return _with_lifecycle(out, doc)
+
+
+_PLAN_REF_FIELDS = {"plan_id", "candidate_id", "rules_version"}
+
+
+async def _attach_plan(ref: "_Refusals", uid: str, doc: Dict[str, Any], raw: Any) -> None:
+    """Phase 2.1: a paper trade that names a TradePlan (`plan_ref {plan_id, candidate_id?, rules_version?}`) is recorded
+    only at that plan's levels. The plan must exist and be readable by the user (404 plan_not_found), match the ref
+    (409 plan_ref_mismatch), still pass revalidation and be tradeable (409 plan_not_eligible), and the request's levels
+    must be the plan's (409 plan_levels_mismatch). The trade then stores `plan_ref`, `trade_plan_id` and the plan's
+    levels as `plan_levels`."""
+    if not isinstance(raw, dict) or set(raw) - _PLAN_REF_FIELDS or not isinstance(raw.get("plan_id"), str):
+        raise await ref.refuse(422, {"code": "invalid_plan_ref", "message": "plan_ref must be {plan_id, candidate_id?, rules_version?}."})
+    tp = await tpm.load(db, raw["plan_id"], uid)
+    ref.plan_id = raw["plan_id"] if tp is not None else None
+    if tp is None:
+        raise await ref.refuse(404, {"code": "plan_not_found", "message": f"No trade plan {raw['plan_id'][:40]} that you can use."})
+    ref.plan_state = (tp.get("eligibility") or {}).get("state")
+    for k, have in (("candidate_id", (tp.get("strategy") or {}).get("candidate_id")), ("rules_version", tp.get("rules_version"))):
+        if raw.get(k) is not None and raw[k] != have:
+            raise await ref.refuse(409, {"code": "plan_ref_mismatch", "message": f"{k} {raw[k]} is not the plan's ({have})."})
+    elig = tp.get("eligibility") or {}
+    problems = tpm.validate({k: v for k, v in tp.items() if k != "_id"})
+    if problems or not elig.get("paper_eligible"):
+        why = [p["message"] for p in problems] or [r.get("message") or r.get("code") for r in elig.get("reasons") or []] \
+            or [f"the plan's state is {elig.get('state')}"]
+        raise await ref.refuse(409, {"code": "plan_not_eligible", "plan_id": tp["plan_id"], "state": elig.get("state"),
+                                     "message": "This plan cannot be paper traded: " + "; ".join(str(w) for w in why[:5])})
+    mism = tpm.strategy_mismatches(tp, doc) if doc.get("kind") == strat.KIND else tpm.cash_mismatches(tp, doc)
+    if mism:
+        raise await ref.refuse(409, {"code": "plan_levels_mismatch", "plan_id": tp["plan_id"], "mismatches": mism[:10],
+                                     "message": "The request's levels are not the plan's: " + "; ".join(mism[:3])})
+    doc["plan_ref"] = tpm.plan_ref_of(tp)
+    doc["trade_plan_id"] = tp["plan_id"]
+    doc["plan_levels"] = tpm.canonical_levels(tp)
+    if doc.get("kind") == strat.KIND and (tp.get("exit_plan") or {}).get("options"):
+        doc["exit_plan"] = {"options": tp["exit_plan"]["options"], "source": "trade_plan"}
+
+
+def _store_premium_levels(doc: Dict[str, Any]) -> None:
+    """Phase 2.6, storage only: the strategy-levels engine's premium stop and T1 / T2 (and the underlying levels they
+    correspond to) are stored on the strategy trade at entry, from its own legs and the signal's data date. EVALUATING
+    them is the exits branch's (feat/p2-exits-backtest): nothing here closes a trade on them."""
+    if doc.get("exit_plan"):
+        return
+    legs = [{"kind": l["kind"], "side": l["side"], "quantity": l["lots"], "lot_size": l["lot_size"], "entry_price": l["entry_price"],
+             "expiry": l.get("expiry"), "strike": l.get("strike"), "option_type": l.get("option_type"),
+             "price_source": l.get("price_source")} for l in doc["legs"]]
+    as_of = str((doc.get("signal") or {}).get("signal_at") or "")[:10] or None
+    if not any(l["kind"] == "option" for l in legs):
+        doc["exit_plan"] = {"options": {"status": "not_applicable", "reason": "no option leg",
+                                        "evaluation": f"not evaluated here: {tpm.EXITS_OWNER}"}, "source": "entry"}
+        return
+    levels, err = tpm.compute_levels(doc["underlying"], float(doc["reference_price"]), as_of, legs,
+                                     {"put_wall": None, "call_wall": None, "expected_move": None}, svc.ist_date(doc["opened_at"]))
+    doc["exit_plan"] = {"options": tpm.options_exit(levels, as_of=as_of, error=err), "source": "entry"}
+
+
+def _with_lifecycle(out: Dict[str, Any], doc: Dict[str, Any]) -> Dict[str, Any]:
+    """The lifecycle and plan fields every trade response carries."""
+    out["state"] = lifecycle.current_state(doc)
+    out["transitions"] = list(doc.get("transitions") or [])
+    out["plan_ref"] = doc.get("plan_ref")
+    out["plan_levels"] = doc.get("plan_levels")
+    out["exit_plan"] = doc.get("exit_plan")
+    out["rolled_from"] = doc.get("rolled_from")
+    out["rolled_to"] = doc.get("rolled_to")
+    return out
+
+
+@router.get("/trade-plans/{plan_id}")
+async def get_trade_plan(request: Request, plan_id: str) -> Dict[str, Any]:
+    """One TradePlan with its DERIVED lifecycle status (proposed until one of your paper trades cites it; then the
+    furthest of approved / triggered / open / closed / rejected), its versions and the trades that cite it."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    tp = await tpm.load(db, plan_id, uid)
+    if tp is None:
+        raise HTTPException(status_code=404, detail="plan_not_found")
+    trades = await db[svc.TRADES].find({"user_id": uid, "trade_plan_id": plan_id}).to_list(svc.MAX_OPEN_TRADES * 2)
+    versions = await db[tpm.COLLECTION].find({"lineage_key": tp.get("lineage_key")}).sort("version", 1).to_list(50)
+    states = [lifecycle.current_state(t) for t in trades]
+    rejected = [e for e in tp.get("events") or [] if e.get("to") == lifecycle.REJECTED]
+    status = lifecycle.plan_status(states + ([lifecycle.REJECTED] if rejected and not trades else []))
+    plan = {k: v for k, v in tp.items() if k not in ("_id", "owners")}
+    plan["lifecycle"] = {**(plan.get("lifecycle") or {}), "status": status, "derived": True}
+    return {"plan": plan, "lifecycle": {"status": status, "trades": [{"id": t["_id"], "state": s, "status": t.get("status")}
+                                                                     for t, s in zip(trades, states)],
+                                        "rejections": rejected[-20:]},
+            "versions": [{"plan_id": v["_id"], "version": v.get("version"), "created_at": v.get("created_at"),
+                          "revalidation_ok": (v.get("revalidation") or {}).get("ok"), "supersedes": v.get("supersedes")} for v in versions],
+            "sent_to_broker": False}
 
 
 @router.get("/paper-account")
@@ -320,11 +436,12 @@ async def list_paper_trades(request: Request, status_filter: str = Query("all", 
     for doc in sorted((d for d in evaluated if d.get("status") == "open" and d["_id"] not in closed_ids),
                       key=_sort_key("opened_at"), reverse=True):
         mark, mark_error = svc.mark_for(doc["symbol"], bars, errors)
-        trades.append(svc.public_trade(doc, mark, mark_error, counts["checked_through"].get(doc["_id"]),
-                                       sim=counts["paths"].get(doc["_id"])))
+        trades.append(_with_lifecycle(svc.public_trade(doc, mark, mark_error, counts["checked_through"].get(doc["_id"]),
+                                                       sim=counts["paths"].get(doc["_id"])), doc))
     for doc in sorted((d for d in strategy_evaluated if d.get("status") == "open" and d["_id"] not in closed_ids),
                       key=_sort_key("opened_at"), reverse=True):
-        trades.append(strat.public_strategy_trade(doc, strategy_sims.get(doc["_id"]), strategy_errors.get(doc["_id"]), detail=True))
+        trades.append(_with_lifecycle(strat.public_strategy_trade(doc, strategy_sims.get(doc["_id"]), strategy_errors.get(doc["_id"]),
+                                                                  detail=True), doc))
     trades.sort(key=lambda t: str(t.get("opened_at") or ""), reverse=True)        # cash and strategy trades, newest first
     trades.extend(_public(d) for d in closed_docs)
 
@@ -411,7 +528,7 @@ async def close_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
     if not mine or stored is None:
         raise HTTPException(status_code=409, detail="trade_already_closed")
     logger.info("desk: user %s closed paper trade %s at %s", uid, trade_id, exit_price)
-    return {"trade": svc.public_trade(stored), **_price_context()}
+    return {"trade": _with_lifecycle(svc.public_trade(stored), stored), **_price_context()}
 
 
 async def _close_strategy(doc: Dict[str, Any], body: Dict[str, Any]) -> Dict[str, Any]:
@@ -435,7 +552,7 @@ async def _close_strategy(doc: Dict[str, Any], body: Dict[str, Any]) -> Dict[str
     if not mine or stored is None:
         raise HTTPException(status_code=409, detail="trade_already_closed")
     logger.info("desk: user %s closed strategy paper trade %s", doc["user_id"], doc["_id"])
-    return {"trade": strat.public_strategy_trade(stored, detail=True), **_price_context()}
+    return {"trade": _with_lifecycle(strat.public_strategy_trade(stored, detail=True), stored), **_price_context()}
 
 
 @router.get("/paper-trades/{trade_id}")
@@ -455,7 +572,7 @@ async def get_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
                 sim = strat.simulate_strategy(doc, bars, rows)
             except svc.PricesUnavailable:
                 error = svc.PRICES_UNAVAILABLE
-        trade = strat.public_strategy_trade(doc, sim, error, detail=True)
+        trade = _with_lifecycle(strat.public_strategy_trade(doc, sim, error, detail=True), doc)
         pending = sim["exit"] if sim else None
         trade["pending_exit"] = ({"exit_reason": pending["exit_reason"], "exit_session": pending["exit_session"].isoformat(),
                                   "exit_note": pending["exit_note"]} if pending else None)
@@ -470,7 +587,7 @@ async def get_paper_trade(request: Request, trade_id: str) -> Dict[str, Any]:
             pending = sim["exit"]
         except svc.PricesUnavailable:
             mark_error = svc.PRICES_UNAVAILABLE
-    trade = svc.public_trade(doc, mark, mark_error, sim=sim)
+    trade = _with_lifecycle(svc.public_trade(doc, mark, mark_error, sim=sim), doc)
     trade["kind"] = "cash"
     trade["events"] = _cash_events(trade)
     trade["pending_exit"] = ({"exit_reason": pending["exit_reason"], "exit_session": pending["exit_session"].isoformat(),

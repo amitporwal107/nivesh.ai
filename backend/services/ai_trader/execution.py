@@ -221,7 +221,7 @@ def new_ticket(user_id: str, strategy_doc: Dict[str, Any], intent: Intent, decis
         status = "confirmed"
     else:
         status = "awaiting_confirmation"
-    return {
+    ticket = {
         "_id": str(uuid.uuid4()),
         "user_id": user_id,
         "strategy_id": strategy_doc.get("_id"),
@@ -254,6 +254,12 @@ def new_ticket(user_id: str, strategy_doc: Dict[str, Any], intent: Intent, decis
         "created_at": stamp,
         "updated_at": stamp,
     }
+    # Phase 2.2: the ticket's lifecycle state and its opening events (services/trade_lifecycle.ticket_opening_events).
+    from services import trade_lifecycle
+
+    events = trade_lifecycle.ticket_opening_events(ticket)
+    ticket["state"], ticket["transitions"] = events[-1]["to"], events
+    return ticket
 
 
 def mark_executed(ticket: Dict[str, Any], trade: Dict[str, Any], *, now: Optional[datetime] = None) -> Dict[str, Any]:
