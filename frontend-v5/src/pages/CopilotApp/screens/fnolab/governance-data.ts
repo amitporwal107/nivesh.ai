@@ -169,6 +169,19 @@ export interface AuditDecision {
   capitalAtRiskRs: number | null;
   /** "decision-snapshot-v1" when the gate stored what it read; null on older rows (they cannot be replayed). */
   snapshotVersion: string | null;
+  /** The universal risk service's fields (services/risk_gate/service.py _persist); null / empty on older rows. */
+  limitsVersion: string | null;
+  estimateVersion: string | null;
+  requestedQty: number | null;
+  approvedQty: number | null;
+  requestedLots: number | null;
+  approvedLots: number | null;
+  /** est-risk-v1: loss at the stop (gross) + round-trip costs + gap stress = total; null when not sized. */
+  estimate: { gross: number | null; costs: number | null; gapStress: number | null; total: number | null } | null;
+  /** The budgets the decision was judged against, as recorded: rupees, percentages, counts (numbers only). */
+  budget: Record<string, number>;
+  /** The sector the decision used (detail.sector or budget.sector). */
+  sector: string | null;
 }
 
 export const isBlocked = (outcome: string | null) => outcome === "block" || outcome === "blocked" || outcome === "denied";
@@ -179,6 +192,8 @@ export function readAuditDecisions(body: unknown): AuditDecision[] {
   const rows = d.decisions.map((v, i): AuditDecision => {
     const r = rec(v);
     const detail = rec(r.detail);
+    const est = rec(r.estimated_risk_rs);
+    const budget = rec(r.budget);
     const checks = (Array.isArray(r.checks) ? r.checks : []).flatMap((x): GateCheck[] => {
       const c = rec(x);
       const check = str(c.check);
@@ -191,6 +206,14 @@ export function readAuditDecisions(body: unknown): AuditDecision[] {
       inputsHash: str(r.inputs_hash), checks, source: str(r.source), actorId: str(r.actor_id),
       instrument: str(detail.instrument), legs: num(detail.legs), capitalAtRiskRs: num(detail.capital_at_risk_rs),
       snapshotVersion: str(r.snapshot_version),
+      limitsVersion: str(r.limits_version), estimateVersion: str(r.estimate_version),
+      requestedQty: num(r.requested_qty), approvedQty: num(r.approved_qty),
+      requestedLots: num(r.requested_lots), approvedLots: num(r.approved_lots),
+      estimate: Object.keys(est).length
+        ? { gross: num(est.gross), costs: num(est.costs), gapStress: num(est.gap_stress), total: num(est.total) }
+        : null,
+      budget: Object.fromEntries(Object.entries(budget).flatMap(([k, v]) => (num(v) != null ? [[k, num(v) as number]] : []))),
+      sector: str(detail.sector) ?? str(budget.sector),
     };
   });
   const t = (x: AuditDecision) => (x.at ? new Date(x.at).getTime() : NaN);
