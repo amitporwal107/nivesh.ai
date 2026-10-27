@@ -58,8 +58,9 @@ test.describe("Desk — Events calendar (desktop)", () => {
     await setup(page);
     await page.goto(`${DESK}?tab=events`);
     await expect(page.getByTestId("desk-events")).toBeVisible(SLOW);
-    await page.goto(`${DESK}?tab=more`);
-    await page.getByTestId("desk-more-item-events").click();
+    // Desk redesign (2026-10-27): no More list; the Events calendar is a section of Market Desk › Market Intelligence, the Market Desk's first view.
+    await page.goto(DESK);
+    await page.getByTestId("desk-tab-market").click();
     await expect(page.getByTestId("desk-events")).toBeVisible(SLOW);
     await page.goto(`${DESK}?tab=intel`);
     await page.getByTestId("desk-intel-open-events").click();

@@ -128,7 +128,7 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
     await input.press("ArrowDown");
     await input.press("ArrowDown");
     await input.press("Enter");
-    await expect(page).toHaveURL(/tab=chart/);
+    await expect(page).toHaveURL(/tab=market&view=research/); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await expect(page).toHaveURL(/sym=RELIANCE/);
     await expect(input).toHaveValue("");
   });
@@ -221,7 +221,7 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
     await expect(page.getByTestId("desk-search-picked")).toContainText("TESTPICK selected");
     await search(page).fill("ZZTOP");
     await search(page).press("Enter");
-    await expect(page).toHaveURL(/tab=chart/);
+    await expect(page).toHaveURL(/tab=market&view=research/); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await expect(page).toHaveURL(/sym=ZZTOP/);
   });
 

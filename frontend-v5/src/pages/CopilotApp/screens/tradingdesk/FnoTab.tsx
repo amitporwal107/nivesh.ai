@@ -521,16 +521,19 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
 /**
  * `views` (the desk redesign of 2026-10-27): the lab views this host shows. Market Desk › Smart Money shows the build-up,
  * candidates, index and chain views; Trade Desk › New trade shows the paper strategies (with one view there is no view
- * row). A view the host does not show falls back to its first.
+ * row). A view the host does not show falls back to its first. `asSection`: the lab is a part of a page with its own
+ * headline, so its title is a level-2 heading (one h1 a page).
  */
-export default function FnoTab({ views: only, builderCatalog }: {
+export default function FnoTab({ views: only, asSection = false, builderCatalog }: {
   views?: readonly LabView[];
+  asSection?: boolean;
   /** Trade Desk › New trade: the paper-strategy builder offers only these backend template names (FnoBuilder BuilderView `catalog`). */
   builderCatalog?: readonly string[] | null;
 } = {}) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
+  const Title = asSection ? "h2" : "h1";
   // The view, the loaded underlying and a Top 10 idea in focus live in the URL (?lab=&lab_sym=&lab_focus=), so the
   // Scanner can open the lab on any of them and the breadcrumb can come back to it.
   const [params, setParams] = useSearchParams();
@@ -591,9 +594,9 @@ export default function FnoTab({ views: only, builderCatalog }: {
             <Pill tone="indigo">Analysis only</Pill>
             <Pill>End of day</Pill>
           </span>
-          <h1 data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
+          <Title data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
             Build, test and understand <em>option trades</em>.
-          </h1>
+          </Title>
         </div>
         <SpotBlock symbol={symbol} state={oc.state} futures={fq.data} />
       </div>

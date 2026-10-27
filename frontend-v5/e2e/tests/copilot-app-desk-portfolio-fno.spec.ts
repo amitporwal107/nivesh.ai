@@ -555,12 +555,15 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-volatility-value")).toHaveText("18.5%");
     await expect(page.getByTestId("desk-risk-volatility")).toHaveAttribute("data-value", pct1(14.2));
 
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     // Right card: the paper record's 403 says "not enabled"; your desk trades still show; the meta counts your closed trades.
     await expect(page.getByTestId("desk-portfolio-record-title")).toHaveText("Paper trades · predicted vs actual");
     await expect(page.getByTestId("desk-paper-card-closed")).toHaveText(`${summarize(paperTrades()).closed} closed`);
     await expect(page.getByTestId("desk-paper-no-access")).toContainText("not enabled for this account");
     await expect(page.getByTestId("desk-record-predicted")).toHaveCount(0);
 
+    await page.goto(`${DESK}?tab=portfolio`);
     // The broker block (live holdings and positions per account) stays in the tab; this account is not read live, so its stored rows say so.
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     await expect(page.getByTestId("trader-broker-account")).toContainText("Zerodha");
@@ -593,6 +596,8 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await expect(page.getByTestId("desk-risk-sector")).toHaveAttribute("data-level", "low");
 
     // The model's record: forward first and named; the forward fixture has no outcomes yet, so every tile is "—".
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await expect(page.getByTestId("desk-paper-sample-forward")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("desk-paper-sample-note")).toContainText("Forward sample");
     await expect(page.getByTestId("desk-paper-statement")).toContainText("Not established: 0 counted sessions");
@@ -628,13 +633,15 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await mockDeskLists(page, { empty: true });
     await mockSingleRoute(page, "**/api/portfolio/holdings-enriched*", "empty-portfolio.json");
     await portfolioData(page);
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     // Paper trades and alerts do not depend on holdings: their empty states show.
     await expect(page.getByTestId("desk-paper-trades-empty")).toContainText("No paper trades yet");
     await expect(page.getByTestId("desk-alerts-empty")).toContainText("No price alerts");
     await expect(page.getByTestId("desk-paper-today-none")).toHaveText("No paper trade added today.");
     await expect(page.getByTestId("desk-paper-last5-none")).toHaveText("No closed paper trades yet.");
 
+    await page.goto(`${DESK}?tab=portfolio`);
     const empty = page.getByTestId("desk-portfolio-empty");
     await expect(empty).toContainText("No holdings on record yet");
     await expect(page.getByTestId("desk-portfolio-positions")).toHaveCount(0);
@@ -797,7 +804,8 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
   test("your paper trades: open marks, closed exits and reasons, the summary; Close asks first, then posts {} to …/{id}/close", async ({ page }) => {
     const calls = await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-paper-trades");
     const trades = paperTrades();
     const sum = summarize(trades);
@@ -871,7 +879,8 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
   test("your paper trades: a refused close shows the server's words; missing marks are said, not made up; errors and 403", async ({ page }) => {
     const calls = await mockDeskLists(page, { closeReply: { status: 409, body: { detail: "trade_already_closed" } } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-paper-trades");
     await block.getByTestId("desk-paper-close").first().click();
     await block.getByTestId("desk-paper-confirm-yes").click();
@@ -903,7 +912,8 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
   test("your price alerts: levels, status, fired session, last close; Delete asks first, then sends DELETE …/{id}", async ({ page }) => {
     const calls = await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-alerts");
     const alerts = priceAlerts();
     const rows = block.getByTestId("desk-alert-row");
@@ -940,7 +950,8 @@ test.describe("Smart trading desk — Portfolio & risk: correlation, market cap,
   test("your price alerts: a failed read with retry", async ({ page }) => {
     const calls = await mockDeskLists(page, { alertList: { status: 502, body: { detail: "upstream_unavailable" } } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const err = page.getByTestId("desk-alerts-error");
     await expect(err.getByRole("alert")).toContainText("Your price alerts didn’t load", { timeout: 15_000 });
     const before = calls.alertReads;
@@ -1103,12 +1114,15 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await o.getByTestId("desk-portfolio-reconcile-toggle").click();
     await expect(o.getByTestId("desk-portfolio-reconcile-rule")).toHaveText(SCOPE.reconciliation.rule);
     // Trust lines on every card of the tab.
-    for (const id of ["desk-portfolio-trust", "desk-risk-trust", "desk-paper-card-trust", "desk-paper-lists-trust", "broker-trust"]) {
+    for (const id of ["desk-portfolio-trust", "desk-risk-trust", "broker-trust"]) {
       await expect(page.getByTestId(id)).toBeVisible();
     }
     await expect(page.getByTestId("desk-portfolio-trust")).toHaveAttribute("data-mode", "eod");
     await expect(page.getByTestId("desk-portfolio-trust")).toContainText("Stored holdings in Nivesh");
     await expect(page.getByTestId("desk-risk-trust")).toHaveAttribute("data-maker", "rules");
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
+    for (const id of ["desk-paper-card-trust", "desk-paper-lists-trust"]) await expect(page.getByTestId(id)).toBeVisible();
   });
 
   test("§8.3 read live: cash from the brokers' funds read, live value checked line by line against the last sync; duplicates and a missing price are said", async ({ page }) => {
@@ -1302,7 +1316,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     book.trades = [card, simTrade()];
     await mockDeskLists(page, { paperList: { status: 200, body: book } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-paper-trades");
     const row = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXCARD" });
     await row.getByTestId("desk-paper-record-toggle").click();
@@ -1316,7 +1331,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
   test("§13.4 paper trades: entry rule and status, costs, gross and net, MFE / MAE, flags and versions in each trade's record; a waiting entry cancels", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-paper-trades");
     const sim = simTrade();
     // Tiles: realised gross −₹100, net −₹141.95 → −₹142; one entry waiting.
@@ -1368,7 +1384,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
   test("p2 exits TC-71: a trailing-stop exit, the versioned stop history and the opt-in rule label; no rule says None; an unknown reason shows its code", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: exitsBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-paper-trades");
     const closed = block.getByTestId("desk-paper-closed-table");
     const trail = closed.getByRole("row").filter({ hasText: "FIXTRAIL" });
@@ -1410,7 +1427,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     const book = { ...simBook(), trades: [raised, trailTrade()] };
     await mockDeskLists(page, { paperList: { status: 200, body: book } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio&persona=investor`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper&persona=investor`);
     const block = page.getByTestId("desk-paper-trades");
     await expect(block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXTRAIL" }).getByTestId("desk-paper-reason")).toHaveText("Locked-in exit");
     await block.getByTestId("desk-paper-open-table").getByRole("row").filter({ hasText: "FIXRAISE" }).getByTestId("desk-paper-record-toggle").click();
@@ -1428,6 +1446,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     const o = page.getByTestId("desk-portfolio-overview");
     await expect(o).toContainText("These totals add up");
     await expect(o).toContainText("Gain on paper");
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper&persona=investor`);
     const block = page.getByTestId("desk-paper-trades");
     await expect(block.getByTestId("desk-paper-closed-table").getByRole("columnheader")).toContainText(["After costs", "Best point / Worst point"]);
     const closedRow = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXSIM" });
@@ -1452,6 +1472,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(card.getByTestId("desk-import-row")).toHaveCount(4);
     await page.getByTestId("desk-risk-liquidity-rule-toggle").click();
     await page.getByTestId("desk-risk-liquidity-toggle").click();
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await page.getByTestId("desk-paper-closed-table").getByTestId("desk-paper-record-toggle").click();
     await expect(page.getByTestId("desk-paper-record")).toBeVisible();
     const o = await sideways(page);
@@ -1476,6 +1498,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await page.getByTestId("desk-portfolio-import-open").click();
     await page.getByTestId("desk-import-file").setInputFiles({ name: "holdings.csv", mimeType: "text/csv", buffer: CSV });
     await page.getByTestId("desk-import-preview").click();
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await page.getByTestId("desk-paper-closed-table").getByTestId("desk-paper-record-toggle").first().click();
     await page.setViewportSize({ width: 1440, height: 4200 });
     await page.waitForTimeout(400);
@@ -1509,8 +1533,11 @@ test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
     await expect(page.getByTestId("desk-portfolio")).toHaveAttribute("data-layout", "phone");
     await expect(page.getByTestId("desk-risk-overall")).toBeVisible();
     await expect(page.locator('[data-testid="desk-mcap-row"][data-bucket="unsplit"]')).toBeVisible();
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await expect(page.getByTestId("desk-paper-open-table")).toBeVisible();
     await expect(page.getByTestId("desk-alert-row")).toHaveCount(3);
+    await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
     await expect(page.getByTestId("broker-live-row")).toHaveCount(2);
     await expect(page.getByTestId("broker-position-row")).toHaveCount(2);
@@ -1529,7 +1556,9 @@ test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
 
 
 test.describe("Smart trading desk — Portfolio & risk · design fidelity", () => {
-  test("§7 at 1440 with the dock: two equal cards with header bars; tiles, calibration, open-today and last-5-closed in the right card", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the paper record left My portfolio for Trade Desk, so the hub no longer
+  // sits beside it. Covered by copilot-app-desk-shell.spec.ts SH-12 / SH-13; rewritten in step 6.
+  test.skip("§7 at 1440 with the dock: two equal cards with header bars; tiles, calibration, open-today and last-5-closed in the right card", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await deskBase(page);
     await mockPaper(page);
@@ -1607,8 +1636,8 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await page.goto(`${DESK}?tab=portfolio`);
     const root = page.getByTestId("desk-portfolio");
     await expect(root).toHaveAttribute("data-layout", "phone");
-    // Order: portfolio card, risk dashboard, positions, the read-only note (then the paper card, broker block and lists).
-    const order = await root.evaluate((r) => ["desk-portfolio-hub", "desk-portfolio-risk", "desk-portfolio-positions", "desk-portfolio-readonly-note", "desk-portfolio-record", "trader-broker-positions", "desk-portfolio-paper"]
+    // Order: portfolio card, risk dashboard, positions, the read-only note (then the broker block; the paper card and lists moved to Trade Desk in the 2026-10-27 redesign).
+    const order = await root.evaluate((r) => ["desk-portfolio-hub", "desk-portfolio-risk", "desk-portfolio-positions", "desk-portfolio-readonly-note", "trader-broker-positions"]
       .map((id) => r.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? -1));
     expect(order.every((t, i) => t >= 0 && (i === 0 || t > order[i - 1]))).toBe(true);
 
@@ -1656,6 +1685,8 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     expect(o.scroll).toBeLessThanOrEqual(1);
     await page.getByTestId("desk-risk-correlation-toggle").click();
     await expect(page.getByTestId("desk-corr-pair")).toHaveCount(CORRELATION.pairs.length);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await page.getByTestId("desk-paper-sample-replay").click();
     await expect(page.getByTestId("desk-calibration-row").first()).toBeVisible();
     o = await sideways(page);
@@ -1672,6 +1703,8 @@ test.describe("Smart trading desk — Portfolio & risk · design fidelity", () =
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await page.goto(`${DESK}?tab=portfolio`);
     await expect(page.getByTestId("desk-portfolio-hub")).toBeVisible();
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await page.getByTestId("desk-paper-sample-replay").click();
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${SHOTS}/fidelity-portfolio-${phase}-1440.png` });
@@ -1771,7 +1804,8 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
   test("a spread and a future are listed beside the share trades with premium, mark, gross and net; share rows are unchanged", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-paper-trades");
     const section = block.getByTestId("desk-strategy-trades");
     await expect(section.getByTestId("desk-strategy-count")).toHaveText("2");
@@ -1806,7 +1840,8 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
   test("the record lists each leg with entry, mark and mark date, the immutable signal, the lifecycle log and the flags", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const block = page.getByTestId("desk-paper-trades");
     await block.getByTestId("desk-strategy-closed-table").getByRole("row").filter({ hasText: "Bull call spread" }).getByTestId("desk-paper-record-toggle").click();
     const rec = block.getByTestId("desk-paper-strategy-record");
@@ -1855,7 +1890,8 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
   test("investor wording and a close confirmation that posts the same close route", async ({ page }) => {
     const calls = await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([futureTrade(), spreadTrade()]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio&persona=investor`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper&persona=investor`);
     const block = page.getByTestId("desk-paper-trades");
     await expect(block.getByTestId("desk-strategy-open-table").getByRole("columnheader")).toContainText(["Paid or received", "Worth now", "Before costs", "After costs"]);
     await block.getByTestId("desk-strategy-closed-table").getByRole("row").filter({ hasText: "Bull call spread" }).getByTestId("desk-paper-record-toggle").click();
@@ -1872,7 +1908,8 @@ test.describe("Smart trading desk — Portfolio & risk: strategy paper trades", 
     const broken = { ...spreadTrade(), legs: [] };
     await mockDeskLists(page, { paperList: { status: 200, body: strategyBook([broken]) } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await expect(page.getByTestId("desk-paper-trades-error")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("desk-strategy-trades")).toHaveCount(0);
   });
@@ -1913,7 +1950,8 @@ test.describe("Smart trading desk — F&O roll", () => {
       gets += 1;
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(preview) });
     });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     return { posts, gets: () => gets };
   }
 
@@ -1974,7 +2012,8 @@ test.describe("Smart trading desk — Portfolio & risk · F&O forward test", () 
     await mockDeskLists(page);
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
     await json(page, "**/api/fno/forward-test", body, status);
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper cards and lists are on Trade Desk › Paper trades; My portfolio (?tab=portfolio) is the real portfolio only.
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await expect(page.getByTestId("desk-forward-test")).toBeVisible();
   }
 

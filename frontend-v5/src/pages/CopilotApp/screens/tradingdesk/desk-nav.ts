@@ -101,6 +101,17 @@ export const VIEW_PARAMS = [
   "lab", "lab_sym", "lab_focus", "in_chip", "in_ev",
 ];
 
+/** The place first (tab, view, section), then the hosted screens' own params in their order: a readable URL. */
+export function canonical(params: URLSearchParams): URLSearchParams {
+  const out = new URLSearchParams();
+  for (const k of ["tab", "view", "section"]) {
+    const v = params.get(k);
+    if (v !== null) out.set(k, v);
+  }
+  params.forEach((v, k) => { if (k !== "tab" && k !== "view" && k !== "section") out.append(k, v); });
+  return out;
+}
+
 /** The old desk's tabs and More views (before 2026-10-27). */
 const OLD_TABS = new Set(["scanner", "intel", "events", "chart", "smartmoney", "fno", "more"]);
 
@@ -118,7 +129,7 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     if (view) p.set("view", view);
     else p.delete("view");
     if (section) p.set("section", section);
-    return p;
+    return canonical(p);
   };
   if (tab === "copilot" && docked) {
     p.delete("view");

@@ -47,8 +47,10 @@ function failureText(e: unknown, what: string): string {
   return `${what}: it failed.`;
 }
 
-export default function ChartinkSettings() {
+/** `asSection`: hosted below the Screener on Market Desk (the desk redesign of 2026-10-27), so its title is a level-2 heading. */
+export default function ChartinkSettings({ asSection = false }: { asSection?: boolean } = {}) {
   const { persona } = useDesk();
+  const Title = asSection ? "h2" : "h1";
   const plain = persona === "investor";
   const src = useChartinkSource();
   const hitsQ = useChartinkHits();
@@ -57,12 +59,12 @@ export default function ChartinkSettings() {
     <div data-testid="chartink-settings" data-persona={persona} className="flex min-w-0 flex-col" style={{ gap: 18 }}>
       <header className="flex flex-col" style={{ gap: 8 }}>
         <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
-          <span className="cp-eyebrow">More</span>
+          <span className="cp-eyebrow">Market Desk · Screener</span>
           <span className="cp-pill" data-tone="indigo">Your own scans</span>
         </span>
-        <h1 className="cp-display m-0" data-testid="chartink-title" style={{ fontSize: 34, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
+        <Title className="cp-display m-0" data-testid="chartink-title" style={{ fontSize: 34, lineHeight: 1.1, letterSpacing: "-0.02em" }}>
           {plain ? <>Add your <em>Chartink</em> ideas to the desk</> : <>Chartink <em>scans</em></>}
-        </h1>
+        </Title>
         <p className="m-0" style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
           {plain ? "Your Chartink scans can sit beside the AI scanner’s ideas on the Overview, the AI Scanner and the Strategy Builder." : "Use your Chartink scans as opportunity sources next to the AI scanner on the Overview, the AI Scanner and the Strategy Builder."}
         </p>

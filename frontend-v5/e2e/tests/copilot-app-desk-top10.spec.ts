@@ -205,7 +205,8 @@ test.describe("Scanner — Top 10 ideas", () => {
   test("F-1 market pulse, then the Top 10 boards, then the scanner list", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
-    const pulse = page.getByTestId("desk-pulse");
+    // Desk redesign (2026-10-27): Market Overview also shows the Overview's own pulse card, so the strip is read in its section.
+    const pulse = page.getByTestId("desk-panel-pulse").getByTestId("desk-pulse");
     const top = page.getByTestId("desk-top10");
     const list = page.getByTestId("desk-scanner");
     await expect(pulse).toBeVisible();
@@ -237,7 +238,7 @@ test.describe("Scanner — Top 10 ideas", () => {
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-plan").click();
     await expect(page.getByTestId("desk-panel-strategy")).toBeVisible(SLOW);
     const p = params(page);
-    expect([p.get("tab"), p.get("view"), p.get("sym"), p.get("mode"), p.get("build")]).toEqual(["more", "strategy", "ICICIBANK", "stock", "1"]);
+    expect([p.get("tab"), p.get("view"), p.get("sym"), p.get("mode"), p.get("build")]).toEqual(["trade", "new", "ICICIBANK", "stock", "1"]); // was more/strategy before the 2026-10-27 redesign
     expect([p.get("cand"), p.get("src_kind"), p.get("src_date"), p.get("direction")]).toEqual(["options:bull_call_spread", "ideas", "2026-10-19", "bullish"]);
   });
 
@@ -248,7 +249,7 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(page.getByTestId("desk-top10-stock-AARTIDRUGS").getByTestId("desk-top10-stock-chain")).toHaveCount(0);
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-chain").click();
     await expect(page.getByTestId("desk-fno")).toBeVisible(SLOW);
-    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["fno", "chain", "ICICIBANK"]);
+    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["market", "chain", "ICICIBANK"]); // the lab's chain is in Market Desk › Smart Money since the 2026-10-27 redesign
     await expect(page.getByTestId("desk-fno-view-chain")).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("desk-fno-view-chain")).toContainText("ICICIBANK");
   });
@@ -329,11 +330,13 @@ test.describe("Scanner — Top 10 ideas", () => {
     expect([posts[0].body.quantity, posts[1].body.quantity, posts[2].body.quantity]).toEqual([208, 208, 100]);
   });
 
-  test("F-6 View trades › opens Portfolio & Risk", async ({ page }) => {
+  test("F-6 View trades › opens the paper trades", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-trades").click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "portfolio");
+    // Desk redesign (2026-10-27): the paper trades are on Trade Desk › Paper trades (they were on Portfolio & Risk).
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "trade");
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "paper");
   });
 
   test("F-7 the F&O board asks for one row per underlying and merges both classes in the route's order", async ({ page }) => {
@@ -398,8 +401,10 @@ test.describe("Scanner — Top 10 ideas", () => {
     await desk(page);
     await page.goto(SCANNER);
     await expect(page.getByTestId("desk-top10-fno-list")).toBeVisible(SLOW);
-    await expect(page.getByTestId("desk-pulse-events")).toBeVisible(SLOW);
-    const text = (await page.getByTestId("desk-top10").innerText()) + (await page.getByTestId("desk-pulse").innerText());
+    // Desk redesign (2026-10-27): the strip is read in its section (Market Overview has a second pulse card).
+    const strip = page.getByTestId("desk-panel-pulse");
+    await expect(strip.getByTestId("desk-pulse-events")).toBeVisible(SLOW);
+    const text = (await page.getByTestId("desk-top10").innerText()) + (await strip.getByTestId("desk-pulse").innerText());
     expect(text).not.toMatch(/\bpicks?\b/i);
     expect(text).not.toMatch(/\bsuggested\b/i);
     expect(text.replace(/not recommendations?/gi, "")).not.toMatch(/recommend/i);
@@ -484,7 +489,7 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
     await page.goto(SCANNER);
     await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-lab").click();
     await expect(page.getByTestId("desk-lab-focus")).toBeVisible(SLOW);
-    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_focus"), params(page).get("lab_sym")]).toEqual(["fno", "candidates", "SB1", "SB1"]);
+    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_focus"), params(page).get("lab_sym")]).toEqual(["market", "candidates", "SB1", "SB1"]); // the lab is in Market Desk › Smart Money since the 2026-10-27 redesign
     await expect(page.getByTestId("desk-lab-focus")).toContainText("Bear put spread 2500/2550");
     await expect(page.getByTestId("desk-lab-focus-rank")).toContainText("#1 · SB1");
     // SB1 is a short build-up candidate: that category opens, not the first one.
@@ -533,7 +538,7 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
     await expect(page.getByTestId("desk-fno-view-buildup")).toHaveAttribute("aria-selected", "true");
     await page.getByTestId("desk-fno-view-candidates").click();
     await page.getByTestId("desk-cand-strategy-open-LB1").click();
-    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym"), params(page).get("src_kind")]).toEqual(["more", "strategy", "LB1", "lab"]);
+    expect([params(page).get("tab"), params(page).get("view"), params(page).get("sym"), params(page).get("src_kind")]).toEqual(["trade", "new", "LB1", "lab"]); // was more/strategy before the 2026-10-27 redesign
     expect(params(page).get("lab")).toBeNull();                       // a tab change drops the lab's own params
   });
 });
@@ -541,7 +546,9 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
 // ── the breadcrumb trail ──────────────────────────────────────────────────
 
 test.describe("Desk breadcrumb", () => {
-  test("F-20 on load: Trading desk › AI Scanner", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
+  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
+  test.skip("F-20 on load: Trading desk › AI Scanner", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await expect(page.getByTestId("desk-trail-here")).toHaveText("AI Scanner");
@@ -550,7 +557,9 @@ test.describe("Desk breadcrumb", () => {
     expect(await trailText(page)).toBe("Trading desk › AI Scanner");
   });
 
-  test("F-21 / F-22 / F-27 the path is recorded, a crumb returns to that exact view, and scrolls back to the board", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
+  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
+  test.skip("F-21 / F-22 / F-27 the path is recorded, a crumb returns to that exact view, and scrolls back to the board", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-lab").click();
@@ -572,7 +581,9 @@ test.describe("Desk breadcrumb", () => {
     await expect(page.getByTestId("desk-trail")).toHaveAttribute("data-depth", "0");
   });
 
-  test("F-23 / F-24 a main tab starts the trail again; Trading desk opens the Overview", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
+  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
+  test.skip("F-23 / F-24 a main tab starts the trail again; Trading desk opens the Overview", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-top10-stock-ICICIBANK").getByTestId("desk-top10-stock-chart").click(SLOW);
@@ -585,7 +596,9 @@ test.describe("Desk breadcrumb", () => {
     await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "overview");
   });
 
-  test("F-25 a reload keeps the trail", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the breadcrumb shows the location (Trading desk › tab › view), not the
+  // click path, so there is no recorded path, crumb return or reload memory. Covered by copilot-app-desk-shell.spec.ts SH-11.
+  test.skip("F-25 a reload keeps the trail", async ({ page }) => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-top10-fno-SB1").getByTestId("desk-top10-fno-chain").click(SLOW);
@@ -603,7 +616,8 @@ test.describe("Scanner — market pulse", () => {
     await desk(page);
     await page.goto(SCANNER);
     await expect(page.getByTestId("desk-pulse-event-ann-001")).toContainText("Financial results for the quarter ended September 2026", SLOW);
-    const ids = await page.getByTestId("desk-pulse-events").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    // Desk redesign (2026-10-27): the strip is read in its section (Market Overview has a second pulse card).
+    const ids = await page.getByTestId("desk-panel-pulse").getByTestId("desk-pulse-events").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     expect(ids).toEqual(["desk-pulse-event-ann-001", "desk-pulse-event-ann-002"]);   // newest first
     await expect(page.getByTestId("desk-pulse-fii")).toHaveText("−₹1,000 cr");      // 2026-10-13, the newest session
     await expect(page.getByTestId("desk-pulse-dii")).toHaveText("+₹800 cr");
@@ -620,10 +634,10 @@ test.describe("Scanner — market pulse", () => {
     await desk(page);
     await page.goto(SCANNER);
     await page.getByTestId("desk-pulse-event-ann-002").click(SLOW);
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "intel");
+    // Desk redesign (2026-10-27): Market Intelligence is a Market Desk view; the breadcrumb is the location (SH-11), so no "from" crumb.
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "intel");
     expect(params(page).get("in_ev")).toBe("ann-002");
     await expect(page.getByTestId("desk-event-detail")).toHaveAttribute("data-id", "ann-002", SLOW);
-    await expect(page.getByTestId("desk-trail-crumb-0")).toHaveText("AI Scanner · Market pulse");
   });
 
   test("F-33 the pulse opens Market Intelligence, its FII / DII chip, and Smart Money", async ({ page }) => {
@@ -632,12 +646,13 @@ test.describe("Scanner — market pulse", () => {
     await page.getByTestId("desk-pulse-flows").click(SLOW);
     expect(params(page).get("in_chip")).toBe("flows");
     await expect(page.getByTestId("desk-intel-chip-flows")).toHaveAttribute("aria-pressed", "true", SLOW);
-    await page.getByTestId("desk-trail-crumb-0").click();
-    await page.getByTestId("desk-pulse-open-smartmoney").click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "smartmoney");
-    await page.getByTestId("desk-trail-crumb-0").click();
-    await page.getByTestId("desk-pulse-open-intel").click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "intel");
+    // Desk redesign (2026-10-27): back to Market Overview by URL (the breadcrumb no longer records the path); the targets are Market Desk views.
+    await page.goto(SCANNER);
+    await page.getByTestId("desk-pulse-open-smartmoney").click(SLOW);
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "smartmoney");
+    await page.goto(SCANNER);
+    await page.getByTestId("desk-pulse-open-intel").click(SLOW);
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "intel");
     expect(params(page).get("in_chip")).toBeNull();
   });
 

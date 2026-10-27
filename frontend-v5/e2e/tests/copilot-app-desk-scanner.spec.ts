@@ -657,7 +657,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId("desk-scan-cat-fno").click();
     await expect(rule).toContainText("F&O-eligible (NSE lot-size file) and in another category or a scanner setup.");
     await page.getByTestId("desk-scan-open-lab").click();
-    await expect(page).toHaveURL(/[?&]tab=fno(&|$)/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=smartmoney&section=fno(&|$)/); // the lab is Smart Money's F&O section since 2026-10-27
   });
 
   test("SP-4 filters: each one keeps the rows its figure allows and counts the rows without the figure; unavailable ones say why", async ({ page }) => {
@@ -755,7 +755,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-rank-m10")).toHaveAttribute("aria-pressed", "true");
     await expect.poll(() => rowOrder(page)).toEqual(want);
     await page.getByTestId(`desk-scan-row-${want[0]}`).getByTestId("desk-scan-setup").click();
-    await expect(page).toHaveURL(/[?&]tab=chart(&|$)/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
     await expect(page).toHaveURL(/sc_risk=medium/);
     await page.getByTestId("desk-tab-scanner").click();
     await expect(page).toHaveURL(/[?&]tab=scanner(&|$)/);
@@ -834,8 +834,8 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.goto(DESK_SCAN);
     await page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-act").click();
     await page.getByTestId("desk-scan-actions-FIXBRK").getByTestId("desk-scan-act-strategy").click();
-    await expect(page).toHaveURL(/tab=more/);
-    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/tab=trade/); // was tab=more&view=strategy before the 2026-10-27 redesign
+    await expect(page).toHaveURL(/view=new/);
     await expect(page).toHaveURL(/sym=FIXBRK/);
     await expect(page).toHaveURL(/src_kind=scanner/);
     await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
@@ -887,7 +887,7 @@ test.describe("Smart trading desk · AI scanner", () => {
 
     // Open analysis: the Chart tab with that stock.
     await uvol.getByTestId("desk-scan-act-open").click();
-    await expect(page).toHaveURL(/[?&]tab=chart(&|$)/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
     await expect(page).toHaveURL(/[?&]sym=UVOL1(&|$)/);
   });
 
@@ -961,7 +961,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(page.getByTestId("desk-scan-row-FIXACC")).toHaveAttribute("data-selected", "true");
     await expect(page.getByTestId("desk-scan-row-FIXBRK")).toHaveAttribute("data-selected", "false");
     await page.getByTestId("desk-scan-row-FIXPRE").getByTestId("desk-scan-setup").click();
-    await expect(page).toHaveURL(/[?&]tab=chart(&|$)/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
     await expect(page).toHaveURL(/[?&]sym=FIXPRE(&|$)/);
     await expect(page.getByTestId("desk-chart-symbol")).toHaveText("FIXPRE");
   });
@@ -1694,7 +1694,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
     await page.getByTestId("desk-detail-levels-toggle").click();
     await page.getByTestId("desk-lvl-strategy").click();
-    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/tab=trade&view=new/); // was view=strategy before the 2026-10-27 redesign
     await expect(page).toHaveURL(/sym=FIXBRK/);
     await expect(page).toHaveURL(/src_kind=chart/);
     await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);

@@ -604,7 +604,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.locator('[data-testid="desk-sector-tile"][data-index="Nifty PSU Bank"]').getByTestId("desk-sector-leader")).toHaveCount(0);
     await expect(page.getByTestId("desk-sector-leader")).toHaveCount(2);
     await it.getByTestId("desk-sector-leader").click();
-    await expect(page).toHaveURL(/[?&]tab=chart/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
     await expect(page).toHaveURL(/[?&]sym=TESTIT/);
   });
 
@@ -655,7 +655,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-sector-constituents-none")).toContainText(CONSTITUENTS_NONE.reason);
     await bank.getByTestId("desk-sector-open").click();
     await page.getByTestId("desk-sector-constituent").first().click();
-    await expect(page).toHaveURL(/[?&]tab=chart/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
     await expect(page).toHaveURL(new RegExp(`[?&]sym=${BANK_ROWS[0].symbol}`));
   });
 
@@ -776,7 +776,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-opps-trust")).toContainText(`Positional scanner (watchlist and picks) · End of day · ${day("2026-10-13", true)} · Rules-based`);
     // A row opens its chart analysis (PRD §4.4: every opportunity opens a detailed view).
     await rows.nth(1).click();
-    await expect(page).toHaveURL(/[?&]tab=chart/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
     await expect(page).toHaveURL(/[?&]sym=TESTBRK/);
   });
 
@@ -829,10 +829,12 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page).toHaveURL(/[?&]sym=TESTPICK/);
     await page.goto(`${DESK}?tab=overview`);
     await page.getByTestId("desk-events-all").click();
-    await expect(page).toHaveURL(/[?&]tab=intel/);
+    await expect(page).toHaveURL(/[?&]tab=market&view=intel/); // Market Intelligence is a Market Desk view since 2026-10-27
   });
 
-  test("OV-007 / OV-008: portfolio snapshot and risk summary from the holdings on record; nothing connected shows the empty state, never made-up holdings", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): Market Overview is the market part only; the portfolio snapshot and the
+  // risk summary are not on it (the real portfolio is My portfolio). Covered by copilot-app-desk-shell.spec.ts SH-8 / SH-12.
+  test.skip("OV-007 / OV-008: portfolio snapshot and risk summary from the holdings on record; nothing connected shows the empty state, never made-up holdings", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await deskApi(page);
     await overviewExtras(page);
@@ -882,7 +884,8 @@ test.describe("Smart trading desk — Overview", () => {
     await deskApi(page, { macro: withRegime(REGIMES.mixed) });
     await overviewExtras(page);
     await page.goto(`${DESK}?tab=overview`);
-    for (const id of ["desk-index-trust", "desk-breadth-trust", "desk-pulse-trust", "desk-sector-trust", "desk-opps-trust", "desk-events-trust", "desk-snapshot-trust", "desk-risk-trust"]) {
+    // Desk redesign (2026-10-27): the portfolio snapshot and the risk summary left Market Overview (SH-8), so their trust lines are not here.
+    for (const id of ["desk-index-trust", "desk-breadth-trust", "desk-pulse-trust", "desk-sector-trust", "desk-opps-trust", "desk-events-trust"]) {
       await expect(page.getByTestId(id), id).toHaveCount(1);
       await expect(page.getByTestId(id), id).not.toBeEmpty();
     }
@@ -1289,7 +1292,7 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await expect(impact.getByTestId("desk-event-history")).toContainText("— No study of how prices reacted to this kind of event is published yet");
     // A peer opens its chart.
     await peers.nth(1).click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-tab", "chart");
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await expect(page).toHaveURL(/[?&]sym=PEERTWO/);
   });
 

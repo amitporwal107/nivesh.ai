@@ -337,7 +337,7 @@ export function NewTradeView({ planId, source, onOverview }: { planId: string | 
       <section aria-label="F&O builder" className="flex min-w-0 flex-col" style={{ gap: 12, paddingTop: 16, borderTop: "1px solid var(--cp-line)" }}>
         <h2 className="cp-eyebrow m-0" data-testid="desk-section-fno-title">F&amp;O builder · payoff net of statutory costs, with Greeks</h2>
         <Templates />
-        <Part id="fno" name="the F&O builder"><FnoTab views={["strategies"]} builderCatalog={catalog} /></Part>
+        <Part id="fno" name="the F&O builder"><FnoTab views={["strategies"]} asSection builderCatalog={catalog} /></Part>
       </section>
       <section aria-label="Strategy Builder" className="flex min-w-0 flex-col" style={{ gap: 12, paddingTop: 16, borderTop: "1px solid var(--cp-line)" }}>
         <h2 className="cp-eyebrow m-0">Strategy Builder · plans and candidates</h2>
