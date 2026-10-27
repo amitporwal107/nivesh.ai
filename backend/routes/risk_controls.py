@@ -9,6 +9,11 @@
     GET  /api/risk/decisions       the append-only record of every risk decision and denial
     GET  /api/risk/policy          the F&O risk policy's version, limits and this user's usage against them
     GET  /api/risk/live-readiness  the twelve live-trading conditions of PRD §21, each pass / fail with its evidence
+    GET  /api/risk/profile         the account's risk profile (limits, capital basis, effective date), the definitions,
+                                   the live equity basis and budgets (equity, peak, drawdown, day / week P&L, open risk,
+                                   sector exposure) and the change log
+    PUT  /api/risk/profile         {changes: {limit: value, ...} | profile: name, reason}: tighten any limit; loosening
+                                   needs an admin (403 admin_required); every change is recorded (risk_profile_audit)
     GET  /api/risk/decisions/{id}/lineage  the decision's ten-step lineage: what is recorded and what is not
     POST /api/risk/decisions/{id}/replay   re-run the gate on the decision's stored snapshot and compare; writes nothing
                                    (both: the caller's own decision, or any for an admin; otherwise 404)
@@ -16,6 +21,7 @@
     PUT  /api/admin/risk/{user_id}/kill-switch         admin only: {enabled: bool, reason: str}
     PUT  /api/admin/risk/{user_id}/halt                admin only: {enabled: bool, reason: str}
     PUT  /api/admin/risk/{user_id}/live-authorization  admin only: {granted: bool, reason: str}
+    PUT  /api/admin/risk/{user_id}/profile             admin only: {changes | profile, reason}; may loosen
     GET  /api/admin/risk/jobs/{job}                    admin only: the scheduled job's last run, last success and
                                                        health (ok | partial | failed | running | missed | no_data |
                                                        skipped | never_run); services/job_runs. Reads only.
@@ -42,9 +48,14 @@ from deps import _is_role, db, get_current_user, require_role
 from services import execution_modes as modes
 from services import job_runs
 from services import risk_controls as rc
+from services import risk_book
 from services import risk_gate
+from services import risk_profile
 from services.risk_gate import policy as risk_policy
+from services.risk_gate import estimate as risk_estimate
+from services.risk_gate import inputs as risk_inputs
 from services.risk_gate import readiness, replay
+from services.risk_gate import service as risk_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/risk", tags=["risk"])
@@ -101,14 +112,17 @@ async def status(request: Request) -> Dict[str, Any]:
     state = await rc.read(db, uid)
     return {
         **state,
-        "scope": "blocks new positions on the AI-trader ticket, desk paper-trade and journal paths",
+        "scope": "blocks new positions on the AI-trader ticket, desk paper-trade and journal paths (every entry path "
+                 "runs the universal risk service, services/risk_gate/service.py)",
         "not_in_scope": "no order is placed anywhere in this system, and open positions are untouched",
         "policy_version": rc.POLICY_VERSION,
         "can_reset": await _is_admin_session(user),
         "live_authorization": await modes.read_live_authorization(db, uid),
         "modes": list(modes.MODES),
         "live_execution_available": modes.LIVE_EXECUTION_AVAILABLE,
-        "gate": {"enabled": await risk_gate.enabled_for(db, user), "policy_version": risk_policy.POLICY_VERSION},
+        "gate": {"enabled": await risk_gate.enabled_for(db, user), "policy_version": risk_policy.POLICY_VERSION,
+                 "scope": "the flag rolls out ADDITIONAL F&O structure checks only; the core risk checks always run"},
+        "risk_policy_version": risk_service.POLICY_VERSION,
     }
 
 
@@ -272,3 +286,78 @@ async def admin_job_health(job: str = Path(..., min_length=1, max_length=64)) ->
     if job not in job_runs.SCHEDULES:
         raise HTTPException(status_code=404, detail="unknown_job")
     return await job_runs.read_health(db, job, job_runs.utcnow())
+
+
+# ── the risk profile (services/risk_profile.py) ──────────────────────────────
+def _profile_error(e: risk_profile.ProfileError) -> HTTPException:
+    status = {"admin_required": 403, "concurrent_change": 409, "no_change": 409}.get(e.code, 422)
+    return HTTPException(status_code=status, detail=e.detail())
+
+
+def _profile_body(body: Any) -> Dict[str, Any]:
+    if not isinstance(body, dict) or set(body) - {"changes", "profile", "reason"}:
+        raise HTTPException(status_code=422, detail={"code": "invalid_input",
+                                                     "message": "send {changes: {...}} or {profile: name}, and a reason"})
+    return body
+
+
+async def _profile_view(uid: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    profile = await risk_profile.read(db, uid)
+    try:
+        book = await risk_book.read(db, uid, sector_of=risk_inputs.sector_of)
+        limits = profile["limits"]
+        equity = book["equity"]["equity_rs"]
+
+        def cap(pct: float):
+            return None if equity is None else round(equity * pct / 100.0, 2)
+
+        live = {"equity": book["equity"], "peak": book["peak"], "drawdown_pct": book["drawdown_pct"],
+                "day": book["day"], "week": book["week"], "open": book["open"],
+                "budgets_rs": {"per_trade": cap(limits["per_trade_risk_pct"]), "open_risk": cap(limits["max_open_risk_pct"]),
+                               "position": cap(limits["max_position_pct"]), "sector": cap(limits["max_sector_pct"])},
+                "error": None}
+    except Exception as e:  # noqa: BLE001 — the profile still answers; the live figures say they are unavailable
+        logger.warning("risk profile: book unreadable for %s (%s)", uid, type(e).__name__)
+        live = {"error": f"the account could not be read ({type(e).__name__})"}
+    return {"profile": profile, "live": live, "changes": await risk_profile.audit_rows(db, uid, 20),
+            "can_loosen": await _is_admin_session(user), "catalogue": risk_profile.catalogue(),
+            "estimate": risk_estimate.segment_note(), "risk_policy_version": risk_service.POLICY_VERSION,
+            "fno_additional_checks": {"flag": risk_gate.FLAG, "enabled": await risk_gate.enabled_for(db, user)}}
+
+
+@router.get("/profile")
+async def get_profile(request: Request) -> Dict[str, Any]:
+    """The account's risk profile, its definitions, the live equity basis and budgets, and the change log."""
+    user = await get_current_user(request)
+    return await _profile_view(_uid(user), user)
+
+
+@router.put("/profile")
+async def put_profile(request: Request) -> Dict[str, Any]:
+    """{changes: {limit: value}} or {profile: name}, and a reason. Tightening is the user's; loosening needs an admin."""
+    user = await get_current_user(request)
+    body = _profile_body(await _body(request))
+    try:
+        await risk_profile.set_limits(db, _uid(user), reason=body.get("reason"), actor=rc.session_actor(user),
+                                      actor_is_admin=await _is_admin_session(user), changes=body.get("changes"),
+                                      profile=body.get("profile"))
+    except risk_profile.ProfileError as e:
+        raise _profile_error(e)
+    return await _profile_view(_uid(user), user)
+
+
+@admin_router.put("/{user_id}/profile")
+async def admin_profile(request: Request, user_id: str = _TARGET, admin: dict = Depends(_require_admin)) -> Dict[str, Any]:
+    """Admin only: change another account's profile, loosening included; recorded with the admin as the actor."""
+    if not await _is_admin_session(admin):
+        raise HTTPException(status_code=403, detail=_ADMIN_REQUIRED)
+    body = _profile_body(await _body(request))
+    if not await db.users.find_one({"user_id": user_id}, {"_id": 0, "user_id": 1}):
+        raise HTTPException(status_code=404, detail="user_not_found")
+    try:
+        profile = await risk_profile.set_limits(db, user_id, reason=body.get("reason"), actor=rc.session_actor(admin),
+                                                actor_is_admin=True, changes=body.get("changes"),
+                                                profile=body.get("profile"))
+    except risk_profile.ProfileError as e:
+        raise _profile_error(e)
+    return {"profile": profile, "changes": await risk_profile.audit_rows(db, user_id, 20)}

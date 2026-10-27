@@ -65,6 +65,7 @@ from services import desk_trading as svc
 from services import paper_account as acct
 from services import risk_controls as rc
 from services import risk_gate
+from services.risk_gate import service as risk_service
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +128,10 @@ class _Refusals:
         code = code or (detail if isinstance(detail, str) else detail.get("code"))
         text = text or (detail.get("message") if isinstance(detail, dict) else None) or code
         await rc.record_decision(db, self.uid, action="desk_paper_trade", outcome="blocked", symbol=self.symbol,
-                                 requested_qty=self.quantity, reasons=[{"code": code, "text": text}],
+                                 requested_qty=self.quantity,
+                                 reasons=[{"code": code, "text": text, "check": "request", "severity": "block"}],
                                  correlation_id=self.cid, path="desk_paper_trade",
+                                 policy_version=risk_service.POLICY_VERSION, source="desk_validation",
                                  detail={"http_status": status, **(detail if isinstance(detail, dict) else {"code": detail})})
         return HTTPException(status_code=status, detail=detail)
 
@@ -166,26 +169,36 @@ async def _replay(ref: _Refusals, prior: Dict[str, Any], fingerprint: str, respo
     return {"trade": _public(prior), "replayed": True, **_price_context()}
 
 
+def _entry_request(user: Dict[str, Any], cid: str, doc: Dict[str, Any], fno_additional: bool) -> risk_service.EntryRequest:
+    """The universal risk service's request for a desk create: only what the user asked for (the instrument, the size,
+    the levels); the service resolves everything else on the server."""
+    common = dict(correlation_id=cid, user_id=doc["user_id"], actor_id=rc.session_actor(user), mode="paper",
+                  path="desk_paper_trade", action="open", trade_id=doc["_id"], store=svc.TRADES,
+                  cost_model=doc.get("cost_model"))
+    if doc.get("kind") == strat.KIND:
+        return risk_service.EntryRequest(**common, instrument="structure", symbol=doc["underlying"], legs=doc["legs"],
+                                         direction=doc.get("direction"), reference_price=doc.get("reference_price"),
+                                         stop_underlying=doc.get("stop_underlying"),
+                                         target_underlying=doc.get("target_underlying"), fno_additional=fno_additional)
+    return risk_service.EntryRequest(**common, instrument="cash", symbol=doc["symbol"], quantity=doc["quantity"],
+                                     entry_price=doc["entry_price"], stop_price=doc["stop_price"],
+                                     target_price=doc.get("target_price"))
+
+
 @router.post("/paper-trades", status_code=201)
 async def create_paper_trade(request: Request, response: Response) -> Dict[str, Any]:
     user = await get_current_user(request)
     uid = user["user_id"]
     ref = _Refusals(uid, risk_gate.correlation_id(request))
-    gated = await risk_gate.enabled_for(db, user)
+    # The fno_risk_gate flag only rolls out ADDITIONAL F&O structure checks; every core risk check below runs for
+    # everyone (services/risk_gate/service.py), so no flag can let an entry past them.
+    fno_additional = await risk_gate.enabled_for(db, user)
     raw = await request.body()
     try:
         body = json.loads(raw)
     except ValueError:
         body = None
     ref.note(body)                      # read only for the refusal's record; nothing is validated or written yet
-    # Without the F&O risk gate the kill switch is checked FIRST, before anything is validated or written: this path
-    # had no risk gate of any kind (docs/RISK_CONTROL_INVENTORY.md) and is the one a user actually clicks. With the
-    # gate, the same controls are its first check, after the body is validated. Open positions are untouched either way.
-    if not gated:
-        try:
-            await rc.assert_allowed(db, uid, "desk_paper_trade")
-        except rc.RiskBlocked as blocked:
-            raise await ref.refuse(409, blocked.detail("desk_paper_trade"), code="RISK_CONTROL", text=str(blocked))
     if body is None:
         raise await ref.refuse(422, "invalid_body")
     # Idempotency (gate 2): a retried submit with the same key gets the trade its first attempt made, before any
@@ -202,9 +215,8 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
             doc = strat.new_strategy_trade(uid, body)
-            if not gated:
-                # With the gate on, its own lot_size check judges this (and blocks an unverifiable lot).
-                await strat.check_exchange_lots(doc)
+            # The desk's own 422 for a made-up lot size; the risk service checks the exchange lot again (core).
+            await strat.check_exchange_lots(doc)
         else:
             if isinstance(body, dict) and "kind" in body:
                 if body["kind"] != "cash":
@@ -230,41 +242,29 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
             doc["entry_range_checked"] = svc.check_entry_tradable(doc, bars)
         except svc.DeskInputError as exc:
             raise await ref.refuse(422, exc.detail())
-    if gated:
-        # 409 risk_blocked / 503 risk_decision_unrecorded, before the account is charged or anything is written.
-        if doc.get("kind") == strat.KIND:
-            req = risk_gate.structure_request(user, ref.cid, path="desk_paper_trade", mode="paper", action="open",
-                                              underlying=doc["underlying"], legs=doc["legs"])
-        else:
-            req = risk_gate.cash_request(user, ref.cid, path="desk_paper_trade", mode="paper", action="open",
-                                         symbol=doc["symbol"], quantity=doc["quantity"],
-                                         capital_at_risk_rs=doc["quantity"] * doc["entry_price"])
-        risk_gate.stamp(doc, await risk_gate.enforce(db, req))
+    # THE risk decision (Phase 1): recorded first, then the funds and the risk budget reserved in one atomic update.
+    # 409 risk_blocked / risk_reduce (nothing written, nothing reserved) or 503 risk_decision_unrecorded.
+    decision = await risk_service.enforce(db, _entry_request(user, ref.cid, doc, fno_additional))
+    risk_service.stamp(doc, decision)
+    doc["paper_reserved_rs"] = float(decision["budget"].get("funding_rs") or 0.0)
     if key is not None:
         doc["idempotency_key"] = key
         doc["request_fingerprint"] = fingerprint
-    # The account is charged BEFORE the trade is written: a position the account cannot fund must not
-    # exist even briefly. A cash trade reserves quantity x entry price; a multi-leg structure reserves
-    # its capital at risk (desk_strategy_trades.exposure_rs) — not exchange margin, which this system
-    # has no source for.
-    need = acct.reservation_for(doc, strat.exposure_rs(doc) if doc.get("kind") == strat.KIND else None)
-    try:
-        reserved = await acct.reserve(db, uid, need, trade_id=doc["_id"], symbol=doc.get("symbol"))
-    except acct.InsufficientFunds as short:
-        raise await ref.refuse(409, short.detail())
-    doc["paper_reserved_rs"] = reserved
+
+    async def give_back(why: str) -> None:
+        await risk_service.release_unused(db, uid, decision, reason=why)
 
     await svc.ensure_indexes(db)
     open_filter = {"user_id": uid, "status": "open"}
     if await db[svc.TRADES].count_documents(open_filter) >= svc.MAX_OPEN_TRADES:
-        await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
+        await give_back("open_trade_limit")
         raise await ref.refuse(409, "open_trade_limit")
     try:
         await db[svc.TRADES].insert_one(doc)
     except DuplicateKeyError:
         # Another request with this key, or another open trade in this symbol / structure, was written between the
         # checks above and this insert (the unique indexes, svc.ensure_indexes). Ours takes its reservation back.
-        await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
+        await give_back("duplicate key on insert")
         if key is not None:
             prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": key})
             if prior is not None:
@@ -273,13 +273,16 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
         if existing is not None:
             raise await ref.refuse(409, _duplicate_detail(doc, existing))
         raise
+    except Exception:
+        await give_back("insert failed")
+        raise
     # Two requests that both counted 99 can both insert; the later count catches it and takes ours back.
     if await db[svc.TRADES].count_documents(open_filter) > svc.MAX_OPEN_TRADES:
         await db[svc.TRADES].delete_one({"_id": doc["_id"], "user_id": uid})
-        await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
+        await give_back("open_trade_limit")
         raise await ref.refuse(409, "open_trade_limit")
     logger.info("desk: user %s opened paper trade %s (%s)", uid, doc["_id"], doc["symbol"])
-    return {"trade": _public(doc), **_price_context()}
+    return {"trade": _public(doc), "risk": risk_service.public(decision), **_price_context()}
 
 
 def _public(doc: Dict[str, Any]) -> Dict[str, Any]:

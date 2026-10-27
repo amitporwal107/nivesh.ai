@@ -46,13 +46,14 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "allowed_modes": ["off", "allowlist"],
     },
     "fno_risk_gate": {
-        "display_name": "F&O risk gate (pre-trade checks)",
+        "display_name": "F&O risk gate: additional structure checks",
         "description": (
-            "Runs the shared pre-trade risk gate (services/risk_gate, policy fno-risk-v1) before the desk paper trade, "
-            "the journal entry and entry fill, and the AI-trader signals and confirm write anything: kill switch and "
-            "halt, mode, defined risk, the exchange lot and listed expiry, per-trade capital at risk and the open-"
-            "structure cap. Every decision is recorded in risk_decisions and a block answers 409 risk_blocked. Off = "
-            "the kill-switch check only, as before."
+            "Rolls out ADDITIONAL F&O structure checks on top of the universal risk service (services/risk_gate/"
+            "service.py, policy universal-risk-v1), which runs on every entry path whatever this flag says: the gate's "
+            "fixed caps (4 legs, 10 lots per leg, Rs 2 lakh capital at risk per structure, 10 open structures) and its "
+            "refusal of futures-only and unhedged-futures structures (policy fno-risk-v1). Off = the core checks only: "
+            "kill switch and halt, exchange lot and expiry, defined risk, per-trade and open risk, exposure, sector, "
+            "daily / weekly loss, drawdown, fresh inputs and funds. No setting of this flag can bypass the core."
         ),
         "default_mode": "off",
         "default_allowlist": [],
