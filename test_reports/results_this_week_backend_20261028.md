@@ -50,7 +50,7 @@ week 2026-10-27 built in 9.2s; gaps: ['results calendar: no analyst consensus is
     rel -1 2026-10-26 close 10071.0 chg -0.01 vsN -0.69 vol× 0.6 | OI 3.5 px -0.01 no clear signal prem 0.25 exp False carry None pcr 1.17
     rel +0 2026-10-27 close 10390.0 chg 3.17 vsN 3.18 vol× 1.1 | OI 18.52 px 3.17 long build-up prem 0.63 exp True carry -6.2 pcr 0.8
   before: {'date': '2026-10-26', 'state': 'no_clear_signal', 'text': 'no clear signal', 'price_pct': -0.01, 'oi_pct': 3.5, 'span': '1 session'}
-  after: {'date': '2026-10-27', 'since': '2026-10-26', 'state': None, 'text': 'rollover 79.8 % vs its usual 86.0 % (lower than usual)', 'price_pct': 3.17, 'oi_pct': 18.52, 'span': '2026-10-26 close �
+  after: {'date': '2026-10-27', 'since': '2026-10-26', 'state': None, 'text': 'rollover 79.8 % vs its usual 86.0 % (lower than usual)', 'price_pct': 3.17, 'oi_pct': 18.52, 'span': '2026-10-26 close …
 == FILE HEROMOTOCO (upcoming, first reaction None) built in 0.1s; gaps []
   commentary pre 0 · results 0 · post 0 · sentiment None · coverage: 0 of 7 exchange filings since 2026-10-07 have a stored analysis; the others are not summarised here.
     rel -5 2026-10-21 close 5153.5 chg -1.46 vsN -1.12 vol× 0.8 | OI 3.02 px -1.46 short build-up prem None exp False carry None pcr None
@@ -77,5 +77,22 @@ week 2026-10-27 built in 9.2s; gaps: ['results calendar: no analyst consensus is
 - Analyst views: no source is connected (Trendlyne MCP returns corporate events only) — the API says so.
 - Commentary coverage is what the filing-analysis pipeline has analysed (e.g. MANKIND 6 of 18 filings; BAJAJ-AUTO 0 — scanned results PDF).
 - The nightly snapshot job (cron) is still not installed; past dates answer only once a day is stored.
+
+
+## Addendum (00:37 IST): first public filing, expiry sessions, IST
+- The reaction is now timed from the earliest public results filing: the exchange's earnings-classified "Outcome of Board
+  Meeting / Financial Results" filing (DaaS /announcements, one bulk read) when it precedes the stored figures' broadcast.
+  Staging: BAJAJ-AUTO 15:21 IST 27 Oct (was 16:14 → first reaction wrongly 28 Oct; now 27 Oct); MANKIND 15:07 IST 26 Oct
+  (warehouse figures said 20:59) → first reaction 26 Oct.
+- A track session whose one-day OI change straddles a monthly expiry (expiry day, or the session after) has no state:
+  "expiry: OI not comparable". Sentiment basis in IST.
+- Unrelated CI blocker fixed as its own commit: tests/test_desk_paper_safety.py::test_i14 used the shared EXPIRY 2026-10-27,
+  now past (failed on dev too).
+```
+pytest results / positional / desk_paper_safety suites: 211 passed, 2 warnings in 9.49s
+```
+Staging recapture (read-only): MANKIND first reaction 2026-10-26, after "rollover 92.6 % vs its usual 93.6 % (normal)", rel +1
+2026-10-27 "expiry: OI not comparable"; BAJAJ-AUTO first reaction 2026-10-27, after "rollover 79.8 % vs its usual 86.0 % (lower
+than usual)"; HEROMOTOCO upcoming, rel −1 2026-10-27 "expiry: OI not comparable".
 
 ## Verdict: PASS
