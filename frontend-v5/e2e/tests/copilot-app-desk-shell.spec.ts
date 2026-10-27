@@ -26,7 +26,8 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
   trade: [{ key: "paper", label: "Paper trades" }, { key: "new", label: "New trade" }],
   market: [
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
-    { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" }, { key: "watchlists", label: "Watchlists & alerts" },
+    { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" },
+    // Watchlists and the Idea scorecard are Trade Desk's (owner, 27 Oct 19:40 IST): copilot-app-desk-market-desk.spec.ts
   ],
   risk: [{ key: "limits", label: "Exposure & limits" }, { key: "controls", label: "Policy & runtime" }, { key: "log", label: "Decision log" }],
 };
@@ -39,7 +40,6 @@ const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "market/sectors": [["desk-panel-sectors", "screen-tool-sector-heatmap"]],
   "market/research": [["desk-panel-chart", null]],
   "market/screener": [["desk-panel-screener", "screen-tool-screener"], ["desk-panel-chartink", "chartink-settings"]],
-  "market/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
   // The Risk Desk tab (step 4, tradingdesk/tabs/risk-desk) replaces the re-hosted Risk controls, F&O Live and Audit.
   "risk/limits": [["risk-desk", "rd-limits-card"], ["risk-desk", "risk-policy"]],
   "risk/controls": [["risk-desk", "risk-status"], ["risk-desk", "risk-audit"], ["risk-desk", "risk-profile"], ["risk-desk", "rd-live"]],
@@ -456,8 +456,8 @@ test.describe("MOCK — not real data: desk shell · phone 390px", () => {
     const views = page.getByTestId("desk-views");
     await page.getByTestId("desk-bottom-market").click();
     await expect(views).toBeVisible();
-    await views.getByTestId("desk-view-watchlists").click();
-    await expectAt(page, "market", "watchlists");
+    await views.getByTestId("desk-view-screener").click();
+    await expectAt(page, "market", "screener");
     await noSideScroll(page);
     await bar.getByTestId("desk-bottom-copilot").click();
     await expectAt(page, "copilot", null);

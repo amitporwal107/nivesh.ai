@@ -124,25 +124,15 @@ test.describe("AI scanner — results chip", () => {
     await expect(page.getByTestId("desk-top10-results-WEAKB-chip")).toHaveText(/Weak results −10 · figures pending$/);
     await expect(page.getByTestId("desk-top10-results-PLAINC")).toHaveCount(0);
     await expect(page.getByTestId("desk-top10-stocks-note")).toContainText(RANKING_NOTE);
-    // the Results week ideas join the same scanner read
+    // the Results week ideas (in Market Desk › Market Intelligence › Events › Results week) join the same scanner read
+    await page.goto(`${DESK}?tab=events`);
+    await page.getByTestId("events-view-rw").click(SLOW);
     await expect(page.getByTestId("results-week-idea-results-STRONGA-chip")).toHaveText(/Strong results \+10$/, SLOW);
     await expect(page.getByTestId("results-week-idea-results-PLAINC")).toHaveCount(0);
   });
 
-  test("RS-5 Overview › Top AI opportunities: final-score order and the chip", async ({ page }) => {
-    await setup(page);
-    await page.goto(`${DESK}?tab=overview`);
-    const opps = page.getByTestId("desk-opp");
-    await expect(opps.first()).toBeVisible(SLOW);
-    const order = await opps.evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")));
-    expect(order.slice(0, 4)).toEqual(["STRONGA", "PLAINC", "PLAIND", "WEAKB"]);
-    await expect(page.getByTestId("desk-opp-results-STRONGA-chip")).toHaveText(/Strong results \+10$/);
-    await expect(page.getByTestId("desk-opp-results-WEAKB-chip")).toHaveText(/Weak results −10 · figures pending$/);
-    await expect(page.getByTestId("desk-opp-results-PLAINC")).toHaveCount(0);
-    await page.getByTestId("desk-opp-results-STRONGA-chip").click();
-    await expect(page.getByTestId("desk-opp-results-STRONGA-detail")).toContainText("PAT 2.5 band-widths above its own trend (mock)");
-    expect(new URL(page.url()).searchParams.get("tab")).toBe("overview");
-  });
+  // RS-5 (Overview › Top AI opportunities) is retired: the desk's Market Overview (#373, the owner's structure) replaced
+  // that card; its Top AI candidates are the Top 10, whose chip RS-4 covers.
 
   test("RS-6 an older backend without results_signal: no chip anywhere, the lists still render", async ({ page }) => {
     const errors: string[] = [];
