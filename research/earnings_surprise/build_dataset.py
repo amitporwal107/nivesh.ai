@@ -42,6 +42,10 @@ _spec = importlib.util.spec_from_file_location("live_scoring", LIVE_SCORING)
 LS = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(LS)
 LIVE_SHA = hashlib.sha256(Path(LIVE_SCORING).read_bytes()).hexdigest()
+# Amendment A2: TIMING=first_filing (T2, governs) uses the earlier of broadcast_at and the earliest NSE "Outcome of Board
+# Meeting" filing on the broadcast's IST date or the meeting date; TIMING=broadcast (T1) is the §5 rule as registered.
+TIMING = os.environ.get("TIMING", "broadcast")
+assert TIMING in ("broadcast", "first_filing"), TIMING
 
 IST = timezone(timedelta(hours=5, minutes=30))
 TODAY = date(2026, 10, 27)                       # the data freeze; answer() treats every studied meeting as declared
@@ -252,6 +256,7 @@ def main(data: Path, out: Path) -> int:
     counts["backtest_records"] = {m: dict(sorted(Counter(r["target"].isoformat() for r in recs_all[m]).items())) for m in recs_all}
     counts["calibration_n"] = {m: cal[m].n for m in cal}
     counts["live_scoring_sha256"] = LIVE_SHA
+    counts["timing"] = TIMING
     srw = {m: [r for r in srw_records(store, m) if r["target"] <= CAL_FREEZE] for m in ("revenue", "pat")}
     cal_srw = {m: de.Calibration(srw[m], m) for m in srw}
     counts["srw_calibration_n"] = {m: cal_srw[m].n for m in cal_srw}
@@ -308,6 +313,14 @@ def main(data: Path, out: Path) -> int:
         for r in csv.DictReader(fh):
             fno[(date.fromisoformat(r["as_of_date"]), r["symbol"])] = (fnum(r["close"]), fnum(r["prev_close"]), fnum(r["oi"]),
                                                                        fnum(r["oi_chg"]), fnum(r.get("fut_value")))
+    first_outcome: Dict[Tuple[str, date], datetime] = {}
+    if TIMING == "first_filing":
+        with open(data / "outcome.csv", newline="") as fh:
+            for r in csv.DictReader(fh):
+                t = datetime.fromisoformat(r["filed_at"]).astimezone(IST)
+                k = (r["symbol"], t.date())
+                if k not in first_outcome or t < first_outcome[k]:
+                    first_outcome[k] = t
     eaa: Dict[str, List[Tuple[datetime, float]]] = defaultdict(list)
     with open(data / "eaa.csv", newline="") as fh:
         for r in csv.DictReader(fh):
@@ -451,9 +464,12 @@ def main(data: Path, out: Path) -> int:
                 excl.append((t_iso, sym, "answer() period differs from target"))
                 continue
             cons = a["basis"] == "consolidated"
-            # first reaction session S
-            j = bisect.bisect_left(sessions, bt.date())
-            S = j if (j < len(sessions) and sessions[j] == bt.date() and bt.time() < MARKET_CLOSE) else bisect.bisect_right(sessions, bt.date())
+            # first reaction session S, from the filing time of the chosen timing (§5 / A2)
+            ft = bt
+            if TIMING == "first_filing":
+                ft = min([bt] + [first_outcome[k] for k in ((sym, bt.date()), (sym, ev["event_date"])) if k in first_outcome])
+            j = bisect.bisect_left(sessions, ft.date())
+            S = j if (j < len(sessions) and sessions[j] == ft.date() and ft.time() < MARKET_CLOSE) else bisect.bisect_right(sessions, ft.date())
             if S - 1 < 0 or S + 5 >= len(sessions):
                 excl.append((t_iso, sym, "return window outside the price calendar"))
                 continue
@@ -551,7 +567,7 @@ def main(data: Path, out: Path) -> int:
                     l_up = sum(LS.UPCOMING_WEIGHTS[k] * v for k, v in present.items()) / got
             l_decl = None
             if fno_s and l_comp is not None:                 # live: a declared name needs its earnings score
-                parts = {"earnings": l_comp, "reaction": live_reaction(sym, bt, S), "oi": live_oi(sym, S)[1], "technical": tech_s}
+                parts = {"earnings": l_comp, "reaction": live_reaction(sym, ft, S), "oi": live_oi(sym, S)[1], "technical": tech_s}
                 present = {k: v for k, v in parts.items() if v is not None}
                 got = sum(LS.DECLARED_WEIGHTS[k] for k in present)
                 if got >= LS.MIN_PRESENT_WEIGHT_SHARE * sum(LS.DECLARED_WEIGHTS.values()):
@@ -588,7 +604,7 @@ def main(data: Path, out: Path) -> int:
 
             events.append({
                 "season": t_iso, "symbol": sym, "basis": a["basis"], "event_date": ev["event_date"].isoformat(),
-                "broadcast_ist": bt.isoformat(), "next_session": sessions[S] != bt.date(), "S": sessions[S].isoformat(),
+                "broadcast_ist": bt.isoformat(), "filed_ist": ft.isoformat(), "timing": TIMING, "next_session": sessions[S] != ft.date(), "S": sessions[S].isoformat(),
                 "liquid": liq, "R1": r1, "R1x": r1x, "R5": r5, "R5x": r5x, "D5x": d5x,
                 "pat_reliable": bool(mets["pat"].get("reliable")), "rev_reliable": bool(mets["revenue"].get("reliable")),
                 "z_pat": zp, "z_rev": zr, "z_pat_why": zp_why, "z_rev_why": zr_why,
