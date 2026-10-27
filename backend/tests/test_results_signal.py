@@ -58,7 +58,11 @@ def facts(**kw) -> Dict[str, Any]:
     ({"loss_to_profit": True, "revenue_yoy": 12.0}, "strong"),           # loss → profit meets the PAT condition
     ({"pat_yoy": -10.0, "revenue_yoy": 4.9}, "weak"),
     ({"pat_yoy": -10.0, "revenue_yoy": 5.0}, None),
-    ({"pat_yoy": 40.0, "revenue_yoy": 30.0, "below": ["revenue"]}, "weak"),   # a rated below wins
+    ({"pat_yoy": 40.0, "revenue_yoy": 30.0, "below": ["revenue"]}, None),    # a rated below with PAT strongly up: mixed
+    ({"pat_yoy": 247.0, "below": ["revenue"]}, None),                         # staging 27 Oct GAEL-like: not "weak"
+    ({"pat_yoy": 5.0, "below": ["pat"]}, "weak"),                             # a rated below without a strong PAT rise
+    ({"pat_yoy": -48.0, "revenue_yoy": 15.0, "margin_bps": 100.0}, None),    # staging 27 Oct MGEL-like: profit fell
+    ({"pat_yoy": -1.0, "revenue_yoy": 12.0, "margin_bps": 60.0}, None),      # any profit fall blocks "strong"
 ])
 def test_figures_rule_at_its_edges(kw, want):
     assert rs.classify_figures(facts(**kw))[0] == want

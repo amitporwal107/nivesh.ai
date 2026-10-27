@@ -127,18 +127,21 @@ signals, applied, gap, source}`.
   28 Oct, … 0 from the 5th session after 27 Oct.
 - STRONG on figures (+10): the quarter's figures stored and ≥ 2 of: PAT YoY ≥ +20 % (loss → profit counts as met); revenue
   YoY ≥ +10 %; EBITDA margin YoY ≥ +50 bps; a rated §4a metric verdict "above" — and no red flag (exceptional items > 20 % of
-  PBT, other income > 30 % of PBT) and no rated below.
+  PBT, other income > 30 % of PBT), no rated below, and **PAT not down YoY** (any fall blocks "strong"; a loss turning into
+  a profit is not a fall).
 - STRONG on the filing analysis (+5, figures pending): `event_ai_analysis` results band moderately positive or better at
   confidence ≥ 75.
-- WEAK (−10; −5 on the filing analysis): PAT YoY ≤ −10 % with revenue YoY < +5 %, or a rated verdict below / well below, or
-  (figures pending) band moderately negative or worse at confidence ≥ 75. Weak is checked first.
+- WEAK (−10; −5 on the filing analysis): PAT YoY ≤ −10 % with revenue YoY < +5 %, or a rated verdict below / well below
+  WITHOUT a strong PAT rise (PAT YoY ≥ +20 % or loss → profit), or (figures pending) band moderately negative or worse at
+  confidence ≥ 75. Weak is checked first. A rated below together with a strong PAT rise is mixed: no adjustment.
 - Decay: points × (1 − sessions_since / 5). Cached ≤ 10 min; bounded by 25 s; any source failure → no adjustment and a gap.
 - Reasons are factual, from the data, e.g. "Q2 FY27 PAT +40.0 % YoY, revenue +17.3 %, EBITDA margin +207 bps (filed 26 Oct)",
   "Filing analysis: moderately positive, confidence 80 % (figures not filed yet)".
-- Known effect of the rule as written (staging 27 Oct): two growth conditions can make "strong" while PAT fell (revenue +
-  margin), e.g. WESTLIFE (PAT −107 % YoY, revenue +16 %, margin +204 bps) and MGEL (PAT −48 %); and a red flag vetoes a strong
-  quarter (ATHERENERG: loss → profit, revenue +63 %, margin +1552 bps, but other income ≈ 50× a barely positive PBT). Listed
-  for the owner; not changed.
+- Changed 27 Oct (coordinator, before merge) after the staging dry run showed "strong" on a profit fall (WESTLIFE PAT −107 %,
+  MGEL −48 %, via revenue + margin) and "weak" on a profit jump (GAEL PAT +247 % with a rated revenue below): the PAT-not-down
+  condition and the "below without a strong PAT rise" condition above. Still as designed: a red flag vetoes a strong quarter
+  (ATHERENERG: loss → profit, revenue +63 %, margin +1552 bps, but other income ≈ 50× a barely positive PBT, so the profit
+  rests on other income).
 
 ### 4e. OI build-up across the coming months (owner, 27 Oct evening), F&O names only
 - `total` (headline): total futures OI across every expiry against the spot (cash close) over the last session (`*_1s`, the

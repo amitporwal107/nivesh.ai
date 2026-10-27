@@ -131,4 +131,18 @@ vetoes it (other income 4977 % of a barely positive PBT) — the rule as written
 - UNVERIFIED: live-route latency in the running server (dry-run builds took 6.8–11.4 s; the route waits ≤ 45 s, then serves
   the previous build or 503 building).
 
+
+## Addendum (19:36 IST, coordinator): results-signal rule fix before merge
+The staging dry run showed "strong" on a profit fall (WESTLIFE PAT −107 %, MGEL −48 %, via revenue + margin) and "weak" on a
+profit jump (GAEL PAT +247 % with a rated revenue below). Rule now: PAT down YoY blocks "strong" (loss → profit is not a fall);
+a rated below only makes "weak" without a strong PAT rise (otherwise mixed, no adjustment). Spec §4d updated; 4 new edge cases
+in tests/test_results_signal.py; the old "a rated below wins" case changed on purpose.
+```
+pytest tests/test_results_signal.py tests/test_results_week.py tests/test_positional_engine.py tests/test_positional_scan_universe.py tests/test_positional_desk_fields.py
+170 passed, 2 warnings in 8.38s
+```
+Staging data test (read-only overlay, rs.compute at ~19:50 IST 27 Oct): signals strong/figures 56, weak/figures 12, strong/filing 9, weak/filing 3, no gaps;
+WESTLIFE, MGEL, GAEL: no signal; MANKIND, SONACOMS, APLAPOLLO, ITCHOTELS, SUPREMEIND strong +10 (figures); TATACONSUM, PAYTM strong +5
+(filing analysis, figures pending); MARUTI weak −5 (filing analysis); ATHERENERG no signal (other-income red flag, by design).
+
 ## Verdict: PASS

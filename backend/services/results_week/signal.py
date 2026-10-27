@@ -121,11 +121,16 @@ def classify_figures(f: Dict[str, Any]) -> Tuple[Optional[str], List[str]]:
     names = {"pat": "PAT", "revenue": "revenue"}
     weak_pat = f["pat_yoy"] is not None and f["revenue_yoy"] is not None and f["pat_yoy"] <= PAT_YOY_WEAK_PCT \
         and f["revenue_yoy"] < REVENUE_YOY_WEAK_BELOW_PCT
-    if f["below"] or weak_pat:
+    pat_up = f["loss_to_profit"] or (f["pat_yoy"] is not None and f["pat_yoy"] >= PAT_YOY_STRONG_PCT)
+    # Profit fell (a loss turning into a profit is not a fall): never "strong", whatever revenue and margin did.
+    pat_down = f["pat_yoy"] is not None and f["pat_yoy"] < 0 and not f["loss_to_profit"]
+    if weak_pat or (f["below"] and not pat_up):
         extra = [f"{names[k]} below historical trend" for k in f["below"]]
         return "weak", extra
+    if f["below"] or pat_down:
+        return None, []                    # mixed: a rated below with a strong profit rise, or a profit fall
     met = []
-    if f["loss_to_profit"] or (f["pat_yoy"] is not None and f["pat_yoy"] >= PAT_YOY_STRONG_PCT):
+    if pat_up:
         met.append("pat")
     if f["revenue_yoy"] is not None and f["revenue_yoy"] >= REVENUE_YOY_STRONG_PCT:
         met.append("revenue")
