@@ -136,6 +136,42 @@ def test_kinds():
     assert rs.kind_of({"exchange_category": "Change in Director(s)", "event_type": "MANAGEMENT"}) == "other"
 
 
+def test_before_the_results_older_filings_are_kept_only_when_they_are_managements_own():
+    """Owner, 28 Oct: management's pre-results commentary for names not declared yet. Analyses from the last
+    COMMENTARY_BACK_DAYS stay; older ones (up to MGMT_BACK_DAYS) only when they are a call transcript, a presentation
+    or a business update, each filing counted once."""
+    recent = datetime(2026, 10, 7, 0, 0, tzinfo=timezone.utc)
+    docs = [doc("n1", datetime(2026, 10, 20, 9, 0), "Acquisition", "ACQUISITION"),
+            doc("o1", datetime(2026, 9, 1, 9, 0), "Acquisition", "ACQUISITION"),
+            doc("t1", datetime(2026, 8, 12, 9, 0), "Analysts/Institutional Investor Meet/Con. Call Updates", "EARNINGS CALL"),
+            doc("p1", datetime(2026, 8, 5, 9, 0), "Investor Presentation", "RESULTS"),
+            doc("p1", datetime(2026, 8, 5, 9, 0), "Investor Presentation", "RESULTS", analyzed=datetime(2026, 8, 6, 9, 0)),
+            doc("b1", datetime(2026, 10, 2, 9, 0), "Business Update", "BUSINESS UPDATE"),
+            doc("x1", None, "Press Release", "ORDER")]
+    kept, older = rs.keep_for_commentary(docs, recent)
+    assert sorted({d["announcement_id"] for d in kept}) == ["b1", "n1", "p1", "t1", "x1"]
+    assert older == 3                                                  # t1, p1 (two analyses, one filing), b1
+    c = rs.split_commentary(kept, datetime(2026, 10, 28, 10, 0, tzinfo=timezone.utc), {})
+    assert [i["announcement_id"] for i in c["pre"]] == ["x1", "p1", "t1", "b1", "n1"]   # oldest first; undated first
+    assert {i["kind"] for i in c["pre"] if i["announcement_id"] in ("p1", "t1", "b1")} == {"presentation", "earnings_call", "business_update"}
+
+
+def test_filing_links_reach_back_but_the_count_is_the_recent_window(monkeypatch):
+    rows = [{"announcement_id": "a", "attachment_url": "https://x/a.pdf", "filed_at": "2026-10-20T10:00:00+05:30"},
+            {"announcement_id": "b", "attachment_url": "https://x/b.pdf", "broadcast_at": "2026-10-08T10:00:00+05:30"},
+            {"announcement_id": "c", "attachment_url": "https://x/c.pdf", "filed_at": "2026-08-12T10:00:00+05:30"}]
+    seen = {}
+
+    async def daas_get(path, params, **kw):
+        seen.update(params)
+        return 200, {"data": rows}
+    monkeypatch.setattr(rs.loaders, "daas_get", daas_get)
+    urls, n, gap = asyncio.run(rs.announcements("ACME", date(2026, 7, 20), count_since=date(2026, 10, 7)))
+    assert gap is None and sorted(urls) == ["a", "b", "c"] and n == 2
+    assert seen["filed_from"] == "2026-07-20" and seen["limit"] == rs.ANN_LIMIT
+    assert asyncio.run(rs.announcements("ACME", date(2026, 7, 20)))[1] == 3
+
+
 def test_no_results_analysis_means_no_sentiment():
     c = rs.split_commentary([], datetime(2026, 10, 26, 15, 0, tzinfo=timezone.utc), {})
     assert c["sentiment"] is None and c["results"] == [] and c["analysed"] == 0
@@ -246,3 +282,35 @@ def test_the_first_public_results_filing_decides_the_reaction_session():
     from services.results_week import scoring as sc
     assert sc.first_session(t, SESS) == date(2026, 10, 27)                       # before the close: reacts the same day
     assert sc.first_session(build.filed_at_of(ev), SESS) == date(2026, 10, 28)    # figures time alone: the next day
+
+
+# ── a rate-limited DaaS read is retried (staging 28 Oct: 429s during a build) ──────────────────────────────────────
+
+def test_daas_get_retries_a_429_then_answers(monkeypatch):
+    from services.results_week import loaders
+    calls = []
+
+    async def get_raw(path, params=None, timeout=20.0):
+        calls.append(path)
+        return (429, {"error": "rate limit"}) if len(calls) < 3 else (200, {"data": []})
+
+    async def no_sleep(s):
+        return None
+    monkeypatch.setattr(loaders.daas_client, "get_raw", get_raw)
+    monkeypatch.setattr(loaders.asyncio, "sleep", no_sleep)
+    assert asyncio.run(loaders.daas_get("/announcements")) == (200, {"data": []}) and len(calls) == 3
+
+
+def test_daas_get_gives_up_after_the_retries(monkeypatch):
+    from services.results_week import loaders
+    calls = []
+
+    async def get_raw(path, params=None, timeout=20.0):
+        calls.append(path)
+        return 429, None
+
+    async def no_sleep(s):
+        return None
+    monkeypatch.setattr(loaders.daas_client, "get_raw", get_raw)
+    monkeypatch.setattr(loaders.asyncio, "sleep", no_sleep)
+    assert asyncio.run(loaders.daas_get("/x"))[0] == 429 and len(calls) == 1 + loaders.RATE_LIMIT_RETRIES

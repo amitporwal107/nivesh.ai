@@ -259,7 +259,7 @@ const sideways = (page: Page) => page.evaluate(() => {
 test.describe("Your lists — the example list", () => {
   test("a first visit makes the example list once, says where it came from, and prices each stock", async ({ page }) => {
     const { server, asked, errors } = await open(page);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
 
     await expect(tabNames(page)).toHaveText(["Multibagger"]);
     expect(starterCalls(server)).toBe(1);
@@ -314,7 +314,7 @@ test.describe("Your lists — the example list", () => {
 
   test("deleting the example list asks first, and it is not made again", async ({ page }) => {
     const { server, errors } = await open(page);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(tabNames(page)).toHaveText(["Multibagger"]);
 
     // The first press only asks; "Keep" backs out.
@@ -343,7 +343,7 @@ test.describe("Your lists — the example list", () => {
   test("with no research list published nothing is made and the screen says why; a failed attempt can be tried again", async ({ page }) => {
     const { server, errors } = await open(page);
     server.researchPublished = false;
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylists-empty")).toContainText("no research list has been published yet");
     await expect(page.getByTestId("mylists-empty")).toContainText("You can make your own list now.");
     await expect(page.getByTestId("mylist-tab")).toHaveCount(0);
@@ -367,7 +367,7 @@ test.describe("Your lists — the example list", () => {
 
   test("a user who has had a list before is not given the example, and an empty answer is not an error", async ({ page }) => {
     const { server, errors } = await open(page, { lists: [], hadList: true });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylists-empty")).toContainText("You have no lists yet");
     await expect(page.getByTestId("mylists-count")).toHaveText("Your lists · 0 of 20");
     await expect(page.getByTestId("mylists-error")).toHaveCount(0);
@@ -384,7 +384,7 @@ test.describe("Your lists — the example list", () => {
 test.describe("Your lists — create, rename, delete", () => {
   test("a list is made, renamed and deleted, each shown only once the server has it", async ({ page }) => {
     const { server, errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(tabNames(page)).toHaveText(["Fixture banks", "Fixture to read up on"]);
     await expect(page.getByTestId("mylist-tab-count")).toHaveText(["5", "0"]);
     await expect(page.getByTestId("mylist-name")).toHaveText("Fixture banks");       // the first list is open
@@ -439,7 +439,7 @@ test.describe("Your lists — create, rename, delete", () => {
 
   test("switching lists shows that list's stocks", async ({ page }) => {
     const { errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-stock")).toHaveCount(5);
     await tab(page, "Fixture to read up on").click();
     await expect(page.getByTestId("mylist-name")).toHaveText("Fixture to read up on");
@@ -453,7 +453,7 @@ test.describe("Your lists — create, rename, delete", () => {
 
   test("a refused or failed list write is said beside its control and changes nothing", async ({ page }) => {
     const { server, errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(tabNames(page)).toHaveText(["Fixture banks", "Fixture to read up on"]);
 
     // A name already used, whatever its case: the route's own sentence is shown.
@@ -507,7 +507,7 @@ test.describe("Your lists — create, rename, delete", () => {
 test.describe("Your lists — stocks", () => {
   test("each stock shows a live price, a stored price with its date, or that there is no quote", async ({ page }) => {
     const { errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-stock")).toHaveCount(5);
     expect(await symbolsShown(page)).toEqual(["FIXALPHA", "FIXCHARLIE", "FIXDELTA", "FIXECHO", "FIXNAMELESS"]);
     expect(await iconKeys(page.getByTestId("mylist-stocks"))).toEqual(["FIXALPHA", "FIXCHARLIE", "FIXDELTA", "FIXECHO", "FIXNAMELESS"]);
@@ -540,7 +540,7 @@ test.describe("Your lists — stocks", () => {
   test("the prices line says when none of the prices are live, and when there are none", async ({ page }) => {
     const { server, errors } = await open(page, mine());
     server.quotes.FIXALPHA = { price: 210.5, day_change: 1.5, day_change_pct: 0.72, as_of: "2026-10-12", is_live: false };
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-quotes")).toContainText("Last stored prices");
     await expect(page.getByTestId("mylist-quotes-checked")).toHaveCount(0);
     await expect(stock(page, "FIXALPHA").getByTestId("mylist-stored")).toHaveText("Stored price · 12 Oct");
@@ -555,7 +555,7 @@ test.describe("Your lists — stocks", () => {
 
   test("add a stock: the symbol master is searched, and the stock appears only after the server has it", async ({ page }) => {
     const { server, search, errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await tab(page, "Fixture to read up on").click();
     await expect(page.getByTestId("mylist-empty")).toBeVisible();
 
@@ -604,7 +604,7 @@ test.describe("Your lists — stocks", () => {
 
   test("an add that is refused, fails or finds the stock already there says so and changes nothing", async ({ page }) => {
     const { server, search, errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-stock")).toHaveCount(5);
     const box = page.getByTestId("mylist-add-search");
 
@@ -662,7 +662,7 @@ test.describe("Your lists — stocks", () => {
   test("remove a stock: it goes only after the server has removed it, and a failed remove changes nothing", async ({ page }) => {
     const { server, errors } = await open(page, mine());
     server.lists[0].stocks.push({ symbol: "FIX&FOX", company_name: "Fixture & Fox Retail Limited", added_at: NOW });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-stock")).toHaveCount(6);
 
     const removing = gate();
@@ -709,7 +709,7 @@ test.describe("Your lists — limits and states", () => {
     }));
     lists[0].stocks = Array.from({ length: 100 }, (_, i) => ({ symbol: `FIXGEN${i + 1}`, company_name: `Fixture Generated ${i + 1} Limited`, added_at: NOW }));
     const { server, errors } = await open(page, { lists });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
 
     await expect(page.getByTestId("mylists-count")).toHaveText("Your lists · 20 of 20");
     await expect(page.getByTestId("mylist-tab")).toHaveCount(20);
@@ -740,7 +740,7 @@ test.describe("Your lists — limits and states", () => {
   test("a limit the screen did not know about is said in the server's words", async ({ page }) => {
     const { server, errors } = await open(page, mine());
     server.refuse.create = { status: 409, detail: "You can keep up to 20 lists. Delete one to make another." };
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await page.getByTestId("mylist-new").click();
     await page.getByTestId("mylist-new-name").fill("Fixture one too many");
     await page.getByTestId("mylist-new-save").click();
@@ -752,7 +752,7 @@ test.describe("Your lists — limits and states", () => {
   test("the lists failing to load, loading in the wrong shape, and one list failing are each said, with a retry that works", async ({ page }) => {
     const { server, errors } = await open(page, mine());
     server.refuse.index = { status: 500, detail: "boom" };
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylists-error")).toContainText("Your lists didn’t load — the server reported an error", { timeout: 15_000 });
     await expect(page.getByTestId("mylists-count")).toHaveText("Your lists");          // no count is claimed
     await expect(page.getByTestId("mylist-tab")).toHaveCount(0);
@@ -791,7 +791,7 @@ test.describe("Your lists — limits and states", () => {
   test("a price refresh that fails keeps the list on screen and says the prices may be out of date", async ({ page }) => {
     await page.clock.install();
     const { server, errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-stock")).toHaveCount(5);
     await expect(stock(page, "FIXALPHA").getByTestId("mylist-price")).toHaveText("₹213.00");
     const reads = () => server.calls.filter((c) => c === `GET /api/watchlists/${BANKS}`).length;
@@ -819,7 +819,7 @@ test.describe("Your lists — limits and states", () => {
 test.describe("Your lists — with the rest of the Watchlist screen", () => {
   test("a research stock can be added to one of the user's lists", async ({ page }) => {
     const { server, errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(tabNames(page)).toHaveText(["Fixture banks", "Fixture to read up on"]);
     const bravo = page.locator('[data-testid="watchlist-item"][data-symbol="FIXBRAVO"]');
     await expect(page.getByTestId("watchlist-add-to-list")).toHaveCount(3);            // one on each research stock
@@ -858,7 +858,7 @@ test.describe("Your lists — with the rest of the Watchlist screen", () => {
 
   test("with no list to add to, the research row says to make one first", async ({ page }) => {
     const { server, errors } = await open(page, { lists: [], hadList: true });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylists-empty")).toBeVisible();
     const alpha = page.locator('[data-testid="watchlist-item"][data-symbol="FIXALPHA"]');
     await alpha.getByTestId("watchlist-add-to-list").click();
@@ -869,7 +869,7 @@ test.describe("Your lists — with the rest of the Watchlist screen", () => {
 
   test("what is still not connected is alerts on a price or a volume, and the sending of alerts", async ({ page }) => {
     const { errors } = await open(page, mine());
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     const block = page.getByTestId("watchlist-alerts-nc");
     await expect(block).toContainText("Price and volume alerts, and the sending of alerts, are not connected yet");
     await expect(block).toContainText("You can keep your own lists of stocks above.");
@@ -900,7 +900,7 @@ test.describe("Your lists — phone (390×844)", () => {
     const lists = mine().lists;
     lists.push({ ...structuredClone(MINE.lists[1]), watchlist_id: "wl_fixturelong", name: longName });
     const { errors } = await open(page, { lists });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-stock")).toHaveCount(5);
     expect(await sideways(page)).toEqual({ doc: 0, scroll: 0 });
 
@@ -951,7 +951,7 @@ test.describe("Your lists — phone (390×844)", () => {
 
   test("the example list and its note fit the phone", async ({ page }) => {
     const { errors } = await open(page);
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("mylist-starter-note")).toHaveText(STARTER_NOTE);
     await expect(page.getByTestId("mylist-stock")).toHaveCount(3);
     await expect(stock(page, "FIXCHARLIE").getByTestId("mylist-stored")).toBeVisible();

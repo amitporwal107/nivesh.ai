@@ -21,7 +21,7 @@ const CARD = load("contract-decision-card.json");
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const DESK = "/v5/app/trader/desk";
 const SCANNER = `${DESK}?tab=scanner`;
-const WATCHLIST = "/v5/app/page/watchlist";
+const WATCHLIST = "/v5/app/page/watchlist?wl=all";
 const SLOW = { timeout: 15_000 };
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 

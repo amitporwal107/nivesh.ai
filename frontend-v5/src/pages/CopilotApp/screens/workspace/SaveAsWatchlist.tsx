@@ -9,7 +9,7 @@ import { Btn } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
 import { LoadError } from "../markets/parts";
 
-const WATCHLIST_VIEW = "page/watchlist";
+const WATCHLIST_VIEW = "page/watchlist?wl=screens";   // the Watchlist page opens on its Saved screens list
 
 /** A quiet link to the Watchlist screen. */
 export function OpenWatchlist({ testId, children = "Open the Watchlist ›" }: { testId?: string; children?: string }) {
