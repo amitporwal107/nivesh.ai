@@ -59,7 +59,11 @@ Specs run: the new `copilot-app-desk-shell.spec.ts`, `copilot-app.spec.ts` (mode
 |---|---|---|---|---|---|---|
 | dev baseline | origin/dev `e832ecb1`, 36 old specs + `copilot-app.spec` (888 tests) | `tsc: clean` | `✓ built in 29.04s` | 836 | 33 | 19 |
 | branch, run 2 | merged branch `3c88a21c`, the same specs + the shell spec (923 tests) | `tsc: clean` | `✓ built in 25.73s` | 843 | 47 | 33 |
-| branch, run 3 | `7ef83ad2` (fixes for run 2's 15) | in progress when the PR was opened | | | | |
+| branch, run 3 | `7ef83ad2` (fixes for run 2's 15) | `tsc: clean` | built | 250 passed of 923 when the PR was opened | 4 so far | — |
+
+**Run 3 when the PR was opened** (it was still running, slowly: load average about 30, with two other sessions' Playwright containers on the 4-CPU VM). Four failures so far:
+- **ai-watchlist F-5:** one more old expectation (`["fno","chain",…]`), missed in run 2 because the test stopped earlier. Fixed in the next commit.
+- **desk-chartink CK-10b, desk-decision-cards UI-7b (30 s timeout) and desk-lab TC-EXP:** all three passed in run 2. UNVERIFIED cause: the failure details print only at the end of the run. They are probably load timeouts.
 
 Real runner summary lines (unedited):
 - dev: `33 failed` · `19 skipped` · `836 passed (22.0m)` · `exit 1`
