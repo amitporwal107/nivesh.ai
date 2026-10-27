@@ -1139,14 +1139,17 @@ const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
 
 const ScannerPulse = lazy(() => import("./ScannerPulse").then((m) => ({ default: m.ScannerPulse })));
 const ScannerTop10 = lazy(() => import("./ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
+/** Results week ideas (docs/EARNINGS_SURPRISE_TRACKER.md §4c, §6): its own chunk and files (resultsweek/). */
+const ResultsWeekIdeas = lazy(() => import("./resultsweek/ResultsWeekIdeas"));
 
-/** The tab: the market pulse and the Top 10 boards (each loads on its own), then the scanner list. */
+/** The tab: the market pulse, the Top 10 boards and the results week ideas (each loads on its own), then the scanner list. */
 export default function ScannerTab() {
   const { mobile } = useCopilotShell();
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
       <Suspense fallback={<LoadingBlock label="Loading the market pulse" rows={1} />}><ScannerPulse /></Suspense>
       <Suspense fallback={<LoadingBlock label="Loading the Top 10 ideas" rows={2} />}><ScannerTop10 /></Suspense>
+      <Suspense fallback={<LoadingBlock label="Loading the results week ideas" rows={2} />}><ResultsWeekIdeas /></Suspense>
       <ScannerList />
     </div>
   );
