@@ -74,10 +74,10 @@ function stream(mode: "live" | "closed" | "expired") {
 /** One price per requested leg, in request order: 1.25 × the list day's premium. */
 const livePrice = (entry: number) => Math.round(entry * 1.25 * 100) / 100;
 
-interface Seen { days: string[]; paper: Array<Record<string, unknown>>; payoff: number; fnoQuotes: number; levels: number }
+interface Seen { days: string[]; paper: Array<Record<string, unknown>>; paperKeys: Array<string | undefined>; payoff: number; fnoQuotes: number; levels: number }
 
 async function open(page: Page, o: { feed?: "live" | "closed" | "expired"; day?: (date: string | null) => { status: number; body: unknown }; phone?: boolean } = {}): Promise<Seen> {
-  const seen: Seen = { days: [], paper: [], payoff: 0, fnoQuotes: 0, levels: 0 };
+  const seen: Seen = { days: [], paper: [], paperKeys: [], payoff: 0, fnoQuotes: 0, levels: 0 };
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await mockApi(page, "populated");
   await page.route("**/api/desk/ai-watchlist*", (route) => {
@@ -105,7 +105,11 @@ async function open(page: Page, o: { feed?: "live" | "closed" | "expired"; day?:
       label: "short_buildup", days_to_expiry: 1, fut_contracts: 900, fut_turnover_cr: 812.4, cash_confirmation: "confirms", fno_eligible: true, risk_flags: [] },
   ] }));
   await page.route("**/api/desk/paper-trades*", (route) => {
-    if (route.request().method() === "POST") { seen.paper.push(route.request().postDataJSON()); return reply(route, { trade: { id: "t1" } }, 201); }
+    if (route.request().method() === "POST") {
+      seen.paper.push(route.request().postDataJSON());
+      seen.paperKeys.push(route.request().headers()["idempotency-key"]);
+      return reply(route, { trade: { id: "t1" } }, 201);
+    }
     return reply(route, { as_of: "2026-10-26", trades: [], summary: null });
   });
   // A stored day's levels are never asked for again: any call here is counted and answered with a MOCK not-valid reply.
@@ -185,6 +189,9 @@ test.describe("AI scanner watchlist", () => {
     await expect(icici.getByTestId("aiw-paper-done")).toContainText("208 ICICIBANK");
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
       source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-26" } }]);
+    // desk_paper_safety TESTCASES UI-4: the submission carries one Idempotency-Key (a UUID).
+    expect(seen.paperKeys).toHaveLength(1);
+    expect(seen.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
     await icici.getByTestId("aiw-cash-plan").click();
     await expect(page).toHaveURL(/\/v5\/app\/trader\/desk\?/);

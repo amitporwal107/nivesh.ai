@@ -8,7 +8,9 @@ Store (MongoDB, every document carries the owner's `user_id`; ids are uuid4 stri
     desk_paper_trades   symbol, quantity, entry_price, stop_price, target_price, note, source,
                         opened_at, status ("open" | "closed"), closed_at, exit_price,
                         exit_reason ("stop" | "target" | "manual"), exit_session, exit_note,
-                        realized_pnl_rs, created_at, updated_at
+                        realized_pnl_rs, created_at, updated_at,
+                        open_key ("cash:SYMBOL" while open, null once closed; unique per user while open),
+                        idempotency_key + request_fingerprint (only when the client sent an Idempotency-Key)
     desk_price_alerts   symbol, condition ("above" | "below"), level, note, created_at,
                         status ("active" | "fired"), fired_at, fired_session, fired_price, updated_at
 
@@ -55,6 +57,8 @@ Nothing here can create a broker order: there is no broker import and no order c
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import math
 import re
@@ -151,11 +155,17 @@ _indexes_ready = False
 
 
 class DeskInputError(ValueError):
-    """A request body that cannot be stored; `code` is what the client is told."""
+    """A request body that cannot be stored; `code` is what the client is told, and `message` (optional) the reason
+    in words when the code alone does not say it (an exchange lot, a price range)."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, message: Optional[str] = None):
         super().__init__(code)
         self.code = code
+        self.message = message
+
+    def detail(self) -> Any:
+        """The HTTP `detail`: the bare code, as every older refusal answers, or {code, message} when there is one."""
+        return {"code": self.code, "message": self.message} if self.message else self.code
 
 
 class PricesUnavailable(RuntimeError):
@@ -171,8 +181,15 @@ def _iso(moment: datetime) -> str:
 
 
 async def ensure_indexes(db) -> None:
-    """Indexes on (user_id, status) for the per-user reads and (status, symbol) for the evening check.
-    Asked for once per process; a failure is logged and asked for again on the next call."""
+    """Indexes on (user_id, status) for the per-user reads and (status, symbol) for the evening check, plus two
+    UNIQUE partial indexes on the trades that make a duplicate impossible even when two requests race:
+        (user_id, idempotency_key)   one trade per client key (a retried submit returns the first trade)
+        (user_id, open_key)          one OPEN trade per symbol (cash) or per structure (strategy); `open_key` is set
+                                     while the trade is open and cleared to null when it closes, and the index only
+                                     covers open trades, so a closed one never blocks (even one closed by older code
+                                     that did not clear the key)
+    Both are partial on the field being a string, so trades stored before these fields existed (none has them) never
+    collide. Asked for once per process; a failure is logged and asked for again on the next call."""
     global _indexes_ready
     if _indexes_ready:
         return
@@ -180,9 +197,44 @@ async def ensure_indexes(db) -> None:
         for name in (TRADES, ALERTS):
             await db[name].create_index([("user_id", 1), ("status", 1)])
             await db[name].create_index([("status", 1), ("symbol", 1)])
+        await db[TRADES].create_index([("user_id", 1), ("idempotency_key", 1)], unique=True,
+                                      name="user_idempotency_key_unique",
+                                      partialFilterExpression={"idempotency_key": {"$type": "string"}})
+        await db[TRADES].create_index([("user_id", 1), ("open_key", 1)], unique=True, name="user_open_key_unique",
+                                      partialFilterExpression={"open_key": {"$type": "string"}, "status": "open"})
         _indexes_ready = True
     except Exception as exc:  # noqa: BLE001
         logger.warning("desk_trading: the indexes could not be created: %r", exc)
+
+
+# ── idempotency and duplicates ───────────────────────────────────────────────
+IDEMPOTENCY_HEADER = "Idempotency-Key"
+_IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9._:-]{8,64}$")
+
+
+def clean_idempotency_key(raw: Any) -> Optional[str]:
+    """The client's `Idempotency-Key` header: None when it was not sent (no replay protection, the duplicate rule
+    still applies), else 8 to 64 characters of letters, digits and . _ : - (a UUID fits)."""
+    if raw is None:
+        return None
+    key = raw.strip() if isinstance(raw, str) else ""
+    if not _IDEMPOTENCY_RE.match(key):
+        raise DeskInputError("invalid_idempotency_key", "The Idempotency-Key header must be 8 to 64 letters, digits "
+                                                        "or . _ : - characters.")
+    return key
+
+
+def request_fingerprint(body: Any) -> str:
+    """A stable hash of the request body, so a replay of a key can be told apart from a different request that
+    reuses it (the services/oms/orders.py rule)."""
+    text = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def open_key(doc: Dict[str, Any]) -> str:
+    """The key that makes a second OPEN cash trade in the same symbol a duplicate for the same user. Adding to or
+    averaging into a position is not supported yet (PRD §7), so the same symbol is the same position."""
+    return f"cash:{doc['symbol']}"
 
 
 # ── validation ───────────────────────────────────────────────────────────────
@@ -723,6 +775,7 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
         "realized_pnl_rs": gross,
         "costs_rs": costs,
         "net_pnl_rs": round(gross - costs, 2) if gross is not None and costs is not None else None,
+        "open_key": None,              # frees the symbol for a new trade (routes/desk_trading.py duplicate rule)
         **path,
         "checked_through": sim["checked_through"].isoformat() if sim and sim["checked_through"] else None,
         "updated_at": stamp,

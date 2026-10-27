@@ -147,10 +147,13 @@ const PAYOFF = {
   loss_can_exceed_margin: false, caveats: [], sent_to_broker: false,
 };
 
-interface Seen { ideas: unknown[]; top: unknown[]; payoff: number; paper: Array<Record<string, unknown>>; levels: Array<Record<string, any>> }
+interface Seen { ideas: unknown[]; top: unknown[]; payoff: number; paper: Array<Record<string, unknown>>; paperKeys: Array<string | undefined>; levels: Array<Record<string, any>> }
+
+/** A UUID v4, the shape of the Idempotency-Key the desk sends (lib/observability correlationId). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 async function desk(page: Page, over: { top?: { status: number; body: unknown }; ideas?: { status: number; body: unknown } } = {}): Promise<Seen> {
-  const seen: Seen = { ideas: [], top: [], payoff: 0, paper: [], levels: [] };
+  const seen: Seen = { ideas: [], top: [], payoff: 0, paper: [], paperKeys: [], levels: [] };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (r) => json(r, []));
@@ -161,6 +164,7 @@ async function desk(page: Page, over: { top?: { status: number; body: unknown };
   await page.route("**/api/desk/paper-trades*", (r) => {
     if (r.request().method() === "POST") {
       seen.paper.push(r.request().postDataJSON());
+      seen.paperKeys.push(r.request().headers()["idempotency-key"]);
       return json(r, { trade: { id: `t${seen.paper.length}` } }, 201);
     }
     return json(r, { as_of: "2026-10-19", trades: [], summary: null });
@@ -259,6 +263,45 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(icici.getByTestId("desk-top10-paper-done")).toContainText("208 ICICIBANK");
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
       source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" } }]);
+    // desk_paper_safety TESTCASES UI-1: one Idempotency-Key with the submission (a header; the body is unchanged).
+    expect(seen.paperKeys).toHaveLength(1);
+    expect(seen.paperKeys[0]).toMatch(UUID);
+  });
+
+  test("F-5b a retried submission reuses its key, a changed one gets a new key, and a 409 duplicate shows the route's reason", async ({ page }) => {
+    // desk_paper_safety TESTCASES UI-2, UI-3. MOCK — not real data: the 503 and the 409 below are the route's shapes
+    // (backend/routes/desk_trading.py _duplicate_detail), not captured answers.
+    await desk(page);
+    const posts: Array<{ key: string | undefined; body: Record<string, unknown> }> = [];
+    const answers = [
+      { status: 503, body: { detail: "upstream_unavailable" } },
+      { status: 409, body: { detail: { code: "duplicate_open_trade", existing_trade_id: "t-open-1", symbol: "ICICIBANK",
+        message: "You already have an open paper trade in ICICIBANK (paper trade t-open-1, opened 2026-10-20T03:03:00+00:00). Adding to a position is not supported yet; close it first." } } },
+      { status: 201, body: { trade: { id: "t-new" } } },
+    ];
+    await page.route("**/api/desk/paper-trades*", (r) => {
+      if (r.request().method() !== "POST") return json(r, { as_of: "2026-10-19", trades: [], summary: null });
+      posts.push({ key: r.request().headers()["idempotency-key"], body: r.request().postDataJSON() });
+      const a = answers[posts.length - 1];
+      return json(r, a.body, a.status);
+    });
+    await page.goto(SCANNER);
+    const icici = page.getByTestId("desk-top10-stock-ICICIBANK");
+    await icici.getByTestId("desk-top10-stock-paper").click();
+    await icici.getByTestId("desk-top10-paper-add").click();
+    await expect(icici.getByTestId("desk-top10-paper-error")).toContainText("(upstream_unavailable)");
+    await icici.getByTestId("desk-top10-paper-add").click();                       // the same submission, retried
+    await expect(icici.getByTestId("desk-top10-paper-error")).toHaveText(
+      "Not added — You already have an open paper trade in ICICIBANK (paper trade t-open-1, opened 2026-10-20T03:03:00+00:00). Adding to a position is not supported yet; close it first. (duplicate_open_trade)");
+    await icici.getByTestId("desk-top10-paper-qty").fill("100");                 // a different submission
+    await icici.getByTestId("desk-top10-paper-add").click();
+    await expect(icici.getByTestId("desk-top10-paper-done")).toContainText("100 ICICIBANK");
+    expect(posts).toHaveLength(3);
+    expect(posts[0].key).toMatch(UUID);
+    expect(posts[1].key).toBe(posts[0].key);
+    expect(posts[2].key).toMatch(UUID);
+    expect(posts[2].key).not.toBe(posts[0].key);
+    expect([posts[0].body.quantity, posts[1].body.quantity, posts[2].body.quantity]).toEqual([208, 208, 100]);
   });
 
   test("F-6 View trades › opens Portfolio & Risk", async ({ page }) => {

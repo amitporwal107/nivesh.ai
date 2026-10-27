@@ -141,8 +141,12 @@ def test_flag_on_an_unverifiable_lot_is_409(capi, gate):
 
 
 def test_flag_on_a_bad_body_is_still_the_desks_422(capi, gate):
-    assert capi.post(TRADES_URL, json=trade_body(quantity=-1), headers=A).status_code == 422
-    assert decisions(gate) == []
+    assert capi.post(TRADES_URL, json=trade_body(quantity=-1), headers={**A, "X-Correlation-ID": "corr-bad"}).status_code == 422
+    # The gate never judged it (no gate row). The desk's own refusal is now recorded (TESTCASES A-1): before, a
+    # validator 422 left no trace in risk_decisions.
+    (row,) = decisions(gate)
+    assert row.get("source") is None and row["path"] == "desk_paper_trade" and row["outcome"] == "blocked"
+    assert row["reasons"][0]["code"] == "invalid_quantity" and row["correlation_id"] == "corr-bad"
 
 
 # ── journal ──────────────────────────────────────────────────────────────────
@@ -205,7 +209,17 @@ def test_the_fill_write_is_filtered_on_owner_and_status(jh):
     assert r.status_code == 200, r.text
     assert db["trade_journal"].update_filters == [{"_id": "t1", "user_id": "u1", "status": "OPEN"}]
     assert len(db["trade_journal"].docs[0]["fills"]) == 1
-    assert "risk_decision_id" not in r.json()["added_fill"] and db[rc.DECISIONS].docs == []      # flag off
+    assert "risk_decision_id" not in r.json()["added_fill"] and db[rc.DECISIONS].docs == []      # flag off, allowed
+    # FLIPPED (TESTCASES K-5, K-13). This test used to stop here, which locked in the bypass: with the flag off an
+    # ENTRY fill never consulted the kill switch (study A, R24: a Rs 1 crore fill answered 200 with the switch on).
+    run(rc.set_control(db, "u1", field="kill_switch", value=True, reason="stop", actor="u1"))
+    blocked = client.post(f"{JOURNAL}/t1/fill", json=dict(FILL, qty=100000, price=100),
+                          headers={**U1, "X-Correlation-ID": "corr-fill"})
+    assert blocked.status_code == 409 and blocked.json()["detail"]["code"] == "risk_blocked"
+    assert len(db["trade_journal"].docs[0]["fills"]) == 1 and len(db["trade_journal"].update_filters) == 1
+    (row,) = db[rc.DECISIONS].docs
+    assert (row["path"], row["symbol"], row["requested_qty"], row["correlation_id"], row["outcome"]) == (
+        "journal_fill", "FIXA", 100000.0, "corr-fill", "blocked")
 
 
 def test_a_trade_closed_between_the_read_and_the_write_takes_no_fill(jh, monkeypatch):
@@ -226,6 +240,14 @@ def test_flag_off_a_journal_entry_is_as_before(jh):
     db, _, client = jh
     r = client.post(JOURNAL, json={"nse_symbol": "fixa", "capital_alloc_rs": 50000}, headers=U1)
     assert r.status_code == 200 and "risk_decision_id" not in r.json() and db[rc.DECISIONS].docs == []
+    # FLIPPED (TESTCASES K-4, K-13): "as before" must still mean the kill switch is consulted with the flag off, and
+    # its refusal is now recorded with the path, the symbol and the correlation id (it had neither).
+    run(rc.set_control(db, "u1", field="kill_switch", value=True, reason="stop", actor="u1"))
+    blocked = client.post(JOURNAL, json={"nse_symbol": "fixa", "capital_alloc_rs": 50000},
+                          headers={**U1, "X-Correlation-ID": "corr-create"})
+    assert blocked.status_code == 409 and len(db["trade_journal"].docs) == 1
+    (row,) = db[rc.DECISIONS].docs
+    assert (row["path"], row["symbol"], row["correlation_id"]) == ("journal_create", "FIXA", "corr-create")
 
 
 def test_flag_on_a_journal_entry_is_judged_and_stamped(jh):

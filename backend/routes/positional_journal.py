@@ -159,23 +159,40 @@ def _exit_ladder(trade: dict, ltp: Optional[float]) -> List[Dict[str, Any]]:
     return levels
 
 
+# ── the kill switch (the F&O risk gate's flag off) ─────────────────────
+async def _kill_switch(request: Request, user: dict, *, path: str, symbol: Any = None,
+                       requested_qty: Optional[float] = None) -> None:
+    """409 risk_blocked when the user's kill switch or halt is on (or the controls cannot be read: fail closed),
+    recorded with the path, the symbol and the request's correlation id. Nothing is written before it."""
+    try:
+        await rc.assert_allowed(db, user["user_id"], "journal_trade")
+    except rc.RiskBlocked as blocked:
+        sym = symbol.strip().upper()[:20] if isinstance(symbol, str) and symbol.strip() else None
+        detail = blocked.detail("journal_trade")
+        await rc.record_decision(db, user["user_id"], action="journal_trade", outcome="blocked", symbol=sym,
+                                 requested_qty=requested_qty, reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
+                                 correlation_id=risk_gate.correlation_id(request), detail=detail, path=path)
+        raise HTTPException(status_code=409, detail=detail)
+
+
 # ── CRUD ────────────────────────────────────────────────────────────────
 @router.post("")
 async def create_trade(request: Request):
     """Open a new trade journal entry."""
     user = await get_current_user(request)
     gated = await risk_gate.enabled_for(db, user)
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
     # Same kill switch as the other position-creating paths; this one had no risk gate either. With the
-    # F&O risk gate on, the same controls are the gate's first check, after the body is parsed.
+    # F&O risk gate on, the same controls are the gate's first check. The body is only read here, for the
+    # symbol on the refusal's record; nothing is validated or written before the check.
     if not gated:
-        try:
-            await rc.assert_allowed(db, user["user_id"], "journal_trade")
-        except rc.RiskBlocked as blocked:
-            await rc.record_decision(db, user["user_id"], action="journal_trade", outcome="blocked",
-                                     reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
-                                     detail=blocked.detail("journal_trade"))
-            raise HTTPException(status_code=409, detail=blocked.detail("journal_trade"))
-    body = await request.json()
+        await _kill_switch(request, user, path="journal_create",
+                           symbol=body.get("nse_symbol") if isinstance(body, dict) else None)
+    if not isinstance(body, dict):
+        raise HTTPException(400, "nse_symbol and capital_alloc_rs are required")
     sym = (body.get("nse_symbol") or "").upper().strip()
     cap = float(body.get("capital_alloc_rs") or 0)
     if not sym or cap <= 0:
@@ -290,8 +307,9 @@ async def add_fill(request: Request, trade_id: str):
            kind: "ENTRY|EXIT", at?: ISO}
 
     Only the owner's OPEN trade takes a fill (409 trade_not_open otherwise), and the write is filtered
-    on both, so a fill can never land on another user's trade or on a closed one. With the F&O risk
-    gate on, an ENTRY fill (it adds to the position) is checked first; an EXIT fill reduces risk and is not.
+    on both, so a fill can never land on another user's trade or on a closed one. An ENTRY fill (it adds to the
+    position) is checked first: by the F&O risk gate when it is on, else by the kill switch and the halt. An EXIT
+    fill reduces risk and is not checked.
     """
     user = await get_current_user(request)
     uid = user["user_id"]
@@ -312,11 +330,18 @@ async def add_fill(request: Request, trade_id: str):
     }
     if fill["qty"] <= 0 or fill["price"] <= 0:
         raise HTTPException(400, "qty and price must be > 0")
-    if fill["kind"] == "ENTRY" and await risk_gate.enabled_for(db, user):
-        decision = await risk_gate.enforce(db, risk_gate.cash_request(
-            user, risk_gate.correlation_id(request), path="journal_fill", mode="paper", action="add",
-            symbol=doc.get("nse_symbol"), quantity=fill["qty"], capital_at_risk_rs=fill["qty"] * fill["price"]))
-        risk_gate.stamp(fill, decision)
+    if fill["kind"] == "ENTRY":
+        if await risk_gate.enabled_for(db, user):
+            decision = await risk_gate.enforce(db, risk_gate.cash_request(
+                user, risk_gate.correlation_id(request), path="journal_fill", mode="paper", action="add",
+                symbol=doc.get("nse_symbol"), quantity=fill["qty"], capital_at_risk_rs=fill["qty"] * fill["price"]))
+            risk_gate.stamp(fill, decision)
+        else:
+            # An ENTRY fill adds to the position, so the kill switch applies with the flag off too. It used to be
+            # checked only inside the gate: with the flag off (staging's setting) a Rs 1 crore fill was accepted
+            # with the kill switch on, although the flag's own description says "Off = the kill-switch check only".
+            await _kill_switch(request, user, path="journal_fill", symbol=doc.get("nse_symbol"),
+                               requested_qty=fill["qty"])
 
     res = await db[COL].update_one(
         {"_id": trade_id, "user_id": uid, "status": "OPEN"},
