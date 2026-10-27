@@ -151,3 +151,69 @@ tsc: clean
 
 ## Verdict: BLOCKED
 Staging verification is deferred to after merge (OVERRIDE_desk_trade_desk.md). Every mocked case above passed.
+
+---
+
+# PR B follow-up (review of 27 Oct): chart links, Chartink in one place, desk-widgets, merged with dev
+
+dev was merged in: #373, #375, and #378 (the Top 10 timeout hotfix, which merged without conflict).
+
+**What changed:**
+- **Chart links** open Trade Desk › Chart Analysis › Live chart. This covers `openChart` (scanner rows, idea cards, the journal's Chart, the header search), the AI watchlist's desk links, and the old `?tab=chart`. Market Desk › Stock Research stays reachable from its switcher.
+- **Chartink sources** live only in AI Scanner › Signal library. Market Desk › Screener links there; its old `section=chartink` URL and `?tab=more&view=chartink` redirect there.
+- **The desk-widgets spec** runs on Market Overview's panels (`mo-strip`, `mo-paper`). Only navigation and locators changed.
+- **New cases:** CH-4, AS-5 and WG-1, added to the test-case file before the spec changes.
+
+## Runs (`--workers=2`; a failure counts only if it repeats)
+**Run 3.** The coordinator's list (trade-desk, widgets, shell, market-overview, market-desk, top10, decision-cards, lab, portfolio-fno, strategy-builder, ai-watchlist, watchlists) plus the five older specs I edited (scanner, symbol-search, desk, chartink, chartink-picks):
+```
+== tsc
+tsc: clean
+== build
+✓ built in 27.85s
+  46 failed
+  59 skipped
+  510 passed (15.0m)
+```
+**In the coordinator's list,** everything passed except two:
+- MO-24 expected the old chart place. Updated.
+- top10 F-3 read `?cand=` after the Strategy Builder had consumed it (a race that always lost on this branch). Fixed: it now reads the URL the click produced.
+
+**The 44 failures in the older specs:** 16 also fail on dev. They test the old Overview that #373 removed. The same four specs on dev:
+```
+== tsc
+tsc: clean
+== build
+✓ built in 24.39s
+  16 failed
+  4 skipped
+  128 passed (3.1m)
+```
+The other 28 were mine:
+- 26 scanner chart/risk-desk cases opened `?tab=chart`. They now open Stock Research, which keeps the full ChartTab with its risk desk.
+- 2 desk.spec cases used Market Overview's scanner toggle. They now use the Trade Desk tab.
+
+**Run 4:** scanner, desk, market-overview and top10, after the fixes.
+```
+== tsc
+tsc: clean
+== build
+✓ built in 30.58s
+  10 failed
+  12 skipped
+  149 passed (2.6m)
+```
+- 8 of these are dev's own desk.spec failures (the same tests, each one line lower).
+- 2 were the scanner chart screenshots. Fixed.
+
+**Run 7:** F-3 and the chart screenshots, `--repeat-each=3`.
+```
+== tsc
+tsc: clean
+== build
+✓ built in 29.94s
+  18 passed (29.5s)
+```
+
+## Verdict: BLOCKED
+Staging verification is deferred to after merge (OVERRIDE_desk_trade_desk.md). Every mocked case on this branch passed. The 16 older-spec failures are dev's own (#373).
