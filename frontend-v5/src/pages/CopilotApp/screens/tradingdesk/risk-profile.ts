@@ -104,6 +104,8 @@ export interface RiskLive {
     legacyRiskRs: number | null;
     exposureRs: number | null;
     sectors: Array<{ sector: string; rs: number }>;
+    /** The share symbols held in the open book (desk cash trades and journal trades; not F&O structures). */
+    heldSymbols: string[];
   };
   /** per_trade, open_risk, position, sector -> rupees; null when equity is unknown. */
   budgetsRs: Record<string, number | null>;
@@ -171,7 +173,7 @@ function readLive(v: unknown): { live: RiskLive | null; error: string | null } {
       open: {
         positions: num(open.positions), legacyPositions: num(open.legacy_positions),
         riskRs: num(open.risk_rs), reservedRiskRs: num(open.reserved_risk_rs), legacyRiskRs: num(open.legacy_risk_rs),
-        exposureRs: num(open.exposure_rs), sectors,
+        exposureRs: num(open.exposure_rs), sectors, heldSymbols: strings(open.held_symbols),
       },
       budgetsRs: Object.fromEntries(Object.values(BUDGET_OF).map((k) => [k, num(budgets[k])])),
     },

@@ -1,9 +1,9 @@
 """Daily pipeline orchestrator.
 
 Run path:
-  1. Determine the universe for `scan_date`. If Chartink scans were
-     uploaded for this date, the universe = union of those scans. Else,
-     fall back to all symbols with fresh OHLCV.
+  1. Determine the universe for `scan_date`: every symbol with fresh
+     OHLCV, plus the symbols that hit a Chartink scan uploaded for this
+     date (the union; hits are added, never a replacement).
   2. For each symbol: load ~260 bars, compute features, score, classify
      stage, generate trade plan.
   3. Persist features (stock_technical_features) and signals
@@ -49,32 +49,32 @@ MIN_BARS = 60
 
 # ── Universe selection ──────────────────────────────────────────────────
 async def universe_for(scan_date: date) -> List[str]:
-    """Symbols that hit any Chartink scan today; else all with fresh bars.
+    """Every symbol with fresh bars on `scan_date`, plus any symbol that hit a Chartink scan that day: the UNION.
 
-    In both branches we pass through the NSE equity allowlist so ETFs,
-    bond funds, REITs and InvITs (all of which trade in the EQ/BE series
-    and so leak into bhavcopy) are excluded — the engine is designed
-    around equity price action, not ETF NAV mechanics.
+    Chartink hits are ADDED to the universe, never a replacement for it (owner decision 2026-10-27,
+    docs/EARNINGS_SURPRISE_TRACKER.md §1): a scan that hits a handful of names must not shrink the day's scan to those
+    names. With no hits the universe is the symbols with fresh bars, as before. Both sources pass through the NSE
+    equity allowlist so ETFs, bond funds, REITs and InvITs (all of which trade in the EQ/BE series and so leak into
+    bhavcopy) are excluded — the engine is designed around equity price action, not ETF NAV mechanics. Order: the
+    bars' symbols as the database returns them, then the hits that have no bar that day.
     """
     scanned = await chartink_loader.list_universe_for(scan_date)
-    if scanned:
-        filtered = equity_universe.filter_equities(scanned)
-        logger.info("positional: universe from chartink (%d → %d after equity filter)",
-                    len(scanned), len(filtered))
-        return filtered
 
+    syms: List[str] = []
     pool = await pg_client.get_pool()
-    if pool is None:
-        return []
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT DISTINCT nse_symbol FROM stock_ohlcv WHERE bar_date = $1",
-            scan_date,
-        )
-    syms = [r["nse_symbol"] for r in rows]
-    filtered = equity_universe.filter_equities(syms)
-    logger.info("positional: universe from ohlcv (%d → %d after equity filter)",
-                len(syms), len(filtered))
+    if pool is not None:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT DISTINCT nse_symbol FROM stock_ohlcv WHERE bar_date = $1",
+                scan_date,
+            )
+        syms = [r["nse_symbol"] for r in rows]
+
+    seen = set(syms)
+    extra = [s for s in dict.fromkeys(scanned) if s not in seen]
+    filtered = equity_universe.filter_equities(syms + extra)
+    logger.info("positional: universe = %d with bars + %d chartink-only hits (%d chartink hits in all) → %d after equity filter",
+                len(syms), len(extra), len(scanned), len(filtered))
     return filtered
 
 

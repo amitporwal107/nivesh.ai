@@ -1,33 +1,35 @@
 /**
- * Smart trading desk · AI Scanner — "Top 10 ideas": two boards above the scanner list (the user's requirement of 2026-10-25).
+ * Smart trading desk · Market Overview — "Top AI ideas" (the redesign of 2026-10-27, docs/desk_redesign_20261027/PLAN.md
+ * step 2; before it, the AI Scanner's two "Top 10 ideas" boards of 2026-10-25). One board at a time, Cash | F&O:
  *
- *   Top 10 stock ideas   POST /api/desk/strategy/ideas { limit: 10 } (top10-data.ts useTop10Stocks): the scanner's top setups,
- *                        each with the strategy the plan builder found fits it (the route's `preferred`), its plan status and
- *                        the scanner's levels
- *   Top 10 F&O ideas     POST /api/desk/strategy/top { limit: 10, classes: [index_options, stock_fno], distinct: true }
- *                        (useTop10Fno): NIFTY, BANKNIFTY and F&O stocks, one row each, its best-fitting structure first
- *                        and the others behind "other structures", ranked by fit to the measured regime, then reward : risk
- *   POST /api/desk/paper-trades      a stock idea at the scanner's entry, stop and target (useAddPaperTrade); an F&O idea as
- *                                    a strategy, through IdeaActions (strategy/TopByRegime.tsx)
- *   POST /api/desk/strategy/payoff   an F&O idea's payoff, only once its chart is opened
+ *   Cash      POST /api/desk/strategy/ideas { limit: 10 } (top10-data.ts useTop10Stocks): the scanner's top setups, each
+ *             with the strategy the plan builder found fits it (the route's `preferred`) and its TradePlan
+ *   F&O       POST /api/desk/strategy/top { limit: 10, classes: [index_options, stock_fno], distinct: true } (useTop10Fno):
+ *             NIFTY, BANKNIFTY and F&O stocks, one row each, its best-fitting structure first and the others in the
+ *             drawer, ranked by fit to the measured regime, then reward : risk
+ *   GET /api/desk/ai-watchlist      the newest stored daily list (22:45 IST job): the carry-forward tag of a row that was
+ *                                   on earlier lists, the stored list's date and scan basis, and its empty state
+ *   POST /api/desk/paper-trades     from the drawer only: a stock idea at its TradePlan's levels (PlanPaperTrade, with the
+ *                                   action gate and RiskReduce); an F&O idea as a strategy (IdeaActions)
+ *   POST /api/desk/strategy/payoff  an F&O idea's payoff, only once its chart is opened in the drawer
  *
- * Wording: "ideas" and "the strategy that fits", never picks or recommendations (the user's decision, SEBI). Each board
- * shows the route's own ranking note and data dates; a figure the route did not send reads "—".
+ * Each row is the Phase 3 decision-card row (decision/DecisionCard.tsx: entry and order type · stop and method · targets
+ * in R · the risk service's size for your account · ₹ risk and % of equity · costs · plan id, Provisional / Risk-approved,
+ * STALE DATA) with "may be reduced by portfolio limits at submission" and the budgets left, and the carry-forward tag
+ * (CarryTag). "Full card ›" or "Paper trade" opens the drawer (tabs/market-overview/IdeaDrawer.tsx): the full card, the
+ * levels, the links on, and the paper trade. The header says which scan the ideas are from, whether that is older than
+ * the last session the risk service expects (`referenceSession`, GET /api/risk/freshness, read by the caller), and which
+ * stored list the carry-forward tags come from.
  *
- * Every row links on, and names the board it leaves from so the desk's breadcrumb reads "AI Scanner · Top 10 F&O ideas"
- * and scrolls back here: a stock idea to its plan in the Strategy Builder, its chart, its option chain (F&O stocks only)
- * and the paper trades; an F&O idea to the lab with the idea in focus (Candidates for a stock, the index workspace for
- * NIFTY and BANKNIFTY), its option chain and its futures OI build-up.
- *
- * Phase 3: each row shows its TradePlan as the decision card (decision/DecisionCard.tsx, one line and an expander), and
- * an idea that is on the newest stored AI scanner watchlist (GET /api/desk/ai-watchlist, the same cached answer the
- * watchlist page reads) says since when, with that list's first-day levels beside this row's plan (CarryTag).
- *
- * Both routes take seconds. Each board loads on its own and keeps its answer for a while (top10-data.ts); the scanner
+ * Wording: "ideas" and "the strategy that fits", never picks or recommendations (the user's decision, SEBI). The rank
+ * orders ideas; the Phase 4 study found no measurable ranking skill, and the footer says so with the way to the scorecard.
+ * Both boards are asked for on load (the toggle shows the other at once) and kept for a while (top10-data.ts); the scanner
  * list below never waits for them. Nothing places an order.
  */
 import { useId, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Btn, ErrorBlock, LoadingBlock, fmtINR, fmtNum } from "../../components/ui";
+import { dayLabel } from "../markets/format";
 import { useCopilotShell } from "../../lib/shell-context";
 import { SymbolCell } from "../desk/parts";
 import { fmtDay, fmtPrice } from "../trading/parts";
@@ -50,7 +52,9 @@ import { Widget } from "./widget";
 import { PlanPaperTrade } from "./PlanPaperTrade";
 import { DecisionCard, NoPlan } from "./decision/DecisionCard";
 import { CarryTag, levelsOfPlan } from "./decision/CarryTag";
-import { useAiWatchlist, type AiWatchDay } from "../workspace/ai-watchlist-data";
+import { useAiWatchlist, type AiWatchDay, type ScanBasis } from "../workspace/ai-watchlist-data";
+import { DrawerSection, IdeaDrawer } from "./tabs/market-overview/IdeaDrawer";
+import { NO_LIST_YET, isStaleDay } from "./tabs/market-overview/overview-data";
 import type { TradePlan } from "./strategy/trade-plan";
 
 const STOCKS_ANCHOR = "desk-top10-stocks";
@@ -154,27 +158,55 @@ function ScannerLevelsPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: str
   );
 }
 
+/** The two ways into a row's drawer: the full card, or straight to its paper trade. */
+type DrawerAt = "card" | "paper";
+
+function OpenChips({ prefix, at, onOpen }: { prefix: "stock" | "fno"; at: DrawerAt | null; onOpen: (at: DrawerAt) => void }) {
+  return (
+    <>
+      <button type="button" className="cp-chip" data-testid={`desk-top10-${prefix}-open`} aria-haspopup="dialog" aria-expanded={at === "card"} onClick={() => onOpen("card")}
+        title="The full decision card, the levels, the links and the paper trade">
+        Full card ›
+      </button>
+      <button type="button" className="cp-chip" data-testid={`desk-top10-${prefix}-paper`} aria-haspopup="dialog" aria-expanded={at === "paper"} onClick={() => onOpen("paper")}>
+        Paper trade
+      </button>
+    </>
+  );
+}
+
+/** Closing a drawer re-reads the risk profile: a paper trade recorded in it changes the open book the Trade Desk line counts. */
+function useCloseDrawer(set: (at: DrawerAt | null) => void) {
+  const qc = useQueryClient();
+  return () => {
+    set(null);
+    void qc.invalidateQueries({ queryKey: ["copilot", "desk", "risk", "profile"] });
+  };
+}
+
 function StockRow({ idea, rank, scanDate, listed }: { idea: Idea; rank: number; scanDate: string | null; listed: AiWatchDay | undefined }) {
   const desk = useDesk();
-  const [paperOpen, setPaperOpen] = useState(false);
+  const [at, setAt] = useState<DrawerAt | null>(null);
+  const close = useCloseDrawer(setAt);
   const pref = preferredStrategy(idea);
   const sc = idea.scanner;
   const setup = sc.bucket && sc.bucket in BUCKET_LABEL ? BUCKET_LABEL[sc.bucket as SetupBucket] : null;
   const status = (PLAN_STATUSES.includes(idea.plan_status) ? idea.plan_status : "insufficient_data") as PlanStatus;
   const go = (f: () => void) => { desk.noteFrom(FROM_STOCKS); f(); };
+  const symbol = (
+    <SymbolCell symbol={idea.symbol} name={idea.name} sub={[idea.name, sc.sector].filter(Boolean).join(" · ") || undefined} testId="desk-top10-stock-symbol" size={26} />
+  );
   return (
-    <li data-testid={`desk-top10-stock-${idea.symbol}`} className="flex min-w-0 flex-col" style={{ gap: 8, padding: "12px 0", borderTop: "1px solid var(--cp-line)" }}>
+    <li data-testid={`desk-top10-stock-${idea.symbol}`} data-open={at ?? undefined} className="flex min-w-0 flex-col" style={{ gap: 8, padding: "12px 0", borderTop: "1px solid var(--cp-line)" }}>
       <div className="flex min-w-0 items-center" style={{ gap: 10 }}>
         <span className="cp-num" style={{ flex: "none", width: 22, fontSize: 11, color: "var(--cp-ink-3)" }}>{rankText(rank)}</span>
-        <span className="min-w-0" style={{ flex: "1 1 auto" }}>
-          <SymbolCell symbol={idea.symbol} name={idea.name} sub={[idea.name, sc.sector].filter(Boolean).join(" · ") || undefined} testId="desk-top10-stock-symbol" size={26} />
-        </span>
+        <span className="min-w-0" style={{ flex: "1 1 auto" }}>{symbol}</span>
         <span className="flex flex-none flex-col items-end" style={{ gap: 3 }}>
           <span className="cp-num" style={{ fontSize: 12 }} title="The scanner's rules-based score, 0–100. Not a probability.">{idea.source === "chartink" && sc.score == null ? "No AI score" : `Score ${sc.score == null ? DASH : `${fmtNum(sc.score)}/100`}`}</span>
           <StatusPill status={status} testId="desk-top10-stock-status" />
         </span>
       </div>
-      <div className="flex min-w-0 flex-col" style={{ gap: 2, paddingLeft: 32 }}>
+      <div className="flex min-w-0 flex-col" style={{ gap: 4, paddingLeft: 32 }}>
         <span style={{ ...quiet, color: "var(--cp-ink-2)" }}>{setup ?? "Scanner setup"}{sc.close != null ? ` · close ${fmtPrice(sc.close)}` : ""}</span>
         <span data-testid="desk-top10-stock-strategy" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
           <span style={{ color: "var(--cp-ink-3)" }}>Strategy that fits: </span>
@@ -188,23 +220,37 @@ function StockRow({ idea, rank, scanDate, listed }: { idea: Idea; rank: number; 
             <span>{idea.status_reasons[0]?.message || "none passed the plan’s checks on this scan"}</span>
           )}
         </span>
-        <CashLevels testId="desk-top10-stock-levels" entry={sc.entry} stop={sc.stop} target={sc.target} riskReward={sc.risk_reward} dataDate={sc.close_date ?? scanDate} />
         <Top10Carry day={listed} segment="cash" symbol={idea.symbol} boardDay={scanDate} plan={idea.trade_plan} testId="desk-top10-carried" />
-        {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="row" testId="desk-top10-card" recordsShownPlan />
+        {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="row" testId="desk-top10-card" recordsShownPlan budgets />
           : idea.trade_plan === null ? <NoPlan testId="desk-top10-noplan" reason={idea.status_reasons[0]?.message ?? null} /> : null}
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
-        <LinkChip testId="desk-top10-stock-plan" onClick={() => go(() => desk.openStrategyPlan(planParamsFor(idea, scanDate)))} title="The full plan in the Strategy Builder: sizing, costs, evidence and the payoff">Strategy ›</LinkChip>
-        <LinkChip testId="desk-top10-stock-chart" onClick={() => go(() => desk.openChart(idea.symbol))}>Chart ›</LinkChip>
-        {idea.fno_eligible && (
-          <LinkChip testId="desk-top10-stock-chain" onClick={() => go(() => desk.openLab("chain", { symbol: idea.symbol }))}>Option chain ›</LinkChip>
-        )}
-        <button type="button" className="cp-chip" data-testid="desk-top10-stock-paper" aria-expanded={paperOpen} onClick={() => setPaperOpen((v) => !v)}>
-          {paperOpen ? "Hide paper trade" : "Paper trade"}
-        </button>
-        <LinkChip testId="desk-top10-stock-trades" onClick={() => go(desk.openPaperTrades)}>View trades ›</LinkChip>
+        <OpenChips prefix="stock" at={at} onOpen={setAt} />
       </div>
-      {paperOpen && <div style={{ paddingLeft: 32 }}><StockPaperTrade idea={idea} scanDate={scanDate} /></div>}
+      {at && (
+        <IdeaDrawer label={`${idea.symbol} · full card`} testId="desk-top10-drawer" onClose={close} focus={at === "paper" ? "desk-top10-drawer-paper" : null}
+          title={<span className="flex items-center" style={{ gap: 10 }}><span className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{rankText(rank)}</span>{idea.symbol}</span>}
+          sub={<>{[idea.name, sc.sector].filter(Boolean).join(" · ")}{setup ? ` · ${setup}` : ""}{scanDate ? ` · scan of ${dayLabel(scanDate)}` : ""}</>}>
+          {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="full" testId="desk-top10-drawer-card" recordsShownPlan />
+            : <NoPlan testId="desk-top10-drawer-noplan" reason={idea.status_reasons[0]?.message ?? null} />}
+          <DrawerSection title="Paper trade" testId="desk-top10-drawer-paper">
+            <StockPaperTrade idea={idea} scanDate={scanDate} />
+          </DrawerSection>
+          <DrawerSection title="The scanner's levels">
+            <CashLevels testId="desk-top10-stock-levels" entry={sc.entry} stop={sc.stop} target={sc.target} riskReward={sc.risk_reward} dataDate={sc.close_date ?? scanDate} />
+          </DrawerSection>
+          <DrawerSection title="Open">
+            <div className="flex flex-wrap items-center" style={{ gap: 6 }}>
+              <LinkChip testId="desk-top10-stock-plan" onClick={() => go(() => desk.openStrategyPlan(planParamsFor(idea, scanDate)))} title="The full plan in the Strategy Builder: sizing, costs, evidence and the payoff">Strategy ›</LinkChip>
+              <LinkChip testId="desk-top10-stock-chart" onClick={() => go(() => desk.openChart(idea.symbol))}>Chart ›</LinkChip>
+              {idea.fno_eligible && (
+                <LinkChip testId="desk-top10-stock-chain" onClick={() => go(() => desk.openLab("chain", { symbol: idea.symbol }))}>Option chain ›</LinkChip>
+              )}
+              <LinkChip testId="desk-top10-stock-trades" onClick={() => go(desk.openPaperTrades)}>View trades ›</LinkChip>
+            </div>
+          </DrawerSection>
+        </IdeaDrawer>
+      )}
     </li>
   );
 }
@@ -217,10 +263,10 @@ function StockBoard() {
   const ideas = (board?.ideas ?? []).slice(0, TOP10);
   const listed = useAiWatchlist(null).data;
   return (
-    <section data-testid={STOCKS_ANCHOR} aria-label="Top 10 stock ideas" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
+    <section data-testid={STOCKS_ANCHOR} aria-label="Cash ideas" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
       <BoardHead
-        title="Top 10 stock ideas"
-        sub={<>The scanner’s top setups and the strategy that fits each{scanDate ? ` · scan of ${fmtDay(scanDate)}` : ""} · end of day</>}
+        title="Cash: the scanner’s top setups"
+        sub={<>The strategy that fits each, and its plan{scanDate ? ` · scan of ${fmtDay(scanDate)}` : ""} · end of day</>}
         actions={(
           <>
             <button type="button" className="cp-chip" data-testid="desk-top10-stocks-rerank" disabled={q.isFetching} onClick={() => q.refetch()}>{q.isFetching ? "Ranking…" : "Rank again"}</button>
@@ -241,7 +287,7 @@ function StockBoard() {
       )}
       {board && (
         <p data-testid="desk-top10-stocks-note" className="m-0" style={quiet}>
-          {board.ranking_note ?? "Ordered by the scanner’s evidence."} Ideas for review, not recommendations; entry, stop and target are the scanner’s, and nothing is sent to a broker.
+          {board.ranking_note ?? "Ordered by the scanner’s evidence."} Ideas for review, not recommendations; entry, stop and target are the plan’s, and nothing is sent to a broker.
         </p>
       )}
     </section>
@@ -252,7 +298,9 @@ function StockBoard() {
 
 type FnoFilter = "all" | FnoKind;
 
-function FnoIdeaRow({ row, board, listed }: { row: FnoRow; board: TopBoard; listed: AiWatchDay | undefined }) {
+/** The drawer of an F&O row: the full card, the structure, its levels, the paper trade, the links and the other structures.
+ *  The levels engine is asked only here, when the drawer is open. */
+function FnoDrawer({ row, board, at, onClose }: { row: FnoRow; board: TopBoard; at: DrawerAt; onClose: () => void }) {
   const desk = useDesk();
   const { idea, kind, rank } = row;
   const sym = idea.underlying;
@@ -263,43 +311,31 @@ function FnoIdeaRow({ row, board, listed }: { row: FnoRow; board: TopBoard; list
     : desk.openLab("candidates", { symbol: sym, focus: sym })));
   const maxLoss = idea.loss_unbounded ? "no lower limit" : fmtINR(idea.max_loss);
   return (
-    <li data-testid={`desk-top10-fno-${sym}`} data-kind={kind} className="flex min-w-0 flex-col" style={{ gap: 8, padding: "12px 0", borderTop: "1px solid var(--cp-line)" }}>
-      <div className="flex min-w-0 items-center" style={{ gap: 10 }}>
-        <span className="cp-num" style={{ flex: "none", width: 22, fontSize: 11, color: "var(--cp-ink-3)" }}>{rankText(rank)}</span>
-        <span className="min-w-0" style={{ flex: "1 1 auto" }}>
-          <SymbolCell symbol={sym} sub={kind === "index" ? "Index options" : "Stock F&O"} testId="desk-top10-fno-symbol" size={26} />
-        </span>
-        <span data-testid="desk-top10-fno-fit" className="cp-chip" style={{ flex: "none", fontSize: 11, borderColor: "var(--mint-line)", color: "var(--mint)", background: "var(--mint-soft)" }}
-          title="How well the structure fits the measured regime. Not a probability and not a track record.">
-          fit {fmtNum(idea.fit.score, 1)}
-        </span>
-      </div>
-      <div className="flex min-w-0 flex-col" style={{ gap: 2, paddingLeft: 32 }}>
-        <span data-testid="desk-top10-fno-strategy" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
-          <span style={{ color: "var(--cp-ink-3)" }}>Strategy that fits: </span>
-          <strong style={{ fontWeight: 500 }}>{idea.name}</strong>
-          {idea.expiry ? ` · exp ${fmtDay(idea.expiry)}${idea.days_to_expiry != null ? ` (${idea.days_to_expiry}d)` : ""}` : ""}
-        </span>
+    <IdeaDrawer label={`${sym} · full card`} testId="desk-top10-drawer" onClose={onClose} focus={at === "paper" ? "desk-top10-drawer-paper" : null}
+      title={<span className="flex items-center" style={{ gap: 10 }}><span className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{rankText(rank)}</span>{sym}</span>}
+      sub={<>{kind === "index" ? "Index options" : "Stock F&O"} · {idea.name}{idea.expiry ? ` · exp ${fmtDay(idea.expiry)}` : ""}</>}>
+      {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="full" testId="desk-top10-fno-drawer-card" /> : <NoPlan testId="desk-top10-drawer-noplan" reason={null} />}
+      <DrawerSection title="The structure">
         <span className="cp-num" style={{ ...quiet, color: "var(--cp-ink-2)" }}>
           max loss {maxLoss} · reward : risk {idea.reward_risk == null ? DASH : `${fmtNum(idea.reward_risk, 2)} : 1`} · capital at risk {fmtINR(idea.capital_at_risk)}
         </span>
         <IdeaLevels idea={idea} state={levels} />
-        <Top10Carry day={listed} segment="fno" symbol={sym} boardDay={idea.data_as_of?.chain ?? null} plan={idea.trade_plan} testId="desk-top10-fno-carried" />
-        {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="row" testId="desk-top10-fno-card" /> : null}
-      </div>
-      <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
-        <LinkChip testId="desk-top10-fno-lab" onClick={openLab} title={kind === "index" ? "The lab's NIFTY & BANKNIFTY workspace with this idea in focus" : "The lab's Candidates with this idea in focus"}>
-          Open in F&amp;O lab ›
-        </LinkChip>
-        <LinkChip testId="desk-top10-fno-chain" onClick={() => go(() => desk.openLab("chain", { symbol: sym, focus: sym }))}>Option chain ›</LinkChip>
-        <LinkChip testId="desk-top10-fno-buildup" onClick={() => go(() => desk.openLab(kind === "index" ? "indices" : "buildup", { symbol: sym, focus: sym }))}>
-          {kind === "index" ? "Index futures build-up ›" : "OI build-up ›"}
-        </LinkChip>
-      </div>
-      <div style={{ paddingLeft: 32 }}>
+      </DrawerSection>
+      <DrawerSection title="Paper trade" testId="desk-top10-drawer-paper">
         <IdeaActions idea={idea} onViewTrades={() => go(desk.openPaperTrades)} rulesVersion={board.rules_version} levels={levels} />
-      </div>
-      <details data-testid="desk-top10-fno-more" style={{ paddingLeft: 32 }}>
+      </DrawerSection>
+      <DrawerSection title="Open">
+        <div className="flex flex-wrap items-center" style={{ gap: 6 }}>
+          <LinkChip testId="desk-top10-fno-lab" onClick={openLab} title={kind === "index" ? "The lab's NIFTY & BANKNIFTY workspace with this idea in focus" : "The lab's Candidates with this idea in focus"}>
+            Open in F&amp;O lab ›
+          </LinkChip>
+          <LinkChip testId="desk-top10-fno-chain" onClick={() => go(() => desk.openLab("chain", { symbol: sym, focus: sym }))}>Option chain ›</LinkChip>
+          <LinkChip testId="desk-top10-fno-buildup" onClick={() => go(() => desk.openLab(kind === "index" ? "indices" : "buildup", { symbol: sym, focus: sym }))}>
+            {kind === "index" ? "Index futures build-up ›" : "OI build-up ›"}
+          </LinkChip>
+        </div>
+      </DrawerSection>
+      <details data-testid="desk-top10-fno-more">
         <summary style={{ cursor: "pointer", ...quiet, color: "var(--cp-ink-2)" }}>
           Why it fits{idea.alternatives.length ? ` · ${idea.alternatives.length} other structure${idea.alternatives.length === 1 ? "" : "s"} on ${sym}` : ""}
         </summary>
@@ -316,6 +352,40 @@ function FnoIdeaRow({ row, board, listed }: { row: FnoRow; board: TopBoard; list
           ))}
         </div>
       </details>
+    </IdeaDrawer>
+  );
+}
+
+function FnoIdeaRow({ row, board, listed }: { row: FnoRow; board: TopBoard; listed: AiWatchDay | undefined }) {
+  const [at, setAt] = useState<DrawerAt | null>(null);
+  const close = useCloseDrawer(setAt);
+  const { idea, kind, rank } = row;
+  const sym = idea.underlying;
+  return (
+    <li data-testid={`desk-top10-fno-${sym}`} data-kind={kind} data-open={at ?? undefined} className="flex min-w-0 flex-col" style={{ gap: 8, padding: "12px 0", borderTop: "1px solid var(--cp-line)" }}>
+      <div className="flex min-w-0 items-center" style={{ gap: 10 }}>
+        <span className="cp-num" style={{ flex: "none", width: 22, fontSize: 11, color: "var(--cp-ink-3)" }}>{rankText(rank)}</span>
+        <span className="min-w-0" style={{ flex: "1 1 auto" }}>
+          <SymbolCell symbol={sym} sub={kind === "index" ? "Index options" : "Stock F&O"} testId="desk-top10-fno-symbol" size={26} />
+        </span>
+        <span data-testid="desk-top10-fno-fit" className="cp-chip" style={{ flex: "none", fontSize: 11, borderColor: "var(--mint-line)", color: "var(--mint)", background: "var(--mint-soft)" }}
+          title="How well the structure fits the measured regime. Not a probability and not a track record.">
+          fit {fmtNum(idea.fit.score, 1)}
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-col" style={{ gap: 4, paddingLeft: 32 }}>
+        <span data-testid="desk-top10-fno-strategy" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          <span style={{ color: "var(--cp-ink-3)" }}>Strategy that fits: </span>
+          <strong style={{ fontWeight: 500 }}>{idea.name}</strong>
+          {idea.expiry ? ` · exp ${fmtDay(idea.expiry)}${idea.days_to_expiry != null ? ` (${idea.days_to_expiry}d)` : ""}` : ""}
+        </span>
+        <Top10Carry day={listed} segment="fno" symbol={sym} boardDay={idea.data_as_of?.chain ?? null} plan={idea.trade_plan} testId="desk-top10-fno-carried" />
+        {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="row" testId="desk-top10-fno-card" budgets /> : null}
+      </div>
+      <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
+        <OpenChips prefix="fno" at={at} onOpen={setAt} />
+      </div>
+      {at && <FnoDrawer row={row} board={board} at={at} onClose={close} />}
     </li>
   );
 }
@@ -329,13 +399,13 @@ function FnoBoard() {
   const shown = filter === "all" ? rows : rows.filter((r) => r.kind === filter);
   const count = (k: FnoKind) => rows.filter((r) => r.kind === k).length;
   const notes = fnoUniverseNotes(board);
-  const chainDay = board?.classes.index_options?.as_of ?? board?.classes.stock_fno?.as_of ?? null;
+  const chainDay = fnoChainDay(board);
   const regime = board?.regime;
   const listed = useAiWatchlist(null).data;
   return (
-    <section data-testid={FNO_ANCHOR} aria-label="Top 10 F&O ideas" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
+    <section data-testid={FNO_ANCHOR} aria-label="F&O ideas" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
       <BoardHead
-        title="Top 10 F&O ideas"
+        title="F&O: structures that fit the regime"
         sub={<>NIFTY, BANKNIFTY and F&amp;O stocks, one row each, by fit to today’s regime{chainDay ? ` · chain of ${fmtDay(chainDay)}` : ""} · end of day</>}
         actions={(
           <>
@@ -388,33 +458,104 @@ function FnoBoard() {
   );
 }
 
+const fnoChainDay = (board: TopBoard | undefined) => board?.classes.index_options?.as_of ?? board?.classes.stock_fno?.as_of ?? null;
+
+// ── the basis: which scan, which stored list, and whether it is stale ──────
+
+/** "engine positional-v3 · prices adjusted for corporate actions · data quality ok" (the stored day's notes.scan_basis). */
+function scanBasisText(b: ScanBasis | null | undefined): string | null {
+  if (!b) return null;
+  if (b.unavailable) return `scan basis unavailable (${b.unavailable})`;
+  const price = b.price_basis === "corp_action_adjusted" ? "prices adjusted for corporate actions" : b.price_basis === "raw" ? "raw prices" : b.price_basis ? `price basis ${b.price_basis}` : null;
+  const dq = b.data_quality?.status ? `data quality ${b.data_quality.status.replace(/_/g, " ")}` : null;
+  return [b.engine_versions?.length ? `engine ${b.engine_versions.join(", ")}` : null, price, dq].filter(Boolean).join(" · ") || null;
+}
+
+function IdeasBasis({ which, referenceSession }: { which: "stocks" | "fno"; referenceSession: string | null }) {
+  const stocks = useTop10Stocks();
+  const fno = useTop10Fno();
+  const list = useAiWatchlist(null);
+  const day = list.data;
+  const scanDay = which === "stocks" ? stocks.data?.selection.scan_date ?? null : fnoChainDay(fno.data);
+  const stale = isStaleDay(scanDay, referenceSession);
+  const basis = scanBasisText(day?.notes?.scan_basis);
+  return (
+    <div data-testid="desk-top10-basis" data-stale={stale ? "true" : "false"} className="flex min-w-0 flex-col" style={{ gap: 4 }}>
+      <span className="flex min-w-0 flex-wrap items-center" style={{ gap: "4px 8px" }}>
+        <span data-testid="desk-top10-scan" data-day={scanDay ?? ""} className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-2)" }}>
+          {scanDay
+            ? which === "stocks" ? `From the ${dayLabel(scanDay)} close · AI scanner, end of day` : `Option chains of ${dayLabel(scanDay)} · regime fit, end of day`
+            : which === "stocks" ? (stocks.isPending ? "Reading the scan…" : "Scan date not in the answer") : (fno.isPending ? "Reading the option chains…" : "Chain date not in the answer")}
+        </span>
+        {stale && (
+          <span data-testid="desk-top10-stale" className="cp-pill" data-tone="amber" title={`The ${which === "stocks" ? "scan" : "chains"} are of ${scanDay}; the last session with end-of-day data is ${referenceSession}.`}
+            style={{ color: "var(--amber)", borderColor: "var(--amber)" }}>
+            Stale data
+          </span>
+        )}
+      </span>
+      {stale && (
+        <span data-testid="desk-top10-stale-text" style={{ ...quiet, color: "var(--amber)" }}>
+          Stale data: {which === "stocks" ? "the scan" : "the option chains"} {scanDay ? `of ${dayLabel(scanDay)} ` : ""}{which === "stocks" ? "is" : "are"} older than the last session ({referenceSession ? dayLabel(referenceSession) : DASH}). Levels and sizes are from that day.
+        </span>
+      )}
+      {list.isPending ? null : list.isError && !day ? (
+        <span data-testid="desk-top10-list" data-state="error" style={quiet}>The stored AI watchlist didn’t load, so the carry-forward tags are not shown.</span>
+      ) : day?.list_date ? (
+        <span data-testid="desk-top10-list" data-state="ok" data-day={day.list_date} style={quiet}>
+          Stored list of {dayLabel(day.list_date)} ({day.cash.length} cash · {day.fno.length} F&amp;O, the 22:45 IST job){basis ? ` · ${basis}` : ""}. Carry-forward tags come from it.
+        </span>
+      ) : (
+        <span data-testid="desk-top10-nolist" data-state="empty" style={{ ...quiet, color: "var(--cp-ink-2)" }}>{day?.empty_reason ?? NO_LIST_YET}</span>
+      )}
+    </div>
+  );
+}
+
 // ── the widget ───────────────────────────────────────────────────────────
 
-export function ScannerTop10() {
+export const IDEAS_FOOTER = "Ideas, not recommendations. The rank orders ideas; our test found no measurable ranking skill.";
+
+/**
+ * Market Overview's Top AI ideas. `referenceSession`: the newest session whose end-of-day data must exist now (GET
+ * /api/risk/freshness), for the STALE DATA mark. `onScorecard`: where "Scorecard →" goes (Market Desk; the Idea
+ * scorecard view is added there by step 4).
+ */
+export function ScannerTop10({ referenceSession = null, onScorecard, onSeeAll }: { referenceSession?: string | null; onScorecard?: () => void; onSeeAll?: () => void } = {}) {
   const { mobile } = useCopilotShell();
   const [which, setWhich] = useState<"stocks" | "fno">("stocks");
+  // Both boards are asked for on load, so the toggle shows the other one at once (one cache each, top10-data.ts).
+  useTop10Stocks();
+  useTop10Fno();
   return (
     <Widget
       id="scanner.top10"
       testId="desk-top10"
-      title={`Top ${TOP10} ideas`}
+      title="Top AI candidates"
       meta={<span style={{ fontSize: 9.5 }}>End of day · ideas for review, not recommendations</span>}
+      actions={onSeeAll ? (
+        <button type="button" data-testid="desk-top10-see-all" onClick={onSeeAll} className="cp-chip" title="Every ranked candidate: Trade Desk › AI Scanner">See all ›</button>
+      ) : undefined}
       bodyStyle={{ padding: mobile ? 14 : 18 }}
     >
-      {mobile ? (
-        <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
+      <div className="flex min-w-0 flex-col" style={{ gap: 12 }}>
+        <div className="self-start">
           <Segmented<"stocks" | "fno">
-            label="Top 10 board" testId="desk-top10-switch" value={which} onChange={setWhich}
-            options={[{ value: "stocks", label: "Stocks" }, { value: "fno", label: "F&O" }]}
+            label="Top AI ideas: cash or F&O" testId="desk-top10-switch" value={which} onChange={setWhich}
+            options={[{ value: "stocks", label: "Cash" }, { value: "fno", label: "F&O" }]}
           />
-          {which === "stocks" ? <StockBoard /> : <FnoBoard />}
         </div>
-      ) : (
-        <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", gap: 24, alignItems: "start" }}>
-          <StockBoard />
-          <FnoBoard />
-        </div>
-      )}
+        <IdeasBasis which={which} referenceSession={referenceSession} />
+        {which === "stocks" ? <StockBoard /> : <FnoBoard />}
+        <p data-testid="desk-top10-footer" className="m-0" style={{ ...quiet, paddingTop: 10, borderTop: "1px solid var(--cp-line)" }}>
+          {IDEAS_FOOTER}{" "}
+          {onScorecard && (
+            <button type="button" data-testid="desk-top10-scorecard" onClick={onScorecard} style={{ padding: 0, border: 0, background: "none", cursor: "pointer", font: "inherit", color: "var(--mint)" }}>
+              Scorecard →
+            </button>
+          )}
+        </p>
+      </div>
     </Widget>
   );
 }
