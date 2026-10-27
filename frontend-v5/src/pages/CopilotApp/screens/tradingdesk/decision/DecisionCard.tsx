@@ -103,6 +103,16 @@ function horizonText(tp: TradePlan): string {
   return h ?? UNAVAILABLE;
 }
 
+/** "open risk ₹5,00,000.00 · exposure ₹8,00,000.00 · Banks ₹10,00,000.00 · 10 more positions": the budgets the risk
+ *  service found left on your real book now (account_size.portfolio.remaining, plan_sizing._remaining). */
+export function budgetsLeftText(remaining: Record<string, unknown>): string {
+  const sector = str(remaining.sector);
+  const positions = numOr(remaining.positions);
+  return `open risk ${fmtPrice(numOr(remaining.open_risk_rs))} · exposure ${fmtPrice(numOr(remaining.exposure_rs))}`
+    + (sector ? ` · ${sector} ${fmtPrice(numOr(remaining.sector_rs))}` : "")
+    + (positions != null ? ` · ${fmtNum(positions)} more positions` : "");
+}
+
 /** "Price data of 18 Oct, before the last completed session 19 Oct" — the plan's own dates, null when current. */
 export function staleText(tp: TradePlan): string | null {
   const d = tp.data_as_of ?? {};
@@ -188,6 +198,28 @@ function RiskCheck({ v }: { v: PlanView }) {
   );
 }
 
+/**
+ * The row's "may be reduced" line (opt-in, `budgets`): the size above is the risk service's on an EMPTY book, so a
+ * submission can still be cut by your open positions; this says so, with the budgets left on your real book now and,
+ * when they already bind, the size they allow (the route's account_size.portfolio).
+ */
+function BudgetsLine({ v }: { v: PlanView }) {
+  const a = v.accountSize;
+  const pf = a?.portfolio ?? null;
+  const left = pf
+    ? `left: ${budgetsLeftText(pf.remaining)}`
+    : v.store === "pending" ? "budgets left: reading…"
+      : `budgets left: ${UNAVAILABLE} (${a?.reason ?? (a ? "the risk service did not read your open book" : "the plan was not sized for your account")})`;
+  return (
+    <span data-testid="dc-row-budgets" data-binding={pf && pf.reasons.length ? "true" : undefined} className="flex min-w-0 flex-col" style={{ ...quiet, gap: 2, overflowWrap: "anywhere" }}>
+      <span>May be reduced by portfolio limits at submission · {left}</span>
+      {pf && pf.reasons.length > 0 && (
+        <span style={{ color: "var(--amber)" }}>With your open positions now: {pf.sizeNow != null ? `at most ${fmtNum(pf.sizeNow)}` : "—"} ({pf.reasons.map((r) => r.message).join("; ")})</span>
+      )}
+    </span>
+  );
+}
+
 // ── the full sections ────────────────────────────────────────────────────
 
 function Sections({ v }: { v: PlanView }) {
@@ -253,9 +285,7 @@ function Sections({ v }: { v: PlanView }) {
             <span>{a.portfolioNote ?? "May be reduced by portfolio limits at submission."}</span>
             {a.portfolio.reasons.length > 0 && <span style={{ display: "block", color: "var(--amber)" }}>With your open positions now: {a.portfolio.sizeNow != null ? `at most ${fmtNum(a.portfolio.sizeNow)}` : "—"} ({a.portfolio.reasons.map((r) => r.message).join("; ")})</span>}
             <span data-testid="dc-budgets-left" style={{ ...quiet, display: "block" }}>
-              Left in your risk profile: open risk {fmtPrice(numOr(a.portfolio.remaining.open_risk_rs))} · exposure {fmtPrice(numOr(a.portfolio.remaining.exposure_rs))}
-              {str(a.portfolio.remaining.sector) ? ` · ${str(a.portfolio.remaining.sector)} ${fmtPrice(numOr(a.portfolio.remaining.sector_rs))}` : ""}
-              {numOr(a.portfolio.remaining.positions) != null ? ` · ${fmtNum(numOr(a.portfolio.remaining.positions))} more positions` : ""}
+              Left in your risk profile: {budgetsLeftText(a.portfolio.remaining)}
             </span>
           </Row>
         )}
@@ -317,7 +347,7 @@ function Sections({ v }: { v: PlanView }) {
 
 // ── the card ─────────────────────────────────────────────────────────────
 
-export function DecisionCardView({ v, variant, testId = "dc" }: { v: PlanView; variant: "row" | "full"; testId?: string }) {
+export function DecisionCardView({ v, variant, testId = "dc", budgets = false }: { v: PlanView; variant: "row" | "full"; testId?: string; budgets?: boolean }) {
   const [open, setOpen] = useState(false);
   const tp = v.plan;
   const a = APPROVAL[v.risk.state];
@@ -345,6 +375,7 @@ export function DecisionCardView({ v, variant, testId = "dc" }: { v: PlanView; v
         <Item k="Est. costs" v={costs != null ? fmtPrice(costs) : UNAVAILABLE} testId="dc-costs" />
         <Item k="Horizon" v={horizonText(tp)} testId="dc-horizon" />
       </div>
+      {budgets && variant === "row" && <BudgetsLine v={v} />}
       {v.changed && (
         <span data-testid="dc-changed" role="note" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>
           Plan changed: version {v.changed.toVersion ?? "?"} ({v.changed.toId}) replaces version {v.changed.fromVersion ?? "?"} ({v.changed.fromId}) that this row was built with. The figures shown are version {v.changed.toVersion ?? "?"}'s.
@@ -368,10 +399,13 @@ export function DecisionCardView({ v, variant, testId = "dc" }: { v: PlanView; v
   );
 }
 
-/** The card for a row's plan. `recordsShownPlan`: see usePlanView. */
-export function DecisionCard({ plan, variant, testId, recordsShownPlan = false }: { plan: TradePlan; variant: "row" | "full"; testId?: string; recordsShownPlan?: boolean }) {
+/** The card for a row's plan. `recordsShownPlan`: see usePlanView. `budgets`: a row also says it may be reduced by
+ *  portfolio limits at submission, with the budgets left (Market Overview's Top AI ideas). */
+export function DecisionCard({ plan, variant, testId, recordsShownPlan = false, budgets = false }: {
+  plan: TradePlan; variant: "row" | "full"; testId?: string; recordsShownPlan?: boolean; budgets?: boolean;
+}) {
   const v = usePlanView(plan, { recordsShownPlan });
-  return v ? <DecisionCardView v={v} variant={variant} testId={testId} /> : null;
+  return v ? <DecisionCardView v={v} variant={variant} testId={testId} budgets={budgets} /> : null;
 }
 
 /** "No trade plan" for an idea whose route sent `trade_plan: null`, with the route's reason. */
