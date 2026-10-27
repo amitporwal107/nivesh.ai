@@ -69,7 +69,7 @@ test.describe("MOCK — not real data: removed trading screens · the old Trader
     await expect(page.getByTestId("screen-page-settings")).toBeVisible();
     await page.goto(`${APP}/trader`);
     await expectDesk(page, null);
-    await expect(page.getByTestId("desk-overview")).toBeVisible();
+    await expect(page.getByTestId("market-overview")).toBeVisible();
     await expect(page.getByTestId("screen-trader")).toHaveCount(0);
     // The redirect replaced /app/trader: Back returns to the page before it.
     await page.goBack();
@@ -80,7 +80,7 @@ test.describe("MOCK — not real data: removed trading screens · the old Trader
     await deskApi(page);
     await page.goto(`${APP}/trader`);
     await expectDesk(page, null);
-    await expect(page.getByTestId("desk-overview")).toBeVisible();
+    await expect(page.getByTestId("market-overview")).toBeVisible();
   });
 
   test("RM-1b the old URL's query string is kept (the backend's Kite login returns to /v5/app/trader?kite=…)", async ({ page }) => {
