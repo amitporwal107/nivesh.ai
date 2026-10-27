@@ -17,7 +17,7 @@
  * filings that bear on the quarter, each linked to its source. It never calls a result a beat or a miss.
  * History is what happened before, not a forecast; the panel says so. Nothing is invented: a missing figure is "—".
  */
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useCopilotShell } from "../../lib/shell-context";
 import { LoadingBlock } from "../../components/ui";
 import { ApiError } from "@/services/api/errors";
@@ -29,6 +29,12 @@ import {
   fmtExpVal, fmtMacroVal, useEventHistory, useEventsCalendar, useMacroCalendar, useMacroHistory, useResultsBoard, useResultsExpectation,
   type Board, type BoardEvent, type CalEvent, type Calendar, type Country, type EventType, type ExpMetric, type Expectation, type History, type Impact, type MacroCalendar, type MacroEvent, type StatTriple, type Universe,
 } from "./events-data";
+
+// Results week (docs/EARNINGS_SURPRISE_TRACKER.md §6): its own chunk and files (resultsweek/), reached from the View switch.
+const ResultsWeekView = lazy(() => import("./resultsweek/ResultsWeekView"));
+type EvView = "cal" | "tl" | "rw";
+const VIEW_ITEMS: Array<[string, EvView]> = [["CALENDAR", "cal"], ["TIMELINE", "tl"], ["RESULTS WEEK", "rw"]];
+const rwFallback = <LoadingBlock label="Loading the results week" rows={4} />;
 
 const MINUS = "−";
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -962,7 +968,7 @@ function DesktopEvents() {
   const now = useNow(60_000);
   const today = istParts(now).iso;
   const [macro, setMacro] = useState(false);
-  const [view, setView] = useState<"cal" | "tl">("cal");
+  const [view, setView] = useState<EvView>("cal");
   const [month, setMonth] = useState(() => monthOf(today));
   const [f, setF] = useState<Filters>({ universe: "fno", secs: [], types: ALL_TYPES, q: "" });
   const [mf, setMf] = useState<MacroFilters>({ countries: ALL_COUNTRIES, impacts: ALL_IMPACTS, q: "" });
@@ -986,6 +992,13 @@ function DesktopEvents() {
   const holN = [...(cal?.holidays.keys() ?? [])].filter((k) => monthOf(k) === month).length;
 
   const byId = useMemo(() => new Map(evs.map((e) => [e.id, e])), [evs]);
+  const viewBox = (
+    <div className="flex items-center" style={{ height: 38, gap: 8, padding: "0 3px 0 12px", borderRadius: 11, background: "var(--bg-1)", border: "1px solid var(--line-2)" }}>
+      <span style={eyebrow}>VIEW</span>
+      <Seg id="view" label="View" value={view} onPick={setView} items={VIEW_ITEMS} />
+    </div>
+  );
+  if (view === "rw") return <Suspense fallback={rwFallback}><ResultsWeekView today={today} viewSwitch={viewBox} /></Suspense>;
   // a board row opens the same panel as the calendar chip; its month and the RESULTS type must be showing for the event to be found
   const pickBoard = (e: BoardEvent) => {
     setMonth(monthOf(e.eventDate));
@@ -1058,10 +1071,7 @@ function DesktopEvents() {
                 </div>
               </>
             )}
-            <div className="flex items-center" style={{ marginLeft: "auto", height: 38, gap: 8, padding: "0 3px 0 12px", borderRadius: 11, background: "var(--bg-1)", border: "1px solid var(--line-2)" }}>
-              <span style={eyebrow}>VIEW</span>
-              <Seg id="view" label="View" value={view} onPick={setView} items={[["CALENDAR", "cal"], ["TIMELINE", "tl"]]} />
-            </div>
+            <div style={{ marginLeft: "auto" }}>{viewBox}</div>
           </div>
           {macro && <CountryGap cal={mcal} countries={mf.countries} />}
           <div className="flex flex-wrap items-center" style={{ gap: 10 }}>
@@ -1114,6 +1124,7 @@ function MobileEvents() {
   const [countries, setCountries] = useState<Country[]>(ALL_COUNTRIES);
   const [impacts, setImpacts] = useState<Impact[]>(ALL_IMPACTS);
   const [sheet, setSheet] = useState<string | null>(null);
+  const [mview, setMview] = useState<"cal" | "rw">("cal");
   const m1 = monthOf(wk), m2 = monthOf(addDays(wk, 6));
   const q1 = useEventsCalendar(m1, "fno");
   const q2 = useEventsCalendar(m2, "fno");
@@ -1126,6 +1137,8 @@ function MobileEvents() {
   const { evs: sevs, by: sby } = useFiltered({ month: m1, asOf: null, events: evsAll, holidays: new Map(), closes: new Map(), gaps: [] }, f);
   const mf: MacroFilters = { countries, impacts, q: "" };
   const { evs: mevs, by: mby } = useMacroFiltered({ month: m1, asOf: null, events: mAll, holidays: new Map(), closes: new Map(), gaps: [] }, mf);
+  const viewSeg = <Seg id="view" label="View" value={mview} onPick={setMview} items={[["CALENDAR", "cal"], ["RESULTS WEEK", "rw"]]} />;
+  if (mview === "rw") return <Suspense fallback={rwFallback}><ResultsWeekView today={today} viewSwitch={viewSeg} /></Suspense>;
   const evs: AnyEv[] = macro ? mevs : sevs;
   const by: Map<string, AnyEv[]> = macro ? mby : sby;
   const tog = <T,>(a: T[], v: T) => (a.includes(v) ? a.filter((x) => x !== v) : [...a, v]);
@@ -1143,6 +1156,7 @@ function MobileEvents() {
         <span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Events calendar</span>
         <div style={{ marginLeft: "auto" }}><Seg id="tab" label="Calendar type" value={macro ? "macro" : "stock"} onPick={(v) => { setMacro(v === "macro"); setSheet(null); }} items={[["STOCK", "stock"], ["MACRO", "macro", mq1.isSuccess ? String(mevs.length) : mq1.isError ? "!" : "…"]]} /></div>
       </div>
+      <div className="flex">{viewSeg}</div>
       <div className="cp-card flex flex-col" style={{ padding: "6px 8px 8px", gap: 6, borderRadius: 18 }}>
         <div className="flex items-center">
           <button type="button" aria-label="Previous week" data-testid="events-m-prev" onClick={() => move(-1)} style={{ width: 44, height: 38, border: 0, background: "transparent", color: "var(--cp-ink-2)", fontSize: 20, cursor: "pointer" }}>‹</button>
