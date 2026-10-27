@@ -161,7 +161,7 @@ function ControlRow({ kind, status }: { kind: ControlKind; status: RiskStatus })
 const MODE_LABEL: Record<string, string> = { paper: "Paper", shadow: "Shadow", assisted: "Assisted", live: "Live" };
 const modeLabel = (m: string) => MODE_LABEL[m] ?? m;
 
-function StatusBody({ q }: { q: UseQueryResult<RiskStatus> }) {
+export function StatusBody({ q }: { q: UseQueryResult<RiskStatus> }) {
   if (q.isPending) return <LoadingBlock label="Loading your risk controls" rows={3} />;
   if (q.isError) {
     return (
@@ -241,7 +241,7 @@ function Remaining({ row }: { row: LimitRow }) {
   return <>{row.fmt(left)}</>;
 }
 
-function PolicyBody({ q, gateEnabled }: { q: UseQueryResult<RiskPolicy>; gateEnabled: boolean | null }) {
+export function PolicyBody({ q, gateEnabled }: { q: UseQueryResult<RiskPolicy>; gateEnabled: boolean | null }) {
   const { mobile } = useCopilotShell();
   const gateNote = gateEnabled === false && (
     <span data-testid="risk-gate-off-note" style={quiet}>The policy gate does not check your paper writes, so these limits are not applied to them. The kill switch and the halt still apply.</span>
@@ -294,15 +294,18 @@ function PolicyBody({ q, gateEnabled }: { q: UseQueryResult<RiskPolicy>; gateEna
 
 // ── 03 decisions ─────────────────────────────────────────────────────────
 
-/** Outcome in words. "allow" and "block" are the gate's; an older row's other word is shown as given, in a neutral tone. */
-function outcomeOf(o: string | null): { label: string; tone: Tone } {
+/** Outcome in words: allow, reduce and block (the service records allowed / reduced / blocked); another word is shown as given, in a neutral tone. */
+export function outcomeOf(o: string | null): { label: string; tone: Tone } {
   const k = (o ?? "").toLowerCase();
   if (k === "allow" || k === "allowed") return { label: "Allowed", tone: "mint" };
   if (k === "block" || k === "blocked") return { label: "Blocked", tone: "danger" };
+  // The universal risk service records "reduced" when it cut the size (services/risk_gate/service.py _persist).
+  if (k === "reduce" || k === "reduced") return { label: "Reduced", tone: "amber" };
   return { label: o ?? "No outcome recorded", tone: "ink" };
 }
 
-function DecisionItem({ d, first }: { d: RiskDecision; first: boolean }) {
+/** One decision row. `children` (Risk Desk › Decision log) adds the estimate, versions and the lineage below it. */
+export function DecisionItem({ d, first, children }: { d: RiskDecision; first: boolean; children?: ReactNode }) {
   const o = outcomeOf(d.outcome);
   return (
     <li data-testid="risk-decision" data-outcome={d.outcome ?? ""} className="flex min-w-0 flex-col" style={{ gap: 6, padding: first ? "0 0 12px" : "12px 0", borderTop: first ? 0 : "1px solid var(--cp-line)" }}>
@@ -325,6 +328,7 @@ function DecisionItem({ d, first }: { d: RiskDecision; first: boolean }) {
       {d.correlationId && (
         <span style={quiet}>Correlation id <code data-testid="risk-decision-cid" style={{ ...mono, color: "var(--cp-ink-2)" }}>{d.correlationId}</code></span>
       )}
+      {children}
     </li>
   );
 }
@@ -336,7 +340,7 @@ const FIELD: Record<string, { name: string; on: string; off: string }> = {
   halted: { name: "Trading halt", on: "halted", off: "not halted" },
 };
 
-function AuditItem({ e }: { e: RiskAuditEvent }) {
+export function AuditItem({ e }: { e: RiskAuditEvent }) {
   const f = e.field ? FIELD[e.field] : undefined;
   const word = (v: boolean | null) => (v == null ? "unknown" : f ? (v ? f.on : f.off) : String(v));
   return (
@@ -543,7 +547,7 @@ function ProfileForm({ view }: { view: RiskProfileView }) {
   );
 }
 
-function ProfileBody({ q }: { q: UseQueryResult<RiskProfileView> }) {
+export function ProfileBody({ q }: { q: UseQueryResult<RiskProfileView> }) {
   if (q.isPending) return <LoadingBlock label="Loading your risk profile" rows={4} />;
   if (q.isError) return <div data-testid="risk-profile-error"><QueryProblem what="Your risk profile" error={q.error} onRetry={() => { void q.refetch(); }} /></div>;
   const view = q.data;
@@ -592,7 +596,7 @@ function ProfileBody({ q }: { q: UseQueryResult<RiskProfileView> }) {
 
 // ── the view ─────────────────────────────────────────────────────────────
 
-function Card({ id, num, title, testId, actions, children }: { id: string; num: string; title: ReactNode; testId: string; actions?: ReactNode; children: ReactNode }) {
+export function Card({ id, num, title, testId, actions, children }: { id: string; num: string; title: ReactNode; testId: string; actions?: ReactNode; children: ReactNode }) {
   const { mobile } = useCopilotShell();
   return (
     <Widget id={`risk.${id}${mobile ? ".phone" : ""}`} testId={testId} headTestId={`${testId}-title`} num={num} title={title} actions={actions}
