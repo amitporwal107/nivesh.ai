@@ -53,6 +53,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
+from services import desk_cost_card as cost_card
 from services import desk_trading as base
 from services import paper_account
 from services.copilot_tools import daas_client
@@ -650,20 +651,34 @@ def _exit_for_session(trade, bar, day, direction, stop, target, states, legs, ou
 
 
 # ── costs and money figures ─────────────────────────────────────────────────
-def strategy_costs(trade: Dict[str, Any], exit_marks: List[Optional[float]]) -> Optional[float]:
-    """Round-trip estimated cost in rupees: for every leg, the slippage % of the traded value plus flat brokerage on
-    the entry side and on the exit side. None when any leg has no exit mark (nothing is assumed)."""
+LEG_SEGMENT = {"future": "futures", "option": "options", "cash": "equity_delivery"}
+
+
+def strategy_cost_breakdown(trade: Dict[str, Any], exit_marks: List[Optional[float]]) -> Optional[Dict[str, float]]:
+    """Round-trip estimated costs in rupees, every leg, entry side and exit side: {brokerage, stt, exchange, sebi, stamp,
+    gst, slippage, total}. Under the desk cost card (desk-cost-v2) each leg is priced by its segment (futures, options
+    on the premium, a cash leg as equity delivery), the entry side as the leg's own side and the exit side as the
+    opposite (services/desk_cost_card.py); under the flat model the trade was opened with (desk-flat-v1, or no model)
+    only slippage and brokerage. None when any leg has no exit mark (nothing is assumed)."""
     if any(m is None for m in exit_marks):
         return None
-    model = trade.get("cost_model") or base.COST_MODEL
-    slip = float(model.get("slippage_pct_per_side", base.COST_MODEL["slippage_pct_per_side"])) / 100.0
-    brokerage = float(model.get("brokerage_rs_per_side", base.COST_MODEL["brokerage_rs_per_side"]))
-    total = 0.0
+    model = trade.get("cost_model") or base.COST_MODEL_FLAT_V1
+    sides = []
     for leg, mark in zip(trade["legs"], exit_marks):
         qty = _qty(leg)
-        total += float(leg["entry_price"]) * qty * slip + brokerage
-        total += float(mark) * qty * slip + brokerage
-    return round(total, 2)
+        if cost_card.is_card(model):
+            seg, buy = LEG_SEGMENT[leg["kind"]], leg["side"] == "buy"
+            sides.append(cost_card.order_side(seg, "BUY" if buy else "SELL", float(leg["entry_price"]) * qty, model))
+            sides.append(cost_card.order_side(seg, "SELL" if buy else "BUY", float(mark) * qty, model))
+        else:
+            sides.append(base.round_trip_breakdown(qty, float(leg["entry_price"]), float(mark), model))
+    return cost_card.add(*sides)
+
+
+def strategy_costs(trade: Dict[str, Any], exit_marks: List[Optional[float]]) -> Optional[float]:
+    """The total of `strategy_cost_breakdown`, or None."""
+    breakdown = strategy_cost_breakdown(trade, exit_marks)
+    return breakdown["total"] if breakdown else None
 
 
 def exposure_rs(doc: Dict[str, Any]) -> Optional[float]:
@@ -740,7 +755,8 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
     legs = trade["legs"]
     exit_marks = [st["mark"] for st in sim["legs"]]
     gross = sim["gross_pnl_rs"]
-    costs = strategy_costs(trade, exit_marks)
+    breakdown = strategy_cost_breakdown(trade, exit_marks)
+    costs = breakdown["total"] if breakdown else None
     exit_legs = [{"index": i, "exit_mark": st["mark"], "mark_date": st["mark_date"].isoformat() if st["mark_date"] else None,
                   "mark_basis": st["mark_basis"], "pnl_rs": _leg_pnl(leg, st["mark"])}
                  for i, (leg, st) in enumerate(zip(legs, sim["legs"]))]
@@ -760,6 +776,7 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
         "exit_legs": exit_legs,
         "realized_pnl_rs": gross,
         "costs_rs": costs,
+        "costs_breakdown": breakdown,
         "net_pnl_rs": round(gross - costs, 2) if gross is not None and costs is not None else None,
         "open_key": None,              # frees the structure for a new trade (routes/desk_trading.py duplicate rule)
         "mfe_rs": sim["mfe_rs"], "mae_rs": sim["mae_rs"],
@@ -887,12 +904,14 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         bases = [s["mark_basis"] if s else None for s in states]
         flags = list(sim["flags"]) if sim else []
         gross = sim["gross_pnl_rs"] if sim else None
-        costs = strategy_costs(doc, marks) if gross is not None else None
+        breakdown = strategy_cost_breakdown(doc, marks) if gross is not None else None
+        costs = breakdown["total"] if breakdown else None
         mfe, mae = (sim["mfe_rs"], sim["mae_rs"]) if sim else (None, None)
         observations = sim["observations"] if sim else None
         held = sim["held_sessions"] if sim else None
         checked = sim["checked_through"].isoformat() if sim and sim["checked_through"] else None
-        costs_basis = "entry and exit sides, every leg; the exit side estimated at the last marks" if costs is not None else None
+        costs_basis = (f"entry and exit sides, every leg; the exit side estimated at the last marks; {base.costs_text(doc.get('cost_model'))}"
+                       if costs is not None else None)
         pnls = [_leg_pnl(leg, m) for leg, m in zip(legs, marks)]
     else:
         exits = {e["index"]: e for e in (doc.get("exit_legs") or [])}
@@ -902,9 +921,11 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         pnls = [exits.get(i, {}).get("pnl_rs") for i in range(len(legs))]
         flags = list(doc.get("flags") or [])
         gross, costs = doc.get("realized_pnl_rs"), doc.get("costs_rs")
+        breakdown = doc.get("costs_breakdown")
         mfe, mae = doc.get("mfe_rs"), doc.get("mae_rs")
         observations, held, checked = doc.get("observations"), doc.get("held_sessions"), doc.get("checked_through")
-        costs_basis = "entry and exit sides, every leg, at the closing marks" if costs is not None else None
+        costs_basis = (f"entry and exit sides, every leg, at the closing marks; {base.costs_text(doc.get('cost_model'))}"
+                       if costs is not None else None)
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
     entries = [leg["entry_price"] for leg in legs]
     out = {
@@ -916,7 +937,7 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         "opened_at": doc["opened_at"], "status": doc["status"], "closed_at": doc.get("closed_at"),
         "exit_reason": doc.get("exit_reason"), "exit_session": doc.get("exit_session"), "exit_note": doc.get("exit_note"),
         "entry_rule": doc.get("entry_rule") or "at_once", "entry_status": "assumed", "max_hold_sessions": doc.get("max_hold_sessions"),
-        "rules_version": doc.get("rules_version"), "cost_model": doc.get("cost_model") or dict(base.COST_MODEL),
+        "rules_version": doc.get("rules_version"), "cost_model": doc.get("cost_model") or dict(base.COST_MODEL_FLAT_V1),
         "risk": doc.get("risk"),
         "signal": doc["signal"], "entry_record_hash": doc.get("entry_record_hash"),
         "entry_record_intact": doc.get("entry_record_hash") == record_hash(doc),
@@ -924,7 +945,7 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         "net_premium_rs": net_premium(legs, entries),
         "mark_premium_rs": net_premium(legs, marks),
         "net_premium_basis": "premium paid (negative) or received (positive) by the option legs at entry, lots × lot size",
-        "gross_pnl_rs": gross, "costs_rs": costs, "costs_basis": costs_basis, "net_pnl_rs": net,
+        "gross_pnl_rs": gross, "costs_rs": costs, "costs_breakdown": breakdown, "costs_basis": costs_basis, "net_pnl_rs": net,
         "unrealized_pnl_rs": gross if is_open else None,
         "realized_pnl_rs": None if is_open else doc.get("realized_pnl_rs"),
         "mfe_rs": mfe, "mae_rs": mae, "observations": observations, "held_sessions": held, "checked_through": checked,

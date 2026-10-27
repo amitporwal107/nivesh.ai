@@ -187,8 +187,9 @@ test.describe("AI scanner watchlist", () => {
     await expect(icici.getByTestId("aiw-paper-qty")).toHaveValue("208");
     await icici.getByTestId("aiw-paper-add").click();
     await expect(icici.getByTestId("aiw-paper-done")).toContainText("208 ICICIBANK");
+    // paper_fills_pnl TESTCASES ER-3: entry 1200 at the list's close 1200 fills at once.
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-26" } }]);
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-26" }, entry_rule: "at_once" }]);
     // desk_paper_safety TESTCASES UI-4: the submission carries one Idempotency-Key (a UUID).
     expect(seen.paperKeys).toHaveLength(1);
     expect(seen.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);

@@ -14,6 +14,7 @@ import type { DeskPersona } from "../context";
 import { TrustLine } from "../trust";
 import type { Candidate, OptionsSelection, StrategyPlan } from "./plan-contract";
 import { CHARTINK_CANDIDATE_NOTE, CHARTINK_FAMILY, CandidatePill, DASH, Fact, SEGMENT_WORD, noteStyle, ratio, rupees, rupeesAbs } from "./plan-format";
+import { costsBreakdownText, readCostsBreakdown } from "../desk-trading";
 
 const list = { margin: 0, display: "flex", flexDirection: "column" as const, gap: 4, paddingLeft: 18 };
 
@@ -207,7 +208,13 @@ export function CandidateDetail({ plan, c, persona }: { plan: StrategyPlan; c: C
                 <Fact testId="sizing-risk" k="Risk budget" v={rupees(sz.risk_budget_inr)} why={sz.risk_basis ?? undefined} />
                 <Fact testId="sizing-per-unit" k="Risk per unit" v={rupees(sz.risk_per_unit)} />
                 <Fact testId="sizing-cap" k="Allocation cap" v={`${sz.max_allocation_pct ?? DASH}% of ${rupees(sz.capital_inr)}`} why={sz.by_allocation_cap != null ? `allows ${fmtNum(sz.by_allocation_cap)}; the risk budget allows ${sz.by_risk_budget == null ? DASH : fmtNum(sz.by_risk_budget)}; ${sz.binding ? humaniseTag(sz.binding).toLowerCase() : "no"} limit binds` : undefined} />
-                <Fact testId="sizing-deployed" k="Deployed" v={rupees(sz.deployed_inr)} why={sz.risk_at_stop_inr != null ? `risk at the stop ${rupees(sz.risk_at_stop_inr)}` : undefined} />
+                <Fact testId="sizing-deployed" k="Deployed" v={rupees(sz.deployed_inr)} why={sz.risk_at_stop_net_inr != null && sz.risk_at_stop_inr != null
+                  ? `risk at the stop ${rupees(sz.risk_at_stop_net_inr)} after estimated costs (${rupees(sz.risk_at_stop_inr)} before)`
+                  : sz.risk_at_stop_inr != null ? `risk at the stop ${rupees(sz.risk_at_stop_inr)}` : undefined} />
+                {sz.costs_at_stop_inr != null && sz.costs_breakdown_at_stop && (
+                  <Fact testId="sizing-costs" k="Costs at the stop" v={rupees(sz.costs_at_stop_inr)}
+                    why={`${costsBreakdownText(readCostsBreakdown(sz.costs_breakdown_at_stop), (n) => rupees(n))}; ₹20 a side brokerage is a desk assumption, and the slippage also covers the spread`} />
+                )}
               </div>
             ) : (
               <div data-testid="sizing-incomplete" role="note" className="flex flex-col" style={{ gap: 4 }}>

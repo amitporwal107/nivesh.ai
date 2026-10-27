@@ -973,6 +973,8 @@ const simTrade = (): Trade => trade({
     { code: "both_in_range", text: BOTH, session: "2026-10-13", price: null },
   ],
   gross_pnl_rs: (95 - 100) * 20, costs_rs: SIM_COSTS, costs_basis: "entry and exit at the fill prices", net_pnl_rs: Math.round(((95 - 100) * 20 - SIM_COSTS) * 100) / 100,
+  // A flat-model trade's breakdown as the route sends it: brokerage and slippage, statutory components 0.
+  costs_breakdown: { brokerage: 40, stt: 0, exchange: 0, sebi: 0, stamp: 0, gst: 0, slippage: 1.95, total: SIM_COSTS },
 });
 /** A break-above entry still waiting: no position, so no P&L, costs or MFE. */
 const waitTrade = (): Trade => trade({
@@ -1256,6 +1258,32 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     expect(ok.commits).toHaveLength(0);
   });
 
+  test("desk cost card: a trade opened under desk-cost-v2 shows its costs by component and what they include; a flat-model trade keeps its own line", async ({ page }) => {
+    // paper_fills_pnl follow-up "statutory charges". MOCK — not real data: the figures are the backend's hand-computed
+    // card example (backend/tests/test_desk_paper_sim.py: 10 bought at 100, sold at 110 → costs 50.58, net 49.42).
+    const card = trade({
+      ...simTrade(), id: "pt-card", symbol: "FIXCARD", quantity: 10, exit_price: 110, exit_reason: "target", exit_note: null, flags: [],
+      realized_pnl_rs: 100,
+      cost_model: { name: "desk cost card", version: "desk-cost-v2", slippage_pct_per_side: 0.05, brokerage_rs_per_side: 20, source: "services/desk_cost_card.py" },
+      gross_pnl_rs: 100, costs_rs: 50.58, net_pnl_rs: 49.42,
+      costs_breakdown: { brokerage: 40, stt: 2.1, exchange: 0.06, sebi: 0, stamp: 0.15, gst: 7.22, slippage: 1.05, total: 50.58 },
+      costs_basis: "entry and exit at the fill prices; brokerage (a desk assumption of ₹20 a side), STT, exchange charge, SEBI fee, stamp duty, GST and 0.05% slippage a side (also the spread allowance); DP charges and income tax are not included",
+    });
+    const book = simBook();
+    book.trades = [card, simTrade()];
+    await mockDeskLists(page, { paperList: { status: 200, body: book } });
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    await page.goto(`${DESK}?tab=portfolio`);
+    const block = page.getByTestId("desk-paper-trades");
+    const row = block.getByTestId("desk-paper-closed-table").getByRole("row").filter({ hasText: "FIXCARD" });
+    await row.getByTestId("desk-paper-record-toggle").click();
+    const rec = block.getByTestId("desk-paper-record");
+    await expect(rec.getByTestId("desk-paper-record-costs-breakdown")).toHaveText(
+      `brokerage ${paise(40)} · STT ${paise(2.1)} · exchange ${paise(0.06)} · SEBI ${paise(0)} · stamp ${paise(0.15)} · GST ${paise(7.22)} · slippage ${paise(1.05)}`);
+    await expect(rec.getByTestId("desk-paper-record-pnl")).toContainText("a desk assumption of ₹20 a side");
+    await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText("+ STT, exchange, SEBI, stamp duty and GST (desk cost card, desk-cost-v2)");
+  });
+
   test("§13.4 paper trades: entry rule and status, costs, gross and net, MFE / MAE, flags and versions in each trade's record; a waiting entry cancels", async ({ page }) => {
     await mockDeskLists(page, { paperList: { status: 200, body: simBook() } });
     await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
@@ -1287,6 +1315,8 @@ test.describe("Smart trading desk — Portfolio & risk: PRD §8.2–§8.4, §13.
     await expect(rec.getByTestId("desk-paper-record-exit-rule")).toHaveText(`Stop ${paise(95)}, target ${paise(110)}, or the close of session 10 held`);
     await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText(`${rupees(42.1)} at the target · ${rupees(SIM_COSTS)} at the stop`);
     await expect(rec.getByTestId("desk-paper-record-est-costs")).toContainText("0.05% of the traded value + ₹20 a side (strategy_engine default)");
+    // A flat-model (desk-flat-v1) trade keeps its own model: no statutory components are shown, not even as ₹0.00.
+    await expect(rec.getByTestId("desk-paper-record-costs-breakdown")).toHaveText(`brokerage ${paise(40)} · slippage ${paise(1.95)}`);
     await expect(rec.getByTestId("desk-paper-record-strategy")).toHaveText("positional-scanner v2");
     await expect(rec.getByTestId("desk-paper-record-rationale")).toHaveText("Broke a 20-day high on volume");
     await expect(rec.getByTestId("desk-paper-record-obs")).toHaveText("1 session read · 1 held");

@@ -319,7 +319,7 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     await expect(page.getByTestId("rr-net")).toContainText("1.90 : 1");
     expect(c.risk_reward.gross).toBe(2);
     await expect(page.getByTestId("sizing-qty")).toContainText("208");
-    await expect(page.getByTestId("sizing-formula")).toContainText("floor(risk budget / risk per unit)");
+    await expect(page.getByTestId("sizing-formula")).toContainText("the most whole lots with units x risk per unit + estimated round-trip costs at the stop (the desk cost card) <= risk budget");
     await expect(page.getByTestId("margin")).toContainText("—");
     await expect(page.getByTestId("margin")).toContainText("No margin source exists");
     await expect(page.getByTestId("validation-status")).toHaveText("Not validated");
@@ -452,7 +452,7 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     await expect(inc).toContainText("Sizing is incomplete: no quantity is shown.");
     await expect(inc).toContainText("risk_budget_inr (or risk_pct together with capital); capital");
     await expect(page.getByTestId("sizing-qty")).toHaveCount(0);
-    await expect(page.getByTestId("sizing-formula")).toContainText("floor(risk budget / risk per unit)");
+    await expect(page.getByTestId("sizing-formula")).toContainText("the most whole lots with units x risk per unit + estimated round-trip costs at the stop (the desk cost card) <= risk budget");
     await expect(page.getByTestId("act-paper")).toBeDisabled();
     await expect(page.getByTestId("paper-blocked")).toContainText("Sizing is incomplete, so there is no quantity to record");
   });
@@ -636,6 +636,17 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     // desk_paper_safety TESTCASES UI-4: the strategy POST carries one Idempotency-Key.
     expect(st.paperKeys).toHaveLength(1);
     expect(st.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  test("SB-10f the sizing says the risk at the stop is after estimated costs, with the gross figure beside it", async ({ page }) => {
+    // paper_fills_pnl TESTCASES ER-5. The fixture's sizing is backend/tests/test_strategy_plan.py's cash candidate as the
+    // route now answers it under the desk cost card: 208 shares, ₹8,320 before costs, ₹839.32 of costs, ₹9,159.32 after.
+    await open(page, { plan: "cash" });
+    await build(page);
+    await expect(page.getByTestId("sizing-deployed")).toContainText("risk at the stop ₹9,159.32 after estimated costs (₹8,320.00 before)");
+    await expect(page.getByTestId("sizing-formula")).toContainText("estimated round-trip costs at the stop (the desk cost card)");
+    await expect(page.getByTestId("sizing-costs")).toContainText("₹839.32");
+    await expect(page.getByTestId("sizing-costs")).toContainText("brokerage ₹40.00 · STT ₹490.88 · exchange ₹15.07 · SEBI ₹0.49 · stamp ₹37.44 · GST ₹10.00 · slippage ₹245.44");
   });
 
   test("SB-10e a short-futures candidate is not offered for a paper trade, and nothing is sent", async ({ page }) => {

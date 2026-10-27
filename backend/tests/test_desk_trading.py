@@ -338,6 +338,7 @@ def test_writes_go_through_the_csrf_middleware_like_any_other_write(world):
 
 # ── POST /paper-trades ───────────────────────────────────────────────────────
 def test_open_a_paper_trade_stores_it_for_the_user_and_returns_201(api, world):
+    world.add("M&M", bar("2026-10-09", 103, 97, 101))           # MOCK: the session the at-once entry is checked against
     r = api.post(TRADES_URL, headers=A, json=trade_body(
         symbol=" m&m ", note="  breakout retest  ", source={"kind": "scanner", "bucket": "breakout", "signal_date": "2026-10-09"}))
     assert r.status_code == 201, r.text
@@ -348,10 +349,11 @@ def test_open_a_paper_trade_stores_it_for_the_user_and_returns_201(api, world):
     assert t["source"] == {"kind": "scanner", "bucket": "breakout", "signal_date": "2026-10-09"}
     assert t["status"] == "open" and t["opened_at"] == "2026-10-12T05:00:00+00:00"
     assert t["closed_at"] is None and t["exit_price"] is None and t["exit_reason"] is None
-    # No mark is made up on create: nothing was read from the data platform.
+    # No mark is made up on create. The bars are read once, only to check that an at-once entry is a price the last
+    # completed session traded (the fill model, paper_fills_pnl TESTCASES FM-1); before that check, nothing was read.
     assert t["last_close"] is None and t["unrealized_pnl_rs"] is None and t["realized_pnl_rs"] is None
     assert body["price_basis"] == "end of day" and "nidp.prices_eod" in body["source"]
-    assert world.calls == []
+    assert [c["symbol"] for c in world.calls] == ["M&M"]
     [stored] = world.db.trades.docs
     assert stored["_id"] == t["id"] and stored["user_id"] == "user_a" and len(t["id"]) == 36
     # The two unique partial indexes behind the duplicate and idempotency rules (TESTCASES I-13).
@@ -444,6 +446,7 @@ def test_two_opens_that_race_past_the_count_do_not_exceed_the_limit(api, world, 
 # ── GET /paper-trades: marks and the exit rule ───────────────────────────────
 def test_list_marks_open_trades_at_the_last_end_of_day_close(api, world):
     t = open_trade(api)
+    world.calls.clear()                  # the create's own read (the at-once entry check); this test counts the list's
     body = trades(api)
     [row] = body["trades"]
     assert row["id"] == t["id"] and row["status"] == "open"
@@ -453,8 +456,9 @@ def test_list_marks_open_trades_at_the_last_end_of_day_close(api, world):
     assert row["mark_error"] is None
     assert body["as_of"] == "2026-10-12" and body["checked_through"] == "2026-10-12"
     assert body["marks_error"] is None and body["price_basis"] == "end of day"
-    # Net of the strategy_engine cost model: 100 × 10 × 0.05% + ₹20 and 101 × 10 × 0.05% + ₹20 → ₹41.00; 10 − 41 = −31.
-    costs = round((100 * 10 * 0.0005 + 20.0) + (101 * 10 * 0.0005 + 20.0), 2)
+    # Under the desk cost card (desk-cost-v2) by hand: buy 100 x 10 = 20 + 1.00 STT + 0.03 exch + 0.15 stamp + 3.61 GST
+    # + 0.50 slippage = 25.29; sell 101 x 10 = 20 + 1.01 + 0.03 + 3.61 + 0.51 = 25.16; 50.45 (41.00 flat, before).
+    costs = 50.45
     assert body["summary"] == {"open": 1, "closed": 0, "wins": 0, "losses": 0, "realized_pnl_rs": None,
                                "unrealized_pnl_rs": 10.0, "unmarked_open": 0, "partial": False,
                                "net_realized_pnl_rs": None, "costs_realized_rs": None,
@@ -524,11 +528,12 @@ def test_block_deal_window_rows_never_move_a_trade(api, world):
     """Real staging rows: on 2026-10-08 RELIANCE has a BL row (1176) and an EQ row (low 1173)."""
     world.rows["RELIANCE"] = copy.deepcopy(STAGING_RELIANCE_ROWS)
     world.now = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
-    open_trade(api, symbol="RELIANCE", entry_price=1200.0, stop_price=1150.0, target_price=1250.0)
+    # 1210 (was 1200): an at-once entry must be inside the last completed session's range, 7 Oct 1203.50–1220.80.
+    open_trade(api, symbol="RELIANCE", entry_price=1210.0, stop_price=1150.0, target_price=1250.0)
     [row] = trades(api)["trades"]
     assert row["status"] == "open" and row["checked_through"] == "2026-10-13"
     assert row["last_close"] == 1166.7 and row["last_close_date"] == "2026-10-13"
-    assert row["unrealized_pnl_rs"] == round((1166.7 - 1200.0) * 10, 2)
+    assert row["unrealized_pnl_rs"] == round((1166.7 - 1210.0) * 10, 2)
     bars = svc.session_bars(STAGING_RELIANCE_ROWS)
     assert [(b["date"].isoformat(), b["series"], b["close"]) for b in bars if b["date"].day == 8] == [("2026-10-08", "EQ", 1178.0)]
     # A BL-only print below the stop is ignored too.
@@ -562,6 +567,7 @@ def test_two_trades_in_one_symbol_share_one_read_from_the_earliest_open(api, wor
 def test_every_page_is_read_so_an_early_stop_is_not_missed(api, world, monkeypatch):
     monkeypatch.setattr(svc, "PAGE_LIMIT", 2)
     open_trade(api)
+    world.calls.clear()                  # the create's own read (the at-once entry check)
     world.add("FIXA", bar("2026-10-13", 103, 94, 97), bar("2026-10-14", 99, 96, 98), bar("2026-10-15", 99, 96, 98))
     [row] = trades(api)["trades"]
     assert (row["status"], row["exit_session"]) == ("closed", "2026-10-13")
@@ -588,6 +594,7 @@ def test_when_the_data_platform_fails_the_list_still_answers_with_null_marks(api
 
 def test_an_unconfigured_data_platform_reads_as_unavailable_not_as_zero(api, world):
     open_trade(api)
+    world.calls.clear()                  # the create's own read (the at-once entry check)
     world.configured = False
     body = trades(api)
     assert body["marks_error"] == "prices_unavailable" and body["trades"][0]["unrealized_pnl_rs"] is None
@@ -595,7 +602,9 @@ def test_an_unconfigured_data_platform_reads_as_unavailable_not_as_zero(api, wor
 
 
 def test_a_symbol_the_platform_has_no_prices_for_says_so(api, world):
-    open_trade(api, symbol="FIXNONE")
+    # Stored directly: the route now refuses an at-once entry it cannot check (entry_unverifiable); a trade recorded
+    # before that check, or whose symbol's bars later vanish, must still list honestly.
+    world.db.trades.docs.append(svc.new_trade("user_a", trade_body(symbol="FIXNONE"), world.now))
     body = trades(api)
     assert body["trades"][0]["mark_error"] == "no_prices_for_symbol" and body["trades"][0]["last_close"] is None
     assert body["marks_error"] is None and body["as_of"] is None
@@ -656,7 +665,9 @@ def test_close_when_prices_cannot_be_read(api, world):
 
 
 def test_close_without_a_price_when_there_is_no_close_is_409(api, world):
-    t = open_trade(api, symbol="FIXNONE")
+    t = svc.new_trade("user_a", trade_body(symbol="FIXNONE"), world.now)       # stored directly, as in the test above
+    world.db.trades.docs.append(t)
+    t["id"] = t["_id"]
     r = api.post(f"{TRADES_URL}/{t['id']}/close", json={"exit_price": None}, headers=A)
     assert (r.status_code, r.json()["detail"]) == (409, "no_close_available")
     assert world.db.trades.docs[0]["status"] == "open"

@@ -244,7 +244,7 @@ def test_rc12_the_staging_book_gives_exactly_the_known_discrepancies(db):
 
     nifty = issue(plan, rec.PNL_MISSING, NIFTY)
     assert nifty["resolution"] == rec.DECISION and nifty["entries"] == []
-    assert {o["option"]: o["cash_delta_rs"] for o in nifty["options"]} == {"costs_at_entry_marks": -91.55, "void": 0.0}
+    assert {o["option"]: o["cash_delta_rs"] for o in nifty["options"]} == {"costs_at_entry_marks": -91.56, "void": 0.0}
     assert "60 s after it was opened" in nifty["evidence"]["why"]
 
     dups = sorted((i["symbol"], i["evidence"]["count"]) for i in plan["issues"] if i["code"] == rec.DUPLICATES)
@@ -376,9 +376,9 @@ def test_rc13_a_decision_adds_its_option_and_a_bad_one_is_refused(db):
                            f"{NIFTY[:8]}:{rec.PNL_MISSING}": "costs_at_entry_marks"})
     assert decided["decision_errors"] == []
     deltas = sorted((e["trade_id"], e["cash_delta_rs"]) for e in decided["entries"])
-    assert deltas == sorted([(ICICI1, 0.0), (NORTHARC, -5154.37), (FIXA, 0.0), (NIFTY, -91.55)])
+    assert deltas == sorted([(ICICI1, 0.0), (NORTHARC, -5154.37), (FIXA, 0.0), (NIFTY, -91.56)])
     after = decided["accounts"][0]["after_proposed"]
-    assert after["ok"] and after["cash_rs"] == round(984547.28 - 5154.37 - 91.55, 2)
+    assert after["ok"] and after["cash_rs"] == round(984547.28 - 5154.37 - 91.56, 2)
 
     bad = plan_of(db, {f"{NORTHARC[:8]}:{rec.PNL_NOT_IN_CASH}": "double_it", "ffffffff:closed_pnl_missing": "void"})
     assert len(bad["decision_errors"]) == 2 and len(bad["entries"]) == 1

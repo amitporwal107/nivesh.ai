@@ -261,11 +261,34 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(icici.getByTestId("desk-top10-paper-qty")).toHaveValue("208");
     await icici.getByTestId("desk-top10-paper-add").click();
     await expect(icici.getByTestId("desk-top10-paper-done")).toContainText("208 ICICIBANK");
+    // paper_fills_pnl TESTCASES ER-2: the entry 1200 is the scan's close 1200 (a BREAKOUT entry), so it fills at once.
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" } }]);
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" }, entry_rule: "at_once" }]);
     // desk_paper_safety TESTCASES UI-1: one Idempotency-Key with the submission (a header; the body is unchanged).
     expect(seen.paperKeys).toHaveLength(1);
     expect(seen.paperKeys[0]).toMatch(UUID);
+  });
+
+  test("F-5c a pullback level below the close is sent as pullback_to, a trigger above it as break_above, and the note says how it fills", async ({ page }) => {
+    // paper_fills_pnl TESTCASES ER-1, ER-2. FEDERALBNK's levels are the 26 Oct 2026 Top 10 row the study quotes (entry
+    // 316.89 under a close of 344.40: an ACCUMULATION pullback level); the trigger row is MOCK — not real data.
+    const federal = { ...ICICI, rank: 1, symbol: "FEDERALBNK", name: "Federal Bank Ltd",
+      scanner: scanner({ bucket: "true_accumulation", stage: "ACCUMULATION", close: 344.4, close_date: "2026-10-26", entry: 316.89, stop: 312.18, target: 355.5 }) };
+    const trigger = { ...ICICI, rank: 2, symbol: "TRIGGERCO", name: "Trigger Co",
+      scanner: scanner({ bucket: "pre_breakout", stage: "EARLY_BREAKOUT", close: 1000, entry: 1012, stop: 980, target: 1080 }) };
+    const seen = await desk(page, { ideas: { status: 200, body: { ...IDEAS, ideas: [federal, trigger] } } });
+    await page.goto(SCANNER);
+    const fed = page.getByTestId("desk-top10-stock-FEDERALBNK");
+    await fed.getByTestId("desk-top10-stock-paper").click();
+    await expect(fed.getByTestId("desk-top10-paper-rule")).toHaveText("filled when a later session pulls back to it");
+    await fed.getByTestId("desk-top10-paper-add").click();
+    await expect(fed.getByTestId("desk-top10-paper-done")).toBeVisible();
+    const trg = page.getByTestId("desk-top10-stock-TRIGGERCO");
+    await trg.getByTestId("desk-top10-stock-paper").click();
+    await expect(trg.getByTestId("desk-top10-paper-rule")).toHaveAttribute("data-rule", "break_above");
+    await trg.getByTestId("desk-top10-paper-add").click();
+    await expect(trg.getByTestId("desk-top10-paper-done")).toBeVisible();
+    expect(seen.paper.map((b) => [b.symbol, b.entry_price, b.entry_rule])).toEqual([["FEDERALBNK", 316.89, "pullback_to"], ["TRIGGERCO", 1012, "break_above"]]);
   });
 
   test("F-5b a retried submission reuses its key, a changed one gets a new key, and a 409 duplicate shows the route's reason", async ({ page }) => {

@@ -26,7 +26,7 @@ import { SymbolCell } from "../desk/parts";
 import { QueryProblem, fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk } from "./context";
 import {
-  useClosePaperTrade, useDeleteAlert, useDeskAlerts, usePaperTrades, writeProblem,
+  costsBreakdownText, useClosePaperTrade, useDeleteAlert, useDeskAlerts, usePaperTrades, writeProblem,
   type DeskAlert, type EntryRule, type EntryStatus, type ExitReason, type PaperTrade, type StrategyExitReason, type StrategyPaperTrade,
 } from "./desk-trading";
 
@@ -151,12 +151,12 @@ function TradeRecord({ t, book, investor }: { t: PaperTrade; book: { entryRules:
     ["Entry", <>{status ? status[investor ? "investor" : "trader"] : "—"}{t.entrySession ? ` · ${fmtDay(t.entrySession)}` : ""}{t.simEntryPrice != null ? ` · simulated at ${fmtPrice(t.simEntryPrice)}` : ""}</>, "entry"],
     ["Exit rule", exitRule, "exit-rule"],
     ["Quantity", fmtNum(t.quantity), "qty"],
-    ["Estimated costs", <>{t.estCostsAtTarget != null ? `${fmtINR(t.estCostsAtTarget)} at the target · ` : ""}{t.estCostsAtStop != null ? `${fmtINR(t.estCostsAtStop)} at the stop` : "—"}{t.costModel?.slippagePctPerSide != null && t.costModel.brokerageRsPerSide != null ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{fmtNum(t.costModel.slippagePctPerSide, 2)}% of the traded value + {fmtINR(t.costModel.brokerageRsPerSide)} a side{t.costModel.name ? ` (${t.costModel.name})` : ""}</span> : null}</>, "est-costs"],
+    ["Estimated costs", <>{t.estCostsAtTarget != null ? `${fmtINR(t.estCostsAtTarget)} at the target · ` : ""}{t.estCostsAtStop != null ? `${fmtINR(t.estCostsAtStop)} at the stop` : "—"}{t.costModel?.slippagePctPerSide != null && t.costModel.brokerageRsPerSide != null ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{fmtNum(t.costModel.slippagePctPerSide, 2)}% of the traded value + {fmtINR(t.costModel.brokerageRsPerSide)} a side{t.costModel.version === "desk-cost-v2" ? " + STT, exchange, SEBI, stamp duty and GST" : ""}{t.costModel.name ? ` (${t.costModel.name}${t.costModel.version ? `, ${t.costModel.version}` : ""})` : ""}</span> : null}</>, "est-costs"],
     ["Strategy version", t.strategyVersion ?? "— not recorded", "strategy"],
     ["Rationale", t.rationale ?? t.note ?? "— not recorded", "rationale"],
     [w.obs, t.observations != null ? `${plural(t.observations, "session")} read${t.heldSessions != null ? ` · ${fmtNum(t.heldSessions)} held` : ""}` : "— not recorded", "obs"],
     ["Exit", t.status === "closed" ? <>{t.exitReason ? REASON[t.exitReason][investor ? "investor" : "label"] : "—"}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitPrice != null ? ` · ${fmtPrice(t.exitPrice)}` : ""}</> : "Open", "exit"],
-    [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
+    [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2") ? <span data-testid="desk-paper-record-costs-breakdown" style={{ display: "block", color: "var(--cp-ink-3)" }}>{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2")}</span> : null}{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
     [`${w.mfe} · ${w.mae}`, <>{signedPct(t.mfePct)}{t.mfeRs != null ? ` (${fmtINR(t.mfeRs, { signed: true })})` : ""} · {signedPct(t.maePct)}{t.maeRs != null ? ` (${fmtINR(t.maeRs, { signed: true })})` : ""}</>, "excursion"],
     ["Rules version", t.rulesVersion ?? "— before versions were recorded", "version"],
   ];
@@ -208,7 +208,7 @@ function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: bool
     ["Exit rule", levels, "exit-rule"],
     ["Exit", t.status === "closed" ? <>{reason ?? "—"}{t.exitSession ? ` · ${fmtDay(t.exitSession)}` : ""}{t.exitNote ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>{t.exitNote}</span> : null}</> : "Open", "exit"],
     [w.premium, <><span title={premiumTitle(t.netPremiumRs)}>{t.netPremiumRs != null ? fmtINR(t.netPremiumRs, { signed: true }) : "—"}</span>{t.markPremiumRs != null ? ` at entry · ${fmtINR(t.markPremiumRs, { signed: true })} at the marks` : ""}</>, "premium"],
-    [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
+    [`${w.gross} · costs · ${w.net.toLowerCase()}`, <><Pnl rs={t.grossRs} /> · {t.costsRs != null ? fmtINR(t.costsRs) : "—"} · <Pnl rs={t.netRs} testId="desk-paper-record-net" />{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2") ? <span data-testid="desk-paper-record-costs-breakdown" style={{ display: "block", color: "var(--cp-ink-3)" }}>{costsBreakdownText(t.costsBreakdown, (n) => fmtPrice(n), t.costModel?.version === "desk-cost-v2")}</span> : null}{t.costsBasis ? <span style={{ display: "block", color: "var(--cp-ink-3)" }}>Costs: {t.costsBasis}</span> : null}</>, "pnl"],
     [`${w.mfe} · ${w.mae}`, <>{t.mfeRs != null ? fmtINR(t.mfeRs, { signed: true }) : "—"} · {t.maeRs != null ? fmtINR(t.maeRs, { signed: true }) : "—"}<span style={{ display: "block", color: "var(--cp-ink-3)" }}>End-of-session P&amp;L of the whole position, not intraday.</span></>, "excursion"],
     [w.obs, t.observations != null ? `${plural(t.observations, "session")} read${t.heldSessions != null ? ` · ${fmtNum(t.heldSessions)} held` : ""}` : "— not read", "obs"],
     ["Rules version", t.rulesVersion ?? "—", "version"],

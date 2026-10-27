@@ -406,7 +406,7 @@ def test_chartink_stock_gets_every_segment_like_any_other_stock():
 # ── versions and honesty ─────────────────────────────────────────────────────
 
 def test_rules_version_is_1_4_and_carries_the_chartink_constants():
-    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.5") and RULES["version"] == STRATEGY_RULES_VERSION
+    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.6") and RULES["version"] == STRATEGY_RULES_VERSION
     C = RULES["chartink"]
     assert C["include_default"] is True and (C["limit_default"], C["limit_max"]) == (4, 8) and C["cash_family"] == "chartink_screen_signal"
     assert {"ranking", "gates", "evidence", "cash_rule", "levels_label", "stale_after_calendar_days", "eod_after_ist"} <= set(C)
