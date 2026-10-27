@@ -14,7 +14,7 @@ import { NothingToExport, downloadHoldings, useToggleStarredQuestion, type Expor
 import { useSavedStrategies } from "./workspace/strategies";
 
 const THREADS_SHOWN = 6;
-const WATCHLIST_VIEW = "page/watchlist";
+const WATCHLIST_VIEW = "page/watchlist?wl=screens";   // the Watchlist page opens on its Saved screens list
 
 /**
  * Saved — the things a user can come back to. Design:

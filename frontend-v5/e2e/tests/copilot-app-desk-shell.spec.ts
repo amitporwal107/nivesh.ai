@@ -402,7 +402,7 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     await page.getByTestId("desk-top10-see-all").click();
     await expectAt(page, "trade", "scanner", { sub: "ranked" });
     // The AI watchlist's desk links (workspace/ai-watchlist-data.ts) are built for the new URLs.
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("screen-page-watchlist")).toBeVisible();
   });
 });

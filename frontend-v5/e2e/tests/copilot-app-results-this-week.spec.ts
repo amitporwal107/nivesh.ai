@@ -253,17 +253,17 @@ const BANNED = [/\bpicks?\b/i, /recommend/i, /\bbuy\b/i, /\bsell\b/i, /beat the 
 test.describe("Results This Week — Watchlist page (desktop 1440)", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
 
-  test("TC-W1 the block is the page's first block, above the AI scanner watchlist; title, week, counts, basis", async ({ page }) => {
+  test("TC-W1 the page opens on Results This Week (left panel); title, week, counts, basis", async ({ page }) => {
     const seen = await setup(page);
     await openPage(page);
     await expect(page.getByTestId("rtw-title")).toHaveText("Results This Week · Mon 26 Oct – Sat 31 Oct");
     await expect(page.getByTestId("rtw-counts")).toHaveText("This week: 4 declared · 1 figures pending · 3 upcoming.");
     await expect(page.getByTestId("rtw-basis")).toHaveText("vs historical trend · not analyst consensus");
     expect(seen.rw[0]).toContain("/api/desk/results-week?date=2026-10-27");
-    const y = async (id: string) => (await page.getByTestId(id).boundingBox())!.y;
-    expect(await y("results-this-week")).toBeLessThan(await y("ai-scanner-watchlist"));
-    await expect(page.getByTestId("watchlist-count")).toBeVisible(SLOW);
-    expect(await y("results-this-week")).toBeLessThan(await y("watchlist-count"));
+    // the page opens on Results This Week: picked in the left panel, the only list in the content area
+    await expect(page.getByTestId("wl-content")).toHaveAttribute("data-list", "results-this-week");
+    await expect(page.getByTestId("wl-nav-results-this-week")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("ai-scanner-watchlist")).toHaveCount(0);
     await expect(page.getByTestId("rtw-ideas-note")).toContainText(NOTE);
   });
 
@@ -287,11 +287,12 @@ test.describe("Results This Week — Watchlist page (desktop 1440)", () => {
     await setup(page);
     await openPage(page);
     const a = page.getByTestId("rtw-row-MOCKA");
-    await expect(a.getByTestId("rtw-when-MOCKA")).toHaveText(/Mon 26 Oct\s*Declared/);
+    await expect(a).toContainText("Mon 26 Oct");                       // rows or cards: the date and the status are both there
+    await expect(a.getByTestId("rtw-when-MOCKA")).toContainText("Declared");
     await expect(page.getByTestId("rtw-verdict-MOCKA")).toHaveText("Above · Outstanding");
     await expect(page.getByTestId("rtw-score-MOCKA")).toHaveText("82");
     await expect(page.getByTestId("rtw-signal-MOCKA")).toHaveText("78");
-    await expect(page.getByTestId("rtw-reaction-MOCKA")).toHaveText("+5.6% vs Nifty");
+    await expect(page.getByTestId("rtw-reaction-MOCKA")).toHaveText(/\+5\.6%\s*vs Nifty/);      // the value stacks over its label
     await expect(page.getByTestId("rtw-sentiment-MOCKA")).toHaveText("moderately positive");
     await expect(page.getByTestId("rtw-verdict-MOCKD")).toHaveText("Well below");
     await expect(page.getByTestId("rtw-sentiment-MOCKD")).toHaveText("moderately negative");
@@ -299,7 +300,8 @@ test.describe("Results This Week — Watchlist page (desktop 1440)", () => {
     await expect(page.getByTestId("rtw-signal-MOCKP")).toHaveText("not ordered");
     await expect(page.getByTestId("rtw-score-MOCKP")).toHaveText("—");
     await expect(page.getByTestId("rtw-verdict-MOCKU1")).toHaveText("not declared yet");
-    await expect(page.getByTestId("rtw-when-MOCKU1")).toHaveText(/Wed 28 Oct\s*Upcoming/);
+    await expect(page.getByTestId("rtw-row-MOCKU1")).toContainText("Wed 28 Oct");
+    await expect(page.getByTestId("rtw-when-MOCKU1")).toContainText("Upcoming");
     await expect(page.getByTestId("rtw-signal-MOCKX")).toHaveText("—");
     await expect(page.getByTestId("rtw-score-MOCKX")).toHaveText("70");
     await expect(page.getByTestId("rtw-sentiment-MOCKX")).toHaveText("not analysed");
@@ -668,4 +670,75 @@ test.describe("Results This Week — screenshots", () => {
       await page.screenshot({ path: `${SHOTS}/results-file-scores-${tag}.png` });
     });
   }
+});
+
+
+// ── no overlapping text (owner, 28 Oct: "the text is overlapping in the UI") ───────────────────────────────────
+test.describe("Results This Week — layout never overlaps", () => {
+  for (const vw of [1600, 1440, 1100]) {
+    test(`TC-W15 at ${vw}px: rows when the block is wide enough, cards when not; no cell runs into the next`, async ({ page }) => {
+      await page.setViewportSize({ width: vw, height: 1000 });
+      await setup(page);
+      await openPage(page);
+      const body = page.getByTestId("rtw-body");
+      const width = (await body.boundingBox())!.width;
+      const layout = await body.getAttribute("data-layout");
+      expect(layout).toBe(width < 1080 ? "cards" : "rows");
+      if (layout === "rows") {
+        const clashes = await page.getByTestId("rtw-list").locator(":scope > li").evaluateAll((rows) => {
+          const out: string[] = [];
+          for (const li of rows) {
+            const cells = [...li.children] as HTMLElement[];
+            for (let i = 0; i + 1 < cells.length; i++) {
+              const a = cells[i], b = cells[i + 1];
+              const ra = a.getBoundingClientRect();
+              // the widest descendant of a cell must end before the next cell starts
+              const right = Math.max(ra.right, ...[...a.querySelectorAll("*")].map((n) => (n as HTMLElement).getBoundingClientRect().right));
+              if (right > b.getBoundingClientRect().left + 1) out.push(`${li.getAttribute("data-testid")} cell ${i} → ${i + 1}`);
+            }
+          }
+          return out;
+        });
+        expect(clashes, "cells running into the next").toEqual([]);
+      }
+      expect(await over(page)).toBeLessThanOrEqual(0);
+    });
+  }
+});
+
+// ── the left panel (owner, 28 Oct: "a list of watchlists in the left panel; click one and its content shows") ─────
+test.describe("Watchlist page — left panel", () => {
+  test.use({ viewport: { width: 1440, height: 1000 } });
+
+  test("TC-W16 the panel lists every watchlist; a click shows that list alone and puts it in the URL; a link opens it", async ({ page }) => {
+    await setup(page);
+    await openPage(page);
+    const nav = page.getByTestId("wl-nav");
+    await expect(nav).toHaveAttribute("data-layout", "panel");
+    for (const id of ["results-this-week", "ai-scanner", "my-lists", "research", "screens", "setups", "alerts", "all"]) {
+      await expect(page.getByTestId(`wl-nav-${id}`)).toBeVisible();
+    }
+    expect((await nav.boundingBox())!.x).toBeLessThan((await page.getByTestId("wl-content").boundingBox())!.x);
+    await page.getByTestId("wl-nav-ai-scanner").click();
+    await expect(page.getByTestId("wl-content")).toHaveAttribute("data-list", "ai-scanner");
+    await expect(page.getByTestId("results-this-week")).toHaveCount(0);
+    expect(new URL(page.url()).searchParams.get("wl")).toBe("ai-scanner");
+    await page.goBack();
+    await expect(page.getByTestId("wl-content")).toHaveAttribute("data-list", "results-this-week");
+    await page.goto(`${PAGE}?wl=alerts`);
+    await expect(page.getByTestId("wl-content")).toHaveAttribute("data-list", "alerts");
+    await expect(page.getByTestId("watchlist-alerts-nc")).toBeVisible(SLOW);
+    await page.goto(`${PAGE}?wl=nonsense`);
+    await expect(page.getByTestId("wl-content")).toHaveAttribute("data-list", "results-this-week");
+    expect(await over(page)).toBeLessThanOrEqual(0);
+  });
+
+  test("TC-W17 phone: the panel is a row of chips; a chip switches the list; no sideways page scroll", async ({ page }) => {
+    await setup(page, { phone: true });
+    await openPage(page);
+    await expect(page.getByTestId("wl-nav")).toHaveAttribute("data-layout", "chips");
+    await page.getByTestId("wl-nav-my-lists").click();
+    await expect(page.getByTestId("wl-content")).toHaveAttribute("data-list", "my-lists");
+    expect(await over(page)).toBeLessThanOrEqual(0);
+  });
 });

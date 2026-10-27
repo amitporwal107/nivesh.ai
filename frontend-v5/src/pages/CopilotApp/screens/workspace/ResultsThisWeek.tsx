@@ -16,7 +16,7 @@
  *
  * Wording (SEBI): ideas ordered for review, vs historical trend; never advice. Nothing here places an order.
  */
-import { useCallback, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { StockIcon } from "../../components/EntityIcon";
 import { EmptyBlock, LoadingBlock, Section, fmtNum } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
@@ -135,7 +135,12 @@ function Reaction({ r }: { r: RwResult }) {
   const x = r.reaction;
   const id = `rtw-reaction-${r.symbol}`;
   if (!x || x.excess == null) return <NA testId={id} text={r.status === "upcoming" ? "—" : x?.note ? "pending" : "not available"} />;
-  return <span data-testid={id} title={x.session ? `First session ${x.session}` : undefined}><Pct v={x.excess} suffix={<span style={{ color: "var(--cp-ink-3)", fontSize: 10 }}> vs Nifty</span>} /></span>;
+  return (
+    <span data-testid={id} className="flex min-w-0 flex-col" style={{ gap: 1 }} title={x.session ? `First session ${x.session}` : undefined}>
+      <Pct v={x.excess} />
+      <span style={{ color: "var(--cp-ink-3)", fontSize: 10 }}>vs Nifty</span>
+    </span>
+  );
 }
 
 function Sentiment({ r }: { r: RwResult }) {
@@ -147,7 +152,7 @@ function Sentiment({ r }: { r: RwResult }) {
   }
   const b = o.band.toLowerCase();
   const c = b.includes("positive") ? "var(--mint)" : b.includes("negative") ? "var(--cp-danger)" : "var(--cp-ink-2)";
-  return <span data-testid={id} style={{ fontSize: 12, color: c }} title="Filing analysis band (an AI reading of the results filing), not a guidance tracker">{plainWords(o.band)}</span>;
+  return <span data-testid={id} className="min-w-0" style={{ fontSize: 12, color: c, overflowWrap: "anywhere" }} title="Filing analysis band (an AI reading of the results filing), not a guidance tracker">{plainWords(o.band)}</span>;
 }
 
 function Company({ r, onOpen }: { r: RwResult; onOpen: () => void }) {
@@ -165,7 +170,25 @@ function Company({ r, onOpen }: { r: RwResult; onOpen: () => void }) {
 
 // ── rows ─────────────────────────────────────────────────────────────────
 
-const COLS = "22px minmax(0,1.25fr) 88px 132px 58px minmax(0,2fr) 84px minmax(0,0.85fr)";
+const COLS = "22px minmax(0,1.25fr) 88px 132px 58px minmax(0,2fr) 96px minmax(0,0.85fr)";
+/** Below this block width the rows are cards: the 8-column row needs ~1,080 px (beside the docked Copilot it had ~1,000 px
+ *  and the reaction ran into the sentiment column, 28 Oct). */
+const ROW_MIN_WIDTH = 1080;
+
+/** The width of an element, kept current with a ResizeObserver (no observer → null, and the caller keeps its default). */
+function useWidth<T extends HTMLElement>(): [(el: T | null) => void, number | null] {
+  const [w, setW] = useState<number | null>(null);
+  const ro = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: T | null) => {
+    ro.current?.disconnect();
+    ro.current = null;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    setW(el.getBoundingClientRect().width);
+    ro.current = new ResizeObserver((entries) => { for (const e of entries) setW(e.contentRect.width); });
+    ro.current.observe(el);
+  }, []);
+  return [ref, w];
+}
 
 function DesktopRow({ row, n, setup, hasTrack, onOpen }: { row: RtwRow; n: number; setup: DeskSetup | undefined; hasTrack: boolean; onOpen: () => void }) {
   const r = row.r;
@@ -245,7 +268,9 @@ function Seg({ uni, onPick, counts }: { uni: Uni; onPick: (u: Uni) => void; coun
   );
 }
 
-function List({ d, mobile, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: (row: RtwRow) => void }) {
+function List({ d, mobile: phone, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: (row: RtwRow) => void }) {
+  const [measure, width] = useWidth<HTMLDivElement>();
+  const mobile = phone || (width != null && width < ROW_MIN_WIDTH);
   const [uni, setUni] = useState<Uni>("fno");
   const [all, setAll] = useState(false);
   const setups = useDeskScanner().data?.setups;
@@ -259,7 +284,7 @@ function List({ d, mobile, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: 
   const countLine = [c.declared != null ? `${fmtNum(c.declared)} declared` : null, c.pending != null ? `${fmtNum(c.pending)} figures pending` : null, c.upcoming != null ? `${fmtNum(c.upcoming)} upcoming` : null].filter(Boolean).join(" · ");
 
   return (
-    <div className="flex flex-col">
+    <div ref={measure} data-testid="rtw-body" data-layout={mobile ? "cards" : "rows"} className="flex flex-col">
       <div className="flex flex-col" style={{ gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--cp-line)" }}>
         <div className="flex flex-wrap items-center justify-between" style={{ gap: 8 }}>
           <Seg uni={uni} onPick={(u) => { setUni(u); setAll(false); }} counts={{ fno: lists.fno.length, all: lists.all.length }} />
