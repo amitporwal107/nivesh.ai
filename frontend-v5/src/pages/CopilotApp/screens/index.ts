@@ -14,10 +14,8 @@ export const SCREENS: Record<string, Screen> = {
   "tool/markets": lazy(() => import("./Markets")),
   // Not a rail item: opened from the Screener, the desk's sector card, or by URL (see SECTOR_HEATMAP_VIEW).
   "tool/sector-heatmap": lazy(() => import("./SectorHeatmap")),
-  "tool/optlab": lazy(() => import("./OptionsLab")),
-  // The seven F&O AI trading screens (PRD §15.1): not a rail item; opened from the desk F&O tab, the Options lab or by URL.
-  "tool/fnolab": lazy(() => import("./fnolab/FnoLab")),
-  trader: lazy(() => import("./Trader")),
+  // The old Trader landing ("trader"), the Options lab and the F&O lab were removed in the desk redesign's step 6;
+  // their URLs redirect into the desk (lib/retired-views.ts).
   "trader/desk": lazy(() => import("./TradingDesk")),
   "trader/strategy": lazy(() => import("./desk/StrategyBuilder")),
   "page/watchlist": lazy(() => import("./Watchlist")),

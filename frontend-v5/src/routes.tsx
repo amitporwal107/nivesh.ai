@@ -50,8 +50,6 @@ import AdminPage from "./pages/Admin";
 import WorkPage from "./pages/Work";
 import TestDiagnosticToolPage from "./pages/TestDiagnosticTool";
 import NidpConsolePage from "./pages/NidpConsole";
-import ProTraderPage from "./pages/ProTrader";
-import StrategyBuilderPage from "./pages/StrategyBuilder";
 import LearnPage from "./pages/Learn";
 import MarketsPage from "./pages/Markets";
 import MarketPulseLayout from "./pages/Markets/MarketPulseLayout";
@@ -144,6 +142,12 @@ export function AppRoutes() {
       <Route path="/research/qa" element={<RequireAuth><RouteErrorBoundary pageName="Research QA"><ResearchQAPage /></RouteErrorBoundary></RequireAuth>} />
       <Route path="/flows" element={<RequireAuth><RouteErrorBoundary pageName="Flow Ledger"><FlowLedgerPage /></RouteErrorBoundary></RequireAuth>} />
 
+      {/* Removed in the desk redesign's step 6 (2026-10-27, docs/desk_redesign_20261027/PLAN.md §4): the Pro Trader
+          basket page and the duplicate Strategy Builder URL. Both open the Smart trading desk's Trade Desk, where Strategy
+          Lab goes; the Strategy Builder page itself is still mounted at /app/trader/strategy. */}
+      <Route path="/pro-trader" element={<Navigate to="/app/trader/desk?tab=trade" replace />} />
+      <Route path="/strategy-builder" element={<Navigate to="/app/trader/desk?tab=trade" replace />} />
+
       {/* Authenticated app — sidebar layout. RequireAppAccess confines a
           research-only user (research_only flag) to /research: every route in
           this group redirects them there. No-op for full users. */}
@@ -181,8 +185,6 @@ export function AppRoutes() {
         <Route path="/settings/logs"    element={<RouteErrorBoundary pageName="Session Logs"><LogsPage /></RouteErrorBoundary>} />
         <Route path="/settings/releases"     element={<RequireAdmin><RouteErrorBoundary pageName="Release Management"><ReleasesPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/settings/releases/:id" element={<RequireAdmin><RouteErrorBoundary pageName="Release Document"><ReleaseDetailPage /></RouteErrorBoundary></RequireAdmin>} />
-        <Route path="/pro-trader"       element={<RouteErrorBoundary pageName="Pro Trader"><ProTraderPage /></RouteErrorBoundary>} />
-        <Route path="/strategy-builder" element={<RouteErrorBoundary pageName="Strategy Builder"><StrategyBuilderPage /></RouteErrorBoundary>} />
         {/* Admin-only routes — RequireAdmin redirects non-admins to /dashboard */}
         <Route path="/admin"            element={<RequireAdmin><RouteErrorBoundary pageName="Admin"><AdminPage /></RouteErrorBoundary></RequireAdmin>} />
         <Route path="/nidp"             element={<RequireAdmin><RouteErrorBoundary pageName="NIDP Console"><NidpConsolePage /></RouteErrorBoundary></RequireAdmin>} />

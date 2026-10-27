@@ -16,6 +16,7 @@ import { useDeleteScreener, useScreeners, type SavedScreener } from "@/hooks/use
 import { StockIcon } from "../../components/EntityIcon";
 import { Btn, EmptyBlock, LoadingBlock, Section, fmtDate, fmtNum } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { STRATEGY_BUILDER_VIEW, viewPath } from "../../lib/views";
 import { dayLabel } from "../markets/format";
 import { LoadError } from "../markets/parts";
 import { useScreenRun, type ScreenBucket, type ScreenRunRequest } from "../markets/screener-run";
@@ -168,7 +169,7 @@ function StrategyWatchlist({ strategy, deleting, onDelete }: { strategy: SavedSt
           </div>
         )
       )}
-      {open && <Link to="/strategy-builder" className="cp-link" style={{ alignSelf: "flex-start", fontSize: 12 }}>Backtest in the strategy builder ›</Link>}
+      {open && <Link to={viewPath(STRATEGY_BUILDER_VIEW)} className="cp-link" style={{ alignSelf: "flex-start", fontSize: 12 }}>Backtest in the strategy builder ›</Link>}
     </div>
   );
 }

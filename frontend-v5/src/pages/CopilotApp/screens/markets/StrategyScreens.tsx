@@ -27,6 +27,7 @@ import { listTemplates, screenStrategy, type ScreenCandidate, type TemplateItem 
 import { StockIcon } from "../../components/EntityIcon";
 import { DataTable, EmptyBlock, ErrorBlock, LoadingBlock, Section, fmtDate, fmtNum, humaniseTag, type Column } from "../../components/ui";
 import { useCopilotShell } from "../../lib/shell-context";
+import { STRATEGY_BUILDER_VIEW, viewPath } from "../../lib/views";
 import { StockPanel } from "../screener/StockPanel";
 import { SaveAsWatchlist } from "../workspace/SaveAsWatchlist";
 import { readScreenResult, useSaveStrategy } from "../workspace/strategies";
@@ -177,7 +178,7 @@ export function StrategyScreens() {
                   </span>
                   <span className="flex flex-wrap items-center" style={{ gap: 12, fontSize: 13 }}>
                     <button type="button" data-testid="screener-strategy-ask" onClick={() => ask(`These stocks pass my "${current.name}" screen today: ${result.rows.slice(0, 10).map((c) => c.symbol).join(", ")}. Which look strongest, and why?`)} style={{ color: "var(--cp-ink)", background: "none", border: 0, padding: 0, cursor: "pointer" }}>Ask Copilot about these ›</button>
-                    <Link to="/strategy-builder" className="cp-link">Backtest in the strategy builder ›</Link>
+                    <Link to={viewPath(STRATEGY_BUILDER_VIEW)} className="cp-link">Backtest in the strategy builder ›</Link>
                   </span>
                 </div>
                 <div className="cp-card" style={{ overflow: "hidden" }}>
