@@ -294,8 +294,8 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
 
     // Open in Strategy Builder: One stock mode, with the pick's inputs and the chosen strategy in the URL
     await d.getByTestId("ck-pick-open-builder").click();
-    await expect(page).toHaveURL(/tab=more/);
-    await expect(page).toHaveURL(/view=strategy/);
+    await expect(page).toHaveURL(/tab=trade/); // was tab=more&view=strategy before the 2026-10-27 redesign
+    await expect(page).toHaveURL(/view=new/);
     await expect(page).toHaveURL(/mode=stock/);
     await expect(page).toHaveURL(/sym=ZEDCO/);
     await expect(page).toHaveURL(/src_kind=chartink_picks/);
@@ -415,7 +415,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     await expect(sec.getByTestId("desk-ck-picks-more")).toHaveText("1 more in Chartink scans · Best picks.");
     await expect(sec.getByTestId("desk-ck-picks-wait-count")).toContainText("2 evaluated stocks are Wait / No trade");
     await sec.getByTestId("desk-ck-picks-all").click();
-    await expect(page).toHaveURL(/view=chartink/);
+    await expect(page).toHaveURL(/section=chartink/);
     await expect(page.getByTestId("ck-picks").getByTestId("ck-pick")).toHaveCount(4);
   });
 

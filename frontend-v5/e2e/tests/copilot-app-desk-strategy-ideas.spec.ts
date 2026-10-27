@@ -466,7 +466,7 @@ test.describe("MOCK - not real data: Strategy Builder, from AI opportunities", (
     await expect(page.getByTestId("plan-view")).toBeVisible();
     let q = new URL(page.url()).searchParams;
     expect(Object.fromEntries(q)).toMatchObject({
-      tab: "more", view: "strategy", mode: "stock", sym: "ICICIBANK", direction: "bullish", instrument: "all", build: "1",
+      tab: "trade", view: "new", mode: "stock", sym: "ICICIBANK", // was more/strategy before the 2026-10-27 redesign direction: "bullish", instrument: "all", build: "1",
       src_kind: "ideas", src_bucket: "breakout_confirmed", src_date: "2026-10-19", capital: "1000000", risk_inr: "10000", max_alloc: "25", min_rr: "1.5",
       avoid_events: "true", multi_leg: "true", combos: "true",
     });
@@ -528,8 +528,8 @@ test.describe("MOCK - not real data: Strategy Builder, from AI opportunities", (
     await page.getByTestId("desk-opps-strategies").click();
     await expect(page.getByTestId("strategy-ideas")).toBeVisible();
     let q = new URL(page.url()).searchParams;
-    expect(q.get("tab")).toBe("more");
-    expect(q.get("view")).toBe("strategy");
+    expect(q.get("tab")).toBe("trade"); // was more/strategy before the 2026-10-27 redesign
+    expect(q.get("view")).toBe("new");
     expect(q.get("mode")).toBe("ideas");
     expect(q.has("focus")).toBe(false);
     await expect(page.getByTestId("ideas-view")).toBeVisible();

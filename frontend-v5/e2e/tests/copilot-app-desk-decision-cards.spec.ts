@@ -217,7 +217,8 @@ test.describe("Decision cards — the surfaces", () => {
     const trade = { id: "t-plan", symbol: SYM, status: "open", quantity: CARD.cash.body.quantity, entry_price: CASH.entry.price, stop_price: CASH.stop.price,
       target_price: 1280, entry_rule: "at_once", opened_at: "2026-10-20T05:00:00+00:00", plan_ref: { plan_id: CASH.plan_id }, state: "POSITION_OPEN" };
     await setup(page, { trades: { as_of: "2026-10-19", trades: [trade], summary: null }, plans: { [CASH.plan_id]: { status: 200, body: allowed } } });
-    await page.goto(`${DESK}?tab=portfolio`);
+    // Desk redesign (2026-10-27): the paper trades are on Trade Desk › Paper trades (they were on Portfolio & Risk).
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     await page.getByTestId("desk-paper-record-toggle").first().click(SLOW);
     const card = page.getByTestId("desk-paper-card");
     await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id, SLOW);
@@ -463,7 +464,8 @@ test.describe("Decision cards — a changed plan", () => {
     reranked.ideas[0].preferred = "cash:breakout_continuation";           // MOCK: so "Strategy ›" reopens the cash candidate
     await page.unroute("**/api/desk/strategy/ideas");
     await page.route("**/api/desk/strategy/ideas", (r) => { stored.v2 = true; return json(r, reranked); });
-    await page.getByTestId("desk-tab-scanner").click();
+    // Desk redesign (2026-10-27): the Top 10 is on Market Overview (was the AI Scanner tab).
+    await page.getByTestId("desk-tab-overview").click();
     await expect(stockRow(page).getByTestId("desk-top10-card")).toHaveAttribute("data-plan-id", V2_ID, SLOW);
     // back to the Builder from the row: it builds the same plan (version 1) again; its cached reading was refreshed
     await stockRow(page).getByTestId("desk-top10-stock-plan").click();

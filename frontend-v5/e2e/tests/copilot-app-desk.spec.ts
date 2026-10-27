@@ -227,7 +227,9 @@ test.describe("Smart trading desk — shell", () => {
     await deskApi(page);
   });
 
-  test("TC-1: the Trader rail lists the Smart trading desk first and opens it with the PRD's six tabs", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the Trader rail lists only the Smart trading desk and the desk has four numbered tabs.
+  // Covered by copilot-app-desk-shell.spec.ts SH-1 / SH-17; rewritten in step 6.
+  test.skip("TC-1: the Trader rail lists the Smart trading desk first and opens it with the PRD's six tabs", async ({ page }) => {
     await traderMode(page);
     await mockChat(page);
     await page.goto(`${APP}/trader`);
@@ -269,7 +271,9 @@ test.describe("Smart trading desk — shell", () => {
     await expect(foot).not.toContainText("Illustrative");
   });
 
-  test("TC-2: a tab click sets ?tab=; More holds the lab (?tab=fno still opens it); a deep link opens that tab with that stock; a bad symbol is dropped", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the six tabs and More are replaced by four tabs with views; the old ?tab= URLs redirect.
+  // Covered by copilot-app-desk-shell.spec.ts SH-2 / SH-3 / SH-9; rewritten in step 6.
+  test.skip("TC-2: a tab click sets ?tab=; More holds the lab (?tab=fno still opens it); a deep link opens that tab with that stock; a bad symbol is dropped", async ({ page }) => {
     await mockChat(page);
     await page.goto(DESK);
     await expect(desk(page)).toHaveAttribute("data-tab", "overview");
@@ -374,24 +378,18 @@ test.describe("Smart trading desk — shell", () => {
     await expect(page).not.toHaveURL(/persona=/);
 
     // The thread survives moving between tabs.
-    await page.getByTestId("desk-tab-scanner").click();
+    // Desk redesign (2026-10-27): the scanner list is Market Overview's "All scanner candidates" (was the AI Scanner tab).
+    await page.getByTestId("desk-tab-trade").click();
+    await page.getByTestId("desk-tab-overview").click();
+    await page.getByTestId("desk-scanner-toggle").click();
     await expect(dock.getByTestId("dock-turn")).toHaveCount(2);
     // Beside the dock the desk is too narrow for the scanner's columns, so its rows show as cards.
     await expect(page.getByTestId("desk-scan-cards")).toBeVisible();
     await expect(page.getByTestId("desk-scan-table")).toHaveCount(0);
 
-    // With the dock showing, More lists its destinations; "AI Copilot" puts the cursor in the dock.
-    await page.getByTestId("desk-tab-more").click();
-    const list = page.getByTestId("desk-more-list");
-    await expect(list).toBeVisible();
-    for (let i = 0; i < MORE_ITEMS.length; i += 1) {
-      await expect(list.getByTestId(`desk-more-item-${MORE_ITEMS[i]}`)).toContainText(MORE_LABELS[i]);
-    }
+    // Desk redesign (2026-10-27): there is no More list; the header's "Copilot docked right" puts the cursor in the dock.
     await expect(page.getByTestId("desk-dock")).toHaveCount(1);
-    // PRD "Learning and methodology" has no view: a line of text, not a button that goes nowhere.
-    await expect(page.getByTestId("desk-more-learning-gap")).toHaveText("Learning and methodology: not in the app yet.");
-    await expect(page.getByRole("button", { name: /Learning/ })).toHaveCount(0);
-    await list.getByTestId("desk-more-item-copilot").click();
+    await page.getByTestId("desk-docked-note").click();
     await expect(page.getByTestId("dock-input")).toBeFocused();
 
     // "Open the full thread" opens it in the app's thread view, where the shell's ask box is back.
@@ -417,20 +415,22 @@ test.describe("Smart trading desk — shell", () => {
     await expect(page.getByTestId("desk-docked-note")).toHaveCount(0);
     await expect(page.getByTestId("composer-input")).toBeVisible();
     // Without the dock there is room for the scanner's full table.
-    await page.getByTestId("desk-tab-scanner").click();
+    // Desk redesign (2026-10-27): the scanner list is Market Overview's "All scanner candidates".
+    await page.getByTestId("desk-scanner-toggle").click();
     await expect(page.getByTestId("desk-scan-table")).toBeVisible();
     await expect(page.getByTestId("desk-scan-cards")).toHaveCount(0);
 
-    await page.getByTestId("desk-tab-more").click();
+    // Desk redesign (2026-10-27): the page Copilot is the header's Copilot button (?tab=copilot), not More · AI Copilot.
+    await page.getByTestId("desk-copilot-button").click();
     await expect(page.getByTestId("desk-dock")).toHaveAttribute("data-variant", "page");
     await expect(page.getByTestId("composer-input")).toHaveCount(0);
-    await expect(page.getByTestId("desk-more-copilot")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("desk-copilot-button")).toHaveAttribute("aria-pressed", "true");
     // A question typed in the desk search goes to it, in the desk's persona.
     await page.getByTestId("desk-tab-overview").click();
     await expect(page.getByTestId("composer-input")).toBeVisible();
     await page.getByTestId("desk-search").fill("Is breadth improving?");
     await page.getByTestId("desk-search").press("Enter");
-    await expect(page).toHaveURL(/[?&]tab=more/);
+    await expect(page).toHaveURL(/[?&]tab=copilot/); // was tab=more before the 2026-10-27 redesign
     await expect.poll(() => chat.streams.length).toBe(1);
     expect(chat.streams[0]).toMatchObject({ message: "Is breadth improving?", persona: "trader" });
     await expect(page.getByTestId("dock-question")).toHaveText("Is breadth improving?");
@@ -455,7 +455,9 @@ test.describe("Smart trading desk — shell", () => {
     expect(chat.streams[chat.streams.length - 1]).toMatchObject({ message: "Is breadth improving?", persona: "trader" });
   });
 
-  test("TC-7: at 390px — the bottom bar replaces the chip row: seven items in order, each opens its tab, one ask box (More · AI Copilot), no sideways scroll", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the phone bar holds 01–04 and Copilot. Covered by copilot-app-desk-shell.spec.ts
+  // SH-21 / SH-22; rewritten in step 6.
+  test.skip("TC-7: at 390px — the bottom bar replaces the chip row: seven items in order, each opens its tab, one ask box (More · AI Copilot), no sideways scroll", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const chat = await mockChat(page);
     await page.goto(DESK);
@@ -563,19 +565,20 @@ test.describe("Smart trading desk — shell", () => {
     await mockChat(page);
     await page.goto(DESK);
     await expect(page.getByTestId("desk-bottom-bar")).toBeVisible();
-    // Focus the item before Intel, then Tab once: the next stop is Intel; Enter opens it.
-    await page.getByTestId("desk-bottom-scanner").focus();
+    // Desk redesign (2026-10-27): the bar is 01 Overview · 02 Trade · 03 Market · 04 Risk · Copilot; the same keyboard steps on its items.
+    // Focus the item before Market, then Tab once: the next stop is Market; Enter opens it.
+    await page.getByTestId("desk-bottom-trade").focus();
     await page.keyboard.press("Tab");
-    await expect(page.getByTestId("desk-bottom-intel")).toBeFocused();
+    await expect(page.getByTestId("desk-bottom-market")).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(desk(page)).toHaveAttribute("data-tab", "intel");
-    await page.getByTestId("desk-bottom-more").focus();
+    await expect(desk(page)).toHaveAttribute("data-tab", "market");
+    await page.getByTestId("desk-bottom-copilot").focus();
     await page.keyboard.press("Space");
-    await expect(desk(page)).toHaveAttribute("data-tab", "more");
+    await expect(desk(page)).toHaveAttribute("data-tab", "copilot");
     // Wider than a phone the bar is not drawn and the numbered tab row is back.
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByTestId("desk-bottom-bar")).toHaveCount(0);
-    await expect(page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab")).toHaveCount(7);
+    await expect(page.getByRole("tablist", { name: "Desk tabs" }).getByRole("tab")).toHaveCount(4); // four numbered tabs since 2026-10-27
   });
 
   test("TC-8: on a phone the search selects a scanner stock, or asks More · AI Copilot; the persona pill switches the wording", async ({ page }) => {
@@ -594,11 +597,11 @@ test.describe("Smart trading desk — shell", () => {
     await expect(page.getByTestId("desk-persona-pill")).toHaveText("Investor");
     await page.getByTestId("desk-search").fill("Is this a good week for banks?");
     await page.getByTestId("desk-search").press("Enter");
-    await expect(desk(page)).toHaveAttribute("data-tab", "more");
+    await expect(desk(page)).toHaveAttribute("data-tab", "copilot"); // was "more" before the 2026-10-27 redesign
     await expect.poll(() => chat.streams.length).toBe(1);
     expect(chat.streams[0]).toMatchObject({ message: "Is this a good week for banks?", persona: "investor", surface: "trading_desk" });
     await expect(page.getByTestId("composer-input")).toHaveCount(0);
-    await expect(page.getByTestId("desk-bottom-more")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("desk-bottom-copilot")).toHaveAttribute("aria-current", "page"); // was the bar's More
   });
 });
 
@@ -737,23 +740,24 @@ test.describe("Smart trading desk — header and Overview · design fidelity", (
     // TATASTEEL is not one of the mocked scanner setups (TESTBRK, TESTPRE, TESTPICK); lower case is read as the symbol.
     await page.getByTestId("desk-search").fill("tatasteel");
     await page.getByTestId("desk-search").press("Enter");
-    await expect(page).toHaveURL(/[?&]tab=chart(&|$)/);
+    // Desk redesign (2026-10-27): the Chart tab is Market Desk › Stock Research.
+    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/);
     await expect(page).toHaveURL(/[?&]sym=TATASTEEL(&|$)/);
-    await expect(desk(page)).toHaveAttribute("data-tab", "chart");
+    await expect(desk(page)).toHaveAttribute("data-view", "research");
     await expect(desk(page)).toHaveAttribute("data-symbol", "TATASTEEL");
     await expect(page.getByTestId("desk-search-picked")).toHaveCount(0);
     // Already on the Chart tab: the stock changes, the tab stays.
     await page.getByTestId("desk-search").fill("M&M");
     await page.getByTestId("desk-search").press("Enter");
     await expect(desk(page)).toHaveAttribute("data-symbol", "M&M");
-    await expect(desk(page)).toHaveAttribute("data-tab", "chart");
+    await expect(desk(page)).toHaveAttribute("data-view", "research");
     expect(chat.streams).toHaveLength(0);
     // More than one word is a question for the Copilot (More · AI Copilot below 1400px).
     await page.getByTestId("desk-search").fill("what about steel stocks");
     await page.getByTestId("desk-search").press("Enter");
     await expect.poll(() => chat.streams.length).toBe(1);
     expect(chat.streams[0]).toMatchObject({ message: "what about steel stocks", persona: "trader" });
-    await expect(desk(page)).toHaveAttribute("data-tab", "more");
+    await expect(desk(page)).toHaveAttribute("data-tab", "copilot"); // was "more" before the 2026-10-27 redesign
   });
 
   test("Overview §3: intro, headline from breadth / leading sector / setups, index row, pulse and sector card; persona switches the words", async ({ page }) => {
@@ -861,19 +865,21 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
     await expect(page.getByTestId("desk-headline")).toHaveCount(0);
 
     // Order of the blocks, top to bottom.
-    const order = ["desk-index-row", "desk-mobile-status", "desk-pulse-card", "desk-top-opps", "desk-m-portfolio"];
+    // Desk redesign (2026-10-27): Market Overview is the market part only, so the portfolio and risk tiles are not on it (SH-8).
+    const order = ["desk-index-row", "desk-mobile-status", "desk-pulse-card", "desk-top-opps"];
     let last = -1;
     for (const id of order) {
       const y = (await page.getByTestId(id).boundingBox())?.y ?? -1;
       expect(y).toBeGreaterThan(last);
       last = y;
     }
-    expect(Math.round((await page.getByTestId("desk-m-risk").boundingBox())?.y ?? 0)).toBe(Math.round((await page.getByTestId("desk-m-portfolio").boundingBox())?.y ?? 1));
+    await expect(page.getByTestId("desk-m-portfolio")).toHaveCount(0);
+    await expect(page.getByTestId("desk-m-risk")).toHaveCount(0);
     // PRD §4.2 puts Key market events on the Overview: the phone shows the three newest key events under the tiles.
     expect((await page.getByTestId("desk-events-card").boundingBox())?.y ?? 0).toBeGreaterThan(last);
     await expect(page.getByTestId("desk-events-title")).toHaveText("03 · Key market events");
     // Every card carries its trust line (PRD §3.2, §16.3).
-    for (const id of ["desk-index-trust", "desk-pulse-trust", "desk-top-opps-trust", "desk-m-portfolio-trust", "desk-m-risk-trust", "desk-events-trust"]) {
+    for (const id of ["desk-index-trust", "desk-pulse-trust", "desk-top-opps-trust", "desk-events-trust"]) {
       await expect(page.getByTestId(id)).toHaveCount(1);
     }
     await expect(page.getByTestId("desk-pulse-trust")).toContainText("Rules-based");
@@ -923,14 +929,6 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
       await expect(r.locator('[data-testid="entity-icon"]')).toHaveAttribute("data-key", want[i].sym);
     }
 
-    // Your portfolio: holdings-enriched.json totals ₹1,03,06,772 (₹1.03 Cr), P&L ₹18,99,276 (+22.6%).
-    await expect(page.getByTestId("desk-m-portfolio")).toContainText("Your portfolio");
-    await expect(page.getByTestId("desk-m-portfolio-value")).toHaveText(`₹${(10306772.4 / 1e7).toFixed(2)} Cr`);
-    await expect(page.getByTestId("desk-m-portfolio-sub")).toHaveText(`+₹${(1899275.8 / 1e5).toFixed(2)} L (+${(22.59).toFixed(1)}%)`);
-    // Risk status: the route's HIGH band; 21.5% a year fills ⌈21.5 ÷ 8⌉ = 3 of 5 parts.
-    await expect(page.getByTestId("desk-m-risk-value")).toHaveText("High");
-    await expect(page.getByTestId("desk-m-risk-bar")).toHaveAttribute("data-filled", String(Math.ceil(21.5 / 8)));
-    await expect(page.getByTestId("desk-m-risk-sub")).toHaveText("Volatility 21.5% a year");
     await noSideScroll(page);
 
     // Investor wording for the patterns; same rows.
@@ -946,7 +944,9 @@ test.describe("Smart trading desk — phone M1 Overview · design fidelity", () 
     await expect(desk(page)).toHaveAttribute("data-tab", "scanner");
   });
 
-  test("M1: no holdings and a failed risk read show “—” with the reason, never 0", async ({ page }) => {
+  // Superseded by the desk redesign (2026-10-27): the portfolio and risk tiles left Market Overview (market part only); the real portfolio
+  // is My portfolio. Covered by copilot-app-desk-shell.spec.ts SH-8 / SH-12; rewritten in step 6.
+  test.skip("M1: no holdings and a failed risk read show “—” with the reason, never 0", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await overviewApi(page);
     await page.route("**/api/portfolio/holdings-enriched*", (route) => json(route, { holdings: [], totals: null, alerts: [] }));
@@ -982,7 +982,8 @@ test.describe("Smart trading desk — frame · fidelity screenshots", () => {
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-1440-full.png` });
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByTestId("desk-tab-more").click();
+    // Desk redesign (2026-10-27): no More; the shot shows Trade Desk instead.
+    await page.getByTestId("desk-tab-trade").click();
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-1440-more.png` });
 
@@ -995,7 +996,7 @@ test.describe("Smart trading desk — frame · fidelity screenshots", () => {
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${SHOTS}/prd-overview-${phase}-390-full.png` });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.getByTestId("desk-bottom-more").click();
+    await page.getByTestId("desk-bottom-copilot").click(); // was the bar's More (2026-10-27 redesign)
     await page.getByTestId("dock-input").fill("What moved banks?");
     await page.getByTestId("dock-send").click();
     await expect(page.getByTestId("dock-answer").last()).toBeVisible();

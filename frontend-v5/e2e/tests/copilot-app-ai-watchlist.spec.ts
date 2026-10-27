@@ -200,7 +200,7 @@ test.describe("AI scanner watchlist", () => {
     await expect(page).toHaveURL(/\/v5\/app\/trader\/desk\?/);
     const p = params(page);
     expect([p.get("tab"), p.get("view"), p.get("mode"), p.get("build"), p.get("sym"), p.get("cand"), p.get("src_kind"), p.get("src_date")])
-      .toEqual(["more", "strategy", "stock", "1", "ICICIBANK", "options:bull_call_spread", "ideas", "2026-10-26"]);
+      .toEqual(["trade", "new", "stock", "1", "ICICIBANK", "options:bull_call_spread", "ideas", "2026-10-26"]);
     await page.goBack();
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chart").click(SLOW);
     expect([params(page).get("tab"), params(page).get("sym")]).toEqual(["chart", "ICICIBANK"]);
@@ -248,7 +248,7 @@ test.describe("AI scanner watchlist", () => {
     await open(page);
     await page.getByTestId("aiw-seg-fno").click(SLOW);
     await page.getByTestId("aiw-fno-MPHASIS").getByTestId("aiw-fno-lab").click();
-    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym"), params(page).get("lab_focus")]).toEqual(["fno", "candidates", "MPHASIS", "MPHASIS"]);
+    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym"), params(page).get("lab_focus")]).toEqual(["market", "candidates", "MPHASIS", "MPHASIS"]); // the lab is in Market Desk › Smart Money since 2026-10-27
     await page.goBack();
     await page.getByTestId("aiw-seg-fno").click(SLOW);
     await page.getByTestId("aiw-fno-BANKNIFTY").getByTestId("aiw-fno-lab").click();

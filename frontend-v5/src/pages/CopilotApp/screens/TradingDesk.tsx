@@ -622,7 +622,7 @@ export default function TradingDeskScreen() {
         {loc.view === "new" ? (
           <>
             <Hosted id="strategy" name="the Strategy Builder"><StrategyBuilder /></Hosted>
-            <Section id="fno" title="F&O · paper strategies and leg builder"><FnoTab views={NEW_TRADE_LAB} /></Section>
+            <Section id="fno" title="F&O · paper strategies and leg builder"><FnoTab views={NEW_TRADE_LAB} asSection /></Section>
           </>
         ) : (
           <Hosted id="paper" name="your paper trades"><PaperCards /></Hosted>
@@ -635,7 +635,7 @@ export default function TradingDeskScreen() {
         content = (
           <>
             <Hosted id="smartmoney" name="Smart Money"><SmartMoneyTab /></Hosted>
-            <Section id="fno" title="F&O · build-up, candidates, indices and option chain"><FnoTab views={SMART_MONEY_LAB} /></Section>
+            <Section id="fno" title="F&O · build-up, candidates, indices and option chain"><FnoTab views={SMART_MONEY_LAB} asSection /></Section>
           </>
         );
         break;
@@ -649,7 +649,7 @@ export default function TradingDeskScreen() {
         content = (
           <>
             <Hosted id="screener" name="the Screener"><Screener /></Hosted>
-            <Section id="chartink" title="Chartink sources"><ChartinkSettings /></Section>
+            <Section id="chartink" title="Chartink sources"><ChartinkSettings asSection /></Section>
           </>
         );
         break;
@@ -736,9 +736,9 @@ export default function TradingDeskScreen() {
           <header data-testid="desk-mobile-header" className="flex flex-col" style={{ gap: 10, paddingTop: 12, paddingBottom: 12 }}>
             <div className="flex items-center" style={{ gap: 8 }}>
               <span className="nv-mark" aria-hidden style={{ flex: "none", width: 30, height: 30, fontSize: 18 }}>न</span>
-              <span className="flex min-w-0 flex-col" style={{ gap: 3 }}>
-                <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1 }}>Trading desk</span>
-                <span className="cp-num" style={{ fontSize: 8.5, letterSpacing: "0.14em", color: "var(--cp-ink-3)", whiteSpace: "nowrap" }}>TRADER MODE</span>
+              <span className="flex min-w-0 flex-col" style={{ gap: 3, overflow: "hidden" }}>
+                <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Nivesh Copilot</span>
+                <span className="cp-num" style={{ fontSize: 8.5, letterSpacing: "0.14em", color: "var(--cp-ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>AI SMART TRADING DESK</span>
               </span>
               <span style={{ flex: 1 }} />
               <button
@@ -787,7 +787,7 @@ export default function TradingDeskScreen() {
       <div {...rootAttrs} className="mx-auto flex min-w-0 flex-col" style={{ maxWidth: docked ? 1480 : 1180 }}>
         <PaperBanner padX={padX} mobile={false} />
         <div data-testid="desk-topbar" className="flex flex-wrap items-center" style={{ minHeight: 60, gap: "10px 14px", ...bleed, paddingTop: 12, paddingBottom: 4 }}>
-          <span className="cp-eyebrow" style={{ whiteSpace: "nowrap" }}>Trader mode · Trading desk</span>
+          <span className="cp-eyebrow" style={{ whiteSpace: "nowrap" }}>AI Smart Trading Desk · Trader mode</span>
           {picked && <Picked symbol={picked} onChart={() => desk.openChart(picked)} />}
           <span style={{ flex: "1 1 0", minWidth: 0 }} />
           <SearchBox onSubmit={onSearch} persona={persona} setups={scan.data?.setups ?? []} />
