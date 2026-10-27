@@ -118,6 +118,7 @@ jobs:
           tests/test_desk_overview_backend.py
           tests/test_desk_paper_safety.py
           tests/test_desk_paper_sim.py
+          tests/test_desk_redesign_routes.py
           tests/test_desk_strategy_trades.py
           tests/test_desk_trading.py
           tests/test_deterministic_insights.py

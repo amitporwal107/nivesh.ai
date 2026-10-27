@@ -218,3 +218,74 @@ async def read_health(db, job: str, now: datetime) -> Dict[str, Any]:
     last = await latest(db, job)
     last_ok = await latest(db, job, status=OK)
     return {"job": job, **health(job, last, last_ok, now), "last_run": public(last), "last_success": public(last_ok)}
+
+
+# ── the trader's reading (GET /api/desk/exit-job-status) ─────────────────────
+#: What the trader-facing reading reads of a run: an allow-list projection. Never `counts` (platform-wide totals),
+#: `error` (internal text) or `exit_code`.
+TRADER_FIELDS = ("started_at", "finished_at", "status", "session")
+TRADER_STATUSES = ("ok", "running", "late", "missed")
+
+
+async def _latest_projected(db, job: str, **match: Any) -> Optional[Dict[str, Any]]:
+    projection = {"_id": 0, **{f: 1 for f in TRADER_FIELDS}}
+    rows = await db[RUNS].find({"job": job, **match}, projection).sort("started_at", -1).to_list(1)
+    return rows[0] if rows else None
+
+
+def _ist(stamp: Optional[str]) -> Optional[str]:
+    moment = _parse(stamp)
+    return moment.astimezone(IST).strftime("%a %d %b %H:%M") if moment else None
+
+
+def trader_status(job: str, last: Optional[Dict[str, Any]], last_ok: Optional[Dict[str, Any]],
+                  now: datetime) -> Dict[str, Any]:
+    """`health()` (the admin route's rule, unchanged) put in a trader's words: ok | running | late | missed.
+
+      ok       the admin state is ok, or a healthy skip (a holiday, a lease held), and the newest slot is covered
+      running  a run is in progress
+      late     the admin state is still ok, but the newest slot has passed with no run recorded and its grace period
+               has not ended. This is exactly the case where `health()` at now + grace says "missed".
+      missed   every other state: missed, never_run, failed, partial, no_data, refused, an unhealthy skip. In each one,
+               exits after the last close were not checked, or not all of them were. `state` keeps the admin's word.
+    """
+    h = health(job, last, last_ok, now)
+    state = h["state"]
+    sched = SCHEDULES[job]
+    if state == "running":
+        status = "running"
+    elif h["healthy"]:
+        status = "late" if health(job, last, last_ok, now + sched["grace"])["state"] == "missed" else "ok"
+    else:
+        status = "missed"
+    checked = None if last_ok is None else {"session": last_ok.get("session"), "started_at": last_ok.get("started_at"),
+                                            "finished_at": last_ok.get("finished_at")}
+    session = (checked or {}).get("session")
+    due = last_slot(job, now + sched["grace"])
+    if status == "ok":
+        message = (f"Exits were checked after the {session} close." if session else
+                   "The evening exit check is up to date.")
+    elif status == "running":
+        message = "The evening exit check is running now."
+    elif status == "late":
+        message = f"The exit check due at {due.astimezone(IST).strftime('%a %d %b %H:%M')} IST has not been recorded yet."
+    else:
+        message = {
+            "never_run": "No evening exit check has been recorded.",
+            "missed": f"No exit check was recorded after the {_ist(h['expected_since'])} IST slot.",
+            "failed": "The latest exit check did not finish.",
+            "partial": "The latest exit check could not read some prices: some exits were not checked.",
+            "no_data": f"The {(last or {}).get('session')} prices were not available, so the latest exit check "
+                       f"checked nothing.",
+        }.get(state, f"The latest exit check did not complete ({state}).")
+    return {"job": job, "status": status, "state": state, "message": message, "last_checked": checked,
+            "latest_run": None if last is None else {f: last.get(f) for f in TRADER_FIELDS},
+            "expected_since": h["expected_since"], "schedule": sched["text"], "grace_minutes": h["grace_minutes"],
+            "as_of": _iso(now)}
+
+
+async def read_trader_status(db, job: str, now: datetime) -> Dict[str, Any]:
+    """Two reads, both with the allow-list projection; nothing is written."""
+    last = await _latest_projected(db, job)
+    last_ok = await _latest_projected(db, job, status=OK)
+    return trader_status(job, last, last_ok, now)

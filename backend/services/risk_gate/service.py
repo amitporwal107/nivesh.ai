@@ -163,6 +163,32 @@ def _whole(x: Any) -> Optional[int]:
     return int(v) if v is not None and v > 0 and v == int(v) else None
 
 
+# ── the freshness records of the inputs (also served by GET /api/risk/freshness, so the two cannot disagree) ──
+def last_close_freshness(inst: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    """The last close as read by inputs.instrument(), judged against LAST_CLOSE_BUDGET sessions."""
+    rec = fresh.assess(inst.get("source") or inputs.BARS_SOURCE, inst.get("last_close_as_of"),
+                       budget_sessions=LAST_CLOSE_BUDGET, now=now, have_value=inst.get("last_close") is not None)
+    if inst.get("error"):
+        rec["reason"] = inst["error"]
+    return rec
+
+
+def market_freshness(market: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    """India VIX and the regime as read by inputs.market_state(), judged against MARKET_STATE_BUDGET sessions."""
+    rec = fresh.assess(market.get("source") or inputs.MARKET_SOURCE, market.get("as_of"),
+                       budget_sessions=MARKET_STATE_BUDGET, now=now,
+                       have_value=market.get("vix") is not None and market.get("regime") is not None)
+    if market.get("error"):
+        rec["reason"] = market["error"]
+    return rec
+
+
+def sector_freshness(sec: Dict[str, Any]) -> Dict[str, Any]:
+    """The sector as read by inputs.sector_of(): an undated classification, ok when one was read."""
+    return fresh.known(sec.get("source") or inputs.SECTOR_SOURCE, sec.get("sector"), as_of=sec.get("as_of"),
+                       reason_missing=sec.get("error") or "no sector")
+
+
 # ── gather: every outside read, into one JSON-safe snapshot ──────────────────
 async def gather(db, req: EntryRequest, now: datetime) -> Dict[str, Any]:
     """Each read fails closed: an unreadable value is stored as None (with its reason) and the check that needs it
@@ -182,21 +208,12 @@ async def gather(db, req: EntryRequest, now: datetime) -> Dict[str, Any]:
     sym = (req.symbol or "").strip().upper()
     inst = await inputs.instrument(sym, today) if sym else {"bars": [], "last_close": None, "error": "no symbol"}
     bars = inst.pop("bars", None) or []
-    snap["instrument"] = {**inst, "last_close_freshness": fresh.assess(
-        inst.get("source") or inputs.BARS_SOURCE, inst.get("last_close_as_of"), budget_sessions=LAST_CLOSE_BUDGET, now=now,
-        have_value=inst.get("last_close") is not None)}
-    if inst.get("error"):
-        snap["instrument"]["last_close_freshness"]["reason"] = inst["error"]
+    snap["instrument"] = {**inst, "last_close_freshness": last_close_freshness(inst, now)}
     snap["instrument"]["last_session"] = (
         {"date": bars[-1]["date"].isoformat(), "low": bars[-1]["low"], "high": bars[-1]["high"]} if bars else None)
     snap["sector"] = await inputs.sector_of(sym) if sym else {"sector": None, "error": "no symbol"}
     snap["market"] = await inputs.market_state()
-    snap["market"]["freshness"] = fresh.assess(snap["market"].get("source") or inputs.MARKET_SOURCE,
-                                               snap["market"].get("as_of"), budget_sessions=MARKET_STATE_BUDGET, now=now,
-                                               have_value=snap["market"].get("vix") is not None
-                                               and snap["market"].get("regime") is not None)
-    if snap["market"].get("error"):
-        snap["market"]["freshness"]["reason"] = snap["market"]["error"]
+    snap["market"]["freshness"] = market_freshness(snap["market"], now)
     refs: Dict[str, Any] = {}
     open_structures: Any = "n/a"
     if req.instrument == "structure":
@@ -383,8 +400,7 @@ def decide(req: EntryRequest, snap: Dict[str, Any]) -> Dict[str, Any]:
                        value=round(dist, 2), limit=MAX_ENTRY_DISTANCE_PCT)
     sec = snap.get("sector") or {}
     sector = sec.get("sector")
-    fresh_rec["sector"] = fresh.known(sec.get("source") or inputs.SECTOR_SOURCE, sector, as_of=sec.get("as_of"),
-                                      reason_missing=sec.get("error") or "no sector")
+    fresh_rec["sector"] = sector_freshness(sec)
     if not sector:
         run.reason("inputs", "sector_unknown", f"The sector of {sym or 'the instrument'} is unknown "
                                                f"({sec.get('error') or 'no classification'}), so the sector limit "
