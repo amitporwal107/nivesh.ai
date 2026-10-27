@@ -13,8 +13,8 @@
  *   03 Market Desk       intel · smartmoney · sectors · research · screener · watchlists (IntelTab + EventsTab;
  *                        SmartMoneyTab + the F&O lab's build-up, candidates, indices and chain; SectorHeatmap;
  *                        ChartTab; Screener + Chartink sources; the Watchlist page)
- *   04 Risk Desk         limits · controls · log (RiskControls split by section; the F&O lab's Live-readiness in
- *                        controls and its Audit in log)
+ *   04 Risk Desk         limits · controls · log (tradingdesk/tabs/risk-desk: paper risk only, built from RiskControls,
+ *                        the risk profile, the F&O lab's live readiness and its decision lineage and replay)
  *   My portfolio         ?tab=portfolio: PortfolioTab without the paper cards (they are Trade Desk's), inside the frame
  *   AI Copilot           docked beside the desk from 1400px; below that ?tab=copilot shows it full height
  *
@@ -81,9 +81,7 @@ const PaperCards = lazy(() => import("./tradingdesk/PortfolioTab").then((m) => (
 })));
 const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
 const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
-const RiskControls = lazy(() => import("./tradingdesk/RiskControls"));
-const LiveDesk = lazy(() => import("./fnolab/LiveDesk").then((m) => ({ default: m.LiveDesk })));
-const LabAudit = lazy(() => import("./fnolab/Audit").then((m) => ({ default: m.Audit })));
+const RiskDeskTab = lazy(() => import("./tradingdesk/tabs/risk-desk/RiskDeskTab"));
 const SectorHeatmap = lazy(() => import("./SectorHeatmap"));
 const Screener = lazy(() => import("./Screener"));
 const Watchlist = lazy(() => import("./Watchlist"));
@@ -240,7 +238,7 @@ function RiskPill({ onOpen, phone }: { onOpen: () => void; phone?: boolean }) {
       onClick={onOpen}
       className="cp-pill"
       data-tone="danger"
-      title={`${label}: new paper positions are blocked. Open Risk Desk › Controls & profile.`}
+      title={`${label}: new paper positions are blocked. Open Risk Desk › Policy & runtime.`}
       style={{ flex: "none", cursor: "pointer", alignSelf: phone ? "flex-start" : undefined }}
     >
       <span className="nv-dot" style={{ background: "var(--cp-danger)" }} />
@@ -669,19 +667,7 @@ export default function TradingDeskScreen() {
         );
     }
   } else if (loc.tab === "risk") {
-    content = loc.view === "controls" ? (
-      <>
-        <Hosted id="riskcontrols" name="risk controls"><RiskControls sections={["status", "profile"]} /></Hosted>
-        <Section id="live" title="Live trading readiness"><LiveDesk /></Section>
-      </>
-    ) : loc.view === "log" ? (
-      <>
-        <Hosted id="riskcontrols" name="the decision log"><RiskControls sections={["decisions", "audit"]} /></Hosted>
-        <Section id="audit" title="F&O decision lineage and replay"><LabAudit /></Section>
-      </>
-    ) : (
-      <Hosted id="riskcontrols" name="limits and budgets"><RiskControls sections={["policy"]} /></Hosted>
-    );
+    content = <Hosted id="riskdesk" name="the Risk Desk"><RiskDeskTab view={loc.view} /></Hosted>;
   } else if (loc.tab === "portfolio") {
     content = (
       <SafeWidget key="portfolio" name="Trading desk · My portfolio">
