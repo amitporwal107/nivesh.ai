@@ -98,3 +98,56 @@ NOT RUN. This needs the merged frontend on staging and a signed-in session (OVER
 
 ## Verdict: BLOCKED
 Staging verification is deferred to after merge (OVERRIDE). Every mocked test case above passed.
+
+---
+
+# PR B: AI Scanner and Chart Analysis (branch feat/desk-trade-desk-b)
+
+Built on PR A (#376), with #373 (Market Overview) and #375 (Market Desk) merged in, because both merge before this PR.
+
+**What changed:**
+- `?tab=trade` opens **AI Scanner › Ranked candidates**: the Top 10 decision cards and "All scanner candidates", moved off Market Overview. `?tab=scanner` and `?tab=overview&section=scanner` land there.
+- **Signal library & sources:** the scanner's signal categories, each with the rule the route sent, and the Chartink sources.
+- **Scorecard:** #375's IdeaScorecard (`GET /api/desk/idea-scorecard`), then the F&O forward test.
+- **Live chart:** ChartTab, with the `account_size` paper ticket in place of the capital × risk-% calculator. The plan comes from `?tp=` or today's Top 10 idea; a stock with no idea gets no ticket, and the page says so.
+- **Signal record:** "not available yet", because no route serves the signal history.
+- **Market Overview:** "See all ›" opens Ranked candidates; "Scorecard →" opens Scorecard.
+- **#375's spec:** `SCORECARD_URL` is set to the Scorecard, so its SC-* cases run.
+
+## Test Cases
+AS-1 … AS-4 and CH-1 … CH-3 are in `desk_trade_desk_TESTCASES.md` (commit 40f43be7, before the PR B spec changes). All PASS.
+
+## UI / Playwright Tests
+Run 1: tsc, build, and the affected specs at `--workers=2` (trade-desk, shell, market-overview, market-desk, top10, decision-cards, scanner, portfolio-fno, strategy-builder, lab, risk-phase1, widgets). Real output:
+```
+== tsc
+tsc: clean
+== build
+✓ built in 55.12s
+  12 failed
+  36 skipped
+  427 passed (12.0m)
+```
+The 12 failures:
+- **4 were mine:**
+  - MD-10, the forward-test TC-8, SH-12/13 and SH-14 expected the old default or the old Scorecard note.
+  - The four specs were fixed. Run 2:
+```
+== tsc
+tsc: clean
+== build
+✓ built in 45.59s
+  8 passed (15.8s)
+```
+- **8 were the widgets spec:** its `beforeEach` waits for the old Overview's pulse card, which #373 removed. It fails the same way on #373's own branch (53371071):
+```
+== tsc
+tsc: clean
+== build
+✓ built in 50.46s
+  8 failed
+```
+  - Not caused by this PR. #373 or a follow-up should fix it.
+
+## Verdict: BLOCKED
+Staging verification is deferred to after merge (OVERRIDE_desk_trade_desk.md). Every mocked case above passed.
