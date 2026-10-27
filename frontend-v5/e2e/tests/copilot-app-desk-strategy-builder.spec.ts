@@ -693,6 +693,8 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
       symbol: "RELIANCE", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
       source: { kind: "strategy_plan", bucket: "breakout_continuation", signal_date: "2026-10-19" },
       signal_at: p.generated_at, strategy_version: p.rules_version, rationale: `Breakout continuation (long); plan ${p.plan_id}`,
+      // p2_exits_backtest TC-70: the plan's horizon (inputs.horizon_days 10) is the share trade's time exit too.
+      max_hold_sessions: p.inputs.horizon_days,
     });
     expect(st.paperKeys).toHaveLength(1);
     expect(st.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);

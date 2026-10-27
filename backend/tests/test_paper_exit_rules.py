@@ -388,3 +388,23 @@ def test_tc50_a_hold_beyond_the_desk_maximum_is_capped_and_no_spec_changes_nothi
     plain = execution.trade_body(_ticket(), rationale="x")
     assert "max_hold_sessions" not in plain and "exit_rules" not in plain
     assert svc.new_trade("user_a", plain, NOW)["exit_rules"] == []
+
+
+# ── TC-70 (contract): the bodies the screens now send, exactly as the e2e specs pin them, pass the desk validator ──
+@pytest.mark.parametrize("body", [
+    # Top 10 / AI watchlist / scanner tab (copilot-app-desk-top10, -ai-watchlist, -desk-scanner specs)
+    {"symbol": "ICICIBANK", "quantity": 208, "entry_price": 1200, "stop_price": 1160, "target_price": 1280,
+     "source": {"kind": "scanner", "bucket": "breakout_confirmed", "signal_date": "2026-10-05"}, "entry_rule": "at_once",
+     "max_hold_sessions": 15},
+    # risk desk (no entry rule)
+    {"symbol": "FIXBRK", "quantity": 200, "entry_price": 505, "stop_price": 480, "target_price": 560,
+     "source": {"kind": "scanner", "bucket": "breakout_confirmed", "signal_date": "2026-10-05"}, "max_hold_sessions": 20},
+    # Strategy Builder cash candidate (plan horizon)
+    {"symbol": "RELIANCE", "quantity": 208, "entry_price": 1200, "stop_price": 1160, "target_price": 1280,
+     "source": {"kind": "strategy_plan", "bucket": "breakout_continuation", "signal_date": "2026-10-05"},
+     "signal_at": "2026-10-05T03:00:00+00:00", "strategy_version": "strategy-rules.v1.5", "rationale": "Breakout continuation (long); plan p",
+     "max_hold_sessions": 10},
+], ids=["scanner", "risk-desk", "plan-cash"])
+def test_tc70_the_screen_bodies_with_a_time_exit_are_accepted(body):
+    doc = svc.new_trade("user_a", body, NOW)
+    assert doc["max_hold_sessions"] == body["max_hold_sessions"] and doc["exit_rules"] == []

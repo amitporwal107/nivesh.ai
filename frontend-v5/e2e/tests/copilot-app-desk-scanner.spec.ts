@@ -869,12 +869,14 @@ test.describe("Smart trading desk · AI scanner", () => {
     await panel.getByTestId("desk-scan-paper-qty").fill("12");
     const p = PICKS.picks[0];
     // paper_fills_pnl TESTCASES ER-4: the pick's entry 505 is under the watchlist close 510, so it waits for a pullback.
-    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`entry ${inr2(p.entry_price)} (filled when a later session pulls back to it), stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}. No order is placed and nothing is sent to a broker`);
+    // p2_exits_backtest TC-70: the pick's holding window (timeframe_days_max 15) is the time exit, sent and said.
+    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`entry ${inr2(p.entry_price)} (filled when a later session pulls back to it), stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}; exits after ${p.timeframe_days_max} sessions held. No order is placed and nothing is sent to a broker`);
     await panel.getByTestId("desk-scan-paper-add").click();
     await expect(panel.getByTestId("desk-scan-paper-done")).toHaveText(`Paper trade added: 12 FIXBRK at ${inr2(p.entry_price)}. No order is placed.`);
     expect(paperPosts.map((x) => x.body)).toEqual([{
       symbol: "FIXBRK", quantity: 12, entry_price: p.entry_price, stop_price: p.stoploss, target_price: p.target_price,
       source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date }, entry_rule: "pullback_to",
+      max_hold_sessions: p.timeframe_days_max,
     }]);
 
     // A universe-only stock has no plan: no paper trade, and it says why.
@@ -1863,7 +1865,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(page.getByTestId("desk-risk-qty")).toHaveText("200");
     await expect(paper).toBeEnabled();
     await expect(page.getByTestId("desk-risk-paper-note")).toHaveText(
-      `Simulated: 200 shares at ${inr2(p.entry_price)}, stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}. No order is placed; it is marked against end-of-day closes.`,
+      `Simulated: 200 shares at ${inr2(p.entry_price)}, stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}; exits after ${p.timeframe_days_max} sessions held. No order is placed; it is marked against end-of-day closes.`,
     );
     await paper.click();
     await expect(paper).toBeDisabled();
@@ -1873,7 +1875,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect(done).toContainText(`Paper trade added: 200 FIXBRK at ${inr2(p.entry_price)}. No order is placed.`);
     expect(posted[0]).toEqual({
       method: "POST", path: "/api/desk/paper-trades",
-      body: { symbol: "FIXBRK", quantity: 200, entry_price: p.entry_price, stop_price: p.stoploss, target_price: p.target_price, source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date } },
+      body: { symbol: "FIXBRK", quantity: 200, entry_price: p.entry_price, stop_price: p.stoploss, target_price: p.target_price, source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date }, max_hold_sessions: p.timeframe_days_max },
     });
 
     // ₹2L at 2%: the server caps it at 99 shares, and that is what is added.
@@ -1912,6 +1914,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await expect.poll(() => posted.length).toBe(3);
     expect(posted[2].body).toEqual({
       symbol: "FIXPICK", quantity: qty, entry_price: fp.entry_price, stop_price: fp.stoploss, target_price: fp.target_price, source: { kind: "scanner", signal_date: PICKS.signal_date },
+      max_hold_sessions: fp.timeframe_days_max,
     });
   });
 
@@ -2433,9 +2436,10 @@ test.describe("Smart trading desk · scanner and chart at 390px", () => {
     await page.getByTestId("desk-risk-paper").click();
     await expect(page.getByTestId("desk-risk-paper-done")).toContainText(`Paper trade added: ${qty} FIXBRK`);
     expect(posted).toHaveLength(1);
+    // p2_exits_backtest TC-70: the pick's holding window (timeframe_days_max) is sent as the time exit.
     expect(posted[0].body).toEqual({
       symbol: "FIXBRK", quantity: qty, entry_price: p.entry_price, stop_price: p.stoploss, target_price: p.target_price,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date },
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date }, max_hold_sessions: p.timeframe_days_max,
     });
   });
 });
