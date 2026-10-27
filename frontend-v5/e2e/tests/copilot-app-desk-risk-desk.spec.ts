@@ -258,11 +258,11 @@ async function noSideScroll(page: Page, where: string) {
 // ── the tests ────────────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () => {
-  test("RD-1 / RD-17 three views from the switcher and the URL, one h1 each, paper-only wording, no Policy & runtime", async ({ page }) => {
+  test("RD-1 / RD-17 three views (the design's names) from the switcher and the URL, one h1 each, paper-only wording, no variants or runtime without a backend", async ({ page }) => {
     await riskDesk(page);
     await page.goto(LIMITS);
     const panel = page.getByTestId("desk-panel-risk");
-    for (const [key, label] of [["controls", "Controls & profile"], ["log", "Decision log"], ["limits", "Limits & budgets"]]) {
+    for (const [key, label] of [["controls", "Policy & runtime"], ["log", "Decision log"], ["limits", "Exposure & limits"]]) {
       await page.getByTestId(`desk-view-${key}`).click();
       await expect(panel.getByTestId("risk-desk")).toHaveAttribute("data-view", key);
       await expect(page).toHaveURL(new RegExp(`[?&]view=${key}(&|$)`));
@@ -272,8 +272,10 @@ test.describe("MOCK — not real data: Smart trading desk · 04 Risk Desk", () =
       await expect(panel.getByTestId("rd-paper-only")).toHaveText("Paper risk only: these limits and controls govern paper entries. Nothing is sent to a broker.");
       await expect(panel.getByTestId("rd-paper-pill")).toHaveText("Paper only");
     }
-    await expect(page.getByTestId("desk-view-limits")).toHaveText("Limits & budgets");
-    await expect(page.getByText("Policy & runtime")).toHaveCount(0);
+    await expect(page.getByTestId("desk-view-limits")).toHaveText("Exposure & limits");
+    // The owner's design names the controls view "Policy & runtime" (2026-10-27). It holds the controls that exist (profile,
+    // halt / kill, live readiness); strategy variants and a runtime have no backend yet, so none is drawn.
+    await expect(page.getByTestId("desk-view-controls")).toHaveText("Policy & runtime");
     await expect(page.getByText(/strategy variant|runtime control|autonomous agent/i)).toHaveCount(0);
   });
 

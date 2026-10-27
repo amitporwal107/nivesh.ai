@@ -28,7 +28,7 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" }, { key: "watchlists", label: "Watchlists & alerts" },
   ],
-  risk: [{ key: "limits", label: "Limits & budgets" }, { key: "controls", label: "Controls & profile" }, { key: "log", label: "Decision log" }],
+  risk: [{ key: "limits", label: "Exposure & limits" }, { key: "controls", label: "Policy & runtime" }, { key: "log", label: "Decision log" }],
 };
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {

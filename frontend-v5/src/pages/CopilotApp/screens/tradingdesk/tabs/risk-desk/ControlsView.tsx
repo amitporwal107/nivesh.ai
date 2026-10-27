@@ -77,7 +77,7 @@ export function ControlsView() {
         : "Kill switch and halt are off; your risk profile sets every limit.";
   return (
     <div data-testid="rd-controls-view" className="flex min-w-0 flex-col" style={{ gap: mobile ? 14 : 18 }}>
-      <ViewHead view="Controls & profile" title={title} />
+      <ViewHead view="Policy & runtime" title={title} />
 
       <div className="grid" style={{ gap: mobile ? 14 : 18, gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,420px),1fr))", alignItems: "start" }}>
         <Card id="status" num="01" title="Kill switch & halt" testId="risk-status">

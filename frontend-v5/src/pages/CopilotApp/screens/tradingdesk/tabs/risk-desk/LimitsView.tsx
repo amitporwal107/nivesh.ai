@@ -265,7 +265,7 @@ export function LimitsView() {
 
   return (
     <div data-testid="rd-limits-view" className="flex min-w-0 flex-col" style={{ gap: mobile ? 14 : 18 }}>
-      <ViewHead view="Limits & budgets" title={headline(view, entries.words)} />
+      <ViewHead view="Exposure & limits" title={headline(view, entries.words)} />
 
       <div className="grid" style={{ gap: 10, gridTemplateColumns: `repeat(auto-fit,minmax(min(100%,${mobile ? 140 : 160}px),1fr))` }}>
         <Kpi k="Open risk" testId="rd-kpi-open" value={kpiPct("max_open_risk_pct")} tone={kpiTone("max_open_risk_pct")} note={limitOf("max_open_risk_pct")} />

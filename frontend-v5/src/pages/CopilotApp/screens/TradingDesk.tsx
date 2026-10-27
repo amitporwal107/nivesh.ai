@@ -235,7 +235,7 @@ function RiskPill({ onOpen, phone }: { onOpen: () => void; phone?: boolean }) {
       onClick={onOpen}
       className="cp-pill"
       data-tone="danger"
-      title={`${label}: new paper positions are blocked. Open Risk Desk › Controls & profile.`}
+      title={`${label}: new paper positions are blocked. Open Risk Desk › Policy & runtime.`}
       style={{ flex: "none", cursor: "pointer", alignSelf: phone ? "flex-start" : undefined }}
     >
       <span className="nv-dot" style={{ background: "var(--cp-danger)" }} />
