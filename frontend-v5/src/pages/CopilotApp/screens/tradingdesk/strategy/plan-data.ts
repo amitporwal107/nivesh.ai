@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ZodError } from "zod";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
-import type { NewPaperTrade, NewStrategyLeg, NewStrategyPaperTrade, StrategyDirection } from "../desk-trading";
+import { maxHoldFor, type NewPaperTrade, type NewStrategyLeg, type NewStrategyPaperTrade, type StrategyDirection } from "../desk-trading";
 import {
   DeleteAnswerSchema, PlanSchema, SavedListSchema, SavedPlanSchema,
   type Candidate, type FieldProblem, type SavedList, type StrategyPlan,
@@ -272,6 +272,7 @@ export function strategyPaperBody(plan: StrategyPlan, c: Candidate, savedId: str
 /** The body of a share paper trade for a cash candidate (the existing share paper-trade API). */
 export function cashPaperBody(plan: StrategyPlan, c: Candidate): NewPaperTrade {
   const leg = c.legs[0];
+  const maxHold = maxHoldFor(plan.inputs.horizon_days);
   const target = levelOf(c, "base");
   return {
     symbol: plan.underlying.symbol,
@@ -283,6 +284,8 @@ export function cashPaperBody(plan: StrategyPlan, c: Candidate): NewPaperTrade {
     signal_at: plan.generated_at,
     strategy_version: plan.rules_version,
     rationale: `${c.label}; plan ${plan.plan_id}`.slice(0, 500),
+    // The plan's horizon is the time exit (the strategy trade body already sends it): closed at the close of that session held.
+    ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
   };
 }
 

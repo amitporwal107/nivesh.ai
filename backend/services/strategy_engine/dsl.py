@@ -15,7 +15,11 @@ Document shape (v1):
       "universe":     {"type": "index"|"custom"|"category", "ref": str},
       "entry":        {"all_of": [Predicate, …], "any_of": [Predicate, …]?},
       "exit":         {"stoploss_pct": num, "target_rr": num,
-                       "max_hold_days": int, "trailing_atr_mult": num?},
+                       "max_hold_days": int, "trailing_atr_mult": num?,
+                       "trend_ema_period": int?},
+                    max_hold_days is counted in SESSIONS held (trading days), not calendar
+                    days; trailing_atr_mult (0 < k <= 10) and trend_ema_period (2..200) are
+                    the opt-in research exits of services/exit_rules.py (off when absent).
       "ranking":      {"by": str, "limit": int, "order": "asc"|"desc"?},
       "rebalance":    "daily" | "weekly" | "monthly"
     }
@@ -322,8 +326,12 @@ def _validate_exit(exit_: Any, required: bool) -> List[DSLError]:
         errs.append(DSLError("$.exit.max_hold_days", "must be a positive int"))
 
     tatr = exit_.get("trailing_atr_mult")
-    if tatr is not None and not (isinstance(tatr, (int, float)) and tatr > 0):
-        errs.append(DSLError("$.exit.trailing_atr_mult", "must be > 0"))
+    if tatr is not None and not (isinstance(tatr, (int, float)) and not isinstance(tatr, bool) and 0 < tatr <= 10):
+        errs.append(DSLError("$.exit.trailing_atr_mult", "must be > 0 and at most 10"))
+
+    tema = exit_.get("trend_ema_period")
+    if tema is not None and not (isinstance(tema, int) and not isinstance(tema, bool) and 2 <= tema <= 200):
+        errs.append(DSLError("$.exit.trend_ema_period", "must be a whole number from 2 to 200"))
 
     if sl is None and rr is None and mhd is None:
         errs.append(DSLError("$.exit",

@@ -42,7 +42,7 @@ import {
   probabilityGate, riskClassOf, scanBasisLine, useDeskOdds, useDeskScanner, useScanUniverse,
   type DeskOdds, type DeskSetup, type RiskClass, type ScanRules, type ScanUniverse, type SetupBucket, type UniverseCategory, type UniverseRow,
 } from "./desk-data";
-import { ENTRY_RULE_SHORT, entryRuleFor, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
+import { ENTRY_RULE_SHORT, entryRuleFor, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import ReversalPanel from "./ReversalPanel";
 import { RiskReduceOffer } from "./RiskReduce";
@@ -725,12 +725,15 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
   }
   const sendTarget = target != null && target > entry ? target : null;
   const rule = entryRuleFor(entry, s.close, { stage: s.stage, bucket: s.bucket });
+  // The scanner's holding window (timeframe_days_max) is the time exit: closed at the close of that session held.
+  const maxHold = maxHoldFor(s.daysMax);
   const q = Number(qty.trim());
   const qtyOk = /^\d+$/.test(qty.trim()) && q >= 1 && q <= 1_000_000;
   const body: NewPaperTrade | null = qtyOk ? {
     symbol: r.symbol, quantity: q, entry_price: entry, stop_price: stop, target_price: sendTarget,
     source: { kind: "scanner", ...(s.bucket ? { bucket: s.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
     entry_rule: rule,
+    ...(maxHold != null ? { max_hold_sessions: maxHold } : {}),
   } : null;
   const done = paper.variables?.symbol === r.symbol ? paper : null;
   return (
@@ -744,7 +747,7 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
         </Btn>
       </span>
       <span data-testid="desk-scan-paper-note" style={noteStyle}>
-        Hypothetical, at the setup’s levels: entry {fmtPrice(entry)} (<span data-testid="desk-scan-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
+        Hypothetical, at the setup’s levels: entry {fmtPrice(entry)} (<span data-testid="desk-scan-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}{maxHoldNote(maxHold)}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
       </span>
       {done?.isSuccess && <span role="status" data-testid="desk-scan-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(done.variables?.quantity ?? null)} {r.symbol} at {fmtPrice(done.variables?.entry_price ?? null)}. No order is placed.</span>}
       {done?.isError && <span role="alert" data-testid="desk-scan-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(done.error)}</span>}

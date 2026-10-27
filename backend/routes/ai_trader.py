@@ -656,7 +656,9 @@ async def _open_paper_trade(uid: str, ticket: Dict[str, Any], strategy_doc: Dict
     rationale = (f"AI Trader {ticket['mode']} signal from {strategy_doc.get('name') or 'a strategy'} "
                  f"({strategy_doc.get('version')}) on {ticket['signal_date']}; risk decision "
                  f"{decision.get('outcome')} ({risk_service.POLICY_VERSION}).")
-    trade = desk.new_trade(uid, execution.trade_body(ticket, rationale=rationale[:desk.NOTE_MAX]))
+    # The strategy's own exits (time in sessions, the ATR trail) travel with the paper trade (N15).
+    trade = desk.new_trade(uid, execution.trade_body(ticket, rationale=rationale[:desk.NOTE_MAX],
+                                                     exit_spec=(strategy_doc.get("spec") or {}).get("exit")))
     trade["_id"] = trade_id
     risk_service.stamp(trade, decision)
     trade["paper_reserved_rs"] = float(decision["budget"].get("funding_rs") or 0.0)

@@ -194,8 +194,42 @@ export function writeProblem(e: unknown): string {
 
 // ── paper trades ─────────────────────────────────────────────────────────
 
-export type ExitReason = "stop" | "target" | "time" | "manual" | "entry_not_reached" | "cancelled";
-const EXIT_REASONS: readonly string[] = ["stop", "target", "time", "manual", "entry_not_reached", "cancelled"];
+/** Exit reasons the route sends (backend/services/exit_rules.py, exit-rules-v1): `trailing_stop` is a stop the opt-in ATR
+ *  trail raised (distinct from the initial `stop`), `trend` the opt-in close-below-EMA rule, `risk_control` a risk limit. A
+ *  reason not in this list is kept as its raw code (`exitReasonCode`) and shown as such, never dropped. */
+export type ExitReason = "stop" | "trailing_stop" | "target" | "time" | "trend" | "manual" | "risk_control" | "entry_not_reached" | "cancelled";
+const EXIT_REASONS: readonly string[] = ["stop", "trailing_stop", "target", "time", "trend", "manual", "risk_control", "entry_not_reached", "cancelled"];
+
+/** An opt-in research exit rule enabled on a trade (off by default; never a default until the fixed backtest has tested it). */
+export interface ExitRuleLabel {
+  code: string;
+  version: string | null;
+  label: string;
+  params: Record<string, unknown>;
+}
+/** One version of a trade's stop: `session` is the close it was set at (null = at entry), in force from the next session. */
+export interface StopVersion {
+  session: string | null;
+  stop: number;
+  reason: string;
+  version: number | null;
+}
+
+function readExitRules(v: unknown): ExitRuleLabel[] {
+  return (Array.isArray(v) ? v : []).flatMap((x): ExitRuleLabel[] => {
+    const r = rec(x);
+    const code = str(r.code);
+    return code ? [{ code, version: str(r.version), label: str(r.label) ?? code, params: rec(r.params) }] : [];
+  });
+}
+
+function readStopHistory(v: unknown): StopVersion[] {
+  return (Array.isArray(v) ? v : []).flatMap((x): StopVersion[] => {
+    const r = rec(x);
+    const stop = price(r.stop);
+    return stop != null ? [{ session: str(r.session), stop, reason: str(r.reason) ?? "initial", version: num(r.version) }] : [];
+  });
+}
 
 export type EntryRule = "at_once" | "break_above" | "pullback_to";
 const ENTRY_RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
@@ -231,6 +265,23 @@ export function entryRuleFor(entry: number, close: number | null | undefined,
   if (stage === "EARLY_BREAKOUT" || setup.bucket === "pre_breakout" || setup.bucket === "true_accumulation") return "break_above";
   return "at_once";
 }
+/** The most sessions the route lets a paper trade be held (backend MAX_HOLD_SESSIONS; outside it the route answers 422
+ *  invalid_max_hold). */
+export const MAX_HOLD_SESSIONS = 250;
+/**
+ * `max_hold_sessions` for a paper-trade body from a setup's holding window (the scanner's timeframe_days_max, a plan's
+ * horizon_days): the time exit closes the trade at the close of that session held. Only a whole number from 1 to
+ * MAX_HOLD_SESSIONS is sent; anything else (missing, fractional, out of range) is left out, so the trade has no time exit
+ * rather than a made-up one.
+ */
+export function maxHoldFor(sessions: number | null | undefined): number | undefined {
+  return sessions != null && Number.isInteger(sessions) && sessions >= 1 && sessions <= MAX_HOLD_SESSIONS ? sessions : undefined;
+}
+/** "; exits after N sessions held" for a body's note, or "" when no time exit is sent. */
+export function maxHoldNote(sessions: number | undefined): string {
+  return sessions != null ? `; exits after ${sessions} session${sessions === 1 ? "" : "s"} held` : "";
+}
+
 /** assumed: filled when recorded (at once) · reached: the level traded · waiting: not yet · not_reached: never filled. */
 export type EntryStatus = "assumed" | "reached" | "waiting" | "not_reached";
 const ENTRY_STATUSES: readonly string[] = ["assumed", "reached", "waiting", "not_reached"];
@@ -298,6 +349,8 @@ export interface PaperTrade {
   closedAt: string | null;
   exitPrice: number | null;
   exitReason: ExitReason | null;
+  /** The exit reason exactly as sent (lower case): differs from `exitReason` only for a code this screen does not know. */
+  exitReasonCode: string | null;
   /** The session the trade was closed on, and the route's note on it (e.g. both levels in one session). */
   exitSession: string | null;
   exitNote: string | null;
@@ -338,11 +391,40 @@ export interface PaperTrade {
   costsBasis: string | null;
   netRs: number | null;
   flags: PaperFlag[];
+  // ── exits (exit-rules-v1): opt-in research rules, the versioned stop history, the stop in force ──
+  exitRules: ExitRuleLabel[];
+  exitRulesVersion: string | null;
+  stopHistory: StopVersion[];
+  /** The stop in force for the next session (open) or at the exit (closed); null when the route did not send it. */
+  currentStop: number | null;
+  stopVersion: number | null;
 }
 
 // ── strategy paper trades (kind "strategy": futures and option structures, rules desk-paper-v3) ──
 
 export type StrategyExitReason = ExitReason | "expiry";
+/** The premium levels stored on a strategy trade at entry (services/strategy_levels.py), per unit of the position's lot
+ *  multiple; the whole structure is evaluated against them on its end-of-day marks. */
+export interface PremiumPlan {
+  kind: "debit" | "credit" | null;
+  entryPerUnit: number | null;
+  stopPerUnit: number | null;
+  t1PerUnit: number | null;
+  t2PerUnit: number | null;
+  unitShares: number | null;
+  version: string | null;
+  source: string | null;
+}
+function readPremiumPlan(v: unknown): PremiumPlan | null {
+  const p = rec(v);
+  if (!Object.keys(p).length) return null;
+  const kind = str(p.kind);
+  return {
+    kind: kind === "debit" || kind === "credit" ? kind : null,
+    entryPerUnit: num(p.entry_per_unit), stopPerUnit: num(p.stop_per_unit), t1PerUnit: num(p.t1_per_unit), t2PerUnit: num(p.t2_per_unit),
+    unitShares: num(p.unit_shares), version: str(p.version), source: str(p.source),
+  };
+}
 const STRATEGY_EXIT_REASONS: readonly string[] = [...EXIT_REASONS, "expiry"];
 export type StrategyDirection = "bullish" | "bearish" | "neutral";
 const DIRECTIONS: readonly string[] = ["bullish", "bearish", "neutral"];
@@ -415,8 +497,14 @@ export interface StrategyPaperTrade {
   status: "open" | "closed";
   closedAt: string | null;
   exitReason: StrategyExitReason | null;
+  exitReasonCode: string | null;
   exitSession: string | null;
   exitNote: string | null;
+  /** Which levels fired the stop or target: the underlying's, or the structure's premium levels. */
+  exitBasis: "underlying" | "premium" | null;
+  premiumPlan: PremiumPlan | null;
+  /** The structure's value per unit at the latest marks (debit: what it would sell for; credit: the buy-back cost). */
+  structureValuePerUnit: number | null;
   maxHoldSessions: number | null;
   rulesVersion: string | null;
   costModel: CostModel | null;
@@ -521,6 +609,7 @@ function readTrade(v: unknown): PaperTrade | null {
     closedAt: str(t.closed_at),
     exitPrice: price(t.exit_price),
     exitReason: reason && EXIT_REASONS.includes(reason) ? (reason as ExitReason) : null,
+    exitReasonCode: reason ?? null,
     exitSession: str(t.exit_session),
     exitNote: str(t.exit_note),
     markError: str(t.mark_error),
@@ -558,6 +647,11 @@ function readTrade(v: unknown): PaperTrade | null {
       const text = str(f.text);
       return code && text ? [{ code, text, session: str(f.session), price: num(f.price) }] : [];
     }),
+    exitRules: readExitRules(t.exit_rules),
+    exitRulesVersion: str(t.exit_rules_version),
+    stopHistory: readStopHistory(t.stop_history),
+    currentStop: price(t.current_stop),
+    stopVersion: num(t.stop_version),
   };
 }
 
@@ -620,7 +714,11 @@ function readStrategyTrade(v: unknown): StrategyPaperTrade {
     referencePrice: price(t.reference_price), stopUnderlying: price(t.stop_underlying), targetUnderlying: price(t.target_underlying),
     note: str(t.note), openedAt: str(t.opened_at), closedAt: str(t.closed_at),
     exitReason: reason && STRATEGY_EXIT_REASONS.includes(reason) ? (reason as StrategyExitReason) : null,
+    exitReasonCode: reason ?? null,
     exitSession: str(t.exit_session), exitNote: str(t.exit_note), maxHoldSessions: num(t.max_hold_sessions),
+    exitBasis: str(t.exit_basis) === "premium" ? "premium" : str(t.exit_basis) === "underlying" ? "underlying" : null,
+    premiumPlan: readPremiumPlan(t.premium_plan),
+    structureValuePerUnit: num(t.structure_value_per_unit),
     rulesVersion: str(t.rules_version), costModel: readCostModel(t.cost_model), riskNote: str(risk.note),
     signal: { signalAt: str(sig.signal_at), ruleVersion: str(sig.rule_version), modelVersion: str(sig.model_version), sourceRefs: refs, evidenceSummary: str(sig.evidence_summary) },
     entryRecordHash: str(t.entry_record_hash), entryRecordIntact: typeof t.entry_record_intact === "boolean" ? t.entry_record_intact : null,

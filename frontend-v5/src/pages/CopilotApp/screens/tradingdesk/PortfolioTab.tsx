@@ -1244,7 +1244,7 @@ function YourTrades() {
               const ret = tradeReturnPct(t);
               const r = tradeR(t);
               const days = heldDays(t);
-              const reason = t.exitReason === "target" ? "target" : t.exitReason === "stop" ? "stop" : t.exitReason === "manual" ? "closed by you" : null;
+              const reason = t.exitReason === "target" ? "target" : t.exitReason === "stop" ? "stop" : t.exitReason === "trailing_stop" ? "trailing stop" : t.exitReason === "manual" ? "closed by you" : null;
               return (
                 <div key={t.id} role="row" data-testid="desk-paper-last5-row" data-id={t.id} className="grid items-center" style={{ gridTemplateColumns: "minmax(0,1fr) 40px 84px 48px", gap: 8, padding: "7px 0", borderTop: line }}>
                   <span role="cell" className="flex min-w-0 flex-col" style={{ gap: 1 }}>
