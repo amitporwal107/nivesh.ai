@@ -28,11 +28,12 @@ import { closeLabel, useLiveMeta, useLiveOverlays, type OverlayQuote } from "../
 import { dayLabel, fmtPrice } from "../markets/format";
 import { LoadError } from "../markets/parts";
 import { BUCKET_LABEL, type SetupBucket } from "../tradingdesk/desk-data";
-import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "../tradingdesk/desk-trading";
+import { ENTRY_RULE_SHORT, entryRuleFor, useAddPaperTrade, writeProblem, type NewPaperTrade } from "../tradingdesk/desk-trading";
 import { BUILDUP_META, buildupRowFor, indexRowFor, useBuildup } from "../tradingdesk/fno-buildup";
 import { StatusPill, ratio, rupeesAbs } from "../tradingdesk/strategy/plan-format";
 import type { PlanStatus } from "../tradingdesk/strategy/plan-contract";
 import { IdeaActions } from "../tradingdesk/strategy/TopByRegime";
+import { StoredIdeaLevels, readStoredLevels } from "../tradingdesk/IdeaLevels";
 import { legSlot, legsForBoard, liveNetPremium, useFnoLive, type LiveAnswer } from "../tradingdesk/strategy/top-live";
 import {
   deskBuildup, deskChain, deskChart, deskLab, deskPlan, deskTrades, useAiWatchlist, type AiWatchDay, type CashEntry, type FnoEntry,
@@ -86,11 +87,13 @@ function CashPaperTrade({ e, listDate }: { e: CashEntry; listDate: string }) {
     return <span data-testid="aiw-paper-none" style={quiet}>A paper trade needs the scanner’s entry and a stop below it; {e.symbol} has none. Open the plan to record one there.</span>;
   }
   const sendTarget = target != null && target > entry ? target : null;
+  const rule = entryRuleFor(entry, e.scanner.close, { bucket });
   const q = Number(qty.trim());
   const ok = /^\d+$/.test(qty.trim()) && q >= 1 && q <= 1_000_000;
   const body: NewPaperTrade | null = ok ? {
     symbol: e.symbol, quantity: q, entry_price: entry, stop_price: stop, target_price: sendTarget,
     source: { kind: "scanner", ...(bucket ? { bucket } : {}), signal_date: e.scanner.close_date ?? listDate },
+    entry_rule: rule,
   } : null;
   return (
     <span className="flex min-w-0 flex-col" style={{ gap: 6 }}>
@@ -102,7 +105,7 @@ function CashPaperTrade({ e, listDate }: { e: CashEntry; listDate: string }) {
           {paper.isSuccess ? "Added" : paper.isPending ? "Adding…" : "Add paper trade"}
         </Btn>
       </span>
-      <span style={quiet}>At the scanner’s levels on {shortDay(listDate)}: entry {fmtPrice(entry)}, stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. Simulated; nothing is sent to a broker.</span>
+      <span style={quiet}>At the scanner’s levels on {shortDay(listDate)}: entry {fmtPrice(entry)} (<span data-testid="aiw-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. Simulated; nothing is sent to a broker.</span>
       {paper.isSuccess && <span role="status" data-testid="aiw-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {e.symbol} at {fmtPrice(entry)}.</span>}
       {paper.isError && <span role="alert" data-testid="aiw-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}
     </span>
@@ -213,9 +216,11 @@ function Legs({ e, live, at }: { e: FnoEntry; live: LiveAnswer | undefined; at: 
   );
 }
 
-function FnoRow({ e, listDate, live, at, liveOn, scan }: { e: FnoEntry; listDate: string; live: LiveAnswer | undefined; at: Map<string, number>; liveOn: boolean; scan: BuildupData }) {
+function FnoRow({ e, listDate, rulesVersion, live, at, liveOn, scan }: { e: FnoEntry; listDate: string; rulesVersion: string | null | undefined; live: LiveAnswer | undefined; at: Map<string, number>; liveOn: boolean; scan: BuildupData }) {
   const { go } = useCopilotShell();
   const sym = e.underlying;
+  // The levels stored with this day's list, never worked out again on a later day's prices.
+  const stored = useMemo(() => readStoredLevels(e.strategy_levels), [e.strategy_levels]);
   const index = e.kind === "index";
   const liveNet = liveNetPremium(e, live, at);
   // Mark against the list day, as if entered at its premiums: (what it cost then) − (what it would cost now), per the listed lots.
@@ -241,6 +246,7 @@ function FnoRow({ e, listDate, live, at, liveOn, scan }: { e: FnoEntry; listDate
         <span className="cp-num" style={{ ...quiet, color: "var(--cp-ink-2)" }}>
           max loss {e.loss_unbounded ? "no lower limit" : fmtINR(e.max_loss)} · max gain {e.profit_unbounded ? "no upper limit" : fmtINR(e.max_profit)} · reward : risk {e.reward_risk == null ? "—" : `${fmtNum(e.reward_risk, 2)} : 1`} · breakeven {e.breakevens.length ? e.breakevens.map((b) => fmtNum(b, 2)).join(", ") : "—"}
         </span>
+        <StoredIdeaLevels read={stored} underlying={sym} />
         <Greeks g={e.net_greeks} />
         <Legs e={e} live={live} at={at} />
         <span data-testid="aiw-fno-live" data-state={liveNet != null ? "live" : liveOn ? "partial" : "off"} style={{ ...quiet, color: liveNet != null ? "var(--cp-ink-2)" : undefined }}>
@@ -259,7 +265,10 @@ function FnoRow({ e, listDate, live, at, liveOn, scan }: { e: FnoEntry; listDate
         <Chip testId="aiw-fno-chain" onClick={() => go(deskChain(sym))}>Option chain ›</Chip>
         <Chip testId="aiw-fno-buildup" onClick={() => go(deskBuildup(sym, index))}>{index ? "Index futures build-up ›" : "OI build-up ›"}</Chip>
       </div>
-      <div style={{ paddingLeft: 32 }}><IdeaActions idea={e} onViewTrades={() => go(deskTrades())} /></div>
+      <div style={{ paddingLeft: 32 }}>
+        <IdeaActions idea={e} onViewTrades={() => go(deskTrades())} rulesVersion={rulesVersion}
+          levels={stored.kind === "ok" ? { data: stored.levels, pending: false } : undefined} />
+      </div>
     </li>
   );
 }
@@ -349,7 +358,7 @@ export function AiScannerWatchlist() {
         ) : (
           day.fno.length === 0 ? <div style={{ padding: 16 }}><EmptyBlock title="No F&O idea on this list" /></div> : (
             <ol data-testid="aiw-fno-list" className="m-0 p-0" style={{ listStyle: "none" }}>
-              {day.fno.map((e) => <FnoRow key={e.underlying} e={e} listDate={listDate} live={liveOn ? liveQ.data : undefined} at={at} liveOn={liveOn} scan={scanQ.data} />)}
+              {day.fno.map((e) => <FnoRow key={e.underlying} e={e} listDate={listDate} rulesVersion={n.fno_rules_version} live={liveOn ? liveQ.data : undefined} at={at} liveOn={liveOn} scan={scanQ.data} />)}
             </ol>
           )
         )}

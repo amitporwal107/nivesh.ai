@@ -104,7 +104,7 @@ export function BasketRow({ item, index }: Props) {
       <td className="py-3 pr-3 text-right">
         <div className="flex flex-col items-end gap-0.5">
           <span className="font-mono text-[12px] text-ink">{fmtRs(item.allocated_rs)}</span>
-          <span className="font-mono text-[10px] text-red-500">Risk {fmtRs(item.risk_rs)}</span>
+          <span className="font-mono text-[10px] text-red-500" title="Loss at the stop after estimated round-trip costs: brokerage, STT, exchange charge, SEBI fee, stamp duty, GST and slippage (DP charges and income tax not included)">Risk {fmtRs(item.risk_rs)} after costs</span>
         </div>
       </td>
 

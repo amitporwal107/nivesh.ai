@@ -307,7 +307,9 @@ async def _select_scanner(request: Request, limit: int) -> Dict[str, Any]:
     out: Dict[str, Any] = {"source": "AI scanner (watchlist + picks), end of day", "rule": SELECTION_RULE, "limit": limit, "scan_date": None,
                            "watchlist_as_of": (watch or {}).get("as_of_date"), "watchlist_version": (watch or {}).get("_classifier_version"), "signal_date": (picks or {}).get("signal_date"),
                            "considered": 0, "selected": 0, "excluded": [], "setups": [], "empty_reason": None, "source_failures": fails,
-                           "gate": None, "gate_as_of": None, "_merged": [], "_rows": None, "_rows_read": False}
+                           "gate": None, "gate_as_of": None, "_merged": [], "_rows": None, "_rows_read": False,
+                           # engine version, price basis, exceptions and data-quality status of the scan (scan_meta)
+                           "scan_basis": (watch or {}).get("scan_basis") or (picks or {}).get("scan_basis")}
     out["scan_date"] = out["watchlist_as_of"] or out["signal_date"]
     if watch is None and picks is None:
         out["empty_reason"] = "The scanner could not be read (" + "; ".join(fails) + "): no opportunities are shown in its place."

@@ -84,6 +84,8 @@ interface Opts {
 }
 interface State {
   builds: Array<Record<string, unknown>>; saves: Array<{ plan: Plan }>; paid: Array<Record<string, any>>; strat: Array<Record<string, any>>; deletes: string[]; payoffs: PReq[]; streams: Array<{ message: string }>;
+  /** The Idempotency-Key header of every paper-trade POST, in order. */
+  paperKeys: Array<string | undefined>;
   stored: Array<{ id: string; plan: Plan; saved_at: string }>; writes: string[];
 }
 
@@ -103,7 +105,7 @@ function bars() {
 }
 
 async function setup(page: Page, o: Opts = {}): Promise<State> {
-  const st: State = { builds: [], saves: [], paid: [], strat: [], deletes: [], payoffs: [], streams: [], stored: [...(o.saved ?? [])], writes: [] };
+  const st: State = { builds: [], saves: [], paid: [], strat: [], deletes: [], payoffs: [], streams: [], stored: [...(o.saved ?? [])], writes: [], paperKeys: [] };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   page.on("request", (r) => { if (r.method() !== "GET" && /\/api\//.test(new URL(r.url()).pathname)) st.writes.push(`${r.method()} ${new URL(r.url()).pathname}`); });
@@ -114,6 +116,7 @@ async function setup(page: Page, o: Opts = {}): Promise<State> {
   await page.route("**/api/desk/paper-trades*", async (r) => {
     if (r.request().method() === "GET") return json(r, { as_of: null, trades: [], summary: null });
     const body = r.request().postDataJSON() as Record<string, any>;
+    st.paperKeys.push(r.request().headers()["idempotency-key"]);
     if (o.paperReply) return json(r, o.paperReply.body, o.paperReply.status);
     if (body.kind === "strategy") { st.strat.push(body); return json(r, { trade: { id: "st-1", status: "open", ...body } }, 201); }
     st.paid.push(body);
@@ -316,7 +319,7 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     await expect(page.getByTestId("rr-net")).toContainText("1.90 : 1");
     expect(c.risk_reward.gross).toBe(2);
     await expect(page.getByTestId("sizing-qty")).toContainText("208");
-    await expect(page.getByTestId("sizing-formula")).toContainText("floor(risk budget / risk per unit)");
+    await expect(page.getByTestId("sizing-formula")).toContainText("the most whole lots with units x risk per unit + estimated round-trip costs at the stop (the desk cost card) <= risk budget");
     await expect(page.getByTestId("margin")).toContainText("—");
     await expect(page.getByTestId("margin")).toContainText("No margin source exists");
     await expect(page.getByTestId("validation-status")).toHaveText("Not validated");
@@ -449,7 +452,7 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     await expect(inc).toContainText("Sizing is incomplete: no quantity is shown.");
     await expect(inc).toContainText("risk_budget_inr (or risk_pct together with capital); capital");
     await expect(page.getByTestId("sizing-qty")).toHaveCount(0);
-    await expect(page.getByTestId("sizing-formula")).toContainText("floor(risk budget / risk per unit)");
+    await expect(page.getByTestId("sizing-formula")).toContainText("the most whole lots with units x risk per unit + estimated round-trip costs at the stop (the desk cost card) <= risk budget");
     await expect(page.getByTestId("act-paper")).toBeDisabled();
     await expect(page.getByTestId("paper-blocked")).toContainText("Sizing is incomplete, so there is no quantity to record");
   });
@@ -630,6 +633,34 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     expect(Object.keys(b.signal).sort()).toEqual(["evidence_summary", "rule_version", "signal_at", "source_refs"]);
     await expect(page.getByTestId("act-msg-paper")).toContainText("No order is placed");
     expect(st.writes.filter((w) => /order|broker/i.test(w))).toEqual([]);
+    // desk_paper_safety TESTCASES UI-4: the strategy POST carries one Idempotency-Key.
+    expect(st.paperKeys).toHaveLength(1);
+    expect(st.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  test("SB-10f the sizing says the risk at the stop is after estimated costs, with the gross figure beside it", async ({ page }) => {
+    // paper_fills_pnl TESTCASES ER-5. The fixture's sizing is backend/tests/test_strategy_plan.py's cash candidate as the
+    // route now answers it under the desk cost card: 208 shares, ₹8,320 before costs, ₹839.32 of costs, ₹9,159.32 after.
+    await open(page, { plan: "cash" });
+    await build(page);
+    await expect(page.getByTestId("sizing-deployed")).toContainText("risk at the stop ₹9,159.32 after estimated costs (₹8,320.00 before)");
+    await expect(page.getByTestId("sizing-formula")).toContainText("estimated round-trip costs at the stop (the desk cost card)");
+    await expect(page.getByTestId("sizing-costs")).toContainText("₹839.32");
+    await expect(page.getByTestId("sizing-costs")).toContainText("brokerage ₹40.00 · STT ₹490.88 · exchange ₹15.07 · SEBI ₹0.49 · stamp ₹37.44 · GST ₹10.00 · slippage ₹245.44");
+  });
+
+  test("SB-10e a short-futures candidate is not offered for a paper trade, and nothing is sent", async ({ page }) => {
+    // desk_paper_safety TESTCASES F-10. MOCK — not real data: the futures fixture with its leg turned into a sale, the
+    // shape a bearish futures candidate has (backend/services/strategy_plan/candidates.py futures_candidates).
+    const p = fixture("futures");
+    const c = p.candidates.find((x: { id: string }) => x.id === "futures:long_buildup_continuation");
+    c.legs[0].side = "sell";
+    const st = await open(page, { plan: "futures", planReply: { status: 200, body: p } }, "&sym=RELIANCE&direction=bullish&instrument=futures");
+    await build(page);
+    await expect(page.getByTestId("paper-blocked")).toContainText("Short futures are not recorded as paper trades yet");
+    await expect(page.getByTestId("act-paper")).toBeDisabled();
+    expect(st.strat).toHaveLength(0);
+    expect(st.paperKeys).toHaveLength(0);
   });
 
   test("SB-10b paper trade the option spread: both legs, strikes and option types, the plan's stop and target levels, family bull_call_spread", async ({ page }) => {
@@ -663,6 +694,8 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
       source: { kind: "strategy_plan", bucket: "breakout_continuation", signal_date: "2026-10-19" },
       signal_at: p.generated_at, strategy_version: p.rules_version, rationale: `Breakout continuation (long); plan ${p.plan_id}`,
     });
+    expect(st.paperKeys).toHaveLength(1);
+    expect(st.paperKeys[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
   test("SB-10d a refused paper trade shows the server's words; a refused save keeps the paper trade from being recorded", async ({ page }) => {

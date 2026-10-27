@@ -8,7 +8,9 @@ Store (MongoDB, every document carries the owner's `user_id`; ids are uuid4 stri
     desk_paper_trades   symbol, quantity, entry_price, stop_price, target_price, note, source,
                         opened_at, status ("open" | "closed"), closed_at, exit_price,
                         exit_reason ("stop" | "target" | "manual"), exit_session, exit_note,
-                        realized_pnl_rs, created_at, updated_at
+                        realized_pnl_rs, created_at, updated_at,
+                        open_key ("cash:SYMBOL" while open, null once closed; unique per user while open),
+                        idempotency_key + request_fingerprint (only when the client sent an Idempotency-Key)
     desk_price_alerts   symbol, condition ("above" | "below"), level, note, created_at,
                         status ("active" | "fired"), fired_at, fired_session, fired_price, updated_at
 
@@ -36,25 +38,58 @@ A document without `kind` is a cash share trade (everything below). `kind: "stra
 structures, rules version desk-paper-v3) live in services/desk_strategy_trades.py and are skipped by the share rules.
 
 Paper trades carry the DaaS paper_trades field set (PRD §13.4; rules version `RULES_VERSION`):
-    entry rule    at_once (filled at the reference entry when recorded, the first version's behaviour),
-                  break_above (filled when a later session's high reaches the entry) or pullback_to (when its
-                  low does). A conditional entry waits `entry_window_sessions` sessions, then closes as
-                  "entry_not_reached" with no P&L. The fill is the reference entry; a session that opened
-                  beyond it never traded at the entry, so the fill is that open (worse) and it is flagged.
+    entry rule    at_once, break_above or pullback_to (the fill model below). A conditional entry waits
+                  `entry_window_sessions` sessions, then closes as "entry_not_reached" with no P&L.
     entry session conditional entries are checked for exits on their own session too, conservatively:
                   break_above counts a stop on that session (the low may have come first, flagged);
                   pullback_to does not count a target on that session (the high may have come first, flagged).
-    exit rule     stop / target as above; with `max_hold_sessions`, the close of the last session held
-                  ("time"). A gap through the stop fills at the session's open and is flagged.
-    costs         strategy_engine's cost model (services/strategy_engine/backtest.py): DEFAULT_SLIPPAGE_PCT of
-                  the traded value plus DEFAULT_BROKERAGE_INR, per side. Snapshotted on each trade.
+    exit rule     stop / target; with `max_hold_sessions`, the close of the last session held ("time").
+    costs         `COST_MODEL` = the desk cost card desk-cost-v2 (services/desk_cost_card.py: brokerage, STT, exchange
+                  charge, SEBI fee, stamp duty, GST, slippage), snapshotted on each trade; a trade keeps the model it
+                  was opened under (desk-flat-v1 = slippage + brokerage only). One function (`round_trip_breakdown`)
+                  prices the realised costs, the estimates on a trade and the sizing that the plan, the desk scenario
+                  and the basket do (services/strategy_plan/candidates.py, routes/positional.py).
     path          observations = eligible sessions read since the trade was recorded; MFE / MAE = the highest
                   high / lowest low from the first session held through the exit session, against the fill.
+
+FILL MODEL (docs: this block is the reference; tests/test_paper_fills_pnl.py pins every rule)
+    Prices are end-of-day bars; nothing is filled from a price the bars do not show, and nothing is invented.
+    Entry
+      at_once      filled at the entry when recorded, and ONLY if the entry lies inside the last completed session's
+                   low–high range (the newest end-of-day bar on record). Outside it the route refuses the trade
+                   (422 entry_not_tradable, with the session and its range); with no bar on record, 422
+                   entry_unverifiable; when prices cannot be read, 503 prices_unavailable. The scanner's pullback
+                   levels 8–11% below the market were booked this way before (FEDERALBNK 316.89 against a range of
+                   337.20–344.80 on 26 Oct 2026). A flag `entry_outside_day_range` remains for older trades.
+      break_above  filled on the first session after the record whose high reaches the entry, at the entry; a
+                   session that OPENS above it never traded at the entry, so the fill is that open (gap-through
+                   entry, flag `entry_gap`).
+      pullback_to  filled on the first session whose low reaches the entry, at the entry; a session that opens
+                   below it fills at the open (flag `entry_gap`).
+    Exit
+      stop         a session whose low reaches the stop closes at the stop; a session that OPENS below the stop
+                   closes at the open, worse than the stop (gap-through stop, flag `gap_through_stop`).
+      target       a session whose high reaches the target closes AT THE TARGET, also when it opens above the
+                   target (a target jump): conservative, no credit is taken for the better open.
+      both         stop and target inside one session → the stop (flag `both_in_range`): a daily bar does not show
+                   which came first.
+      time         the close of the session `max_hold_sessions` sessions in.
+      manual       a typed price, else the last end-of-day close; a conditional entry not yet filled is cancelled.
+    Quantities     the whole quantity fills or nothing does: partial fills and partial exits are NOT modelled (a
+                   close takes no quantity). Adding to a position is refused (routes/desk_trading.py).
+    Missing data   a session with no high or low stops the scan: the trade waits (entry not reached, or still
+                   open) until the bar is readable; an entry never reached in its window closes "entry_not_reached"
+                   with no fill, no P&L and no costs, and its reservation is released.
+    P&L            gross = (exit fill − entry fill) × quantity, where the entry fill is `sim_entry_price` (the
+                   simulated fill, not the reference entry); costs = `trade_costs` at the two fills; net = gross −
+                   costs. The paper account gets back what the trade reserved, plus or minus that net.
 Nothing here can create a broker order: there is no broker import and no order call.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import math
 import re
@@ -63,6 +98,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
+from services import desk_cost_card as cost_card
 from services.copilot_tools import daas_client
 from services.strategy_engine.backtest import DEFAULT_BROKERAGE_INR, DEFAULT_SLIPPAGE_PCT
 
@@ -107,12 +143,29 @@ MAX_ENTRY_WINDOW = 20
 MAX_HOLD_SESSIONS = 250
 SIGNAL_SKEW = timedelta(minutes=5)  # a signal time this far ahead of the server clock is still accepted
 STRATEGY_VERSION_MAX = 60
-COST_MODEL = {
+# The flat model new trades used until desk-cost-v2: slippage + brokerage per side, statutory charges left out. A trade
+# that snapshotted it (or that has no cost model at all, older still) keeps being priced with it.
+COST_MODEL_FLAT_V1 = {
     "name": "strategy_engine default",
+    "version": "desk-flat-v1",
     "slippage_pct_per_side": round(DEFAULT_SLIPPAGE_PCT * 100, 4),
     "brokerage_rs_per_side": float(DEFAULT_BROKERAGE_INR),
+    "excludes": ["STT", "stamp duty", "exchange transaction charges", "SEBI fee", "GST", "DP charges"],
     "source": "services/strategy_engine/backtest.py",
 }
+# What a NEW trade snapshots: the desk cost card (services/desk_cost_card.py): the same ₹20 brokerage and 0.05% slippage
+# (the spread allowance too), plus STT, exchange charge, SEBI fee, stamp duty and GST by segment.
+COST_MODEL = dict(cost_card.SNAPSHOT)
+COSTS_EXCLUDED_TEXT = "slippage and brokerage only; STT, stamp duty, exchange and SEBI charges, GST and DP charges are not included"
+COSTS_CARD_TEXT = ("brokerage (a desk assumption of ₹20 a side), STT, exchange charge, SEBI fee, stamp duty, GST and 0.05% "
+                   "slippage a side (also the spread allowance); DP charges and income tax are not included")
+
+
+def costs_text(model: Optional[Dict[str, Any]]) -> str:
+    """What a trade's costs include, in words, for its own cost model."""
+    return COSTS_CARD_TEXT if cost_card.is_card(model) else COSTS_EXCLUDED_TEXT
+
+
 ORDERS_NOTE = "Paper trades are simulated and never create a broker order."
 TIME_EXIT_NOTE = "Held for the most sessions the exit rule allows; closed at that session's close."
 NOT_REACHED_NOTE = "The entry level was not reached within the entry window; no position was taken."
@@ -151,11 +204,17 @@ _indexes_ready = False
 
 
 class DeskInputError(ValueError):
-    """A request body that cannot be stored; `code` is what the client is told."""
+    """A request body that cannot be stored; `code` is what the client is told, and `message` (optional) the reason
+    in words when the code alone does not say it (an exchange lot, a price range)."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, message: Optional[str] = None):
         super().__init__(code)
         self.code = code
+        self.message = message
+
+    def detail(self) -> Any:
+        """The HTTP `detail`: the bare code, as every older refusal answers, or {code, message} when there is one."""
+        return {"code": self.code, "message": self.message} if self.message else self.code
 
 
 class PricesUnavailable(RuntimeError):
@@ -171,8 +230,15 @@ def _iso(moment: datetime) -> str:
 
 
 async def ensure_indexes(db) -> None:
-    """Indexes on (user_id, status) for the per-user reads and (status, symbol) for the evening check.
-    Asked for once per process; a failure is logged and asked for again on the next call."""
+    """Indexes on (user_id, status) for the per-user reads and (status, symbol) for the evening check, plus two
+    UNIQUE partial indexes on the trades that make a duplicate impossible even when two requests race:
+        (user_id, idempotency_key)   one trade per client key (a retried submit returns the first trade)
+        (user_id, open_key)          one OPEN trade per symbol (cash) or per structure (strategy); `open_key` is set
+                                     while the trade is open and cleared to null when it closes, and the index only
+                                     covers open trades, so a closed one never blocks (even one closed by older code
+                                     that did not clear the key)
+    Both are partial on the field being a string, so trades stored before these fields existed (none has them) never
+    collide. Asked for once per process; a failure is logged and asked for again on the next call."""
     global _indexes_ready
     if _indexes_ready:
         return
@@ -180,9 +246,44 @@ async def ensure_indexes(db) -> None:
         for name in (TRADES, ALERTS):
             await db[name].create_index([("user_id", 1), ("status", 1)])
             await db[name].create_index([("status", 1), ("symbol", 1)])
+        await db[TRADES].create_index([("user_id", 1), ("idempotency_key", 1)], unique=True,
+                                      name="user_idempotency_key_unique",
+                                      partialFilterExpression={"idempotency_key": {"$type": "string"}})
+        await db[TRADES].create_index([("user_id", 1), ("open_key", 1)], unique=True, name="user_open_key_unique",
+                                      partialFilterExpression={"open_key": {"$type": "string"}, "status": "open"})
         _indexes_ready = True
     except Exception as exc:  # noqa: BLE001
         logger.warning("desk_trading: the indexes could not be created: %r", exc)
+
+
+# ── idempotency and duplicates ───────────────────────────────────────────────
+IDEMPOTENCY_HEADER = "Idempotency-Key"
+_IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9._:-]{8,64}$")
+
+
+def clean_idempotency_key(raw: Any) -> Optional[str]:
+    """The client's `Idempotency-Key` header: None when it was not sent (no replay protection, the duplicate rule
+    still applies), else 8 to 64 characters of letters, digits and . _ : - (a UUID fits)."""
+    if raw is None:
+        return None
+    key = raw.strip() if isinstance(raw, str) else ""
+    if not _IDEMPOTENCY_RE.match(key):
+        raise DeskInputError("invalid_idempotency_key", "The Idempotency-Key header must be 8 to 64 letters, digits "
+                                                        "or . _ : - characters.")
+    return key
+
+
+def request_fingerprint(body: Any) -> str:
+    """A stable hash of the request body, so a replay of a key can be told apart from a different request that
+    reuses it (the services/oms/orders.py rule)."""
+    text = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def open_key(doc: Dict[str, Any]) -> str:
+    """The key that makes a second OPEN cash trade in the same symbol a duplicate for the same user. Adding to or
+    averaging into a position is not supported yet (PRD §7), so the same symbol is the same position."""
+    return f"cash:{doc['symbol']}"
 
 
 # ── validation ───────────────────────────────────────────────────────────────
@@ -644,15 +745,56 @@ def find_trade_exit(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[
     return sim["exit"], sim["checked_through"]
 
 
+def cost_terms(model: Optional[Dict[str, Any]] = None) -> Tuple[float, float]:
+    """(slippage as a fraction of the traded value per side, brokerage ₹ per side) of a cost model snapshot, the
+    current COST_MODEL's for a field the snapshot lacks."""
+    model = model or COST_MODEL
+    return (float(model.get("slippage_pct_per_side", COST_MODEL["slippage_pct_per_side"])) / 100.0,
+            float(model.get("brokerage_rs_per_side", COST_MODEL["brokerage_rs_per_side"])))
+
+
+def round_trip_breakdown(quantity: float, entry_price: float, exit_price: float, model: Optional[Dict[str, Any]] = None, *,
+                         segment: str = "equity_delivery", long: bool = True) -> Dict[str, float]:
+    """The ONE pricing function for a round trip (realised costs, the estimates on a trade, and the sizing in the plan,
+    the desk scenario and the basket): {brokerage, stt, exchange, sebi, stamp, gst, slippage, total}, ₹.
+    Under the desk cost card (`model` version desk-cost-v2, the default) every component is priced by
+    services/desk_cost_card.py for `segment`; under the flat model (desk-flat-v1, or a snapshot without a version) only
+    slippage and brokerage exist and the statutory components are 0, as that trade was recorded."""
+    model = model or COST_MODEL
+    if cost_card.is_card(model):
+        return cost_card.round_trip(segment, quantity, entry_price, exit_price, long=long, model=model)["total"]
+    slip, brokerage = cost_terms(model)
+    out = {k: 0.0 for k in cost_card.COMPONENTS}
+    out.update(brokerage=round(2 * brokerage, 2), slippage=round(entry_price * quantity * slip + exit_price * quantity * slip, 2))
+    out["total"] = round(entry_price * quantity * slip + brokerage + exit_price * quantity * slip + brokerage, 2)
+    return out
+
+
+def round_trip_cost(quantity: float, entry_price: float, exit_price: float, model: Optional[Dict[str, Any]] = None, *,
+                    segment: str = "equity_delivery", long: bool = True) -> float:
+    """Round-trip cost in rupees of `quantity` units entered at `entry_price` and exited at `exit_price`."""
+    return round_trip_breakdown(quantity, entry_price, exit_price, model, segment=segment, long=long)["total"]
+
+
+def max_units_within_budget(budget: float, entry: float, stop: float, *, lot_units: int = 1,
+                            model: Optional[Dict[str, Any]] = None, segment: str = "equity_delivery") -> int:
+    """The most whole lots whose loss at the stop INCLUDING the round-trip costs (`round_trip_cost`, the same function
+    that books them) stays within `budget`, found exactly (services/desk_cost_card.max_lots_within). A stop above the
+    entry is a short. Sizing on the gross stop distance alone let the loss after costs exceed the budget (PRD Example A:
+    85 shares at ₹35 of risk is ₹2,975 gross but ₹3,098.94 after the flat costs against ₹3,000). 0 when no lot fits."""
+    long = stop < entry
+    return cost_card.max_lots_within(budget, abs(entry - stop), lot_units,
+                                     lambda units: round_trip_cost(units, entry, stop, model, segment=segment, long=long))
+
+
 def trade_costs(trade: Dict[str, Any], entry_price: float, exit_price: float) -> float:
-    """Round-trip estimated cost in rupees under the trade's cost model (the current one for older trades)."""
-    model = trade.get("cost_model") or COST_MODEL
-    slip = float(model.get("slippage_pct_per_side", COST_MODEL["slippage_pct_per_side"])) / 100.0
-    brokerage = float(model.get("brokerage_rs_per_side", COST_MODEL["brokerage_rs_per_side"]))
-    qty = int(trade["quantity"])
-    entry_side = entry_price * qty * slip + brokerage
-    exit_side = exit_price * qty * slip + brokerage
-    return round(entry_side + exit_side, 2)
+    """Round-trip cost in rupees under the trade's own cost model. A trade stored with no cost model predates the field
+    set; it is priced with the flat model of its time, never with a newer card."""
+    return round_trip_cost(int(trade["quantity"]), entry_price, exit_price, trade.get("cost_model") or COST_MODEL_FLAT_V1)
+
+
+def trade_cost_breakdown(trade: Dict[str, Any], entry_price: float, exit_price: float) -> Dict[str, float]:
+    return round_trip_breakdown(int(trade["quantity"]), entry_price, exit_price, trade.get("cost_model") or COST_MODEL_FLAT_V1)
 
 
 def estimated_costs(trade: Dict[str, Any]) -> Dict[str, Optional[float]]:
@@ -694,8 +836,39 @@ def find_alert_fire(alert: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[
     return None, checked
 
 
-def realized_pnl(trade: Dict[str, Any], exit_price: float) -> float:
-    return round((exit_price - float(trade["entry_price"])) * int(trade["quantity"]), 2)
+def realized_pnl(trade: Dict[str, Any], exit_price: float, entry_fill: Optional[float] = None) -> float:
+    """Gross P&L of a closed position: (exit fill − entry fill) × quantity. The entry fill is the SIMULATED fill
+    (`sim_entry_price`), which differs from the reference entry when a conditional entry gapped; the reference entry
+    is used only when no fill is known (an at_once trade closed without bars)."""
+    fill = float(trade["entry_price"]) if entry_fill is None else float(entry_fill)
+    return round((exit_price - fill) * int(trade["quantity"]), 2)
+
+
+def last_completed_session(bars: List[Dict[str, Any]], on_or_before: Optional[date] = None) -> Optional[Dict[str, Any]]:
+    """The newest end-of-day bar with a high and a low, on or before `on_or_before` (the IST date the trade is
+    recorded): the last completed session then. An end-of-day bar exists only once its session has closed."""
+    return next((b for b in reversed(bars) if b["high"] is not None and b["low"] is not None
+                 and (on_or_before is None or b["date"] <= on_or_before)), None)
+
+
+def check_entry_tradable(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """An at_once trade is filled at its entry when recorded, so the entry must be a price the market traded in the
+    last completed session. Returns that session {date, low, high}; raises DeskInputError entry_not_tradable (outside
+    the range, the message names it) or entry_unverifiable (no bar on record). See the FILL MODEL above."""
+    bar = last_completed_session(bars, ist_date(trade["opened_at"]))
+    entry = float(trade["entry_price"])
+    if bar is None:
+        raise DeskInputError("entry_unverifiable", f"No end-of-day bar is on record for {trade['symbol']}, so an entry "
+                                                   f"at once cannot be checked against the market. Use an entry that "
+                                                   f"waits for its level (break above / pull back to).")
+    if not bar["low"] <= entry <= bar["high"]:
+        side = "below" if entry < bar["low"] else "above"
+        rule = "pull back to" if side == "below" else "break above"
+        raise DeskInputError("entry_not_tradable", (
+            f"The entry {_rupees(entry)} is {side} the last completed session's range ({bar['date'].isoformat()}: "
+            f"{_rupees(bar['low'])}–{_rupees(bar['high'])}), so it could not be filled at once. Record it with the "
+            f"entry rule \"{rule}\" to wait for that level."))
+    return {"date": bar["date"].isoformat(), "low": bar["low"], "high": bar["high"]}
 
 
 # ── writes (idempotent: the status is part of the filter) ────────────────────
@@ -711,8 +884,13 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
     path = path_figures(trade, sim)
     if sim is None and (trade.get("entry_rule") or "at_once") == "at_once":
         path.update(entry_status="assumed", sim_entry_price=float(trade["entry_price"]))
-    gross = realized_pnl(trade, exit_price) if exit_price is not None else None
-    costs = trade_costs(trade, float(trade["entry_price"]), exit_price) if exit_price is not None else None
+    # Gross P&L and costs from the SIMULATED entry fill, the same figure an open trade's P&L uses (_paper_fields).
+    # This used to take the reference entry, so a gapped entry booked more than its fill could have made (₹1,000
+    # instead of ₹600 in the study's probe) and the paper account was credited the overstated net.
+    fill = path["sim_entry_price"] if path.get("sim_entry_price") is not None else float(trade["entry_price"])
+    gross = realized_pnl(trade, exit_price, fill) if exit_price is not None else None
+    breakdown = trade_cost_breakdown(trade, fill, exit_price) if exit_price is not None else None
+    costs = breakdown["total"] if breakdown else None
     change = {
         "status": "closed",
         "closed_at": stamp,
@@ -722,7 +900,9 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
         "exit_note": exit_note,
         "realized_pnl_rs": gross,
         "costs_rs": costs,
+        "costs_breakdown": breakdown,
         "net_pnl_rs": round(gross - costs, 2) if gross is not None and costs is not None else None,
+        "open_key": None,              # frees the symbol for a new trade (routes/desk_trading.py duplicate rule)
         **path,
         "checked_through": sim["checked_through"].isoformat() if sim and sim["checked_through"] else None,
         "updated_at": stamp,
@@ -859,8 +1039,10 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         entered = path["entry_status"] in ENTERED
         fill = path["sim_entry_price"]
         gross = round((close - fill) * int(doc["quantity"]), 2) if entered and close is not None and fill else None
-        costs = trade_costs(doc, fill, close) if gross is not None else None
-        basis = "exit side estimated at the last close" if costs is not None else None
+        breakdown = trade_cost_breakdown(doc, fill, close) if gross is not None else None
+        costs = breakdown["total"] if breakdown else None
+        basis = (f"entry at the fill, exit side estimated at the last close; {costs_text(doc.get('cost_model'))}"
+                 if costs is not None else None)
     else:
         keys = ("observations", "held_sessions", "entry_session", "mfe_pct", "mae_pct", "mfe_rs", "mae_rs")
         path = {k: doc.get(k) for k in keys}
@@ -871,9 +1053,15 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
                     else (float(doc["entry_price"]) if status in ENTERED else None))
         gross = doc.get("realized_pnl_rs")
         costs = doc.get("costs_rs")
-        if costs is None and exit_price is not None and gross is not None:
-            costs = trade_costs(doc, float(doc["entry_price"]), float(exit_price))
-        basis = "entry and exit at the fill prices" if costs is not None else None
+        fill = path["sim_entry_price"] if path.get("sim_entry_price") is not None else float(doc["entry_price"])
+        breakdown = doc.get("costs_breakdown")
+        if breakdown is None and exit_price is not None and gross is not None:
+            # An older record without a stored breakdown: priced at its stored fill (else, no fill known, the reference
+            # entry) under its own cost model; its stored total, when it has one, is kept as it was booked.
+            breakdown = trade_cost_breakdown(doc, float(fill), float(exit_price))
+        if costs is None and breakdown is not None:
+            costs = breakdown["total"]
+        basis = f"entry and exit at the fill prices; {costs_text(doc.get('cost_model'))}" if costs is not None else None
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
     return {
         "entry_rule": rule,
@@ -886,11 +1074,12 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
         # What this position blocks against the paper account. None on a trade opened before the
         # account existed, which is why the account's blocked total can understate those.
         "paper_reserved_rs": doc.get("paper_reserved_rs"),
-        "cost_model": doc.get("cost_model") or dict(COST_MODEL),
+        "cost_model": doc.get("cost_model") or dict(COST_MODEL_FLAT_V1),
         "est_costs_rs": estimated_costs(doc),
         **path,
         "gross_pnl_rs": gross,
         "costs_rs": costs,
+        "costs_breakdown": breakdown,
         "costs_basis": basis,
         "net_pnl_rs": net,
     }

@@ -447,7 +447,7 @@ def test_neutral_only_scans_make_no_candidate(monkeypatch):
 
 def test_thresholds_live_in_rules_and_the_version_moved():
     c = RULES["chartink_picks"]
-    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.5") and RULES["version"] == STRATEGY_RULES_VERSION
+    assert STRATEGY_RULES_VERSION.startswith("strategy-rules.v1.6") and RULES["version"] == STRATEGY_RULES_VERSION
     assert (c["limit_default"], c["limit_max"]) == (5, 10) and c["label"] == "evidence score — not a probability"
     assert set(c["weights"]) == set(pk.FACTOR_ORDER)
 

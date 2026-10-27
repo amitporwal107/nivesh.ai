@@ -94,6 +94,12 @@ const SizingSchema = z.object({
   by_allocation_cap: numOrNull.optional(),
   binding: strOrNull.optional(),
   risk_at_stop_inr: numOrNull.optional(),
+  /** For a cash or futures candidate: the estimated round-trip costs at the stop and the loss at the stop after them
+   *  (the quantity is sized on that, backend services/strategy_plan/candidates.size_position). */
+  costs_at_stop_inr: numOrNull.optional(),
+  /** Those costs by component (brokerage, STT, exchange, SEBI, stamp, GST, slippage; the desk cost card). */
+  costs_breakdown_at_stop: z.record(z.number()).nullish(),
+  risk_at_stop_net_inr: numOrNull.optional(),
   deployed_inr: numOrNull.optional(),
 }).passthrough();
 export type Sizing = z.infer<typeof SizingSchema>;

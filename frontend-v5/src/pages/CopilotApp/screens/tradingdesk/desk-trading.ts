@@ -10,7 +10,9 @@
  *                                                     costs, gross and net P&L, rule version and flags
  *   POST   /api/desk/paper-trades                     { symbol, quantity, entry_price, stop_price, target_price, source,
  *                                                       entry_rule?, entry_window_sessions?, max_hold_sessions?,
- *                                                       signal_at?, strategy_version?, rationale? }
+ *                                                       signal_at?, strategy_version?, rationale? } with an
+ *                                                     Idempotency-Key header per submission (useSubmissionKey); 409
+ *                                                     duplicate_open_trade when the stock already has an open trade
  *   POST   /api/desk/paper-trades/{id}/close          {} — closes at the last close (exit reason "manual"); a trade
  *                                                     whose entry was not reached is cancelled with no P&L
  *                                                     Strategy trades (kind "strategy": futures and option structures, rules desk-paper-v3)
@@ -37,9 +39,11 @@
  * Reads trust nothing: a missing or non-numeric field is null, never 0, and a
  * body without the list the route always sends throws a contract error.
  */
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
+import { correlationId } from "@/lib/observability";
 import { useImpersonationStore } from "@/stores/impersonation.store";
 import { num } from "./desk-data";
 import { riskBlockedText } from "./risk-controls";
@@ -103,6 +107,14 @@ const CODE_TEXT: Record<string, string> = {
   invalid_signal: "The signal details (time, rule version, evidence) were not accepted.",
   invalid_evidence_summary: "The evidence summary is required (up to 1000 characters).",
   invalid_rule_version: "The rule version of the signal is required.",
+  duplicate_open_trade: "You already have an open paper trade in this stock. Adding to a position is not supported yet; close it first.",
+  duplicate_open_structure: "You already have this structure open. Close it before recording it again.",
+  idempotency_conflict: "This submission's key was already used for a different paper trade; nothing new was recorded.",
+  invalid_idempotency_key: "The submission key was not accepted.",
+  short_futures_not_supported: "Short futures are not recorded as paper trades yet.",
+  futures_stop_required: "A structure with a futures leg needs a stop on the underlying.",
+  lot_size_mismatch: "A leg's lot size is not the exchange lot.",
+  lot_size_unverified: "The exchange lot could not be confirmed, so nothing was recorded.",
   no_close_available:  "There is no end-of-day close for this stock yet, so it cannot be closed at the last close.",
   prices_unavailable: "Prices could not be read from the data platform right now.",
   upstream_unavailable: "The data platform could not be reached right now.",
@@ -114,6 +126,10 @@ export function writeProblem(e: unknown): string {
   if (e instanceof ApiError) {
     const blocked = riskBlockedText(e);
     if (blocked) return blocked;
+    // A refusal sent as {code, message} (a duplicate with the existing trade's id, an exchange lot, funds): the
+    // server's own sentence, which names the specifics, with the code beside it.
+    const code = str(rec(rec(e.body).detail).code);
+    if (code && e.detail && e.detail !== code) return `${e.detail} (${code})`;
     if (e.detail) return CODE_TEXT[e.detail] ? `${CODE_TEXT[e.detail]} (${e.detail})` : e.detail;
     if (e.kind === "network") return "The network request failed.";
     if (e.kind === "timeout") return "The request took too long.";
@@ -129,6 +145,38 @@ const EXIT_REASONS: readonly string[] = ["stop", "target", "time", "manual", "en
 
 export type EntryRule = "at_once" | "break_above" | "pullback_to";
 const ENTRY_RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
+
+/** How each entry rule fills, in a few words (the FILL MODEL in backend/services/desk_trading.py). */
+export const ENTRY_RULE_SHORT: Record<EntryRule, string> = {
+  at_once: "filled at once, inside the last session's range",
+  break_above: "filled when a later session trades up to it",
+  pullback_to: "filled when a later session pulls back to it",
+};
+
+/**
+ * The entry rule a scanner idea's levels mean, from where the entry sits against the scan's close (the levels the
+ * scanner set: backend/services/positional_engine/trade_planner.py and setup_rules.py):
+ *   above the close → break_above   EARLY_BREAKOUT's trigger, max(close, 20-day high x 1.001); the watchlist trigger
+ *                                   (the breakout level) of a pre-breakout or accumulation setup
+ *   below the close → pullback_to   ACCUMULATION's swing-low x 1.01 entry; a confirmed breakout's retest of its level
+ *   at the close    → at_once       BREAKOUT (entry = the close), or ACCUMULATION already at support
+ * With no close the setup decides: ACCUMULATION → pullback_to; EARLY_BREAKOUT, pre-breakout, accumulation bucket →
+ * break_above; anything else → at_once. The route refuses an at-once entry outside the last completed session's range
+ * either way (entry_not_tradable), so a level the market never traded is never booked as filled.
+ */
+export function entryRuleFor(entry: number, close: number | null | undefined,
+  setup: { stage?: string | null; bucket?: string | null } = {}): EntryRule {
+  if (close != null && close > 0) {
+    const tolerance = close * 0.0005;               // the scanner rounds its levels to the paisa
+    if (entry > close + tolerance) return "break_above";
+    if (entry < close - tolerance) return "pullback_to";
+    return "at_once";
+  }
+  const stage = (setup.stage ?? "").toUpperCase();
+  if (stage === "ACCUMULATION") return "pullback_to";
+  if (stage === "EARLY_BREAKOUT" || setup.bucket === "pre_breakout" || setup.bucket === "true_accumulation") return "break_above";
+  return "at_once";
+}
 /** assumed: filled when recorded (at once) · reached: the level traded · waiting: not yet · not_reached: never filled. */
 export type EntryStatus = "assumed" | "reached" | "waiting" | "not_reached";
 const ENTRY_STATUSES: readonly string[] = ["assumed", "reached", "waiting", "not_reached"];
@@ -145,6 +193,40 @@ export interface CostModel {
   name: string | null;
   slippagePctPerSide: number | null;
   brokerageRsPerSide: number | null;
+  /** "desk-cost-v2" (the desk cost card: statutory charges by segment) or "desk-flat-v1" / null (slippage + brokerage). */
+  version: string | null;
+}
+
+/** A trade's costs by component, ₹ (backend services/desk_cost_card.py; a flat-model trade has only brokerage and
+ *  slippage, the rest 0). */
+export interface CostsBreakdown {
+  brokerage: number | null;
+  stt: number | null;
+  exchange: number | null;
+  sebi: number | null;
+  stamp: number | null;
+  gst: number | null;
+  slippage: number | null;
+  total: number | null;
+}
+
+export function readCostsBreakdown(v: unknown): CostsBreakdown | null {
+  const b = rec(v);
+  if (!Object.keys(b).length) return null;
+  return { brokerage: num(b.brokerage), stt: num(b.stt), exchange: num(b.exchange), sebi: num(b.sebi), stamp: num(b.stamp),
+    gst: num(b.gst), slippage: num(b.slippage), total: num(b.total) };
+}
+
+/** "brokerage ₹40.00 · STT ₹2.10 · exchange ₹0.06 · SEBI ₹0.00 · stamp ₹0.15 · GST ₹7.22 · slippage ₹1.05" under the desk
+ *  cost card; "brokerage ₹40.00 · slippage ₹1.95" for a trade priced with the flat model, which has no statutory charges
+ *  (showing them as ₹0.00 would read as if they had been charged at zero). */
+export function costsBreakdownText(b: CostsBreakdown | null, inr: (n: number) => string, statutory = true): string | null {
+  if (!b) return null;
+  const parts: Array<[string, number | null]> = statutory
+    ? [["brokerage", b.brokerage], ["STT", b.stt], ["exchange", b.exchange], ["SEBI", b.sebi], ["stamp", b.stamp], ["GST", b.gst], ["slippage", b.slippage]]
+    : [["brokerage", b.brokerage], ["slippage", b.slippage]];
+  const known = parts.filter(([, n]) => n != null) as Array<[string, number]>;
+  return known.length ? known.map(([k, n]) => `${k} ${inr(n)}`).join(" · ") : null;
 }
 
 export interface PaperTrade {
@@ -197,6 +279,8 @@ export interface PaperTrade {
   /** Gross P&L (unrealised while open), estimated costs and net P&L, ₹. */
   grossRs: number | null;
   costsRs: number | null;
+  /** The costs above by component (brokerage, STT, exchange, SEBI, stamp, GST, slippage). */
+  costsBreakdown: CostsBreakdown | null;
   costsBasis: string | null;
   netRs: number | null;
   flags: PaperFlag[];
@@ -294,6 +378,8 @@ export interface StrategyPaperTrade {
   markPremiumRs: number | null;
   grossRs: number | null;
   costsRs: number | null;
+  /** The costs above by component (brokerage, STT, exchange, SEBI, stamp, GST, slippage). */
+  costsBreakdown: CostsBreakdown | null;
   costsBasis: string | null;
   netRs: number | null;
   unrealizedRs: number | null;
@@ -353,7 +439,8 @@ export interface PaperBook {
 function readCostModel(v: unknown): CostModel | null {
   const m = rec(v);
   if (!Object.keys(m).length) return null;
-  return { name: str(m.name), slippagePctPerSide: num(m.slippage_pct_per_side), brokerageRsPerSide: num(m.brokerage_rs_per_side) };
+  return { name: str(m.name), slippagePctPerSide: num(m.slippage_pct_per_side), brokerageRsPerSide: num(m.brokerage_rs_per_side),
+    version: str(m.version) };
 }
 
 function readTrade(v: unknown): PaperTrade | null {
@@ -408,6 +495,7 @@ function readTrade(v: unknown): PaperTrade | null {
     maeRs: num(t.mae_rs),
     grossRs: num(t.gross_pnl_rs),
     costsRs: num(t.costs_rs),
+    costsBreakdown: readCostsBreakdown(t.costs_breakdown),
     costsBasis: str(t.costs_basis),
     netRs: num(t.net_pnl_rs),
     flags: (Array.isArray(t.flags) ? t.flags : []).flatMap((x): PaperFlag[] => {
@@ -484,7 +572,7 @@ function readStrategyTrade(v: unknown): StrategyPaperTrade {
     entryRecordHash: str(t.entry_record_hash), entryRecordIntact: typeof t.entry_record_intact === "boolean" ? t.entry_record_intact : null,
     legs,
     netPremiumRs: num(t.net_premium_rs), markPremiumRs: num(t.mark_premium_rs),
-    grossRs: num(t.gross_pnl_rs), costsRs: num(t.costs_rs), costsBasis: str(t.costs_basis), netRs: num(t.net_pnl_rs),
+    grossRs: num(t.gross_pnl_rs), costsRs: num(t.costs_rs), costsBreakdown: readCostsBreakdown(t.costs_breakdown), costsBasis: str(t.costs_basis), netRs: num(t.net_pnl_rs),
     unrealizedRs: num(t.unrealized_pnl_rs), realizedRs: num(t.realized_pnl_rs),
     mfeRs: num(t.mfe_rs), maeRs: num(t.mae_rs), observations: num(t.observations), heldSessions: num(t.held_sessions),
     checkedThrough: str(t.checked_through), lastMarkDate: str(t.last_mark_date), markError: str(t.mark_error),
@@ -558,15 +646,43 @@ export interface NewPaperTrade {
   rationale?: string;
 }
 
+/** The `Idempotency-Key` header the paper-trade route takes (backend/routes/desk_trading.py). */
+export const IDEMPOTENCY_HEADER = "Idempotency-Key";
+
+/**
+ * One idempotency key per submission. Sending the same body again after a failure (a timeout whose request may have
+ * reached the server, a refused write the user retries) reuses the key, so the route answers with the trade the
+ * first attempt made instead of recording a second one; a different body, or the next submission after a success,
+ * gets a fresh key.
+ */
+export function useSubmissionKey() {
+  const last = useRef<{ body: string; key: string } | null>(null);
+  return useRef({
+    keyFor(body: unknown): string {
+      const text = JSON.stringify(body);
+      if (!last.current || last.current.body !== text) last.current = { body: text, key: correlationId() };
+      return last.current.key;
+    },
+    done(): void {
+      last.current = null;
+    },
+  }).current;
+}
+
 export function useAddPaperTrade() {
   const qc = useQueryClient();
+  const submission = useSubmissionKey();
   return useMutation({
     mutationFn: async (body: NewPaperTrade): Promise<PaperTrade | null> => {
-      const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, noRetry: true });
-      // The trade is created once the route answers 2xx; its echo is only used for the id.
+      const headers = { [IDEMPOTENCY_HEADER]: submission.keyFor(body) };
+      const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, headers, noRetry: true });
+      // The trade is created once the route answers 2xx (201, or 200 for a replayed key); its echo is only used for the id.
       return readTrade(rec(res.data).trade);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: PAPER_KEY }),
+    onSuccess: () => {
+      submission.done();
+      return qc.invalidateQueries({ queryKey: PAPER_KEY });
+    },
   });
 }
 
@@ -615,12 +731,17 @@ export interface NewStrategyPaperTrade {
 
 export function useAddStrategyPaperTrade() {
   const qc = useQueryClient();
+  const submission = useSubmissionKey();
   return useMutation({
     mutationFn: async (body: NewStrategyPaperTrade): Promise<StrategyPaperTrade> => {
-      const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, noRetry: true });
+      const headers = { [IDEMPOTENCY_HEADER]: submission.keyFor(body) };
+      const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, headers, noRetry: true });
       return readStrategyTrade(rec(res.data).trade);
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: PAPER_KEY }),
+    onSuccess: () => {
+      submission.done();
+      return qc.invalidateQueries({ queryKey: PAPER_KEY });
+    },
   });
 }
 

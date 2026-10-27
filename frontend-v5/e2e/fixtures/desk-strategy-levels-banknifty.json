@@ -1,0 +1,160 @@
+{
+ "version": "strategy-levels-v2",
+ "settings": {
+  "debit_stop_keep": 0.7,
+  "debit_t1": 0.3,
+  "debit_t2": 0.6,
+  "credit_stop_share_of_max_loss": 0.5,
+  "credit_t1_keep": 0.5,
+  "credit_t2_keep": 0.8,
+  "delta_flat": 0.05,
+  "delta_keep": 0.3,
+  "neutral_delta_limit": 0.2,
+  "expiry_week_days": 3
+ },
+ "caveats": [
+  "Rule-based, hypothetical levels from fixed research settings. They are not predictions or advice, and no accuracy or hit rate is claimed: tests of these signals found no skill beyond chance.",
+  "A stop is a theoretical level, not an executable price: a stop order can fill worse in a sharp move or a liquidity gap.",
+  "No entry range is given: bid and ask are not in end-of-day data. Values at a price are the engine's model estimate for the data date, not quotes."
+ ],
+ "sent_to_broker": false,
+ "valid": true,
+ "unit": {
+  "shares": 30,
+  "note": "figures per share (per unit of the position's lot multiple)"
+ },
+ "premium": {
+  "kind": "debit",
+  "entry": 292.3,
+  "planned_stop": 204.61,
+  "target_1": 379.99,
+  "target_2": 467.68,
+  "planned_stop_loss_per_unit": 87.69,
+  "max_loss_per_unit": 292.3,
+  "risk_boundary": {
+   "value": 0.0,
+   "meaning": "the structure's value at its worst: the whole debit is lost"
+  }
+ },
+ "underlying": {
+  "view": "bearish",
+  "entry": 54976.9,
+  "wall_reference": {
+   "put_wall": null,
+   "call_wall": null,
+   "expected_move": 859.0
+  },
+  "stop": 55271.88,
+  "target": 54641.63,
+  "target_2": 54362.19,
+  "basis": "the underlying price at which the structure reaches its planned stop and targets",
+  "wall_stop": 55835.9,
+  "wall_target": 54117.9,
+  "value_at_stop": 204.61,
+  "value_at_target": 379.99
+ },
+ "greeks": {
+  "net_delta_per_share": -0.279,
+  "gamma": 0.0001,
+  "theta_per_day_per_share": -6.969,
+  "vega_per_point_per_share": 7.965,
+  "review_when": "net delta rises above -0.084 (30% of the entry delta -0.279)"
+ },
+ "legs": [
+  {
+   "index": 0,
+   "side": "buy",
+   "option_type": "put",
+   "strike": 55000,
+   "expiry": "2026-10-27",
+   "entry_price": 437.5,
+   "delta": -0.485,
+   "theta": -33.333,
+   "vega": 28.102
+  },
+  {
+   "index": 1,
+   "side": "sell",
+   "option_type": "put",
+   "strike": 54100,
+   "expiry": "2026-10-27",
+   "entry_price": 145.2,
+   "delta": 0.207,
+   "theta": 26.365,
+   "vega": -20.137
+  }
+ ],
+ "totals": {
+  "planned_stop_loss": 2630.7,
+  "target_1_gain": 2630.7,
+  "target_2_gain": 5261.4,
+  "shares": 30,
+  "note": "per share x the position's size (lot size x lots)"
+ },
+ "costs": {
+  "model": "slippage % of traded value + flat brokerage, each side, each leg",
+  "entry": 48.74,
+  "exit_at_expiry": 20.35,
+  "round_trip": 69.09,
+  "excluded": [
+   "taxes",
+   "STT",
+   "exchange and statutory charges",
+   "dividends",
+   "funding"
+  ],
+  "max_loss_gross_total": -8769.0,
+  "capital_at_risk": 8857.74,
+  "capital_at_risk_basis": "worst net loss over all prices, every leg charged entry and exit costs; null when the loss is unbounded"
+ },
+ "scenarios": [
+  {
+   "name": "Bullish",
+   "underlying_move_pct": 2.0,
+   "underlying": 56076.44,
+   "iv_change_points": -3.0,
+   "date": "2026-10-22",
+   "pnl_per_unit": -265.41,
+   "pnl_total": -7962.26
+  },
+  {
+   "name": "Sideways",
+   "underlying_move_pct": 0.0,
+   "underlying": 54976.9,
+   "iv_change_points": -5.0,
+   "date": "2026-10-22",
+   "pnl_per_unit": -72.8,
+   "pnl_total": -2184.06
+  },
+  {
+   "name": "Bearish",
+   "underlying_move_pct": -2.0,
+   "underlying": 53877.36,
+   "iv_change_points": 4.0,
+   "date": "2026-10-22",
+   "pnl_per_unit": 305.98,
+   "pnl_total": 9179.32
+  },
+  {
+   "name": "Expiry day, small rise",
+   "underlying_move_pct": 1.0,
+   "underlying": 55526.67,
+   "iv_change_points": 0.0,
+   "date": "2026-10-27",
+   "pnl_per_unit": -292.3,
+   "pnl_total": -8769.0
+  }
+ ],
+ "iv_rank": null,
+ "iv_percentile": null,
+ "iv_note": "IV rank and percentile need an IV history we do not store; they are not shown.",
+ "max_profit_per_unit": 607.7,
+ "max_loss_per_unit": 292.3,
+ "risk_reward": 2.08,
+ "max_profit_total": 18231.0,
+ "max_loss_total": -8769.0,
+ "capital_at_risk": 8857.74,
+ "days_to_expiry": 6,
+ "flags": [],
+ "expiry": "2026-10-27"
+}

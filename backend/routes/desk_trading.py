@@ -30,6 +30,16 @@ Endpoints (all under /api/desk):
 
 Limits: 100 open paper trades and 50 active alerts per user (409 open_trade_limit / active_alert_limit). An active
 alert identical to one the user already has (same condition, stock, level and settings) is 409 duplicate_alert.
+
+Entry fills (POST /paper-trades, cash): an `at_once` entry must lie inside the last completed session's low-high range
+(422 entry_not_tradable with the range; 422 entry_unverifiable with no bar; 503 prices_unavailable when the bars cannot
+be read). The whole fill model is written once, in services/desk_trading.py ("FILL MODEL").
+
+Duplicates and retries (POST /paper-trades): a second OPEN cash trade in the same symbol is 409 duplicate_open_trade, an
+identical open structure 409 duplicate_open_structure, each with `existing_trade_id` (adding to a position is not
+supported yet). An `Idempotency-Key` header (8-64 characters, one per click; a retry reuses it) makes a repeated
+submit answer 200 with the trade the first one made (`replayed: true`) and charge nothing; the same key with another
+body is 409 idempotency_conflict. Every refusal of a create is recorded in `risk_decisions` (path desk_paper_trade).
 Errors are HTTPException with a short code in `detail` (invalid_symbol, stop_not_below_entry, trade_not_found,
 trade_already_closed, no_close_available, prices_unavailable, ...).
 
@@ -46,6 +56,7 @@ from datetime import timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
+from pymongo.errors import DuplicateKeyError
 
 from deps import db, get_current_user
 from services import desk_alerts as alerts_svc
@@ -91,27 +102,109 @@ def _as_of(bars: Dict[str, List[Dict[str, Any]]]):
 
 
 # ── paper trades ─────────────────────────────────────────────────────────────
+class _Refusals:
+    """Every refusal of a paper-trade create is recorded before it is answered (risk_controls.record_decision, path
+    "desk_paper_trade", the request's correlation id, the symbol and quantity when the body has them): the kill switch,
+    a body the validator refuses, a duplicate, a replayed key with another body, funds and the open-trade cap. Before
+    this only the kill switch was recorded, without a symbol or a correlation id (study A, Q6). The record is fail-open
+    as record_decision documents: the refusal stands whether or not its row could be written."""
+
+    def __init__(self, uid: str, cid: str) -> None:
+        self.uid, self.cid = uid, cid
+        self.symbol: Optional[str] = None
+        self.quantity: Optional[int] = None
+
+    def note(self, body: Any) -> None:
+        if not isinstance(body, dict):
+            return
+        sym = body.get("symbol") if body.get("kind") != strat.KIND else body.get("underlying")
+        self.symbol = sym.strip().upper()[:20] if isinstance(sym, str) and sym.strip() else None
+        qty = body.get("quantity")
+        self.quantity = int(qty) if isinstance(qty, (int, float)) and not isinstance(qty, bool) and float(qty).is_integer() else None
+
+    async def refuse(self, status: int, detail: Any, *, code: Optional[str] = None,
+                     text: Optional[str] = None) -> HTTPException:
+        code = code or (detail if isinstance(detail, str) else detail.get("code"))
+        text = text or (detail.get("message") if isinstance(detail, dict) else None) or code
+        await rc.record_decision(db, self.uid, action="desk_paper_trade", outcome="blocked", symbol=self.symbol,
+                                 requested_qty=self.quantity, reasons=[{"code": code, "text": text}],
+                                 correlation_id=self.cid, path="desk_paper_trade",
+                                 detail={"http_status": status, **(detail if isinstance(detail, dict) else {"code": detail})})
+        return HTTPException(status_code=status, detail=detail)
+
+
+async def _open_duplicate(uid: str, doc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The user's OPEN trade this one would duplicate, or None: a cash trade in the same symbol (adding to a position
+    is not supported yet, PRD §7), or a strategy with the same underlying and legs (strat.structure_key). Read by
+    symbol, not by `open_key`, so a trade stored before that field existed (or written by the AI trader) counts too."""
+    if doc.get("kind") == strat.KIND:
+        same = await db[svc.TRADES].find({"user_id": uid, "status": "open", "kind": strat.KIND,
+                                          "underlying": doc["underlying"]}).to_list(svc.MAX_OPEN_TRADES * 2)
+        return next((d for d in same if strat.structure_key(d) == doc["open_key"]), None)
+    same = await db[svc.TRADES].find({"user_id": uid, "status": "open", "symbol": doc["symbol"]}).to_list(svc.MAX_OPEN_TRADES * 2)
+    return next((d for d in same if d.get("kind") != strat.KIND), None)
+
+
+def _duplicate_detail(doc: Dict[str, Any], existing: Dict[str, Any]) -> Dict[str, Any]:
+    if doc.get("kind") == strat.KIND:
+        return {"code": "duplicate_open_structure", "existing_trade_id": existing["_id"], "symbol": doc["underlying"],
+                "message": (f"You already have this structure open on {doc['underlying']} (paper trade {existing['_id']}, "
+                            f"opened {existing.get('opened_at')}). Close it before recording it again.")}
+    return {"code": "duplicate_open_trade", "existing_trade_id": existing["_id"], "symbol": doc["symbol"],
+            "message": (f"You already have an open paper trade in {doc['symbol']} (paper trade {existing['_id']}, opened "
+                        f"{existing.get('opened_at')}). Adding to a position is not supported yet; close it first.")}
+
+
+async def _replay(ref: _Refusals, prior: Dict[str, Any], fingerprint: str, response: Response) -> Dict[str, Any]:
+    """The answer to a request whose Idempotency-Key already made a trade: that trade (200, `replayed`), never a
+    second one, and no second reservation. The same key with a different body is 409 idempotency_conflict."""
+    if prior.get("request_fingerprint") != fingerprint:
+        raise await ref.refuse(409, {"code": "idempotency_conflict", "existing_trade_id": prior["_id"],
+                                     "message": "This Idempotency-Key was already used for a different paper trade; "
+                                                "nothing new was recorded."})
+    response.status_code = 200
+    return {"trade": _public(prior), "replayed": True, **_price_context()}
+
+
 @router.post("/paper-trades", status_code=201)
-async def create_paper_trade(request: Request) -> Dict[str, Any]:
+async def create_paper_trade(request: Request, response: Response) -> Dict[str, Any]:
     user = await get_current_user(request)
     uid = user["user_id"]
+    ref = _Refusals(uid, risk_gate.correlation_id(request))
     gated = await risk_gate.enabled_for(db, user)
-    # Without the F&O risk gate, the kill switch is checked BEFORE the body is parsed or anything is
-    # written: this path had no risk gate of any kind (docs/RISK_CONTROL_INVENTORY.md) and is the one a
-    # user actually clicks, including the Top-5 board's "Paper trade" button. With the gate, the same
-    # controls are its first check, after the body is parsed. Open positions are untouched either way.
+    raw = await request.body()
+    try:
+        body = json.loads(raw)
+    except ValueError:
+        body = None
+    ref.note(body)                      # read only for the refusal's record; nothing is validated or written yet
+    # Without the F&O risk gate the kill switch is checked FIRST, before anything is validated or written: this path
+    # had no risk gate of any kind (docs/RISK_CONTROL_INVENTORY.md) and is the one a user actually clicks. With the
+    # gate, the same controls are its first check, after the body is validated. Open positions are untouched either way.
     if not gated:
         try:
             await rc.assert_allowed(db, uid, "desk_paper_trade")
         except rc.RiskBlocked as blocked:
-            await rc.record_decision(db, uid, action="desk_paper_trade", outcome="blocked",
-                                     reasons=[{"code": "RISK_CONTROL", "text": str(blocked)}],
-                                     detail=blocked.detail("desk_paper_trade"))
-            raise HTTPException(status_code=409, detail=blocked.detail("desk_paper_trade"))
-    body = await _body(request)
+            raise await ref.refuse(409, blocked.detail("desk_paper_trade"), code="RISK_CONTROL", text=str(blocked))
+    if body is None:
+        raise await ref.refuse(422, "invalid_body")
+    # Idempotency (gate 2): a retried submit with the same key gets the trade its first attempt made, before any
+    # check that could charge the account again.
+    try:
+        key = svc.clean_idempotency_key(request.headers.get(svc.IDEMPOTENCY_HEADER))
+    except svc.DeskInputError as exc:
+        raise await ref.refuse(422, exc.detail())
+    fingerprint = svc.request_fingerprint(body)
+    if key is not None:
+        prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": key})
+        if prior is not None:
+            return await _replay(ref, prior, fingerprint, response)
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
             doc = strat.new_strategy_trade(uid, body)
+            if not gated:
+                # With the gate on, its own lot_size check judges this (and blocks an unverifiable lot).
+                await strat.check_exchange_lots(doc)
         else:
             if isinstance(body, dict) and "kind" in body:
                 if body["kind"] != "cash":
@@ -119,18 +212,37 @@ async def create_paper_trade(request: Request) -> Dict[str, Any]:
                 body = {k: v for k, v in body.items() if k != "kind"}
             doc = svc.new_trade(uid, body)
     except svc.DeskInputError as exc:
-        raise _input_error(exc)
+        raise await ref.refuse(422, exc.detail())
+    doc["open_key"] = strat.structure_key(doc) if doc.get("kind") == strat.KIND else svc.open_key(doc)
+    existing = await _open_duplicate(uid, doc)
+    if existing is not None:
+        raise await ref.refuse(409, _duplicate_detail(doc, existing))
+    if doc.get("kind") != strat.KIND and doc["entry_rule"] == "at_once":
+        # The fill model (services/desk_trading.py): an at-once entry is filled when recorded, so it must be a price the
+        # last completed session traded. Without this a scanner pullback level 8-11% below the market was booked as
+        # filled (FEDERALBNK 316.89 against 337.20-344.80). No bars, no fill: refused rather than assumed.
+        try:
+            bars = await svc.fetch_bars(doc["symbol"], svc.ist_date(doc["opened_at"]) - timedelta(days=svc.LOOKBACK_DAYS))
+        except svc.PricesUnavailable as exc:
+            logger.warning("desk: no end-of-day bars for %s to check an at-once entry: %s", doc["symbol"], exc)
+            raise await ref.refuse(503, "prices_unavailable")
+        try:
+            doc["entry_range_checked"] = svc.check_entry_tradable(doc, bars)
+        except svc.DeskInputError as exc:
+            raise await ref.refuse(422, exc.detail())
     if gated:
         # 409 risk_blocked / 503 risk_decision_unrecorded, before the account is charged or anything is written.
-        cid = risk_gate.correlation_id(request)
         if doc.get("kind") == strat.KIND:
-            req = risk_gate.structure_request(user, cid, path="desk_paper_trade", mode="paper", action="open",
+            req = risk_gate.structure_request(user, ref.cid, path="desk_paper_trade", mode="paper", action="open",
                                               underlying=doc["underlying"], legs=doc["legs"])
         else:
-            req = risk_gate.cash_request(user, cid, path="desk_paper_trade", mode="paper", action="open",
+            req = risk_gate.cash_request(user, ref.cid, path="desk_paper_trade", mode="paper", action="open",
                                          symbol=doc["symbol"], quantity=doc["quantity"],
                                          capital_at_risk_rs=doc["quantity"] * doc["entry_price"])
         risk_gate.stamp(doc, await risk_gate.enforce(db, req))
+    if key is not None:
+        doc["idempotency_key"] = key
+        doc["request_fingerprint"] = fingerprint
     # The account is charged BEFORE the trade is written: a position the account cannot fund must not
     # exist even briefly. A cash trade reserves quantity x entry price; a multi-leg structure reserves
     # its capital at risk (desk_strategy_trades.exposure_rs) — not exchange margin, which this system
@@ -139,20 +251,33 @@ async def create_paper_trade(request: Request) -> Dict[str, Any]:
     try:
         reserved = await acct.reserve(db, uid, need, trade_id=doc["_id"], symbol=doc.get("symbol"))
     except acct.InsufficientFunds as short:
-        raise HTTPException(status_code=409, detail=short.detail())
+        raise await ref.refuse(409, short.detail())
     doc["paper_reserved_rs"] = reserved
 
     await svc.ensure_indexes(db)
     open_filter = {"user_id": uid, "status": "open"}
     if await db[svc.TRADES].count_documents(open_filter) >= svc.MAX_OPEN_TRADES:
         await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
-        raise HTTPException(status_code=409, detail="open_trade_limit")
-    await db[svc.TRADES].insert_one(doc)
+        raise await ref.refuse(409, "open_trade_limit")
+    try:
+        await db[svc.TRADES].insert_one(doc)
+    except DuplicateKeyError:
+        # Another request with this key, or another open trade in this symbol / structure, was written between the
+        # checks above and this insert (the unique indexes, svc.ensure_indexes). Ours takes its reservation back.
+        await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
+        if key is not None:
+            prior = await db[svc.TRADES].find_one({"user_id": uid, "idempotency_key": key})
+            if prior is not None:
+                return await _replay(ref, prior, fingerprint, response)
+        existing = await _open_duplicate(uid, doc)
+        if existing is not None:
+            raise await ref.refuse(409, _duplicate_detail(doc, existing))
+        raise
     # Two requests that both counted 99 can both insert; the later count catches it and takes ours back.
     if await db[svc.TRADES].count_documents(open_filter) > svc.MAX_OPEN_TRADES:
         await db[svc.TRADES].delete_one({"_id": doc["_id"], "user_id": uid})
         await acct.release(db, uid, reserved, net_pnl=None, trade_id=doc["_id"], symbol=doc.get("symbol"))
-        raise HTTPException(status_code=409, detail="open_trade_limit")
+        raise await ref.refuse(409, "open_trade_limit")
     logger.info("desk: user %s opened paper trade %s (%s)", uid, doc["_id"], doc["symbol"])
     return {"trade": _public(doc), **_price_context()}
 

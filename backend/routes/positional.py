@@ -57,6 +57,7 @@ from services.positional_engine import (
     reversal_rules,
     reversal_service,
     scan_config,
+    scan_meta,
     setup_rules,
 )
 
@@ -158,7 +159,8 @@ async def _fetch_picks(signal_date: date,
         "       ps.entry_price, ps.stoploss, ps.target_price, ps.risk_reward, "
         "       ps.source_scans, ps.reasons, ps.engine_version, "
         "       stf.components->'pre_breakout' AS pre_breakout, "
-        "       stf.components->'raw' AS features_raw "
+        "       stf.components->'raw' AS features_raw, "
+        "       stf.components->'price_adjustment'->>'price_basis' AS price_basis "
         "FROM positional_signals ps "
         "LEFT JOIN stock_technical_features stf "
         "       ON stf.nse_symbol = ps.nse_symbol AND stf.as_of_date = ps.signal_date "
@@ -179,6 +181,8 @@ async def _fetch_picks(signal_date: date,
     out = []
     for r in rows:
         d = dict(r)
+        # warehouse_adjusted | raw_no_factors (scored on raw prices: no factors) | None (engine v1.0: raw prices)
+        d["price_basis"] = d.get("price_basis") or "raw"
         # asyncpg returns JSONB as string in some envs — coerce both blobs
         for key in ("pre_breakout", "features_raw"):
             v = d.get(key)
@@ -189,6 +193,21 @@ async def _fetch_picks(signal_date: date,
                     d[key] = None
         out.append(d)
     return out
+
+
+async def _scan_basis(d: Optional[date]) -> Optional[Dict[str, Any]]:
+    """The engine version, price basis, exceptions and data-quality status of the scan served for `d`
+    (scan_meta.basis_for_date). Unreadable → said so in the payload and the log, never shown as clean."""
+    if d is None:
+        return None
+    pool = await pg_client.get_pool()
+    if pool is None:
+        return {"date": d.isoformat(), "unavailable": "no database pool"}
+    try:
+        return await scan_meta.basis_for_date(pool, db, d)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("positional: scan basis for %s unreadable: %s", d, e)
+        return {"date": d.isoformat(), "unavailable": f"scan basis unreadable ({type(e).__name__})"}
 
 
 # ── Public endpoints ─────────────────────────────────────────────────────
@@ -214,6 +233,9 @@ async def get_picks(request: Request,
         # PRD §5.8: the rules and engine versions behind these rows.
         "rules_version": setup_rules.RULES_VERSION,
         "engine_versions": sorted({p["engine_version"] for p in picks if p.get("engine_version")}),
+        # Owner decision 2026-10-27: results are published with their engine version, price basis, exceptions and
+        # data-quality status (services/positional_engine/scan_meta.py).
+        "scan_basis": await _scan_basis(sig_date),
     }
 
 
@@ -274,6 +296,7 @@ async def get_watchlist(request: Request, limit: int = 30):
                        stf.rsi_14, stf.atr_14,
                        stf.breakout_level, stf.support_level, stf.resistance_level,
                        stf.engine_version,
+                       stf.components->'price_adjustment'->>'price_basis' AS price_basis,
                        sm.sector
                 FROM stock_technical_features stf
                 LEFT JOIN stock_master sm ON sm.nse_symbol = stf.nse_symbol
@@ -394,6 +417,7 @@ async def get_watchlist(request: Request, limit: int = 30):
             "resistance_level": float(r["resistance_level"]) if r["resistance_level"] is not None else None,
             "support_level": float(r["support_level"]) if r["support_level"] is not None else None,
             "engine_version": r.get("engine_version"),
+            "price_basis": r.get("price_basis") or "raw",
             **_bar_fields(raw_bars_by_sym.get(sym, [])),
         }
 
@@ -459,6 +483,7 @@ async def get_watchlist(request: Request, limit: int = 30):
         # PRD §5.6 / §5.8: the thresholds these buckets used, with their version, and the engine that wrote the rows.
         "rules": rules,
         "engine_versions": sorted({r.get("engine_version") for r in cand_rows if r.get("engine_version")}),
+        "scan_basis": await _scan_basis(d),
     }
 
 
@@ -1585,27 +1610,34 @@ def _size_position(
     """Compute qty, allocated_rs, risk_rs for one position.
 
     Base allocation = capital_rs / max_positions, scaled by position_size_factor.
-    Max risk per position = 2% of capital (risk control floor).
-    Returns dict with qty, allocated_rs, risk_rs, risk_pct.
+    Max risk per position = 2% of capital (risk control floor), and that risk is the loss at the stop AFTER the
+    estimated round-trip costs (services/desk_trading.max_units_within_budget, the cost model a paper trade records).
+    The cap always applies: a stop so wide that no whole share fits gives qty 0, never 1 (it used to force
+    `max(1, ...)` and skip the cap when the cap was 0, so one share could exceed the 2% limit).
+    Returns dict with qty, allocated_rs, risk_rs (loss at the stop after costs), risk_gross_rs, risk_pct, risk_basis.
     """
     import math
+    from services import desk_trading as _desk
     base = capital_rs / max_positions
     adjusted = base * position_size_factor
     risk_per_share = entry - stoploss
     if risk_per_share <= 0 or entry <= 0:
-        return {"qty": 0, "allocated_rs": 0.0, "risk_rs": 0.0, "risk_pct": 0.0}
+        return {"qty": 0, "allocated_rs": 0.0, "risk_rs": 0.0, "risk_gross_rs": 0.0, "risk_pct": 0.0,
+                "risk_basis": _BASKET_RISK_BASIS}
 
-    qty = max(1, math.floor(adjusted / entry))
-
-    # Cap by 2% risk limit
-    max_qty_by_risk = math.floor((capital_rs * 0.02) / risk_per_share)
-    if max_qty_by_risk > 0:
-        qty = min(qty, max_qty_by_risk)
+    qty = max(0, math.floor(adjusted / entry))
+    qty = min(qty, _desk.max_units_within_budget(capital_rs * 0.02, entry, stoploss))
 
     allocated = round(qty * entry, 2)
-    risk_rs = round(qty * risk_per_share, 2)
+    gross = round(qty * risk_per_share, 2)
+    risk_rs = round(gross + _desk.round_trip_cost(qty, entry, stoploss), 2) if qty else 0.0
     risk_pct = round(risk_rs / capital_rs * 100, 2) if capital_rs > 0 else 0.0
-    return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_pct": risk_pct}
+    return {"qty": qty, "allocated_rs": allocated, "risk_rs": risk_rs, "risk_gross_rs": gross, "risk_pct": risk_pct,
+            "risk_basis": _BASKET_RISK_BASIS}
+
+
+_BASKET_RISK_BASIS = ("loss at the stop after estimated round-trip costs (the desk cost card: brokerage, STT, exchange "
+                      "charge, SEBI fee, stamp duty, GST and slippage; DP charges and income tax not included)")
 
 
 # ── Trade scenario calculator (PRD §8.5 and §8.6; desk default D6) ────────
@@ -1623,16 +1655,19 @@ from services.strategy_engine.backtest import (  # noqa: E402
 _SCENARIO_CAVEATS = (
     "A stop price does not guarantee the exit price: a gap or thin trading can fill the exit beyond the stop, "
     "so the loss can be larger than shown.",
-    "Costs are estimates from the strategy_engine model (slippage per side plus a flat brokerage per side); "
-    "taxes and exchange charges are not included.",
+    "Costs are estimates from the desk cost card, the model a paper trade records: brokerage (a desk assumption of ₹20 "
+    "a side, not a broker's tariff), STT, exchange charge, SEBI fee, stamp duty, GST, and slippage of 0.05% a side that "
+    "also stands in for the spread; DP charges and income tax are not included.",
     "Illustrative only: nothing is sent to a broker and no order is placed.",
 )
 _SCENARIO_METHOD = (
     "PRD §8.5, long only: risk per share = entry − stop; reward per share = target − entry; reward : risk = reward ÷ "
-    "risk; quantity = floor(risk budget ÷ risk per share), then capped by floor(capital × max allocation % ÷ entry) "
-    "and the maximum quantity, and rounded down to the lot size. Costs per side = traded value × slippage % + "
-    "brokerage; net loss at the stop = gross loss + entry and stop-exit costs; net profit at the target = gross "
-    "profit − entry and target-exit costs. Portfolio weights assume the buy is new money added to the portfolio."
+    "risk; quantity = the most shares whose loss at the stop AFTER the entry and stop-exit costs stays within the risk "
+    "budget; then capped by floor(capital × max allocation % ÷ entry) and the maximum quantity, and rounded down to the "
+    "lot size. Costs per side = brokerage + STT + exchange charge + SEBI fee + stamp duty (buy) + GST + traded value × "
+    "slippage % (the desk cost card, equity delivery); net loss at the stop = gross loss + entry and stop-exit costs; "
+    "net profit at the target = gross profit − entry and target-exit costs. Portfolio weights assume the buy is new "
+    "money added to the portfolio."
 )
 
 
@@ -1656,11 +1691,20 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
 
     slip_pct = _SE_SLIPPAGE_FRACTION * 100 if slippage_pct is None else float(slippage_pct)
     brokerage = _SE_BROKERAGE_INR if brokerage_per_side is None else float(brokerage_per_side)
+    from services import desk_cost_card as _card
+    from services import desk_trading as _desk
+    # The desk cost card (the model a paper trade records): the request may change the slippage and the brokerage; the
+    # statutory charges (STT, exchange, SEBI, stamp, GST) always apply.
+    desk_model = {**_desk.COST_MODEL, "slippage_pct_per_side": slip_pct, "brokerage_rs_per_side": brokerage}
     cost_model = {
+        "version": _card.VERSION,
         "slippage_pct_per_side": slip_pct,
         "brokerage_inr_per_side": brokerage,
+        "statutory": _card.SNAPSHOT["statutory"] + ", equity delivery rates",
+        "brokerage_basis": _card.SNAPSHOT["brokerage_basis"],
+        "slippage_basis": _card.SNAPSHOT["slippage_basis"],
         "default": slippage_pct is None and brokerage_per_side is None,
-        "source": "services/strategy_engine/backtest.py (DEFAULT_SLIPPAGE_PCT, DEFAULT_BROKERAGE_INR)",
+        "source": "services/desk_cost_card.py (the desk cost card), services/strategy_engine/backtest.py (the default slippage and brokerage)",
     }
     budget = risk_budget if risk_budget is not None else (
         capital * risk_pct / 100.0 if capital is not None and risk_pct is not None else None)
@@ -1708,7 +1752,9 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         "reward_to_risk": round(reward_ps / risk_ps, 4) if reward_ps is not None else None,
     }
 
-    qty_risk = math.floor(budget / risk_ps + eps)
+    # Sized so the loss at the stop INCLUDING the round-trip costs stays within the budget (gate 4). It used to be
+    # floor(budget / risk per share), so the net loss could exceed the budget (PRD Example A: 85 shares, ₹3,098.94 > ₹3,000).
+    qty_risk = _desk.max_units_within_budget(budget, entry, stop, model=desk_model)
     qty_alloc = math.floor(capital * max_alloc_pct / 100.0 / entry + eps) if capital is not None else None
     limits = [("risk_budget", qty_risk), ("max_allocation", qty_alloc), ("max_qty", max_qty)]
     binding, qty = min(((k, q) for k, q in limits if q is not None), key=lambda kq: kq[1])
@@ -1728,6 +1774,7 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
         "gross_exposure": round(gross, 2),
         "allocation_pct": round(gross / capital * 100.0, 6) if capital else None,
         "max_alloc_pct": max_alloc_pct,
+        "risk_basis": "the loss at the stop after the entry and stop-exit costs fits the risk budget",
     }
 
     warnings = []
@@ -1735,20 +1782,20 @@ def _trade_scenario(*, entry: float, stop: float, target: Optional[float] = None
     if qty == 0:
         warnings.append(_scenario_problem(
             "risk", "no_whole_share",
-            f"The risk budget (₹{budget:,.2f}) is smaller than one share's risk (₹{risk_ps:,.2f}), so no whole share fits."))
+            f"The risk budget (₹{budget:,.2f}) does not cover one share's risk (₹{risk_ps:,.2f}) plus the round-trip "
+            f"costs at the stop, so no whole share fits."))
     else:
-        s = slip_pct / 100.0
-        entry_cost = qty * entry * s + brokerage
-        exit_stop = qty * stop * s + brokerage
-        exit_target = (qty * target * s + brokerage) if target is not None else None
-        rt_stop = entry_cost + exit_stop
-        rt_target = (entry_cost + exit_target) if exit_target is not None else None
+        at_stop = _card.round_trip("equity_delivery", qty, entry, stop, model=desk_model)
+        at_target = _card.round_trip("equity_delivery", qty, entry, target, model=desk_model) if target is not None else None
+        rt_stop = at_stop["total"]["total"]
+        rt_target = at_target["total"]["total"] if at_target else None
         costs = {
-            "entry": round(entry_cost, 2),
-            "exit_at_stop": round(exit_stop, 2),
-            "exit_at_target": round(exit_target, 2) if exit_target is not None else None,
-            "round_trip_at_stop": round(rt_stop, 2),
-            "round_trip_at_target": round(rt_target, 2) if rt_target is not None else None,
+            "entry": at_stop["entry"]["total"],
+            "exit_at_stop": at_stop["exit"]["total"],
+            "exit_at_target": at_target["exit"]["total"] if at_target else None,
+            "round_trip_at_stop": rt_stop,
+            "round_trip_at_target": rt_target,
+            "breakdown_at_stop": at_stop["total"],
         }
         loss = qty * risk_ps
         profit = qty * reward_ps if reward_ps is not None else None
@@ -1941,6 +1988,7 @@ async def build_basket(request: Request, body: BasketRequest):
             "allocated_rs":      sizing["allocated_rs"],
             "risk_rs":           sizing["risk_rs"],
             "risk_pct":          sizing["risk_pct"],
+            "risk_basis":        sizing["risk_basis"],
             "position_size_factor": psf,
             "hedge":             hedge,
             "signal_date":       str(sig_date),

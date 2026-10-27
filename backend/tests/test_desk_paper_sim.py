@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, Optional
 
 import pytest
@@ -34,8 +35,33 @@ def obar(day: str, open_: Optional[float], high: Optional[float], low: Optional[
 
 
 def side(price: float, qty: int) -> float:
-    """One side's estimated cost: 0.05% of the traded value plus ₹20."""
+    """One side's estimated cost under the FLAT model (desk-flat-v1, what older trades keep): 0.05% of the traded
+    value plus ₹20."""
     return price * qty * 0.0005 + 20.0
+
+
+def _paisa(x: float) -> float:
+    return float(Decimal(repr(float(x))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
+def card_side(price: float, qty: int, buy: bool) -> float:
+    """One equity-delivery order side under the desk cost card (desk-cost-v2), worked by hand from its rates, each
+    component rounded to the paisa: ₹20 brokerage + STT 0.1% + NSE exchange 0.00307% + SEBI ₹10/crore + stamp 0.015%
+    (buy only) + GST 18% of (brokerage + exchange + SEBI) + slippage 0.05%. E.g. 100 x 10 bought: 20 + 1.00 + 0.03 +
+    0.00 + 0.15 + 3.61 + 0.50 = 25.29; 110 x 10 sold: 20 + 1.10 + 0.03 + 0 + 0 + 3.61 + 0.55 = 25.29."""
+    v = price * qty
+    brokerage, exchange, sebi = 20.0, _paisa(v * 0.0000307), _paisa(v * 10 / 1e7)
+    parts = [brokerage, _paisa(v * 0.001), exchange, sebi, _paisa(v * 0.00015) if buy else 0.0,
+             _paisa((brokerage + exchange + sebi) * 0.18), _paisa(v * 0.0005)]
+    return _paisa(sum(parts))
+
+
+def buy(price: float, qty: int) -> float:
+    return card_side(price, qty, True)
+
+
+def sell(price: float, qty: int) -> float:
+    return card_side(price, qty, False)
 
 
 def only(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -59,14 +85,16 @@ def test_create_stores_the_field_set_and_echoes_the_cost_estimates(api, world):
     assert t["signal_at"] == "2026-10-12T03:30:00+00:00"
     assert t["strategy_version"] == "positional-scanner v2" and t["rationale"] == "Broke a 20-day high on volume"
     assert t["rules_version"] == svc.RULES_VERSION
-    assert t["cost_model"] == {"name": svc.COST_MODEL["name"], "slippage_pct_per_side": 0.05, "brokerage_rs_per_side": 20.0,
-                               "source": svc.COST_MODEL["source"]}
+    # A new trade snapshots the desk cost card (paper_fills_pnl follow-up, statutory charges).
+    assert t["cost_model"] == svc.COST_MODEL and t["cost_model"]["version"] == "desk-cost-v2"
+    assert (t["cost_model"]["slippage_pct_per_side"], t["cost_model"]["brokerage_rs_per_side"]) == (0.05, 20.0)
     # Not reached yet: nothing has been read, so the entry is waiting and no P&L or MFE exists.
     assert (t["entry_status"], t["sim_entry_price"], t["entry_session"]) == ("waiting", None, None)
     assert t["gross_pnl_rs"] is None and t["net_pnl_rs"] is None and t["mfe_pct"] is None and t["mae_pct"] is None
     # Estimates at the levels: entry 100 × 20 → ₹21.00; target 110 × 20 → ₹21.10; stop 95 × 20 → ₹20.95.
-    assert t["est_costs_rs"] == {"at_target": round(side(100, 20) + side(110, 20), 2), "at_stop": round(side(100, 20) + side(95, 20), 2)}
-    assert t["est_costs_rs"] == {"at_target": 42.1, "at_stop": 41.95}
+    # Under the card (statutory charges added): buy 100 x 20 = 26.97; sell 110 x 20 = 26.98; sell 95 x 20 = 26.52.
+    assert t["est_costs_rs"] == {"at_target": round(buy(100, 20) + sell(110, 20), 2), "at_stop": round(buy(100, 20) + sell(95, 20), 2)}
+    assert t["est_costs_rs"] == {"at_target": 53.95, "at_stop": 53.49}
     [stored] = world.db.trades.docs
     assert stored["entry_rule"] == "break_above" and stored["cost_model"]["slippage_pct_per_side"] == 0.05
     assert stored["rules_version"] == svc.RULES_VERSION
@@ -77,9 +105,10 @@ def test_create_defaults_are_the_first_versions_behaviour(api):
     assert (t["entry_rule"], t["entry_window_sessions"], t["max_hold_sessions"]) == ("at_once", None, None)
     assert t["entry_status"] == "assumed" and t["sim_entry_price"] == 100.0
     assert t["signal_at"] is None and t["strategy_version"] is None and t["rationale"] is None
-    # No target: the estimate at the target is null, never 0.
-    t2 = open_trade(api, target_price=None)
-    assert t2["est_costs_rs"]["at_target"] is None and t2["est_costs_rs"]["at_stop"] == round(side(100, 10) + side(95, 10), 2)
+    # No target: the estimate at the target is null, never 0. (Another user: a second open FIXA trade for the same
+    # user is refused as a duplicate.)
+    t2 = open_trade(api, who=B, target_price=None)
+    assert t2["est_costs_rs"]["at_target"] is None and t2["est_costs_rs"]["at_stop"] == round(buy(100, 10) + sell(95, 10), 2) == 50.36
 
 
 @pytest.mark.parametrize("over, code", [
@@ -117,16 +146,19 @@ def test_target_exit_records_costs_net_mfe_mae_and_observations(api, world):
     world.add("FIXA", obar("2026-10-13", 101, 104, 98, 103), obar("2026-10-14", 103, 111, 99, 109))
     t = only(trades(api))
     assert (t["status"], t["exit_reason"], t["exit_price"], t["exit_session"]) == ("closed", "target", 110.0, "2026-10-14")
-    # gross (110 − 100) × 10 = 100; costs 100×10×0.0005 + 20 = 20.50 and 110×10×0.0005 + 20 = 20.55 → 41.05; net 58.95
+    # gross (110 − 100) × 10 = 100; costs (desk cost card) buy 100 x 10 = 25.29 and sell 110 x 10 = 25.29 → 50.58;
+    # net 49.42 (41.05 and 58.95 under the flat model, before the statutory charges were counted)
     assert t["gross_pnl_rs"] == 100.0 == t["realized_pnl_rs"]
-    assert t["costs_rs"] == round(side(100, 10) + side(110, 10), 2) == 41.05
-    assert t["net_pnl_rs"] == round(100.0 - 41.05, 2) == 58.95
+    assert t["costs_rs"] == round(buy(100, 10) + sell(110, 10), 2) == 50.58
+    assert t["net_pnl_rs"] == round(100.0 - 50.58, 2) == 49.42
+    assert t["costs_breakdown"] == {"brokerage": 40.0, "stt": 2.1, "exchange": 0.06, "sebi": 0.0, "stamp": 0.15, "gst": 7.22,
+                                    "slippage": 1.05, "total": 50.58}
     # Sessions after the IST open date: highs 104, 111 → MFE (111 − 100) / 100 = +11.00%, ₹110; lows 98, 99 → MAE −2.00%, −₹20
     assert (t["mfe_pct"], t["mfe_rs"], t["mae_pct"], t["mae_rs"]) == (11.0, 110.0, -2.0, -20.0)
     assert (t["observations"], t["held_sessions"], t["entry_status"]) == (2, 2, "assumed")
     assert t["flags"] == []
     stored = world.db.trades.docs[0]
-    assert (stored["costs_rs"], stored["net_pnl_rs"], stored["mfe_pct"], stored["mae_pct"], stored["observations"]) == (41.05, 58.95, 11.0, -2.0, 2)
+    assert (stored["costs_rs"], stored["net_pnl_rs"], stored["mfe_pct"], stored["mae_pct"], stored["observations"]) == (50.58, 49.42, 11.0, -2.0, 2)
 
 
 def test_an_open_trade_is_marked_gross_and_net_with_the_path_so_far(api, world):
@@ -134,11 +166,12 @@ def test_an_open_trade_is_marked_gross_and_net_with_the_path_so_far(api, world):
     world.add("FIXA", obar("2026-10-13", 101, 104, 98, 102))
     t = only(trades(api))
     assert t["status"] == "open" and t["last_close"] == 102.0
-    # gross (102 − 100) × 10 = 20; costs 20.50 + (102 × 10 × 0.0005 + 20 = 20.51) = 41.01; net −21.01
+    # gross (102 − 100) × 10 = 20; costs (desk cost card) buy 100 x 10 = 25.29 + sell 102 x 10 = 25.17 → 50.46; net −30.46
     assert t["unrealized_pnl_rs"] == 20.0 == t["gross_pnl_rs"]
-    assert t["costs_rs"] == 41.01 and t["net_pnl_rs"] == -21.01
+    assert t["costs_rs"] == round(buy(100, 10) + sell(102, 10), 2) == 50.46 and t["net_pnl_rs"] == -30.46
     assert (t["mfe_pct"], t["mae_pct"], t["observations"]) == (4.0, -2.0, 1)
-    assert t["costs_basis"] == "exit side estimated at the last close"
+    # The basis now says what the figure includes (gate 4: risk and cost figures say whether costs are in them).
+    assert t["costs_basis"] == "entry at the fill, exit side estimated at the last close; " + svc.COSTS_CARD_TEXT
 
 
 def test_same_session_stop_and_target_stays_a_stop_with_costs_at_the_stop(api, world):
@@ -148,21 +181,21 @@ def test_same_session_stop_and_target_stays_a_stop_with_costs_at_the_stop(api, w
     assert (t["exit_reason"], t["exit_price"]) == ("stop", 95.0)
     assert t["exit_note"] == svc.BOTH_IN_RANGE_NOTE
     assert "both_in_range" in flag_codes(t)
-    # gross (95 − 100) × 20 = −100; costs 21.00 + 20.95 = 41.95; net −141.95
-    assert (t["gross_pnl_rs"], t["costs_rs"], t["net_pnl_rs"]) == (-100.0, 41.95, -141.95)
+    # gross (95 − 100) × 20 = −100; costs (desk cost card) buy 26.97 + sell 26.52 = 53.49; net −153.49
+    assert (t["gross_pnl_rs"], t["costs_rs"], t["net_pnl_rs"]) == (-100.0, 53.49, -153.49)
     body = trades(api)
     assert body["summary"]["losses"] == 1 and body["summary"]["realized_pnl_rs"] == -100.0
-    assert body["summary"]["net_realized_pnl_rs"] == -141.95 and body["summary"]["costs_realized_rs"] == 41.95
+    assert body["summary"]["net_realized_pnl_rs"] == -153.49 and body["summary"]["costs_realized_rs"] == 53.49
 
 
 def test_a_gap_through_the_stop_fills_at_the_open_and_is_flagged(api, world):
     """The session opened at 93, under the 95 stop: the price never traded at 95, so the fill is the open (cace6500;
-    pinned in test_honesty_safety_pass.py). gross (93 − 100) × 10 = −70; costs 20.50 + 20.465 = 40.965."""
+    pinned in test_honesty_safety_pass.py). gross (93 − 100) × 10 = −70; costs (desk cost card) 25.29 + 25.04 = 50.33."""
     open_trade(api)
     world.add("FIXA", obar("2026-10-13", 93, 96, 92, 94))
     t = only(trades(api))
     assert (t["exit_reason"], t["exit_price"]) == ("stop", 93.0)
-    assert t["gross_pnl_rs"] == -70.0 and t["costs_rs"] == pytest.approx(side(100, 10) + side(93, 10), abs=0.01)
+    assert t["gross_pnl_rs"] == -70.0 and t["costs_rs"] == round(buy(100, 10) + sell(93, 10), 2) == 50.33
     [gap] = [f for f in t["flags"] if f["code"] == "gap_through_stop"]
     assert gap["session"] == "2026-10-13" and gap["price"] == 93.0
     assert "93" in gap["text"]
@@ -257,7 +290,11 @@ def test_a_missing_bar_stops_the_scan_and_is_flagged(api, world):
 
 
 def test_an_at_once_entry_outside_the_days_range_is_flagged(api, world):
-    open_trade(api, entry_price=120.0, stop_price=110.0, target_price=130.0)   # 12 Oct traded 94–104
+    # The route now refuses such an entry when it is recorded (paper_fills_pnl TESTCASES FM-2) ...
+    r = api.post(TRADES_URL, json=trade_body(entry_price=120.0, stop_price=110.0, target_price=130.0), headers=A)
+    assert r.status_code == 422 and r.json()["detail"]["code"] == "entry_not_tradable"
+    # ... and a trade stored before that check is still flagged on its open date's range (12 Oct traded 94–104).
+    world.db.trades.docs.append(svc.new_trade("user_a", trade_body(entry_price=120.0, stop_price=110.0, target_price=130.0), world.now))
     t = only(trades(api))
     assert "entry_outside_day_range" in flag_codes(t)
 
@@ -287,7 +324,7 @@ def test_a_manual_close_records_costs_net_and_the_path(api, world):
     r = api.post(f"{TRADES_URL}/{t['id']}/close", json={}, headers=A)
     c = r.json()["trade"]
     assert (c["exit_reason"], c["exit_price"]) == ("manual", 102.0)
-    assert (c["gross_pnl_rs"], c["costs_rs"], c["net_pnl_rs"]) == (20.0, 41.01, -21.01)
+    assert (c["gross_pnl_rs"], c["costs_rs"], c["net_pnl_rs"]) == (20.0, 50.46, -30.46)          # the desk cost card
     assert (c["mfe_pct"], c["mae_pct"], c["observations"]) == (4.0, -2.0, 1)
 
 
@@ -309,7 +346,11 @@ def test_a_trade_stored_before_the_field_set_still_lists_with_costs_from_its_pri
     world.db.trades.docs.append(doc)
     t = only(trades(api))
     assert t["entry_rule"] == "at_once" and t["entry_status"] == "assumed" and t["rules_version"] is None
+    # No cost model on record: it predates the field set, so it keeps the flat model of its time (desk-flat-v1), never
+    # the newer card (paper_fills_pnl follow-up: old trades unchanged).
     assert (t["gross_pnl_rs"], t["costs_rs"], t["net_pnl_rs"]) == (100.0, 41.05, 58.95)
+    assert t["costs_breakdown"] == {"brokerage": 40.0, "stt": 0.0, "exchange": 0.0, "sebi": 0.0, "stamp": 0.0, "gst": 0.0,
+                                    "slippage": 1.05, "total": 41.05}
     assert t["mfe_pct"] is None and t["observations"] is None           # not recorded then: null, never 0
 
 

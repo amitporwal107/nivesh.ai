@@ -6,6 +6,11 @@
          answer as POST /api/desk/strategy/top {limit: TOP, classes: [index_options, stock_fno], distinct: true}
          (services/strategy_plan/regime_fit.build_top), both classes merged by the route's own rule and cut to TOP
 
+  levels each F&O entry also keeps `strategy_levels`: the strategy-levels engine's answer for that idea on the list day
+         (services/strategy_levels.compute, in-process, the engine behind POST /api/desk/strategy/levels), worked out
+         from the same payoff request and references the browser sends for a live board's row, so a past day's row can
+         show the levels it had without recomputing them on a later day's prices. Display only and hypothetical.
+
 Both builders call the desk's route functions, which check the signed-in user, so the build runs inside
 `deps.system_caller(SYSTEM_USER)` with an internal request object. Nothing is recomputed here: each entry is the route's
 answer for that day, kept as it was. Ideas for review, not recommendations; nothing places an order.
@@ -16,8 +21,11 @@ after the equity scan (22:15 IST on staging), so an earlier run would otherwise 
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 TOP = 10
 SYSTEM_USER: Dict[str, Any] = {"user_id": "system:ai-watchlist", "name": "AI scanner watchlist job", "email": None,
@@ -115,15 +123,71 @@ def chain_refusal(doc: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+# The idea's legs as the payoff request takes them (frontend-v5 strategy/top-actions.ts payoffRequestFor, same keys).
+LEVEL_LEG_KEYS = ("kind", "side", "quantity", "lot_size", "entry_price", "expiry", "strike", "option_type", "price_source", "iv_pct")
+
+
+def payoff_request_for(idea: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The payoff request for one F&O idea, the same body the browser builds for a live board's row
+    (frontend-v5 strategy/top-actions.ts payoffRequestFor): the idea's own legs, its reference price and its chain date;
+    a missing field is left out, as JSON drops it there. None without a reference price or legs."""
+    legs = idea.get("legs") or []
+    if idea.get("reference_price") is None or not legs:
+        return None
+    req: Dict[str, Any] = {"underlying": idea.get("underlying"), "reference_price": idea.get("reference_price")}
+    as_of = (idea.get("data_as_of") or {}).get("chain")
+    if as_of:
+        req["as_of"] = as_of
+    req["legs"] = [{k: leg.get(k) for k in LEVEL_LEG_KEYS if leg.get(k) is not None} for leg in legs if isinstance(leg, dict)]
+    return req
+
+
+def levels_refs_for(top: Dict[str, Any], underlying: Optional[str]) -> Dict[str, Any]:
+    """The references the levels engine gets for an idea, as the browser sends them (strategy/top-actions.ts
+    levelsRefsFor): no open-interest walls (the board does not carry them) and the expected move the board measured
+    for the underlying (the index class first, then stock F&O)."""
+    classes = top.get("classes") or {}
+    move = None
+    for cls in ("index_options", "stock_fno"):
+        for u in (classes.get(cls) or {}).get("underlyings") or []:
+            if move is None and u.get("underlying") == underlying and u.get("expected_move") is not None:
+                move = u["expected_move"]
+    return {"put_wall": None, "call_wall": None, "expected_move": move}
+
+
+def levels_for(idea: Dict[str, Any], refs: Dict[str, Any], list_date: str, now: datetime) -> Dict[str, Any]:
+    """The levels stored with one F&O entry: {as_of (the chain date), computed_at, refs, result (the engine's answer,
+    valid or not, kept as it was), error}. One idea the engine cannot work out never loses the day's list: the reason
+    is stored and logged instead."""
+    from services import strategy_levels
+
+    out: Dict[str, Any] = {"as_of": (idea.get("data_as_of") or {}).get("chain"), "computed_at": now.isoformat(),
+                           "refs": refs, "result": None, "error": None}
+    req = payoff_request_for(idea)
+    if req is None:
+        out["error"] = "The idea has no reference price or no priced legs, so no levels were worked out."
+        return out
+    try:
+        out["result"] = strategy_levels.compute(req, refs, date.fromisoformat(list_date))
+    except Exception as exc:  # noqa: BLE001 — recorded on the entry and logged, never dropped
+        logger.warning("ai-watchlist %s: levels for %s failed: %s: %s", list_date, idea.get("underlying"),
+                       type(exc).__name__, str(exc)[:200])
+        out["error"] = f"The levels could not be worked out on the list day ({type(exc).__name__})."
+    return out
+
+
 def shape_day(list_date: str, ideas: Dict[str, Any], top: Dict[str, Any], now: datetime) -> Dict[str, Any]:
     classes = top.get("classes") or {}
     stock = classes.get("stock_fno") or {}
+    fno = fno_entries(top)
+    for e in fno:
+        e["strategy_levels"] = levels_for(e, levels_refs_for(top, e.get("underlying")), list_date, now)
     return {
         "list_date": list_date,
         "built_at": now.isoformat(),
         "rules": RULES,
         "cash": [cash_entry(i, n) for n, i in enumerate((ideas.get("ideas") or [])[:TOP], 1)],
-        "fno": fno_entries(top),
+        "fno": fno,
         "notes": {
             "cash_ranking": ideas.get("ranking_note"),
             "cash_caveats": ideas.get("caveats") or [],

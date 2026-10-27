@@ -44,11 +44,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
+def levels_text(e: Dict[str, Any]) -> str:
+    """One F&O entry's stored levels in a few words: the underlying stop / target 1, or why there are none."""
+    lv = e.get("strategy_levels") or {}
+    res = lv.get("result") or {}
+    if not lv:
+        return "levels: none stored"
+    if lv.get("error"):
+        return f"levels: {lv['error']}"
+    if not res.get("valid"):
+        return f"levels: not valid ({((res.get('problems') or [{}])[0]).get('message') or 'no reason given'})"
+    u = res.get("underlying") or {}
+    return f"levels {u.get('view')}: stop {u.get('stop')} / target {u.get('target')}"
+
+
 def summary(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "list_date": doc["list_date"],
         "cash": [f"{e['rank']:02d} {e['symbol']} · {e.get('plan_status')} · {(e.get('preferred') or {}).get('label') or '-'}" for e in doc["cash"]],
-        "fno": [f"{e['rank']:02d} {e['underlying']} ({e['kind']}) · {e.get('name')} · fit {e.get('fit', {}).get('score')}" for e in doc["fno"]],
+        "fno": [f"{e['rank']:02d} {e['underlying']} ({e['kind']}) · {e.get('name')} · fit {e.get('fit', {}).get('score')} · {levels_text(e)}" for e in doc["fno"]],
         "regime": doc["notes"].get("regime"),
         "fno_staleness": doc["notes"].get("fno_staleness"),
         "fno_chain_dates": doc["notes"].get("fno_chain_dates"),

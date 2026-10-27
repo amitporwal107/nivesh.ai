@@ -53,6 +53,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
+from services import desk_cost_card as cost_card
 from services import desk_trading as base
 from services import paper_account
 from services.copilot_tools import daas_client
@@ -95,6 +96,8 @@ MARK_BASIS_TEXT = {
 LEG_MARK_SOURCE = "NSE F&O bhavcopy (nidp.fno_bhavcopy via the data platform), end of day"
 UNBOUNDED_NOTE = ("Futures losses can exceed the margin posted; this record is a simulation and the loss is not capped "
                   "by the structure.")
+FUTURES_HEDGED_NOTE = ("This structure holds a future: margin calls, gaps and daily mark-to-market are not modelled, so it is "
+                       "not treated as defined risk even where an option caps the payoff at expiry.")
 EXIT_TEXT = {
     "stop": "The underlying's end-of-day bar touched the plan's invalidation level.",
     "target": "The underlying's end-of-day bar touched the plan's target level.",
@@ -188,13 +191,18 @@ def _sign(leg: Dict[str, Any]) -> int:
 
 
 def check_defined_risk(legs: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """The defined-risk rule (this release has no short naked options and no undefined-risk structure). Raises
-    DeskInputError(code) for a structure that breaks it; returns {"defined_risk": True, "futures_exposure": bool,
+    """The defined-risk rule (this release has no short naked options and no short futures-only structure). Raises
+    DeskInputError(code) for a structure that breaks it; returns {"defined_risk": bool, "futures_exposure": bool,
     "note": str|None} otherwise.
 
     Rule, on the payoff at expiry (piecewise linear in the underlying price S >= 0):
-      * a structure with only cash/future legs is allowed (a plain futures leg is linear; the loss can exceed the
-        margin, which the record says);
+      * ANY futures leg makes the structure NOT defined risk (`defined_risk: False`, with a note): a future is marked
+        to market daily, can gap, and its loss can exceed the margin posted. This used to return True for a
+        futures-only structure, a short future included (study A, R15 / probe D1);
+      * a structure with only cash/future legs that SELLS a future is refused → `short_futures_not_supported`
+        (owner decision D2, 2026-10-27: futures shorts only after the shared risk service treats them as unbounded,
+        with margin and gap stress); a long futures-only structure is allowed and needs a stop on the underlying
+        (`new_strategy_trade`, `futures_stop_required`);
       * with any option leg every option leg shares one expiry, and the payoff's slope as S → ∞ must not be negative
         (net short call/future/cash quantity above the long calls would lose without limit upward) → `unbounded_loss`;
       * every short put must be covered by long puts of the same size or more (otherwise the loss, though capped by
@@ -202,11 +210,16 @@ def check_defined_risk(legs: List[Dict[str, Any]]) -> Dict[str, Any]:
     The slope: cash/future ± quantity, calls ± quantity, puts 0. Written to match the payoff engine's loss_unbounded
     test (services/strategy_plan); that package is a separate change."""
     options = [leg for leg in legs if leg["kind"] == "option"]
-    futures_exposure = any(leg["kind"] == "future" for leg in legs)
+    futures = [leg for leg in legs if leg["kind"] == "future"]
+    futures_exposure = bool(futures)
     if all(leg["kind"] == "cash" for leg in legs):
         raise Err("cash_only_use_share_trade")
     if not options:
-        return {"defined_risk": True, "futures_exposure": futures_exposure, "note": UNBOUNDED_NOTE if futures_exposure else None}
+        if any(leg["side"] == "sell" for leg in futures):
+            raise Err("short_futures_not_supported", "A futures-only structure that sells a future has no limit on its "
+                                                     "loss; short futures are not recorded until the shared risk service "
+                                                     "can size them (margin and gap stress).")
+        return {"defined_risk": False, "futures_exposure": True, "note": UNBOUNDED_NOTE}
     if len({leg["expiry"] for leg in options}) > 1:
         raise Err("mixed_option_expiries")
     slope = 0
@@ -220,7 +233,54 @@ def check_defined_risk(legs: List[Dict[str, Any]]) -> Dict[str, Any]:
     short_puts = sum(_qty(leg) for leg in options if leg["option_type"] == "put" and leg["side"] == "sell")
     if short_puts > long_puts:
         raise Err("naked_short_put")
-    return {"defined_risk": True, "futures_exposure": futures_exposure, "note": UNBOUNDED_NOTE if futures_exposure else None}
+    return {"defined_risk": not futures_exposure, "futures_exposure": futures_exposure,
+            "note": FUTURES_HEDGED_NOTE if futures_exposure else None}
+
+
+def structure_key(doc: Dict[str, Any]) -> str:
+    """What makes two strategy trades the SAME open structure: the underlying and the legs (kind, side, lots, lot size,
+    expiry, strike, option type), in any order. Prices and price sources are left out, so recording the same spread
+    again at another premium is still a duplicate (routes/desk_trading.py refuses it while the first is open)."""
+    legs = sorted(json.dumps([leg["kind"], leg["side"], int(leg["lots"]), int(leg["lot_size"]), leg.get("expiry"),
+                              None if leg.get("strike") is None else float(leg["strike"]), leg.get("option_type")])
+                  for leg in doc["legs"])
+    digest = hashlib.sha256(json.dumps([doc["underlying"], legs], separators=(",", ":")).encode()).hexdigest()
+    return f"{KIND}:{doc['underlying']}:{digest[:32]}"
+
+
+async def check_exchange_lots(doc: Dict[str, Any], today: Optional[date] = None) -> None:
+    """Every futures / options leg's lot size must be the exchange lot, read from the risk gate's reference
+    (services/risk_gate/reference.lookup: today's NFO instrument list, else the NSE F&O bhavcopy). The route runs this
+    when the F&O risk gate does not judge the structure (its flag off), so a structure is never recorded at a made-up
+    lot size (study A, probe D2: NIFTY at lot size 1 reserved Rs 25,000). Fails CLOSED: a lot that cannot be confirmed
+    raises `lot_size_unverified` with the reason; a wrong one raises `lot_size_mismatch` with the exchange lot."""
+    from services.risk_gate import reference          # here, not at the top: services.risk_gate imports this module
+
+    legs = [(i, leg) for i, leg in enumerate(doc["legs"], start=1) if leg["kind"] != "cash"]
+    if not legs:
+        return
+    day = today or base.ist_date(doc["opened_at"])
+    try:
+        refs = await reference.lookup(doc["underlying"], {leg["expiry"] for _, leg in legs}, day)
+    except Exception as e:  # noqa: BLE001 — fail closed: every leg is then unverifiable, and the reason says so
+        logger.error("desk_strategy: exchange lot reference failed for %s (%s)", doc["underlying"], type(e).__name__)
+        refs = {}
+    wrong: List[str] = []
+    unknown: List[str] = []
+    for i, leg in legs:
+        ref = refs.get(leg["expiry"]) or {}
+        lot = ref.get("lot_size")
+        if lot is None:
+            unknown.append(f"Leg {i}: the exchange lot for the {leg['expiry']} expiry could not be confirmed "
+                           f"({ref.get('error') or 'no source could be read'}).")
+        elif int(leg["lot_size"]) != int(lot):
+            wrong.append(f"Leg {i}: lot size {leg['lot_size']} is not the exchange lot {lot} "
+                         f"({ref.get('source')}, {ref.get('as_of')}).")
+    if wrong:
+        raise Err("lot_size_mismatch", " ".join(wrong + unknown))
+    if unknown:
+        raise Err("lot_size_unverified", " ".join(unknown) + " Nothing was recorded; try again when the exchange "
+                                                             "reference can be read.")
 
 
 def clean_signal(raw: Any, now: datetime) -> Dict[str, Any]:
@@ -307,6 +367,10 @@ def new_strategy_trade(user_id: str, body: Any, now: Optional[datetime] = None) 
         raise Err("invalid_leg_count")
     legs = [clean_leg(leg, today) for leg in legs_raw]
     risk = check_defined_risk(legs)
+    if risk["futures_exposure"] and stop is None:
+        # A future has no defined loss, so the plan's invalidation level on the underlying is what ends it.
+        raise Err("futures_stop_required", "A structure with a futures leg needs a stop on the underlying "
+                                           "(stop_underlying): a future's loss is not capped by the structure.")
     rule = body.get("entry_rule")
     if rule is not None and rule != "at_once":
         if rule not in base.ENTRY_RULES:
@@ -587,20 +651,34 @@ def _exit_for_session(trade, bar, day, direction, stop, target, states, legs, ou
 
 
 # ── costs and money figures ─────────────────────────────────────────────────
-def strategy_costs(trade: Dict[str, Any], exit_marks: List[Optional[float]]) -> Optional[float]:
-    """Round-trip estimated cost in rupees: for every leg, the slippage % of the traded value plus flat brokerage on
-    the entry side and on the exit side. None when any leg has no exit mark (nothing is assumed)."""
+LEG_SEGMENT = {"future": "futures", "option": "options", "cash": "equity_delivery"}
+
+
+def strategy_cost_breakdown(trade: Dict[str, Any], exit_marks: List[Optional[float]]) -> Optional[Dict[str, float]]:
+    """Round-trip estimated costs in rupees, every leg, entry side and exit side: {brokerage, stt, exchange, sebi, stamp,
+    gst, slippage, total}. Under the desk cost card (desk-cost-v2) each leg is priced by its segment (futures, options
+    on the premium, a cash leg as equity delivery), the entry side as the leg's own side and the exit side as the
+    opposite (services/desk_cost_card.py); under the flat model the trade was opened with (desk-flat-v1, or no model)
+    only slippage and brokerage. None when any leg has no exit mark (nothing is assumed)."""
     if any(m is None for m in exit_marks):
         return None
-    model = trade.get("cost_model") or base.COST_MODEL
-    slip = float(model.get("slippage_pct_per_side", base.COST_MODEL["slippage_pct_per_side"])) / 100.0
-    brokerage = float(model.get("brokerage_rs_per_side", base.COST_MODEL["brokerage_rs_per_side"]))
-    total = 0.0
+    model = trade.get("cost_model") or base.COST_MODEL_FLAT_V1
+    sides = []
     for leg, mark in zip(trade["legs"], exit_marks):
         qty = _qty(leg)
-        total += float(leg["entry_price"]) * qty * slip + brokerage
-        total += float(mark) * qty * slip + brokerage
-    return round(total, 2)
+        if cost_card.is_card(model):
+            seg, buy = LEG_SEGMENT[leg["kind"]], leg["side"] == "buy"
+            sides.append(cost_card.order_side(seg, "BUY" if buy else "SELL", float(leg["entry_price"]) * qty, model))
+            sides.append(cost_card.order_side(seg, "SELL" if buy else "BUY", float(mark) * qty, model))
+        else:
+            sides.append(base.round_trip_breakdown(qty, float(leg["entry_price"]), float(mark), model))
+    return cost_card.add(*sides)
+
+
+def strategy_costs(trade: Dict[str, Any], exit_marks: List[Optional[float]]) -> Optional[float]:
+    """The total of `strategy_cost_breakdown`, or None."""
+    breakdown = strategy_cost_breakdown(trade, exit_marks)
+    return breakdown["total"] if breakdown else None
 
 
 def exposure_rs(doc: Dict[str, Any]) -> Optional[float]:
@@ -677,7 +755,8 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
     legs = trade["legs"]
     exit_marks = [st["mark"] for st in sim["legs"]]
     gross = sim["gross_pnl_rs"]
-    costs = strategy_costs(trade, exit_marks)
+    breakdown = strategy_cost_breakdown(trade, exit_marks)
+    costs = breakdown["total"] if breakdown else None
     exit_legs = [{"index": i, "exit_mark": st["mark"], "mark_date": st["mark_date"].isoformat() if st["mark_date"] else None,
                   "mark_basis": st["mark_basis"], "pnl_rs": _leg_pnl(leg, st["mark"])}
                  for i, (leg, st) in enumerate(zip(legs, sim["legs"]))]
@@ -697,7 +776,9 @@ async def close_strategy_trade(db, trade: Dict[str, Any], *, exit_reason: str, e
         "exit_legs": exit_legs,
         "realized_pnl_rs": gross,
         "costs_rs": costs,
+        "costs_breakdown": breakdown,
         "net_pnl_rs": round(gross - costs, 2) if gross is not None and costs is not None else None,
+        "open_key": None,              # frees the structure for a new trade (routes/desk_trading.py duplicate rule)
         "mfe_rs": sim["mfe_rs"], "mae_rs": sim["mae_rs"],
         "observations": sim["observations"], "held_sessions": sim["held_sessions"],
         "entry_status": "assumed",
@@ -823,12 +904,14 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         bases = [s["mark_basis"] if s else None for s in states]
         flags = list(sim["flags"]) if sim else []
         gross = sim["gross_pnl_rs"] if sim else None
-        costs = strategy_costs(doc, marks) if gross is not None else None
+        breakdown = strategy_cost_breakdown(doc, marks) if gross is not None else None
+        costs = breakdown["total"] if breakdown else None
         mfe, mae = (sim["mfe_rs"], sim["mae_rs"]) if sim else (None, None)
         observations = sim["observations"] if sim else None
         held = sim["held_sessions"] if sim else None
         checked = sim["checked_through"].isoformat() if sim and sim["checked_through"] else None
-        costs_basis = "entry and exit sides, every leg; the exit side estimated at the last marks" if costs is not None else None
+        costs_basis = (f"entry and exit sides, every leg; the exit side estimated at the last marks; {base.costs_text(doc.get('cost_model'))}"
+                       if costs is not None else None)
         pnls = [_leg_pnl(leg, m) for leg, m in zip(legs, marks)]
     else:
         exits = {e["index"]: e for e in (doc.get("exit_legs") or [])}
@@ -838,9 +921,11 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         pnls = [exits.get(i, {}).get("pnl_rs") for i in range(len(legs))]
         flags = list(doc.get("flags") or [])
         gross, costs = doc.get("realized_pnl_rs"), doc.get("costs_rs")
+        breakdown = doc.get("costs_breakdown")
         mfe, mae = doc.get("mfe_rs"), doc.get("mae_rs")
         observations, held, checked = doc.get("observations"), doc.get("held_sessions"), doc.get("checked_through")
-        costs_basis = "entry and exit sides, every leg, at the closing marks" if costs is not None else None
+        costs_basis = (f"entry and exit sides, every leg, at the closing marks; {base.costs_text(doc.get('cost_model'))}"
+                       if costs is not None else None)
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
     entries = [leg["entry_price"] for leg in legs]
     out = {
@@ -852,7 +937,7 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         "opened_at": doc["opened_at"], "status": doc["status"], "closed_at": doc.get("closed_at"),
         "exit_reason": doc.get("exit_reason"), "exit_session": doc.get("exit_session"), "exit_note": doc.get("exit_note"),
         "entry_rule": doc.get("entry_rule") or "at_once", "entry_status": "assumed", "max_hold_sessions": doc.get("max_hold_sessions"),
-        "rules_version": doc.get("rules_version"), "cost_model": doc.get("cost_model") or dict(base.COST_MODEL),
+        "rules_version": doc.get("rules_version"), "cost_model": doc.get("cost_model") or dict(base.COST_MODEL_FLAT_V1),
         "risk": doc.get("risk"),
         "signal": doc["signal"], "entry_record_hash": doc.get("entry_record_hash"),
         "entry_record_intact": doc.get("entry_record_hash") == record_hash(doc),
@@ -860,7 +945,7 @@ def public_strategy_trade(doc: Dict[str, Any], sim: Optional[Dict[str, Any]] = N
         "net_premium_rs": net_premium(legs, entries),
         "mark_premium_rs": net_premium(legs, marks),
         "net_premium_basis": "premium paid (negative) or received (positive) by the option legs at entry, lots × lot size",
-        "gross_pnl_rs": gross, "costs_rs": costs, "costs_basis": costs_basis, "net_pnl_rs": net,
+        "gross_pnl_rs": gross, "costs_rs": costs, "costs_breakdown": breakdown, "costs_basis": costs_basis, "net_pnl_rs": net,
         "unrealized_pnl_rs": gross if is_open else None,
         "realized_pnl_rs": None if is_open else doc.get("realized_pnl_rs"),
         "mfe_rs": mfe, "mae_rs": mae, "observations": observations, "held_sessions": held, "checked_through": checked,

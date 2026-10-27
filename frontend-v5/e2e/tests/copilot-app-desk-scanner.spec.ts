@@ -868,12 +868,13 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(panel.getByTestId("desk-scan-paper-add")).toBeDisabled();
     await panel.getByTestId("desk-scan-paper-qty").fill("12");
     const p = PICKS.picks[0];
-    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`entry ${inr2(p.entry_price)}, stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}. No order is placed and nothing is sent to a broker`);
+    // paper_fills_pnl TESTCASES ER-4: the pick's entry 505 is under the watchlist close 510, so it waits for a pullback.
+    await expect(panel.getByTestId("desk-scan-paper-note")).toContainText(`entry ${inr2(p.entry_price)} (filled when a later session pulls back to it), stop ${inr2(p.stoploss)}, target ${inr2(p.target_price)}. No order is placed and nothing is sent to a broker`);
     await panel.getByTestId("desk-scan-paper-add").click();
     await expect(panel.getByTestId("desk-scan-paper-done")).toHaveText(`Paper trade added: 12 FIXBRK at ${inr2(p.entry_price)}. No order is placed.`);
     expect(paperPosts.map((x) => x.body)).toEqual([{
       symbol: "FIXBRK", quantity: 12, entry_price: p.entry_price, stop_price: p.stoploss, target_price: p.target_price,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date },
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: PICKS.signal_date }, entry_rule: "pullback_to",
     }]);
 
     // A universe-only stock has no plan: no paper trade, and it says why.
@@ -2176,7 +2177,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
     await expect(page.getByTestId("desk-chart-trust")).toHaveText("NSE daily bars (nidp.prices_eod_adjusted) · End of day · 13 Oct 2026 · Rules-based · Indicators: stock_features_daily engine (calculator.py) · scanner setups: rules");
     await expect(page.getByTestId("desk-chart-trust")).toHaveAttribute("data-mode", "eod");
     await expect(page.getByTestId("desk-risk-trust")).toContainText("Positional scanner levels · scenario route (server) · End of day · 13 Oct 2026 · Rules-based");
-    await expect(page.getByTestId("desk-risk-trust")).toContainText("costs 0.05% + ₹20 a side (strategy_engine)");
+    await expect(page.getByTestId("desk-risk-trust")).toContainText("0.05% + ₹20 a side + STT, exchange, SEBI, stamp duty and GST");
     await expect(page.getByTestId("desk-detail-trust")).toHaveAttribute("data-maker", "rules");
     // Nothing on the tab claims to be live.
     await expect(page.getByTestId("desk-chart-tab")).not.toContainText(/\bLive\b/);
@@ -2677,5 +2678,88 @@ test.describe("Smart trading desk · Risk desk · live price", () => {
     await page.goto(`${DESK}?tab=chart`);
     await expect(page.getByTestId("desk-risk-ltp")).toContainText(`Close ${inr2(BARS[BARS.length - 1][4])}`);
     await expect(page.getByTestId("desk-risk-ltp")).not.toHaveAttribute("data-live", "true");
+  });
+});
+
+// ── owner decision 2026-10-27: results are published with their engine version, price basis and data checks ──
+
+const BASIS_ADJUSTED = {
+  date: "2026-10-13", engine_versions: ["positional.v1.1"], price_basis: "corp_action_adjusted",
+  price_basis_rows: { corp_action_adjusted: 2203, raw_no_factors: 2, raw_before_v1_1: 0 },
+  exceptions: {
+    raw_prices: [{ symbol: "FIXBRK", reason: "no split/bonus factors in the warehouse: scored on raw NSE prices" },
+      { symbol: "OTHERRAW", reason: "no split/bonus factors in the warehouse: scored on raw NSE prices" }],
+    truncated: [{ symbol: "ALLCARGO", break_date: "2025-11-12" }],
+    not_scored_after_truncation: [{ symbol: "CUTSHORT", bars_left: 12, break_date: "2026-09-01" }],
+  },
+  exceptions_note: null,
+  data_quality: { status: "warnings", warnings: 2, problems: ["missing_sessions=2", "extra_dates=14"], checked_at: "2026-10-13T14:15:30+00:00" },
+};
+
+/** The watchlist route as the backend sends it after engine v1.1: scan_basis, and a price basis on every row. */
+function watchWithBasis(basis: unknown, rawSym: string | null) {
+  const buckets = Object.fromEntries(Object.entries(WATCH_R.buckets).map(([k, rows]) => [k, (rows as Array<Record<string, unknown>>).map((r) => ({
+    ...r, price_basis: r.nse_symbol === rawSym ? "raw_no_factors" : "warehouse_adjusted", engine_version: "positional.v1.1",
+  }))]));
+  return { ...WATCH_R, buckets, engine_versions: ["positional.v1.1"], scan_basis: basis };
+}
+
+async function basisMocks(page: Page, watch: unknown, picks: unknown = PICKS_R) {
+  await scanMocks(page);
+  // Registered after scanMocks, so these answer first.
+  await json(page, "**/api/positional/watchlist*", watch, 200);
+  await json(page, "**/api/positional/picks*", picks, 200);
+}
+
+test.describe("Smart trading desk · AI scanner · engine, price basis and data checks", () => {
+  test("SB-1 an adjusted scan says so, counts its exceptions, names them, and marks a raw-price row", async ({ page }) => {
+    await basisMocks(page, watchWithBasis(BASIS_ADJUSTED, "FIXBRK"));
+    await page.goto(DESK_SCAN);
+    const line = page.getByTestId("desk-scan-basis");
+    await expect(line).toHaveText(
+      "Engine positional.v1.1 · adjusted prices (2 on raw prices, 1 not scored after a price break) · data checks: 2 warnings");
+    await expect(line).toHaveAttribute("data-price-basis", "corp_action_adjusted");
+    await expect(line).toHaveAttribute("data-quality", "warnings");
+    await expect(line).toHaveAttribute("title", "On raw prices: FIXBRK, OTHERRAW. Not scored after a price break: CUTSHORT.");
+    // The exception row is never shown as an adjusted history; the others carry no marker.
+    await expect(page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-raw-prices")).toHaveText("raw prices");
+    await expect(page.getByTestId("desk-scan-row-FIXPRE")).toBeVisible();
+    await expect(page.getByTestId("desk-scan-row-FIXPRE").getByTestId("desk-scan-raw-prices")).toHaveCount(0);
+  });
+
+  test("SB-2 a clean adjusted scan reads as one quiet line", async ({ page }) => {
+    const clean = { ...BASIS_ADJUSTED, exceptions: { raw_prices: [], truncated: [], not_scored_after_truncation: [] },
+      data_quality: { status: "clean", warnings: 0, problems: [], checked_at: "2026-10-13T14:15:30+00:00" } };
+    await basisMocks(page, watchWithBasis(clean, null));
+    await page.goto(DESK_SCAN);
+    await expect(page.getByTestId("desk-scan-basis")).toHaveText("Engine positional.v1.1 · adjusted prices · data checks: clean");
+    await expect(page.getByTestId("desk-scan-raw-prices")).toHaveCount(0);
+  });
+
+  test("SB-3 a scan from before v1.1 is raw prices and unchecked, said plainly", async ({ page }) => {
+    const raw = { date: "2026-10-13", engine_versions: ["positional.v1.0"], price_basis: "raw",
+      price_basis_rows: { corp_action_adjusted: 0, raw_no_factors: 0, raw_before_v1_1: 2210 },
+      exceptions: { raw_prices: [], truncated: [], not_scored_after_truncation: null },
+      exceptions_note: "no run record for this date: symbols not scored are not known",
+      data_quality: { status: "not_checked", warnings: null, problems: [], reason: "no data-quality check is recorded for this date" } };
+    await basisMocks(page, { ...WATCH_R, scan_basis: raw });
+    await page.goto(DESK_SCAN);
+    const line = page.getByTestId("desk-scan-basis");
+    await expect(line).toHaveText("Engine positional.v1.0 · raw prices, not adjusted for splits or bonuses · data checks: not run");
+    await expect(line).toHaveAttribute("data-price-basis", "raw");
+  });
+
+  test("SB-4 the picks route's basis is used when the watchlist sends none; an unreadable basis or none at all is said", async ({ page }) => {
+    await basisMocks(page, WATCH_R, { ...PICKS_R, scan_basis: { date: "2026-10-13", unavailable: "scan basis unreadable (TimeoutError)" } });
+    await page.goto(DESK_SCAN);
+    await expect(page.getByTestId("desk-scan-basis")).toHaveText(
+      "Engine, price basis and data checks: unavailable (scan basis unreadable (TimeoutError))");
+
+    await basisMocks(page, WATCH_R, PICKS_R);
+    await page.reload();
+    await expect(page.getByTestId("desk-scan-basis")).toHaveText("Engine, price basis and data checks: not published for this scan");
+    // The existing trust line is unchanged.
+    await expect(page.getByTestId("desk-scan-trust")).toHaveText(
+      `NSE end-of-day scanner · NIDP feature store · End of day · 13 Oct 2026 · Rules-based · ${RULES.version} · smart_v2 · positional.v1.0`);
   });
 });

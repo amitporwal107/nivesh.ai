@@ -39,10 +39,10 @@ import { usePersonalList, usePersonalLists } from "../workspace/personal-lists";
 import { STATUS_LABEL, lastMove, oddsLabel, scanDateLabel, setupLabel, type UpHead } from "./chart-data";
 import { useDesk } from "./context";
 import {
-  probabilityGate, riskClassOf, useDeskOdds, useDeskScanner, useScanUniverse,
+  probabilityGate, riskClassOf, scanBasisLine, useDeskOdds, useDeskScanner, useScanUniverse,
   type DeskOdds, type DeskSetup, type RiskClass, type ScanRules, type ScanUniverse, type SetupBucket, type UniverseCategory, type UniverseRow,
 } from "./desk-data";
-import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
+import { ENTRY_RULE_SHORT, entryRuleFor, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { BUILDUP_META, RISK_FLAG_LABEL, buildupRowFor, useBuildup, type Buildup } from "./fno-buildup";
 import ReversalPanel from "./ReversalPanel";
 import { TrustLine } from "./trust";
@@ -687,6 +687,10 @@ function StockCell({ r, size = 24 }: { r: Row; size?: number }) {
     <span className="block min-w-0">
       <SymbolCell symbol={r.symbol} name={r.name} sub={<StockSub r={r} />} testId="desk-scan-symbol" size={size}>
         <span style={{ fontFamily: "var(--mono)", fontSize: 12.5 }}>{r.symbol}</span>
+        {r.s?.priceBasis === "raw_no_factors" && (
+          <span data-testid="desk-scan-raw-prices" className="cp-mono-note" title="No split/bonus factors for this stock: the scanner scored it on raw NSE prices"
+            style={{ fontSize: 10, marginLeft: 6 }}>raw prices</span>
+        )}
       </SymbolCell>
     </span>
   );
@@ -719,11 +723,13 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
     return <span data-testid="desk-scan-paper-none" style={noteStyle}>Paper trade needs a scanner setup with an entry and a stop below it; {r.symbol} has none on this scan.</span>;
   }
   const sendTarget = target != null && target > entry ? target : null;
+  const rule = entryRuleFor(entry, s.close, { stage: s.stage, bucket: s.bucket });
   const q = Number(qty.trim());
   const qtyOk = /^\d+$/.test(qty.trim()) && q >= 1 && q <= 1_000_000;
   const body: NewPaperTrade | null = qtyOk ? {
     symbol: r.symbol, quantity: q, entry_price: entry, stop_price: stop, target_price: sendTarget,
     source: { kind: "scanner", ...(s.bucket ? { bucket: s.bucket } : {}), ...(signalDate ? { signal_date: signalDate } : {}) },
+    entry_rule: rule,
   } : null;
   const done = paper.variables?.symbol === r.symbol ? paper : null;
   return (
@@ -737,7 +743,7 @@ function PaperTrade({ r, signalDate }: { r: Row; signalDate: string | null }) {
         </Btn>
       </span>
       <span data-testid="desk-scan-paper-note" style={noteStyle}>
-        Hypothetical, at the setup’s levels: entry {fmtPrice(entry)}, stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
+        Hypothetical, at the setup’s levels: entry {fmtPrice(entry)} (<span data-testid="desk-scan-paper-rule" data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>), stop {fmtPrice(stop)}{sendTarget != null ? `, target ${fmtPrice(sendTarget)}` : ", no target"}. No order is placed and nothing is sent to a broker; it is marked against end-of-day closes.
       </span>
       {done?.isSuccess && <span role="status" data-testid="desk-scan-paper-done" style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(done.variables?.quantity ?? null)} {r.symbol} at {fmtPrice(done.variables?.entry_price ?? null)}. No order is placed.</span>}
       {done?.isError && <span role="alert" data-testid="desk-scan-paper-error" style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(done.error)}</span>}
@@ -1362,6 +1368,14 @@ function ScannerList() {
     <span className="flex min-w-0 flex-col" style={{ gap: 2 }}>
       <TrustLine testId="desk-scan-trust" source="NSE end-of-day scanner · NIDP feature store" mode="eod" asOf={dayLabel} maker="rules"
         method={versions || null} status={scan.isError || uniError || (data?.partial.length ?? 0) > 0 ? "failed" : "ok"} />
+      {data && (
+        <span className="cp-mono-note" data-testid="desk-scan-basis" data-price-basis={data.scanBasis?.priceBasis ?? ""}
+          data-quality={data.scanBasis?.dataQuality ?? ""} style={{ lineHeight: 1.6, overflowWrap: "anywhere" }}
+          title={[data.scanBasis?.rawSymbols.length ? `On raw prices: ${data.scanBasis.rawSymbols.join(", ")}.` : "",
+            data.scanBasis?.notScored?.length ? `Not scored after a price break: ${data.scanBasis.notScored.join(", ")}.` : ""].filter(Boolean).join(" ") || undefined}>
+          {scanBasisLine(data.scanBasis, data.engineVersions)}
+        </span>
+      )}
       {ckHits && <ChartinkTrust hits={ckHits} testId="desk-scan-trust-ck" />}
       <TrustLine testId="desk-scan-trust-model" source="Move-odds model" mode="eod" asOf={runInfo ? fmtDay(runInfo.run.data_as_of) : null} maker="model"
         method={runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""} · probability withheld, not marked calibrated` : gate.reason}

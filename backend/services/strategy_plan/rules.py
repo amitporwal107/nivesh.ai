@@ -4,7 +4,7 @@ Change a constant here and bump STRATEGY_RULES_VERSION: a saved plan carries the
 """
 from __future__ import annotations
 
-STRATEGY_RULES_VERSION = "strategy-rules.v1.5 (2026-10-20)"
+STRATEGY_RULES_VERSION = "strategy-rules.v1.6 (2026-10-27)"
 PLAN_SCHEMA = "strategy-plan.v1"
 
 RULES = {
@@ -94,8 +94,9 @@ RULES = {
         "sizing": "lots = floor(risk budget / loss per lot at the stop (the cash stop distance x lot size when the premium covers it)), "
                   "capped by the allocation cap on the deployed value per lot (shares or futures notional plus the net premium)",
     },
-    "sizing": {"formula": "units = floor(risk budget / risk per unit), capped by floor(capital x max allocation % / "
-                          "entry value per unit), rounded down to whole lots"},
+    "sizing": {"formula": "units = the most whole lots with units x risk per unit + estimated round-trip costs at the stop "
+                          "(the desk cost card) <= risk budget, capped by floor(capital x max allocation % / entry value per "
+                          "unit); for an option structure the risk per unit is already its worst net loss"},
     # The user's Chartink dashboard as a second source of opportunities (services/chartink_desk). A Chartink scan is the user's own screen: a rule
     # match, not validated, not a probability. Chartink-only stocks (hits that the AI scanner does not list) follow the scanner's ideas, ranked by the
     # number of enabled bullish scans that listed them, then by 20-session traded value, and pass the same eligibility gates as scanner stocks.

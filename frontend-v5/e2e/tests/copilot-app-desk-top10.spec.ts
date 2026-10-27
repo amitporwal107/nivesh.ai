@@ -8,11 +8,17 @@
  * fixture's SB1 and LB2 (so the lab's focus can be checked against a real candidates payload shape), the board is marked
  * `distinct`, and one alternative is added to BANKNIFTY. Expected values are worked out from the payloads here, not
  * copied from the screen. Mocked APIs, production build — see pw.copilot-app.config.ts.
+ *
+ * L-1 … L-4 (test_reports/fno_idea_paper_trade_TESTCASES.md F-7, F-8): the provisional levels on the rows and the F&O
+ * paper-trade body, compared with the shared contract `contract-fno-idea-paper-trade.json` that
+ * backend/tests/test_fno_idea_paper_trade_contract.py sends through the real route. The levels reply for the contract
+ * idea is the real engine's answer (`desk-strategy-levels-banknifty.json`); every other idea gets a MOCK not-valid answer.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { isDeepStrictEqual } from "util";
 import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +34,9 @@ const json = (route: Route, body: unknown, status = 200) =>
 // ── F&O board: POST /api/desk/strategy/top, distinct (backend/services/strategy_plan/regime_fit.py) ──
 
 const CAPTURED = load("desk-strategy-top.json");
+const CONTRACT = load("contract-fno-idea-paper-trade.json");
+const LEVELS = load(CONTRACT.levels_reply_fixture);
+const NOT_VALID = { valid: false, version: "strategy-levels-v2", problems: [{ code: "mock", message: "MOCK: not worked out in this test" }], sent_to_broker: false };
 function topBoard() {
   const b = JSON.parse(JSON.stringify(CAPTURED));
   b.limit = 10;
@@ -138,10 +147,13 @@ const PAYOFF = {
   loss_can_exceed_margin: false, caveats: [], sent_to_broker: false,
 };
 
-interface Seen { ideas: unknown[]; top: unknown[]; payoff: number; paper: Array<Record<string, unknown>> }
+interface Seen { ideas: unknown[]; top: unknown[]; payoff: number; paper: Array<Record<string, unknown>>; paperKeys: Array<string | undefined>; levels: Array<Record<string, any>> }
+
+/** A UUID v4, the shape of the Idempotency-Key the desk sends (lib/observability correlationId). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 async function desk(page: Page, over: { top?: { status: number; body: unknown }; ideas?: { status: number; body: unknown } } = {}): Promise<Seen> {
-  const seen: Seen = { ideas: [], top: [], payoff: 0, paper: [] };
+  const seen: Seen = { ideas: [], top: [], payoff: 0, paper: [], paperKeys: [], levels: [] };
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
   await page.route("**/api/chat/sessions", (r) => json(r, []));
@@ -152,6 +164,7 @@ async function desk(page: Page, over: { top?: { status: number; body: unknown };
   await page.route("**/api/desk/paper-trades*", (r) => {
     if (r.request().method() === "POST") {
       seen.paper.push(r.request().postDataJSON());
+      seen.paperKeys.push(r.request().headers()["idempotency-key"]);
       return json(r, { trade: { id: `t${seen.paper.length}` } }, 201);
     }
     return json(r, { as_of: "2026-10-19", trades: [], summary: null });
@@ -165,6 +178,11 @@ async function desk(page: Page, over: { top?: { status: number; body: unknown };
     return over.top ? json(r, over.top.body, over.top.status) : json(r, TOP);
   });
   await page.route("**/api/desk/strategy/payoff", (r) => { seen.payoff += 1; return json(r, PAYOFF); });
+  await page.route("**/api/desk/strategy/levels", (r) => {
+    const body = r.request().postDataJSON();
+    seen.levels.push(body);
+    return json(r, isDeepStrictEqual(body, CONTRACT.levels_request) ? LEVELS : NOT_VALID);
+  });
   await page.route("**/api/filings/feed*", (r) => json(r, new URL(r.request().url()).searchParams.get("category") ? { ok: true, total: 0, facets: {}, rows: [] } : FEED));
   await page.route("**/api/markets/fii-dii*", (r) => json(r, FLOWS));
   await page.route("**/api/markets/sector-returns", (r) => json(r, SECTORS));
@@ -243,8 +261,70 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(icici.getByTestId("desk-top10-paper-qty")).toHaveValue("208");
     await icici.getByTestId("desk-top10-paper-add").click();
     await expect(icici.getByTestId("desk-top10-paper-done")).toContainText("208 ICICIBANK");
+    // paper_fills_pnl TESTCASES ER-2: the entry 1200 is the scan's close 1200 (a BREAKOUT entry), so it fills at once.
     expect(seen.paper).toEqual([{ symbol: "ICICIBANK", quantity: 208, entry_price: 1200, stop_price: 1160, target_price: 1280,
-      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" } }]);
+      source: { kind: "scanner", bucket: "breakout_confirmed", signal_date: "2026-10-19" }, entry_rule: "at_once" }]);
+    // desk_paper_safety TESTCASES UI-1: one Idempotency-Key with the submission (a header; the body is unchanged).
+    expect(seen.paperKeys).toHaveLength(1);
+    expect(seen.paperKeys[0]).toMatch(UUID);
+  });
+
+  test("F-5c a pullback level below the close is sent as pullback_to, a trigger above it as break_above, and the note says how it fills", async ({ page }) => {
+    // paper_fills_pnl TESTCASES ER-1, ER-2. FEDERALBNK's levels are the 26 Oct 2026 Top 10 row the study quotes (entry
+    // 316.89 under a close of 344.40: an ACCUMULATION pullback level); the trigger row is MOCK — not real data.
+    const federal = { ...ICICI, rank: 1, symbol: "FEDERALBNK", name: "Federal Bank Ltd",
+      scanner: scanner({ bucket: "true_accumulation", stage: "ACCUMULATION", close: 344.4, close_date: "2026-10-26", entry: 316.89, stop: 312.18, target: 355.5 }) };
+    const trigger = { ...ICICI, rank: 2, symbol: "TRIGGERCO", name: "Trigger Co",
+      scanner: scanner({ bucket: "pre_breakout", stage: "EARLY_BREAKOUT", close: 1000, entry: 1012, stop: 980, target: 1080 }) };
+    const seen = await desk(page, { ideas: { status: 200, body: { ...IDEAS, ideas: [federal, trigger] } } });
+    await page.goto(SCANNER);
+    const fed = page.getByTestId("desk-top10-stock-FEDERALBNK");
+    await fed.getByTestId("desk-top10-stock-paper").click();
+    await expect(fed.getByTestId("desk-top10-paper-rule")).toHaveText("filled when a later session pulls back to it");
+    await fed.getByTestId("desk-top10-paper-add").click();
+    await expect(fed.getByTestId("desk-top10-paper-done")).toBeVisible();
+    const trg = page.getByTestId("desk-top10-stock-TRIGGERCO");
+    await trg.getByTestId("desk-top10-stock-paper").click();
+    await expect(trg.getByTestId("desk-top10-paper-rule")).toHaveAttribute("data-rule", "break_above");
+    await trg.getByTestId("desk-top10-paper-add").click();
+    await expect(trg.getByTestId("desk-top10-paper-done")).toBeVisible();
+    expect(seen.paper.map((b) => [b.symbol, b.entry_price, b.entry_rule])).toEqual([["FEDERALBNK", 316.89, "pullback_to"], ["TRIGGERCO", 1012, "break_above"]]);
+  });
+
+  test("F-5b a retried submission reuses its key, a changed one gets a new key, and a 409 duplicate shows the route's reason", async ({ page }) => {
+    // desk_paper_safety TESTCASES UI-2, UI-3. MOCK — not real data: the 503 and the 409 below are the route's shapes
+    // (backend/routes/desk_trading.py _duplicate_detail), not captured answers.
+    await desk(page);
+    const posts: Array<{ key: string | undefined; body: Record<string, unknown> }> = [];
+    const answers = [
+      { status: 503, body: { detail: "upstream_unavailable" } },
+      { status: 409, body: { detail: { code: "duplicate_open_trade", existing_trade_id: "t-open-1", symbol: "ICICIBANK",
+        message: "You already have an open paper trade in ICICIBANK (paper trade t-open-1, opened 2026-10-20T03:03:00+00:00). Adding to a position is not supported yet; close it first." } } },
+      { status: 201, body: { trade: { id: "t-new" } } },
+    ];
+    await page.route("**/api/desk/paper-trades*", (r) => {
+      if (r.request().method() !== "POST") return json(r, { as_of: "2026-10-19", trades: [], summary: null });
+      posts.push({ key: r.request().headers()["idempotency-key"], body: r.request().postDataJSON() });
+      const a = answers[posts.length - 1];
+      return json(r, a.body, a.status);
+    });
+    await page.goto(SCANNER);
+    const icici = page.getByTestId("desk-top10-stock-ICICIBANK");
+    await icici.getByTestId("desk-top10-stock-paper").click();
+    await icici.getByTestId("desk-top10-paper-add").click();
+    await expect(icici.getByTestId("desk-top10-paper-error")).toContainText("(upstream_unavailable)");
+    await icici.getByTestId("desk-top10-paper-add").click();                       // the same submission, retried
+    await expect(icici.getByTestId("desk-top10-paper-error")).toHaveText(
+      "Not added — You already have an open paper trade in ICICIBANK (paper trade t-open-1, opened 2026-10-20T03:03:00+00:00). Adding to a position is not supported yet; close it first. (duplicate_open_trade)");
+    await icici.getByTestId("desk-top10-paper-qty").fill("100");                 // a different submission
+    await icici.getByTestId("desk-top10-paper-add").click();
+    await expect(icici.getByTestId("desk-top10-paper-done")).toContainText("100 ICICIBANK");
+    expect(posts).toHaveLength(3);
+    expect(posts[0].key).toMatch(UUID);
+    expect(posts[1].key).toBe(posts[0].key);
+    expect(posts[2].key).toMatch(UUID);
+    expect(posts[2].key).not.toBe(posts[0].key);
+    expect([posts[0].body.quantity, posts[1].body.quantity, posts[2].body.quantity]).toEqual([208, 208, 100]);
   });
 
   test("F-6 View trades › opens Portfolio & Risk", async ({ page }) => {
@@ -326,6 +406,71 @@ test.describe("Scanner — Top 10 ideas", () => {
     await expect(page.getByTestId("desk-top10-fno-regime")).toContainText("measured 19 Oct");
     await expect(page.getByTestId("desk-top10-fno-regime")).toContainText("regime was last classified");
     await expect(page.getByTestId("desk-top10-fno-skipped")).toContainText("PREMEXPLN");
+  });
+});
+
+// ── provisional levels on the rows, and the F&O paper-trade contract ───────
+
+const f2 = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+test.describe("Scanner — Top 10 ideas: provisional levels", () => {
+  test("L-1 the BANKNIFTY F&O row shows the engine's levels, labelled and dated, with the full plan and no new entry control", async ({ page }) => {
+    const seen = await desk(page);
+    await page.goto(SCANNER);
+    const row = page.getByTestId("desk-top10-fno-BANKNIFTY");
+    const lv = row.getByTestId("idea-levels");
+    await expect(lv).toHaveAttribute("data-state", "ok", SLOW);
+    expect(seen.levels.filter((b) => b.payoff?.underlying === "BANKNIFTY")).toEqual([CONTRACT.levels_request]);
+    await expect(lv.getByTestId("idea-levels-label")).toHaveText("Provisional · research levels");
+    await expect(lv.getByTestId("idea-levels-asof")).toHaveText("end-of-day chain of 21 Oct 2026");
+    await expect(lv.getByTestId("idea-levels-stop")).toContainText(`(BANKNIFTY ${f2(LEVELS.underlying.stop)})`);
+    await expect(lv.getByTestId("idea-levels-t1")).toContainText(`(BANKNIFTY ${f2(LEVELS.underlying.target)})`);
+    await expect(lv.getByTestId("idea-levels-maxloss")).toContainText(`₹${Math.abs(LEVELS.max_loss_total).toLocaleString("en-IN")}`);
+    await expect(lv.locator("button")).toHaveCount(1);
+    await lv.getByTestId("idea-levels-plan").click();
+    await expect(lv.getByTestId("desk-levels")).toBeVisible();
+    // the alternative structure behind the row asks for no levels and shows none
+    expect(seen.levels.filter((b) => b.payoff?.underlying === "BANKNIFTY")).toHaveLength(1);
+    await expect(row.getByTestId("desk-top10-fno-alt-BANKNIFTY-long_put").getByTestId("idea-levels")).toHaveCount(0);
+    // an idea the engine did not accept says so instead of showing numbers
+    await expect(page.getByTestId("desk-top10-fno-SB1").getByTestId("idea-levels")).toHaveAttribute("data-state", "invalid");
+  });
+
+  test("L-2 the BANKNIFTY row's paper trade posts exactly the shared contract body", async ({ page }) => {
+    const seen = await desk(page);
+    await page.goto(SCANNER);
+    const row = page.getByTestId("desk-top10-fno-BANKNIFTY");
+    await expect(row.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
+    await row.getByTestId("idea-paper-trade").first().click();
+    await expect(row.getByTestId("idea-paper-trade").first()).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_with_levels]);
+  });
+
+  test("L-3 a stock row shows the scanner's entry, stop and target in the row, labelled with the scan date", async ({ page }) => {
+    await desk(page);
+    await page.goto(SCANNER);
+    const icici = page.getByTestId("desk-top10-stock-ICICIBANK");
+    const lv = icici.getByTestId("desk-top10-stock-levels");
+    await expect(lv).toHaveAttribute("data-state", "ok", SLOW);
+    await expect(icici.getByTestId("desk-top10-stock-paper")).toHaveAttribute("aria-expanded", "false");
+    await expect(lv.getByTestId("desk-top10-stock-levels-label")).toHaveText("Provisional · research levels");
+    await expect(lv.getByTestId("desk-top10-stock-levels-asof")).toHaveText("scan of 19 Oct 2026");
+    await expect(lv.getByTestId("desk-top10-stock-levels-entry")).toHaveText("Entry ₹1,200.00");
+    await expect(lv.getByTestId("desk-top10-stock-levels-stop")).toHaveText("Stop ₹1,160.00");
+    await expect(lv.getByTestId("desk-top10-stock-levels-target")).toHaveText("Target ₹1,280.00");
+    await expect(lv.locator("button, input")).toHaveCount(0);
+  });
+
+  test("L-4 the lab's focus card shows the same levels and posts the same contract body", async ({ page }) => {
+    const seen = await desk(page);
+    await page.goto(SCANNER);
+    await page.getByTestId("desk-top10-fno-BANKNIFTY").getByTestId("desk-top10-fno-lab").click(SLOW);
+    const focus = page.getByTestId("desk-lab-focus");
+    await expect(focus.getByTestId("idea-levels")).toHaveAttribute("data-state", "ok", SLOW);
+    await expect(focus.getByTestId("idea-levels-label")).toHaveText("Provisional · research levels");
+    await focus.getByTestId("idea-paper-trade").click();
+    await expect(focus.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_with_levels]);
   });
 });
 

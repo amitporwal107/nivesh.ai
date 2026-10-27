@@ -77,14 +77,32 @@ class _Result:
         self.deleted_count = deleted
 
 
+def _in_partial(doc: Dict[str, Any], partial: Optional[Dict[str, Any]]) -> bool:
+    """A partialFilterExpression the desk uses (services/desk_trading.ensure_indexes): {field: {"$type": "string"}}
+    and plain equality {field: value}."""
+    for key, cond in (partial or {}).items():
+        if isinstance(cond, dict):
+            assert cond == {"$type": "string"}, f"the fake collection does not know the partial filter {cond}"
+            if not isinstance(doc.get(key), str):
+                return False
+        elif doc.get(key) != cond:
+            return False
+    return True
+
+
 class FakeCollection:
     def __init__(self):
         self.docs: List[Dict[str, Any]] = []
         self.indexes: List[Any] = []
+        self.unique: List[Any] = []          # (keys, partialFilterExpression) of the unique indexes asked for
         self.writes = 0
 
-    async def create_index(self, keys, **_):
+    async def create_index(self, keys, **kw):
         self.indexes.append(keys)
+        if kw.get("unique"):
+            # Modelled because the desk's duplicate and idempotency rules lean on Mongo refusing the second insert
+            # when two requests race past the checks; a fake that accepted it would hide that path.
+            self.unique.append((keys, kw.get("partialFilterExpression")))
 
     def find(self, query):
         return _Cursor([copy.deepcopy(d) for d in self.docs if _matches(d, query)])
@@ -99,6 +117,11 @@ class FakeCollection:
         # A paper-account ledger row has no `_id` (Mongo assigns one); only a given `_id` can collide.
         if "_id" in doc and any(d.get("_id") == doc["_id"] for d in self.docs):
             raise DuplicateKeyError("E11000 duplicate key: _id")
+        for keys, partial in self.unique:
+            fields = [k for k, _ in keys]
+            if _in_partial(doc, partial) and any(
+                    _in_partial(d, partial) and all(d.get(f) == doc.get(f) for f in fields) for d in self.docs):
+                raise DuplicateKeyError(f"E11000 duplicate key: {fields}")
         self.writes += 1
         self.docs.append(copy.deepcopy(doc))
 
@@ -145,7 +168,9 @@ class FakeDb:
         self.cols = {svc.TRADES: FakeCollection(), svc.ALERTS: FakeCollection(),
                      _rc.CONTROLS: FakeCollection(), _rc.AUDIT: FakeCollection(),
                      _rc.DECISIONS: FakeCollection(),
-                     _acct.ACCOUNTS: FakeCollection(), _acct.LEDGER: FakeCollection()}
+                     _acct.ACCOUNTS: FakeCollection(), _acct.LEDGER: FakeCollection(),
+                     # the evening script's lease and heartbeat (services/job_runs)
+                     "job_runs": FakeCollection(), "job_locks": FakeCollection()}
 
     def __getitem__(self, name: str) -> FakeCollection:
         assert name in self.cols, f"the desk touched db[{name!r}]"
@@ -313,6 +338,7 @@ def test_writes_go_through_the_csrf_middleware_like_any_other_write(world):
 
 # ── POST /paper-trades ───────────────────────────────────────────────────────
 def test_open_a_paper_trade_stores_it_for_the_user_and_returns_201(api, world):
+    world.add("M&M", bar("2026-10-09", 103, 97, 101))           # MOCK: the session the at-once entry is checked against
     r = api.post(TRADES_URL, headers=A, json=trade_body(
         symbol=" m&m ", note="  breakout retest  ", source={"kind": "scanner", "bucket": "breakout", "signal_date": "2026-10-09"}))
     assert r.status_code == 201, r.text
@@ -323,19 +349,26 @@ def test_open_a_paper_trade_stores_it_for_the_user_and_returns_201(api, world):
     assert t["source"] == {"kind": "scanner", "bucket": "breakout", "signal_date": "2026-10-09"}
     assert t["status"] == "open" and t["opened_at"] == "2026-10-12T05:00:00+00:00"
     assert t["closed_at"] is None and t["exit_price"] is None and t["exit_reason"] is None
-    # No mark is made up on create: nothing was read from the data platform.
+    # No mark is made up on create. The bars are read once, only to check that an at-once entry is a price the last
+    # completed session traded (the fill model, paper_fills_pnl TESTCASES FM-1); before that check, nothing was read.
     assert t["last_close"] is None and t["unrealized_pnl_rs"] is None and t["realized_pnl_rs"] is None
     assert body["price_basis"] == "end of day" and "nidp.prices_eod" in body["source"]
-    assert world.calls == []
+    assert [c["symbol"] for c in world.calls] == ["M&M"]
     [stored] = world.db.trades.docs
     assert stored["_id"] == t["id"] and stored["user_id"] == "user_a" and len(t["id"]) == 36
-    assert world.db.trades.indexes == [[("user_id", 1), ("status", 1)], [("status", 1), ("symbol", 1)]]
+    # The two unique partial indexes behind the duplicate and idempotency rules (TESTCASES I-13).
+    assert world.db.trades.indexes == [[("user_id", 1), ("status", 1)], [("status", 1), ("symbol", 1)],
+                                       [("user_id", 1), ("idempotency_key", 1)], [("user_id", 1), ("open_key", 1)]]
+    assert world.db.trades.unique == [([("user_id", 1), ("idempotency_key", 1)], {"idempotency_key": {"$type": "string"}}),
+                                      ([("user_id", 1), ("open_key", 1)], {"open_key": {"$type": "string"}, "status": "open"})]
     assert world.db.alerts.indexes == [[("user_id", 1), ("status", 1)], [("status", 1), ("symbol", 1)]]
+    assert stored["open_key"] == "cash:M&M" and "idempotency_key" not in stored        # no key was sent
 
 
 def test_target_may_be_null_or_left_out(api):
     assert open_trade(api, target_price=None)["target_price"] is None
-    body = trade_body()
+    # Another symbol: a second open trade in FIXA would be the duplicate the desk now refuses.
+    body = trade_body(symbol="FIXB", entry_price=500.0, stop_price=480.0)
     del body["target_price"]
     assert api.post(TRADES_URL, json=body, headers=A).json()["trade"]["target_price"] is None
 
@@ -382,8 +415,9 @@ def test_open_refuses_a_body_that_is_not_a_json_object(api, world):
 
 
 def test_a_user_may_hold_100_open_trades_and_the_101st_is_409(api, world):
+    # 100 different symbols: the same symbol twice would be refused as a duplicate before the limit is reached.
     for i in range(100):
-        world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(), NOW), "_id": f"t{i}"})
+        world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), NOW), "_id": f"t{i}"})
     r = api.post(TRADES_URL, json=trade_body(), headers=A)
     assert (r.status_code, r.json()["detail"]) == (409, "open_trade_limit")
     assert len(world.db.trades.docs) == 100
@@ -394,7 +428,7 @@ def test_a_user_may_hold_100_open_trades_and_the_101st_is_409(api, world):
 
 def test_two_opens_that_race_past_the_count_do_not_exceed_the_limit(api, world, monkeypatch):
     for i in range(100):
-        world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(), NOW), "_id": f"t{i}"})
+        world.db.trades.docs.append({**svc.new_trade("user_a", trade_body(symbol=f"FX{i}"), NOW), "_id": f"t{i}"})
     real = world.db.trades.count_documents
     seen = []
 
@@ -412,6 +446,7 @@ def test_two_opens_that_race_past_the_count_do_not_exceed_the_limit(api, world, 
 # ── GET /paper-trades: marks and the exit rule ───────────────────────────────
 def test_list_marks_open_trades_at_the_last_end_of_day_close(api, world):
     t = open_trade(api)
+    world.calls.clear()                  # the create's own read (the at-once entry check); this test counts the list's
     body = trades(api)
     [row] = body["trades"]
     assert row["id"] == t["id"] and row["status"] == "open"
@@ -421,8 +456,9 @@ def test_list_marks_open_trades_at_the_last_end_of_day_close(api, world):
     assert row["mark_error"] is None
     assert body["as_of"] == "2026-10-12" and body["checked_through"] == "2026-10-12"
     assert body["marks_error"] is None and body["price_basis"] == "end of day"
-    # Net of the strategy_engine cost model: 100 × 10 × 0.05% + ₹20 and 101 × 10 × 0.05% + ₹20 → ₹41.00; 10 − 41 = −31.
-    costs = round((100 * 10 * 0.0005 + 20.0) + (101 * 10 * 0.0005 + 20.0), 2)
+    # Under the desk cost card (desk-cost-v2) by hand: buy 100 x 10 = 20 + 1.00 STT + 0.03 exch + 0.15 stamp + 3.61 GST
+    # + 0.50 slippage = 25.29; sell 101 x 10 = 20 + 1.01 + 0.03 + 3.61 + 0.51 = 25.16; 50.45 (41.00 flat, before).
+    costs = 50.45
     assert body["summary"] == {"open": 1, "closed": 0, "wins": 0, "losses": 0, "realized_pnl_rs": None,
                                "unrealized_pnl_rs": 10.0, "unmarked_open": 0, "partial": False,
                                "net_realized_pnl_rs": None, "costs_realized_rs": None,
@@ -492,11 +528,12 @@ def test_block_deal_window_rows_never_move_a_trade(api, world):
     """Real staging rows: on 2026-10-08 RELIANCE has a BL row (1176) and an EQ row (low 1173)."""
     world.rows["RELIANCE"] = copy.deepcopy(STAGING_RELIANCE_ROWS)
     world.now = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
-    open_trade(api, symbol="RELIANCE", entry_price=1200.0, stop_price=1150.0, target_price=1250.0)
+    # 1210 (was 1200): an at-once entry must be inside the last completed session's range, 7 Oct 1203.50–1220.80.
+    open_trade(api, symbol="RELIANCE", entry_price=1210.0, stop_price=1150.0, target_price=1250.0)
     [row] = trades(api)["trades"]
     assert row["status"] == "open" and row["checked_through"] == "2026-10-13"
     assert row["last_close"] == 1166.7 and row["last_close_date"] == "2026-10-13"
-    assert row["unrealized_pnl_rs"] == round((1166.7 - 1200.0) * 10, 2)
+    assert row["unrealized_pnl_rs"] == round((1166.7 - 1210.0) * 10, 2)
     bars = svc.session_bars(STAGING_RELIANCE_ROWS)
     assert [(b["date"].isoformat(), b["series"], b["close"]) for b in bars if b["date"].day == 8] == [("2026-10-08", "EQ", 1178.0)]
     # A BL-only print below the stop is ignored too.
@@ -515,7 +552,9 @@ def test_a_session_without_a_high_or_low_stops_the_scan_rather_than_skipping_it(
 def test_two_trades_in_one_symbol_share_one_read_from_the_earliest_open(api, world):
     open_trade(api)
     world.now = datetime(2026, 10, 20, 5, 0, tzinfo=timezone.utc)
-    open_trade(api, quantity=5)
+    # The route now refuses a second open trade in one symbol; two can still be on record (written before that rule,
+    # like staging's ICICIBANK x2, or by the AI trader), and the list must read them once.
+    world.db.trades.docs.append(svc.new_trade("user_a", trade_body(quantity=5), world.now))
     world.now = datetime(2026, 10, 20, 6, 0, tzinfo=timezone.utc)
     open_trade(api, symbol="FIXB", entry_price=500.0, stop_price=480.0, target_price=None)
     world.calls.clear()
@@ -528,6 +567,7 @@ def test_two_trades_in_one_symbol_share_one_read_from_the_earliest_open(api, wor
 def test_every_page_is_read_so_an_early_stop_is_not_missed(api, world, monkeypatch):
     monkeypatch.setattr(svc, "PAGE_LIMIT", 2)
     open_trade(api)
+    world.calls.clear()                  # the create's own read (the at-once entry check)
     world.add("FIXA", bar("2026-10-13", 103, 94, 97), bar("2026-10-14", 99, 96, 98), bar("2026-10-15", 99, 96, 98))
     [row] = trades(api)["trades"]
     assert (row["status"], row["exit_session"]) == ("closed", "2026-10-13")
@@ -554,6 +594,7 @@ def test_when_the_data_platform_fails_the_list_still_answers_with_null_marks(api
 
 def test_an_unconfigured_data_platform_reads_as_unavailable_not_as_zero(api, world):
     open_trade(api)
+    world.calls.clear()                  # the create's own read (the at-once entry check)
     world.configured = False
     body = trades(api)
     assert body["marks_error"] == "prices_unavailable" and body["trades"][0]["unrealized_pnl_rs"] is None
@@ -561,7 +602,9 @@ def test_an_unconfigured_data_platform_reads_as_unavailable_not_as_zero(api, wor
 
 
 def test_a_symbol_the_platform_has_no_prices_for_says_so(api, world):
-    open_trade(api, symbol="FIXNONE")
+    # Stored directly: the route now refuses an at-once entry it cannot check (entry_unverifiable); a trade recorded
+    # before that check, or whose symbol's bars later vanish, must still list honestly.
+    world.db.trades.docs.append(svc.new_trade("user_a", trade_body(symbol="FIXNONE"), world.now))
     body = trades(api)
     assert body["trades"][0]["mark_error"] == "no_prices_for_symbol" and body["trades"][0]["last_close"] is None
     assert body["marks_error"] is None and body["as_of"] is None
@@ -622,7 +665,9 @@ def test_close_when_prices_cannot_be_read(api, world):
 
 
 def test_close_without_a_price_when_there_is_no_close_is_409(api, world):
-    t = open_trade(api, symbol="FIXNONE")
+    t = svc.new_trade("user_a", trade_body(symbol="FIXNONE"), world.now)       # stored directly, as in the test above
+    world.db.trades.docs.append(t)
+    t["id"] = t["_id"]
     r = api.post(f"{TRADES_URL}/{t['id']}/close", json={"exit_price": None}, headers=A)
     assert (r.status_code, r.json()["detail"]) == (409, "no_close_available")
     assert world.db.trades.docs[0]["status"] == "open"
