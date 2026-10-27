@@ -331,11 +331,12 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
     await expect(page.getByTestId("desk-paper-trades")).toHaveCount(0);
     // They are on Trade Desk › Open & pending (step 3's tab).
     await page.getByTestId("desk-tab-trade").click();
+    await page.getByTestId("desk-view-paper").click();
     await expect(page.getByTestId("desk-panel-trade").getByTestId("td-view-open")).toBeVisible();
   });
 
   test("SH-14 Trade Desk says the trades are paper and links the real portfolio", async ({ page }) => {
-    await page.goto(`${DESK}?tab=trade`);
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const line = page.getByTestId("desk-paper-real-line");
     await expect(line).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio");
     await line.getByTestId("desk-paper-real-link").click();

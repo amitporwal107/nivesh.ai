@@ -2025,8 +2025,8 @@ test.describe("Smart trading desk — Portfolio & risk · F&O forward test", () 
   test("TC-8 a failed read shows the panel's notice and leaves the rest of the page", async ({ page }) => {
     await open(page, 502, { detail: "upstream_unavailable" });
     await expect(page.getByText("The forward test didn’t load").first()).toBeVisible();
-    // Its page is AI Scanner › Scorecard now (step 3); the scorecard's own note stays beside the failed panel.
-    await expect(page.getByTestId("desk-trade-scorecard-pending")).toBeVisible();
+    // Its page is AI Scanner › Scorecard now (step 3); the Idea scorecard stays beside the failed panel.
+    await expect(page.getByTestId("desk-panel-scorecard")).toBeVisible();
   });
 
   test("TC-8 at 390px the panel has no sideways overflow", async ({ page }) => {

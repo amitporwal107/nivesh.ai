@@ -232,8 +232,9 @@ test.describe("MOCK — not real data: Market Desk · the frame", () => {
       await page.goto(`${DESK}?tab=market&view=${v}`);
       await expect.poll(() => params(page).get("tab"), v).toBe("trade");
       await expect(page.getByTestId("desk-tab-trade"), v).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByTestId("desk-view-watchlists")).toHaveCount(0);
-      await expect(page.getByTestId("desk-view-scorecard")).toHaveCount(0);
+      // Trade Desk's places (step 3 PR B): Watchlists is a section; the scorecard is AI Scanner › Scorecard.
+      await expect.poll(() => params(page).get("view"), v).toBe(v === "watchlists" ? "watchlists" : "scanner");
+      if (v === "scorecard") await expect.poll(() => params(page).get("sub"), v).toBe("scorecard");
     }
   });
 });
