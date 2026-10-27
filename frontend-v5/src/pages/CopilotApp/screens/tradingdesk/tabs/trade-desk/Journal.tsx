@@ -1,6 +1,6 @@
 /**
- * The trade journal, as a drawer from any Trade Desk row (the plan: "the chart and the trade journal open as drawers, not as
- * places to navigate to"). Everything comes from the paper-trade list the tab already read (GET /api/desk/paper-trades):
+ * Paper Trading › Trade journal (the owner's design draws it as a sub-view; a Live desk row opens it with ?trade=<id>).
+ * Everything comes from the paper-trade list the tab already read (GET /api/desk/paper-trades):
  *
  *   lifecycle timeline   `transitions` (trade-lifecycle-v1, append-only: from → to, time, session, source, rule version);
  *                        a strategy without transitions shows its `events`
@@ -15,7 +15,7 @@
  *
  * Close (POST /api/desk/paper-trades/{id}/close) after a confirmation; Roll for an open F&O structure. Simulated only.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Btn, fmtINR, fmtNum, fmtPct } from "../../../../components/ui";
 import { useCopilotShell } from "../../../../lib/shell-context";
 import { fmtStamp } from "../../../desk/broker";
@@ -230,18 +230,10 @@ function CloseAction({ id, label, what }: { id: string; label: string; what: str
   );
 }
 
-export function JournalDrawer({ item, onClose, onChart }: { item: JournalTrade; onClose: () => void; onChart: (symbol: string) => void }) {
+/** Paper Trading › Trade journal: one trade's whole journal, as a page (the owner's design draws it as a sub-view). */
+export function JournalPanel({ item, onChart }: { item: JournalTrade; onChart: (symbol: string) => void }) {
   const { mobile } = useCopilotShell();
-  const closeRef = useRef<HTMLButtonElement>(null);
   const [plan, setPlan] = useState(false);
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => { window.removeEventListener("keydown", onKey); opener?.focus?.(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opened trade; the parent keys the drawer by id
-  }, []);
 
   const t = item.t;
   const symbol = item.kind === "cash" ? item.t.symbol : item.t.underlying;
@@ -303,15 +295,9 @@ export function JournalDrawer({ item, onClose, onChart }: { item: JournalTrade; 
   }
 
   return (
-    <div data-testid="td-journal-root" style={{ position: "fixed", inset: 0, zIndex: 60 }}>
-      <div data-testid="td-journal-backdrop" onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)" }} />
-      <aside role="dialog" aria-modal="true" aria-label={`Trade journal · ${symbol}`} data-testid="td-journal" data-id={t.id} data-kind={item.kind}
-        style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: mobile ? "100%" : "min(720px, 94vw)", background: "var(--bg-1)", borderLeft: mobile ? undefined : "1px solid var(--line-2)", display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div className="flex items-center justify-between" style={{ padding: "12px 16px", borderBottom: "1px solid var(--cp-line)", gap: 12 }}>
-          <span className="cp-eyebrow">Trade journal · paper trade {t.id}</span>
-          <button ref={closeRef} type="button" data-variant="ghost" className="cp-btn" onClick={onClose} data-testid="td-journal-dismiss" aria-label="Close the trade journal">Close ✕</button>
-        </div>
-        <div className="flex min-w-0 flex-col" style={{ gap: 14, padding: 16, overflowY: "auto", overflowX: "hidden", flex: 1 }}>
+    <section aria-label={`Trade journal · ${symbol}`} data-testid="td-journal" data-id={t.id} data-kind={item.kind} className="flex min-w-0 flex-col" style={{ gap: 0 }}>
+        <div className="flex min-w-0 flex-col" style={{ gap: 14 }}>
+          <span className="cp-eyebrow">Trade detail &amp; journal · paper trade {t.id}</span>
           <div className="flex flex-wrap items-start justify-between" style={{ gap: 12 }}>
             <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
               <StatePill state={t.state} fallback={open ? "open" : "closed"} testId="td-journal-state" />
@@ -348,7 +334,6 @@ export function JournalDrawer({ item, onClose, onChart }: { item: JournalTrade; 
           {body}
           <span style={{ ...quiet, fontSize: 11 }}>{PAPER_ONLY}</span>
         </div>
-      </aside>
-    </div>
+    </section>
   );
 }

@@ -14,7 +14,7 @@ import { SymbolCell } from "../../../desk/parts";
 import { fmtDay, fmtPrice } from "../../../trading/parts";
 import type { PaperBook, PaperTrade, StrategyPaperTrade } from "../../desk-trading";
 import { StructureCard } from "./StructureCard";
-import type { JournalTrade } from "./JournalDrawer";
+import type { JournalTrade } from "./Journal";
 import { EXIT_WORDS, PAPER_ONLY, Panel, Pnl, StatePill, entryRuleLine, linkBtn, quiet } from "./parts";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${fmtNum(n)} ${n === 1 ? one : many}`;
@@ -84,10 +84,10 @@ export function OpenPendingView({ d, onOpen, onChart, onNewTrade, onOverview }: 
         <div data-testid="td-open-empty">
           <EmptyBlock
             title="No open paper trades"
-            body="Start from an idea on Market Overview › Top AI ideas, or build one in New trade. The risk service sizes it for your account; nothing is sent to a broker."
+            body="Start from an idea on Market Overview › Top AI ideas, or build one in Strategy Lab › Build a trade. The risk service sizes it for your account; nothing is sent to a broker."
             action={<span className="flex flex-wrap" style={{ gap: 12 }}>
               <button type="button" data-testid="td-empty-overview" style={linkBtn} onClick={onOverview}>Market Overview ›</button>
-              <button type="button" data-testid="td-empty-new" style={linkBtn} onClick={onNewTrade}>New trade ›</button>
+              <button type="button" data-testid="td-empty-new" style={linkBtn} onClick={onNewTrade}>Strategy Lab ›</button>
             </span>}
           />
         </div>
@@ -121,11 +121,13 @@ function exitPill(code: string | null, flagged: boolean): ReactNode {
   return <Pill tone={w?.tone ?? "ink"}>{w?.label ?? code ?? "closed"}{flagged ? " ⚑" : ""}</Pill>;
 }
 
-export function ClosedView({ d, onOpen }: { d: PaperBook; onOpen: (j: JournalTrade) => void }) {
-  const rows: ClosedRow[] = [
+/** Closed trades, newest first. `recent`: the Live desk's "Recent exits" (the last N, no summary tiles). */
+export function ClosedView({ d, onOpen, recent }: { d: PaperBook; onOpen: (j: JournalTrade) => void; recent?: number }) {
+  const all: ClosedRow[] = [
     ...d.trades.filter((t) => t.status === "closed").map((t): ClosedRow => ({ kind: "cash", t })),
     ...d.strategyTrades.filter((t) => t.status === "closed").map((t): ClosedRow => ({ kind: "strategy", t })),
   ].sort((a, b) => String(b.t.closedAt ?? "").localeCompare(String(a.t.closedAt ?? "")));
+  const rows = recent ? all.slice(0, recent) : all;
   const s = d.summary;
   const sym = (r: ClosedRow) => (r.kind === "cash" ? r.t.symbol : r.t.underlying);
   const cols: Column<ClosedRow>[] = [
@@ -148,6 +150,12 @@ export function ClosedView({ d, onOpen }: { d: PaperBook; onOpen: (j: JournalTra
     { key: "net", header: "Net before tax", align: "right", num: true, width: "120px", render: (r) => <Pnl rs={r.t.netRs} testId="td-closed-net" /> },
     { key: "plan", header: "Plan", width: "minmax(130px,1fr)", render: (r) => planCell(r.t.tradePlanId) },
   ];
+  const table = (
+    <Panel title={<>{recent ? "Recent exits" : "Closed"} · <span data-testid="td-closed-rows">{rows.length}</span></>} note="click a row for its journal · ⚑ an exit flag" testId="td-closed" pad={false}>
+      <DataTable columns={cols} rows={rows} rowKey={(r) => r.t.id} minWidth={1080} onRowClick={(r) => onOpen(r.kind === "cash" ? { kind: "cash", t: r.t } : { kind: "strategy", t: r.t })} />
+    </Panel>
+  );
+  if (recent) return rows.length ? <div data-testid="td-recent-exits" className="flex min-w-0 flex-col">{table}</div> : null;
   return (
     <div data-testid="td-view-closed" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,150px),1fr))", gap: 10 }}>
@@ -165,11 +173,7 @@ export function ClosedView({ d, onOpen }: { d: PaperBook; onOpen: (j: JournalTra
       </div>
       {rows.length === 0 ? (
         <div data-testid="td-closed-empty"><EmptyBlock title="No closed paper trades yet" body="A trade closes at its stop, its target, its time exit or when you close it; its journal stays here." /></div>
-      ) : (
-        <Panel title={<>Closed · <span data-testid="td-closed-rows">{rows.length}</span></>} note="click a row for its journal · ⚑ an exit flag" testId="td-closed" pad={false}>
-          <DataTable columns={cols} rows={rows} rowKey={(r) => r.t.id} minWidth={1080} onRowClick={(r) => onOpen(r.kind === "cash" ? { kind: "cash", t: r.t } : { kind: "strategy", t: r.t })} />
-        </Panel>
-      )}
+      ) : table}
       {s?.partial && <span style={quiet}>Only the most recent closed trades are listed; the counts cover those listed.</span>}
       <RulesNote d={d} />
     </div>

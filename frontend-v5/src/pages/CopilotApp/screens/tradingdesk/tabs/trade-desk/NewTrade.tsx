@@ -1,6 +1,6 @@
 /**
- * Trade Desk › New trade: the ticket, the F&O builder, the Strategy Builder and the backtest on one page (the plan's step 3:
- * "the builders merged; the risk-service ticket").
+ * Trade Desk › Strategy Lab (the owner's workbench, PLAN.md "1-REVISED"): Build a trade (the ticket, the F&O builder, the
+ * Strategy Builder) and Backtest & validation.
  *
  *   Ticket          ?tp=<plan_id> (from an idea), GET /api/desk/trade-plans/{id}: the decision card and the risk service's
  *                   `account_size` for this account. The size is that number: no slider and no size field (REVIEW_lab_v5
@@ -326,13 +326,14 @@ function Backtest() {
   return <Panel title="Backtest" note="end-of-day history · provenance-v1" testId="td-backtest">{body}</Panel>;
 }
 
-// ── the view ─────────────────────────────────────────────────────────────
+// ── the sub-views ────────────────────────────────────────────────────────
 
-export function NewTradeView({ planId, source, onOverview }: { planId: string | null; source: NewPaperTrade["source"] | null; onOverview: () => void }) {
+/** Strategy Lab › Build a trade: the ticket, the F&O builder, the Strategy Builder. */
+export function BuildTradeView({ planId, source, onOverview }: { planId: string | null; source: NewPaperTrade["source"] | null; onOverview: () => void }) {
   const templates = useStrategyTemplates();
   const catalog = templates.isSuccess ? templates.data.templates.map((t) => t.name) : null;
   return (
-    <div data-testid="td-view-new" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
+    <div data-testid="td-view-build" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
       <Ticket planId={planId} source={source} onOverview={onOverview} />
       <section aria-label="F&O builder" className="flex min-w-0 flex-col" style={{ gap: 12, paddingTop: 16, borderTop: "1px solid var(--cp-line)" }}>
         <h2 className="cp-eyebrow m-0" data-testid="desk-section-fno-title">F&amp;O builder · payoff net of statutory costs, with Greeks</h2>
@@ -343,7 +344,11 @@ export function NewTradeView({ planId, source, onOverview }: { planId: string | 
         <h2 className="cp-eyebrow m-0">Strategy Builder · plans and candidates</h2>
         <Part id="strategy" name="the Strategy Builder"><StrategyBuilder /></Part>
       </section>
-      <Backtest />
     </div>
   );
+}
+
+/** Strategy Lab › Backtest & validation. */
+export function BacktestView() {
+  return <div data-testid="td-view-backtest" className="flex min-w-0 flex-col" style={{ gap: 16 }}><Backtest /></div>;
 }
