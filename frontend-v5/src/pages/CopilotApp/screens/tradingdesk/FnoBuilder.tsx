@@ -163,13 +163,30 @@ export interface SharedLegs { legs: LegRow[]; setLegs: (next: LegRow[] | ((ls: L
 export const BUILDER_EXPIRY_DAYS = 95;
 export interface ExpiryChoice { options: Array<{ expiry: string; days_to_expiry: number }>; onPick: (expiry: string) => void }
 
-export function BuilderView({ symbol, state, shared, variant = "page", expiryChoice }: { symbol: string; state: ChainState; shared?: SharedLegs; variant?: "page" | "panel"; expiryChoice?: ExpiryChoice }) {
+/**
+ * The backend template catalog's name for each tile (GET /api/desk/strategy/templates; backend strategy_plan/templates.py).
+ * A tile with no entry here is not in the catalog. Used only when a host passes `catalog` (Trade Desk › New trade shows the
+ * catalog's structures only).
+ */
+export const TILE_CATALOG_NAME: Record<string, string> = {
+  buy_call: "long_call", buy_put: "long_put", bull_call_spread: "bull_call_spread", bear_put_spread: "bear_put_spread",
+  bull_put_spread: "bull_put_spread", bear_call_spread: "bear_call_spread", iron_condor: "iron_condor", iron_butterfly: "iron_butterfly",
+  long_straddle: "long_straddle", long_strangle: "long_strangle", call_butterfly: "call_butterfly", sell_put: "short_put", sell_call: "short_call",
+};
+
+export function BuilderView({ symbol, state, shared, variant = "page", expiryChoice, catalog }: {
+  symbol: string; state: ChainState; shared?: SharedLegs; variant?: "page" | "panel"; expiryChoice?: ExpiryChoice;
+  /** Only these backend template names are offered as tiles (and as the suggested structure); null/undefined: every tile. */
+  catalog?: readonly string[] | null;
+}) {
+  const inCatalog = (id: string) => !catalog || catalog.includes(TILE_CATALOG_NAME[id] ?? "");
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const scan = useBuildup(true);
   const chain = state.status === "ok" ? state.chain : null;
   const row = isIndexUnderlying(symbol) ? indexRowFor(scan.data, symbol) : buildupRowFor(scan.data, symbol);
-  const suggested = suggestedTemplate(row?.label ?? null);
+  const suggestedRaw = suggestedTemplate(row?.label ?? null);
+  const suggested = suggestedRaw && inCatalog(suggestedRaw) ? suggestedRaw : null;
   const [view, setView] = useState<View>("bullish");
   const [tpl, setTpl] = useState<string | null>(null);
   const [ownLegs, setOwnLegs] = useState<LegRow[]>([]);
@@ -225,7 +242,7 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
     setLeg(id, { strike, price: px == null ? "" : String(px) });
   };
   const load = (t: Template) => { setTpl(t.id); setLegs(legsFor(t, chain)); setScn(dflt); };
-  const tiles = TEMPLATES.filter((t) => t.view === view);
+  const tiles = TEMPLATES.filter((t) => t.view === view && inCatalog(t.id));
   // The payoff route does not estimate margin; here the margin calculator is the source, and the tile shows its number or points to the strip.
   const mState = marginQ.data;
   const response = pay.data ? {
@@ -301,7 +318,8 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
                 style={{ padding: "6px 12px", minHeight: 36, borderRadius: 999, fontSize: 13, cursor: "pointer", border: `1px solid ${view === v.key ? "var(--mint-line)" : "var(--line-2)"}`, background: view === v.key ? "var(--mint-soft)" : "transparent", color: view === v.key ? "var(--mint)" : "var(--cp-ink-2)" }}>{v.label}</button>
             ))}
           </div>
-          <span style={quiet}>Pick a structure to load it. A view is your own; no structure is shown as better than another. The shapes are illustrations.</span>
+          <span style={quiet}>Pick a structure to load it. A view is your own; no structure is shown as better than another. The shapes are illustrations.{catalog ? " Only the structures in the backend template catalog are offered here." : ""}</span>
+          {catalog && tiles.length === 0 && <span data-testid="desk-builder-tiles-none" style={quiet}>No structure in the backend template catalog for this view.</span>}
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fill,minmax(88px,1fr))", gap: 10 }}>
             {tiles.map((t) => (
               <button key={t.id} type="button" aria-pressed={tpl === t.id} data-testid={`desk-builder-tile-${t.id}`} onClick={() => load(t)}

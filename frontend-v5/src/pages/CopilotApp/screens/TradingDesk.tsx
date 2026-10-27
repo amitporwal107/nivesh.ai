@@ -6,10 +6,10 @@
  *
  *   01 Market Overview   one page (tradingdesk/tabs/market-overview, step 2, the design's structure): KPIs · market regime ·
  *                        Top AI candidates (ScannerTop10, the decision cards and their drawer) · paper trades · alerts and
- *                        events · "All scanner candidates" (ScannerTab's list, collapsed)
- *   02 Trade Desk        paper   Paper trades: "predicted vs actual" and your paper-trade and alert lists (PortfolioTab's
- *                                PaperCard and PaperLists; PaperDesk cannot split open and closed trades yet)
- *                        new     New trade: the Strategy Builder, with the F&O lab's paper strategies and leg builder
+ *                        events
+ *   02 Trade Desk        the owner's workbench (step 3): AI Scanner (ranked · library · scorecard) · Chart Analysis (live ·
+ *                        record) · Strategy Lab (build · backtest) · Paper Trading (live · journal) · Watchlists; the
+ *                        sections are tabs/trade-desk and the screens they host
  *   03 Market Desk       intel · smartmoney · sectors · research · screener (tradingdesk/tabs/market-desk, step 5: one
  *                        frame over IntelTab + EventsTab + a sector-rotation readout; SmartMoneyTab + the F&O lab's
  *                        build-up, candidates, indices and chain; SectorHeatmap; ChartTab; Screener + Chartink sources).
@@ -46,7 +46,8 @@ import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
 import { DeskProvider, type DeskPersona, type DeskState, type DeskTab, type LabView } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import {
-  DESK_SECTIONS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
+  DESK_SECTIONS, SECTION_LABEL, SECTION_VIEWS, VIEW_PARAMS, canonical, crumbsOf, defaultSub, defaultView, isSection, legacyRedirect, locationOf, placeOfOldTab,
+  subViewsOf,
   type DeskLocation, type DeskPlace, type DeskSection,
 } from "./tradingdesk/desk-nav";
 import { DeskTrail } from "./tradingdesk/DeskTrail";
@@ -56,28 +57,24 @@ import { useRiskStatus } from "./tradingdesk/risk-controls";
 
 // ── the hosted screens, each in its own chunk ────────────────────────────
 
-const MarketDesk = lazy(() => import("./tradingdesk/tabs/market-desk/MarketDesk"));
 const MarketOverview = lazy(() => import("./tradingdesk/tabs/market-overview/MarketOverview"));
-const FnoTab = lazy(() => import("./tradingdesk/FnoTab"));
+const MarketDesk = lazy(() => import("./tradingdesk/tabs/market-desk/MarketDesk"));
+const ScannerTab = lazy(() => import("./tradingdesk/ScannerTab"));
+const ChartTab = lazy(() => import("./tradingdesk/ChartTab"));
 const PortfolioTab = lazy(() => import("./tradingdesk/PortfolioTab"));
-const PaperCards = lazy(() => import("./tradingdesk/PortfolioTab").then((m) => ({
-  default: function PaperCards() {
-    return (
-      <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
-        <m.PaperCard />
-        <m.PaperLists />
-      </div>
-    );
-  },
-})));
-const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
+const TradeDeskTab = lazy(() => import("./tradingdesk/tabs/trade-desk/TradeDeskTab"));
+const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
+const ForwardTestPanel = lazy(() => import("./tradingdesk/FnoForwardTest").then((m) => ({ default: m.ForwardTestPanel })));
+const ScannerTop10 = lazy(() => import("./tradingdesk/ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
+const SignalCategories = lazy(() => import("./tradingdesk/ScannerTab").then((m) => ({ default: m.SignalCategories })));
+const IdeaScorecard = lazy(() => import("./tradingdesk/scorecard/IdeaScorecard"));
+const ChartTicket = lazy(() => import("./tradingdesk/tabs/trade-desk/ChartTicket").then((m) => ({ default: m.ChartTicket })));
+const Watchlist = lazy(() => import("./Watchlist"));
 const RiskDeskTab = lazy(() => import("./tradingdesk/tabs/risk-desk/RiskDeskTab"));
 
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
 const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
 
-/** The F&O lab's views on Trade Desk › New trade (Market Desk › Smart Money's are in tabs/market-desk). */
-const NEW_TRADE_LAB: readonly LabView[] = ["strategies"];
 
 /** Symbols the URL may carry: the F&O routes' own rule (letters, digits, & and -). */
 const SYM_RE = /^[A-Z0-9&-]{1,20}$/;
@@ -104,6 +101,7 @@ function matchSetup(setups: DeskSetup[], text: string): string | null {
 /** The old tab name a place stands for (DeskState.tab; the hosted screens were written against these names). */
 function oldTabOf(loc: DeskLocation): DeskTab {
   if (loc.tab === "portfolio") return "portfolio";
+  if (loc.tab === "trade" && loc.view === "chart") return "chart";
   if (loc.tab !== "market") return "overview";
   return loc.view === "research" ? "chart" : loc.view === "smartmoney" ? "smartmoney" : loc.view === "intel" ? "intel" : "overview";
 }
@@ -286,11 +284,12 @@ function MyPortfolioButton({ on, onClick, small }: { on: boolean; onClick: () =>
 }
 
 /** The view switcher under the breadcrumb: pills, the current one filled mint (the design's sub-chips). */
-function ViewSwitcher({ tab, view, onPick, bleed }: { tab: DeskSection; view: string | null; onPick: (v: string) => void; bleed?: CSSProperties }) {
+function ViewSwitcher({ tab, view, onPick, bleed, underline }: { tab: DeskSection; view: string | null; onPick: (v: string) => void; bleed?: CSSProperties; underline?: boolean }) {
   const views = SECTION_VIEWS[tab];
   if (!views.length) return null;
   return (
-    <div data-testid="desk-views" role="group" aria-label={`${SECTION_LABEL[tab]} views`} className="cp-scroll flex overflow-x-auto" style={{ gap: 8, ...bleed }}>
+    <div data-testid="desk-views" data-variant={underline ? "sections" : "views"} role="group" aria-label={`${SECTION_LABEL[tab]} ${underline ? "sections" : "views"}`} className="cp-scroll flex overflow-x-auto"
+      style={{ gap: underline ? 22 : 8, ...(underline ? { borderBottom: "1px solid var(--cp-line)" } : {}), ...bleed }}>
       {views.map((v) => {
         const on = v.key === view;
         return (
@@ -300,11 +299,34 @@ function ViewSwitcher({ tab, view, onPick, bleed }: { tab: DeskSection; view: st
             data-testid={`desk-view-${v.key}`}
             aria-pressed={on}
             onClick={() => onPick(v.key)}
-            style={{
+            style={underline ? {
+              flex: "none", padding: "8px 0 10px", border: 0, borderBottom: `2px solid ${on ? "var(--mint)" : "transparent"}`, marginBottom: -1, background: "transparent",
+              fontSize: 13.5, fontWeight: on ? 600 : 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)", color: on ? "var(--cp-ink)" : "var(--cp-ink-3)",
+            } : {
               flex: "none", padding: "7px 15px", borderRadius: 999, fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)",
               border: `1px solid ${on ? "var(--mint)" : "var(--line-2)"}`, background: on ? "var(--mint)" : "transparent", color: on ? "var(--bg-0)" : "var(--cp-ink-2)",
             }}
           >
+            {v.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A Trade Desk section's sub-views: the design's chips, the current one filled mint. */
+function SubViewSwitcher({ subs, sub, onPick, bleed }: { subs: readonly { key: string; label: string }[]; sub: string | null; onPick: (s: string) => void; bleed?: CSSProperties }) {
+  return (
+    <div data-testid="desk-subviews" role="group" aria-label="Sub-views" className="cp-scroll flex overflow-x-auto" style={{ gap: 8, ...bleed }}>
+      {subs.map((v) => {
+        const on = v.key === sub;
+        return (
+          <button key={v.key} type="button" data-testid={`desk-sub-${v.key}`} aria-pressed={on} onClick={() => onPick(v.key)}
+            style={{
+              flex: "none", padding: "6px 14px", borderRadius: 999, fontSize: 12.5, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer", fontFamily: "var(--sans)",
+              border: `1px solid ${on ? "var(--mint)" : "var(--line-2)"}`, background: on ? "var(--mint)" : "transparent", color: on ? "var(--bg-0)" : "var(--cp-ink-2)",
+            }}>
             {v.label}
           </button>
         );
@@ -355,7 +377,7 @@ function useDockChips(loc: DeskLocation, symbol: string | null): string[] {
   const sym = symbol ?? top ?? null;
   return useMemo(() => {
     const out: string[] = [];
-    if (loc.tab === "market" && loc.view === "research" && sym) {
+    if (((loc.tab === "market" && loc.view === "research") || (loc.tab === "trade" && loc.view === "chart")) && sym) {
       out.push(`Explain the ${sym} setup and what would invalidate it`);
       out.push(`Size a trade in ${sym} with 1% risk`);
     } else if (loc.tab === "market" && loc.view === "smartmoney") {
@@ -406,6 +428,8 @@ export default function TradingDeskScreen() {
       p.set("tab", tab);
       const v = view === undefined ? defaultView(tab) : view;
       if (v) p.set("view", v);
+      const sub = defaultSub(tab, v ?? null);
+      if (sub) p.set("sub", sub);
       for (const [k, val] of Object.entries(extra ?? {})) p.set(k, val);
       return canonical(p);
     }, { replace: true });
@@ -475,21 +499,24 @@ export default function TradingDeskScreen() {
       else goPlace(pl.tab, pl.view);
     },
     symbol,
-    openChart: (s) => goPlace("market", "research", { sym: s.toUpperCase() }),
+    // The owner's design: a symbol's chart is Trade Desk › Chart Analysis › Live chart (Market Desk › Stock Research stays for
+    // company research, reached from the Market Desk switcher).
+    openChart: (s) => goPlace("trade", "chart", { sub: "live", sym: s.toUpperCase() }),
     setSymbol: (s) => setParam({ sym: s.toUpperCase() }),
-    openStrategy: (s, src) => goPlace("trade", "new", {
+    openStrategy: (s, src) => goPlace("trade", "lab", {
       sym: s.toUpperCase(),
       ...(src ? { src_kind: src.kind, ...(src.bucket ? { src_bucket: src.bucket } : {}), ...(src.date ? { src_date: src.date } : {}) } : {}),
     }),
-    openStrategyIdeas: (focus) => goPlace("trade", "new", { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) }),
-    openStrategyPlan: (p) => goPlace("trade", "new", { ...p, mode: "stock", build: "1" }),
-    openChartink: () => goSection("market", "screener", "chartink"),
+    openStrategyIdeas: (focus) => goPlace("trade", "lab", { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) }),
+    openStrategyPlan: (p) => goPlace("trade", "lab", { ...p, mode: "stock", build: "1" }),
+    // Chartink sources live only in Trade Desk › AI Scanner › Signal library & sources (the owner's design).
+    openChartink: () => goPlace("trade", "scanner", { sub: "library", section: "chartink" }),
     openLab: (view, opts) => {
       const extra = {
         ...(opts?.symbol ? { lab_sym: opts.symbol.toUpperCase() } : {}),
         ...(opts?.focus ? { lab_focus: opts.focus.toUpperCase() } : {}),
       };
-      if (view === "strategies") goSection("trade", "new", "fno", extra);
+      if (view === "strategies") goSection("trade", "lab", "fno", extra);
       else goSection("market", "smartmoney", "fno", { ...(view && view !== "buildup" ? { lab: view } : {}), ...extra });
     },
     openIntel: (opts) => goPlace("market", "intel", {
@@ -516,7 +543,7 @@ export default function TradingDeskScreen() {
       setPicked(sym);
     } else if (SYMBOL_TOKEN.test(t)) {
       setPicked(null);
-      if (loc.tab === "market" && loc.view === "research") desk.setSymbol(t);
+      if ((loc.tab === "market" && loc.view === "research") || (loc.tab === "trade" && loc.view === "chart")) desk.setSymbol(t);
       else desk.openChart(t);
     } else {
       setPicked(null);
@@ -534,8 +561,10 @@ export default function TradingDeskScreen() {
     <DeskTrail
       tab={crumbs.tab}
       view={crumbs.view}
+      sub={crumbs.sub}
       onRoot={() => goPlace("overview")}
       onTab={() => goPlace(loc.tab)}
+      onView={() => goPlace(loc.tab, loc.view)}
     />
   );
 
@@ -550,32 +579,67 @@ export default function TradingDeskScreen() {
       </div>
     );
   } else if (loc.tab === "overview") {
-    const scannerOpen = section === "scanner";
     content = (
       <Hosted id="market-overview" name="Market Overview">
         <MarketOverview
-          scannerOpen={scannerOpen}
-          onToggleScanner={() => setParam({ tab: "overview", section: scannerOpen ? null : "scanner" })}
           onOpenTradeDesk={() => goPlace("trade", "paper")}
-          onOpenTrade={() => goPlace("trade")}
+          onOpenTrade={() => goPlace("trade", "scanner", { sub: "ranked" })}
+          onOpenScorecard={() => goPlace("trade", "scanner", { sub: "scorecard" })}
           onOpenMarket={(view) => goPlace("market", view ?? undefined)}
         />
       </Hosted>
     );
   } else if (loc.tab === "trade") {
-    content = (
-      <>
-        <PaperRealLine onOpen={openPortfolio} />
-        {loc.view === "new" ? (
+    // The owner's workbench (PLAN.md "1-REVISED"): five sections with sub-views. Paper Trading and Strategy Lab are
+    // tabs/trade-desk; Watchlists the Watchlist page; AI Scanner and Chart Analysis host today's scanner list, Chartink
+    // sources and chart until step 3 PR B builds them.
+    switch (loc.view) {
+      case "scanner":
+        // AI Scanner: Ranked candidates (the Top 10 decision cards and every scanner candidate), Signal library & sources
+        // (the scanner's categories and your Chartink sources), Scorecard (the ideas' study, then the F&O forward test).
+        content = loc.sub === "library"
+          ? (
+            <>
+              <Hosted id="signal-categories" name="the signal categories"><SignalCategories /></Hosted>
+              <Section id="chartink" title="Chartink sources"><ChartinkSettings asSection /></Section>
+            </>
+          )
+          : loc.sub === "scorecard"
+            ? (
+              <>
+                <Hosted id="scorecard" name="the Idea scorecard"><IdeaScorecard /></Hosted>
+                <Section id="forward-test" title="F&O signal · forward test"><ForwardTestPanel /></Section>
+              </>
+            )
+            : (
+              <>
+                <Hosted id="top10" name="the Top 10 ideas"><ScannerTop10 onScorecard={() => goPlace("trade", "scanner", { sub: "scorecard" })} /></Hosted>
+                <Section id="scanner" title="All scanner candidates"><ScannerTab listOnly /></Section>
+              </>
+            );
+        break;
+      case "chart":
+        content = loc.sub === "record"
+          ? <p data-testid="desk-trade-record-pending" className="m-0" style={lineStyle}>Signal record: not available yet. No route serves a signal's levels, lifecycle and revisions (the positional_signals_history table has no route), so nothing is shown rather than a made-up record.</p>
+          : (
+            <Hosted id="chart" name="Chart Analysis">
+              <ChartTab riskPanel={(sym) => <ChartTicket symbol={sym} onIdeas={() => goPlace("trade", "scanner", { sub: "ranked" })} />} />
+            </Hosted>
+          );
+        break;
+      case "watchlists":
+        content = <Hosted id="watchlists" name="Watchlists"><Watchlist /></Hosted>;
+        break;
+      default:
+        content = (
           <>
-            <Hosted id="strategy" name="the Strategy Builder"><StrategyBuilder /></Hosted>
-            <Section id="fno" title="F&O · paper strategies and leg builder"><FnoTab views={NEW_TRADE_LAB} asSection /></Section>
+            <PaperRealLine onOpen={openPortfolio} />
+            <Hosted id="trade-desk" name="Trade Desk">
+              <TradeDeskTab section={loc.view === "lab" ? "lab" : "paper"} sub={loc.sub ?? null} onSub={(sb, extra) => goPlace("trade", loc.view, { sub: sb, ...(extra ?? {}) })} />
+            </Hosted>
           </>
-        ) : (
-          <Hosted id="paper" name="your paper trades"><PaperCards /></Hosted>
-        )}
-      </>
-    );
+        );
+    }
   } else if (loc.tab === "market") {
     // Market Desk: its own frame (view head, symbol strip) over the hosted screens, plus the Idea scorecard.
     content = (
@@ -601,7 +665,7 @@ export default function TradingDeskScreen() {
       data-testid={`desk-panel-${panelTab}`}
       data-view={loc.view ?? ""}
       role="tabpanel"
-      aria-label={crumbs.view ? `${crumbs.tab} · ${crumbs.view}` : crumbs.tab}
+      aria-label={[crumbs.tab, crumbs.view, crumbs.sub].filter(Boolean).join(" · ")}
       className="flex min-w-0 flex-col"
       style={{ gap: mobile ? 14 : 20 }}
     >
@@ -623,11 +687,18 @@ export default function TradingDeskScreen() {
   );
 
   const tab4 = isSection(loc.tab) ? loc.tab : null;
-  const views = tab4 && !redirect ? <ViewSwitcher tab={tab4} view={loc.view} onPick={(v) => goPlace(tab4, v)} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} /> : null;
+  const subs = tab4 && !redirect ? subViewsOf(tab4, loc.view) : [];
+  const views = tab4 && !redirect ? (
+    <>
+      <ViewSwitcher tab={tab4} view={loc.view} onPick={(v) => goPlace(tab4, v)} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} underline={tab4 === "trade"} />
+      {subs.length > 0 && <SubViewSwitcher subs={subs} sub={loc.sub ?? null} onPick={(sb) => goPlace(tab4, loc.view, { sub: sb })} bleed={mobile ? { ...bleed, paddingBottom: 2 } : undefined} />}
+    </>
+  ) : null;
   const rootAttrs = {
     "data-testid": "screen-trading-desk",
     "data-tab": panelTab,
     "data-view": loc.view ?? "",
+    "data-sub": loc.sub ?? "",
     "data-symbol": symbol ?? "",
     "data-persona": persona,
   };

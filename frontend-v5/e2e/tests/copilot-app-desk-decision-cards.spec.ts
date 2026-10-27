@@ -217,10 +217,11 @@ test.describe("Decision cards — the surfaces", () => {
     const trade = { id: "t-plan", symbol: SYM, status: "open", quantity: CARD.cash.body.quantity, entry_price: CASH.entry.price, stop_price: CASH.stop.price,
       target_price: 1280, entry_rule: "at_once", opened_at: "2026-10-20T05:00:00+00:00", plan_ref: { plan_id: CASH.plan_id }, state: "POSITION_OPEN" };
     await setup(page, { trades: { as_of: "2026-10-19", trades: [trade], summary: null }, plans: { [CASH.plan_id]: { status: 200, body: allowed } } });
-    // Desk redesign (2026-10-27): the paper trades are on Trade Desk › Paper trades (they were on Portfolio & Risk).
-    await page.goto(`${DESK}?tab=trade&view=paper`);
-    await page.getByTestId("desk-paper-record-toggle").first().click(SLOW);
-    const card = page.getByTestId("desk-paper-card");
+    // Desk redesign step 3 (2026-10-27): the record is the Trade Desk journal drawer, and the plan opens from it.
+    await page.goto(`${DESK}?tab=trade&view=paper&sub=live`);
+    await page.getByTestId("td-positions").getByRole("row").filter({ hasText: SYM }).click(SLOW);
+    await page.getByTestId("td-journal-plan").click();
+    const card = page.getByTestId("td-journal-dc");
     await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id, SLOW);
     await expect(card.getByTestId("dc-status")).toHaveText("Open");
     await expect(card.getByTestId("dc-status-text")).toContainText("from your paper trades");

@@ -295,7 +295,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     // Open in Strategy Builder: One stock mode, with the pick's inputs and the chosen strategy in the URL
     await d.getByTestId("ck-pick-open-builder").click();
     await expect(page).toHaveURL(/tab=trade/); // was tab=more&view=strategy before the 2026-10-27 redesign
-    await expect(page).toHaveURL(/view=new/);
+    await expect(page).toHaveURL(/view=lab&sub=build/);
     await expect(page).toHaveURL(/mode=stock/);
     await expect(page).toHaveURL(/sym=ZEDCO/);
     await expect(page).toHaveURL(/src_kind=chartink_picks/);

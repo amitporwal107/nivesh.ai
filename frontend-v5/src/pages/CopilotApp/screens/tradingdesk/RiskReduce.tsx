@@ -14,8 +14,10 @@ import { riskReduceOf } from "./desk-trading";
 
 const quiet: CSSProperties = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" };
 
-export function RiskReduceOffer({ error, onAccept, testId }: {
+export function RiskReduceOffer({ error, onAccept, testId, label }: {
   error: unknown;
+  /** The button's words for the approved size; default "Paper trade N shares instead". */
+  label?: (quantity: number) => string;
   /** Called with the approved share count; the caller resubmits its last body with that quantity. While that request
    *  is in flight the mutation is no longer in error, so this offer is gone and cannot be pressed twice. */
   onAccept: (quantity: number) => void;
@@ -28,7 +30,7 @@ export function RiskReduceOffer({ error, onAccept, testId }: {
   return (
     <span data-testid={testId} data-approved={qty} className="flex min-w-0 flex-wrap items-center" style={{ gap: 8 }}>
       <Btn variant="primary" data-testid={`${testId}-accept`} onClick={() => onAccept(qty)} style={{ padding: "5px 12px", fontSize: 12 }}>
-        Paper trade {shares} instead
+        {label ? label(qty) : `Paper trade ${shares} instead`}
       </Btn>
       <span data-testid={`${testId}-note`} style={quiet}>
         Same entry, stop and target{r?.approvedNotionalRs != null ? `; ${fmtINR(r.approvedNotionalRs)} at the planned entry` : ""}. The risk policy checks it again. Simulated; nothing is sent to a broker.

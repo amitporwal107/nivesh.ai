@@ -335,6 +335,42 @@ export function costsBreakdownText(b: CostsBreakdown | null, inr: (n: number) =>
   return known.length ? known.map(([k, n]) => `${k} ${inr(n)}`).join(" · ") : null;
 }
 
+/**
+ * One lifecycle transition (backend services/trade_lifecycle.py, trade-lifecycle-v1): APPEND-ONLY on the trade, sent by the
+ * list and the detail route (`transitions`). `derived` marks an event rebuilt from the stored fields of a trade recorded
+ * before the lifecycle existed. Fill price and slippage are on the fill's own event (ENTRY_TRIGGERED → POSITION_OPEN, and
+ * the close).
+ */
+export interface Transition {
+  seq: number | null;
+  from: string | null;
+  to: string;
+  at: string | null;
+  session: string | null;
+  reason: string | null;
+  source: string | null;
+  ruleVersion: string | null;
+  fillPrice: number | null;
+  slippage: number | null;
+  exitReason: string | null;
+  quantity: number | null;
+  riskDecisionId: string | null;
+  derived: boolean;
+}
+
+export function readTransitions(v: unknown): Transition[] {
+  return (Array.isArray(v) ? v : []).flatMap((x): Transition[] => {
+    const e = rec(x);
+    const to = str(e.to);
+    if (!to) return [];
+    return [{
+      seq: num(e.seq), from: str(e.from), to, at: str(e.at), session: str(e.session), reason: str(e.reason), source: str(e.source),
+      ruleVersion: str(e.rule_version), fillPrice: num(e.fill_price), slippage: num(e.slippage), exitReason: str(e.exit_reason),
+      quantity: num(e.quantity), riskDecisionId: str(e.risk_decision_id), derived: e.derived === true,
+    }];
+  });
+}
+
 export interface PaperTrade {
   id: string;
   symbol: string;
@@ -401,6 +437,9 @@ export interface PaperTrade {
   /** The stop in force for the next session (open) or at the exit (closed); null when the route did not send it. */
   currentStop: number | null;
   stopVersion: number | null;
+  /** Phase 2.2: the lifecycle state (WAIT_FOR_CONFIRMATION … CLOSED) and its append-only transitions. */
+  state: string | null;
+  transitions: Transition[];
 }
 
 // ── strategy paper trades (kind "strategy": futures and option structures, rules desk-paper-v3) ──
@@ -543,6 +582,8 @@ export interface StrategyPaperTrade {
   markError: string | null;
   flags: StrategyFlag[];
   events: LifecycleEvent[];
+  /** The append-only lifecycle transitions (trade-lifecycle-v1). */
+  transitions: Transition[];
 }
 
 export interface PaperSummary {
@@ -661,6 +702,8 @@ function readTrade(v: unknown): PaperTrade | null {
     stopHistory: readStopHistory(t.stop_history),
     currentStop: price(t.current_stop),
     stopVersion: num(t.stop_version),
+    state: str(t.state),
+    transitions: readTransitions(t.transitions),
   };
 }
 
@@ -748,6 +791,7 @@ function readStrategyTrade(v: unknown): StrategyPaperTrade {
       const text = str(e.text);
       return type && text ? [{ type, at: str(e.at), session: str(e.session), reason: str(e.reason), text }] : [];
     }),
+    transitions: readTransitions(t.transitions),
   };
 }
 
@@ -854,6 +898,49 @@ export function useAddPaperTrade() {
       return qc.invalidateQueries({ queryKey: PAPER_KEY });
     },
     // A plan's status and its risk decision change with any submission that cites it, refused or not (decision/plan-view.ts).
+    onSettled: () => qc.invalidateQueries({ queryKey: PLAN_CACHE_KEY }),
+  });
+}
+
+/** The universal risk service's decision on a recorded entry, as the 201 sends it (`risk`, services/risk_gate/service.py
+ *  public): allow, or a reduce the submission already met. */
+export interface WriteDecision {
+  decisionId: string | null;
+  outcome: string | null;
+  requestedQty: number | null;
+  approvedQty: number | null;
+  reasons: RiskReason[];
+  policyVersion: string | null;
+  limitsVersion: string | null;
+}
+
+function readWriteDecision(v: unknown): WriteDecision | null {
+  const d = rec(v);
+  if (!Object.keys(d).length) return null;
+  return {
+    decisionId: str(d.decision_id), outcome: str(d.outcome), requestedQty: whole(d.requested_qty), approvedQty: whole(d.approved_qty),
+    reasons: orderReasons(readReasons(d.reasons)), policyVersion: str(d.policy_version), limitsVersion: str(d.limits_version),
+  };
+}
+
+/**
+ * useAddPaperTrade with the whole 2xx answer kept: the trade, the risk decision that let it in (`risk`) and whether the
+ * key was a replay of an earlier submission (200 `replayed`). Same body, same Idempotency-Key rule, same refreshes.
+ */
+export function useSubmitPaperTrade() {
+  const qc = useQueryClient();
+  const submission = useSubmissionKey();
+  return useMutation({
+    mutationFn: async (body: NewPaperTrade): Promise<{ tradeId: string | null; trade: PaperTrade | null; risk: WriteDecision | null; replayed: boolean }> => {
+      const headers = { [IDEMPOTENCY_HEADER]: submission.keyFor(body) };
+      const res = await http({ method: "POST", path: "/api/desk/paper-trades", body, headers, noRetry: true });
+      const d = rec(res.data);
+      return { tradeId: str(rec(d.trade).id), trade: readTrade(d.trade), risk: readWriteDecision(d.risk), replayed: d.replayed === true };
+    },
+    onSuccess: () => {
+      submission.done();
+      return qc.invalidateQueries({ queryKey: PAPER_KEY });
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: PLAN_CACHE_KEY }),
   });
 }
