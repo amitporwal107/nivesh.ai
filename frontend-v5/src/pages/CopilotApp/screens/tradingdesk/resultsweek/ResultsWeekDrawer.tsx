@@ -6,6 +6,8 @@
  * Past results reactions come from the Events calendar's own read (GET /api/markets/events-calendar/history,
  * useEventHistory — one request when the drawer opens). Everything else is the results-week row.
  *
+ * "Results file ›" (when the opener passes onOpenFile) hands over to the per-stock results file (ResultsFile.tsx).
+ *
  * A dialog: focus moves to Close on open, Tab stays inside, Escape or the backdrop closes it, and focus goes back to the
  * row that opened it. Missing data says "not available" / "not analysed"; nothing is shown as 0 or neutral.
  */
@@ -147,7 +149,7 @@ function PastReactions({ symbol }: { symbol: string }) {
   );
 }
 
-export function ResultsWeekDrawer({ r, onClose, mobile }: { r: RwResult; onClose: () => void; mobile: boolean }) {
+export function ResultsWeekDrawer({ r, onClose, mobile, onOpenFile }: { r: RwResult; onClose: () => void; mobile: boolean; onOpenFile?: (r: RwResult) => void }) {
   const desk = useDesk();
   const titleId = useId();
   const panel = useRef<HTMLDivElement>(null);
@@ -192,6 +194,10 @@ export function ResultsWeekDrawer({ r, onClose, mobile }: { r: RwResult; onClose
             <span style={eyebrow}>{r.symbol}{r.fno ? " · F&O" : r.fno === false ? " · non-F&O" : ""} · {STATUS_WORD[r.status]}</span>
             <h3 id={titleId} className="m-0" style={{ fontFamily: "var(--display)", fontWeight: 400, fontSize: 24, lineHeight: 1.15 }}>{r.name}</h3>
             <span style={{ ...mono, fontSize: 10, color: "var(--cp-ink-3)" }}>{[r.sector, r.periodLabel, r.eventDate ? `results ${fmtD(r.eventDate)}` : null, r.basis].filter(Boolean).join(" · ")}</span>
+            {onOpenFile && (
+              // The per-stock results file (§9b): preview, filings commentary, the cash & F&O tracker.
+              <button type="button" className="cp-chip" data-testid="results-week-drawer-file" onClick={() => onOpenFile(r)} style={{ alignSelf: "flex-start", marginTop: 4, fontSize: 12, padding: "5px 11px" }}>Results file ›</button>
+            )}
           </div>
           <button ref={closeBtn} type="button" aria-label="Close result details" data-testid="results-week-drawer-close" onClick={onClose}
             style={{ flex: "none", width: 40, height: 40, borderRadius: 10, border: "1px solid var(--line-2)", background: "transparent", color: "var(--cp-ink-2)", fontSize: 14, cursor: "pointer" }}>✕</button>

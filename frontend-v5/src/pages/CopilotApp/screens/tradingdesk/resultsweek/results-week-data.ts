@@ -26,15 +26,16 @@ import { parseResultsSignal, type ResultsSignal } from "../desk-data";
 
 // ── tolerant readers ─────────────────────────────────────────────────────
 
-type Raw = Record<string, unknown>;
-const isRec = (v: unknown): v is Raw => !!v && typeof v === "object" && !Array.isArray(v);
-const rec = (v: unknown): Raw => (isRec(v) ? v : {});
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
-const bool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
-const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x.trim() : str(rec(x).text) ?? str(rec(x).label) ?? str(rec(x).name) ?? str(rec(x).code) ?? "")).filter(Boolean) : []);
+/** Exported for the results file's reader (results-file-data.ts), which reads the same route family. */
+export type Raw = Record<string, unknown>;
+export const isRec = (v: unknown): v is Raw => !!v && typeof v === "object" && !Array.isArray(v);
+export const rec = (v: unknown): Raw => (isRec(v) ? v : {});
+export const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+export const str = (v: unknown): string | null => (typeof v === "string" && v.trim() !== "" ? v.trim() : null);
+export const bool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+export const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x.trim() : str(rec(x).text) ?? str(rec(x).label) ?? str(rec(x).name) ?? str(rec(x).code) ?? "")).filter(Boolean) : []);
 /** The first path that holds a value: "a.b" walks objects. */
-function at(o: unknown, paths: string[]): unknown {
+export function at(o: unknown, paths: string[]): unknown {
   for (const p of paths) {
     let cur: unknown = o;
     for (const k of p.split(".")) cur = isRec(cur) ? cur[k] : undefined;
@@ -42,12 +43,12 @@ function at(o: unknown, paths: string[]): unknown {
   }
   return undefined;
 }
-const numAt = (o: unknown, paths: string[]) => {
+export const numAt = (o: unknown, paths: string[]) => {
   const v = at(o, paths);
   return num(v) ?? num(rec(v).value) ?? num(rec(v).avg);
 };
-const strAt = (o: unknown, paths: string[]) => str(at(o, paths));
-const day = (v: unknown): string | null => { const s = str(v); return s ? s.slice(0, 10) : null; };
+export const strAt = (o: unknown, paths: string[]) => str(at(o, paths));
+export const day = (v: unknown): string | null => { const s = str(v); return s ? s.slice(0, 10) : null; };
 
 // ── view model ───────────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ export interface RwOutlook {
   summary: string | null;
   label: string | null;
 }
-export interface RwQuality { flags: string[]; notChecked: string[]; checked: string[] }
+export interface RwQuality { flags: string[]; notChecked: string[]; checked: string[]; /** The 0–100 component; null when not sent. */ score: number | null }
 export interface RwReaction { excess: number | null; stock: number | null; nifty: number | null; session: string | null; volumeX: number | null; note: string | null }
 /** One futures expiry (near / next / far) in the coming-months view. */
 export interface RwFnoLeg { leg: string; expiry: string | null; pricePct: number | null; oiPct: number | null; basisPct: number | null; state: string | null }
@@ -108,6 +109,22 @@ export interface RwBuildup {
   rollover: RwRollover | null;
   options: RwOptions | null;
 }
+/**
+ * A futures position (§9a Snap; backend services/results_week/track.py). `before` is one session's own change (`span`
+ * "1 session"); `after` is the change from the close of `since` to the close of `date` (spot and total OI). When that
+ * window spans a monthly expiry, `oiComparable` is false, `state` is null and `text` is the rollover reading against the
+ * stock's own past expiries ("rollover 79.8 % vs its usual 86.0 % (lower than usual)") with `note` saying why: never
+ * read as build-up or unwinding. Percent points.
+ */
+export interface RwSnap {
+  date: string | null; state: string | null; text: string | null; pricePct: number | null; oiPct: number | null;
+  since: string | null; span: string | null; note: string | null;
+  /** false = the window spans a monthly expiry (OI not comparable); null = not said (a one-session snap). */
+  oiComparable: boolean | null;
+  carryVsUsualPp: number | null;
+}
+/** §9a: the session before the first reaction session (`before`) vs the latest loaded one (`after`). */
+export interface RwFnoTrack { before: RwSnap | null; after: RwSnap | null }
 export interface RwTechnical { stage: string | null; score: number | null; setup: string | null; trend: string | null; note: string | null }
 export interface RwPast { n: number | null; twoSession: number | null; eventDay: number | null; d1: number | null; w1: number | null }
 export interface RwResult {
@@ -130,6 +147,9 @@ export interface RwResult {
   quality: RwQuality | null;
   reaction: RwReaction | null;
   buildup: RwBuildup | null;
+  /** §9a F&O before → after. null = the route sent null (a non-F&O row, or nothing built); undefined = an older route
+   *  without the field (the screen hides the part). */
+  fnoTrack?: RwFnoTrack | null;
   technical: RwTechnical | null;
   chartink: { scans: string[]; scanDate: string | null } | null;
   past: RwPast | null;
@@ -260,7 +280,7 @@ function readOutlook(v: unknown): RwOutlook | null {
 
 function readQuality(v: unknown): RwQuality | null {
   if (!isRec(v)) return null;
-  const q: RwQuality = { flags: strs(v.flags), notChecked: strs(v.not_checked).map((x) => x.replace(/_/g, " ")), checked: strs(v.checked) };
+  const q: RwQuality = { flags: strs(v.flags), notChecked: strs(v.not_checked).map((x) => x.replace(/_/g, " ")), checked: strs(v.checked), score: num(v.value) };
   // Nothing checked and no flag (e.g. results not declared yet): not a clean bill, just not checked.
   if (!q.flags.length && !q.checked.length && num(v.value) == null) return null;
   return q;
@@ -333,6 +353,31 @@ function readBuildup(v: unknown): RwBuildup | null {
   return b.state == null && b.oiChange == null && !b.legs && !b.rollover && !b.options ? null : b;
 }
 
+/** A §9a Snap; null when it is not one or carries nothing. Exported for the results file (preview.positioning, track). */
+export function readSnap(v: unknown): RwSnap | null {
+  if (!isRec(v)) return null;
+  const oiComparable = bool(v.oi_comparable);
+  const s: RwSnap = {
+    date: day(at(v, ["date", "as_of"])),
+    // Not comparable across an expiry: no state is read from it, whatever the field holds.
+    state: oiComparable === false ? null : strAt(v, ["state"]),
+    text: strAt(v, ["text"]),
+    pricePct: numAt(v, ["price_pct", "price_chg_pct"]),
+    oiPct: numAt(v, ["oi_pct", "oi_chg_pct"]),
+    since: day(v.since),
+    span: str(v.span),
+    note: str(v.note),
+    oiComparable,
+    carryVsUsualPp: num(v.carry_vs_usual_pp),
+  };
+  return s.state == null && s.text == null && s.pricePct == null && s.oiPct == null ? null : s;
+}
+function readFnoTrack(v: unknown): RwFnoTrack | null {
+  if (!isRec(v)) return null;
+  const t = { before: readSnap(v.before), after: readSnap(v.after) };
+  return t.before == null && t.after == null ? null : t;
+}
+
 function readTechnical(v: unknown): RwTechnical | null {
   if (!isRec(v)) return null;
   const t: RwTechnical = {
@@ -358,13 +403,14 @@ function readPast(row: Raw): RwPast | null {
   return p.eventDay == null && p.d1 == null && p.w1 == null && p.twoSession == null ? null : p;
 }
 
-const safeUrl = (u: unknown): string | null => {
+export const safeUrl = (u: unknown): string | null => {
   const s = str(u);
   if (!s) return null;
   try { const x = new URL(s); return x.protocol === "http:" || x.protocol === "https:" ? x.toString() : null; } catch { return null; }
 };
 
-function readResult(row: Raw, i: number): RwResult | null {
+/** One results-week row; exported for the results file's `row` (GET /api/desk/results-week/stock/{symbol}). */
+export function readResult(row: Raw, i: number): RwResult | null {
   const symbol = str(row.symbol);
   if (!symbol) return null;
   const v = rec(row.verdict);
@@ -391,6 +437,7 @@ function readResult(row: Raw, i: number): RwResult | null {
     quality: readQuality(comp.quality),
     reaction: readReaction(row.reaction),
     buildup: readBuildup(row.fno_buildup),
+    fnoTrack: "fno_track" in row ? readFnoTrack(row.fno_track) : undefined,
     technical: readTechnical(row.technical),
     chartink: isRec(ck) ? { scans: strs(ck.scans), scanDate: day(ck.scan_date) } : null,
     past: readPast(row),
