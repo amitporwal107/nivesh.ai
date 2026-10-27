@@ -343,8 +343,10 @@ async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> D
                   "weights": {"declared": sc.DECLARED_WEIGHTS, "upcoming": sc.UPCOMING_WEIGHTS},
                   "left_out": {"fno": fno_ideas["left_out"], "all": all_ideas["left_out"]},
                   "rule": "declared: filed in the last 3 sessions; upcoming: meeting on the date or in the next 5 sessions; "
-                          "All list has no OI part (its weight spread pro rata); Chartink hits are shown, never scored; "
-                          "ties: higher earnings score, then symbol"},
+                          "the OI part reads total futures OI across every expiry; in the 5 sessions up to and including a "
+                          "monthly expiry, short covering and long unwinding score as no clear signal (expiry week: open "
+                          "interest falls as contracts close); All list has no OI part (its weight spread pro rata); "
+                          "Chartink hits are shown, never scored; ties: higher earnings score, then symbol"},
         "rules": {"max_half_width": sc.MAX_HALF_WIDTH, "surprise_weights": sc.SURPRISE_WEIGHTS,
                   "composite_weights": sc.COMPOSITE_WEIGHTS, "bands": {"above": 70, "in_line": 45, "below": 0},
                   "status": "provisional, not validated (docs/EARNINGS_SURPRISE_TRACKER.md §4, §7)"},

@@ -35,6 +35,7 @@ import asyncio
 import json
 import logging
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -135,6 +136,7 @@ async def run(day: date, *, skip_if_done: bool, dry_run: bool, show: List[str], 
         return 2
     if day == today:
         await refresh_chartink(dry_run)
+    t0 = time.monotonic()
     try:
         body = await rw_build.build_day(day, now=datetime.now(timezone.utc), live=live)
     except loaders.SourceUnavailable as e:
@@ -143,6 +145,7 @@ async def run(day: date, *, skip_if_done: bool, dry_run: bool, show: List[str], 
     except Exception as e:  # noqa: BLE001
         log.error("build failed: %s: %s", type(e).__name__, str(e)[:200])
         return 1
+    log.info("built %s in %.1f s", key, time.monotonic() - t0)
     print(json.dumps(summary(body), indent=1, default=str))
     for sym in show:
         rows = [r for r in body["results"] if r["symbol"] == sym.upper()]
@@ -182,12 +185,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         day = datetime.now(IST).date()
     show = [s.strip() for s in args.symbols.split(",") if s.strip()]
     log.info("results week: date=%s skip_if_done=%s dry_run=%s", day, args.skip_if_done, args.dry_run)
-    if args.signals:
-        asyncio.run(print_signals())
     if args.live and not args.dry_run:
         log.error("--live is for --dry-run only: a stored day is always built from its own F&O day")
         return 1
-    return asyncio.run(run(day, skip_if_done=args.skip_if_done, dry_run=args.dry_run, show=show, live=args.live))
+
+    async def both() -> int:                # one event loop: the Mongo client is bound to the loop that first used it
+        if args.signals:
+            await print_signals()
+        return await run(day, skip_if_done=args.skip_if_done, dry_run=args.dry_run, show=show, live=args.live)
+    return asyncio.run(both())
 
 
 async def print_signals(now: Optional[datetime] = None) -> None:
@@ -195,15 +201,20 @@ async def print_signals(now: Optional[datetime] = None) -> None:
     from services.results_week import signal as rs
 
     now = now or datetime.now(timezone.utc)
+    t0 = time.monotonic()
     try:
         sigs, gaps = await rs.compute(now)
     except Exception as e:  # noqa: BLE001
         log.error("results signal unavailable: %s: %s", type(e).__name__, e)
         return
     rows = sorted(sigs.items(), key=lambda kv: (-kv[1]["points"], kv[0]))
-    print(json.dumps({"results_signal_as_of": now.isoformat(), "rule": rs.RULE_TEXT, "gaps": gaps,
-                      "strong": [f"{k} {v['points']:+.1f} [{v['basis']}, session {v['sessions_since']}] · {' · '.join(v['reasons'])}" for k, v in rows if v["strength"] == "strong"],
-                      "weak": [f"{k} {v['points']:+.1f} [{v['basis']}, session {v['sessions_since']}] · {' · '.join(v['reasons'])}" for k, v in rows if v["strength"] == "weak"]},
+
+    def line(k: str, v: Dict[str, Any]) -> str:
+        filed = datetime.fromisoformat(v["filed_at"]).astimezone(IST).strftime("%d %b %H:%M IST")
+        return f"{k} {v['points']:+.1f} [{v['basis']}, filed {filed}, session {v['sessions_since']}] · {' · '.join(v['reasons'])}"
+    print(json.dumps({"results_signal_as_of": now.isoformat(), "seconds": round(time.monotonic() - t0, 1), "rule": rs.RULE_TEXT, "gaps": gaps,
+                      "strong": [line(k, v) for k, v in rows if v["strength"] == "strong"],
+                      "weak": [line(k, v) for k, v in rows if v["strength"] == "weak"]},
                      indent=1, default=str))
 
 

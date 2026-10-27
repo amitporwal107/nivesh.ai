@@ -78,6 +78,13 @@ FNO_MIN_PRICE_PCT = 0.5
 FNO_MIN_OI_PCT = 2.0
 FNO_TOTAL_SESSIONS = (1, 3)        # the total block's look-backs, in sessions
 ROLLOVER_WINDOW_SESSIONS = 5       # rollover is read in the 5 sessions before a monthly expiry (and on expiry day)
+# Expiry week (coordinator, 27 Oct): in the 5 sessions up to and including a monthly expiry, total futures OI falls
+# routinely as contracts are closed instead of rolled, so falling OI is not evidence of short covering or long
+# unwinding there. Those two states keep their text, gain EXPIRY_NOTE and score as no clear signal (50) in the ideas;
+# long and short build-up (OI rising) keep their scores. The expiry is read from the data (the scan row's near_expiry).
+EXPIRY_WINDOW_SESSIONS = 5
+EXPIRY_NOTE = "expiry week: open interest falls as contracts close"
+OI_FALLING_STATES = ("short_covering", "long_unwinding")
 ROLLOVER_PAST_EXPIRIES = 5         # … against the stock's own last 5 expiries, the same number of sessions before each
 OPTIONS_SKIP_EXPIRY_DAYS = 7       # options: the first expiry more than 7 calendar days after the date (DaaS's expiry-week flag)
 OPTIONS_TOP_STRIKES = 3
@@ -624,6 +631,19 @@ def rollover_block(rows: Sequence[Dict[str, Any]], day: date, sessions: Sequence
                      f"{n} session(s) before each"}
 
 
+def sessions_to_expiry(day: Optional[date], expiry: Any, sessions: Sequence[date]) -> Optional[int]:
+    """Sessions after `day` up to and including the expiry (0 on expiry day). None when either is unknown or past."""
+    if day is None or not expiry:
+        return None
+    try:
+        e = date.fromisoformat(str(expiry)[:10])
+    except ValueError:
+        return None
+    if e < day:
+        return None
+    return sum(1 for s in sessions if day < s <= e)
+
+
 def options_expiry(rows: Sequence[Dict[str, Any]], day: date) -> Optional[str]:
     """The expiry the options block reads: the first futures expiry more than OPTIONS_SKIP_EXPIRY_DAYS after the date
     (a contract in its expiry week is distorted), read from the day's own rows, never computed."""
@@ -687,8 +707,14 @@ def fno_block(is_fno: bool, *, as_of: Optional[str], scan_row: Optional[Dict[str
     if total is None and not legs:
         return None, gaps
     state = (total or {}).get("state")
-    out = {"as_of": as_of, "state": state, "text": BUILDUP_TEXT.get(state) if state else None,
-           "signal": BUILDUP_SIGNAL.get(state) if state else None, "score": BUILDUP_SCORE.get(state) if state else None,
+    n_exp = sessions_to_expiry(day, (scan_row or {}).get("near_expiry") or (legs[0]["expiry"] if legs else None), sessions)
+    in_window = n_exp is not None and n_exp < EXPIRY_WINDOW_SESSIONS
+    damped = in_window and state in OI_FALLING_STATES
+    text = BUILDUP_TEXT.get(state) if state else None
+    out = {"as_of": as_of, "state": state, "text": f"{text} ({EXPIRY_NOTE})" if damped else text,
+           "signal": "neutral" if damped else (BUILDUP_SIGNAL.get(state) if state else None),
+           "score": BUILDUP_SCORE[NO_CLEAR] if damped else (BUILDUP_SCORE.get(state) if state else None),
+           "expiry_window": in_window, "sessions_to_expiry": n_exp, "note": EXPIRY_NOTE if damped else None,
            "total": total, "by_expiry": legs, "rollover": roll, "options_next_expiry": opts,
            "scan": {k: (scan_row or {}).get(k) for k in ("label", "price_chg_pct", "oi_chg_pct", "cash_confirmation", "risk_flags",
                                                          "fut_turnover_cr", "near_expiry")} if scan_row else None}
