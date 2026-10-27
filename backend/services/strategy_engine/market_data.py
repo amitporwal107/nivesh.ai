@@ -17,22 +17,44 @@ This module abstracts that behind `MarketDataProvider` with two backends:
 `get_provider()` picks the backend from `STRATEGY_MARKET_DATA` (sql|daas),
 defaulting to daas when the DaaS client is configured, else sql.
 
+Universes and their survivorship status (recorded as basis["universe_basis"]):
+  • market / LIQUID_EQ — `point_in_time`: each date's members are computed from that date's
+    prices and the 30 sessions before it (liquid_universe.py, liquid-eq-v1), so stocks later
+    delisted are in the universe while they traded. Both backends use the same pure rule.
+  • index on DaaS — `latest_snapshot`: the newest constituent snapshot applied to every date
+    (survivorship bias); basis["universe_warning"] says so and the UI shows it. No historical
+    constituents are invented (docs/ai_research/P4_POINT_IN_TIME_UNIVERSE.md).
+  • custom — `custom_universe`: the user's own list, as saved.
+
 Both backends expose the same async surface; R1's semantics (adjusted-price
 entries/exits, point-in-time membership) are preserved by both.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from abc import ABC, abstractmethod
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from .compiler_stock import compile_stock_query, to_asyncpg, _PIT_INDEX_NAME
 from . import evaluator as _ev
+from . import liquid_universe as _lu
 from .backtest_sql import EXIT_BARS_SQL  # shared SQL constant (avoids import cycle)
 
 logger = logging.getLogger(__name__)
+
+SURVIVORSHIP_WARNING = (
+    "Survivorship bias: this index universe uses the latest constituent snapshot for every date in the window, so stocks "
+    "that left the index (including any later delisted) are missing and past results look better than they were. "
+    f"Use \"{_lu.LABEL}\" for a survivorship-free run.")
+_EOD_CONCURRENCY = 8      # parallel one-session price reads for the liquid universe (DaaS)
+
+
+def _market_universe(spec: Dict[str, Any]) -> bool:
+    uni = spec.get("universe") or {}
+    return uni.get("type") == "market" and str(uni.get("ref", "")).upper() == _lu.REF
 
 
 def _iso(d: Any) -> str:
@@ -69,7 +91,8 @@ class SqlMarketDataProvider(MarketDataProvider):
         self._pool = pool
         self._sql_pg: Optional[str] = None
         self._base_args: List[Any] = []
-        self.basis: Dict[str, str] = {"price_basis": "corp_action_adjusted",
+        self._members: Optional[Dict[str, Set[str]]] = None    # market universe: iso date -> members
+        self.basis: Dict[str, Any] = {"price_basis": "corp_action_adjusted",
                                       "universe_basis": "unknown"}
 
     async def _use_point_in_time(self, spec: Dict[str, Any]) -> bool:
@@ -89,13 +112,38 @@ class SqlMarketDataProvider(MarketDataProvider):
                            "legacy present-day membership (survivorship bias)", index_name)
         return bool(row)
 
+    async def _prepare_market(self, from_date: date, to_date: date) -> None:
+        async with self._pool.acquire() as conn:
+            cal = await conn.fetch(
+                "SELECT DISTINCT as_of_date FROM nidp.stock_features_daily WHERE as_of_date <= $1 ORDER BY as_of_date",
+                to_date)
+            read, window = _lu.calendar_with_lookback([r["as_of_date"] for r in cal], from_date, to_date)
+            rows = await conn.fetch(
+                "SELECT as_of_date, symbol, series, close_price, volume FROM nidp.prices_eod "
+                "WHERE as_of_date = ANY($1::date[]) AND series = 'EQ'", read) if read else []
+        by_day: Dict[date, List[Dict[str, Any]]] = {}
+        for r in rows:
+            by_day.setdefault(r["as_of_date"], []).append(dict(r))
+        members, report = _lu.membership(read, by_day, window)
+        self._members = {_iso(d): m for d, m in members.items()}
+        self.basis.update(universe_basis="point_in_time", universe_rule=_lu.rule(), universe_report=report)
+
     async def prepare(self, spec, from_date, to_date) -> None:
-        pit = await self._use_point_in_time(spec)
-        self.basis["universe_basis"] = "point_in_time" if pit else "present_day_fallback"
+        if _market_universe(spec):
+            await self._prepare_market(from_date, to_date)
+            pit = False
+        else:
+            pit = await self._use_point_in_time(spec)
+            self.basis["universe_basis"] = "point_in_time" if pit else "present_day_fallback"
+            if not pit:
+                self.basis["universe_warning"] = SURVIVORSHIP_WARNING
         sql, params = compile_stock_query(spec, point_in_time_universe=pit)
         sql_pg, base_args = to_asyncpg(sql, params)
         next_slot = len(base_args) + 1
-        self._sql_pg = sql_pg.replace(":as_of_date", f"${next_slot}")
+        sql_pg = sql_pg.replace(":as_of_date", f"${next_slot}")
+        if self._members is not None:
+            sql_pg = sql_pg.replace(":universe_members", f"${next_slot + 1}")
+        self._sql_pg = sql_pg
         self._base_args = base_args
 
     async def trading_dates(self, from_date, to_date) -> List[date]:
@@ -116,8 +164,9 @@ class SqlMarketDataProvider(MarketDataProvider):
     async def screen(self, spec, as_of) -> List[Dict[str, Any]]:
         if self._sql_pg is None:
             await self.prepare(spec, as_of, as_of)
+        extra = [] if self._members is None else [sorted(self._members.get(_iso(as_of), set()))]
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(self._sql_pg, *self._base_args, as_of)
+            rows = await conn.fetch(self._sql_pg, *self._base_args, as_of, *extra)
         return [dict(r) for r in rows]
 
     async def exit_bars(self, symbols, as_of) -> Dict[str, Dict[str, Any]]:
@@ -135,7 +184,8 @@ class DaasMarketDataProvider(MarketDataProvider):
         self._feat: Dict[str, Dict[str, Dict[str, Any]]] = {}   # symbol -> {iso_date: row}
         self._adj: Dict[str, Dict[str, Dict[str, Any]]] = {}    # symbol -> {iso_date: row}
         self._snapshots: List[tuple] = []                       # [(snapshot_date, set(symbols))] asc
-        self.basis: Dict[str, str] = {"price_basis": "corp_action_adjusted",
+        self._members: Optional[Dict[str, Set[str]]] = None     # market universe: iso date -> members
+        self.basis: Dict[str, Any] = {"price_basis": "corp_action_adjusted",
                                       "universe_basis": "unknown"}
 
     # -- universe resolution --
@@ -185,6 +235,9 @@ class DaasMarketDataProvider(MarketDataProvider):
             self._snapshots.append((from_date, set(syms)))
             symbols.update(syms)
             self.basis["universe_basis"] = "latest_snapshot"
+            self.basis["universe_warning"] = SURVIVORSHIP_WARNING
+        elif _market_universe(spec):
+            symbols.update(await self._prepare_market(dc, from_date, to_date))
         elif uni.get("type") == "custom":
             syms = await self._custom_symbols(str(uni.get("ref", "")))
             self._snapshots.append((from_date, set(syms)))
@@ -208,9 +261,28 @@ class DaasMarketDataProvider(MarketDataProvider):
             for sym, rows in adj.items():
                 self._adj[sym] = {_iso(r["as_of_date"]): r for r in rows}
 
+    async def _prepare_market(self, dc, from_date: date, to_date: date) -> Set[str]:
+        """The liquid universe's members per window date, from one bhavcopy read per session (the window plus the 29
+        sessions before it). Returns the union, the only symbols whose features and bars are then fetched. A failed read
+        raises: a backtest never runs on a silently thinner universe."""
+        all_sessions = [date.fromisoformat(x) for x in await dc.get_trading_calendar(None, _iso(to_date))]
+        read, window = _lu.calendar_with_lookback(all_sessions, from_date, to_date)
+        sem = asyncio.Semaphore(_EOD_CONCURRENCY)
+
+        async def one(d: date):
+            async with sem:
+                return d, await dc.get_prices_eod_on(_iso(d), series=_lu.SERIES)
+        pairs = await asyncio.gather(*(one(d) for d in read))
+        members, report = _lu.membership(read, dict(pairs), window)
+        self._members = {_iso(d): m for d, m in members.items()}
+        self.basis.update(universe_basis="point_in_time", universe_rule=_lu.rule(), universe_report=report)
+        return set().union(*members.values()) if members else set()
+
     def _membership(self, as_of: date) -> set:
-        """Symbols in the universe as of `as_of` — most recent snapshot <= as_of
-        (point-in-time). Falls back to the earliest snapshot if as_of precedes all."""
+        """Symbols in the universe as of `as_of` — the date's own members for a market universe; otherwise the most
+        recent snapshot <= as_of. Falls back to the earliest snapshot if as_of precedes all."""
+        if self._members is not None:
+            return self._members.get(_iso(as_of), set())
         chosen: Optional[set] = None
         for snap_date, syms in self._snapshots:
             if snap_date <= as_of:
