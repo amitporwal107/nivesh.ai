@@ -5,7 +5,8 @@
 consensus is held).
 
 ## 0. Why (owner, 27 Oct 2026, IST)
-- ~17:20: ten stocks with strong Q2 results on 26 Oct (MANKIND, APLAPOLLO, SONACOMS, ATHERENERG, TATACONSUM, …) jumped on
+From ~17:20 IST, in this order:
+- ten stocks with strong Q2 results on 26 Oct (MANKIND, APLAPOLLO, SONACOMS, ATHERENERG, TATACONSUM, …) jumped on
   27 Oct; none was in the AI Scanner. Findings (staging, read-only):
   - the scanner's score is price-only (trend 25 %, structure 20 %, accumulation 20 %, momentum 15 %, sector 10 %, risk 10 %);
     no results, filings or OI input. 9 of the 10 were below their 50-day average before results;
@@ -14,22 +15,22 @@ consensus is held).
     and the warehouse held their Q2 figures by ~20:32 IST: the evidence was there the night before; nothing used it;
   - the main scanner's Chartink step has no scans configured (0 hits ever). The owner's dashboard 247498 is imported in
     the desk's Chartink section (`desk_chartink_sources`) but runs only on a manual Refresh (20, 21, 27 Oct).
-- ~17:45 "create a watchlist for this week's results … technical and fundamental analysis and OI build-up … rank them …
+- "create a watchlist for this week's results … technical and fundamental analysis and OI build-up … rank them …
   early signals of positive movement … put it in our scanner".
-- ~17:55 "a market update dashboard with this week's results … did they beat expectations or not".
-- ~18:00 "also capture the core market data and macro events".
-- ~18:05 the owner's framework: build an **Earnings Surprise + Management Guidance Tracker**, then validate whether its
+- "a market update dashboard with this week's results … did they beat expectations or not".
+- "also capture the core market data and macro events".
+- the owner's framework: build an **Earnings Surprise + Management Guidance Tracker**, then validate whether its
   verdicts explain post-results stock performance; keep the verdict separate from any price prediction; where no reliable
   consensus exists show "Above / In line / Below **historical trend**".
 
 ## 1. Owner decisions
 | When | Decision |
 |---|---|
-| 17:50 | The ranked list goes on screen now, labelled **not yet tested**; a pre-registered validation runs alongside, and weights change only by its written rule. |
-| 17:50 | **Two lists:** F&O names (with OI and option chain) and all results names (technicals + fundamentals only). |
-| 17:50 | **Chartink dashboard 247498: confirmation column only.** Run its scans nightly; show which scans each stock hit; scores do not change. Fix the main scanner so Chartink hits are ADDED to its universe instead of replacing it. |
-| 18:05 | Build it as the Earnings Surprise + Guidance Tracker (framework above). |
-| defaults taken (owner rejected the question and asked to proceed) | Expectation = our **historical-trend baseline**; a consensus source is investigated separately. Placement = desk **Events tab** (dashboard) + **Scanner tab** (ranked list); both move with the desk redesign (`docs/desk_redesign_20261027/PLAN.md`: Market Desk › Market Intelligence and Market Overview › Top AI ideas). |
+| 27 Oct (evening) | The ranked list goes on screen now, labelled **not yet tested**; a pre-registered validation runs alongside, and weights change only by its written rule. |
+| 27 Oct (evening) | **Two lists:** F&O names (with OI and option chain) and all results names (technicals + fundamentals only). |
+| 27 Oct (evening) | **Chartink dashboard 247498: confirmation column only.** Run its scans nightly; show which scans each stock hit; scores do not change. Fix the main scanner so Chartink hits are ADDED to its universe instead of replacing it. |
+| 27 Oct (evening) | Build it as the Earnings Surprise + Guidance Tracker (framework above). |
+| 27 Oct (evening) | Defaults taken (the owner rejected the question and asked to proceed): expectation = our **historical-trend baseline**; a consensus source is investigated separately. Placement = desk **Events tab** (dashboard) + **Scanner tab** (ranked list); both move with the desk redesign (`docs/desk_redesign_20261027/PLAN.md`: Market Desk › Market Intelligence and Market Overview › Top AI ideas). |
 
 ## 2. Phases
 - **P1 (now):** surprise engine vs historical trend, operating trend, filing-analysis outlook, earnings-quality flags, market
