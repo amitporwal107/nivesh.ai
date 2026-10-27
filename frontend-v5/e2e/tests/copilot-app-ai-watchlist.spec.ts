@@ -206,7 +206,7 @@ test.describe("AI scanner watchlist", () => {
     expect([params(page).get("tab"), params(page).get("sym")]).toEqual(["market", "ICICIBANK"]); // the Chart tab is Market Desk › Stock Research since 2026-10-27
     await page.goBack();
     await page.getByTestId("aiw-cash-ICICIBANK").getByTestId("aiw-cash-chain").click(SLOW);
-    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["fno", "chain", "ICICIBANK"]);
+    expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["market", "chain", "ICICIBANK"]); // the lab is Smart Money's F&O section since 2026-10-27
   });
 
   test("F-6 an F&O idea: legs, net Greeks and the underlying's OI build-up; payoff only once asked; paper trade as a strategy", async ({ page }) => {
