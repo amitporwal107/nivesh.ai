@@ -30,6 +30,7 @@ import {
   type DeskAlert, type EntryRule, type EntryStatus, type ExitReason, type PaperTrade, type StrategyExitReason, type StrategyPaperTrade,
 } from "./desk-trading";
 import { RollAction } from "./RollAction";
+import { DecisionCardById } from "./decision/DecisionCard";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${fmtNum(n)} ${n === 1 ? one : many}`;
 
@@ -211,6 +212,12 @@ function TradeRecord({ t, book, investor }: { t: PaperTrade; book: { entryRules:
           </div>
         ))}
       </dl>
+      {t.tradePlanId && (
+        <div data-testid="desk-paper-record-plan" className="flex flex-col" style={{ gap: 4 }}>
+          <span className="cp-eyebrow">The trade plan it records</span>
+          <DecisionCardById planId={t.tradePlanId} testId="desk-paper-card" />
+        </div>
+      )}
       <div data-testid="desk-paper-record-flags" className="flex flex-col" style={{ gap: 4 }}>
         <span className="cp-eyebrow">Rule violations or missing data</span>
         {t.flags.length === 0 ? (
@@ -323,6 +330,12 @@ function StrategyRecord({ t, investor }: { t: StrategyPaperTrade; investor: bool
         </dl>
         {t.entryRecordIntact === false && <span data-testid="desk-paper-record-tampered" role="alert" style={{ fontSize: 12, color: "var(--cp-danger)" }}>The stored legs or signal no longer match what was saved at entry. Treat this record as unreliable.</span>}
       </div>
+      {t.tradePlanId && (
+        <div data-testid="desk-paper-record-plan" className="flex flex-col" style={{ gap: 4 }}>
+          <span className="cp-eyebrow">The trade plan it records</span>
+          <DecisionCardById planId={t.tradePlanId} testId="desk-paper-card" />
+        </div>
+      )}
       <div data-testid="desk-paper-strategy-events" className="flex flex-col" style={{ gap: 4 }}>
         <span className="cp-eyebrow">{w.lifecycle}</span>
         <ol className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 18 }}>

@@ -1,8 +1,8 @@
 """The AI scanner's run record, and the basis it publishes with its results.
 
 Run record (owner decision 2026-10-27: failures visible and alertable). One document per scanner run in Mongo
-`job_runs`, in the shape of the scheduled-job heartbeat that services/job_runs.py adds on fix/paper-exit-job-reconcile
-(not imported: that branch is unmerged; once merged, its admin route can read these records by job name):
+`job_runs`, in the shape of the scheduled-job heartbeat of services/job_runs.py, which reads these records by job name
+(job_runs.SCHEDULES["positional_engine"]; admin route GET /api/admin/risk/jobs/positional_engine):
 
     {_id: run_id, job: "positional_engine", started_at, finished_at, status, exit_code, session, counts, error,
      dry_run, calendar_ready, calendar_missing_year}

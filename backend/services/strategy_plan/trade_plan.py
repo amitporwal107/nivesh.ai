@@ -22,10 +22,21 @@ level a second time: the AI scanner is the SETUP SOURCE (trigger, stop and how t
     eligibility  {eligible, paper_eligible, state, reasons}; `state` is the plan's PROPOSED lifecycle state
     lifecycle    {status: "proposed"}; the status a reader sees is DERIVED from the linked trades
                  (routes/desk_trading GET /api/desk/trade-plans/{plan_id}, trade_lifecycle.plan_status)
+    evidence     (v1.1, Phase 3 decision cards) {items: [{key, label, status ok | unavailable, direction, text, as_of,
+                 source}]} for regime, trend, relative_strength, momentum, volume, structure, in that order: the plan
+                 builder's evidence ledger, or for an F&O board idea the board's measured regime and fit factors
+    warnings     (v1.1) [{key, label, status flagged | clear | unavailable | at_entry, text}] for event, liquidity,
+                 concentration, correlation. Concentration depends on the account, so it is `at_entry` (the account's
+                 risk decision, Phase 1) and never stored here: a plan id must not differ between users
+    costs.gap_risk  the gap and slippage sentence for the plan's segment
 
 Store: Mongo `trade_plans`, `_id = plan_id`, insert-once. A plan with new content but the same lineage (instrument,
-segment, family, direction and setup day) is stored as the next VERSION with `supersedes` and a `revalidation`
-record; a version that fails revalidation is stored not eligible, so it can be read but not traded.
+segment, family, direction, setup day and SIZING INPUTS) is stored as the next VERSION with `supersedes` and a
+`revalidation` record; a version that fails revalidation is stored not eligible, so it can be read but not traded.
+`sizing_inputs` (the capital, risk budget, risk %, allocation cap and cost settings the plan was sized with; null for a
+plan sized by no input: a board idea or a roll) is part of both the content and the lineage, so a plan the Builder sized
+with your capital and the same setup unsized on a board are separate lineages, never "a newer version" of each other.
+The size a card SHOWS is neither: it is the risk service's sizing for the signed-in account (risk_gate/plan_sizing.py).
 
 Ideas, not recommendations; nothing here is sent to a broker.
 """
@@ -40,7 +51,9 @@ from services import trade_lifecycle as lc
 logger = logging.getLogger(__name__)
 
 SCHEMA = "trade-plan-v1"
-RULES_VERSION = "trade-plan-v1 (2026-10-27)"
+# v1.1: the plan also carries its evidence, warnings and gap risk (the decision card renders them; nothing is computed in
+# the browser). The content changed, so the ids changed: a plan of v1 in the same lineage is superseded, not edited.
+RULES_VERSION = "trade-plan-v1.1 (2026-10-27)"
 COLLECTION = "trade_plans"
 DESK_ENTRY_RULE = {"at_close": "at_once", "stop_trigger": "break_above", "limit_pullback": "pullback_to", "at_premium": "at_once"}
 ORDER_TEXT = {
@@ -51,6 +64,7 @@ ORDER_TEXT = {
 }
 DEFAULT_ENTRY_WINDOW = 5          # sessions a conditional entry waits (services/desk_trading.DEFAULT_ENTRY_WINDOW)
 STOP_METHODS = ("structural", "atr", "capital", "premium", "underlying", "unknown")
+SIZING_INPUT_KEYS = ("capital", "risk_budget_inr", "risk_pct", "max_allocation_pct", "costs")
 NOT_HASHED = ("plan_id", "_id", "created_at", "version", "supersedes", "revalidation", "owners", "lifecycle", "source",
               "events", "lineage_key", "stored", "store_error")
 EXITS_OWNER = "feat/p2-exits-backtest"
@@ -135,6 +149,137 @@ def _snapshot_refs(plan: Dict[str, Any], keys: Sequence[str]) -> List[Dict[str, 
             for s in plan.get("source_snapshots") or [] if s.get("key") in keys and s.get("ok")]
 
 
+# ── evidence and warnings (v1.1, Phase 3 decision cards) ──────────────────────
+# (key, label, ledger keys in order of preference). The ledger is services/strategy_plan/evidence.py.
+EVIDENCE_KEYS = (
+    ("regime", "Market regime", ("desk_regime",)),
+    ("trend", "Trend", ("trend_structure",)),
+    ("relative_strength", "Relative strength", ("relative_strength",)),
+    ("momentum", "Momentum", ("momentum",)),
+    ("volume", "Volume", ("volume",)),
+    ("structure", "Price structure", ("levels",)),
+)
+WARNING_LABELS = {"event": "Event", "liquidity": "Liquidity", "concentration": "Concentration", "correlation": "Correlation"}
+CONCENTRATION_AT_ENTRY = ("Depends on your account: position and sector exposure are checked by the account's risk decision "
+                          "at entry (the Phase 1 risk service), not stored on a plan that every user reads.")
+CORRELATION_NONE = ("Not computed: no return-correlation source exists for paper positions; same-sector exposure, checked "
+                    "at entry, is the concentration control.")
+NOT_READ = "Not read for this plan (a roll carries the rolled trade's thesis; no new evidence was read)."
+BOARD_NOT_COMPUTED = ("Not computed for an F&O board idea: the board ranks structures by fit to the market regime. The stock's "
+                      "own evidence is in its Strategy Builder plan.")
+
+
+def _ev(key: str, label: str, it: Optional[Dict[str, Any]], missing: str) -> Dict[str, Any]:
+    if it is None:
+        return {"key": key, "label": label, "status": "unavailable", "direction": None, "text": missing, "as_of": None, "source": None}
+    ok = it.get("direction") != "unavailable"
+    return {"key": key, "label": label, "status": "ok" if ok else "unavailable", "direction": it.get("direction") if ok else None,
+            "text": it.get("interpretation"), "as_of": it.get("source_as_of"), "source": it.get("source")}
+
+
+def ledger_evidence(ledger: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """The six evidence lines of a plan built by the plan builder, from its evidence ledger, as the ledger said them. A
+    confirmed or awaiting chart pattern is added to the price-structure line."""
+    by_key = {i.get("key"): i for i in ledger or [] if isinstance(i, dict)}
+    items = []
+    for key, label, keys in EVIDENCE_KEYS:
+        row = _ev(key, label, next((by_key[k] for k in keys if k in by_key), None), "Not in this plan's evidence ledger.")
+        if key == "structure":
+            pats = [i.get("interpretation") for k, i in by_key.items() if str(k).startswith("chart_pattern:") and i.get("interpretation")]
+            if pats:
+                row["text"] = " ".join([row["text"] or "", *pats]).strip()
+        items.append(row)
+    return {"items": items, "basis": "the plan builder's evidence ledger (services/strategy_plan/evidence.py)"}
+
+
+def _warning(key: str, status: str, text: Optional[str]) -> Dict[str, Any]:
+    return {"key": key, "label": WARNING_LABELS[key], "status": status, "text": text}
+
+
+def _flag_text(f: Any) -> str:
+    return str((f.get("message") or f.get("code")) if isinstance(f, dict) else f)
+
+
+def ledger_warnings(ledger: Sequence[Dict[str, Any]], c: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Event, liquidity, concentration and correlation for a plan-builder candidate."""
+    by_key = {i.get("key"): i for i in ledger or [] if isinstance(i, dict)}
+    ev = [by_key[k] for k in ("results_and_events", "corporate_actions") if k in by_key]
+    if not ev or all(i.get("direction") == "unavailable" for i in ev):
+        event = _warning("event", "unavailable", " ".join(i.get("interpretation") or "" for i in ev).strip()
+                         or "The event calendar was not read for this plan.")
+    else:
+        hit = [i for i in ev if i.get("direction") == "conflicts"]
+        event = _warning("event", "flagged" if hit else "clear",
+                         " ".join(i.get("interpretation") or "" for i in (hit or ev) if i.get("direction") != "unavailable").strip())
+    sel = c.get("options_selection") or {}
+    if c.get("segment") == "options" or sel:
+        flags = [_flag_text(f) for f in sel.get("preferred_flags") or []]
+        proxy = by_key.get("liquidity_proxy")
+        if flags:
+            liq = _warning("liquidity", "flagged", "Chosen legs: " + "; ".join(flags) + ". Bid/ask is not in the end-of-day file.")
+        elif proxy is not None and proxy.get("direction") != "unavailable":
+            liq = _warning("liquidity", "clear", proxy.get("interpretation"))
+        else:
+            liq = _warning("liquidity", "unavailable", (proxy or {}).get("interpretation") or "No liquidity reading for the chosen legs.")
+    else:
+        gates, vol = by_key.get("scanner_gates"), by_key.get("volume")
+        texts = [i.get("interpretation") for i in (gates, vol) if i and i.get("direction") != "unavailable" and i.get("interpretation")]
+        if gates is not None and gates.get("direction") != "unavailable":
+            liq = _warning("liquidity", "clear" if (gates.get("value") or {}).get("eligible") else "flagged", " ".join(texts))
+        elif texts:
+            liq = _warning("liquidity", "clear", " ".join(texts) + " The scan snapshot's liquidity gate was not read.")
+        else:
+            liq = _warning("liquidity", "unavailable", "Neither the scan snapshot's liquidity gate nor the traded value was read.")
+    return [event, liq, _warning("concentration", "at_entry", CONCENTRATION_AT_ENTRY),
+            _warning("correlation", "unavailable", CORRELATION_NONE)]
+
+
+def board_evidence(idea: Dict[str, Any], regime: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """An F&O board idea's evidence: the board's measured regime and the fit factor about direction; the rest is
+    unavailable, said so."""
+    reg = regime or {}
+    if reg.get("available"):
+        bits = [f"Desk regime {reg.get('label') or reg.get('key')}"]
+        if reg.get("india_vix") is not None:
+            bits.append(f"India VIX {reg['india_vix']}")
+        if reg.get("breadth"):
+            bits.append(f"breadth {reg['breadth']}")
+        regime_row = {"key": "regime", "label": "Market regime", "status": "ok", "direction": None, "text": " · ".join(bits) + ".",
+                      "as_of": reg.get("as_of"), "source": reg.get("rule_version") or reg.get("source")}
+    else:
+        regime_row = _ev("regime", "Market regime", None,
+                         "The market regime was not available" + (f": {reg['reason']}." if reg.get("reason") else "."))
+    fit = {f.get("factor"): f for f in (idea.get("fit") or {}).get("because") or [] if isinstance(f, dict)}
+    d = fit.get("direction")
+    trend_row = ({"key": "trend", "label": "Trend", "status": "ok", "direction": d.get("state"), "text": d.get("text"),
+                  "as_of": reg.get("as_of"), "source": "regime-fit factor: direction"} if d and d.get("text")
+                 else _ev("trend", "Trend", None, "The board gave no direction factor for this idea."))
+    rest = [_ev(k, label, None, BOARD_NOT_COMPUTED) for k, label, _ in EVIDENCE_KEYS[2:]]
+    return {"items": [regime_row, trend_row, *rest], "basis": "the F&O board's measured regime and fit factors (regime_fit)"}
+
+
+def board_warnings() -> List[Dict[str, Any]]:
+    return [
+        _warning("event", "unavailable", "Not checked on the F&O board: it does not read the event calendar. The stock's Strategy "
+                                         "Builder plan does."),
+        _warning("liquidity", "clear", "Every leg has a premium, open interest and trades on the chain day (the board drops a "
+                                       "strike that does not). Bid/ask is not in the end-of-day file, so the spread is not known."),
+        _warning("concentration", "at_entry", CONCENTRATION_AT_ENTRY),
+        _warning("correlation", "unavailable", CORRELATION_NONE),
+    ]
+
+
+def gap_risk_text(segment: str, slippage_pct: Optional[float]) -> str:
+    """The gap and slippage sentence a decision card shows beside the costs."""
+    if segment == "options":
+        return ("Premiums are end-of-day closes, not executable prices; bid/ask is not in the file. A gap moves the whole "
+                "structure's value at once; its defined maximum loss bounds it.")
+    slip = f"{slippage_pct:g}% a side" if slippage_pct is not None else "the cost card's slippage"
+    return (f"A stop is a level, not a guaranteed price: a session that opens through the stop is filled at that open (the "
+            f"desk's fill model), which can be worse than the stop. The cost estimate's slippage ({slip}) covers the spread, "
+            f"not a gap.")
+
+
 def _risk_flags(c: Dict[str, Any]) -> List[Dict[str, Any]]:
     out = [{"code": "warning", "message": w} for w in c.get("warnings") or []]
     sz = c.get("sizing") or {}
@@ -159,6 +304,13 @@ def _exit_plan(stop: Dict[str, Any], targets: List[Dict[str, Any]], max_sessions
     }
 
 
+def sizing_inputs(inputs: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The plan inputs that change its size (or its costs); None for an unsized plan (no capital, risk budget, risk % or
+    cost settings: the allocation cap alone, a default, sizes nothing)."""
+    got = {k: inputs.get(k) for k in SIZING_INPUT_KEYS if inputs.get(k) is not None}
+    return got if any(k in got for k in ("capital", "risk_budget_inr", "risk_pct", "costs")) else None
+
+
 def _size(c: Dict[str, Any], inputs: Dict[str, Any], lot: int) -> Dict[str, Any]:
     sz = c.get("sizing") or {}
     capital = inputs.get("capital")
@@ -168,8 +320,8 @@ def _size(c: Dict[str, Any], inputs: Dict[str, Any], lot: int) -> Dict[str, Any]
             "lots": sz.get("quantity") if done and lot > 1 else None, "lot_size": lot,
             "risk_budget_rs": r2(sz.get("risk_budget_inr")), "risk_rs": r2(risk) if done else None,
             "risk_pct_of_equity": (round(float(risk) / float(capital) * 100, 3) if done and risk is not None and capital else None),
-            "equity_basis": ("the capital stated in the plan inputs (the per-account paper-equity basis is Phase 1)"
-                             if capital else None),
+            "equity_basis": ("the capital stated in the plan inputs (the account's paper equity is its risk profile's, "
+                             "GET /api/risk/profile)" if capital else None),
             "binding": sz.get("binding") if done else None, "missing": list(sz.get("missing") or []),
             "costs_included": bool(sz.get("costs_included"))}
 
@@ -221,11 +373,15 @@ def linear_plan(plan: Dict[str, Any], c: Dict[str, Any]) -> Optional[Dict[str, A
         "r_per_unit": r2(abs(float(entry) - float(stop))),
         "targets": targets,
         "size": _size(c, inputs, lot),
+        "sizing_inputs": sizing_inputs(inputs),
         "costs": {"model": model.get("version"), "basis": f"a round trip of {units} unit(s) from the entry to the stop",
                   "units": units, "breakdown_at_stop": desk.round_trip_breakdown(units, float(entry), float(stop), model, segment=seg, long=up),
-                  "excluded": ["DP charges", "income tax", "gap slippage beyond the cost card's slippage"]},
+                  "excluded": ["DP charges", "income tax", "gap slippage beyond the cost card's slippage"],
+                  "gap_risk": gap_risk_text(c["segment"], model.get("slippage_pct_per_side"))},
         "exit_plan": _exit_plan(stop_b, targets, max_sessions, None),
         "evidence_refs": _snapshot_refs(plan, ("scanner_bucket", "indicators", "scan_row", "futures", "buildup", "chain", "regime")),
+        "evidence": ledger_evidence(plan.get("evidence") or []),
+        "warnings": ledger_warnings(plan.get("evidence") or [], c),
         "risk_flags": _risk_flags(c),
         "eligibility": eligibility(c.get("status"), c.get("reasons") or [], conditional_entry=order in ("stop_trigger", "limit_pullback")),
         "data_as_of": plan.get("data_as_of"),
@@ -289,10 +445,13 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
                    max_loss_rs: Optional[float] = None, capital_at_risk_rs: Optional[float] = None,
                    setup: Optional[Dict[str, Any]] = None, source: Optional[Dict[str, Any]] = None,
                    lineage: Optional[Dict[str, Any]] = None, underlying_stop: Optional[Dict[str, Any]] = None,
-                   underlying_targets: Optional[Sequence[Dict[str, Any]]] = None, primary: str = "t1") -> Dict[str, Any]:
+                   underlying_targets: Optional[Sequence[Dict[str, Any]]] = None, primary: str = "t1",
+                   evidence: Optional[Dict[str, Any]] = None, warnings: Optional[List[Dict[str, Any]]] = None,
+                   sized_with: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """The TradePlan of an options structure: an F&O board idea, a plan builder's options candidate, or a roll. The
     stop a paper trade evaluates is the underlying's (stop.method "underlying", from the levels engine); the premium
-    stop and T1 / T2 travel in exit_plan.options."""
+    stop and T1 / T2 travel in exit_plan.options. Without `evidence` / `warnings` (a roll) every line says it was not
+    read for this plan."""
     from services import desk_strategy_trades as strat
     from services import desk_trading as desk
 
@@ -356,10 +515,17 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
                  "risk_budget_rs": None, "risk_rs": r2(capital_at_risk_rs if capital_at_risk_rs is not None else (abs(max_loss_rs) if max_loss_rs is not None else None)),
                  "risk_pct_of_equity": None, "equity_basis": None, "binding": "the structure's lots",
                  "missing": ["capital (no equity basis on a board idea)"], "costs_included": capital_at_risk_rs is not None},
+        "sizing_inputs": sized_with,
         "costs": {"model": dict(desk.COST_MODEL).get("version"), "basis": "every leg, entry and exit side, at the entry premiums",
-                  "breakdown_round_trip_at_entry": breakdown, "excluded": ["exchange margin", "income tax"]},
+                  "breakdown_round_trip_at_entry": breakdown, "excluded": ["exchange margin", "income tax"],
+                  "gap_risk": gap_risk_text("options", None)},
         "exit_plan": _exit_plan(stop_b, targets, None, opt),
         "evidence_refs": list(evidence_refs),
+        "evidence": evidence if evidence is not None else {
+            "items": [_ev(k, label, None, NOT_READ) for k, label, _ in EVIDENCE_KEYS], "basis": None},
+        "warnings": warnings if warnings is not None else [
+            _warning("event", "unavailable", NOT_READ), _warning("liquidity", "unavailable", NOT_READ),
+            _warning("concentration", "at_entry", CONCENTRATION_AT_ENTRY), _warning("correlation", "unavailable", CORRELATION_NONE)],
         "risk_flags": list(risk_flags) + [{"code": f, "message": f} for f in opt.get("expiry_flags") or []],
         "eligibility": eligibility(status, reasons, conditional_entry=False, extra=extra_rejections),
         "data_as_of": data_as_of,
@@ -371,7 +537,7 @@ def structure_plan(*, underlying: str, reference: float, direction: str, family:
 
 
 def from_fno_idea(idea: Dict[str, Any], *, board_rules_version: Optional[str], refs: Dict[str, Any], today: date,
-                  levels: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+                  levels: Optional[Dict[str, Any]] = None, regime: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """The TradePlan of one F&O board idea (POST /api/desk/strategy/top, regime_fit.ideas_for_underlying). `levels` is
     the strategy_levels answer when the caller already has it (the AI watchlist job); otherwise it is computed here
     with the same request and references the browser sends (ai_watchlist_build.payoff_request_for /
@@ -401,7 +567,8 @@ def from_fno_idea(idea: Dict[str, Any], *, board_rules_version: Optional[str], r
         risk_flags=([{"code": "conflicts_with_cash_setup", "message": conflict.get("message")}] if conflict else []),
         max_loss_rs=idea.get("max_loss"), capital_at_risk_rs=idea.get("capital_at_risk"),
         setup={"source": "regime_fit_board", "fit_score": fit.get("score"), "view": idea.get("view"),
-               "expiry": idea.get("expiry"), "days_to_expiry": idea.get("days_to_expiry")})
+               "expiry": idea.get("expiry"), "days_to_expiry": idea.get("days_to_expiry")},
+        evidence=board_evidence(idea, regime), warnings=board_warnings())
 
 
 def from_plan(plan: Dict[str, Any], today: date) -> Dict[str, Dict[str, Any]]:
@@ -430,7 +597,9 @@ def from_plan(plan: Dict[str, Any], today: date) -> Dict[str, Dict[str, Any]]:
                     underlying_stop={"price": ((c.get("invalidation") or {}).get("technical") or {}).get("price"),
                                      "rationale": ((c.get("invalidation") or {}).get("technical") or {}).get("basis")},
                     underlying_targets=[{"name": t["name"], "price": t.get("price"), "rule": t.get("rule")} for t in c.get("targets") or []],
-                    primary="base", setup=c.get("setup"))
+                    primary="base", setup=c.get("setup"),
+                    evidence=ledger_evidence(plan.get("evidence") or []), warnings=ledger_warnings(plan.get("evidence") or [], c),
+                    sized_with=sizing_inputs(plan.get("inputs") or {}))
             else:
                 tp = None
         except Exception as exc:  # noqa: BLE001 — one candidate's plan failing must not lose the others; logged
@@ -447,11 +616,12 @@ def content(tp: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def lineage_key(tp: Dict[str, Any]) -> str:
-    """Plans that are versions of one another: the same instrument, segment, family, direction and setup day."""
+    """Plans that are versions of one another: the same instrument, segment, family, direction, setup day and sizing
+    inputs (a plan sized with your capital and the same setup unsized are separate lineages)."""
     st, ins, d = tp.get("strategy") or {}, tp.get("instrument") or {}, tp.get("data_as_of") or {}
     day = (tp.get("setup") or {}).get("signal_date") or d.get("price") or d.get("chain") or d.get("fno")
     return "tl_" + _digest({"symbol": ins.get("symbol"), "segment": st.get("segment"), "family": st.get("family"),
-                            "direction": st.get("direction"), "day": day})
+                            "direction": st.get("direction"), "day": day, "sizing": tp.get("sizing_inputs")})
 
 
 def finalize(tp: Dict[str, Any]) -> Dict[str, Any]:
@@ -573,12 +743,13 @@ async def load(db, plan_id: str, owner: str) -> Optional[Dict[str, Any]]:
     if not isinstance(plan_id, str) or not plan_id.startswith("tp_") or len(plan_id) > 40:
         return None
     doc = await db[COLLECTION].find_one({"_id": plan_id})
-    if doc is None:
-        return None
+    return doc if doc is not None and readable_by(doc, owner) else None
+
+
+def readable_by(doc: Dict[str, Any], owner: str) -> bool:
+    """`owner` built the plan, or a system job did (the AI watchlist's plans are everyone's to read)."""
     owners = doc.get("owners") or []
-    if owner in owners or any(str(o).startswith("system:") for o in owners):
-        return doc
-    return None
+    return owner in owners or any(str(o).startswith("system:") for o in owners)
 
 
 # ── what a paper trade must carry ────────────────────────────────────────────

@@ -19,6 +19,10 @@
  * and the paper trades; an F&O idea to the lab with the idea in focus (Candidates for a stock, the index workspace for
  * NIFTY and BANKNIFTY), its option chain and its futures OI build-up.
  *
+ * Phase 3: each row shows its TradePlan as the decision card (decision/DecisionCard.tsx, one line and an expander), and
+ * an idea that is on the newest stored AI scanner watchlist (GET /api/desk/ai-watchlist, the same cached answer the
+ * watchlist page reads) says since when, with that list's first-day levels beside this row's plan (CarryTag).
+ *
  * Both routes take seconds. Each board loads on its own and keeps its answer for a while (top10-data.ts); the scanner
  * list below never waits for them. Nothing places an order.
  */
@@ -44,6 +48,10 @@ import {
 } from "./top10-data";
 import { Widget } from "./widget";
 import { PlanPaperTrade } from "./PlanPaperTrade";
+import { DecisionCard, NoPlan } from "./decision/DecisionCard";
+import { CarryTag, levelsOfPlan } from "./decision/CarryTag";
+import { useAiWatchlist, type AiWatchDay } from "../workspace/ai-watchlist-data";
+import type { TradePlan } from "./strategy/trade-plan";
 
 const STOCKS_ANCHOR = "desk-top10-stocks";
 const FNO_ANCHOR = "desk-top10-fno";
@@ -68,6 +76,21 @@ function BoardHead({ title, sub, actions }: { title: string; sub: ReactNode; act
       <span className="flex flex-wrap items-center" style={{ gap: 6 }}>{actions}</span>
     </header>
   );
+}
+
+/** The carry-forward tag of a live row: the newest stored list's entry for the same instrument, when the idea was on an
+ *  earlier list (its `carried`, or the earlier list's own levels when it was there once). Display only. */
+function Top10Carry({ day, segment, symbol, boardDay, plan, testId }: {
+  day: AiWatchDay | undefined; segment: "cash" | "fno"; symbol: string; boardDay: string | null; plan: TradePlan | null | undefined; testId: string;
+}) {
+  if (!day?.list_date) return null;
+  const e = segment === "cash" ? day.cash.find((x) => x.symbol === symbol) : day.fno.find((x) => x.underlying === symbol);
+  if (!e) return null;
+  const earlier = !!boardDay && day.list_date < boardDay;
+  if (!e.carried && !earlier) return null;          // new on today's stored list: nothing carried yet
+  const from = e.carried?.from ?? day.list_date;
+  const first = e.carried?.first ?? e.levels_on_list ?? null;
+  return <CarryTag testId={testId} sessions={e.days_on_list} from={from} first={first} today={levelsOfPlan(plan)} todayLabel="this row's plan" />;
 }
 
 // ── stocks ───────────────────────────────────────────────────────────────
@@ -131,7 +154,7 @@ function ScannerLevelsPaperTrade({ idea, scanDate }: { idea: Idea; scanDate: str
   );
 }
 
-function StockRow({ idea, rank, scanDate }: { idea: Idea; rank: number; scanDate: string | null }) {
+function StockRow({ idea, rank, scanDate, listed }: { idea: Idea; rank: number; scanDate: string | null; listed: AiWatchDay | undefined }) {
   const desk = useDesk();
   const [paperOpen, setPaperOpen] = useState(false);
   const pref = preferredStrategy(idea);
@@ -166,6 +189,9 @@ function StockRow({ idea, rank, scanDate }: { idea: Idea; rank: number; scanDate
           )}
         </span>
         <CashLevels testId="desk-top10-stock-levels" entry={sc.entry} stop={sc.stop} target={sc.target} riskReward={sc.risk_reward} dataDate={sc.close_date ?? scanDate} />
+        <Top10Carry day={listed} segment="cash" symbol={idea.symbol} boardDay={scanDate} plan={idea.trade_plan} testId="desk-top10-carried" />
+        {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="row" testId="desk-top10-card" recordsShownPlan />
+          : idea.trade_plan === null ? <NoPlan testId="desk-top10-noplan" reason={idea.status_reasons[0]?.message ?? null} /> : null}
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
         <LinkChip testId="desk-top10-stock-plan" onClick={() => go(() => desk.openStrategyPlan(planParamsFor(idea, scanDate)))} title="The full plan in the Strategy Builder: sizing, costs, evidence and the payoff">Strategy ›</LinkChip>
@@ -189,6 +215,7 @@ function StockBoard() {
   const board = q.data;
   const scanDate = board?.selection.scan_date ?? null;
   const ideas = (board?.ideas ?? []).slice(0, TOP10);
+  const listed = useAiWatchlist(null).data;
   return (
     <section data-testid={STOCKS_ANCHOR} aria-label="Top 10 stock ideas" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
       <BoardHead
@@ -209,7 +236,7 @@ function StockBoard() {
         <p data-testid="desk-top10-stocks-empty" className="m-0" style={quiet}>{board?.selection.empty_reason ?? "The scanner has no setup that passed its gates on this scan."}</p>
       ) : (
         <ol data-testid="desk-top10-stocks-list" className="m-0 p-0" style={{ listStyle: "none" }}>
-          {ideas.map((idea, i) => <StockRow key={idea.symbol} idea={idea} rank={i + 1} scanDate={scanDate} />)}
+          {ideas.map((idea, i) => <StockRow key={idea.symbol} idea={idea} rank={i + 1} scanDate={scanDate} listed={listed} />)}
         </ol>
       )}
       {board && (
@@ -225,7 +252,7 @@ function StockBoard() {
 
 type FnoFilter = "all" | FnoKind;
 
-function FnoIdeaRow({ row, board }: { row: FnoRow; board: TopBoard }) {
+function FnoIdeaRow({ row, board, listed }: { row: FnoRow; board: TopBoard; listed: AiWatchDay | undefined }) {
   const desk = useDesk();
   const { idea, kind, rank } = row;
   const sym = idea.underlying;
@@ -257,6 +284,8 @@ function FnoIdeaRow({ row, board }: { row: FnoRow; board: TopBoard }) {
           max loss {maxLoss} · reward : risk {idea.reward_risk == null ? DASH : `${fmtNum(idea.reward_risk, 2)} : 1`} · capital at risk {fmtINR(idea.capital_at_risk)}
         </span>
         <IdeaLevels idea={idea} state={levels} />
+        <Top10Carry day={listed} segment="fno" symbol={sym} boardDay={idea.data_as_of?.chain ?? null} plan={idea.trade_plan} testId="desk-top10-fno-carried" />
+        {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="row" testId="desk-top10-fno-card" /> : null}
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
         <LinkChip testId="desk-top10-fno-lab" onClick={openLab} title={kind === "index" ? "The lab's NIFTY & BANKNIFTY workspace with this idea in focus" : "The lab's Candidates with this idea in focus"}>
@@ -302,6 +331,7 @@ function FnoBoard() {
   const notes = fnoUniverseNotes(board);
   const chainDay = board?.classes.index_options?.as_of ?? board?.classes.stock_fno?.as_of ?? null;
   const regime = board?.regime;
+  const listed = useAiWatchlist(null).data;
   return (
     <section data-testid={FNO_ANCHOR} aria-label="Top 10 F&O ideas" className="flex min-w-0 flex-col" style={{ gap: 10 }}>
       <BoardHead
@@ -340,7 +370,7 @@ function FnoBoard() {
         <p data-testid="desk-top10-fno-empty" className="m-0" style={quiet}>No structure passed its own checks against the current chains{notes.unreadable.length ? "; see what could not be read below" : ""}.</p>
       ) : (
         <ol data-testid="desk-top10-fno-list" className="m-0 p-0" style={{ listStyle: "none" }}>
-          {board && shown.map((r) => <FnoIdeaRow key={r.idea.underlying} row={r} board={board} />)}
+          {board && shown.map((r) => <FnoIdeaRow key={r.idea.underlying} row={r} board={board} listed={listed} />)}
         </ol>
       )}
       {board && (

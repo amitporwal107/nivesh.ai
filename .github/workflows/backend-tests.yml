@@ -108,6 +108,8 @@ jobs:
           tests/test_cost_basis_from_snapshots.py
           tests/test_daas_key_resolution.py
           tests/test_data_health.py
+          tests/test_decision_card_contract.py
+          tests/test_decision_cards.py
           tests/test_decision_engine_trim_rank.py
           tests/test_desk_alerts.py
           tests/test_desk_copilot_prompt.py
@@ -211,6 +213,7 @@ jobs:
           tests/test_paper_reconcile.py
           tests/test_paper_trades_routes.py
           tests/test_payoff_cost_card.py
+          tests/test_plan_sizing.py
           tests/test_portfolio_desk.py
           tests/test_portfolio_health.py
           tests/test_portfolio_holding_risk.py

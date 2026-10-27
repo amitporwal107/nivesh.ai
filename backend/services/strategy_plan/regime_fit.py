@@ -901,7 +901,8 @@ def attach_trade_plans(top: Dict[str, Any]) -> None:
         try:
             tp = tpm.from_fno_idea(idea, board_rules_version=top.get("rules_version"),
                                    refs=awb.levels_refs_for(top, idea.get("underlying")),
-                                   today=_date.fromisoformat(chain_day) if chain_day else _date.today())
+                                   today=_date.fromisoformat(chain_day) if chain_day else _date.today(),
+                                   regime=top.get("regime"))
         except Exception as e:  # noqa: BLE001 — one idea's plan failing is reported on the idea, never drops the board
             logger.warning("regime_fit: trade plan for %s failed: %s", idea.get("underlying"), _why(e))
             tp = None

@@ -48,6 +48,12 @@ DESK_NOW = datetime(2026, 10, 20, 5, 0, tzinfo=timezone.utc)          # 10:30 IS
 
 @pytest.fixture
 def surfaces(monkeypatch):
+    return make_surfaces(monkeypatch)
+
+
+def make_surfaces(monkeypatch):
+    """The real Strategy and desk routes on one in-memory Mongo with the MOCK world; also used outside pytest by
+    tests/contract_fixtures.py, which writes the shared browser/route fixtures from it."""
     db = FakeDb()
     # MOCK: the loosest allowed risk profile (tests/risk_helpers.py): this suite tests the plan's levels end to end,
     # not the Phase 1 limits (tests/test_risk_entry_paths.py).

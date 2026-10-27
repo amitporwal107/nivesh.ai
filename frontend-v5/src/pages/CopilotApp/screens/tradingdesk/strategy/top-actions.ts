@@ -18,6 +18,7 @@
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
+import { IDEMPOTENCY_HEADER, useSubmissionKey } from "../desk-trading";
 import type { Levels } from "../FnoLevels";
 import type { PayoffRequest } from "./strategy-contract";
 import type { OptionIdeaCore as OptionIdea, TopBoard } from "./top-contract";
@@ -200,13 +201,23 @@ export function paperTradeBodyFor(idea: OptionIdea, ctx: PaperContext): Record<s
 
 export interface PaperTradeResult { trade?: { id?: string } }
 
+/** POST the idea as a strategy paper trade. One `Idempotency-Key` per submission (useSubmissionKey, as desk-trading.ts
+ *  sends it since #357): a retry of the same body after a failure reuses it, so the route answers with the trade the
+ *  first attempt made instead of recording a second one; the next submission after a success gets a new key. Either
+ *  way the plan's cached reading is refreshed: a refusal records a risk decision on the plan too. */
 export function usePaperTradeIdea() {
   const qc = useQueryClient();
+  const submission = useSubmissionKey();
   return useMutation<PaperTradeResult, unknown, Record<string, unknown>>({
     mutationFn: async (body) => {
-      const res = await http({ method: "POST", path: PAPER_TRADES_PATH, body, noRetry: true });
+      const headers = { [IDEMPOTENCY_HEADER]: submission.keyFor(body) };
+      const res = await http({ method: "POST", path: PAPER_TRADES_PATH, body, headers, noRetry: true });
       return res.data as PaperTradeResult;
     },
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: ["copilot", "desk", "paper-trades"] }); },
+    onSuccess: () => {
+      submission.done();
+      void qc.invalidateQueries({ queryKey: ["copilot", "desk", "paper-trades"] });
+    },
+    onSettled: () => { void qc.invalidateQueries({ queryKey: ["copilot", "desk", "trade-plan"] }); },
   });
 }

@@ -24,7 +24,9 @@
     PUT  /api/admin/risk/{user_id}/profile             admin only: {changes | profile, reason}; may loosen
     GET  /api/admin/risk/jobs/{job}                    admin only: the scheduled job's last run, last success and
                                                        health (ok | partial | failed | running | missed | no_data |
-                                                       skipped | never_run); services/job_runs. Reads only.
+                                                       skipped | never_run | calendar_not_ready | refused);
+                                                       services/job_runs. Reads only. Jobs: check_desk_alerts (the
+                                                       evening exit check) and positional_engine (the AI scanner).
 
 Authority. Anyone may turn a control ON for their own account; clearing one is a reset and needs an admin (403
 {"code": "admin_required"}), because a switch the person under pressure can flip back off is not much of a switch.

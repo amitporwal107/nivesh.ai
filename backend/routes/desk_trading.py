@@ -22,7 +22,9 @@ Endpoints (all under /api/desk):
                                          bhavcopy close, the next listed expiry, costs; or the reason it cannot roll
     POST   /paper-trades/{id}/roll     — {strike_mode?}: close the old structure and open the same one on the next
                                          expiry at D's close, through the same risk checks as any entry; linked both ways
-    GET    /trade-plans/{plan_id}      — a TradePlan with its lifecycle status derived from your trades
+    GET    /trade-plans/{plan_id}      — a TradePlan with its lifecycle status derived from your trades, the versions you
+                                         may open, your newest risk-service decision on it (`risk_decision`, or null), and
+                                         the size the risk service would allow YOUR account (`account_size`, plan_sizing.py)
     POST   /alerts                     — {condition, ...the condition's fields, note?} → 201 {alert}
              above | below  {symbol, level}            filing    {symbol, impact?: "any"|"high"}
              category       {category, symbol?}        volume    {symbol, multiple}
@@ -70,6 +72,7 @@ from services import desk_trading as svc
 from services import paper_account as acct
 from services import risk_controls as rc
 from services import risk_gate
+from services.risk_gate import plan_sizing
 from services.risk_gate import service as risk_service
 from services import trade_lifecycle as lifecycle
 from services import fno_roll as roll
@@ -417,6 +420,36 @@ def _with_lifecycle(out: Dict[str, Any], doc: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+PLAN_RISK_BASIS = ("The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this "
+                   "plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides "
+                   "at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.")
+
+
+def _public_decision(row: Dict[str, Any]) -> Dict[str, Any]:
+    """A risk_decisions row as a card reads it (the snapshot stays on the record)."""
+    return {"decision_id": row["_id"], "outcome": {"allowed": "allow", "reduced": "reduce", "blocked": "block"}.get(row.get("outcome")),
+            "at": row.get("at"), "symbol": row.get("symbol"), "trade_id": row.get("trade_id"),
+            "requested_qty": row.get("requested_qty"), "approved_qty": row.get("approved_qty"),
+            "requested_lots": row.get("requested_lots"), "approved_lots": row.get("approved_lots"),
+            "reasons": [{k: r.get(k) for k in ("code", "check", "severity", "message")} for r in row.get("reasons") or []
+                        if isinstance(r, dict)],
+            "estimated_risk_rs": row.get("estimated_risk_rs"), "policy_version": row.get("policy_version"),
+            "limits_version": row.get("limits_version")}
+
+
+async def _plan_risk_decision(uid: str, plan_id: str, trades: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The user's newest risk-service decision on this plan, or None (PLAN_RISK_BASIS). A request the desk refused before
+    the risk service ran (a validation refusal: source desk_validation) is not a risk decision and is not read here."""
+    ids = [t["risk_decision_id"] for t in trades if t.get("risk_decision_id")]
+    rows = await db[rc.DECISIONS].find({"user_id": uid, "source": risk_service.SOURCE,
+                                        "$or": [{"_id": {"$in": ids}}, {"detail.lifecycle.plan_id": plan_id}]}
+                                       ).sort("at", -1).to_list(200)
+    # Newest first; at the same instant the decision that wrote a trade is the later one (a refusal writes nothing, so a
+    # submission that succeeded followed it).
+    best = max(rows, key=lambda r: (str(r.get("at") or ""), r["_id"] in ids), default=None)
+    return _public_decision(best) if best else None
+
+
 @router.get("/trade-plans/{plan_id}")
 async def get_trade_plan(request: Request, plan_id: str) -> Dict[str, Any]:
     """One TradePlan with its DERIVED lifecycle status (proposed until one of your paper trades cites it; then the
@@ -427,15 +460,27 @@ async def get_trade_plan(request: Request, plan_id: str) -> Dict[str, Any]:
     if tp is None:
         raise HTTPException(status_code=404, detail="plan_not_found")
     trades = await db[svc.TRADES].find({"user_id": uid, "trade_plan_id": plan_id}).to_list(svc.MAX_OPEN_TRADES * 2)
-    versions = await db[tpm.COLLECTION].find({"lineage_key": tp.get("lineage_key")}).sort("version", 1).to_list(50)
+    # Only the versions this user may open (their own plans and those a system job built): another user's plan in the same
+    # lineage is not theirs to read, and a card that switches to "the newest version" must be able to load it.
+    versions = [v for v in await db[tpm.COLLECTION].find({"lineage_key": tp.get("lineage_key")}).sort("version", 1).to_list(50)
+                if tpm.readable_by(v, uid)]
     states = [lifecycle.current_state(t) for t in trades]
-    rejected = [e for e in tp.get("events") or [] if e.get("to") == lifecycle.REJECTED]
+    # YOUR refused submissions of this plan only. The plan document is shared (a system job's plan is everyone's), and its
+    # `events` hold every user's refusals, so reading them made one user's refusal show the plan as rejected to all.
+    # Each refusal's decision row (risk service or desk validation) carries its REJECTED event under detail.lifecycle.
+    mine = await db[rc.DECISIONS].find({"user_id": uid, "detail.lifecycle.plan_id": plan_id}).sort("at", 1).to_list(200)
+    rejected = [r["detail"]["lifecycle"] for r in mine if (r["detail"]["lifecycle"] or {}).get("to") == lifecycle.REJECTED]
     status = lifecycle.plan_status(states + ([lifecycle.REJECTED] if rejected and not trades else []))
-    plan = {k: v for k, v in tp.items() if k not in ("_id", "owners")}
+    plan = {k: v for k, v in tp.items() if k not in ("_id", "owners", "events")}
     plan["lifecycle"] = {**(plan.get("lifecycle") or {}), "status": status, "derived": True}
     return {"plan": plan, "lifecycle": {"status": status, "trades": [{"id": t["_id"], "state": s, "status": t.get("status")}
                                                                      for t, s in zip(trades, states)],
                                         "rejections": rejected[-20:]},
+            "risk_decision": await _plan_risk_decision(uid, plan_id, trades),
+            "risk_decision_basis": PLAN_RISK_BASIS,
+            # Phase 3 release blocker: the size the card shows is the risk service's own sizing for YOUR account
+            # (services/risk_gate/plan_sizing.py), never a size worked out another way.
+            "account_size": await plan_sizing.size_for(db, plan, uid),
             "versions": [{"plan_id": v["_id"], "version": v.get("version"), "created_at": v.get("created_at"),
                           "revalidation_ok": (v.get("revalidation") or {}).get("ok"), "supersedes": v.get("supersedes")} for v in versions],
             "sent_to_broker": False}

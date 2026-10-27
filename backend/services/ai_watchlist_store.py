@@ -82,3 +82,56 @@ def run_of_days(list_date: str, earlier: List[str], stored_days: List[str]) -> i
             break
         n += 1
     return n
+
+
+def run_start(list_date: str, earlier: List[str], stored_days: List[str]) -> str:
+    """The first stored list day of the run that ends on `list_date` (the run run_of_days counts); `list_date` itself for
+    an idea that is new on it."""
+    on, start = set(earlier), list_date
+    for d in sorted((x for x in stored_days if x < list_date), reverse=True):
+        if d not in on:
+            break
+        start = d
+    return start
+
+
+# What a carry-forward tag needs of an earlier day's entry: its plan's levels, or the scanner's / the stored levels
+# engine's on a day stored before plans. A projection, so a day's full plans are not read for a tag.
+LEVEL_FIELDS = {"_id": 0, "list_date": 1,
+                "cash.symbol": 1, "cash.trade_plan_id": 1, "cash.trade_plan.entry.price": 1, "cash.trade_plan.stop.price": 1,
+                "cash.trade_plan.targets": 1, "cash.scanner.entry": 1, "cash.scanner.stop": 1, "cash.scanner.target": 1,
+                "fno.underlying": 1, "fno.trade_plan_id": 1, "fno.trade_plan.entry.net_premium_rs": 1, "fno.trade_plan.stop.price": 1,
+                "fno.trade_plan.targets": 1, "fno.net_premium": 1, "fno.strategy_levels.result.underlying.stop": 1,
+                "fno.strategy_levels.result.underlying.target": 1}
+
+
+async def days_for_levels(dates: List[str]) -> Dict[str, Dict[str, Any]]:
+    """{list_date: that day's entries, projected to LEVEL_FIELDS} for the given stored days."""
+    if not dates:
+        return {}
+    docs = await db[COL].find({"_id": {"$in": sorted(set(dates))}}, LEVEL_FIELDS).to_list(length=len(set(dates)))
+    return {d["list_date"]: d for d in docs}
+
+
+def entry_levels(e: Dict[str, Any], seg: str, list_date: str) -> Dict[str, Any]:
+    """{list_date, entry, entry_kind, stop, target, plan_id, basis} of one stored entry, as stored that day (display
+    only). Cash: the plan's entry, stop and primary target (else the scanner's). F&O: the plan's net premium and its
+    underlying stop and target 1 (else the levels engine's answer stored with the day)."""
+    tp = e.get("trade_plan") or {}
+    prim = next((t for t in tp.get("targets") or [] if isinstance(t, dict) and t.get("primary")), None)
+    if seg == "cash":
+        if tp:
+            return {"list_date": list_date, "entry": (tp.get("entry") or {}).get("price"), "entry_kind": "price",
+                    "stop": (tp.get("stop") or {}).get("price"), "target": (prim or {}).get("price"),
+                    "plan_id": e.get("trade_plan_id"), "basis": "trade_plan"}
+        sc = e.get("scanner") or {}
+        return {"list_date": list_date, "entry": sc.get("entry"), "entry_kind": "price", "stop": sc.get("stop"),
+                "target": sc.get("target"), "plan_id": None, "basis": "scanner"}
+    if tp:
+        return {"list_date": list_date, "entry": (tp.get("entry") or {}).get("net_premium_rs"), "entry_kind": "net_premium",
+                "stop": (tp.get("stop") or {}).get("price"), "target": (prim or {}).get("price"),
+                "plan_id": e.get("trade_plan_id"), "basis": "trade_plan"}
+    und = ((e.get("strategy_levels") or {}).get("result") or {}).get("underlying") or {}
+    return {"list_date": list_date, "entry": e.get("net_premium"), "entry_kind": "net_premium", "stop": und.get("stop"),
+            "target": und.get("target"), "plan_id": None, "basis": "strategy_levels" if und else "none"}
+

@@ -40,6 +40,17 @@ SCHEDULES: Dict[str, Dict[str, Any]] = {
         "lease": timedelta(minutes=60),
         "text": "Mon–Fri 20:45 IST, retry 22:45 IST",
     },
+    # The AI scanner (scripts/run_positional_engine.py) writes its own records under this job name since #355
+    # (services/positional_engine/scan_meta.py: status, session, counts with the engine version, price basis and
+    # data-quality summary). A run takes about half a minute; the 21:45 run is the retry for a late bhavcopy.
+    "positional_engine": {
+        "cron_file": "deploy/nivesh-staging/positional-engine.cron",
+        "weekdays": (0, 1, 2, 3, 4),
+        "slots": (time(19, 45), time(21, 45)),
+        "grace": timedelta(minutes=60),
+        "lease": timedelta(minutes=60),
+        "text": "Mon–Fri 19:45 IST, retry 21:45 IST",
+    },
 }
 
 # Final statuses a run can record. "running" is the only non-final one.
@@ -47,6 +58,10 @@ OK, PARTIAL, FAILED = "ok", "partial", "failed"
 SKIPPED_NO_BARS, SKIPPED_NO_SESSION, SKIPPED_LOCKED, SKIPPED_DONE = (
     "skipped_no_bars", "skipped_no_session", "skipped_locked", "skipped_done")
 RUNNING = "running"
+# The scanner's own outcomes (services/positional_engine/scan_meta.py): scored but next year's NSE holiday list is not
+# loaded (an alert), and a refusal to score (the calendar or the factors could not be read, or the bars are dirty).
+CALENDAR_NOT_READY = "calendar_not_ready"
+REFUSED_PREFIX = "refused_"
 
 #: What the read path returns of a run: an allow-list, so nothing else stored on the document leaks out.
 PUBLIC_FIELDS = ("_id", "job", "started_at", "finished_at", "status", "exit_code", "session", "counts", "error",
@@ -151,11 +166,14 @@ def last_slot(job: str, now: datetime) -> datetime:
 def health(job: str, last: Optional[Dict[str, Any]], last_ok: Optional[Dict[str, Any]], now: datetime) -> Dict[str, Any]:
     """{state, healthy, reason, expected_since, age_hours} from the newest run and the newest successful run.
 
-    state: never_run | running | failed | partial | no_data | missed | ok | skipped
+    state: never_run | running | failed | partial | no_data | missed | ok | skipped | calendar_not_ready | refused
       failed    the newest run failed, or is still "running" after its lease (it died without finishing)
       partial   it ran, but some prices or sources could not be read: those trades / alerts were not checked
       no_data   it ran but the session's bars were not in the data platform, so nothing was checked
       missed    nothing was recorded since the latest scheduled slot (older than the grace period)
+      calendar_not_ready  (the scanner) it scored, but next year's NSE holiday list is not loaded: an alert
+      refused   (the scanner) it refused to score: the calendar or the adjustment factors could not be read, or the
+                bars failed the integrity check (fail-closed, owner decision 2026-10-27)
     """
     sched = SCHEDULES[job]
     since = last_slot(job, now)
@@ -186,6 +204,12 @@ def health(job: str, last: Optional[Dict[str, Any]], last_ok: Optional[Dict[str,
                 "reason": f"The {last.get('session')} session's bars were not in the data platform; nothing was checked."}
     if status == OK or status == SKIPPED_DONE:
         return {**base, "state": "ok", "healthy": True, "reason": None}
+    if status == CALENDAR_NOT_READY:
+        return {**base, "state": "calendar_not_ready", "healthy": False,
+                "reason": last.get("error") or "The run scored, but next year's NSE holiday calendar is not loaded."}
+    if isinstance(status, str) and status.startswith(REFUSED_PREFIX):
+        return {**base, "state": "refused", "healthy": False,
+                "reason": last.get("error") or f"The newest run refused to score ({status})."}
     return {**base, "state": "skipped", "healthy": status in (SKIPPED_NO_SESSION, SKIPPED_LOCKED),
             "reason": f"The newest run was skipped ({status})."}
 

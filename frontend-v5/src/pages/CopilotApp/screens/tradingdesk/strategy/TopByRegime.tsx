@@ -24,6 +24,8 @@ import { EmptyBlock, ErrorBlock, LoadingBlock, Section, errorSentence, fmtINR, f
 import { fmtDay } from "../../trading/parts";
 import type { Levels } from "../FnoLevels";
 import { IdeaLevels, useIdeaLevels } from "../IdeaLevels";
+import { DecisionCard } from "../decision/DecisionCard";
+import { usePlanView } from "../decision/plan-view";
 import { DASH, noteStyle } from "./plan-format";
 import { StrategyGraphs } from "./StrategyGraphs";
 import { payoffProblem, usePayoff } from "./usePayoff";
@@ -86,11 +88,16 @@ export function IdeaActions({ idea, onViewTrades, rulesVersion, levels }: {
   const request = useMemo(() => payoffRequestFor(idea), [idea]);
   const pay = usePayoff(openChart ? request : null);
   const paper = usePaperTradeIdea();
-  const body = useMemo(() => paperTradeBodyFor(idea, { rulesVersion, levels: levels?.data }), [idea, rulesVersion, levels?.data]);
+  // Phase 3: the decision card's action gate. The trade records this row's legs, so a newer version of the plan (or a
+  // universal-risk block that still applies) turns the button off with the card's reason.
+  const view = usePlanView(idea.trade_plan ?? null);
+  const gate = view?.gate ?? null;
+  const built = useMemo(() => paperTradeBodyFor(idea, { rulesVersion, levels: levels?.data }), [idea, rulesVersion, levels?.data]);
+  const body = gate ? null : built;
   const waiting = !!levels?.pending;
-  const problem = paperTradeProblem(idea, rulesVersion);
-  const stop = typeof body?.stop_underlying === "number" ? body.stop_underlying : null;
-  const target = typeof body?.target_underlying === "number" ? body.target_underlying : null;
+  const problem = paperTradeProblem(idea, rulesVersion) ?? gate;
+  const stop = typeof built?.stop_underlying === "number" ? built.stop_underlying : null;
+  const target = typeof built?.target_underlying === "number" ? built.target_underlying : null;
   const records = stop != null || target != null
     ? `with the stop ${stop != null ? fmtNum(stop, 2) : DASH} and target ${target != null ? fmtNum(target, 2) : DASH} on ${idea.underlying} from the levels shown`
     : "with no stop or target: it closes at expiry or when you close it";
@@ -187,8 +194,10 @@ const NO_LIVE: Map<string, number> = new Map();
 
 /** One ranked idea in full, with its provisional levels (IdeaLevels). Also the lab's focus panel (LabFocus.tsx).
  *  `rulesVersion` and `refs` come from the board the idea is on. */
-export function IdeaCard({ idea, rulesVersion, refs, live, at = NO_LIVE, onViewTrades }: {
+export function IdeaCard({ idea, rulesVersion, refs, live, at = NO_LIVE, onViewTrades, cardVariant = "row" }: {
   idea: OptionIdea; rulesVersion: string | null | undefined; refs: LevelsRefs; live?: LiveAnswer; at?: Map<string, number>; onViewTrades?: () => void;
+  /** The decision card: one line with an expander on a board, every section in the lab's focus panel. */
+  cardVariant?: "row" | "full";
 }) {
   const levels = useIdeaLevels(idea, refs);
   const rr = idea.reward_risk;
@@ -234,6 +243,8 @@ export function IdeaCard({ idea, rulesVersion, refs, live, at = NO_LIVE, onViewT
       ) : null}
 
       <IdeaLevels idea={idea} state={levels} />
+
+      {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant={cardVariant} testId="idea-card-plan" /> : null}
 
       <Why items={idea.fit.because} />
 

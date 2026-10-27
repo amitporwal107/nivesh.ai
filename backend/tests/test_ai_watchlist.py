@@ -306,7 +306,11 @@ def api(monkeypatch):
     monkeypatch.setattr(route, "get_current_user", user)
     monkeypatch.setattr(store, "dateline", dateline)
     monkeypatch.setattr(store, "get_day", get_day)
+    async def no_first_days(dates):
+        return {}              # the run's first day cannot be read: `carried.first` is null (tests/test_decision_cards.py reads one)
+
     monkeypatch.setattr(store, "earlier_appearances", earlier)
+    monkeypatch.setattr(store, "days_for_levels", no_first_days)
     app = FastAPI()
     app.include_router(route.router)
     return TestClient(app), days
@@ -319,6 +323,7 @@ def test_route_newest_day_by_default_with_dateline_and_runs(api):
     icici, crisil = b["cash"]
     assert (icici["earlier_list_dates"], icici["days_on_list"]) == (["2026-10-23"], 2)
     assert (crisil["earlier_list_dates"], crisil["days_on_list"]) == ([], 1)
+    assert icici["carried"]["from"] == "2026-10-23" and icici["carried"]["first"] is None and "carried" not in crisil
     assert b["fno"][0]["days_on_list"] == 1 and b["read_only"] is True
 
 

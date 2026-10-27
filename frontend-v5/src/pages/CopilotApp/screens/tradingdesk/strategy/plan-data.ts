@@ -275,14 +275,15 @@ export function strategyPaperBody(plan: StrategyPlan, c: Candidate, savedId: str
   };
 }
 
-/** The body of a share paper trade for a cash candidate (the existing share paper-trade API). */
-export function cashPaperBody(plan: StrategyPlan, c: Candidate): NewPaperTrade {
+/** The body of a share paper trade for a cash candidate (the existing share paper-trade API). `quantity`: the risk
+ *  service's size for the account (the decision card's), when it is known; else the candidate's own sizing. */
+export function cashPaperBody(plan: StrategyPlan, c: Candidate, quantity?: number | null): NewPaperTrade {
   const leg = c.legs[0];
   const maxHold = maxHoldFor(plan.inputs.horizon_days);
   const target = levelOf(c, "base");
   return {
     symbol: plan.underlying.symbol,
-    quantity: leg.quantity,
+    quantity: quantity ?? leg.quantity,
     entry_price: leg.entry_price,
     stop_price: c.invalidation?.technical?.price as number,
     target_price: target != null && target > leg.entry_price ? target : null,

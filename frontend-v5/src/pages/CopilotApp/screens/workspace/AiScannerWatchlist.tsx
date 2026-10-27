@@ -1,6 +1,7 @@
 /**
  * The AI scanner watchlist (the user's requirement of 2026-10-26): every trading day, after the AI scanner run, the Top 10
- * cash ideas and the Top 10 F&O ideas are stored as that day's list (scripts/build_ai_watchlist.py, 20:15 IST), and every
+ * cash ideas and the Top 10 F&O ideas are stored as that day's list (scripts/build_ai_watchlist.py, 22:45 IST, after the
+ * day's NSE F&O bhavcopy; retries 23:30 and 23:55), and every
  * day's list is kept. This block shows them by day.
  *
  *   GET  /api/desk/ai-watchlist[?date=]   the day's lists, the dateline, each idea's earlier list days (ai-watchlist-data.ts)
@@ -15,6 +16,11 @@
  * The dateline is one chip per stored day, newest first, with how many ideas each list holds; a chip loads that day. Each
  * idea says how many list days in a row it has been on. Links open the trading desk: the chart, the plan in the Strategy
  * Builder, the option chain, the futures OI build-up, the F&O lab with the idea in focus, and the paper trades.
+ *
+ * Phase 3: every row shows its trade plan as the decision card (tradingdesk/decision/DecisionCard.tsx: one line and an
+ * expander; status, approval by the universal risk service, % of equity), a carried idea says since when with the first
+ * day's levels beside this day's (CarryTag), and the day block names the scan's basis (engine version, price basis,
+ * data quality; `notes.scan_basis`).
  *
  * Every figure is what the routes answered on the list day, kept as it was; only the prices and premiums labelled Live or
  * Close are newer. "Ideas", not recommendations; nothing places an order.
@@ -40,6 +46,9 @@ import {
   deskBuildup, deskChain, deskChart, deskLab, deskPlan, deskTrades, useAiWatchlist, type AiWatchDay, type CashEntry, type FnoEntry,
 } from "./ai-watchlist-data";
 import { PlanPaperTrade } from "../tradingdesk/PlanPaperTrade";
+import { DecisionCard, NoPlan } from "../tradingdesk/decision/DecisionCard";
+import { CarryTag } from "../tradingdesk/decision/CarryTag";
+import type { ScanBasis } from "./ai-watchlist-data";
 
 type Segment = "cash" | "fno";
 type BuildupData = ReturnType<typeof useBuildup>["data"];
@@ -60,6 +69,30 @@ function DaysOn({ e, listDate }: { e: { days_on_list: number; earlier_list_dates
   return (
     <span data-testid="aiw-days-on" data-days={n} className="cp-pill" data-tone={n > 1 ? "indigo" : "mint"} title={title} style={{ flex: "none" }}>
       {n > 1 ? `${n} days on the list` : "New on this list"}
+    </span>
+  );
+}
+
+function Carried({ e, testId }: { e: { carried?: CashEntry["carried"] }; testId: string }) {
+  const c = e.carried;
+  if (!c || c.sessions < 2) return null;
+  return <CarryTag testId={testId} sessions={c.sessions} from={c.from} first={c.first} today={c.today} todayLabel="this list" />;
+}
+
+/** "Scan basis: engine v1.1 · prices adjusted for corporate actions · data quality clean" — the scanner's own record of the
+ *  scan this list was built on (#355), or that the day was stored before the job kept it. */
+function ScanBasisLine({ b }: { b: ScanBasis | null | undefined }) {
+  if (!b) return <span data-testid="aiw-scan-basis" data-state="none" style={quiet}>Scan basis: not recorded for this day (stored before the job kept it).</span>;
+  if (b.unavailable) return <span data-testid="aiw-scan-basis" data-state="unavailable" style={quiet}>Scan basis: unavailable ({b.unavailable}).</span>;
+  const price = b.price_basis === "corp_action_adjusted" ? "prices adjusted for corporate actions" : b.price_basis === "raw" ? "raw prices" : b.price_basis ? `price basis ${b.price_basis}` : "price basis —";
+  const dq = b.data_quality;
+  const raw = b.exceptions?.raw_prices?.length ?? 0;
+  const cut = b.exceptions?.truncated?.length ?? 0;
+  return (
+    <span data-testid="aiw-scan-basis" data-state="ok" data-quality={dq?.status ?? ""} style={quiet}>
+      Scan basis{b.date ? ` (${shortDay(b.date)})` : ""}: engine {b.engine_versions?.length ? b.engine_versions.join(", ") : "—"} · {price}
+      {" · "}data quality {dq?.status ? dq.status.replace(/_/g, " ") : "—"}{dq?.warnings ? ` (${dq.warnings} warning${dq.warnings === 1 ? "" : "s"})` : ""}{dq?.reason ? ` (${dq.reason})` : ""}
+      {raw || cut ? ` · exceptions: ${raw} on raw prices, ${cut} with history cut` : ""}
     </span>
   );
 }
@@ -179,6 +212,9 @@ function CashRow({ e, listDate, quote, scan }: { e: CashEntry; listDate: string;
           <span className="cp-num" style={quiet}>Scanner levels: entry {fmtPrice(sc.entry)} · stop {fmtPrice(sc.stop)}{sc.target != null ? ` · target ${fmtPrice(sc.target)}` : ""}</span>
         )}
         {e.fno_eligible && <OiLine sym={e.symbol} index={false} scan={scan} />}
+        <Carried e={e} testId="aiw-carried" />
+        {e.trade_plan ? <DecisionCard plan={e.trade_plan} variant="row" testId="aiw-cash-card" recordsShownPlan />
+          : e.trade_plan === null && e.trade_plan_id === null && e.plan_status != null ? <NoPlan testId="aiw-cash-noplan" reason={e.status_reasons[0] ?? null} /> : null}
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
         <Chip testId="aiw-cash-chart" onClick={() => go(deskChart(e.symbol))}>Chart ›</Chip>
@@ -279,6 +315,8 @@ function FnoRow({ e, listDate, rulesVersion, live, at, liveOn, scan }: { e: FnoE
           )}
         </span>
         <OiLine sym={sym} index={index} scan={scan} />
+        <Carried e={e} testId="aiw-carried" />
+        {e.trade_plan ? <DecisionCard plan={e.trade_plan} variant="row" testId="aiw-fno-card" /> : null}
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
         <Chip testId="aiw-fno-lab" onClick={() => go(deskLab(sym, index))} title={index ? "The lab's NIFTY & BANKNIFTY workspace" : "The lab's Candidates with this stock in focus"}>Open in F&amp;O lab ›</Chip>
@@ -386,6 +424,7 @@ export function AiScannerWatchlist() {
         <div className="flex flex-col" style={{ gap: 4, padding: "12px 16px", borderTop: "1px solid var(--cp-line)" }}>
           <span data-testid="aiw-rule" style={quiet}>{seg === "cash" ? day.rules.cash : day.rules.fno}</span>
           <span data-testid="aiw-ranking-note" style={quiet}>{seg === "cash" ? n.cash_ranking : n.fno_ranking}</span>
+          <ScanBasisLine b={n.scan_basis} />
           {seg === "fno" && n.regime && <span data-testid="aiw-regime" style={quiet}>Regime that day: {n.regime.label ?? "—"}{n.regime.as_of ? ` (measured ${shortDay(n.regime.as_of)})` : ""}{n.regime.india_vix != null ? ` · India VIX ${fmtNum(n.regime.india_vix, 2)}` : ""}{n.fno_staleness ? ` · ${n.fno_staleness}` : ""}</span>}
           <span data-testid="aiw-disclaimer" style={quiet}>
             Ideas the AI scanner ranked that day, kept as they were, for review — not recommendations. Nothing is sent to a broker; paper trades are simulated. 9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
