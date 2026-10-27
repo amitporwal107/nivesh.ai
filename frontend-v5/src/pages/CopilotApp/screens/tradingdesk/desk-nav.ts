@@ -5,7 +5,8 @@
  *   /app/trader/desk?tab=<tab>&view=<view>
  *
  *   01 Market Overview   tab=overview     one page (no views)
- *   02 Trade Desk        tab=trade        paper (Paper trades) · new (New trade)
+ *   02 Trade Desk        tab=trade        open (Open & pending) · closed (Closed & journal) · new (New trade); the old
+ *                                         view=paper lands on open (tabs/trade-desk/TradeDeskTab.tsx)
  *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener · watchlists
  *   04 Risk Desk         tab=risk         limits · controls · log
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
@@ -41,7 +42,8 @@ export interface DeskViewDef { key: string; label: string }
 export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
   overview: [],
   trade: [
-    { key: "paper", label: "Paper trades" },
+    { key: "open", label: "Open & pending" },
+    { key: "closed", label: "Closed & journal" },
     { key: "new", label: "New trade" },
   ],
   market: [

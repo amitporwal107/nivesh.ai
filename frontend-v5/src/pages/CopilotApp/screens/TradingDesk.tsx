@@ -6,9 +6,9 @@
  *
  *   01 Market Overview   one page: the market part of OverviewTab · ScannerPulse · ScannerTop10 (with the decision
  *                        cards) · "All scanner candidates" (ScannerTab's list, collapsed) · "N open paper trades"
- *   02 Trade Desk        paper   Paper trades: "predicted vs actual" and your paper-trade and alert lists (PortfolioTab's
- *                                PaperCard and PaperLists; PaperDesk cannot split open and closed trades yet)
- *                        new     New trade: the Strategy Builder, with the F&O lab's paper strategies and leg builder
+ *   02 Trade Desk        open · closed · new: tabs/trade-desk/TradeDeskTab.tsx (step 3) — the header strip, Open & pending,
+ *                        Closed & journal (the journal drawer) and New trade (the risk-service ticket, the F&O builder,
+ *                        the Strategy Builder, the backtest)
  *   03 Market Desk       intel · smartmoney · sectors · research · screener · watchlists (IntelTab + EventsTab;
  *                        SmartMoneyTab + the F&O lab's build-up, candidates, indices and chain; SectorHeatmap;
  *                        ChartTab; Screener + Chartink sources; the Watchlist page)
@@ -66,17 +66,7 @@ const ChartTab = lazy(() => import("./tradingdesk/ChartTab"));
 const SmartMoneyTab = lazy(() => import("./tradingdesk/SmartMoneyTab"));
 const FnoTab = lazy(() => import("./tradingdesk/FnoTab"));
 const PortfolioTab = lazy(() => import("./tradingdesk/PortfolioTab"));
-const PaperCards = lazy(() => import("./tradingdesk/PortfolioTab").then((m) => ({
-  default: function PaperCards() {
-    return (
-      <div className="flex min-w-0 flex-col" style={{ gap: 16 }}>
-        <m.PaperCard />
-        <m.PaperLists />
-      </div>
-    );
-  },
-})));
-const StrategyBuilder = lazy(() => import("./tradingdesk/strategy/StrategyBuilder"));
+const TradeDeskTab = lazy(() => import("./tradingdesk/tabs/trade-desk/TradeDeskTab"));
 const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
 const RiskControls = lazy(() => import("./tradingdesk/RiskControls"));
 const LiveDesk = lazy(() => import("./fnolab/LiveDesk").then((m) => ({ default: m.LiveDesk })));
@@ -88,9 +78,8 @@ const Watchlist = lazy(() => import("./Watchlist"));
 /** Test-only: ?tab=more&view=strategy-graphs mounts the strategy graphs from a spec's fixture. Present only in a build with VITE_STRATEGY_HARNESS=1. */
 const StrategyGraphsHarness = import.meta.env.VITE_STRATEGY_HARNESS === "1" ? lazy(() => import("./tradingdesk/strategy/StrategyGraphsHarness")) : null;
 
-/** The F&O lab's views on Market Desk › Smart Money, and on Trade Desk › New trade. */
+/** The F&O lab's views on Market Desk › Smart Money (Trade Desk › New trade hosts its "strategies" view itself). */
 const SMART_MONEY_LAB: readonly LabView[] = ["buildup", "candidates", "indices", "chain"];
-const NEW_TRADE_LAB: readonly LabView[] = ["strategies"];
 
 /** Symbols the URL may carry: the F&O routes' own rule (letters, digits, & and -). */
 const SYM_RE = /^[A-Z0-9&-]{1,20}$/;
@@ -616,17 +605,11 @@ export default function TradingDeskScreen() {
       </>
     );
   } else if (loc.tab === "trade") {
+    const tdView = loc.view === "new" || loc.view === "closed" ? loc.view : "open";
     content = (
       <>
         <PaperRealLine onOpen={openPortfolio} />
-        {loc.view === "new" ? (
-          <>
-            <Hosted id="strategy" name="the Strategy Builder"><StrategyBuilder /></Hosted>
-            <Section id="fno" title="F&O · paper strategies and leg builder"><FnoTab views={NEW_TRADE_LAB} /></Section>
-          </>
-        ) : (
-          <Hosted id="paper" name="your paper trades"><PaperCards /></Hosted>
-        )}
+        <Hosted id="trade-desk" name="Trade Desk"><TradeDeskTab view={tdView} onView={(v) => goPlace("trade", v)} /></Hosted>
       </>
     );
   } else if (loc.tab === "market") {

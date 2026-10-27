@@ -523,7 +523,11 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
  * candidates, index and chain views; Trade Desk › New trade shows the paper strategies (with one view there is no view
  * row). A view the host does not show falls back to its first.
  */
-export default function FnoTab({ views: only }: { views?: readonly LabView[] } = {}) {
+export default function FnoTab({ views: only, builderCatalog }: {
+  views?: readonly LabView[];
+  /** Trade Desk › New trade: the paper-strategy builder offers only these backend template names (FnoBuilder BuilderView `catalog`). */
+  builderCatalog?: readonly string[] | null;
+} = {}) {
   const { mobile } = useCopilotShell();
   const { persona, openStrategy } = useDesk();
   const investor = persona === "investor";
@@ -687,7 +691,7 @@ export default function FnoTab({ views: only }: { views?: readonly LabView[] } =
             <Segmented<"builder" | "compare" | "ideas"> label="Paper strategies mode" testId="desk-strat-mode" value={stratMode} onChange={setStratMode}
               options={[{ value: "builder", label: "Builder" }, { value: "compare", label: "Compare" }, { value: "ideas", label: "Rule-based ideas" }]} />
             {stratMode === "builder"
-              ? <BuilderView symbol={symbol} state={oc.state} expiryChoice={{ options: oc.list.filter((e) => e.days_to_expiry > 0 && e.days_to_expiry <= BUILDER_EXPIRY_DAYS), onPick: setPicked }} />
+              ? <BuilderView symbol={symbol} state={oc.state} catalog={builderCatalog} expiryChoice={{ options: oc.list.filter((e) => e.days_to_expiry > 0 && e.days_to_expiry <= BUILDER_EXPIRY_DAYS), onPick: setPicked }} />
               : stratMode === "compare"
                 ? <CompareView symbol={symbol} state={oc.state} />
                 : <StrategiesView symbol={symbol} state={oc.state} near={near} futuresNote={futuresNote} onLoad={pick} />}
