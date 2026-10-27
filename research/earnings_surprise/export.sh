@@ -46,3 +46,7 @@ q watermark "SELECT 'nse_financials_quarterly' AS t, max(ingested_at)::text AS m
   UNION ALL SELECT 'prices_eod_adjusted', max(ingested_at)::text, count(*) FROM nidp.prices_eod_adjusted
   UNION ALL SELECT 'index_eod', max(ingested_at)::text, count(*) FROM nidp.index_eod
   UNION ALL SELECT 'fno_bhavcopy', max(ingested_at)::text, count(*) FROM nidp.fno_bhavcopy"
+
+# Timing check (amendment A2): every NSE 'Outcome of Board Meeting' filing (the router's exact subject match, FILING_SQL).
+q outcome "SELECT ticker_symbol AS symbol, filed_at FROM nidp.corporate_announcements
+  WHERE source = 'NSE_ANN' AND lower(btrim(subject)) = 'outcome of board meeting' AND filed_at >= '2025-06-01' ORDER BY 1, 2"

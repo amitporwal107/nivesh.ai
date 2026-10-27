@@ -268,6 +268,28 @@ final score, which cannot be replayed. **Family F7** = the S7 versions of {H1-R5
 and its S7 counterpart PASS. If either fails, the label is "no measurable skill". If either is REVERSED, the label is
 "reversed in testing". §9(b) is unchanged.
 
+## Amendment A2 — registered 2026-10-27 (IST), before any study output was read
+**What was found.** The hand check of returns (CUB, 28 Jul 2026) showed that `broadcast_at` is not the first public
+filing. CUB filed its "Outcome of Board Meeting" on NSE at 14:40 IST, but its stored `broadcast_at` is 19:17. Across the
+dataset, the earliest NSE "Outcome of Board Meeting" filing (the router's exact subject match, on the broadcast's IST date
+or the meeting date) comes before `broadcast_at` for 96–100 % of events, with a median lead of 1.5 hours. For 481 / 421 /
+438 / 429 events (seasons Oct–Nov 2025 → Jul–Aug 2026), that filing was during market hours but `broadcast_at` was after
+15:30. The §5 rule therefore puts the first reaction session **one session late** for about a quarter of events, and their
+R1 / R5 miss the reaction day. That biases H1, H2 and H5-R toward null.
+
+**State when this was registered.** The study script (`run_study.py`, commit `954208ce`) had been started on the §5 timing
+in the background. None of its output had been read. No statistic had been seen.
+
+**Change.**
+- **T2 timing (governs the decision):** filing time = the earlier of `broadcast_at` and that earliest same-day outcome
+  filing. S, R1, R5, D5, the S−1 liquidity filter, the H3 signal session (S−1) and the H4 signal session (S) all follow
+  from it. The expectation's point-in-time cutoff stays `broadcast_at`, because earlier quarters were known long before
+  either time.
+- **T1 (the §5 timing as registered):** run and reported in full beside T2.
+- Every test, family, threshold, holdout rule and decision rule (§6–§9, A1) is applied to **T2**.
+- Where T1 and T2 give different labels, the results document says so.
+- The holdout run (§8) uses T2.
+
 ## Log
 | When (IST) | What | Commit |
 |---|---|---|
