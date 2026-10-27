@@ -16,7 +16,6 @@ import { mockApi } from "../helpers/api-mock";
 
 const DESK = "/v5/app/trader/desk";
 const EVENTS = `${DESK}?tab=events`;
-const SCANNER = `${DESK}?tab=scanner`;
 const SLOW = { timeout: 15_000 };
 const SHOTS = process.env.RW_SHOTS || "";
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -381,7 +380,7 @@ test.describe("Results week — Events view (desktop 1440)", () => {
     await expect(page.getByTestId("results-week-count-declared")).toContainText("0");
     // the Scanner block in the same three states
     mode = "error";
-    await page.goto(SCANNER);
+    await openResultsWeek(page);
     await expect(page.getByTestId("results-week-ideas-error")).toBeVisible(SLOW);
     mode = "empty";
     await page.getByTestId("results-week-ideas-error").getByRole("button", { name: /Retry/ }).click();
@@ -393,15 +392,14 @@ test.describe("Results week — Events view (desktop 1440)", () => {
 test.describe("Results week — Scanner ideas (desktop 1440)", () => {
   test.use({ viewport: { width: 1440, height: 1000 } });
 
-  test("TC-F4 Results week ideas beside the Top 10: F&O | All toggle, rows, the not-yet-tested note", async ({ page }) => {
+  test("TC-F4 Results week ideas below the Results week view: F&O | All toggle, rows, the not-yet-tested note", async ({ page }) => {
     await setup(page);
-    await page.goto(SCANNER);
+    await openResultsWeek(page);
     const box = page.getByTestId("results-week-ideas");
     await expect(box).toBeVisible(SLOW);
-    // beside the Top 10: right after it, above the scanner list
-    const top = page.getByTestId("desk-top10");
-    await expect(top).toBeVisible(SLOW);
-    expect((await top.boundingBox())!.y).toBeLessThan((await box.boundingBox())!.y);
+    // in the Results week view, below its results (the owner's Market Overview / AI Scanner structure stays as drawn)
+    const view = page.getByTestId("results-week");
+    expect((await view.boundingBox())!.y).toBeLessThan((await box.boundingBox())!.y);
     await expect(page.getByTestId("results-week-ideas-untested")).toHaveText("NOT YET TESTED");
     await expect(page.getByTestId("results-week-ideas-toggle-fno")).toHaveAttribute("aria-pressed", "true");
     const rows = page.getByTestId("results-week-ideas-list").locator(":scope > li");
@@ -443,7 +441,7 @@ test.describe("Results week — phone 390", () => {
     await expect(page.getByTestId("results-week-drawer")).toBeVisible();
     expect(await over()).toBeLessThanOrEqual(0);
     await page.getByTestId("results-week-drawer-close").click();
-    await page.goto(SCANNER);
+    await openResultsWeek(page);
     await expect(page.getByTestId("results-week-ideas-list")).toBeVisible(SLOW);
     expect(await over()).toBeLessThanOrEqual(0);
   });
@@ -469,7 +467,7 @@ test.describe("Results week — screenshots", () => {
       await page.getByTestId("results-week-drawer-fno").scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${SHOTS}/events-results-week-drawer-fno-${tag}.png` });
       await page.keyboard.press("Escape");
-      await page.goto(SCANNER);
+      await openResultsWeek(page);
       const box = page.getByTestId("results-week-ideas");
       await expect(page.getByTestId("results-week-ideas-list")).toBeVisible(SLOW);
       await box.scrollIntoViewIfNeeded();
@@ -486,7 +484,7 @@ test.describe("Results week — Scanner ideas after the study (desktop 1440)", (
     const STUDY_NOTE = "Ordered for review, not a prediction. Tested on past results seasons: this ordering showed no measurable skill so far.";
     const body = { ...RW, ideas: { ...(RW as any).ideas, tested: true, note: STUDY_NOTE } };
     await setup(page, () => ({ body }));
-    await page.goto(SCANNER);
+    await openResultsWeek(page);
     await expect(page.getByTestId("results-week-ideas")).toBeVisible(SLOW);
     await expect(page.getByTestId("results-week-ideas-untested")).toHaveText("NO MEASURABLE SKILL SO FAR");
     await expect(page.getByTestId("results-week-ideas-note")).toContainText(STUDY_NOTE);

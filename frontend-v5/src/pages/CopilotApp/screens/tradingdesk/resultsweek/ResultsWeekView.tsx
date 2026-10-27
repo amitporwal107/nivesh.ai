@@ -22,6 +22,7 @@ import { fmtExpVal } from "../events-data";
 import { Widget } from "../widget";
 import { MacroWeek, MarketStrip } from "./ResultsWeekMarket";
 import { ResultsWeekDrawer } from "./ResultsWeekDrawer";
+import ResultsWeekIdeas from "./ResultsWeekIdeas";
 import { BASIS_LABEL, plainWords, useResultsWeek, type ResultsWeek, type RwMetric, type RwResult, type Verdict } from "./results-week-data";
 import { BuildupText, Chip, NA, Pct, VerdictPill, addDays, eyebrow, fmtD, line, mono, mondayOf, quiet } from "./parts";
 
@@ -439,6 +440,9 @@ export function ResultsWeekView({ today, viewSwitch }: { today: string; viewSwit
           </>
         )}
       </Widget>
+      {/* The early-signal order built from these results (§4c), in the same view: the owner's desk design keeps the
+          AI Scanner and Market Overview structure as drawn, so this list lives beside the results it is built from. */}
+      <ResultsWeekIdeas />
       {open && <ResultsWeekDrawer r={open} onClose={onClose} mobile={mobile} />}
     </div>
   );

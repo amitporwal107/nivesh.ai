@@ -68,7 +68,8 @@ test.describe("Results week — real 27 Oct response (desktop 1440)", () => {
   test("Scanner › Results week ideas renders the real ideas: F&O first, All toggle, the untested note", async ({ page }) => {
     const errors: string[] = [];
     await setup(page, errors);
-    await page.goto(`${DESK}?tab=scanner`);
+    await page.goto(`${DESK}?tab=events`);
+    await page.getByTestId("events-view-rw").click(SLOW);
     const box = page.getByTestId("results-week-ideas");
     await expect(box).toBeVisible(SLOW);
     const firstFno = RW.ideas.fno[0];
