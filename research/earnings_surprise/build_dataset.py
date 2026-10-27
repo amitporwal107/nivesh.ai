@@ -32,6 +32,16 @@ from nidp.services.daas_api.routers import desk_expectation as de  # noqa: E402
 from nidp.services.daas_api.routers.desk_market import buildup_label  # noqa: E402
 from services.positional_engine import feature_calculator as fc  # noqa: E402
 from services.positional_engine import scorer  # noqa: E402
+import hashlib  # noqa: E402
+import importlib.util  # noqa: E402
+
+# S7 (amendment A1.2): the live results-week scoring, exactly as committed on feat/earnings-surprise-tracker. It is not
+# vendored into this branch; fetch it with `git show 9f78c6ee:backend/services/results_week/scoring.py > live_scoring.py`.
+LIVE_SCORING = os.environ.get("LIVE_SCORING", "/tmp/es/live_scoring.py")
+_spec = importlib.util.spec_from_file_location("live_scoring", LIVE_SCORING)
+LS = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(LS)
+LIVE_SHA = hashlib.sha256(Path(LIVE_SCORING).read_bytes()).hexdigest()
 
 IST = timezone(timedelta(hours=5, minutes=30))
 TODAY = date(2026, 10, 27)                       # the data freeze; answer() treats every studied meeting as declared
@@ -241,6 +251,7 @@ def main(data: Path, out: Path) -> int:
     models = {"store": store, "records": recs, "cal": cal, "universe": {"revenue": {"n": 0}, "pat": {"n": 0}}}
     counts["backtest_records"] = {m: dict(sorted(Counter(r["target"].isoformat() for r in recs_all[m]).items())) for m in recs_all}
     counts["calibration_n"] = {m: cal[m].n for m in cal}
+    counts["live_scoring_sha256"] = LIVE_SHA
     srw = {m: [r for r in srw_records(store, m) if r["target"] <= CAL_FREEZE] for m in ("revenue", "pat")}
     cal_srw = {m: de.Calibration(srw[m], m) for m in srw}
     counts["srw_calibration_n"] = {m: cal_srw[m].n for m in cal_srw}
@@ -295,7 +306,8 @@ def main(data: Path, out: Path) -> int:
     fno: Dict[Tuple[date, str], Tuple[Optional[float], ...]] = {}
     with open(data / "fno.csv", newline="") as fh:
         for r in csv.DictReader(fh):
-            fno[(date.fromisoformat(r["as_of_date"]), r["symbol"])] = (fnum(r["close"]), fnum(r["prev_close"]), fnum(r["oi"]), fnum(r["oi_chg"]))
+            fno[(date.fromisoformat(r["as_of_date"]), r["symbol"])] = (fnum(r["close"]), fnum(r["prev_close"]), fnum(r["oi"]),
+                                                                       fnum(r["oi_chg"]), fnum(r.get("fut_value")))
     eaa: Dict[str, List[Tuple[datetime, float]]] = defaultdict(list)
     with open(data / "eaa.csv", newline="") as fh:
         for r in csv.DictReader(fh):
@@ -344,10 +356,55 @@ def main(data: Path, out: Path) -> int:
         r = fno.get((sessions[i], sym))
         if r is None:
             return False, None, None
-        close, prev, _oi, oi_chg = r
+        close, prev, _oi, oi_chg, _tv = r
         pc = (close / prev - 1) * 100 if close is not None and prev else None
         lab = buildup_label(pc, oi_chg)
         return True, lab, (OI_SCORE.get(lab) if lab else None)
+
+    # ── S7: the live code's parts (amendment A1.2), fed the same point-in-time inputs ──
+    def live_oi(sym: str, i: int) -> Tuple[Optional[str], Optional[float]]:
+        r = fno.get((sessions[i], sym))
+        if r is None:
+            return None, None
+        close, prev, oi, oi_chg, tv = r
+        prev_oi = (oi - oi_chg) if oi is not None and oi_chg is not None else None
+        row = {"price_chg_pct": (close / prev - 1) * 100 if close is not None and prev else None,
+               "oi_chg_pct": oi_chg / prev_oi * 100 if prev_oi else None,
+               "fut_turnover_cr": tv / 1e7 if tv is not None else None}
+        row["label"] = buildup_label(row["price_chg_pct"], oi_chg)
+        blk, _gap = LS.fno_block(True, row, sessions[i].isoformat())
+        return (blk["state"], blk["score"]) if blk else (None, None)
+
+    def live_reaction(sym: str, bt: datetime, S: int) -> Optional[float]:
+        b = B[sym]
+        bars_ = {sessions[i]: (float(b["c"][b["pos"][sessions[i]]]), float(b["v"][b["pos"][sessions[i]]]))
+                 for i in range(max(0, S - 30), S + 1) if sessions[i] in b["pos"]}
+        nif = {sessions[i]: float(nclose[i]) for i in range(max(0, S - 30), S + 1)}
+        blk, _gap = LS.reaction(bt, sessions[:S + 1], bars_, nif)
+        return blk["score"] if blk else None
+
+    def live_past(sym: str, i_sig: int) -> Optional[float]:
+        occ = []
+        for d in sorted({e["event_date"] for e in cal_by_sym.get(sym, [])}, reverse=True):
+            t = bisect.bisect_left(sessions, d)
+            if t - 1 < 0 or t + 1 > i_sig:           # point-in-time: the event day and the next day closed by the signal
+                continue
+            c0, c1, c2 = close_at(sym, t - 1), close_at(sym, t), close_at(sym, t + 1)
+            if c0 and c1 and c2:
+                occ.append({"event_day_pct": (c1 / c0 - 1) * 100, "d1_pct": (c2 / c1 - 1) * 100})
+            if len(occ) >= 40:                       # desk_events.HISTORY_LIMIT
+                break
+        blk = LS.past_reactions({"occurrences": occ})
+        return blk["score"] if blk else None
+
+    def live_rows(sym: str, cons: bool, cutoff: Optional[datetime]) -> List[Dict[str, Any]]:
+        out_ = []
+        for pe, c in store[sym][cons].items():
+            if cutoff is not None and not c["known_at"] < cutoff:
+                continue
+            v = x.get((sym, cons, pe), {})
+            out_.append({"period_end": pe.isoformat(), **v})
+        return out_
 
     def past_reactions(sym: str, i_sig: int) -> Tuple[Optional[float], int]:
         vals = []
@@ -474,6 +531,61 @@ def main(data: Path, out: Path) -> int:
             comp_outlook = None if (surprise is None and trend_d is None) else wmean(
                 {"surprise": surprise, "trend": trend_d, "outlook": outlook, "quality": quality}, W_COMPOSITE_OUTLOOK)
 
+            # S7 live code (outlook left out: not point-in-time)
+            lsur = LS.surprise(a["metrics"])
+            l_rows = live_rows(sym, cons, None)
+            l_trend = LS.trend(l_rows, target)["value"]
+            l_quality = LS.quality(l_rows, target)["value"]
+            l_comp = LS.composite({"surprise": lsur["value"], "trend": l_trend, "quality": l_quality, "outlook": None})["value"]
+            l_verdict = (lsur.get("verdict") or {}).get("label")
+            l_up = None
+            if fno_m1:
+                sig_cut = datetime.combine(sessions[S - 1], MARKET_CLOSE, tzinfo=IST)
+                rows_up = live_rows(sym, cons, sig_cut)
+                q_l, _ = LS.pick_quarter(rows_up, target, declared=False)
+                parts = {"technical": tech_m1, "oi": live_oi(sym, S - 1)[1], "past_reactions": live_past(sym, S - 1),
+                         "trend": LS.trend(rows_up, q_l)["value"] if q_l else None}
+                present = {k: v for k, v in parts.items() if v is not None}
+                got = sum(LS.UPCOMING_WEIGHTS[k] for k in present)
+                if got >= LS.MIN_PRESENT_WEIGHT_SHARE * sum(LS.UPCOMING_WEIGHTS.values()):
+                    l_up = sum(LS.UPCOMING_WEIGHTS[k] * v for k, v in present.items()) / got
+            l_decl = None
+            if fno_s and l_comp is not None:                 # live: a declared name needs its earnings score
+                parts = {"earnings": l_comp, "reaction": live_reaction(sym, bt, S), "oi": live_oi(sym, S)[1], "technical": tech_s}
+                present = {k: v for k, v in parts.items() if v is not None}
+                got = sum(LS.DECLARED_WEIGHTS[k] for k in present)
+                if got >= LS.MIN_PRESENT_WEIGHT_SHARE * sum(LS.DECLARED_WEIGHTS.values()):
+                    l_decl = sum(LS.DECLARED_WEIGHTS[k] * v for k, v in present.items()) / got
+
+            # H5 results strength (amendment A1.1)
+            cq, yq = x.get((sym, cons, target), {}), x.get((sym, cons, de.shift_quarters(target, -4)), {})
+            p0, p4 = cq.get("pat_cr"), yq.get("pat_cr")
+            r0, r4 = cq.get("revenue_from_ops_cr"), yq.get("revenue_from_ops_cr")
+            e0, e4 = cq.get("ebitda_cr"), yq.get("ebitda_cr")
+            pat_up = pat_dn = None
+            if p0 is not None and p4 is not None:
+                if p4 > 0:
+                    g = p0 / p4 - 1
+                    pat_up, pat_dn = g >= 0.20, g <= -0.10      # profit → loss gives g ≤ −100 %
+                else:
+                    pat_up, pat_dn = p0 > 0, False              # loss → profit counts as ≥ +20 %
+            rev_g = (r0 / r4 - 1) if (r0 is not None and r4 is not None and r4 > 0) else None
+            marg = ((e0 / r0 - e4 / r4) * 1e4) if (r0 and r4 and r0 > 0 and r4 > 0 and e0 is not None and e4 is not None) else None
+            pbt = cq.get("pbt_cr")
+            red_fin = bool(pbt is not None and pbt > 0 and (
+                (cq.get("exceptional_items_cr") is not None and abs(cq["exceptional_items_cr"]) > 0.20 * pbt) or
+                (cq.get("other_income_cr") is not None and cq["other_income_cr"] > 0.30 * pbt)))
+            growth_hits = sum([bool(pat_up), rev_g is not None and rev_g >= 0.10, marg is not None and marg >= 50])
+            weak_growth = bool(pat_dn) and rev_g is not None and rev_g < 0.05
+            full_season = target in PRIMARY
+            vh = l_verdict if full_season else None
+            h5 = {}
+            for variant, v_ in (("growth", None), ("full", vh)):
+                strong = (growth_hits + (v_ == "above")) >= 2 and not red_fin and v_ != "below"
+                weak = weak_growth or v_ == "below"
+                h5[variant] = "conflict" if (strong and weak) else "strong" if strong else "weak" if weak else "unflagged"
+            h5_live = h5["full"] if full_season else h5["growth"]
+
             events.append({
                 "season": t_iso, "symbol": sym, "basis": a["basis"], "event_date": ev["event_date"].isoformat(),
                 "broadcast_ist": bt.isoformat(), "next_session": sessions[S] != bt.date(), "S": sessions[S].isoformat(),
@@ -489,6 +601,10 @@ def main(data: Path, out: Path) -> int:
                 "q_up": q_up.isoformat() if q_up else None, "trend_up": trend_up, "upcoming": upcoming,
                 "fno_s": fno_s, "tech_s": tech_s, "oi_label_s": oi_lab_s, "oi_s": oi_s, "reaction": reaction, "declared": declared,
                 "outlook": outlook, "composite_outlook": comp_outlook,
+                "l_surprise": lsur["value"], "l_z": lsur.get("z"), "l_verdict": l_verdict, "l_trend": l_trend,
+                "l_quality": l_quality, "l_composite": l_comp, "l_upcoming": l_up, "l_declared": l_decl,
+                "h5_variant": "full" if full_season else "growth_only", "h5": h5_live, "h5_growth": h5["growth"],
+                "h5_full": h5["full"] if full_season else None,
             })
 
     pd.DataFrame(events).to_csv(out / "events.csv", index=False)
@@ -508,7 +624,11 @@ def main(data: Path, out: Path) -> int:
             "fno_m1": int(g["fno_m1"].sum()), "upcoming": int(g["upcoming"].notna().sum()),
             "fno_s": int(g["fno_s"].sum()), "declared": int(g["declared"].notna().sum()),
             "z_pat_why": {k: int(v) for k, v in g["z_pat_why"].value_counts().items()},
-            "outlook": int(g["outlook"].notna().sum())}
+            "outlook": int(g["outlook"].notna().sum()),
+            "l_verdict": {k: int(v) for k, v in g.loc[g["liquid"].fillna(False).astype(bool), "l_verdict"].value_counts().items()},
+            "l_composite": int(g.loc[g["liquid"].fillna(False).astype(bool), "l_composite"].notna().sum()),
+            "l_upcoming": int(g["l_upcoming"].notna().sum()), "l_declared": int(g["l_declared"].notna().sum()),
+            "h5": {k: int(v) for k, v in g.loc[g["liquid"].fillna(False).astype(bool), "h5"].value_counts().items()}}
     (out / "counts.json").write_text(json.dumps(counts, indent=1, default=str))
     print(json.dumps(counts, indent=1, default=str))
     return 0
