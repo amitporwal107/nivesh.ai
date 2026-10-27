@@ -421,3 +421,30 @@ def test_ej13_the_cron_lines_match_the_schedule_and_carry_the_guards():
         assert "/usr/bin/flock -n -E 4 " in line
         assert "python -m scripts.check_desk_alerts --require-bars --skip-if-done" in line
         assert "%" not in line, "cron turns % into a newline"
+
+
+# ── p2_exits_backtest TC-34: a close whose WRITE fails is recorded, the rest go on, and the retry closes it once ──
+def test_tc34_a_failed_close_write_is_a_partial_run_with_the_trade_named_and_the_retry_closes_it(api, ready, monkeypatch):
+    ta, tb, tc = seed(api, ready)
+    real_close = svc.close_trade
+    failing = {ta["id"]}
+
+    async def flaky_close(db, trade, **kw):
+        if trade["_id"] in failing:
+            failing.discard(trade["_id"])
+            raise RuntimeError("MOCK write timeout")
+        return await real_close(db, trade, **kw)
+    monkeypatch.setattr(svc, "close_trade", flaky_close)
+    code, out = go(ready, require_bars=True, skip_if_done=True)
+    assert (code, out["status"]) == (0, "partial")
+    c = out["counts"]
+    assert (c["exits_failed"], c["exits_failed_ids"], c["errors"]) == (1, [ta["id"]], 1)
+    docs = {d["_id"]: d for d in ready.db.trades.docs}
+    assert docs[ta["id"]]["status"] == "open" and docs[tb["id"]]["status"] == "closed"
+    assert runs(ready)[-1]["counts"]["exits_failed"] == 1, "the heartbeat in job_runs names the failure"
+
+    code, out = go(ready, require_bars=True, skip_if_done=True, now=TUE_EVENING + timedelta(hours=2))
+    assert (code, out["status"], out["counts"]["exits_failed"]) == (0, "ok", 0)
+    docs = {d["_id"]: d for d in ready.db.trades.docs}
+    assert docs[ta["id"]]["exit_reason"] == "stop"
+    assert sorted(r["trade_id"] for r in releases(ready)) == sorted([ta["id"], tb["id"]]), "one release per trade"

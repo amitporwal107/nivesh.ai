@@ -74,6 +74,13 @@ FILL MODEL (docs: this block is the reference; tests/test_paper_fills_pnl.py pin
       both         stop and target inside one session → the stop (flag `both_in_range`): a daily bar does not show
                    which came first.
       time         the close of the session `max_hold_sessions` sessions in.
+      research     OPT-IN only (`exit_rules` on the trade, off by default; owner decision D4): `trailing_atr` (stop =
+                   highest high since entry − k × ATR, worked out at each close and in force from the next session, never
+                   loosened; exit reason `trailing_stop`) and `trend_ema` (a close below the N-session EMA exits at the
+                   next open; reason `trend`). Every change of the stop is a version in `stop_history`.
+      order        the exits above are evaluated by services/exit_rules.step (exit-rules-v1), the SAME function the DSL
+                   backtest uses: gap rule on the open against the stop as of the previous close, then the intrabar touch
+                   of that same stop, then the target, then time; the trail moves only after the bar.
       manual       a typed price, else the last end-of-day close; a conditional entry not yet filled is cancelled.
     Quantities     the whole quantity fills or nothing does: partial fills and partial exits are NOT modelled (a
                    close takes no quantity). Adding to a position is refused (routes/desk_trading.py).
@@ -99,6 +106,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import quote
 
 from services import desk_cost_card as cost_card
+from services import exit_rules as er
 from services.copilot_tools import daas_client
 from services.strategy_engine.backtest import DEFAULT_BROKERAGE_INR, DEFAULT_SLIPPAGE_PCT
 
@@ -168,10 +176,11 @@ def costs_text(model: Optional[Dict[str, Any]]) -> str:
 
 ORDERS_NOTE = "Paper trades are simulated and never create a broker order."
 TIME_EXIT_NOTE = "Held for the most sessions the exit rule allows; closed at that session's close."
+TREND_EXIT_NOTE = ("Closed below its trend EMA (an opt-in research rule) at the previous close; taken at this session's open.")
 NOT_REACHED_NOTE = "The entry level was not reached within the entry window; no position was taken."
 CANCELLED_NOTE = "Closed by you before the entry level was reached; no position was taken."
 # Exit reasons a stored trade can carry.
-EXIT_REASONS = ("stop", "target", "time", "manual", "entry_not_reached", "cancelled")
+EXIT_REASONS = ("stop", "trailing_stop", "target", "time", "trend", "manual", "risk_control", "entry_not_reached", "cancelled")
 _STRATEGY_VERSION_RE = re.compile(r"^[A-Za-z0-9 ._:+/#()-]{1,60}$")
 
 # Normal-market equity series, most preferred first. BL (block-deal window) and debt series are not used.
@@ -179,6 +188,9 @@ SERIES_PREFERENCE = ("EQ", "BE", "BZ", "SM", "ST", "IV", "RR")
 _SERIES_RANK = {s: i for i, s in enumerate(SERIES_PREFERENCE)}
 
 LOOKBACK_DAYS = 14                # bars read from this many days before the earliest open date (for the last close)
+# A trade with an opt-in research rule needs more history before its entry to seed its ATR / EMA from real bars:
+# this many calendar days per session of the longest period (about 1.6 calendar days a session), plus LOOKBACK_DAYS.
+WARMUP_DAYS_PER_SESSION = 1.6
 PAGE_LIMIT = 5000                 # the data platform's largest page
 MAX_PAGES = 5
 FETCH_CONCURRENCY = 8
@@ -196,7 +208,8 @@ _KIND_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 _TRADE_FIELDS = {"symbol", "quantity", "entry_price", "stop_price", "target_price", "note", "source",
-                 "entry_rule", "entry_window_sessions", "max_hold_sessions", "signal_at", "strategy_version", "rationale"}
+                 "entry_rule", "entry_window_sessions", "max_hold_sessions", "signal_at", "strategy_version", "rationale",
+                 "exit_rules"}
 _ALERT_FIELDS = {"symbol", "condition", "level", "note"}
 _SOURCE_FIELDS = {"kind", "bucket", "signal_date"}
 
@@ -441,6 +454,10 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
     signal_at = clean_signal_at(body.get("signal_at"), moment)
     strategy_version = clean_strategy_version(body.get("strategy_version"))
     rationale = clean_rationale(body.get("rationale"))
+    try:
+        exit_rules = er.clean_rule_config(body.get("exit_rules"))     # opt-in research exits; [] = off (the default)
+    except ValueError:
+        raise DeskInputError("invalid_exit_rules") from None
     stamp = _iso(moment)
     return {
         "_id": str(uuid.uuid4()),
@@ -459,6 +476,7 @@ def new_trade(user_id: str, body: Any, now: Optional[datetime] = None) -> Dict[s
         "strategy_version": strategy_version,
         "rationale": rationale,
         "rules_version": RULES_VERSION,
+        "exit_rules": exit_rules,
         "cost_model": dict(COST_MODEL),
         "opened_at": stamp,
         "status": "open",
@@ -603,11 +621,28 @@ def fetch_starts(docs: Iterable[Dict[str, Any]], stamp_field: str) -> Dict[str, 
     """{symbol: first day to read} covering every document's first eligible session and a last close before it."""
     starts: Dict[str, date] = {}
     for doc in docs:
-        start = ist_date(doc[stamp_field]) - timedelta(days=LOOKBACK_DAYS)
+        start = ist_date(doc[stamp_field]) - timedelta(days=lookback_days(doc))
         symbol = doc["symbol"]
         if symbol not in starts or start < starts[symbol]:
             starts[symbol] = start
     return starts
+
+
+def lookback_days(doc: Dict[str, Any]) -> int:
+    """Calendar days of bars read before a trade's open date: LOOKBACK_DAYS, plus a warm-up for the ATR / EMA of an
+    opt-in research rule (so the indicator is seeded from real bars before the entry, never from a stand-in value)."""
+    periods = [int((r.get("params") or {}).get("atr_period") or (r.get("params") or {}).get("period") or 0)
+               for r in doc.get("exit_rules") or [] if isinstance(r, dict)]
+    longest = max(periods, default=0)
+    return LOOKBACK_DAYS + (math.ceil(longest * WARMUP_DAYS_PER_SESSION) if longest else 0)
+
+
+def trade_rules(trade: Dict[str, Any]) -> er.Rules:
+    """The exit rules of a share trade: stop, target and time always; the opt-in research rules it was recorded with."""
+    target = float(trade["target_price"]) if trade.get("target_price") is not None else None
+    max_hold = trade.get("max_hold_sessions")
+    return er.rules_from_config(trade.get("exit_rules"), side="long", target=target,
+                                max_hold_sessions=int(max_hold) if max_hold else None)
 
 
 def last_close(bars: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -639,19 +674,24 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
     """Run the trade's entry and exit rules over end-of-day bars (oldest first).
 
     Returns {entry_status: assumed | reached | waiting | not_reached, entry_session, sim_entry_price,
-    observations, held_sessions, checked_through, max_high, min_low, flags, exit (or None)}; `exit` is
-    {exit_reason, exit_price, exit_session, exit_note} as close_trade takes it. Never writes."""
+    observations, held_sessions, checked_through, max_high, min_low, flags, exit (or None), stop_history,
+    current_stop, stop_version, exit_rules_version}; `exit` is {exit_reason, exit_price, exit_session, exit_note} as
+    close_trade takes it. The exits of every held session are services/exit_rules.step (exit-rules-v1). Never writes."""
     rule = trade.get("entry_rule") or "at_once"
     entry = float(trade["entry_price"])
     stop = float(trade["stop_price"])
     target = float(trade["target_price"]) if trade.get("target_price") is not None else None
     window = int(trade.get("entry_window_sessions") or DEFAULT_ENTRY_WINDOW)
-    max_hold = trade.get("max_hold_sessions")
     opened = ist_date(trade["opened_at"])
+    rules = trade_rules(trade)
+    warm = rules.trailing or rules.trend                 # only an opt-in rule reads bars before the entry
     flags: List[Dict[str, Any]] = []
     out: Dict[str, Any] = {"entry_status": "waiting", "entry_session": None, "sim_entry_price": None,
                            "observations": 0, "held_sessions": 0, "checked_through": None,
-                           "max_high": None, "min_low": None, "flags": flags, "exit": None}
+                           "max_high": None, "min_low": None, "flags": flags, "exit": None,
+                           "stop_history": [{"session": None, "stop": stop, "reason": "initial", "version": 1}],
+                           "current_stop": stop, "stop_version": 1, "exit_rules_version": er.VERSION}
+    state: Optional[er.State] = None
     entered = rule == "at_once"
     if entered:
         out.update(entry_status="assumed", sim_entry_price=entry)
@@ -661,7 +701,10 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
                                f"The entry {_rupees(entry)} is outside the {opened.isoformat()} range "
                                f"({_rupees(day['low'])}–{_rupees(day['high'])}): that fill could not have happened that day.",
                                opened))
+        state = er.start(entry, stop, rules, session=opened,
+                         warmup=[b for b in bars if b["date"] <= opened] if warm else ())
     waited = 0
+    noted: set = set()
     for bar in bars:
         if bar["date"] <= opened:
             continue
@@ -697,46 +740,62 @@ def simulate(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Dict[str, Any
                                    f"The session opened at {_rupees(bar['open'])}, beyond the entry {_rupees(entry)}: the "
                                    "price never traded at the entry, so the fill is the open.",
                                    bar["date"], bar["open"]))
+            state = er.start(fill, stop, rules, session=bar["date"],
+                             warmup=[b for b in bars if b["date"] < bar["date"]] if warm else ())
         out["held_sessions"] += 1
         out["max_high"] = bar["high"] if out["max_high"] is None else max(out["max_high"], bar["high"])
         out["min_low"] = bar["low"] if out["min_low"] is None else min(out["min_low"], bar["low"])
-        hit_stop = bar["low"] <= stop
-        hit_target = target is not None and bar["high"] >= target
-        if entry_session and rule == "pullback_to" and hit_target:
-            hit_target = False
+        skip_target = False
+        if entry_session and rule == "pullback_to" and target is not None and bar["high"] >= target:
+            skip_target = True
             flags.append(_flag("entry_session_ambiguous",
                                "The target was inside the entry session's range, but its high may have come before the "
                                "fill; the target is counted from the next session.", bar["date"]))
-        if entry_session and rule == "break_above" and hit_stop:
+        if entry_session and rule == "break_above" and bar["low"] <= stop:
             flags.append(_flag("entry_session_ambiguous",
                                "The stop was inside the entry session's range and its low may have come before the fill; "
                                "counted as the stop (conservative).", bar["date"]))
-        exit_: Optional[Dict[str, Any]] = None
-        if hit_stop:
-            # A session that OPENS below the stop never traded at the stop: a real stop order becomes a
-            # market order and fills at the open, worse than the stop. This used to book the fill at the
-            # stop anyway and merely flag it, which made a paper stop-loss incapable of losing to a gap —
-            # and the promotion gates in ai_trader/strategy.py read these numbers. The flag text said the
-            # right thing while the arithmetic did the opposite.
-            gapped = bar["open"] is not None and bar["open"] < stop
-            fill = bar["open"] if gapped else stop
-            exit_ = {"exit_reason": "stop", "exit_price": fill, "exit_session": bar["date"],
-                     "exit_note": BOTH_IN_RANGE_NOTE if hit_target else None}
-            if hit_target:
-                flags.append(_flag("both_in_range", BOTH_IN_RANGE_NOTE, bar["date"]))
-            if gapped:
-                flags.append(_flag("gap_through_stop",
-                                   f"The session opened at {_rupees(bar['open'])}, below the stop {_rupees(stop)}: the "
-                                   "price never traded at the stop, so the fill is the open and the loss is larger than "
-                                   "the stop distance.", bar["date"], bar["open"]))
-        elif hit_target:
-            exit_ = {"exit_reason": "target", "exit_price": target, "exit_session": bar["date"], "exit_note": None}
-        elif max_hold and out["held_sessions"] >= int(max_hold) and bar["close"] is not None:
-            exit_ = {"exit_reason": "time", "exit_price": bar["close"], "exit_session": bar["date"], "exit_note": TIME_EXIT_NOTE}
-        if exit_ is not None:
-            out["exit"] = exit_
-            return out
+        try:
+            state, ex = er.step(state, bar, rules, skip_target=skip_target)
+        except er.IncompleteBar:
+            flags.append(_flag("bar_missing_high_low", "This session's high and low cannot be read as a range; later "
+                                                       "sessions are not checked until it can.", bar["date"]))
+            break
+        for ev in state.events:
+            # A note once per kind (the trail moving is in stop_history, not here).
+            if ev["code"] in ("atr_unavailable", "open_unknown") and ev["code"] not in noted:
+                noted.add(ev["code"])
+                flags.append(_flag(ev["code"], ev["text"], bar["date"]))
+        if ex is not None:
+            out["exit"] = _exit_from_step(ex, bar, flags)
+            break
+    if state is not None:
+        out.update(stop_history=er.public_history(state), current_stop=state.stop, stop_version=state.stop_version)
     return out
+
+
+def _exit_from_step(ex: Dict[str, Any], bar: Dict[str, Any], flags: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The exit_rules.step exit as close_trade takes it, with the flags the desk has always recorded."""
+    reason, day = ex["reason"], bar["date"]
+    if reason in ("stop", "trailing_stop"):
+        # A session that OPENS below the stop never traded at the stop: a real stop order becomes a market order and
+        # fills at the open, worse than the stop (exit_rules.step returns that open).
+        note = BOTH_IN_RANGE_NOTE if ex["both_in_range"] else (
+            f"Closed at the trailing stop {_rupees(ex['stop_in_force'])} (raised by the opt-in ATR trail)."
+            if reason == "trailing_stop" else None)
+        if ex["both_in_range"]:
+            flags.append(_flag("both_in_range", BOTH_IN_RANGE_NOTE, day))
+        if ex["gapped"]:
+            flags.append(_flag("gap_through_stop",
+                               f"The session opened at {_rupees(bar['open'])}, below the stop {_rupees(ex['stop_in_force'])}: "
+                               "the price never traded at the stop, so the fill is the open and the loss is larger than "
+                               "the stop distance.", day, bar["open"]))
+        return {"exit_reason": reason, "exit_price": ex["price"], "exit_session": day, "exit_note": note}
+    if reason == "target":
+        return {"exit_reason": "target", "exit_price": ex["price"], "exit_session": day, "exit_note": None}
+    if reason == "time":
+        return {"exit_reason": "time", "exit_price": ex["price"], "exit_session": day, "exit_note": TIME_EXIT_NOTE}
+    return {"exit_reason": reason, "exit_price": ex["price"], "exit_session": day, "exit_note": TREND_EXIT_NOTE}
 
 
 def find_trade_exit(trade: Dict[str, Any], bars: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], Optional[date]]:
@@ -905,6 +964,9 @@ async def close_trade(db, trade: Dict[str, Any], *, exit_reason: str, exit_price
         "open_key": None,              # frees the symbol for a new trade (routes/desk_trading.py duplicate rule)
         **path,
         "checked_through": sim["checked_through"].isoformat() if sim and sim["checked_through"] else None,
+        # The exit rules' own record (exit-rules-v1): the stop in force at the exit and every version it had.
+        **({"stop_history": sim["stop_history"], "current_stop": sim["current_stop"], "stop_version": sim["stop_version"],
+            "exit_rules_version": sim["exit_rules_version"]} if sim and "stop_history" in sim else {}),
         "updated_at": stamp,
     }
     owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
@@ -945,8 +1007,9 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
     """Run the exit rule over open trades whose bars were read. (trades as they now stand, counts and the
     last session checked per trade id). With persist=False nothing is written (the script's dry run)."""
     out: List[Dict[str, Any]] = []
-    counts: Dict[str, Any] = {"stop": 0, "target": 0, "time": 0, "entry_not_reached": 0, "already_closed": 0,
-                              "checked_through": {}, "paths": {}}
+    counts: Dict[str, Any] = {"stop": 0, "trailing_stop": 0, "target": 0, "time": 0, "trend": 0, "entry_not_reached": 0,
+                              "already_closed": 0, "stop_updates": 0, "stop_update_conflicts": 0, "exit_failed": 0,
+                              "failed_ids": [], "checked_through": {}, "paths": {}}
     for trade in trades:
         if trade.get("kind") == "strategy" or trade.get("status") != "open" or trade["symbol"] not in bars:
             out.append(trade)          # strategy trades are evaluated by services/desk_strategy_trades.py
@@ -956,15 +1019,28 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
         counts["checked_through"][trade["_id"]] = sim["checked_through"]
         counts["paths"][trade["_id"]] = sim
         if exit_ is None:
+            if persist and trade.get("exit_rules") and sim["stop_version"] > int(trade.get("stop_version") or 1):
+                trade = await record_stop(db, trade, sim, counts)
             out.append(trade)
             continue
+        reason = exit_["exit_reason"]
         if not persist:
-            counts[exit_["exit_reason"]] += 1
+            counts[reason] = counts.get(reason, 0) + 1
             out.append(trade)
             continue
-        stored, mine = await close_trade(db, trade, **exit_, sim=sim)
+        try:
+            stored, mine = await close_trade(db, trade, **exit_, sim=sim)
+        except Exception as exc:  # noqa: BLE001 — one failed write must not leave every other trade unmanaged
+            # The trade stays open (the close filters on status, so a retry is safe) and the run reports it: the
+            # evening job records exit_failed in job_runs and the next run tries again.
+            logger.exception("desk_trading: closing trade %s (%s) at the %s failed: %r", trade["_id"], trade["symbol"],
+                             reason, exc)
+            counts["exit_failed"] += 1
+            counts["failed_ids"].append(trade["_id"])
+            out.append(trade)
+            continue
         if mine:
-            counts[exit_["exit_reason"]] += 1
+            counts[reason] = counts.get(reason, 0) + 1
             logger.info("desk_trading: trade %s (%s) closed at the %s on %s", trade["_id"], trade["symbol"],
                         exit_["exit_reason"], exit_["exit_session"])
         else:
@@ -972,6 +1048,22 @@ async def apply_trade_exits(db, trades: List[Dict[str, Any]], bars: Dict[str, Li
         if stored is not None:
             out.append(stored)
     return out, counts
+
+
+async def record_stop(db, trade: Dict[str, Any], sim: Dict[str, Any], counts: Dict[str, Any]) -> Dict[str, Any]:
+    """Store a trail move on an open trade: the update is filtered on the trade being open AND on the stop version it
+    was read at, and sets the next version, so two runs (the GET and the evening job) cannot both apply it and a stale
+    reader cannot overwrite a newer stop. The replay is the source of the stop; this is its audit record."""
+    stamp = _iso(utcnow())
+    change = {"stop_history": sim["stop_history"], "current_stop": sim["current_stop"], "stop_version": sim["stop_version"],
+              "exit_rules_version": sim["exit_rules_version"], "updated_at": stamp}
+    owner = {"_id": trade["_id"], "user_id": trade["user_id"]}
+    res = await db[TRADES].update_one({**owner, "status": "open", "stop_version": trade.get("stop_version")}, {"$set": change})
+    if res.matched_count:
+        counts["stop_updates"] += 1
+        return {**trade, **change}
+    counts["stop_update_conflicts"] += 1
+    return trade
 
 
 async def apply_alert_fires(db, alerts: List[Dict[str, Any]], bars: Dict[str, List[Dict[str, Any]]], *,
@@ -1063,8 +1155,17 @@ def _paper_fields(doc: Dict[str, Any], close: Optional[float], sim: Optional[Dic
             costs = breakdown["total"]
         basis = f"entry and exit at the fill prices; {costs_text(doc.get('cost_model'))}" if costs is not None else None
     net = round(gross - costs, 2) if gross is not None and costs is not None else None
+    if is_open and sim is not None:
+        stops = {"stop_history": sim.get("stop_history") or [], "current_stop": sim.get("current_stop"),
+                 "stop_version": sim.get("stop_version"), "exit_rules_version": sim.get("exit_rules_version")}
+    else:
+        # A closed trade shows what was stored when it closed (nothing for one closed before exit-rules-v1).
+        stops = {"stop_history": list(doc.get("stop_history") or []), "current_stop": doc.get("current_stop"),
+                 "stop_version": doc.get("stop_version"), "exit_rules_version": doc.get("exit_rules_version")}
     return {
         "entry_rule": rule,
+        "exit_rules": er.rule_labels(doc.get("exit_rules")),
+        **stops,
         "entry_window_sessions": doc.get("entry_window_sessions"),
         "max_hold_sessions": doc.get("max_hold_sessions"),
         "signal_at": doc.get("signal_at"),

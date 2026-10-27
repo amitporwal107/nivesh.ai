@@ -27,7 +27,10 @@ Scheduled runs (deploy/nivesh-staging/desk-alerts.cron) add three guards:
   the lease        every run that writes takes the job's lease (services/job_runs, Mongo `job_locks`); another run
                    holding it → exit 4. The cron line also wraps the command in `flock -n`.
 Every run that writes records a heartbeat in Mongo `job_runs` (status, counts, error), also when it fails, so a
-missed or failed run is visible: GET /api/admin/risk/jobs/check_desk_alerts.
+missed or failed run is visible: GET /api/admin/risk/jobs/check_desk_alerts. A close whose write fails for one trade
+does not stop the others: the run is recorded PARTIAL with `exits_failed` and the trade ids, the trade stays open, and the
+next run retries it (every close filters on the trade being open, so a retry can never close it twice). A trailing-stop
+move on a trade with an opt-in research rule is stored filtered on its `stop_version` (exit-rules-v1).
 
 Usage:
     docker exec nivesh-staging-app-backend python -m scripts.check_desk_alerts
@@ -111,6 +114,7 @@ async def run(db=None, *, dry_run: bool = False, session: Optional[date] = None,
     # Exits the strategy rules found this run, by reason: written unless dry_run (with the status in the
     # filter, so one a GET recorded first is left as it is).
     strategy_exits: Dict[str, int] = {}
+    strategy_exit_failures = [tid for tid, sim in strategy_sims.items() if sim.get("close_failed")]
     for sim in strategy_sims.values():
         if sim["exit"] is not None:
             reason = sim["exit"]["exit_reason"]
@@ -118,8 +122,8 @@ async def run(db=None, *, dry_run: bool = False, session: Optional[date] = None,
 
     no_prices = sorted(s for s, b in bars.items() if svc.last_close(b) is None)
     latest = svc.latest_day(b["date"] for b in (svc.last_close(v) for v in bars.values()) if b)
-    closed_by_reason: Dict[str, int] = {r: trade_counts[r] for r in ("stop", "target", "time", "entry_not_reached")
-                                        if trade_counts[r]}
+    closed_by_reason: Dict[str, int] = {r: trade_counts.get(r, 0) for r in ("stop", "trailing_stop", "target", "time", "trend",
+                                                                         "entry_not_reached") if trade_counts.get(r)}
     for reason, n in strategy_exits.items():
         closed_by_reason[f"strategy_{reason}"] = n
 
@@ -153,6 +157,11 @@ async def run(db=None, *, dry_run: bool = False, session: Optional[date] = None,
         "exits_stop": trade_counts["stop"],
         "exits_target": trade_counts["target"],
         "exits_already_recorded": trade_counts["already_closed"],
+        # A close whose write failed: the trade stays open and the next run retries it (the close filters on status).
+        "exits_failed": trade_counts.get("exit_failed", 0) + len(strategy_exit_failures),
+        "exits_failed_ids": sorted([*trade_counts.get("failed_ids", []), *strategy_exit_failures])[:20],
+        "stop_updates": trade_counts.get("stop_updates", 0),
+        "stop_update_conflicts": trade_counts.get("stop_update_conflicts", 0),
         "open_strategy_trades": len(strategy),
         "strategy_exits": strategy_exits,
         "strategy_not_checked": len(strategy_errors),
@@ -165,7 +174,8 @@ async def run(db=None, *, dry_run: bool = False, session: Optional[date] = None,
         "session": session.isoformat() if session else None,
         "trades_checked": len(cash) + len(checked_strategy),
         "closed_by_reason": closed_by_reason,
-        "errors": len(errors) + len(strategy_errors) + len(alert_counts["check_errors"]),
+        "errors": (len(errors) + len(strategy_errors) + len(alert_counts["check_errors"])
+                   + trade_counts.get("exit_failed", 0) + len(strategy_exit_failures)),
         "open_trades_behind": len(behind),
         "behind_trade_ids": sorted(behind)[:20],
     }

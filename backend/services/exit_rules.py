@@ -163,10 +163,11 @@ def start(entry_price: float, stop: Optional[float], rules: Rules, *, session: A
     s = None if stop is None else _num(stop)
     if stop is not None and s is None:
         raise ValueError("invalid_stop_price")
-    history = ({"session": _session_text(session), "stop": _round(s, rules), "reason": "initial", "version": 1,
+    # The initial stop is used exactly as given (a stored stop is never moved by rounding); only a trailed stop is
+    # rounded to the paisa.
+    history = ({"session": _session_text(session), "stop": s, "reason": "initial", "version": 1,
                 "side": rules.side},) if s is not None else ()
-    state = State(entry_price=entry, stop=_round(s, rules) if s is not None else None,
-                  initial_stop=_round(s, rules) if s is not None else None, extreme=entry, stop_history=history)
+    state = State(entry_price=entry, stop=s, initial_stop=s, extreme=entry, stop_history=history)
     for bar in warmup:
         state = _indicators(state, bar, rules)
     seed_atr, seed_close, seed_ema = _num(atr), _num(prev_close), _num(ema)
