@@ -21,7 +21,9 @@ const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
 const DESK = "/v5/app/trader/desk";
-const TD = (view: string, extra = "") => `${DESK}?tab=trade&view=${view}${extra}`;
+/** The owner's workbench places (PLAN.md "1-REVISED"): the TD cases' old view names, and where they are now. */
+const PLACE: Record<string, string> = { open: "paper&sub=live", closed: "paper&sub=journal", new: "lab&sub=build", backtest: "lab&sub=backtest" };
+const TD = (view: string, extra = "") => `${DESK}?tab=trade&view=${PLACE[view] ?? view}${extra}`;
 const CASH_PLAN = CARD.cash.trade_plan_response.plan;
 const SRC = "&src_kind=scanner&src_bucket=breakout_confirmed&src_date=2026-10-19";
 const SLOW = { timeout: 15_000 };
@@ -249,9 +251,13 @@ async function noSideScroll(page: Page) {
 // ── header strip ─────────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · header strip", () => {
-  test("TD-1 / TD-2 / TD-3 / TD-5 the account, the open-risk chip, the exit line and the paper/real line on every view", async ({ page }) => {
+  test("TD-1 / TD-2 / TD-3 / TD-5 the Live desk's account, open-risk chip and exit line; the paper/real line on Paper Trading and Strategy Lab", async ({ page }) => {
     await setup(page);
-    for (const view of ["open", "closed", "new"]) {
+    for (const view of ["closed", "new"]) {
+      await page.goto(TD(view));
+      await expect(page.getByTestId("desk-paper-real-line"), view).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio", SLOW);
+    }
+    for (const view of ["open"]) {
       await page.goto(TD(view));
       const h = page.getByTestId("td-header");
       await expect(h, view).toBeVisible(SLOW);
@@ -318,18 +324,54 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
 // ── navigation and Open & pending ────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
-  test("TD-7 three views, Open & pending by default; the old view=paper lands on open", async ({ page }) => {
+  test("NV-1 / NV-2 / TD-7 five sections in the design's order; ?tab=trade opens Paper Trading › Live desk; sub-views and the four-deep crumb", async ({ page }) => {
     await setup(page);
     await page.goto(`${DESK}?tab=trade`);
-    await expect.poll(() => params(page).get("view")).toBe("open");
-    await expect(page.getByTestId("desk-views").getByRole("button")).toHaveText(["Open & pending", "Closed & journal", "New trade"]);
-    await page.goto(TD("paper"));
-    await expect.poll(() => params(page).get("view")).toBe("open");
+    await expect.poll(() => params(page).get("view")).toBe("paper");
+    await expect.poll(() => params(page).get("sub")).toBe("live");
+    await expect(page.getByTestId("desk-views").getByRole("button")).toHaveText(["AI Scanner", "Chart Analysis", "Strategy Lab", "Paper Trading", "Watchlists"]);
+    const trail = page.getByTestId("desk-trail");
+    await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›Live desk$/);
     await expect(page.getByTestId("td-view-open")).toBeVisible(SLOW);
-    await page.getByTestId("desk-view-closed").click();
-    await expect(page.getByTestId("td-view-closed")).toBeVisible();
-    await page.getByTestId("desk-view-new").click();
-    await expect(page.getByTestId("td-view-new")).toBeVisible();
+    const SUBS: Record<string, string[]> = {
+      scanner: ["Ranked candidates", "Signal library & sources", "Scorecard"], chart: ["Live chart", "Signal record"],
+      lab: ["Build a trade", "Backtest & validation"], paper: ["Live desk", "Trade journal"], watchlists: [],
+    };
+    for (const [view, labels] of Object.entries(SUBS)) {
+      await page.getByTestId(`desk-view-${view}`).click();
+      await expect.poll(() => params(page).get("view")).toBe(view);
+      if (!labels.length) {
+        await expect(page.getByTestId("desk-subviews")).toHaveCount(0);
+        continue;
+      }
+      await expect(page.getByTestId("desk-subviews").getByRole("button")).toHaveText(labels);
+      await expect(page.getByTestId("desk-subviews").getByRole("button").first()).toHaveAttribute("aria-pressed", "true");
+    }
+    await page.getByTestId("desk-view-paper").click();
+    await page.getByTestId("desk-sub-journal").click();
+    await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›Paper Trading›Trade journal$/);
+    await expect(page.getByTestId("td-view-journal")).toBeVisible(SLOW);
+    await trail.getByTestId("desk-trail-view").click();
+    await expect.poll(() => params(page).get("sub")).toBe("live");
+  });
+
+  test("NV-3 / NV-4 old URLs land in their sections; Watchlists moved from Market Desk", async ({ page }) => {
+    await setup(page);
+    const cases: Array<[string, string, string | null, Record<string, string>?]> = [
+      ["?tab=trade&view=paper", "paper", "live"], ["?tab=trade&view=open", "paper", "live"], ["?tab=trade&view=closed", "paper", "journal"],
+      ["?tab=trade&view=new", "lab", "build"], ["?tab=fno&lab=strategies&lab_sym=NIFTY", "lab", "build", { section: "fno", lab_sym: "NIFTY" }],
+      ["?tab=more&view=strategy&mode=stock&sym=INFY", "lab", "build", { mode: "stock", sym: "INFY" }], ["?tab=market&view=watchlists", "watchlists", null],
+    ];
+    for (const [from, view, sub, extra] of cases) {
+      await page.goto(`${DESK}${from}`);
+      await expect.poll(() => params(page).get("tab"), from).toBe("trade");
+      await expect.poll(() => params(page).get("view"), from).toBe(view);
+      expect(params(page).get("sub"), from).toBe(sub);
+      for (const [k, v] of Object.entries(extra ?? {})) expect(params(page).get(k), `${from} ${k}`).toBe(v);
+    }
+    await expect(page.getByTestId("desk-panel-watchlists")).toBeVisible(SLOW);
+    await page.getByTestId("desk-tab-market").click();
+    await expect(page.getByTestId("desk-views").getByRole("button")).toHaveText(["Market Intelligence", "Smart Money", "Sector Rotation", "Stock Research", "Screener"]);
   });
 
   test("TD-8 / TD-9 pending entries with rule and validity; open positions with state, net P/L and plan id", async ({ page }) => {
@@ -405,7 +447,7 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-open-empty")).toBeVisible(SLOW);
     await page.getByTestId("td-empty-new").click();
-    await expect.poll(() => params(page).get("view")).toBe("new");
+    await expect.poll(() => params(page).get("view")).toBe("lab");
     await page.goto(TD("open"));
     await page.getByTestId("td-empty-overview").click(SLOW);
     await expect.poll(() => params(page).get("tab")).toBe("overview");
@@ -415,11 +457,11 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
 // ── the journal drawer ───────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => {
-  test("TD-14 / TD-15 / TD-16 / TD-17 / TD-18 a row opens the journal: timeline, fills, the desk-cost-v2 bridge, stop history", async ({ page }) => {
+  test("TD-14 / TD-15 / TD-16 / TD-17 / TD-18 / NV-5 a row opens Trade journal: timeline, fills, the desk-cost-v2 bridge, stop history", async ({ page }) => {
     await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click(SLOW);
-    const d = page.getByRole("dialog", { name: "Trade journal · INFY" });
+    const d = page.getByRole("region", { name: "Trade journal · INFY" });
     await expect(d).toBeVisible();
     await expect(d.getByTestId("td-journal-state")).toHaveText(/position open/i);
     const tr = d.getByTestId("td-journal-transition");
@@ -440,13 +482,14 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     const stops = d.getByTestId("td-journal-stop");
     await expect(stops).toHaveCount(2);
     await expect(stops.nth(1)).toContainText(`₹${n2(1490)} · set at the 24 Oct close, in force from the next session · raised by the ATR trail`);
-    await page.keyboard.press("Escape");
-    await expect(d).toHaveCount(0);
+    await expect(page).toHaveURL(/[?&]sub=journal&trade=pt-open/);
+    await page.getByTestId("desk-sub-live").click();
     await page.getByTestId("td-pending").getByRole("row").filter({ hasText: "HDFCBANK" }).click();
-    await expect(page.getByRole("dialog", { name: "Trade journal · HDFCBANK" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Trade journal · HDFCBANK" })).toBeVisible();
     await expect(page.getByTestId("td-journal-fill-entry-price")).toHaveText("not filled");
-    await page.getByTestId("td-journal-dismiss").click();
-    await expect(page.getByTestId("td-journal")).toHaveCount(0);
+    // NV-5: the picker switches trades.
+    await page.getByTestId("td-journal-pick").selectOption("pt-open");
+    await expect(page.getByRole("region", { name: "Trade journal · INFY" })).toBeVisible();
   });
 
   test("TD-19 exit flags: both touched → stop assumed; gap through the stop → filled at the open; no AMBIGUOUS", async ({ page }) => {
@@ -457,7 +500,6 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await expect(d.getByTestId("td-journal-flag")).toHaveAttribute("data-code", "both_in_range");
     await expect(d.getByTestId("td-journal-flag")).toContainText(`Stop and target both touched on 24 Oct: stop assumed. ${BOTH}`);
     await expect(d).not.toContainText(/ambiguous/i);
-    await page.getByTestId("td-journal-dismiss").click();
     await page.getByTestId("td-closed").getByRole("row").filter({ hasText: "TCS" }).click();
     await expect(page.getByTestId("td-journal").getByTestId("td-journal-flag")).toContainText(`Gapped through the stop: filled at the open. ${GAP}`);
   });
@@ -479,7 +521,7 @@ test.describe("MOCK — not real data: Trade Desk · the journal drawer", () => 
     await setup(page);
     await page.goto(TD("open"));
     await page.getByTestId("td-structure-journal").click(SLOW);
-    const d = page.getByRole("dialog", { name: "Trade journal · NIFTY" });
+    const d = page.getByRole("region", { name: "Trade journal · NIFTY" });
     await expect(d.getByTestId("td-journal-legs-row")).toHaveCount(4);
     await expect(d.getByTestId("td-fig-max-loss")).toHaveText(`−${rs0(4293.75)}`);
     await expect(d.getByTestId("td-journal-event")).toHaveCount(1);
@@ -502,7 +544,7 @@ test.describe("MOCK — not real data: Trade Desk · Closed & journal", () => {
     await expect(page.getByTestId("td-closed-net-total")).toHaveText(`−${rs0(4800.2)}`);
     await expect(page.getByTestId("td-view-closed")).toContainText("Net before income tax");
     await axis.click();
-    await expect(page.getByRole("dialog", { name: "Trade journal · AXISBANK" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Trade journal · AXISBANK" })).toBeVisible();
   });
 });
 
@@ -605,7 +647,7 @@ test.describe("MOCK — not real data: Trade Desk · New trade", () => {
 
   test("TD-33 backtest provenance: liquid-eq-v1 point-in-time, code, data to, cost model, slippage sweep; an index shows survivorship", async ({ page }) => {
     const seen = await setup(page);
-    await page.goto(TD("new"));
+    await page.goto(TD("backtest"));
     const bt = page.getByTestId("td-backtest");
     await expect(bt.getByTestId("td-bt-strategy")).toBeVisible(SLOW);
     await bt.getByTestId("td-bt-from").fill("2025-10-27");
@@ -643,7 +685,7 @@ test.describe("MOCK — not real data: Trade Desk · close, errors, records", ()
     expect(seen.closes[0]).toEqual({ path: "/api/desk/paper-trades/pt-open/close", body: {} });
     await expect.poll(() => seen.listGets).toBeGreaterThan(before);
     // A waiting entry is cancelled, not closed.
-    await page.getByTestId("td-journal-dismiss").click();
+    await page.getByTestId("desk-sub-live").click();
     await page.getByTestId("td-pending").getByRole("row").filter({ hasText: "HDFCBANK" }).click();
     await expect(page.getByTestId("td-journal-close")).toHaveText("Cancel paper trade");
   });
@@ -702,28 +744,30 @@ test.describe("MOCK — not real data: Trade Desk · close, errors, records", ()
 // ── data, layout, wording ────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", () => {
-  test("TD-34 one GET /api/desk/paper-trades per load, across views and the drawer", async ({ page }) => {
+  test("TD-34 one GET /api/desk/paper-trades per load, across sections and sub-views", async ({ page }) => {
     const seen = await setup(page);
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-structure")).toHaveCount(1, SLOW);
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click();
-    await page.getByTestId("td-journal-dismiss").click();
-    await page.getByTestId("desk-view-closed").click();
-    await expect(page.getByTestId("td-view-closed")).toBeVisible();
-    await page.getByTestId("desk-view-new").click();
-    await expect(page.getByTestId("td-view-new")).toBeVisible();
-    await page.getByTestId("desk-view-open").click();
+    await expect(page.getByTestId("td-journal")).toBeVisible();
+    await page.getByTestId("desk-sub-live").click();
+    await page.getByTestId("desk-view-lab").click();
+    await expect(page.getByTestId("td-view-build")).toBeVisible();
+    await page.getByTestId("desk-sub-backtest").click();
+    await expect(page.getByTestId("td-view-backtest")).toBeVisible();
+    await page.getByTestId("desk-view-paper").click();
     await expect(page.getByTestId("td-view-open")).toBeVisible();
+    await page.getByTestId("desk-sub-journal").click();
+    await expect(page.getByTestId("td-view-journal")).toBeVisible();
     await page.waitForTimeout(1500);
     expect(seen.listGets).toBe(1);
   });
 
-  test("TD-35 390 px: no sideways page scroll on any view or in the drawer; the leg table scrolls in its own box", async ({ page }) => {
+  test("TD-35 390 px: no sideways page scroll on any sub-view or the journal; the leg table scrolls in its own box", async ({ page }) => {
     await setup(page, { phone: true });
-    for (const view of ["open", "closed", "new"]) {
+    for (const [view, root] of [["open", "td-view-open"], ["closed", "td-view-journal"], ["new", "td-view-build"], ["backtest", "td-view-backtest"]]) {
       await page.goto(TD(view));
-      await expect(page.getByTestId("td-header")).toBeVisible(SLOW);
-      await expect(page.getByTestId(`td-view-${view}`)).toBeVisible(SLOW);
+      await expect(page.getByTestId(root)).toBeVisible(SLOW);
       if (view === "new") await expect(page.getByTestId("td-template").first()).toBeVisible(SLOW);
       await noSideScroll(page);
     }
@@ -749,11 +793,17 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     await page.goto(TD("closed"));
     await expect(page.getByTestId("td-view-closed")).toBeVisible(SLOW);
     expect(wordingOf(await page.getByTestId("td-tab").innerText())).not.toMatch(BANNED);
+    await page.goto(`${DESK}?tab=trade&view=watchlists`);
+    await expect(page.getByTestId("desk-views")).toBeVisible(SLOW);
+    expect(wordingOf(await page.getByTestId("desk-views").innerText())).not.toMatch(BANNED);
     await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));
     await expect(page.getByTestId("td-ticket-size")).toHaveAttribute("data-qty", "666", SLOW);
-    for (const id of ["td-header", "td-ticket", "td-templates", "td-backtest"]) {
+    for (const id of ["td-ticket", "td-templates"]) {
       expect(wordingOf(await page.getByTestId(id).innerText()), id).not.toMatch(BANNED);
     }
     await expect(page.getByTestId("td-ticket")).toContainText("nothing is sent to a broker");
+    await page.goto(TD("backtest"));
+    await expect(page.getByTestId("td-backtest")).toBeVisible(SLOW);
+    expect(wordingOf(await page.getByTestId("td-backtest").innerText())).not.toMatch(BANNED);
   });
 });

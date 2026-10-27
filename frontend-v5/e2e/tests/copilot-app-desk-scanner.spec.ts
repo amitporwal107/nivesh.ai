@@ -839,7 +839,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId("desk-scan-row-FIXBRK").getByTestId("desk-scan-act").click();
     await page.getByTestId("desk-scan-actions-FIXBRK").getByTestId("desk-scan-act-strategy").click();
     await expect(page).toHaveURL(/tab=trade/); // was tab=more&view=strategy before the 2026-10-27 redesign
-    await expect(page).toHaveURL(/view=new/);
+    await expect(page).toHaveURL(/view=lab&sub=build/);
     await expect(page).toHaveURL(/sym=FIXBRK/);
     await expect(page).toHaveURL(/src_kind=scanner/);
     await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);
@@ -1698,7 +1698,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     await page.goto(`${DESK}?tab=chart&sym=FIXBRK`);
     await page.getByTestId("desk-detail-levels-toggle").click();
     await page.getByTestId("desk-lvl-strategy").click();
-    await expect(page).toHaveURL(/tab=trade&view=new/); // was view=strategy before the 2026-10-27 redesign
+    await expect(page).toHaveURL(/tab=trade&view=lab&sub=build/); // Strategy Lab › Build a trade (was view=new, before that view=strategy)
     await expect(page).toHaveURL(/sym=FIXBRK/);
     await expect(page).toHaveURL(/src_kind=chart/);
     await expect(page).toHaveURL(/src_bucket=breakout_confirmed/);

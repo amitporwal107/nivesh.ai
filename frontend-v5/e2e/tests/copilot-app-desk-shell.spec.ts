@@ -23,30 +23,33 @@ const TABS = [
   { key: "risk", label: "Risk Desk", num: "04" },
 ];
 const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
-  // Step 3 (Trade Desk tab): Open & pending · Closed & journal · New trade (copilot-app-desk-trade-desk.spec.ts covers their content).
-  trade: [{ key: "open", label: "Open & pending" }, { key: "closed", label: "Closed & journal" }, { key: "new", label: "New trade" }],
+  // Step 3, the owner's workbench (PLAN.md "1-REVISED"): five sections, each with sub-views (copilot-app-desk-trade-desk.spec.ts).
+  trade: [{ key: "scanner", label: "AI Scanner" }, { key: "chart", label: "Chart Analysis" }, { key: "lab", label: "Strategy Lab" }, { key: "paper", label: "Paper Trading" }, { key: "watchlists", label: "Watchlists" }],
   market: [
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
-    { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" }, { key: "watchlists", label: "Watchlists & alerts" },
+    { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" },
   ],
   risk: [{ key: "limits", label: "Exposure & limits" }, { key: "controls", label: "Policy & runtime" }, { key: "log", label: "Decision log" }],
 };
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
-  "trade/open": [["desk-panel-trade-desk", "td-view-open"]],
-  "trade/closed": [["desk-panel-trade-desk", "td-view-closed"]],
-  "trade/new": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
+  "trade/scanner": [["desk-panel-scanner", null]],
+  "trade/chart": [["desk-panel-chart", null]],
+  "trade/lab": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
+  "trade/paper": [["desk-panel-trade-desk", "td-view-open"]],
+  "trade/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
   "market/intel": [["desk-panel-intel", null], ["desk-panel-events", null]],
   "market/smartmoney": [["desk-panel-smartmoney", null], ["desk-panel-fno", "desk-fno"]],
   "market/sectors": [["desk-panel-sectors", "screen-tool-sector-heatmap"]],
   "market/research": [["desk-panel-chart", null]],
   "market/screener": [["desk-panel-screener", "screen-tool-screener"], ["desk-panel-chartink", "chartink-settings"]],
-  "market/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
   // The Risk Desk tab (step 4, tradingdesk/tabs/risk-desk) replaces the re-hosted Risk controls, F&O Live and Audit.
   "risk/limits": [["risk-desk", "rd-limits-card"], ["risk-desk", "risk-policy"]],
   "risk/controls": [["risk-desk", "risk-status"], ["risk-desk", "risk-audit"], ["risk-desk", "risk-profile"], ["risk-desk", "rd-live"]],
   "risk/log": [["risk-desk", "risk-decisions"]],
 };
+/** A tab whose default view is not its first: Trade Desk opens Paper Trading until the AI Scanner section is built. */
+const DEFAULT_VIEW: Record<string, string> = { trade: "paper" };
 const LOCATIONS = ["overview", ...Object.keys(VIEW_HOST), "portfolio"];
 const urlOf = (loc: string) => {
   const [tab, view] = loc.split("/");
@@ -152,7 +155,7 @@ test.describe("MOCK — not real data: desk shell · tabs and views", () => {
     for (const t of TABS) {
       await page.getByTestId(`desk-tab-${t.key}`).click();
       const views = VIEWS[t.key];
-      await expectAt(page, t.key, views ? views[0].key : null);
+      await expectAt(page, t.key, views ? (DEFAULT_VIEW[t.key] ?? views[0].key) : null);
       await expect(page.getByTestId(`desk-tab-${t.key}`)).toHaveAttribute("aria-selected", "true");
       if (!views) {
         await expect(page.getByTestId("desk-views")).toHaveCount(0);
@@ -218,7 +221,7 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     const line = page.getByTestId("desk-open-trades-line");
     await expect(line).toContainText("2 open paper trades");
     await line.getByTestId("desk-open-trades-link").click();
-    await expectAt(page, "trade", "open");
+    await expectAt(page, "trade", "paper", { sub: "live" });
     await expect(page.getByTestId("desk-panel-trade-desk")).toBeVisible();
   });
 
@@ -241,8 +244,8 @@ test.describe("MOCK — not real data: desk shell · redirects from the old URLs
     { from: "?tab=smartmoney", tab: "market", view: "smartmoney" },
     { from: "?tab=fno", tab: "market", view: "smartmoney", extra: { section: "fno" } },
     { from: "?tab=fno&lab=chain&lab_sym=BANKNIFTY", tab: "market", view: "smartmoney", extra: { section: "fno", lab: "chain", lab_sym: "BANKNIFTY" } },
-    { from: "?tab=fno&lab=strategies&lab_sym=NIFTY", tab: "trade", view: "new", extra: { section: "fno", lab_sym: "NIFTY" } },
-    { from: "?tab=more&view=strategy&mode=stock&sym=INFY", tab: "trade", view: "new", extra: { mode: "stock", sym: "INFY" } },
+    { from: "?tab=fno&lab=strategies&lab_sym=NIFTY", tab: "trade", view: "lab", extra: { sub: "build", section: "fno", lab_sym: "NIFTY" } },
+    { from: "?tab=more&view=strategy&mode=stock&sym=INFY", tab: "trade", view: "lab", extra: { sub: "build", mode: "stock", sym: "INFY" } },
     { from: "?tab=more&view=risk", tab: "risk", view: "limits" },
     { from: "?tab=more&view=chartink", tab: "market", view: "screener", extra: { section: "chartink" } },
     { from: "?tab=portfolio", tab: "portfolio", view: null },
@@ -351,7 +354,7 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
   });
 
   test("SH-24 no 'picks', 'recommended' or 'suggested' in the frame's words", async ({ page }) => {
-    for (const loc of ["overview", "trade/open", "market/intel", "risk/limits", "portfolio"]) {
+    for (const loc of ["overview", "trade/paper", "market/intel", "risk/limits", "portfolio"]) {
       await page.goto(urlOf(loc));
       await expect(page.getByTestId("desk-tabs")).toBeVisible();
       for (const id of ["desk-paper-banner", "desk-tabs", "desk-my-portfolio", "desk-trail", "desk-views", "desk-open-trades-line", "desk-paper-real-line"]) {
@@ -420,7 +423,7 @@ test.describe("MOCK — not real data: desk shell · phone 390px", () => {
 
   test("SH-21 / SH-15 no sideways scroll and the banner on every tab and on My portfolio", async ({ page }) => {
     await deskApi(page);
-    for (const loc of ["overview", "trade/open", "trade/new", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
+    for (const loc of ["overview", "trade/paper", "trade/lab", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
       await page.goto(urlOf(loc));
       await expect(page.getByTestId("desk-paper-banner"), loc).toHaveText(BANNER);
       await expect(page.getByTestId(`desk-panel-${loc.split("/")[0]}`), loc).toBeVisible();
@@ -441,10 +444,10 @@ test.describe("MOCK — not real data: desk shell · phone 390px", () => {
     }
     await page.getByTestId("desk-tab-market").count(); // the tab row is the bottom bar on a phone
     const views = page.getByTestId("desk-views");
-    await page.getByTestId("desk-bottom-market").click();
+    await page.getByTestId("desk-bottom-trade").click();
     await expect(views).toBeVisible();
     await views.getByTestId("desk-view-watchlists").click();
-    await expectAt(page, "market", "watchlists");
+    await expectAt(page, "trade", "watchlists");
     await noSideScroll(page);
     await bar.getByTestId("desk-bottom-copilot").click();
     await expectAt(page, "copilot", null);
