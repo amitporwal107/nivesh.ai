@@ -72,4 +72,20 @@ tsc: OK (no errors)
   61 passed (2.3m)
 ```
 
+
+## Addendum (23:10 IST): merged dev's desk redesign steps (#373 Market Overview, #375 Market Desk)
+Following the owner's design structure: Market Overview is taken exactly as dev has it (no extra section); the results chip stays
+on its Top AI candidates (ScannerTop10 rows); the Results week ideas list moved into the Results week view (Market Desk ›
+Market Intelligence › Events calendar › Results week), beside the results it is built from. RS-4 checks the ideas there; RS-5
+(the old Overview "Top AI opportunities" card, replaced by #373) is retired. Run (results specs + dev's Market Overview,
+Market Desk, Top 10, decision-card and events specs):
+```
+tsc: OK (no errors)
+✓ built in 30.09s
+  19 skipped
+  122 passed (2.7m)
+```
+Not ours: 8 cases in copilot-app-desk.spec.ts ("header and Overview · design fidelity") fail on pure origin/dev 329a3647 as well
+(`8 failed, 4 skipped, 7 passed` there), from the redesign; they are left to that work.
+
 ## Verdict: PASS
