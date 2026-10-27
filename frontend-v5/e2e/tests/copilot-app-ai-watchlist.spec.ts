@@ -6,6 +6,12 @@
  * GET /api/fno/scan/buildup and the two write routes are answered by inline payloads in the real routes' shapes. The two F&O
  * ideas are taken from `desk-strategy-top.json`, a REAL staging capture of POST /api/desk/strategy/top (2026-10-21).
  * Expected figures are worked out from the payloads here, not copied from the screen.
+ *
+ * Stored levels (test_reports/fno_idea_paper_trade_TESTCASES.md F-9, F-10): the BANKNIFTY entry carries the
+ * `strategy_levels` the nightly job stores (services/ai_watchlist_build.levels_for) with the real engine's answer for it
+ * (`desk-strategy-levels-banknifty.json`); MPHASIS carries none, as a day stored before the job kept them. Its paper trade
+ * is compared with the shared contract `contract-fno-idea-paper-trade.json` (sent through the real route by
+ * backend/tests/test_fno_idea_paper_trade_contract.py).
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
 import fs from "fs";
@@ -21,12 +27,17 @@ const reply = (route: Route, body: unknown, status = 200) => route.fulfill({ sta
 
 // ── the stored day (backend/routes/ai_watchlist.py) ───────────────────────
 
-const TOP = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", "desk-strategy-top.json"), "utf-8"));
+const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", name), "utf-8"));
+const TOP = fixture("desk-strategy-top.json");
+const CONTRACT = fixture("contract-fno-idea-paper-trade.json");
+const LEVELS = fixture(CONTRACT.levels_reply_fixture);
 const bank = TOP.classes.index_options.ideas.find((i: { underlying: string }) => i.underlying === "BANKNIFTY");
 const mph = TOP.classes.stock_fno.ideas.find((i: { underlying: string }) => i.underlying === "MPHASIS");
+/** What the nightly job stores on an F&O entry (services/ai_watchlist_build.levels_for). */
+const STORED_LEVELS = { as_of: "2026-10-21", computed_at: "2026-10-21T14:45:00+00:00", refs: CONTRACT.levels_request.refs, result: LEVELS, error: null };
 const FNO = [
   { ...mph, kind: "stock", rank: 1, earlier_list_dates: ["2026-10-23"], days_on_list: 2 },
-  { ...bank, kind: "index", rank: 2, earlier_list_dates: [], days_on_list: 1 },
+  { ...bank, kind: "index", rank: 2, earlier_list_dates: [], days_on_list: 1, strategy_levels: STORED_LEVELS },
 ];
 const ICICI = {
   rank: 1, symbol: "ICICIBANK", name: "ICICI Bank Ltd", sector: "Banks", direction: "bullish", fno_eligible: true, source: "ai_scanner",
@@ -46,7 +57,7 @@ const DATES = [{ list_date: "2026-10-26", cash: 2, fno: 2 }, { list_date: "2026-
 const NOTES = {
   cash_ranking: "Ranked by the scanner's rules-based score. It is not a probability of profit.", cash_caveats: [],
   fno_ranking: TOP.ranking_note, fno_gaps: TOP.gaps, fno_staleness: "The option chain is from 2026-10-26 but the market regime was last classified on 2026-10-23.",
-  fno_chain_as_of: "2026-10-26", fno_skipped: [], regime: { available: true, label: "Bearish", as_of: "2026-10-23", trend: "down", india_vix: 16.86 },
+  fno_chain_as_of: "2026-10-26", fno_rules_version: TOP.rules_version, fno_skipped: [], regime: { available: true, label: "Bearish", as_of: "2026-10-23", trend: "down", india_vix: 16.86 },
 };
 const RULES = { cash: "The AI scanner's merged setup list ranked by its evidence score, top 10.", fno: "NIFTY, BANKNIFTY and F&O stocks, one row per instrument, top 10." };
 const DAY26 = { list_date: "2026-10-26", built_at: "2026-10-26T14:45:00+00:00", available_dates: DATES, cash: [ICICI, CRISIL], fno: FNO, notes: NOTES, rules: RULES, read_only: true };
@@ -63,10 +74,10 @@ function stream(mode: "live" | "closed" | "expired") {
 /** One price per requested leg, in request order: 1.25 × the list day's premium. */
 const livePrice = (entry: number) => Math.round(entry * 1.25 * 100) / 100;
 
-interface Seen { days: string[]; paper: Array<Record<string, unknown>>; paperKeys: Array<string | undefined>; payoff: number; fnoQuotes: number }
+interface Seen { days: string[]; paper: Array<Record<string, unknown>>; paperKeys: Array<string | undefined>; payoff: number; fnoQuotes: number; levels: number }
 
 async function open(page: Page, o: { feed?: "live" | "closed" | "expired"; day?: (date: string | null) => { status: number; body: unknown }; phone?: boolean } = {}): Promise<Seen> {
-  const seen: Seen = { days: [], paper: [], paperKeys: [], payoff: 0, fnoQuotes: 0 };
+  const seen: Seen = { days: [], paper: [], paperKeys: [], payoff: 0, fnoQuotes: 0, levels: 0 };
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await mockApi(page, "populated");
   await page.route("**/api/desk/ai-watchlist*", (route) => {
@@ -101,6 +112,8 @@ async function open(page: Page, o: { feed?: "live" | "closed" | "expired"; day?:
     }
     return reply(route, { as_of: "2026-10-26", trades: [], summary: null });
   });
+  // A stored day's levels are never asked for again: any call here is counted and answered with a MOCK not-valid reply.
+  await page.route("**/api/desk/strategy/levels", (route) => { seen.levels += 1; return reply(route, { valid: false, problems: [{ code: "mock", message: "MOCK" }] }); });
   await page.route("**/api/desk/strategy/payoff", (route) => { seen.payoff += 1; return reply(route, { valid: false, problems: [{ code: "mock", message: "MOCK payoff not drawn" }], warnings: [] }); });
   await page.goto(PAGE);
   return seen;
@@ -241,6 +254,41 @@ test.describe("AI scanner watchlist", () => {
     await page.getByTestId("aiw-seg-fno").click(SLOW);
     await page.getByTestId("aiw-fno-MPHASIS").getByTestId("aiw-fno-buildup").click();
     expect([params(page).get("tab"), params(page).get("lab"), params(page).get("lab_sym")]).toEqual(["fno", null, "MPHASIS"]);
+  });
+
+  test("L-1 an F&O idea with levels stored with the day: shown labelled and dated, and its paper trade posts the contract body", async ({ page }) => {
+    const seen = await open(page);
+    await page.getByTestId("aiw-seg-fno").click(SLOW);
+    const row = page.getByTestId("aiw-fno-BANKNIFTY");
+    const lv = row.getByTestId("idea-levels");
+    await expect(lv).toHaveAttribute("data-state", "ok");
+    await expect(lv.getByTestId("idea-levels-label")).toHaveText("Provisional · research levels");
+    await expect(lv.getByTestId("idea-levels-asof")).toHaveText("end-of-day chain of 21 Oct 2026 · worked out on the list day (21 Oct 2026)");
+    const f2 = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    await expect(lv.getByTestId("idea-levels-stop")).toContainText(`(BANKNIFTY ${f2(LEVELS.underlying.stop)})`);
+    await expect(lv.locator("button")).toHaveCount(1);
+    await lv.getByTestId("idea-levels-plan").click();
+    await expect(lv.getByTestId("desk-levels")).toBeVisible();
+    await row.getByTestId("idea-paper-trade").click();
+    await expect(row.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    expect(seen.paper).toEqual([CONTRACT.body_with_levels]);
+    expect(seen.levels).toBe(0);
+  });
+
+  test("L-2 an F&O idea from a day stored without levels says so, asks for none, and records none", async ({ page }) => {
+    const seen = await open(page);
+    await page.getByTestId("aiw-seg-fno").click(SLOW);
+    const row = page.getByTestId("aiw-fno-MPHASIS");
+    await expect(row.getByTestId("idea-levels")).toHaveAttribute("data-state", "not-stored");
+    await expect(row.getByTestId("idea-levels")).toContainText("not stored with this day’s list");
+    await row.getByTestId("idea-paper-trade").click();
+    await expect(row.getByTestId("idea-paper-trade")).toHaveText("Added to paper trades");
+    const body = seen.paper[0] as Record<string, any>;
+    expect(body).not.toHaveProperty("stop_underlying");
+    expect(body).not.toHaveProperty("target_underlying");
+    expect(body.signal).toMatchObject({ signal_at: mph.data_as_of.chain, rule_version: TOP.rules_version });
+    await page.waitForTimeout(300);
+    expect(seen.levels).toBe(0);
   });
 
   test("F-8 nothing stored yet says when the job runs; a failing route offers a retry and the page stays", async ({ page }) => {

@@ -31,10 +31,13 @@ import { useDesk, type TrailFrom } from "./context";
 import { BUCKET_LABEL, type SetupBucket } from "./desk-data";
 import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { Segmented } from "./fno-parts";
+import { CashLevels, IdeaLevels, useIdeaLevels } from "./IdeaLevels";
 import { DASH, StatusPill, noteStyle, ratio, rupeesAbs } from "./strategy/plan-format";
 import type { PlanStatus } from "./strategy/plan-contract";
 import type { Idea } from "./strategy/ideas-contract";
 import { IdeaActions, Why } from "./strategy/TopByRegime";
+import { levelsRefsFor } from "./strategy/top-actions";
+import type { TopBoard } from "./strategy/top-contract";
 import {
   TOP10, fnoUniverseNotes, mergeFno, planParamsFor, preferredStrategy, sizedShares, useTop10Fno, useTop10Stocks, type FnoKind, type FnoRow,
 } from "./top10-data";
@@ -138,6 +141,7 @@ function StockRow({ idea, rank, scanDate }: { idea: Idea; rank: number; scanDate
             <span>{idea.status_reasons[0]?.message || "none passed the plan’s checks on this scan"}</span>
           )}
         </span>
+        <CashLevels testId="desk-top10-stock-levels" entry={sc.entry} stop={sc.stop} target={sc.target} riskReward={sc.risk_reward} dataDate={sc.close_date ?? scanDate} />
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
         <LinkChip testId="desk-top10-stock-plan" onClick={() => go(() => desk.openStrategyPlan(planParamsFor(idea, scanDate)))} title="The full plan in the Strategy Builder: sizing, costs, evidence and the payoff">Strategy ›</LinkChip>
@@ -197,10 +201,11 @@ function StockBoard() {
 
 type FnoFilter = "all" | FnoKind;
 
-function FnoIdeaRow({ row }: { row: FnoRow }) {
+function FnoIdeaRow({ row, board }: { row: FnoRow; board: TopBoard }) {
   const desk = useDesk();
   const { idea, kind, rank } = row;
   const sym = idea.underlying;
+  const levels = useIdeaLevels(idea, levelsRefsFor(board, sym));
   const go = (f: () => void) => { desk.noteFrom(FROM_FNO); f(); };
   const openLab = () => go(() => (kind === "index"
     ? desk.openLab("indices", { symbol: sym, focus: sym })
@@ -227,6 +232,7 @@ function FnoIdeaRow({ row }: { row: FnoRow }) {
         <span className="cp-num" style={{ ...quiet, color: "var(--cp-ink-2)" }}>
           max loss {maxLoss} · reward : risk {idea.reward_risk == null ? DASH : `${fmtNum(idea.reward_risk, 2)} : 1`} · capital at risk {fmtINR(idea.capital_at_risk)}
         </span>
+        <IdeaLevels idea={idea} state={levels} />
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
         <LinkChip testId="desk-top10-fno-lab" onClick={openLab} title={kind === "index" ? "The lab's NIFTY & BANKNIFTY workspace with this idea in focus" : "The lab's Candidates with this idea in focus"}>
@@ -238,7 +244,7 @@ function FnoIdeaRow({ row }: { row: FnoRow }) {
         </LinkChip>
       </div>
       <div style={{ paddingLeft: 32 }}>
-        <IdeaActions idea={idea} onViewTrades={() => go(desk.openPaperTrades)} />
+        <IdeaActions idea={idea} onViewTrades={() => go(desk.openPaperTrades)} rulesVersion={board.rules_version} levels={levels} />
       </div>
       <details data-testid="desk-top10-fno-more" style={{ paddingLeft: 32 }}>
         <summary style={{ cursor: "pointer", ...quiet, color: "var(--cp-ink-2)" }}>
@@ -252,7 +258,7 @@ function FnoIdeaRow({ row }: { row: FnoRow }) {
                 <strong style={{ fontWeight: 500 }}>{a.name}</strong>
                 <span style={quiet}> · fit {fmtNum(a.fit.score, 1)} · reward : risk {a.reward_risk == null ? DASH : `${fmtNum(a.reward_risk, 2)} : 1`} · max loss {a.loss_unbounded ? "no lower limit" : fmtINR(a.max_loss)}</span>
               </span>
-              <IdeaActions idea={a} />
+              <IdeaActions idea={a} rulesVersion={board.rules_version} />
             </div>
           ))}
         </div>
@@ -310,7 +316,7 @@ function FnoBoard() {
         <p data-testid="desk-top10-fno-empty" className="m-0" style={quiet}>No structure passed its own checks against the current chains{notes.unreadable.length ? "; see what could not be read below" : ""}.</p>
       ) : (
         <ol data-testid="desk-top10-fno-list" className="m-0 p-0" style={{ listStyle: "none" }}>
-          {shown.map((r) => <FnoIdeaRow key={r.idea.underlying} row={r} />)}
+          {board && shown.map((r) => <FnoIdeaRow key={r.idea.underlying} row={r} board={board} />)}
         </ol>
       )}
       {board && (

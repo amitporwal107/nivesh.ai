@@ -39,7 +39,7 @@ import { usePersonalList, usePersonalLists } from "../workspace/personal-lists";
 import { STATUS_LABEL, lastMove, oddsLabel, scanDateLabel, setupLabel, type UpHead } from "./chart-data";
 import { useDesk } from "./context";
 import {
-  probabilityGate, riskClassOf, useDeskOdds, useDeskScanner, useScanUniverse,
+  probabilityGate, riskClassOf, scanBasisLine, useDeskOdds, useDeskScanner, useScanUniverse,
   type DeskOdds, type DeskSetup, type RiskClass, type ScanRules, type ScanUniverse, type SetupBucket, type UniverseCategory, type UniverseRow,
 } from "./desk-data";
 import { useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
@@ -687,6 +687,10 @@ function StockCell({ r, size = 24 }: { r: Row; size?: number }) {
     <span className="block min-w-0">
       <SymbolCell symbol={r.symbol} name={r.name} sub={<StockSub r={r} />} testId="desk-scan-symbol" size={size}>
         <span style={{ fontFamily: "var(--mono)", fontSize: 12.5 }}>{r.symbol}</span>
+        {r.s?.priceBasis === "raw_no_factors" && (
+          <span data-testid="desk-scan-raw-prices" className="cp-mono-note" title="No split/bonus factors for this stock: the scanner scored it on raw NSE prices"
+            style={{ fontSize: 10, marginLeft: 6 }}>raw prices</span>
+        )}
       </SymbolCell>
     </span>
   );
@@ -1362,6 +1366,14 @@ function ScannerList() {
     <span className="flex min-w-0 flex-col" style={{ gap: 2 }}>
       <TrustLine testId="desk-scan-trust" source="NSE end-of-day scanner · NIDP feature store" mode="eod" asOf={dayLabel} maker="rules"
         method={versions || null} status={scan.isError || uniError || (data?.partial.length ?? 0) > 0 ? "failed" : "ok"} />
+      {data && (
+        <span className="cp-mono-note" data-testid="desk-scan-basis" data-price-basis={data.scanBasis?.priceBasis ?? ""}
+          data-quality={data.scanBasis?.dataQuality ?? ""} style={{ lineHeight: 1.6, overflowWrap: "anywhere" }}
+          title={[data.scanBasis?.rawSymbols.length ? `On raw prices: ${data.scanBasis.rawSymbols.join(", ")}.` : "",
+            data.scanBasis?.notScored?.length ? `Not scored after a price break: ${data.scanBasis.notScored.join(", ")}.` : ""].filter(Boolean).join(" ") || undefined}>
+          {scanBasisLine(data.scanBasis, data.engineVersions)}
+        </span>
+      )}
       {ckHits && <ChartinkTrust hits={ckHits} testId="desk-scan-trust-ck" />}
       <TrustLine testId="desk-scan-trust-model" source="Move-odds model" mode="eod" asOf={runInfo ? fmtDay(runInfo.run.data_as_of) : null} maker="model"
         method={runInfo ? `Move-odds ${runInfo.run.model}${runInfo.record ? ` · out-of-sample ${runInfo.record.window_label}` : ""} · probability withheld, not marked calibrated` : gate.reason}
