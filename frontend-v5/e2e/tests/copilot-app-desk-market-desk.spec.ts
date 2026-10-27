@@ -37,7 +37,7 @@ const VIEWS = [
  * Where the Idea scorecard is mounted. Null until the Trade Desk tab (AI Scanner › Scorecard) mounts
  * tradingdesk/scorecard/IdeaScorecard.tsx; the SC-* cases are skipped while it is null.
  */
-const SCORECARD_URL: string | null = null;
+const SCORECARD_URL: string | null = "/v5/app/trader/desk?tab=trade&view=scanner&sub=scorecard"; // Trade Desk › AI Scanner › Scorecard (step 3 PR B)
 const needsScorecard = () => test.skip(!SCORECARD_URL, "The Idea scorecard is mounted by the Trade Desk tab (AI Scanner › Scorecard); set SCORECARD_URL");
 
 // backend/routes/markets.py :: GET /api/markets/sector-heatmap — synthetic: 8 sectors, the index's weighted change
@@ -219,12 +219,15 @@ test.describe("MOCK — not real data: Market Desk · the frame", () => {
     await expect(strip).toContainText("the scanner’s first idea");
   });
 
-  test("MD-9 Screener with its Chartink sources", async ({ page }) => {
+  test("MD-9 Screener; its Chartink sources link opens Trade Desk › AI Scanner › Signal library (the owner's design)", async ({ page }) => {
     await page.goto(`${DESK}?tab=market&view=screener`);
     await expect(page.getByTestId("desk-panel-screener").getByTestId("screen-tool-screener")).toBeAttached({ timeout: 15_000 });
-    await expect(page.getByTestId("desk-section-chartink-title")).toHaveText("Chartink sources");
+    await expect(page.getByTestId("desk-section-chartink-title")).toHaveCount(0);
     await page.getByTestId("md-jump-chartink").click();
-    await expectAt(page, "screener", { section: "chartink" });
+    await expect.poll(() => params(page).get("tab")).toBe("trade");
+    await expect.poll(() => params(page).get("sub")).toBe("library");
+    await expect.poll(() => params(page).get("section")).toBe("chartink");
+    await expect(page.getByTestId("desk-panel-chartink")).toBeVisible({ timeout: 15_000 });
   });
 
   test("MD-10 watchlists and scorecard are Trade Desk's now: their Market Desk URLs open Trade Desk", async ({ page }) => {
@@ -232,8 +235,9 @@ test.describe("MOCK — not real data: Market Desk · the frame", () => {
       await page.goto(`${DESK}?tab=market&view=${v}`);
       await expect.poll(() => params(page).get("tab"), v).toBe("trade");
       await expect(page.getByTestId("desk-tab-trade"), v).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByTestId("desk-view-watchlists")).toHaveCount(0);
-      await expect(page.getByTestId("desk-view-scorecard")).toHaveCount(0);
+      // Trade Desk's places (step 3 PR B): Watchlists is a section; the scorecard is AI Scanner › Scorecard.
+      await expect.poll(() => params(page).get("view"), v).toBe(v === "watchlists" ? "watchlists" : "scanner");
+      if (v === "scorecard") await expect.poll(() => params(page).get("sub"), v).toBe("scorecard");
     }
   });
 });

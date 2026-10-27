@@ -23,7 +23,8 @@ const TABS = [
   { key: "risk", label: "Risk Desk", num: "04" },
 ];
 const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
-  trade: [{ key: "paper", label: "Paper trades" }, { key: "new", label: "New trade" }],
+  // Step 3, the owner's workbench (PLAN.md "1-REVISED"): five sections, each with sub-views (copilot-app-desk-trade-desk.spec.ts).
+  trade: [{ key: "scanner", label: "AI Scanner" }, { key: "chart", label: "Chart Analysis" }, { key: "lab", label: "Strategy Lab" }, { key: "paper", label: "Paper Trading" }, { key: "watchlists", label: "Watchlists" }],
   market: [
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" },
@@ -33,18 +34,23 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
 };
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
-  "trade/paper": [["desk-panel-paper", "desk-paper-trades"]],
-  "trade/new": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
+  "trade/scanner": [["desk-panel-top10", "desk-top10"], ["desk-panel-scanner", null]],
+  "trade/chart": [["desk-panel-chart", null]],
+  "trade/lab": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
+  "trade/paper": [["desk-panel-trade-desk", "td-view-open"]],
+  "trade/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
   "market/intel": [["desk-panel-intel", null], ["desk-panel-events", null]],
   "market/smartmoney": [["desk-panel-smartmoney", null], ["desk-panel-fno", "desk-fno"]],
   "market/sectors": [["desk-panel-sectors", "screen-tool-sector-heatmap"]],
   "market/research": [["desk-panel-chart", null]],
-  "market/screener": [["desk-panel-screener", "screen-tool-screener"], ["desk-panel-chartink", "chartink-settings"]],
+  "market/screener": [["desk-panel-screener", "screen-tool-screener"]],
   // The Risk Desk tab (step 4, tradingdesk/tabs/risk-desk) replaces the re-hosted Risk controls, F&O Live and Audit.
   "risk/limits": [["risk-desk", "rd-limits-card"], ["risk-desk", "risk-policy"]],
   "risk/controls": [["risk-desk", "risk-status"], ["risk-desk", "risk-audit"], ["risk-desk", "risk-profile"], ["risk-desk", "rd-live"]],
   "risk/log": [["risk-desk", "risk-decisions"]],
 };
+/** A tab whose default view is not its first (none since step 3 PR B: Trade Desk opens AI Scanner). */
+const DEFAULT_VIEW: Record<string, string> = {};
 const LOCATIONS = ["overview", ...Object.keys(VIEW_HOST), "portfolio"];
 const urlOf = (loc: string) => {
   const [tab, view] = loc.split("/");
@@ -150,7 +156,7 @@ test.describe("MOCK — not real data: desk shell · tabs and views", () => {
     for (const t of TABS) {
       await page.getByTestId(`desk-tab-${t.key}`).click();
       const views = VIEWS[t.key];
-      await expectAt(page, t.key, views ? views[0].key : null);
+      await expectAt(page, t.key, views ? (DEFAULT_VIEW[t.key] ?? views[0].key) : null);
       await expect(page.getByTestId(`desk-tab-${t.key}`)).toHaveAttribute("aria-selected", "true");
       if (!views) {
         await expect(page.getByTestId("desk-views")).toHaveCount(0);
@@ -188,7 +194,7 @@ test.describe("MOCK — not real data: desk shell · tabs and views", () => {
 });
 
 test.describe("MOCK — not real data: desk shell · Market Overview", () => {
-  test("SH-4 / SH-6 / SH-8 Market Overview and the Top AI ideas once; scanner list collapsed until opened; no portfolio snapshot or risk summary", async ({ page }) => {
+  test("SH-4 / SH-6 / SH-8 Market Overview and the Top AI ideas once; the scanner list is on Trade Desk › AI Scanner; no portfolio snapshot or risk summary", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
     const panel = page.getByTestId("desk-panel-overview");
@@ -198,16 +204,9 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     await expect(panel.getByTestId("desk-panel-pulse")).toHaveCount(0);
     await expect(panel.getByTestId("desk-panel-top10")).toHaveCount(1);
     await expect(panel.getByTestId("desk-top10")).toHaveCount(1);
-    const toggle = page.getByTestId("desk-scanner-toggle");
-    await expect(toggle).toHaveText(/All scanner candidates/);
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // Step 3 PR B: "All scanner candidates" moved to Trade Desk › AI Scanner › Ranked candidates.
+    await expect(page.getByTestId("desk-scanner-toggle")).toHaveCount(0);
     await expect(page.getByTestId("desk-panel-scanner")).toHaveCount(0);
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await expect.poll(() => params(page).get("section")).toBe("scanner");
-    await expect(page.getByTestId("desk-panel-scanner")).toBeVisible();
-    // The pulse and the Top 10 are not mounted a second time by the scanner list.
-    await expect(panel.getByTestId("desk-top10")).toHaveCount(1);
     await expect(page.getByTestId("desk-snapshot-card")).toHaveCount(0);
     await expect(page.getByTestId("desk-risk-card")).toHaveCount(0);
   });
@@ -227,8 +226,8 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
     await expect(page.getByTestId("mo-kpi-risk-sub")).toHaveText("limit 3%");
     await expect(page.getByTestId("mo-paper-summary")).toContainText("2 open positions");
     await page.getByTestId("mo-paper-link").click();
-    await expectAt(page, "trade", "paper");
-    await expect(page.getByTestId("desk-panel-paper")).toBeVisible();
+    await expectAt(page, "trade", "paper", { sub: "live" });
+    await expect(page.getByTestId("desk-panel-trade-desk")).toBeVisible();
   });
 
   test("SH-7 no open positions says so", async ({ page }) => {
@@ -244,18 +243,18 @@ test.describe("MOCK — not real data: desk shell · redirects from the old URLs
   test.beforeEach(async ({ page }) => { await deskApi(page); });
 
   const CASES: Array<{ from: string; tab: string; view: string | null; extra?: Record<string, string>; gone?: string[] }> = [
-    { from: "?tab=scanner", tab: "overview", view: null, extra: { section: "scanner" } },
+    { from: "?tab=scanner", tab: "trade", view: "scanner", extra: { sub: "ranked" } },
     { from: "?tab=intel", tab: "market", view: "intel" },
     { from: "?tab=intel&in_chip=flows", tab: "market", view: "intel", extra: { in_chip: "flows" } },
     { from: "?tab=events", tab: "market", view: "intel", extra: { section: "events" } },
-    { from: "?tab=chart&sym=RELIANCE", tab: "market", view: "research", extra: { sym: "RELIANCE" } },
+    { from: "?tab=chart&sym=RELIANCE", tab: "trade", view: "chart", extra: { sub: "live", sym: "RELIANCE" } },
     { from: "?tab=smartmoney", tab: "market", view: "smartmoney" },
     { from: "?tab=fno", tab: "market", view: "smartmoney", extra: { section: "fno" } },
     { from: "?tab=fno&lab=chain&lab_sym=BANKNIFTY", tab: "market", view: "smartmoney", extra: { section: "fno", lab: "chain", lab_sym: "BANKNIFTY" } },
-    { from: "?tab=fno&lab=strategies&lab_sym=NIFTY", tab: "trade", view: "new", extra: { section: "fno", lab_sym: "NIFTY" } },
-    { from: "?tab=more&view=strategy&mode=stock&sym=INFY", tab: "trade", view: "new", extra: { mode: "stock", sym: "INFY" } },
+    { from: "?tab=fno&lab=strategies&lab_sym=NIFTY", tab: "trade", view: "lab", extra: { sub: "build", section: "fno", lab_sym: "NIFTY" } },
+    { from: "?tab=more&view=strategy&mode=stock&sym=INFY", tab: "trade", view: "lab", extra: { sub: "build", mode: "stock", sym: "INFY" } },
     { from: "?tab=more&view=risk", tab: "risk", view: "limits" },
-    { from: "?tab=more&view=chartink", tab: "market", view: "screener", extra: { section: "chartink" } },
+    { from: "?tab=more&view=chartink", tab: "trade", view: "scanner", extra: { sub: "library", section: "chartink" } },
     { from: "?tab=portfolio", tab: "portfolio", view: null },
   ];
   for (const c of CASES) {
@@ -270,9 +269,9 @@ test.describe("MOCK — not real data: desk shell · redirects from the old URLs
     });
   }
 
-  test("SH-9 ?tab=scanner opens the scanner list expanded", async ({ page }) => {
+  test("SH-9 ?tab=scanner opens Trade Desk › AI Scanner › Ranked candidates with the scanner list", async ({ page }) => {
     await page.goto(`${DESK}?tab=scanner`);
-    await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expectAt(page, "trade", "scanner", { sub: "ranked" });
     await expect(page.getByTestId("desk-panel-scanner")).toBeVisible();
   });
 
@@ -330,14 +329,14 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
     await expect(page.getByTestId("desk-portfolio-record")).toHaveCount(0);
     await expect(page.getByTestId("desk-portfolio-paper")).toHaveCount(0);
     await expect(page.getByTestId("desk-paper-trades")).toHaveCount(0);
-    // They are on Trade Desk › Paper trades.
+    // They are on Trade Desk › Open & pending (step 3's tab).
     await page.getByTestId("desk-tab-trade").click();
-    await expect(page.getByTestId("desk-panel-trade").getByTestId("desk-portfolio-record")).toBeVisible();
-    await expect(page.getByTestId("desk-panel-trade").getByTestId("desk-paper-trades")).toBeVisible();
+    await page.getByTestId("desk-view-paper").click();
+    await expect(page.getByTestId("desk-panel-trade").getByTestId("td-view-open")).toBeVisible();
   });
 
   test("SH-14 Trade Desk says the trades are paper and links the real portfolio", async ({ page }) => {
-    await page.goto(`${DESK}?tab=trade`);
+    await page.goto(`${DESK}?tab=trade&view=paper`);
     const line = page.getByTestId("desk-paper-real-line");
     await expect(line).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio");
     await line.getByTestId("desk-paper-real-link").click();
@@ -397,13 +396,11 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     }
   });
 
-  test("SH-20 repointed links: Market Overview's \"All scanner candidates\" expands the list; the AI watchlist's links use the new URLs", async ({ page }) => {
+  test("SH-20 repointed links: Market Overview's \"See all ›\" opens AI Scanner › Ranked candidates; the AI watchlist's links use the new URLs", async ({ page }) => {
     await deskApi(page);
     await page.goto(DESK);
-    // Step 2: the old Overview's "See all" link is gone with its card; the list's own toggle opens it.
-    await page.getByTestId("desk-scanner-toggle").click();
-    await expectAt(page, "overview", null, { section: "scanner" });
-    await expect(page.getByTestId("desk-scanner-toggle")).toHaveAttribute("aria-expanded", "true");
+    await page.getByTestId("desk-top10-see-all").click();
+    await expectAt(page, "trade", "scanner", { sub: "ranked" });
     // The AI watchlist's desk links (workspace/ai-watchlist-data.ts) are built for the new URLs.
     await page.goto(`${APP}/page/watchlist`);
     await expect(page.getByTestId("screen-page-watchlist")).toBeVisible();
@@ -433,7 +430,7 @@ test.describe("MOCK — not real data: desk shell · phone 390px", () => {
 
   test("SH-21 / SH-15 no sideways scroll and the banner on every tab and on My portfolio", async ({ page }) => {
     await deskApi(page);
-    for (const loc of ["overview", "trade/paper", "trade/new", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
+    for (const loc of ["overview", "trade/paper", "trade/lab", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
       await page.goto(urlOf(loc));
       await expect(page.getByTestId("desk-paper-banner"), loc).toHaveText(BANNER);
       await expect(page.getByTestId(`desk-panel-${loc.split("/")[0]}`), loc).toBeVisible();
@@ -454,10 +451,10 @@ test.describe("MOCK — not real data: desk shell · phone 390px", () => {
     }
     await page.getByTestId("desk-tab-market").count(); // the tab row is the bottom bar on a phone
     const views = page.getByTestId("desk-views");
-    await page.getByTestId("desk-bottom-market").click();
+    await page.getByTestId("desk-bottom-trade").click();
     await expect(views).toBeVisible();
-    await views.getByTestId("desk-view-screener").click();
-    await expectAt(page, "market", "screener");
+    await views.getByTestId("desk-view-watchlists").click();
+    await expectAt(page, "trade", "watchlists");
     await noSideScroll(page);
     await bar.getByTestId("desk-bottom-copilot").click();
     await expectAt(page, "copilot", null);

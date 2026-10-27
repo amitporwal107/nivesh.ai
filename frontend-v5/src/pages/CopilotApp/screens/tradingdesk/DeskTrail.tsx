@@ -14,18 +14,21 @@ const linkStyle: CSSProperties = {
 };
 
 /**
- * `tab` is the tab's name; `view` the view's, or null for a one-page tab (then the tab is the current place).
- * `onTab` opens the tab's first view; it is only a link when a view follows.
+ * `tab` is the tab's name; `view` the view's, or null for a one-page tab (then the tab is the current place); `sub` the
+ * sub-view's (Trade Desk's sections have them: "Trading desk › Trade Desk › Paper Trading › Live desk").
+ * `onTab` opens the tab's default view and `onView` the view's default sub-view; each is a link only when a crumb follows.
  */
-export function DeskTrail({ tab, view, onRoot, onTab }: { tab: string; view: string | null; onRoot: () => void; onTab: () => void }) {
+export function DeskTrail({ tab, view, sub = null, onRoot, onTab, onView }: {
+  tab: string; view: string | null; sub?: string | null; onRoot: () => void; onTab: () => void; onView?: () => void;
+}) {
   const box = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const el = box.current;
     if (el) el.scrollLeft = el.scrollWidth;
-  }, [tab, view]);
-  const here = view ?? tab;
+  }, [tab, view, sub]);
+  const here = sub ?? view ?? tab;
   return (
-    <nav ref={box} aria-label="Breadcrumb" data-testid="desk-trail" data-depth={view ? 2 : 1} className="cp-scroll overflow-x-auto" style={{ minWidth: 0 }}>
+    <nav ref={box} aria-label="Breadcrumb" data-testid="desk-trail" data-depth={sub ? 3 : view ? 2 : 1} className="cp-scroll overflow-x-auto" style={{ minWidth: 0 }}>
       <ol className="m-0 flex items-center p-0" style={{ listStyle: "none", gap: 8, whiteSpace: "nowrap", fontFamily: "var(--mono)", fontSize: 11, letterSpacing: "0.06em", lineHeight: 1.5 }}>
         <li aria-hidden className="flex items-center" style={{ color: "var(--cp-ink-4)" }}>▸</li>
         <li className="flex items-center">
@@ -35,6 +38,12 @@ export function DeskTrail({ tab, view, onRoot, onTab }: { tab: string; view: str
           <li className="flex items-center" style={{ gap: 8 }}>
             {sep}
             <button type="button" data-testid="desk-trail-tab" onClick={onTab} style={linkStyle}>{tab}</button>
+          </li>
+        )}
+        {view && sub && (
+          <li className="flex items-center" style={{ gap: 8 }}>
+            {sep}
+            <button type="button" data-testid="desk-trail-view" onClick={onView} style={linkStyle}>{view}</button>
           </li>
         )}
         <li className="flex items-center" style={{ gap: 8 }}>

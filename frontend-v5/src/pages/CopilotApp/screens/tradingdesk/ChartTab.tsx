@@ -1363,7 +1363,11 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
 
 // ── the tab ──────────────────────────────────────────────────────────────
 
-export default function ChartTab() {
+/**
+ * `riskPanel`: Trade Desk › Chart Analysis › Live chart replaces the risk desk's capital × risk-% calculator (the plan's
+ * §2b.1: a size never comes from a browser calculator) with the paper ticket sized by the risk service's `account_size`.
+ */
+export default function ChartTab({ riskPanel }: { riskPanel?: (symbol: string) => ReactNode } = {}) {
   const { mobile } = useCopilotShell();
   const { symbol: chosen, openTab, persona } = useDesk();
   const plain = persona === "investor";
@@ -1543,7 +1547,7 @@ export default function ChartTab() {
         </Widget>
         <OpportunityDetail symbol={symbol} setup={setup} bars={bars} barsQ={barsQ} liveQ={liveQ} company={company} date={date} />
       </div>
-      <RiskDesk symbol={symbol} setup={setup} bars={bars} />
+      {riskPanel ? riskPanel(symbol) : <RiskDesk symbol={symbol} setup={setup} bars={bars} />}
     </div>
   );
 }

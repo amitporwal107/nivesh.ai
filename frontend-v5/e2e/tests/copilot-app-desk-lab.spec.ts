@@ -817,7 +817,7 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await expect(page.getByTestId("desk-fno-loaded-sym")).toHaveText("FIXFNO loaded");
     await page.getByTestId("desk-strat-mode-ideas").click();
     await page.getByTestId("desk-fno-strat-build").click();
-    await expect(page).toHaveURL(/[?&]tab=trade&view=new(&|$)/); // was view=strategy (More · Strategy Builder) before the redesign
+    await expect(page).toHaveURL(/[?&]tab=trade&view=lab&sub=build(&|$)/); // Trade Desk › Strategy Lab › Build a trade (was view=new, before that More · Strategy Builder)
     await expect(page).toHaveURL(/sym=FIXFNO/);
     await expect(page).toHaveURL(/src_kind=lab/);
     await expect(page).toHaveURL(/src_date=2026-10-12/);
@@ -1911,7 +1911,7 @@ test.describe("Smart trading desk — Options & futures lab · paper strategy bu
     await expect(why).not.toContainText("long shares only");
     await expect(page.getByTestId("desk-builder-full")).toBeEnabled();
     await page.getByTestId("desk-builder-full").click();
-    await expect(page).toHaveURL(/[?&]view=new(&|$)/); // was view=strategy (More · Strategy Builder) before the 2026-10-27 redesign
+    await expect(page).toHaveURL(/[?&]view=lab&sub=build(&|$)/); // Trade Desk › Strategy Lab › Build a trade (was view=new)
     await expect(page).toHaveURL(/src_kind=lab/);
   });
 

@@ -13,7 +13,7 @@
  *   research    Stock Research        ChartTab (chart, fundamentals, filings, setup) for one stock (?sym=), with the
  *                                     symbol strip: the stock shown, its option chain in Smart Money › F&O, and the full
  *                                     chart workspace
- *   screener    Screener              Screener + the Chartink sources (ChartinkSettings)
+ *   screener    Screener              the Screener (your Chartink sources are in Trade Desk › AI Scanner › Signal library)
  *
  * Watchlists and the Idea scorecard are Trade Desk's in the owner's design (27 Oct 19:40 IST): the scorecard component is
  * tradingdesk/scorecard/IdeaScorecard.tsx, for the Trade Desk tab to mount; ?tab=market&view=watchlists|scorecard opens
@@ -42,7 +42,6 @@ const EventsTab = lazy(() => import("../../EventsTab"));
 const SmartMoneyTab = lazy(() => import("../../SmartMoneyTab"));
 const FnoTab = lazy(() => import("../../FnoTab"));
 const ChartTab = lazy(() => import("../../ChartTab"));
-const ChartinkSettings = lazy(() => import("../../chartink/ChartinkSettings"));
 const SectorHeatmap = lazy(() => import("../../../SectorHeatmap"));
 const Screener = lazy(() => import("../../../Screener"));
 
@@ -217,10 +216,9 @@ export default function MarketDesk({ view }: { view: string | null }) {
             view={v}
             label="Screener"
             line="Filter the market by your own rules, with Chartink scans as a second source."
-            parts={[{ id: "chartink", label: "Chartink sources", onClick: jump("chartink", () => desk.openChartink()) }]}
+            parts={[{ id: "chartink", label: "Chartink sources (Trade Desk › AI Scanner) ›", onClick: () => desk.openChartink() }]}
           />
           <Hosted id="screener" name="the Screener"><Screener /></Hosted>
-          <Section id="chartink" title="Chartink sources"><ChartinkSettings asSection /></Section>
         </>
       );
     default:

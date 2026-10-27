@@ -608,7 +608,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.locator('[data-testid="desk-sector-tile"][data-index="Nifty PSU Bank"]').getByTestId("desk-sector-leader")).toHaveCount(0);
     await expect(page.getByTestId("desk-sector-leader")).toHaveCount(2);
     await it.getByTestId("desk-sector-leader").click();
-    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
+    await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=TESTIT/);
   });
 
@@ -659,7 +659,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-sector-constituents-none")).toContainText(CONSTITUENTS_NONE.reason);
     await bank.getByTestId("desk-sector-open").click();
     await page.getByTestId("desk-sector-constituent").first().click();
-    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
+    await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(new RegExp(`[?&]sym=${BANK_ROWS[0].symbol}`));
   });
 
@@ -780,7 +780,7 @@ test.describe("Smart trading desk — Overview", () => {
     await expect(page.getByTestId("desk-opps-trust")).toContainText(`Positional scanner (watchlist and picks) · End of day · ${day("2026-10-13", true)} · Rules-based`);
     // A row opens its chart analysis (PRD §4.4: every opportunity opens a detailed view).
     await rows.nth(1).click();
-    await expect(page).toHaveURL(/[?&]tab=market&view=research(&|$)/); // the Chart tab is Market Desk › Stock Research since the 2026-10-27 redesign
+    await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=TESTBRK/);
   });
 
@@ -1296,7 +1296,7 @@ test.describe("Smart trading desk — Market intelligence", () => {
     await expect(impact.getByTestId("desk-event-history")).toContainText("— No study of how prices reacted to this kind of event is published yet");
     // A peer opens its chart.
     await peers.nth(1).click();
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "research"); // the Chart tab is Market Desk › Stock Research since 2026-10-27
+    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "chart"); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=PEERTWO/);
   });
 

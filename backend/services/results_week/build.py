@@ -15,7 +15,7 @@ import copy
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from . import loaders, scoring as sc
+from . import loaders, scoring as sc, track
 
 IST = sc.IST
 STATUS_ORDER = {"declared": 0, "pending": 1, "upcoming": 2}
@@ -33,9 +33,13 @@ def status_of(ev: Dict[str, Any]) -> str:
     return "upcoming"
 
 
-def filed_at_of(ev: Dict[str, Any]) -> Optional[datetime]:
-    """When the market could know: the earliest of the outcome filing's time and the figures' broadcast time."""
+def filed_at_of(ev: Dict[str, Any], exchange: Sequence[datetime] = ()) -> Optional[datetime]:
+    """When the market could know: the earliest of the outcome filing's time, the figures' broadcast time and the first
+    results filing on the exchange dated the meeting day or the day after (IST)."""
     cands = [sc.parse_ts((ev.get("filing") or {}).get("filed_at"))]
+    ev_d = _ev_date(ev)
+    if ev_d:
+        cands += [t for t in exchange if ev_d <= t.astimezone(IST).date() <= ev_d + timedelta(days=1)]
     for m in ev.get("metrics") or []:
         if isinstance(m, dict) and isinstance(m.get("filed"), dict):
             cands.append(sc.parse_ts(m["filed"].get("broadcast_at")))
@@ -137,7 +141,7 @@ def assemble_row(ev: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
             gaps.append(f"past results reactions: {ctx['hist_gaps'].get(sym) or 'not read'}")
 
     # reaction vs Nifty — once the outcome is filed. Figures not stored yet: the analysed filing's own time stands in
-    filed_at = filed_at_of(ev)
+    filed_at = filed_at_of(ev, (ctx.get("exchange_filings") or {}).get(sym) or ())
     if filed_at is None and doc is not None:
         filed_at = sc.parse_ts(doc.get("event_ts"))
     reaction = None
@@ -226,6 +230,42 @@ async def build_day(day: date, *, now: Optional[datetime] = None, live: bool = T
         return await _build_day(day, now=now, live=live, db=db)
 
 
+async def attach_fno_track(rows: List[Dict[str, Any]], sess: Sequence[date], fno_day: Optional[date],
+                           bu: Dict[str, Dict[str, Any]], fno_syms: Sequence[str], gaps: List[str]) -> None:
+    """§9a: `fno_track` {before, after} on every F&O row (null on the others). One cached /desk/fno-buildup read per
+    distinct "session before the first reaction session", plus the latest (already read as `bu`). The expiry list comes
+    from one underlying's expiries (the monthly expiry is market-wide); its failure only drops the expiry note."""
+    for r in rows:
+        r["fno_track"] = None
+    if not fno_day or not fno_syms:
+        return
+    by_day: Dict[str, Dict[str, Dict[str, Any]]] = {fno_day.isoformat(): bu}
+    pres = set()
+    for r in rows:
+        if r.get("fno"):
+            first = track._first_reaction(r, sess)
+            pre = track.pre_session(first, sess) if first and first <= fno_day else None
+            if pre and pre.isoformat() not in by_day:
+                pres.add(pre)
+    reads = await asyncio.gather(*(loaders.buildup(d, fallback=False) for d in sorted(pres)), return_exceptions=True)
+    missing = []
+    for d, res in zip(sorted(pres), reads):
+        if isinstance(res, BaseException) or not res[0]:
+            missing.append(d.isoformat())
+            continue
+        by_day[d.isoformat()] = res[0]
+    if missing:
+        gaps.append(f"F&O before-results snapshots could not be read for {', '.join(missing)}")
+    try:
+        expiries = await loaders.fno_expiries(fno_syms[0])
+    except Exception:  # noqa: BLE001
+        expiries = []
+        gaps.append("F&O expiry list could not be read: a window spanning an expiry is not labelled")
+    for r in rows:
+        if r.get("fno"):
+            r["fno_track"] = track.fno_track(r, sess, fno_day, by_day, expiries)
+
+
 async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> Dict[str, Any]:
     if db is None:
         from deps import db as _db
@@ -267,6 +307,9 @@ async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> D
             loaders.prices(filed_syms, lo - timedelta(days=PRICE_LOOKBACK_DAYS), day),
             loaders.technicals(syms_all, day),
         )
+    exch, exch_gap = await loaders.first_results_filings(lo - timedelta(days=1), min(day, max(ev_dates + [day])) + timedelta(days=1))
+    if exch_gap:
+        gaps.append(exch_gap)
     for g in (fin_src, hist_src, bu_gap, nf_gap, an_gap, px_gap, tech_gap):
         if g:
             gaps.append(g)
@@ -288,12 +331,13 @@ async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> D
             gaps.append(f"3-session total OI: {back_gap}")
         if fno_syms and len(deep_gaps) == len(fno_syms):
             gaps.append("OI by expiry: the futures contracts could not be read for any F&O stock")
-    ctx = {"fin": fin, "fin_gaps": fin_gaps, "hist": hist, "hist_gaps": hist_gaps, "buildup": bu, "buildup_as_of": bu_as_of,
+    ctx = {"exchange_filings": exch, "fin": fin, "fin_gaps": fin_gaps, "hist": hist, "hist_gaps": hist_gaps, "buildup": bu, "buildup_as_of": bu_as_of,
            "buildup_gap": bu_gap, "nifty": nf, "nifty_gap": nf_gap, "analysis": an, "analysis_gap": an_gap,
            "prices": px, "prices_gap": px_gap, "tech": tech, "tech_gap": tech_gap, "sessions": sess, "cutoff": cutoff,
            "fno_day": fno_day, "back_rows": back_rows, "back_date": back_date, "deep": deep, "deep_gaps": deep_gaps}
 
     rows = [assemble_row(e, ctx) for e in evs]
+    await attach_fno_track(rows, sess, fno_day, bu, fno_syms, gaps)
     in_week = [r for r in rows if r["event_date"] and mon.isoformat() <= str(r["event_date"])[:10] <= sat.isoformat()]
     in_week.sort(key=lambda r: (STATUS_ORDER[r["status"]], str(r["event_date"]), r["symbol"]))
     fno_ideas = sc.order_ideas(rows, day, sess, fno_list=True)

@@ -14,6 +14,7 @@ route's rebuild every few minutes does not refetch eight quarters for 500 stocks
 from __future__ import annotations
 
 import asyncio
+import re
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -388,6 +389,47 @@ async def nifty(start: date, end: date) -> Tuple[Dict[date, float], Optional[str
     if not out:
         _cache.pop(("nifty", start.isoformat(), end.isoformat()), None)
         return {}, "Nifty 50 closes could not be read (DaaS index EOD answered no rows)"
+    return out, None
+
+
+# ── DaaS: the first results filing on the exchange ──────────────────────────────────────────────────────────────
+
+RESULT_SUBJECT = re.compile(r"outcome of board meeting|financial result|integrated filing", re.I)
+ANN_PAGE = 500
+
+
+async def first_results_filings(start: date, end: date) -> Tuple[Dict[str, List[datetime]], Optional[str]]:
+    """{symbol: [broadcast times of "earnings"-classified exchange filings whose subject is a board-meeting outcome or
+    financial results]} for filings dated in [start, end], from DaaS /announcements (one bulk read, paged). The results
+    are often public on the exchange well before the figures reach the stored quarters (BAJAJ-AUTO 27 Oct: filed 15:21
+    IST, figures stored with 16:14 IST): the earliest public filing decides when the market could react."""
+    async def fetch():
+        rows: List[Dict[str, Any]] = []
+        offset = 0
+        while offset < 10 * ANN_PAGE:
+            st, body = await daas_get("/announcements", {"category": "earnings", "filed_from": start.isoformat(),
+                                                         "filed_to": end.isoformat(), "limit": ANN_PAGE, "offset": offset}, timeout=30.0)
+            if st != 200 or not isinstance(body, dict):
+                raise daas_client.DaasError(f"announcements HTTP {st}", status_code=st)
+            page = body.get("data") or []
+            rows.extend(page)
+            if len(page) < ANN_PAGE:
+                break
+            offset += ANN_PAGE
+        return rows
+    try:
+        rows = await _cached("results_filings", (start.isoformat(), end.isoformat()), fetch)
+    except Exception as e:  # noqa: BLE001
+        return {}, f"exchange results filings could not be read ({_why(e)}): reactions are timed from the stored figures"
+    out: Dict[str, List[datetime]] = {}
+    for r in rows or []:
+        if not isinstance(r, dict) or not RESULT_SUBJECT.search(str(r.get("subject") or "")):
+            continue
+        from . import scoring as sc
+        t = sc.parse_ts(r.get("broadcast_at")) or sc.parse_ts(r.get("filed_at"))
+        sym = str(r.get("ticker_symbol") or "").upper()
+        if t and sym:
+            out.setdefault(sym, []).append(t)
     return out, None
 
 
