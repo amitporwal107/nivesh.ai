@@ -112,6 +112,7 @@ jobs:
           tests/test_decision_cards.py
           tests/test_decision_engine_trim_rank.py
           tests/test_desk_alerts.py
+          tests/test_desk_audit_wave1_b1.py
           tests/test_desk_copilot_prompt.py
           tests/test_desk_exit_job.py
           tests/test_desk_market_routes.py
