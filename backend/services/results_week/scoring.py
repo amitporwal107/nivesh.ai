@@ -82,6 +82,7 @@ NO_CLEAR = "no_clear_buildup"
 BUILDUP_SIGNAL = {"long_buildup": "positive", "short_covering": "positive", "short_buildup": "negative",
                   "long_unwinding": "negative", NO_CLEAR: "neutral"}
 BUILDUP_SCORE = {"long_buildup": 100.0, "short_covering": 75.0, NO_CLEAR: 50.0, "long_unwinding": 25.0, "short_buildup": 0.0}
+VERDICT_TEXT = {"above": "above historical trend", "in_line": "in line with historical trend", "below": "below historical trend"}
 BUILDUP_TEXT = {"long_buildup": "long build-up", "short_covering": "short covering", "short_buildup": "short build-up",
                 "long_unwinding": "long unwinding", NO_CLEAR: "no clear build-up"}
 
@@ -174,7 +175,7 @@ def rate_metric(key: str, m: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "key": key, "unit": m.get("unit"), "filed": filed,
         "expected": {"low": low, "mid": mid, "high": high} if exp else None,
         "vs_mid_pct": num(m.get("vs_mid_pct")), "within_band": m.get("within_band"), "reliable": bool(m.get("reliable")),
-        "half_width": r2(hw), "max_half_width": MAX_HALF_WIDTH[key],
+        "half_width": r2(hw),
         "z": None, "verdict": None, "intensity": None, "score": None, "reason": None, "note": m.get("note"),
     }
     if not m.get("reliable") or exp is None or None in (low, mid, high):
@@ -223,9 +224,9 @@ def surprise(metrics: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     if len(use) == 2:
         reason = "PAT and revenue vs historical trend (weights 60 / 40)"
     else:
-        other = "revenue" if use == ["pat"] else "PAT"
-        why = rated[other]["reason"].replace("not rated: ", "")
-        reason = f"{'PAT' if use == ['pat'] else 'revenue'} only ({other}: {why})"
+        other = "revenue" if use == ["pat"] else "pat"
+        why = (rated[other]["reason"] or "").replace("not rated: ", "")
+        reason = f"{'PAT' if use == ['pat'] else 'revenue'} only ({'PAT' if other == 'pat' else 'revenue'}: {why})"
     out.update(value=r1(value), weights={k: round(v, 2) for k, v in w.items()}, z=r2(zh),
                verdict={"label": label, "intensity": intensity, "reason": reason})
     return out
@@ -310,6 +311,7 @@ def trend(rows: Sequence[Dict[str, Any]], quarter: Optional[date]) -> Dict[str, 
                            "ebitda_margin_pct": None, "ebitda_margin_change_pp": None, "present": [], "missing": []}
     if t is None:
         out["missing"] = ["quarter"]
+        out.pop("present")
         return out
     t1, t4 = by.get(shift_quarters(quarter, 1)), by.get(shift_quarters(quarter, 4))
     parts: List[Tuple[float, float]] = []
@@ -333,6 +335,7 @@ def trend(rows: Sequence[Dict[str, Any]], quarter: Optional[date]) -> Dict[str, 
         out["missing"].append("margin_change_yoy")
     if parts:
         out["value"] = r1(sum(w * s for w, s in parts) / sum(w for w, _ in parts))
+    out.pop("present")
     return out
 
 
@@ -487,7 +490,6 @@ def reaction(filed_at: Optional[datetime], sessions: Sequence[date], bars: Dict[
         "first_session": fs.isoformat(), "previous_session": prev.isoformat(), "close": close, "previous_close": pclose,
         "stock_return_pct": r2(stock_ret), "nifty_return_pct": r2(nifty_ret), "excess_pct": r2(excess),
         "volume_x": r2(volume_x), "score": r1(clamp(50.0 + REACTION_PER_PCT * excess * w)),
-        "basis": "first session after the filing (filed at or after 15:30 IST → the next session), close to close vs Nifty 50",
     }, None
 
 
@@ -523,7 +525,6 @@ def fno_block(is_fno: bool, row: Optional[Dict[str, Any]], as_of: Optional[str])
         return None, f"OI build-up: {why}"
     return {"as_of": as_of, "state": state, "text": BUILDUP_TEXT[state], "signal": BUILDUP_SIGNAL[state],
             "score": BUILDUP_SCORE[state], "why": why, "price_chg_pct": r2(p), "oi_chg_pct": r2(o),
-            "oi_basis": "open interest summed over every expiry; price = the nearest expiry",
             "scan_label": row.get("label"), "futures_turnover_cr": r2(tv), "cash_confirmation": row.get("cash_confirmation"),
             "risk_flags": list(row.get("risk_flags") or [])}, None
 
@@ -536,8 +537,7 @@ def technical_block(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     fs = num(row.get("final_score"))
     d = row.get("as_of_date")
     return {"as_of": d.isoformat() if isinstance(d, date) else (str(d) if d else None), "stage": row.get("stage"),
-            "final_score": r2(fs), "score": r1(clamp(fs * 100.0)) if fs is not None else None,
-            "source": "AI scanner (stock_technical_features); price-only score"}
+            "final_score": r2(fs), "score": r1(clamp(fs * 100.0)) if fs is not None else None}
 
 
 def past_reactions(body: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -551,8 +551,7 @@ def past_reactions(body: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
             moves.append(((1 + e / 100.0) * (1 + d1 / 100.0) - 1.0) * 100.0)
     mean = sum(moves) / len(moves) if moves else None
     score = r1(clamp(50.0 + PAST_REACTION_PER_PCT * mean)) if mean is not None and len(moves) >= PAST_REACTION_MIN_N else None
-    return {"n": len(moves), "mean_two_session_pct": r2(mean), "score": score, "stats": body.get("stats"),
-            "basis": "the stock's own close on past results days and the next session (past behaviour, not a forecast)"}
+    return {"n": len(moves), "mean_two_session_pct": r2(mean), "score": score, "stats": body.get("stats")}
 
 
 # ── §4c ideas ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -596,7 +595,7 @@ def why_text(row: Dict[str, Any], phase: str) -> str:
     if phase == "declared":
         v = row.get("verdict") or {}
         if v.get("label"):
-            bits.append(f"{v['label'].replace('_', ' ')} historical trend" + (f" ({v['intensity'].replace('_', ' ')})" if v.get("intensity") else ""))
+            bits.append(VERDICT_TEXT[v["label"]] + (f" ({v['intensity'].replace('_', ' ')})" if v.get("intensity") else ""))
         else:
             bits.append(v.get("reason") or "not rated")
         sc = row.get("score") or {}
@@ -656,6 +655,13 @@ def order_ideas(rows: Sequence[Dict[str, Any]], day: date, sessions: Sequence[da
         items.append({"symbol": row["symbol"], "name": row.get("name"), "phase": phase, "event_date": row.get("event_date"),
                       "signal": r1(signal), "parts": parts, "missing": [k for k in weights if k not in present],
                       "why": why_text(row, phase), "_earn": (row.get("score") or {}).get("value")})
+    best: Dict[str, Dict[str, Any]] = {}
+    for i in items:                       # one entry per symbol: declared over upcoming, then the later meeting, then the higher signal
+        k = (i["phase"] == "declared", str(i["event_date"]), i["signal"])
+        cur = best.get(i["symbol"])
+        if cur is None or k > (cur["phase"] == "declared", str(cur["event_date"]), cur["signal"]):
+            best[i["symbol"]] = i
+    items = list(best.values())
     items.sort(key=lambda i: (-i["signal"], -(i["_earn"] if i["_earn"] is not None else -1.0), i["symbol"]))
     for n, i in enumerate(items, 1):
         i["rank"] = n

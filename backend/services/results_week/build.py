@@ -99,9 +99,12 @@ def assemble_row(ev: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
         if why:
             gaps.append(f"operating trend: {why}")
     tr = sc.trend(fin or [], quarter)
-    ql = sc.quality(fin or [], quarter)
     tr["basis"] = "declared quarter" if status != "upcoming" else "latest stored quarter before the meeting"
-    ql["quarter"] = tr["quarter"]
+    if status == "upcoming":
+        ql = {"value": None, "flags": [], "checked": [], "not_checked": [], "quarter": None, "reason": "results not declared yet"}
+    else:
+        ql = sc.quality(fin or [], quarter)
+        ql["quarter"] = tr["quarter"]
 
     # outlook (filing analysis)
     if status == "upcoming":
@@ -270,14 +273,17 @@ async def build_day(day: date, *, now: Optional[datetime] = None, live: bool = T
                          "method": (first.get("method") or {}).get("name"), "formula": (first.get("method") or {}).get("formula")},
         "financials": {"source": "DaaS /financials/{symbol} (period_type quarterly; nidp.nse_financials_quarterly)",
                        "ok": fin_src is None, "read": len(fin), "failed": len(fin_gaps)},
-        "filing_analysis": {"source": "Mongo event_ai_analysis (RESULTS; single_full / *_compact; tools off, isolated)",
+        "filing_analysis": {"source": "Mongo event_ai_analysis (event_type containing RESULT; single_full / *_compact; tools off, isolated)",
                             "label": sc.OUTLOOK_LABEL, "ok": an_gap is None, "stocks_analysed": len(an)},
-        "history": {"source": "DaaS /desk/events-calendar/history (type RESULTS)", "ok": hist_src is None,
+        "history": {"source": "DaaS /desk/events-calendar/history (type RESULTS): the stock's own close on past results days and "
+                              "the next session; past behaviour, not a forecast", "ok": hist_src is None,
                     "read": len(hist), "failed": len(hist_gaps)},
-        "prices": {"source": "app Postgres stock_ohlcv (close, volume)", "ok": px_gap is None, "stocks": len(px)},
+        "prices": {"source": "app Postgres stock_ohlcv (close, volume)", "ok": px_gap is None, "stocks": len(px),
+                   "reaction_basis": "first session after the filing (filed at or after 15:30 IST → the next session), "
+                                     "close to close, minus Nifty 50's return the same session; volume × vs the mean of up to 20 earlier sessions"},
         "nifty": {"source": "DaaS /indices/Nifty 50/eod", "ok": nf_gap is None,
                   "latest": max(nf).isoformat() if nf else None},
-        "fno_buildup": {"source": "DaaS /desk/fno-buildup (NSE F&O bhavcopy; OI summed over every expiry)",
+        "fno_buildup": {"source": "DaaS /desk/fno-buildup (NSE F&O bhavcopy): price = the nearest expiry, open interest summed over every expiry",
                         "ok": bool(bu), "as_of": bu_as_of, "rows": len(bu),
                         "thresholds": {"min_abs_price_chg_pct": sc.BUILDUP_MIN_PRICE_PCT, "min_abs_oi_chg_pct": sc.BUILDUP_MIN_OI_PCT,
                                        "min_futures_turnover_cr": sc.BUILDUP_MIN_TURNOVER_CR,

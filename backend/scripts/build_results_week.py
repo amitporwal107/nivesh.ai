@@ -48,6 +48,7 @@ load_dotenv(ROOT / ".env")
 
 log = logging.getLogger("results_week")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)       # one line per DaaS read (~900 a build) drowns the summary
 
 IST = timezone(timedelta(hours=5, minutes=30))
 TOP_SHOWN = 10

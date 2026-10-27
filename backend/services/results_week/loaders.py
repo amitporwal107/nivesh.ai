@@ -30,6 +30,7 @@ FIN_QUARTERS = 8
 TTL_S = {"financials": 1800.0, "history": 6 * 3600.0, "buildup": 600.0, "nifty": 600.0}
 ANALYSIS_COLLECTION = "event_ai_analysis"
 ISOLATED = "tools_off+isolated"
+RESULTS_TYPE = "RESULT"         # case-insensitive match on event_type
 
 _cache: Dict[Tuple, Tuple[float, Any]] = {}
 
@@ -232,12 +233,14 @@ def _is_analysis(d: Dict[str, Any]) -> bool:
 
 
 async def filing_analysis(db, symbols: Iterable[str], start: datetime, end: datetime) -> Tuple[Dict[str, List[Dict[str, Any]]], Optional[str]]:
-    """{symbol: [RESULTS analyses (single_full or *_compact, tools off and isolated) with event_ts in [start, end)]}.
+    """{symbol: [results analyses (event_type containing "RESULT"; single_full or *_compact; tools off and isolated) with
+    event_ts in [start, end)]}.
     (data, gap). A failed read is a gap, never "not analysed"."""
     syms = list(dict.fromkeys(symbols))
     if not syms:
         return {}, None
-    q = {"event_type": "RESULTS", "symbol": {"$in": syms}, "tool_isolation": ISOLATED,
+    # event_type is written by the analysis model: RESULTS, QUARTERLY RESULTS, RESULTS AND DIVIDEND, … (staging 27 Oct).
+    q = {"event_type": {"$regex": RESULTS_TYPE, "$options": "i"}, "symbol": {"$in": syms}, "tool_isolation": ISOLATED,
          "event_ts": {"$gte": start.astimezone(timezone.utc).replace(tzinfo=None), "$lt": end.astimezone(timezone.utc).replace(tzinfo=None)}}
     proj = {"_id": 0, "symbol": 1, "announcement_id": 1, "mode": 1, "event_ts": 1, "analyzed_at": 1, "net_impact_score": 1,
             "net_band": 1, "confidence_score": 1, "materiality_score": 1, "analysis.sum": 1, "exchange_category": 1,
