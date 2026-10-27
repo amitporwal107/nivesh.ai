@@ -42,7 +42,7 @@ PORTFOLIO_CHECKS = {"open_risk", "exposure", "sector", "funding"}
 PORTFOLIO_GOVERNOR = {"NET_EXPOSURE", "SECTOR_LIMIT", "MAX_POSITIONS", "ALREADY_HELD", "HEDGE_SUGGESTED", "SECTOR_EXPOSURE_UNKNOWN"}
 FACTOR_CODES = {"BEAR_REGIME", "VIX_REDUCE"}
 PORTFOLIO_NOTE = "May be reduced by portfolio limits at submission (open risk, exposure, sector, open positions, funds)."
-BASIS = ("The universal risk service's own sizing (services/risk_gate/service.decide on the snapshot a submission reads), "
+BASIS = ("The universal risk service's own sizing (the same check a submission runs, on the same data), "
          "on your account with no open positions: per-trade budget, position and liquidity caps, the VIX / BEAR factors and "
          "the share / lot rounding. Not a decision: the decision is made when the paper trade is submitted.")
 

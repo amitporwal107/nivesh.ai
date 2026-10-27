@@ -120,7 +120,7 @@ async def status(request: Request) -> Dict[str, Any]:
     return {
         **state,
         "scope": "blocks new positions on the AI-trader ticket, desk paper-trade and journal paths (every entry path "
-                 "runs the universal risk service, services/risk_gate/service.py)",
+                 "runs the universal risk service)",
         "not_in_scope": "no order is placed anywhere in this system, and open positions are untouched",
         "policy_version": rc.POLICY_VERSION,
         "can_reset": await _is_admin_session(user),
