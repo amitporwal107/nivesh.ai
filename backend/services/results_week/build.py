@@ -20,6 +20,7 @@ from . import loaders, scoring as sc
 IST = sc.IST
 STATUS_ORDER = {"declared": 0, "pending": 1, "upcoming": 2}
 CALENDAR_PAD_DAYS = 21
+CALENDAR_BACK_DAYS = 200            # the rollover comparison reads the stock's last 5 expiries
 PRICE_LOOKBACK_DAYS = 45            # ≥ 20 sessions before the earliest first session, for volume ×
 ANALYSIS_BEFORE_DAYS, ANALYSIS_AFTER_DAYS = 1, 4   # filing analyses with event_ts in [meeting − 1 day, meeting + 4 days)
 SCHEMA = "results-week-v1"
@@ -147,15 +148,20 @@ def assemble_row(ev: Dict[str, Any], ctx: Dict[str, Any]) -> Dict[str, Any]:
             if g:
                 gaps.append(g)
 
-    # OI build-up — F&O names only
+    # OI across the coming months — F&O names only
     fb = None
     if is_fno:
         if ctx["buildup_gap"] and not ctx["buildup"]:
             gaps.append(ctx["buildup_gap"])
         else:
-            fb, g = sc.fno_block(True, ctx["buildup"].get(sym), ctx["buildup_as_of"])
-            if g:
-                gaps.append(g)
+            dp = ctx.get("deep", {}).get(sym) or {}
+            fb, g = sc.fno_block(True, as_of=ctx["buildup_as_of"], scan_row=ctx["buildup"].get(sym),
+                                 back_row=(ctx.get("back_rows") or {}).get(sym), back_date=ctx.get("back_date"),
+                                 futures=dp.get("futures"), options=dp.get("options"), options_exp=dp.get("options_exp"),
+                                 past=dp.get("past") or [], day=ctx.get("fno_day"), sessions=ctx["sessions"])
+            gaps += g
+            if ctx.get("deep_gaps", {}).get(sym):
+                gaps.append(f"OI build-up: {ctx['deep_gaps'][sym]}")
 
     # technicals — the AI scanner's latest row
     tech = None
@@ -211,7 +217,13 @@ def plan_windows(day: date, sess: Sequence[date]) -> Tuple[Tuple[date, date], Li
 
 async def build_day(day: date, *, now: Optional[datetime] = None, live: bool = True, db=None) -> Dict[str, Any]:
     """The day's answer, without the Chartink column. Raises loaders.SourceUnavailable when the results calendar cannot
-    be read at all. `live` lets the OI build-up fall back to the newest loaded day (labelled); the snapshot does not."""
+    be read at all. `live` lets the OI build-up fall back to the newest loaded day (labelled); the snapshot does not.
+    Every DaaS read of the build shares one keep-alive client (loaders.pooled)."""
+    async with loaders.pooled():
+        return await _build_day(day, now=now, live=live, db=db)
+
+
+async def _build_day(day: date, *, now: Optional[datetime], live: bool, db) -> Dict[str, Any]:
     if db is None:
         from deps import db as _db
         db = _db
@@ -219,7 +231,7 @@ async def build_day(day: date, *, now: Optional[datetime] = None, live: bool = T
     cutoff = min(now, datetime.combine(day + timedelta(days=1), time(0), IST))
     gaps: List[str] = []
 
-    sess, cal_gap = await loaders.sessions(day - timedelta(days=CALENDAR_PAD_DAYS), day + timedelta(days=CALENDAR_PAD_DAYS))
+    sess, cal_gap = await loaders.sessions(day - timedelta(days=CALENDAR_BACK_DAYS), day + timedelta(days=CALENDAR_PAD_DAYS))
     if cal_gap:
         gaps.append(cal_gap)
     (mon, sat), week_wins, extra_wins = plan_windows(day, sess)
@@ -255,9 +267,28 @@ async def build_day(day: date, *, now: Optional[datetime] = None, live: bool = T
     for g in (fin_src, hist_src, bu_gap, nf_gap, an_gap, px_gap, tech_gap):
         if g:
             gaps.append(g)
+
+    # OI across the coming months, F&O names only: the build-up scan 3 sessions back (total OI) and, per underlying,
+    # the day's futures of every expiry, one options expiry and (in the rollover window) its past expiries.
+    fno_day = date.fromisoformat(bu_as_of) if bu_as_of else None
+    fno_syms = list(dict.fromkeys(str(e["symbol"]).upper() for e in evs if (e.get("universe") or {}).get("fno")))
+    back_rows, back_date, deep, deep_gaps = {}, None, {}, {}
+    if fno_day and fno_syms:
+        before = [s for s in sess if s < fno_day]
+        back_date = before[-3].isoformat() if len(before) >= 3 else None
+        async def no_back():
+            return {}, None, None
+        (back_rows, _b_as_of, back_gap), (deep, deep_gaps) = await asyncio.gather(
+            loaders.buildup(date.fromisoformat(back_date), fallback=False) if back_date else no_back(),
+            loaders.fno_deep(fno_syms, fno_day, sess))
+        if back_gap:
+            gaps.append(f"3-session total OI: {back_gap}")
+        if fno_syms and len(deep_gaps) == len(fno_syms):
+            gaps.append("OI by expiry: the futures contracts could not be read for any F&O stock")
     ctx = {"fin": fin, "fin_gaps": fin_gaps, "hist": hist, "hist_gaps": hist_gaps, "buildup": bu, "buildup_as_of": bu_as_of,
            "buildup_gap": bu_gap, "nifty": nf, "nifty_gap": nf_gap, "analysis": an, "analysis_gap": an_gap,
-           "prices": px, "prices_gap": px_gap, "tech": tech, "tech_gap": tech_gap, "sessions": sess, "cutoff": cutoff}
+           "prices": px, "prices_gap": px_gap, "tech": tech, "tech_gap": tech_gap, "sessions": sess, "cutoff": cutoff,
+           "fno_day": fno_day, "back_rows": back_rows, "back_date": back_date, "deep": deep, "deep_gaps": deep_gaps}
 
     rows = [assemble_row(e, ctx) for e in evs]
     in_week = [r for r in rows if r["event_date"] and mon.isoformat() <= str(r["event_date"])[:10] <= sat.isoformat()]
@@ -283,11 +314,15 @@ async def build_day(day: date, *, now: Optional[datetime] = None, live: bool = T
                                      "close to close, minus Nifty 50's return the same session; volume × vs the mean of up to 20 earlier sessions"},
         "nifty": {"source": "DaaS /indices/Nifty 50/eod", "ok": nf_gap is None,
                   "latest": max(nf).isoformat() if nf else None},
-        "fno_buildup": {"source": "DaaS /desk/fno-buildup (NSE F&O bhavcopy): price = the nearest expiry, open interest summed over every expiry",
-                        "ok": bool(bu), "as_of": bu_as_of, "rows": len(bu),
-                        "thresholds": {"min_abs_price_chg_pct": sc.BUILDUP_MIN_PRICE_PCT, "min_abs_oi_chg_pct": sc.BUILDUP_MIN_OI_PCT,
-                                       "min_futures_turnover_cr": sc.BUILDUP_MIN_TURNOVER_CR,
-                                       "from": "services/fno_candidates/rules.py (the desk's build-up candidates)"}},
+        "fno_buildup": {"source": "NSE F&O bhavcopy via DaaS: /desk/fno-buildup (total OI over every expiry, cash close) and "
+                                  "/fno/{symbol} (futures of every expiry, one options expiry)",
+                        "ok": bool(bu), "as_of": bu_as_of, "rows": len(bu), "back_date": back_date,
+                        "deep_read": len(deep) - len(deep_gaps), "deep_failed": len(deep_gaps),
+                        "thresholds": {"min_abs_price_chg_pct": sc.FNO_MIN_PRICE_PCT, "min_abs_oi_chg_pct": sc.FNO_MIN_OI_PCT},
+                        "headline": "total futures OI across every expiry vs the spot, last session",
+                        "rollover": f"read in the {sc.ROLLOVER_WINDOW_SESSIONS} sessions before a monthly expiry, against the "
+                                    f"stock's last {sc.ROLLOVER_PAST_EXPIRIES} expiries at the same distance",
+                        "options": f"the first expiry more than {sc.OPTIONS_SKIP_EXPIRY_DAYS} days after the date; {sc.OI_LABEL}"},
         "technicals": {"source": "app Postgres stock_technical_features (AI scanner, nightly 19:45 IST; price-only)",
                        "ok": tech_gap is None, "stocks": len(tech), "as_of": tech_dates[-1] if tech_dates else None},
         "calendar": {"source": "NSE CM holiday list (DaaS /holidays)", "ok": cal_gap is None},

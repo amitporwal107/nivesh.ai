@@ -11,7 +11,6 @@ import re
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from services.fno_candidates.rules import RULES as FNO_RULES
 
 IST = timezone(timedelta(hours=5, minutes=30))
 MARKET_CLOSE_IST = time(15, 30)
@@ -70,21 +69,27 @@ VOLUME_LOOKBACK, VOLUME_MIN_SESSIONS = 20, 5
 PAST_REACTION_PER_PCT = 10.0
 PAST_REACTION_MIN_N = 2
 
-# OI build-up: DaaS /desk/fno-buildup labels each stock from the near-month future's price change and the change in OI
-# summed over every expiry (so a roll at expiry does not read as unwinding). A state is called only when the moves clear
-# the desk's own F&O thresholds (services/fno_candidates/rules.py, the build-up candidates): |price| ≥ 0.5 %, |OI| ≥ 3 %,
-# and futures turnover ≥ ₹50 cr. Smaller moves read "no clear build-up", never a state from the sign alone.
-BUILDUP_MIN_PRICE_PCT = FNO_RULES["min_abs_price_chg_pct"]
-BUILDUP_MIN_OI_PCT = FNO_RULES["min_abs_oi_chg_pct"]
-BUILDUP_MIN_TURNOVER_CR = FNO_RULES["min_futures_turnover_cr"]
+# OI build-up across the coming months (owner, 27 Oct evening; coordinator's rules). The headline state reads TOTAL
+# futures open interest across every expiry against the stock's spot move over the last session, so a roll from the
+# expiring month into the next (near-month OI falling, next-month OI rising) does not read as fresh positions or as
+# unwinding. A state is called only when |spot move| ≥ 0.5 % and |total OI change| ≥ 2 %; smaller moves read
+# "no clear signal", never a state from the sign alone. Provisional thresholds, not validated.
+FNO_MIN_PRICE_PCT = 0.5
+FNO_MIN_OI_PCT = 2.0
+FNO_TOTAL_SESSIONS = (1, 3)        # the total block's look-backs, in sessions
+ROLLOVER_WINDOW_SESSIONS = 5       # rollover is read in the 5 sessions before a monthly expiry (and on expiry day)
+ROLLOVER_PAST_EXPIRIES = 5         # … against the stock's own last 5 expiries, the same number of sessions before each
+OPTIONS_SKIP_EXPIRY_DAYS = 7       # options: the first expiry more than 7 calendar days after the date (DaaS's expiry-week flag)
+OPTIONS_TOP_STRIKES = 3
+OI_LABEL = "open interest cannot tell buyers from writers"
 BUILDUP_STATES = ("long_buildup", "short_buildup", "short_covering", "long_unwinding")
-NO_CLEAR = "no_clear_buildup"
-BUILDUP_SIGNAL = {"long_buildup": "positive", "short_covering": "positive", "short_buildup": "negative",
+NO_CLEAR = "no_clear_signal"
+BUILDUP_SIGNAL = {"long_buildup": "positive", "short_covering": "mildly_positive", "short_buildup": "negative",
                   "long_unwinding": "negative", NO_CLEAR: "neutral"}
 BUILDUP_SCORE = {"long_buildup": 100.0, "short_covering": 75.0, NO_CLEAR: 50.0, "long_unwinding": 25.0, "short_buildup": 0.0}
 VERDICT_TEXT = {"above": "above historical trend", "in_line": "in line with historical trend", "below": "below historical trend"}
 BUILDUP_TEXT = {"long_buildup": "long build-up", "short_covering": "short covering", "short_buildup": "short build-up",
-                "long_unwinding": "long unwinding", NO_CLEAR: "no clear build-up"}
+                "long_unwinding": "long unwinding", NO_CLEAR: "no clear signal"}
 
 # SEBI wording (§ header): these never appear in a response. Checked by TC-B9 and printed by the job's dry run.
 FORBIDDEN_TERMS = ("beat the street", "beat expectations", "beats expectations", "beat estimates", "recommend",
@@ -495,38 +500,199 @@ def reaction(filed_at: Optional[datetime], sessions: Sequence[date], bars: Dict[
 
 # ── OI build-up ───────────────────────────────────────────────────────────────────────────────────────────────────
 
-def buildup_state(price_chg: Optional[float], oi_chg: Optional[float], turnover_cr: Optional[float] = None,
-                  label: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
-    """(state, why). The state is called only when both moves clear the thresholds (and turnover, when known, clears
-    its floor); the DaaS label is used when present and consistent with the signs, else derived from them."""
-    p, o = num(price_chg), num(oi_chg)
+def oi_state(price_pct: Optional[float], oi_pct: Optional[float]) -> Optional[str]:
+    """price ↑ OI ↑ long build-up · price ↓ OI ↑ short build-up · price ↑ OI ↓ short covering · price ↓ OI ↓ long
+    unwinding — only when |price| ≥ 0.5 % and |OI| ≥ 2 %, else no clear signal. None when a figure is missing."""
+    p, o = num(price_pct), num(oi_pct)
     if p is None or o is None:
-        return None, "price or OI change missing"
-    if turnover_cr is not None and turnover_cr < BUILDUP_MIN_TURNOVER_CR:
-        return NO_CLEAR, f"futures turnover ₹{turnover_cr:.0f} cr is under ₹{BUILDUP_MIN_TURNOVER_CR:g} cr"
-    if abs(p) < BUILDUP_MIN_PRICE_PCT or abs(o) < BUILDUP_MIN_OI_PCT:
-        return NO_CLEAR, (f"moves under the thresholds (|price| {BUILDUP_MIN_PRICE_PCT:g} %, |OI| {BUILDUP_MIN_OI_PCT:g} %)")
-    derived = ("long_buildup" if p > 0 and o > 0 else "short_buildup" if p < 0 and o > 0
-               else "short_covering" if p > 0 and o < 0 else "long_unwinding")
-    if label in BUILDUP_STATES and label != derived:
-        return derived, f"derived from the signs (the scan's label {label} disagrees)"
-    return derived, None
+        return None
+    if abs(p) < FNO_MIN_PRICE_PCT or abs(o) < FNO_MIN_OI_PCT:
+        return NO_CLEAR
+    if o > 0:
+        return "long_buildup" if p > 0 else "short_buildup"
+    return "short_covering" if p > 0 else "long_unwinding"
 
 
-def fno_block(is_fno: bool, row: Optional[Dict[str, Any]], as_of: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """(fno_buildup block, gap). Non-F&O → (None, None)."""
+def pct_change(cur: Optional[float], base: Optional[float]) -> Optional[float]:
+    if cur is None or base is None or base == 0:
+        return None
+    return (cur / base - 1.0) * 100.0
+
+
+def total_block(row: Optional[Dict[str, Any]], row_back: Optional[Dict[str, Any]], back_date: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Total futures OI (every expiry, DaaS /desk/fno-buildup `oi`) against the spot (cash close) over 1 session (the
+    day's own change) and 3 sessions (vs the build-up row of `back_date`). The 1-session state is the headline."""
+    if not row:
+        return None
+    oi, oi_chg = num(row.get("oi")), num(row.get("oi_chg"))
+    oi1 = num(row.get("oi_chg_pct"))
+    if oi1 is None and oi is not None and oi_chg is not None:
+        oi1 = pct_change(oi, oi - oi_chg)
+    spot1 = num(row.get("cash_chg_pct"))
+    basis = "spot (cash close)"
+    if spot1 is None:
+        spot1, basis = num(row.get("price_chg_pct")), "near-month future (no cash close)"
+    oi3 = pct_change(oi, num((row_back or {}).get("oi")))
+    spot3 = pct_change(num(row.get("cash_close")), num((row_back or {}).get("cash_close")))
+    st1, st3 = oi_state(spot1, oi1), oi_state(spot3, oi3)
+    return {"oi": oi, "price_basis": basis,
+            "oi_chg_pct_1s": r2(oi1), "price_chg_pct_1s": r2(spot1), "state_1s": st1,
+            "oi_chg_pct_3s": r2(oi3), "price_chg_pct_3s": r2(spot3), "state_3s": st3, "since_3s": back_date,
+            "state": st1}
+
+
+def _contract_day(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Futures rows of one day, one per expiry, nearest first."""
+    by: Dict[str, Dict[str, Any]] = {}
+    for r in rows or []:
+        e = str(r.get("expiry_date") or "")[:10]
+        if e and e not in by:
+            by[e] = r
+    return [by[e] for e in sorted(by)]
+
+
+def _spot_of(rows: Sequence[Dict[str, Any]], fallback: Optional[float] = None) -> Optional[float]:
+    for r in rows or []:
+        u = num(r.get("underlying_price"))
+        if u is not None and u > 0:
+            return u
+    return fallback
+
+
+def by_expiry(rows: Sequence[Dict[str, Any]], spot_fallback: Optional[float] = None) -> List[Dict[str, Any]]:
+    """near / next / far futures on the day: price %, OI %, basis % vs spot, state (same thresholds)."""
+    legs = _contract_day(rows)
+    spot = _spot_of(legs, spot_fallback)
+    out = []
+    for name, r in zip(("near", "next", "far"), legs):
+        close, prev = num(r.get("close_price")), num(r.get("prev_close_price"))
+        oi, chg = num(r.get("open_interest")), num(r.get("change_in_oi"))
+        price = pct_change(close, prev)
+        oip = pct_change(oi, oi - chg) if oi is not None and chg is not None else None
+        out.append({"leg": name, "expiry": str(r.get("expiry_date"))[:10], "close": close, "price_chg_pct": r2(price),
+                    "oi": oi, "oi_chg_pct": r2(oip), "basis_pct": r2(pct_change(close, spot)), "state": oi_state(price, oip)})
+    return out
+
+
+def _roll_reading(rows: Sequence[Dict[str, Any]]) -> Tuple[Optional[float], Optional[float]]:
+    """(% of futures OI in later months than the nearest, next-month premium % vs spot) for one day's futures rows."""
+    legs = _contract_day(rows)
+    ois = [num(r.get("open_interest")) for r in legs]
+    if not legs or any(o is None for o in ois) or sum(ois) <= 0:
+        pct = None
+    else:
+        pct = (sum(ois) - ois[0]) / sum(ois) * 100.0
+    spot = _spot_of(legs)
+    prem = pct_change(num(legs[1].get("close_price")), spot) if len(legs) > 1 else None
+    return pct, prem
+
+
+def _position(v: Optional[float], past: Sequence[float]) -> Optional[str]:
+    if v is None or not past:
+        return None
+    return "below" if v < min(past) else "above" if v > max(past) else "within"
+
+
+def rollover_block(rows: Sequence[Dict[str, Any]], day: date, sessions: Sequence[date],
+                   past: Sequence[Tuple[str, str, Sequence[Dict[str, Any]]]]) -> Optional[Dict[str, Any]]:
+    """In the ROLLOVER_WINDOW_SESSIONS sessions before the nearest expiry (and on expiry day): today's rollover % and
+    next-month premium, beside the same readings on the stock's own past expiries at the same number of sessions before
+    each. `past`: [(expiry, the day read, that day's futures rows)]. None outside the window."""
+    legs = _contract_day(rows)
+    if not legs:
+        return None
+    try:
+        near = date.fromisoformat(str(legs[0].get("expiry_date"))[:10])
+    except ValueError:
+        return None
+    n = sum(1 for s in sessions if day < s <= near)
+    if near < day or n > ROLLOVER_WINDOW_SESSIONS:
+        return None
+    pct, prem = _roll_reading(rows)
+    hist = []
+    for exp, d, rws in past:
+        p, pr = _roll_reading(rws)
+        if p is not None or pr is not None:
+            hist.append({"expiry": exp, "day": d, "pct": r1(p), "next_premium_pct": r2(pr)})
+    pcts = [h["pct"] for h in hist if h["pct"] is not None]
+    prems = [h["next_premium_pct"] for h in hist if h["next_premium_pct"] is not None]
+    return {"near_expiry": near.isoformat(), "sessions_to_expiry": n, "pct": r1(pct),
+            "past": hist, "past_range": {"min": min(pcts), "max": max(pcts)} if pcts else None, "position": _position(pct, pcts),
+            "next_premium_pct": r2(prem), "past_premium_range": {"min": min(prems), "max": max(prems)} if prems else None,
+            "premium_position": _position(prem, prems),
+            "basis": f"% of futures OI in later months; past = the stock's last {ROLLOVER_PAST_EXPIRIES} expiries, "
+                     f"{n} session(s) before each"}
+
+
+def options_expiry(rows: Sequence[Dict[str, Any]], day: date) -> Optional[str]:
+    """The expiry the options block reads: the first futures expiry more than OPTIONS_SKIP_EXPIRY_DAYS after the date
+    (a contract in its expiry week is distorted), read from the day's own rows, never computed."""
+    for r in _contract_day(rows):
+        try:
+            e = date.fromisoformat(str(r.get("expiry_date"))[:10])
+        except ValueError:
+            continue
+        if (e - day).days > OPTIONS_SKIP_EXPIRY_DAYS:
+            return e.isoformat()
+    return None
+
+
+def options_block(rows: Sequence[Dict[str, Any]], expiry: Optional[str]) -> Optional[Dict[str, Any]]:
+    """One expiry's options on the day: PCR (put OI ÷ call OI) and its change vs the previous session (from the day's
+    own OI minus its change), OI added by side, the strikes with the most OI and the most OI added."""
+    side: Dict[str, List[Tuple[float, float, float]]] = {"PE": [], "CE": []}
+    for r in rows or []:
+        k, oi, chg = num(r.get("strike_price")), num(r.get("open_interest")), num(r.get("change_in_oi"))
+        if r.get("option_type") in side and k is not None and oi is not None:
+            side[r["option_type"]].append((k, oi, chg or 0.0))
+    if not side["PE"] or not side["CE"]:
+        return None
+    put, call = sum(x[1] for x in side["PE"]), sum(x[1] for x in side["CE"])
+    put0, call0 = sum(x[1] - x[2] for x in side["PE"]), sum(x[1] - x[2] for x in side["CE"])
+    pcr = put / call if call > 0 else None
+    pcr0 = put0 / call0 if call0 > 0 else None
+
+    def top(xs, idx):
+        return [x[0] for x in sorted(xs, key=lambda x: (-x[idx], x[0]))[:OPTIONS_TOP_STRIKES] if x[idx] > 0]
+
+    return {"expiry": expiry, "pcr": r2(pcr), "pcr_prev": r2(pcr0),
+            "pcr_change": r2(pcr - pcr0) if pcr is not None and pcr0 is not None else None,
+            "put_oi_added": sum(x[2] for x in side["PE"]), "call_oi_added": sum(x[2] for x in side["CE"]),
+            "max_put_oi_strike": max(side["PE"], key=lambda x: (x[1], -x[0]))[0],
+            "max_call_oi_strike": max(side["CE"], key=lambda x: (x[1], -x[0]))[0],
+            "most_put_oi_added_strikes": top(side["PE"], 2), "most_call_oi_added_strikes": top(side["CE"], 2),
+            "label": OI_LABEL}
+
+
+def fno_block(is_fno: bool, *, as_of: Optional[str], scan_row: Optional[Dict[str, Any]], back_row: Optional[Dict[str, Any]],
+              back_date: Optional[str], futures: Optional[Sequence[Dict[str, Any]]], options: Optional[Sequence[Dict[str, Any]]],
+              options_exp: Optional[str], past: Sequence[Tuple[str, str, Sequence[Dict[str, Any]]]], day: Optional[date],
+              sessions: Sequence[date]) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """(fno_buildup block, gaps). Non-F&O → (None, []). The headline state is total.state (1 session)."""
     if not is_fno:
-        return None, None
-    if row is None:
-        return None, f"OI build-up: no futures row on {as_of}" if as_of else "OI build-up: not available"
-    p, o, tv = num(row.get("price_chg_pct")), num(row.get("oi_chg_pct")), num(row.get("fut_turnover_cr"))
-    state, why = buildup_state(p, o, tv, row.get("label"))
-    if state is None:
-        return None, f"OI build-up: {why}"
-    return {"as_of": as_of, "state": state, "text": BUILDUP_TEXT[state], "signal": BUILDUP_SIGNAL[state],
-            "score": BUILDUP_SCORE[state], "why": why, "price_chg_pct": r2(p), "oi_chg_pct": r2(o),
-            "scan_label": row.get("label"), "futures_turnover_cr": r2(tv), "cash_confirmation": row.get("cash_confirmation"),
-            "risk_flags": list(row.get("risk_flags") or [])}, None
+        return None, []
+    gaps: List[str] = []
+    total = total_block(scan_row, back_row, back_date)
+    if total is None:
+        gaps.append(f"OI build-up: no futures row in the build-up scan on {as_of}" if as_of else "OI build-up: not available")
+    elif total["state"] is None:
+        gaps.append("OI build-up: the day's spot or total OI change is missing")
+    legs = by_expiry(futures or [], num((scan_row or {}).get("cash_close"))) if futures else []
+    if futures is None:
+        gaps.append("OI build-up by expiry: the futures contracts could not be read")
+    roll = rollover_block(futures or [], day, sessions, past) if futures and day else None
+    opts = options_block(options or [], options_exp) if options else None
+    if futures and options_exp and options is None:
+        gaps.append(f"options {options_exp}: could not be read")
+    if total is None and not legs:
+        return None, gaps
+    state = (total or {}).get("state")
+    out = {"as_of": as_of, "state": state, "text": BUILDUP_TEXT.get(state) if state else None,
+           "signal": BUILDUP_SIGNAL.get(state) if state else None, "score": BUILDUP_SCORE.get(state) if state else None,
+           "total": total, "by_expiry": legs, "rollover": roll, "options_next_expiry": opts,
+           "scan": {k: (scan_row or {}).get(k) for k in ("label", "price_chg_pct", "oi_chg_pct", "cash_confirmation", "risk_flags",
+                                                         "fut_turnover_cr", "near_expiry")} if scan_row else None}
+    return out, gaps
 
 
 # ── technical and past reactions ──────────────────────────────────────────────────────────────────────────────────
@@ -613,9 +779,10 @@ def why_text(row: Dict[str, Any], phase: str) -> str:
         tr = comps.get("trend") or {}
         if tr.get("value") is not None:
             bits.append(f"operating trend {tr['value']:.0f}")
-    fb = row.get("fno_buildup")
-    if fb:
-        bits.append(f"{fb['text']} (fut {fb['price_chg_pct']:+.2f} %, OI {fb['oi_chg_pct']:+.2f} %)")
+    fb = row.get("fno_buildup") or {}
+    tot = fb.get("total") or {}
+    if fb.get("state") and tot.get("price_chg_pct_1s") is not None and tot.get("oi_chg_pct_1s") is not None:
+        bits.append(f"{fb['text']} (spot {tot['price_chg_pct_1s']:+.2f} %, total OI {tot['oi_chg_pct_1s']:+.2f} %)")
     tech = row.get("technical")
     if tech and tech.get("stage"):
         bits.append(f"AI scanner stage {tech['stage']}" + (f" ({tech['score']:.0f})" if tech.get("score") is not None else ""))

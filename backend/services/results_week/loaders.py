@@ -4,16 +4,25 @@ Each loader is failure-isolated: a source that fails returns no data and a gap (
 why); the caller nulls that block and the rest of the answer still stands (TC-B13). Only the results calendar
 (DaaS expectations) is essential: with every window failing there is nothing to show, and the caller says so.
 
-DaaS load: per-symbol reads run with bounded concurrency (DAAS_CONCURRENCY) and are cached (TTL per source) so the
-live route's rebuild every few minutes does not refetch eight quarters for 500 stocks.
+DaaS load: a build reads ~1,800 small DaaS answers (quarters, past reactions, futures and options per F&O stock).
+daas_client opens a new connection (TLS through the public edge) per call: measured on staging 27 Oct, 60 reads took
+6.7 s that way and 1.0 s over one keep-alive client. So a build runs inside `pooled()`, which gives every read here
+(`daas_get`) one shared keep-alive client, with daas_client's own credentials and DaasError; outside it `daas_get` is
+daas_client.get_raw. Reads run with bounded concurrency (DAAS_CONCURRENCY) and are cached (TTL per source), so the live
+route's rebuild every few minutes does not refetch eight quarters for 500 stocks.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from urllib.parse import quote
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+
+import httpx
 
 from services.copilot_tools import daas_client
 
@@ -21,18 +30,56 @@ logger = logging.getLogger(__name__)
 
 IST = timezone(timedelta(hours=5, minutes=30))
 WINDOW_DAYS = 3                 # DaaS /desk/events-calendar/expectations answers at most 3 days per call
-DAAS_CONCURRENCY = 6
+DAAS_CONCURRENCY = 8
 EXPECTATIONS_TIMEOUT_S = 60.0
 NIFTY = "Nifty 50"
 BUILDUP_FALLBACK_DAYS = 5       # live view: the newest build-up day with rows, at most this many weekdays back
 TECH_MAX_AGE_DAYS = 7
 FIN_QUARTERS = 8
-TTL_S = {"financials": 1800.0, "history": 6 * 3600.0, "buildup": 600.0, "nifty": 600.0}
+TTL_S = {"financials": 1800.0, "history": 6 * 3600.0, "buildup": 600.0, "nifty": 600.0,
+         "fno_day": 600.0, "fno_past": 12 * 3600.0, "expiries": 6 * 3600.0}
+FNO_PAGE = 1000                 # one expiry's option strikes for a stock fit in one page (MANKIND Nov: 92 rows)
 ANALYSIS_COLLECTION = "event_ai_analysis"
 ISOLATED = "tools_off+isolated"
 RESULTS_TYPE = "RESULT"         # case-insensitive match on event_type
 
 _cache: Dict[Tuple, Tuple[float, Any]] = {}
+
+
+_POOL: ContextVar[Optional[httpx.AsyncClient]] = ContextVar("results_week_daas_pool", default=None)
+
+
+@asynccontextmanager
+async def pooled() -> AsyncIterator[None]:
+    """One keep-alive DaaS client for every read made inside the block (one build)."""
+    async with httpx.AsyncClient(limits=httpx.Limits(max_connections=DAAS_CONCURRENCY,
+                                                     max_keepalive_connections=DAAS_CONCURRENCY)) as client:
+        token = _POOL.set(client)
+        try:
+            yield
+        finally:
+            _POOL.reset(token)
+
+
+async def daas_get(path: str, params: Optional[Dict[str, Any]] = None, timeout: float = 20.0) -> Tuple[int, Any]:
+    """(HTTP status, parsed JSON or None) like daas_client.get_raw; over the build's pooled client when there is one.
+    Connectivity failures raise daas_client.DaasError."""
+    client = _POOL.get()
+    if client is None:
+        return await daas_client.get_raw(path, params, timeout=timeout)
+    base, key = daas_client._creds()
+    try:
+        resp = await client.get(f"{base}/v1{path}", params=params, timeout=timeout,
+                                headers={"X-API-Key": key, "Accept": "application/json"})
+    except httpx.TimeoutException:
+        raise daas_client.DaasError(f"DAAS request timed out after {timeout}s: {path}")
+    except httpx.HTTPError as exc:
+        raise daas_client.DaasError(f"DAAS connectivity error on {path}: {exc}")
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    return resp.status_code, body
 
 
 class SourceUnavailable(RuntimeError):
@@ -99,7 +146,7 @@ async def expectations(wins: Sequence[Tuple[date, date]]) -> Tuple[List[Dict[str
     every window failed."""
     async def one(lo: date, hi: date):
         try:
-            st, body = await daas_client.get_raw("/desk/events-calendar/expectations",
+            st, body = await daas_get("/desk/events-calendar/expectations",
                                                  {"from": lo.isoformat(), "to": hi.isoformat(), "universe": "all"},
                                                  timeout=EXPECTATIONS_TIMEOUT_S)
         except Exception as e:  # noqa: BLE001
@@ -136,11 +183,21 @@ async def quarterly(symbols: Dict[str, bool]) -> Tuple[Dict[str, List[Dict[str, 
     out: Dict[str, List[Dict[str, Any]]] = {}
     gaps: Dict[str, str] = {}
 
+    async def fetch(sym: str, cons: bool):
+        # the same read as daas_client.get_quarterly_financials (period_type quarterly: no fiscal-year rows)
+        st, body = await daas_get(f"/financials/{sym}", {"limit": FIN_QUARTERS, "consolidated": str(cons).lower(),
+                                                         "period_type": "quarterly"})
+        if st == 404:
+            return []
+        if st != 200 or not isinstance(body, dict):
+            raise daas_client.DaasError(f"/financials/{sym} HTTP {st}", status_code=st)
+        rows = body.get("data") or body.get("rows") or []
+        return rows if isinstance(rows, list) else []
+
     async def one(sym: str, cons: bool):
         async with gate:
             try:
-                out[sym] = await _cached("financials", (sym, cons),
-                                         lambda: daas_client.get_quarterly_financials(sym, limit=FIN_QUARTERS, consolidated=cons))
+                out[sym] = await _cached("financials", (sym, cons), lambda: fetch(sym, cons))
             except Exception as e:  # noqa: BLE001
                 gaps[sym] = f"quarterly results could not be read (DaaS {_why(e)})"
 
@@ -157,7 +214,7 @@ async def history(symbols: Iterable[str]) -> Tuple[Dict[str, Dict[str, Any]], Di
     gaps: Dict[str, str] = {}
 
     async def fetch(sym: str):
-        st, body = await daas_client.get_raw("/desk/events-calendar/history", {"symbol": sym, "type": "RESULTS"})
+        st, body = await daas_get("/desk/events-calendar/history", {"symbol": sym, "type": "RESULTS"})
         if st == 200 and isinstance(body, dict):
             return body
         if st == 404:
@@ -181,7 +238,7 @@ async def buildup(day: date, *, fallback: bool) -> Tuple[Dict[str, Dict[str, Any
     bhavcopy is not loaded yet shows the newest earlier day with rows, labelled; without it (the nightly snapshot) only
     the date itself counts."""
     async def fetch(d: date):
-        st, body = await daas_client.get_raw("/desk/fno-buildup", {"date": d.isoformat()}, timeout=30.0)
+        st, body = await daas_get("/desk/fno-buildup", {"date": d.isoformat()}, timeout=30.0)
         if st == 200 and isinstance(body, dict) and isinstance(body.get("rows"), list):
             return body
         raise daas_client.DaasError(f"fno-buildup HTTP {st}", status_code=st)
@@ -205,9 +262,118 @@ async def buildup(day: date, *, fallback: bool) -> Tuple[Dict[str, Dict[str, Any
     return {}, None, f"OI build-up for {day.isoformat()} is not loaded yet (the F&O bhavcopy lands ~22:15 IST)"
 
 
+async def fno_contracts(sym: str, on: date, kind: str, expiry: Optional[str] = None, *, past: bool = False) -> List[Dict[str, Any]]:
+    """One day's contracts of one underlying from DaaS /fno/{symbol} (kind STF futures | STO options). Raises on failure.
+    A past day never changes, so it is cached longer."""
+    params: Dict[str, Any] = {"on": on.isoformat(), "instrument_type": kind, "limit": FNO_PAGE}
+    if expiry:
+        params["expiry"] = expiry
+
+    async def fetch():
+        st, body = await daas_get(f"/fno/{sym}", params, timeout=20.0)
+        if st == 200 and isinstance(body, dict) and isinstance(body.get("data"), list):
+            if str(body.get("as_of") or "")[:10] not in ("", on.isoformat()):
+                return []                       # the platform answered another day: nothing for this one
+            return [r for r in body["data"] if isinstance(r, dict)]
+        if st == 404:
+            return []
+        raise daas_client.DaasError(f"/fno/{sym} HTTP {st}", status_code=st)
+
+    return await _cached("fno_past" if past else "fno_day", (sym, on.isoformat(), kind, expiry or ""), fetch)
+
+
+async def fno_expiries(sym: str) -> List[date]:
+    """Every expiry the warehouse holds for the underlying (DaaS /fno/{symbol}/expiries), ascending. Read, never computed."""
+    async def fetch():
+        st, body = await daas_get(f"/fno/{sym}/expiries", {}, timeout=20.0)
+        if st == 200 and isinstance(body, dict) and isinstance(body.get("data"), list):
+            out = []
+            for r in body["data"]:
+                try:
+                    out.append(date.fromisoformat(str(r.get("expiry_date"))[:10]))
+                except ValueError:
+                    continue
+            return sorted(set(out))
+        raise daas_client.DaasError(f"/fno/{sym}/expiries HTTP {st}", status_code=st)
+    return await _cached("expiries", (sym,), fetch)
+
+
+async def fno_deep(symbols: Iterable[str], day: date, sessions: Sequence[date]) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, str]]:
+    """Per F&O underlying on `day`: the futures of every expiry, the options of the expiry scoring.options_expiry picks,
+    and — inside the rollover window — the futures on the same number of sessions before each of its last 5 expiries.
+    ({symbol: {futures, options, options_exp, past}}, per-symbol gaps). Reads are bounded (DAAS_CONCURRENCY) and cached."""
+    from . import scoring as sc
+
+    gate = asyncio.Semaphore(DAAS_CONCURRENCY)
+    ss = sorted(sessions)
+    out: Dict[str, Dict[str, Any]] = {}
+    gaps: Dict[str, str] = {}
+
+    async def read(coro_fn):
+        async with gate:
+            return await coro_fn()
+
+    async def one(sym: str):
+        rec: Dict[str, Any] = {"futures": None, "options": None, "options_exp": None, "past": []}
+        out[sym] = rec
+        try:
+            rec["futures"] = await read(lambda: fno_contracts(sym, day, "STF"))
+        except Exception as e:  # noqa: BLE001
+            gaps[sym] = f"futures contracts could not be read (DaaS {_why(e)})"
+            return
+        legs = sc._contract_day(rec["futures"])
+        rec["options_exp"] = sc.options_expiry(legs, day)
+        if rec["options_exp"]:
+            try:
+                rec["options"] = await read(lambda: fno_contracts(sym, day, "STO", rec["options_exp"]))
+            except Exception as e:  # noqa: BLE001
+                gaps[sym] = f"options {rec['options_exp']} could not be read (DaaS {_why(e)})"
+        if not legs:
+            return
+        try:
+            near = date.fromisoformat(str(legs[0].get("expiry_date"))[:10])
+        except ValueError:
+            return
+        n = sum(1 for s in ss if day < s <= near)
+        if near < day or n > sc.ROLLOVER_WINDOW_SESSIONS:
+            return
+        try:
+            exps = await read(lambda: fno_expiries(sym))
+        except Exception as e:  # noqa: BLE001
+            gaps[sym] = f"past expiries could not be read (DaaS {_why(e)})"
+            return
+        prev = [e for e in exps if e < near and e <= day][-sc.ROLLOVER_PAST_EXPIRIES:]
+        for e in prev:
+            if e not in ss or ss.index(e) - n < 0:
+                continue                         # outside the loaded calendar
+            d_k = ss[ss.index(e) - n]
+            try:
+                rows = await read(lambda: fno_contracts(sym, d_k, "STF", past=True))
+            except Exception as ex:  # noqa: BLE001
+                gaps[sym] = f"past rollover readings could not all be read (DaaS {_why(ex)})"
+                continue
+            rec["past"].append((e.isoformat(), d_k.isoformat(), rows))
+
+    await asyncio.gather(*(one(s) for s in dict.fromkeys(symbols)))
+    return out, gaps
+
+
 async def nifty(start: date, end: date) -> Tuple[Dict[date, float], Optional[str]]:
     async def fetch():
-        return await daas_client.get_index_eod_history(NIFTY, start=start.isoformat(), end=end.isoformat())
+        # the same read as daas_client.get_index_eod_history, but a failure raises instead of reading as "no rows"
+        rows: List[Dict[str, Any]] = []
+        offset = 0
+        while offset < 5000:
+            st, body = await daas_get(f"/indices/{quote(NIFTY)}/eod", {"limit": 500, "offset": offset, "start": start.isoformat(),
+                                                               "end": end.isoformat()})
+            if st != 200 or not isinstance(body, dict):
+                raise daas_client.DaasError(f"index EOD HTTP {st}", status_code=st)
+            page = body.get("data") or body.get("rows") or []
+            rows.extend(page)
+            if len(page) < 500:
+                break
+            offset += 500
+        return rows
     try:
         rows = await _cached("nifty", (start.isoformat(), end.isoformat()), fetch)
     except Exception as e:  # noqa: BLE001
@@ -221,7 +387,7 @@ async def nifty(start: date, end: date) -> Tuple[Dict[date, float], Optional[str
             continue
     if not out:
         _cache.pop(("nifty", start.isoformat(), end.isoformat()), None)
-        return {}, "Nifty 50 closes could not be read (DaaS index EOD answered none)"
+        return {}, "Nifty 50 closes could not be read (DaaS index EOD answered no rows)"
     return out, None
 
 

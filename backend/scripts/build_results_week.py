@@ -111,7 +111,8 @@ async def refresh_chartink(dry_run: bool) -> None:
              r["users"], r["scans_ok"], r["scans_failed"], r["per_user"])
 
 
-async def run(day: date, *, skip_if_done: bool, dry_run: bool, show: List[str], today: Optional[date] = None) -> int:
+async def run(day: date, *, skip_if_done: bool, dry_run: bool, show: List[str], today: Optional[date] = None,
+              live: bool = False) -> int:
     from services.positional_engine import session_calendar
     from services.results_week import build as rw_build
     from services.results_week import loaders, store
@@ -135,7 +136,7 @@ async def run(day: date, *, skip_if_done: bool, dry_run: bool, show: List[str], 
     if day == today:
         await refresh_chartink(dry_run)
     try:
-        body = await rw_build.build_day(day, now=datetime.now(timezone.utc), live=False)
+        body = await rw_build.build_day(day, now=datetime.now(timezone.utc), live=live)
     except loaders.SourceUnavailable as e:
         log.error("the results calendar could not be read: %s. Nothing written", e)
         return 5
@@ -166,6 +167,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--skip-if-done", action="store_true", help="Do nothing when the day is already stored")
     p.add_argument("--dry-run", action="store_true", help="Build and print, write nothing (no Chartink fetch either)")
     p.add_argument("--symbols", default="", help="Comma-separated symbols whose full rows are printed")
+    p.add_argument("--live", action="store_true", help="With --dry-run: build as the live route does (the OI build-up may "
+                                                         "fall back to the newest loaded day, labelled)")
     p.add_argument("--signals", action="store_true",
                    help="Also print the AI scanner's results signal (§4d) as of now: strong / weak symbols with reasons (reads only)")
     args = p.parse_args(argv)
@@ -181,7 +184,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     log.info("results week: date=%s skip_if_done=%s dry_run=%s", day, args.skip_if_done, args.dry_run)
     if args.signals:
         asyncio.run(print_signals())
-    return asyncio.run(run(day, skip_if_done=args.skip_if_done, dry_run=args.dry_run, show=show))
+    if args.live and not args.dry_run:
+        log.error("--live is for --dry-run only: a stored day is always built from its own F&O day")
+        return 1
+    return asyncio.run(run(day, skip_if_done=args.skip_if_done, dry_run=args.dry_run, show=show, live=args.live))
 
 
 async def print_signals(now: Optional[datetime] = None) -> None:

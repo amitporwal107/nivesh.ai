@@ -6,7 +6,8 @@ GET /api/desk/results-week?date=YYYY-MM-DD
     reaction vs Nifty, the OI build-up, the AI scanner's technicals and your Chartink confirmation; plus two idea lists
     (F&O names / all names) ordered for review, labelled not yet tested.
 
-    date omitted → today (IST), built live and cached for CACHE_S. A past date answers from the nightly snapshot
+    date omitted → today (IST), built live and cached for CACHE_S (a build that takes longer than LIVE_WAIT_S answers
+    with the previous build, or 503 {code: building, retry_after_s} before the first one). A past date answers from the nightly snapshot
     (results_week_days, scripts/build_results_week.py): 404 not_stored when none was stored. A future date or a
     malformed one → 422. The results calendar failing entirely → 502 upstream_unavailable (never an empty week); any
     other source failing nulls its block and names it in `gaps`.
@@ -32,8 +33,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/desk/results-week", tags=["desk"])
 
 CACHE_S = 600.0                    # today's live answer is rebuilt at most every 10 minutes
+LIVE_WAIT_S = 45.0                 # a request waits this long for a build; then the previous answer, or 503 building
+RETRY_AFTER_S = 20
 _live: Dict[str, Tuple[float, Dict[str, Any]]] = {}
-_locks: Dict[str, asyncio.Lock] = {}
+_building: Dict[str, "asyncio.Task[Dict[str, Any]]"] = {}
 
 
 def today_ist() -> date:
@@ -44,24 +47,40 @@ def _bad(message: str) -> HTTPException:
     return HTTPException(status_code=422, detail={"code": "invalid_date", "message": message})
 
 
+async def _build_and_keep(day: date) -> Dict[str, Any]:
+    body = await rw_build.build_day(day, now=datetime.now(timezone.utc), live=True, db=db)
+    for k in [k for k in _live if k != day.isoformat()]:
+        _live.pop(k, None)                 # only today's answer is kept
+    _live[day.isoformat()] = (time.monotonic(), body)
+    return body
+
+
 async def _live_body(day: date) -> Dict[str, Any]:
+    """Today's answer: the cached one when fresh; else one build at a time (requests share it). A build that takes
+    longer than LIVE_WAIT_S keeps running in the background: the request gets the previous answer (its `as_of` says
+    when it was built) or, with none yet, 503 building with Retry-After."""
     key = day.isoformat()
     hit = _live.get(key)
     if hit and time.monotonic() - hit[0] < CACHE_S:
         return hit[1]
-    lock = _locks.setdefault(key, asyncio.Lock())
-    async with lock:                       # one build at a time per date; waiters reuse its answer
-        hit = _live.get(key)
-        if hit and time.monotonic() - hit[0] < CACHE_S:
+    task = _building.get(key)
+    if task is None or task.done():
+        task = asyncio.ensure_future(_build_and_keep(day))
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())   # a failure is read here, never left unretrieved
+        _building[key] = task
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), LIVE_WAIT_S)
+    except asyncio.TimeoutError:
+        if hit:
             return hit[1]
-        try:
-            body = await rw_build.build_day(day, now=datetime.now(timezone.utc), live=True, db=db)
-        except loaders.SourceUnavailable as e:
-            logger.warning("results week %s: results calendar unavailable: %s", key, e)
-            raise HTTPException(status_code=502, detail="upstream_unavailable")
-        _live.clear()                      # only today's answer is kept
-        _live[key] = (time.monotonic(), body)
-        return body
+        raise HTTPException(status_code=503, headers={"Retry-After": str(RETRY_AFTER_S)},
+                            detail={"code": "building", "retry_after_s": RETRY_AFTER_S,
+                                    "message": "Today's results week is being built; try again in a few seconds."})
+    except loaders.SourceUnavailable as e:
+        logger.warning("results week %s: results calendar unavailable: %s", key, e)
+        if hit:
+            return hit[1]
+        raise HTTPException(status_code=502, detail="upstream_unavailable")
 
 
 @router.get("")

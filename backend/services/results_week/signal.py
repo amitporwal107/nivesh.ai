@@ -220,6 +220,11 @@ async def compute(now: datetime, db=None) -> Tuple[Dict[str, Dict[str, Any]], Li
 
     if not daas_client.is_configured():
         raise loaders.SourceUnavailable("DaaS is not configured")
+    async with loaders.pooled():
+        return await _compute(now, db)
+
+
+async def _compute(now: datetime, db=None) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
     if db is None:
         from deps import db as _db
         db = _db
