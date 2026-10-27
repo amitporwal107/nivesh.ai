@@ -570,3 +570,68 @@ def test_conviction_scan_bonus_lifts_borderline():
     many_scans = conviction.classify_verdict(features=feats, trade_plan=plan,
                                                 live_ltp=100, scan_count=4)
     assert many_scans["final_score"] > no_scans["final_score"]
+
+
+# ── TC-B12 (docs/EARNINGS_SURPRISE_TRACKER.md §8): universe_for = Chartink hits ∪ fresh bars ──────────────────────
+# Fixture symbols are MOCK — not real data.
+
+class _UConn:
+    def __init__(self, bars):
+        self.bars = bars
+
+    async def fetch(self, sql, *args):
+        assert "FROM stock_ohlcv WHERE bar_date = $1" in sql
+        return [{"nse_symbol": s} for s in self.bars]
+
+
+class _UAcquire:
+    def __init__(self, conn):
+        self.conn = conn
+
+    async def __aenter__(self):
+        return self.conn
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class _UPool:
+    def __init__(self, bars):
+        self.conn = _UConn(bars)
+
+    def acquire(self):
+        return _UAcquire(self.conn)
+
+
+def _universe(monkeypatch, *, hits, bars, allow):
+    import asyncio
+
+    from services.positional_engine import equity_universe, pipeline
+
+    async def list_universe_for(d):
+        return list(hits)
+
+    async def get_pool():
+        return _UPool(bars)
+
+    monkeypatch.setattr(pipeline.chartink_loader, "list_universe_for", list_universe_for)
+    monkeypatch.setattr(pipeline.pg_client, "get_pool", get_pool)
+    monkeypatch.setattr(equity_universe, "get_allowlist", lambda: set(allow))
+    return asyncio.run(pipeline.universe_for(date(2026, 10, 27)))
+
+
+def test_universe_is_the_union_of_chartink_hits_and_fresh_bars_filtered(monkeypatch):
+    # bars AAA, BBB, NIFTYBEES (an ETF, not on the allowlist); hits BBB (also has bars) and CCC (hit only), plus an ETF hit
+    got = _universe(monkeypatch, hits=["BBB", "CCC", "GOLDBEES"], bars=["AAA", "BBB", "NIFTYBEES"], allow={"AAA", "BBB", "CCC"})
+    assert got == ["AAA", "BBB", "CCC"]          # never the hits alone; each symbol once; ETFs filtered from both sources
+
+
+def test_universe_without_hits_is_every_symbol_with_fresh_bars(monkeypatch):
+    got = _universe(monkeypatch, hits=[], bars=["AAA", "BBB", "NIFTYBEES"], allow={"AAA", "BBB"})
+    assert got == ["AAA", "BBB"]                 # unchanged behaviour when no scan is configured
+
+
+def test_universe_with_hits_never_shrinks_to_the_hits(monkeypatch):
+    bars = [f"S{i:03d}" for i in range(50)]
+    got = _universe(monkeypatch, hits=["S007"], bars=bars, allow=set(bars))
+    assert len(got) == 50 and got == bars
