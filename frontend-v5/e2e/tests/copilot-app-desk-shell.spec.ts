@@ -33,7 +33,7 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
 /** The frame's section that hosts each view's component (data-testid), and a component testid inside it. */
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "trade/paper": [["desk-panel-paper", "desk-paper-trades"]],
-  "trade/new": [["desk-panel-strategy", "strategy-builder"], ["desk-panel-fno", "desk-fno"]],
+  "trade/new": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
   "market/intel": [["desk-panel-intel", null], ["desk-panel-events", null]],
   "market/smartmoney": [["desk-panel-smartmoney", null], ["desk-panel-fno", "desk-fno"]],
   "market/sectors": [["desk-panel-sectors", "screen-tool-sector-heatmap"]],
@@ -112,10 +112,16 @@ async function expectAt(page: Page, tab: string, view: string | null, extra: Rec
 async function noSideScroll(page: Page) {
   const o = await page.evaluate(() => {
     const sc = document.querySelector('[data-testid="copilot-scroll"]') as HTMLElement | null;
-    return { doc: document.documentElement.scrollWidth - window.innerWidth, scroll: sc ? sc.scrollWidth - sc.clientWidth : 0 };
+    const right = sc ? sc.getBoundingClientRect().right : window.innerWidth;
+    // The outermost elements that reach past the right edge (a scroller's own content is clipped and not listed).
+    const wide = (Array.from(document.querySelectorAll("*")) as HTMLElement[]).filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.right > right + 1 && !(el.parentElement && el.parentElement.getBoundingClientRect().right > right + 1);
+    }).slice(0, 6).map((el) => `${el.tagName.toLowerCase()}[${el.getAttribute("data-testid") ?? ""}] right=${Math.round(el.getBoundingClientRect().right)}`);
+    return { doc: document.documentElement.scrollWidth - window.innerWidth, scroll: sc ? sc.scrollWidth - sc.clientWidth : 0, wide: wide.join(", ") };
   });
-  expect(o.doc).toBeLessThanOrEqual(1);
-  expect(o.scroll).toBeLessThanOrEqual(1);
+  expect(o.doc, o.wide).toBeLessThanOrEqual(1);
+  expect(o.scroll, o.wide).toBeLessThanOrEqual(1);
 }
 
 const BANNER = /Paper mode · simulated execution only · no broker orders/i;
@@ -279,22 +285,22 @@ test.describe("MOCK — not real data: desk shell · breadcrumb, My portfolio, b
   test("SH-11 the breadcrumb is the location, whatever the path taken", async ({ page }) => {
     await page.goto(`${DESK}?tab=market&view=smartmoney`);
     const trail = page.getByTestId("desk-trail");
-    await expect(trail).toHaveText(/^Trading desk›Market Desk›Smart Money$/);
+    await expect(trail).toHaveText(/^▸Trading desk›Market Desk›Smart Money$/);
     await expect(page.getByTestId("desk-trail-here")).toHaveAttribute("aria-current", "page");
     // The same view reached through other views: the same crumbs.
     await page.getByTestId("desk-tab-overview").click();
-    await expect(trail).toHaveText(/^Trading desk›Market Overview$/);
+    await expect(trail).toHaveText(/^▸Trading desk›Market Overview$/);
     await page.getByTestId("desk-tab-market").click();
     await page.getByTestId("desk-view-research").click();
     await page.getByTestId("desk-view-smartmoney").click();
-    await expect(trail).toHaveText(/^Trading desk›Market Desk›Smart Money$/);
+    await expect(trail).toHaveText(/^▸Trading desk›Market Desk›Smart Money$/);
     // The tab crumb opens the tab's default view; the root opens Market Overview.
     await page.getByTestId("desk-trail-tab").click();
     await expectAt(page, "market", "intel");
     await page.getByTestId("desk-trail-root").click();
     await expectAt(page, "overview", null);
     await page.goto(`${DESK}?tab=portfolio`);
-    await expect(trail).toHaveText(/^Trading desk›My portfolio$/);
+    await expect(trail).toHaveText(/^▸Trading desk›My portfolio$/);
   });
 
   test("SH-12 / SH-13 My portfolio opens inside the frame, without the paper cards", async ({ page }) => {

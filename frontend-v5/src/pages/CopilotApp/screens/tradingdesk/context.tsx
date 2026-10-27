@@ -6,10 +6,11 @@
  *   openLab("candidates", { focus: "ICICIBANK" });   // the lab's Candidates with a Top 10 idea in focus
  *   askDesk("Why does RELIANCE rank first?");
  *
- * The tab and the selected stock live in the URL (`?tab=chart&sym=RELIANCE`),
- * so a reload or a shared link opens the same view. `askDesk` sends the
- * question to the desk's own Copilot — docked beside the desk from 1400px,
- * otherwise More · AI Copilot (`?tab=more`).
+ * The place and the selected stock live in the URL (`?tab=market&view=research&sym=RELIANCE`;
+ * the places are in desk-nav.ts), so a reload or a shared link opens the same view. The
+ * `open…` calls keep the old tab names the screens were written against and open those
+ * screens' new places (TradingDesk.tsx). `askDesk` sends the question to the desk's own
+ * Copilot — docked beside the desk from 1400px, otherwise `?tab=copilot`.
  */
 import { createContext, useContext } from "react";
 

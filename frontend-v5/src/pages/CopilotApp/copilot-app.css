@@ -121,3 +121,7 @@
   @keyframes cp-flash-up { from { background: color-mix(in srgb, var(--mint) 35%, transparent); } to { background: transparent; } }
   @keyframes cp-flash-down { from { background: color-mix(in srgb, var(--cp-danger) 35%, transparent); } to { background: transparent; } }
 }
+
+/* Smart trading desk (screens/TradingDesk.tsx): a page screen re-hosted as a desk view sits under the desk's own
+   header and breadcrumb, so it drops the top and bottom padding it has as a page of its own (components/ui Screen). */
+.cp-desk-host > [data-testid^="screen-"] { padding-top: 0 !important; padding-bottom: 0 !important; }

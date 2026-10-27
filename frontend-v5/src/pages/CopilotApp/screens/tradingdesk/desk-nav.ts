@@ -146,8 +146,6 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
       return set("market", "smartmoney", "fno");
     case "more": {
       const view = params.get("view");
-      // Test harness (VITE_STRATEGY_HARNESS=1 builds only): left where it is.
-      if (view === "strategy-graphs") return null;
       if (view === "strategy") return set("trade", "new");
       if (view === "risk") return set("risk", "limits");
       if (view === "chartink") return set("market", "screener", "chartink");
