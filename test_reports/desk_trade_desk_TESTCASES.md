@@ -7,6 +7,27 @@ Plan and decisions: `docs/desk_redesign_20261027/PLAN.md` (owner, 27 Oct: Trade 
 stop and target = stop first, flagged, no AMBIGUOUS state; only an admin clears the kill switch). Requirements:
 `REVIEW_workspace_vs_phases.md` §A "2 Trade Desk", "What makes navigation harder", §2, §3; `REVIEW_lab_v5_prototype.md` §(d).
 
+## Revision of 27 Oct, 19:40 IST: the owner's workbench structure (PR A)
+
+The owner corrected the layout (PLAN.md "1-REVISED"). Trade Desk is five sections with sub-views, and the breadcrumb goes to
+the sub-view. This PR (A) builds the nav, Paper Trading, Strategy Lab and Watchlists. AI Scanner and Chart Analysis come in
+PR B. The TD cases below keep their meaning; their places move:
+
+| Was | Now |
+|---|---|
+| `view=open` | `view=paper&sub=live` (Paper Trading › Live desk; also shows the recent exits) |
+| `view=closed` | `view=paper&sub=journal` (Paper Trading › Trade journal; every closed trade is listed below the journal) |
+| the journal drawer | the Trade journal sub-view, opened from a row with `&trade=<id>` |
+| `view=new` | `view=lab&sub=build` (ticket, F&O builder, Strategy Builder) and `view=lab&sub=backtest` |
+
+| ID | Area | Scenario | Type | Expected |
+|----|------|----------|------|----------|
+| NV-1 | nav | sections | e2e | AI Scanner · Chart Analysis · Strategy Lab · Paper Trading · Watchlists in the design's order; `?tab=trade` opens Paper Trading › Live desk (until PR B) |
+| NV-2 | nav | sub-views and breadcrumb | e2e | each section's chips (Ranked candidates · Signal library & sources · Scorecard; Live chart · Signal record; Build a trade · Backtest & validation; Live desk · Trade journal; Watchlists has none); the crumb reads "Trading desk › Trade Desk › Paper Trading › Live desk" and its section crumb opens the default sub-view |
+| NV-3 | nav | old URLs | e2e | `view=paper` / `open` → paper live; `closed` → paper journal; `new` → lab build; `tab=fno&lab=strategies` → lab build, section fno; `tab=more&view=strategy` → lab build; `tab=market&view=watchlists` → trade watchlists |
+| NV-4 | nav | Watchlists moved | e2e | Trade Desk › Watchlists mounts the Watchlist page; Market Desk lists Market Intelligence · Smart Money · Sector Rotation · Stock Research · Screener |
+| NV-5 | journal | the trade picker | e2e | a Live desk row opens Trade journal with `trade=<id>`; the picker switches trades; with no id the newest closed trade is shown |
+
 ## Design (API + UI)
 
 URL: `/app/trader/desk?tab=trade&view=open|closed|new`. `view=paper` (the shell's old view) redirects to `open`.
