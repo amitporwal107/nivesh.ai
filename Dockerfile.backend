@@ -23,13 +23,14 @@ WORKDIR /app/backend
 #   - git:                      auto-fix agent clone/push (fix_agent / fix_agent_runner)
 #   - tzdata:                   TZ=Asia/Kolkata
 #   - libmagic1 + poppler-utils:document_parser ingester
+#   - tesseract-ocr(-eng):      OCR of scanned filing pages (document_parser, event AI collector)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
         libpq-dev \
         libxml2-dev libxslt-dev \
         curl jq git tzdata \
-        libmagic1 poppler-utils \
+        libmagic1 poppler-utils tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python deps in a stable layer (long-lived).
