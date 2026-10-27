@@ -202,7 +202,6 @@ const params = (page: Page) => new URL(page.url()).searchParams;
 const showFno = (page: Page) => page.getByTestId("desk-top10-switch-fno").click(SLOW);
 const openCard = (row: ReturnType<Page["getByTestId"]>, kind: "stock" | "fno" = "stock") => row.getByTestId(`desk-top10-${kind}-open`).click(SLOW);
 const closeDrawer = (page: Page) => page.keyboard.press("Escape");
-const trailText = async (page: Page) => (await page.getByTestId("desk-trail").innerText()).replace(/\s+/g, " ").trim();
 
 // ── layout and the two boards ─────────────────────────────────────────────
 
@@ -579,63 +578,10 @@ test.describe("F&O lab — opened from the Top 10 F&O ideas", () => {
 
 // ── market pulse, and Market Intelligence's URL state ─────────────────────
 
-// RETIRED by the desk redesign step 2 (Market Overview, 2026-10-27): the market pulse (tradingdesk/ScannerPulse.tsx) is no
-// longer mounted; its FII / DII, sector moves and events are Market Overview's strip and events today
-// (copilot-app-desk-market-overview.spec.ts). F-30 … F-34 are skipped; F-35 (Market Intelligence) still runs. ScannerPulse is
-// deleted or re-hosted in step 6.
+// The market pulse (tradingdesk/ScannerPulse.tsx) left the desk in step 2 and was deleted in step 6, with F-30 … F-34: its
+// FII / DII, sector moves and events are Market Overview's strip and events (copilot-app-desk-market-overview.spec.ts
+// MO-8, MO-9, MO-24, MO-33, MO-34). F-35 (Market Intelligence) still runs.
 test.describe("Scanner — market pulse", () => {
-  test.skip("F-30 / F-31 the latest events and the three indicators, from their routes, with dates", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await expect(page.getByTestId("desk-pulse-event-ann-001")).toContainText("Financial results for the quarter ended September 2026", SLOW);
-    // Desk redesign (2026-10-27): the strip is read in its section (Market Overview has a second pulse card).
-    const ids = await page.getByTestId("desk-panel-pulse").getByTestId("desk-pulse-events").locator("button").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
-    expect(ids).toEqual(["desk-pulse-event-ann-001", "desk-pulse-event-ann-002"]);   // newest first
-    await expect(page.getByTestId("desk-pulse-fii")).toHaveText("−₹1,000 cr");      // 2026-10-13, the newest session
-    await expect(page.getByTestId("desk-pulse-dii")).toHaveText("+₹800 cr");
-    await expect(page.getByTestId("desk-pulse-flows")).toContainText("13 Oct 2026");
-    await expect(page.getByTestId("desk-pulse-sm-fii")).toHaveText("−₹98,383 cr");
-    await expect(page.getByTestId("desk-pulse-sm-dii")).toHaveText("+₹1,98,123 cr");
-    await expect(page.getByTestId("desk-pulse-sm-mf")).toContainText("46.0% of Nifty 500 names");
-    // Sector moves of 1% or more only: IT and Realty, not Bank (+0.3%).
-    await expect(page.getByTestId("desk-pulse-sector")).toHaveCount(2);
-    await expect(page.getByTestId("desk-pulse-sectors")).not.toContainText("Nifty Bank");
-  });
-
-  test.skip("F-32 an event opens Market Intelligence with that event selected", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-event-ann-002").click(SLOW);
-    // Desk redesign (2026-10-27): Market Intelligence is a Market Desk view; the breadcrumb is the location (SH-11), so no "from" crumb.
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "intel");
-    expect(params(page).get("in_ev")).toBe("ann-002");
-    await expect(page.getByTestId("desk-event-detail")).toHaveAttribute("data-id", "ann-002", SLOW);
-  });
-
-  test.skip("F-33 the pulse opens Market Intelligence, its FII / DII chip, and Smart Money", async ({ page }) => {
-    await desk(page);
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-flows").click(SLOW);
-    expect(params(page).get("in_chip")).toBe("flows");
-    await expect(page.getByTestId("desk-intel-chip-flows")).toHaveAttribute("aria-pressed", "true", SLOW);
-    // Desk redesign (2026-10-27): back to Market Overview by URL (the breadcrumb no longer records the path); the targets are Market Desk views.
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-open-smartmoney").click(SLOW);
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "smartmoney");
-    await page.goto(SCANNER);
-    await page.getByTestId("desk-pulse-open-intel").click(SLOW);
-    await expect(page.getByTestId("screen-trading-desk")).toHaveAttribute("data-view", "intel");
-    expect(params(page).get("in_chip")).toBeNull();
-  });
-
-  test.skip("F-34 a failed source shows in its own tile; the rest still show", async ({ page }) => {
-    await desk(page);
-    await page.route("**/api/markets/smart-money/summary*", (r) => json(r, { error: { message: "upstream_unavailable" } }, 502));
-    await page.goto(SCANNER);
-    await expect(page.getByTestId("desk-pulse-smartmoney")).toContainText("didn’t load", SLOW);
-    await expect(page.getByTestId("desk-pulse-fii")).toHaveText("−₹1,000 cr");
-  });
-
   test("F-35 Market Intelligence keeps its chip in the URL across a reload", async ({ page }) => {
     await desk(page);
     await page.goto(`${DESK}?tab=intel`);
