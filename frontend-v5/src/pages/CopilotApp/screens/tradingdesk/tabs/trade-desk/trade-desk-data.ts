@@ -5,6 +5,7 @@
  *
  *   GET  /api/desk/paper-account                       cash, capital at risk (`blocked_rs`, not margin), starting capital
  *                                                      (backend/routes/desk_trading.py paper_account)     (usePaperAccount)
+ *   GET  /api/desk/paper-account/corrections           the account's reconciliation corrections, append-only (usePaperCorrections)
  *   GET  /api/desk/exit-job-status                     when the evening exit check last ran: ok | running | late | missed,
  *                                                      the session it covered, the route's own sentence    (useExitJobStatus)
  *   POST /api/desk/strategy/payoff                     payoff-v2 of a recorded F&O structure from its STORED legs and entry
@@ -61,6 +62,57 @@ export function usePaperAccount() {
     staleTime: 60_000,
     retry,
     queryFn: async ({ signal }) => readPaperAccount((await http({ path: "/api/desk/paper-account", signal, noRetry: true })).data),
+  });
+}
+
+// ── the paper account's corrections (services/paper_reconcile.py; append-only ledger `adjust` rows) ──
+
+export interface Correction {
+  id: string;
+  at: string | null;
+  reason: string | null;
+  reasonCode: string | null;
+  /** exclude | void | … (the owner's decision), null while only proposed. */
+  decision: string | null;
+  kind: string | null;
+  symbol: string | null;
+  cashDeltaRs: number | null;
+  blockedDeltaRs: number | null;
+  inForce: boolean;
+}
+
+export interface Corrections {
+  rows: Correction[];
+  inForce: number | null;
+  excluded: number | null;
+  voided: number | null;
+  reverted: number | null;
+  truncated: boolean;
+  note: string | null;
+}
+
+export function readCorrections(body: unknown): Corrections {
+  const d = rec(body);
+  if (!Array.isArray(d.corrections)) throw ApiError.contractDrift("desk.paper-account.corrections: no corrections list");
+  const c = rec(d.counts);
+  return {
+    rows: d.corrections.flatMap((x): Correction[] => {
+      const r = rec(x);
+      const id = str(r.id);
+      return id ? [{ id, at: str(r.at), reason: str(r.reason), reasonCode: str(r.reason_code), decision: str(r.decision), kind: str(r.kind), symbol: str(r.symbol),
+        cashDeltaRs: num(r.cash_delta_rs), blockedDeltaRs: num(r.blocked_delta_rs), inForce: r.in_force === true }] : [];
+    }),
+    inForce: num(c.in_force), excluded: num(c.excluded), voided: num(c.voided), reverted: num(c.reverted), truncated: d.truncated === true, note: str(d.note),
+  };
+}
+
+export function usePaperCorrections() {
+  const profile = useImpersonationStore((st) => st.profileId);
+  return useQuery<Corrections>({
+    queryKey: ["copilot", "desk", "paper-account", "corrections", profile ?? "self"],
+    staleTime: 5 * 60_000,
+    retry,
+    queryFn: async ({ signal }) => readCorrections((await http({ path: "/api/desk/paper-account/corrections", signal, noRetry: true })).data),
   });
 }
 

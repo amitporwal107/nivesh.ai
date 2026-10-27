@@ -10,11 +10,11 @@
  *
  * The risk numbers live on the Risk Desk; this chip is the one the plan keeps here. Unknown is said with its reason, never 0.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { fmtINR, fmtNum, fmtPct } from "../../../../components/ui";
 import { useRiskProfile } from "../../risk-profile";
-import { usePaperAccount, useExitJobStatus, type ExitJob } from "./trade-desk-data";
-import { quiet } from "./parts";
+import { usePaperAccount, usePaperCorrections, useExitJobStatus, type ExitJob } from "./trade-desk-data";
+import { linkBtn, quiet } from "./parts";
 
 const dayShort = (iso: string) => {
   const d = new Date(`${iso}T12:00:00+05:30`);
@@ -99,6 +99,37 @@ function OpenRiskChip() {
   );
 }
 
+/** The account's reconciliation corrections (append-only): a count, and the list on request. Nothing when there are none. */
+function Corrections() {
+  const q = usePaperCorrections();
+  const [open, setOpen] = useState(false);
+  if (q.isPending) return null;
+  if (q.isError) return <span data-testid="td-corrections-error" style={{ ...quiet, fontSize: 11.5 }}>The paper account’s corrections list did not load.</span>;
+  const c = q.data;
+  if (!c.rows.length) return null;
+  const parts = [c.excluded ? `${c.excluded} excluded` : null, c.voided ? `${c.voided} voided` : null, c.reverted ? `${c.reverted} reverted` : null].filter(Boolean).join(", ");
+  return (
+    <div data-testid="td-corrections" className="flex min-w-0 flex-col" style={{ gap: 6 }}>
+      <span style={{ ...quiet, fontSize: 11.5 }}>
+        <span data-testid="td-corrections-count">Paper-account corrections: {c.inForce ?? 0} in force{parts ? ` (${parts})` : ""}</span>{" · "}
+        <button type="button" data-testid="td-corrections-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)} style={{ ...linkBtn, fontSize: 11.5 }}>{open ? "Hide" : "Show"}</button>
+      </span>
+      {open && (
+        <ul className="m-0 flex flex-col" style={{ gap: 3, paddingLeft: 16, fontSize: 12, color: "var(--cp-ink-2)" }}>
+          {c.rows.map((r) => (
+            <li key={r.id} data-testid="td-correction" data-in-force={r.inForce ? "true" : "false"} style={{ overflowWrap: "anywhere" }}>
+              {r.symbol ?? "—"}: {r.reason ?? r.reasonCode ?? "correction"} · {r.decision ?? (r.kind === "proposed" ? "proposed, no decision yet" : r.kind ?? "")}
+              {r.cashDeltaRs ? ` · cash ${fmtINR(r.cashDeltaRs, { signed: true })}` : ""}{r.blockedDeltaRs ? ` · capital at risk ${fmtINR(r.blockedDeltaRs, { signed: true })}` : ""}
+              {r.inForce ? "" : " · not in force"}
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && c.note && <span style={{ ...quiet, fontSize: 11 }}>{c.note}</span>}
+    </div>
+  );
+}
+
 export function HeaderStrip() {
   const acct = usePaperAccount();
   const risk = useRiskProfile();
@@ -131,6 +162,7 @@ export function HeaderStrip() {
         Starting capital {fmtINR(start)}, a simulation default, not a real account’s capital.{a && !a.stored ? " No paper trade has moved the account yet." : ""}
         {a?.blockedBasis ? ` Capital at risk: ${a.blockedBasis}.` : ""}
       </span>
+      <Corrections />
     </section>
   );
 }

@@ -159,7 +159,7 @@ interface Seen {
 interface Opts {
   trades?: Array<Record<string, unknown>>; bookExtra?: Record<string, unknown>; profile?: unknown; exit?: { status: number; body: unknown };
   plan?: unknown; post?: Array<{ status: number; body: unknown }>; phone?: boolean; roll?: unknown; close?: { status: number; body: unknown };
-  list?: { status: number; body: unknown };
+  list?: { status: number; body: unknown }; corrections?: unknown;
 }
 
 async function setup(page: Page, o: Opts = {}): Promise<Seen> {
@@ -177,6 +177,7 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
   await page.route("**/api/risk/status", (r) => json(r, { kill_switch: false, halted: false, policy_version: "MOCK" }));
   await page.route("**/api/risk/profile", (r) => json(r, o.profile ?? PROFILE));
   await page.route("**/api/desk/paper-account", (r) => json(r, ACCOUNT));
+  await page.route("**/api/desk/paper-account/corrections", (r) => json(r, o.corrections ?? { corrections: [], count: 0, truncated: false, counts: { in_force: 0, excluded: 0, voided: 0, reverted: 0, by_reason_code: {} }, append_only: true }));
   await page.route("**/api/desk/exit-job-status", (r) => json(r, o.exit?.body ?? EXIT_OK, o.exit?.status ?? 200));
   await page.route("**/api/desk/strategy/templates", (r) => json(r, TEMPLATES));
   await page.route("**/api/desk/strategy/ideas", (r) => json(r, CARD.cash.ideas_response));
@@ -281,6 +282,27 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
     await page.reload();
     await expect(page.getByTestId("td-exit-job")).toHaveAttribute("data-status", "error", SLOW);
     await expect(page.getByTestId("td-exit-job")).toContainText("unavailable");
+  });
+
+  test("TD-42 the paper account's corrections: the count in force, and the list on request (none: nothing shown)", async ({ page }) => {
+    // GET /api/desk/paper-account/corrections, in the shape of the staging answer of 27 Oct (ids shortened; MOCK symbols)
+    const corrections = { count: 2, truncated: false, append_only: true, note: "Corrections are added to the ledger, never edited or deleted.",
+      counts: { in_force: 2, excluded: 1, voided: 1, reverted: 0, by_reason_code: {} },
+      corrections: [
+        { id: "reconcile:closed_pnl_missing:1", at: "2026-10-27T01:22:00+00:00", reason_code: "closed_pnl_missing", reason: "A closed trade had no P&L on record", decision: "void", kind: "owner_decision", symbol: "FIXA", cash_delta_rs: 0, blocked_delta_rs: 0, in_force: true },
+        { id: "reconcile:closed_pnl_not_in_cash:2", at: "2026-10-27T01:22:00+00:00", reason_code: "closed_pnl_not_in_cash", reason: "A closed trade's P&L is not in cash", decision: "exclude", kind: "owner_decision", symbol: "FIXB", cash_delta_rs: 0, blocked_delta_rs: 0, in_force: true },
+      ] };
+    await setup(page, { corrections });
+    await page.goto(TD("open"));
+    await expect(page.getByTestId("td-corrections-count")).toHaveText("Paper-account corrections: 2 in force (1 excluded, 1 voided)", SLOW);
+    await page.getByTestId("td-corrections-toggle").click();
+    await expect(page.getByTestId("td-correction")).toHaveText(["FIXA: A closed trade had no P&L on record · void", "FIXB: A closed trade's P&L is not in cash · exclude"]);
+    await page.unroute("**/api/desk/paper-account/corrections");
+    await page.route("**/api/desk/paper-account/corrections", (r) => json(r, { corrections: [], count: 0, counts: { in_force: 0 } }));
+    await page.reload();
+    await expect(page.getByTestId("td-header")).toBeVisible(SLOW);
+    await expect(page.getByTestId("td-acct-cash")).toHaveText(rs0(ACCOUNT.cash_rs));
+    await expect(page.getByTestId("td-corrections")).toHaveCount(0);
   });
 
   test("TD-6 equity unknown: said with the reason, never ₹0", async ({ page }) => {
