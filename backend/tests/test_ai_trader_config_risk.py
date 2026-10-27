@@ -746,8 +746,10 @@ def test_a_refused_order_never_suggests_hedging_an_exposure_it_was_not_going_to_
 @pytest.mark.parametrize("label, approved, i_kw, m_kw", [
     # 10 % of capital is 1,000 shares, so 2,000 is cut to 1,000 → (700,000 + 100,000) / 1,000,000 = 80 %
     ("a size limit", 1000, {"quantity": 2000}, {}),
-    # BEAR halves 50 to 25 → (700,000 + 2,500) / 1,000,000 = 70.25 %
-    ("a size factor", 25, {}, {"regime": "BEAR"}),
+    # BEAR halves the 1,000-share limit to 500, so 600 (inside every hard cap) is cut to 500 → (700,000 + 50,000) /
+    # 1,000,000 = 75 %. Until 2026-10-27 this case asked 50 and expected 25: it had encoded the defect of halving the
+    # ask, under which the 25, sent again, became 12 and never came back approved.
+    ("a size factor", 500, {"quantity": 600}, {"regime": "BEAR"}),
 ])
 def test_a_reduced_order_still_carries_the_hedge_suggestion(label, approved, i_kw, m_kw):
     """`reduce` is not a blocking severity: the order is still going to be placed, just smaller, so the exposure it
@@ -757,6 +759,46 @@ def test_a_reduced_order_still_carries_the_hedge_suggestion(label, approved, i_k
     assert "HEDGE_SUGGESTED" in codes(d), label
     assert severities(d) == {"reduce", "hedge"}
     assert reason(d, "HEDGE_SUGGESTED").value == round((700_000 + approved * 100) / CAPITAL * 100, 2)
+
+
+# ── a size factor cuts the limit, so the size it approves is approved again (found on staging, 2026-10-27) ──────
+# Staging, regime BEAR: INFY ×400 → reduce 42; 42 sent again → 21 → 10 → 5 → refused. The desk accepts only an
+# approve, so no share paper trade could be recorded in a BEAR market or at VIX 25–35.
+@pytest.mark.parametrize("m_kw", [{"regime": "BEAR"}, {"vix": 26.0}, {"vix": 26.0, "regime": "BEAR"}])
+@pytest.mark.parametrize("ask", [1, 7, 50, 249, 250, 251, 499, 500, 501, 1000, 2000, 5000])
+def test_the_size_a_factor_approves_is_approved_when_sent_again(ask, m_kw):
+    first = go(intent(quantity=ask), portfolio(), market(**m_kw))
+    assert first.action in ("approve", "reduce", "hedge")
+    again = go(intent(quantity=first.approved_qty), portfolio(), market(**m_kw))
+    assert (again.action, again.approved_qty) in (("approve", first.approved_qty), ("hedge", first.approved_qty)), \
+        (ask, m_kw, first.approved_qty, again.action, again.approved_qty)
+
+
+@pytest.mark.parametrize("m_kw, ceiling", [({"regime": "BEAR"}, 500), ({"vix": 26.0}, 500),
+                                           ({"vix": 26.0, "regime": "BEAR"}, 250)])
+def test_a_factor_cuts_the_limit_not_the_ask(m_kw, ceiling):
+    """The hard caps allow 1,000 shares (worked example "size"). A factor makes the most an order may take 1,000 × the
+    factor; an ask above that is cut to it, an ask inside it is left alone and the factor is reported as info."""
+    big = go(intent(quantity=1000), portfolio(), market(**m_kw))
+    assert (big.action, big.approved_qty) == ("reduce", ceiling)
+    small = go(intent(quantity=ceiling // 2), portfolio(), market(**m_kw))
+    assert (small.action, small.approved_qty) == ("approve", ceiling // 2)
+    factor_codes = {"VIX_REDUCE", "BEAR_REGIME"} & set(codes(small))
+    assert factor_codes and all(reason(small, c).severity == "info" for c in factor_codes)
+    assert all("this order is within it" in reason(small, c).text for c in factor_codes)
+
+
+def test_the_callers_own_limit_is_cut_by_the_factor_too():
+    """The risk service reduces an ask to its cost-inclusive per-trade budget (444 here) before the governor runs, and
+    passes that budget as size_cap. The governor's own caps allow 1,000, so without size_cap BEAR would cut to 500 —
+    more than half of what the service's limit allows. With it the most is 444 × 0.5 = 222, and 222 sent again with
+    the same size_cap is approved."""
+    d = go(intent(quantity=444, size_cap=444), portfolio(), market(regime="BEAR"))
+    assert (d.action, d.approved_qty) == ("reduce", 222)
+    again = go(intent(quantity=222, size_cap=444), portfolio(), market(regime="BEAR"))
+    assert (again.action, again.approved_qty) == ("approve", 222)
+    calm = go(intent(quantity=444, size_cap=444), portfolio(), market())
+    assert (calm.action, calm.approved_qty) == ("approve", 444)              # no factor: size_cap changes nothing
 
 
 # ── a reduced size satisfies every limit at once ────────────────────────────

@@ -97,6 +97,22 @@ def test_d1_example_a_is_reduced_so_the_cost_and_gap_inclusive_risk_fits_rs_3000
     assert d["budget"]["per_trade_budget_rs"] == 3000.0
 
 
+@pytest.mark.parametrize("market", [{"vix": 14.0, "regime": "BEAR"}, {"vix": 26.0, "regime": "BULL"}])
+@pytest.mark.parametrize("ask", [400, 85, 49, 20])
+def test_d1b_a_reduced_size_sent_again_is_allowed_in_a_bear_or_high_vix_market(ask, market):
+    """Found on staging 2026-10-27 (regime BEAR): INFY ×400 → reduce 42, then 42 → 21 → 10 → 5 → block, because the
+    governor halved whatever size it was sent. The desk accepts only an allow, so no share paper trade could be
+    recorded. Now the factor halves the limit: the most is half of min(per-trade fit, 10% position cap), and that
+    size, sent again, is allowed unchanged."""
+    m = {**market, "as_of": "2026-10-26", "freshness": {"ok": True}}
+    first = svc.decide(cash(quantity=ask), snap(market=m))
+    fit = est.max_cash_qty(5000.0, 1005.0, 970.0, 10 ** 9, desk.COST_MODEL)       # 0.5% of Rs 10 lakh
+    ceiling = min(fit, 99) // 2                                                     # 10% position cap = 99 shares
+    assert first["outcome"] in ("allow", "reduce") and first["approved_qty"] == min(ask, ceiling), codes(first)
+    again = svc.decide(cash(quantity=first["approved_qty"]), snap(market=m))
+    assert (again["outcome"], again["approved_qty"]) == ("allow", first["approved_qty"]), codes(again)
+
+
 def test_d2_example_e_one_futures_lot_is_over_rs_2500_and_is_refused_not_rounded_up():
     fut = [{"kind": "future", "side": "buy", "lots": 1, "lot_size": 100, "entry_price": 1250.0, "expiry": EXPIRY,
             "strike": None, "option_type": None}]

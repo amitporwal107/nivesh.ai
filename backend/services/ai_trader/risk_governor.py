@@ -50,6 +50,9 @@ class Intent:
     sector: Optional[str] = None
     avg_daily_value: Optional[float] = None      # average daily traded value, rupees
     event_blackout: bool = False                 # a results/event date inside the holding window
+    # The most shares the caller's own limits allow, whatever was asked (the risk service: its per-trade budget with
+    # costs and gap stress). The volatility and regime factors cut it like the governor's own caps; None = no such limit.
+    size_cap: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -207,10 +210,20 @@ def evaluate(intent: Intent, portfolio: Portfolio, market: Market = Market(), li
             allowed = c
             R.append(Reason(code, f"Size limited by {code.lower().replace('_', ' ')}.", "reduce", c,
                             cap_limits.get(code)))
-    # The caps are measured against the quantity asked for, and the volatility and regime factors then cut what the
-    # caps allow. The other order would halve the request first, which is no cut at all whenever a cap was already
-    # below half the ask — the large positions these factors exist to shrink — while the ticket claimed a cut.
-    allowed = _floor(allowed * factor)
+    # The volatility and regime factors cut the LIMIT, never the ask: in a BEAR market the most an order may take is
+    # half of what the hard caps allow. Halving the ask instead fails twice. A cap already below half the ask would
+    # make the cut no cut at all. And the reduced size, sent again, would be halved again (42 → 21 → 10 → …), so a
+    # caller that accepts only "approve" could never place an order in that regime (found on staging, 2026-10-27).
+    # The caller's own limit (intent.size_cap) is cut too, so a limit applied before the governor is halved like ours.
+    # Without any limit the order has already been rejected (no capital or no entry price), so the ask is cut as before.
+    if factor < 1.0:
+        limits_now = list(caps.values()) + ([intent.size_cap] if intent.size_cap is not None else [])
+        ceiling = _floor((min(limits_now) if limits_now else allowed) * factor)
+        if q > 0 and allowed <= ceiling:
+            # The order already fits inside the cut limit: the factor applies, but takes nothing from this order.
+            R[:] = [Reason(r.code, r.text.replace("size is cut", "the size limit is cut and this order is within it"),
+                           "info", r.value, r.limit) if r.code in ("VIX_REDUCE", "BEAR_REGIME") else r for r in R]
+        allowed = min(allowed, ceiling)
     if q > 0 and allowed < 1 and not any(r.severity in ("reject", "halt") for r in R):
         R.append(Reason("SIZE_BELOW_ONE_SHARE", "After the limits no whole share fits.", "reject", allowed))
 
