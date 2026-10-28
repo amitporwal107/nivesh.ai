@@ -1,0 +1,154 @@
+{
+ "schema": "closing-bell-index-v1",
+ "latest": "2026-10-27",
+ "updated_at": "2026-10-28T07:12:08+05:30",
+ "editions": [
+  {
+   "date": "2026-10-27",
+   "day_long": "Tuesday, 27 October 2026",
+   "title": "Closing Bell — Tuesday, 27 October 2026",
+   "duration_s": 351,
+   "duration_label": "5:51",
+   "headlines": [
+    {
+     "kicker": "Markets",
+     "big": "Nifty flat, smallcaps sprint",
+     "small": "Nifty 50 22,749.75 −0.02% · Smallcap 250 +2.19% · 356 of 494 Nifty 500 stocks up"
+    },
+    {
+     "kicker": "Flows",
+     "big": "Foreign investors buy",
+     "small": "FIIs +₹4,240 Cr · DIIs −₹1,250 Cr · biggest FII buying day since 2 September"
+    },
+    {
+     "kicker": "Results",
+     "big": "Results-day rallies",
+     "small": "OneSource +13.8% · Acutaas Chemicals +13.3% · Sona BLW +8.9% · Tata Consumer +6.8%"
+    },
+    {
+     "kicker": "Sectors",
+     "big": "Media leads",
+     "small": "Nifty Media +3.66%, 9 of 10 up"
+    }
+   ],
+   "segments": [
+    {
+     "tag": "HEADLINES",
+     "title": "Tonight's headlines"
+    },
+    {
+     "tag": "MARKET WRAP",
+     "title": "How the market closed"
+    },
+    {
+     "tag": "RESULTS",
+     "title": "Results and the market's verdict"
+    },
+    {
+     "tag": "SECTOR ROTATION",
+     "title": "Where the money rotated"
+    },
+    {
+     "tag": "MOVERS & SHAKERS",
+     "title": "Nifty 50 · 100 · 200 · 500"
+    },
+    {
+     "tag": "FII / DII",
+     "title": "Follow the money"
+    },
+    {
+     "tag": "TOP 10 IDEAS",
+     "title": "The desk's ideas for review"
+    },
+    {
+     "tag": "WHAT TO WATCH",
+     "title": "Wednesday, 28 October"
+    }
+   ],
+   "files": {
+    "video": "2026-10-27/closing-bell-2026-10-27.mp4",
+    "poster": "2026-10-27/poster.jpg",
+    "captions": "2026-10-27/captions.vtt",
+    "transcript": "2026-10-27/transcript.json"
+   },
+   "published_at": "2026-10-28T07:12:08+05:30",
+   "voice": "en-US-AndrewMultilingualNeural (edge-tts)",
+   "music": "“The Complex” by Kevin MacLeod (incompetech.com), CC BY 3.0",
+   "disclaimer": "Market information and education, not investment advice. Ideas are for review, not recommendations."
+  },
+  {
+   "date": "2026-10-26",
+   "day_long": "Monday, 26 October 2026",
+   "title": "Closing Bell — Monday, 26 October 2026",
+   "duration_s": 362,
+   "duration_label": "6:02",
+   "headlines": [
+    {
+     "kicker": "Markets",
+     "big": "Nifty flat, smallcaps sprint",
+     "small": "Nifty 50 22,749.75 −0.02% · Smallcap 250 +2.19% · 356 of 494 Nifty 500 stocks up"
+    },
+    {
+     "kicker": "Flows",
+     "big": "Foreign investors buy",
+     "small": "FIIs +₹4,240 Cr · DIIs −₹1,250 Cr · biggest FII buying day since 2 September"
+    },
+    {
+     "kicker": "Results",
+     "big": "Results-day rallies",
+     "small": "OneSource +13.8% · Acutaas Chemicals +13.3% · Sona BLW +8.9% · Tata Consumer +6.8%"
+    },
+    {
+     "kicker": "Sectors",
+     "big": "Media leads",
+     "small": "Nifty Media +3.66%, 9 of 10 up"
+    }
+   ],
+   "segments": [
+    {
+     "tag": "HEADLINES",
+     "title": "Tonight's headlines"
+    },
+    {
+     "tag": "MARKET WRAP",
+     "title": "How the market closed"
+    },
+    {
+     "tag": "RESULTS",
+     "title": "Results and the market's verdict"
+    },
+    {
+     "tag": "SECTOR ROTATION",
+     "title": "Where the money rotated"
+    },
+    {
+     "tag": "MOVERS & SHAKERS",
+     "title": "Nifty 50 · 100 · 200 · 500"
+    },
+    {
+     "tag": "FII / DII",
+     "title": "Follow the money"
+    },
+    {
+     "tag": "TOP 10 IDEAS",
+     "title": "The desk's ideas for review"
+    },
+    {
+     "tag": "WHAT TO WATCH",
+     "title": "Wednesday, 28 October"
+    }
+   ],
+   "files": {
+    "video": "2026-10-26/closing-bell-2026-10-26.mp4",
+    "poster": "2026-10-26/poster.jpg",
+    "captions": "2026-10-26/captions.vtt",
+    "transcript": "2026-10-26/transcript.json"
+   },
+   "published_at": "2026-10-28T07:12:08+05:30",
+   "voice": "en-US-AndrewMultilingualNeural (edge-tts)",
+   "music": "“The Complex” by Kevin MacLeod (incompetech.com), CC BY 3.0",
+   "disclaimer": "Market information and education, not investment advice. Ideas are for review, not recommendations."
+  }
+ ],
+ "_note": "TEST FIXTURE: the 2026-10-27 edition is the real output of tools/closing_bell/publish.py (27 Oct dry run); the 2026-10-26 entry is synthetic, added only to exercise the archive."
+}

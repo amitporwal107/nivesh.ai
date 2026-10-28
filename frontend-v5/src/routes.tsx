@@ -19,6 +19,7 @@ import TermsPage from "./pages/Terms";
 import DisclosurePage from "./pages/Disclosure";
 import BlogIndexPage from "./pages/Blog";
 import BlogArticlePage from "./pages/Blog/Article";
+import MarketCommentaryPage from "./pages/MarketCommentary";
 import WebinarPage from "./pages/Webinar";
 import DashboardPage from "./pages/Dashboard";
 import ConcentrationPage from "./pages/Concentration";
@@ -84,6 +85,9 @@ export function AppRoutes() {
       <Route path="/disclosure" element={<DisclosurePage />} />
       <Route path="/blog" element={<BlogIndexPage />} />
       <Route path="/blog/:slug" element={<BlogArticlePage />} />
+      {/* Nightly Closing Bell video (tools/closing_bell) — public, latest edition + archive by date. */}
+      <Route path="/market-commentary" element={<MarketCommentaryPage />} />
+      <Route path="/market-commentary/:date" element={<MarketCommentaryPage />} />
       {/* Webinar landing + registration — public, no auth: visitors arrive
           cold from social posts and must not hit the login gate. */}
       <Route path="/webinar" element={<WebinarPage />} />
