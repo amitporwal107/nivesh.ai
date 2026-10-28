@@ -21,6 +21,7 @@ from routes import fno as fno_route
 from services import desk_live_chart as lc
 from services import fno_oi_windows as ow
 from services.kite_live_feed import intraday as it
+from tests import market_day
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -182,6 +183,7 @@ def _fno_client(monkeypatch, service, daas_reply=None):
     monkeypatch.setattr(feed_mod, "get_feed", lambda: Feed())
     monkeypatch.setattr(fno_route.daas_client, "get_raw", get_raw)
     monkeypatch.setattr(fno_route.daas_client, "is_configured", lambda: True)
+    market_day.pin(monkeypatch, "2026-10-27", "2026-10-26")   # the bhavcopy fixture's day
     app = FastAPI()
     app.include_router(fno_route.router)
     return TestClient(app)

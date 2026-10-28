@@ -185,7 +185,7 @@ async def _corporate_actions(sym: str, today: date) -> Dict[str, Any]:
 
 async def _buildup(sym: str) -> Dict[str, Any]:
     from routes import fno
-    body = await fno._daas("/desk/fno-buildup", {}, sym)
+    body = await fno._buildup_scan(None)   # the latest scan, refused when older than the previous session
     rows = [r for r in (body.get("rows") or []) + (body.get("indices") or []) if str(r.get("symbol") or "").upper() == sym]
     if not rows:
         return src_fail(f"{sym} has no futures row on {body.get('as_of')}", "DaaS /v1/desk/fno-buildup")

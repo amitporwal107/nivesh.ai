@@ -25,6 +25,12 @@ nidp/services/daas_api/routers/fno.py), so each route forwards to it and shapes 
 day: one row per contract per trading day, with prices, open interest, volume and the contract's lot size.
 `lot_size` is null until the data platform's F&O routes send the bhavcopy's lot column (new_board_lot_qty).
 
+Freshness (owner rule 2026-10-28: today's data or the T-1 snapshot, nothing older; services/market_freshness.py):
+an underlying whose latest day is older than the previous NSE session is 404 (it has left the F&O list, or its data
+did not arrive); contracts that expired before today are dropped and never the default chain; a contract that did not
+trade on the data's day sends no `close` (the bhavcopy carries the previous close forward); the default build-up scan
+and the latest IV session follow the same rule. A scan asked for by `date` is history and answers for that day.
+
 Definitions (the pure functions below; tests/test_fno_routes.py works one example by hand):
     spot        the bhavcopy's underlying_price for the day (the first positive value among the rows)
     ATM strike  the strike nearest the spot; an exact tie goes to the lower strike
@@ -95,6 +101,7 @@ from services import fno_forward
 from services import fno_iv_history
 from services import fno_margin
 from services import fno_oi_windows
+from services import market_freshness
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fno", tags=["fno"])
@@ -220,12 +227,19 @@ def futures_basis(settle: Optional[float], spot: Optional[float]) -> Optional[fl
 
 # ── shaping ──────────────────────────────────────────────────────────────────
 
+def traded_close(row: Dict[str, Any]) -> Optional[float]:
+    """The day's close, or None when the contract did not trade that day: NSE's bhavcopy then carries the previous
+    close forward as `close`, an older day's price under this day's name (2026-10-27: 14,428 of 34,412 stock-option
+    rows). The settle price and open interest are that day's own figures and stay."""
+    return _num(row.get("close_price")) if _qty(row.get("traded_volume")) else None
+
+
 def shape_side(row: Any) -> Optional[Dict[str, Any]]:
     """One call or put contract as the app sends it. None when the strike has no contract on that side."""
     if not isinstance(row, dict):
         return None
     return {
-        "close": _num(row.get("close_price")),
+        "close": traded_close(row),
         "settle": _num(row.get("settle_price")),
         "oi": _qty(row.get("open_interest")),
         "change_in_oi": _qty(row.get("change_in_oi")),
@@ -326,7 +340,7 @@ def shape_futures(rows: Iterable[Any], spot: Optional[float]) -> List[Dict[str, 
         settle = _num(r.get("settle_price"))
         contract = {
             "expiry": expiry,
-            "close": _num(r.get("close_price")),
+            "close": traded_close(r),
             "settle": settle,
             "oi": _qty(r.get("open_interest")),
             "change_in_oi": _qty(r.get("change_in_oi")),
@@ -587,6 +601,17 @@ def no_data(sym: str) -> str:
     return f"No F&O data for {sym}"
 
 
+def expired_message(sym: str, expiry: str) -> str:
+    return f"The {sym} contracts expiring {expiry} have expired"
+
+
+def require_current(sym: str, as_of: Optional[str], w: market_freshness.Window) -> None:
+    """404 unless `as_of` is today or the previous session (services/market_freshness). An underlying whose latest
+    day is older has left the F&O list, or its data did not arrive; either way its figures are not shown."""
+    if as_of and not w.current(as_of):
+        raise HTTPException(status_code=404, detail=w.stale_reason(f"{sym} F&O", as_of))
+
+
 def not_found_message(sym: str, body: Any) -> Optional[str]:
     """The plain sentence for a data-platform 404 this module understands, else None. A 404 with any other
     body (a missing route, a proxy page) says nothing about the underlying, so it is not passed off as
@@ -702,18 +727,26 @@ async def expiries(
     """Option expiries still listed on the latest trading day, nearest first."""
     await get_current_user(request)
     sym = symbol.upper()
+    as_of, rows = await _current_expiries(sym, await market_freshness.window())
+    return {"symbol": sym, "as_of": as_of, "expiries": rows, "count": len(rows)}
+
+
+async def _current_expiries(sym: str, w: market_freshness.Window) -> Tuple[str, List[Dict[str, Any]]]:
+    """(the latest day, the option expiries listed on it that have not expired, nearest first). 404 when the
+    underlying has no rows or its latest day is older than the previous session."""
     body = await _daas(f"/fno/{sym}/expiries", {}, sym)
     as_of, rows = live_option_expiries(body.get("data"))
     if as_of is None:
         raise HTTPException(status_code=404, detail=no_data(sym))
-    return {"symbol": sym, "as_of": as_of, "expiries": rows, "count": len(rows)}
+    require_current(sym, as_of, w)
+    return as_of, [r for r in rows if w.live_expiry(r["expiry"])]
 
 
 @router.get("/{symbol}/chain")
 async def chain(
     request: Request,
     symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
-    expiry: Optional[date] = Query(None, description="Expiry YYYY-MM-DD; default = the nearest on or after the data's day"),
+    expiry: Optional[date] = Query(None, description="Expiry YYYY-MM-DD; default = the nearest that has not expired"),
     around: int = Query(DEFAULT_AROUND, ge=1, le=MAX_AROUND, description="Strikes sent each side of the ATM strike"),
 ) -> Dict[str, Any]:
     """One expiry's calls and puts by strike. `summary` is worked out over every strike of the expiry;
@@ -724,10 +757,23 @@ async def chain(
     skipped: its iv and Greeks are null, because its price is not a market price."""
     await get_current_user(request)
     sym = symbol.upper()
+    w = await market_freshness.window()
+    if expiry is not None and not w.live_expiry(expiry):
+        raise HTTPException(status_code=404, detail=expired_message(sym, expiry.isoformat()))
     # The forward for the expiry is the future that expires with it, so the futures are read alongside.
     futures_read = asyncio.ensure_future(_futures_rows_or_none(sym))
     try:
         body = await _daas(f"/fno/{sym}/chain", {"expiry": expiry.isoformat()} if expiry else {}, sym)
+        require_current(sym, _iso_day(body.get("as_of")), w)
+        default_exp = _iso_day(body.get("expiry"))
+        if expiry is None and default_exp and not w.live_expiry(default_exp):
+            # The data platform's default is the nearest expiry on or after ITS day, which on the day after an expiry
+            # is the series that expired at that close. The nearest one still trading is asked for instead.
+            live = (await _current_expiries(sym, w))[1]
+            if not live:
+                raise HTTPException(status_code=404, detail=f"No option contracts are listed for {sym}")
+            body = await _daas(f"/fno/{sym}/chain", {"expiry": live[0]["expiry"]}, sym)
+            require_current(sym, _iso_day(body.get("as_of")), w)
     except BaseException:
         futures_read.cancel()
         raise
@@ -776,9 +822,12 @@ async def _latest_futures(sym: str) -> Tuple[str, Optional[float], Optional[int]
     if not days:
         raise HTTPException(status_code=404, detail=no_data(sym))
     as_of = max(days)
+    w = await market_freshness.window()
+    require_current(sym, as_of, w)
     rows = [r for r in rows if _iso_day(r.get("as_of_date")) == as_of]
     spot = find_spot(rows)
-    return as_of, spot, find_lot_size(rows), shape_futures(rows, spot)
+    live = [r for r in rows if w.live_expiry(_iso_day(r.get("expiry_date")))]
+    return as_of, spot, find_lot_size(rows), shape_futures(live, spot)
 
 
 OI_INTERVALS = ("5m", "15m", "30m", "60m")
@@ -997,7 +1046,8 @@ async def iv_history_series(
     except Exception as e:  # noqa: BLE001
         logger.warning("fno iv history: the records for %s could not be read (%s)", sym, type(e).__name__)
         raise HTTPException(status_code=502, detail=_UNAVAILABLE)
-    return fno_iv_history.history_answer(sym, docs, bucket, days)
+    out = fno_iv_history.history_answer(sym, docs, bucket, days)
+    return fno_iv_history.without_stale_current(out, await market_freshness.window())
 
 
 @router.get("/scan/buildup")
@@ -1009,10 +1059,21 @@ async def scan_buildup(
     and its change summed over all expiries, and the build-up label (long_buildup, short_buildup, short_covering,
     long_unwinding, neutral). Passed through unchanged; a day with no rows is 200 with `rows: []`."""
     await get_current_user(request)
+    return await _buildup_scan(day)
+
+
+async def _buildup_scan(day: Optional[date]) -> Dict[str, Any]:
+    """DaaS /desk/fno-buildup for `day`, or for its latest day, which must then be today or the previous session: a
+    scan asked for by date is history and says its day; the default one is read as today's market."""
     body = await _daas("/desk/fno-buildup", {"date": day.isoformat()} if day else {}, "stock futures")
     if not isinstance(body.get("rows"), list):
         logger.warning("fno DaaS /desk/fno-buildup answered without rows")
         raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    if day is None:
+        w = await market_freshness.window()
+        as_of = _iso_day(body.get("as_of"))
+        if not w.current(as_of):
+            raise HTTPException(status_code=404, detail=w.stale_reason("the F&O build-up scan", as_of))
     return body
 
 
@@ -1029,10 +1090,7 @@ async def scan_candidates(
     by profit here (the plan engine is asked per candidate, from `plan_inputs`). The features failing leaves every analysis
     reading unknown: the candidates are still listed from the scan."""
     await get_current_user(request)
-    body = await _daas("/desk/fno-buildup", {"date": day.isoformat()} if day else {}, "stock futures")
-    if not isinstance(body.get("rows"), list):
-        logger.warning("fno DaaS /desk/fno-buildup answered without rows")
-        raise HTTPException(status_code=502, detail=_UNAVAILABLE)
+    body = await _buildup_scan(day)
     pools = fno_engine.select_pools(body)
     symbols = fno_engine.pool_symbols(pools)
     features: Dict[str, List[Dict[str, Any]]] = {}
