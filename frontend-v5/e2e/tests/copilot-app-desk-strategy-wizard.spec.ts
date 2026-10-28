@@ -255,7 +255,9 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await expect(row("plan:sp-cc").getByTestId("wz-row-pnl")).toHaveText("—");
     await expect(row("plan:sp-old").getByTestId("wz-row-expired")).toContainText("Expired contracts (20 Oct)");
     await expect(row("ai:ai-draft01").getByTestId("wz-row-status")).toHaveText("DRAFT");
-    await expect(row("ai:ai-pass001").getByTestId("wz-row-status")).toHaveText("BACKTEST PASSED");
+    // No pass rule exists yet (store v2 proposal Q3): a strategy promoted on its gates is BACKTESTED, never "BACKTEST PASSED".
+    await expect(row("ai:ai-pass001").getByTestId("wz-row-status")).toHaveText("BACKTESTED");
+    await expect(page.getByTestId("wz-existing")).not.toContainText("BACKTEST PASSED");
     await expect(row("ai:ai-runs001").getByTestId("wz-row-status")).toHaveText("BACKTESTED");
     await expect(row("ai:ai-paper01").getByTestId("wz-row-status")).toHaveText("PAPER LIVE");
     await expect(row("ai:ai-paper01").getByTestId("wz-row-ver")).toHaveText("v3");
@@ -270,8 +272,8 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await expect(row("trade:pt-ai0001").getByTestId("wz-row-name")).toContainText("AI Bull call spread");
     await expect(row("trade:pt-ai0001").getByTestId("wz-row-legs")).toHaveText("B 24500 CE 25 Nov · S 24700 CE 25 Nov");
     await expect(row("trade:pt-ai0001").getByTestId("wz-row-pnl")).toHaveText("−₹310");
-    // Tones: PAPER LIVE green, BACKTEST PASSED blue, BACKTESTED blue outline, DRAFT amber, SAVED grey; AI blue, YOU green.
-    await expect(row("ai:ai-pass001").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "blue");
+    // Tones: PAPER LIVE green, BACKTESTED blue outline, DRAFT amber, SAVED grey; AI blue, YOU green.
+    await expect(row("ai:ai-pass001").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "blue-outline");
     await expect(row("ai:ai-runs001").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "blue-outline");
     await expect(row("ai:ai-draft01").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "amber");
     await expect(row("plan:sp-cc").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "grey");

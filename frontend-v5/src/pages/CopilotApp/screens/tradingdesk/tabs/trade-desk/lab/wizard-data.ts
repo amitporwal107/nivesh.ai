@@ -457,7 +457,6 @@ export interface AiStrategy {
   version: number | null;
   template: string | null;
   runs: number;
-  passedBacktest: boolean;
   paperNetRs: number | null;
 }
 
@@ -468,13 +467,10 @@ export function readAiStrategies(body: unknown): AiStrategy[] {
     const s = rec(x);
     const id = str(s.id);
     if (!id) return [];
-    const history = Array.isArray(s.stage_history) ? s.stage_history.map(rec) : [];
-    // "Passed": the strategy was promoted to backtested with every gate passed (the promotion's own gate rows).
-    const passed = history.some((h) => h.stage === "backtested" && Array.isArray(h.gates) && h.gates.length > 0 && h.gates.every((g) => rec(g).passed === true));
     const ps = rec(s.paper_stats);
     return [{
       id, name: str(s.name), stage: str(s.stage), version: num(s.version), template: str(s.template),
-      runs: Array.isArray(s.runs) ? s.runs.length : 0, passedBacktest: passed,
+      runs: Array.isArray(s.runs) ? s.runs.length : 0,
       paperNetRs: num(ps.net_pnl_rs) ?? num(ps.net_rs),
     }];
   });
@@ -491,7 +487,9 @@ export function useAiStrategies() {
 
 // ── existing strategies · AI and yours ───────────────────────────────────
 
-export type RowStatus = "PAPER LIVE" | "BACKTEST PASSED" | "BACKTESTED" | "DRAFT" | "SAVED";
+/** The store v2 proposal's words (§4, derived, never stored), plus SAVED where a saved version has no run. "BACKTEST
+ *  PASSED" needs a pass rule the owner has not set (Q3), so it is never produced. */
+export type RowStatus = "PAPER LIVE" | "BACKTEST FAILED" | "BACKTESTED" | "STALE" | "DRAFT" | "SAVED";
 export interface ExistingRow {
   key: string;
   source: "AI" | "YOU";
@@ -550,7 +548,7 @@ export function existingRows(o: {
     let status: RowStatus;
     let why: string;
     if (stage === "paper" || stage === "assisted") { status = "PAPER LIVE"; why = `AI Trader stage “${stage}”: it paper trades.`; }
-    else if (stage === "backtested") { status = s.passedBacktest ? "BACKTEST PASSED" : "BACKTESTED"; why = s.passedBacktest ? "Promoted to backtested with every gate passed." : "Stage backtested."; }
+    else if (stage === "backtested") { status = "BACKTESTED"; why = "AI Trader stage “backtested”. A pass rule for “backtest passed” is not set yet, so none is shown."; }
     else if (stage === "draft" && s.runs > 0) { status = "BACKTESTED"; why = `Draft with ${s.runs} backtest run${s.runs === 1 ? "" : "s"}, not promoted.`; }
     else if (stage === "retired") { status = "SAVED"; why = "Retired: kept on record, not trading."; }
     else { status = "DRAFT"; why = "AI Trader stage “draft”."; }
@@ -565,7 +563,7 @@ export function existingRows(o: {
       key: `sb:${b.id}`, source: "YOU", name: b.name, ref: b.id.slice(0, 8).toUpperCase(),
       legs: [], noLegs: `A Strategy Builder strategy is a rule set over ${b.assetClass === "MF" ? "mutual funds" : "shares"} (DSL v1), not a structure with legs: there is nothing to load into the leg editor.`,
       underlying: b.assetClass === "MF" ? "Funds" : "Universe", status: "SAVED",
-      statusWhy: "Saved in the Strategy Builder. Its list does not report backtest runs or a version yet; BACKTESTED / PASSED come with the shared store's list.",
+      statusWhy: "Saved in the Strategy Builder. Its list does not report backtest runs or a version yet; BACKTESTED, BACKTEST FAILED and STALE come with the shared store's list (include=summary).",
       version: null, pnlRs: null, tradeId: null, template: null, instanceId: null, kind: "builder",
     });
   }

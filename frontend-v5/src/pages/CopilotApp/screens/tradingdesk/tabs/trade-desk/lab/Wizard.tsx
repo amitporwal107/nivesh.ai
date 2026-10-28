@@ -39,7 +39,7 @@ const STEPS = ["Choose template", "Configure", "Review & adjust", "Validate & pa
 type Step = 1 | 2 | 3 | 4;
 const FAMILIES = new Set(["long_future", "short_future", "long_call", "long_put", "bull_call_spread", "bear_put_spread", "bull_put_spread", "bear_call_spread", "iron_condor", "covered_call", "protective_put", "collar"]);
 const QUICK = ["NIFTY", "BANKNIFTY", "FINNIFTY"];
-const STATUS_TONE: Record<RowStatus, Tone> = { "PAPER LIVE": "mint", "BACKTEST PASSED": "blue", BACKTESTED: "blue-outline", DRAFT: "amber", SAVED: "grey" };
+const STATUS_TONE: Record<RowStatus, Tone> = { "PAPER LIVE": "mint", "BACKTEST FAILED": "danger", BACKTESTED: "blue-outline", STALE: "outline", DRAFT: "amber", SAVED: "grey" };
 
 interface Origin { source: "AI" | "YOU" | null; label: string; version: string | null; kind: "template" | "ai_strategy" | "saved_plan" | "manual" | "trade"; ref: string | null }
 
@@ -531,7 +531,7 @@ function ExistingTable({ rows, loading, errors, selected, onOpen }: { rows: Exis
             </table>
           </div>
         )}
-      <span style={{ ...quietS, fontSize: 11 }}>Status is read from the records: an open paper trade citing it (PAPER LIVE), the AI Trader&rsquo;s stage and its backtest gates, or saved. P/L is the open paper trade&rsquo;s net P/L as the Live desk shows it (end-of-day marks).</span>
+      <span style={{ ...quietS, fontSize: 11 }}>Status is read from the records: an open desk paper trade citing it, or the AI Trader&rsquo;s paper stage (PAPER LIVE); its backtests (BACKTESTED, BACKTEST FAILED, STALE when the run is on an older version); DRAFT; SAVED for a saved version with no run. P/L is the open paper trade&rsquo;s net P/L as the Live desk shows it (end-of-day marks).</span>
     </Card>
   );
 }

@@ -25,7 +25,7 @@ export function Card({ title, right, children, testId, style }: { title?: ReactN
   );
 }
 
-export type Tone = "mint" | "blue" | "blue-outline" | "amber" | "grey" | "danger";
+export type Tone = "mint" | "blue" | "blue-outline" | "amber" | "grey" | "danger" | "outline";
 const TONES: Record<Tone, CSSProperties> = {
   mint: { color: "var(--mint)", background: "var(--mint-soft)", border: "1px solid var(--mint-line)" },
   blue: { color: "#fff", background: "var(--cp-indigo)", border: "1px solid var(--cp-indigo)" },
@@ -33,6 +33,7 @@ const TONES: Record<Tone, CSSProperties> = {
   amber: { color: "var(--amber)", background: "var(--amber-soft)", border: "1px solid var(--amber-line)" },
   grey: { color: "var(--cp-ink-2)", background: "var(--bg-4)", border: "1px solid var(--line-2)" },
   danger: { color: "var(--cp-danger)", background: "transparent", border: "1px solid var(--cp-danger)" },
+  outline: { color: "var(--cp-ink-2)", background: "transparent", border: "1px solid var(--line-2)" },
 };
 
 export function Pill({ tone, children, testId, title }: { tone: Tone; children: ReactNode; testId?: string; title?: string }) {
