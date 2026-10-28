@@ -1039,23 +1039,57 @@ async def run_backtest_endpoint(request: Request, strategy_id: str, body: Backte
     }
 
 
+def _can_read_run(run, uid: str) -> bool:
+    """Who may read a stored run and its trade ledger (PRD §15, §19.2: no cross-user access).
+
+    - The user who triggered the run.
+    - The owner of a private strategy, for every run of it (only the owner can run a private strategy), and the owner
+      of any strategy for a run nobody triggered (a system run, `triggered_by` NULL).
+    - Nobody else. In particular, a public template's runs belong to the users who ran them, not to every user, and
+      not to the template's owner either."""
+    triggered_by = str(run.get("triggered_by")) if run.get("triggered_by") else None
+    if triggered_by == uid:
+        return True
+    if str(run["strategy_owner"]) != uid:
+        return False
+    return (not run["is_public_template"]) or triggered_by is None
+
+
+async def _audit_run_denied(request: Request, uid: str, run_id: str, reason: str) -> None:
+    """Record a refused run read in audit_log (PRD Appendix A: deny and log). audit.record never raises."""
+    from services import audit
+    await audit.record(
+        user_id=uid, action="strategy_run_view", resource=f"strategy_run:{run_id}"[:120],
+        ip=request.client.host if request.client else None, ua=request.headers.get("user-agent"),
+        outcome="denied", details={"reason": reason},
+    )
+
+
 @router.get("/runs/{run_id}")
 async def get_run(request: Request, run_id: str):
     user = await get_current_user(request)
     uid = _user_id(user)
+    # One answer for "no such run" and "not yours", so a caller cannot learn that someone else's run exists.
+    not_found = HTTPException(status_code=404, detail="run not found")
     pool = await pg_client.get_pool()
     async with pool.acquire() as conn:
-        run = await conn.fetchrow(
-            """SELECT r.*, s.owner_id AS strategy_owner, s.is_public_template
-                 FROM strategy_runs r
-                 JOIN strategies s ON s.id = r.strategy_id
-                WHERE r.id = $1""",
-            run_id,
-        )
+        try:
+            run = await conn.fetchrow(
+                """SELECT r.*, s.owner_id AS strategy_owner, s.is_public_template
+                     FROM strategy_runs r
+                     JOIN strategies s ON s.id = r.strategy_id
+                    WHERE r.id = $1""",
+                run_id,
+            )
+        except asyncpg.DataError:
+            # asyncpg refuses an id that is not a UUID before it reaches postgres ("invalid input for query
+            # argument $1"). No run can have that id: answer 404, not a 500.
+            raise not_found
         if not run:
-            raise HTTPException(status_code=404, detail="run not found")
-        if str(run["strategy_owner"]) != uid and not run["is_public_template"]:
-            raise HTTPException(status_code=403, detail="not authorised")
+            raise not_found
+        if not _can_read_run(run, uid):
+            await _audit_run_denied(request, uid, run_id, "not the run's trigger or the private strategy's owner")
+            raise not_found
         trades = await conn.fetch(
             "SELECT * FROM strategy_trades WHERE run_id = $1 ORDER BY entry_date",
             run_id,

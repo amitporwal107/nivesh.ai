@@ -292,6 +292,7 @@ jobs:
           tests/test_strategy_payoff.py
           tests/test_strategy_plan.py
           tests/test_strategy_plan_templates_route.py
+          tests/test_strategy_run_access.py
           tests/test_strategy_templates_first_wave.py
           tests/test_strategy_screen.py
           tests/test_switch_cost_framework.py
