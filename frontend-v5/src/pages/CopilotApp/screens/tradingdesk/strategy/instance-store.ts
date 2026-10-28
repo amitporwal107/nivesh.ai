@@ -3,53 +3,39 @@
  *
  * ONE STORE (owner, 28 Oct, "One store"): a saved structure is a Strategy Builder strategy in its Postgres tables
  * (strategies, strategy_versions, strategy_runs, strategy_trades, strategy_audit), with one version history; each
- * backtest run points at an immutable version. The schema and the API belong to the strategy-builder session:
- * docs/strategy_copilot_review_20261028/PROPOSAL_strategy_store_v2.md (§3 the v2 document, §4 the API, §5 what the
- * wizard calls). Today's routes cannot hold legs (asset_class CHECK IN ('STOCK','MF'); DSL v1 drops unknown keys, and
- * legs must never be put into a v1 document), so every call below answers `{ ok: false, reason: NOT_YET }` and the
- * wizard keeps Save version and Clone disabled with that reason. Wiring them is a change to this file only.
+ * backtest run points at an immutable version. The routes are backend/routes/strategy_builder.py (PR #398, the shared
+ * strategy store v2; docs/API_DOCUMENTATION.md "Strategy store v2"); the document is validated by
+ * backend/services/strategy_store.py. The body definitionOf builds is pinned in
+ * frontend-v5/e2e/fixtures/contract-strategy-store-v2.json, which the backend's tests read too.
  *
- * The calls, as §4 / §5 propose them (all under /api/strategy-builder):
- *   createStrategy   POST /strategies + Idempotency-Key, { name, asset_class FNO | MIXED, source user | ai, template_id,
- *                    definition (v2) } → 201 { strategy_id, version_id, version_no: 1 }; a replayed key answers the first
+ *   createStrategy   POST /strategies + Idempotency-Key → 201 { strategy_id, version_id, version_no: 1, checks }; a
+ *                    replayed key answers the first create (200 replayed)
  *   saveVersion      POST /strategies/{id}/versions + Idempotency-Key, { definition, parent_version_id, change_summary }
- *                    → 201 { version_id, version_no, diff }; 409 stale_parent when parent_version_id is not the active one
- *   cloneStrategy    POST /strategies/{id}/clone, { name?, version_id? } → 201 { strategy_id, version_id, version_no: 1 }
- *   listStrategies   GET /strategies?include=summary → rows with source, template_id, underlying, asset_class,
- *                    latest_version, last_backtest { status, is_current_version }, paper_live { open }
+ *                    → 201 { version_id, version_no, diff, checks }; 409 stale_parent when another save came first
+ *   cloneStrategy    POST /strategies/{id}/clone { name?, version_id? } → 201 a strategy you own, version 1
+ *   listStrategies   GET /strategies?include=summary → rows with source, latest_version, last_backtest, paper_live
+ *   getStrategy      GET /strategies/{id} → the active version's definition, for Open on a saved structure
  *   listVersions     GET /strategies/{id}/versions → newest first
  *
- * The wizard's state in the v2 document (definitionOf):
- *   WLeg            legs[]: concrete, as laid out (§3 note): instrument CALL | PUT | FUTURE | STOCK, side BUY | SELL,
- *                   lots (or { shares } for STOCK), lot_size_at_save, expiry { rule: "specific", date },
- *                   strike { rule: "fixed", value }, entry_price_at_save { value: the leg's price, source }
- *   BuildConfig     the strike rule that laid the legs out (rule, anchor, width, target delta) in build_constraints, and the
- *                   lots in sizing; a backtest derives rules from the concrete legs (§3, Phase 2)
- *   build limits    max loss, max capital and the underlying stop in build_constraints (build limits, not risk policy)
- *   entry           the entry assumption: { type: "manual", assumption: market + the desk cost card's slippage, at once }
+ * Every call answers `{ ok: true, value }` or `{ ok: false, code, reason }`, never throws. `not_available` (NOT_YET) is
+ * a server whose store is not upgraded yet: 503 store_not_migrated, or an older backend that has no such route or cannot
+ * take a legs document; the wizard says so next to the buttons and keeps the legs on the page.
  *
- * Starting a simulated trade: once a version is saved, POST /api/desk/paper-trades carries
- * `strategy_ref: { strategy_id, version_id }` (§4, the field PAPER LIVE is derived from). Until then the trade cites the
- * template it came from in signal.source_refs (kind strategy_template), and the wizard derives PAPER LIVE from the desk
- * paper trades (an open trade's strategy_plan_id) and the AI Trader's own paper stage.
+ * `checks` are the store's own answer on what a saved structure can be used for (derived, never stored): a naked short
+ * option is saved as a draft marked blocking for backtest and paper (owner decision D2).
  *
- * Status words (§4, derived, never stored): PAPER LIVE, BACKTEST FAILED, BACKTESTED, STALE, DRAFT, and SAVED where a
- * saved version has no run. "BACKTEST PASSED" needs a pass rule the owner has not set (open question Q3): never shown.
- *
- * Validation rules for the v2 validator, from the wizard's reverted Mongo prototype (commit 960cf954):
- *   · 1 to 4 legs; a leg's fields are an allow-list, any other field is refused (unknown_field), never dropped;
- *   · lots whole 1–1000 (shares for STOCK), lot size whole 1–100000, entry price > 0, an expiry for every CALL / PUT /
- *     FUTURE leg and none for STOCK, a strike > 0 for CALL / PUT only;
- *   · name ≤ 80, change_summary ≤ 300, build_constraints ≤ 4 KB of JSON stored as sent; template_id must be a name in
- *     GET /api/desk/strategy/templates;
- *   · at most 200 strategies per user and 50 versions per strategy; versions immutable; another user's id answers 404.
+ * Status words (derived, never stored): PAPER LIVE, BACKTEST FAILED, BACKTESTED, STALE, DRAFT. "BACKTEST PASSED" needs a
+ * pass rule the owner has not set (open question Q3): never shown.
  */
+import { http } from "@/services/api/http";
+import { ApiError } from "@/services/api/errors";
+import { isIndexUnderlying } from "../../trading/fno";
 import type { BuildConfig, WLeg } from "../tabs/trade-desk/lab/wizard-data";
 
-export const NOT_YET = "Saving arrives with the shared strategy store.";
+export const NOT_YET = "Saving is not available on this server yet: its strategy store is not upgraded. Your legs stay on this page.";
 
-/** Whether saving works yet. The wizard disables Save version and Clone with NOT_YET while it does not. */
-export const STORE_AVAILABLE = false;
+/** Save version and Clone are offered; a server that cannot store legs yet answers `not_available` (NOT_YET). */
+export const STORE_AVAILABLE = true;
 
 // ── the v2 document (§3) ─────────────────────────────────────────────────
 
@@ -118,58 +104,201 @@ export function definitionOf(o: {
   };
 }
 
-// ── the calls (§4 / §5), not available yet ───────────────────────────────
+// ── the calls ────────────────────────────────────────────────────────────
 
-export type StoreAnswer<T> = { ok: true; value: T } | { ok: false; reason: string; code: "not_available" | "stale_parent" };
-export interface Created { strategyId: string; versionId: string; versionNo: number }
-export interface SavedVersion { versionId: string; versionNo: number; diff: Array<{ path: string; before: unknown; after: unknown }> }
+export type StoreCode = "not_available" | "stale_parent" | "invalid" | "limit" | "conflict" | "not_found" | "error";
+export type StoreFailure = {
+  ok: false; reason: string; code: StoreCode;
+  /** stale_parent: the version that was saved after the one the wizard loaded. */
+  activeVersionId?: string | null; activeVersionNo?: number | null;
+  /** invalid: each problem next to its field (`definition.legs[0].lots`). */
+  problems?: Array<{ field: string; code: string; message: string }>;
+};
+export type StoreAnswer<T> = { ok: true; value: T } | StoreFailure;
+export interface StoreCheck { code: string; severity: "blocking" | "warning" | "info"; blockingFor: string[]; message: string }
+export interface Created { strategyId: string; versionId: string; versionNo: number; checks: StoreCheck[]; replayed: boolean }
+export interface SavedVersion { versionId: string; versionNo: number; diff: Array<{ path: string; before: unknown; after: unknown }>; checks: StoreCheck[]; replayed: boolean }
 export interface StoreRow {
   strategyId: string;
   name: string;
-  source: "user" | "ai" | "template" | "clone";
+  source: "user" | "ai" | "template" | "clone" | "plan";
   templateId: string | null;
   underlying: string | null;
   assetClass: string;
-  latestVersion: { id: string; versionNo: number; createdAt: string } | null;
-  lastBacktest: { runId: string; status: "OK" | "FAILED"; finishedAt: string | null; versionNo: number; isCurrentVersion: boolean } | null;
-  paperLive: { open: number };
+  schemaVersion: string | null;
+  latestVersion: { id: string; versionNo: number; createdAt: string | null } | null;
+  lastBacktest: { runId: string; status: "OK" | "FAILED"; finishedAt: string | null; versionNo: number | null; isCurrentVersion: boolean } | null;
+  /** null when the desk's paper trades could not be read (the route says so). */
+  paperLive: { open: number | null };
 }
-export interface VersionRow { versionId: string; versionNo: number; createdAt: string; changeSummary: string | null; parentVersionId: string | null; schemaVersion: string }
+export interface VersionRow { versionId: string; versionNo: number; createdAt: string | null; changeSummary: string | null; parentVersionId: string | null; schemaVersion: string | null }
+export interface StoredStrategy { strategyId: string; name: string; templateId: string | null; underlying: string | null; versionId: string; versionNo: number; definition: V2Definition | null; checks: StoreCheck[] }
 
-const notYet = { ok: false as const, reason: NOT_YET, code: "not_available" as const };
+type Raw = Record<string, unknown>;
+const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
+const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v : null);
+const int = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
+const BASE = "/api/strategy-builder/strategies";
+const IDEMPOTENCY_HEADER = "Idempotency-Key";
+const FAILED_NOW = "The strategy store did not answer just now; nothing was saved. Try again.";
+
+function readChecks(v: unknown): StoreCheck[] {
+  return (Array.isArray(v) ? v : []).flatMap((x): StoreCheck[] => {
+    const c = rec(x);
+    const sev = c.severity === "blocking" || c.severity === "warning" || c.severity === "info" ? c.severity : null;
+    const code = str(c.code);
+    return code && sev ? [{ code, severity: sev, blockingFor: (Array.isArray(c.blocking_for) ? c.blocking_for : []).filter((b): b is string => typeof b === "string"), message: str(c.message) ?? code }] : [];
+  });
+}
+
+/** What a refusal means for the wizard. An older server (no route, or its v1 body check) is `not_available`. */
+export function failureOf(e: unknown): StoreFailure {
+  if (!(e instanceof ApiError) || e.status == null) return { ok: false, code: "error", reason: FAILED_NOW };
+  const detail = rec(e.body).detail;
+  const d = rec(detail);
+  const code = str(d.code);
+  const message = str(d.message) ?? (typeof detail === "string" ? detail : null) ?? FAILED_NOW;
+  if (code === "store_not_migrated") return { ok: false, code: "not_available", reason: NOT_YET };
+  if (e.status === 404 && detail === "Not Found") return { ok: false, code: "not_available", reason: NOT_YET };
+  if (e.status === 422 && Array.isArray(detail)) return { ok: false, code: "not_available", reason: NOT_YET };
+  if (code === "stale_parent") return { ok: false, code: "stale_parent", reason: message, activeVersionId: str(d.active_version_id), activeVersionNo: int(d.active_version_no) };
+  if (code === "strategy_limit" || code === "version_limit") return { ok: false, code: "limit", reason: message };
+  if (code === "idempotency_conflict") return { ok: false, code: "conflict", reason: message };
+  if (e.status === 404) return { ok: false, code: "not_found", reason: "That strategy is not in your store (it may have been archived)." };
+  if (e.status === 422) {
+    const problems = (Array.isArray(d.problems) ? d.problems : []).flatMap((x) => {
+      const p = rec(x);
+      return str(p.field) && str(p.message) ? [{ field: str(p.field) as string, code: str(p.code) ?? "invalid", message: str(p.message) as string }] : [];
+    });
+    return { ok: false, code: "invalid", reason: message, problems };
+  }
+  return { ok: false, code: "error", reason: FAILED_NOW };
+}
+
+async function call<T>(read: (d: Raw) => T, req: Parameters<typeof http>[0]): Promise<StoreAnswer<T>> {
+  try {
+    const res = await http({ ...req, noRetry: true, timeoutMs: 20_000 });
+    return { ok: true, value: read(rec(res.data)) };
+  } catch (e) {
+    return failureOf(e);
+  }
+}
+
+/** The asset class the store derives from the legs (backend strategy_store.asset_class_of); sent so the body states it. */
+export function assetClassOf(def: Pick<V2Definition, "legs">): "STOCK" | "FNO" | "MIXED" {
+  const kinds = new Set(def.legs.map((l) => l.instrument));
+  if (kinds.size === 1 && kinds.has("STOCK")) return "STOCK";
+  return kinds.has("STOCK") ? "MIXED" : "FNO";
+}
+
+/** JSON with object keys sorted at every level: Postgres JSONB hands a stored document back in its own key order. */
+export function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v ?? null);
+}
+
+/** A comparison key for "unsaved changes": the document, in any key order, without the chain date it was laid out on. */
+export function contentKey(def: V2Definition | null): string {
+  if (!def) return "";
+  return canonicalJson({ ...def, build_constraints: { ...def.build_constraints, chain_as_of: null } });
+}
 
 /** POST /api/strategy-builder/strategies (v2 definition, Idempotency-Key). */
-export async function createStrategy(_b: { name: string; assetClass: "FNO" | "MIXED"; source: "user" | "ai"; templateId: string | null; definition: V2Definition }, _idempotencyKey: string): Promise<StoreAnswer<Created>> {
-  return notYet;
+export async function createStrategy(b: { source: "user" | "ai" | "template"; definition: V2Definition }, idempotencyKey: string): Promise<StoreAnswer<Created>> {
+  const body = { name: b.definition.name, asset_class: assetClassOf(b.definition), source: b.source, template_id: b.definition.template_id, definition: b.definition };
+  return call((d) => ({ strategyId: str(d.strategy_id) ?? "", versionId: str(d.version_id) ?? "", versionNo: int(d.version_no) ?? 1, checks: readChecks(d.checks), replayed: d.replayed === true }),
+    { method: "POST", path: BASE, body, headers: { [IDEMPOTENCY_HEADER]: idempotencyKey } });
 }
 
 /** POST /api/strategy-builder/strategies/{id}/versions with the parent_version_id the wizard loaded (409 stale_parent). */
-export async function saveVersion(_strategyId: string, _b: { definition: V2Definition; parentVersionId: string; changeSummary: string | null }, _idempotencyKey: string): Promise<StoreAnswer<SavedVersion>> {
-  return notYet;
+export async function saveVersion(strategyId: string, b: { definition: V2Definition; parentVersionId: string; changeSummary: string | null }, idempotencyKey: string): Promise<StoreAnswer<SavedVersion>> {
+  const body = { definition: b.definition, parent_version_id: b.parentVersionId, ...(b.changeSummary ? { change_summary: b.changeSummary } : {}) };
+  return call((d) => ({
+    versionId: str(d.version_id) ?? "", versionNo: int(d.version_no) ?? 0, checks: readChecks(d.checks), replayed: d.replayed === true,
+    diff: (Array.isArray(d.diff) ? d.diff : []).map((x) => { const r = rec(x); return { path: str(r.path) ?? "", before: r.before ?? null, after: r.after ?? null }; }),
+  }), { method: "POST", path: `${BASE}/${encodeURIComponent(strategyId)}/versions`, body, headers: { [IDEMPOTENCY_HEADER]: idempotencyKey } });
 }
 
 /** POST /api/strategy-builder/strategies/{id}/clone. */
-export async function cloneStrategy(_strategyId: string, _b: { name?: string; versionId?: string } = {}): Promise<StoreAnswer<Created>> {
-  return notYet;
+export async function cloneStrategy(strategyId: string, b: { name?: string; versionId?: string } = {}): Promise<StoreAnswer<Created>> {
+  const body = { ...(b.name ? { name: b.name } : {}), ...(b.versionId ? { version_id: b.versionId } : {}) };
+  return call((d) => ({ strategyId: str(d.strategy_id) ?? "", versionId: str(d.version_id) ?? "", versionNo: int(d.version_no) ?? 1, checks: readChecks(d.checks), replayed: false }),
+    { method: "POST", path: `${BASE}/${encodeURIComponent(strategyId)}/clone`, body });
 }
 
+const SOURCES = new Set(["user", "ai", "template", "clone", "plan"]);
+
 /** GET /api/strategy-builder/strategies?include=summary. */
-export async function listStrategies(_include: "summary" = "summary"): Promise<StoreAnswer<StoreRow[]>> {
-  return notYet;
+export async function listStrategies(): Promise<StoreAnswer<StoreRow[]>> {
+  return call((d) => (Array.isArray(d.strategies) ? d.strategies : []).flatMap((x): StoreRow[] => {
+    const r = rec(x);
+    const id = str(r.id);
+    if (!id) return [];
+    const lv = rec(r.latest_version);
+    const lb = rec(r.last_backtest);
+    const status = lb.status === "OK" || lb.status === "FAILED" ? lb.status : null;
+    const source = str(r.source) ?? "user";
+    return [{
+      strategyId: id, name: str(r.name) ?? "Untitled", source: (SOURCES.has(source) ? source : "user") as StoreRow["source"],
+      templateId: str(r.template_id), underlying: str(r.underlying), assetClass: str(r.asset_class) ?? "", schemaVersion: str(r.schema_version),
+      latestVersion: str(lv.id) ? { id: str(lv.id) as string, versionNo: int(lv.version_no) ?? 0, createdAt: str(lv.created_at) } : null,
+      lastBacktest: str(lb.run_id) && status ? { runId: str(lb.run_id) as string, status, finishedAt: str(lb.finished_at), versionNo: int(lb.version_no), isCurrentVersion: lb.is_current_version === true } : null,
+      paperLive: { open: typeof rec(r.paper_live).open === "number" ? (rec(r.paper_live).open as number) : null },
+    }];
+  }), { path: BASE, query: { include: "summary" } });
+}
+
+/** GET /api/strategy-builder/strategies/{id}: the active version, for Open on a saved structure. */
+export async function getStrategy(strategyId: string): Promise<StoreAnswer<StoredStrategy>> {
+  return call((d) => {
+    const v = rec(d.active_version);
+    const def = rec(v.definition);
+    return {
+      strategyId: str(d.id) ?? strategyId, name: str(d.name) ?? "Untitled", templateId: str(d.template_id), underlying: str(d.underlying),
+      versionId: str(v.id) ?? "", versionNo: int(v.version_no) ?? 0,
+      definition: def.schema_version === "2" ? (def as unknown as V2Definition) : null, checks: readChecks(d.checks),
+    };
+  }, { path: `${BASE}/${encodeURIComponent(strategyId)}` });
 }
 
 /** GET /api/strategy-builder/strategies/{id}/versions, newest first. */
-export async function listVersions(_strategyId: string): Promise<StoreAnswer<VersionRow[]>> {
-  return notYet;
+export async function listVersions(strategyId: string): Promise<StoreAnswer<VersionRow[]>> {
+  return call((d) => (Array.isArray(d.versions) ? d.versions : []).map((x) => {
+    const r = rec(x);
+    return { versionId: str(r.version_id) ?? "", versionNo: int(r.version_no) ?? 0, createdAt: str(r.created_at), changeSummary: str(r.change_summary), parentVersionId: str(r.parent_version_id), schemaVersion: str(r.schema_version) };
+  }), { path: `${BASE}/${encodeURIComponent(strategyId)}/versions` });
 }
 
+/** A stored v2 document's legs as the wizard's legs (concrete legs only; a rule-based strike or expiry loads empty).
+ *  `newId` is the wizard's leg id maker (wizard-data legId), passed in so this module does not import the wizard. */
+export function legsOf(def: V2Definition, newId: () => string): WLeg[] {
+  return def.legs.map((l): WLeg => ({
+    id: newId(),
+    kind: l.instrument === "STOCK" ? "cash" : l.instrument === "FUTURE" ? "future" : "option",
+    side: l.side === "SELL" ? "sell" : "buy",
+    optionType: l.instrument === "CALL" ? "call" : l.instrument === "PUT" ? "put" : null,
+    strike: l.strike && l.strike.rule === "fixed" ? l.strike.value : null,
+    expiry: l.expiry && l.expiry.rule === "specific" ? l.expiry.date : null,
+    lots: (l.instrument === "STOCK" ? l.shares : l.lots) ?? 1,
+    price: l.entry_price_at_save?.value ?? null,
+    priceSource: l.entry_price_at_save?.source || null,
+  }));
+}
+
+/** Whether an underlying is an index, for the document's underlying.kind (trading/fno INDEX_UNDERLYINGS). */
+export const isIndex = (symbol: string) => isIndexUnderlying(symbol);
+
 /**
- * The status word for a stored strategy (§4, in this order): PAPER LIVE when an open desk paper trade cites a version,
+ * The status word for a stored strategy (in this order): PAPER LIVE when an open desk paper trade cites a version,
  * BACKTEST FAILED when the latest run failed, BACKTESTED when the latest OK run is on the current version, STALE when it
  * is on an older one, DRAFT with no run. Never "BACKTEST PASSED" (no pass rule yet).
  */
 export function storeStatus(r: Pick<StoreRow, "paperLive" | "lastBacktest">): "PAPER LIVE" | "BACKTEST FAILED" | "BACKTESTED" | "STALE" | "DRAFT" {
-  if (r.paperLive.open > 0) return "PAPER LIVE";
+  if ((r.paperLive.open ?? 0) > 0) return "PAPER LIVE";
   if (!r.lastBacktest) return "DRAFT";
   if (r.lastBacktest.status === "FAILED") return "BACKTEST FAILED";
   return r.lastBacktest.isCurrentVersion ? "BACKTESTED" : "STALE";

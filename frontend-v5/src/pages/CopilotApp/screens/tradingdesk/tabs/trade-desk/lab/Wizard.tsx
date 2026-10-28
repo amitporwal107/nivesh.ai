@@ -10,7 +10,9 @@
  * Data (wizard-data.ts): the template catalog, the chain (trading/fno useOptionChain, useFnoFutures), payoff-v2
  * (strategy/usePayoff), Zerodha's margin calculator (POST /api/fno/margin, parsed by FnoBuilder parseMargin), the risk
  * service's check, saved plans, Strategy Builder and AI Trader strategies and the paper book (read once per load). Save
- * version / Clone wait for the one store's strategy_versions v2 (strategy/instance-store.ts) and are disabled with the reason.
+ * version / Clone write to the one store's strategy_versions v2 (strategy/instance-store.ts, PR #398); a saved structure is
+ * listed under Existing strategies and opens on step 3 as that version. A paper trade of exactly a saved version cites it
+ * (`strategy_ref`, PAPER LIVE).
  * No AI is in the order path; the profile is the only risk setting (no risk slider); paper only, nothing goes to a broker.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -20,13 +22,17 @@ import { ApiError } from "@/services/api/errors";
 import { Btn, LoadingBlock } from "../../../../../components/ui";
 import { fetchFnoChain, useFnoFutures, useOptionChain, type FnoChain, type FnoResult } from "../../../../trading/fno";
 import { useDesk } from "../../../context";
-import { usePaperTrades } from "../../../desk-trading";
+import { usePaperTrades, useSubmissionKey } from "../../../desk-trading";
 import { parseMargin } from "../../../FnoBuilder";
 import { useSavedPlans } from "../../../strategy/plan-data";
 import { usePayoff } from "../../../strategy/usePayoff";
+import {
+  cloneStrategy, contentKey, createStrategy, definitionOf, getStrategy, isIndex, legsOf, listStrategies, saveVersion,
+  type StoreFailure,
+} from "../../../strategy/instance-store";
 import { STALE_DAYS, daysBetween, todayIso } from "./ChainPicker";
 import { StepReview, type MarginView, type Structure } from "./StepReview";
-import { StepValidate } from "./StepValidate";
+import { StepValidate, type StoreMessage } from "./StepValidate";
 import {
   DEFAULT_BUILD, INTENTS, INTENT_LABEL, buildLegs, existingRows, expiredLegs, fmtStrike, legId, legsSummary, paperBody, payoffRequest, popOf, riskWords,
   shortDay, useAiStrategies, useCatalog, useRiskCheck,
@@ -40,6 +46,8 @@ type Step = 1 | 2 | 3 | 4;
 const FAMILIES = new Set(["long_future", "short_future", "long_call", "long_put", "bull_call_spread", "bear_put_spread", "bull_put_spread", "bear_call_spread", "iron_condor", "covered_call", "protective_put", "collar"]);
 const QUICK = ["NIFTY", "BANKNIFTY", "FINNIFTY"];
 const STATUS_TONE: Record<RowStatus, Tone> = { "PAPER LIVE": "mint", "BACKTEST FAILED": "danger", BACKTESTED: "blue-outline", STALE: "outline", DRAFT: "amber", SAVED: "grey" };
+
+const STORE_KEY = ["copilot", "desk", "lab", "store"] as const;
 
 interface Origin { source: "AI" | "YOU" | null; label: string; version: string | null; kind: "template" | "ai_strategy" | "saved_plan" | "manual" | "trade"; ref: string | null }
 
@@ -97,9 +105,14 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   const [direction, setDirection] = useState<Direction | null>(null);
   const [legs, setLegsRaw] = useState<WLeg[]>([]);
   const [buildNote, setBuildNote] = useState<{ note: string | null; problem: string | null }>({ note: null, problem: null });
-  // Save version / Clone wait for the shared strategy store (strategy/instance-store.ts): the legs live in page state,
-  // so stepping between the steps, or back to step 1 and in again without opening another strategy, keeps them.
+  // The legs live in page state, so stepping between the steps, or back to step 1 and in again without opening another
+  // strategy, keeps them. Save version / Clone store them in the shared strategy store (strategy/instance-store.ts).
   const [name, setName] = useState("");
+  /** The stored version the page was saved as or opened from; `key` is its content (instance-store contentKey). */
+  const [saved, setSaved] = useState<{ strategyId: string; versionId: string; versionNo: number; key: string } | null>(null);
+  const [storeMsg, setStoreMsg] = useState<StoreMessage | null>(null);
+  const [storeBusy, setStoreBusy] = useState(false);
+  const submission = useSubmissionKey();
   // Step 2 rebuilds the legs only after an explicit change (a template, a setting, the expiry, the underlying).
   const [needBuild, setNeedBuild] = useState(false);
   const cfgSet = (c: BuildConfig) => { setCfg(c); setNeedBuild(true); };
@@ -147,16 +160,25 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   const dir: Direction = direction ?? tpl?.direction ?? "neutral";
   const stopN = Number(stop) > 0 ? Number(stop) : null;
   const family = familyOf(tpl, legs);
+  const mlN = Number(maxLoss) > 0 ? Number(maxLoss) : null;
+  const mcN = Number(maxCap) > 0 ? Number(maxCap) : null;
+  // The v2 document these legs would be saved as (the contract fixture contract-strategy-store-v2.json pins its shape).
+  const definition = useMemo(() => legs.length ? definitionOf({
+    name: name.trim(), underlying: symbol, index: isIndex(symbol), template: tpl?.name ?? null, legs, lotSize: lot, cfg,
+    maxLossRs: mlN, maxCapitalRs: mcN, stopUnderlying: stopN, chainAsOf: asOf,
+  }) : null, [name, symbol, tpl?.name, legs, lot, cfg, mlN, mcN, stopN, asOf]);
+  const dirty = !!saved && contentKey(definition) !== saved.key;
+  const strategyRef = saved && !dirty ? { strategy_id: saved.strategyId, version_id: saved.versionId } : null;
   const body = !problem && r?.valid && spot != null
-    ? paperBody({ underlying: symbol, direction: dir, family, spot, legs, lotSize: lot, template: tpl?.name ?? null, templateLabel: tpl?.label ?? null, stop: stopN, asOf })
+    ? paperBody({ underlying: symbol, direction: dir, family, spot, legs, lotSize: lot, template: tpl?.name ?? null, templateLabel: tpl?.label ?? null, stop: stopN, asOf, strategyRef })
     : null;
   const checkQ = useRiskCheck(step >= 3 ? body : null);
   const slipRaw = r?.valid ? (r.costs as unknown as { slippage_pct?: unknown } | null)?.slippage_pct : null;
   const slip = typeof slipRaw === "number" ? slipRaw : null;
   const cashCap = legs.filter((l) => l.kind === "cash" && l.price != null).reduce((s, l) => s + l.lots * (l.price as number), 0);
   const limits: Structure["limits"] = [];
-  const ml = Number(maxLoss) > 0 ? Number(maxLoss) : null;
-  const mc = Number(maxCap) > 0 ? Number(maxCap) : null;
+  const ml = mlN;
+  const mc = mcN;
   if (ml != null && r?.valid) {
     const worst = r.capital_at_risk;
     limits.push(worst == null ? { ok: false, text: `Max loss limit ${inr(ml)}: the loss is unbounded, so the limit cannot hold.` }
@@ -177,6 +199,7 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   const builderQ = useSavedStrategies();
   const plansQ = useSavedPlans();
   const aiQ = useAiStrategies();
+  const storeQ = useQuery({ queryKey: STORE_KEY, staleTime: 60_000, retry: false, queryFn: listStrategies });
   const planIds = (plansQ.data?.plans ?? []).slice(0, 20);
   const planDetails = useQueries({
     queries: planIds.map((p) => ({
@@ -202,18 +225,21 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   const rows: ExistingRow[] = useMemo(() => existingRows({
     builder: (builderQ.data ?? []).map((b) => ({ id: b.id, name: b.name, assetClass: b.assetClass })),
     plans: planIds.map((p, i) => ({ id: p.id, underlying: p.underlying, family: p.family, legs: planDetails[i]?.data ?? null })),
-    ai: aiQ.data ?? [], trades, labelOf,
+    ai: aiQ.data ?? [], trades, labelOf, store: storeQ.data?.ok ? storeQ.data.value : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [builderQ.data, plansQ.data, planDetails.map((q) => q.dataUpdatedAt).join(","), aiQ.data, book.data, catalog.data]);
+  }), [builderQ.data, plansQ.data, planDetails.map((q) => q.dataUpdatedAt).join(","), aiQ.data, book.data, catalog.data, storeQ.data]);
 
   const go = (s: Step) => { setStep(s); setReached((x) => (s > x ? s : x)); };
   const chooseTemplate = (t: CatalogTemplate) => {
     setTpl(t); setOrigin({ source: null, label: t.label, version: null, kind: "template", ref: t.name }); setDirection(null);
-    setTradeId(null); setNoLegs(null); setName(`${symbol} ${t.label}`);
+    setTradeId(null); setNoLegs(null); setName(`${symbol} ${t.label}`); setSaved(null); setStoreMsg(null);
     setNeedBuild(true); setReached(2); setStep(2);
   };
   const openRow = (row: ExistingRow) => {
     setSelected(row.key);
+    setStoreMsg(null);
+    if (row.kind === "store" && row.instanceId) { void openStored(row); return; }
+    setSaved(null);
     const t = catalog.data?.templates.find((x) => x.name === row.template) ?? null;
     setTpl(t);
     const trd = row.tradeId ? trades.find((x) => x.id === row.tradeId) : null;
@@ -229,6 +255,75 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
       version: row.kind === "plan" ? "saved plan v1" : row.kind === "trade" ? "from the open paper trade" : row.kind === "builder" ? "Strategy Builder rule set" : row.version != null ? `AI Trader v${row.version}` : null,
       kind: row.kind === "plan" ? "saved_plan" : row.kind === "ai" ? "ai_strategy" : row.kind === "builder" ? "manual" : "trade", ref: row.ref });
     setReached(3); setStep(3);
+  };
+
+  /** Open a structure saved in the store: its active version's legs and settings, on step 3, as that version. */
+  const openStored = async (row: ExistingRow) => {
+    const a = await getStrategy(row.instanceId as string);
+    if (!a.ok || !a.value.definition) {
+      setNoLegs(a.ok ? "This stored strategy is not a legs structure (a v1 rule set)." : a.reason);
+      setLegsRaw([]); setSaved(null); setReached(3); setStep(3);
+      return;
+    }
+    const d = a.value.definition;
+    const t = catalog.data?.templates.find((x) => x.name === d.template_id) ?? null;
+    setTpl(t); setDirection(t?.direction ?? null);
+    setSymbol(d.underlying.symbol); setSymText(d.underlying.symbol);
+    const loaded = legsOf(d, legId);
+    setExpiryPick(loaded.map((l) => l.expiry).filter((x): x is string => !!x).sort()[0] ?? null);
+    const sr = d.build_constraints.strike_rule;
+    setCfg({ rule: sr.rule, anchor: sr.anchor_strikes, width: sr.width_strikes, delta: sr.target_delta, lots: d.sizing.lots });
+    setMaxLoss(d.build_constraints.max_loss_rs != null ? String(d.build_constraints.max_loss_rs) : "");
+    setMaxCap(d.build_constraints.max_capital_rs != null ? String(d.build_constraints.max_capital_rs) : "");
+    setStop(d.build_constraints.stop_underlying != null ? String(d.build_constraints.stop_underlying) : "");
+    setNeedBuild(false);
+    setLegsRaw(loaded); setTradeId(row.tradeId); setNoLegs(null); setName(d.name);
+    setSaved({ strategyId: a.value.strategyId, versionId: a.value.versionId, versionNo: a.value.versionNo, key: contentKey(d) });
+    setOrigin({ source: row.source, label: t?.label ?? d.name, version: `version ${a.value.versionNo}`, kind: "manual", ref: row.ref });
+    setReached(3); setStep(3);
+  };
+
+  // ── Save version / Clone (the shared strategy store) ──
+  const failed = (f: StoreFailure) => setStoreMsg({ kind: f.code === "stale_parent" ? "stale" : f.code === "not_available" ? "unavailable" : "error", text: f.reason,
+    problems: f.problems ?? [], activeVersionId: f.activeVersionId ?? null, activeVersionNo: f.activeVersionNo ?? null, diff: [], checks: [] });
+  const save = async (parentOverride?: string) => {
+    if (!definition || storeBusy) return;
+    setStoreBusy(true); setStoreMsg(null);
+    const key = submission.keyFor({ saved: saved?.strategyId ?? null, parent: parentOverride ?? saved?.versionId ?? null, definition });
+    try {
+      if (!saved) {
+        const source = origin?.source === "AI" ? "ai" : origin?.kind === "template" && tpl ? "template" : "user";
+        const a = await createStrategy({ source, definition }, key);
+        if (!a.ok) { failed(a); return; }
+        submission.done();
+        setSaved({ strategyId: a.value.strategyId, versionId: a.value.versionId, versionNo: a.value.versionNo, key: contentKey(definition) });
+        setStoreMsg({ kind: "saved", text: `Saved as version ${a.value.versionNo}${a.value.replayed ? " (already saved by your earlier click)" : ""}.`, problems: [], activeVersionId: null, activeVersionNo: null, diff: [], checks: a.value.checks });
+      } else {
+        const a = await saveVersion(saved.strategyId, { definition, parentVersionId: parentOverride ?? saved.versionId, changeSummary: null }, key);
+        if (!a.ok) { failed(a); return; }
+        submission.done();
+        setSaved({ strategyId: saved.strategyId, versionId: a.value.versionId, versionNo: a.value.versionNo, key: contentKey(definition) });
+        setStoreMsg({ kind: "saved", text: `Saved as version ${a.value.versionNo}.`, problems: [], activeVersionId: null, activeVersionNo: null, diff: a.value.diff, checks: a.value.checks });
+      }
+      void qc.invalidateQueries({ queryKey: STORE_KEY });
+    } finally {
+      setStoreBusy(false);
+    }
+  };
+  const clone = async () => {
+    if (!saved || dirty || storeBusy || !definition) return;
+    setStoreBusy(true); setStoreMsg(null);
+    const cloneName = `${name.trim()} (copy)`.slice(0, 80);
+    try {
+      const a = await cloneStrategy(saved.strategyId, { name: cloneName, versionId: saved.versionId });
+      if (!a.ok) { failed(a); return; }
+      setName(cloneName);
+      setSaved({ strategyId: a.value.strategyId, versionId: a.value.versionId, versionNo: 1, key: contentKey({ ...definition, name: cloneName }) });
+      setStoreMsg({ kind: "saved", text: `Cloned as “${cloneName}”, version 1. You are now editing the copy.`, problems: [], activeVersionId: null, activeVersionNo: null, diff: [], checks: a.value.checks });
+      void qc.invalidateQueries({ queryKey: STORE_KEY });
+    } finally {
+      setStoreBusy(false);
+    }
   };
 
 
@@ -253,7 +348,7 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   };
 
   const tplLabel = origin?.source === "AI" ? `AI-generated / ${tpl?.label ?? origin.label}` : tpl?.label ?? (legs.length ? "Custom" : "not chosen");
-  const instLabel = origin?.version ?? (legs.length ? "unsaved" : "—");
+  const instLabel = saved ? `version ${saved.versionNo}${dirty ? " · unsaved changes" : ""}` : origin?.version ?? (legs.length ? "unsaved" : "—");
   const paperLabel = trade ? `${trade.status === "open" ? "open" : "closed"} · ${trade.id}` : "not started";
 
   return (
@@ -443,6 +538,8 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
 
       {step === 4 && (
         <StepValidate name={name} onName={setName} structure={structure} body={body} asOf={asOf} trade={trade}
+          store={{ saved: saved ? { versionNo: saved.versionNo } : null, dirty, canSave: !!definition && !storeBusy, busy: storeBusy, message: storeMsg,
+            onSave: () => void save(), onSaveOver: (id) => void save(id), onClone: () => void clone() }}
           multiLeg={legs.length > 1} cashOnly={legs.length > 0 && legs.every((l) => l.kind === "cash")}
           onAdjust={() => go(3)} onBacktest={onBacktest} onLiveDesk={() => desk.openPaperTrades()} onStarted={(id) => setTradeId(id)}
           onScaleLots={(approved, requested) => setLegsRaw(legs.map((l) => ({ ...l, lots: Math.max(1, Math.floor((l.lots * approved) / Math.max(1, requested))) })))} />
@@ -513,7 +610,7 @@ function ExistingTable({ rows, loading, errors, selected, onOpen }: { rows: Exis
                       <td style={{ padding: "8px", minWidth: 220 }}>
                         <span className="flex flex-col" style={{ gap: 2 }}>
                           <span data-testid="wz-row-name" style={{ fontWeight: 600 }}>{r.name} · {r.ref}</span>
-                          <span data-testid="wz-row-legs" style={{ ...mono, fontSize: 11.5, color: "var(--cp-ink-3)" }}>{r.legs.length ? legsSummary(r.legs) : r.kind === "ai" || r.kind === "builder" ? "Rule set · no legs" : "—"}</span>
+                          <span data-testid="wz-row-legs" style={{ ...mono, fontSize: 11.5, color: "var(--cp-ink-3)" }}>{r.legs.length ? legsSummary(r.legs) : r.kind === "ai" || r.kind === "builder" ? "Rule set · no legs" : r.kind === "store" ? "Saved structure · legs load on Open" : "—"}</span>
                           {old.length > 0 && <span data-testid="wz-row-expired" style={{ fontSize: 11, color: "var(--amber)" }}>Expired contracts ({[...new Set(old.map((l) => shortDay(l.expiry as string)))].join(", ")}): Open offers the same strikes on the nearest listed expiry.</span>}
                         </span>
                       </td>

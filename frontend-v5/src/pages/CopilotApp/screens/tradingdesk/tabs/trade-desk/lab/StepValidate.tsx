@@ -1,13 +1,17 @@
 /**
  * Strategy Lab › Build a trade, step 4 — Validate & paper-trade.
  *
- *   Strategy instance   Save version and Clone go to the ONE store, the Strategy Builder's strategy_versions (owner, 28
- *                       Oct). Its v2 (legs) is not there yet, so both are DISABLED with the reason (strategy/instance-store.ts);
- *                       the legs stay in the page's state. Adjust legs goes back to step 3.
+ *   Strategy instance   Save version and Clone go to the ONE store, the Strategy Builder's strategy_versions v2 (owner, 28
+ *                       Oct; strategy/instance-store.ts, PR #398). The first save creates the strategy (version 1); each
+ *                       later save is a new, unchangeable version from the one loaded (another tab's save first → "save on
+ *                       top of version N?"), answered with the server's diff and the store's checks. Clone copies the
+ *                       saved version into a new strategy you then edit. A server without the store says so (NOT_YET) and
+ *                       the legs stay on the page. Adjust legs goes back to step 3.
  *   Backtest            a structure backtest over option history does not exist for multi-leg F&O structures: said so. A
  *                       cash position links to Backtest & validation (end-of-day strategy backtests with provenance).
  *   Paper gates         a valid payoff, your build limits, the risk service's decision (the check). The trade cites the
- *                       template (signal.source_refs strategy_template) until it can cite a saved version.
+ *                       template (signal.source_refs strategy_template), and the saved version (`strategy_ref`) when the legs
+ *                       are exactly that version.
  *   Start               POST /api/desk/paper-trades with an Idempotency-Key (desk-trading useAddStrategyPaperTrade): the risk
  *                       service answers allow (recorded), reduce ("Accept N lots per leg?", nothing recorded), block (the
  *                       reasons), a duplicate, or the desk's own 422. Paper only; nothing is sent to a broker.
@@ -19,9 +23,33 @@ import { detailOf, orderReasons, readReasons } from "../../../risk-controls";
 import { riskReduceOf, useAddStrategyPaperTrade, type NewStrategyPaperTrade, type StrategyPaperTrade } from "../../../desk-trading";
 import { ChecksCard, type Structure } from "./StepReview";
 import { INPUT_WORDS, legsSummary, refusalOf, shortDay } from "./wizard-data";
-import { NOT_YET, STORE_AVAILABLE } from "../../../strategy/instance-store";
+import type { StoreCheck } from "../../../strategy/instance-store";
 import { Card, Pill, eyebrowS, inr, mono, quietS } from "./ui";
 import { daysBetween, todayIso } from "./ChainPicker";
+
+/** What the last Save version / Clone answered, shown next to the buttons (Wizard.tsx save / clone). */
+export interface StoreMessage {
+  kind: "saved" | "stale" | "unavailable" | "error";
+  text: string;
+  problems: Array<{ field: string; code: string; message: string }>;
+  activeVersionId: string | null;
+  activeVersionNo: number | null;
+  diff: Array<{ path: string; before: unknown; after: unknown }>;
+  checks: StoreCheck[];
+}
+
+export interface StoreControls {
+  saved: { versionNo: number } | null;
+  dirty: boolean;
+  canSave: boolean;
+  busy: boolean;
+  message: StoreMessage | null;
+  onSave: () => void;
+  onSaveOver: (versionId: string) => void;
+  onClone: () => void;
+}
+
+const shown = (v: unknown): string => v == null ? "—" : typeof v === "object" ? "changed" : String(v);
 
 type Answer = { kind: "allow" | "reduce" | "block" | "duplicate" | "invalid" | "error"; text: string; reasons: string[]; approvedLots?: number | null; requestedLots?: number | null };
 
@@ -41,7 +69,8 @@ function answerOf(e: unknown): Answer {
 }
 
 export function StepValidate({ onAdjust, name, onName, structure, body, multiLeg, cashOnly,
-  onBacktest, onLiveDesk, trade, onStarted, asOf, onScaleLots }: {
+  onBacktest, onLiveDesk, trade, onStarted, asOf, onScaleLots, store }: {
+  store: StoreControls;
   onAdjust: () => void; name: string; onName: (s: string) => void;
   structure: Structure; body: NewStrategyPaperTrade | null; multiLeg: boolean; cashOnly: boolean;
   onBacktest: () => void; onLiveDesk: () => void; trade: StrategyPaperTrade | null; onStarted: (id: string | null) => void; asOf: string | null;
@@ -71,7 +100,7 @@ export function StepValidate({ onAdjust, name, onName, structure, body, multiLeg
   return (
     <div data-testid="wz-step-4" className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
       <div className="flex min-w-0 flex-col" style={{ flex: "999 1 480px", gap: 14 }}>
-        <Card testId="wz-instance" title="Strategy instance" right="unsaved">
+        <Card testId="wz-instance" title="Strategy instance" right={<span data-testid="wz-instance-state">{store.saved ? `version ${store.saved.versionNo}${store.dirty ? " · unsaved changes" : ""}` : "unsaved"}</span>}>
           <label className="flex min-w-0 flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>
             Name
             <input data-testid="wz-instance-name" value={name} maxLength={80} onChange={(e) => onName(e.target.value)}
@@ -79,13 +108,15 @@ export function StepValidate({ onAdjust, name, onName, structure, body, multiLeg
           </label>
           {body && <span data-testid="wz-instance-legs" style={{ ...mono, fontSize: 12 }}>{legsSummary(body.legs.map((l) => ({ kind: l.kind, side: l.side, optionType: l.option_type, strike: l.strike, expiry: l.expiry })))}</span>}
           <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
-            <Btn variant="primary" data-testid="wz-save" disabled={!STORE_AVAILABLE} title={NOT_YET}>Save version</Btn>
-            <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-clone" disabled={!STORE_AVAILABLE} title={NOT_YET}>Clone</button>
+            <Btn variant="primary" data-testid="wz-save" disabled={!store.canSave || (!!store.saved && !store.dirty)} onClick={store.onSave}
+              title={store.saved && !store.dirty ? `Nothing changed since version ${store.saved.versionNo}.` : undefined}>{store.busy ? "Saving…" : "Save version"}</Btn>
+            <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-clone" disabled={!store.saved || store.dirty || store.busy} onClick={store.onClone}
+              title={!store.saved ? "Save a version first: Clone copies a saved version." : store.dirty ? "Save your changes first: Clone copies the saved version." : undefined}>Clone</button>
             <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-adjust" onClick={onAdjust}>Adjust legs</button>
           </div>
-          <span data-testid="wz-save-note" role="note" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--amber)" }}>{NOT_YET}</span>
+          {store.message ? <StoreNote m={store.message} onSaveOver={store.onSaveOver} /> : null}
           <span style={{ ...quietS, fontSize: 11 }}>
-            Saved structures go into the Strategy Builder&rsquo;s store, one version history with each backtest run on an immutable version. Until it holds legs, your legs stay on this page (going back a step keeps them), and a simulated trade records its legs and the template it came from.
+            Saved structures go into your strategy store: one version history, each version unchangeable, and each backtest run on one version. A simulated trade of exactly a saved version cites it (PAPER LIVE in Existing strategies); otherwise it records its legs and the template it came from.
           </span>
         </Card>
 
@@ -153,6 +184,29 @@ export function StepValidate({ onAdjust, name, onName, structure, body, multiLeg
           <button type="button" data-testid="wz-live-desk" onClick={onLiveDesk} style={{ padding: 0, border: 0, background: "none", color: "var(--mint)", cursor: "pointer", font: "inherit", fontSize: 12.5, textAlign: "left" }}>Live desk</button>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function StoreNote({ m, onSaveOver }: { m: StoreMessage; onSaveOver: (versionId: string) => void }) {
+  const tone = m.kind === "saved" ? "var(--mint)" : m.kind === "error" ? "var(--cp-danger)" : "var(--amber)";
+  const flagged = m.checks.filter((c) => c.severity !== "info");
+  return (
+    <div data-testid="wz-save-note" data-kind={m.kind} role={m.kind === "saved" ? "status" : "alert"} className="flex flex-col" style={{ gap: 6, fontSize: 12.5, lineHeight: 1.5 }}>
+      <span data-testid="wz-save-text" style={{ color: tone }}>{m.text}</span>
+      {m.problems.length > 0 && <ul className="m-0" style={{ paddingLeft: 16, color: "var(--cp-ink-2)" }}>{m.problems.map((p, i) => <li key={i} data-testid="wz-save-problem">{p.message} <span style={{ ...mono, fontSize: 11 }}>({p.field})</span></li>)}</ul>}
+      {m.diff.length > 0 && (
+        <ul data-testid="wz-save-diff" className="m-0" style={{ paddingLeft: 16, color: "var(--cp-ink-2)" }}>
+          {m.diff.slice(0, 8).map((d, i) => <li key={i} data-testid="wz-save-diff-item" style={{ ...mono, fontSize: 11.5 }}>{d.path}: {shown(d.before)} → {shown(d.after)}</li>)}
+          {m.diff.length > 8 && <li style={quietS}>and {m.diff.length - 8} more</li>}
+        </ul>
+      )}
+      {flagged.length > 0 && <ul className="m-0" style={{ paddingLeft: 16 }}>{flagged.map((c) => <li key={c.code} data-testid="wz-save-check" data-severity={c.severity} style={{ color: c.severity === "blocking" ? "var(--amber)" : "var(--cp-ink-2)" }}>{c.message}</li>)}</ul>}
+      {m.kind === "stale" && m.activeVersionId && (
+        <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-save-over" onClick={() => onSaveOver(m.activeVersionId as string)}>
+          Save these legs on top of version {m.activeVersionNo ?? "?"}
+        </button>
+      )}
     </div>
   );
 }
