@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from services.copilot_tools import daas_client, market_research as mr
 from services.positional_engine import nse_live
+from tests import market_day
 
 # MOCK — not real data
 SNAP = {"as_of_date": "2026-10-19", "nifty50_close": 22889.0, "nifty50_pct_change": -1.11,
@@ -107,6 +108,7 @@ def _run(monkeypatch, routes, glob=GLOBAL):
         return glob
     monkeypatch.setattr(daas_client, "_get", fake_get)
     monkeypatch.setattr(nse_live, "get_global_snapshot", fake_global)
+    market_day.pin(monkeypatch, "2026-10-19", "2026-10-16")   # the fixtures' Monday; the previous session is Friday
     return asyncio.run(mr.get_market_research())
 
 
@@ -275,6 +277,7 @@ def test_prompt_contains_new_blocks_and_rules(monkeypatch):
         return GLOBAL
     monkeypatch.setattr(daas_client, "_get", fake_get)
     monkeypatch.setattr(nse_live, "get_global_snapshot", fake_global)
+    market_day.pin(monkeypatch, "2026-10-19", "2026-10-16")
     monkeypatch.setattr(node, "make_chat_llm", lambda t: FakeLLM())
     monkeypatch.setattr(_stream, "emit_widget", noop)
     state = SimpleNamespace(messages=[SimpleNamespace(type="human", content="Key market risks this week?")],
