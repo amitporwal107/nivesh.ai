@@ -158,14 +158,15 @@ const STAGE_PLAIN: Record<string, string> = {
 };
 
 /**
- * The bucket's name, or "Scanner pick · early breakout" for a stock only the picks route has.
+ * The bucket's name, or "Scanner idea · early breakout" for a stock only the scanner's target list (the picks route) has.
+ * "Idea", never "pick": the owner's wording (SEBI), audit 2026-10-28.
  * `plain` gives the investor wording ("Broke above a recent high").
  */
 export function setupLabel(s: DeskSetup, plain = false): string {
   if (s.bucket) return plain ? BUCKET_PLAIN[s.bucket] : BUCKET_LABEL[s.bucket];
-  if (!s.stage) return "Scanner pick";
+  if (!s.stage) return "Scanner idea";
   const stage = s.stage.replace(/_/g, " ").toLowerCase();
-  return `Scanner pick · ${plain ? STAGE_PLAIN[s.stage.toUpperCase()] ?? stage : stage}`;
+  return `Scanner idea · ${plain ? STAGE_PLAIN[s.stage.toUpperCase()] ?? stage : stage}`;
 }
 
 /** The two up-move heads of the move-odds model the scanner ranks by. */
@@ -190,7 +191,7 @@ export function lastMove(closes: number[]): { close: number; change: number; cha
 
 /** "13 Oct 2026", or both dates when the two scanner routes are on different sessions. */
 export function scanDateLabel(watchAsOf: string | null, signalDate: string | null): string | null {
-  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · picks ${fmtDay(signalDate)}`;
+  if (watchAsOf && signalDate && watchAsOf !== signalDate) return `Watchlist ${fmtDay(watchAsOf)} · targets ${fmtDay(signalDate)}`;
   const d = watchAsOf ?? signalDate;
   return d ? fmtDay(d) : null;
 }

@@ -724,7 +724,7 @@ function EventAlerts({ ev }: { ev: IntelEvent }) {
     }
     buttons.push({ key: "deal", body: { condition: "category", category: "deal", symbol: sym }, label: plain ? "Tell me about a big deal in it" : `Next bulk / block deal in ${sym}` });
     buttons.push({ key: "volume", body: { condition: "volume", symbol: sym, multiple: VOLUME_MULTIPLE }, label: plain ? "Tell me if trading jumps" : `Volume ≥ ${VOLUME_MULTIPLE}× average` });
-    buttons.push({ key: "scanner", body: { condition: "scanner", symbol: sym }, label: plain ? "Tell me if the scanner picks it" : "Enters the scanner" });
+    buttons.push({ key: "scanner", body: { condition: "scanner", symbol: sym }, label: plain ? "Tell me if the scanner lists it" : "Enters the scanner" });
     buttons.push({ key: "risk", body: { condition: "risk", symbol: sym, level: RISK_ATR_PCT }, label: plain ? "Tell me if its swings get large" : `ATR ≥ ${RISK_ATR_PCT}% of price` });
   } else if (ev.sectorIndex) {
     buttons.push({ key: "sector", body: { condition: "sector", index: ev.sectorIndex, threshold_pct: SECTOR_THRESHOLD, direction: "either" }, label: `${ev.sectorIndex} moves ≥ ${SECTOR_THRESHOLD}%` });

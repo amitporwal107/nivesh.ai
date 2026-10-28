@@ -235,20 +235,26 @@ function Body({ d }: { d: Scorecard }) {
                 <tr>
                   <th style={th} scope="col">File</th>
                   <th style={th} scope="col">sha256</th>
-                  <th style={th} scope="col">Present</th>
+                  <th style={th} scope="col">Read by the server</th>
                 </tr>
               </thead>
               <tbody>
                 {d.sources.map((x) => (
-                  <tr key={x.path} data-testid="sc-source" data-present={x.present == null ? "unknown" : String(x.present)}>
+                  <tr key={x.path} data-testid="sc-source" data-kind={x.kind ?? undefined} data-present={x.kind === "reference" ? "reference" : x.present == null ? "unknown" : String(x.present)}>
                     <td style={td}>
                       <span className="cp-num" style={{ display: "block", fontSize: 12, color: "var(--cp-ink)", overflowWrap: "anywhere" }}>{x.path}</span>
                       {x.role && <span style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{x.role}</span>}
                     </td>
                     <td style={numTd} title={x.sha256 ?? undefined} data-testid="sc-source-sha">{x.sha256 ? `${x.sha256.slice(0, 12)}…` : "—"}</td>
                     <td style={td} data-testid="sc-source-present">
-                      <span style={{ fontFamily: "var(--mono)", color: x.present ? "var(--mint)" : "var(--amber)" }}>{x.present == null ? "—" : x.present ? "yes" : "no"}</span>
-                      {x.reason && <span style={{ display: "block", fontSize: 12, color: "var(--cp-ink-3)" }}>{x.reason}</span>}
+                      {x.kind === "reference" ? (
+                        <span style={{ fontFamily: "var(--mono)", color: "var(--cp-ink-3)" }}>reference, not opened</span>
+                      ) : (
+                        <>
+                          <span style={{ fontFamily: "var(--mono)", color: x.present ? "var(--mint)" : "var(--amber)" }}>{x.present == null ? "—" : x.present ? "yes" : "no"}</span>
+                          {x.reason && <span style={{ display: "block", fontSize: 12, color: "var(--cp-ink-3)" }}>{x.reason}</span>}
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -258,7 +264,7 @@ function Body({ d }: { d: Scorecard }) {
         ) : (
           <p className="m-0" style={note}>The answer listed no sources.</p>
         )}
-        <p className="m-0" style={note}>A document marked “no” could not be read on this server; the numbers come from the first file only.</p>
+        <p className="m-0" style={note}>Every number comes from the first file, which the server reads and hashes. The study’s documents are listed as references; the server does not open them.</p>
       </Card>
 
       {d.disclaimer && <p data-testid="sc-disclaimer" className="m-0" style={{ ...note, fontSize: 12.5 }}>{d.disclaimer}</p>}

@@ -20,6 +20,8 @@ import { IdeasSchema, type Idea, type IdeaStrategy, type IdeasBoard } from "./st
 import { IDEAS_PATH, paramsFromPlanInputs } from "./strategy/ideas-data";
 import { TOP_PATH, type TopRequest } from "./strategy/top-data";
 import { TopSchema, type OptionIdea, type TopBoard } from "./strategy/top-contract";
+import { readAccountSize } from "./decision/plan-view";
+import { fmtNum } from "../../components/ui";
 
 export const TOP10 = 10;
 const TOP10_STALE_MS = 15 * 60_000;
@@ -109,6 +111,63 @@ export function fnoUniverseNotes(board: TopBoard | undefined): { skipped: string
 /** The route's preferred strategy for the idea, or null when it named none. */
 export function preferredStrategy(idea: Idea): IdeaStrategy | null {
   return idea.preferred ? idea.strategies.find((s) => s.id === idea.preferred) ?? null : null;
+}
+
+/** The owner's minimum reward : risk for a directional trade (risk profile), when the route sends no minimum of its own. */
+export const DEFAULT_MIN_REWARD_RISK = 1.5;
+
+/** The strategy fields the minimum and the account size are read from (an ideas row, a Chartink candidate's strategy, a stored list's). */
+export interface FitStrategy {
+  segment?: string | null;
+  status?: string | null;
+  legs_text?: string | null;
+  reward_risk_net?: number | null;
+  reward_risk_gross?: number | null;
+  min_reward_risk?: unknown;
+  meets_min_reward_risk?: unknown;
+  account_size?: unknown;
+  sizing?: { status?: string | null; quantity?: number | null; lots?: number | null } | null;
+}
+
+/**
+ * The minimum a viable strategy's SHOWN reward : risk (net, else gross) falls short of, or null when it does not. A
+ * strategy under the minimum is "below your 1.5 minimum", never "viable" (audit 2026-10-28: a 0.19 : 1 strategy was
+ * labelled VIABLE). The route's own verdict (`meets_min_reward_risk`, ideas.strategies_of) wins; without it the ratio
+ * is compared here. Credit structures follow this rule until their own (net credit vs strike width, PR #382) is merged.
+ */
+export function belowMinimum(s: FitStrategy): number | null {
+  if (s.status !== "candidate") return null;
+  const min = typeof s.min_reward_risk === "number" ? s.min_reward_risk : DEFAULT_MIN_REWARD_RISK;
+  if (s.meets_min_reward_risk === false) return min;
+  if (s.meets_min_reward_risk === true) return null;
+  const got = s.reward_risk_net ?? s.reward_risk_gross ?? null;
+  return got != null && got < min ? min : null;
+}
+
+export const belowMinimumText = (min: number) => `below your ${fmtNum(min, 1)} minimum`;
+
+/**
+ * The size of the "strategy that fits", from the risk service's sizing of ITS trade plan for your account
+ * (`account_size`, POST /ideas → plan_sizing.size_for), so it never reads differently from the card's "Size"
+ * (audit 2026-10-28: "Size 34 shares" beside "Buy 700 shares…"). A structure the risk service could not size is shown
+ * at the plan's own lot count and says so: "1 lot, not sized to your account".
+ *   legs   the legs to show: the route's text, or for a sized cash strategy the account's share count
+ *   size   the size clause;  sized  whether the account's size is shown;  why  the risk service's reason, when not sized
+ */
+export function fitSize(s: FitStrategy, symbol: string): { legs: string | null; size: string; sized: boolean; why: string | null } {
+  const a = readAccountSize(s.account_size);
+  const cash = s.segment === "cash";
+  if (a?.status === "sized") {
+    if (cash && a.quantity != null) return { legs: `Buy ${fmtNum(a.quantity)} shares ${symbol}`, size: `${fmtNum(a.quantity)} share${a.quantity === 1 ? "" : "s"}, sized to your account`, sized: true, why: null };
+    if (!cash && a.lots != null) return { legs: s.legs_text ?? null, size: `${fmtNum(a.lots)} lot${a.lots === 1 ? "" : "s"}, sized to your account`, sized: true, why: null };
+  }
+  const own = s.sizing?.status === "complete" ? (cash ? s.sizing.quantity : s.sizing.lots) : null;
+  const n = own != null && own >= 1 ? own : 1;
+  const unit = cash ? (n === 1 ? "share" : "shares") : (n === 1 ? "lot" : "lots");
+  const why = a == null ? "the risk service did not size it for your account"
+    : a.status === "not_confirmed" ? `the risk service cuts it again at submission${a.confirmReasons[0]?.message ? `: ${a.confirmReasons[0].message}` : ""}`
+      : a.blocking[0]?.message ?? a.reason ?? null;
+  return { legs: s.legs_text ?? null, size: `${fmtNum(n)} ${unit}, not sized to your account`, sized: false, why };
 }
 
 /** The share count the plan sized for the cash strategy, when it sized one (the paper trade's starting quantity). */

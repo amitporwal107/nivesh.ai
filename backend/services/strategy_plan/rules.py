@@ -152,7 +152,7 @@ RULES = {
         "rule": "Each Chartink stock that passes the scan-snapshot eligibility gates is scored on scan confluence, trend (EMA), momentum (MACD, 20-day change, RSI), "
                 "relative volume, liquidity, F&O open-interest build-up (F&O stocks), fundamentals quality, event risk (results inside the horizon), distance from "
                 "its 52-week extremes and ATR risk. A figure that could not be read earns nothing and is listed as unavailable. Thin or conflicting evidence, a score "
-                "under the minimum, or a strategy plan that says wait or no trade, is Wait / No trade and the stock is not a pick. Strategies come from the Strategy "
+                "under the minimum, or a strategy plan that says wait or no trade, is Wait / No trade and the stock is not a candidate. Strategies come from the Strategy "
                 "Builder's plan; options are defined risk only and nothing is sent to a broker.",
     },
     "model_estimate": "withheld: no calibrated probability model exists for these setups (a scanner score is not a probability)",

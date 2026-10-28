@@ -243,13 +243,24 @@ export interface RiskDecisions {
 /** Reasons as the routes send them: `{code, message}` objects or plain strings. A code with no message is shown as the code. */
 export function readReasons(v: unknown): RiskReason[] {
   if (!Array.isArray(v)) return [];
-  return v.flatMap((x): RiskReason[] => {
+  const all = v.flatMap((x): RiskReason[] => {
     if (typeof x === "string") return x.trim() ? [{ code: null, message: x.trim(), severity: null }] : [];
     const r = rec(x);
     const code = str(r.code);
     const message = str(r.message) ?? code;
     return message ? [{ code, message, severity: str(r.severity)?.toLowerCase() ?? null }] : [];
   });
+  // One reason once: a decision can carry the same check twice, from the check and from the governor, with the code in
+  // two cases ("target_required" and "TARGET_REQUIRED", audit 2026-10-28). The blocking severity wins.
+  const out: RiskReason[] = [];
+  const seen = new Map<string, RiskReason>();
+  for (const r of all) {
+    const key = `${r.message}|${(r.code ?? "").toLowerCase()}`;
+    const kept = seen.get(key);
+    if (!kept) { seen.set(key, r); out.push(r); continue; }
+    if (r.severity && BLOCKING.has(r.severity) && !(kept.severity && BLOCKING.has(kept.severity))) kept.severity = r.severity;
+  }
+  return out;
 }
 
 export function readRiskDecisions(body: unknown): RiskDecisions {

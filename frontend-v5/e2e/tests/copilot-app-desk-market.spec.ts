@@ -510,7 +510,7 @@ test.describe("Smart trading desk — Market intelligence", () => {
     const calls = await intelApi(page);
     await page.route("**/api/positional/picks*", (route) => json(route, PICKS_SPARK));
     await page.goto(`${DESK}?tab=intel`);
-    await expect(page.getByTestId("desk-intel-title")).toHaveText("04 · AI Event intelligence");
+    await expect(page.getByTestId("desk-intel-title")).toHaveText("AI Event intelligence");   // no leftover "04 ·" (desk audit wave 1)
     await expect(page.getByTestId("desk-intel-meta")).toHaveText("NSE · BSE · SEBI · linked to the scanner");
     await expect(page.getByRole("group", { name: "Event type" }).getByRole("button")).toHaveText(CHIP_LABELS);
     await expect(page.getByTestId("desk-intel-chip-all")).toHaveAttribute("aria-pressed", "true");
@@ -910,7 +910,7 @@ test.describe("Smart trading desk — Market intelligence · design fidelity", (
     expect(new Set(tops).size).toBe(1);
 
     // The events card: title and the "tap for why" note; no side detail panel on a phone.
-    await expect(page.getByTestId("desk-intel-title")).toHaveText("04 · Top market events");
+    await expect(page.getByTestId("desk-intel-title")).toHaveText("Top market events");
     await expect(page.getByTestId("desk-intel-events")).toContainText("Tap for why");
     await expect(page.getByTestId("desk-event-detail")).toHaveCount(0);
     const order = expectedAll();

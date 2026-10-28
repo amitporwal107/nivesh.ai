@@ -85,6 +85,11 @@ export const IdeaStrategySchema = z.object({
   liquidity_flags: z.array(z.unknown()).catch([]),
   why: strOrNull,
   flags: z.array(z.unknown()).catch([]),
+  /** The plan's minimum reward : risk and whether the shown ratio reaches it (ideas.strategies_of; absent from older answers). */
+  min_reward_risk: numOrNull,
+  meets_min_reward_risk: z.boolean().nullable().catch(null),
+  /** The preferred strategy only: the risk service's sizing of its trade plan for your account (plan_sizing.size_for). */
+  account_size: z.unknown().optional(),
 }).passthrough();
 export type IdeaStrategy = z.infer<typeof IdeaStrategySchema>;
 

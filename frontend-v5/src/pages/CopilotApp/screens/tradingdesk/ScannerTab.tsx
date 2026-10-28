@@ -1117,7 +1117,7 @@ function UniverseNote({ uni, uniError, onRetry, rules, minCr }: { uni: ScanUnive
       <span className="flex flex-col" style={{ gap: 4, paddingTop: 6 }}>
         {uniError && (
           <span role="alert" style={{ color: "var(--cp-danger)" }}>
-            GET /api/positional/scan-universe did not answer, so momentum, unusual volume, results-day and F&O candidates, the model rank and the exclusion counts are not shown.{" "}
+            The scanner’s universe read did not answer, so momentum, unusual volume, results-day and F&O candidates, the model rank and the exclusion counts are not shown.{" "}
             <button type="button" data-testid="desk-scan-universe-retry" onClick={onRetry} style={linkBtn}>Retry</button>
           </span>
         )}
@@ -1162,8 +1162,8 @@ function AboutModel({ odds, uni, engineVersions, classifier, rulesVersion }: { o
 }
 
 const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
-  watchlist: "The setup watchlist (GET /api/positional/watchlist) did not answer, so only the scanner’s picks are listed.",
-  picks: "The scanner picks (GET /api/positional/picks) did not answer, so only the setup watchlist is listed and no stock has a target.",
+  watchlist: "The setup watchlist did not answer, so only the scanner’s ideas with targets are listed.",
+  picks: "The scanner’s target list did not answer, so only the setup watchlist is listed and no stock has a target.",
 };
 
 // ── the tab ──────────────────────────────────────────────────────────────
@@ -1300,7 +1300,7 @@ function ScannerList() {
   if (scan.isError && uniError) {
     return (
       <div data-testid="desk-scan-error">
-        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner picks answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
+        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner’s target list answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
       </div>
     );
   }
@@ -1436,7 +1436,7 @@ function ScannerList() {
           : <>Score: the end-of-day scanner’s rules-based score, 0–100; it ranks setups and it is not a probability. {oddsLabel(head, plain)}: the move-odds model’s estimate that the next session’s high reaches the previous close plus {head === "p_up10_1d" ? "10" : "5"}%, one session only — withheld unless the route marks it calibrated. Model rank: that estimate’s percentile among eligible stocks. Hit rate · n: no per-setup back-tested record is published.</>}
         {" "}Entry, stop and target are hypothetical and never sent to a broker.
       </span>
-      <span>Sources: NSE end-of-day scanner (GET /api/positional/watchlist, /picks) · NIDP feature store (GET /api/positional/scan-universe) · move-odds model (GET /api/move-odds/latest).</span>
+      <span>Sources: NSE end-of-day scanner (setup watchlist and target list) · NIDP feature store (scan universe) · move-odds model (latest estimates).</span>
       <UniverseNote uni={uni} uniError={uniError} onRetry={() => uniQ.refetch()} rules={rules} minCr={minCr} />
       <AboutModel odds={odds5Q.data} uni={uni} engineVersions={data?.engineVersions ?? []} classifier={data?.classifierVersion ?? null} rulesVersion={data?.rulesVersion ?? rules?.version ?? null} />
     </span>

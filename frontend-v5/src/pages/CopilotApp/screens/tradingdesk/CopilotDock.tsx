@@ -259,7 +259,7 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
         <Mark size={28} />
         <div className="flex min-w-0 flex-col" style={{ gap: 4 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1 }}>Nivesh Copilot</span>
-          <span className="cp-eyebrow" style={{ fontSize: 9.5, whiteSpace: "nowrap" }}><span style={{ color: "var(--mint)" }}>06</span> · Conversational intelligence</span>
+          <span className="cp-eyebrow" style={{ fontSize: 9.5, whiteSpace: "nowrap" }}>Conversational intelligence</span>
         </div>
         <span style={{ flex: 1 }} />
         <span className="cp-pill" data-tone="mint" title="Answers read the Nivesh data platform (NIDP), the same data the desk shows" style={{ background: "var(--mint-soft)" }}>

@@ -206,7 +206,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-1 settings: picks in score order, icon beside the name, the score with its 'not a probability' label, factor chips with tone and text, reasons, trust line", async ({ page }) => {
     const st = await open(page, SETTINGS);
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-title")).toHaveText("Best picks from my Chartink scans");
+    await expect(sec.getByTestId("ck-picks-title")).toHaveText("Top candidates from my Chartink scans");
     await expect(sec).toHaveAttribute("data-state", "ok");
     expect(st.picksUrls[0]).toContain("/api/desk/chartink/picks?limit=5");
     const cards = sec.getByTestId("ck-pick");
@@ -338,7 +338,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-4 Wait / No trade lists the evaluated stocks that are not picks, with the reason; picks can be fewer than asked, and it says why", async ({ page }) => {
     await open(page, SETTINGS);
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-wait-toggle")).toHaveText("▸ Wait / No trade (2): evaluated, but not picks");
+    await expect(sec.getByTestId("ck-picks-wait-toggle")).toHaveText("▸ Wait / No trade (2): evaluated, but not candidates");
     await expect(sec.getByTestId("ck-picks-wait")).toBeHidden();
     await sec.getByTestId("ck-picks-wait-toggle").click();
     const rows = sec.getByTestId("ck-wait-row");
@@ -359,7 +359,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-5 honest states: error with Retry, then the picks; no picks says why; the Chartink states say what is wrong", async ({ page }) => {
     const st = await open(page, SETTINGS, { picks: [{ status: 500, body: { detail: "boom" } }, { status: 200, body: BODY() }] });
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-error")).toContainText("Your Chartink best picks didn’t load");
+    await expect(sec.getByTestId("ck-picks-error")).toContainText("Your Chartink candidates didn’t load");
     await expect(sec.getByTestId("ck-pick")).toHaveCount(0);
     await sec.getByRole("button", { name: /Retry/ }).click();
     await expect(sec.getByTestId("ck-pick")).toHaveCount(4);
@@ -369,7 +369,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
   test("PK-5b no qualifying picks says why; a contract drift is an error, not an empty list", async ({ page }) => {
     await open(page, SETTINGS, { picks: [{ status: 200, body: BODY({ picks: [], returned: 0, qualified: 0, empty_reason: "Only 0 of the 5 asked qualified. 2 evaluated stock(s) are Wait / No trade: PLANETX (Thin evidence); WIDGETCO (Both bullish and bearish scans listed it)." }) }] });
     const sec = page.getByTestId("ck-picks");
-    await expect(sec.getByTestId("ck-picks-empty")).toContainText("No qualifying picks right now.");
+    await expect(sec.getByTestId("ck-picks-empty")).toContainText("No qualifying candidates right now.");
     await expect(sec.getByTestId("ck-picks-empty")).toContainText("Only 0 of the 5 asked qualified.");
     await expect(sec.getByTestId("ck-pick")).toHaveCount(0);
     await sec.getByTestId("ck-picks-wait-toggle").click();
@@ -381,7 +381,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     await expect(page2.getByTestId("ck-pick")).toHaveCount(0);
   });
 
-  for (const [state, word] of [["no_source", "No Chartink dashboard is connected."], ["not_refreshed", "have not been refreshed yet"], ["stale", "too old to pick from"], ["failed", "could not be read"]] as const) {
+  for (const [state, word] of [["no_source", "No Chartink dashboard is connected."], ["not_refreshed", "have not been refreshed yet"], ["stale", "too old to rank"], ["failed", "could not be read"]] as const) {
     test(`PK-5c state ${state}`, async ({ page }) => {
       await open(page, SETTINGS, { picks: [{ status: 200, body: BODY({ state, reason: `MOCK reason for ${state}`, picks: [], wait: [], data_as_of: { mode: "end_of_day", chartink: null, price: null, fno: null, scan_eligibility: null }, returned: 0, qualified: 0, evaluated: 0, considered: 0, excluded: [], shortfall_reason: null, empty_reason: `MOCK reason for ${state}` }) }] });
       const s = page.getByTestId("ck-picks-state");
