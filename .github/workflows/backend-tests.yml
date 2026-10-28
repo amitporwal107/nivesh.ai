@@ -285,6 +285,7 @@ jobs:
           tests/test_strategy_config.py
           tests/test_strategy_engine.py
           tests/test_strategy_evidence_sources.py
+          tests/test_strategy_failed_runs.py
           tests/test_strategy_ideas.py
           tests/test_strategy_levels.py
           tests/test_strategy_market_data.py
