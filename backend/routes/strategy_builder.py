@@ -151,6 +151,19 @@ def _user_id(user) -> str:
     raise HTTPException(status_code=401, detail="user has no id")
 
 
+async def _record_failed_run(pool, strategy_id, version_id, from_date, to_date, uid, exc: BaseException) -> Optional[str]:
+    """Store a backtest that raised as a FAILED strategy_runs row and return its id (PRD Appendix A). If that write
+    fails too, log it and return None: the caller still answers with the original error, which must not be masked."""
+    try:
+        return await bt.persist_failed_run(
+            pool, strategy_id=strategy_id, version_id=version_id, from_date=from_date, to_date=to_date,
+            triggered_by=uid, error_message=f"{type(exc).__name__}: {exc}",
+        )
+    except Exception:  # noqa: BLE001 — logged at error level, then the original error is raised by the caller
+        logger.exception("could not record the FAILED backtest run of strategy %s", strategy_id)
+        return None
+
+
 # ── Templates ───────────────────────────────────────────────────────
 @router.get("/templates")
 async def list_templates(request: Request):
@@ -1009,14 +1022,24 @@ async def run_backtest_endpoint(request: Request, strategy_id: str, body: Backte
             slippage_pct=slippage_pct,
         )
     except (CompileError, ValueError) as e:
+        await _record_failed_run(pool, strategy_id, v["id"], fd, td, uid, e)
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001 — recorded as FAILED, logged, and re-raised as a 500
+        failed_id = await _record_failed_run(pool, strategy_id, v["id"], fd, td, uid, e)
+        logger.exception("backtest of strategy %s failed; run %s recorded as FAILED", strategy_id, failed_id)
+        raise HTTPException(status_code=500, detail=(f"backtest failed; recorded as FAILED run {failed_id}"
+                                                     if failed_id else "backtest failed"))
 
     run_id = await bt.persist_run(
         pool, strategy_id=strategy_id, version_id=v["id"],
         spec=spec, result=result, from_date=fd, to_date=td, triggered_by=uid,
     )
+    status, error_message = bt.run_status(result)
     return {
         "run_id": run_id,
+        # OK, or FAILED for a window with no data (metrics.reason stays "no_data", which the screens already read).
+        "status": status,
+        "error": error_message,
         "metrics": result.metrics,
         # What reproduces this run (data watermark, code, rule and cost-model versions, universe): the same
         # block GET /runs/{run_id} returns for any stored run (backtest.run_provenance).
