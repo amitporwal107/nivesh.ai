@@ -36,6 +36,7 @@ AUDIT_ACTIONS = {
     "data_export", "data_delete",
     "admin_override", "admin_impersonate",
     "broker_connect", "broker_sync", "broker_disconnect",
+    "strategy_run_view",
 }
 
 
