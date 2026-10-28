@@ -205,6 +205,7 @@ jobs:
           tests/test_nidp_writer_annual_guard.py
           tests/test_nidp_yahoo_fundamentals.py
           tests/test_nivesh_cas_cdsl.py
+          tests/test_no_stale_fno_data.py
           tests/test_nsdl_cas_row_assembly.py
           tests/test_oms_contract.py
           tests/test_onboarding_state_sources.py
