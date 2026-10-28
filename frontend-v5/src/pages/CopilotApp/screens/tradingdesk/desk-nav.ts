@@ -226,7 +226,7 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
       return set("market", "smartmoney", "fno");
     case "more": {
       const view = params.get("view");
-      if (view === "strategy") return set("trade", "lab", undefined, "build");
+      if (view === "strategy") return set("trade", "lab", "builder", "build");       // opens "From an idea · Strategy Builder"
       if (view === "risk") return set("risk", "limits");
       if (view === "chartink") return set("trade", "scanner", "chartink", "library");
       p.delete("view");
