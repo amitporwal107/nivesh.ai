@@ -98,6 +98,11 @@ network with a throwaway `postgres:16-alpine` (PostgreSQL 16.15, the same major 
   - The same 3 tests fail on both, so they predate this branch: `test_cas_api_client.py::test_sandbox_parse_and_map`,
     `::test_convenience_helper_returns_list`, `test_nidp_stamp_broadcast_at.py::test_run_commits_in_batches`.
   - +80 = 44 model + 26 parity + 10 desk. **No regression.**
+- **Follow-up commit (same PR), found while wiring the wizard.** For a cash template, the wizard sends the share count in
+  `sizing.lots` (stepper max 100,000). The validator capped `sizing.lots` at 1,000 lots, so a 5,000-share cash structure
+  would have been refused. The cap is now `MAX_SHARES`, with a new test. Rerun:
+  `pytest test_strategy_store_v2_model.py test_strategy_store_v1_parity.py test_desk_paper_trade_strategy_ref.py` →
+  `81 passed, 2 warnings in 7.31s`.
 
 ## Data Correctness
 - Staging today, read-only (2026-10-28):

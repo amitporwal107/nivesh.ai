@@ -175,6 +175,16 @@ def test_top_level_rules():
     assert [p["code"] for p in store.validate_definition("not an object")] == ["invalid_definition"]
 
 
+def test_a_cash_templates_sizing_is_shares():
+    """The wizard's lots setting is shares for a cash template (Wizard.tsx stepper: max 100,000), sent as sizing.lots."""
+    cash = with_legs(leg("L1", "STOCK", "BUY", lots=5000, lot_size=1, expiry=None), base=COVERED)
+    cash["template_id"] = "cash_long"
+    cash["sizing"] = {"lots": 5000}
+    assert problems(cash) == []
+    cash["sizing"] = {"lots": store.MAX_SHARES + 1}
+    assert ("sizing.lots", "invalid_lots") in problems(cash)
+
+
 def test_every_problem_is_reported_not_just_the_first():
     bad = d()
     bad["legs"][0]["lots"] = 0

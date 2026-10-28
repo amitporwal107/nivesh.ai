@@ -360,7 +360,8 @@ def validate_definition(raw: Any) -> List[Dict[str, str]]:
     if raw.get("sizing") is not None:
         s = _object(r, raw["sizing"], "sizing", ("lots",))
         if s is not None:
-            _whole(r, s.get("lots"), "sizing.lots", 1, MAX_LOTS, "invalid_lots")
+            # The wizard's lots setting: lots for an F&O template, SHARES for a cash one (its stepper goes to 100,000).
+            _whole(r, s.get("lots"), "sizing.lots", 1, MAX_SHARES, "invalid_lots")
     return r.problems
 
 
