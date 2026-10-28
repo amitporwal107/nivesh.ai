@@ -121,6 +121,7 @@ jobs:
           tests/test_desk_overview_backend.py
           tests/test_desk_paper_safety.py
           tests/test_desk_paper_trade_check.py
+          tests/test_desk_paper_trade_strategy_ref.py
           tests/test_desk_paper_sim.py
           tests/test_desk_redesign_routes.py
           tests/test_desk_strategy_trades.py
@@ -301,6 +302,8 @@ jobs:
           tests/test_strategy_templates_first_wave.py
           tests/test_strategy_templates_illustration.py
           tests/test_strategy_screen.py
+          tests/test_strategy_store_v1_parity.py
+          tests/test_strategy_store_v2_model.py
           tests/test_switch_cost_framework.py
           tests/test_switch_decision_engine.py
           tests/test_symbol_lookup.py

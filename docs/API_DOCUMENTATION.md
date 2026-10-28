@@ -209,6 +209,31 @@ Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days fr
 store it insert-once in Mongo `trade_plans` (their only write). `/top` flags a bearish stock F&O idea on a bullish cash setup
 the same day with `conflicts_with_cash_setup` (not tradeable that day). Nothing here places an order.
 
+## Strategy store v2 (`/api/strategy-builder`, signed-in; Strategy Copilot Phase 1.1)
+
+One store for everything that can be backtested (owner decision D1, 2026-10-28), including Strategy Lab's saved
+structures. A v2 document (`definition.schema_version: "2"`: underlying, 1–4 legs, entry/exit, build constraints, sizing;
+validator `backend/services/strategy_store.py`) is told apart from the v1 equity DSL, whose routes and answers are unchanged.
+Before migration `026_strategy_store_v2.sql` is applied every route below answers 503 `store_not_migrated`.
+
+| Endpoint | Returns |
+|---|---|
+| `POST /strategies` (v2 definition) + `Idempotency-Key` | 201 `{strategy_id, version_id, version_no: 1, schema_version, asset_class (from the legs), source, checks[], replayed}`; same key + same body → 200 `replayed: true`; same key, other body → 409 `idempotency_conflict`. 422 `{code: invalid_definition, problems: [{field, code, message}]}` lists every problem. 409 `strategy_limit` (200) |
+| `POST /strategies/{id}/versions` `{definition, parent_version_id, change_summary?}` + `Idempotency-Key` | 201 `{version_id, version_no, parent_version_id, diff: [{path, before, after}], checks[]}`; 409 `stale_parent` `{active_version_id, active_version_no}`; 409 `version_limit` (50); 422 `no_change` / `schema_mismatch` |
+| `GET /strategies/{id}/versions`, `GET /strategies/{id}/versions/{version_id}` | newest first; one version with its `definition` (+ `checks` for v2) |
+| `POST /strategies/{id}/clone` `{name?, version_id?}` | 201 a new strategy you own, `source: "clone"`, `cloned_from {strategy_id, version_id, version_no}`; from your own strategy or a public template |
+| `GET /strategies?include=summary` | every own strategy (v1 and v2) + `source, template_id, underlying, schema_version, latest_version, last_backtest {run_id, status, finished_at, version_no, is_current_version}, paper_live {open}`. Without `include` the legacy list is unchanged (STOCK/MF rows, old keys) |
+
+- `checks[]` are derived on every read, never stored: `{code, severity blocking|warning|info, blocking_for, field, message}`
+  from the desk's defined-risk rule. A naked short option, short straddle, short futures-only or calendar structure is
+  saved as a draft with `blocking_for: ["backtest", "paper"]` (owner decision D2).
+- Not yours, archived or unknown → 404 (never 403). Version rows are immutable (database trigger; only `is_active` changes).
+- `PATCH /strategies/{id}` on a v2 strategy → 422 `use_versions_route`; `POST /strategies/{id}/backtest` on a v2 strategy →
+  422 `backtest_not_available` (options engine: Phase 2), no run recorded.
+- `POST /api/desk/paper-trades` takes an optional `strategy_ref {strategy_id, version_id}` (PAPER LIVE): one of your own
+  versions or 422 `invalid_strategy_ref`; a v2 version of another underlying → 409 `strategy_ref_mismatch`. The trade
+  stores and returns it with `version_no`; a roll carries it; `/paper-trades/check` ignores it.
+
 ## Results week — earnings vs historical trend (`/api/desk/results-week`, signed-in, read-only)
 
 | Endpoint | Returns |
