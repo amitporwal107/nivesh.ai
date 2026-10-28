@@ -224,12 +224,14 @@ function BudgetsLine({ v }: { v: PlanView }) {
 
 /**
  * The plan builder's evidence and warning text, made readable on the card: long floats to two decimals
- * ("Relative volume 1.2966179010676246x" → "1.30x", "1734.5622804300003 Cr" → "1,734.56 Cr") and no internal module
- * names ("(macro_engine.classify_desk_regime, session …)" → "(session …)"). The stored text is unchanged: it is part of
+ * ("Relative volume 1.2966179010676246x" → "1.30x", "1734.5622804300003 Cr" → "1,734.56 Cr"), no internal module
+ * names ("(macro_engine.classify_desk_regime, session …)" → "(session …)") and no routes (", GET /api/risk/profile"). The stored text is unchanged: it is part of
  * the plan's content, and so of its id (audit 2026-10-28).
  */
 export function readableText(t: string): string {
   return t
+    .replace(/\s*\((?:GET|POST) \/api\/[^\s)]*\)/g, "")
+    .replace(/,?\s*(?:GET|POST) \/api\/[^\s),;]*/g, "")
     .replace(/\s*\((?:[a-z_]+\.)+[a-z_]+\)/g, "")
     .replace(/\((?:[a-z_]+\.)+[a-z_]+(?: \([^)]*\))?,\s*/g, "(")
     .replace(/\d+\.\d{3,}/g, (m) => fmtNum(Number(m), 2));
@@ -313,7 +315,7 @@ function Sections({ v }: { v: PlanView }) {
         )}
         {size.status === "complete" && (
           <Row k="The plan's own sizing" testId="dc-own-size">
-            <span style={quiet}>{numOr(size.lots) != null ? `${fmtNum(numOr(size.lots))} lot(s)` : `${fmtNum(numOr(size.quantity))} ${segOf(tp) === "cash" ? "shares" : "units"}`} at {str(size.equity_basis) ?? "the plan's inputs"}{numOr(size.risk_rs) != null ? `, risk ${fmtPrice(numOr(size.risk_rs))}` : ""}: a what-if, not what the risk service approves for your account.</span>
+            <span style={quiet}>{numOr(size.lots) != null ? `${fmtNum(numOr(size.lots))} lot(s)` : `${fmtNum(numOr(size.quantity))} ${segOf(tp) === "cash" ? "shares" : "units"}`} at {readableText(str(size.equity_basis) ?? "the plan's inputs")}{numOr(size.risk_rs) != null ? `, risk ${fmtPrice(numOr(size.risk_rs))}` : ""}: a what-if, not what the risk service approves for your account.</span>
           </Row>
         )}
         <Row k="Risk check"><RiskCheck v={v} /></Row>
