@@ -431,7 +431,7 @@ export function ResultsWeekView({ today, viewSwitch }: { today: string; viewSwit
 
   return (
     <div data-testid="desk-events" data-view="results-week" className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
-      {mobile && <div className="flex items-center" style={{ gap: 8 }}><span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Events calendar</span><div style={{ marginLeft: "auto" }}>{viewSwitch}</div></div>}
+      {mobile && <div className="flex items-center" style={{ gap: 8 }}><span className="cp-eyebrow">Events calendar</span><div style={{ marginLeft: "auto" }}>{viewSwitch}</div></div>}
       <Widget
         id="events.resultsweek"
         testId="results-week"

@@ -266,10 +266,10 @@ test.describe("Smart trading desk — Options & futures lab", () => {
     await page.goto(`${DESK}?tab=fno`);
 
     const tab = page.getByTestId("desk-fno");
-    await expect(tab).toContainText("Options & futures lab · NSE F&O");
+    // Hosted in Market Desk › Smart Money (?tab=fno lands there): no leftover lab eyebrow or headline (desk audit wave 1).
+    await expect(tab).not.toContainText("Options & futures lab");
     for (const p of ["Trader mode", "Analysis only", "End of day"]) await expect(tab.locator(".cp-pill", { hasText: p }).first()).toBeVisible();
-    await expect(page.getByTestId("desk-fno-title")).toHaveText("Build, test and understand option trades.");
-    await expect(page.getByTestId("desk-fno-title").locator("em")).toHaveText("option trades");
+    await expect(page.getByTestId("desk-fno-title")).toHaveCount(0);
 
     // Right block: the chain's spot and day, India VIX from the markets tape (not live → its own day).
     await expect(page.getByTestId("desk-fno-spot")).toHaveText(n2(chain.summary.spot));
@@ -1021,9 +1021,9 @@ test.describe("Smart trading desk — Options & futures lab at 390px", () => {
     await page.goto(`${DESK}?tab=fno`);
     await expect(page.getByTestId("desk-buildup-row")).toHaveCount(BUILDUP_ROWS.length);
 
-    // Order on the page: title, spot, underlying row, stats, sub-tabs, the open view.
+    // Order on the page: spot, underlying row, stats, sub-tabs, the open view (no lab headline inside Smart Money: desk audit wave 1).
     const top = async (id: string) => (await page.getByTestId(id).boundingBox())?.y ?? -1;
-    const ys = [await top("desk-fno-title"), await top("desk-fno-spot"), await top("desk-fno-symbol-input"), await top("desk-fno-stats"), await top("desk-fno-view-buildup"), await top("desk-buildup-scatter")];
+    const ys = [await top("desk-fno-spot"), await top("desk-fno-symbol-input"), await top("desk-fno-stats"), await top("desk-fno-view-buildup"), await top("desk-buildup-scatter")];
     expect(ys.every((y, i) => y >= 0 && (i === 0 || y > ys[i - 1]))).toBe(true);
     // Two stat tiles a row, and two quadrant cards a row.
     const iv = await page.getByTestId("desk-fno-atm-iv").boundingBox();

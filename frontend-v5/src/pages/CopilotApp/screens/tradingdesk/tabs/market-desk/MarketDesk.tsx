@@ -180,7 +180,7 @@ export default function MarketDesk({ view }: { view: string | null }) {
             elsewhere="The option chain and OI build-up live here only; a stock’s research view links to them."
           />
           <Hosted id="smartmoney" name="Smart Money"><SmartMoneyTab /></Hosted>
-          <Section id="fno" title="F&O · build-up, candidates, indices and option chain"><FnoTab views={SMART_MONEY_LAB} asSection /></Section>
+          <Section id="fno" title="F&O · build-up, candidates, indices and option chain"><FnoTab views={SMART_MONEY_LAB} asSection bare /></Section>
         </>
       );
     case "sectors":

@@ -582,7 +582,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await expect(brk.getByTestId("desk-scan-score")).toHaveText(String(Math.round(PICKS.picks[0].final_score * 100)));
     await expect(brk.getByTestId("desk-scan-setup")).toHaveText("Breakout confirmed");
     await expect(brk.getByTestId("desk-scan-why")).toHaveText(WATCHLIST.buckets.breakout_confirmed[0].why);
-    await expect(page.getByTestId("desk-scan-row-FIXPICK").getByTestId("desk-scan-setup")).toHaveText("Scanner pick · early breakout");
+    await expect(page.getByTestId("desk-scan-row-FIXPICK").getByTestId("desk-scan-setup")).toHaveText("Scanner idea · early breakout");
     // A universe-only stock has no score ("—", never 0) and says which rule found it.
     const vol = page.getByTestId("desk-scan-row-UVOL1");
     await expect(vol.getByTestId("desk-scan-score")).toHaveText("—");
@@ -980,7 +980,7 @@ test.describe("Smart trading desk · AI scanner", () => {
   test("TC-17 one scanner route fails → the other's rows and a note naming the route", async ({ page }) => {
     await scanMocks(page, { picksStatus: 500 });
     await page.goto(DESK_SCAN);
-    await expect(page.getByTestId("desk-scan-partial")).toContainText("GET /api/positional/picks", SLOW);
+    await expect(page.getByTestId("desk-scan-partial")).toContainText("The scanner’s target list did not answer", SLOW);
     const watchOnly = BUCKETS.flatMap((b) => (WATCHLIST.buckets[b] as Watch[]).map((w) => w.nse_symbol));
     await expect(page.getByTestId("desk-scan-row-FIXPICK")).toHaveCount(0);
     for (const s of watchOnly) await expect(page.getByTestId(`desk-scan-row-${s}`).getByTestId("desk-scan-target")).toHaveText("—");
@@ -992,7 +992,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.goto(DESK_SCAN);
     await expect.poll(async () => (await rowOrder(page)).sort(), SLOW).toEqual([...SETUP_SYMS].sort());
     await page.getByTestId("desk-scan-universe-toggle").click();
-    await expect(page.getByTestId("desk-scan-universe")).toContainText("GET /api/positional/scan-universe did not answer");
+    await expect(page.getByTestId("desk-scan-universe")).toContainText("The scanner’s universe read did not answer");
     await expect(page.getByTestId("desk-scan-universe-retry")).toBeVisible();
     await page.getByTestId("desk-scan-cat-momentum").click();
     await expect(page.getByTestId("desk-scan-cat-error")).toContainText("This category needs the universe scan, which didn’t load");
@@ -1724,7 +1724,7 @@ test.describe("Smart trading desk · Chart analysis and risk desk", () => {
     // a stock the scanner has: its own levels, and the source says so
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXBRK`);
     await page.getByTestId("desk-detail-levels-toggle").click();
-    await expect(page.getByTestId("desk-lvl-source")).toContainText("AI scanner pick");
+    await expect(page.getByTestId("desk-lvl-source")).toContainText("AI scanner idea");
   });
 
   test("TC-21 chart-live 403 → charting locked for the account; indicators and patterns are locked too", async ({ page }) => {
@@ -2001,7 +2001,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
   test("ten sections in the PRD's order, collapsed with a summary each; a section and Open all expand them", async ({ page }) => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXBRK`);
-    await expect(page.getByTestId("desk-detail-title")).toHaveText("03 · Opportunity detail");
+    await expect(page.getByTestId("desk-detail-title")).toHaveText("Opportunity detail");
     const ids = await page.locator('[data-testid^="desk-detail-"][data-testid$="-toggle"]').evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
     expect(ids).toEqual(SECTIONS.map((k) => `desk-detail-${k}-toggle`));
     expect(await page.locator('[data-testid^="desk-detail-"][data-testid$="-toggle"] > span > span:first-child').allTextContents()).toEqual([
@@ -2166,7 +2166,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
   test("the investor wording renames every section and keeps the figures", async ({ page }) => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXBRK&persona=investor`);
-    await expect(page.getByTestId("desk-detail-title")).toHaveText("03 · Everything about this idea");
+    await expect(page.getByTestId("desk-detail-title")).toHaveText("Everything about this idea");
     expect(await page.locator('[data-testid^="desk-detail-"][data-testid$="-toggle"] > span > span:first-child').allTextContents()).toEqual([
       "What is being estimated, and for how long", "The score, and how reliable it has been", "What the chart shows", "The business and who owns it", "Company news and filings",
       "Is it easy to buy and sell?", "Possible buy, exit and target prices", "How similar setups did before", "What argues against it", "How fresh the data is, and what is missing",
@@ -2181,7 +2181,7 @@ test.describe("Smart trading desk · opportunity detail (PRD §5.7)", () => {
   test("a trust line on the chart card, the risk card and the detail: source, end of day, rules", async ({ page }) => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXBRK`);
-    await expect(page.getByTestId("desk-chart-trust")).toHaveText("NSE daily bars (nidp.prices_eod_adjusted) · End of day · 13 Oct 2026 · Rules-based · Indicators: stock_features_daily engine (calculator.py) · scanner setups: rules");
+    await expect(page.getByTestId("desk-chart-trust")).toHaveText("NSE daily bars (nidp.prices_eod_adjusted) · End of day · 13 Oct 2026 · Rules-based · Indicators: the daily stock-features engine · scanner setups: rules");
     await expect(page.getByTestId("desk-chart-trust")).toHaveAttribute("data-mode", "eod");
     await expect(page.getByTestId("desk-risk-trust")).toContainText("Positional scanner levels · scenario route (server) · End of day · 13 Oct 2026 · Rules-based");
     await expect(page.getByTestId("desk-risk-trust")).toContainText("0.05% + ₹20 a side + STT, exchange, SEBI, stamp duty and GST");
@@ -2200,7 +2200,7 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await scanMocks(page);
     await page.goto(`${DESK}?tab=scanner`);
     await expect(page.getByTestId("desk-scan-table")).toHaveAttribute("data-layout", "table");
-    await expect(page.getByTestId("desk-scan-title")).toHaveText("02 · AI Opportunity scanner");
+    await expect(page.getByTestId("desk-scan-title")).toHaveText("AI Opportunity scanner");
     await expect(page.getByTestId("desk-scan-trust")).toBeVisible();
     await expect(page.getByTestId("desk-scan-trust-model")).toBeVisible();
     expect(await texts(page, '[data-testid^="desk-scan-col-"]')).toEqual([
@@ -2252,8 +2252,8 @@ test.describe("Smart trading desk · design fidelity (desktop)", () => {
     await chartMocks(page);
     await page.goto(`${DESK}?tab=market&view=research&sym=FIXBRK`);
     await expect(page.getByTestId("desk-candle")).toHaveCount(63);
-    await expect(page.getByTestId("desk-chart-title")).toHaveText("03 · AI Chart intelligence");
-    await expect(page.getByTestId("desk-risk-title")).toHaveText("05 · AI Risk desk");
+    await expect(page.getByTestId("desk-chart-title")).toHaveText("AI Chart intelligence");
+    await expect(page.getByTestId("desk-risk-title")).toHaveText("AI Risk desk");
     await expect(page.getByTestId("desk-chart-tab")).toHaveAttribute("data-layout", "desk");
     // 7 : 5 side by side, tops aligned.
     const card = (await page.getByTestId("desk-chart-card").boundingBox())!;
@@ -2415,11 +2415,11 @@ test.describe("Smart trading desk · scanner and chart at 390px", () => {
     const tops: number[] = [];
     for (const id of ids) tops.push(await topOf(page, id));
     expect([...tops].sort((a, b) => a - b)).toEqual(tops);
-    await expect(page.getByTestId("desk-analysis")).toContainText("03 · AI chart analysis");
+    await expect(page.getByTestId("desk-analysis")).toContainText("AI chart analysis");
     await expect(page.getByTestId("desk-analysis").locator('[data-testid^="desk-check-"]')).toHaveCount(7);
     await expect(page.getByTestId("desk-chart-pills")).toContainText("Scanner confidence · High");
     expect(await page.getByTestId("desk-history").locator(".cp-eyebrow").allTextContents()).toEqual(["Hit rate", "Average move", "Reward : risk"]);
-    await expect(page.getByTestId("desk-risk-title")).toHaveText("05 · Trade scenario");
+    await expect(page.getByTestId("desk-risk-title")).toHaveText("Trade scenario");
     await expect(page.getByTestId("desk-risk-rr")).toHaveText("2.0 : 1");
     await expect(page.getByTestId("desk-chart-status")).toHaveAttribute("data-status", "confirmed");
     // Only the paper-trade button, full width of the card's body.

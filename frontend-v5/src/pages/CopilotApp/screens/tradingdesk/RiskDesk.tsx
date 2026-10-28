@@ -874,7 +874,7 @@ export function RiskDesk({ symbol, setup, bars }: { symbol: string; setup: DeskS
           </span>
         )}
         {setup && target == null && entry != null && (
-          <span className="cp-mono-note">Reward / risk needs a target; only the scanner’s picks carry one.</span>
+          <span className="cp-mono-note">Reward / risk needs a target; only the scanner’s ideas with a target carry one.</span>
         )}
 
         <div className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>

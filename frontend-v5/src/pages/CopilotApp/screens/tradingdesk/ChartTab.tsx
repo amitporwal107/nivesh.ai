@@ -249,7 +249,7 @@ function ChartBody({ symbol, state, retry, setup, tf, ov, compact, live, events 
         testId="desk-chart-locked"
         title="Charting is not enabled for this account"
         body="Daily candles and the indicators worked out from them need the charting feature. The scanner levels and the risk desk still show."
-        needs={["The `charting` feature allowlist for this account (GET /api/research/chart-live/{symbol}/ohlcv answers 403 without it)."]}
+        needs={["The `charting` feature switched on for this account (the daily candles are refused without it)."]}
       />
     );
   }
@@ -1042,7 +1042,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
       <KV testId="desk-def-setup" k={plain ? "What the scanner found" : "Scanner setup (rules, not a prediction)"} v={setup ? setupLabel(setup, plain) : dash}
         why={setup ? (setup.why ?? "The scanner stored no rule text for this setup.") : "Not on today’s scanner, so there is no rules-based setup."} />
       <KV testId="desk-def-window" k={plain ? "Holding time" : "Holding window"} v={setup && (setup.daysMin != null || setup.daysMax != null) ? `${setup.daysMin ?? "—"}–${setup.daysMax ?? "—"} days` : dash}
-        why={setup && (setup.daysMin != null || setup.daysMax != null) ? "The pick’s own window." : "Only the scanner’s picks carry a holding window."} />
+        why={setup && (setup.daysMin != null || setup.daysMax != null) ? "The scanner idea’s own window." : "Only the scanner’s ideas with targets carry a holding window."} />
       <KV testId="desk-def-odds" k={plain ? "Chance of +5% next day" : "P(+5% next session)"} v={run ? `for ${fmtDay(run.target_session)}` : dash}
         why="The move-odds model’s estimate that the next session’s high reaches the last close plus 5%. One session only — never a multi-day horizon." />
       <KV testId="desk-def-record" k={plain ? "Past-record outcome" : "Historical outcome"} v={`within ${RECORD_HORIZON} sessions`}
@@ -1183,13 +1183,13 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
   // ── 7 · levels ──
   const s7 = (
     <>
-      <KV testId="desk-lvl-source" k="Source" v={lv.source === "scanner" ? "AI scanner pick" : lv.source === "rule" ? `Rule ${lv.rule?.name} v${lv.rule?.version}` : dash}
+      <KV testId="desk-lvl-source" k="Source" v={lv.source === "scanner" ? "AI scanner idea" : lv.source === "rule" ? `Rule ${lv.rule?.name} v${lv.rule?.version}` : dash}
         why={lv.source === "scanner" ? "The scanner has levels for this stock, so they are shown instead of the rule’s." : lv.source === "rule" ? lv.rule?.label : lv.reason ?? undefined} />
       <KV testId="desk-lvl-entry" k={plain ? "Buy above" : "Entry"} v={fmtPrice(lv.entry)} why={lv.entry == null ? lv.reason ?? "No entry." : lv.source === "rule" ? "The last close." : undefined} />
       <KV testId="desk-lvl-stop" k={plain ? "Exit if wrong" : "Stop"} v={fmtPrice(lv.stop)}
         why={lv.stop == null ? lv.reason ?? "No stop." : lv.source === "rule" ? (lv.rule?.stopBasis === "support20" ? "The 20-session low, closer than the ATR stop." : `${fmtNum(lv.rule?.constants.atr_multiple ?? 0, 1)} × ATR(${lv.rule?.constants.atr_period ?? 14}) below the entry.`) : undefined} />
       <KV testId="desk-lvl-target" k="Target" v={fmtPrice(lv.target)}
-        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s picks carry a target." : lv.reason ?? "No target.") : lv.source === "rule" ? `Entry plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
+        why={lv.target == null ? (lv.source === "scanner" ? "Only the scanner’s ideas with targets carry one." : lv.reason ?? "No target.") : lv.source === "rule" ? `Entry plus ${fmtNum(lv.rule?.constants.reward_multiple ?? 0, 1)} × the risk.` : undefined} />
       <KV testId="desk-lvl-rr" k={plain ? "Reward for risk" : "Reward : risk"} v={lv.riskReward != null ? `${fmtNum(lv.riskReward, 1)} : 1` : dash} />
       <span style={{ fontSize: 11.5, lineHeight: 1.5, color: "var(--cp-ink-3)", paddingTop: 4 }}>
         {lv.source === "rule" ? `${lv.rule?.label}. ` : lv.source === "scanner" ? "Hypothetical levels from the scanner. " : ""}
@@ -1427,7 +1427,7 @@ export default function ChartTab({ riskPanel }: { riskPanel?: (symbol: string) =
       mode="eod"
       asOf={bars?.length ? fmtDay(bars[bars.length - 1].day) : null}
       maker="rules"
-      method={live ? "Indicators: stock_features_daily engine (calculator.py) · scanner setups: rules" : "Scanner setups: rules"}
+      method={live ? "Indicators: the daily stock-features engine · scanner setups: rules" : "Scanner setups: rules"}
       status={barsQ.isError || liveQ.isError ? "failed" : null}
     />
   );

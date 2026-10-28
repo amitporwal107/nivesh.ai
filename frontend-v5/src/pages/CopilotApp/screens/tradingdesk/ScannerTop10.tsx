@@ -35,12 +35,13 @@ import { SymbolCell } from "../desk/parts";
 import { fmtDay, fmtPrice } from "../trading/parts";
 import { useDesk, type TrailFrom } from "./context";
 import { BUCKET_LABEL, num, parseResultsSignal, useDeskScanner, type DeskSetup, type SetupBucket } from "./desk-data";
+import { setupLabel } from "./chart-data";
 import { ResultsSignalTag } from "./ResultsSignalTag";
 import { ENTRY_RULE_SHORT, entryRuleFor, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type NewPaperTrade } from "./desk-trading";
 import { Segmented } from "./fno-parts";
 import { CashLevels, IdeaLevels, useIdeaLevels } from "./IdeaLevels";
 import { RiskReduceOffer } from "./RiskReduce";
-import { DASH, StatusPill, noteStyle, ratio, rupeesAbs } from "./strategy/plan-format";
+import { DASH, StatusPill, noteStyle } from "./strategy/plan-format";
 import type { PlanStatus } from "./strategy/plan-contract";
 import type { Idea } from "./strategy/ideas-contract";
 import { IdeaActions, Why } from "./strategy/TopByRegime";
@@ -49,6 +50,7 @@ import type { TopBoard } from "./strategy/top-contract";
 import {
   TOP10, fnoUniverseNotes, mergeFno, planParamsFor, preferredStrategy, sizedShares, useTop10Fno, useTop10Stocks, type FnoKind, type FnoRow,
 } from "./top10-data";
+import { FitLine } from "./FitLine";
 import { Widget } from "./widget";
 import { PlanPaperTrade } from "./PlanPaperTrade";
 import { DecisionCard, NoPlan } from "./decision/DecisionCard";
@@ -219,8 +221,7 @@ function StockRow({ idea, rank, scanDate, listed, setup }: { idea: Idea; rank: n
           {pref ? (
             <>
               <strong style={{ fontWeight: 500 }}>{pref.label}</strong>
-              {pref.legs_text ? ` · ${pref.legs_text}` : ""}
-              {` · max loss ${rupeesAbs(pref.max_loss)} · reward : risk ${ratio(pref.reward_risk_net)}`}
+              <FitLine s={pref} symbol={idea.symbol} />
             </>
           ) : (
             <span>{idea.status_reasons[0]?.message || "none passed the plan’s checks on this scan"}</span>
@@ -236,7 +237,7 @@ function StockRow({ idea, rank, scanDate, listed, setup }: { idea: Idea; rank: n
       {at && (
         <IdeaDrawer label={`${idea.symbol} · full card`} testId="desk-top10-drawer" onClose={close} focus={at === "paper" ? "desk-top10-drawer-paper" : null}
           title={<span className="flex items-center" style={{ gap: 10 }}><span className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{rankText(rank)}</span>{idea.symbol}</span>}
-          sub={<>{[idea.name, sc.sector].filter(Boolean).join(" · ")}{setup ? ` · ${setup}` : ""}{scanDate ? ` · scan of ${dayLabel(scanDate)}` : ""}</>}>
+          sub={<>{[idea.name, sc.sector].filter(Boolean).join(" · ")}{setup ? ` · ${setupLabel(setup)}` : ""}{scanDate ? ` · scan of ${dayLabel(scanDate)}` : ""}</>}>
           {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="full" testId="desk-top10-drawer-card" recordsShownPlan />
             : <NoPlan testId="desk-top10-drawer-noplan" reason={idea.status_reasons[0]?.message ?? null} />}
           <DrawerSection title="Paper trade" testId="desk-top10-drawer-paper">

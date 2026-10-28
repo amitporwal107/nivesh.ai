@@ -191,7 +191,8 @@ test.describe("Smart trading desk — shell", () => {
     // Design §9: the card header, the composer, a 384px column, no taller than 820px.
     const header = page.getByTestId("dock-header");
     await expect(header).toContainText("Nivesh Copilot");
-    await expect(header).toContainText("06 · Conversational intelligence");
+    await expect(header).toContainText("Conversational intelligence");
+    await expect(header).not.toContainText("06 ·");      // no leftover section number (desk audit wave 1)
     await expect(header).toContainText("NIDP");
     await expect(page.getByTestId("dock-input")).toHaveAttribute("placeholder", "Ask about a stock, sector or your portfolio");
     const box = await dock.boundingBox();

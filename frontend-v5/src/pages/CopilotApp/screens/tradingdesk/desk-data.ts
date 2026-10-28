@@ -716,7 +716,7 @@ export function probabilityGate(odds: DeskOdds | undefined, plain = false, stock
       shown: false,
       reason: plain
         ? "Not shown: the model's chances are not marked as checked against real outcomes (calibrated), so they are held back."
-        : "Withheld: GET /api/move-odds/latest does not mark these estimates as calibrated (it sends a 2025 band record, not a calibration flag), so no probability is shown (PRD §5.8).",
+        : "Withheld: the move-odds model does not mark these estimates as calibrated (it sends a 2025 band record, not a calibration flag), so no probability is shown (PRD §5.8).",
     };
   }
   if (odds.kind === "not_published") return { shown: false, reason: `Not published for ${odds.expectedSession} yet.` };

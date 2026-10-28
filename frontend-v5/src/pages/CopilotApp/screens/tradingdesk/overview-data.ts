@@ -271,16 +271,16 @@ export function marketStatus(home: MarketsHome | undefined, now: IstParts): Mark
     const unread = s ? "The NSE holiday list could not be read, so the status follows the clock." : "Exchange holidays are not checked by this server.";
     if (!open) {
       if (s?.reason === "holiday") {
-        return { label: "NSE holiday", feed: "closed", open, holiday: s.holiday ?? null, calendarChecked: true, why: `NSE holiday${s.holiday ? `: ${s.holiday}` : ""} (NSE holiday list, GET /api/markets/home)` };
+        return { label: "NSE holiday", feed: "closed", open, holiday: s.holiday ?? null, calendarChecked: true, why: `NSE holiday${s.holiday ? `: ${s.holiday}` : ""} (NSE holiday list)` };
       }
       const when = s?.reason === "weekend" ? "Weekend" : "Outside NSE hours (Mon–Fri 09:15–15:30 IST)";
-      return { label: "Market closed", feed: "closed", open, holiday: null, calendarChecked: checked, why: `${when}, per GET /api/markets/home${checked ? "" : `. ${unread}`}` };
+      return { label: "Market closed", feed: "closed", open, holiday: null, calendarChecked: checked, why: `${when}, per the market status${checked ? "" : `. ${unread}`}` };
     }
     const label = checked ? "Market open" : "NSE hours";
     const tail = checked ? "Today is not an NSE holiday (NSE holiday list)." : unread;
     return home.is_live
-      ? { label, feed: "live", open, holiday: null, calendarChecked: checked, why: `Inside NSE hours; the index tape is the live feed (GET /api/markets/home). ${tail}` }
-      : { label, feed: "delayed", open, holiday: null, calendarChecked: checked, why: `Inside NSE hours; quotes are delayed (GET /api/markets/home). ${tail}` };
+      ? { label, feed: "live", open, holiday: null, calendarChecked: checked, why: `Inside NSE hours; the index tape is the live feed. ${tail}` }
+      : { label, feed: "delayed", open, holiday: null, calendarChecked: checked, why: `Inside NSE hours; quotes are delayed. ${tail}` };
   }
   const open = inNseHours(now);
   return {

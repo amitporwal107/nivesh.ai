@@ -1153,7 +1153,7 @@ function MobileEvents() {
   return (
     <div data-testid="desk-events" className="flex min-w-0 flex-col" style={{ gap: 12 }}>
       <div className="flex items-center" style={{ gap: 8 }}>
-        <span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Events calendar</span>
+        <span className="cp-eyebrow">Events calendar</span>
         <div style={{ marginLeft: "auto" }}><Seg id="tab" label="Calendar type" value={macro ? "macro" : "stock"} onPick={(v) => { setMacro(v === "macro"); setSheet(null); }} items={[["STOCK", "stock"], ["MACRO", "macro", mq1.isSuccess ? String(mevs.length) : mq1.isError ? "!" : "…"]]} /></div>
       </div>
       <div className="flex">{viewSeg}</div>
