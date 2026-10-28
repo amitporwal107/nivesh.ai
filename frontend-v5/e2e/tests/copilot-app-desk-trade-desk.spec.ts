@@ -805,6 +805,7 @@ test.describe("MOCK — not real data: Trade Desk · AI Scanner and Chart Analys
     await expect(ticket.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
     await expect(ticket.locator('input, [role="slider"], input[type="range"]')).toHaveCount(0);
     await expect(page.getByTestId("desk-scn-out-gross")).toHaveCount(0);           // the old capital × risk-% calculator
+    await page.route("**/api/desk/ai-watchlist*", (r) => json(r, CARD.ai_watchlist_day));   // the stored day's plan for the symbol
     await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=ICICIBANK`);
     await expect(page.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
   });

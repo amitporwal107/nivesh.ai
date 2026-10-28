@@ -2,7 +2,7 @@
  * One-screen Copilot app (/v5/app) — Trade Desk › Chart Analysis › Live chart, built to the owner's design of 28 Oct
  * (test cases: test_reports/desk_live_chart_TESTCASES.md, TC-15 … TC-24).
  *
- * The plan, GET /api/desk/trade-plans/{id} (with `account_size`), GET /api/risk/profile, the F&O ideas board and the REAL
+ * The plan, GET /api/desk/trade-plans/{id} (with `account_size`), GET /api/risk/profile, the stored AI watchlist day and the REAL
  * allow / block answers of POST /api/desk/paper-trades come from `contract-decision-card.json`, which
  * backend/tests/test_decision_card_contract.py rebuilds from the real routes (MOCK — not real data). The live-chart and
  * oi-buildup answers below are inline MOCKs — not real data — in the shape of backend/routes/desk_live_chart.py and
@@ -153,7 +153,11 @@ const PENDING_HDFC = {
 };
 
 interface Seen { posts: Array<Record<string, unknown>>; chainExpiry: Array<string | null> }
-interface Opts { phone?: boolean; trades?: Array<Record<string, unknown>>; post?: Array<{ status: number; body: unknown }>; oi?: Record<string, unknown> }
+interface Opts {
+  phone?: boolean; trades?: Array<Record<string, unknown>>; post?: Array<{ status: number; body: unknown }>; oi?: Record<string, unknown>;
+  /** Delay (ms) before the ideas board answers: staging took ~16 s. */
+  ideasDelayMs?: number;
+}
 
 async function setup(page: Page, o: Opts = {}): Promise<Seen> {
   const seen: Seen = { posts: [], chainExpiry: [] };
@@ -170,8 +174,13 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
   await page.route("**/api/risk/profile", (r) => json(r, PROFILE));
   await page.route("**/api/desk/paper-account", (r) => json(r, { ...CARD.paper_account, stored: true }));
   await page.route("**/api/desk/exit-job-status", (r) => json(r, { job: "check_desk_alerts", status: "ok", message: "ok", last_checked: { session: "2026-10-27" } }));
-  await page.route("**/api/desk/strategy/ideas", (r) => json(r, CARD.cash.ideas_response));
+  await page.route("**/api/desk/strategy/ideas", async (r) => {
+    if (o.ideasDelayMs) await new Promise((res) => setTimeout(res, o.ideasDelayMs));
+    return json(r, CARD.cash.ideas_response).catch(() => undefined);
+  });
   await page.route("**/api/desk/strategy/top", (r) => json(r, CARD.fno.top_response));
+  // GET /api/desk/ai-watchlist: the stored day (contract fixture: ICICIBANK's cash plan and its F&O idea; no HDFCBANK)
+  await page.route("**/api/desk/ai-watchlist*", (r) => json(r, CARD.ai_watchlist_day));
   await page.route("**/api/desk/trade-plans/*", (r) => {
     const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string);
     return id === CASH_PLAN.plan_id ? json(r, CARD.cash.trade_plan_response) : json(r, { detail: "plan_not_found" }, 404);
@@ -340,10 +349,52 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis › Live ch
     await expect.poll(() => params(page).get("view")).toBe("controls");
   });
 
-  test("TC-20 without ?tp= the ticket uses today's idea for the symbol", async ({ page }) => {
+  test("TC-20 without ?tp= the ticket uses the stored AI watchlist day's plan for the symbol", async ({ page }) => {
     await setup(page);
     await page.goto(LIVE("ICICIBANK"));
     await expect(page.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
+  });
+
+  test("LC-8 a symbol with no plan says so within 10 s while the ideas board is slow; no repeated aborts of the profile / paper-trades reads", async ({ page }) => {
+    test.setTimeout(60_000);
+    await setup(page, { ideasDelayMs: 20_000 });
+    const count: Record<string, number> = { profile: 0, paper: 0, ideas: 0, top: 0, watch: 0 };
+    const failed: string[] = [];
+    const kind = (u: string) => (/\/api\/risk\/profile/.test(u) ? "profile" : /\/api\/desk\/paper-trades/.test(u) ? "paper" : /strategy\/ideas/.test(u) ? "ideas"
+      : /strategy\/top/.test(u) ? "top" : /ai-watchlist/.test(u) ? "watch" : null);
+    page.on("request", (req) => { const k = kind(req.url()); if (k) count[k] += 1; });
+    page.on("requestfailed", (req) => { const k = kind(req.url()); if (k) failed.push(`${k} ${req.failure()?.errorText ?? ""}`); });
+    const t0 = Date.now();
+    await page.goto(LIVE("HDFCBANK"));
+    await expect(page.getByTestId("lc-ticket-none")).toContainText("No plan for HDFCBANK today, so there is no order to place (HDFCBANK is not on the AI watchlist of 19 Oct 2026)", { timeout: 10_000 });
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    await expect(page.getByTestId("lc-ticket-risk")).toHaveText("0.50%");
+    await page.waitForTimeout(8_000);                                 // let any loop show itself
+    expect(failed, failed.join(", ")).toEqual([]);
+    expect(count.profile, JSON.stringify(count)).toBeLessThanOrEqual(2);
+    expect(count.paper, JSON.stringify(count)).toBeLessThanOrEqual(2);
+    expect(count.ideas, "the ~16 s ideas board is never fired from the Live chart").toBe(0);
+    expect(count.top, "nor the F&O ideas board").toBe(0);
+    await expect(page.getByTestId("lc-ticket-none")).toBeVisible();
+  });
+
+  test("LC-9 chart and ticket side by side from a 1,000 px panel; stacked below it", async ({ page }) => {
+    await setup(page);
+    for (const width of [2560, 1440]) {
+      await page.setViewportSize({ width, height: 1200 });
+      await page.goto(LIVE("ICICIBANK", `&tp=${CASH_PLAN.plan_id}`));
+      await expect(page.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
+      const view = (await page.getByTestId("lc-view").boundingBox())!;
+      const chart = (await page.getByTestId("lc-chart").boundingBox())!;
+      const ticket = (await page.getByTestId("lc-ticket").boundingBox())!;
+      if (view.width >= 1000) {
+        expect(ticket.x, `panel ${view.width}px at ${width}`).toBeGreaterThanOrEqual(chart.x + chart.width - 1);
+        expect(Math.abs(ticket.y - chart.y)).toBeLessThan(2);
+      } else {
+        expect(ticket.y, `panel ${view.width}px at ${width}`).toBeGreaterThanOrEqual(chart.y + chart.height - 1);
+      }
+      if (width === 2560) expect(view.width, "a 2560 px window gives the panel at least 1,000 px").toBeGreaterThanOrEqual(1000);
+    }
   });
 
   test("TC-22 the F&O setup: build-up and wall lines, OI by strike, PCR · ATM IV · IV pctile · exp. move, the CANDIDATE STRUCTURE", async ({ page }) => {
@@ -364,7 +415,7 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis › Live ch
     await expect(fno.getByTestId("lc-fno-ivp")).toHaveText("not recorded");
     await expect(fno.getByTestId("lc-fno-em")).toHaveText("±487.05");
     await expect(fno.getByTestId("lc-structure-title")).toHaveText(/Candidate structure/i);
-    await expect(fno.getByTestId("lc-structure-name")).toContainText("Bear put spread 1360/1380");
+    await expect(fno.getByTestId("lc-structure-name")).toContainText("Bear put spread 1360/1380");    // the stored day's F&O idea
     await expect(fno.getByTestId("lc-structure-leg")).toHaveCount(2);
     await expect(fno.getByTestId("lc-structure-note")).toContainText("Both legs bounded. Margin is an estimate");
     await expect(fno.getByTestId("lc-structure-note")).toContainText("OI shows positioning, not who initiated it.");

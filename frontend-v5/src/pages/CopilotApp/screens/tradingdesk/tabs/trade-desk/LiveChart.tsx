@@ -10,7 +10,8 @@
  *                   GET /api/fno/{symbol}/futures/oi-buildup     (useOiBuildup)
  *                   GET /api/desk/paper-trades                   (usePaperTrades, read once per load: the fill state)
  *                   the live feed (useLiveOverlay)               LAST price and time while the market is live
- *   right   the PAPER ORDER TICKET (LiveTicket.tsx)
+ *   right   the PAPER ORDER TICKET (LiveTicket.tsx); its plan: ?tp=, else the stored AI watchlist day, else the ideas board
+ *           when it is already cached (never fetched here: it takes ~16 s). Side by side from TWO_COLUMN_MIN px, else stacked
  *   below   the F&O SETUP card (FnoSetupCard.tsx) and the SIGNAL CONDITIONS card
  *
  * Without the platform Kite session the route answers daily bars: the screen says "Kite login needed for 15m candles" and
@@ -30,6 +31,7 @@ import { usePaperTrades, type PaperTrade } from "../../desk-trading";
 import { BUILDUP_META } from "../../fno-buildup";
 import type { DailyBar } from "../../indicators";
 import { useTop10Stocks } from "../../top10-data";
+import { useAiWatchlist } from "../../../workspace/ai-watchlist-data";
 import { FnoSetupCard } from "./FnoSetupCard";
 import { LiveTicket } from "./LiveTicket";
 import { SLOT_LABEL, useLiveChart, useOiBuildup, type LiveChart, type LiveCondition, type OiBuildup, type OiSeries } from "./live-chart-data";
@@ -40,6 +42,8 @@ const MARK_COLOR: Record<string, string> = { WATCH: "var(--cp-ink-2)", READY: "v
 const MARK_GROUP: Record<string, string> = { WATCH: "pattern", READY: "pattern", CONFIRMED: "confirmation", RVOL: "volume" };
 const GROUPS = [{ key: "pattern", label: "Pattern" }, { key: "confirmation", label: "Confirmation" }, { key: "volume", label: "Volume" }, { key: "fno", label: "F&O" }] as const;
 const SLOTS = ["current", "next", "far", "consolidated"] as const;
+/** The chart and the ticket sit side by side (design) from this panel width; below it they stack. */
+export const TWO_COLUMN_MIN = 1000;
 
 const priceTxt = (v: number | null | undefined) => (v == null ? "—" : fmtNum(v, v >= 1000 ? 1 : 2));
 const istTime = (iso: string | null | undefined) => {
@@ -279,9 +283,19 @@ export default function LiveChartView({ onIdeas, onStrategyLab, onRiskPolicy }: 
   const symbol = (desk.symbol ?? scan.data?.setups[0]?.symbol ?? null)?.toUpperCase() ?? null;
   const tpRaw = params.get("tp");
   const tp = tpRaw && /^[A-Za-z0-9_:-]{1,80}$/.test(tpRaw) ? tpRaw : null;
-  const board = useTop10Stocks(!tp && !!symbol);
-  const idea = board.data?.ideas.find((i) => i.symbol?.toUpperCase() === symbol) ?? null;
-  const planId = tp ?? (idea as { trade_plan?: { plan_id?: string } | null } | null)?.trade_plan?.plan_id ?? null;
+  // This symbol's plan, without waiting on the ideas board (POST /api/desk/strategy/ideas takes ~16 s on staging): ?tp=, else
+  // the stored AI watchlist day (GET /api/desk/ai-watchlist, one fast read; its plans are the job's, readable by everyone),
+  // else the ideas board ONLY if it is already in the cache (Market Overview or Ranked candidates read it). Never fetched here.
+  const watch = useAiWatchlist(null);
+  const board = useTop10Stocks(false);
+  const row = !tp && symbol ? watch.data?.cash.find((e) => e.symbol.toUpperCase() === symbol) ?? null : null;
+  const watchPlan = row?.trade_plan_id ?? row?.trade_plan?.plan_id ?? null;
+  const idea = !tp && symbol ? board.data?.ideas.find((i) => i.symbol?.toUpperCase() === symbol) ?? null : null;
+  const boardPlan = (idea as { trade_plan?: { plan_id?: string } | null } | null)?.trade_plan?.plan_id ?? null;
+  const planId = tp ?? watchPlan ?? boardPlan;
+  const planPending = !planId && watch.isPending;
+  const planWhy = watch.isError ? "today's AI watchlist could not be read"
+    : watch.data?.list_date ? `${symbol} is not on the AI watchlist of ${fmtDay(watch.data.list_date)}` : "no AI watchlist is stored yet";
   const meta = useLiveMeta();
   const open = meta.session === "open";
   const q = useLiveChart(symbol, planId, open);
@@ -292,7 +306,7 @@ export default function LiveChartView({ onIdeas, onStrategyLab, onRiskPolicy }: 
   const [slot, setSlot] = useState<string>("current");
   const [box, setBox] = useState<HTMLDivElement | null>(null);
   const width = useBoxWidth(box);
-  const wide = (width ?? 0) >= 860;
+  const wide = (width ?? 0) >= TWO_COLUMN_MIN;
 
   const d = q.data ?? null;
   const bars: DailyBar[] = useMemo(() => (d?.bars ?? []).map(([day, open_, high, low, close, volume]) => ({ day, open: open_, high, low, close, volume })), [d]);
@@ -379,7 +393,7 @@ export default function LiveChartView({ onIdeas, onStrategyLab, onRiskPolicy }: 
   }
 
   const signalLabel = d?.signal ? `signal ${dayMonth(d.signal.signal_date)}${d.signal.revision ? ` r${d.signal.revision}` : ""}` : null;
-  const ticket = <LiveTicket symbol={symbol} planId={planId} planPending={!tp && board.isPending} onIdeas={onIdeas} onRiskPolicy={onRiskPolicy} signalLabel={signalLabel} />;
+  const ticket = <LiveTicket symbol={symbol} planId={planId} planPending={planPending} noPlanWhy={planWhy} onIdeas={onIdeas} onRiskPolicy={onRiskPolicy} signalLabel={signalLabel} />;
   const oiNote = oiQ.data?.kind === "none" ? oiQ.data.message : null;
   return (
     <div ref={setBox} data-testid="lc-view" data-symbol={symbol} className="flex min-w-0 flex-col" style={{ gap: 16 }}>
