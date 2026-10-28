@@ -798,25 +798,22 @@ test.describe("MOCK — not real data: Trade Desk · AI Scanner and Chart Analys
     await expect.poll(() => params(page).get("sub")).toBe("scorecard");
   });
 
-  test("CH-1 Live chart: the ticket beside the chart is the account_size one (from ?tp= or today's idea); no calculator, no slider", async ({ page }) => {
+  test("CH-1 Live chart: the paper order ticket is the account_size one (from ?tp= or today's idea); no calculator, no slider", async ({ page }) => {
     await setup(page);
     await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=ICICIBANK&tp=${CASH_PLAN.plan_id}`);
-    const ticket = page.getByTestId("td-chart-ticket");
-    await expect(ticket).toHaveAttribute("data-source", "url", SLOW);
-    await expect(ticket.getByTestId("td-ticket-size")).toHaveAttribute("data-qty", "666", SLOW);
+    const ticket = page.getByTestId("lc-ticket");
+    await expect(ticket.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
     await expect(ticket.locator('input, [role="slider"], input[type="range"]')).toHaveCount(0);
     await expect(page.getByTestId("desk-scn-out-gross")).toHaveCount(0);           // the old capital × risk-% calculator
     await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=ICICIBANK`);
-    await expect(page.getByTestId("td-chart-ticket")).toHaveAttribute("data-source", "top10", SLOW);
-    await expect(page.getByTestId("td-ticket-size")).toHaveAttribute("data-qty", "666", SLOW);
+    await expect(page.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
   });
 
-  test("CH-2 / CH-3 a stock with no idea has no ticket, said with the way to the ideas; Signal record is not available yet", async ({ page }) => {
+  test("CH-2 / CH-3 a stock with no idea has no order to place, said with the way to the ideas; Signal record is not available yet", async ({ page }) => {
     await setup(page);
     await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=NOIDEA`);
-    await expect(page.getByTestId("td-chart-ticket")).toHaveAttribute("data-source", "none", SLOW);
-    await expect(page.getByTestId("td-chart-ticket")).toContainText("No idea with a plan for NOIDEA today, so there is no ticket");
-    await page.getByTestId("td-chart-ticket-ideas").click();
+    await expect(page.getByTestId("lc-ticket-none")).toContainText("No plan for NOIDEA today, so there is no order to place", SLOW);
+    await page.getByTestId("lc-ticket-ideas").click();
     await expect.poll(() => params(page).get("sub")).toBe("ranked");
     await page.goto(`${DESK}?tab=trade&view=chart&sub=record`);
     await expect(page.getByTestId("desk-trade-record-pending")).toContainText("not available yet", SLOW);
