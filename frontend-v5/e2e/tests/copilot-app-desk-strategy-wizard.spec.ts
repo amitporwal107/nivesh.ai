@@ -1,6 +1,7 @@
 /**
  * One-screen Copilot app (/v5/app) — Trade Desk › Strategy Lab › Build a trade as the owner's four-step wizard
- * (test cases WZ-1 … WZ-19 in test_reports/desk_strategy_wizard_TESTCASES.md).
+ * (test cases WZ-1 … WZ-19 in test_reports/desk_strategy_wizard_TESTCASES.md; WZ-13 and WZ-20 … WZ-25, the shared strategy
+ * store, in test_reports/strategy_store_wiring_20261028.md).
  *
  * REAL fixtures from this branch's backend code: wizard-catalog.json (GET /api/desk/strategy/templates, templates.catalog()),
  * wizard-payoff-bcs.json and wizard-payoff-calendar.json (services/strategy_plan compute_payoff for a NIFTY 24500/24700 CE
@@ -20,6 +21,8 @@ const CATALOG = load("wizard-catalog.json");
 const PAYOFF = load("wizard-payoff-bcs.json");
 const PAYOFF_CAL = load("wizard-payoff-calendar.json");
 const CARD = load("contract-decision-card.json");
+// The v2 bodies the store takes, pinned with backend/tests/test_strategy_store_v2_model.py (one contract, two sides).
+const STORE_CONTRACT = load("contract-strategy-store-v2.json");
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 const BUILD = "/v5/app/trader/desk?tab=trade&view=lab&sub=build";
 const SLOW = { timeout: 15_000 };
@@ -87,11 +90,74 @@ const book = (trades: unknown[]) => ({ as_of: "2026-10-27", checked_through: "20
 const ALLOW = { checked: true, recorded: false, outcome: "allow", reasons: [], requested_lots: 1, approved_lots: 1, requested_qty: null, approved_qty: null, estimated_risk_rs: { total: 6499.49 }, budget: {}, policy_version: "MOCK", limits_version: "MOCK", freshness: {}, duplicate: null, basis: "MOCK", sent_to_broker: false };
 const BLOCK_REASON = "Open risk would reach 3.4% of equity; your profile allows 3.0%.";
 
-interface Opts { empty?: boolean; check?: unknown; post?: Array<{ status: number; body: unknown }>; margin?: { status: number; body: unknown }; asOf?: string; phone?: boolean }
-interface Seen { checks: Array<Record<string, unknown>>; posts: Array<Record<string, unknown>>; keys: Array<string | undefined>; payoffs: number; chains: string[] }
+interface StoreOpts {
+  /** store_not_migrated: every store route answers 503; old: an older backend (POST 422 with a list detail, no other routes). */
+  mode?: "ok" | "store_not_migrated" | "old";
+  /** The first POST …/versions answers 409 stale_parent (another tab saved version 2 first). */
+  staleOnce?: boolean;
+  /** Rows of GET /strategies?include=summary, and the stored strategies GET /strategies/{id} answers. */
+  rows?: unknown[];
+  stored?: Record<string, unknown>;
+}
+interface Opts { empty?: boolean; check?: unknown; post?: Array<{ status: number; body: unknown }>; margin?: { status: number; body: unknown }; asOf?: string; phone?: boolean; store?: StoreOpts; trades?: unknown[] }
+interface Seen { checks: Array<Record<string, unknown>>; posts: Array<Record<string, unknown>>; keys: Array<string | undefined>; payoffs: number; chains: string[];
+  store: Array<{ method: string; path: string; body: Record<string, unknown> | null; key: string | undefined }> }
+
+// ── MOCK shared strategy store (routes/strategy_builder.py, PR #398) — a small stateful fake in the routes' shapes ──────
+const STORE_DOWN = { detail: { code: "store_not_migrated", message: "The strategy store is not upgraded on this server yet (migration 026); nothing was saved." } };
+async function storeRoutes(page: Page, o: Opts, seen: Seen) {
+  const st = o.store ?? {};
+  let versionNo = 0;
+  await page.route(/\/api\/strategy-builder\/strategies(\/[^?]*)?(\?.*)?$/, (r) => {
+    const req = r.request();
+    const url = new URL(req.url());
+    const sub = url.pathname.replace(/^.*\/api\/strategy-builder\/strategies/, "");
+    const method = req.method();
+    const body = method === "POST" ? (req.postDataJSON() as Record<string, unknown>) : null;
+    if (method === "GET" && sub === "" && url.searchParams.get("include") !== "summary") return json(r, o.empty ? { strategies: [], count: 0 } : BUILDER);
+    seen.store.push({ method, path: sub + url.search, body, key: req.headers()["idempotency-key"] });
+    if (st.mode === "store_not_migrated") return json(r, STORE_DOWN, 503);
+    if (st.mode === "old") {
+      // An older backend ignores ?include and answers its legacy list; it has no other store route.
+      if (method === "GET" && sub === "") return json(r, o.empty ? { strategies: [], count: 0 } : BUILDER);
+      if (method === "POST" && sub === "") return json(r, { detail: [{ type: "string_pattern_mismatch", loc: ["body", "asset_class"], msg: "String should match pattern '^(STOCK|MF)$'", input: "FNO" }] }, 422);
+      return json(r, { detail: "Not Found" }, 404);
+    }
+    if (method === "GET" && sub === "") return json(r, { strategies: st.rows ?? [], count: (st.rows ?? []).length });
+    if (method === "GET" && /^\/[^/]+$/.test(sub)) {
+      const one = (st.stored ?? {})[sub.slice(1)];
+      return one ? json(r, one) : json(r, { detail: "strategy not found" }, 404);
+    }
+    if (method === "POST" && sub === "") {
+      versionNo = 1;
+      return json(r, { strategy_id: "s-new", version_id: "v-1", version_no: 1, schema_version: "2", asset_class: body?.asset_class, source: body?.source, checks: [], replayed: false }, 201);
+    }
+    if (method === "POST" && sub.endsWith("/versions")) {
+      if (st.staleOnce) {
+        st.staleOnce = false;
+        versionNo = 2;
+        return json(r, { detail: { code: "stale_parent", message: "Version 2 was saved after the one you edited; reload it and apply your change again.", active_version_id: "v-other", active_version_no: 2 } }, 409);
+      }
+      versionNo += 1;
+      return json(r, { version_id: `v-${versionNo}`, version_no: versionNo, parent_version_id: body?.parent_version_id, replayed: false, checks: [],
+        diff: [{ path: "legs[L2].strike.value", before: 24700, after: 24800 }] }, 201);
+    }
+    if (method === "POST" && sub.endsWith("/clone")) {
+      return json(r, { strategy_id: "s-copy", version_id: "v-c1", version_no: 1, schema_version: "2", source: "clone", cloned_from: { strategy_id: "s-new", version_id: body?.version_id, version_no: versionNo } }, 201);
+    }
+    return json(r, { detail: "Not Found" }, 404);
+  });
+}
+
+/** The keys of a JSON value at every level (arrays by their first item): the contract's shape, not its values. */
+function shape(v: unknown): unknown {
+  if (Array.isArray(v)) return v.length ? [shape(v[0])] : [];
+  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, shape((v as Record<string, unknown>)[k])]));
+  return typeof v === "number" || v === null ? "number|null" : typeof v;
+}
 
 async function setup(page: Page, o: Opts = {}): Promise<Seen> {
-  const seen: Seen = { checks: [], posts: [], keys: [], payoffs: 0, chains: [] };
+  const seen: Seen = { checks: [], posts: [], keys: [], payoffs: 0, chains: [], store: [] };
   await page.clock.setFixedTime(new Date("2026-10-28T10:00:00+05:30"));
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await page.route("**/api/**", (r) => json(r, { detail: "MOCK: not mocked in this spec" }, 404));
@@ -111,9 +177,9 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
     const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string);
     return PLAN_DETAILS[id] ? json(r, PLAN_DETAILS[id]) : json(r, { detail: "plan_not_found" }, 404);
   });
-  await page.route("**/api/strategy-builder/strategies", (r) => json(r, o.empty ? { strategies: [], count: 0 } : BUILDER));
+  await storeRoutes(page, o, seen);
   await page.route("**/api/ai-trader/strategies", (r) => json(r, o.empty ? { strategies: [], orders: "none" } : AI));
-  const trades: unknown[] = o.empty ? [] : [PT_PLAN, PT_AI];
+  const trades: unknown[] = o.trades ?? (o.empty ? [] : [PT_PLAN, PT_AI]);
   await page.route("**/api/desk/paper-trades*", (r) => {
     if (r.request().method() === "POST") {
       seen.posts.push(r.request().postDataJSON());
@@ -503,14 +569,31 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await expect(page.getByTestId("wz-chain-age")).toContainText("stale: prices are estimates, not quotes");
   });
 
-  test("WZ-13 Save version and Clone are disabled with the reason (one store, not yet); the legs stay in the page's state", async ({ page }) => {
-    await setup(page);
+  test("WZ-13 Save version: the first save creates the strategy (the contract's shape, an Idempotency-Key); the legs stay in the page's state", async ({ page }) => {
+    const seen = await setup(page);
     await toValidate(page);
-    await expect(page.getByTestId("wz-save")).toBeDisabled();
-    await expect(page.getByTestId("wz-clone")).toBeDisabled();
-    await expect(page.getByTestId("wz-save-note")).toHaveText("Saving arrives with the shared strategy store.");
     await expect(page.getByTestId("wz-prov-instance")).toHaveText("unsaved");
+    await expect(page.getByTestId("wz-instance-state")).toHaveText("unsaved");
     await expect(page.getByTestId("wz-instance-legs")).toHaveText("B 24500 CE 25 Nov · S 24700 CE 25 Nov");
+    await expect(page.getByTestId("wz-save")).toBeEnabled();
+    await expect(page.getByTestId("wz-clone")).toBeDisabled();
+    await expect(page.getByTestId("wz-step-4")).not.toContainText("Saving arrives with the shared strategy store");
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-save-note")).toHaveAttribute("data-kind", "saved", SLOW);
+    await expect(page.getByTestId("wz-save-text")).toHaveText("Saved as version 1.");
+    const post = seen.store.find((x) => x.method === "POST" && x.path === "");
+    expect(post?.key).toBeTruthy();
+    const body = post?.body as { name: string; asset_class: string; source: string; template_id: string; definition: { schema_version: string; underlying: unknown; template_id: string; legs: Array<Record<string, unknown>>; name: string } };
+    expect(shape(body)).toEqual(shape(STORE_CONTRACT.create_bull_call_spread));
+    expect([body.asset_class, body.source, body.template_id, body.name]).toEqual(["FNO", "template", "bull_call_spread", "NIFTY Bull call spread"]);
+    expect(body.definition.schema_version).toBe("2");
+    expect(body.definition.name).toBe(body.name);
+    expect(body.definition.underlying).toEqual({ symbol: "NIFTY", kind: "index" });
+    expect(body.definition.legs.map((l) => [l.leg_id, l.instrument, l.side, l.lots, l.lot_size_at_save, (l.strike as { value: number }).value, (l.expiry as { date: string }).date]))
+      .toEqual([["L1", "CALL", "BUY", 1, 75, 24500, NOV], ["L2", "CALL", "SELL", 1, 75, 24700, NOV]]);
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1");
+    await expect(page.getByTestId("wz-save")).toBeDisabled();           // nothing changed since version 1
+    await expect(page.getByTestId("wz-clone")).toBeEnabled();
     // Edited legs survive every step change: back to 3, to 1, to 2 (no setting changed, so no rebuild), to 3 and 4.
     await page.getByTestId("wz-adjust").click();
     await page.getByTestId("wz-leg").nth(1).getByTestId("wz-leg-strike-plus").click();
@@ -523,10 +606,150 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await expect(page.getByTestId("wz-leg").nth(1)).toHaveAttribute("data-strike", "24800");
     await page.getByTestId("wz-step-btn-4").click();
     await expect(page.getByTestId("wz-instance-legs")).toHaveText("B 24500 CE 25 Nov · S 24800 CE 25 Nov");
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1 · unsaved changes");
     // A setting changed in step 2 does rebuild, by the user's own action.
     await page.getByTestId("wz-step-btn-2").click();
     await page.getByTestId("wz-rule-otm").click();
     await expect(page.getByTestId("wz-preview-legs")).toHaveText("B 24600 CE 25 Nov · S 24800 CE 25 Nov");
+  });
+
+  test("WZ-20 a change, then Save version: a new version from the one loaded, with the server's diff", async ({ page }) => {
+    const seen = await setup(page);
+    await toValidate(page);
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1", SLOW);
+    await page.getByTestId("wz-adjust").click();
+    await page.getByTestId("wz-leg").nth(1).getByTestId("wz-leg-strike-plus").click();
+    await expect(page.getByTestId("wz-leg").nth(1)).toHaveAttribute("data-strike", "24800");
+    await page.getByTestId("wz-step-btn-4").click();
+    await expect(page.getByTestId("wz-instance-state")).toHaveText("version 1 · unsaved changes");
+    await expect(page.getByTestId("wz-clone")).toBeDisabled();           // Clone copies a saved version: save first
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-save-text")).toHaveText("Saved as version 2.", SLOW);
+    const v = seen.store.find((x) => x.method === "POST" && x.path === "/s-new/versions");
+    expect(v?.key).toBeTruthy();
+    expect(v?.body?.parent_version_id).toBe("v-1");
+    expect(((v?.body?.definition as { legs: Array<{ strike: { value: number } }> }).legs).map((l) => l.strike.value)).toEqual([24500, 24800]);
+    await expect(page.getByTestId("wz-save-diff-item")).toHaveText(["legs[L2].strike.value: 24700 → 24800"]);
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 2");
+  });
+
+  test("WZ-21 another tab saved first: 409 stale_parent, then 'save on top of version 2' re-posts from that version", async ({ page }) => {
+    const seen = await setup(page, { store: { staleOnce: true } });
+    await toValidate(page);
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1", SLOW);
+    await page.getByTestId("wz-adjust").click();
+    await page.getByTestId("wz-leg").nth(1).getByTestId("wz-leg-strike-plus").click();
+    await page.getByTestId("wz-step-btn-4").click();
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-save-note")).toHaveAttribute("data-kind", "stale", SLOW);
+    await expect(page.getByTestId("wz-save-text")).toHaveText("Version 2 was saved after the one you edited; reload it and apply your change again.");
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1 · unsaved changes");
+    await page.getByTestId("wz-save-over").click();
+    await expect(page.getByTestId("wz-save-text")).toHaveText("Saved as version 3.", SLOW);
+    const posts = seen.store.filter((x) => x.method === "POST" && x.path === "/s-new/versions");
+    expect(posts.map((x) => x.body?.parent_version_id)).toEqual(["v-1", "v-other"]);
+  });
+
+  test("WZ-22 Clone copies the saved version and the wizard goes on with the copy", async ({ page }) => {
+    const seen = await setup(page);
+    await toValidate(page);
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-clone")).toBeEnabled(SLOW);
+    await page.getByTestId("wz-clone").click();
+    await expect(page.getByTestId("wz-save-text")).toHaveText("Cloned as “NIFTY Bull call spread (copy)”, version 1. You are now editing the copy.", SLOW);
+    const c = seen.store.find((x) => x.method === "POST" && x.path === "/s-new/clone");
+    expect(c?.body).toEqual({ name: "NIFTY Bull call spread (copy)", version_id: "v-1" });
+    await expect(page.getByTestId("wz-instance-name")).toHaveValue("NIFTY Bull call spread (copy)");
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1");
+    await expect(page.getByTestId("wz-save")).toBeDisabled();
+  });
+
+  test("WZ-23 a server without the store says so; the legs and the step stay", async ({ page }) => {
+    for (const mode of ["store_not_migrated", "old"] as const) {
+      const seen = await setup(page, { store: { mode } });
+      await toValidate(page);
+      await page.getByTestId("wz-save").click();
+      await expect(page.getByTestId("wz-save-note")).toHaveAttribute("data-kind", "unavailable", SLOW);
+      await expect(page.getByTestId("wz-save-text")).toHaveText("Saving is not available on this server yet: its strategy store is not upgraded. Your legs stay on this page.");
+      await expect(page.getByTestId("wz-step-4")).toBeVisible();
+      await expect(page.getByTestId("wz-instance-legs")).toHaveText("B 24500 CE 25 Nov · S 24700 CE 25 Nov");
+      await expect(page.getByTestId("wz-prov-instance")).toHaveText("unsaved");
+      expect(seen.store.filter((x) => x.method === "POST").map((x) => x.path)).toEqual([""]);
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+    }
+  });
+
+  test("WZ-24 a simulated trade of exactly the saved version cites it; after a change it does not", async ({ page }) => {
+    const seen = await setup(page);
+    await toValidate(page);
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1", SLOW);
+    await expect(page.getByTestId("wz-start")).toBeEnabled(SLOW);
+    await page.getByTestId("wz-start").click();
+    await expect(page.getByTestId("wz-answer")).toHaveAttribute("data-outcome", "allow", SLOW);
+    expect((seen.posts[0] as { strategy_ref?: unknown }).strategy_ref).toEqual({ strategy_id: "s-new", version_id: "v-1" });
+    await expect.poll(() => (seen.checks.at(-1) as { strategy_ref?: unknown } | undefined)?.strategy_ref).toEqual({ strategy_id: "s-new", version_id: "v-1" });
+  });
+
+  test("WZ-24b with unsaved changes the trade cites only the template", async ({ page }) => {
+    const seen = await setup(page);
+    await toValidate(page);
+    await page.getByTestId("wz-save").click();
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1", SLOW);
+    await page.getByTestId("wz-adjust").click();
+    await page.getByTestId("wz-leg").nth(1).getByTestId("wz-leg-strike-plus").click();
+    await expect(page.getByTestId("wz-checks-risk")).toHaveAttribute("data-tone", "ok", SLOW);
+    await page.getByTestId("wz-to-validate").click();
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 1 · unsaved changes");
+    await expect(page.getByTestId("wz-start")).toBeEnabled(SLOW);
+    await page.getByTestId("wz-start").click();
+    await expect(page.getByTestId("wz-answer")).toHaveAttribute("data-outcome", "allow", SLOW);
+    const body = seen.posts[0] as { strategy_ref?: unknown; signal: { source_refs: Array<{ kind: string }> } };
+    expect(body.strategy_ref).toBeUndefined();
+    expect(body.signal.source_refs[0]).toMatchObject({ kind: "strategy_template" });
+  });
+
+  test("WZ-25 saved structures in Existing strategies: PAPER LIVE from the citing trade, STALE from the runs; Open loads the version", async ({ page }) => {
+    const def = { ...STORE_CONTRACT.create_bull_call_spread.definition, name: "My NIFTY spread",
+      legs: [
+        { leg_id: "L1", instrument: "CALL", side: "BUY", lots: 1, lot_size_at_save: 75, expiry: { rule: "specific", date: NOV }, strike: { rule: "fixed", value: 24500 }, entry_price_at_save: { value: 180, source: "MOCK" }, relationship: null },
+        { leg_id: "L2", instrument: "CALL", side: "SELL", lots: 1, lot_size_at_save: 75, expiry: { rule: "specific", date: NOV }, strike: { rule: "fixed", value: 24700 }, entry_price_at_save: { value: 95, source: "MOCK" }, relationship: null },
+      ],
+      build_constraints: { max_loss_rs: 9000, max_capital_rs: null, stop_underlying: null, strike_rule: { rule: "atm", anchor_strikes: 1, width_strikes: 2, target_delta: 0.3 }, chain_as_of: "2026-10-27" } };
+    // Postgres JSONB hands a document back in its own key order: the stored definition comes back with every object's
+    // keys reversed, so Save staying disabled proves "unsaved changes" does not depend on key order.
+    const reorder = (v: unknown): unknown => Array.isArray(v) ? v.map(reorder) : v && typeof v === "object"
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).reverse().map(([k, x]) => [k, reorder(x)])) : v;
+    const row = (id: string, name: string, o: Record<string, unknown>) => ({ id, owner_id: "u", name, description: null, asset_class: "FNO", is_public_template: false, is_archived: false, created_at: "2026-10-27", updated_at: "2026-10-28",
+      source: "template", template_id: "bull_call_spread", underlying: "NIFTY", cloned_from: null, schema_version: "2", latest_version: { id: "v-3", version_no: 3, created_at: "2026-10-28" }, last_backtest: null, paper_live: { open: 0 }, ...o });
+    const cited = strade("pt-store1", [opt("buy", "call", 24500, NOV, 180), opt("sell", "call", 24700, NOV, 95)], { net_pnl_rs: 512.4, strategy_ref: { strategy_id: "st-live", version_id: "v-3", version_no: 3 } });
+    const seen = await setup(page, { trades: [PT_PLAN, PT_AI, cited], store: {
+      rows: [row("st-live", "My NIFTY spread", { paper_live: { open: 1 } }), row("st-stale", "Older spread", { last_backtest: { run_id: "r1", status: "OK", finished_at: "2026-10-26", version_no: 1, is_current_version: false } })],
+      stored: { "st-live": { id: "st-live", owner_id: "u", name: "My NIFTY spread", asset_class: "FNO", is_public_template: false, is_archived: false, created_at: "2026-10-27", updated_at: "2026-10-28",
+        source: "template", template_id: "bull_call_spread", underlying: "NIFTY", cloned_from: null, schema_version: "2", checks: [],
+        active_version: { id: "v-3", strategy_id: "st-live", version_no: 3, definition: reorder(def), dsl_version: "2", is_active: true, created_at: "2026-10-28", created_by: "u" } } } } });
+    await page.goto(BUILD);
+    const r = (key: string) => page.locator(`[data-testid="wz-row"][data-key="${key}"]`);
+    await expect(r("store:st-live").getByTestId("wz-row-status")).toHaveText("PAPER LIVE", SLOW);
+    await expect(r("store:st-live").getByTestId("wz-row-pnl")).toHaveText("+₹512");
+    await expect(r("store:st-live").getByTestId("wz-row-ver")).toHaveText("v3");
+    await expect(r("store:st-live").getByTestId("wz-row-legs")).toHaveText("Saved structure · legs load on Open");
+    await expect(r("store:st-stale").getByTestId("wz-row-status")).toHaveText("STALE");
+    await expect(r("store:st-stale").getByTestId("wz-row-status")).toHaveAttribute("title", "The latest backtest ran on version 1; the current version is 3.");
+    await expect(page.locator('[data-testid="wz-row"][data-key="trade:pt-store1"]')).toHaveCount(0);   // listed once, under its strategy
+    expect(seen.store.some((x) => x.method === "GET" && x.path === "?include=summary")).toBe(true);
+    await r("store:st-live").getByTestId("wz-row-open").click();
+    await expect(page.getByTestId("wz-step-3")).toBeVisible(SLOW);
+    await expect(page.getByTestId("wz-leg")).toHaveCount(2);
+    await expect(page.getByTestId("wz-leg").nth(1)).toHaveAttribute("data-strike", "24700");
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("version 3");
+    await expect(page.getByTestId("wz-prov-template")).toHaveText("Bull call spread");
+    await expect(page.getByTestId("wz-checks-risk")).toHaveAttribute("data-tone", "ok", SLOW);
+    await page.getByTestId("wz-to-validate").click();
+    await expect(page.getByTestId("wz-instance-name")).toHaveValue("My NIFTY spread");
+    await expect(page.getByTestId("wz-save")).toBeDisabled();           // opened as version 3, nothing changed
   });
 
   test("WZ-14 start the simulated trade: Idempotency-Key, the template cited; allow opens it on the strip and the monitor", async ({ page }) => {

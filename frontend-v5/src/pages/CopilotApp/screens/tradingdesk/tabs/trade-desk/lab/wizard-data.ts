@@ -20,6 +20,7 @@ import { ApiError } from "@/services/api/errors";
 import type { FnoChain, FnoStrike } from "../../../../trading/fno";
 import type { PayoffRequest } from "../../../strategy/strategy-contract";
 import type { NewStrategyPaperTrade, StrategyPaperTrade } from "../../../desk-trading";
+import { storeStatus, type StoreRow } from "../../../strategy/instance-store";
 
 type Raw = Record<string, unknown>;
 const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
@@ -350,8 +351,11 @@ export const WIZARD_RULES = "strategy-lab-wizard-v1";
 export function paperBody(o: {
   underlying: string; direction: Direction; family: string; spot: number; legs: WLeg[]; lotSize: number | null;
   template: string | null; templateLabel: string | null; stop: number | null; asOf: string | null;
+  /** The saved version these legs are, when they are exactly that version (strategy/instance-store.ts). */
+  strategyRef?: { strategy_id: string; version_id: string } | null;
 }): NewStrategyPaperTrade {
   return {
+    ...(o.strategyRef ? { strategy_ref: o.strategyRef } : {}),
     kind: "strategy",
     underlying: o.underlying,
     direction: o.direction,
@@ -507,7 +511,7 @@ export interface ExistingRow {
   tradeId: string | null;
   template: string | null;
   instanceId: string | null;
-  kind: "plan" | "ai" | "builder" | "trade";
+  kind: "plan" | "ai" | "builder" | "trade" | "store";
 }
 
 /** Strategy-trade legs as wizard legs (the price is the trade's own entry price). */
@@ -529,10 +533,30 @@ function aiTrade(t: StrategyPaperTrade): boolean {
 export function existingRows(o: {
   builder: Array<{ id: string; name: string; assetClass: string | null }>; plans: Array<{ id: string; underlying: string | null; family: string | null; legs: WLeg[] | null }>;
   ai: AiStrategy[]; trades: StrategyPaperTrade[]; labelOf: (template: string | null) => string | null;
+  /** Structures saved in the shared strategy store (v2 rows of GET /api/strategy-builder/strategies?include=summary). */
+  store?: StoreRow[];
 }): ExistingRow[] {
   const open = o.trades.filter((t) => t.status === "open");
   const used = new Set<string>();
   const rows: ExistingRow[] = [];
+  for (const s of o.store ?? []) {
+    if (s.schemaVersion !== "2") continue;          // v1 rule sets are listed from the Strategy Builder list below
+    const cited = open.filter((x) => x.strategyRef?.strategyId === s.strategyId);
+    cited.forEach((x) => used.add(x.id));
+    const status = cited.length ? "PAPER LIVE" : storeStatus(s);
+    const v = s.latestVersion?.versionNo ?? null;
+    const why = status === "PAPER LIVE" ? `Open paper trade ${cited[0]?.id} cites a saved version.`
+      : status === "BACKTEST FAILED" ? "The latest backtest run failed; its reason is on the run."
+      : status === "BACKTESTED" ? "The latest backtest ran on the current version. A pass rule for “backtest passed” is not set yet, so none is shown."
+      : status === "STALE" ? `The latest backtest ran on version ${s.lastBacktest?.versionNo ?? "?"}; the current version is ${v ?? "?"}.`
+      : "Saved in the strategy store; no backtest run yet.";
+    rows.push({
+      key: `store:${s.strategyId}`, source: s.source === "ai" ? "AI" : "YOU", name: s.name, ref: s.strategyId.slice(0, 8).toUpperCase(),
+      legs: [], noLegs: null, underlying: s.underlying ?? "—", status, statusWhy: why, version: v,
+      pnlRs: cited.length ? cited.reduce((t, x) => t + (x.netRs ?? 0), 0) : null, tradeId: cited[0]?.id ?? null,
+      template: s.templateId, instanceId: s.strategyId, kind: "store",
+    });
+  }
   for (const p of o.plans) {
     const t = open.find((x) => x.strategyPlanId === p.id);
     if (t) used.add(t.id);
