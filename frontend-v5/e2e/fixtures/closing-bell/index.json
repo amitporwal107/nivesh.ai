@@ -1,14 +1,14 @@
 {
  "schema": "closing-bell-index-v1",
  "latest": "2026-10-27",
- "updated_at": "2026-10-28T07:12:08+05:30",
+ "updated_at": "2026-10-28T08:24:35+05:30",
  "editions": [
   {
    "date": "2026-10-27",
    "day_long": "Tuesday, 27 October 2026",
    "title": "Closing Bell — Tuesday, 27 October 2026",
-   "duration_s": 351,
-   "duration_label": "5:51",
+   "duration_s": 400,
+   "duration_label": "6:40",
    "headlines": [
     {
      "kicker": "Markets",
@@ -27,7 +27,7 @@
     },
     {
      "kicker": "Sectors",
-     "big": "Media leads",
+     "big": "Media shines",
      "small": "Nifty Media +3.66%, 9 of 10 up"
     }
    ],
@@ -71,8 +71,51 @@
     "captions": "2026-10-27/captions.vtt",
     "transcript": "2026-10-27/transcript.json"
    },
-   "published_at": "2026-10-28T07:12:08+05:30",
-   "voice": "en-US-AndrewMultilingualNeural (edge-tts)",
+   "languages": [
+    {
+     "code": "en",
+     "label": "English",
+     "video": "2026-10-27/closing-bell-2026-10-27.mp4",
+     "captions": "2026-10-27/captions.vtt",
+     "transcript": "2026-10-27/transcript.json"
+    },
+    {
+     "code": "hi",
+     "label": "हिंदी",
+     "video": "2026-10-27/closing-bell-2026-10-27-hi.mp4",
+     "captions": "2026-10-27/captions_hi.vtt",
+     "transcript": "2026-10-27/transcript_hi.json"
+    },
+    {
+     "code": "ta",
+     "label": "தமிழ்",
+     "video": "2026-10-27/closing-bell-2026-10-27-ta.mp4",
+     "captions": "2026-10-27/captions_ta.vtt",
+     "transcript": "2026-10-27/transcript_ta.json"
+    },
+    {
+     "code": "mr",
+     "label": "मराठी",
+     "video": "2026-10-27/closing-bell-2026-10-27-mr.mp4",
+     "captions": "2026-10-27/captions_mr.vtt",
+     "transcript": "2026-10-27/transcript_mr.json"
+    },
+    {
+     "code": "gu",
+     "label": "ગુજરાતી",
+     "video": "2026-10-27/closing-bell-2026-10-27-gu.mp4",
+     "captions": "2026-10-27/captions_gu.vtt",
+     "transcript": "2026-10-27/transcript_gu.json"
+    }
+   ],
+   "published_at": "2026-10-28T08:24:35+05:30",
+   "voices": {
+    "en": "en-US-AndrewMultilingualNeural",
+    "hi": "hi-IN-MadhurNeural",
+    "ta": "ta-IN-ValluvarNeural",
+    "mr": "mr-IN-ManoharNeural",
+    "gu": "gu-IN-NiranjanNeural"
+   },
    "music": "“The Complex” by Kevin MacLeod (incompetech.com), CC BY 3.0",
    "disclaimer": "Market information and education, not investment advice. Ideas are for review, not recommendations."
   },
@@ -100,7 +143,7 @@
     },
     {
      "kicker": "Sectors",
-     "big": "Media leads",
+     "big": "Media shines",
      "small": "Nifty Media +3.66%, 9 of 10 up"
     }
    ],
@@ -144,11 +187,17 @@
     "captions": "2026-10-26/captions.vtt",
     "transcript": "2026-10-26/transcript.json"
    },
-   "published_at": "2026-10-28T07:12:08+05:30",
-   "voice": "en-US-AndrewMultilingualNeural (edge-tts)",
+   "published_at": "2026-10-28T08:24:35+05:30",
+   "voices": {
+    "en": "en-US-AndrewMultilingualNeural",
+    "hi": "hi-IN-MadhurNeural",
+    "ta": "ta-IN-ValluvarNeural",
+    "mr": "mr-IN-ManoharNeural",
+    "gu": "gu-IN-NiranjanNeural"
+   },
    "music": "“The Complex” by Kevin MacLeod (incompetech.com), CC BY 3.0",
    "disclaimer": "Market information and education, not investment advice. Ideas are for review, not recommendations."
   }
  ],
- "_note": "TEST FIXTURE: the 2026-10-27 edition is the real output of tools/closing_bell/publish.py (27 Oct dry run); the 2026-10-26 entry is synthetic, added only to exercise the archive."
+ "_note": "TEST FIXTURE: the 2026-10-27 edition (5 languages) is the real output of tools/closing_bell/publish.py from the 27 Oct dry run; the 2026-10-26 entry is synthetic and has no \"languages\" (an edition published before the language versions)."
 }

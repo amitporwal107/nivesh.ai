@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(HERE))
 
 import cards as cards_mod  # noqa: E402
 import checks  # noqa: E402
+import i18n  # noqa: E402
 import pipeline  # noqa: E402
 import publish  # noqa: E402
 import script_gen  # noqa: E402
@@ -84,7 +85,8 @@ class ScriptGate(unittest.TestCase):
     def test_tc6_altered_number_is_caught(self):
         s = copy.deepcopy(self.s)
         fii = next(seg for seg in s["segments"] if seg["id"] == "s5")
-        fii["beats"][0]["text"] = fii["beats"][0]["text"].replace("4,240", "4,420")
+        b = fii["beats"][0]
+        b["text"] = b["texts"]["en"] = b["texts"]["en"].replace("4,240", "4,420")
         r = checks.check_script(self.c, s)
         self.assertFalse(r["ok"])
         self.assertTrue(any("4,420" in f for f in r["fails"]), r["fails"])
@@ -107,12 +109,13 @@ class ScriptGate(unittest.TestCase):
 
     def test_tc8_wording(self):
         s = copy.deepcopy(self.s)
-        s["segments"][-1]["beats"][0]["text"] += " Tonight's top picks are below."
+        b = s["segments"][-1]["beats"][0]
+        b["text"] = b["texts"]["en"] = b["texts"]["en"] + " Tonight's top picks are below."
         self.assertTrue(any("advice-like" in f for f in checks.check_script(self.c, s)["fails"]))
         s2 = copy.deepcopy(self.s)
         for seg in s2["segments"]:
             for b in seg["beats"]:
-                b["text"] = b["text"].replace("not investment advice", "general commentary")
+                b["text"] = b["texts"]["en"] = b["texts"]["en"].replace("not investment advice", "general commentary")
         self.assertTrue(any("closing disclaimer" in f for f in checks.check_script(self.c, s2)["fails"]))
 
     def test_headlines_and_segments(self):
@@ -126,6 +129,72 @@ class ScriptGate(unittest.TestCase):
     def test_deterministic(self):
         _, again = build_all()
         self.assertEqual(json.dumps(self.s, sort_keys=True), json.dumps(again, sort_keys=True))
+
+
+class Languages(unittest.TestCase):
+    """Owner, 2026-10-28: the commentary in Hindi, Tamil, Marathi and Gujarati, from fixed translated templates."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.c, cls.s = build_all()
+
+    def test_every_beat_in_every_language(self):
+        self.assertEqual(self.s["languages"], ["en", "hi", "ta", "mr", "gu"])
+        for seg in self.s["segments"]:
+            for b in seg["beats"]:
+                for lang in i18n.LANGS:
+                    txt = b["texts"][lang]
+                    self.assertTrue(txt.strip(), (seg["id"], lang))
+                    self.assertNotIn("{", txt)
+                    if lang != "en":
+                        self.assertNotIn("percent", txt)          # every language says it in its own words
+
+    def test_numbers_and_disclaimers_checked_in_all_languages(self):
+        r = checks.check_script(self.c, self.s)
+        self.assertTrue(r["ok"], r["fails"])
+        self.assertGreater(r["numbers_checked"], 400)              # five narrations + captions
+
+    def test_altered_hindi_number_is_caught(self):
+        s = copy.deepcopy(self.s)
+        b = next(seg for seg in s["segments"] if seg["id"] == "s5")["beats"][0]
+        b["texts"]["hi"] = b["texts"]["hi"].replace("4,240", "4,420")
+        r = checks.check_script(self.c, s)
+        self.assertTrue(any("text[hi]" in f and "4,420" in f for f in r["fails"]), r["fails"])
+
+    def test_missing_tamil_disclaimer_is_caught(self):
+        s = copy.deepcopy(self.s)
+        for seg in s["segments"]:
+            for b in seg["beats"]:
+                b["texts"]["ta"] = b["texts"]["ta"].replace("முதலீட்டு ஆலோசனை அல்ல", "")
+        self.assertTrue(any("[ta]" in f for f in checks.check_script(self.c, s)["fails"]))
+
+    def test_localised_dates_times_and_names(self):
+        s0 = {seg["id"]: seg for seg in self.s["segments"]}
+        fii = s0["s0"]["beats"][3]["texts"]
+        self.assertIn("2 सितंबर", fii["hi"])
+        self.assertIn("செப்டம்பர் 2", fii["ta"])
+        self.assertIn("2 सप्टेंबर", fii["mr"])
+        self.assertIn("2 સપ્ટેમ્બર", fii["gu"])
+        watch = s0["s7"]["beats"][0]["texts"]
+        self.assertIn("शाम 4 बजे", watch["hi"])
+        self.assertIn("இரவு 11:30 மணிக்கு", watch["ta"])
+        self.assertIn("बुधवार", watch["mr"])
+        self.assertIn("निफ्टी 50", s0["s1"]["beats"][0]["texts"]["hi"])
+
+    def test_opposite_day_renders_and_passes(self):
+        """A falling market with FIIs selling exercises the other template branches in every language."""
+        c = copy.deepcopy(self.c)
+        n50 = next(i for i, x in enumerate(c["idx"]) if x["name"] == "Nifty 50")
+        c["idx"][n50].update(pct=-1.21, pts=-278.4)
+        c["fii"].update(fii_net=-3150.5, dii_net=2890.0, biggest_since=None, same_day=False, date="2026-10-26")
+        c["movers"]["Nifty 500"].update(adv=110, dec=380)
+        s = script_gen.build(c)
+        r = checks.check_script(c, s)
+        self.assertTrue(r["ok"], r["fails"])
+        hi = {seg["id"]: seg for seg in s["segments"]}
+        self.assertIn("बिकवाली", hi["s5"]["beats"][0]["texts"]["hi"])
+        self.assertIn("26 अक्टूबर को", hi["s5"]["beats"][0]["texts"]["hi"])
+        self.assertIn("weak", hi["s1"]["beats"][2]["parts"][0]["key"])
 
 
 class Formatting(unittest.TestCase):
@@ -168,6 +237,9 @@ class Publish(unittest.TestCase):
         json.dump({"duration": 351.1}, open(os.path.join(w, "out", "media.json"), "w"))
         for f in ("web.mp4", "poster.jpg", "captions.vtt", "transcript.json"):
             open(os.path.join(w, "out", f), "w").write(f"{date}:{f}")
+        for lang in ("hi", "ta", "mr", "gu"):
+            for f in (f"web_{lang}.mp4", f"captions_{lang}.vtt", f"transcript_{lang}.json"):
+                open(os.path.join(w, "out", f), "w").write(f"{date}:{f}")
         return w
 
     def test_publish_and_retention(self):
@@ -186,10 +258,28 @@ class Publish(unittest.TestCase):
                 self.assertEqual(fh.read(), "2026-10-28:web.mp4")
             self.assertEqual(ed["duration_label"], "5:51")
             self.assertFalse(any("<" in h["big"] for h in ed["headlines"]))
+            self.assertEqual([x["code"] for x in ed["languages"]], ["en", "hi", "ta", "mr", "gu"])
+            hi = next(x for x in ed["languages"] if x["code"] == "hi")
+            self.assertEqual(hi["video"], "2026-10-28/closing-bell-2026-10-28-hi.mp4")
+            with open(os.path.join(dest, hi["transcript"])) as fh:
+                self.assertEqual(fh.read(), "2026-10-28:transcript_hi.json")
             # re-publishing a date replaces it, never duplicates it
             publish.main(self.make_work(root, "2026-10-28"), dest, retain=2)
             idx = json.load(open(os.path.join(dest, "index.json")))
             self.assertEqual([e["date"] for e in idx["editions"]], ["2026-10-28", "2026-10-27"])
+
+    def test_older_editions_keep_english_only(self):
+        with tempfile.TemporaryDirectory() as root:
+            dest = os.path.join(root, "dest")
+            os.makedirs(dest)
+            for d in ("2026-10-26", "2026-10-27", "2026-10-28"):
+                publish.main(self.make_work(root, d), dest, retain=45, lang_retain=2)
+            idx = json.load(open(os.path.join(dest, "index.json")))
+            langs = {e["date"]: [x["code"] for x in e["languages"]] for e in idx["editions"]}
+            self.assertEqual(langs["2026-10-28"], ["en", "hi", "ta", "mr", "gu"])
+            self.assertEqual(langs["2026-10-26"], ["en"])
+            self.assertFalse(os.path.exists(os.path.join(dest, "2026-10-26", "closing-bell-2026-10-26-hi.mp4")))
+            self.assertTrue(os.path.exists(os.path.join(dest, "2026-10-26", "closing-bell-2026-10-26.mp4")))
 
 
 if __name__ == "__main__":

@@ -4,9 +4,34 @@ Every trading day after the close, this folder builds a 5–7 minute "Closing Be
 Trading Desk and publishes it to the public page `/v5/market-commentary`. That page and the homepage
 card read `/downloads/closing-bell/index.json`.
 
-It has one male anchor (edge-tts `en-US-AndrewMultilingualNeural`, +8%), data cards beside read-only desk
-footage, a ticker, captions, and a music bed ("The Complex", Kevin MacLeod, CC BY 3.0, credited on the
-end card).
+It has one male anchor in each of five languages, data cards beside read-only desk footage, a ticker,
+captions, and a music bed ("The Complex", Kevin MacLeod, CC BY 3.0, credited on the end card).
+
+## Languages
+
+The page has a language switcher, and links like `?lang=hi` open straight into that language. Each
+language has its own male voice:
+
+| Language | Voice |
+|---|---|
+| English | `en-US-AndrewMultilingualNeural` |
+| Hindi | `hi-IN-MadhurNeural` |
+| Tamil | `ta-IN-ValluvarNeural` |
+| Marathi | `mr-IN-ManoharNeural` |
+| Gujarati | `gu-IN-NiranjanNeural` |
+
+- **What's translated:** the voice, captions and transcript are in each language. The data cards and
+  caption strip stay in English: they're mostly numbers and company names.
+- **How the scripts are written:** every sentence pattern is translated once in `i18n.py`. Each night
+  only the numbers, names and dates change: there is no machine translation at night. Numbers and the
+  two disclaimers are checked in every language before publishing.
+- **Review:** the Tamil, Marathi and Gujarati wording should get one native-speaker review. Edit
+  `i18n.py` to change it.
+- **Timing:** every language shares one picture and one timeline. Indian-language narration runs about
+  25–30% longer than English, so it is spoken up to 20% faster than its normal pace. English slows a
+  little, never below normal speed, to fill the shared slot.
+- **Disk:** non-English videos (about 20 MB each) are kept for the newest 15 editions. English is kept
+  for 45.
 
 ## When it runs
 
@@ -54,13 +79,14 @@ unset.
    - **numbers:** every number in the narration and captions is traced and still equals its source;
    - **wording:** the disclaimers are present, and "picks" or "target price" never appear.
 7. **Voice, graphics, footage.**
-   - `synth.py`: the narration.
-   - `build.py timeline`: timing for each line.
+   - `synth.py`: the narration in every language, fitted to shared slots.
+   - `build.py timeline`: timing for each line (the longest language sets each slot).
    - `gfx.py` with `gfx.html`: the cards.
    - `rec.py`: records the desk read-only. It navigates, hovers, scrolls, types in the Results-week search
      box and switches views. It never trades, saves or alerts.
-8. **Assembly.** `build.py footage | seg | final | transcript` assembles the video, then writes
-   `out/web.mp4` (about 20 MB), the poster, captions and transcript.
+8. **Assembly.** `build.py footage | seg | final | lang <code> | transcript` assembles the English video,
+   then writes `out/web.mp4` (about 20 MB) and the poster. Each other language reuses the same picture
+   with its own narration in `out/web_<lang>.mp4`. Captions and transcripts are written per language.
 9. **`checks.py media`.** Checks length against the timeline, the audio track, 1920×1080 and loudness. It
    also checks that every desk screen loaded and that no login redirect happened.
 10. **`publish.py`.** Writes `/opt/nivesh-staging/downloads/closing-bell/<date>/` and replaces `index.json`

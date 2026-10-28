@@ -167,7 +167,10 @@ def build(d: str, work: str, dry: bool) -> list:
         tools(work, ["python", "rec.py"] + [s for s in segs if s != "s0"], "record", extra_mounts=[f"{tok}:/tok:ro"])
     finally:
         rv = backend(["revoke", "--token-file", "/dev/stdin"], "revoke", input_text=open(tok).read() if os.path.exists(tok) else "", check=False)
-        log(f"bot session revoked: {rv.stdout.strip()[-80:]}")
+        if rv.returncode == 0:
+            log(f"bot session revoked: {rv.stdout.strip()[-80:]}")
+        else:   # never silent: the session still expires by itself (75 min) and the next run clears expired ones
+            log(f"WARNING bot session NOT revoked ({(rv.stderr or rv.stdout).strip()[-200:]}); it expires within 75 min")
         if os.path.exists(tok):
             os.remove(tok)
     host_py([f"{HERE}/build.py", work, assets, "footage"] + [s for s in segs if s != "s0"], "footage")
@@ -175,6 +178,12 @@ def build(d: str, work: str, dry: bool) -> list:
     with cf.ThreadPoolExecutor(max_workers=3) as ex:
         list(ex.map(lambda s: host_py([f"{HERE}/build.py", work, assets, "seg", s], f"seg {s}"), segs))
     host_py([f"{HERE}/build.py", work, assets, "final"], "final")
+    langs = json.load(open(f"{work}/tts/fit.json"))["langs"]
+    others = [l for l in langs if l != "en"]
+    if others:
+        log(f"language tracks: {', '.join(others)}")
+        with cf.ThreadPoolExecutor(max_workers=2) as ex:
+            list(ex.map(lambda l: host_py([f"{HERE}/build.py", work, assets, "lang", l], f"lang {l}"), others))
     host_py([f"{HERE}/build.py", work, assets, "transcript"], "transcript")
     r = host_py([f"{HERE}/checks.py", "media", f"{work}/out/media.json", f"{work}/timeline.json", f"{work}/raw"], "media checks", check=False)
     open(f"{work}/checks_media.json", "w").write(r.stdout)

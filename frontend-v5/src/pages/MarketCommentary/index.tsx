@@ -5,10 +5,34 @@
  * built and checked by tools/closing_bell and published after the close (about 23:15 IST on trading days).
  * Public page inside the marketing shell, like the blog. Data: editions.ts (static files, no backend route).
  */
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import MarketingShell from "@/components/marketing/MarketingShell";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { type Edition, fileUrl, useEditions, useTranscript } from "./editions";
+import { type Edition, fileUrl, languagesOf, useEditions, useTranscript } from "./editions";
+
+/** The on-page disclaimer in each narration language (the video's own closing line says the same). */
+const DISCLAIMER: Record<string, { main: string; fno: string }> = {
+  en: {
+    main: "Market information and education, not investment advice. The Top 10 ideas are for review, not recommendations, and the desk’s own scorecard shows no measurable ranking skill yet. Do your own research.",
+    fno: "9 out of 10 individual traders in equity F&O incurred net losses (SEBI study).",
+  },
+  hi: {
+    main: "यह बाज़ार की जानकारी और शिक्षा है, निवेश सलाह नहीं। टॉप 10 आइडिया समीक्षा के लिए हैं, सिफ़ारिशें नहीं, और डेस्क के अपने स्कोरकार्ड में अभी रैंकिंग की कोई मापने योग्य क्षमता नहीं दिखी है। अपना शोध स्वयं करें।",
+    fno: "इक्विटी F&O में 10 में से 9 व्यक्तिगत ट्रेडरों को शुद्ध नुकसान हुआ (SEBI अध्ययन)।",
+  },
+  ta: {
+    main: "இது சந்தைத் தகவலும் கல்வியும் மட்டுமே, முதலீட்டு ஆலோசனை அல்ல. டாப் 10 யோசனைகள் பரிசீலனைக்கானவை, பரிந்துரைகள் அல்ல; டெஸ்கின் சொந்த மதிப்பீட்டில் இன்னும் அளவிடக்கூடிய தரவரிசைத் திறன் தெரியவில்லை. உங்கள் சொந்த ஆய்வைச் செய்யுங்கள்.",
+    fno: "ஈக்விட்டி F&O-இல் 10-இல் 9 தனிநபர் வர்த்தகர்கள் நிகர இழப்பைச் சந்தித்தனர் (SEBI ஆய்வு).",
+  },
+  mr: {
+    main: "ही बाजाराची माहिती आणि शिक्षण आहे, गुंतवणूक सल्ला नाही. टॉप 10 कल्पना आढाव्यासाठी आहेत, शिफारसी नाहीत, आणि डेस्कच्या स्वतःच्या स्कोअरकार्डमध्ये अजून मोजता येईल अशी क्रमवारी क्षमता दिसलेली नाही. स्वतः संशोधन करा.",
+    fno: "इक्विटी F&O मध्ये 10 पैकी 9 वैयक्तिक ट्रेडर्सना निव्वळ तोटा झाला (SEBI अभ्यास).",
+  },
+  gu: {
+    main: "આ બજારની માહિતી અને શિક્ષણ છે, રોકાણ સલાહ નથી. ટોપ 10 આઇડિયા સમીક્ષા માટે છે, ભલામણો નહીં, અને ડેસ્કના પોતાના સ્કોરકાર્ડમાં હજુ માપી શકાય તેવી રેન્કિંગ ક્ષમતા દેખાઈ નથી. તમારું પોતાનું સંશોધન કરો.",
+    fno: "ઇક્વિટી F&Oમાં 10માંથી 9 વ્યક્તિગત ટ્રેડર્સને ચોખ્ખું નુકસાન થયું (SEBI અભ્યાસ).",
+  },
+};
 
 export default function MarketCommentaryPage() {
   const { date } = useParams();
@@ -88,20 +112,57 @@ export default function MarketCommentaryPage() {
 }
 
 function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolean }) {
-  const tr = useTranscript(edition);
+  const [params, setParams] = useSearchParams();
+  const langs = languagesOf(edition);
+  const lang = langs.find((l) => l.code === params.get("lang")) ?? langs[0];
+  const tr = useTranscript(edition, lang);
+  const disc = DISCLAIMER[lang.code] ?? DISCLAIMER.en;
+  const choose = (code: string) => {
+    const next = new URLSearchParams(params);
+    if (code === "en") next.delete("lang");
+    else next.set("lang", code);
+    setParams(next, { replace: true });
+  };
   return (
     <>
       <h1 className="nv-serif" style={{ fontSize: isMobile ? 32 : 48, lineHeight: 1.05, letterSpacing: "-0.03em", margin: "12px 0 0" }}>
         Closing Bell — {edition.day_long}
       </h1>
       <div className="nv-mono" style={{ fontSize: 11, color: "var(--ink-4)", letterSpacing: ".06em", margin: "14px 0 18px" }}>
-        End-of-day NSE wrap · {edition.duration_label} · English voiceover, captions available
+        End-of-day NSE wrap · {edition.duration_label} · {langs.length > 1 ? `voiceover in ${langs.length} languages` : "English voiceover"}, captions available
       </div>
+
+      {langs.length > 1 && (
+        <div
+          role="group"
+          aria-label="Commentary language"
+          data-testid="mc-langs"
+          style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "0 0 12px" }}
+        >
+          <span className="nv-mono" style={{ fontSize: 10, color: "var(--ink-4)", letterSpacing: ".1em", textTransform: "uppercase", marginRight: 2 }}>
+            Language
+          </span>
+          {langs.map((l) => (
+            <button
+              key={l.code}
+              type="button"
+              lang={l.code}
+              data-testid={`mc-lang-${l.code}`}
+              aria-pressed={l.code === lang.code}
+              onClick={() => choose(l.code)}
+              className={"nv-btn" + (l.code === lang.code ? " nv-btn-primary" : "")}
+              style={{ padding: "6px 14px", fontSize: 13 }}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <figure style={{ margin: "0 0 14px" }}>
         <div className="nv-card" style={{ padding: 0, overflow: "hidden", borderRadius: 14, background: "#06080F" }}>
           <video
-            key={edition.date}
+            key={edition.date + lang.code}
             data-testid="mc-video"
             aria-label={`Closing Bell market commentary for ${edition.day_long}`}
             poster={fileUrl(edition.files.poster)}
@@ -110,9 +171,9 @@ function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolea
             preload="metadata"
             style={{ width: "100%", display: "block", aspectRatio: "16 / 9", background: "#06080F" }}
           >
-            <source src={fileUrl(edition.files.video)} type="video/mp4" />
-            <track kind="captions" srcLang="en" label="English" src={fileUrl(edition.files.captions)} />
-            Your browser can’t play embedded video — <a href={fileUrl(edition.files.video)}>download the bulletin</a> instead.
+            <source src={fileUrl(lang.video)} type="video/mp4" />
+            <track kind="captions" srcLang={lang.code} label={lang.label} src={fileUrl(lang.captions)} default={lang.code !== "en"} />
+            Your browser can’t play embedded video — <a href={fileUrl(lang.video)}>download the bulletin</a> instead.
           </video>
         </div>
       </figure>
@@ -134,17 +195,18 @@ function EditionView({ edition, isMobile }: { edition: Edition; isMobile: boolea
         data-testid="mc-disclaimer"
         style={{ padding: isMobile ? "14px 16px" : "16px 20px", margin: "8px 0 22px", borderLeft: "3px solid var(--gold, #E8B04B)" }}
       >
-        <p style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: "var(--ink)" }}>
-          <b>Market information and education, not investment advice.</b> The Top 10 ideas are for review, not recommendations, and the
-          desk’s own scorecard shows no measurable ranking skill yet. Do your own research.
+        <p lang={lang.code} style={{ margin: 0, fontSize: 15, lineHeight: 1.6, color: "var(--ink)" }}>
+          <b>{disc.main}</b>
         </p>
-        <p style={{ margin: "10px 0 0", fontSize: 13, lineHeight: 1.6, color: "var(--ink-3)" }}>
-          9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).
+        <p lang={lang.code} style={{ margin: "10px 0 0", fontSize: 13, lineHeight: 1.6, color: "var(--ink-3)" }}>
+          {disc.fno}
         </p>
       </div>
 
-      <h2 className="nv-serif" style={{ fontSize: 26, letterSpacing: "-0.02em", margin: "28px 0 12px" }}>Transcript</h2>
-      <div className="nv-card" data-testid="mc-transcript" style={{ padding: isMobile ? "14px 16px" : "18px 22px" }}>
+      <h2 className="nv-serif" style={{ fontSize: 26, letterSpacing: "-0.02em", margin: "28px 0 12px" }}>
+        Transcript <span style={{ fontSize: 16, color: "var(--ink-3)", letterSpacing: 0 }}>· {lang.label}</span>
+      </h2>
+      <div className="nv-card" data-testid="mc-transcript" lang={lang.code} style={{ padding: isMobile ? "14px 16px" : "18px 22px" }}>
         {tr.isPending && <p style={{ margin: 0, color: "var(--ink-3)" }}>Loading the transcript…</p>}
         {tr.isError && <p data-testid="mc-transcript-error" style={{ margin: 0, color: "var(--ink-3)" }}>The transcript could not be loaded. The captions in the player carry the same text.</p>}
         {tr.data?.sections.map((s, i) => (

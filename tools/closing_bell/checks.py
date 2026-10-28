@@ -20,6 +20,7 @@ import re
 import sys
 from typing import Any, Dict, List
 
+from i18n import LANGS, REQUIRED
 from script_gen import Facts, fmt_in
 
 NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
@@ -28,6 +29,10 @@ CONTEXT_OK = [
     r"Nifty (?:500|200|100|50|Next 50|Midcap 150|Smallcap 250|Microcap 250)\b",
     r"\b(?:Next 50|Midcap 150|Smallcap 250|Microcap 250)\b",
     r"Top 10\b", r"\b20-day\b", r"\bthe 500\b",
+    # the same names in Hindi / Marathi, Tamil, Gujarati
+    r"(?:निफ्टी|நிஃப்டி|નિફ્ટી)(?: (?:नेक्स्ट|நெக்ஸ்ட்|નેક્સ્ટ))? (?:500|200|100|50)",
+    r"(?:मिडकैप|मिडकॅप|மிட்கேப்|મિડકેપ) 150", r"(?:स्मॉलकैप|स्मॉलकॅप|ஸ்மால்கேப்|સ્મોલકેપ) 250",
+    r"(?:टॉप|டாப்|ટોપ) 10",
 ]
 BLOCKING_GAPS = ("index closes missing", "heatmap", "sector index returns", "Top 10 list")
 
@@ -52,6 +57,9 @@ def _reformat(F: Facts, t: Dict[str, Any]) -> str:
         return t["s"] if t["s"] in str(v) else "<not in text>"
     if t["fmt"] == "day":
         return str(int(str(v)[8:10]))
+    if t["fmt"] == "time":   # "16:00" may be read as 16, 00 or the 12-hour 4
+        hh, mm = str(v)[:2], str(v)[3:5]
+        return t["s"] if t["s"] in {hh, mm, str(int(hh) % 12 or 12)} else f"<not in {v}>"
     x = abs(float(v)) if t.get("abs", True) else float(v)
     return {"int": lambda: str(int(round(x))), "0": lambda: f"{x:.0f}", "1": lambda: f"{x:.1f}", "2": lambda: f"{x:.2f}",
             "in0": lambda: fmt_in(x, 0), "in2": lambda: fmt_in(x, 2)}[t["fmt"]]()
@@ -76,8 +84,14 @@ def check_script(cards: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, Any
     n_checked = 0
     for seg in script.get("segments") or []:
         for b in seg["beats"]:
-            for field in ("text", "sup"):
-                s = b.get(field) or ""
+            fields = [("sup", b.get("sup") or "")] + [(f"text[{lang}]", (b.get("texts") or {}).get(lang, b.get("text") if lang == "en" else None))
+                                                       for lang in (script.get("languages") or ["en"])]
+            for field, s in fields:
+                if s is None:
+                    untraced.append(f"{seg['id']} {field}: missing")
+                    continue
+                if "{" in s or "}" in s:
+                    fails.append(f"unfilled template in {seg['id']} {field}: “{s[:90]}”")
                 masked = s
                 for pat in CONTEXT_OK:
                     masked = re.sub(pat, lambda m: re.sub(r"\d", "#", m.group(0)), masked)
@@ -87,20 +101,29 @@ def check_script(cards: Dict[str, Any], script: Dict[str, Any]) -> Dict[str, Any
                         continue
                     untraced.append(f"{seg['id']} {field}: '{tok}' in “{s[:90]}”")
     fails += [f"untraced number {u}" for u in untraced]
-    # 3. required wording (SEBI): ideas framed as review, not recommendations; closing disclaimer present
-    all_text = " ".join(b["text"] for s in script["segments"] for b in s["beats"])
-    if "not recommendations" not in all_text:
-        fails.append("ideas disclaimer missing")
-    if "not investment advice" not in all_text:
-        fails.append("closing disclaimer missing")
-    if re.search(r"\b(buy|sell) (?:now|this)\b|\btarget price\b|\bpicks?\b", all_text, re.I):
+    # 3. required wording (SEBI) in every language: ideas framed as review, not recommendations; closing disclaimer
+    for lang in script.get("languages") or ["en"]:
+        all_text = " ".join(((b.get("texts") or {}).get(lang) or (b["text"] if lang == "en" else "")) for s in script["segments"] for b in s["beats"])
+        for phrase in REQUIRED[lang]:
+            if phrase not in all_text:
+                fails.append(f"{'ideas' if phrase == REQUIRED[lang][0] else 'closing'} disclaimer missing [{lang}]: “{phrase}”")
+    en_text = " ".join(b["text"] for s in script["segments"] for b in s["beats"])
+    if re.search(r"\b(buy|sell) (?:now|this)\b|\btarget price\b|\bpicks?\b", en_text, re.I):
         fails.append("advice-like wording (buy now / target price / picks) in narration")
     return {"ok": not fails, "numbers_checked": n_checked, "traced": len(script.get("trace") or []), "fails": fails}
 
 
-def check_media(media: Dict[str, Any], timeline: Dict[str, Any], raw_dir: str) -> List[str]:
+def check_media(media: Dict[str, Any], timeline: Dict[str, Any], raw_dir: str, extra: Dict[str, Dict[str, Any]] = None) -> List[str]:
+    """`media` is the English video; `extra` maps language -> its media_<lang>.json (same picture, own narration)."""
     fails = []
     want = sum(s["len"] for s in timeline.values())
+    for lang, m in sorted((extra or {}).items()):
+        if m.get("duration") is None or abs(m["duration"] - want) > 1.5:
+            fails.append(f"[{lang}] duration {m.get('duration')} s, timeline says {want:.2f} s")
+        if not m.get("has_audio"):
+            fails.append(f"[{lang}] no audio stream")
+        if m.get("lufs") is None or not (-15.5 <= m["lufs"] <= -12.5):
+            fails.append(f"[{lang}] loudness {m.get('lufs')} LUFS outside -15.5..-12.5 (target -14)")
     dur = media.get("duration")
     if dur is None or abs(dur - want) > 1.5:
         fails.append(f"duration {dur} s, timeline says {want:.2f} s")
@@ -138,7 +161,9 @@ if __name__ == "__main__":
         print(json.dumps(r, indent=1, ensure_ascii=False))
         sys.exit(0 if r["ok"] else 1)
     if kind == "media":
-        fails = check_media(json.load(open(sys.argv[2])), json.load(open(sys.argv[3])), sys.argv[4])
+        out_dir = os.path.dirname(os.path.abspath(sys.argv[2]))
+        extra = {f[6:-5]: json.load(open(os.path.join(out_dir, f))) for f in sorted(os.listdir(out_dir)) if re.fullmatch(r"media_[a-z]{2}\.json", f)}
+        fails = check_media(json.load(open(sys.argv[2])), json.load(open(sys.argv[3])), sys.argv[4], extra)
         print(json.dumps({"ok": not fails, "fails": fails}, indent=1))
         sys.exit(0 if not fails else 1)
     sys.exit("usage: checks.py script|media ...")

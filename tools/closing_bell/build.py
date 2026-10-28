@@ -7,7 +7,8 @@ usage: python3 build.py WORK_DIR ASSETS_DIR <step> [args]
   footage s1 s2 ...   screencast frames -> constant-rate clips foot/<sid>.mp4
   seg s0 s1 ...       assemble segments seg/<sid>.mp4 (footage + cards + captions + ticker + voice + bed)
   final               concat + loudness -> out/master.mp4, out/web.mp4 (22 MB class), poster, media probe
-  transcript          out/captions.vtt, out/transcript.json, out/transcript.md
+  lang hi ta ...      out/web_<lang>.mp4: the same picture with that language's narration (+ media_<lang>.json)
+  transcript          out/captions_<lang>.vtt, out/transcript_<lang>.json (English also as captions.vtt / transcript.json), transcript.md
 """
 from __future__ import annotations
 
@@ -65,18 +66,29 @@ def sfx(work, assets):
                           "-af", "highpass=f=400,lowpass=f=4500,aformat=channel_layouts=stereo,loudnorm=I=-24:TP=-8", "-ar", "48000", "/assets/whoosh.wav"], "whoosh")
 
 
-# ------------------------------------------------------------------ timeline from the narration clips
+def langs_of(work):
+    fit = os.path.join(work, "tts", "fit.json")
+    return json.load(open(fit))["langs"] if os.path.exists(fit) else ["en"]
+
+
+def tts_path(lang, sid, i):
+    return f"/w/tts/{lang}/{sid}_{i}.mp3"
+
+
+# ------------------------------------------------------------------ timeline from the narration clips (all languages)
 def timeline(work, assets):
     segs = load(work, "script.json")["segments"]
-    out = probe(work, assets, "for f in /w/tts/s*_*.mp3; do echo \"$(basename $f .mp3) $(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done")
+    langs = langs_of(work)
+    out = probe(work, assets, "for f in /w/tts/*/s*_*.mp3; do echo \"$(basename $(dirname $f))/$(basename $f .mp3) $(ffprobe -v error -show_entries format=duration -of csv=p=0 $f)\"; done")
     D = {l.split()[0]: float(l.split()[1]) for l in out.splitlines() if l.strip()}
     tl, total = {}, 0.0
     for s in segs:
         t = 3.6 if s["id"] == "s0" else 1.5
         beats = []
         for i, b in enumerate(s["beats"]):
-            d = D[f"{s['id']}_{i}"]
-            beats.append({"i": i, "start": round(t, 2), "dur": round(d, 2), "who": b["who"]})
+            durs = {lang: D[f"{lang}/{s['id']}_{i}"] for lang in langs}
+            d = max(durs.values())          # one shared slot: the picture is the same in every language
+            beats.append({"i": i, "start": round(t, 2), "dur": round(d, 2), "durs": {k: round(v, 2) for k, v in durs.items()}, "who": b["who"]})
             t += d + GAP
         end = beats[-1]["start"] + beats[-1]["dur"]
         ln = math.ceil((end + TAIL) * 4) / 4
@@ -219,7 +231,7 @@ def seg(work, assets, sids):
             f.append(f"[{cur}]format=yuv420p[vout]")
         vx = []
         for j, b0 in enumerate(B):
-            ii = add("-i", f"/w/tts/{sid}_{j}.mp3")
+            ii = add("-i", tts_path("en", sid, j))
             ms = int(b0 * 1000)
             f.append(f"[{ii}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={ms}|{ms}[x{j}]")
             vx.append(f"[x{j}]")
@@ -249,47 +261,105 @@ def final(work, assets):
     ff(work, assets, ["-i", "/w/out/master.mp4", "-c:v", "libx264", "-preset", "slow", "-crf", "31", "-pix_fmt", "yuv420p",
                       "-profile:v", "high", "-level", "4.1", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "/w/out/web.mp4"], "web encode")
     ff(work, assets, ["-ss", "2.6", "-i", "/w/out/master.mp4", "-frames:v", "1", "-vf", "scale=1280:720:flags=lanczos", "-q:v", "4", "/w/out/poster.jpg"], "poster")
-    out = probe(work, assets, "ffprobe -v error -show_entries stream=codec_type,width,height:format=duration,size -of json /w/out/web.mp4; "
-                              "echo '@@'; ffmpeg -hide_banner -nostats -i /w/out/web.mp4 -map 0:a -af ebur128 -f null - 2>&1 | grep -E '^\\s+I:' | tail -1")
-    j, _, lufs = out.partition("@@")
-    p = json.loads(j)
-    v = next((x for x in p["streams"] if x["codec_type"] == "video"), {})
-    m = re.search(r"(-?\d+\.\d+)\s*LUFS", lufs)
-    media = {"duration": float(p["format"]["duration"]), "size": int(p["format"]["size"]), "width": v.get("width"), "height": v.get("height"),
-             "has_audio": any(x["codec_type"] == "audio" for x in p["streams"]), "lufs": float(m.group(1)) if m else None, "timeline_total": total}
+    media = media_probe(work, assets, "/w/out/web.mp4", total)
     json.dump(media, open(f"{work}/out/media.json", "w"), indent=1)
     print("media", json.dumps(media), flush=True)
 
 
+# ------------------------------------------------------------------ other languages: same picture, own narration
+def lang_track(work, assets, lang):
+    """web_<lang>.mp4 = the English web picture (copied) + this language's narration, the same bed and effects."""
+    script, tl = load(work, "script.json"), load(work, "timeline.json")
+    order = [s["id"] for s in script["segments"]]
+    total = sum(tl[s]["len"] for s in order)
+    inp, f, vx = [], [], []
+
+    def add(*a):
+        inp.extend(a)
+        return sum(1 for x in inp if x == "-i") - 1
+    for sid in order:
+        for j, b in enumerate(tl[sid]["beats"]):
+            ii = add("-i", tts_path(lang, sid, j))
+            ms = int((tl[sid]["start"] + b["start"]) * 1000)
+            f.append(f"[{ii}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={ms}|{ms}[x{len(vx)}]")
+            vx.append(f"[x{len(vx)}]")
+    f.append("".join(vx) + f"amix=inputs={len(vx)}:normalize=0:duration=longest,apad=whole_dur={total},{VOICE_CHAIN},asplit=2[vo1][vo2]")
+    ib = add("-i", "/w/sfx/bed.wav")
+    f.append(f"[{ib}:a]aformat=channel_layouts=stereo,atrim=0:{total},apad=whole_dur={total}[bed0]")
+    f.append(f"[bed0][vo2]{DUCK}[bd]")
+    fx = []
+    for k, sid in enumerate(order):
+        ii = add("-i", "/assets/sting.wav" if sid == "s0" else "/assets/whoosh.wav")
+        ms = int(tl[sid]["start"] * 1000)
+        f.append(f"[{ii}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={ms}|{ms}[f{k}]")
+        fx.append(f"[f{k}]")
+    f.append("".join(fx) + f"amix=inputs={len(fx)}:normalize=0:duration=longest,apad=whole_dur={total}[fx]")
+    f.append(f"[vo1][bd][fx]amix=inputs=3:normalize=0:duration=first,atrim=0:{total},alimiter=limit=0.95[mix]")
+    ff(work, assets, inp + ["-filter_complex", ";".join(f), "-map", "[mix]", "-c:a", "pcm_s16le", f"/w/out/mix_{lang}.wav"], f"mix {lang}")
+    ff(work, assets, ["-i", "/w/out/web.mp4", "-i", f"/w/out/mix_{lang}.wav", "-map", "0:v", "-map", "1:a", "-c:v", "copy",
+                      "-af", f"afade=t=out:st={total - 3:.2f}:d=3,loudnorm=I={TARGET_LUFS}:TP=-1.0:LRA=9", "-c:a", "aac", "-b:a", "128k",
+                      "-ar", "48000", "-movflags", "+faststart", f"/w/out/web_{lang}.mp4"], f"web {lang}")
+    os.remove(f"{work}/out/mix_{lang}.wav")
+    json.dump(media_probe(work, assets, f"/w/out/web_{lang}.mp4", total), open(f"{work}/out/media_{lang}.json", "w"), indent=1)
+    print(f"lang {lang} ok", flush=True)
+
+
+def media_probe(work, assets, path, total):
+    out = probe(work, assets, f"ffprobe -v error -show_entries stream=codec_type,width,height:format=duration,size -of json {path}; "
+                              f"echo '@@'; ffmpeg -hide_banner -nostats -i {path} -map 0:a -af ebur128 -f null - 2>&1 | grep -E '^ +I:' | tail -1")
+    j, _, lufs = out.partition("@@")
+    p = json.loads(j)
+    v = next((x for x in p["streams"] if x["codec_type"] == "video"), {})
+    m = re.search(r"(-?\d+\.\d+)\s*LUFS", lufs)
+    return {"duration": float(p["format"]["duration"]), "size": int(p["format"]["size"]), "width": v.get("width"), "height": v.get("height"),
+            "has_audio": any(x["codec_type"] == "audio" for x in p["streams"]), "lufs": float(m.group(1)) if m else None, "timeline_total": total}
+
+
 # ------------------------------------------------------------------ captions + transcript
 def transcript(work, assets):
+    """captions_<lang>.vtt + transcript_<lang>.json for every language (captions.vtt / transcript.json = English), and an English .md."""
+    import i18n
     script, tl, cards = load(work, "script.json"), load(work, "timeline.json"), load(work, "cards.json")
+    langs = langs_of(work)
     mm = lambda t: f"{int(t // 60)}:{int(t % 60):02d}"
     vt = lambda t: f"{int(t // 3600):02d}:{int(t % 3600 // 60):02d}:{t % 60:06.3f}"
-    vtt, sections, md = ["WEBVTT", ""], [], [f"# Closing Bell on the Nivesh Desk — {cards['L']['day_long']}", ""]
-    k = 0
-    for s in script["segments"]:
-        t = tl[s["id"]]
-        cues = []
-        md += [f"## {mm(t['start'])} — {s['tag']}: {s['title']}", ""]
-        for b, bt in zip(s["beats"], t["beats"]):
-            a = t["start"] + bt["start"]
-            e = a + bt["dur"]
-            k += 1
-            vtt += [str(k), f"{vt(a)} --> {vt(e)}", b["text"], ""]
-            cues.append({"t": mm(a), "text": b["text"], "sup": b["sup"]})
-            md += [f"**[{mm(a)}]** {b['text']}  ", f"*On screen: {b['sup']}*", ""]
-        sections.append({"tag": s["tag"], "title": s["title"], "start": mm(t["start"]), "cues": cues})
+    md = [f"# Closing Bell on the Nivesh Desk — {cards['L']['day_long']}", ""]
+    for lang in langs:
+        vtt, sections, k = ["WEBVTT", ""], [], 0
+        for s in script["segments"]:
+            t = tl[s["id"]]
+            tag, title = s["tag"], s["title"]
+            if lang != "en":
+                loc = (i18n.SECTION_TITLES.get(s["tag"]) or {}).get(lang)
+                if loc:
+                    tag = loc[0]
+                    title = loc[1] if loc[1] else i18n.localize(lang, {"k": "date", "iso": cards["L"]["next_date"]})
+            cues = []
+            if lang == "en":
+                md += [f"## {mm(t['start'])} — {s['tag']}: {s['title']}", ""]
+            for b, bt in zip(s["beats"], t["beats"]):
+                a = t["start"] + bt["start"]
+                e = a + (bt.get("durs") or {}).get(lang, bt["dur"])
+                text = (b.get("texts") or {}).get(lang) or b["text"]
+                k += 1
+                vtt += [str(k), f"{vt(a)} --> {vt(e)}", text, ""]
+                cues.append({"t": mm(a), "text": text, "sup": b["sup"]})
+                if lang == "en":
+                    md += [f"**[{mm(a)}]** {text}  ", f"*On screen: {b['sup']}*", ""]
+            sections.append({"tag": tag, "title": title, "start": mm(t["start"]), "cues": cues})
+        open(f"{work}/out/captions_{lang}.vtt", "w").write("\n".join(vtt))
+        json.dump({"date": cards["date"], "lang": lang, "sections": sections, "cue_count": k},
+                  open(f"{work}/out/transcript_{lang}.json", "w"), ensure_ascii=False, indent=1)
+        print(f"transcript {lang} cues {k}", flush=True)
+    for src, dst in (("captions_en.vtt", "captions.vtt"), ("transcript_en.json", "transcript.json")):
+        open(f"{work}/out/{dst}", "w").write(open(f"{work}/out/{src}").read())
     md += ["---", "", "Market information and education, not investment advice. Ideas are for review, not recommendations.",
            "Music: “The Complex” by Kevin MacLeod (incompetech.com), licensed under Creative Commons Attribution 3.0."]
-    open(f"{work}/out/captions.vtt", "w").write("\n".join(vtt))
-    json.dump({"date": cards["date"], "sections": sections, "cue_count": k}, open(f"{work}/out/transcript.json", "w"), ensure_ascii=False, indent=1)
     open(f"{work}/out/transcript.md", "w").write("\n".join(md))
-    print("transcript cues", k, flush=True)
 
 
 if __name__ == "__main__":
     work, assets, step, rest = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
     {"sfx": lambda: sfx(work, assets), "timeline": lambda: timeline(work, assets), "bed": lambda: bed(work, assets),
      "footage": lambda: footage(work, assets, rest), "seg": lambda: seg(work, assets, rest), "final": lambda: final(work, assets),
-     "transcript": lambda: transcript(work, assets)}[step]()
+     "transcript": lambda: transcript(work, assets), "lang": lambda: [lang_track(work, assets, l) for l in rest]}[step]()

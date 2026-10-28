@@ -137,4 +137,70 @@ was confirmed before each run (`serving assets/index-C9nE4jto.js` vs `index-gqiP
 - Merge approval for the PR, and approval to restart the edge nginx container.
 - An updated staging `TRENDLYNE_MCP_URL`, or explicit OK for me to write it.
 
+---
+
+## Update 2026-10-28 (later): louder anchor voice + five languages
+
+The owner asked for two more things the same morning: "make the video anchor voice … loud", and "publish the
+video commentary in Hindi, Tamil, Marathi, Gujarati". The decisions:
+- fixed translated templates, no night-time machine translation;
+- voice, subtitles and transcript in each language, with the cards in English;
+- all four languages live with the merge;
+- the viewer can switch language, and the transcript follows.
+
+### Test cases (added before the language code was finished)
+| ID | Area | Scenario | Type | Expected | Result |
+|----|------|----------|------|----------|--------|
+| TC-24 | Mix | louder voice: voice compressed, bed lower and ducked harder, −14 LUFS target | media | speech louder, music ≥ 15 dB under the voice, media check passes | PASS |
+| TC-25 | Script | every beat rendered in en/hi/ta/mr/gu, no unfilled template, Indic text never says "percent" | unit | true for 27 Oct | PASS |
+| TC-26 | Script gate | numbers + both disclaimers checked in every language; an altered Hindi number and a missing Tamil disclaimer are caught | unit | fails named per language | PASS |
+| TC-27 | Branches | a falling market with FII selling renders and passes in every language | unit | ok | PASS |
+| TC-28 | Dates/times | localized: 2 सितंबर / செப்டம்பர் 2 / शाम 4 बजे / இரவு 11:30 மணிக்கு / बुधवार | unit | as stated | PASS |
+| TC-29 | Publish | all languages published; older editions keep English only after N | unit | as stated | PASS |
+| TC-30 | End-to-end | 5-language dry run of 27 Oct on staging | e2e (staging) | every language's video is the right length, has audio, −14 LUFS; checks pass | PASS |
+| TC-31 | Page | switcher lists five languages, English default; each switch swaps video, captions (srclang), transcript (lang attr) and disclaimer; `?lang=` deep link; unknown → English; old edition → no switcher | e2e | as stated | PASS |
+| TC-32 | Real media | the built Hindi video plays with audio | e2e (media) | duration ≈ published, audio decoded | PASS |
+
+### Evidence (real output)
+- **Mix, 27 Oct remix of the live video** (`ebur128` windows):
+  - speech went from `old mix -15.7 LUFS` to `new mix -14.1 LUFS`;
+  - while the anchor talks, the stems measure `voice -17.3, music -33.8`, so the music is 16.6 dB below the voice;
+  - pipeline dry run with the new mix: `"lufs": -14.1`, `checks_media {"ok": true, "fails": []}`.
+- **Unit tests:** `python3 -m unittest discover -s tools/closing_bell/tests` → `Ran 25 tests ... OK`.
+- **Script check on 27 Oct, five languages:** `{"ok": true, "numbers_checked": 475, "fails": [], "data_fails": []}`.
+- **Voice fitting** (`tts/fit.json`):
+  - at normal pace the narrations measure en 327.2 s, hi 422.2, ta 408.5, mr 426.8 and gu 405.9;
+  - after fitting the maximum rates were hi +25%, ta +28%, mr +25% and gu +25%, with no beat over its slot by more than 3%.
+- **5-language dry run** (`pipeline.py --date 2026-10-27 --force --dry-run`):
+```
+08:03:39 script checks ok: 469 numbers · 08:05:29 graphics · 08:07:49 recording desk footage
+08:16:10 assembling segments · 08:22:32 language tracks: hi, ta, mr, gu · 08:23:47 DRY RUN ok in 1221s
+checks_media {"ok": true, "fails": []}
+media_{hi,ta,mr,gu}: duration 400.04 s, 1920x1080, has_audio true, lufs -14.1, timeline_total 400.0
+```
+- **Bot session during this run:** the backend container restarted at 08:06 IST in the middle of the run. That removed the
+  un-merged `/tmp` test copy of the script, so the revoke step failed and one bot session was left in Mongo. It was
+  deleted by hand (`deleted bot sessions: 1 | remaining: 0`). `pipeline.py` now logs a failed revoke as a WARNING;
+  before, the line was blank. Merged code lives in the bind-mounted repo, so a restart does not remove it. The
+  session would also expire by itself after 75 minutes.
+- **Playwright** (production build, served bundle confirmed: `serving assets/index-RmKK5Vv2.js`):
+```
+✓ TC-19 switcher lists the five languages; English is the default
+✓ TC-20 [hi] / [ta] / [mr] / [gu] switching swaps the video, captions, transcript and disclaimer
+✓ TC-21 a shared link opens in its language; an unknown ?lang falls back to English
+✓ TC-22 an edition published before the languages is English only, without a switcher
+✓ TC-23 [hi] the real Hindi edition plays with audio
+✓ TC-12..TC-16 (page, archive, empty/error, real English media, homepage, phone)
+  5 failed (the same pre-existing dev failures: blog-unauth TC-1/TC-2, homepage.spec x3) · 50 passed · blog-research-tour 10 passed
+```
+  The first run of TC-13 and TC-22 failed because of the test's own file router: it threw ENOENT for the synthetic 26 Oct
+  edition, which has no media file. It now returns 404 for missing files, and the rerun is above.
+- **Visual check:** screenshots reviewed:
+  - Hindi page at 1280 px: five-language switcher, हिंदी selected;
+  - Tamil transcript at 390 px: Tamil section headings, no sideways scroll.
+
+### Not verified / needs the owner
+- **Wording review:** the Tamil, Marathi and Gujarati wording has not been reviewed by a native speaker; the templates are in `tools/closing_bell/i18n.py`.
+- **Listening check:** the Indian-language voices were not listened to end to end.
+
 ## Verdict: PASS
