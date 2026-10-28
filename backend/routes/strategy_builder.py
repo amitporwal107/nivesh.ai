@@ -151,6 +151,19 @@ def _user_id(user) -> str:
     raise HTTPException(status_code=401, detail="user has no id")
 
 
+async def _record_failed_run(pool, strategy_id, version_id, from_date, to_date, uid, exc: BaseException) -> Optional[str]:
+    """Store a backtest that raised as a FAILED strategy_runs row and return its id (PRD Appendix A). If that write
+    fails too, log it and return None: the caller still answers with the original error, which must not be masked."""
+    try:
+        return await bt.persist_failed_run(
+            pool, strategy_id=strategy_id, version_id=version_id, from_date=from_date, to_date=to_date,
+            triggered_by=uid, error_message=f"{type(exc).__name__}: {exc}",
+        )
+    except Exception:  # noqa: BLE001 — logged at error level, then the original error is raised by the caller
+        logger.exception("could not record the FAILED backtest run of strategy %s", strategy_id)
+        return None
+
+
 # ── Templates ───────────────────────────────────────────────────────
 @router.get("/templates")
 async def list_templates(request: Request):
@@ -1009,14 +1022,24 @@ async def run_backtest_endpoint(request: Request, strategy_id: str, body: Backte
             slippage_pct=slippage_pct,
         )
     except (CompileError, ValueError) as e:
+        await _record_failed_run(pool, strategy_id, v["id"], fd, td, uid, e)
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001 — recorded as FAILED, logged, and re-raised as a 500
+        failed_id = await _record_failed_run(pool, strategy_id, v["id"], fd, td, uid, e)
+        logger.exception("backtest of strategy %s failed; run %s recorded as FAILED", strategy_id, failed_id)
+        raise HTTPException(status_code=500, detail=(f"backtest failed; recorded as FAILED run {failed_id}"
+                                                     if failed_id else "backtest failed"))
 
     run_id = await bt.persist_run(
         pool, strategy_id=strategy_id, version_id=v["id"],
         spec=spec, result=result, from_date=fd, to_date=td, triggered_by=uid,
     )
+    status, error_message = bt.run_status(result)
     return {
         "run_id": run_id,
+        # OK, or FAILED for a window with no data (metrics.reason stays "no_data", which the screens already read).
+        "status": status,
+        "error": error_message,
         "metrics": result.metrics,
         # What reproduces this run (data watermark, code, rule and cost-model versions, universe): the same
         # block GET /runs/{run_id} returns for any stored run (backtest.run_provenance).
@@ -1039,23 +1062,57 @@ async def run_backtest_endpoint(request: Request, strategy_id: str, body: Backte
     }
 
 
+def _can_read_run(run, uid: str) -> bool:
+    """Who may read a stored run and its trade ledger (PRD §15, §19.2: no cross-user access).
+
+    - The user who triggered the run.
+    - The owner of a private strategy, for every run of it (only the owner can run a private strategy), and the owner
+      of any strategy for a run nobody triggered (a system run, `triggered_by` NULL).
+    - Nobody else. In particular, a public template's runs belong to the users who ran them, not to every user, and
+      not to the template's owner either."""
+    triggered_by = str(run.get("triggered_by")) if run.get("triggered_by") else None
+    if triggered_by == uid:
+        return True
+    if str(run["strategy_owner"]) != uid:
+        return False
+    return (not run["is_public_template"]) or triggered_by is None
+
+
+async def _audit_run_denied(request: Request, uid: str, run_id: str, reason: str) -> None:
+    """Record a refused run read in audit_log (PRD Appendix A: deny and log). audit.record never raises."""
+    from services import audit
+    await audit.record(
+        user_id=uid, action="strategy_run_view", resource=f"strategy_run:{run_id}"[:120],
+        ip=request.client.host if request.client else None, ua=request.headers.get("user-agent"),
+        outcome="denied", details={"reason": reason},
+    )
+
+
 @router.get("/runs/{run_id}")
 async def get_run(request: Request, run_id: str):
     user = await get_current_user(request)
     uid = _user_id(user)
+    # One answer for "no such run" and "not yours", so a caller cannot learn that someone else's run exists.
+    not_found = HTTPException(status_code=404, detail="run not found")
     pool = await pg_client.get_pool()
     async with pool.acquire() as conn:
-        run = await conn.fetchrow(
-            """SELECT r.*, s.owner_id AS strategy_owner, s.is_public_template
-                 FROM strategy_runs r
-                 JOIN strategies s ON s.id = r.strategy_id
-                WHERE r.id = $1""",
-            run_id,
-        )
+        try:
+            run = await conn.fetchrow(
+                """SELECT r.*, s.owner_id AS strategy_owner, s.is_public_template
+                     FROM strategy_runs r
+                     JOIN strategies s ON s.id = r.strategy_id
+                    WHERE r.id = $1""",
+                run_id,
+            )
+        except asyncpg.DataError:
+            # asyncpg refuses an id that is not a UUID before it reaches postgres ("invalid input for query
+            # argument $1"). No run can have that id: answer 404, not a 500.
+            raise not_found
         if not run:
-            raise HTTPException(status_code=404, detail="run not found")
-        if str(run["strategy_owner"]) != uid and not run["is_public_template"]:
-            raise HTTPException(status_code=403, detail="not authorised")
+            raise not_found
+        if not _can_read_run(run, uid):
+            await _audit_run_denied(request, uid, run_id, "not the run's trigger or the private strategy's owner")
+            raise not_found
         trades = await conn.fetch(
             "SELECT * FROM strategy_trades WHERE run_id = $1 ORDER BY entry_date",
             run_id,

@@ -965,7 +965,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId("desk-scan-row-FIXPRE").getByTestId("desk-scan-setup").click();
     await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=FIXPRE(&|$)/);
-    await expect(page.getByTestId("desk-chart-symbol")).toHaveText("FIXPRE");
+    await expect(page.getByTestId("lc-view")).toHaveAttribute("data-symbol", "FIXPRE");   // the Live chart (the owner's design of 28 Oct)
   });
 
   test("TC-17 both scanner routes and the universe fail → error with retry", async ({ page }) => {
@@ -2349,7 +2349,8 @@ test.describe("Smart trading desk · scanner and chart at 390px", () => {
   for (const tab of ["scanner", "chart"] as const) {
     test(`TC-7 ${tab} tab: no sideways page scroll`, async ({ page }) => {
       await deskMocks(page);
-      await page.goto(`${DESK}?tab=${tab}&sym=FIXBRK`);
+      // The full chart with the risk desk is Market Desk › Stock Research; Trade Desk's Live chart has its own spec.
+      await page.goto(tab === "chart" ? `${DESK}?tab=market&view=research&sym=FIXBRK` : `${DESK}?tab=${tab}&sym=FIXBRK`);
       if (tab === "scanner") {
         await expect(page.getByTestId("desk-scan-table")).toHaveAttribute("data-layout", "phone");
         await expect(page.getByTestId("desk-scan-row-FIXBRK")).toBeVisible();

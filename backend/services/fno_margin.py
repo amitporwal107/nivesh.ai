@@ -7,7 +7,7 @@ import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-MAX_LEGS = 10
+MAX_LEGS = 10    # an ANALYSIS limit (what the margin calculator prices), not the strategy limit: services/strategy_limits
 _INSTRUMENTS: Dict[str, Any] = {"day": None, "rows": None}
 
 

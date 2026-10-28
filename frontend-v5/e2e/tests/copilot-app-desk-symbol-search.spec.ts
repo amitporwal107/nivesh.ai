@@ -257,7 +257,7 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
       asked.push(sym);
       return sym === "PCJEWELLERS" || sym === "QQZZ" ? json(r, { detail: "no_bars_for_symbol" }, 404) : json(r, { symbol: sym, timeframe: "1D", bars: [["2026-10-16", 10, 12, 9, 11, 1000], ["2026-10-19", 11, 13, 10, 12, 1200]], data_quality_status: "VALID", provenance: { provider: "MOCK" } });
     });
-    await page.goto(`${DESK}?tab=chart&sym=PCJEWELLERS`);
+    await page.goto(`${DESK}?tab=market&view=research&sym=PCJEWELLERS`);
     await expect(page.getByTestId("desk-chart-noprices")).toContainText("No daily prices on record for PCJEWELLERS");
     const chip = page.getByTestId("desk-chart-dym-PCJEWELLER");
     await expect(chip).toContainText("PC Jeweller Limited");
@@ -267,11 +267,11 @@ test.describe("Smart trading desk — stock search (MOCK lookup)", () => {
     await expect.poll(() => asked).toContain("PCJEWELLER");
     await expect(page.getByTestId("desk-chart-noprices")).toHaveCount(0);
     // A symbol nothing resembles.
-    await page.goto(`${DESK}?tab=chart&sym=QQZZ`);
+    await page.goto(`${DESK}?tab=market&view=research&sym=QQZZ`);
     await expect(page.getByTestId("desk-chart-dym-none")).toContainText("No NSE stock matches QQZZ");
     // The lookup failing leaves the explanation alone.
     look.mode = "fail";
-    await page.goto(`${DESK}?tab=chart&sym=PCJEWELLERS`);
+    await page.goto(`${DESK}?tab=market&view=research&sym=PCJEWELLERS`);
     await expect(page.getByTestId("desk-chart-noprices")).toBeVisible();
     await expect(page.getByTestId("desk-chart-dym")).toHaveCount(0);
     await expect(page.getByTestId("desk-chart-dym-none")).toHaveCount(0);

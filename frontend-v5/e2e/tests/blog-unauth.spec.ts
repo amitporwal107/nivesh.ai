@@ -157,12 +157,20 @@ test.describe("Blog", () => {
     await expect(page.getByText(T10_TITLE_RE).first()).toBeVisible();
   });
 
-  test("TC-14: homepage 'From the blog' section shows the flagship card", async ({ page }) => {
+  // The homepage shows the three newest posts (POSTS.slice(0, 3)). Since the Closing Bell
+  // market commentary (2026-10-28) the flagship is fourth, so it lives on /blog (TC-13).
+  test("TC-14: homepage 'From the blog' section shows the three newest posts", async ({ page }) => {
     await page.goto("/v5/");
-    const card = page.getByTestId(`blog-card-${T10_SLUG}`);
-    await card.waitFor({ state: "attached", timeout: 90000 });
-    await card.scrollIntoViewIfNeeded();
-    await expect(card).toBeVisible();
+    const cards = page.getByTestId("home-blog-section").locator("[data-testid^='blog-card-']");
+    await cards.first().waitFor({ state: "attached", timeout: 90000 });
+    await expect(cards).toHaveCount(3);
+    const ids = await cards.evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    expect(ids).toEqual([
+      "blog-card-closing-bell-27-oct-2026",
+      "blog-card-research-tab-2-minute-tour",
+      "blog-card-nivesh-copilot-2-minute-tour",
+    ]);
+    await expect(page.getByTestId(`blog-card-${T10_SLUG}`)).toHaveCount(0);
   });
 
   test("TC-15: flagship article renders the rule, gate terminal, six blocks and honest scorecard", async ({ page }) => {
