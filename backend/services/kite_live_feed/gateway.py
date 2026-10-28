@@ -1,6 +1,6 @@
 """Read-only doors to Kite: a client that can only read, and a WebSocket ticker wrapper.
 
-`ReadOnlyKite` exposes exactly instruments(), quote(), historical_data() and profile(); there is no order, GTT, margin or
+`ReadOnlyKite` exposes exactly instruments(), quote(), historical_data(), historical_data_oi() (the same candles with open interest) and profile(); there is no order, GTT, margin or
 session method on it, so nothing built on it can place, modify or cancel an order.
 """
 from __future__ import annotations
@@ -48,6 +48,10 @@ class ReadOnlyKite:
     def historical_data(self, instrument_token: int, from_date, to_date, interval: str) -> List[dict]:
         """Candles for one instrument (market data; Kite allows ~3 requests/second)."""
         return self._kc.historical_data(instrument_token, from_date, to_date, interval, continuous=False, oi=False)
+
+    def historical_data_oi(self, instrument_token: int, from_date, to_date, interval: str) -> List[dict]:
+        """Candles WITH open interest for one F&O contract (market data; the same rate limit)."""
+        return self._kc.historical_data(instrument_token, from_date, to_date, interval, continuous=False, oi=True)
 
 
 def default_kite_factory(api_key: str, token: str) -> ReadOnlyKite:

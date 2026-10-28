@@ -6,12 +6,12 @@
  * The on-page product tour reuses the shared <ProductTour /> slideshow.
  */
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useHealthAnalysis } from "@/hooks/use-insights";
 import { usePortfolioSummary } from "@/hooks/use-portfolio";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import ProductTour from "@/components/marketing/ProductTour";
-import { POSTS } from "@/pages/Blog/posts";
+import { POSTS, latestPostIn } from "@/pages/Blog/posts";
 import "@/components/marketing/nvx-theme.css";
 import "./homepage.css";
 
@@ -63,6 +63,7 @@ export default function HomepagePage() {
   const isMobile = useIsMobile();
   const [showDemo, setShowDemo] = useState(false);
   const blogPosts = POSTS.slice(0, 3);
+  const commentary = latestPostIn("Market commentary");
   const assetBase = import.meta.env.BASE_URL; // respects the staging "/v5/" base path
 
   // Real scores when available, otherwise the sample portfolio.
@@ -156,6 +157,11 @@ export default function HomepagePage() {
             <a onClick={() => scrollTo("tour")}>Product</a>
             <a onClick={() => scrollTo("how")}>How it works</a>
             <a onClick={() => scrollTo("scored")}>What we score</a>
+            {commentary && (
+              <Link to={`/blog/${commentary.slug}`} data-testid="home-market-commentary-link">
+                Market commentary
+              </Link>
+            )}
             <a onClick={() => navigate("/security")}>Security</a>
           </nav>
           <div className="nav-right">

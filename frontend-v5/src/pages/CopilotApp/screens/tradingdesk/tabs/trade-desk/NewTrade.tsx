@@ -49,13 +49,13 @@ function Part({ id, name, children }: { id: string; name: string; children: Reac
 // ── the ticket ───────────────────────────────────────────────────────────
 
 /** The answer to a submission, in plain words: what the route said, and what was (not) recorded. */
-type Answer =
+export type Answer =
   | { kind: "allow"; text: string; reasons: string[] }
   | { kind: "reduce"; text: string; reasons: string[] }
   | { kind: "block"; text: string; reasons: string[] }
   | { kind: "duplicate" | "unfillable" | "error"; text: string; reasons: string[] };
 
-function answerOf(error: unknown, symbol: string): Answer {
+export function answerOf(error: unknown, symbol: string): Answer {
   const d = detailOf(error);
   const code = typeof d.code === "string" ? d.code : null;
   const message = typeof d.message === "string" ? d.message : null;

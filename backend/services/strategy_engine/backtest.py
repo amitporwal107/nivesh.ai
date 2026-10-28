@@ -830,19 +830,57 @@ def _trade_metadata(t: BacktestTrade) -> Dict[str, Any]:
 
 
 # ── Persistence helper ──────────────────────────────────────────────
+NO_DATA_MESSAGE = "no_data: the window has no sessions with data to run on"
+ERROR_MESSAGE_MAX = 1000
+
+
+def run_status(result: BacktestResult) -> Tuple[str, Optional[str]]:
+    """The strategy_runs status a finished result is stored with, and its error message: FAILED for a window with
+    no data, else OK. The one rule persist_run and the route's response both use."""
+    if (result.metrics or {}).get("reason") == "no_data":
+        return "FAILED", NO_DATA_MESSAGE
+    return "OK", None
+
+
+async def persist_failed_run(pool, *, strategy_id, version_id, from_date, to_date, triggered_by,
+                             error_message: str) -> str:
+    """Write a strategy_runs row with status FAILED for a backtest that raised before it produced a result. No metrics,
+    no equity curve, no trades: nothing from a failed run may read as a result (PRD Appendix A: "Worker fails during
+    run → persist failed status and reason; do not show success metrics"). Returns run_id."""
+    run_id = str(uuid.uuid4())
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO strategy_runs
+                   (id, strategy_id, version_id, run_type, status,
+                    backtest_from, backtest_to, trade_count,
+                    triggered_by, finished_at, error_message)
+               VALUES ($1, $2, $3, 'BACKTEST', 'FAILED',
+                       $4, $5, 0,
+                       $6, NOW(), $7)""",
+            run_id, strategy_id, version_id, from_date, to_date, triggered_by,
+            (error_message or "")[:ERROR_MESSAGE_MAX],
+        )
+    return run_id
+
+
 async def persist_run(pool, *, strategy_id, version_id, spec, result: BacktestResult,
                        from_date, to_date, triggered_by) -> str:
     """Write a strategy_runs row + per-trade strategy_trades rows. Returns run_id.
 
     `snapshot_as_of` is the data watermark (metrics.data_watermark.latest_session_available: the newest session the data
     platform held when the run ended), NULL when it could not be read. The code version is in metrics.code_version.
-    Older rows without either stay readable: nothing reads them as required."""
+    Older rows without either stay readable: nothing reads them as required.
+
+    A result with no data (`metrics.reason == "no_data"`: the window has no sessions to run on) is stored as status
+    FAILED with `error_message`, not OK: a run that never ran must not read as a successful one (Strategy Copilot PRD
+    §19.2). Its metrics are kept, so the reason stays visible."""
     run_id = str(uuid.uuid4())
     prov = result.metrics.get("provenance")
     if isinstance(prov, dict):
         prov.setdefault("rule_version", {})["strategy_version_id"] = str(version_id) if version_id is not None else None
     wm = (result.metrics.get("data_watermark") or {}).get("latest_session_available")
     snapshot_as_of = date.fromisoformat(wm) if wm else None
+    status, error_message = run_status(result)
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
@@ -850,16 +888,18 @@ async def persist_run(pool, *, strategy_id, version_id, spec, result: BacktestRe
                        (id, strategy_id, version_id, run_type, status,
                         backtest_from, backtest_to,
                         metrics, equity_curve, trade_count,
-                        triggered_by, finished_at, duration_ms, snapshot_as_of)
-                   VALUES ($1, $2, $3, 'BACKTEST', 'OK',
+                        triggered_by, finished_at, duration_ms, error_message, snapshot_as_of)
+                   VALUES ($1, $2, $3, 'BACKTEST', $10,
                            $4, $5, $6::jsonb, $7::jsonb, $8,
-                           $9, NOW(), NULL, $10)""",
+                           $9, NOW(), NULL, $11, $12)""",
                 run_id, strategy_id, version_id,
                 from_date, to_date,
                 json.dumps(result.metrics),
                 json.dumps(result.equity_curve),
                 len(result.trades),
                 triggered_by,
+                status,
+                error_message,
                 snapshot_as_of,
             )
             for t in result.trades:

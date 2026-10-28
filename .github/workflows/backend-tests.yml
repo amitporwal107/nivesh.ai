@@ -114,6 +114,7 @@ jobs:
           tests/test_desk_alerts.py
           tests/test_desk_copilot_prompt.py
           tests/test_desk_exit_job.py
+          tests/test_desk_live_chart.py
           tests/test_desk_market_routes.py
           tests/test_desk_overview_backend.py
           tests/test_desk_paper_safety.py
@@ -286,12 +287,15 @@ jobs:
           tests/test_strategy_config.py
           tests/test_strategy_engine.py
           tests/test_strategy_evidence_sources.py
+          tests/test_strategy_failed_runs.py
           tests/test_strategy_ideas.py
+          tests/test_strategy_leg_limit.py
           tests/test_strategy_levels.py
           tests/test_strategy_market_data.py
           tests/test_strategy_payoff.py
           tests/test_strategy_plan.py
           tests/test_strategy_plan_templates_route.py
+          tests/test_strategy_run_access.py
           tests/test_strategy_templates_first_wave.py
           tests/test_strategy_templates_illustration.py
           tests/test_strategy_screen.py
