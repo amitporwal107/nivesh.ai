@@ -10,8 +10,9 @@
  *   PCR · ATM IV · EXP. MOVE   the chain summary (end of day, Black-76 on the bhavcopy close)
  *   IV PCTILE           GET /api/fno/{symbol}/iv-history: null with the route's reason until 252 sessions are recorded; "stale"
  *                       when the last recorded session is older than the chain's day
- *   CANDIDATE STRUCTURE the symbol's idea on today's F&O ideas board (useTop10Fno, POST /api/desk/strategy/top, the board Market
- *                       Overview reads): legs, net premium, max loss / profit, breakevens. Wording rule (SEBI): a candidate,
+ *   CANDIDATE STRUCTURE the symbol's F&O idea on the stored AI watchlist day (GET /api/desk/ai-watchlist, the job's Top 10 F&O),
+ *                       else on the F&O ideas board when it is already cached (never fetched here: POST /api/desk/strategy/top
+ *                       takes 12–16 s): legs, net premium, max loss / profit, breakevens. Wording rule (SEBI): a candidate,
  *                       never "suggested". The link goes to Trade Desk › Strategy Lab.
  *
  * OI shows positioning, not who initiated it. Nothing here is computed in the browser beyond picking and drawing.
@@ -22,6 +23,7 @@ import { fmtDay, fmtPrice } from "../../../trading/parts";
 import { strikesAround, useFnoExpiries, useOptionChain, type FnoChain } from "../../../trading/fno";
 import { BUILDUP_META } from "../../fno-buildup";
 import { useTop10Fno } from "../../top10-data";
+import { useAiWatchlist } from "../../../workspace/ai-watchlist-data";
 import { SLOT_LABEL, useIvHistory, type OiBuildup, type OiWindow } from "./live-chart-data";
 import { linkBtn, quiet } from "./parts";
 
@@ -114,13 +116,18 @@ function Stat({ k, v, sub, testId }: { k: string; v: ReactNode; sub?: ReactNode;
 }
 
 function CandidateStructure({ symbol, onStrategyLab }: { symbol: string; onStrategyLab: () => void }) {
-  const board = useTop10Fno();
-  const all = [...(board.data?.classes.index_options?.ideas ?? []), ...(board.data?.classes.stock_fno?.ideas ?? [])];
-  const idea = all.find((i) => i.underlying.toUpperCase() === symbol.toUpperCase()) ?? null;
+  // The stored AI watchlist day's F&O list (one fast read), else the F&O ideas board ONLY when already cached: the board's
+  // POST takes 12–16 s on staging and is never fired from the chart.
+  const watch = useAiWatchlist(null);
+  const board = useTop10Fno(false);
+  const sym = symbol.toUpperCase();
+  const stored = watch.data?.fno.find((i) => i.underlying.toUpperCase() === sym) ?? null;
+  const cached = [...(board.data?.classes.index_options?.ideas ?? []), ...(board.data?.classes.stock_fno?.ideas ?? [])].find((i) => i.underlying.toUpperCase() === sym) ?? null;
+  const idea = stored ?? cached;
   let body: ReactNode;
-  if (board.isPending) body = <LoadingBlock label="Reading today's F&O ideas" rows={2} />;
-  else if (board.isError) body = <span data-testid="lc-structure-error" style={quiet}>Today&apos;s F&amp;O ideas could not be read, so no candidate structure is shown.</span>;
-  else if (!idea) body = <span data-testid="lc-structure-none" style={quiet}>No candidate structure for {symbol} on today&apos;s F&amp;O ideas board.</span>;
+  if (!idea && watch.isPending) body = <LoadingBlock label="Reading today's F&O ideas" rows={2} />;
+  else if (!idea && watch.isError) body = <span data-testid="lc-structure-error" style={quiet}>Today&apos;s F&amp;O ideas could not be read, so no candidate structure is shown.</span>;
+  else if (!idea) body = <span data-testid="lc-structure-none" style={quiet}>No candidate structure for {symbol} on the AI watchlist{watch.data?.list_date ? ` of ${fmtDay(watch.data.list_date)}` : ""}.</span>;
   else {
     const bounded = idea.profit_unbounded !== true && idea.loss_unbounded !== true;
     const net = idea.net_premium ?? null;

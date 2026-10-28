@@ -1,0 +1,5 @@
+# OVERRIDE — Live chart ticket fix (LC-8), fix/desk-live-chart-ticket
+
+REASON: the fix is frontend-only and staging serves `dev`, so the real-browser re-check of LC-8 (the no-plan text for HDFCBANK within a few seconds, no 499 for `/api/risk/profile` or `/api/desk/paper-trades` in the staging nginx log, no `strategy/ideas` or `strategy/top` POST from the Live chart) can run only after this PR is merged and the frontend image is rebuilt. Mocked-UI verification passes: live-chart + trade-desk + desk-shell, `--workers=1`, 85 passed (`test_reports/desk_live_chart_lc8_fix_20261028.md`).
+
+To close after merge (read-only): open `/v5/app/trader/desk?tab=trade&view=chart&sub=live&sym=HDFCBANK` signed in; the ticket says "No plan for HDFCBANK today…" within ~5 s; `sudo docker logs --since <t> nivesh-staging-nginx | grep -E "risk/profile|paper-trades|strategy/(ideas|top)"` shows 200s for the two GETs and no ideas/top POST from that page; at a window where the desk panel is ≥ 1,000 px the ticket sits right of the chart.

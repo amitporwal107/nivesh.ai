@@ -1,7 +1,8 @@
 /**
  * Trade Desk › Chart Analysis › Live chart — the PAPER ORDER TICKET (PAPER ONLY), the right column of the owner's design.
  *
- *   the plan        ?tp=<plan_id>, else today's Top 10 stock idea for the symbol (the caller resolves it)
+ *   the plan        ?tp=<plan_id>, else the stored AI watchlist day's plan for the symbol, else a cached ideas board's (the
+ *                   caller resolves it in one fast read and never waits on the ~16 s ideas board)
  *                   GET /api/desk/trade-plans/{id}: levels, targets with their R, and `account_size`
  *   QUANTITY        `account_size.quantity`: the risk service's own sizing for this account (plan_sizing.py). Never a browser
  *                   formula, and there is NO risk slider (the owner's decision of 28 Oct): the profile is the only risk
@@ -98,8 +99,8 @@ export function TicketFooter() {
   );
 }
 
-export function LiveTicket({ symbol, planId, planPending, onIdeas, onRiskPolicy, signalLabel }: {
-  symbol: string; planId: string | null; planPending: boolean; onIdeas: () => void; onRiskPolicy: () => void; signalLabel: string | null;
+export function LiveTicket({ symbol, planId, planPending, noPlanWhy, onIdeas, onRiskPolicy, signalLabel }: {
+  symbol: string; planId: string | null; planPending: boolean; noPlanWhy?: string | null; onIdeas: () => void; onRiskPolicy: () => void; signalLabel: string | null;
 }) {
   const q = usePlanResponse(planId);
   const prof = useRiskProfile();
@@ -113,7 +114,7 @@ export function LiveTicket({ symbol, planId, planPending, onIdeas, onRiskPolicy,
       <Shell symbol={symbol}>
         {planPending ? <LoadingBlock label="Looking for this stock's plan" rows={2} /> : (
           <span data-testid="lc-ticket-none" style={{ ...quiet, fontSize: 13, color: "var(--cp-ink-2)" }}>
-            No plan for {symbol} today, so there is no order to place: a ticket's quantity is the risk service&apos;s size for an idea&apos;s plan.{" "}
+            No plan for {symbol} today, so there is no order to place{noPlanWhy ? ` (${noPlanWhy})` : ""}: a ticket&apos;s quantity is the risk service&apos;s size for an idea&apos;s plan.{" "}
             <button type="button" data-testid="lc-ticket-ideas" style={linkBtn} onClick={onIdeas}>AI Scanner › Ranked candidates ›</button>
           </span>
         )}
