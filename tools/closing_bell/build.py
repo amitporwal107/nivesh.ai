@@ -23,6 +23,13 @@ BOX = {"idx", "brd", "res", "after", "sec", "n50", "n100", "n200", "n500", "s500
 NF = 36 / 25.0
 GAP, TAIL = 0.30, 0.7
 TRACK_SECONDS = 267.75   # "The Complex", Kevin MacLeod (CC BY 3.0)
+# Mix (owner, 2026-10-28: "the anchor voice should be loud"). The voice is compressed + given presence so it sits
+# in front; the bed is lower and ducks hard under speech (about 18 dB below the voice while he talks); the whole
+# programme is normalised to -14 LUFS, the usual level for online video.
+VOICE_CHAIN = "highpass=f=70,acompressor=threshold=0.125:ratio=3:attack=5:release=60:makeup=2,equalizer=f=3000:t=q:w=1:g=2"
+BED_GAIN_DB = -13.1      # track is about -12.9 LUFS -> bed about -26 LUFS before ducking
+DUCK = "sidechaincompress=threshold=0.02:ratio=6:attack=30:release=400"
+TARGET_LUFS = -14
 
 
 def run(cmd, label, check=True):
@@ -93,7 +100,7 @@ def bed(work, assets):
         flt = (f"[0:a]atrim=0:{join + 2:.2f},asetpts=PTS-STARTPTS[a];[1:a]asetpts=PTS-STARTPTS[b];"
                f"[a][b]acrossfade=d=2:c1=tri:c2=tri")
         ins = ["-i", "/assets/the_complex.mp3", "-i", "/assets/the_complex.mp3"]
-    ff(work, assets, ins + ["-filter_complex", flt + ",aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo,volume=-8.3dB[o]",
+    ff(work, assets, ins + ["-filter_complex", flt + f",aresample=48000,aformat=sample_fmts=s16:channel_layouts=stereo,volume={BED_GAIN_DB}dB[o]",
                             "-map", "[o]", "-c:a", "pcm_s16le", "/w/sfx/bed.wav"], "bed")
 
 
@@ -217,10 +224,10 @@ def seg(work, assets, sids):
             f.append(f"[{ii}:a]aresample=48000,aformat=channel_layouts=stereo,adelay={ms}|{ms}[x{j}]")
             vx.append(f"[x{j}]")
         f.append("".join(vx) + f"amix=inputs={len(vx)}:normalize=0:duration=longest,apad=whole_dur={L}[vo]")
-        f.append("[vo]asplit=2[vo1][vo2]")
+        f.append(f"[vo]{VOICE_CHAIN},asplit=2[vo1][vo2]")
         i_bed = add("-ss", f"{OFF}", "-t", f"{L}", "-i", "/w/sfx/bed.wav")
         f.append(f"[{i_bed}:a]aformat=channel_layouts=stereo,apad=whole_dur={L}[bed0]")
-        f.append("[bed0][vo2]sidechaincompress=threshold=0.05:ratio=2.5:attack=60:release=500[bd]")
+        f.append(f"[bed0][vo2]{DUCK}[bd]")
         i_fx = add("-i", "/assets/sting.wav" if sid == "s0" else "/assets/whoosh.wav")
         f.append(f"[{i_fx}:a]aresample=48000,aformat=channel_layouts=stereo,apad=whole_dur={L}[fx]")
         f.append(f"[vo1][bd][fx]amix=inputs=3:normalize=0:duration=first,atrim=0:{L},alimiter=limit=0.95[aout]")
@@ -237,7 +244,7 @@ def final(work, assets):
     os.makedirs(f"{work}/out", exist_ok=True)
     open(f"{work}/seg/list.txt", "w").write("".join(f"file '/w/seg/{s}.mp4'\n" for s in order))
     ff(work, assets, ["-f", "concat", "-safe", "0", "-i", "/w/seg/list.txt", "-c", "copy", "/w/seg/joined.mp4"], "concat")
-    ff(work, assets, ["-i", "/w/seg/joined.mp4", "-c:v", "copy", "-af", f"afade=t=out:st={total - 3:.2f}:d=3,loudnorm=I=-16:TP=-1.5:LRA=11",
+    ff(work, assets, ["-i", "/w/seg/joined.mp4", "-c:v", "copy", "-af", f"afade=t=out:st={total - 3:.2f}:d=3,loudnorm=I={TARGET_LUFS}:TP=-1.0:LRA=9",
                       "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-movflags", "+faststart", "/w/out/master.mp4"], "master")
     ff(work, assets, ["-i", "/w/out/master.mp4", "-c:v", "libx264", "-preset", "slow", "-crf", "31", "-pix_fmt", "yuv420p",
                       "-profile:v", "high", "-level", "4.1", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", "/w/out/web.mp4"], "web encode")

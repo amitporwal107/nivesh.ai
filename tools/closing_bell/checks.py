@@ -109,8 +109,8 @@ def check_media(media: Dict[str, Any], timeline: Dict[str, Any], raw_dir: str) -
     if media.get("width") != 1920 or media.get("height") != 1080:
         fails.append(f"frame {media.get('width')}x{media.get('height')}, expected 1920x1080")
     li = media.get("lufs")
-    if li is None or not (-18.5 <= li <= -13.5):
-        fails.append(f"loudness {li} LUFS outside -18.5..-13.5")
+    if li is None or not (-15.5 <= li <= -12.5):
+        fails.append(f"loudness {li} LUFS outside -15.5..-12.5 (target -14)")
     for sid in sorted(timeline):
         if sid == "s0":
             continue
