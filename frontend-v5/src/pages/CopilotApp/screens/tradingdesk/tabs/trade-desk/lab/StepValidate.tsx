@@ -1,22 +1,25 @@
 /**
  * Strategy Lab › Build a trade, step 4 — Validate & paper-trade.
  *
- *   Strategy instance   POST /api/desk/strategy/instances (save v1), …/{id}/versions (save as vN+1), …/{id}/clone; Adjust
- *                       legs goes back to step 3. Versions are immutable.
+ *   Strategy instance   Save version and Clone go to the ONE store, the Strategy Builder's strategy_versions (owner, 28
+ *                       Oct). Its v2 (legs) is not there yet, so both are DISABLED with the reason (strategy/instance-store.ts);
+ *                       the legs stay in the page's state. Adjust legs goes back to step 3.
  *   Backtest            a structure backtest over option history does not exist for multi-leg F&O structures: said so. A
  *                       cash position links to Backtest & validation (end-of-day strategy backtests with provenance).
- *   Paper gates         saved as a version, a valid payoff, your build limits, the risk service's decision (the check).
+ *   Paper gates         a valid payoff, your build limits, the risk service's decision (the check). The trade cites the
+ *                       template (signal.source_refs strategy_template) until it can cite a saved version.
  *   Start               POST /api/desk/paper-trades with an Idempotency-Key (desk-trading useAddStrategyPaperTrade): the risk
  *                       service answers allow (recorded), reduce ("Accept N lots per leg?", nothing recorded), block (the
  *                       reasons), a duplicate, or the desk's own 422. Paper only; nothing is sent to a broker.
- *   Monitor             the open paper trade that cites this instance, from the paper book (read once per load; EOD marks).
+ *   Monitor             the paper trade started here or opened from Existing strategies, from the paper book (EOD marks).
  */
 import { useState, type ReactNode } from "react";
 import { Btn } from "../../../../../components/ui";
 import { detailOf, orderReasons, readReasons } from "../../../risk-controls";
 import { riskReduceOf, useAddStrategyPaperTrade, type NewStrategyPaperTrade, type StrategyPaperTrade } from "../../../desk-trading";
 import { ChecksCard, type Structure } from "./StepReview";
-import { INPUT_WORDS, refusalOf, shortDay, type Instance } from "./wizard-data";
+import { INPUT_WORDS, legsSummary, refusalOf, shortDay } from "./wizard-data";
+import { NOT_YET, STORE_AVAILABLE } from "../../../strategy/instance-store";
 import { Card, Pill, eyebrowS, inr, mono, quietS } from "./ui";
 import { daysBetween, todayIso } from "./ChainPicker";
 
@@ -37,21 +40,18 @@ function answerOf(e: unknown): Answer {
   return { kind: "error", text: `Not recorded: ${r.message}`, reasons: [] };
 }
 
-export function StepValidate({ instance, version, edited, saving, saveError, onSave, onSaveVersion, onClone, onAdjust, name, onName, structure, body, multiLeg, cashOnly,
+export function StepValidate({ onAdjust, name, onName, structure, body, multiLeg, cashOnly,
   onBacktest, onLiveDesk, trade, onStarted, asOf, onScaleLots }: {
-  instance: Instance | null; version: number | null; edited: boolean; saving: boolean; saveError: string | null;
-  onSave: () => void; onSaveVersion: () => void; onClone: () => void; onAdjust: () => void; name: string; onName: (s: string) => void;
+  onAdjust: () => void; name: string; onName: (s: string) => void;
   structure: Structure; body: NewStrategyPaperTrade | null; multiLeg: boolean; cashOnly: boolean;
   onBacktest: () => void; onLiveDesk: () => void; trade: StrategyPaperTrade | null; onStarted: (id: string | null) => void; asOf: string | null;
   onScaleLots: (approved: number, requested: number) => void;
 }) {
   const add = useAddStrategyPaperTrade();
   const [answer, setAnswer] = useState<Answer | null>(null);
-  const saved = !!instance && version != null;
   const r = structure.pay.data;
   const check = structure.check.state;
   const gates: Array<{ ok: boolean; text: ReactNode; id: string }> = [
-    { id: "saved", ok: saved && !edited, text: saved ? (edited ? "Edited since the last saved version: save a new version first, so the paper trade cites what it holds." : `Saved as v${version}: the paper trade cites ${instance?.id.slice(0, 8)}@v${version}.`) : "Save the strategy instance first, so the paper trade cites a version." },
     { id: "payoff", ok: !!r?.valid, text: r?.valid ? "Payoff worked out (payoff-v2, net of costs)." : "No valid payoff yet." },
     ...structure.limits.map((l, i) => ({ id: `limit-${i}`, ok: l.ok, text: l.text })),
     { id: "risk", ok: check?.kind === "answer" && check.a.outcome !== "block", text: check?.kind === "answer" ? (check.a.outcome === "allow" ? "The risk service allows it on your account now." : check.a.outcome === "reduce" ? `The risk service would reduce it to ${check.a.approvedLots ?? "?"} lot(s) per leg.` : "The risk service blocks it on your account now.") : check?.kind === "refused" ? `Not accepted: ${check.message}` : "Waiting for the risk service." },
@@ -71,34 +71,22 @@ export function StepValidate({ instance, version, edited, saving, saveError, onS
   return (
     <div data-testid="wz-step-4" className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
       <div className="flex min-w-0 flex-col" style={{ flex: "999 1 480px", gap: 14 }}>
-        <Card testId="wz-instance" title="Strategy instance" right={saved ? `${instance?.id.slice(0, 8).toUpperCase()} · v${version}${edited ? " · edited" : ""}` : "unsaved"}>
-          {!saved && (
-            <label className="flex min-w-0 flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>
-              Name
-              <input data-testid="wz-instance-name" value={name} maxLength={80} onChange={(e) => onName(e.target.value)}
-                style={{ height: 34, padding: "0 10px", borderRadius: 8, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--cp-ink)", minWidth: 0 }} />
-            </label>
-          )}
-          {saved && instance && (
-            <ul data-testid="wz-versions" className="m-0 flex flex-col" style={{ gap: 4, padding: 0, listStyle: "none" }}>
-              {[...instance.versions].reverse().map((v) => (
-                <li key={v.version} data-testid="wz-version" data-version={v.version} className="flex flex-wrap items-baseline" style={{ gap: 8, fontSize: 12.5 }}>
-                  <Pill tone={v.version === version ? "mint" : "grey"}>v{v.version}</Pill>
-                  <span style={mono}>{v.savedAt ? v.savedAt.slice(0, 16).replace("T", " ") : ""}</span>
-                  <span style={quietS}>{v.legs.length} leg{v.legs.length === 1 ? "" : "s"}{v.note ? ` · ${v.note}` : ""}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {instance?.clonedFrom && <span style={quietS}>Cloned from {instance.clonedFrom.id?.slice(0, 8).toUpperCase()} v{instance.clonedFrom.version}.</span>}
+        <Card testId="wz-instance" title="Strategy instance" right="unsaved">
+          <label className="flex min-w-0 flex-col" style={{ gap: 4, fontSize: 12, color: "var(--cp-ink-3)" }}>
+            Name
+            <input data-testid="wz-instance-name" value={name} maxLength={80} onChange={(e) => onName(e.target.value)}
+              style={{ height: 34, padding: "0 10px", borderRadius: 8, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--cp-ink)", minWidth: 0 }} />
+          </label>
+          {body && <span data-testid="wz-instance-legs" style={{ ...mono, fontSize: 12 }}>{legsSummary(body.legs.map((l) => ({ kind: l.kind, side: l.side, optionType: l.option_type, strike: l.strike, expiry: l.expiry })))}</span>}
           <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
-            {!saved ? <Btn variant="primary" data-testid="wz-save" disabled={saving || !r?.valid} onClick={onSave}>{saving ? "Saving…" : "Save version"}</Btn>
-              : <Btn variant="primary" data-testid="wz-save-version" disabled={saving || !edited || !r?.valid} onClick={onSaveVersion}>{saving ? "Saving…" : `Save as v${(instance?.latestVersion ?? 0) + 1}`}</Btn>}
-            <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-clone" disabled={!saved || saving} onClick={onClone}>Clone</button>
+            <Btn variant="primary" data-testid="wz-save" disabled={!STORE_AVAILABLE} title={NOT_YET}>Save version</Btn>
+            <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-clone" disabled={!STORE_AVAILABLE} title={NOT_YET}>Clone</button>
             <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-adjust" onClick={onAdjust}>Adjust legs</button>
           </div>
-          {saveError && <span data-testid="wz-save-error" role="alert" style={{ fontSize: 12.5, color: "var(--cp-danger)" }}>Not saved: {saveError}</span>}
-          <span style={{ ...quietS, fontSize: 11 }}>Each version is kept as saved and never edited; a change is a new version.</span>
+          <span data-testid="wz-save-note" role="note" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--amber)" }}>{NOT_YET}</span>
+          <span style={{ ...quietS, fontSize: 11 }}>
+            Saved structures go into the Strategy Builder&rsquo;s store, one version history with each backtest run on an immutable version. Until it holds legs, your legs stay on this page (going back a step keeps them), and a simulated trade records its legs and the template it came from.
+          </span>
         </Card>
 
         <Card testId="wz-backtest" title="Backtest">
@@ -155,7 +143,7 @@ export function StepValidate({ instance, version, edited, saving, saveError, onS
               {answer.reasons.length > 0 && <ul className="m-0" style={{ paddingLeft: 16, fontSize: 12.5, color: "var(--cp-ink-2)" }}>{answer.reasons.map((x, i) => <li key={i} data-testid="wz-answer-reason">{x}</li>)}</ul>}
               {answer.kind === "reduce" && answer.approvedLots != null && answer.requestedLots != null && answer.approvedLots >= 1 && (
                 <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-accept-reduce" onClick={() => { onScaleLots(answer.approvedLots as number, answer.requestedLots as number); setAnswer(null); }}>
-                  Accept {answer.approvedLots} lot{answer.approvedLots === 1 ? "" : "s"} per leg? (a new version to save, then start)
+                  Accept {answer.approvedLots} lot{answer.approvedLots === 1 ? "" : "s"} per leg? (the legs change; then start again)
                 </button>
               )}
               {answer.kind === "block" && <span style={quietS}>Your risk profile is the only risk setting (Risk Desk › Controls &amp; profile). A kill switch blocks new paper entries; only an admin clears it.</span>}

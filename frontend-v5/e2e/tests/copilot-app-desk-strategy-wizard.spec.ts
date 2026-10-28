@@ -47,20 +47,17 @@ const FUTURES = { symbol: "NIFTY", as_of: "2026-10-27", spot: 24480, futures: [{
 // ── MOCK instances, saved plan, AI Trader strategies, paper trades ───────────────────────────────────────────────────
 const opt = (side: string, t: string, strike: number, expiry = NOV, entry = 100, lots = 1) => ({ kind: "option", side, lots, lot_size: 75, entry_price: entry, expiry, strike, option_type: t, price_source: "MOCK" });
 const cashLeg = { kind: "cash", side: "buy", lots: 75, lot_size: 1, entry_price: 24480, expiry: null, price_source: "MOCK" };
-const inst = (id: string, name: string, template: string | null, versions: number, legs: unknown[], source = "template") => ({
-  id, name, template, underlying: "NIFTY", source: { kind: source, ref: template }, created_at: "2026-10-20T10:00:00+00:00", updated_at: "2026-10-26T10:00:00+00:00",
-  latest_version: versions, cloned_from: null, sent_to_broker: false,
-  versions: Array.from({ length: versions }, (_, i) => ({ version: i + 1, saved_at: `2026-10-2${i}T10:00:00+00:00`, structure: { legs, config: {} }, note: null })),
-});
-const INSTANCES = [
-  inst("inst-live", "NIFTY Iron Condor", "iron_condor", 2, [opt("buy", "put", 24000), opt("sell", "put", 24200), opt("sell", "call", 24800), opt("buy", "call", 25000)]),
-  inst("inst-cc", "NIFTY Covered call", "covered_call", 3, [cashLeg, opt("sell", "call", 24700, NOV, 95)]),
-  inst("inst-cal", "NIFTY Calendar", null, 1, [opt("sell", "call", 24500), opt("buy", "call", 24500, DEC)], "manual"),
-  inst("inst-old", "NIFTY Bull call (Oct)", "bull_call_spread", 1, [opt("buy", "call", 24500, "2026-10-20", 150), opt("sell", "call", 24700, "2026-10-20", 60)]),
-];
-const PLANS = { plans: [{ id: "sp-1", plan_id: "plan_sp1", saved_at: "2026-10-25T10:00:00+00:00", underlying: "NIFTY", direction: "bullish", horizon: "swing", segment: "options", family: "bull_put_spread", status: "plan", data_as_of: "2026-10-24", rules_version: "r", lifecycle: null }], count: 1, limit: 100, max_saved: 200 };
-const PLAN_DETAIL = { id: "sp-1", saved_at: "2026-10-25T10:00:00+00:00", plan: { summary: { family: "bull_put_spread" }, candidates: [{ family: "bull_put_spread", legs: [
-  { kind: "option", side: "buy", quantity: 1, lot_size: 75, entry_price: 60, expiry: NOV, strike: 24300, option_type: "put" }, { kind: "option", side: "sell", quantity: 1, lot_size: 75, entry_price: 110, expiry: NOV, strike: 24400, option_type: "put" }] }] } };
+const planSummary = (id: string, family: string) => ({ id, plan_id: `plan_${id}`, saved_at: "2026-10-25T10:00:00+00:00", underlying: "NIFTY", direction: "bullish", horizon: "swing", segment: "options", family, status: "plan", data_as_of: "2026-10-24", rules_version: "r", lifecycle: null });
+const PLANS = { plans: [planSummary("sp-1", "bull_put_spread"), planSummary("sp-cc", "covered_call"), planSummary("sp-old", "bull_call_spread")], count: 3, limit: 100, max_saved: 200 };
+const pleg = (side: string, t: string | null, strike: number | null, expiry: string | null, entry: number, kind = "option", quantity = 1) => ({ kind, side, quantity, lot_size: kind === "cash" ? 1 : 75, entry_price: entry, expiry, strike, option_type: t });
+const planDetail = (id: string, family: string, legs: unknown[]) => ({ id, saved_at: "2026-10-25T10:00:00+00:00", plan: { summary: { family }, candidates: [{ family, legs }] } });
+const PLAN_DETAILS: Record<string, unknown> = {
+  "sp-1": planDetail("sp-1", "bull_put_spread", [pleg("buy", "put", 24300, NOV, 60), pleg("sell", "put", 24400, NOV, 110)]),
+  "sp-cc": planDetail("sp-cc", "covered_call", [pleg("buy", null, null, null, 24480, "cash", 75), pleg("sell", "call", 24700, NOV, 95)]),
+  "sp-old": planDetail("sp-old", "bull_call_spread", [pleg("buy", "call", 24500, "2026-10-20", 150), pleg("sell", "call", 24700, "2026-10-20", 60)]),
+};
+// GET /api/strategy-builder/strategies (routes/strategy_builder.py list_strategies): STOCK / MF rule sets, no legs.
+const BUILDER = { strategies: [{ id: "sb-breakout1", owner_id: "u", name: "Breakout screen", description: null, asset_class: "STOCK", is_public_template: false, is_archived: false, created_at: "2026-10-01", updated_at: "2026-10-20" }], count: 1 };
 const ai = (id: string, name: string, stage: string, o: Record<string, unknown> = {}) => ({ id, name, stage, version: 2, template: "momentum_breakout", regime: "BULL", created_by: "ai", spec: {}, config: {}, provenance: {}, runs: [], holdout_used: false, holdout_window: null, paper_stats: null, stage_history: [], created_at: "2026-10-20", updated_at: "2026-10-26", stages: [], orders: "none", ...o });
 const AI = { orders: "none", strategies: [
   ai("ai-draft01", "AI momentum breakout", "draft"),
@@ -81,8 +78,8 @@ const strade = (id: string, legs: Array<ReturnType<typeof opt>>, o: Record<strin
   mfe_rs: 0, mae_rs: 0, observations: 1, held_sessions: 2, checked_through: "2026-10-27", last_mark_date: "2026-10-27", mark_error: null, flags: [], event_count: 0, events: [],
   premium_plan: null, structure_value_per_unit: 1, exit_basis: null, state: "POSITION_OPEN", transitions: [], plan_ref: null, rolled_from: null, rolled_to: null, ...o,
 });
-const PT_INST = strade("pt-inst", [opt("buy", "put", 24000), opt("sell", "put", 24200), opt("sell", "call", 24800), opt("buy", "call", 25000)],
-  { family: "iron_condor", family_name: "Iron condor", direction: "neutral", net_pnl_rs: 1240.5, signal: { signal_at: "2026-10-24T10:00:00+00:00", rule_version: "strategy-lab-wizard-v1", model_version: null, source_refs: [{ kind: "strategy_instance", ref: "inst-live@v2", as_of: "2026-10-24" }], evidence_summary: "MOCK" } });
+const PT_PLAN = strade("pt-plan", [opt("buy", "put", 24300, NOV, 60), opt("sell", "put", 24400, NOV, 110)],
+  { family: "bull_put_spread", family_name: "Bull put spread", strategy_plan_id: "sp-1", net_pnl_rs: 1240.5 });
 const PT_AI = strade("pt-ai0001", [opt("buy", "call", 24500, NOV, 180), opt("sell", "call", 24700, NOV, 95)],
   { net_pnl_rs: -310.2, signal: { signal_at: "2026-10-24T10:00:00+00:00", rule_version: "fno-rules-v1", model_version: "fno-cand-v2", source_refs: [{ kind: "fno_candidate", ref: "c1", as_of: null }], evidence_summary: "MOCK" } });
 const book = (trades: unknown[]) => ({ as_of: "2026-10-27", checked_through: "2026-10-27", source: "nidp", price_basis: "raw", marks_error: null, exit_rule: "x", entry_rules: {}, rules_version: "desk-paper-v2",
@@ -91,10 +88,10 @@ const ALLOW = { checked: true, recorded: false, outcome: "allow", reasons: [], r
 const BLOCK_REASON = "Open risk would reach 3.4% of equity; your profile allows 3.0%.";
 
 interface Opts { empty?: boolean; check?: unknown; post?: Array<{ status: number; body: unknown }>; margin?: { status: number; body: unknown }; asOf?: string; phone?: boolean }
-interface Seen { checks: Array<Record<string, unknown>>; posts: Array<Record<string, unknown>>; keys: Array<string | undefined>; instancePosts: Array<{ path: string; body: Record<string, unknown> }>; payoffs: number; chains: string[] }
+interface Seen { checks: Array<Record<string, unknown>>; posts: Array<Record<string, unknown>>; keys: Array<string | undefined>; payoffs: number; chains: string[] }
 
 async function setup(page: Page, o: Opts = {}): Promise<Seen> {
-  const seen: Seen = { checks: [], posts: [], keys: [], instancePosts: [], payoffs: 0, chains: [] };
+  const seen: Seen = { checks: [], posts: [], keys: [], payoffs: 0, chains: [] };
   await page.clock.setFixedTime(new Date("2026-10-28T10:00:00+05:30"));
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await page.route("**/api/**", (r) => json(r, { detail: "MOCK: not mocked in this spec" }, 404));
@@ -110,31 +107,24 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
   await page.route("**/api/desk/exit-job-status", (r) => json(r, { job: "x", status: "ok", state: "ok", message: "MOCK", schedule: "MOCK" }));
   await page.route("**/api/desk/strategy/templates", (r) => json(r, CATALOG));
   await page.route("**/api/desk/strategy/plans*", (r) => json(r, o.empty ? { plans: [], count: 0, limit: 100, max_saved: 200 } : PLANS));
-  await page.route("**/api/desk/strategy/plans/sp-1", (r) => json(r, PLAN_DETAIL));
+  await page.route("**/api/desk/strategy/plans/*", (r) => {
+    const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string);
+    return PLAN_DETAILS[id] ? json(r, PLAN_DETAILS[id]) : json(r, { detail: "plan_not_found" }, 404);
+  });
+  await page.route("**/api/strategy-builder/strategies", (r) => json(r, o.empty ? { strategies: [], count: 0 } : BUILDER));
   await page.route("**/api/ai-trader/strategies", (r) => json(r, o.empty ? { strategies: [], orders: "none" } : AI));
-  const trades: unknown[] = o.empty ? [] : [PT_INST, PT_AI];
+  const trades: unknown[] = o.empty ? [] : [PT_PLAN, PT_AI];
   await page.route("**/api/desk/paper-trades*", (r) => {
     if (r.request().method() === "POST") {
       seen.posts.push(r.request().postDataJSON());
       seen.keys.push(r.request().headers()["idempotency-key"]);
-      const a = o.post?.shift() ?? { status: 201, body: { trade: strade("pt-new", [opt("buy", "call", 24500, NOV, 180), opt("sell", "call", 24700, NOV, 95)], { signal: { ...PT_INST.signal, source_refs: [{ kind: "strategy_instance", ref: "inst-new@v1", as_of: "2026-10-27" }] } }), risk: null } };
+      const a = o.post?.shift() ?? { status: 201, body: { trade: strade("pt-new", [opt("buy", "call", 24500, NOV, 180), opt("sell", "call", 24700, NOV, 95)], { signal: { ...PT_AI.signal, model_version: null, source_refs: [{ kind: "strategy_template", ref: "bull_call_spread", as_of: "2026-10-27" }] } }), risk: null } };
       if (a.status === 201) trades.push((a.body as { trade: unknown }).trade);
       return json(r, a.body, a.status);
     }
     return json(r, book(trades));
   });
   await page.route("**/api/desk/paper-trades/check", (r) => { seen.checks.push(r.request().postDataJSON()); return json(r, o.check ?? ALLOW); });
-  const instances = o.empty ? [] : [...INSTANCES];
-  await page.route("**/api/desk/strategy/instances**", (r) => {
-    const p = new URL(r.request().url()).pathname;
-    if (r.request().method() !== "POST") return json(r, { instances, count: instances.length });
-    const body = (r.request().postDataJSON() ?? {}) as Record<string, unknown>;
-    seen.instancePosts.push({ path: p, body });
-    const st = body.structure as { legs: unknown[] } | undefined;
-    if (p.endsWith("/versions")) return json(r, { instance: inst("inst-new", "NIFTY Bull call spread", "bull_call_spread", 2, st?.legs ?? []) }, 201);
-    if (p.endsWith("/clone")) return json(r, { instance: { ...inst("inst-clone", "NIFTY Bull call spread (clone)", "bull_call_spread", 1, []), cloned_from: { id: "inst-new", version: 1 } } }, 201);
-    return json(r, { instance: inst("inst-new", String(body.name), body.template as string, 1, st?.legs ?? []) }, 201);
-  });
   await page.route("**/api/desk/strategy/payoff", (r) => {
     seen.payoffs += 1;
     const b = r.request().postDataJSON() as { legs: Array<{ expiry?: string | null }> };
@@ -250,40 +240,45 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await setup(page);
     await page.goto(BUILD);
     const rows = page.getByTestId("wz-row");
-    await expect(rows).toHaveCount(10, SLOW);
-    await expect(page.getByTestId("wz-existing-count")).toHaveText("10 strategies · open one to review and edit");
+    await expect(rows).toHaveCount(9, SLOW);
+    await expect(page.getByTestId("wz-existing-count")).toHaveText("9 strategies · open one to review and edit");
     const row = (key: string) => page.locator(`[data-testid="wz-row"][data-key="${key}"]`);
-    await expect(row("inst:inst-live").getByTestId("wz-row-status")).toHaveText("PAPER LIVE");
-    await expect(row("inst:inst-live").getByTestId("wz-row-pnl")).toHaveText("+₹1,241");
-    await expect(row("inst:inst-live").getByTestId("wz-row-pnl")).toHaveAttribute("data-sign", "pos");
-    await expect(row("inst:inst-live").getByTestId("wz-row-legs")).toHaveText("B 24000 PE 25 Nov · S 24200 PE 25 Nov · S 24800 CE 25 Nov · B 25000 CE 25 Nov");
-    await expect(row("inst:inst-cc").getByTestId("wz-row-status")).toHaveText("SAVED");
-    await expect(row("inst:inst-cc").getByTestId("wz-row-ver")).toHaveText("v3");
-    await expect(row("inst:inst-cc").getByTestId("wz-row-legs")).toHaveText("B CASH · S 24700 CE 25 Nov");
-    await expect(row("inst:inst-cc").getByTestId("wz-row-pnl")).toHaveText("—");
-    await expect(row("inst:inst-cal").getByTestId("wz-row-legs")).toHaveText("S 24500 CE 25 Nov · B 24500 CE 30 Dec");
-    await expect(row("inst:inst-old").getByTestId("wz-row-expired")).toContainText("Expired contracts (20 Oct)");
-    await expect(row("plan:sp-1").getByTestId("wz-row-source")).toHaveText("YOU");
+    // A saved plan an open desk paper trade cites (strategy_plan_id): PAPER LIVE, with that trade's net P/L.
+    await expect(row("plan:sp-1").getByTestId("wz-row-status")).toHaveText("PAPER LIVE");
+    await expect(row("plan:sp-1").getByTestId("wz-row-pnl")).toHaveText("+₹1,241");
+    await expect(row("plan:sp-1").getByTestId("wz-row-pnl")).toHaveAttribute("data-sign", "pos");
     await expect(row("plan:sp-1").getByTestId("wz-row-legs")).toHaveText("B 24300 PE 25 Nov · S 24400 PE 25 Nov", SLOW);
+    await expect(row("plan:sp-1").getByTestId("wz-row-source")).toHaveText("YOU");
+    await expect(row("plan:sp-cc").getByTestId("wz-row-status")).toHaveText("SAVED");
+    await expect(row("plan:sp-cc").getByTestId("wz-row-ver")).toHaveText("v1");
+    await expect(row("plan:sp-cc").getByTestId("wz-row-legs")).toHaveText("B CASH · S 24700 CE 25 Nov");
+    await expect(row("plan:sp-cc").getByTestId("wz-row-pnl")).toHaveText("—");
+    await expect(row("plan:sp-old").getByTestId("wz-row-expired")).toContainText("Expired contracts (20 Oct)");
     await expect(row("ai:ai-draft01").getByTestId("wz-row-status")).toHaveText("DRAFT");
     await expect(row("ai:ai-pass001").getByTestId("wz-row-status")).toHaveText("BACKTEST PASSED");
     await expect(row("ai:ai-runs001").getByTestId("wz-row-status")).toHaveText("BACKTESTED");
     await expect(row("ai:ai-paper01").getByTestId("wz-row-status")).toHaveText("PAPER LIVE");
+    await expect(row("ai:ai-paper01").getByTestId("wz-row-ver")).toHaveText("v3");
     await expect(row("ai:ai-paper01").getByTestId("wz-row-pnl")).toHaveText("−₹820");
     await expect(row("ai:ai-paper01").getByTestId("wz-row-pnl")).toHaveAttribute("data-sign", "neg");
     await expect(row("ai:ai-paper01").getByTestId("wz-row-source")).toHaveText("AI");
+    await expect(row("ai:ai-paper01").getByTestId("wz-row-legs")).toHaveText("Rule set · no legs");
+    await expect(row("sb:sb-breakout1").getByTestId("wz-row-name")).toContainText("Breakout screen");
+    await expect(row("sb:sb-breakout1").getByTestId("wz-row-status")).toHaveText("SAVED");
+    await expect(row("sb:sb-breakout1").getByTestId("wz-row-source")).toHaveText("YOU");
     await expect(row("trade:pt-ai0001").getByTestId("wz-row-source")).toHaveText("AI");
     await expect(row("trade:pt-ai0001").getByTestId("wz-row-name")).toContainText("AI Bull call spread");
+    await expect(row("trade:pt-ai0001").getByTestId("wz-row-legs")).toHaveText("B 24500 CE 25 Nov · S 24700 CE 25 Nov");
     await expect(row("trade:pt-ai0001").getByTestId("wz-row-pnl")).toHaveText("−₹310");
     // Tones: PAPER LIVE green, BACKTEST PASSED blue, BACKTESTED blue outline, DRAFT amber, SAVED grey; AI blue, YOU green.
     await expect(row("ai:ai-pass001").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "blue");
     await expect(row("ai:ai-runs001").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "blue-outline");
     await expect(row("ai:ai-draft01").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "amber");
-    await expect(row("inst:inst-cc").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "grey");
-    await expect(row("inst:inst-live").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "mint");
+    await expect(row("plan:sp-cc").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "grey");
+    await expect(row("plan:sp-1").getByTestId("wz-row-status")).toHaveAttribute("data-tone", "mint");
     await expect(row("plan:sp-1").getByTestId("wz-row-source")).toHaveAttribute("data-tone", "mint");
     await expect(row("ai:ai-draft01").getByTestId("wz-row-source")).toHaveAttribute("data-tone", "blue");
-    await expect(row("inst:inst-live").getByTestId("wz-row-open")).toHaveText("Open ↗");
+    await expect(row("plan:sp-1").getByTestId("wz-row-open")).toHaveText("Open ↗");
   });
 
   test("WZ-5 with nothing saved: the empty line", async ({ page }) => {
@@ -356,6 +351,7 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     expect(seen.chains).toContain(DEC);
     await expect(page.getByTestId("wz-payoff-invalid")).toContainText("calendar structures are not supported", SLOW);
     await expect(page.getByTestId("wz-sum-legs")).toHaveText("2 · 25 Nov, 30 Dec");
+    await expect(page.getByTestId("wz-legs-line")).toHaveText("B 24500 CE 25 Nov · S 24700 CE 30 Dec");
     await legs.nth(1).getByTestId(`wz-leg-expiry-${NOV}`).click();
     await expect(legs.nth(1)).toHaveAttribute("data-expiry", NOV);
     await page.getByTestId("wz-add-cash").click();
@@ -505,39 +501,36 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await expect(page.getByTestId("wz-chain-age")).toContainText("stale: prices are estimates, not quotes");
   });
 
-  test("WZ-13 versions: save v1, an edit marks it, save as v2, clone", async ({ page }) => {
-    const seen = await setup(page);
+  test("WZ-13 Save version and Clone are disabled with the reason (one store, not yet); the legs stay in the page's state", async ({ page }) => {
+    await setup(page);
     await toValidate(page);
-    await expect(page.getByTestId("wz-gate-saved")).toHaveAttribute("data-ok", "false");
-    await expect(page.getByTestId("wz-start")).toBeDisabled();
-    await page.getByTestId("wz-save").click();
-    await expect(page.getByTestId("wz-prov-instance")).toHaveText("saved v1", SLOW);
-    const create = seen.instancePosts[0];
-    expect(create.path).toBe("/api/desk/strategy/instances");
-    expect(create.body.template).toBe("bull_call_spread");
-    expect(create.body.underlying).toBe("NIFTY");
-    expect((create.body.source as { kind: string }).kind).toBe("template");
-    expect(((create.body.structure as { legs: unknown[] }).legs).length).toBe(2);
+    await expect(page.getByTestId("wz-save")).toBeDisabled();
+    await expect(page.getByTestId("wz-clone")).toBeDisabled();
+    await expect(page.getByTestId("wz-save-note")).toHaveText("Saving arrives with the shared strategy store.");
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("unsaved");
+    await expect(page.getByTestId("wz-instance-legs")).toHaveText("B 24500 CE 25 Nov · S 24700 CE 25 Nov");
+    // Edited legs survive every step change: back to 3, to 1, to 2 (no setting changed, so no rebuild), to 3 and 4.
     await page.getByTestId("wz-adjust").click();
     await page.getByTestId("wz-leg").nth(1).getByTestId("wz-leg-strike-plus").click();
-    await expect(page.getByTestId("wz-prov-instance")).toHaveText("saved v1 · edited");
-    await page.getByTestId("wz-to-validate").click();
-    await expect(page.getByTestId("wz-gate-saved")).toHaveAttribute("data-ok", "false");
-    await page.getByTestId("wz-save-version").click();
-    await expect(page.getByTestId("wz-prov-instance")).toHaveText("saved v2", SLOW);
-    expect(seen.instancePosts[1].path).toBe("/api/desk/strategy/instances/inst-new/versions");
-    await expect(page.getByTestId("wz-version")).toHaveCount(2);
-    await page.getByTestId("wz-clone").click();
-    await expect.poll(() => seen.instancePosts.length).toBe(3);
-    expect(seen.instancePosts[2].path).toBe("/api/desk/strategy/instances/inst-new/clone");
-    await expect(page.getByTestId("wz-instance")).toContainText("Cloned from INST-NEW v1", SLOW);
+    await expect(page.getByTestId("wz-leg").nth(1)).toHaveAttribute("data-strike", "24800");
+    await page.getByTestId("wz-step-btn-1").click();
+    await expect(page.getByTestId("wz-step-1")).toBeVisible();
+    await page.getByTestId("wz-step-btn-2").click();
+    await expect(page.getByTestId("wz-preview-legs")).toHaveText("B 24500 CE 25 Nov · S 24800 CE 25 Nov");
+    await page.getByTestId("wz-step-btn-3").click();
+    await expect(page.getByTestId("wz-leg").nth(1)).toHaveAttribute("data-strike", "24800");
+    await page.getByTestId("wz-step-btn-4").click();
+    await expect(page.getByTestId("wz-instance-legs")).toHaveText("B 24500 CE 25 Nov · S 24800 CE 25 Nov");
+    // A setting changed in step 2 does rebuild, by the user's own action.
+    await page.getByTestId("wz-step-btn-2").click();
+    await page.getByTestId("wz-rule-otm").click();
+    await expect(page.getByTestId("wz-preview-legs")).toHaveText("B 24600 CE 25 Nov · S 24800 CE 25 Nov");
   });
 
-  test("WZ-14 start the simulated trade: Idempotency-Key, the instance cited; allow opens it on the strip and the monitor", async ({ page }) => {
+  test("WZ-14 start the simulated trade: Idempotency-Key, the template cited; allow opens it on the strip and the monitor", async ({ page }) => {
     const seen = await setup(page);
     await toValidate(page);
-    await page.getByTestId("wz-save").click();
-    await expect(page.getByTestId("wz-gate-saved")).toHaveAttribute("data-ok", "true", SLOW);
+    await expect(page.getByTestId("wz-gate-payoff")).toHaveAttribute("data-ok", "true", SLOW);
     await expect(page.getByTestId("wz-gate-risk")).toHaveAttribute("data-ok", "true", SLOW);
     await expect(page.getByTestId("wz-start")).toBeEnabled();
     await page.getByTestId("wz-start").click();
@@ -546,7 +539,7 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     const body = seen.posts[0] as { kind: string; signal: { source_refs: Array<{ kind: string; ref: string }> }; family: string };
     expect(body.kind).toBe("strategy");
     expect(body.family).toBe("bull_call_spread");
-    expect(body.signal.source_refs[0]).toMatchObject({ kind: "strategy_instance", ref: "inst-new@v1" });
+    expect(body.signal.source_refs[0]).toMatchObject({ kind: "strategy_template", ref: "bull_call_spread" });
     await expect(page.getByTestId("wz-prov-paper")).toHaveText("open · pt-new", SLOW);
     await expect(page.getByTestId("wz-monitor-id")).toHaveText("pt-new");
     await expect(page.getByTestId("wz-monitor-dte")).toHaveText("28");
@@ -561,15 +554,13 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await toReview(page);
     for (let i = 0; i < 2; i++) await page.getByTestId("wz-leg").nth(i).getByTestId("wz-leg-lots-plus").click();
     await page.getByTestId("wz-to-validate").click();
-    await page.getByTestId("wz-save").click();
     await expect(page.getByTestId("wz-start")).toBeEnabled(SLOW);
     await page.getByTestId("wz-start").click();
     await expect(page.getByTestId("wz-answer")).toHaveAttribute("data-outcome", "reduce", SLOW);
     await expect(page.getByTestId("wz-answer-text")).toContainText("allows 1 lot(s) per leg (you asked 2). Nothing was recorded.");
     await page.getByTestId("wz-accept-reduce").click();
-    await expect(page.getByTestId("wz-prov-instance")).toHaveText("saved v1 · edited");
-    await page.getByTestId("wz-save-version").click();
-    await expect(page.getByTestId("wz-prov-instance")).toHaveText("saved v2", SLOW);
+    await expect(page.getByTestId("wz-instance-legs")).toHaveText("B 24500 CE 25 Nov · S 24700 CE 25 Nov");
+    await expect(page.getByTestId("wz-start")).toBeEnabled(SLOW);
     await page.getByTestId("wz-start").click();
     await expect(page.getByTestId("wz-answer")).toHaveAttribute("data-outcome", "block", SLOW);
     await expect(page.getByTestId("wz-answer-reason")).toHaveText([BLOCK_REASON]);
@@ -594,20 +585,23 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await expect(page.getByTestId("wz-prov-template")).toHaveText("AI-generated / Bull call spread");
     await expect(page.getByTestId("wz-prov-paper")).toHaveText("open · pt-ai0001");
     await page.getByTestId("wz-step-btn-1").click();
-    await page.locator('[data-testid="wz-row"][data-key="inst:inst-cc"]').getByTestId("wz-row-open").click(SLOW);
-    await expect(page.getByTestId("wz-prov-instance")).toHaveText("saved v3");
+    await page.locator('[data-testid="wz-row"][data-key="plan:sp-cc"]').getByTestId("wz-row-open").click(SLOW);
+    await expect(page.getByTestId("wz-prov-instance")).toHaveText("saved plan v1");
     await expect(page.getByTestId("wz-prov-template")).toHaveText("Covered call");
     await expect(page.getByTestId("wz-leg").nth(0)).toHaveAttribute("data-kind", "cash");
     await page.getByTestId("wz-step-btn-1").click();
     await page.locator('[data-testid="wz-row"][data-key="ai:ai-draft01"]').getByTestId("wz-row-open").click(SLOW);
     await expect(page.getByTestId("wz-no-legs")).toContainText("rule set");
     await expect(page.getByTestId("wz-leg")).toHaveCount(0);
+    await page.getByTestId("wz-step-btn-1").click();
+    await page.locator('[data-testid="wz-row"][data-key="sb:sb-breakout1"]').getByTestId("wz-row-open").click(SLOW);
+    await expect(page.getByTestId("wz-no-legs")).toContainText("A Strategy Builder strategy is a rule set over shares");
   });
 
   test("WZ-16 expired legs: said on step 3; the same strikes on the nearest expiry only by an explicit button", async ({ page }) => {
     await setup(page);
     await page.goto(BUILD);
-    await page.locator('[data-testid="wz-row"][data-key="inst:inst-old"]').getByTestId("wz-row-open").click(SLOW);
+    await page.locator('[data-testid="wz-row"][data-key="plan:sp-old"]').getByTestId("wz-row-open").click(SLOW);
     await expect(page.getByTestId("wz-expired")).toContainText("expired (20 Oct)", SLOW);
     await expect(page.getByTestId("wz-leg").nth(0)).toHaveAttribute("data-expiry", "2026-10-20");
     await page.getByTestId("wz-expired-move").click();
@@ -636,7 +630,7 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
   test("WZ-18 390 px: no horizontal page scroll on any step; the chain picker is full screen", async ({ page }) => {
     await setup(page, { phone: true });
     await page.goto(BUILD);
-    await expect(page.getByTestId("wz-row")).toHaveCount(10, SLOW);
+    await expect(page.getByTestId("wz-row")).toHaveCount(9, SLOW);
     await noSideScroll(page);
     await page.locator('[data-testid="wz-card"][data-name="bull_call_spread"]').click();
     await expect(page.getByTestId("wz-quick-maxprofit")).toHaveText("₹8,625", SLOW);
@@ -669,5 +663,13 @@ test.describe("MOCK — not real data: Strategy Lab › Build a trade · the fou
     await page.goto(`${BUILD}&sym=NIFTY&direction=bullish&instrument=options`);
     await expect(page.getByTestId("td-from-idea")).toHaveAttribute("aria-expanded", "true", SLOW);
     await expect(page.getByTestId("desk-panel-strategy")).toBeVisible();
+    // The F&O lab's structures (rules-based cards, compare, levels) are folded below; the lab's old link opens them.
+    await page.goto(BUILD);
+    await expect(page.getByTestId("td-fno-structures")).toHaveAttribute("aria-expanded", "false", SLOW);
+    await expect(page.getByTestId("desk-panel-fno")).toHaveCount(0);
+    await page.goto("/v5/app/trader/desk?tab=fno&lab=strategies");
+    await expect(page).toHaveURL(/section=fno/);
+    await expect(page.getByTestId("td-fno-structures")).toHaveAttribute("aria-expanded", "true", SLOW);
+    await expect(page.getByTestId("desk-panel-fno")).toBeVisible();
   });
 });

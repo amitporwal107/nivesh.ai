@@ -9,7 +9,8 @@
  *
  * Data (wizard-data.ts): the template catalog, the chain (trading/fno useOptionChain, useFnoFutures), payoff-v2
  * (strategy/usePayoff), Zerodha's margin calculator (POST /api/fno/margin, parsed by FnoBuilder parseMargin), the risk
- * service's check, strategy instances, saved plans, AI Trader strategies and the paper book (read once per load).
+ * service's check, saved plans, Strategy Builder and AI Trader strategies and the paper book (read once per load). Save
+ * version / Clone wait for the one store's strategy_versions v2 (strategy/instance-store.ts) and are disabled with the reason.
  * No AI is in the order path; the profile is the only risk setting (no risk slider); paper only, nothing goes to a broker.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -28,9 +29,10 @@ import { StepReview, type MarginView, type Structure } from "./StepReview";
 import { StepValidate } from "./StepValidate";
 import {
   DEFAULT_BUILD, INTENTS, INTENT_LABEL, buildLegs, existingRows, expiredLegs, fmtStrike, legId, legsSummary, paperBody, payoffRequest, popOf, riskWords,
-  saveProblem, shortDay, structureOf, useAiStrategies, useCatalog, useInstances, useRiskCheck, useSaveInstance,
-  type BuildConfig, type CatalogTemplate, type Direction, type ExistingRow, type Instance, type Intent, type RowStatus, type StrikeRule, type WLeg,
+  shortDay, useAiStrategies, useCatalog, useRiskCheck,
+  type BuildConfig, type CatalogTemplate, type Direction, type ExistingRow, type Intent, type RowStatus, type StrikeRule, type WLeg,
 } from "./wizard-data";
+import { useSavedStrategies } from "../../../../workspace/strategies";
 import { Card, Chip, MiniPayoff, Pill, Stepper, eyebrowS, inr, mono, quietS, type Tone } from "./ui";
 
 const STEPS = ["Choose template", "Configure", "Review & adjust", "Validate & paper-trade"] as const;
@@ -38,7 +40,6 @@ type Step = 1 | 2 | 3 | 4;
 const FAMILIES = new Set(["long_future", "short_future", "long_call", "long_put", "bull_call_spread", "bear_put_spread", "bull_put_spread", "bear_call_spread", "iron_condor", "covered_call", "protective_put", "collar"]);
 const QUICK = ["NIFTY", "BANKNIFTY", "FINNIFTY"];
 const STATUS_TONE: Record<RowStatus, Tone> = { "PAPER LIVE": "mint", "BACKTEST PASSED": "blue", BACKTESTED: "blue-outline", DRAFT: "amber", SAVED: "grey" };
-const sig = (legs: WLeg[]) => JSON.stringify(legs.map((l) => [l.kind, l.side, l.optionType, l.strike, l.expiry, l.lots, l.price]));
 
 interface Origin { source: "AI" | "YOU" | null; label: string; version: string | null; kind: "template" | "ai_strategy" | "saved_plan" | "manual" | "trade"; ref: string | null }
 
@@ -96,10 +97,13 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   const [direction, setDirection] = useState<Direction | null>(null);
   const [legs, setLegsRaw] = useState<WLeg[]>([]);
   const [buildNote, setBuildNote] = useState<{ note: string | null; problem: string | null }>({ note: null, problem: null });
-  const [instance, setInstance] = useState<Instance | null>(null);
-  const [version, setVersion] = useState<number | null>(null);
-  const [savedSig, setSavedSig] = useState<string | null>(null);
+  // Save version / Clone wait for the shared strategy store (strategy/instance-store.ts): the legs live in page state,
+  // so stepping between the steps, or back to step 1 and in again without opening another strategy, keeps them.
   const [name, setName] = useState("");
+  // Step 2 rebuilds the legs only after an explicit change (a template, a setting, the expiry, the underlying).
+  const [needBuild, setNeedBuild] = useState(false);
+  const cfgSet = (c: BuildConfig) => { setCfg(c); setNeedBuild(true); };
+  const pickExpiry = (e: string | null) => { setExpiryPick(e); setNeedBuild(true); };
   const [tradeId, setTradeId] = useState<string | null>(null);
   const [noLegs, setNoLegs] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -113,22 +117,22 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   const asOf = chain?.summary.as_of ?? null;
   const book = usePaperTrades();
   const trades = book.data?.strategyTrades ?? [];
-  const trade = tradeId ? trades.find((t) => t.id === tradeId) ?? null
-    : instance ? trades.find((t) => t.status === "open" && t.signal.sourceRefs.some((r) => r.kind === "strategy_instance" && r.ref.split("@")[0] === instance.id)) ?? null : null;
+  const trade = tradeId ? trades.find((t) => t.id === tradeId) ?? null : null;
 
   const setLegs = (next: WLeg[]) => setLegsRaw(next);
-  const edited = savedSig != null && sig(legs) !== savedSig;
 
   // Step 2 rebuilds the legs from the template and the settings, on the chain's strikes and closes.
   const futKey = futures ? `${futures.as_of}:${futures.futures.length}` : "";
   useEffect(() => {
-    if (step !== 2 || !tpl || !chain) return;
+    if (step !== 2 || !tpl || !chain || !needBuild) return;
+    if (tpl.kind === "future" && futuresQ.isPending) return;
+    setNeedBuild(false);
     const f = futures?.futures.find((x) => x.expiry === chain.summary.expiry) ?? null;
     const fp = f && (f.close ?? f.settle) != null ? { price: (f.close ?? f.settle) as number, expiry: f.expiry, source: `NSE F&O bhavcopy futures close, ${futures?.as_of}` } : null;
     const b = buildLegs(tpl, chain, cfg, fp);
     if (b.ok) { setLegsRaw(b.legs); setBuildNote({ note: b.note, problem: null }); } else { setLegsRaw([]); setBuildNote({ note: null, problem: b.problem }); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, tpl?.name, chain?.symbol, chain?.summary.expiry, chain?.summary.as_of, cfg, futKey]);
+  }, [step, needBuild, tpl?.name, chain?.symbol, chain?.summary.expiry, chain?.summary.as_of, cfg, futKey, futuresQ.isPending]);
 
   const { req, problem } = useMemo(() => payoffRequest(symbol, spot, asOf, lot, legs), [symbol, spot, asOf, lot, legs]);
   const pay = usePayoff(req);
@@ -144,7 +148,7 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   const stopN = Number(stop) > 0 ? Number(stop) : null;
   const family = familyOf(tpl, legs);
   const body = !problem && r?.valid && spot != null
-    ? paperBody({ underlying: symbol, direction: dir, family, spot, legs, lotSize: lot, instance: instance && version != null ? { id: instance.id, version } : null, templateLabel: tpl?.label ?? null, stop: stopN, asOf })
+    ? paperBody({ underlying: symbol, direction: dir, family, spot, legs, lotSize: lot, template: tpl?.name ?? null, templateLabel: tpl?.label ?? null, stop: stopN, asOf })
     : null;
   const checkQ = useRiskCheck(step >= 3 ? body : null);
   const slipRaw = r?.valid ? (r.costs as unknown as { slippage_pct?: unknown } | null)?.slippage_pct : null;
@@ -170,7 +174,7 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   };
 
   // ── existing strategies ──
-  const instancesQ = useInstances();
+  const builderQ = useSavedStrategies();
   const plansQ = useSavedPlans();
   const aiQ = useAiStrategies();
   const planIds = (plansQ.data?.plans ?? []).slice(0, 20);
@@ -196,17 +200,17 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   });
   const labelOf = (n: string | null) => catalog.data?.templates.find((t) => t.name === n)?.label ?? null;
   const rows: ExistingRow[] = useMemo(() => existingRows({
-    instances: instancesQ.data ?? [],
+    builder: (builderQ.data ?? []).map((b) => ({ id: b.id, name: b.name, assetClass: b.assetClass })),
     plans: planIds.map((p, i) => ({ id: p.id, underlying: p.underlying, family: p.family, legs: planDetails[i]?.data ?? null })),
     ai: aiQ.data ?? [], trades, labelOf,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [instancesQ.data, plansQ.data, planDetails.map((q) => q.dataUpdatedAt).join(","), aiQ.data, book.data, catalog.data]);
+  }), [builderQ.data, plansQ.data, planDetails.map((q) => q.dataUpdatedAt).join(","), aiQ.data, book.data, catalog.data]);
 
   const go = (s: Step) => { setStep(s); setReached((x) => (s > x ? s : x)); };
   const chooseTemplate = (t: CatalogTemplate) => {
     setTpl(t); setOrigin({ source: null, label: t.label, version: null, kind: "template", ref: t.name }); setDirection(null);
-    setInstance(null); setVersion(null); setSavedSig(null); setTradeId(null); setNoLegs(null); setName(`${symbol} ${t.label}`);
-    setReached(2); setStep(2);
+    setTradeId(null); setNoLegs(null); setName(`${symbol} ${t.label}`);
+    setNeedBuild(true); setReached(2); setStep(2);
   };
   const openRow = (row: ExistingRow) => {
     setSelected(row.key);
@@ -220,18 +224,13 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
     setExpiryPick(first);
     const loaded = row.legs.map((l) => ({ ...l, id: legId() }));
     setLegsRaw(loaded);
-    const inst = row.kind === "instance" ? (instancesQ.data ?? []).find((i) => i.id === row.instanceId) ?? null : null;
-    setInstance(inst); setVersion(inst ? inst.latestVersion : null); setSavedSig(inst ? sig(loaded) : null);
     setTradeId(row.tradeId); setNoLegs(row.noLegs); setName(row.name);
-    setOrigin({ source: row.source, label: t?.label ?? row.name, version: row.kind === "instance" ? `saved v${row.version}` : row.kind === "plan" ? "saved plan v1" : row.kind === "trade" ? "from the open paper trade" : row.version != null ? `AI Trader v${row.version}` : null,
-      kind: row.kind === "instance" ? "manual" : row.kind === "plan" ? "saved_plan" : row.kind === "ai" ? "ai_strategy" : "trade", ref: row.ref });
+    setOrigin({ source: row.source, label: t?.label ?? row.name,
+      version: row.kind === "plan" ? "saved plan v1" : row.kind === "trade" ? "from the open paper trade" : row.kind === "builder" ? "Strategy Builder rule set" : row.version != null ? `AI Trader v${row.version}` : null,
+      kind: row.kind === "plan" ? "saved_plan" : row.kind === "ai" ? "ai_strategy" : row.kind === "builder" ? "manual" : "trade", ref: row.ref });
     setReached(3); setStep(3);
   };
 
-  const save = useSaveInstance();
-  const config = () => ({ template: tpl?.name ?? null, direction: dir, rule: cfg.rule, anchor: cfg.anchor, width: cfg.width, delta: cfg.delta, lots: cfg.lots, max_loss_rs: ml, max_capital_rs: mc, stop_underlying: stopN, chain_as_of: asOf });
-  const onSaved = (i: Instance) => { setInstance(i); setVersion(i.latestVersion); setSavedSig(sig(legs)); };
-  const srcKind = origin?.kind === "trade" ? "manual" : origin?.kind ?? "manual";
 
   const getChain = async (expiry: string): Promise<FnoChain | null> => {
     const res = await qc.fetchQuery<FnoResult<FnoChain>>({ queryKey: ["copilot", "trading", "fno", "chain", symbol, expiry], queryFn: ({ signal }) => fetchFnoChain(symbol, expiry, signal), staleTime: 5 * 60_000 });
@@ -254,7 +253,7 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
   };
 
   const tplLabel = origin?.source === "AI" ? `AI-generated / ${tpl?.label ?? origin.label}` : tpl?.label ?? (legs.length ? "Custom" : "not chosen");
-  const instLabel = instance && version != null ? `saved v${version}${edited ? " · edited" : ""}` : origin?.version ?? (legs.length ? "unsaved" : "—");
+  const instLabel = origin?.version ?? (legs.length ? "unsaved" : "—");
   const paperLabel = trade ? `${trade.status === "open" ? "open" : "closed"} · ${trade.id}` : "not started";
 
   return (
@@ -328,8 +327,8 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
               Templates, not certified programs. Each mini payoff is the template&rsquo;s own legs priced by the payoff engine on an illustrative chain ({catalog.data?.templates.find((t) => t.illustration)?.illustration?.basis ?? "spot 100"}), not a price or a forecast.
             </span>
           </Card>
-          <ExistingTable rows={rows} loading={instancesQ.isPending || plansQ.isPending || aiQ.isPending || book.isPending}
-            errors={[instancesQ.isError && "your strategy instances", plansQ.isError && "your saved plans", aiQ.isError && "the AI Trader strategies", book.isError && "the paper book (status and P/L)"].filter((x): x is string => !!x)}
+          <ExistingTable rows={rows} loading={builderQ.isPending || plansQ.isPending || aiQ.isPending || book.isPending}
+            errors={[builderQ.isError && "your Strategy Builder strategies", plansQ.isError && "your saved plans", aiQ.isError && "the AI Trader strategies", book.isError && "the paper book (status and P/L)"].filter((x): x is string => !!x)}
             selected={selected} onOpen={openRow} />
         </div>
       )}
@@ -338,11 +337,11 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
         <div data-testid="wz-step-2" className="flex min-w-0 flex-wrap" style={{ gap: 16, alignItems: "flex-start" }}>
           <Card testId="wz-config" title={`Configure · ${tpl.label}`} style={{ flex: "999 1 480px" }}>
             <Field label="Underlying">
-              <form className="flex flex-wrap items-center" style={{ gap: 6 }} onSubmit={(ev) => { ev.preventDefault(); const s = symText.trim().toUpperCase(); if (/^[A-Z0-9&_-]{1,30}$/.test(s)) { setSymbol(s); setExpiryPick(null); setName(`${s} ${tpl.label}`); } }}>
+              <form className="flex flex-wrap items-center" style={{ gap: 6 }} onSubmit={(ev) => { ev.preventDefault(); const s = symText.trim().toUpperCase(); if (/^[A-Z0-9&_-]{1,30}$/.test(s)) { setSymbol(s); pickExpiry(null); setName(`${s} ${tpl.label}`); } }}>
                 <input data-testid="wz-underlying" value={symText} onChange={(ev) => setSymText(ev.target.value)} aria-label="Underlying symbol"
                   style={{ height: 32, width: 130, padding: "0 10px", borderRadius: 8, border: "1px solid var(--line-2)", background: "var(--bg-1)", color: "var(--cp-ink)", textTransform: "uppercase" }} />
                 <button type="submit" className="cp-btn" data-variant="ghost" data-testid="wz-underlying-load">Load</button>
-                {QUICK.filter((q) => q !== symbol).map((q) => <Chip key={q} on={false} onClick={() => { setSymbol(q); setSymText(q); setExpiryPick(null); setName(`${q} ${tpl.label}`); }}>{q}</Chip>)}
+                {QUICK.filter((q) => q !== symbol).map((q) => <Chip key={q} on={false} onClick={() => { setSymbol(q); setSymText(q); pickExpiry(null); setName(`${q} ${tpl.label}`); }}>{q}</Chip>)}
               </form>
               <span data-testid="wz-spot" style={{ ...quietS, color: "var(--cp-ink-2)" }}>
                 {oc.state.status === "loading" ? "Loading the chain…" : chain && spot != null ? <><strong style={mono}>{symbol} {fmtStrike(spot)}</strong> · last close, NSE bhavcopy of {shortDay(chain.summary.as_of)}{daysBetween(chain.summary.as_of, todayIso()) > STALE_DAYS ? " (stale)" : ""}</> : oc.state.status === "none" ? oc.state.message : "No chain for this underlying."}
@@ -351,7 +350,7 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
             {tpl.kind !== "cash" && (
               <Field label="Expiry">
                 <span className="flex flex-wrap" style={{ gap: 6 }}>
-                  {oc.list.filter((x) => x.days_to_expiry >= 0 && x.days_to_expiry <= 95).map((x) => <Chip key={x.expiry} on={x.expiry === chain?.summary.expiry} testId={`wz-expiry-${x.expiry}`} onClick={() => setExpiryPick(x.expiry)}>{shortDay(x.expiry)} · {x.days_to_expiry}d</Chip>)}
+                  {oc.list.filter((x) => x.days_to_expiry >= 0 && x.days_to_expiry <= 95).map((x) => <Chip key={x.expiry} on={x.expiry === chain?.summary.expiry} testId={`wz-expiry-${x.expiry}`} onClick={() => pickExpiry(x.expiry)}>{shortDay(x.expiry)} · {x.days_to_expiry}d</Chip>)}
                 </span>
               </Field>
             )}
@@ -359,19 +358,19 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
               <>
                 <Field label="Strike rule">
                   <span className="flex flex-wrap" style={{ gap: 6 }}>
-                    {([["atm", "ATM"], ["otm", "OTM"], ["itm", "ITM"], ["delta", "By delta"], ["manual", "Manual"]] as Array<[StrikeRule, string]>).map(([k, l]) => <Chip key={k} on={cfg.rule === k} testId={`wz-rule-${k}`} onClick={() => setCfg({ ...cfg, rule: k })}>{l}</Chip>)}
+                    {([["atm", "ATM"], ["otm", "OTM"], ["itm", "ITM"], ["delta", "By delta"], ["manual", "Manual"]] as Array<[StrikeRule, string]>).map(([k, l]) => <Chip key={k} on={cfg.rule === k} testId={`wz-rule-${k}`} onClick={() => cfgSet({ ...cfg, rule: k })}>{l}</Chip>)}
                   </span>
                   {cfg.rule === "manual" && <span style={quietS}>The legs start at ATM; set each strike in Review &amp; adjust.</span>}
                 </Field>
                 <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,150px),1fr))", gap: 12 }}>
-                  <Field label="Anchor (strikes from ATM)"><Stepper value={cfg.anchor} min={0} max={20} label="Anchor" testId="wz-anchor" onChange={(n) => setCfg({ ...cfg, anchor: n })} /></Field>
-                  {tpl.legs.filter((l) => l.instrument === "option").length > 1 && <Field label="Width (strikes)"><Stepper value={cfg.width} min={1} max={20} label="Width" testId="wz-width" onChange={(n) => setCfg({ ...cfg, width: n })} /></Field>}
-                  <Field label="Target delta"><Stepper value={cfg.delta} min={0.05} max={0.95} step={0.05} label="Target delta" testId="wz-delta" fmt={(n) => n.toFixed(2)} onChange={(n) => setCfg({ ...cfg, delta: n })} /></Field>
-                  <Field label="Lots"><Stepper value={cfg.lots} min={1} max={500} label="Lots" testId="wz-lots" onChange={(n) => setCfg({ ...cfg, lots: n })} /></Field>
+                  <Field label="Anchor (strikes from ATM)"><Stepper value={cfg.anchor} min={0} max={20} label="Anchor" testId="wz-anchor" onChange={(n) => cfgSet({ ...cfg, anchor: n })} /></Field>
+                  {tpl.legs.filter((l) => l.instrument === "option").length > 1 && <Field label="Width (strikes)"><Stepper value={cfg.width} min={1} max={20} label="Width" testId="wz-width" onChange={(n) => cfgSet({ ...cfg, width: n })} /></Field>}
+                  <Field label="Target delta"><Stepper value={cfg.delta} min={0.05} max={0.95} step={0.05} label="Target delta" testId="wz-delta" fmt={(n) => n.toFixed(2)} onChange={(n) => cfgSet({ ...cfg, delta: n })} /></Field>
+                  <Field label="Lots"><Stepper value={cfg.lots} min={1} max={500} label="Lots" testId="wz-lots" onChange={(n) => cfgSet({ ...cfg, lots: n })} /></Field>
                 </div>
               </>
             )}
-            {tpl.kind !== "option" && <Field label={tpl.kind === "cash" ? "Shares" : "Lots"}><Stepper value={cfg.lots} min={1} max={tpl.kind === "cash" ? 100_000 : 500} label="Lots" testId="wz-lots" onChange={(n) => setCfg({ ...cfg, lots: n })} /></Field>}
+            {tpl.kind !== "option" && <Field label={tpl.kind === "cash" ? "Shares" : "Lots"}><Stepper value={cfg.lots} min={1} max={tpl.kind === "cash" ? 100_000 : 500} label="Lots" testId="wz-lots" onChange={(n) => cfgSet({ ...cfg, lots: n })} /></Field>}
             <Field label="Entry assumption">
               <span className="flex flex-wrap" style={{ gap: 6 }}>
                 <Chip on={false} disabled testId="wz-entry-mid" title="The chain is end-of-day closes with no bid or ask, so there is no mid.">Limit at mid</Chip>
@@ -443,12 +442,8 @@ export function StrategyWizard({ initialSymbol, onBacktest }: { initialSymbol: s
       )}
 
       {step === 4 && (
-        <StepValidate instance={instance} version={version} edited={edited} saving={save.isPending} saveError={save.isError ? saveProblem(save.error) : null}
-          name={name} onName={setName} structure={structure} body={body} asOf={asOf} trade={trade}
+        <StepValidate name={name} onName={setName} structure={structure} body={body} asOf={asOf} trade={trade}
           multiLeg={legs.length > 1} cashOnly={legs.length > 0 && legs.every((l) => l.kind === "cash")}
-          onSave={() => save.mutate({ op: "create", body: { name: name.trim() || `${symbol} ${tpl?.label ?? "structure"}`, template: tpl?.name ?? null, underlying: symbol, source: { kind: srcKind, ref: origin?.ref ?? null }, structure: structureOf(legs, lot, config()) } }, { onSuccess: onSaved })}
-          onSaveVersion={() => instance && save.mutate({ op: "version", id: instance.id, body: { structure: structureOf(legs, lot, config()) } }, { onSuccess: onSaved })}
-          onClone={() => instance && save.mutate({ op: "clone", id: instance.id }, { onSuccess: onSaved })}
           onAdjust={() => go(3)} onBacktest={onBacktest} onLiveDesk={() => desk.openPaperTrades()} onStarted={(id) => setTradeId(id)}
           onScaleLots={(approved, requested) => setLegsRaw(legs.map((l) => ({ ...l, lots: Math.max(1, Math.floor((l.lots * approved) / Math.max(1, requested))) })))} />
       )}
@@ -518,7 +513,7 @@ function ExistingTable({ rows, loading, errors, selected, onOpen }: { rows: Exis
                       <td style={{ padding: "8px", minWidth: 220 }}>
                         <span className="flex flex-col" style={{ gap: 2 }}>
                           <span data-testid="wz-row-name" style={{ fontWeight: 600 }}>{r.name} · {r.ref}</span>
-                          <span data-testid="wz-row-legs" style={{ ...mono, fontSize: 11.5, color: "var(--cp-ink-3)" }}>{r.legs.length ? legsSummary(r.legs) : r.kind === "ai" ? "Rule set · no legs" : "—"}</span>
+                          <span data-testid="wz-row-legs" style={{ ...mono, fontSize: 11.5, color: "var(--cp-ink-3)" }}>{r.legs.length ? legsSummary(r.legs) : r.kind === "ai" || r.kind === "builder" ? "Rule set · no legs" : "—"}</span>
                           {old.length > 0 && <span data-testid="wz-row-expired" style={{ fontSize: 11, color: "var(--amber)" }}>Expired contracts ({[...new Set(old.map((l) => shortDay(l.expiry as string)))].join(", ")}): Open offers the same strikes on the nearest listed expiry.</span>}
                         </span>
                       </td>

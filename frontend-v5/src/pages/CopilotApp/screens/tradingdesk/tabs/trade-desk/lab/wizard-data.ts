@@ -3,7 +3,8 @@
  *
  *   GET  /api/desk/strategy/templates          the 13 templates with intent, tags, direction, risk and their own mini payoff
  *                                              (`illustration`: the template's own function priced by the payoff engine)
- *   GET  /api/desk/strategy/instances          your versioned structures (POST …, POST …/{id}/versions, POST …/{id}/clone)
+ *   GET  /api/strategy-builder/strategies      your Strategy Builder strategies (the one store; Save version / Clone wait
+ *                                              for its strategy_versions v2: strategy/instance-store.ts)
  *   GET  /api/desk/strategy/plans              your saved plans (immutable, v1)            (strategy/plan-data useSavedPlans)
  *   GET  /api/ai-trader/strategies             the AI Trader strategies: name, stage, version, runs
  *   GET  /api/desk/paper-trades                the paper book, read ONCE per load (it applies exits)   (desk-trading usePaperTrades)
@@ -13,7 +14,7 @@
  * route, the decision from the risk service. Probability of profit is the one number worked out here, from the route's
  * own expiry curve and the chain's ATM IV, with its method stated (popOf).
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
 import type { FnoChain, FnoStrike } from "../../../../trading/fno";
@@ -348,7 +349,7 @@ export const WIZARD_RULES = "strategy-lab-wizard-v1";
 
 export function paperBody(o: {
   underlying: string; direction: Direction; family: string; spot: number; legs: WLeg[]; lotSize: number | null;
-  instance: { id: string; version: number } | null; templateLabel: string | null; stop: number | null; asOf: string | null;
+  template: string | null; templateLabel: string | null; stop: number | null; asOf: string | null;
 }): NewStrategyPaperTrade {
   return {
     kind: "strategy",
@@ -366,7 +367,7 @@ export function paperBody(o: {
     signal: {
       signal_at: new Date().toISOString(),
       rule_version: WIZARD_RULES,
-      source_refs: o.instance ? [{ kind: "strategy_instance", ref: `${o.instance.id}@v${o.instance.version}`, as_of: o.asOf }] : [],
+      source_refs: o.template ? [{ kind: "strategy_template", ref: o.template, as_of: o.asOf }] : [],
       evidence_summary: `Built by hand in Strategy Lab${o.templateLabel ? ` from the ${o.templateLabel} template` : ""}: your structure, not a model signal.`,
     },
   };
@@ -447,102 +448,6 @@ export function useRiskCheck(body: NewStrategyPaperTrade | null) {
   });
 }
 
-// ── strategy instances (versions) ────────────────────────────────────────
-
-export interface InstanceVersion { version: number; savedAt: string | null; legs: WLeg[]; config: Raw; note: string | null }
-export interface Instance {
-  id: string;
-  name: string | null;
-  template: string | null;
-  underlying: string;
-  source: { kind: string | null; ref: string | null };
-  latestVersion: number;
-  versions: InstanceVersion[];
-  clonedFrom: { id: string | null; version: number | null } | null;
-  updatedAt: string | null;
-}
-
-function readLegs(v: unknown): WLeg[] {
-  return (Array.isArray(v) ? v : []).flatMap((x): WLeg[] => {
-    const l = rec(x);
-    const kind = l.kind === "option" || l.kind === "future" || l.kind === "cash" ? l.kind : null;
-    const side = l.side === "buy" || l.side === "sell" ? l.side : null;
-    if (!kind || !side) return [];
-    return [{ id: legId(), kind, side, optionType: l.option_type === "call" || l.option_type === "put" ? l.option_type : null, strike: num(l.strike), expiry: str(l.expiry), lots: num(l.lots) ?? 1, price: num(l.entry_price), priceSource: str(l.price_source) }];
-  });
-}
-
-export function readInstance(v: unknown): Instance | null {
-  const d = rec(v);
-  const id = str(d.id);
-  const underlying = str(d.underlying);
-  if (!id || !underlying) return null;
-  const versions = (Array.isArray(d.versions) ? d.versions : []).flatMap((x): InstanceVersion[] => {
-    const r = rec(x);
-    const n = num(r.version);
-    const st = rec(r.structure);
-    return n != null ? [{ version: n, savedAt: str(r.saved_at), legs: readLegs(st.legs), config: rec(st.config), note: str(r.note) }] : [];
-  });
-  const src = rec(d.source);
-  const cf = rec(d.cloned_from);
-  return {
-    id, name: str(d.name), template: str(d.template), underlying, source: { kind: str(src.kind), ref: str(src.ref) },
-    latestVersion: num(d.latest_version) ?? versions[versions.length - 1]?.version ?? 1, versions,
-    clonedFrom: Object.keys(cf).length ? { id: str(cf.id), version: num(cf.version) } : null, updatedAt: str(d.updated_at),
-  };
-}
-
-const INSTANCES_KEY = ["copilot", "desk", "lab", "instances"] as const;
-const INSTANCES = "/api/desk/strategy/instances";
-
-export function useInstances() {
-  return useQuery<Instance[]>({
-    queryKey: [...INSTANCES_KEY],
-    staleTime: 30_000,
-    retry: false,
-    queryFn: async ({ signal }) => {
-      const d = rec((await http({ path: INSTANCES, signal, noRetry: true })).data);
-      if (!Array.isArray(d.instances)) throw ApiError.contractDrift("strategy.instances: no list");
-      return d.instances.flatMap((x) => { const i = readInstance(x); return i ? [i] : []; });
-    },
-  });
-}
-
-export function structureOf(legs: WLeg[], lotSize: number | null, config: Raw) {
-  return {
-    legs: legs.map((l) => ({
-      kind: l.kind, side: l.side, lots: l.lots, lot_size: l.kind === "cash" ? 1 : (lotSize ?? 1), entry_price: l.price,
-      expiry: l.kind === "cash" ? null : l.expiry, ...(l.kind === "option" ? { strike: l.strike, option_type: l.optionType } : {}),
-      price_source: (l.priceSource ?? "").slice(0, 120),
-    })),
-    config,
-  };
-}
-
-export type SaveArgs =
-  | { op: "create"; body: { name: string; template: string | null; underlying: string; source: { kind: string; ref: string | null }; structure: ReturnType<typeof structureOf>; note?: string } }
-  | { op: "version"; id: string; body: { structure: ReturnType<typeof structureOf>; note?: string } }
-  | { op: "clone"; id: string };
-
-export function useSaveInstance() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (a: SaveArgs): Promise<Instance> => {
-      const path = a.op === "create" ? INSTANCES : a.op === "version" ? `${INSTANCES}/${encodeURIComponent(a.id)}/versions` : `${INSTANCES}/${encodeURIComponent(a.id)}/clone`;
-      const res = await http({ method: "POST", path, body: a.op === "clone" ? {} : a.body, noRetry: true });
-      const i = readInstance(rec(res.data).instance);
-      if (!i) throw ApiError.contractDrift("strategy.instances: no instance in the answer");
-      return i;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: [...INSTANCES_KEY] }),
-  });
-}
-
-export function saveProblem(e: unknown): string {
-  const r = refusalOf(e);
-  return r.message || r.code;
-}
-
 // ── AI Trader strategies ─────────────────────────────────────────────────
 
 export interface AiStrategy {
@@ -604,10 +509,8 @@ export interface ExistingRow {
   tradeId: string | null;
   template: string | null;
   instanceId: string | null;
-  kind: "instance" | "plan" | "ai" | "trade";
+  kind: "plan" | "ai" | "builder" | "trade";
 }
-
-const instanceRef = (t: StrategyPaperTrade): string | null => t.signal.sourceRefs.find((r) => r.kind === "strategy_instance")?.ref ?? null;
 
 /** Strategy-trade legs as wizard legs (the price is the trade's own entry price). */
 export function tradeLegs(t: StrategyPaperTrade): WLeg[] {
@@ -626,23 +529,12 @@ function aiTrade(t: StrategyPaperTrade): boolean {
 }
 
 export function existingRows(o: {
-  instances: Instance[]; plans: Array<{ id: string; underlying: string | null; family: string | null; legs: WLeg[] | null }>;
+  builder: Array<{ id: string; name: string; assetClass: string | null }>; plans: Array<{ id: string; underlying: string | null; family: string | null; legs: WLeg[] | null }>;
   ai: AiStrategy[]; trades: StrategyPaperTrade[]; labelOf: (template: string | null) => string | null;
 }): ExistingRow[] {
   const open = o.trades.filter((t) => t.status === "open");
   const used = new Set<string>();
   const rows: ExistingRow[] = [];
-  for (const i of o.instances) {
-    const latest = i.versions.find((v) => v.version === i.latestVersion) ?? i.versions[i.versions.length - 1];
-    const t = open.find((x) => (instanceRef(x) ?? "").split("@")[0] === i.id);
-    if (t) used.add(t.id);
-    rows.push({
-      key: `inst:${i.id}`, source: i.source.kind === "ai_strategy" ? "AI" : "YOU", name: i.name ?? `${i.underlying} ${o.labelOf(i.template) ?? "structure"}`, ref: i.id.slice(0, 8).toUpperCase(),
-      legs: latest?.legs ?? [], noLegs: null, underlying: i.underlying,
-      status: t ? "PAPER LIVE" : "SAVED", statusWhy: t ? `Open paper trade ${t.id} cites it.` : "Saved; no open paper trade cites it.",
-      version: i.latestVersion, pnlRs: t?.netRs ?? null, tradeId: t?.id ?? null, template: i.template, instanceId: i.id, kind: "instance",
-    });
-  }
   for (const p of o.plans) {
     const t = open.find((x) => x.strategyPlanId === p.id);
     if (t) used.add(t.id);
@@ -666,6 +558,15 @@ export function existingRows(o: {
       key: `ai:${s.id}`, source: "AI", name: s.name ?? `AI ${s.template ?? "strategy"}`, ref: s.id.slice(0, 8).toUpperCase(),
       legs: [], noLegs: `An AI Trader strategy is a rule set${s.template ? ` (${s.template.replace(/_/g, " ")})` : ""} over a universe of shares, not a structure with legs: there is nothing to load into the leg editor.`,
       underlying: "Universe", status, statusWhy: why, version: s.version, pnlRs: status === "PAPER LIVE" ? s.paperNetRs : null, tradeId: null, template: null, instanceId: null, kind: "ai",
+    });
+  }
+  for (const b of o.builder) {
+    rows.push({
+      key: `sb:${b.id}`, source: "YOU", name: b.name, ref: b.id.slice(0, 8).toUpperCase(),
+      legs: [], noLegs: `A Strategy Builder strategy is a rule set over ${b.assetClass === "MF" ? "mutual funds" : "shares"} (DSL v1), not a structure with legs: there is nothing to load into the leg editor.`,
+      underlying: b.assetClass === "MF" ? "Funds" : "Universe", status: "SAVED",
+      statusWhy: "Saved in the Strategy Builder. Its list does not report backtest runs or a version yet; BACKTESTED / PASSED come with the shared store's list.",
+      version: null, pnlRs: null, tradeId: null, template: null, instanceId: null, kind: "builder",
     });
   }
   for (const t of open) {

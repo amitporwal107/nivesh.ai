@@ -16,7 +16,7 @@ import { Btn } from "../../../../../components/ui";
 import type { FnoChain, FnoExpiry, FnoFutures } from "../../../../trading/fno";
 import type { PayoffResponse } from "../../../strategy/strategy-contract";
 import { ChainPicker, STALE_DAYS, daysBetween, todayIso } from "./ChainPicker";
-import { at, fmtStrike, legId, shortDay, type CheckState, type Pop, type WLeg } from "./wizard-data";
+import { at, fmtStrike, legId, legsSummary, shortDay, type CheckState, type Pop, type WLeg } from "./wizard-data";
 import { Card, PayoffPlot, Pill, Stepper, eyebrowS, inr, mono, quietS } from "./ui";
 
 export type MarginView = { kind: "ok"; required: number | null; source: string | null } | { kind: "unavailable"; reason: string } | { kind: "pending" } | { kind: "none" };
@@ -212,6 +212,7 @@ export function StepReview({ symbol, chain, expiries, futures, legs, onLegs, get
               </table>
             </div>
           )}
+          {legs.length > 0 && <span data-testid="wz-legs-line" style={{ ...mono, fontSize: 11.5, color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>{legsSummary(legs)}</span>}
           <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
             <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-add-cash" onClick={addCash}>+ Cash</button>
             <button type="button" className="cp-btn" data-variant="ghost" data-testid="wz-add-future" onClick={addFuture}>+ Future</button>

@@ -20,6 +20,7 @@ import { StrategyWizard } from "./lab/Wizard";
 import { SafeWidget } from "@/components/shared/SafeWidget";
 import { Btn, LoadingBlock, fmtINR, fmtNum, fmtPct } from "../../../../components/ui";
 import { useSavedStrategies } from "../../../workspace/strategies";
+import { useStrategyTemplates } from "../../../fnolab/governance-data";
 import { fmtDay, fmtPrice } from "../../../trading/parts";
 import { DecisionCardView } from "../../decision/DecisionCard";
 import { usePlanResponse, usePlanView } from "../../decision/plan-view";
@@ -32,6 +33,7 @@ import { survivorshipBiased, useBacktestRun, type BacktestRun } from "./trade-de
 import { PAPER_ONLY, Panel, linkBtn, quiet } from "./parts";
 
 const StrategyBuilder = lazy(() => import("../../strategy/StrategyBuilder"));
+const FnoTab = lazy(() => import("../../FnoTab"));
 
 /** A part of the page with its own error boundary and loading state; `desk-panel-<id>` as the shell named them. */
 function Part({ id, name, children }: { id: string; name: string; children: ReactNode }) {
@@ -287,13 +289,20 @@ const BUILDER_PARAMS = ["sym", "plan", "build", "cand", "direction", "instrument
 
 /**
  * Strategy Lab › Build a trade: the owner's four-step wizard (lab/Wizard.tsx). Above it, the ticket when an idea's plan
- * is open (?tp=); below it, "From an idea · Strategy Builder" (the plans and candidates an idea or the scanner opens),
- * open when the URL carries its inputs and folded otherwise.
+ * is open (?tp=). Below it, folded unless a link opens them: "From an idea · Strategy Builder" (the plans and candidates
+ * an idea or the scanner opens; open with its URL inputs or section=builder) and the F&O lab's structures (rules-based
+ * cards, compare, levels; open with section=fno, where the lab's "strategies" link lands). Both existed here before the
+ * wizard and have no other home yet.
  */
 export function BuildTradeView({ planId, source, onOverview, onBacktest }: { planId: string | null; source: NewPaperTrade["source"] | null; onOverview: () => void; onBacktest: () => void }) {
   const [params] = useSearchParams();
-  const fromIdea = BUILDER_PARAMS.some((k) => params.has(k));
+  const section = params.get("section");
+  const fromIdea = section === "builder" || BUILDER_PARAMS.some((k) => params.has(k));
   const [open, setOpen] = useState(fromIdea);
+  const fnoLink = section === "fno";
+  const [fnoOpen, setFnoOpen] = useState(fnoLink);
+  const templates = useStrategyTemplates();
+  const catalog = templates.isSuccess ? templates.data.templates.map((t) => t.name) : null;
   const sym = (params.get("lab_sym") ?? params.get("sym") ?? "").toUpperCase();
   const initial = /^[A-Z0-9&_-]{1,30}$/.test(sym) ? sym : "NIFTY";
   return (
@@ -312,6 +321,15 @@ export function BuildTradeView({ planId, source, onOverview, onBacktest }: { pla
               No idea open. An idea from the scanner or <button type="button" data-testid="td-ticket-overview" style={linkBtn} onClick={onOverview}>Market Overview › Top AI ideas</button> opens its plan here, with its candidates and “Paper trade this”, and its ticket above the wizard.
             </span>
           )}
+      </section>
+      <section aria-label="F&O structures" className="flex min-w-0 flex-col" style={{ gap: 12, paddingTop: 16, borderTop: "1px solid var(--cp-line)" }}>
+        <button type="button" data-testid="td-fno-structures" aria-expanded={fnoOpen || fnoLink} onClick={() => setFnoOpen((o) => !o)}
+          className="flex items-center" style={{ gap: 8, padding: 0, border: 0, background: "none", cursor: "pointer", color: "var(--cp-ink-2)", textAlign: "left" }}>
+          <span aria-hidden="true" style={{ display: "inline-block", transform: fnoOpen || fnoLink ? "rotate(90deg)" : undefined }}>›</span>
+          <span className="cp-eyebrow">F&amp;O lab · rules-based structures, compare and levels</span>
+        </button>
+        {(fnoOpen || fnoLink) ? <Part id="fno" name="the F&O builder"><FnoTab views={["strategies"]} asSection builderCatalog={catalog} /></Part>
+          : <span style={quiet}>The F&amp;O lab&rsquo;s rules-based structure cards, the side-by-side compare and the levels card; links from the lab open it here.</span>}
       </section>
     </div>
   );
