@@ -87,13 +87,19 @@ def _charges(c: Any) -> Dict[str, Optional[float]]:
 
 
 def shape(raw: Dict[str, Any], as_of: str) -> Dict[str, Any]:
-    """The route's answer from Kite's: required margin (the final figure), initial margin, per-order charges and their sum. A missing number is None."""
+    """The route's answer from Kite's: required margin (the final figure), initial margin, the hedge benefit (initial − final), per-order charges and their sum. A missing number is None."""
     orders = [{"tradingsymbol": o.get("tradingsymbol"), "charges": _charges(o.get("charges"))} for o in (raw.get("orders") or []) if isinstance(o, dict)]
     totals: Dict[str, Optional[float]] = {}
     for key in ("brokerage", "stt", "exchange", "sebi", "stamp_duty", "gst", "total"):
         vals = [o["charges"][key] for o in orders]
         totals[key] = None if not vals or any(v is None for v in vals) else round(sum(vals), 2)
-    return {"required_margin": _n((raw.get("final") or {}).get("total")), "initial_margin": _n((raw.get("initial") or {}).get("total")),
+    required = _n((raw.get("final") or {}).get("total"))
+    initial = _n((raw.get("initial") or {}).get("total"))
+    # Kite's basket margin: `initial` is the orders' margin without the spread benefit, `final` with it; the difference is the
+    # hedge benefit the design shows. None when either figure is missing (never a guess).
+    hedge = round(initial - required, 2) if initial is not None and required is not None else None
+    return {"required_margin": required, "initial_margin": initial,
+            "hedge_benefit": hedge, "hedge_benefit_basis": "Zerodha's initial margin (the orders without the spread benefit) less its final margin (with it)",
             "charges": {"per_order": orders, "total": totals}, "as_of": as_of, "source": "Zerodha margin calculator (Kite Connect): exchange SPAN + exposure margin and order charges",
             "note": "A calculation for the platform account's rules, not an exchange-published figure and not a quote. Nothing is placed.", "sent_to_broker": False}
 

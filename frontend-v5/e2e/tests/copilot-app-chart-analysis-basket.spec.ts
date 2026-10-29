@@ -10,6 +10,7 @@
  * Expected figures are worked out from the payloads in this file, never copied from the screen.
  */
 import { test, expect, type Page, type Route } from "@playwright/test";
+import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 import type { BasketLeg } from "../../src/pages/CopilotApp/screens/tradingdesk/tabs/trade-desk/analysis/basket";
 import type { AnalysisChain } from "../../src/pages/CopilotApp/screens/tradingdesk/tabs/trade-desk/analysis/chain-data";
 import {
@@ -177,6 +178,7 @@ const LIVE_CHART = {
   last: { price: 4296.5, at: "2026-10-28", bar_complete: true },
   levels: { source: "plan", plan_id: null, entry: 4300, stop: 4200, targets: [{ name: "base", price: 4450, primary: true }], rule: "at_once", valid_for_sessions: null, reference_close: 4296.5, direction: "bullish", signal_date: "2026-10-28", invalidation: null },
   signal: null, signals_error: null, markers: [], conditions: [], evaluated_at_bar: "2026-10-28",
+  markers_error: null, valid_until: null, sessions_left: null, paper_engine: "MOCK: a condition met on the chart is not a fill.",
 };
 
 /** POST /api/desk/strategy/payoff (MOCK — not real data): the request's own scenario names, synthetic numbers. */
@@ -202,7 +204,15 @@ async function setup(page: Page, o: { margin?: { status: number; body: unknown }
   const seen: Seen = { payoff: [], margin: [], posts: [] };
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await page.route("**/api/**", (r) => json(r, { detail: "MOCK: not mocked in this spec" }, 404));
-  await page.route("**/api/auth/me", (r) => json(r, { user_id: "u1", email: "mock@example.com", name: "Mock", role: "admin", features: [] }));
+  // the app shell (sign-in, home, scanner) as every desk spec mocks it
+  await mockApi(page, "populated");
+  await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
+  await page.route("**/api/chat/sessions", (r) => json(r, []));
+  await page.route("**/api/positional/watchlist*", (r) => json(r, { as_of_date: "2026-10-28", buckets: { breakout_confirmed: [], pre_breakout: [], true_accumulation: [], trend_continuation: [] } }));
+  await page.route("**/api/positional/picks*", (r) => json(r, { signal_date: "2026-10-28", count: 0, picks: [] }));
+  await page.route("**/api/move-odds/**", (r) => json(r, { detail: "feature_not_enabled" }, 403));
+  await page.route("**/api/desk/alerts*", (r) => json(r, { as_of: "2026-10-28", alerts: [] }));
+  await page.route("**/api/desk/ai-watchlist*", (r) => json(r, { detail: "no stored day" }, 404));
   await page.route("**/api/live/**", (r) => json(r, { available: false, reason: "MOCK: feed off", quotes: {}, mode: "expired", session: "closed", stale: true }));
   await page.route("**/api/desk/live-chart/*", (r) => json(r, LIVE_CHART));
   await page.route("**/api/fno/*/expiries", (r) => json(r, EXPIRIES));
@@ -212,7 +222,7 @@ async function setup(page: Page, o: { margin?: { status: number; body: unknown }
   await page.route("**/api/desk/strategy/payoff", (r) => { const b = r.request().postDataJSON(); seen.payoff.push(b); return json(r, payoffAnswer(b)); });
   await page.route("**/api/fno/margin", (r) => {
     seen.margin.push(r.request().postDataJSON());
-    return json(r, o.margin?.body ?? { required_margin: 41250.5, initial_margin: 98700, charges: { per_order: [], total: {} }, as_of: "2026-10-29", source: "MOCK Zerodha", note: "MOCK", sent_to_broker: false }, o.margin?.status ?? 200);
+    return json(r, o.margin?.body ?? { required_margin: 41250.5, initial_margin: 98700.5, hedge_benefit: 57450, hedge_benefit_basis: "MOCK: initial less final", charges: { per_order: [], total: {} }, as_of: "2026-10-29", source: "MOCK Zerodha", note: "MOCK", sent_to_broker: false }, o.margin?.status ?? 200);
   });
   await page.route("**/api/desk/paper-trades*", (r) => {
     if (r.request().method() !== "POST") return json(r, { as_of: "2026-10-28", trades: [], summary: null });
@@ -259,12 +269,13 @@ test.describe("MOCK — not real data: Chart Analysis basket and strategy panel 
     await expect.poll(() => seen.payoff.at(-1)?.grid).toEqual({ from_pct: -15, to_pct: 15, points: 61 });
   });
 
-  test("U8 margin: Zerodha's answer → required, no benefit figure; 503 → needs today's Kite login", async ({ page }) => {
+  test("U8 margin: Zerodha's answer → required and the route's hedge benefit", async ({ page }) => {
     await setup(page);
     await openBasket(page);
     await page.getByTestId("ca-preset-bull_call_spread").click();
     await expect(page.getByTestId("ca-margin-required")).toHaveText("₹41,251");
-    await expect(page.getByTestId("ca-margin-benefit")).toHaveText("—");
+    await expect(page.getByTestId("ca-margin-benefit")).toHaveText("₹57,450");      // the route's hedge_benefit, not worked out here
+    await expect(page.getByTestId("ca-margin-benefit")).toHaveAttribute("title", "MOCK: initial less final");
   });
 
   test("U8 margin 503 says the Kite login is needed", async ({ page }) => {

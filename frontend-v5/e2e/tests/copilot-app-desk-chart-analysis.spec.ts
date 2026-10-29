@@ -158,9 +158,9 @@ async function setup(page: Page, o: { phone?: boolean } = {}): Promise<Seen> {
     const sym = new URL(r.request().url()).pathname.split("/")[3];
     return sym === "FIXCASH" ? json(r, { detail: "No F&O data for FIXCASH" }, 404) : json(r, { ...EXPIRIES, symbol: sym });
   });
-  await page.route("**/api/fno/*/chain*", (r) => {
+  await page.route("**/api/fno/*/chain/consolidated*", (r) => { seen.chain.push("consolidated"); return json(r, CONSOLIDATED); });
+  await page.route("**/api/fno/*/chain?*", (r) => {
     const u = new URL(r.request().url());
-    if (u.pathname.endsWith("/chain/consolidated")) { seen.chain.push("consolidated"); return json(r, CONSOLIDATED); }
     const expiry = u.searchParams.get("expiry") ?? "2026-11-24";
     seen.chain.push(expiry);
     return json(r, CHAIN(expiry));
@@ -337,7 +337,7 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     await expect(page.getByTestId("ca-candle")).toHaveCount(DAILY.length, SLOW);
     await expect(page.getByTestId("ca-chain-none")).toContainText("FIXCASH is not in the F&O segment, so there is no option chain. The paper basket takes a cash trade.");
     await expect(page.getByTestId("ca-stat-pcr")).toContainText("not in F&O");
-    await expect(page.getByTestId("ca-stat-fut-oi")).toContainText("No F&O data for FIXCASH");
+    await expect(page.getByTestId("ca-stat-fut-oi")).toContainText("FIXCASH has no futures in the F&O segment.");
     await expect(page.getByTestId("ca-ladder-empty")).toHaveText("FIXCASH is not in F&O");
     await expect(page.getByTestId("ca-expiry-current")).toHaveCount(0);
   });

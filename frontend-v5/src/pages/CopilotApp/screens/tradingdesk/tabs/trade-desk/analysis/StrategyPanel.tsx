@@ -6,7 +6,7 @@
  *                     the feed says the session is live (POST /api/live/fno-quotes), else the end-of-day close (EOD);
  *                     Delta / Gamma / Theta / Vega = the payoff route's position Greeks per leg (pre_expiry.per_leg_greeks),
  *                     POSITION TOTAL = pre_expiry.greeks
- *   margin            POST /api/fno/margin (Zerodha's calculator through the platform Kite session); no hedge-benefit figure
+ *   margin            POST /api/fno/margin (Zerodha's calculator through the platform Kite session); hedge benefit = the route's hedge_benefit
  *                     is sent by the route, so it is "—" with why
  *   P&L payoff        POST /api/desk/strategy/payoff over ±5 / 10 / 15 %: at expiry and today (pre_expiry), breakevens,
  *                     max loss / profit; the scenario table at the 11 scenario prices (BE-3 pre_expiry.scenarios for today's
@@ -249,7 +249,9 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
         <span className="flex items-baseline" style={{ gap: 8 }}>
           <span style={head}>Hedge benefit</span>
           <b data-testid="ca-margin-benefit" className="cp-num" style={{ fontSize: 15, color: "var(--mint)" }}
-            title="The margin route sends the basket's margin with the spread benefit applied and Zerodha's initial margin, but no hedge-benefit figure.">—</b>
+            title={m?.kind === "ok" ? m.hedgeBasis ?? undefined : undefined}>
+            {!marginBody ? "—" : m?.kind === "ok" ? rs(m.hedge) : m?.kind === "unavailable" ? "—" : "…"}
+          </b>
         </span>
         <span style={{ flex: 1 }} />
         <button type="button" data-testid="ca-strategy-reset" onClick={() => b.reset()} className="cp-btn" data-variant="ghost" style={{ padding: "7px 12px", ...mono(11, { letterSpacing: "0.08em" }) }}>RESET</button>
@@ -262,7 +264,7 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
       </div>
       <span data-testid="ca-margin-note" style={{ fontSize: 11.5, lineHeight: 1.5, color: m?.kind === "unavailable" ? "var(--amber)" : "var(--cp-ink-3)" }}>
         {!marginBody ? "Shares have no F&O margin; the calculator prices option and future legs only."
-          : m?.kind === "ok" ? `Zerodha's margin calculator (Kite), the basket's margin with the spread benefit applied${m.asOf ? `, ${m.asOf}` : ""}. Its initial margin ${rs(m.initial)}. The route sends no hedge-benefit figure, so none is shown.`
+          : m?.kind === "ok" ? `Zerodha's margin calculator (Kite), the basket's margin with the spread benefit applied${m.asOf ? `, ${m.asOf}` : ""}. Its initial margin ${rs(m.initial)}; the hedge benefit is ${m.hedgeBasis ?? "the initial margin less the required margin"}.`
           : m?.kind === "unavailable" ? m.reason
           : "Asking Zerodha's margin calculator…"}
       </span>

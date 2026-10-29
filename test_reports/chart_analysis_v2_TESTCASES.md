@@ -53,7 +53,7 @@ P&L payoff (range ±5 / 10 / 15 %): at expiry + today lines, max loss / profit, 
 | option LTP in the session | GET /api/live/fno-quotes (else the chain close, labelled) |
 | recommended strategies | POST /api/desk/strategy/plan {underlying, direction} (existing engine; candidates ranked) |
 | payoff, today curve, Greeks per leg / position | POST /api/desk/strategy/payoff (+ NEW pre_expiry.scenarios Greeks, BE-3) |
-| margin + hedge benefit | POST /api/fno/margin (Zerodha calculator through the platform Kite session; 503 → "needs the Kite login") |
+| margin + hedge benefit | POST /api/fno/margin (Zerodha calculator through the platform Kite session; hedge_benefit NEW, BE-4; 503 → "needs the Kite login") |
 | place | POST /api/desk/paper-trades: options / futures (+ cash) → kind "strategy" (≤ 4 legs, defined risk, no short future, no short cash); cash only → the share trade |
 | events | GET /api/desk/chart-events/{sym} |
 
@@ -75,6 +75,11 @@ BE-3 `POST /api/desk/strategy/payoff`: when the request has `pre_expiry` and `sc
 [{name, underlying_price, gross, net, greeks:{delta,gamma,theta,vega,rho}|null}]`, priced with the same model and
 assumptions as the pre-expiry curve at that underlying price; null with the reason in `unavailable` when a leg cannot be
 priced. Nothing else in the answer changes.
+
+BE-4 `POST /api/fno/margin`: the answer gains `hedge_benefit` = Kite's `initial.total` − `final.total` (the orders' margin
+without the spread benefit less the basket's with it), rounded to paise, null when either is missing, and
+`hedge_benefit_basis` (the sentence). The strategy panel's HEDGE BENEFIT shows it; the screen works out no margin figure.
+Test M1 (pytest): 78,908.0625 − 77,519.3125 = 1,388.75; a missing figure → null.
 
 ## Strategy Lab removed (owner, 29 Oct "completely")
 

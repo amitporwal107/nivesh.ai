@@ -49,6 +49,7 @@ def test_tc1_legs_map_to_tradingsymbols_with_lot_size_quantity():
 def test_tc2_shape_totals_and_nulls():
     s = fm.shape(RAW, "2026-10-24")
     assert s["required_margin"] == 77519.3125 and s["initial_margin"] == 78908.0625 and s["sent_to_broker"] is False
+    assert s["hedge_benefit"] == 1388.75          # 78,908.0625 − 77,519.3125: Kite's initial less its final (spread benefit)
     assert s["charges"]["total"] == {"brokerage": 40.0, "stt": 5.5, "exchange": 5.65, "sebi": 0.01, "stamp_duty": 0.0, "gst": 8.24, "total": 59.4}
     empty = fm.shape({}, "2026-10-24")
     assert empty["required_margin"] is None and empty["charges"]["total"]["total"] is None and empty["charges"]["per_order"] == []
@@ -140,3 +141,10 @@ def test_the_route_reloads_the_platform_token_before_asking_kite_and_survives_a_
         raise RuntimeError("mongo down")
     monkeypatch.setattr(pt, "refresh_cache", boom)
     assert TestClient(app).post("/api/fno/margin", json=_body()).status_code == 200        # a failed reload does not break the route
+
+
+def test_hedge_benefit_is_none_without_both_figures():
+    """Chart Analysis v2: the hedge benefit is Kite's initial less its final margin, and None when either is missing (never a guess)."""
+    assert fm.shape({"final": {"total": 1000.0}}, "2026-10-29")["hedge_benefit"] is None
+    assert fm.shape({"initial": {"total": 1000.0}}, "2026-10-29")["hedge_benefit"] is None
+    assert fm.shape({"initial": {"total": 1500.5}, "final": {"total": 1000.25}}, "2026-10-29")["hedge_benefit"] == 500.25

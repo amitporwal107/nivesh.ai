@@ -65,18 +65,20 @@ export function todayScenarios(p: PayoffResponse | undefined): TodayScenario[] |
 // ── margin ───────────────────────────────────────────────────────────────
 
 export type MarginState =
-  | { kind: "ok"; required: number | null; initial: number | null; source: string | null; note: string | null; asOf: string | null }
+  | { kind: "ok"; required: number | null; initial: number | null; hedge: number | null; hedgeBasis: string | null; source: string | null; note: string | null; asOf: string | null }
   | { kind: "unavailable"; reason: string };
 
 const mnum = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const mstr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** The route's answer (services/fno_margin.shape): `required_margin` is Kite's `final.total` (the basket's margin with the
- *  spread benefit applied), `initial_margin` Kite's `initial.total`. The route sends no hedge-benefit figure. */
+ *  spread benefit applied), `initial_margin` Kite's `initial.total`, `hedge_benefit` the route's initial − final (null when
+ *  either is missing; an older route without the field reads null). */
 export function parseMargin(body: unknown): Extract<MarginState, { kind: "ok" }> {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   if (!("required_margin" in b)) throw ApiError.contractDrift("fno.margin: no required_margin");
-  return { kind: "ok", required: mnum(b.required_margin), initial: mnum(b.initial_margin), source: mstr(b.source), note: mstr(b.note), asOf: mstr(b.as_of) };
+  return { kind: "ok", required: mnum(b.required_margin), initial: mnum(b.initial_margin), hedge: mnum(b.hedge_benefit), hedgeBasis: mstr(b.hedge_benefit_basis),
+    source: mstr(b.source), note: mstr(b.note), asOf: mstr(b.as_of) };
 }
 
 export const MARGIN_NO_KITE = "Margin needs today's Kite login.";
