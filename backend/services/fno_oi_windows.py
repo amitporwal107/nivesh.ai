@@ -36,11 +36,32 @@ baseline, so the first bar shown has an OI change; a contract with no earlier ca
 listed expiry has a candle: close = the near month's (null when the near month has no candle then), volume = the sum over
 the listed expiries (a missing candle traded nothing), oi = the sum over the listed expiries ONLY when every one of them
 has a candle with an OI at that time, else null: never a partial sum. End of day: `bars` is [].
+
+Daily series (`?daily=N`, either mode): from the NSE F&O bhavcopy's futures rows (nidp.fno_bhavcopy through the data
+platform's GET /v1/fno/{symbol}/history, one read per futures contract; routes/fno.py reads them into a `book`
+{day: {expiry: (close, volume, oi)}}). The sessions are the days the book has rows on; the last N are sent, oldest first.
+A day the bhavcopy does not have is absent, never filled: the previous session of a day is the previous day IN THE DATA.
+  daily_bars     [[day, close, volume, oi, oi_change, expiry]] per slot. Slot per day: the futures listed that day whose
+                 expiry is on or after it, nearest first: current = 1st (an expiry ON that day is that day's current
+                 month), next = 2nd, far = 3rd, so each slot is a continuous series and `expiry` names the contract a bar
+                 comes from (a roll is visible). oi_change = that contract's OI − the SAME contract's OI on the previous
+                 session; null when the contract had no row then (never the jump from one contract to the next).
+                 Consolidated: close = the current slot's close, volume and OI summed over every futures expiry with a row
+                 that day (null when any of them has no figure: never a partial sum), oi_change = OI − the previous
+                 session's sum, expiry = the current slot's.
+  daily_windows  the window objects of `windows` over those sessions, `window` sessions each, aligned so the LAST window
+                 ends on the latest session; a partial (shorter) first window is DROPPED. Every figure of a slot's window
+                 is ONE contract's: the contract of the slot's last bar in the window (`expiry`), against its own row on
+                 the session just before the window (the baseline: price_change = close − its close then, oi_change = oi −
+                 its OI then); with no baseline row, both changes and the label are null. volume and bars count that
+                 contract's rows in the window. Consolidated: the current slot's contract for the price, the summed OI
+                 against the summed OI on the baseline session. label = buildup_label, as for `windows`; index = the
+                 window's position, 0 = the oldest window sent; complete is always true (bhavcopy sessions are closed).
 """
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 LABELS = ("long_buildup", "short_buildup", "short_covering", "long_unwinding", "neutral")
 SLOTS = ("current", "next", "far")
@@ -257,3 +278,122 @@ def eod_answer(symbol: str, as_of: str, futures: Sequence[Dict[str, Any]], kite_
         "missing_slots": [slot for slot in SLOTS[len(rows):]], "missing_note": None,
         "kite_reason": kite_reason, "note": NOTE, "read_only": True,
     }
+
+
+# ── daily series from the NSE F&O bhavcopy (?daily=N) ────────────────────────
+
+DAILY_MAX = 250
+DAILY_SOURCE = "NSE F&O bhavcopy (nidp.fno_bhavcopy), end of day, through the data platform's contract history"
+# {day: {expiry: (close, volume, oi)}}: every futures row read, one per contract per session.
+Book = Dict[str, Dict[str, Tuple[Optional[float], Optional[int], Optional[int]]]]
+
+
+def _sum_all(values: Iterable[Optional[int]]) -> Optional[int]:
+    """The sum, or None when any value is missing: never a partial sum."""
+    vals = list(values)
+    return sum(vals) if vals and all(v is not None for v in vals) else None   # type: ignore[misc]
+
+
+def _diff(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    return a - b if a is not None and b is not None else None
+
+
+def _previous_days(book: Book) -> Dict[str, Optional[str]]:
+    days = sorted(book)
+    return {d: (days[i - 1] if i else None) for i, d in enumerate(days)}
+
+
+def daily_series(book: Book, n: int) -> Dict[str, Any]:
+    """{"days": the last n sessions, "slots": {slot: daily_bars}, "consolidated": daily_bars}. See the module docstring."""
+    prev_of = _previous_days(book)
+    shown = sorted(book)[-n:]
+    slots: Dict[str, List[List[Any]]] = {slot: [] for slot in SLOTS}
+    cons: List[List[Any]] = []
+    for d in shown:
+        listed = sorted(e for e in book[d] if e >= d)
+        p = prev_of[d]
+        for slot, e in zip(SLOTS, listed):
+            close, volume, oi = book[d][e]
+            before = book[p].get(e) if p else None
+            slots[slot].append([d, close, volume, oi, _diff(oi, before[2] if before else None), e])
+        if listed:
+            oi = _sum_all(r[2] for r in book[d].values())
+            prev_oi = _sum_all(r[2] for r in book[p].values()) if p else None
+            cons.append([d, book[d][listed[0]][0], _sum_all(r[1] for r in book[d].values()), oi, _diff(oi, prev_oi), listed[0]])
+    return {"days": shown, "slots": slots, "consolidated": cons}
+
+
+def window_groups(days: Sequence[str], size: int) -> List[List[str]]:
+    """`days` cut into blocks of `size` sessions counted back from the last; the shorter first block is dropped."""
+    k = len(days) // size
+    first = len(days) - k * size
+    return [list(days[first + j * size: first + (j + 1) * size]) for j in range(k)]
+
+
+def _daily_window(index: int, group: Sequence[str], bars: int, close: Optional[float], base_close: Optional[float],
+                  oi: Optional[int], base_oi: Optional[int], volume: Optional[int], expiry: str) -> Dict[str, Any]:
+    price_change = round(close - base_close, 2) if close is not None and base_close is not None else None
+    oi_change = _diff(oi, base_oi)
+    return {"day": group[-1], "index": index, "start": group[0], "end": group[-1], "bars": bars, "close": close,
+            "price_change": price_change, "price_change_pct": _pct(price_change, base_close),
+            "oi": oi, "oi_change": oi_change, "oi_change_pct": _pct(oi_change, base_oi), "volume": volume,
+            "label": buildup_label(price_change, oi_change), "complete": True, "expiry": expiry}
+
+
+def slot_daily_windows(book: Book, days: Sequence[str], bars: Sequence[Sequence[Any]], size: int) -> List[Dict[str, Any]]:
+    """Windows over one slot's daily_bars, every figure the one contract's of the slot's last bar in the window."""
+    prev_of = _previous_days(book)
+    by_day = {b[0]: b for b in bars}
+    out: List[Dict[str, Any]] = []
+    for index, group in enumerate(window_groups(days, size)):
+        mine = [by_day[d] for d in group if d in by_day]
+        if not mine:
+            continue                                   # the slot has no contract in the window: absent, not filled
+        expiry = mine[-1][5]
+        rows = [book[d][expiry] for d in group if expiry in book[d]]
+        close, _vol, oi = book[mine[-1][0]][expiry]
+        base_day = prev_of[group[0]]
+        base = book[base_day].get(expiry) if base_day else None
+        out.append(_daily_window(index, group, len(rows), close, base[0] if base else None, oi, base[2] if base else None,
+                                 _sum_all(r[1] for r in rows), expiry))
+    return out
+
+
+def consolidated_daily_windows(book: Book, days: Sequence[str], bars: Sequence[Sequence[Any]], size: int) -> List[Dict[str, Any]]:
+    """Windows over the consolidated daily_bars: the current slot's contract for the price, the summed OI for the OI."""
+    prev_of = _previous_days(book)
+    by_day = {b[0]: b for b in bars}
+    out: List[Dict[str, Any]] = []
+    for index, group in enumerate(window_groups(days, size)):
+        mine = [by_day[d] for d in group if d in by_day]
+        if not mine:
+            continue
+        last = mine[-1]
+        expiry = last[5]
+        base_day = prev_of[group[0]]
+        base = book[base_day].get(expiry) if base_day else None
+        base_oi = _sum_all(r[2] for r in book[base_day].values()) if base_day else None
+        out.append(_daily_window(index, group, len(mine), last[1], base[0] if base else None, last[3], base_oi,
+                                 _sum_all(b[2] for b in mine), expiry))
+    return out
+
+
+def add_daily(answer: Dict[str, Any], book: Book, n: int, size: int) -> Dict[str, Any]:
+    """Every contract slot of `answer` and its consolidated gain `daily_bars` and `daily_windows` (module docstring)."""
+    series = daily_series(book, n)
+    days = series["days"]
+    for c in answer.get("contracts") or []:
+        bars = series["slots"].get(c.get("slot"), [])
+        c["daily_bars"] = bars
+        c["daily_windows"] = slot_daily_windows(book, days, bars, size)
+    cons = answer.get("consolidated")
+    if isinstance(cons, dict):
+        cons["daily_bars"] = series["consolidated"]
+        cons["daily_windows"] = consolidated_daily_windows(book, days, series["consolidated"], size)
+    answer["daily"] = {
+        "requested": n, "sessions": len(days), "window": size, "source": DAILY_SOURCE,
+        "slot_rule": "per day: the futures listed whose expiry is on or after the day, nearest first (current, next, far)",
+        "oi_change": "the same contract's OI minus its OI on the previous session in the data; null when it had no row then",
+        "windows": "aligned to end on the latest session; a partial first window is dropped; one contract per window",
+    }
+    return answer
