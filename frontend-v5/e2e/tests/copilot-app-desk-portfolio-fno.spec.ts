@@ -473,6 +473,26 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await deskBase(page);
   });
 
+  test("KC-3 after the close a position shows the session's move at Kite's close, labelled close (not live)", async ({ page }) => {
+    await mockPaper(page, { status: 403, body: { detail: "Feature not enabled" } });
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    // MOCK — not real data: the feed's final snapshot after the 29 Oct close (the stream is refused, so the store polls /quotes).
+    await page.route("**/api/live/stream*", (route) => route.fulfill({ status: 404, contentType: "application/json", body: "{}" }));
+    await page.route("**/api/live/quotes*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      as_of: "2026-10-29T10:01:06+00:00", data_at: "2026-10-29T10:01:05+00:00", age_seconds: 5000, stale: false, mode: "closed", session: "closed", final: true,
+      cadence_seconds: 30, source: "rest", count: 1, missing: [],
+      quotes: { FIXHEAVY: { ltp: 1210, change: 25, change_pct: 2.11, open: 1190, high: 1212, low: 1186, close: 1185, volume: 120000, oi: null, ts: "2026-10-29T15:30:57+05:30" } },
+    }) }));
+    await page.goto(`${DESK}?tab=portfolio`);
+    const heavy = page.locator('[data-testid="desk-portfolio-position"][data-symbol="FIXHEAVY"]');
+    const chip = heavy.getByTestId("desk-portfolio-position-live");
+    await expect(chip).toHaveText("+2.1%", { timeout: 15_000 });
+    await expect(chip).toHaveAttribute("data-kind", "close");
+    await expect(chip).toHaveAttribute("title", /Close · 29 Oct · Kite, provisional until the exchange’s end-of-day file/);
+    await expect(page.locator('[data-testid="desk-portfolio-position"][data-symbol="FIXLIGHT"]').getByTestId("desk-portfolio-position-live")).toHaveCount(0);
+  });
+
   test("TC-28 broker hub: sources, value and P&L, the market-cap donut, positions (>25% amber) and the seven risk checks", async ({ page }) => {
     await mockPaper(page, { status: 403, body: { detail: "Feature not enabled" } });
     await mockDeskLists(page);

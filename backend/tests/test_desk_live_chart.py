@@ -338,7 +338,11 @@ def test_stage_markers_follow_the_scanners_stage_changes():
 
 # ── TC-10 / TC-14 the live-chart route ───────────────────────────────────────
 
-def _lc_client(monkeypatch, *, intraday=None, daily=None, signals=([], None), plan=None):
+def _lc_client(monkeypatch, *, intraday=None, daily=None, signals=([], None), plan=None, kite_today=None):
+    """kite_today: a day_quote.day_quotes answer for the daily fallback (default: no Kite quote, why no_saved_close)."""
+    async def day_quotes(symbols, now=None, feed=None):
+        return kite_today or {"source": None, "day": None, "as_of": None, "quotes": {}, "why": "no_saved_close"}
+
     async def user_dep():
         return {"user_id": "u1", "email": "u1@example.com"}
 
@@ -365,6 +369,7 @@ def _lc_client(monkeypatch, *, intraday=None, daily=None, signals=([], None), pl
     monkeypatch.setattr(lc_route, "read_holidays", read_holidays)
     monkeypatch.setattr(lc_route.tpm, "load", load)
     monkeypatch.setattr(lc_route, "_now_ist", lambda: datetime(2026, 10, 27, 11, 50, tzinfo=IST))
+    monkeypatch.setattr(lc_route.dq, "day_quotes", day_quotes)
     app = FastAPI()
     app.include_router(lc_route.router)
     for r in lc_route.router.routes:
@@ -403,6 +408,52 @@ def test_live_chart_without_kite_falls_back_to_daily_and_says_why(monkeypatch):
     assert b["timeframe"]["interval"] == "1d" and b["timeframe"]["reason"] == "token_missing"
     assert b["timeframe"]["reason_text"].startswith("Kite login needed for 15m candles")
     assert len(b["bars"]) == lc_route.DAILY_SHOWN and b["levels"]["source"] is None and b["markers"] == []
+
+
+def _daily_through(last_day: str, n: int = 90):
+    """n weekday bars ending on `last_day`, closes rising by 0.5."""
+    d, out = date.fromisoformat(last_day), []
+    while len(out) < n:
+        if d.weekday() < 5:
+            out.append(d)
+        d -= timedelta(days=1)
+    return [[x.isoformat(), 100 + i * 0.5, 101 + i * 0.5, 99 + i * 0.5, 100.4 + i * 0.5, 1000 + i] for i, x in enumerate(reversed(out))]
+
+
+def _kite_close(day: str, prev_close: float, **q):
+    base = {"symbol": "HDFCBANK", "ltp": 150.0, "open": 146.0, "high": 151.0, "low": 145.5, "close": prev_close, "volume": 5000.0,
+            "exchange_ts": f"{day}T15:29:58+05:30"}
+    base.update(q)
+    return {"source": "kite_close", "day": day, "as_of": f"{day}T10:01:05+00:00", "quotes": {"HDFCBANK": base}, "why": None}
+
+
+def test_r1_daily_fallback_after_the_close_ends_on_the_kite_close(monkeypatch):
+    """Owner rule 29 Oct: after the close, before the exchange's end-of-day file, the day's bar is the saved Kite close."""
+    daily = _daily_through("2026-10-26")
+    c = _lc_client(monkeypatch, daily=daily, kite_today=_kite_close("2026-10-27", daily[-1][4]))
+    monkeypatch.setattr(lc_route, "_now_ist", lambda: datetime(2026, 10, 27, 17, 0, tzinfo=IST))
+    b = c.get("/api/desk/live-chart/HDFCBANK").json()
+    assert b["bars"][-1] == ["2026-10-27", 146.0, 151.0, 145.5, 150.0, 5000.0]
+    assert b["bars"][-2][0] == "2026-10-26" and len(b["bars"]) == lc_route.DAILY_SHOWN
+    assert b["last"] == {"price": 150.0, "at": "2026-10-27", "bar_complete": True, "source": "kite_close"}
+    t = b["timeframe"]["today"]
+    assert t["source"] == "kite_close" and t["provisional"] is True and t["day"] == "2026-10-27" and "provisional" in t["text"]
+    assert b["evaluated_at_bar"] == "2026-10-27"
+
+
+def test_r2_once_the_exchange_bar_is_in_kite_adds_nothing(monkeypatch):
+    daily = _daily_through("2026-10-27")
+    c = _lc_client(monkeypatch, daily=daily, kite_today=_kite_close("2026-10-27", daily[-2][4], ltp=999.0))
+    b = c.get("/api/desk/live-chart/HDFCBANK").json()
+    assert b["bars"][-1] == daily[-1] and b["timeframe"]["today"] is None and b["timeframe"]["today_why"] == "eod_in"
+    assert b["last"]["source"] == "eod" and b["last"]["price"] == daily[-1][4]
+
+
+def test_r1b_a_kite_close_that_does_not_join_is_left_out_and_said(monkeypatch):
+    daily = _daily_through("2026-10-26")
+    c = _lc_client(monkeypatch, daily=daily, kite_today=_kite_close("2026-10-27", daily[-1][4] * 6))   # a 1:6 split not yet adjusted
+    b = c.get("/api/desk/live-chart/HDFCBANK").json()
+    assert b["bars"][-1][0] == "2026-10-26" and b["timeframe"]["today"] is None and b["timeframe"]["today_why"] == "does_not_join"
 
 
 def test_live_chart_plan_checks_and_signal_db_down(monkeypatch):

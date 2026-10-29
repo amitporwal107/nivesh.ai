@@ -5,7 +5,10 @@
 One answer for the chart card and the SIGNAL CONDITIONS card, so the line, the marker and the condition read the same bars:
     timeframe    the candles drawn: Kite 15m (interval, "Kite intraday", raw prices) when the platform Kite session works,
                  else the daily bars (nidp.prices_eod_adjusted) with `reason` (token_missing / token_expired / ...), so the
-                 screen says "Kite login needed for 15m candles" and labels the timeframe
+                 screen says "Kite login needed for 15m candles" and labels the timeframe. Before the exchange's end-of-day
+                 file for today is in, today's daily bar comes from Kite (services/kite_live_feed/day_quote.py): the live
+                 quote in the session, the saved Kite close after it; `timeframe.today` says which (provisional), and
+                 `today_why` why none was added (eod_in, feed_not_live, no_saved_close, does_not_join, ...)
     bars         [[time, o, h, l, c, v]] of the sessions shown, with `ema20` and `rvol` aligned (services/desk_live_chart.py;
                  worked out on extra warm-up bars that are not sent)
     levels       the TradePlan's (?plan_id, Mongo trade_plans, the reader may open it) or, without a plan, the scanner's
@@ -31,6 +34,7 @@ from feature_gate import require_feature
 from services import desk_live_chart as lc
 from services import pg_client
 from services.kite_live_feed import config as kite_cfg
+from services.kite_live_feed import day_quote as dq
 from services.strategy_plan import trade_plan as tpm
 
 logger = logging.getLogger(__name__)
@@ -195,11 +199,15 @@ async def live_chart(symbol: str = SymbolPath, plan_id: Optional[str] = Query(No
         bars = await read_daily(sym)
         if not bars:
             raise HTTPException(status_code=404, detail="no_bars_for_symbol")
+        # today before the exchange's end-of-day file: the live Kite bar in the session, the saved Kite close after it
+        bars, today = await dq.extend_daily(bars, sym, now=now)
         minutes = None
         shown_from = max(0, len(bars) - DAILY_SHOWN)
         tf = {"interval": "1d", "label": "DAILY", "source": "nidp.prices_eod_adjusted (end of day)", "adjusted": True,
               "reason": reason, "reason_text": KITE_REASON.get(reason or "", "Intraday candles are unavailable."),
-              "live_merged": False, "note": "Daily bars, split and bonus adjusted."}
+              "live_merged": False, "note": "Daily bars, split and bonus adjusted.",
+              "today": today if today.get("used") else None,
+              "today_why": None if today.get("used") else today.get("why"), "today_text": today.get("text")}
 
     ema = lc.ema_series([b[4] for b in bars])
     rvol = lc.rvol_series([b[5] for b in bars])
@@ -228,7 +236,8 @@ async def live_chart(symbol: str = SymbolPath, plan_id: Optional[str] = Query(No
     return {
         "symbol": sym, "as_of": now.isoformat(), "timeframe": tf,
         "bars": shown, "ema20": ema[shown_from:], "rvol": rvol[shown_from:],
-        "last": {"price": last_close, "at": bars[-1][0], "bar_complete": li == len(bars) - 1},
+        "last": {"price": last_close, "at": bars[-1][0], "bar_complete": li == len(bars) - 1,
+                 "source": ((tf.get("today") or {}).get("source") if minutes is None and tf.get("today") else ("kite_intraday" if minutes else "eod"))},
         "levels": levels,
         "signal": ({"signal_date": latest["signal_date"], "stage": latest["stage"], "kind": lc.STAGE_KIND.get(str(latest["stage"] or "").upper()),
                     "revision": latest["revision"], "engine_version": latest["engine_version"], "computed_at": latest["computed_at"]}

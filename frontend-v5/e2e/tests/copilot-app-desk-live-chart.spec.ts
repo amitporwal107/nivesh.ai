@@ -116,6 +116,23 @@ const LIVE_HDFC = {
   }),
   evaluated_at_bar: DAYS[59],
 };
+// ── MOCK: after the close, before the exchange's end-of-day file (ADANIPORTS, shaped like the staging read of 29 Oct 17:00 IST):
+// the route appends the day's bar from the saved Kite close (timeframe.today), provisional until the bhavcopy lands.
+const KITE_DAY: [string, number, number, number, number, number] = ["2026-10-29", 712.5, 762.0, 710.0, 762.0, 7_792_103];
+const LIVE_ADANI = {
+  ...clone(LIVE_HDFC), symbol: "ADANIPORTS",
+  timeframe: { ...clone(LIVE_HDFC.timeframe), today: { source: "kite_close", day: "2026-10-29", provisional: true, at: "2026-10-29T15:30:57+05:30", price: 762.0,
+    text: "2026-10-29: Kite close, provisional until the exchange's end-of-day file" }, today_why: null, today_text: "2026-10-29: Kite close, provisional until the exchange's end-of-day file" },
+  bars: [...DAILY.slice(1), KITE_DAY], ema20: DAILY.map((_, i) => (i < 19 ? null : 706)), rvol: DAILY.map((_, i) => (i < 20 ? null : 1.0)),
+  last: { price: 762.0, at: "2026-10-29", bar_complete: true, source: "kite_close" },
+  conditions: COND({
+    ema20: { label: "daily close above 20 EMA", status: "met", value: "762.00 > 706.03" },
+    trigger: { label: "daily close above 750.05", status: "met", value: "touched at 2026-10-29" },
+    validity: { status: "unavailable", value: "no signal day or validity on the plan" },
+    invalidation: { label: "Invalidation: close below 729.06", status: "not_hit", value: "not hit" },
+  }),
+  evaluated_at_bar: "2026-10-29",
+};
 const eodWin = (price: number, chg: number, oi: number, label: string) => [{ day: "2026-10-27", index: 0, start: "2026-10-27", end: "2026-10-27", bars: 1, close: 681.4, price_change: price,
   price_change_pct: -1.12, oi, oi_change: chg, oi_change_pct: null, volume: 75194, label, complete: true }];
 const OI_HDFC = {
@@ -197,7 +214,8 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
   await page.route("**/api/live/**", (r) => json(r, { available: false, reason: "MOCK: feed off", quotes: {}, mode: "expired", session: "closed", stale: true }));
   await page.route("**/api/desk/live-chart/*", (r) => {
     const sym = new URL(r.request().url()).pathname.split("/").pop();
-    return sym === "ICICIBANK" ? json(r, LIVE_ICICI) : sym === "HDFCBANK" ? json(r, LIVE_HDFC) : json(r, { detail: "no_bars_for_symbol" }, 404);
+    return sym === "ICICIBANK" ? json(r, LIVE_ICICI) : sym === "HDFCBANK" ? json(r, LIVE_HDFC) : sym === "ADANIPORTS" ? json(r, LIVE_ADANI)
+      : json(r, { detail: "no_bars_for_symbol" }, 404);
   });
   await page.route("**/api/fno/*/futures/oi-buildup*", (r) => {
     const sym = new URL(r.request().url()).pathname.split("/")[3];
@@ -457,6 +475,26 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis › Live ch
     await page.getByTestId("lc-ticket-ideas").click();
     await expect.poll(() => params(page).get("view")).toBe("scanner");
     await expect.poll(() => params(page).get("sub")).toBe("ranked");
+  });
+
+  test("KC-1 after the close, before the exchange's end of day: the last daily candle is the Kite close, labelled provisional", async ({ page }) => {
+    await setup(page);
+    await page.goto(LIVE("ADANIPORTS"));
+    await expect(page.getByTestId("lc-last")).toHaveText(/^Last 762\.00 · 29 Oct 2026 · Kite close$/i, SLOW);
+    await expect(page.getByTestId("lc-last")).toHaveAttribute("data-source", "kite_close");
+    await expect(page.getByTestId("lc-kite-fallback")).toContainText("Kite login needed for 15m candles: the platform Kite session expired.");
+    await expect(page.getByTestId("lc-kite-fallback")).toContainText("and 29 Oct 2026 from the Kite close (provisional until the exchange's end-of-day file).");
+    await expect(page.getByTestId("lc-headline")).toHaveText("ADANIPORTS is above its entry 750.05 on the Kite close of 29 Oct 2026 (provisional). No fill yet: the paper engine fills on the exchange's end-of-day bar.");
+    await expect(page.getByTestId("lc-source")).toContainText("Last candle 29 Oct 2026: Kite close, raw price, provisional.");
+    await expect(page.getByTestId("lc-cond-trigger")).toHaveAttribute("data-status", "met");
+  });
+
+  test("KC-2 without a Kite candle the daily fallback keeps the end-of-day wording and no Kite label", async ({ page }) => {
+    await setup(page);
+    await page.goto(LIVE("HDFCBANK"));
+    await expect(page.getByTestId("lc-kite-fallback")).toHaveText("Kite login needed for 15m candles: the platform Kite session expired. Showing daily candles (end of day).", SLOW);
+    await expect(page.getByTestId("lc-last")).not.toContainText("Kite");
+    await expect(page.getByTestId("lc-source")).not.toContainText("Last candle");
   });
 
   test("TC-10 a symbol with no prices says so instead of an error", async ({ page }) => {

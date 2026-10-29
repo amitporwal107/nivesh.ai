@@ -15,7 +15,9 @@
  *   below   the F&O SETUP card (FnoSetupCard.tsx) and the SIGNAL CONDITIONS card
  *
  * Without the platform Kite session the route answers daily bars: the screen says "Kite login needed for 15m candles" and
- * labels the timeframe DAILY. A marker the data does not support is not drawn. Paper only.
+ * labels the timeframe DAILY. Before the exchange's end-of-day file is in, the last daily candle is Kite's (`timeframe.today`):
+ * the live price in the session, the saved Kite close after it; LAST, the note and the source line name it as provisional.
+ * A marker the data does not support is not drawn. Paper only.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -94,6 +96,11 @@ function headline(d: LiveChart, trade: PaperTrade | null, last: number): string 
     : lv.rule === "pullback_to" ? `the entry needs a ${tf} low at or below ${priceTxt(lv.entry)}`
       : "the plan enters at once, inside the last session's range";
   const pending = trade ? "Paper order pending" : "No fill yet";
+  const today = d.timeframe.today;
+  if (today && by("trigger")?.status === "met") {
+    const on = today.source === "kite_close" ? `the Kite close of ${fmtDay(today.day)} (provisional)` : "the live Kite price (the day's candle is still forming)";
+    return `${sym} is ${where} its entry ${priceTxt(lv.entry)} on ${on}. ${pending}: the paper engine fills on the exchange's end-of-day bar.`;
+  }
   return `${sym} is ${where} its entry ${priceTxt(lv.entry)}. ${pending}: ${need}. The paper engine fills on end-of-day bars.`;
 }
 
@@ -332,6 +339,8 @@ export default function LiveChartView({ onIdeas, onStrategyLab, onRiskPolicy }: 
   else {
     const lastPrice = quote?.kind === "live" ? quote.ltp : d.last.price;
     const lastAt = quote?.kind === "live" ? istTime(quote.ts) : daily ? fmtDay(d.last.at) : istTime(d.last.at);
+    const today = daily ? d.timeframe.today ?? null : null;
+    const lastWord = quote?.kind === "live" ? "" : today?.source === "kite_close" ? " · Kite close" : today?.source === "kite_live" ? " · Kite live" : "";
     const markers: ChartMarker[] = d.markers
       .filter((m) => groups[MARK_GROUP[m.kind] ?? "pattern"])
       .map((m) => ({ at: m.at, label: m.kind === "RVOL" && m.rvol != null ? `RVOL ${fmtNum(m.rvol, 1)}×` : m.kind, color: MARK_COLOR[m.kind] ?? "var(--cp-ink-2)", group: MARK_GROUP[m.kind] ?? "pattern", title: m.text ?? m.kind }));
@@ -356,12 +365,15 @@ export default function LiveChartView({ onIdeas, onStrategyLab, onRiskPolicy }: 
               NSE · CASH · {d.timeframe.label}{sig ? ` · Signal ${dayMonth(sig.signal_date)}${sig.revision ? ` r${sig.revision}` : ""}` : " · no scanner signal"}{sig?.engine_version ? ` · Detector ${sig.engine_version}` : ""}
             </span>
           </div>
-          <span data-testid="lc-last" className="cp-num" style={{ ...mono, color: "var(--cp-ink-2)" }}>Last {priceTxt(lastPrice)}{lastAt ? ` · ${lastAt}${daily && quote?.kind !== "live" ? "" : " IST"}` : ""}</span>
+          <span data-testid="lc-last" data-source={quote?.kind === "live" ? "kite_live" : d.last.source ?? undefined} className="cp-num" style={{ ...mono, color: "var(--cp-ink-2)" }}>Last {priceTxt(lastPrice)}{lastAt ? ` · ${lastAt}${daily && quote?.kind !== "live" ? "" : " IST"}` : ""}{lastWord}</span>
         </div>
         <p data-testid="lc-headline" className="m-0" style={{ fontSize: 14, lineHeight: 1.5, color: "var(--cp-ink)" }}>{headline(d, trade, lastPrice)}</p>
         {d.timeframe.reason && (
           <p data-testid="lc-kite-fallback" role="note" className="m-0" style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--amber)" }}>
-            {d.timeframe.reason_text ?? "Kite login needed for 15m candles."} Showing daily candles (end of day).
+            {d.timeframe.reason_text ?? "Kite login needed for 15m candles."}{" "}
+            {today
+              ? `Showing daily candles: the exchange's end of day through ${bars.length > 1 ? fmtDay(bars[bars.length - 2].day) : "—"}, and ${fmtDay(today.day)} from ${today.source === "kite_close" ? "the Kite close (provisional until the exchange's end-of-day file)" : "the live Kite price (still forming)"}.`
+              : "Showing daily candles (end of day)."}
           </p>
         )}
         <div className="flex flex-wrap items-center" style={{ gap: 6 }} role="group" aria-label="Signals on chart">
@@ -386,7 +398,7 @@ export default function LiveChartView({ onIdeas, onStrategyLab, onRiskPolicy }: 
             : <span data-testid="lc-oi-unavailable" style={quiet}>{oiQ.data?.kind === "none" ? oiQ.data.message : "The futures OI did not load."}</span>}
         <Legend d={d} trade={trade} />
         <span data-testid="lc-source" style={{ ...quiet, fontSize: 11 }}>
-          {d.timeframe.interval === "1d" ? "Daily" : d.timeframe.label} candles · {d.timeframe.source}. {d.timeframe.note} Levels: {d.levels.source === "plan" ? `plan ${d.levels.plan_id}` : d.levels.source === "signal" ? `the scanner's signal of ${d.levels.signal_date ? fmtDay(d.levels.signal_date) : "—"}` : "none"}.
+          {d.timeframe.interval === "1d" ? "Daily" : d.timeframe.label} candles · {d.timeframe.source}. {d.timeframe.note}{today ? ` Last candle ${fmtDay(today.day)}: ${today.source === "kite_close" ? "Kite close, raw price, provisional" : "Kite live, still forming"}.` : ""} Levels: {d.levels.source === "plan" ? `plan ${d.levels.plan_id}` : d.levels.source === "signal" ? `the scanner's signal of ${d.levels.signal_date ? fmtDay(d.levels.signal_date) : "—"}` : "none"}.
         </span>
       </section>
     );
