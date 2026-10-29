@@ -116,6 +116,15 @@ class BaseIngester(abc.ABC):
             target_date=target_date,
         ) as run:
             bind_context(run_id=str(run.run_id))
+            # 0. The market-data switch (backend/config/market_data_source.json): when TrueData serves, the feeds it
+            #    replaces do not run. The run is recorded as SKIPPED with the reason, so feed health shows why.
+            from nidp.shared import market_data_source as _mds
+            if not _mds.feed_is_on(self.SERVICE_NAME):
+                await run.finalize("SKIPPED", error_message=_mds.switched_off_message(self.SERVICE_NAME),
+                                   error_class="SWITCHED_OFF")
+                INGESTER_RUNS.labels(service=self.SERVICE_NAME, status="SKIPPED").inc()
+                logger.info("ingester %s: %s", self.SERVICE_NAME, _mds.switched_off_message(self.SERVICE_NAME))
+                return run
             with time_ingester(self.SERVICE_NAME):
                 try:
                     # 1. Fetch
