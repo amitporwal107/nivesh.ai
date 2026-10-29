@@ -90,6 +90,7 @@ jobs:
           tests/test_chartink_desk.py
           tests/test_chartink_picks.py
           tests/test_chartink_strategy.py
+          tests/test_chat_instrument_search.py
           tests/test_chat_persona_routing.py
           tests/test_chat_session_patch.py
           tests/test_circulars_route.py

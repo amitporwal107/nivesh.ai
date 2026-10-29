@@ -21,6 +21,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 import { Markdown } from "@/components/chat/Markdown";
 import { WIDGET_TYPES } from "@/components/chat/ChatWidget";
 import { TradePlanChatCard, type TradeIdeaData } from "@/components/chat/TradePlanChatCard";
+import { CompletionList, applyCompletion, useStockCompletion, type StockSuggestion } from "../../lib/stock-completion";
 import { useCopilotShell } from "../../lib/shell-context";
 import { useThreadEngine } from "../../lib/use-thread-engine";
 import { useThreadTurns, type Turn } from "../../lib/use-thread-turns";
@@ -148,6 +149,30 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Stock autocomplete at the cursor (lib/stock-completion.tsx): the same completions as the app's ask box.
+  const [caret, setCaret] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const [hi, setHi] = useState(-1);
+  const completion = useStockCompletion(draft.slice(0, caret), focused && !engine.busy);
+  const completions = completion.data;
+  const complete = (st: StockSuggestion) => {
+    if (!completions) return;
+    const next = applyCompletion(draft, inputRef.current?.selectionStart ?? caret, completions, st);
+    setDraft(next.text);
+    setCaret(next.caret);
+    setHi(-1);
+    requestAnimationFrame(() => { const el = inputRef.current; if (el) { el.focus(); el.setSelectionRange(next.caret, next.caret); } });
+  };
+  const onInputKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const n = completions?.stocks.length ?? 0;
+    if (e.key === "Escape") { setHi(-1); setFocused(false); return; }
+    if (!n) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setHi((h) => (h + 1) % n); return; }
+    if (e.key === "ArrowUp") { e.preventDefault(); setHi((h) => (h <= 0 ? n - 1 : h - 1)); return; }
+    if (e.key === "Tab") { e.preventDefault(); complete(completions!.stocks[hi >= 0 ? hi : 0]); return; }
+    // Enter on a highlighted stock completes it; Enter with nothing highlighted asks, as before.
+    if (e.key === "Enter" && hi >= 0 && !e.nativeEvent.isComposing) { e.preventDefault(); complete(completions!.stocks[hi]); }
+  };
   const page = variant === "page";
 
   const ask = (question: string) => {
@@ -216,15 +241,23 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
   ));
 
   const input = (placeholder: string) => (
-    <input
-      ref={inputRef}
-      data-testid="dock-input"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      placeholder={placeholder}
-      aria-label="Ask the Copilot"
-      style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13.5 }}
-    />
+    <div style={{ position: "relative", flex: 1, minWidth: 0, display: "flex", alignSelf: "stretch", alignItems: "center" }}>
+      {focused && completions && <CompletionList completion={completions} hi={hi} onPick={complete} testId="dock-complete" />}
+      <input
+        ref={inputRef}
+        data-testid="dock-input"
+        value={draft}
+        onChange={(e) => { setDraft(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); setHi(-1); setFocused(true); }}
+        onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? draft.length)}
+        onKeyDown={onInputKey}
+        onFocus={() => setFocused(true)}
+        onBlur={() => { setFocused(false); setHi(-1); }}
+        placeholder={placeholder}
+        aria-label="Ask the Copilot"
+        autoComplete="off"
+        style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "var(--cp-ink)", fontFamily: "var(--sans)", fontSize: 13.5 }}
+      />
+    </div>
   );
 
   if (page) {
