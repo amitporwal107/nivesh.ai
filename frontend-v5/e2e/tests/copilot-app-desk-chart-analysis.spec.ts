@@ -207,6 +207,9 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     await expect(page.getByTestId("ca-readout")).toContainText("C ₹1,213.0");
     await expect(page.getByTestId("ca-candle")).toHaveCount(BARS.length);
     await expect(page.getByTestId("ca-footer")).toContainText("CHAIN END OF DAY 27 OCT 2026");
+    // a look at the screen (MOCK data) for the design review; not an assertion
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.screenshot({ path: "e2e/.shots/ca-page-1440.png", fullPage: true });
   });
 
   test("U2 SIGNALS ON CHART: each chip hides and shows its own marks", async ({ page }) => {
@@ -329,6 +332,7 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     expect((c?.y ?? 0)).toBeGreaterThan((a?.y ?? 0) + 10);                         // MAX PAIN starts the next
     await expect(page.getByTestId("ca-ladder")).toHaveCount(0);
     await noSideScroll(page);
+    await page.screenshot({ path: "e2e/.shots/ca-page-390.png", fullPage: true });
   });
 
   test("U13 a stock outside F&O: the chart draws; the F&O parts say why they are empty; no expiry pills", async ({ page }) => {

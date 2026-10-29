@@ -40,7 +40,8 @@ const rs = (n: number | null | undefined, digits = 0, signed = false) =>
 const g = (n: number | null | undefined, digits: number) => (n == null || !Number.isFinite(n) ? "—" : `${n < 0 ? "−" : ""}${fmtNum(Math.abs(n), digits)}`);
 const tone = (n: number | null | undefined) => (n == null || !Number.isFinite(n) || n === 0 ? "var(--cp-ink-2)" : n > 0 ? "var(--mint)" : "var(--cp-danger)");
 const RIGHT: Record<BasketLeg["kind"], string> = { CE: "CALL", PE: "PUT", FUT: "FUTURE", CASH: "EQUITY" };
-const COLS = "54px 1.3fr 62px 62px 96px 92px 66px 66px 60px 66px 66px 66px 66px 28px";
+// Every row is its own grid, so no column may size to its content: a fixed minimum keeps header and legs aligned.
+const COLS = "54px minmax(96px, 1.3fr) 62px 62px 96px 92px 66px 66px 60px 66px 66px 66px 66px 28px";
 const smallBtn: CSSProperties = { width: 22, height: 22, borderRadius: 6, border: "1px solid var(--line-2)", background: "var(--bg-2)", color: "var(--cp-ink)", cursor: "pointer", ...mono(12), padding: 0 };
 
 /** Calendar days from `from` to `to` (YYYY-MM-DD). */
@@ -192,9 +193,9 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
       </div>
 
       <div data-testid="ca-strategy-legs-box" style={{ overflowX: "auto", maxWidth: "100%", border: "1px solid var(--line-2)", borderRadius: 10 }}>
-        <div style={{ minWidth: 940, opacity: pay.isStale ? 0.7 : 1 }}>
-          <div className="grid items-center" style={{ gridTemplateColumns: COLS, gap: 6, padding: "8px 12px", ...head }}>
-            {["Action", "Underlying", "Strike", "Right", "Expiry", "Lots", "Entry", "LTP", "IV", "Delta", "Gamma", "Theta", "Vega", ""].map((h, i) => <span key={i}>{h}</span>)}
+        <div style={{ minWidth: 1050, opacity: pay.isStale ? 0.7 : 1 }}>
+          <div data-testid="ca-strategy-head" className="grid items-center" style={{ gridTemplateColumns: COLS, gap: 6, padding: "8px 12px", ...head }}>
+            {["Action", "Underlying", "Strike", "Right", "Expiry", "Lots", "Entry", "LTP", "IV", "Delta", "Gamma", "Theta", "Vega", ""].map((h, i) => <span key={i} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h}</span>)}
           </div>
           {legs.map((l, i) => {
             const gk = greeksOf(i);

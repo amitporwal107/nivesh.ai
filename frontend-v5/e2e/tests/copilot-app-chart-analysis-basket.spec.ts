@@ -265,8 +265,17 @@ test.describe("MOCK — not real data: Chart Analysis basket and strategy panel 
     await expect(panel.getByTestId("ca-payoff-maxloss")).toHaveText("MAX LOSS −₹13,650");
     await expect(panel.getByTestId("ca-payoff-be")).toHaveAttribute("data-value", "4339");
     await expect(panel.getByTestId("ca-scenario-head-cell")).toHaveCount(11);
+    // each row is its own grid: the header's Strike / IV / Delta sit over the legs' own cells (a collapsed column shifted them once)
+    for (const [col, id] of [[2, "ca-strategy-strike"], [8, "ca-strategy-iv"], [9, "ca-strategy-delta"]] as const) {
+      const h = await panel.getByTestId("ca-strategy-head").locator(":scope > span").nth(col).boundingBox();
+      const c = await panel.getByTestId(id).first().boundingBox();
+      expect(Math.abs((h?.x ?? 0) - (c?.x ?? 999)), id).toBeLessThan(2);
+    }
     await panel.getByTestId("ca-range-15").click();
     await expect.poll(() => seen.payoff.at(-1)?.grid).toEqual({ from_pct: -15, to_pct: 15, points: 61 });
+    // a look at the whole screen with a basket (MOCK data), for the design review; not an assertion
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.screenshot({ path: "e2e/.shots/ca-basket-1440.png", fullPage: true });
   });
 
   test("U8 margin: Zerodha's answer → required and the route's hedge benefit", async ({ page }) => {
