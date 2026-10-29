@@ -453,6 +453,12 @@ test.describe("Scanner — Top 10 ideas: provisional levels", () => {
     const lv = row.getByTestId("idea-levels");
     await expect(lv).toHaveAttribute("data-state", "ok", SLOW);
     expect(seen.levels.filter((b) => b.payoff?.underlying === "BANKNIFTY")).toEqual([CONTRACT.levels_request]);
+    // The engine's levels are the technical record: kept under the drawer's closed "Technical details" (owner, 29 Oct).
+    const tech = row.getByTestId("desk-top10-drawer-tech");
+    await expect(tech).not.toHaveAttribute("open", /.*/);
+    await expect(lv).toBeHidden();
+    await tech.locator("summary").click();
+    await expect(lv).toBeVisible();
     await expect(lv.getByTestId("idea-levels-label")).toHaveText("Provisional · research levels");
     await expect(lv.getByTestId("idea-levels-asof")).toHaveText("end-of-day chain of 21 Oct 2026");
     await expect(lv.getByTestId("idea-levels-stop")).toContainText(`(BANKNIFTY ${f2(LEVELS.underlying.stop)})`);
@@ -637,9 +643,10 @@ test.describe("Top 10 — trade plans (Phase 2.1)", () => {
     await row.getByTestId("desk-top10-stock-paper").click(SLOW);
     const line = row.getByTestId("desk-top10-paper-plan");
     await expect(line).toHaveAttribute("data-plan-id", PLANS.cash.trade_plan.plan_id);
-    await expect(line).toContainText("Stop ₹1,160 (1.5×ATR below 1195)");
-    await expect(line).toContainText("₹1,280 (2R)");
-    await expect(line).not.toContainText("2 x ATR");
+    // In plain words (owner, 29 Oct): the card's own entry, exit and targets; the method and the plan id are in Technical details.
+    await expect(line).toHaveText("Enter at the close, ₹1,200.00 · exit if wrong ₹1,160.00 · targets ₹1,220.00 · ₹1,280.00 · ₹1,320.00");
+    await expect(row.getByTestId("desk-top10-drawer-paper")).not.toContainText(/×ATR|\(\d+(\.\d+)?R\)|sessions? held|risk service|Plan tp_/);
+    await expect(row.getByTestId("desk-top10-paper-rule")).toHaveText("it enters at once, at the entry price");
     await expect(row.getByTestId("desk-top10-paper-rule")).toHaveAttribute("data-rule", "at_once");
     await row.getByTestId("desk-top10-paper-qty").fill(String(PLANS.cash.body.quantity));
     await row.getByTestId("desk-top10-paper-add").click();
@@ -656,7 +663,7 @@ test.describe("Top 10 — trade plans (Phase 2.1)", () => {
     await page.goto(SCANNER);
     const row = page.getByTestId(`desk-top10-stock-${PLANS.cash.body.symbol}`);
     await row.getByTestId("desk-top10-stock-paper").click(SLOW);
-    await expect(row.getByTestId("desk-top10-paper-blocked")).toContainText("This plan is rejected: Reward : risk 0.9");
+    await expect(row.getByTestId("desk-top10-paper-blocked")).toContainText("This idea is not tradeable: Reward : risk 0.9");
     await expect(row.getByTestId("desk-top10-paper-add")).toHaveCount(0);
     expect(seen.paper).toEqual([]);
   });

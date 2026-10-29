@@ -43,6 +43,7 @@ import { useCopilotShell } from "../lib/shell-context";
 import { useMarketOverview } from "./markets/hooks";
 import { BOTTOM_BAR_SPACE, DeskBottomBar, type BottomKey } from "./tradingdesk/BottomBar";
 import { CopilotDock, type CopilotDockHandle } from "./tradingdesk/CopilotDock";
+import { FloatingCopilot, useCopilotWindow } from "./tradingdesk/copilot-window";
 import { DeskProvider, type DeskPersona, type DeskState, type DeskTab, type LabView } from "./tradingdesk/context";
 import { useDeskScanner, type DeskSetup } from "./tradingdesk/desk-data";
 import {
@@ -400,6 +401,9 @@ export default function TradingDeskScreen() {
   const [params, setParams] = useSearchParams();
   const search = params.toString();
   const docked = wide;
+  // From 1400px the Copilot is a window beside the desk: locked in the right column (default) or floating over it.
+  const copilotWindow = useCopilotWindow();
+  const floating = docked && copilotWindow.mode === "floating";
   const harness = !!StrategyGraphsHarness && params.get("tab") === "more" && params.get("view") === "strategy-graphs";
   // An old desk URL (or a stray view): replaced by its new place before anything mounts.
   const redirect = useMemo(() => (harness ? null : legacyRedirect(new URLSearchParams(search), docked)), [search, docked, harness]);
@@ -779,7 +783,7 @@ export default function TradingDeskScreen() {
           <StatusPill />
           {docked ? (
             <button type="button" data-testid="desk-docked-note" onClick={() => dockRef.current?.focus()} className="cp-pill" data-tone="mint" style={{ flex: "none", cursor: "pointer", background: "var(--mint-soft)" }}>
-              Copilot docked right
+              {floating ? "Copilot floating" : "Copilot docked right"}
             </button>
           ) : (
             <button
@@ -809,7 +813,7 @@ export default function TradingDeskScreen() {
         <div
           className="grid"
           style={{
-            gridTemplateColumns: docked ? "minmax(0,1fr) 384px" : "minmax(0,1fr)",
+            gridTemplateColumns: docked && !floating ? "minmax(0,1fr) 384px" : "minmax(0,1fr)",
             gap: 20,
             alignItems: "start",
             padding: "20px 0 28px",
@@ -821,10 +825,17 @@ export default function TradingDeskScreen() {
             {views}
             {panel}
           </div>
-          {docked && (
+          {docked && !floating && (
             <div style={{ position: "sticky", top: 20 }}>
-              <CopilotDock ref={dockRef} chips={chips} height="min(820px, calc(100dvh - 40px))" />
+              <CopilotDock ref={dockRef} chips={chips} height="min(820px, calc(100dvh - 40px))" windowMode="locked" onToggleWindow={copilotWindow.toggle} />
             </div>
+          )}
+          {floating && (
+            <FloatingCopilot rect={copilotWindow.rect} onRect={copilotWindow.setRect}>
+              {(startMove) => (
+                <CopilotDock ref={dockRef} chips={chips} height="100%" windowMode="floating" onToggleWindow={copilotWindow.toggle} onHeaderPointerDown={startMove} />
+              )}
+            </FloatingCopilot>
           )}
         </div>
         {!pageCopilot && footer}
