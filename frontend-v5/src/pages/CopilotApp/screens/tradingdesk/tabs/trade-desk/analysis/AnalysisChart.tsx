@@ -213,18 +213,12 @@ export function AnalysisChart(p: AnalysisChartProps) {
           </g>
         ))}
 
-        {/* walls and max pain */}
-        {p.levels.filter((l) => onScale(l.value)).map((l) => {
-          const t = `${l.label} ${fmtAxis(l.value)}`;
-          const w = t.length * (font * 0.62) + 12;
-          return (
-            <g key={`lv-${l.key}`} data-testid="ca-level" data-key={l.key} data-value={l.value}>
-              <line x1={plotL} x2={plotR} y1={py(l.value)} y2={py(l.value)} style={{ stroke: l.color }} strokeDasharray="2 4" />
-              <rect x={plotL + 2} y={py(l.value) - 8} width={w} height={15} rx={3} style={{ fill: "var(--bg-1)", stroke: l.color }} strokeOpacity={0.5} />
-              <text x={plotL + 8} y={py(l.value) + 3.5} style={{ fontSize: font - 1, fill: l.color, letterSpacing: "0.06em" }}>{t}</text>
-            </g>
-          );
-        })}
+        {/* walls and max pain (their tags are drawn after the trade lines, so a line at the same price never crosses them) */}
+        {p.levels.filter((l) => onScale(l.value)).map((l) => (
+          <g key={`lv-${l.key}`} data-testid="ca-level" data-key={l.key} data-value={l.value}>
+            <line x1={plotL} x2={plotR} y1={py(l.value)} y2={py(l.value)} style={{ stroke: l.color }} strokeDasharray="2 4" />
+          </g>
+        ))}
 
         {/* pattern / RVOL markers: a pill on top, a dotted drop line to the bar */}
         {p.marks.filter((m) => inView(m.i)).map((m, k) => {
@@ -311,6 +305,18 @@ export function AnalysisChart(p: AnalysisChartProps) {
                 <rect data-testid="ca-tradeline-handle" data-key={t.key} x={plotL} y={y - 6} width={plotW} height={12} fill="transparent" style={{ cursor: "ns-resize" }}
                   onPointerDown={(e) => { drag.current = t.drag ?? null; try { (e.currentTarget.ownerSVGElement ?? e.currentTarget).setPointerCapture?.(e.pointerId); } catch { /* capture is best effort */ } e.stopPropagation(); }} />
               )}
+            </g>
+          );
+        })}
+
+        {/* the walls' and max pain's tags, on top of every line */}
+        {p.levels.filter((l) => onScale(l.value)).map((l) => {
+          const t = `${l.label} ${fmtAxis(l.value)}`;
+          const w = t.length * (font * 0.62) + 12;
+          return (
+            <g key={`lvt-${l.key}`} data-testid="ca-level-tag" data-key={l.key} style={{ pointerEvents: "none" }}>
+              <rect x={plotL + 2} y={py(l.value) - 8} width={w} height={15} rx={3} style={{ fill: "var(--bg-1)", stroke: l.color }} strokeOpacity={0.5} />
+              <text x={plotL + 8} y={py(l.value) + 3.5} style={{ fontSize: font - 1, fill: l.color, letterSpacing: "0.06em" }}>{t}</text>
             </g>
           );
         })}

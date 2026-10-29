@@ -68,7 +68,7 @@ const OI_FIX = {
 const STRIKES = Array.from({ length: 12 }, (_, i) => 1100 + i * 20);
 const side = (k: number, kind: "call" | "put", scale = 1) => {
   const peak = kind === "call" ? 1240 : 1160;
-  const oi = Math.round((400_000 - Math.abs(k - peak) * 4_000) * scale);
+  const oi = Math.round(Math.max(30_000, 400_000 - Math.abs(k - peak) * 4_000) * scale);   // open interest is never negative
   const intrinsic = kind === "call" ? Math.max(0, 1215 - k) : Math.max(0, k - 1215);
   return { close: +(intrinsic + 18).toFixed(2), settle: +(intrinsic + 18).toFixed(2), oi, change_in_oi: Math.round((k % 40 === 0 ? 12_000 : -6_000) * scale), volume: Math.round(oi / 4),
     change: 1.2, change_pct: 3.1, oi_buildup: null, iv: 22.4, iv_price: "settle", delta: kind === "call" ? 0.5 : -0.5, gamma: 0.004, theta: -0.9, vega: 1.3 };
@@ -217,6 +217,7 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     await page.goto(CHART("FIXFNO"));
     const count = (id: string) => page.getByTestId(id);
     await expect(count("ca-level")).toHaveCount(3, SLOW);                  // call wall, put wall, max pain
+    await expect(count("ca-level-tag")).toHaveCount(3);                    // their tags, drawn above the trade lines
     await expect(count("ca-mark")).toHaveCount(2);                         // READY, RVOL
     await expect(count("ca-confirm")).toHaveCount(1);
     await expect(count("ca-buildup")).toHaveCount(WINDOWS.length);
@@ -226,6 +227,7 @@ test.describe("MOCK — not real data: Trade Desk › Chart Analysis (the owner'
     await expect(page.getByTestId("ca-toggle-walls")).toHaveAttribute("aria-pressed", "false");
     await expect(count("ca-level")).toHaveCount(1);
     await expect(page.locator('[data-testid="ca-level"][data-key="max-pain"]')).toHaveCount(1);
+    await expect(count("ca-level-tag")).toHaveCount(1);
     await page.getByTestId("ca-toggle-pain").click();
     await expect(count("ca-level")).toHaveCount(0);
     await page.getByTestId("ca-toggle-pattern").click();
