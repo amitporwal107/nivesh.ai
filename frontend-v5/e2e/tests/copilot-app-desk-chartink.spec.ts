@@ -38,7 +38,6 @@ import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DESK = "/v5/app/trader/desk";
 const SETTINGS = `${DESK}?tab=more&view=chartink`;
-const IDEAS = `${DESK}?tab=more&view=strategy`;
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 const planFixture = (n: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", `strategy-plan-${n}.json`), "utf-8"));
 const SHOTS = process.env.SHOTS_DIR;
@@ -507,88 +506,8 @@ test.describe("MOCK - not real data: Chartink scans as opportunity sources", () 
 
   // ── CK-11 ────────────────────────────────────────────────────────────
 
-  test("CK-11 ideas board: each card says AI scanner, Chartink or Both and names the Chartink scans; the switch sets include_chartink; Chartink-only follow the AI ones", async ({ page }) => {
-    const st = await open(page, IDEAS);
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    // The first run is the route's default (include when connected): no flag sent yet.
-    expect(st.ideas[0]).toEqual({ limit: 8, include_combinations: true });
-
-    await expect(page.getByTestId("idea-TESTBRK").getByTestId("idea-source")).toHaveAttribute("data-source", "both");
-    await expect(page.getByTestId("idea-TESTBRK").getByTestId("idea-source")).toContainText("AI scanner + Chartink");
-    await expect(page.getByTestId("idea-TESTBRK").getByTestId("idea-ck-scans")).toContainText("Volume Burst Sample, Gap Fill Sample");
-    await expect(page.getByTestId("idea-AIONLY").getByTestId("idea-source")).toHaveText("AI scanner");
-    await expect(page.getByTestId("idea-AIONLY").getByTestId("idea-ck-scans")).toHaveCount(0);
-    const q = page.getByTestId("idea-QUBEX");
-    await expect(q.getByTestId("idea-source")).toHaveText("Chartink");
-    await expect(q.getByTestId("idea-ck-scans")).toContainText("Volume Burst Sample, Weak Close Sample");
-    await expect(q.getByTestId("idea-score")).toHaveText("No AI score");
-    await expect(q.getByTestId("idea-scan-status")).toHaveText("Chartink scan"); // the route's status is null, never "forming"
-    await expect(q.getByTestId("idea-setup")).toContainText("Chartink scan (not an AI scanner setup)");
-    await expect(page.getByTestId("ideas-ck-state")).toContainText("Chartink: 5 considered, 1 added, scan 19 Oct 2026 (up to 4).");
-    await expect(q.getByTestId("idea-strat-cash:chartink_screen_signal").getByTestId("idea-strat-ck-note")).toHaveText("Rule-based levels; the scan is the user's Chartink scan, not validated.");
-    // Order: the AI ideas first, then the Chartink-only one.
-    await expect(page.locator('[data-testid^="idea-"][data-rank]')).toHaveCount(3);
-    await expect(page.locator('[data-testid^="idea-"][data-rank]').evaluateAll((els) => els.map((e) => e.getAttribute("data-symbol")))).resolves.toEqual(["TESTBRK", "AIONLY", "QUBEX"]);
-    await expect(page.getByTestId("ideas-ranking")).toContainText("Chartink-only ideas follow");
-    await expect(page.getByTestId("ideas-ck-trust")).toContainText("Chartink scans (your dashboard)");
-    await expect(page.getByTestId("ideas-ck-trust")).toContainText("not validated");
-
-    const sw = page.getByRole("switch", { name: "Include my Chartink scans" });
-    await expect(sw).toHaveAttribute("aria-checked", "true");
-    await sw.click();
-    await expect.poll(() => st.ideas.length).toBe(2);
-    expect(st.ideas[1]).toEqual({ limit: 8, include_combinations: true, include_chartink: false });
-    await expect(sw).toHaveAttribute("aria-checked", "false");
-    await sw.click();
-    await expect.poll(() => st.ideas.length).toBe(3);
-    expect(st.ideas[2]).toEqual({ limit: 8, include_combinations: true, include_chartink: true });
-    // "Build ideas again" carries the switch too.
-    await sw.click();
-    await expect.poll(() => st.ideas.length).toBe(4);
-    await page.getByTestId("build-ideas").click();
-    await expect.poll(() => st.ideas.length).toBe(5);
-    expect(st.ideas[4]).toEqual({ limit: 8, include_combinations: true, include_chartink: false });
-  });
-
-  test("CK-11c when the Chartink part could not be used the ideas are the scanner's alone and the route's reason is shown", async ({ page }) => {
-    const reason = "Your Chartink scans have not been refreshed yet: press Refresh now in More, Chartink scans.";
-    await open(page, IDEAS, { ideasChartink: { ...SEL_CK, included: true, state: "not_refreshed", reason, added: 0, considered: 0 } });
-    await expect(page.getByTestId("ideas-ck-state")).toHaveAttribute("data-state", "not_refreshed");
-    await expect(page.getByTestId("ideas-ck-state")).toContainText(`Chartink scans are not in this board: ${reason} The ideas are the AI scanner's alone.`);
-  });
-
-  test("CK-11b without a Chartink dashboard the switch is absent and the request is exactly as before", async ({ page }) => {
-    const st = await open(page, IDEAS, { source: null });
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    await expect(page.getByTestId("ideas-in-chartink")).toHaveCount(0);
-    await page.getByTestId("build-ideas").click();
-    await expect.poll(() => st.ideas.length).toBe(2);
-    expect(st.ideas[1]).toEqual({ limit: 8, include_combinations: true });
-  });
-
-  // ── CK-12 ────────────────────────────────────────────────────────────
-
-  test("CK-12 plan: the chartink_scans evidence item is in the ledger like any other, and a chartink_screen_signal candidate is labelled rule-based, not validated", async ({ page }) => {
-    const plan = planFixture("all");
-    const base = plan.candidates.find((c: { id: string }) => c.id === "cash:breakout_continuation");
-    plan.candidates.push({ ...JSON.parse(JSON.stringify(base)), id: "cash:chartink_screen_signal", family: "chartink_screen_signal", label: "Chartink scan signal (long)" });
-    plan.evidence.push({ group: "technical", key: "chartink_scans", value: { scans: ["Volume Burst Sample"], count: 1 }, interpretation: "Listed by your Chartink scan Volume Burst Sample. It is your own rule, not a validated signal.", direction: "supports", source: "Chartink scans (your dashboard)", source_as_of: "2026-10-20", version: null });
-    plan.evidence_summary.technical.supports += 1;
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await setup(page);
-    await page.route("**/api/desk/strategy/plan", (r) => json(r, plan));
-    await page.goto(`${IDEAS}&mode=stock&sym=TESTBRK&direction=bullish&instrument=cash&build=1&cand=cash:chartink_screen_signal`);
-    await expect(page.getByTestId("candidate")).toHaveAttribute("data-id", "cash:chartink_screen_signal");
-    await expect(page.getByTestId("cand-chartink-note")).toHaveText("Rule-based levels; the scan is the user's Chartink scan, not validated.");
-    await page.getByTestId("ev-group-technical-toggle").click();
-    const item = page.getByTestId("ev-technical-chartink_scans");
-    await expect(item).toBeVisible();
-    await expect(item.getByTestId("ev-direction")).toContainText("Supports");
-    await expect(item.getByTestId("ev-interpretation")).toContainText("your own rule, not a validated signal");
-    await expect(item.getByTestId("ev-source")).toContainText("Chartink scans (your dashboard) · as of 20 Oct 2026");
-  });
-
-  // ── CK-13 ────────────────────────────────────────────────────────────
+  // CK-11 / CK-11b / CK-11c (the ideas board's Chartink switch) and CK-12 (the Strategy Builder's evidence ledger) went with
+  // Strategy Lab (owner, 29 Oct).
 
   test("CK-13 persona: the investor wording on the settings view and the direction select; the trader wording by default", async ({ page }) => {
     await open(page, SETTINGS);

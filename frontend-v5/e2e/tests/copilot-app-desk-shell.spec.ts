@@ -24,7 +24,7 @@ const TABS = [
 ];
 const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
   // Step 3, the owner's workbench (PLAN.md "1-REVISED"): five sections, each with sub-views (copilot-app-desk-trade-desk.spec.ts).
-  trade: [{ key: "scanner", label: "AI Scanner" }, { key: "chart", label: "Chart Analysis" }, { key: "lab", label: "Strategy Lab" }, { key: "paper", label: "Paper Trading" }, { key: "watchlists", label: "Watchlists" }],
+  trade: [{ key: "scanner", label: "AI Scanner" }, { key: "chart", label: "Chart Analysis" }, { key: "paper", label: "Paper Trading" }, { key: "watchlists", label: "Watchlists" }],
   market: [
     { key: "intel", label: "Market Intelligence" }, { key: "smartmoney", label: "Smart Money" }, { key: "sectors", label: "Sector Rotation" },
     { key: "research", label: "Stock Research" }, { key: "screener", label: "Screener" },
@@ -36,7 +36,6 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "trade/scanner": [["desk-panel-top10", "desk-top10"], ["desk-panel-scanner", null]],
   "trade/chart": [["desk-panel-chart", null]],
-  "trade/lab": [["desk-panel-wizard", "wz-stepper"]],
   "trade/paper": [["desk-panel-trade-desk", "td-view-open"]],
   "trade/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
   "market/intel": [["desk-panel-intel", null], ["desk-panel-events", null]],
@@ -110,7 +109,7 @@ async function traderMode(page: Page) {
 }
 
 const params = (page: Page) => new URL(page.url()).searchParams;
-async function expectAt(page: Page, tab: string, view: string | null, extra: Record<string, string> = {}) {
+async function expectAt(page: Page, tab: string, view: string | null, extra: Record<string, string | null> = {}) {
   await expect.poll(() => params(page).get("tab")).toBe(tab);
   await expect.poll(() => params(page).get("view")).toBe(view);
   for (const [k, v] of Object.entries(extra)) await expect.poll(() => params(page).get(k)).toBe(v);
@@ -242,7 +241,7 @@ test.describe("MOCK — not real data: desk shell · Market Overview", () => {
 test.describe("MOCK — not real data: desk shell · redirects from the old URLs", () => {
   test.beforeEach(async ({ page }) => { await deskApi(page); });
 
-  const CASES: Array<{ from: string; tab: string; view: string | null; extra?: Record<string, string>; gone?: string[] }> = [
+  const CASES: Array<{ from: string; tab: string; view: string | null; extra?: Record<string, string | null>; gone?: string[] }> = [
     { from: "?tab=scanner", tab: "trade", view: "scanner", extra: { sub: "ranked" } },
     { from: "?tab=intel", tab: "market", view: "intel" },
     { from: "?tab=intel&in_chip=flows", tab: "market", view: "intel", extra: { in_chip: "flows" } },
@@ -251,8 +250,9 @@ test.describe("MOCK — not real data: desk shell · redirects from the old URLs
     { from: "?tab=smartmoney", tab: "market", view: "smartmoney" },
     { from: "?tab=fno", tab: "market", view: "smartmoney", extra: { section: "fno" } },
     { from: "?tab=fno&lab=chain&lab_sym=BANKNIFTY", tab: "market", view: "smartmoney", extra: { section: "fno", lab: "chain", lab_sym: "BANKNIFTY" } },
-    { from: "?tab=fno&lab=strategies&lab_sym=NIFTY", tab: "trade", view: "lab", extra: { sub: "build", section: "fno", lab_sym: "NIFTY" } },
-    { from: "?tab=more&view=strategy&mode=stock&sym=INFY", tab: "trade", view: "lab", extra: { sub: "build", mode: "stock", sym: "INFY" } },
+    // Strategy Lab was removed (owner, 29 Oct): its old URLs open Chart Analysis › Live chart with the stock, lab params dropped.
+    { from: "?tab=fno&lab=strategies&lab_sym=NIFTY", tab: "trade", view: "chart", extra: { sub: "live", section: null, lab_sym: null, sym: "NIFTY" } },
+    { from: "?tab=more&view=strategy&mode=stock&sym=INFY", tab: "trade", view: "chart", extra: { sub: "live", mode: null, sym: "INFY" } },
     { from: "?tab=more&view=risk", tab: "risk", view: "limits" },
     { from: "?tab=more&view=chartink", tab: "trade", view: "scanner", extra: { sub: "library", section: "chartink" } },
     { from: "?tab=portfolio", tab: "portfolio", view: null },
@@ -430,7 +430,7 @@ test.describe("MOCK — not real data: desk shell · phone 390px", () => {
 
   test("SH-21 / SH-15 no sideways scroll and the banner on every tab and on My portfolio", async ({ page }) => {
     await deskApi(page);
-    for (const loc of ["overview", "trade/paper", "trade/lab", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
+    for (const loc of ["overview", "trade/paper", "trade/chart", "market/intel", "market/smartmoney", "market/screener", "risk/limits", "risk/controls", "risk/log", "portfolio"]) {
       await page.goto(urlOf(loc));
       await expect(page.getByTestId("desk-paper-banner"), loc).toHaveText(BANNER);
       await expect(page.getByTestId(`desk-panel-${loc.split("/")[0]}`), loc).toBeVisible();

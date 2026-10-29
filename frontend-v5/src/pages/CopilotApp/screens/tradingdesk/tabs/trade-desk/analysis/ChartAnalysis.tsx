@@ -86,9 +86,11 @@ export default function ChartAnalysis() {
   const tpRaw = params.get("tp");
   const tp = tpRaw && /^[A-Za-z0-9_:-]{1,80}$/.test(tpRaw) ? tpRaw : null;
   return (
-    <BasketProvider symbol={symbol}>
-      <Analysis key={symbol} symbol={symbol} tp={tp} />
-    </BasketProvider>
+    <div data-testid="ca-view" data-symbol={symbol} className="min-w-0">
+      <BasketProvider symbol={symbol}>
+        <Analysis key={symbol} symbol={symbol} tp={tp} />
+      </BasketProvider>
+    </div>
   );
 }
 
@@ -427,7 +429,7 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
 
   const showBasket = basket.open || basket.legs.length > 0;
   return (
-    <div ref={setBox} data-testid="ca-view" data-symbol={symbol} className="flex min-w-0 flex-col" style={{ gap: 16 }}>
+    <div ref={setBox} data-testid="ca-layout" className="flex min-w-0 flex-col" style={{ gap: 16 }}>
       <div className="flex min-w-0" style={{ flexDirection: wide ? "row" : "column", gap: 16, alignItems: wide ? "flex-start" : "stretch" }}>
         <div className="min-w-0" style={{ flex: 1 }}>{card}</div>
         {showBasket && (
