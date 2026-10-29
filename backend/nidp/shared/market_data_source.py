@@ -139,6 +139,19 @@ def feed_is_on(feed: str, resolution: Optional[Resolution] = None) -> bool:
     return (resolution or resolve()).our_feeds_on
 
 
+def truedata_is_on(resolution: Optional[Resolution] = None) -> bool:
+    """May anything call TrueData (shadow or serving)? Every TrueData entry point asks this first, so `current` (in the
+    file, or forced by MARKET_DATA_SOURCE_FORCE_CURRENT=1) is a complete way back to our own feeds."""
+    return (resolution or resolve()).truedata_feeds_on
+
+
+def truedata_off_message(resolution: Optional[Resolution] = None) -> str:
+    r = resolution or resolve()
+    why = f" ({', '.join(r.reasons)})" if r.reasons else ""
+    return (f"TrueData is switched off: market data source is '{r.effective}'{why} "
+            f"(backend/config/market_data_source.json)")
+
+
 def switched_off_message(feed: str) -> str:
     return (f"{feed} switched off: market data source is TrueData "
             f"(backend/config/market_data_source.json); this feed is served by TrueData")

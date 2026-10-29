@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 PROVIDER_KITE = "kite"
 PROVIDER_TRENDLYNE = "trendlyne"
+PROVIDER_TRUEDATA = "truedata"
 
 # Reason codes (§32.11). Deterministic: one failure class maps to exactly one code.
 PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"

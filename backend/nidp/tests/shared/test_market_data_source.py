@@ -226,3 +226,29 @@ def test_ms16_dlq_redrive_leaves_switched_off_entries_pending(monkeypatch):
     out = asyncio.run(dlq.redrive(limit=10))
     assert redriven == ["delivery"]
     assert out["SWITCHED_OFF"] == 1 and out["REPLAYED"] == 1 and out["processed"] == 2
+
+
+# ── The way back (SW-1, SW-2 in test_reports/truedata_client_TESTCASES.md) ────────────────────────────────────
+
+def test_sw1_flipping_the_file_back_to_current_restores_our_feeds(tmp_path, monkeypatch):
+    path = tmp_path / "market_data_source.json"
+    monkeypatch.setattr(mds, "CONFIG_PATH", path)
+    path.write_text(json.dumps(cfg("truedata", licence=True)))
+    serving = mds.resolve(env=READY, integrated=True)
+    assert serving.effective == "truedata" and mds.truedata_is_on(serving)
+    assert not any(mds.feed_is_on(f, serving) for f in mds.REPLACED_FEEDS)
+
+    path.write_text(json.dumps(cfg("current", licence=True)))           # "we are not going with TrueData"
+    back = mds.resolve(env=READY, integrated=True)
+    assert (back.effective, back.serve_from, back.our_feeds_on, back.truedata_feeds_on, back.reasons) == \
+        ("current", "current", True, False, ())
+    assert all(mds.feed_is_on(f, back) for f in mds.REPLACED_FEEDS | {"bhavcopy", "fno_bhavcopy", "delivery"})
+    assert mds.truedata_is_on(back) is False and "'current'" in mds.truedata_off_message(back)
+
+
+def test_sw2_emergency_env_switches_truedata_off_without_a_pr():
+    r = mds.resolve(cfg("truedata", licence=True), {**READY, "MARKET_DATA_SOURCE_FORCE_CURRENT": "1"},
+                    integrated=True)
+    assert r.effective == "current" and mds.truedata_is_on(r) is False
+    assert all(mds.feed_is_on(f, r) for f in mds.REPLACED_FEEDS)
+    assert "FORCED_CURRENT_BY_ENV" in mds.truedata_off_message(r)
