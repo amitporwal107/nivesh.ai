@@ -42,25 +42,25 @@ What changes, with no new screens:
 
 | ID | Area | Scenario | Type | Expected | Result |
 |----|------|----------|------|----------|--------|
-| TI-1 | B | Which questions are trading questions | unit | Trader persona or desk panel → yes. Investor persona: "Is Reliance a good long-term holding?" → no; "How should I trade TVSMOTOR?" / "entry and stop for TCS" / "trading plan" / "breakout" → yes || PASS |
-| TI-2 | B | Direction from the words | unit | upside / long / bullish / breakout / buy → bullish (stated). fall / short / bearish / sell / put → bearish (stated). range / sideways → neutral (stated). Nothing said → bullish, **not stated** || PASS |
-| TI-3 | B | Horizon from the words | unit | intraday / today → intraday (the builder answers insufficient_data: no intraday history); otherwise positional || PASS |
-| TI-4 | B | Builder answers `plan` with 3 candidates | unit | Widget `trade_plan`: preferred plan first, at most 3 ids, symbol, status, direction + stated flag, horizon, data as-of, defaults applied. The candidates' TradePlans are stored. The context carries the plan facts, the assumed-direction note and the section rules || PASS |
-| TI-5 | B | Builder answers `wait` | unit | Widget with status wait and the builder's reasons || PASS |
-| TI-6 | B | Builder answers `no_trade` / `insufficient_data` | unit | No widget; the context carries the reasons, so the answer says why and what must change || PASS |
-| TI-7 | B | The build raises or times out | unit | No widget; the context says no plan could be built now; never raises || PASS |
-| TI-8 | B | The builder refuses the inputs | unit | None (nothing said about a plan) || PASS |
-| TI-9 | R | A trading question naming a stock | api | The first widget frame is `trade_plan`, sent before any token. The engine's own card is dropped, and the saved turn's widget is `trade_plan`. The engine's last human message carries the wrapped `trade_plan` data block. The engine is pinned to the stock analyst || PASS |
-| TI-10 | R | A question that is not a trading question | api | Unchanged: the engine's own card; the builder is never called || PASS |
-| TI-11 | R | A question asked from a broker position | api | The position card wins; the builder is never called || PASS |
-| TI-12 | B | The stock analyst's instructions | unit | Its system prompt holds the trade-plan rules: the section title, "an idea, not a recommendation", only TRADE_PLAN figures, entry waits for confirmation, invalidation, capital at risk, no card → why not || PASS |
-| TI-13 | F | The `/app` thread shows the card | e2e | Header (symbol, "Setup found", "long · assumed"), the desk's DecisionCard read by id (entry / stop / targets), the alternatives, data as-of, caveat || PASS |
-| TI-14 | F | "Open in Strategy Lab" | e2e | Goes to `/v5/app/trader/desk?tab=trade&view=lab&sub=build&tp=<plan_id>` || PASS |
-| TI-15 | F | "Plan the opposite direction" chip | e2e | Asks "Plan a bearish trade for TVSMOTOR instead" || PASS |
-| TI-16 | F | A `wait` card | e2e | "Waiting for confirmation" and the builder's reasons || PASS |
-| TI-17 | F | The desk's Copilot panel | e2e | The card is shown inline in the panel (not only "open the full thread") || PASS |
-| TI-18 | regression | CI allowlist backend dev vs branch; Copilot thread, dock and desk specs vs dev | unit+e2e | No new failure || PASS |
-| TI-19 | staging | After merge: a real trading question on staging with a session | api+data | The card and the plan ids; TradePlans stored in Mongo `trade_plans` || PENDING (needs merge + a session) |
+| TI-1 | B | Which questions are trading questions | unit | Trader persona or desk panel → yes. Investor persona: "Is Reliance a good long-term holding?" → no; "How should I trade TVSMOTOR?" / "entry and stop for TCS" / "trading plan" / "breakout" → yes | PASS |
+| TI-2 | B | Direction from the words | unit | upside / long / bullish / breakout / buy → bullish (stated). fall / short / bearish / sell / put → bearish (stated). range / sideways → neutral (stated). Nothing said → bullish, **not stated** | PASS |
+| TI-3 | B | Horizon from the words | unit | intraday / today → intraday (the builder answers insufficient_data: no intraday history); otherwise positional | PASS |
+| TI-4 | B | Builder answers `plan` with 3 candidates | unit | Widget `trade_plan`: preferred plan first, at most 3 ids, symbol, status, direction + stated flag, horizon, data as-of, defaults applied. The candidates' TradePlans are stored. The context carries the plan facts, the assumed-direction note and the section rules | PASS |
+| TI-5 | B | Builder answers `wait` | unit | Widget with status wait and the builder's reasons | PASS |
+| TI-6 | B | Builder answers `no_trade` / `insufficient_data` | unit | No widget; the context carries the reasons, so the answer says why and what must change | PASS |
+| TI-7 | B | The build raises or times out | unit | No widget; the context says no plan could be built now; never raises | PASS |
+| TI-8 | B | The builder refuses the inputs | unit | None (nothing said about a plan) | PASS |
+| TI-9 | R | A trading question naming a stock | api | The first widget frame is `trade_plan`, sent before any token. The engine's own card is dropped, and the saved turn's widget is `trade_plan`. The engine's last human message carries the wrapped `trade_plan` data block. The engine is pinned to the stock analyst | PASS |
+| TI-10 | R | A question that is not a trading question | api | Unchanged: the engine's own card; the builder is never called | PASS |
+| TI-11 | R | A question asked from a broker position | api | The position card wins; the builder is never called | PASS |
+| TI-12 | B | The stock analyst's instructions | unit | Its system prompt holds the trade-plan rules: the section title, "an idea, not a recommendation", only TRADE_PLAN figures, entry waits for confirmation, invalidation, capital at risk, no card → why not | PASS |
+| TI-13 | F | The `/app` thread shows the card | e2e | Header (symbol, "Setup found", "long · assumed"), the desk's DecisionCard read by id (entry / stop / targets), the alternatives, data as-of, caveat | PASS |
+| TI-14 | F | "Open in Strategy Lab" | e2e | Goes to `/v5/app/trader/desk?tab=trade&view=lab&sub=build&tp=<plan_id>` | PASS |
+| TI-15 | F | "Plan the opposite direction" chip | e2e | Asks "Plan a bearish trade for TVSMOTOR instead" | PASS |
+| TI-16 | F | A `wait` card | e2e | "Waiting for confirmation" and the builder's reasons | PASS |
+| TI-17 | F | The desk's Copilot panel | e2e | The card is shown inline in the panel (not only "open the full thread") | PASS |
+| TI-18 | regression | CI allowlist backend dev vs branch; Copilot thread, dock and desk specs vs dev | unit+e2e | No new failure | PASS |
+| TI-19 | staging | After merge: a real trading question on staging with a session | api+data | The card and the plan ids; TradePlans stored in Mongo `trade_plans` | PENDING (needs merge + a session) |
 
 ## Tests run (real output, 2026-10-29, branch feat/copilot-trade-idea)
 Backend: image `nivesh/backend:staging`, tree read-only, `--network none`. Frontend: Playwright 1.60 on a production build

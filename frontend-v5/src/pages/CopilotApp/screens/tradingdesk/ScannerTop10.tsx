@@ -56,7 +56,7 @@ import { PlanPaperTrade } from "./PlanPaperTrade";
 import { DecisionCard, NoPlan } from "./decision/DecisionCard";
 import { CarryTag, levelsOfPlan } from "./decision/CarryTag";
 import { useAiWatchlist, type AiWatchDay, type ScanBasis } from "../workspace/ai-watchlist-data";
-import { DrawerSection, IdeaDrawer } from "./tabs/market-overview/IdeaDrawer";
+import { DrawerDetails, DrawerSection, IdeaDrawer } from "./tabs/market-overview/IdeaDrawer";
 import { NO_LIST_YET, isStaleDay } from "./tabs/market-overview/overview-data";
 import type { TradePlan } from "./strategy/trade-plan";
 
@@ -243,9 +243,9 @@ function StockRow({ idea, rank, scanDate, listed, setup }: { idea: Idea; rank: n
           <DrawerSection title="Paper trade" testId="desk-top10-drawer-paper">
             <StockPaperTrade idea={idea} scanDate={scanDate} />
           </DrawerSection>
-          <DrawerSection title="The scanner's levels">
+          <DrawerDetails title="Technical details · the scanner's own levels" testId="desk-top10-drawer-tech">
             <CashLevels testId="desk-top10-stock-levels" entry={sc.entry} stop={sc.stop} target={sc.target} riskReward={sc.risk_reward} dataDate={sc.close_date ?? scanDate} />
-          </DrawerSection>
+          </DrawerDetails>
           <DrawerSection title="Open">
             <div className="flex flex-wrap items-center" style={{ gap: 6 }}>
               <LinkChip testId="desk-top10-stock-chart" onClick={() => go(() => desk.openChart(idea.symbol))}>Chart ›</LinkChip>
@@ -322,12 +322,12 @@ function FnoDrawer({ row, board, at, onClose }: { row: FnoRow; board: TopBoard; 
       title={<span className="flex items-center" style={{ gap: 10 }}><span className="cp-num" style={{ fontSize: 12, color: "var(--cp-ink-3)" }}>{rankText(rank)}</span>{sym}</span>}
       sub={<>{kind === "index" ? "Index options" : "Stock F&O"} · {idea.name}{idea.expiry ? ` · exp ${fmtDay(idea.expiry)}` : ""}</>}>
       {idea.trade_plan ? <DecisionCard plan={idea.trade_plan} variant="full" testId="desk-top10-fno-drawer-card" /> : <NoPlan testId="desk-top10-drawer-noplan" reason={null} />}
-      <DrawerSection title="The structure">
+      <DrawerDetails title="Technical details · the structure's levels" testId="desk-top10-drawer-tech">
         <span className="cp-num" style={{ ...quiet, color: "var(--cp-ink-2)" }}>
           max loss {maxLoss} · reward : risk {idea.reward_risk == null ? DASH : `${fmtNum(idea.reward_risk, 2)} : 1`} · capital at risk {fmtINR(idea.capital_at_risk)}
         </span>
         <IdeaLevels idea={idea} state={levels} />
-      </DrawerSection>
+      </DrawerDetails>
       <DrawerSection title="Paper trade" testId="desk-top10-drawer-paper">
         <IdeaActions idea={idea} onViewTrades={() => go(desk.openPaperTrades)} rulesVersion={board.rules_version} levels={levels} />
       </DrawerSection>

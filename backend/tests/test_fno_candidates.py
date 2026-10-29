@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from routes import fno as route
 from services.fno_candidates import engine
 from services.fno_candidates.rules import RULES
+from tests import market_day
 
 DAY = "2026-10-22"
 
@@ -379,6 +380,7 @@ def client(monkeypatch, *, buildup=None, features=None, features_error=None, bui
     monkeypatch.setattr(route, "_daas", fake_daas)
     monkeypatch.setattr(route.daas_client, "get_features_bulk", fake_features)
     monkeypatch.setattr(route, "get_current_user", fake_user)
+    market_day.pin(monkeypatch, DAY, "2026-10-21")   # the build-up fixture's day
     app = FastAPI()
     app.include_router(route.router)
     return TestClient(app), calls

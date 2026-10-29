@@ -238,8 +238,9 @@ test.describe("MOCK — not real data: desk audit wave 1", () => {
     expect(t).not.toContain("[object Object]");
     expect(t).toMatch(/· Breakout confirmed · scan of /);
     // W-5: the volume evidence with two decimals, and no module name in the regime line.
-    await expect(drawer.getByTestId("dc-ev-volume")).toContainText("Relative volume 1.30x; average traded value 1,734.56 Cr a day.");
-    await expect(drawer.getByTestId("dc-ev-regime")).toContainText("Desk regime is Mixed (session 2026-10-19).");
+    // The indicator text is in Technical details now (plain verdicts on the card, owner 29 Oct): readable there too.
+    await expect(drawer.getByTestId("dc-ev-raw")).toContainText("Relative volume 1.30x; average traded value 1,734.56 Cr a day.");
+    await expect(drawer.getByTestId("dc-ev-raw")).toContainText("Desk regime is Mixed (session 2026-10-19).");
     expect(t).not.toMatch(RAW);
     expect(t).not.toMatch(/\d\.\d{5,}/);
     // W-9c: the account sized the plan, so the plan's own "not sized" notes are gone; another flag stays.

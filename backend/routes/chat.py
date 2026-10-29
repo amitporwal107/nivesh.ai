@@ -971,21 +971,42 @@ async def _stock_universe() -> List[Dict[str, Any]]:
 
 
 @router.get("/chat/instrument-search")
-async def chat_instrument_search(q: str = "", limit: int = 6):
-    """Typeahead for the chat composer — matching stocks (curated equity universe)
-    and mutual funds (live NIDP scheme master). Read-only; degrades to empty lists
-    if DaaS is unavailable. Fund rows are deduped to one per fund family (plan
-    variants collapsed, Growth/Regular preferred)."""
+async def chat_instrument_search(q: str = "", limit: int = 6, tail: bool = False):
+    """Typeahead for the chat composer — matching stocks and F&O indices (the
+    data platform's symbol master, ranked: services/stock_search.py) and mutual
+    funds (live NIDP scheme master). Read-only; degrades to the old universe /
+    curated lists if the symbol master is unavailable. Fund rows are deduped to
+    one per fund family (plan variants collapsed, Growth/Regular preferred).
+
+    `tail=1`: `q` is the text BEFORE the cursor; the answer completes the stock
+    being typed at its end — {stocks, funds: [], fragment, fragment_start} — so
+    the composer replaces exactly that fragment with the ticker."""
+    limit = max(1, min(int(limit or 6), 10))
+    if tail:
+        from services import stock_search
+        try:
+            done = await stock_search.tail_search(q or "", limit)
+        except Exception as exc:  # noqa: BLE001 — a completion is optional; the box keeps working without it
+            logger.debug("chat_instrument_search tail(%r): %s", (q or "")[-40:], exc)
+            done = {"stocks": [], "fragment": None, "fragment_start": None}
+        return {**done, "funds": []}
     term = (q or "").strip()
     if len(term) < 2:
         return {"stocks": [], "funds": []}
     ql = term.lower()
-    limit = max(1, min(int(limit or 6), 10))
 
-    # Stocks — substring match on the full V3 equity universe (cached), ranked by
-    # quality. Falls back to the curated list if NIDP is unavailable.
+    # Stocks — the symbol master, ranked (exact ticker, prefix, name words, short
+    # forms, F&O indices). If it cannot be read: substring match on the V3 equity
+    # universe (cached, symbols only), then the curated list.
     stocks: List[Dict[str, Any]] = []
-    universe = await _stock_universe()
+    try:
+        from services import stock_search
+        ranked = await stock_search.search_stocks(term, limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("chat_instrument_search ranked(%r): %s", term[:40], exc)
+        ranked = None
+    universe = [] if ranked is not None else await _stock_universe()
+    stocks = list(ranked or [])
     for r in universe:
         sym = (r.get("symbol") or "").strip()
         if not sym:
@@ -995,7 +1016,7 @@ async def chat_instrument_search(q: str = "", limit: int = 6):
             stocks.append({"symbol": sym, "name": name or sym, "sector": r.get("sector") or r.get("industry")})
         if len(stocks) >= limit:
             break
-    if not stocks:
+    if not stocks and ranked is None:
         from instruments_data import INDIAN_INSTRUMENTS
         for inst in INDIAN_INSTRUMENTS:
             if inst.get("type") != "equity":

@@ -78,11 +78,13 @@ export function planLine(tp: TradePlan): string {
 
 /** Why the plan cannot be paper traded, or null when it can. */
 export function planBlocker(tp: TradePlan): string | null {
-  if (tp.stored === false) return "The plan could not be stored, so a trade cannot cite it. Reload the board.";
+  if (tp.stored === false) return "The plan could not be saved, so a trade cannot refer to it. Reload the list.";
   if (tp.eligibility.paper_eligible) return null;
   const why = tp.eligibility.reasons.map((r) => r.message || r.code).filter(Boolean).slice(0, 2).join(" ");
-  const state = tp.eligibility.state.replace(/_/g, " ").toLowerCase();
-  return `This plan is ${state}${why ? `: ${why}` : "."}`;
+  // The plan's state in plain words (owner, 29 Oct: no jargon on the card).
+  const PLAIN: Record<string, string> = { REJECTED: "not tradeable", WAIT_FOR_CONFIRMATION: "waiting for its entry condition", NO_SETUP: "not a setup yet" };
+  const state = PLAIN[tp.eligibility.state] ?? tp.eligibility.state.replace(/_/g, " ").toLowerCase();
+  return `This idea is ${state}${why ? `: ${why}` : "."}`;
 }
 
 /** The plan's time exit (exit_plan.time.max_sessions: the setup's maximum horizon in sessions), when it has one. */

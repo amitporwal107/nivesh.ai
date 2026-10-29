@@ -1,0 +1,278 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@700&display=block" rel="stylesheet">
+<style>
+:root{--bg:#050b16;--panel:#0a1526;--panel2:#0f1d33;--line:#1c2b44;--ink:#eef3fb;--ink2:#9fb0c8;--ink3:#64758f;--up:#2fe39b;--dn:#ff4f6d;--mint:#2fe39b;--gold:#ffc857;--blue:#5aa9ff}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:transparent;color:var(--ink);font-family:Inter,system-ui,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+#root{position:relative;overflow:hidden}
+.cond{font-family:'Barlow Condensed',sans-serif}
+.up{color:var(--up)}.dn{color:var(--dn)}.flat{color:var(--ink2)}
+/* data box */
+.box{position:absolute;inset:0;background:linear-gradient(180deg,rgba(10,21,38,.97),rgba(6,13,25,.97));border:1px solid rgba(47,227,155,.35);border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.55);overflow:hidden}
+.boxhd{padding:16px 20px 12px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,rgba(47,227,155,.16),rgba(47,227,155,0))}
+.kick{font:700 13px/1 Inter;letter-spacing:.16em;color:var(--mint);text-transform:uppercase}
+.ttl{font:700 34px/1.05 'Barlow Condensed';letter-spacing:.01em;margin-top:6px;text-transform:uppercase}
+.sub{font:500 13px/1.3 Inter;color:var(--ink2);margin-top:5px}
+.sect{font:700 12px/1 Inter;letter-spacing:.14em;color:var(--ink3);text-transform:uppercase;padding:12px 20px 6px}
+.row{display:flex;align-items:center;gap:10px;padding:8px 20px;border-bottom:1px solid rgba(28,43,68,.6)}
+.row .nm{flex:1;min-width:0;font:600 17px/1.15 Inter;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .nm small{display:block;font:500 12px/1.2 Inter;color:var(--ink3);margin-top:2px}
+.row .v{font:700 20px/1 'Barlow Condensed';text-align:right;min-width:74px}
+.row .x{font:600 13px/1 Inter;color:var(--ink2);text-align:right;min-width:52px}
+.foot{position:absolute;left:0;right:0;bottom:0;padding:10px 20px 12px;font:500 11.5px/1.4 Inter;color:var(--ink3);border-top:1px solid var(--line);background:rgba(5,11,22,.9)}
+.chip{display:inline-block;padding:4px 9px;border-radius:999px;font:700 11px/1 Inter;letter-spacing:.08em;text-transform:uppercase}
+.bar{height:8px;border-radius:4px;background:#1a2740;overflow:hidden;display:flex}
+/* full-window cards */
+.full{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:0 110px}
+.scrim{position:absolute;inset:0;background:radial-gradient(1200px 700px at 30% 40%,rgba(5,11,22,.80),rgba(5,11,22,.93))}
+</style></head>
+<body><div id="root"></div>
+<script>
+const $ = (h) => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstChild; };
+const fmtIN = (v, dp=2) => Number(v).toLocaleString('en-IN', {minimumFractionDigits: dp, maximumFractionDigits: dp});
+const sgn = (v, dp=2, suf='%') => (v > 0 ? '+' : v < 0 ? '−' : '') + fmtIN(Math.abs(v), dp) + suf;
+const cls = (v) => v > 0 ? 'up' : v < 0 ? 'dn' : 'flat';
+const arrow = (v) => v > 0 ? '▲' : v < 0 ? '▼' : '■';
+const ease = (k) => 1 - Math.pow(1 - k, 3);
+const clamp = (k) => Math.max(0, Math.min(1, k));
+const SECT = {"Automobile and Auto Components":"Auto","Fast Moving Consumer Goods":"FMCG","Oil Gas & Consumable Fuels":"Oil & Gas","Media Entertainment & Publication":"Media","Information Technology":"IT","Financial Services":"Financials","Construction Materials":"Constr. materials","Metals & Mining":"Metals","Consumer Durables":"Cons. durables","Consumer Services":"Cons. services","Telecommunication":"Telecom","Capital Goods":"Capital goods"};
+const sec = (s) => SECT[s] || s || '';
+// animation: elements with data-a (fade|left|up|right|wipe) and data-d (delay s); counters with data-num
+function anim(el, kind, d) { el.setAttribute('data-a', kind); el.setAttribute('data-d', d); return el; }
+window.setT = (t) => {
+  document.querySelectorAll('[data-a]').forEach(el => {
+    const d = parseFloat(el.dataset.d || 0), dur = parseFloat(el.dataset.dur || 0.38);
+    const k = ease(clamp((t - d) / dur)), a = el.dataset.a;
+    el.style.opacity = a === 'wipe' ? 1 : k;
+    if (a === 'left') el.style.transform = `translateX(${(1 - k) * -40}px)`;
+    if (a === 'right') el.style.transform = `translateX(${(1 - k) * 80}px)`;
+    if (a === 'up') el.style.transform = `translateY(${(1 - k) * 22}px)`;
+    if (a === 'zoom') el.style.transform = `scale(${0.92 + 0.08 * k})`;
+    if (a === 'wipe') el.style.clipPath = `inset(0 ${(1 - k) * 100}% 0 0)`;
+  });
+  document.querySelectorAll('[data-num]').forEach(el => {
+    const d = parseFloat(el.dataset.d0 || 0), k = ease(clamp((t - d) / 0.7));
+    const v = parseFloat(el.dataset.num) * k, dp = parseInt(el.dataset.dp || 2);
+    el.textContent = (el.dataset.pre || '') + (el.dataset.signed ? sgn(v, dp, '') : fmtIN(v, dp)) + (el.dataset.suf || '');
+  });
+  document.querySelectorAll('[data-grow]').forEach(el => {
+    const d = parseFloat(el.dataset.d0 || 0), k = ease(clamp((t - d) / 0.6));
+    el.style.width = (parseFloat(el.dataset.grow) * k) + '%';
+  });
+};
+const num = (v, dp, d0, pre='', suf='', signed=false) => `<span data-num="${v}" data-dp="${dp}" data-d0="${d0}" data-pre="${pre}" data-suf="${suf}" ${signed ? 'data-signed=1' : ''}>${pre}${signed ? sgn(v, dp, '') : fmtIN(v, dp)}${suf}</span>`;
+
+function boxShell(root, kick, ttl, sub, foot) {
+  const box = anim($(`<div class="box"></div>`), 'right', 0); box.dataset.dur = 0.35; root.appendChild(box);
+  box.appendChild(anim($(`<div class="boxhd"><div class="kick">${kick}</div><div class="ttl">${ttl}</div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`), 'fade', 0.15));
+  const body = $(`<div></div>`); box.appendChild(body);
+  if (foot) box.appendChild(anim($(`<div class="foot">${foot}</div>`), 'fade', 0.5));
+  return body;
+}
+let rowD = 0.25;
+function addRow(body, html, step=0.045) { const r = anim($(html), 'left', rowD); rowD += step; body.appendChild(r); return r; }
+function moverRow(m, showSector=true) {
+  return `<div class="row"><div class="nm">${m.name}${showSector ? `<small>${sec(m.sector)}${m.volx ? ` · vol ${fmtIN(m.volx,1)}×` : ''}</small>` : ''}</div><div class="v ${cls(m.pct)}">${sgn(m.pct)}</div></div>`;
+}
+function breadthBar(adv, dec, d0) {
+  const tot = adv + dec, a = 100 * adv / tot;
+  return `<div style="padding:4px 20px 10px"><div style="display:flex;justify-content:space-between;font:700 15px/1 Inter;margin-bottom:6px"><span class="up">▲ ${adv} up</span><span class="dn">${dec} down ▼</span></div>
+    <div class="bar"><div data-grow="${a}" data-d0="${d0}" style="background:var(--up);width:${a}%"></div><div style="flex:1;background:var(--dn)"></div></div></div>`;
+}
+
+const R = {};
+// ------------------------------------------------------------------ data boxes (440 x 840)
+R.idx = (root, D) => {
+  const b = boxShell(root, `NSE close · ${D.L.day_mid}`, 'The scoreboard', 'Index closes, change on the day', `Source: NSE index closes (nidp.index_eod), end of day ${D.L.day_mid}.`);
+  D.idx.forEach(x => addRow(b, `<div class="row"><div class="nm">${x.name}</div><div class="x">${fmtIN(x.close, 2)}</div><div class="v ${cls(x.pct)}" style="min-width:84px">${arrow(x.pct)} ${sgn(x.pct).replace(/^[+−]/, '')}</div></div>`));
+  const d = D.day, pos = (v) => 100 * (v - d.low) / (d.high - d.low);
+  addRow(b, `<div style="padding:16px 20px 0"><div class="kick" style="color:var(--ink3)">Nifty 50 · day range</div>
+    <div style="position:relative;height:46px;margin-top:12px">
+      <div style="position:absolute;left:0;right:0;top:18px;height:6px;border-radius:3px;background:linear-gradient(90deg,var(--dn),#334,var(--up))"></div>
+      <div style="position:absolute;left:${pos(d.open)}%;top:10px;width:2px;height:22px;background:var(--ink2)"></div>
+      <div style="position:absolute;left:calc(${pos(d.close)}% - 7px);top:12px;width:14px;height:14px;border-radius:50%;background:var(--gold);box-shadow:0 0 12px var(--gold)"></div>
+      <div style="position:absolute;left:0;top:32px;font:600 12px Inter;color:var(--ink3)">L ${fmtIN(d.low)}</div>
+      <div style="position:absolute;right:0;top:32px;font:600 12px Inter;color:var(--ink3)">H ${fmtIN(d.high)}</div></div>
+    <div style="font:600 13px Inter;color:var(--ink2);margin-top:6px">Open ${fmtIN(d.open)} · <span style="color:var(--gold)">Close ${fmtIN(d.close)}</span></div></div>`, 0);
+};
+R.brd = (root, D) => {
+  const b = boxShell(root, `Market breadth · ${D.L.day_short}`, (() => { const m = D.movers['Nifty 500']; const r = m.adv / Math.max(1, m.dec); return r >= 1.5 ? 'Broad rally' : r <= 0.67 ? 'Broad selling' : 'Mixed breadth'; })(), 'Stocks up vs down in each index', `Source: desk sector heatmap (NSE closes), index lists of ${D.L.list_date}.`);
+  ['Nifty 50', 'Nifty 100', 'Nifty 200', 'Nifty 500'].forEach((k, i) => { const m = D.movers[k];
+    addRow(b, `<div><div class="sect" style="color:var(--ink)">${k}</div>${breadthBar(m.adv, m.dec, 0.3 + i * 0.08)}</div>`, 0.08); });
+  const v = D.idx.find(x => x.name === 'India VIX');
+  addRow(b, `<div style="margin:18px 20px;padding:16px 18px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)"><div class="kick" style="color:var(--ink3)">India VIX</div>
+    <div style="display:flex;align-items:baseline;gap:14px;margin-top:8px"><span class="cond" style="font-size:52px;font-weight:700">${num(v.close, 2, 0.5)}</span><span class="cond ${cls(v.pct)}" style="font-size:28px;font-weight:700">${arrow(v.pct)} ${fmtIN(Math.abs(v.pct))}%</span></div>
+    <div class="sub">${v.pct < 0 ? 'Fear gauge cooled' : v.pct > 0 ? 'Fear gauge rose' : 'Fear gauge unchanged'}</div></div>`);
+};
+R.res = (root, D) => {
+  const b = boxShell(root, 'Results week · first session after filing', "The market's verdict", 'Move on the first session that could react · volume vs 20-day avg', 'Source: desk Results Week (filings + NSE closes). Profit growth is year on year, as filed.');
+  b.appendChild(anim($(`<div class="sect up">▲ Rallied</div>`), 'fade', 0.2));
+  D.res_up.forEach(m => addRow(b, `<div class="row"><div class="nm">${m.name}<small>vol ${fmtIN(m.volx,1)}×${m.pat_yoy != null ? ` · profit ${sgn(m.pat_yoy,1)}` : ''}</small></div><div class="v up">${sgn(m.pct)}</div></div>`));
+  b.appendChild(anim($(`<div class="sect dn">▼ Fell</div>`), 'fade', rowD));
+  D.res_dn.forEach(m => addRow(b, `<div class="row"><div class="nm">${m.name}<small>vol ${fmtIN(m.volx,1)}×${m.pat_yoy != null ? ` · profit ${sgn(m.pat_yoy,1)}` : ''}</small></div><div class="v dn">${sgn(m.pct)}</div></div>`));
+};
+R.after = (root, D) => {
+  const ist = (s) => { const t = new Date(s); const m = t.getUTCHours() * 60 + t.getUTCMinutes() + 330; return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+  const b = boxShell(root, `Filed after the close · ${D.L.day_short}`, 'After the bell', `Net profit vs the same quarter last year · react ${D.L.next_short}`, D.after_source === 'trendlyne' ? "Source: Trendlyne, consolidated net profit (owners' share), latest quarter vs a year ago; filing times from the desk." : 'Source: desk Results Week (profit as filed, year on year); filing times from the exchange.');
+  D.after.forEach(a => addRow(b, `<div class="row"><div class="nm">${a.name}<small>₹${fmtIN(a.pat, 0)} Cr${a.pat_prev != null ? ` vs ₹${fmtIN(a.pat_prev, 0)} Cr` : ''} · filed ${ist(a.filed)} IST</small></div>
+     <div class="v ${cls(a.pat_yoy)}" style="min-width:96px">${sgn(a.pat_yoy, 1)}</div></div>`, 0.06));
+};
+R.sec = (root, D) => {
+  const b = boxShell(root, 'NSE sector indices · 1 day', 'Sector rotation', `Change on ${D.L.day_short} · 1-month change at right`, 'Source: NSE sector index closes (desk Sector returns). Up/total = members that rose.');
+  const mx = Math.max(...D.sectors.map(s => Math.abs(s.d1)));
+  D.sectors.forEach(s => addRow(b, `<div class="row" style="padding:5px 20px;gap:8px"><div class="nm" style="font-size:13px;flex:0 0 150px">${s.name.replace('Telecommunications','Telecom').replace('Consumer Durables','Cons. Durables').replace('Financial Services','Fin. Services')}</div>
+     <div style="flex:1;position:relative;height:14px"><div style="position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line)"></div>
+       <div style="position:absolute;top:2px;height:10px;border-radius:3px;${s.d1 >= 0 ? `left:50%;width:${48 * s.d1 / mx}%;background:var(--up)` : `right:50%;width:${48 * -s.d1 / mx}%;background:var(--dn)`}"></div></div>
+     <div class="v ${cls(s.d1)}" style="font-size:17px;min-width:58px">${sgn(s.d1)}</div><div class="x ${cls(s.m1)}" style="min-width:56px">${sgn(s.m1, 1)}</div></div>`, 0.03));
+};
+function moversBox(root, D, key, kick) {
+  const m = D.movers[key];
+  const b = boxShell(root, kick, key, `Movers on ${D.L.day_short} · ${m.n} priced members`, `Source: desk sector heatmap (NSE closes), index lists of ${D.L.list_date}.`);
+  b.insertAdjacentHTML('beforeend', ''); b.appendChild(anim($(breadthBar(m.adv, m.dec, 0.3)), 'fade', 0.2));
+  b.appendChild(anim($(`<div class="sect up">Top gainers</div>`), 'fade', 0.25));
+  m.top.forEach(x => addRow(b, moverRow(x)));
+  b.appendChild(anim($(`<div class="sect dn">Top losers</div>`), 'fade', rowD));
+  m.bottom.forEach(x => addRow(b, moverRow(x)));
+}
+R.n50 = (root, D) => moversBox(root, D, 'Nifty 50', 'Movers & shakers · 1 of 4');
+R.n100 = (root, D) => moversBox(root, D, 'Nifty 100', 'Movers & shakers · 2 of 4');
+R.n200 = (root, D) => moversBox(root, D, 'Nifty 200', 'Movers & shakers · 3 of 4');
+R.n500 = (root, D) => moversBox(root, D, 'Nifty 500', 'Movers & shakers · 4 of 4');
+R.s500 = (root, D) => {
+  const m = D.movers['Nifty 500'];
+  const b = boxShell(root, 'Nifty 500 · sector by sector', 'Who led each sector', 'Up / members · best and worst stock', `Source: desk sector heatmap, Nifty 500 list of ${D.L.list_date}, NSE industry tags.`);
+  const S = m.sectors.filter(s => s.n > 1).sort((a, b) => b.avg - a.avg);
+  S.forEach(s => addRow(b, `<div class="row" style="padding:5px 16px;gap:6px;font-size:12.5px"><div style="flex:0 0 112px;font:600 13px Inter;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sec(s.sector)}</div>
+     <div style="flex:0 0 44px;font:700 13px Inter;color:${s.adv / s.n >= .5 ? 'var(--up)' : 'var(--dn)'}">${s.adv}/${s.n}</div>
+     <div style="flex:1;font:600 11.5px Inter;white-space:nowrap"><span class="up">${s.up.sym.slice(0, 10)} ${sgn(s.up.pct, 1)}</span></div>
+     <div style="flex:0 0 122px;text-align:right;font:600 11.5px Inter;white-space:nowrap"><span class="${cls(s.dn.pct)}">${s.dn.sym} ${sgn(s.dn.pct, 1)}</span></div></div>`, 0.025));
+};
+R.fii = (root, D) => {
+  const f = D.fii;
+  const b = boxShell(root, `Cash market · ${dshort(f.date)} · provisional`, 'Follow the money', 'Net buy (+) / sell (−), ₹ crore', `Source: NSE provisional FII/DII cash figures via Sensibull.${f.desk_flow_to ? ` The desk chart runs to ${dshort(f.desk_flow_to)}.` : ''}`);
+  const big = (lbl, v, buy, sell, d) => `<div style="flex:1;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)"><div class="kick" style="color:var(--ink2)">${lbl}</div>
+     <div class="cond ${cls(v)}" style="font-size:44px;font-weight:700;margin-top:6px">${num(v, 0, d, '', '', true)}</div><div class="sub">buy ${fmtIN(buy, 0)} · sell ${fmtIN(sell, 0)}</div></div>`;
+  addRow(b, `<div style="display:flex;gap:12px;padding:16px 20px 6px">${big('FIIs', f.fii_net, f.fii_buy, f.fii_sell, 0.35)}${big('DIIs', f.dii_net, f.dii_buy, f.dii_sell, 0.45)}</div>`);
+  const mx = Math.max(...f.last10.map(r => Math.max(Math.abs(r.fii), Math.abs(r.dii))));
+  addRow(b, `<div style="padding:12px 20px 0"><div class="kick" style="color:var(--ink3)">Last 10 sessions · <span style="color:var(--blue)">FII</span> · <span style="color:var(--gold)">DII</span></div>
+    <div style="display:flex;align-items:center;gap:6px;height:150px;margin-top:8px;position:relative"><div style="position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line)"></div>
+    ${f.last10.map(r => `<div style="flex:1;display:flex;gap:2px;height:100%;align-items:center;position:relative">${[['fii', 'var(--blue)'], ['dii', 'var(--gold)']].map(([k, c]) => { const h = 48 * Math.abs(r[k]) / mx; return `<div style="flex:1;height:100%;position:relative"><div style="position:absolute;left:0;right:0;${r[k] >= 0 ? `bottom:50%` : `top:50%`};height:${h}%;background:${c};border-radius:2px;opacity:${r.d === f.date ? 1 : .55}"></div></div>`; }).join('')}</div>`).join('')}</div>
+    <div style="display:flex;justify-content:space-between;font:600 11px Inter;color:var(--ink3);margin-top:4px"><span>${dshort(f.last10[0].d)}</span><span style="color:var(--ink)">${dshort(f.date)}</span></div></div>`);
+  addRow(b, `<div class="row" style="margin-top:10px"><div class="nm">${f.month} so far<small>${f.mtd_sessions} sessions</small></div><div style="text-align:right;font:700 16px Inter"><div class="${cls(f.mtd_fii)}">FII ${sgn(f.mtd_fii, 0, '')}</div><div class="${cls(f.mtd_dii)}" style="margin-top:3px">DII ${sgn(f.mtd_dii, 0, '')}</div></div></div>`);
+  addRow(b, `<div class="row"><div class="nm">Three months<small>since ${dshort(f.m3_from)}</small></div><div style="text-align:right;font:700 16px Inter"><div class="${cls(f.m3_fii)}">FII ${sgn(f.m3_fii, 0, '')}</div><div class="${cls(f.m3_dii)}" style="margin-top:3px">DII ${sgn(f.m3_dii, 0, '')}</div></div></div>`);
+};
+R.ideas = (root, D) => {
+  const b = boxShell(root, `AI scanner · cash · end of day ${D.L.day_short}`, 'Top 10 ideas', 'Ordered for review, not a prediction', '<b style="color:var(--gold)">Ideas, not recommendations.</b> Rules-based score, not a probability; the desk scorecard shows no measurable ranking skill so far. Nothing is sent to a broker.');
+  D.ideas.forEach(i => addRow(b, `<div class="row" style="padding:7px 20px"><div class="cond" style="font-size:22px;font-weight:700;color:var(--mint);width:26px">${String(i.rank).padStart(2, '0')}</div>
+     <div class="nm" style="font-size:15.5px">${i.name}<small style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${i.why}</small></div></div>`, 0.04));
+};
+R.fno = (root, D) => {
+  const g = D.regime;
+  const b = boxShell(root, `F&O board · end of day ${D.L.day_short}`, 'Structures that fit the regime', '', 'Ranked by fit to the measured regime, then reward : risk. Not a forecast. The desk shows these for information only where they conflict with the bullish cash setup. Payoffs exclude taxes and charges.');
+  addRow(b, `<div style="padding:14px 20px 4px;display:flex;gap:8px;flex-wrap:wrap"><span class="chip" style="background:rgba(255,200,87,.15);color:var(--gold)">Regime ${g.label}</span><span class="chip" style="background:${g.trend === 'up' ? 'rgba(47,227,155,.14)' : 'rgba(255,79,109,.14)'};color:${g.trend === 'up' ? 'var(--up)' : 'var(--dn)'}">Trend ${g.trend}</span><span class="chip" style="background:rgba(90,169,255,.14);color:var(--blue)">VIX ${fmtIN(g.india_vix)}</span></div>`);
+  D.fno.forEach(x => addRow(b, `<div class="row" style="display:block;padding:10px 20px"><div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 17px Inter">${x.sym}</span><span class="x">exp ${dshort(x.expiry)}</span></div>
+     <div style="font:500 13.5px Inter;color:var(--ink2);margin-top:3px">${x.label}</div>
+     <div style="display:flex;gap:16px;margin-top:5px;font:600 13px Inter"><span class="dn">max loss ₹${fmtIN(Math.abs(x.max_loss), 0)}</span><span class="up">max profit ₹${fmtIN(x.max_profit, 0)}</span><span style="color:var(--ink2)">R:R ${fmtIN(x.rr)}</span></div></div>`, 0.06));
+};
+R.watch = (root, D) => {
+  const b = boxShell(root, D.L.next_long, 'What to watch', '', `Source: desk Results Week and macro calendar. ${D.due_count} companies are due on ${D.L.next_dow}; F&O names shown.`);
+  b.appendChild(anim($(`<div class="sect">Macro (IST)</div>`), 'fade', 0.2));
+  if (!D.macro.length) addRow(b, `<div style="padding:4px 20px 6px;font:500 14px Inter;color:var(--ink3)">No high or medium impact releases scheduled</div>`);
+  D.macro.forEach(([t, n, imp]) => addRow(b, `<div class="row"><div class="cond" style="font-size:24px;font-weight:700;color:var(--gold);width:64px">${t}</div><div class="nm">${n}</div><span class="chip" style="background:${imp === 'HIGH' ? 'rgba(255,79,109,.14)' : 'rgba(255,200,87,.14)'};color:${imp === 'HIGH' ? 'var(--dn)' : 'var(--gold)'}">${imp}</span></div>`));
+  if (D.after.length) { b.appendChild(anim($(`<div class="sect">First reaction</div>`), 'fade', rowD));
+  addRow(b, `<div style="padding:4px 20px 6px;font:600 15px/1.5 Inter">${D.after.map(a => a.name).join(' · ')}</div>`); }
+  b.appendChild(anim($(`<div class="sect">Results due (F&O)</div>`), 'fade', rowD));
+  addRow(b, `<div style="padding:4px 20px;font:500 14px/1.55 Inter;color:var(--ink2)">${D.due.length ? D.due.slice(0, 18).join(' · ') : 'None in the F&O list'}</div>`);
+};
+// ------------------------------------------------------------------ full-window cards (1536 x 864)
+function logo(size=64) { return `<div style="width:${size}px;height:${size}px;border-radius:50%;background:var(--mint);display:grid;place-items:center;font:700 ${size * .55}px 'Noto Sans Devanagari';color:#04121c;box-shadow:0 0 40px rgba(47,227,155,.45)">न</div>`; }
+R.title = (root, D) => {
+  root.appendChild(anim($(`<div class="scrim"></div>`), 'fade', 0));
+  const f = $(`<div class="full"></div>`); root.appendChild(f);
+  f.appendChild(anim($(`<div style="display:flex;align-items:center;gap:22px">${logo(84)}<div class="kick" style="font-size:18px">Nivesh Smart Trading Desk</div></div>`), 'left', 0.1));
+  f.appendChild(anim($(`<div class="cond" style="font-size:190px;font-weight:800;line-height:.9;margin-top:22px;letter-spacing:-.01em">CLOSING <span style="color:var(--mint)">BELL</span></div>`), 'wipe', 0.25));
+  f.lastChild.dataset.dur = 0.55;
+  f.appendChild(anim($(`<div style="height:6px;width:520px;background:linear-gradient(90deg,var(--mint),var(--gold));margin-top:18px;border-radius:3px"></div>`), 'wipe', 0.55));
+  f.appendChild(anim($(`<div class="cond" style="font-size:46px;font-weight:600;margin-top:22px;color:var(--ink2)">${D.L.title_date} · <span style="color:var(--ink)">INDIA MARKET WRAP</span></div>`), 'up', 0.7));
+  f.appendChild(anim($(`<div style="font:600 20px Inter;color:var(--ink3);margin-top:18px;letter-spacing:.06em">END-OF-DAY NSE DATA · FROM THE SMART TRADING DESK</div>`), 'up', 0.85));
+};
+function headline(root, n, kicker, big, small, of = 4) {
+  root.appendChild(anim($(`<div class="scrim" style="background:linear-gradient(90deg,rgba(5,11,22,.94) 0%,rgba(5,11,22,.86) 55%,rgba(5,11,22,.55) 100%)"></div>`), 'fade', 0));
+  const f = $(`<div class="full"></div>`); root.appendChild(f);
+  f.appendChild(anim($(`<div style="display:flex;align-items:center;gap:14px"><span class="chip" style="background:var(--mint);color:#04121c;font-size:15px;padding:7px 14px">Headline ${n} / ${of}</span><span class="kick" style="font-size:16px">${kicker}</span></div>`), 'left', 0.05));
+  f.appendChild(anim($(`<div class="cond" style="font-size:112px;font-weight:800;line-height:.95;margin-top:26px;max-width:1300px;text-transform:uppercase">${big}</div>`), 'wipe', 0.15));
+  f.lastChild.dataset.dur = 0.5;
+  f.appendChild(anim($(`<div style="font:600 30px/1.35 Inter;color:var(--ink2);margin-top:26px;max-width:1250px">${small}</div>`), 'up', 0.5));
+}
+// Headline cards come from the night's script (script_gen.py): spec = {n, of, kicker, big, small}.
+const colourise = (s) => s.replace(/([+−][\d.,]+%|[+−]₹[\d,]+ Cr)/g, (m) => `<span class="${m[0] === '+' ? 'up' : 'dn'}">${m}</span>`);
+['h1', 'h2', 'h3', 'h4'].forEach((k, i) => { R[k] = (root, D, spec) => headline(root, i + 1, spec.kicker, spec.big, colourise(spec.small), spec.of); });
+R.end = (root, D) => {
+  root.appendChild(anim($(`<div class="scrim" style="background:rgba(5,11,22,.95)"></div>`), 'fade', 0));
+  const f = $(`<div class="full" style="align-items:flex-start"></div>`); root.appendChild(f);
+  f.appendChild(anim($(`<div style="display:flex;align-items:center;gap:22px">${logo(70)}<div class="cond" style="font-size:96px;font-weight:800;line-height:1">CLOSING <span style="color:var(--mint)">BELL</span></div></div>`), 'left', 0.05));
+  f.appendChild(anim($(`<div style="font:600 28px/1.4 Inter;margin-top:30px;max-width:1250px">Market information and education, <span style="color:var(--gold)">not investment advice</span>. Ideas shown are for review, not recommendations. Do your own research.</div>`), 'up', 0.3));
+  f.appendChild(anim($(`<div style="font:500 20px/1.6 Inter;color:var(--ink2);margin-top:26px;max-width:1250px">Data: NSE end-of-day index and stock closes, exchange filings, NSE provisional FII/DII figures (via Sensibull) — read on the Nivesh Smart Trading Desk, ${D.L.day_mid}. Recorded on staging, read-only: nothing was traded, saved or sent to a broker.</div>`), 'up', 0.45));
+  f.appendChild(anim($(`<div style="font:500 18px/1.5 Inter;color:var(--ink3);margin-top:22px">9 out of 10 individual traders in equity F&amp;O incurred net losses (SEBI study).</div>`), 'up', 0.6));
+  f.appendChild(anim($(`<div style="font:500 16px/1.5 Inter;color:var(--ink3);margin-top:14px">Music: “The Complex” by Kevin MacLeod (incompetech.com), licensed under Creative Commons Attribution 3.0 (creativecommons.org/licenses/by/3.0).</div>`), 'up', 0.7));
+};
+// ------------------------------------------------------------------ chrome
+R.bg = (root) => { root.innerHTML = `<div style="position:absolute;inset:0;background:radial-gradient(1400px 800px at 20% 10%,#0c1c33,transparent 60%),radial-gradient(900px 600px at 95% 90%,#0b2a24,transparent 60%),#040912"></div>
+  <div style="position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:48px 48px"></div><div style="position:absolute;left:0;top:1024px;width:1920px;height:56px;background:#071020;border-top:1px solid var(--line)"></div>`; };
+R.frame = (root, D, spec) => {
+  const ix = (n) => D.idx.find(x => x.name === n);
+  const sb = [['Nifty 50', 'Nifty 50'], ['Nifty Bank', 'Nifty Bank'], ['Nifty 500', 'Nifty 500'], ['Midcap 150', 'Nifty Midcap 150'], ['Smallcap 250', 'Nifty Smallcap 250'], ['India VIX', 'India VIX']]
+    .map(([lbl, n]) => [lbl, ix(n)]).filter(([, x]) => x);
+  root.innerHTML = `
+  <div style="position:absolute;left:0;top:0;width:1920px;height:72px;background:linear-gradient(180deg,#0a1528,#071020);border-bottom:2px solid rgba(47,227,155,.5);display:flex;align-items:center;padding:0 24px;gap:16px">
+    ${logo(42)}<div><div class="cond" style="font-size:34px;font-weight:800;line-height:.9">CLOSING <span style="color:var(--mint)">BELL</span></div><div style="font:700 11px Inter;letter-spacing:.2em;color:var(--ink3);margin-top:3px">ON THE NIVESH DESK</div></div>
+    <div style="margin-left:40px;display:flex;align-items:center;gap:12px"><span class="chip" style="background:var(--mint);color:#04121c;font-size:14px;padding:7px 14px">${spec.tag}</span><span class="cond" style="font-size:28px;font-weight:600;color:var(--ink)">${spec.title}</span></div>
+    <div style="margin-left:auto;text-align:right"><div class="cond" style="font-size:24px;font-weight:700">${D.L.top_date}</div><div style="font:700 11px Inter;letter-spacing:.16em;color:var(--ink3)">NSE END OF DAY · REPLAY</div></div></div>
+  <div style="position:absolute;left:22px;top:82px;width:1540px;height:868px;border:2px solid rgba(47,227,155,.28);border-radius:8px"></div>
+  <div style="position:absolute;left:1576px;top:84px;width:320px;height:864px;display:flex;flex-direction:column;gap:8px">
+    <div style="font:700 12px Inter;letter-spacing:.16em;color:var(--mint);padding:6px 2px">NSE CLOSE · ${D.L.day_short.toUpperCase()}</div>
+    ${sb.map(([n, x]) => `<div style="flex:1;background:rgba(10,21,38,.92);border:1px solid var(--line);border-left:4px solid ${x.pct >= 0 ? 'var(--up)' : 'var(--dn)'};border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;justify-content:center">
+      <div style="font:700 12px Inter;letter-spacing:.1em;color:var(--ink2);text-transform:uppercase">${n}</div>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:4px"><span class="cond" style="font-size:31px;font-weight:700">${fmtIN(x.close)}</span><span class="cond ${cls(x.pct)}" style="font-size:21px;font-weight:700">${arrow(x.pct)} ${fmtIN(Math.abs(x.pct))}%</span></div></div>`).join('')}
+    <div style="flex:1.25;background:rgba(10,21,38,.92);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;justify-content:center;gap:6px">
+      <div style="font:700 12px Inter;letter-spacing:.1em;color:var(--ink2)">CASH FLOWS · PROVISIONAL</div>
+      <div style="display:flex;justify-content:space-between;font:700 19px Inter"><span>FII</span><span class="${cls(D.fii.fii_net)}">${D.fii.available ? signed(D.fii.fii_net) : '—'}</span></div>
+      <div style="display:flex;justify-content:space-between;font:700 19px Inter"><span>DII</span><span class="${cls(D.fii.dii_net)}">${D.fii.available ? signed(D.fii.dii_net) : '—'}</span></div></div>
+    <div style="flex:.9;background:rgba(10,21,38,.92);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;justify-content:center">
+      <div style="font:700 12px Inter;letter-spacing:.1em;color:var(--ink2)">NIFTY 500 BREADTH</div>
+      <div style="display:flex;justify-content:space-between;font:700 19px Inter;margin-top:6px"><span class="up">▲ ${D.movers['Nifty 500'].adv}</span><span class="dn">▼ ${D.movers['Nifty 500'].dec}</span></div></div>
+  </div>
+  <div style="position:absolute;left:0;top:1024px;width:196px;height:56px;background:var(--mint);color:#04121c;display:flex;align-items:center;justify-content:center;font:800 18px Inter;letter-spacing:.14em;clip-path:polygon(0 0,100% 0,88% 100%,0 100%)">MARKETS</div>`;
+};
+R.ticker = (root, D) => {
+  const items = [];
+  D.idx.forEach(x => items.push(`<b>${x.name.toUpperCase()}</b> ${fmtIN(x.close)} <span class="${cls(x.pct)}">${arrow(x.pct)} ${fmtIN(Math.abs(x.pct))}%</span>`));
+  if (D.fii.available) items.push(`<b>FII</b> <span class="${cls(D.fii.fii_net)}">${signed(D.fii.fii_net)}</span>`, `<b>DII</b> <span class="${cls(D.fii.dii_net)}">${signed(D.fii.dii_net)}</span>`);
+  const m = D.movers['Nifty 500'];
+  m.top.forEach(x => items.push(`<b>${x.sym}</b> <span class="up">▲ ${fmtIN(x.pct)}%</span>`));
+  m.bottom.forEach(x => items.push(`<b>${x.sym}</b> <span class="dn">▼ ${fmtIN(Math.abs(x.pct))}%</span>`));
+  D.sectors.slice(0, 4).concat(D.sectors.slice(-3)).forEach(s => items.push(`<b>NIFTY ${s.name.toUpperCase()}</b> <span class="${cls(s.d1)}">${arrow(s.d1)} ${fmtIN(Math.abs(s.d1))}%</span>`));
+  const seq = items.map(h => `<span style="padding:0 26px">${h}</span><span style="color:var(--mint)">◆</span>`).join('');
+  root.innerHTML = `<div id="tk" style="display:inline-flex;align-items:center;height:56px;white-space:nowrap;font:600 21px Inter;color:var(--ink)"><span id="tkA" style="display:inline-flex;align-items:center">${seq}</span><span style="display:inline-flex;align-items:center">${seq}</span></div>`;
+};
+R.sup = (root, D, spec) => {
+  const who = 'NIVESH DESK', col = 'var(--blue)';
+  const len = spec.sup.length, fs = len > 95 ? 23 : len > 80 ? 25 : 27;
+  root.innerHTML = `<div style="position:absolute;left:24px;top:956px;width:1872px;height:60px;display:flex;align-items:stretch;border-radius:8px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+    <div style="background:#0d1a2e;border-left:5px solid ${col};padding:0 18px;display:flex;flex-direction:column;justify-content:center;min-width:170px"><div style="font:800 17px Inter;letter-spacing:.14em">${who}</div><div style="font:600 10.5px Inter;letter-spacing:.18em;color:var(--ink3)">ANCHOR</div></div>
+    <div style="background:var(--mint);color:#04121c;padding:0 16px;display:flex;align-items:center;font:800 15px Inter;letter-spacing:.12em;white-space:nowrap">${spec.tag}</div>
+    <div style="flex:1;background:linear-gradient(90deg,rgba(238,243,251,.97),rgba(220,230,244,.97));color:#07111f;padding:0 22px;display:flex;align-items:center;font:700 ${fs}px 'Barlow Condensed';letter-spacing:.01em;white-space:nowrap;overflow:hidden">${spec.sup}</div></div>`;
+};
+R.stinger = (root, D, spec) => {
+  root.appendChild(anim($(`<div style="position:absolute;inset:0;background:rgba(4,9,18,.72)"></div>`), 'fade', 0));
+  const bar = $(`<div style="position:absolute;left:0;top:300px;height:264px;width:100%;background:linear-gradient(90deg,var(--mint),#1fb3a0);"></div>`);
+  root.appendChild(anim(bar, 'wipe', 0.0)); bar.dataset.dur = 0.3;
+  root.appendChild(anim($(`<div style="position:absolute;left:110px;top:322px;color:#04121c"><div style="font:800 22px Inter;letter-spacing:.24em">${spec.num}</div><div class="cond" style="font-size:150px;font-weight:800;line-height:1;margin-top:4px">${spec.tag}</div></div>`), 'left', 0.2));
+  root.appendChild(anim($(`<div class="cond" style="position:absolute;left:112px;top:584px;font-size:44px;font-weight:600;color:var(--ink)">${spec.title}</div>`), 'up', 0.35));
+};
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const dshort = (s) => s ? `${parseInt(s.slice(8, 10), 10)} ${MON[parseInt(s.slice(5, 7), 10) - 1]}` : '';
+const signed = (v, d = 0) => `${v >= 0 ? '+' : '−'}₹${fmtIN(Math.abs(v), d)} Cr`;
+window.render = (kind, D, spec) => { const root = document.getElementById('root'); root.innerHTML = ''; rowD = 0.25; root.style.width = spec.w + 'px'; root.style.height = spec.h + 'px'; R[kind](root, D, spec); window.setT(0); };
+</script></body></html>

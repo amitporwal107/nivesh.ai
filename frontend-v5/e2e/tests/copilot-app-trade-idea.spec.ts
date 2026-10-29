@@ -102,16 +102,36 @@ test.describe("MOCK — not real data: the Copilot's trade idea card", () => {
     await expect(plan.getByTestId("dc-entry")).not.toHaveText(/unavailable/);
     await expect(plan.getByTestId("dc-stop")).not.toHaveText(/unavailable/);
     await expect(page.getByTestId("tpc-other")).toHaveText(["Bull call spread (options) ›"]);
-    await expect(page.getByTestId("tpc-foot")).toContainText("rule-based plan from end-of-day data");
-    await expect(page.getByTestId("tpc-foot")).toContainText("An idea for review, not a recommendation; nothing is sent to a broker.");
+    await expect(page.getByTestId("tpc-foot")).toContainText("Built by the desk’s rules from end-of-day prices");
+    await expect(page.getByTestId("tpc-foot")).toContainText("An idea to review, not a recommendation; nothing is sent to a broker.");
     await expect(page.getByTestId("tpc")).not.toContainText(/\b(pick|recommended|suggested trade|buy now)\b/i);
     await expect(page.getByTestId("answer-text")).toContainText("How to trade it (an idea, not a recommendation)");
   });
 
-  test("TI-14 'Open in Strategy Lab' and 'Also fits' open the desk's own ticket for that plan", async ({ page }) => {
+  test("TI-13b compact, like the AI recommendations, in plain words; 'Full card ›' opens the whole card", async ({ page }) => {
     await inThread(page);
-    await expect(page.getByTestId("tpc-open-lab")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=lab&sub=build&tp=${CASH_ID}`);
-    await expect(page.getByTestId("tpc-other")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=lab&sub=build&tp=${FNO_ID}`);
+    const plan = page.getByTestId("tpc-plan");
+    await expect(plan).toHaveAttribute("data-variant", "row", SLOW);
+    await expect(plan.getByTestId("dc-entry")).toContainText("Enter ");
+    await expect(plan.getByTestId("dc-stop")).toContainText("Exit if wrong");
+    await expect(plan.getByTestId("dc-sections")).toHaveCount(0);
+    await expect(plan).not.toContainText(/×ATR|\(\d+\.\d+R\)|of equity|sessions\b|risk service|Provisional|tp_[0-9a-f]{6}/);
+    await page.getByTestId("tpc-full").click();
+    const full = page.getByTestId("tpc-plan");
+    await expect(full).toHaveAttribute("data-variant", "full", SLOW);
+    for (const s of ["setup", "entry", "stop", "targets", "size", "costs", "evidence", "warnings", "exit"]) await expect(full.getByTestId(`dc-sec-${s}`)).toBeVisible();
+    // The technical record is kept, closed, under "Technical details".
+    await expect(full.getByTestId("dc-sec-audit")).not.toHaveAttribute("open", /.*/);
+    const shown = (await full.innerText()).replace(/\s+/g, " ");
+    expect(shown).not.toMatch(/×ATR|\(\d+\.\d+R\)|of equity|sessions\b|risk service/);
+    await page.getByTestId("tpc-full").click();
+    await expect(page.getByTestId("tpc-plan")).toHaveAttribute("data-variant", "row");
+  });
+
+  test("TI-14 'Paper trade ›' and 'Also fits' open Chart Analysis on the stock with that plan (Strategy Lab removed, owner 29 Oct)", async ({ page }) => {
+    await inThread(page);
+    await expect(page.getByTestId("tpc-open-lab")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=chart&sub=live&sym=FIXCO&tp=${CASH_ID}`);
+    await expect(page.getByTestId("tpc-other")).toHaveAttribute("href", `${APP}/trader/desk?tab=trade&view=chart&sub=live&sym=FIXCO&tp=${FNO_ID}`);
   });
 
   test("TI-15 'Plan a bearish trade instead' asks the Copilot again in words", async ({ page }) => {

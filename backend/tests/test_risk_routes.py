@@ -143,7 +143,7 @@ def test_status_says_who_may_reset_the_live_grant_the_modes_and_the_gate(h):
     assert body["modes"] == ["paper", "shadow", "assisted", "live"]
     assert body["live_execution_available"] is False
     assert {k: body["gate"][k] for k in ("enabled", "policy_version")} == {"enabled": False, "policy_version": "fno-risk-v1"}
-    assert "core risk checks always run" in body["gate"]["scope"] and body["risk_policy_version"] == "universal-risk-v1"
+    assert "core risk checks always run" in body["gate"]["scope"] and body["risk_policy_version"] == "universal-risk-v2"
     h.gate_on.add("adm")
     admin = h.call("GET", "/api/risk/status", who="admin").json()
     assert admin["can_reset"] is True and admin["gate"]["enabled"] is True

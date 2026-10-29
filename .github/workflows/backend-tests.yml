@@ -90,6 +90,7 @@ jobs:
           tests/test_chartink_desk.py
           tests/test_chartink_picks.py
           tests/test_chartink_strategy.py
+          tests/test_chat_instrument_search.py
           tests/test_chat_persona_routing.py
           tests/test_chat_session_patch.py
           tests/test_circulars_route.py
@@ -214,6 +215,7 @@ jobs:
           tests/test_nidp_writer_annual_guard.py
           tests/test_nidp_yahoo_fundamentals.py
           tests/test_nivesh_cas_cdsl.py
+          tests/test_no_stale_fno_data.py
           tests/test_nsdl_cas_row_assembly.py
           tests/test_oms_contract.py
           tests/test_onboarding_state_sources.py
@@ -268,6 +270,7 @@ jobs:
           tests/test_reversal_candidates.py
           tests/test_reversal_rules.py
           tests/test_risk_controls.py
+          tests/test_risk_credit_rule.py
           tests/test_risk_entry_paths.py
           tests/test_risk_equity.py
           tests/test_risk_gate.py

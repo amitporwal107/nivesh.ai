@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from deps import get_current_user, require_admin
+from services import market_freshness
 from services.kite_live_feed import config as cfg
 from services.kite_live_feed import fno_quotes as fq
 from services.kite_live_feed import gateway as gw
@@ -288,10 +289,11 @@ async def fno_quotes(request: Request) -> Dict[str, Any]:
         logger.warning("fno-quotes: quote() failed (%s)", type(e).__name__)
         return off(f"the quote request failed ({type(e).__name__})")
 
-    priced = fq.prices_from(answer, keys)
+    # A contract that has not traded since before the previous session carries an older day's price: not sent.
+    priced = fq.prices_from(answer, keys, floor=(await market_freshness.window()).floor)
     return {
         "available": bool(priced),
-        "reason": None if priced else "Kite returned no price for these contracts",
+        "reason": None if priced else "None of these contracts has traded today or in the previous session",
         "quotes": {str(i): v for i, v in priced.items()},
         "unresolved": unresolved,
         "as_of": datetime.now(timezone.utc).isoformat(),

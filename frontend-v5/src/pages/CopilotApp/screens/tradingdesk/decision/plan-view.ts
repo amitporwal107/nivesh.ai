@@ -172,8 +172,9 @@ export function usePlanResponse(id: string | null | undefined) {
 
 export type CardStatus = "watch" | "eligible" | "rejected" | "triggered" | "open" | "closed" | "no_setup";
 
+/** The plan's state in plain words (owner, 29 Oct: no technical jargon on the card). */
 export const STATUS_TEXT: Record<CardStatus, string> = {
-  watch: "Watch", eligible: "Eligible", rejected: "Rejected", triggered: "Triggered", open: "Open", closed: "Closed", no_setup: "No setup",
+  watch: "Waiting for entry", eligible: "Ready to enter", rejected: "Not tradeable", triggered: "Entered", open: "Open", closed: "Closed", no_setup: "No setup",
 };
 
 /** The lifecycle's status when a trade cites the plan (approved = a paper trade waits for its entry), else the plan's own
@@ -283,19 +284,19 @@ export function planActionGate(v: Pick<PlanView, "plan" | "changed" | "risk" | "
   const own = planBlocker(v.plan);
   if (own) return own;
   if (v.changed && !opts.recordsShownPlan) {
-    return `This plan changed after the row was built (version ${v.changed.toVersion ?? "?"} replaces version ${v.changed.fromVersion ?? "?"}). Rank again or rebuild to record the current version.`;
+    return `This plan changed after this list was made (version ${v.changed.toVersion ?? "?"} replaces version ${v.changed.fromVersion ?? "?"}). Refresh the list to trade the current version.`;
   }
   const a = v.accountSize;
-  if (a?.status === "not_sizable") return `The risk service would refuse this plan for your account${why(a.blocking) ? `: ${why(a.blocking)}` : "."}`;
+  if (a?.status === "not_sizable") return `Your risk limits would not allow this plan${why(a.blocking) ? `: ${why(a.blocking)}` : "."}`;
   if (a?.status === "not_confirmed") {
-    return `The risk service would not take this size as it is: it cuts it again${a.confirmSize != null ? ` to ${a.confirmSize}` : ""}${why(a.confirmReasons) ? ` (${why(a.confirmReasons)})` : ""}. Nothing can be recorded at a size it allows until that is fixed.`;
+    return `Your risk limits would not take this size as it is: they cut it again${a.confirmSize != null ? ` to ${a.confirmSize}` : ""}${why(a.confirmReasons) ? ` (${why(a.confirmReasons)})` : ""}. It cannot be recorded until that is fixed.`;
   }
   if (a?.status === "sized" && a.lots != null && a.requestedLots != null && a.lots < a.requestedLots) {
-    return `Your per-trade budget allows ${a.lots} lot(s) per leg; this row records ${a.requestedLots}, which the risk service would refuse.`;
+    return `Your limit for one trade allows ${a.lots} lot(s) per leg; this list records ${a.requestedLots}, which your limits would refuse.`;
   }
   if (v.risk.blocking && v.risk.decision) {
     const why = v.risk.decision.reasons.filter((r) => r.severity !== "info").map((r) => r.message).slice(0, 2).join("; ");
-    return `Blocked by the risk service${why ? `: ${why}` : ""}. Nothing can be recorded until that changes.`;
+    return `Not allowed by your risk limits${why ? `: ${why}` : ""}. Nothing can be recorded until that changes.`;
   }
   return null;
 }

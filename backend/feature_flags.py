@@ -49,7 +49,7 @@ KNOWN_FEATURES: Dict[str, Dict] = {
         "display_name": "F&O risk gate: additional structure checks",
         "description": (
             "Rolls out ADDITIONAL F&O structure checks on top of the universal risk service (services/risk_gate/"
-            "service.py, policy universal-risk-v1), which runs on every entry path whatever this flag says: the gate's "
+            "service.py, policy universal-risk-v2), which runs on every entry path whatever this flag says: the gate's "
             "fixed caps (4 legs, 10 lots per leg, Rs 2 lakh capital at risk per structure, 10 open structures) and its "
             "refusal of futures-only and unhedged-futures structures (policy fno-risk-v1). Off = the core checks only: "
             "kill switch and halt, exchange lot and expiry, defined risk, per-trade and open risk, exposure, sector, "

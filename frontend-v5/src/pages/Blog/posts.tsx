@@ -153,8 +153,3 @@ export const POSTS: BlogPost[] = [
 export function getPost(slug: string | undefined): BlogPost | undefined {
   return POSTS.find((p) => p.slug === slug);
 }
-
-/** Newest post in a category (POSTS is newest first), e.g. the latest market commentary. */
-export function latestPostIn(category: string): BlogPost | undefined {
-  return POSTS.find((p) => p.category === category);
-}
