@@ -41,7 +41,7 @@
  * Every card carries a TrustLine (source, freshness, live / end of day / historical, who made the figures).
  */
 import { Flash } from "../../components/LiveBits";
-import { useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
+import { useLiveOverlay, flashOf, closeLabel } from "../../lib/useLiveQuotes";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useHoldingsEnriched, usePortfolioConcentration } from "@/hooks/use-portfolio";
 import type { PaperSample } from "@/services/adapters/paperTrades.adapter";
@@ -471,12 +471,18 @@ function CapSplit({ view, size, cash }: { view: PortfolioView; size: number; cas
 
 const SHOWN = 8;
 
-/** The stock's move today from the Kite feed (LIVE only). The value and P&L columns stay on the stored prices; this does not recompute them. */
+/** Any session the final Kite snapshot is for is newer than this, so after the close the chip shows that session's move. */
+const ANY_SESSION = "0000-00-00";
+
+/** The stock's move in the latest session from the Kite feed: live while the market is open, and after the close the move at
+ *  Kite's close (labelled "Close · <day> · Kite") until the next session opens. The value and P&L columns stay on the stored
+ *  prices; this does not recompute them. */
 function PositionToday({ symbol }: { symbol: string }) {
-  const q = useLiveOverlay(symbol);
+  const q = useLiveOverlay(symbol, ANY_SESSION);
   if (!q || q.changePct == null) return null;
+  const word = q.kind === "live" ? "Today’s move from Kite (live)" : `The session’s move at Kite’s close (${closeLabel(q)}, provisional until the exchange’s end-of-day file)`;
   return (
-    <span data-testid="desk-portfolio-position-live" className="cp-num" title="Today’s move from Kite (live). Value and P&L use the stored prices." style={{ fontSize: 10.5, color: TONE_COLOR[signTone(q.changePct)], whiteSpace: "nowrap" }}>
+    <span data-testid="desk-portfolio-position-live" data-kind={q.kind} className="cp-num" title={`${word}. Value and P&L use the stored prices.`} style={{ fontSize: 10.5, color: TONE_COLOR[signTone(q.changePct)], whiteSpace: "nowrap" }}>
       <Flash value={flashOf(q)}>{fmtPct(q.changePct, { signed: true })}</Flash>
     </span>
   );

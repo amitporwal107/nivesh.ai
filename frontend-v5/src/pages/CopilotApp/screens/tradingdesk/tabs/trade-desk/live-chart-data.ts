@@ -41,16 +41,24 @@ const LevelsC = z.object({
 }).passthrough();
 export type LiveLevels = z.infer<typeof LevelsC>;
 
+/** Today's daily bar from Kite before the exchange's end-of-day file: the live quote in the session, the saved Kite close after
+ *  it (services/kite_live_feed/day_quote.py). Provisional: raw Kite prices, replaced by the exchange's bar once it is in. */
+const TodayC = z.object({
+  source: z.enum(["kite_live", "kite_close"]), day: z.string(), provisional: z.boolean(), at: S, price: z.number(), text: S,
+}).passthrough();
+export type LiveToday = z.infer<typeof TodayC>;
+
 const LiveChartC = z.object({
   symbol: z.string(),
   as_of: z.string(),
   timeframe: z.object({
     interval: z.string(), label: z.string(), source: z.string(), adjusted: z.boolean(), reason: S, reason_text: S, live_merged: z.boolean().optional(), note: S,
+    today: TodayC.nullable().optional(), today_why: S, today_text: S,
   }),
   bars: z.array(Bar),
   ema20: z.array(N),
   rvol: z.array(N),
-  last: z.object({ price: z.number(), at: z.string(), bar_complete: z.boolean() }),
+  last: z.object({ price: z.number(), at: z.string(), bar_complete: z.boolean(), source: S }),
   levels: LevelsC,
   signal: z.object({ signal_date: z.string(), stage: S, kind: S, revision: NO, engine_version: S, computed_at: S }).nullable(),
   signals_error: S,
