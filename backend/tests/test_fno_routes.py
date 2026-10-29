@@ -65,6 +65,7 @@ from fastapi.testclient import TestClient
 
 from routes import fno as route
 from services import option_pricing
+from tests import market_day
 
 SPOT = 108.0
 DAY = "2026-10-12"
@@ -123,6 +124,7 @@ def _client(monkeypatch, replies: Union[Reply, Callable[[str, Optional[dict]], R
 
     monkeypatch.setattr(route.daas_client, "get_raw", get_raw)
     monkeypatch.setattr(route.daas_client, "is_configured", lambda: configured)
+    market_day.pin(monkeypatch, DAY, "2026-10-09")   # the fixtures' day; the previous session is Friday 2026-10-09
     if signed_in:
         async def fake_user(request: Request):
             return {"user_id": "u1", "email": "u1@example.com"}
@@ -227,7 +229,8 @@ def test_shaping_sorts_strikes_keeps_a_missing_side_as_null_and_drops_rows_it_ca
     assert [r["strike"] for r in rows] == [120, 712.5]
     assert rows[0]["put"] is None and rows[0]["call"]["oi"] == 50
     assert rows[1]["call"] is None
-    assert rows[1]["put"] == {"close": 4.0, "settle": 4.05, "oi": None, "change_in_oi": None, "volume": None}
+    # no volume sent: the contract is not known to have traded, so its close (possibly carried forward) is not sent
+    assert rows[1]["put"] == {"close": None, "settle": 4.05, "oi": None, "change_in_oi": None, "volume": None}
     assert route.shape_strikes(None) == [] and route.shape_strikes({}) == []
 
 
@@ -547,8 +550,8 @@ def test_futures_route_returns_each_contract_with_its_basis_nearest_first(monkey
         {"expiry": "2026-10-27", "close": 108.7, "settle": 108.75, "oi": 5000, "change_in_oi": 120, "volume": 2500, "basis": 0.75, **NO_DAY},
         # 107.50 − 108 = −0.50
         {"expiry": "2026-11-24", "close": 107.6, "settle": 107.5, "oi": 900, "change_in_oi": -30, "volume": 400, "basis": -0.5, **NO_DAY},
-        # no settle price → no basis, never close − spot in its place
-        {"expiry": "2026-12-29", "close": 109.0, "settle": None, "oi": 10, "change_in_oi": 0, "volume": 0, "basis": None, **NO_DAY},
+        # no settle price → no basis, never close − spot in its place; no trade that day → no close (it is carried forward)
+        {"expiry": "2026-12-29", "close": None, "settle": None, "oi": 10, "change_in_oi": 0, "volume": 0, "basis": None, **NO_DAY},
     ]}
     # every futures kind is asked for, in both of the exchange's naming vintages: the route cannot know index
     # from stock, or which vintage the day's rows use, without a read

@@ -19,6 +19,8 @@ from datetime import date, timedelta
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from services import market_freshness
+
 logger = logging.getLogger(__name__)
 
 
@@ -222,12 +224,16 @@ def build_trend(recent_body: Any, recent_err: Optional[str], yields_body: Any,
 FNO_INDICES = ("NIFTY", "BANKNIFTY")
 
 
-def build_fno(buildup: Any, buildup_err: Optional[str], options: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+def build_fno(buildup: Any, buildup_err: Optional[str], options: Dict[str, Dict[str, Any]],
+              w: Optional[market_freshness.Window] = None) -> Dict[str, Any]:
     """Index-futures build-up and stock-futures label counts (DaaS /desk/fno-buildup), plus per-index option PCR and
     max pain over the nearest expiry that is still live after the data's day (DaaS /fno/{symbol}/chain, worked out
-    with routes.fno.summarise_chain). `options[sym]` is a summary or {"unavailable": reason}."""
+    with routes.fno.summarise_chain). `options[sym]` is a summary or {"unavailable": reason}. With `w`, a build-up
+    older than the previous session is unavailable, never shown as the market's."""
     if buildup_err or not isinstance(buildup, dict):
         fut: Dict[str, Any] = {"unavailable": buildup_err or "the fno-buildup route returned nothing"}
+    elif w is not None and not w.current(buildup.get("as_of")):
+        fut = {"unavailable": w.stale_reason("the F&O build-up", _date_str(buildup.get("as_of")))}
     else:
         by = {r.get("symbol"): r for r in (buildup.get("indices") or []) if isinstance(r, dict)}
         fut = {"as_of": _date_str(buildup.get("as_of")), "universe": buildup.get("universe"),
@@ -524,14 +530,17 @@ async def _global_read() -> Tuple[Any, Optional[str]]:
     return (body, None) if body else (None, "the vendor quote fetch returned nothing")
 
 
-async def _option_summary(sym: str) -> Dict[str, Any]:
+async def _option_summary(sym: str, w: market_freshness.Window) -> Dict[str, Any]:
     """PCR / max pain for one index over its nearest option expiry strictly after the data's day (the contracts
-    expiring on that day are at their last close, so their open interest says nothing about what comes next)."""
+    expiring on that day are at their last close, so their open interest says nothing about what comes next).
+    Unavailable when the data's day is older than the previous session (services/market_freshness)."""
     from routes import fno as fno_routes
     body, err = await _read(f"/fno/{sym}/expiries")
     if err:
         return {"unavailable": err}
     as_of, live = fno_routes.live_option_expiries(body.get("data"))
+    if as_of is not None and not w.current(as_of):
+        return {"unavailable": w.stale_reason(f"{sym} options", as_of)}
     nxt = next((e for e in live if e["days_to_expiry"] > 0), None)
     if as_of is None or nxt is None:
         return {"unavailable": "no option expiry is listed after the data's day"}
@@ -584,13 +593,14 @@ async def get_market_research() -> MarketResult:
         rows = {_date_str(r.get("holiday_date")) for r in _rows(hol_body)}
         sessions = next_sessions(anchor, rows)
         events = await _read("/events/calendar", {"from_date": sessions[0], "to_date": sessions[-1], "limit": 5000})
-    options = dict(zip(FNO_INDICES, await asyncio.gather(*(_option_summary(sym) for sym in FNO_INDICES))))
+    w = await market_freshness.window()
+    options = dict(zip(FNO_INDICES, await asyncio.gather(*(_option_summary(sym, w) for sym in FNO_INDICES))))
 
     extras = {
         "calendar": build_calendar(anchor, hol_body, hol_err, events[0], events[1], nifty[0], nifty[1]),
         "global": build_global(glob[0], glob[1]),
         "trend": build_trend(recent[0], recent[1], yields[0], yields[1]),
-        "fno": build_fno(buildup[0], buildup[1], options),
+        "fno": build_fno(buildup[0], buildup[1], options, w),
     }
     widget = build_market_widget(snapshot, movers if isinstance(movers, dict) else None,
                                  build_sectors(sector_body, sector_err), extras)
