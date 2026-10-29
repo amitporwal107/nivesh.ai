@@ -225,11 +225,13 @@ class BaseIngester(abc.ABC):
                         from nidp.shared.storage.pg import get_pool as _get_pool
                         _pool = await _get_pool()
                         async with _pool.acquire() as _g1_conn:
+                            # A backfill is a deliberate catch-up (nidp.backfill, or NIDP_BACKFILL=1), never
+                            # inferred from the date's age: that made G1-UNIV-004 skip exactly when it could fail.
+                            from nidp.shared.run_context import is_backfill_run as _is_backfill_run
                             _gate1 = IngestionGate(
                                 feed=self.SERVICE_NAME,
                                 row_count=len(kept),
-                                is_backfill=(target_date is not None
-                                             and (date.today() - target_date).days > 1),
+                                is_backfill=_is_backfill_run(),
                             )
                             _g1_result = await _gate1.run(
                                 _g1_conn, target_date, job_run_id=run.run_id,
