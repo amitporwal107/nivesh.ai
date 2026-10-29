@@ -9,12 +9,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app/backend
 
-# OS deps  (git: auto-fix agent clone/push)
+# OS deps  (git: auto-fix agent clone/push; tesseract-ocr: OCR of scanned filing pages, with poppler's pdftoppm)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential gcc libpq-dev \
         libxml2-dev libxslt-dev \
         curl jq git tzdata \
-        libmagic1 poppler-utils \
+        libmagic1 poppler-utils tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (fast Rust-based pip replacement)

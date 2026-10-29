@@ -113,7 +113,7 @@ function SpotBlock({ symbol, state, futures }: { symbol: string; state: ChainSta
       <span className="cp-num flex flex-col" style={{ gap: 2, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--cp-ink-3)", alignItems: mobile ? "flex-start" : "flex-end" }}>
         {live && <span data-testid="desk-fno-live" data-kind={live.kind} style={{ color: "var(--mint)" }}>{live.kind === "live" ? "Live · Kite" : closeLabel(live)}{live.changePct != null ? ` · ${live.changePct > 0 ? "+" : ""}${live.changePct.toFixed(2)}%` : ""}</span>}
         {asOf && <span data-testid="desk-fno-asof">{live ? `Chain figures: bhavcopy ${fmtDay(asOf)}` : `Bhavcopy ${fmtDay(asOf)} · end of day`}</span>}
-        {vix && <span data-testid="desk-fno-vix" title="India VIX from the markets tape (GET /api/markets/home)">{vix}</span>}
+        {vix && <span data-testid="desk-fno-vix" title="India VIX from the markets tape">{vix}</span>}
       </span>
     </div>
   );
@@ -522,11 +522,14 @@ function IndexCard({ symbol, onOpen }: { symbol: string; onOpen: (s: string) => 
  * `views` (the desk redesign of 2026-10-27): the lab views this host shows. Market Desk › Smart Money shows the build-up,
  * candidates, index and chain views; Trade Desk › New trade shows the paper strategies (with one view there is no view
  * row). A view the host does not show falls back to its first. `asSection`: the lab is a part of a page with its own
- * headline, so its title is a level-2 heading (one h1 a page).
+ * headline, so its title is a level-2 heading (one h1 a page). `bare`: no lab eyebrow and headline at all ("Options &
+ * futures lab · Build, test and understand option trades" read as a leftover inside Market Desk › Smart Money, whose
+ * section already has its title; audit 2026-10-28).
  */
-export default function FnoTab({ views: only, asSection = false, builderCatalog }: {
+export default function FnoTab({ views: only, asSection = false, bare = false, builderCatalog }: {
   views?: readonly LabView[];
   asSection?: boolean;
+  bare?: boolean;
   /** Trade Desk › New trade: the paper-strategy builder offers only these backend template names (FnoBuilder BuilderView `catalog`). */
   builderCatalog?: readonly string[] | null;
 } = {}) {
@@ -589,14 +592,16 @@ export default function FnoTab({ views: only, asSection = false, builderCatalog 
       <div className="flex items-end justify-between" style={{ gap: 16, flexWrap: mobile ? "wrap" : "nowrap" }}>
         <div className="flex min-w-0 flex-col" style={{ gap: 12, flex: "1 1 auto" }}>
           <span className="flex flex-wrap items-center" style={{ gap: 8 }}>
-            <span className="cp-eyebrow">Options &amp; futures lab · NSE F&amp;O</span>
+            {!bare && <span className="cp-eyebrow">Options &amp; futures lab · NSE F&amp;O</span>}
             <Pill tone="mint">{investor ? "Investor mode" : "Trader mode"}</Pill>
             <Pill tone="indigo">Analysis only</Pill>
             <Pill>End of day</Pill>
           </span>
-          <Title data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
-            Build, test and understand <em>option trades</em>.
-          </Title>
+          {!bare && (
+            <Title data-testid="desk-fno-title" className="cp-display m-0" style={{ fontSize: mobile ? 32 : 44, lineHeight: 1.05, letterSpacing: "-0.02em" }}>
+              Build, test and understand <em>option trades</em>.
+            </Title>
+          )}
         </div>
         <SpotBlock symbol={symbol} state={oc.state} futures={fq.data} />
       </div>

@@ -1,6 +1,7 @@
 /**
  * One-screen Copilot app (/v5/app) — the tool, workspace, trader, advisor and
- * internal screens.
+ * internal screens. The old Trader landing and the Options lab were removed in the desk redesign's step 6
+ * (2026-10-27); their redirects are in copilot-app-desk-retired.spec.ts.
  *
  * Test-case ids (TC-xx) match test_reports/copilot_one_screen_*.md.
  * Mocked APIs, production build — see pw.copilot-app.config.ts.
@@ -19,8 +20,6 @@ const VIEWS: Array<[string, string]> = [
   ["tool/research", "screen-tool-research"],
   ["tool/screener", "screen-tool-screener"],
   ["tool/markets", "screen-tool-markets"],
-  ["tool/optlab", "screen-tool-optlab"],
-  ["trader", "screen-trader"],
   ["trader/strategy", "screen-trader-strategy"],
   ["page/watchlist", "screen-page-watchlist"],
   ["page/saved", "screen-page-saved"],
@@ -318,7 +317,7 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
       delivery: { active: false, note: "Fixture delivery note." },
       updatedAt: "2026-10-12T10:00:00+00:00",
     });
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
 
     // The research watchlist the product already publishes, with its live quote and disclaimer.
     await expect(page.getByTestId("watchlist-count")).toHaveText("Research watchlist · 1 stock");
@@ -355,133 +354,6 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
     await expect(page.getByTestId("saved-reports-nc")).toBeVisible();
     await page.getByTestId("saved-thread-open").click();
     await expect(page).toHaveURL(/\/v5\/app\/t\/sess_fixture01$/);
-  });
-
-  test("Trader desk ← journal, scanner, watch levels, broker accounts, markets/home", async ({ page }) => {
-    // Shapes: backend/routes/positional_journal.py, positional.py, broker routes (read from the route code)
-    await json(page, "**/api/positional/journal/summary/portfolio", { open_count: 1, closed_count: 2, gross_long_rs: 10000, invested_rs: 10000, realized_pnl_rs: 600, win_count: 1, loss_count: 1, win_rate_pct: 50.0, needs_hedge: false, suggested_hedge: null });
-    await json(page, /\/api\/positional\/journal(\?.*)?$/, { count: 3, live: true, trades: [
-      { nse_symbol: "TESTOPEN", status: "OPEN", plan_source: "MANUAL", stop_loss: 95, target: 120, opened_at: "2026-10-01T04:00:00+00:00", closed_at: null, live_price: 110, pnl: { qty_in: 100, qty_out: 0, held_qty: 100, avg_buy: 100, invested_rs: 10000, realized_pnl_rs: 0, unrealized_pnl_rs: 1000 } },
-      { nse_symbol: "TESTWIN", status: "CLOSED", plan_source: "POSITIONAL_PICK", stop_loss: 190, target: 230, opened_at: "2026-09-01T04:00:00+00:00", closed_at: "2026-09-07T04:00:00+00:00", live_price: null, realized_pnl_rs: 1000, realized_pnl_pct: 10, pnl: { qty_in: 50, qty_out: 50, held_qty: 0, avg_buy: 200, invested_rs: 10000, realized_pnl_rs: 1000, unrealized_pnl_rs: 0 } },
-      { nse_symbol: "TESTLOSS", status: "STOPPED", plan_source: "MANUAL", stop_loss: 96, target: 0, opened_at: "2026-09-10T04:00:00+00:00", closed_at: "2026-09-12T04:00:00+00:00", live_price: null, realized_pnl_rs: -400, realized_pnl_pct: -4, pnl: { qty_in: 100, qty_out: 100, held_qty: 0, avg_buy: 100, invested_rs: 10000, realized_pnl_rs: -400, unrealized_pnl_rs: 0 } },
-    ] });
-    await json(page, "**/api/positional/watchlist*", { as_of_date: "2026-10-12", buckets: { breakout_confirmed: [{ nse_symbol: "TESTBRK", sector: "Capital Goods", close_price: 510.0, trigger_price: 500.0, stop_price: 477.5, atr_pct: 2.94, why: "Fixture reason" }], pre_breakout: [], true_accumulation: [], trend_continuation: [] } });
-    await json(page, "**/api/positional/picks*", { signal_date: "2026-10-12", count: 1, picks: [{ nse_symbol: "TESTBRK", signal_date: "2026-10-12", final_score: 0.812, confidence: "HIGH", stage: "BREAKOUT", timeframe_days_min: 5, timeframe_days_max: 15, entry_price: 505.0, stoploss: 480.0, target_price: 555.0, risk_reward: 2.0, source_scans: ["btst.breakout_confirmation"], reasons: ["Fixture scanner reason"] }] });
-    await json(page, "**/api/broker/accounts", { accounts: [] });
-    await page.goto(`${APP}/trader`);
-    await expect(page.getByTestId("trader-headline")).toHaveText("1 open trade in your journal.");
-    await expect(page.getByTestId("trader-open-count")).toHaveText("1");
-    // Open risk = (last 110 − stop 95) × 100 held = ₹1,500
-    await expect(page.getByTestId("trader-open-risk")).toHaveText("₹1,500");
-    await expect(page.getByTestId("trader-realised")).toHaveText("+₹600");
-    await expect(page.getByTestId("trader-win-rate")).toHaveText("50.0%");
-    // R per closed trade: +1000 / ((200−190)×50) = +2.0R and −400 / ((100−96)×100) = −1.0R → mean +0.50R
-    await expect(page.getByTestId("trader-expectancy")).toHaveText("+0.50R");
-    await expect(page.getByTestId("journal-open-row")).toHaveText(["TESTOPEN"]);
-    await expect(page.getByTestId("watch-row")).toHaveText(["TESTBRK"]);
-    await expect(page.getByTestId("scanner-pick")).toContainText("Fixture scanner reason");
-    // markets-home.json: Nifty 50 24568, change −120.5 (−0.49%)
-    await expect(page.getByTestId("fno-spot")).toHaveText("24,568.00");
-    await expect(page.getByTestId("fno-change")).toHaveText("−120.50 · −0.49%");
-    // The broker position book is not exposed by any route.
-    await expect(page.getByTestId("trader-positions-not-connected")).toBeVisible();
-    await expect(page.getByTestId("trader-risk-rules-not-connected")).toBeVisible();
-  });
-
-  test("Options lab: payoff is computed from typed legs; with no F&O answer the chain and open interest show an error, not numbers", async ({ page }) => {
-    await page.goto(`${APP}/tool/optlab`);
-    // No chain (the mock answers /api/fno/* with {}), so the spot falls back to the markets feed.
-    await expect(page.getByTestId("optlab-spot")).toContainText("24,568.00");
-    await expect(page.getByTestId("optlab-asof")).toHaveCount(0);
-    await page.getByTestId("optlab-tab-builder").click();
-    await page.getByTestId("optlab-structure").filter({ hasText: "Bull call spread" }).click();
-    await expect(page.getByTestId("optlab-payoff-empty")).toBeVisible(); // nothing computed until prices are typed
-    await page.getByTestId("optlab-lot-size").fill("75");
-    await page.getByTestId("optlab-leg-0-strike").fill("22000");
-    await page.getByTestId("optlab-leg-0-premium").fill("200");
-    await page.getByTestId("optlab-leg-1-strike").fill("22500");
-    await page.getByTestId("optlab-leg-1-premium").fill("50");
-    // Buy 22000 CE @200, sell 22500 CE @50, lot 75:
-    //   net debit (200−50)×75 = 11,250 = max loss · max profit (500−150)×75 = 26,250 · breakeven 22000+150
-    await expect(page.getByTestId("optlab-max-profit")).toHaveText("₹26,250");
-    await expect(page.getByTestId("optlab-max-loss")).toHaveText("₹11,250");
-    await expect(page.getByTestId("optlab-breakevens")).toHaveText("22,150");
-    await expect(page.getByTestId("optlab-net-premium")).toHaveText("₹11,250");
-    await expect(page.getByTestId("optlab-payoff-chart")).toBeVisible();
-    await expect(page.getByTestId("optlab-analytics-not-connected")).toBeVisible();
-    await page.getByTestId("optlab-tab-chain").click();
-    await expect(page.getByTestId("optlab-chain-error")).toBeVisible();
-    await expect(page.getByTestId("optlab-chain-row")).toHaveCount(0);
-    await page.getByTestId("optlab-tab-oi").click();
-    await expect(page.getByTestId("optlab-oi-error")).toBeVisible();
-    await expect(page.getByTestId("optlab-oi-bar")).toHaveCount(0);
-  });
-
-  test("Options lab ← /api/fno: end-of-day chain, open interest, lot size and prefilled legs", async ({ page }) => {
-    const fno = load("fno-nifty.json");
-    await json(page, "**/api/fno/NIFTY/expiries", fno.expiries);
-    await json(page, "**/api/fno/NIFTY/chain*", fno.chain);
-    await page.goto(`${APP}/tool/optlab`);
-    // Spot and date come from the chain, and are labelled end of day.
-    await expect(page.getByTestId("optlab-spot")).toHaveText("25,040.50");
-    await expect(page.getByTestId("optlab-asof")).toHaveText("End-of-day data · as of 12 Oct 2026");
-    await expect(page.getByTestId("optlab-expiry")).toHaveValue("2026-10-13");
-
-    await page.getByTestId("optlab-tab-chain").click();
-    const rows = page.getByTestId("optlab-chain-row");
-    await expect(rows).toHaveCount(3);
-    const atm = page.locator('[data-testid="optlab-chain-row"][data-atm="true"]');
-    await expect(atm).toHaveAttribute("data-strike", "25000");
-    await expect(atm.locator('[data-col="call-oi"]')).toHaveText("31.00 L");
-    await expect(atm.locator('[data-col="call-price"]')).toHaveText("240.25");
-    await expect(atm.locator('[data-col="put-price"]')).toHaveText("128.60");
-    await expect(atm.locator('[data-col="put-oi"]')).toHaveText("36.00 L");
-    await expect(page.getByTestId("optlab-chain-note")).toContainText("3 of this expiry’s 3 strikes");
-
-    await page.getByTestId("optlab-tab-oi").click();
-    // Totals 1,68,00,000 calls and 87,00,000 puts → PCR 0.5179
-    await expect(page.getByTestId("optlab-oi-total-call")).toHaveText("1.68 Cr");
-    await expect(page.getByTestId("optlab-oi-total-put")).toHaveText("87.00 L");
-    await expect(page.getByTestId("optlab-oi-pcr")).toHaveText("0.52");
-    await expect(page.getByTestId("optlab-oi-max-pain")).toHaveText("25,000");
-    await expect(page.getByTestId("optlab-oi-top-call")).toHaveText("25,100 · 1.24 Cr");
-    await expect(page.getByTestId("optlab-oi-top-put")).toHaveText("24,900 · 42.00 L");
-    await expect(page.getByTestId("optlab-oi-bar")).toHaveCount(6);
-
-    await page.getByTestId("optlab-tab-builder").click();
-    // "Buy call" is filled from the ATM strike's close, and the lot from the contract file.
-    await expect(page.getByTestId("optlab-leg-0-strike")).toHaveValue("25000");
-    await expect(page.getByTestId("optlab-leg-0-premium")).toHaveValue("240.25");
-    await expect(page.getByTestId("optlab-lot-size")).toHaveValue("65");
-    await expect(page.getByTestId("optlab-lot-source")).toBeVisible();
-    await expect(page.getByTestId("optlab-prefill-note")).toContainText("end-of-day closing prices as of 12 Oct 2026");
-    // Buy 1 lot of 65 at 240.25: the most that can be lost is the premium, 240.25 × 65 = 15,616.25
-    await expect(page.getByTestId("optlab-max-profit")).toHaveText("Unlimited");
-    await expect(page.getByTestId("optlab-max-loss")).toHaveText("₹15,616");
-    // A typed lot size is kept when another expiry's chain arrives.
-    await page.getByTestId("optlab-lot-size").fill("130");
-    await page.getByTestId("optlab-expiry").selectOption("2026-10-27");
-    await expect(page.getByTestId("optlab-lot-size")).toHaveValue("130");
-    await expect(page.getByTestId("optlab-lot-source")).toHaveCount(0);
-    // Nothing here offers an order.
-    await expect(page.getByTestId("screen-tool-optlab").getByRole("button", { name: /place|send order|buy now|sell now/i })).toHaveCount(0);
-  });
-
-  test("Trader desk F&O card ← /api/fno: futures basis, put-call ratio, max pain and open-interest levels", async ({ page }) => {
-    const fno = load("fno-nifty.json");
-    await json(page, "**/api/fno/NIFTY/expiries", fno.expiries);
-    await json(page, "**/api/fno/NIFTY/chain*", fno.chain);
-    await json(page, "**/api/fno/NIFTY/futures", fno.futures);
-    await page.goto(`${APP}/trader`);
-    await expect(page.getByTestId("fno-futures-price")).toHaveText("25,079.00");
-    // 25,079.00 settle − 25,040.50 spot
-    await expect(page.getByTestId("fno-basis")).toHaveText("+38.50");
-    await expect(page.getByTestId("fno-futures-asof")).toHaveText("End-of-day data · as of 12 Oct 2026");
-    await expect(page.getByTestId("fno-pcr")).toHaveText("0.52");
-    await expect(page.getByTestId("fno-max-pain")).toHaveText("25,000");
-    await expect(page.getByTestId("fno-top-put-oi")).toHaveText("24,900");
-    await expect(page.getByTestId("fno-top-call-oi")).toHaveText("25,100");
-    await expect(page.getByTestId("fno-oi-by-strike-row")).toHaveCount(3);
   });
 
   test("Paper trades ← paper-trades portfolio, evaluation, live", async ({ page }) => {
@@ -607,7 +479,7 @@ test.describe("TC-19 screens show their endpoint's data — desktop", () => {
   });
 
   test("the engineering 'needs' list on a not-connected block is shown to admins only", async ({ page }) => {
-    await page.goto(`${APP}/page/watchlist`); // fixture user is an admin
+    await page.goto(`${APP}/page/watchlist?wl=all`); // fixture user is an admin
     await expect(page.getByTestId("watchlist-alerts-nc").getByTestId("not-connected-needs")).toBeVisible();
     await json(page, "**/api/auth/me", { user_id: "u_plain", email: "user@example.test", name: "Fixture User", is_admin: false, onboarding_completed: true });
     await page.reload();

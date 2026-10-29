@@ -9,7 +9,8 @@
  * Layout: the basis label (always on screen, also while loading or after an error) · counts · macro this week · market
  * strip · Declared (verdict pill, PAT and revenue vs the baseline mid, YoY / QoQ, outlook, quality flags, reaction vs
  * Nifty, Chartink chips) · Pending ("figures not filed yet") · Upcoming (expected range or "no reliable baseline", past
- * results reactions, OI build-up, scanner stage). A row opens the drawer (ResultsWeekDrawer.tsx).
+ * results reactions, OI build-up, scanner stage). A row opens the drawer (ResultsWeekDrawer.tsx); each row's "File ›" and
+ * the drawer's "Results file ›" open the per-stock results file (ResultsFile.tsx, §9b).
  *
  * Wording (SEBI): verdicts are "vs historical trend"; no consensus is held, so nothing here is called a beat or a miss.
  * Missing data says "not available" / "not analysed", never 0 and never neutral.
@@ -22,8 +23,10 @@ import { fmtExpVal } from "../events-data";
 import { Widget } from "../widget";
 import { MacroWeek, MarketStrip } from "./ResultsWeekMarket";
 import { ResultsWeekDrawer } from "./ResultsWeekDrawer";
+import { ResultsFile } from "./ResultsFile";
+import { useDesk } from "../context";
 import ResultsWeekIdeas from "./ResultsWeekIdeas";
-import { BASIS_LABEL, plainWords, useResultsWeek, type ResultsWeek, type RwMetric, type RwResult, type Verdict } from "./results-week-data";
+import { BASIS_LABEL, plainWords, useResultsWeek, type ResultsWeek, type RwIdea, type RwMetric, type RwResult, type Verdict } from "./results-week-data";
 import { BuildupText, Chip, NA, Pct, VerdictPill, addDays, eyebrow, fmtD, line, mono, mondayOf, quiet } from "./parts";
 
 type Uni = "all" | "fno";
@@ -132,19 +135,29 @@ function Company({ r, onOpen }: { r: RwResult; onOpen: (r: RwResult) => void }) 
   );
 }
 
+type OnFile = (r: RwResult) => void;
+
+/** The row's own way into the results file (§9b), beside the row's drawer. */
+function FileBtn({ r, onFile }: { r: RwResult; onFile: OnFile }) {
+  return (
+    <button type="button" className="cp-chip" data-testid={`results-week-file-${r.symbol}`} aria-label={`${r.name} (${r.symbol}): open the results file`}
+      onClick={(e) => { e.stopPropagation(); onFile(r); }} style={{ fontSize: 11, padding: "3px 9px", whiteSpace: "nowrap" }}>File ›</button>
+  );
+}
+
 // ── tables (desktop) ─────────────────────────────────────────────────────
 
 const th: CSSProperties = { ...mono, fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--cp-ink-3)", fontWeight: 400, textAlign: "left", padding: "8px 10px", whiteSpace: "nowrap", borderBottom: line };
 const td: CSSProperties = { padding: "9px 10px", borderTop: line, verticalAlign: "middle" };
 
-function DeclaredTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResult) => void }) {
+function DeclaredTable({ rows, onOpen, onFile }: { rows: RwResult[]; onOpen: (r: RwResult) => void; onFile: OnFile }) {
   return (
     <div className="cp-scroll" style={{ overflowX: "auto" }}>
       <table data-testid="results-week-declared-table" style={{ width: "100%", minWidth: 1180, borderCollapse: "collapse" }}>
         <thead>
           <tr>
             <th style={{ ...th, width: "22%" }}>Company</th><th style={th}>Verdict</th><th style={th}>PAT vs mid</th><th style={th}>Revenue vs mid</th>
-            <th style={th} title="Year on year · quarter on quarter">YoY · QoQ</th><th style={th}>Outlook</th><th style={th}>Quality</th><th style={th}>Reaction</th><th style={th}>OI build-up</th><th style={th}>Chartink</th>
+            <th style={th} title="Year on year · quarter on quarter">YoY · QoQ</th><th style={th}>Outlook</th><th style={th}>Quality</th><th style={th}>Reaction</th><th style={th}>OI build-up</th><th style={th}>Chartink</th><th style={th}><span className="sr-only">Results file</span></th>
           </tr>
         </thead>
         <tbody>
@@ -165,6 +178,7 @@ function DeclaredTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
               <td style={td}><Reaction r={r} /></td>
               <td style={td}><BuildupText b={r.buildup} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></td>
               <td style={{ ...td, maxWidth: 200 }}><Chartink r={r} /></td>
+              <td style={td}><FileBtn r={r} onFile={onFile} /></td>
             </tr>
           ))}
         </tbody>
@@ -173,12 +187,12 @@ function DeclaredTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
   );
 }
 
-function UpcomingTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResult) => void }) {
+function UpcomingTable({ rows, onOpen, onFile }: { rows: RwResult[]; onOpen: (r: RwResult) => void; onFile: OnFile }) {
   return (
     <div className="cp-scroll" style={{ overflowX: "auto" }}>
       <table data-testid="results-week-upcoming-table" style={{ width: "100%", minWidth: 900, borderCollapse: "collapse" }}>
         <thead>
-          <tr><th style={{ ...th, width: "26%" }}>Company</th><th style={th}>Expected PAT</th><th style={th}>Expected revenue</th><th style={th} title="Average move on past results: event day · one week">Past results reactions</th><th style={th}>OI build-up</th><th style={th}>Scanner stage</th></tr>
+          <tr><th style={{ ...th, width: "26%" }}>Company</th><th style={th}>Expected PAT</th><th style={th}>Expected revenue</th><th style={th} title="Average move on past results: event day · one week">Past results reactions</th><th style={th}>OI build-up</th><th style={th}>Scanner stage</th><th style={th}><span className="sr-only">Results file</span></th></tr>
         </thead>
         <tbody>
           {rows.map((r) => (
@@ -189,6 +203,7 @@ function UpcomingTable({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
               <td style={td}><PastCell r={r} /></td>
               <td style={td}><BuildupText b={r.buildup} fno={r.fno} testId={`results-week-oi-${r.symbol}`} /></td>
               <td style={td}>{r.technical?.stage ? <span data-testid={`results-week-stage-${r.symbol}`} style={{ fontSize: 12 }}>{plainWords(r.technical.stage)}</span> : <NA testId={`results-week-stage-${r.symbol}`} />}</td>
+              <td style={td}><FileBtn r={r} onFile={onFile} /></td>
             </tr>
           ))}
         </tbody>
@@ -216,14 +231,17 @@ function Card({ r, onOpen, children }: { r: RwResult; onOpen: (r: RwResult) => v
   );
 }
 
-function DeclaredCards({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResult) => void }) {
+function DeclaredCards({ rows, onOpen, onFile }: { rows: RwResult[]; onOpen: (r: RwResult) => void; onFile: OnFile }) {
   return (
     <ul data-testid="results-week-declared-cards" className="m-0 p-0" style={{ listStyle: "none" }}>
       {rows.map((r) => (
         <Card key={r.id} r={r} onOpen={onOpen}>
           <span className="flex min-w-0 items-start" style={{ gap: 8 }}>
             <span className="min-w-0" style={{ flex: 1 }}><Company r={r} onOpen={onOpen} /></span>
-            <VerdictPill label={r.verdict.label} intensity={r.verdict.intensity} reason={r.verdict.reason} testId={`results-week-verdict-${r.symbol}`} small />
+            <span className="flex flex-none flex-col items-end" style={{ gap: 6 }}>
+              <VerdictPill label={r.verdict.label} intensity={r.verdict.intensity} reason={r.verdict.reason} testId={`results-week-verdict-${r.symbol}`} small />
+              <FileBtn r={r} onFile={onFile} />
+            </span>
           </span>
           <span className="grid" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 8 }}>
             <Field k="PAT VS MID"><VsMid r={r} k="pat" /></Field>
@@ -240,12 +258,15 @@ function DeclaredCards({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResul
   );
 }
 
-function UpcomingCards({ rows, onOpen }: { rows: RwResult[]; onOpen: (r: RwResult) => void }) {
+function UpcomingCards({ rows, onOpen, onFile }: { rows: RwResult[]; onOpen: (r: RwResult) => void; onFile: OnFile }) {
   return (
     <ul data-testid="results-week-upcoming-cards" className="m-0 p-0" style={{ listStyle: "none" }}>
       {rows.map((r) => (
         <Card key={r.id} r={r} onOpen={onOpen}>
-          <Company r={r} onOpen={onOpen} />
+          <span className="flex min-w-0 items-start" style={{ gap: 8 }}>
+            <span className="min-w-0" style={{ flex: 1 }}><Company r={r} onOpen={onOpen} /></span>
+            <FileBtn r={r} onFile={onFile} />
+          </span>
           <span className="grid" style={{ gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 8 }}>
             <Field k="EXPECTED PAT"><ExpectedRange r={r} k="pat" /></Field>
             <Field k="EXPECTED REVENUE"><ExpectedRange r={r} k="revenue" /></Field>
@@ -310,7 +331,7 @@ function More({ n, all, onToggle, testId }: { n: number; all: boolean; onToggle:
 const matches = (r: RwResult, uni: Uni, needle: string) =>
   (uni === "all" || r.fno === true) && (!needle || `${r.symbol} ${r.name} ${r.sector ?? ""}`.toLowerCase().includes(needle));
 
-function Body({ d, mobile, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: (r: RwResult) => void }) {
+function Body({ d, mobile, onOpen, onFile }: { d: ResultsWeek; mobile: boolean; onOpen: (r: RwResult) => void; onFile: OnFile }) {
   const [uni, setUni] = useState<Uni>("all");
   const [vf, setVf] = useState<VFilter>("all");
   const [q, setQ] = useState("");
@@ -354,7 +375,7 @@ function Body({ d, mobile, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: 
       </div>
 
       <Block title="Declared" testId="results-week-declared" count={declared.length} sub="Filed figures vs the baseline mid · reaction vs Nifty 50 on the first session after filing">
-        {declared.length ? (mobile ? <DeclaredCards rows={declShown} onOpen={onOpen} /> : <DeclaredTable rows={declShown} onOpen={onOpen} />)
+        {declared.length ? (mobile ? <DeclaredCards rows={declShown} onOpen={onOpen} onFile={onFile} /> : <DeclaredTable rows={declShown} onOpen={onOpen} onFile={onFile} />)
           : <p data-testid="results-week-declared-empty" className="m-0" style={quiet}>No declared results with figures for these filters.</p>}
         <More n={declared.length} all={allDecl} onToggle={() => setAllDecl((v) => !v)} testId="results-week-declared-more" />
       </Block>
@@ -363,12 +384,14 @@ function Body({ d, mobile, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: 
         {pending.length ? (
           <ul className="m-0 p-0" style={{ listStyle: "none" }}>
             {pending.map((r) => (
-              <li key={r.id} data-testid={`results-week-row-${r.symbol}`} data-status="pending" onClick={() => onOpen(r)} className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr)" : "minmax(0,1.2fr) minmax(0,2fr)", gap: mobile ? 4 : 12, alignItems: "center", padding: "9px 2px", borderTop: line, cursor: "pointer" }}>
+              <li key={r.id} data-testid={`results-week-row-${r.symbol}`} data-status="pending" onClick={() => onOpen(r)} className="grid" style={{ gridTemplateColumns: mobile ? "minmax(0,1fr) auto" : "minmax(0,1.2fr) minmax(0,2fr) auto", gap: mobile ? 4 : 12, alignItems: "center", padding: "9px 2px", borderTop: line, cursor: "pointer" }}>
                 <Company r={r} onOpen={onOpen} />
+                {mobile && <FileBtn r={r} onFile={onFile} />}
                 <span className="flex min-w-0 flex-col" style={{ gap: 1 }}>
                   <span data-testid={`results-week-pending-note-${r.symbol}`} style={{ fontSize: 12.5, color: "var(--amber)" }}>Figures not filed yet</span>
                   {r.gaps[0] && <span style={{ ...quiet, fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: mobile ? "normal" : "nowrap" }}>{r.gaps[0]}</span>}
                 </span>
+                {!mobile && <FileBtn r={r} onFile={onFile} />}
               </li>
             ))}
           </ul>
@@ -379,7 +402,7 @@ function Body({ d, mobile, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: 
         {upcoming.length ? upDays.map(([day, rows]) => (
           <div key={day} data-testid={`results-week-upcoming-day-${day}`} className="flex min-w-0 flex-col">
             <span style={{ ...eyebrow, padding: "8px 0 4px" }}>{fmtD(day.length === 10 ? day : null)} · {rows.length} result{rows.length === 1 ? "" : "s"}</span>
-            {mobile ? <UpcomingCards rows={rows} onOpen={onOpen} /> : <UpcomingTable rows={rows} onOpen={onOpen} />}
+            {mobile ? <UpcomingCards rows={rows} onOpen={onOpen} onFile={onFile} /> : <UpcomingTable rows={rows} onOpen={onOpen} onFile={onFile} />}
           </div>
         )) : <p data-testid="results-week-upcoming-empty" className="m-0" style={quiet}>No upcoming results meetings for these filters.</p>}
         <More n={upcoming.length} all={allUp} onToggle={() => setAllUp((v) => !v)} testId="results-week-upcoming-more" />
@@ -390,18 +413,25 @@ function Body({ d, mobile, onOpen }: { d: ResultsWeek; mobile: boolean; onOpen: 
 
 export function ResultsWeekView({ today, viewSwitch }: { today: string; viewSwitch: ReactNode }) {
   const { mobile } = useCopilotShell();
+  const desk = useDesk();
   const q = useResultsWeek(today);
   const d = q.data;
   const [openId, setOpenId] = useState<string | null>(null);
+  const [fileId, setFileId] = useState<string | null>(null);
   const onOpen = useCallback((r: RwResult) => setOpenId(r.id), []);
   const onClose = useCallback(() => setOpenId(null), []);
+  // The results file replaces the drawer (one dialog at a time).
+  const onFile = useCallback((r: RwResult) => { setOpenId(null); setFileId(r.id); }, []);
+  const onFileClose = useCallback(() => setFileId(null), []);
   const open = openId ? d?.results.find((r) => r.id === openId) ?? null : null;
+  const file = fileId ? d?.results.find((r) => r.id === fileId) ?? null : null;
+  const ideaOf = (r: RwResult): RwIdea | null => (r.fno ? d?.ideas.fno.find((i) => i.symbol === r.symbol) : null) ?? d?.ideas.all.find((i) => i.symbol === r.symbol) ?? null;
   const mon = mondayOf(today);
   const week = { from: d?.week.from ?? mon, to: d?.week.to ?? addDays(mon, 6) };
 
   return (
     <div data-testid="desk-events" data-view="results-week" className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
-      {mobile && <div className="flex items-center" style={{ gap: 8 }}><span className="cp-eyebrow"><span style={{ color: "var(--mint)" }}>03</span> · Events calendar</span><div style={{ marginLeft: "auto" }}>{viewSwitch}</div></div>}
+      {mobile && <div className="flex items-center" style={{ gap: 8 }}><span className="cp-eyebrow">Events calendar</span><div style={{ marginLeft: "auto" }}>{viewSwitch}</div></div>}
       <Widget
         id="events.resultsweek"
         testId="results-week"
@@ -426,7 +456,7 @@ export function ResultsWeekView({ today, viewSwitch }: { today: string; viewSwit
               <MacroWeek from={week.from} to={week.to} />
             </div>
             <MarketStrip mobile={mobile} />
-            <Body d={d} mobile={mobile} onOpen={onOpen} />
+            <Body d={d} mobile={mobile} onOpen={onOpen} onFile={onFile} />
             {(d.gaps.length > 0 || d.sources.length > 0) && (
               <div className="flex flex-col" style={{ gap: 4, paddingTop: 10, borderTop: line }}>
                 {d.gaps.length > 0 && (
@@ -443,7 +473,10 @@ export function ResultsWeekView({ today, viewSwitch }: { today: string; viewSwit
       {/* The early-signal order built from these results (§4c), in the same view: the owner's desk design keeps the
           AI Scanner and Market Overview structure as drawn, so this list lives beside the results it is built from. */}
       <ResultsWeekIdeas />
-      {open && <ResultsWeekDrawer r={open} onClose={onClose} mobile={mobile} />}
+      {open && <ResultsWeekDrawer r={open} onClose={onClose} mobile={mobile} onOpenFile={onFile} />}
+      {file && d && (
+        <ResultsFile symbol={file.symbol} date={d.date} row={file} idea={ideaOf(file)} onClose={onFileClose} mobile={mobile} onChart={() => desk.openChart(file.symbol)} />
+      )}
     </div>
   );
 }

@@ -58,7 +58,9 @@ function IndexCell({ def, d }: { def: (typeof STRIP_INDICES)[number]; d: Markets
     <Cell testId="mo-index" label={def.label} data={{ "data-index": def.key }}>
       <span data-testid="mo-index-value" style={bigNum}><Flash value={flashOf(live)}>{fmtLevel(live ? live.ltp : ix?.value)}</Flash></span>
       <span data-testid="mo-index-change" className="cp-num" style={{ fontSize: 11, color: tone === "ink" ? "var(--cp-ink-2)" : toneColor(tone) }}>
-        {ix ? `${fmtPoints(live ? live.change : ix.change)} (${fmtPct(pct, { signed: true, digits: 2 })})` : "Not in the response"}
+        {!ix ? "Not in the response"
+          : !live && (ix.change == null || pct == null) ? "Day change not reported by the index feed"
+            : `${fmtPoints(live ? live.change : ix.change)} (${fmtPct(pct, { signed: true, digits: 2 })})`}
       </span>
       <span data-testid="mo-index-stamp" data-mode={indexMode(d)} data-live={live ? live.kind : undefined} className="cp-num" style={{ fontSize: 9.5, color: "var(--cp-ink-3)", overflowWrap: "anywhere" }}>
         {live ? (live.kind === "close" ? closeLabel(live) : "Live · Kite") : `${MODE_WORD[indexMode(d)]}${stamp ? ` · ${stamp}` : ""}`}
@@ -217,7 +219,7 @@ export function MarketStrip({ onSectors, onIntel }: { onSectors: () => void; onI
         {home.isPending ? (
           <span style={quiet}>Loading the index tape…</span>
         ) : !d ? (
-          <span data-testid="mo-index-error" style={quiet}>Index levels and breadth didn’t load (GET /api/markets/home).</span>
+          <span data-testid="mo-index-error" style={quiet}>Index levels and breadth didn’t load.</span>
         ) : (
           <div data-testid="mo-index-row" className="grid" style={{ gridTemplateColumns: mobile ? "repeat(2,minmax(0,1fr))" : "repeat(auto-fit,minmax(150px,1fr))", gap: 8 }}>
             {STRIP_INDICES.map((def) => <IndexCell key={def.key} def={def} d={d} />)}

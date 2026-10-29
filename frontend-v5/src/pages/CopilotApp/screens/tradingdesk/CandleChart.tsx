@@ -54,6 +54,36 @@ export interface ChartEvent {
   title: string;
 }
 
+/** A signal marker: a pill at the top of the price pane with a dotted line down to its bar (or, `below`, a tag under the
+ *  candles). `at` is a bar's `day` (its ISO time on an intraday chart); a marker whose bar is not drawn is skipped. */
+export interface ChartMarker {
+  at: string;
+  label: string;
+  /** A CSS colour (a var(--…) token). */
+  color: string;
+  title: string;
+  /** The toggle it belongs to (data-group), e.g. pattern / confirmation / volume / fno. */
+  group: string;
+}
+
+/** Extra horizontal levels (T1, T2, …): a dashed line, its value in the gutter and its name at the left. */
+export interface ChartLine { key: string; label: string; value: number; color: string }
+
+/** The live chart's extras (Trade Desk › Chart Analysis › Live chart, the owner's design of 28 Oct). All optional. */
+export interface ChartExtras {
+  /** The entry range, shaded; drawn only when low < high. */
+  band?: { low: number; high: number; label: string } | null;
+  lines?: ChartLine[];
+  markers?: ChartMarker[];
+  below?: ChartMarker[];
+  /** An open circle on the last close. */
+  lastDot?: boolean;
+  /** A note at the right edge of the plot, e.g. "VALID UNTIL 29 OCT 15:30". */
+  rightNote?: string | null;
+  /** Names on the level lines (STOP, ENTRY, T1 …) at the left of the plot. */
+  lineNames?: boolean;
+}
+
 /** What the legend and the level lines are called (trader or plain wording, design-spec §10). */
 export interface ChartWords {
   ema20: string;
@@ -111,7 +141,10 @@ function spread<T extends { y: number; h: number }>(items: T[], top: number, bot
   return out;
 }
 
-export function CandleChart({ bars, name, overlays, events = [], compact = false, words = TRADER_CHART_WORDS, intraday = false }: {
+/** Pill width in viewBox units for a label (monospace 8.5). */
+const pillW = (label: string) => label.length * 5.3 + 10;
+
+export function CandleChart({ bars, name, overlays, events = [], compact = false, words = TRADER_CHART_WORDS, intraday = false, extras }: {
   bars: DailyBar[];
   name: string;
   overlays: ChartOverlays;
@@ -122,38 +155,48 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
   words?: ChartWords;
   /** Bars are intraday: `day` is an ISO time with the IST offset and the labels show the time, not just the date. */
   intraday?: boolean;
+  extras?: ChartExtras;
 }) {
   const label = (d: string) => (intraday ? `${fmtDay(d.slice(0, 10))} ${d.slice(11, 16)}` : fmtDay(d));
   const [active, setActive] = useState<number | null>(null);
   const n = bars.length;
 
   const W = compact ? 330 : 540;
-  const priceH = compact ? 160 : 230;
+  const markers = extras?.markers ?? [];
+  const below = extras?.below ?? [];
+  const pillH = 12;
+  const head = markers.length ? 2 * (pillH + 3) + 4 : 0;          // two rows of pills above the candles
+  const priceH = (compact ? 160 : 230) + head;
   const gap = 6;
   const volH = compact ? 28 : 36;
+  const belowH = below.length ? 16 : 0;
   const gutter = compact ? 46 : 50;
-  const H = priceH + gap + volH;
+  const H = priceH + gap + volH + belowH;
   const plotW = W - gutter;
   const volTop = priceH + gap;
   const font = compact ? 8.5 : 9;
 
   const levels = overlays.levels ?? null;
-  const levelList: Array<{ key: "target" | "entry" | "stop"; label: string; value: number; color: string }> = [];
+  const levelList: Array<{ key: string; label: string; value: number; color: string }> = [];
   if (levels?.target != null) levelList.push({ key: "target", label: words.target, value: levels.target, color: UP });
   if (levels?.entry != null) levelList.push({ key: "entry", label: words.entry, value: levels.entry, color: ENTRY });
   if (levels?.stop != null) levelList.push({ key: "stop", label: words.stop, value: levels.stop, color: DOWN });
+  for (const l of extras?.lines ?? []) if (Number.isFinite(l.value)) levelList.push(l);
+  const band = extras?.band && extras.band.low < extras.band.high ? extras.band : null;
 
   const lineValues = [overlays.ema20, overlays.ema50, overlays.ema200, overlays.vwap20].flatMap((s) => (s ?? []).filter((v): v is number => v != null && Number.isFinite(v)));
-  const lo = Math.min(...bars.map((b) => b.low), ...lineValues, ...levelList.map((l) => l.value));
-  const hi = Math.max(...bars.map((b) => b.high), ...lineValues, ...levelList.map((l) => l.value));
+  const bandValues = band ? [band.low, band.high] : [];
+  const lo = Math.min(...bars.map((b) => b.low), ...lineValues, ...levelList.map((l) => l.value), ...bandValues);
+  const hi = Math.max(...bars.map((b) => b.high), ...lineValues, ...levelList.map((l) => l.value), ...bandValues);
   const room = (hi - lo || hi || 1) * 0.06;
   const min = lo - room;
   const range = hi + room - min;
+  const plotH = priceH - head;
   const maxVol = Math.max(...bars.map((b) => b.volume), 1);
 
   const slot = plotW / Math.max(n, 1);
   const x = (i: number) => (i + 0.5) * slot;
-  const y = (v: number) => priceH - ((v - min) / range) * priceH;
+  const y = (v: number) => head + plotH - ((v - min) / range) * plotH;
   const bodyW = Math.max(1, slot * 0.62);
   const ticks = niceTicks(lo, hi, compact ? 4 : 5);
 
@@ -166,11 +209,27 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
       { key: "last", y: y(last.close), h: tagH, text: gutterPrice(last.close), color: UP },
       ...levelList.map((l) => ({ key: l.key, y: y(l.value), h: 11, text: gutterPrice(l.value), color: l.color })),
     ],
-    0,
+    head,
     priceH,
   );
   const tagAt = gutterItems.find((g) => g.key === "last")?.y ?? y(last.close);
-  const axis = levelList.length ? [] : ticks.filter((v) => Math.abs(y(v) - tagAt) > tagH / 2 + 6 && y(v) > 5 && y(v) < priceH - 3);
+  const axis = levelList.length ? [] : ticks.filter((v) => Math.abs(y(v) - tagAt) > tagH / 2 + 6 && y(v) > head + 5 && y(v) < priceH - 3);
+
+  // Pills: placed left to right, each in the first of two rows where it does not overlap the previous pill of that row.
+  const dayIndex = new Map(bars.map((b, i) => [b.day, i] as const));
+  const rowEnd = [-Infinity, -Infinity];
+  const placed = markers
+    .map((m) => ({ m, i: dayIndex.get(m.at) }))
+    .filter((p): p is { m: ChartMarker; i: number } => p.i != null)
+    .sort((a, b) => a.i - b.i)
+    .map(({ m, i }) => {
+      const w = pillW(m.label);
+      const cx = Math.min(Math.max(x(i), w / 2), plotW - w / 2);
+      const row = cx - w / 2 > rowEnd[0] + 2 ? 0 : cx - w / 2 > rowEnd[1] + 2 ? 1 : 0;
+      rowEnd[row] = cx + w / 2;
+      return { m, i, w, cx, top: 2 + row * (pillH + 3) };
+    });
+  const belowTop = volTop + volH + 3;
 
   const onMove = (e: PointerEvent<SVGSVGElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
@@ -212,9 +271,17 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
         onBlur={() => setActive(null)}
       >
         {/* grid */}
-        {ticks.map((v) => (
+        {ticks.filter((v) => y(v) >= head).map((v) => (
           <line key={v} x1={0} y1={y(v)} x2={plotW} y2={y(v)} style={{ stroke: "var(--line-2)" }} strokeWidth={0.6} />
         ))}
+
+        {/* the entry range */}
+        {band && (
+          <g data-testid="desk-band" data-low={band.low} data-high={band.high}>
+            <title>{`${band.label} ${fmtPrice(band.low)}–${fmtPrice(band.high)}`}</title>
+            <rect x={0} y={y(band.high)} width={plotW} height={Math.max(1, y(band.low) - y(band.high))} style={{ fill: "color-mix(in srgb, var(--cp-indigo) 14%, transparent)" }} />
+          </g>
+        )}
 
         {/* volume */}
         {bars.map((b, i) => {
@@ -249,6 +316,7 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
               <title>{`${l.label} ${fmtPrice(l.value)}`}</title>
               <line x1={0} y1={y(l.value)} x2={plotW} y2={y(l.value)} style={{ stroke: l.color }} strokeWidth={1} strokeDasharray="4 4" />
               <text x={plotW + 4} y={at + 3} style={{ ...gutterText, fill: l.color }}>{gutterPrice(l.value)}</text>
+              {extras?.lineNames && <text data-testid={`desk-level-name-${l.key}`} x={3} y={y(l.value) - 3} style={{ ...gutterText, fontSize: font - 0.5, letterSpacing: "0.08em", fill: l.color }}>{l.label.toUpperCase()}</text>}
             </g>
           );
         })}
@@ -265,6 +333,39 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
             {gutterPrice(last.close)}
           </text>
         </g>
+
+        {/* the last price: an open circle */}
+        {extras?.lastDot && <circle data-testid="desk-last-dot" cx={x(n - 1)} cy={y(last.close)} r={3.6} style={{ fill: "var(--bg-1)", stroke: UP }} strokeWidth={1.6} />}
+
+        {/* the validity note at the right edge */}
+        {extras?.rightNote && (
+          <text data-testid="desk-right-note" x={plotW - 4} y={head + 11} textAnchor="end" style={{ ...gutterText, fontSize: font - 0.5, letterSpacing: "0.08em", fill: "var(--cp-ink-3)" }}>{extras.rightNote}</text>
+        )}
+
+        {/* signal markers: pills with a dotted drop-line to the bar */}
+        {placed.map(({ m, i, w, cx, top }) => (
+          <g key={`m-${m.group}-${m.label}-${m.at}`} data-testid="desk-signal-marker" data-group={m.group} data-label={m.label} data-at={m.at}>
+            <title>{m.title}</title>
+            <line x1={x(i)} y1={top + pillH} x2={x(i)} y2={y(bars[i].high) - 2} style={{ stroke: m.color }} strokeWidth={0.9} strokeDasharray="1.5 2" />
+            <rect x={cx - w / 2} y={top} width={w} height={pillH} rx={6} style={{ fill: "var(--bg-1)", stroke: m.color }} strokeWidth={1} />
+            <text x={cx} y={top + 8.6} textAnchor="middle" style={{ fontFamily: "var(--mono)", fontSize: 7.6, letterSpacing: "0.06em", fill: m.color }}>{m.label}</text>
+          </g>
+        ))}
+
+        {/* F&O markers under the volume strip */}
+        {below.map((m) => {
+          const i = dayIndex.get(m.at);
+          if (i == null) return null;
+          const w = pillW(m.label);
+          const cx = Math.min(Math.max(x(i), w / 2), plotW - w / 2);
+          return (
+            <g key={`b-${m.label}-${m.at}`} data-testid="desk-fno-marker" data-group={m.group} data-label={m.label} data-at={m.at}>
+              <title>{m.title}</title>
+              <rect x={cx - w / 2} y={belowTop} width={w} height={pillH} rx={3} style={{ fill: `color-mix(in srgb, ${m.color} 16%, transparent)`, stroke: m.color }} strokeWidth={0.8} />
+              <text x={cx} y={belowTop + 8.6} textAnchor="middle" style={{ fontFamily: "var(--mono)", fontSize: 7.4, letterSpacing: "0.05em", fill: m.color }}>{m.label}</text>
+            </g>
+          );
+        })}
 
         {/* filings: a small diamond at the foot of the price pane, under the session */}
         {events.map((ev) => {

@@ -20,6 +20,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import { Markdown } from "@/components/chat/Markdown";
 import { WIDGET_TYPES } from "@/components/chat/ChatWidget";
+import { TradePlanChatCard, type TradeIdeaData } from "@/components/chat/TradePlanChatCard";
 import { useCopilotShell } from "../../lib/shell-context";
 import { useThreadEngine } from "../../lib/use-thread-engine";
 import { useThreadTurns, type Turn } from "../../lib/use-thread-turns";
@@ -90,9 +91,12 @@ function Typing() {
   );
 }
 
-function DockTurn({ turn, busy, page, onRetry, onOpenThread }: { turn: Turn; busy: boolean; page: boolean; onRetry: (q: string) => void; onOpenThread: () => void }) {
+function DockTurn({ turn, busy, page, onRetry, onAsk, onOpenThread }: { turn: Turn; busy: boolean; page: boolean; onRetry: (q: string) => void; onAsk: (q: string) => void; onOpenThread: () => void }) {
   const working = turn.state === "streaming";
   const card = !!turn.widget?.widget_type && WIDGET_TYPES.has(turn.widget.widget_type);
+  // A stock's trade idea is the desk's own plan card: shown here, beside the desk, not only in the full thread.
+  const tradePlan = turn.widget?.widget_type === "trade_plan" && turn.widget.data && typeof turn.widget.data === "object"
+    ? (turn.widget.data as TradeIdeaData) : null;
   return (
     <div data-testid="dock-turn" data-state={turn.state} className="flex flex-col" style={{ gap: 14, flex: "none" }}>
       {turn.question && (
@@ -110,7 +114,8 @@ function DockTurn({ turn, busy, page, onRetry, onOpenThread }: { turn: Turn; bus
               </div>
             )}
             {working && !turn.text && <Typing />}
-            {card && (
+            {tradePlan !== null && <TradePlanChatCard data={tradePlan} onAction={(a) => { if (a.query && !busy) onAsk(a.query); }} />}
+            {card && !tradePlan && (
               <button type="button" onClick={onOpenThread} style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", fontSize: 12, color: "var(--mint)", cursor: "pointer" }}>
                 This answer has a result card — open the full thread ›
               </button>
@@ -198,7 +203,7 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
         </div>
       )}
       {turns.map((t) => (
-        <DockTurn key={t.key} turn={t} busy={engine.busy} page={page} onRetry={(q) => { engine.clearLocal(); ask(q); }} onOpenThread={openThread} />
+        <DockTurn key={t.key} turn={t} busy={engine.busy} page={page} onRetry={(q) => { engine.clearLocal(); ask(q); }} onAsk={ask} onOpenThread={openThread} />
       ))}
       <div ref={endRef} aria-hidden style={{ scrollMarginBottom: page ? 140 : 0 }} />
     </>
@@ -259,7 +264,7 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
         <Mark size={28} />
         <div className="flex min-w-0 flex-col" style={{ gap: 4 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1 }}>Nivesh Copilot</span>
-          <span className="cp-eyebrow" style={{ fontSize: 9.5, whiteSpace: "nowrap" }}><span style={{ color: "var(--mint)" }}>06</span> · Conversational intelligence</span>
+          <span className="cp-eyebrow" style={{ fontSize: 9.5, whiteSpace: "nowrap" }}>Conversational intelligence</span>
         </div>
         <span style={{ flex: 1 }} />
         <span className="cp-pill" data-tone="mint" title="Answers read the Nivesh data platform (NIDP), the same data the desk shows" style={{ background: "var(--mint-soft)" }}>

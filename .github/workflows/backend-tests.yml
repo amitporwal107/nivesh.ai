@@ -69,6 +69,7 @@ jobs:
           tests/test_broker_angelone.py
           tests/test_broker_connect_native_routes.py
           tests/test_broker_contract_chart.py
+          tests/test_copilot_trade_idea.py
           tests/test_broker_fenix_reader.py
           tests/test_broker_funds_read.py
           tests/test_broker_groww.py
@@ -112,11 +113,17 @@ jobs:
           tests/test_decision_cards.py
           tests/test_decision_engine_trim_rank.py
           tests/test_desk_alerts.py
+          tests/test_desk_audit_wave1_b1.py
+          tests/test_desk_audit_wave1_b3.py
           tests/test_desk_copilot_prompt.py
           tests/test_desk_exit_job.py
+          tests/test_desk_live_chart.py
+          tests/test_kite_day_quote.py
           tests/test_desk_market_routes.py
           tests/test_desk_overview_backend.py
           tests/test_desk_paper_safety.py
+          tests/test_desk_paper_trade_check.py
+          tests/test_desk_paper_trade_strategy_ref.py
           tests/test_desk_paper_sim.py
           tests/test_desk_redesign_routes.py
           tests/test_desk_strategy_trades.py
@@ -170,6 +177,10 @@ jobs:
           tests/test_magic_link_email.py
           tests/test_markets_evidence_routes.py
           tests/test_markets_home_daas.py
+          tests/test_market_data_switch_live_feed.py
+          nidp/tests/shared/test_market_data_source.py
+          nidp/tests/shared/test_truedata_client.py
+          tests/test_truedata_adapter.py
           tests/test_masterdata_broker_rows.py
           tests/test_mf_cards.py
           tests/test_mf_category_enricher.py
@@ -232,6 +243,7 @@ jobs:
           tests/test_positional_scan_universe.py
           tests/test_positional_scenario.py
           tests/test_positional_signal_history.py
+          tests/test_positional_signal_record.py
           tests/test_prd_worked_examples.py
           tests/test_query_suggestions.py
           tests/test_rate_limit_identity.py
@@ -248,6 +260,7 @@ jobs:
           tests/test_research_providers.py
           tests/test_research_watchlist_history.py
           tests/test_results_signal.py
+          tests/test_results_stock.py
           tests/test_results_week.py
           tests/test_reversal_backtest.py
           tests/test_reversal_candidates.py
@@ -284,13 +297,20 @@ jobs:
           tests/test_strategy_config.py
           tests/test_strategy_engine.py
           tests/test_strategy_evidence_sources.py
+          tests/test_strategy_failed_runs.py
           tests/test_strategy_ideas.py
+          tests/test_strategy_leg_limit.py
           tests/test_strategy_levels.py
           tests/test_strategy_market_data.py
           tests/test_strategy_payoff.py
           tests/test_strategy_plan.py
           tests/test_strategy_plan_templates_route.py
+          tests/test_strategy_run_access.py
+          tests/test_strategy_templates_first_wave.py
+          tests/test_strategy_templates_illustration.py
           tests/test_strategy_screen.py
+          tests/test_strategy_store_v1_parity.py
+          tests/test_strategy_store_v2_model.py
           tests/test_switch_cost_framework.py
           tests/test_switch_decision_engine.py
           tests/test_symbol_lookup.py
@@ -306,3 +326,5 @@ jobs:
           tests/test_verify_nidp_data_lake_script.py
           tests/test_watchlist_fno_chain_expiry.py
           tests/test_watchlists.py
+          nidp/tests/shared/test_dq_foundation_unit.py
+          nidp/tests/shared/test_dq_foundation_pg.py

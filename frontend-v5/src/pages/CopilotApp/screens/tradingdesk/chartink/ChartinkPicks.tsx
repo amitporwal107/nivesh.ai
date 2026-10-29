@@ -25,10 +25,12 @@ import { CHARTINK_SOURCE_LABEL } from "./ChartinkParts";
 import { useChartinkSource } from "./chartink-data";
 import type { ChartinkPicks, FactorState, Pick, PickFactor, PickStrategy } from "./picks-contract";
 import { useChartinkPicks } from "./picks-data";
+import { belowMinimum, belowMinimumText } from "../top10-data";
 
 const line = "1px solid var(--cp-line)";
 const linkBtn: CSSProperties = { padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12, color: "var(--mint)", fontFamily: "var(--sans)", textAlign: "left" };
-export const PICKS_TITLE = "Best picks from my Chartink scans";
+/** "Candidates", never "picks": the owner's wording (SEBI), audit 2026-10-28. */
+export const PICKS_TITLE = "Top candidates from my Chartink scans";
 export const TOP_PICKS = 3;
 
 const FACTOR_LOOK: Record<FactorState, { tone: Tone; glyph: string; word: string }> = {
@@ -45,11 +47,11 @@ const STRATEGY_STATUS: Record<string, { label: string; tone: Tone; glyph: string
   avoid: { label: "Avoid", tone: "danger", glyph: "⊘" },
   insufficient_data: { label: "Insufficient data", tone: "ink", glyph: "?" },
 };
-const OUTCOME_WORD = { wait: "Wait", no_trade: "No trade", pick: "Pick" } as const;
+const OUTCOME_WORD = { wait: "Wait", no_trade: "No trade", pick: "Candidate" } as const;
 const STATE_NOTE: Record<string, string> = {
   no_source: "No Chartink dashboard is connected.",
-  not_refreshed: "Your Chartink scans have not been refreshed yet, so there is nothing to pick from.",
-  stale: "The latest Chartink hits are too old to pick from.",
+  not_refreshed: "Your Chartink scans have not been refreshed yet, so there is nothing to rank yet.",
+  stale: "The latest Chartink hits are too old to rank.",
   failed: "The Chartink hits could not be read.",
 };
 
@@ -125,14 +127,17 @@ function PickPayoff({ s, compact }: { s: PickStrategy; compact: boolean }) {
 function StrategyRow({ s, pick, preferred, compact, onOpen }: { s: PickStrategy; pick: Pick; preferred: boolean; compact: boolean; onOpen: (cand: string) => void }) {
   const [open, setOpen] = useState(false);
   const id = useId();
-  const viable = s.status === "candidate";
-  const w = STRATEGY_STATUS[s.status] ?? { label: humaniseTag(s.status), tone: "ink" as Tone, glyph: "?" };
+  // A strategy the plan calls a candidate but whose reward : risk is under your minimum is not "viable" (audit 2026-10-28).
+  const below = belowMinimum(s);
+  const priced = s.status === "candidate";          // the plan priced it (figures shown), whatever the label says
+  const w = below != null ? { label: belowMinimumText(below).replace(/^b/, "B"), tone: "amber" as Tone, glyph: "⚠" }
+    : STRATEGY_STATUS[s.status] ?? { label: humaniseTag(s.status), tone: "ink" as Tone, glyph: "?" };
   const sz = s.sizing;
-  const sizing = !viable ? DASH : sz?.lots != null ? `${fmtNum(sz.lots)} lot${sz.lots === 1 ? "" : "s"}${sz.quantity != null ? ` (${fmtNum(sz.quantity)} units)` : ""}` : sz?.quantity != null ? `${fmtNum(sz.quantity)} shares` : DASH;
+  const sizing = !priced ? DASH : sz?.lots != null ? `${fmtNum(sz.lots)} lot${sz.lots === 1 ? "" : "s"}${sz.quantity != null ? ` (${fmtNum(sz.quantity)} units)` : ""}` : sz?.quantity != null ? `${fmtNum(sz.quantity)} shares` : DASH;
   const flags = [...s.liquidity_flags, ...s.flags].map((f) => (typeof f === "string" ? f : JSON.stringify(f)));
   const fact = (k: string, label: string, v: string, tid: string) => <div key={k} className="flex min-w-0 flex-col" style={{ gap: 1 }}><span className="cp-mono-note">{label}</span><span data-testid={tid} className="cp-num" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{v}</span></div>;
   return (
-    <li data-testid="ck-pick-strategy" data-id={s.id} data-status={s.status} data-preferred={preferred} style={{ borderTop: line }}>
+    <li data-testid="ck-pick-strategy" data-id={s.id} data-status={s.status} data-below-min={below != null} data-preferred={preferred} style={{ borderTop: line }}>
       <button type="button" data-testid="ck-pick-strategy-toggle" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)} className="grid w-full"
         style={{ gridTemplateColumns: "minmax(0,1fr) auto", gap: "2px 10px", padding: "9px 0", border: 0, background: "transparent", color: "inherit", textAlign: "left", cursor: "pointer", fontFamily: "var(--sans)" }}>
         <span className="flex min-w-0 flex-col" style={{ gap: 2 }}>
@@ -142,7 +147,7 @@ function StrategyRow({ s, pick, preferred, compact, onOpen }: { s: PickStrategy;
             {preferred && <span data-testid="ck-pick-preferred" className="cp-mono-note" style={{ color: "var(--mint)" }}>★ preferred</span>}
           </span>
           <span data-testid="ck-pick-strategy-summary" className="cp-num" style={{ fontSize: 11.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>
-            {viable ? `Max loss ${rupeesAbs(s.max_loss)} · Max profit ${s.profit_unbounded ? "unlimited" : rupees(s.max_profit)} · Reward : risk ${ratio(s.reward_risk_net)} net` : (s.reasons[0]?.message ?? s.why ?? DASH)}
+            {priced ? `Max loss ${rupeesAbs(s.max_loss)} · Max profit ${s.profit_unbounded ? "unlimited" : rupees(s.max_profit)} · Reward : risk ${ratio(s.reward_risk_net)} net` : (s.reasons[0]?.message ?? s.why ?? DASH)}
           </span>
         </span>
         <span data-testid="ck-pick-strategy-status" style={{ alignSelf: "start" }}><Pill tone={w.tone}><span aria-hidden>{w.glyph} </span>{w.label}</Pill></span>
@@ -152,7 +157,7 @@ function StrategyRow({ s, pick, preferred, compact, onOpen }: { s: PickStrategy;
           <>
             <p data-testid="ck-pick-strategy-legs" className="m-0" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{s.legs_text || DASH}</p>
             {s.why && <p className="m-0" style={noteStyle}>{s.why}</p>}
-            {viable ? (
+            {priced ? (
               <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,130px),1fr))", gap: "8px 14px" }}>
                 {fact("ml", "Max loss", `${rupeesAbs(s.max_loss)}${s.max_loss_basis ? ` (${s.max_loss_basis})` : ""}`, "ck-pick-st-maxloss")}
                 {fact("cap", "Capital at risk", rupees(s.capital_at_risk), "ck-pick-st-capital")}
@@ -165,9 +170,9 @@ function StrategyRow({ s, pick, preferred, compact, onOpen }: { s: PickStrategy;
             ) : (
               s.reasons.length > 0 && <ul className="m-0" style={{ paddingLeft: 16, fontSize: 12, color: "var(--cp-ink-2)" }}>{s.reasons.map((r) => <li key={r.code + r.message}>{r.message}</li>)}</ul>
             )}
-            {viable && flags.length > 0 && <p data-testid="ck-pick-st-flags" className="m-0" style={{ fontSize: 12, color: "var(--amber)" }}>Flags: {flags.join("; ")}</p>}
-            {viable && s.segment === "futures" && <p className="m-0" style={noteStyle}>A loss on futures can exceed the margin.</p>}
-            {viable && <PickPayoff s={s} compact={compact} />}
+            {priced && flags.length > 0 && <p data-testid="ck-pick-st-flags" className="m-0" style={{ fontSize: 12, color: "var(--amber)" }}>Flags: {flags.join("; ")}</p>}
+            {priced && s.segment === "futures" && <p className="m-0" style={noteStyle}>A loss on futures can exceed the margin.</p>}
+            {priced && <PickPayoff s={s} compact={compact} />}
             <div>
               <Btn variant="primary" data-testid="ck-pick-open-builder" aria-label={`Open ${pick.symbol} ${s.label} in Strategy Builder`} onClick={() => onOpen(s.id)} style={{ padding: "6px 12px", fontSize: 12 }}>Open in Strategy Builder ›</Btn>
             </div>
@@ -183,9 +188,9 @@ function Strategies({ pick, compact, onOpen }: { pick: Pick; compact: boolean; o
   const rows = pick.strategies.filter((r) => !noFno.includes(r));
   return (
     <div data-testid="ck-pick-strategies" className="flex min-w-0 flex-col" style={{ gap: 4 }}>
-      <span className="cp-eyebrow" style={{ fontSize: 9.5 }}>Strategies from the Strategy Builder ({rows.filter((r) => r.status === "candidate").length} viable of {rows.length})</span>
+      <span data-testid="ck-pick-strategies-count" className="cp-eyebrow" style={{ fontSize: 9.5 }}>Strategies from the Strategy Builder ({rows.filter((r) => r.status === "candidate" && belowMinimum(r) == null).length} viable of {rows.length})</span>
       {noFno.length > 0 && <p role="note" data-testid="ck-pick-not-fno" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>No futures and options for this stock: only cash applies.</p>}
-      {rows.length === 0 ? <p data-testid="ck-pick-no-strategies" className="m-0" style={noteStyle}>No strategy was built for this pick.</p> : (
+      {rows.length === 0 ? <p data-testid="ck-pick-no-strategies" className="m-0" style={noteStyle}>No strategy was built for this candidate.</p> : (
         <ul className="m-0 flex min-w-0 flex-col p-0" style={{ listStyle: "none" }}>
           {rows.map((s) => <StrategyRow key={s.id} s={s} pick={pick} preferred={pick.preferred === s.id} compact={compact} onOpen={onOpen} />)}
         </ul>
@@ -282,7 +287,7 @@ function WaitList({ items, testId }: { items: Pick[]; testId: string }) {
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: 6 }}>
       <button type="button" data-testid={`${testId}-toggle`} aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)} style={{ ...linkBtn, color: "var(--cp-ink-2)", alignSelf: "flex-start" }}>
-        {open ? "▾" : "▸"} Wait / No trade ({items.length}): evaluated, but not picks
+        {open ? "▾" : "▸"} Wait / No trade ({items.length}): evaluated, but not candidates
       </button>
       <ul id={id} hidden={!open} data-testid={testId} className="m-0 min-w-0 flex-col p-0" style={{ listStyle: "none", gap: 8, display: open ? "flex" : "none" }}>
         {items.map((w) => (
@@ -305,7 +310,7 @@ function WaitList({ items, testId }: { items: Pick[]; testId: string }) {
 /** The honest state of the list when there is nothing to rank: null while the first load is still on a dashboard check. */
 function Status({ q, pad, testId }: { q: ReturnType<typeof useChartinkPicks>; pad: string; testId: string }) {
   if (q.isPending) return <div style={{ padding: pad }}><LoadingBlock label="Scoring your Chartink hits and building their strategies" rows={3} /></div>;
-  if (q.isError) return <div data-testid={`${testId}-error`} style={{ padding: pad }}><ErrorBlock title="Your Chartink best picks didn’t load" error={q.error} onRetry={() => { void q.refetch(); }} /></div>;
+  if (q.isError) return <div data-testid={`${testId}-error`} style={{ padding: pad }}><ErrorBlock title="Your Chartink candidates didn’t load" error={q.error} onRetry={() => { void q.refetch(); }} /></div>;
   return null;
 }
 
@@ -324,7 +329,7 @@ export function ChartinkPicks({ variant = "full", testId = "ck-picks" }: { varia
     <div className="flex flex-wrap items-center justify-between" style={{ gap: "4px 12px", padding: top ? pad : 0 }}>
       <span className="flex min-w-0 flex-col" style={{ gap: 2 }}>
         <span data-testid={`${testId}-title`} className={top ? "cp-eyebrow" : "cp-display"} style={top ? undefined : { fontSize: 22, lineHeight: 1.15 }}>{PICKS_TITLE}</span>
-        <span data-testid={`${testId}-sub`} style={noteStyle}>Ranked by an evidence score, not a probability. Each pick comes with strategies.</span>
+        <span data-testid={`${testId}-sub`} style={noteStyle}>Ranked by an evidence score, not a probability. Each candidate comes with strategies.</span>
       </span>
       {top && <button type="button" data-testid={`${testId}-all`} onClick={openChartink} style={linkBtn}>See all ›</button>}
     </div>
@@ -336,9 +341,9 @@ export function ChartinkPicks({ variant = "full", testId = "ck-picks" }: { varia
     if (d.state !== "ok") {
       return (
         <div data-testid={`${testId}-state`} data-state={d.state} role="status" className="flex flex-col" style={{ gap: 4, padding: top ? pad : 0 }}>
-          <span style={{ fontSize: 13, color: "var(--amber)" }}>{STATE_NOTE[d.state] ?? "Best picks are not available."}</span>
+          <span style={{ fontSize: 13, color: "var(--amber)" }}>{STATE_NOTE[d.state] ?? "Chartink candidates are not available."}</span>
           {d.reason && <span style={noteStyle}>{d.reason}</span>}
-          {!top && <span style={noteStyle}>{d.state === "no_source" ? "Connect a dashboard above." : "Use Refresh now above, then the picks are scored."}</span>}
+          {!top && <span style={noteStyle}>{d.state === "no_source" ? "Connect a dashboard above." : "Use Refresh now above, then the candidates are scored."}</span>}
         </div>
       );
     }
@@ -348,7 +353,7 @@ export function ChartinkPicks({ variant = "full", testId = "ck-picks" }: { varia
         {d.source_failures.length > 0 && <p role="note" data-testid={`${testId}-failures`} className="m-0" style={{ fontSize: 12.5, color: "var(--amber)" }}>Source problems: {d.source_failures.map((f) => (typeof f === "string" ? f : JSON.stringify(f))).join("; ")}</p>}
         {shown.length === 0 ? (
           <div data-testid={`${testId}-empty`} className="flex flex-col" style={{ gap: 4 }}>
-            <span style={{ fontSize: 13 }}>No qualifying picks right now.</span>
+            <span style={{ fontSize: 13 }}>No qualifying candidates right now.</span>
             <span style={{ fontSize: 12.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>{d.empty_reason ?? d.shortfall_reason ?? "Nothing in your Chartink hits passed the evidence rules."}</span>
           </div>
         ) : (
@@ -358,7 +363,7 @@ export function ChartinkPicks({ variant = "full", testId = "ck-picks" }: { varia
         )}
         {d.coverage_note && <p data-testid={`${testId}-coverage`} className="m-0" style={{ ...noteStyle, overflowWrap: "anywhere" }}>{d.coverage_note}</p>}
         {d.shortfall_reason && shown.length > 0 && <p role="note" data-testid={`${testId}-shortfall`} className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)", overflowWrap: "anywhere" }}>{d.shortfall_reason}</p>}
-        {top && d.picks.length > shown.length && <p data-testid={`${testId}-more`} className="m-0" style={noteStyle}>{fmtNum(d.picks.length - shown.length)} more in Chartink scans · Best picks.</p>}
+        {top && d.picks.length > shown.length && <p data-testid={`${testId}-more`} className="m-0" style={noteStyle}>{fmtNum(d.picks.length - shown.length)} more in Chartink scans · Top candidates.</p>}
         {!top && <WaitList items={d.wait} testId={`${testId}-wait`} />}
         {top && d.wait.length > 0 && <p data-testid={`${testId}-wait-count`} className="m-0" style={noteStyle}>{d.wait.length} evaluated stock{d.wait.length === 1 ? "" : "s"} {d.wait.length === 1 ? "is" : "are"} Wait / No trade (reasons under See all).</p>}
         {!top && d.excluded.length > 0 && (

@@ -18,7 +18,6 @@ const TITLE_MAP: Record<string, string> = {
   "/portfolio":       "Portfolio",
   "/chat":            "Chat",
   "/recommendations": "Recommendations",
-  "/pro-trader":      "Pro Trader",
   "/settings":        "Settings",
   "/onboarding":      "Onboarding",
   "/admin":           "Admin",

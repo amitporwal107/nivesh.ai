@@ -20,10 +20,9 @@
  * The category, the ranking and every filter live in the URL (sc_*), so a reload, a shared link or a trip to another
  * tab keeps them (PRD §5.8). Missing figures show "—" and a filter never treats them as passing.
  *
- * Above the list (the user's requirement of 2026-10-25): the market pulse (ScannerPulse.tsx — the latest events and FII / DII,
- * smart-money and sector indicators, opening Market Intelligence and Smart Money) and the Top 10 stock and F&O ideas
- * (ScannerTop10.tsx). Each loads on its own, from its own code chunk (the boards carry the Strategy Builder's payoff charts);
- * the list never waits for them.
+ * Above the list: the Top 10 stock and F&O ideas (ScannerTop10.tsx). Each loads on its own, from its own code chunk (the
+ * boards carry the Strategy Builder's payoff charts); the list never waits for them. The market pulse that sat above them
+ * (ScannerPulse.tsx) was removed in the desk redesign's step 6: Market Overview's market strip and events replaced it.
  */
 import { Flash } from "../../components/LiveBits";
 import { closeLabel, useLiveOverlay, flashOf } from "../../lib/useLiveQuotes";
@@ -1118,7 +1117,7 @@ function UniverseNote({ uni, uniError, onRetry, rules, minCr }: { uni: ScanUnive
       <span className="flex flex-col" style={{ gap: 4, paddingTop: 6 }}>
         {uniError && (
           <span role="alert" style={{ color: "var(--cp-danger)" }}>
-            GET /api/positional/scan-universe did not answer, so momentum, unusual volume, results-day and F&O candidates, the model rank and the exclusion counts are not shown.{" "}
+            The scanner’s universe read did not answer, so momentum, unusual volume, results-day and F&O candidates, the model rank and the exclusion counts are not shown.{" "}
             <button type="button" data-testid="desk-scan-universe-retry" onClick={onRetry} style={linkBtn}>Retry</button>
           </span>
         )}
@@ -1163,28 +1162,26 @@ function AboutModel({ odds, uni, engineVersions, classifier, rulesVersion }: { o
 }
 
 const PARTIAL_NOTE: Record<"watchlist" | "picks", string> = {
-  watchlist: "The setup watchlist (GET /api/positional/watchlist) did not answer, so only the scanner’s picks are listed.",
-  picks: "The scanner picks (GET /api/positional/picks) did not answer, so only the setup watchlist is listed and no stock has a target.",
+  watchlist: "The setup watchlist did not answer, so only the scanner’s ideas with targets are listed.",
+  picks: "The scanner’s target list did not answer, so only the setup watchlist is listed and no stock has a target.",
 };
 
 // ── the tab ──────────────────────────────────────────────────────────────
 
-const ScannerPulse = lazy(() => import("./ScannerPulse").then((m) => ({ default: m.ScannerPulse })));
 const ScannerTop10 = lazy(() => import("./ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
 /** Results week ideas (docs/EARNINGS_SURPRISE_TRACKER.md §4c, §6): its own chunk and files (resultsweek/). */
 const ResultsWeekIdeas = lazy(() => import("./resultsweek/ResultsWeekIdeas"));
 
 /**
- * The tab: the market pulse, the Top 10 boards and the results week ideas (each loads on its own), then the scanner list.
+ * The tab: the Top 10 boards and the results week ideas (each loads on its own), then the scanner list.
  * `listOnly` (Market Overview, the desk redesign of 2026-10-27): the list alone, under "All scanner candidates"; the page
- * shows the pulse, the Top 10 and the results week ideas above it once.
+ * shows the market strip and the Top 10 above it once.
  */
 export default function ScannerTab({ listOnly = false }: { listOnly?: boolean } = {}) {
   const { mobile } = useCopilotShell();
   if (listOnly) return <ScannerList />;
   return (
     <div className="flex min-w-0 flex-col" style={{ gap: mobile ? 12 : 16 }}>
-      <Suspense fallback={<LoadingBlock label="Loading the market pulse" rows={1} />}><ScannerPulse /></Suspense>
       <Suspense fallback={<LoadingBlock label="Loading the Top 10 ideas" rows={2} />}><ScannerTop10 /></Suspense>
       <Suspense fallback={<LoadingBlock label="Loading the results week ideas" rows={2} />}><ResultsWeekIdeas /></Suspense>
       <ScannerList />
@@ -1303,7 +1300,7 @@ function ScannerList() {
   if (scan.isError && uniError) {
     return (
       <div data-testid="desk-scan-error">
-        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner picks answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
+        <ErrorBlock title="The scanner didn’t load: neither the setup watchlist nor the scanner’s target list answered" error={scan.error} onRetry={() => { scan.refetch(); uniQ.refetch(); }} />
       </div>
     );
   }
@@ -1439,7 +1436,7 @@ function ScannerList() {
           : <>Score: the end-of-day scanner’s rules-based score, 0–100; it ranks setups and it is not a probability. {oddsLabel(head, plain)}: the move-odds model’s estimate that the next session’s high reaches the previous close plus {head === "p_up10_1d" ? "10" : "5"}%, one session only — withheld unless the route marks it calibrated. Model rank: that estimate’s percentile among eligible stocks. Hit rate · n: no per-setup back-tested record is published.</>}
         {" "}Entry, stop and target are hypothetical and never sent to a broker.
       </span>
-      <span>Sources: NSE end-of-day scanner (GET /api/positional/watchlist, /picks) · NIDP feature store (GET /api/positional/scan-universe) · move-odds model (GET /api/move-odds/latest).</span>
+      <span>Sources: NSE end-of-day scanner (setup watchlist and target list) · NIDP feature store (scan universe) · move-odds model (latest estimates).</span>
       <UniverseNote uni={uni} uniError={uniError} onRetry={() => uniQ.refetch()} rules={rules} minCr={minCr} />
       <AboutModel odds={odds5Q.data} uni={uni} engineVersions={data?.engineVersions ?? []} classifier={data?.classifierVersion ?? null} rulesVersion={data?.rulesVersion ?? rules?.version ?? null} />
     </span>

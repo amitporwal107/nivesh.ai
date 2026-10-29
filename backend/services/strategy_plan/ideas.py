@@ -14,7 +14,7 @@ import asyncio
 import logging
 import time
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from fastapi import Request
 
@@ -121,8 +121,20 @@ def _loss(v: Optional[float]) -> Optional[float]:
     return None if v is None else -abs(v)
 
 
+def meets_min_reward_risk(status: Optional[str], net: Optional[float], gross: Optional[float], minimum: Optional[float]) -> Optional[bool]:
+    """Whether a viable strategy's SHOWN reward : risk (net, else gross) reaches the minimum (owner rule: 1.5 for directional
+    trades). None when the strategy is not viable or there is no ratio or minimum to compare. Credit structures keep this
+    rule until their own rule (net credit against the strike width) is merged; a card shows "below your minimum", never
+    "viable", for a ratio under it (audit 2026-10-28: a 0.19 : 1 strategy was labelled viable)."""
+    if status != "candidate" or minimum is None:
+        return None
+    got = net if net is not None else gross
+    return None if got is None else got >= minimum
+
+
 def strategies_of(plan: Dict[str, Any], symbol: str) -> List[Dict[str, Any]]:
     rows = {a["id"]: a for a in plan.get("alternatives") or []}
+    minimum = (plan.get("inputs") or {}).get("min_reward_risk")
     out = []
     for c in plan.get("candidates") or []:
         a = rows.get(c["id"], {})
@@ -135,8 +147,41 @@ def strategies_of(plan: Dict[str, Any], symbol: str) -> List[Dict[str, Any]]:
                     "capital_at_risk": a.get("capital_at_risk"), "max_profit": ex.get("max_profit"), "profit_unbounded": bool(ex.get("profit_unbounded")),
                     "breakeven": a.get("breakeven") or [], "reward_risk_net": a.get("reward_risk_net"), "reward_risk_gross": a.get("reward_risk_gross"),
                     "sizing": _sizing_view(c), "liquidity_flags": a.get("liquidity_flags") or [], "why": why, "flags": list(c.get("warnings") or []),
-                    "actionable": bool(c.get("actionable"))})
+                    "actionable": bool(c.get("actionable")), "min_reward_risk": minimum,
+                    "meets_min_reward_risk": meets_min_reward_risk(c["status"], a.get("reward_risk_net"), a.get("reward_risk_gross"), minimum)})
     return out
+
+
+#: Sizes one TradePlan for the signed-in account: the risk service's plan_sizing.size_for (routes/strategy_plan.py passes it).
+Sizer = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
+
+
+def fit_trade_plan(plan: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """The TradePlan of the plan's preferred strategy (the "strategy that fits" a card shows), or None."""
+    pref = plan.get("preferred")
+    return next((c.get("trade_plan") for c in plan.get("candidates") or [] if pref and c.get("id") == pref and c.get("trade_plan")), None)
+
+
+async def size_fit(idea: Dict[str, Any], plan: Dict[str, Any], sizer: Optional[Sizer]) -> None:
+    """Attach `account_size` (the risk service's sizing for YOUR account) to the idea's preferred strategy, so the card's
+    "strategy that fits" is sized like its trade plan, or says it is not (audit 2026-10-28: "Size 34 shares" beside
+    "Buy 700 shares…"). No sizer (the AI-watchlist job): nothing is attached. Never raises."""
+    if sizer is None or not idea.get("preferred"):
+        return
+    row = next((s for s in idea.get("strategies") or [] if s.get("id") == idea["preferred"]), None)
+    tp = fit_trade_plan(plan)
+    if row is None:
+        return
+    if tp is None:
+        row["account_size"] = {"status": "unavailable", "reason": "the strategy carries no trade plan to size"}
+        return
+    try:
+        row["account_size"] = await sizer(tp)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001 — the idea still answers; its card says the size is unavailable
+        logger.warning("ideas: sizing %s for %s failed: %s", tp.get("plan_id"), idea.get("symbol"), e)
+        row["account_size"] = {"status": "unavailable", "reason": f"the sizing could not be worked out ({type(e).__name__})"}
 
 
 def oi_view(snaps: Dict[str, Any]) -> Dict[str, Any]:
@@ -194,7 +239,7 @@ def failed_idea(rank: int, setup: Dict[str, Any], passed: Dict[str, Any], err: B
 
 
 async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[str, Any], applied: List[str], now: datetime, today: date,
-                      chartink_limit: int = RULES["chartink"]["limit_default"]) -> Dict[str, Any]:
+                      chartink_limit: int = RULES["chartink"]["limit_default"], sizer: Optional[Sizer] = None) -> Dict[str, Any]:
     t0 = time.monotonic()
     template, _ = normalise_inputs({"underlying": "TEMPLATE", "direction": "bullish", "instrument": "all", **passed})
     use_chartink = bool((template or {}).get("include_chartink"))
@@ -224,7 +269,9 @@ async def build_ideas(request: Request, user_id: str, limit: int, passed: Dict[s
                                                        company_name(setup["symbol"]))
                     setup = {**setup, "name": setup.get("name") or name}
                     plan = await asyncio.to_thread(build_plan, plan_in, snaps, now, today)
-                    return idea_of(rank, setup, plan, snaps, passed, int((time.monotonic() - t1) * 1000))
+                    idea = idea_of(rank, setup, plan, snaps, passed, int((time.monotonic() - t1) * 1000))
+                    await size_fit(idea, plan, sizer)
+                    return idea
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:  # noqa: BLE001 — one stock failing must not lose the others: it becomes an insufficient_data idea

@@ -222,6 +222,28 @@ function BudgetsLine({ v }: { v: PlanView }) {
 
 // ── the full sections ────────────────────────────────────────────────────
 
+/**
+ * The plan builder's evidence and warning text, made readable on the card: long floats to two decimals
+ * ("Relative volume 1.2966179010676246x" → "1.30x", "1734.5622804300003 Cr" → "1,734.56 Cr"), no internal module
+ * names ("(macro_engine.classify_desk_regime, session …)" → "(session …)") and no routes (", GET /api/risk/profile"). The stored text is unchanged: it is part of
+ * the plan's content, and so of its id (audit 2026-10-28).
+ */
+export function readableText(t: string): string {
+  return t
+    .replace(/\s*\((?:GET|POST) \/api\/[^\s)]*\)/g, "")
+    .replace(/,?\s*(?:GET|POST) \/api\/[^\s),;]*/g, "")
+    .replace(/\s*\((?:[a-z_]+\.)+[a-z_]+\)/g, "")
+    .replace(/\((?:[a-z_]+\.)+[a-z_]+(?: \([^)]*\))?,\s*/g, "(")
+    .replace(/\d+\.\d{3,}/g, (m) => fmtNum(Number(m), 2));
+}
+
+/** The plan's own "not sized" notes (candidates.py: payoff for 1 share, the gross-only ratio, "Sizing needs …"): stale
+ *  once the risk service has sized the plan for your account. */
+function unsizedFlag(f: Raw): boolean {
+  const m = str(f.message) ?? "";
+  return f.code === "sizing_incomplete" || /^(Sizing is incomplete|Sizing needs |Reward : risk is judged before costs here)/.test(m);
+}
+
 function Sections({ v }: { v: PlanView }) {
   const tp = v.plan;
   const p = tp as unknown as Raw;
@@ -230,9 +252,11 @@ function Sections({ v }: { v: PlanView }) {
   const legs = Array.isArray(ins.legs) ? (ins.legs as Raw[]) : [];
   const evidence = Array.isArray(rec(p.evidence).items) ? (rec(p.evidence).items as Raw[]) : null;
   const warnings = Array.isArray(p.warnings) ? (p.warnings as Raw[]) : null;
-  const flags = (Array.isArray(p.risk_flags) ? (p.risk_flags as Raw[]) : []).filter((f) => f.code !== "warning" || str(f.message));
-  const bd = readCostsBreakdown(costs.breakdown_at_stop ?? costs.breakdown_round_trip_at_entry);
   const a = v.accountSize;
+  const accountSized = a != null && (a.status === "sized" || a.status === "not_confirmed") && (a.quantity != null || a.lots != null);
+  const flags = (Array.isArray(p.risk_flags) ? (p.risk_flags as Raw[]) : []).filter((f) => f.code !== "warning" || str(f.message))
+    .filter((f) => !(accountSized && unsizedFlag(f)));
+  const bd = readCostsBreakdown(costs.breakdown_at_stop ?? costs.breakdown_round_trip_at_entry);
   const opt = rec(exit.options);
   const trailing = rec(exit.trailing), trend = rec(exit.trend), time = rec(exit.time);
   const dates = Object.entries(tp.data_as_of ?? {}).filter(([, d]) => !!d && /^\d{4}-\d{2}-\d{2}/.test(d));
@@ -291,7 +315,7 @@ function Sections({ v }: { v: PlanView }) {
         )}
         {size.status === "complete" && (
           <Row k="The plan's own sizing" testId="dc-own-size">
-            <span style={quiet}>{numOr(size.lots) != null ? `${fmtNum(numOr(size.lots))} lot(s)` : `${fmtNum(numOr(size.quantity))} ${segOf(tp) === "cash" ? "shares" : "units"}`} at {str(size.equity_basis) ?? "the plan's inputs"}{numOr(size.risk_rs) != null ? `, risk ${fmtPrice(numOr(size.risk_rs))}` : ""}: a what-if, not what the risk service approves for your account.</span>
+            <span style={quiet}>{numOr(size.lots) != null ? `${fmtNum(numOr(size.lots))} lot(s)` : `${fmtNum(numOr(size.quantity))} ${segOf(tp) === "cash" ? "shares" : "units"}`} at {readableText(str(size.equity_basis) ?? "the plan's inputs")}{numOr(size.risk_rs) != null ? `, risk ${fmtPrice(numOr(size.risk_rs))}` : ""}: a what-if, not what the risk service approves for your account.</span>
           </Row>
         )}
         <Row k="Risk check"><RiskCheck v={v} /></Row>
@@ -306,8 +330,8 @@ function Sections({ v }: { v: PlanView }) {
         {evidence ? evidence.map((e) => (
           <Row key={String(e.key)} k={str(e.label) ?? String(e.key)} testId={`dc-ev-${String(e.key)}`}>
             {e.status === "ok"
-              ? <>{str(e.text) ?? "—"}{str(e.direction) ? <span style={quiet}> · {str(e.direction)}</span> : null}{str(e.as_of) ? <span style={quiet}> · {fmtDay(str(e.as_of))}</span> : null}</>
-              : <NA why={str(e.text) ?? "not computed"} />}
+              ? <>{readableText(str(e.text) ?? "—")}{str(e.direction) ? <span style={quiet}> · {str(e.direction)}</span> : null}{str(e.as_of) ? <span style={quiet}> · {fmtDay(str(e.as_of))}</span> : null}</>
+              : <NA why={readableText(str(e.text) ?? "not computed")} />}
           </Row>
         )) : <NA why="this plan was stored before plans carried their evidence" />}
       </Section>
@@ -315,11 +339,11 @@ function Sections({ v }: { v: PlanView }) {
         {warnings ? warnings.map((w) => (
           <Row key={String(w.key)} k={str(w.label) ?? String(w.key)} testId={`dc-warn-${String(w.key)}`}>
             <span data-status={String(w.status)} style={{ color: w.status === "flagged" ? "var(--amber)" : undefined }}>
-              {w.status === "flagged" ? "⚠ " : w.status === "clear" ? "Clear · " : w.status === "at_entry" ? "Checked at entry · " : "Unavailable · "}{str(w.text) ?? ""}
+              {w.status === "flagged" ? "⚠ " : w.status === "clear" ? "Clear · " : w.status === "at_entry" ? "Checked at entry · " : "Unavailable · "}{readableText(str(w.text) ?? "")}
             </span>
           </Row>
         )) : <NA why="this plan was stored before plans carried their warnings" />}
-        {flags.length > 0 && <Row k="Other flags">{flags.map((f) => str(f.message) ?? str(f.code)).filter(Boolean).join("; ")}</Row>}
+        {flags.length > 0 && <Row k="Other flags" testId="dc-other-flags">{flags.map((f) => str(f.message) ?? str(f.code)).filter(Boolean).map((t) => readableText(t as string)).join("; ")}</Row>}
       </Section>
       <Section title="Exit plan" testId="dc-sec-exit">
         <Row k="Stop">{stopText(tp)}</Row>

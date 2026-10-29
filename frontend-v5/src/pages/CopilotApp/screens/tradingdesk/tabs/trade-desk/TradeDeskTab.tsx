@@ -8,8 +8,8 @@
  *   ?tab=trade&view=paper&sub=journal   Paper Trading › Trade journal (&trade=<id>): one trade's timeline, fills, the
  *                                       desk-cost-v2 P/L bridge "net, before income tax", stop history, the stop-first
  *                                       flag; below it every closed trade with the summary
- *   ?tab=trade&view=lab&sub=build       Strategy Lab › Build a trade: the risk-service ticket (&tp=<plan_id>), the F&O
- *                                       builder, the Strategy Builder
+ *   ?tab=trade&view=lab&sub=build       Strategy Lab › Build a trade: the owner's four-step wizard (lab/Wizard.tsx), the
+ *                                       risk-service ticket above it (&tp=<plan_id>), "From an idea" (the Strategy Builder)
  *   ?tab=trade&view=lab&sub=backtest    Strategy Lab › Backtest & validation
  *
  * The frame (TradingDesk.tsx) draws the sections, the sub-view chips and the "These are paper trades… My portfolio" line.
@@ -70,7 +70,7 @@ export default function TradeDeskTab({ section, sub, onSub }: {
   if (section === "lab") {
     return (
       <div data-testid="td-tab" data-section="lab" data-sub={sub ?? ""} className="flex min-w-0 flex-col" style={{ gap: 18 }}>
-        {sub === "backtest" ? <BacktestView /> : <BuildTradeView planId={planId} source={source} onOverview={() => desk.openTab("overview")} />}
+        {sub === "backtest" ? <BacktestView /> : <BuildTradeView planId={planId} source={source} onOverview={() => desk.openTab("overview")} onBacktest={() => onSub("backtest")} />}
       </div>
     );
   }

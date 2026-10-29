@@ -10,6 +10,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mockApi } from "../helpers/api-mock";
 
+// The backend's KITE_LOGIN_RETURN_PATH (platform_token.py). The old Trader landing there was removed in the desk redesign's
+// step 6; the URL now redirects to the Smart trading desk with its query (?kite=…) kept, so the toast cases still run.
 const TRADER = "/v5/app/trader";
 const ADMIN = { user_id: "u_admin", email: "aporwal107@gmail.com", name: "Admin Fixture", is_admin: true, onboarding_completed: true };
 const PLAIN = { user_id: "u_plain", email: "user@example.test", name: "Fixture User", is_admin: false, onboarding_completed: true };

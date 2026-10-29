@@ -36,7 +36,7 @@ import { LoadError } from "../markets/parts";
 import { BUCKET_LABEL, type SetupBucket } from "../tradingdesk/desk-data";
 import { ENTRY_RULE_SHORT, entryRuleFor, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type NewPaperTrade } from "../tradingdesk/desk-trading";
 import { BUILDUP_META, buildupRowFor, indexRowFor, useBuildup } from "../tradingdesk/fno-buildup";
-import { StatusPill, ratio, rupeesAbs } from "../tradingdesk/strategy/plan-format";
+import { StatusPill } from "../tradingdesk/strategy/plan-format";
 import type { PlanStatus } from "../tradingdesk/strategy/plan-contract";
 import { IdeaActions } from "../tradingdesk/strategy/TopByRegime";
 import { StoredIdeaLevels, readStoredLevels } from "../tradingdesk/IdeaLevels";
@@ -48,6 +48,7 @@ import {
 import { PlanPaperTrade } from "../tradingdesk/PlanPaperTrade";
 import { DecisionCard, NoPlan } from "../tradingdesk/decision/DecisionCard";
 import { CarryTag } from "../tradingdesk/decision/CarryTag";
+import { FitLine } from "../tradingdesk/FitLine";
 import type { ScanBasis } from "./ai-watchlist-data";
 
 type Segment = "cash" | "fno";
@@ -203,7 +204,7 @@ function CashRow({ e, listDate, quote, scan }: { e: CashEntry; listDate: string;
         <span data-testid="aiw-cash-strategy" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
           <span style={{ color: "var(--cp-ink-3)" }}>Strategy that fits: </span>
           {e.preferred ? (
-            <><strong style={{ fontWeight: 500 }}>{e.preferred.label}</strong>{e.preferred.legs_text ? ` · ${e.preferred.legs_text}` : ""}{` · max loss ${rupeesAbs(e.preferred.max_loss)} · reward : risk ${ratio(e.preferred.reward_risk_net)}`}</>
+            <><strong style={{ fontWeight: 500 }}>{e.preferred.label}</strong><FitLine s={e.preferred} symbol={e.symbol} testId="aiw-cash-fit" /></>
           ) : (
             <span>{e.status_reasons[0] ?? "none passed the plan’s checks that day"}</span>
           )}

@@ -36,7 +36,7 @@ const VIEWS: Record<string, Array<{ key: string; label: string }>> = {
 const VIEW_HOST: Record<string, Array<[string, string | null]>> = {
   "trade/scanner": [["desk-panel-top10", "desk-top10"], ["desk-panel-scanner", null]],
   "trade/chart": [["desk-panel-chart", null]],
-  "trade/lab": [["desk-panel-strategy", "builder-modes"], ["desk-panel-fno", "desk-fno"]],
+  "trade/lab": [["desk-panel-wizard", "wz-stepper"]],
   "trade/paper": [["desk-panel-trade-desk", "td-view-open"]],
   "trade/watchlists": [["desk-panel-watchlists", "screen-page-watchlist"]],
   "market/intel": [["desk-panel-intel", null], ["desk-panel-events", null]],
@@ -402,7 +402,7 @@ test.describe("MOCK — not real data: desk shell · rail, landing and links", (
     await page.getByTestId("desk-top10-see-all").click();
     await expectAt(page, "trade", "scanner", { sub: "ranked" });
     // The AI watchlist's desk links (workspace/ai-watchlist-data.ts) are built for the new URLs.
-    await page.goto(`${APP}/page/watchlist`);
+    await page.goto(`${APP}/page/watchlist?wl=all`);
     await expect(page.getByTestId("screen-page-watchlist")).toBeVisible();
   });
 });

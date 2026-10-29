@@ -305,12 +305,13 @@ test.describe("MOCK — not real data: Idea scorecard (fixture = staging's real 
     await expect(sources.nth(0).getByTestId("sc-source-sha")).toHaveText(`${SCORECARD.sources[0].sha256.slice(0, 12)}…`);
     await expect(sources.nth(0).getByTestId("sc-source-sha")).toHaveAttribute("title", SCORECARD.sources[0].sha256);
     await expect(sources.nth(0).getByTestId("sc-source-present")).toContainText("yes");
+    // The study's documents are references the server lists and never opens (desk audit wave 1: staging has no docs/).
     for (let i = 1; i < SCORECARD.sources.length; i++) {
-      await expect(sources.nth(i)).toHaveAttribute("data-present", "false");
-      await expect(sources.nth(i).getByTestId("sc-source-present")).toContainText("no");
-      await expect(sources.nth(i).getByTestId("sc-source-present")).toContainText("not readable here (FileNotFoundError)");
+      await expect(sources.nth(i)).toHaveAttribute("data-present", "reference");
+      await expect(sources.nth(i).getByTestId("sc-source-present")).toHaveText("reference, not opened");
       await expect(sources.nth(i).getByTestId("sc-source-sha")).toHaveText("—");
     }
+    await expect(page.getByTestId("sc-sources")).not.toContainText("FileNotFoundError");
   });
 
   for (const code of ["scorecard_unavailable", "scorecard_out_of_date"]) {

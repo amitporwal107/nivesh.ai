@@ -457,31 +457,35 @@
    "present": true,
    "sha256": "4b3eff97d09f854397fe4ca11a0895d159920b3ce093d6063b2b9d6d6426ebd8",
    "bytes": 7927,
-   "reason": null
+   "reason": null,
+   "kind": "data"
   },
   {
    "path": "docs/ai_research/P4_ADX_RS_PREREGISTRATION.md",
    "role": "the pre-registered rule",
-   "present": false,
+   "present": null,
    "sha256": null,
    "bytes": null,
-   "reason": "not readable here (FileNotFoundError)"
+   "reason": "a reference; the server does not open it",
+   "kind": "reference"
   },
   {
    "path": "docs/ai_research/P4_ADX_RS_RESULTS.md",
    "role": "the write-up the verdict and the RS63 status are taken from",
-   "present": false,
+   "present": null,
    "sha256": null,
    "bytes": null,
-   "reason": "not readable here (FileNotFoundError)"
+   "reason": "a reference; the server does not open it",
+   "kind": "reference"
   },
   {
    "path": "docs/ai_research/P4_RS63_CONFIRMATION_PREREGISTRATION.md",
    "role": "the RS63 confirmation test, registered, not yet run",
-   "present": false,
+   "present": null,
    "sha256": null,
    "bytes": null,
-   "reason": "not readable here (FileNotFoundError)"
+   "reason": "a reference; the server does not open it",
+   "kind": "reference"
   }
  ]
 }

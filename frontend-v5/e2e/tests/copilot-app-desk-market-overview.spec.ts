@@ -258,6 +258,32 @@ test.describe("MOCK — not real data: Market Overview · the market strip", () 
     await expect(page.getByTestId("mo-index")).toHaveCount(3);
     await expect(page.getByTestId("mo-flows-fii")).toBeVisible();
   });
+
+  // Ported from copilot-app-desk-market.spec.ts TC-11 / TC-12 (the old Overview's sector card and market read, removed in the
+  // desk redesign's step 6): each read that fails says so in its own row, and the other rows still render.
+  test("MO-33 a failed market overview read says so for the indices and FII / DII; the regime and sectors still render", async ({ page }) => {
+    await setup(page);
+    await page.route("**/api/markets/home", (r) => json(r, { detail: "MOCK: upstream" }, 500));
+    await page.goto(DESK);
+    await expect(page.getByTestId("mo-index-error")).toContainText("Index levels and breadth didn’t load", SLOW);
+    await expect(page.getByTestId("mo-flows")).toContainText("The market overview didn’t load.", SLOW);
+    await expect(page.getByTestId("mo-index")).toHaveCount(0);
+    await expect(page.getByTestId("mo-regime-label")).toBeVisible();
+    await expect(page.getByTestId("mo-sector-up")).toHaveCount(3);
+  });
+
+  test("MO-34 a failed sector-returns read says so; an answer with no 1-day return says that; the indices still render", async ({ page }) => {
+    await setup(page);
+    await page.route("**/api/markets/sector-returns", (r) => json(r, { detail: "MOCK: upstream" }, 500));
+    await page.goto(DESK);
+    await expect(page.getByTestId("mo-sectors")).toContainText("Sector returns didn’t load.", SLOW);
+    await expect(page.getByTestId("mo-sector-up")).toHaveCount(0);
+    await expect(page.getByTestId("mo-index")).toHaveCount(3);
+    await expect(page.getByTestId("mo-flows-fii")).toBeVisible();
+    await page.route("**/api/markets/sector-returns", (r) => json(r, { ...SECTORS, sectors: [] }));
+    await page.reload();
+    await expect(page.getByTestId("mo-sectors")).toContainText("No sector index has a 1-day return in the answer.", SLOW);
+  });
 });
 
 // Kite's closing quote on an index cell: the same rule as the old Overview's tiles (useLiveOverlay with the cell's own bar
@@ -586,6 +612,48 @@ test.describe("MOCK — not real data: Market Overview · events and the Trade D
     expect(text).not.toMatch(/recommended/i);
     expect(text.replace(/not (a )?recommendations?/gi, "")).not.toMatch(/recommend/i);
     expect(text).toMatch(/not a prediction/);
+  });
+});
+
+// ── the header's market-status pill ─────────────────────────────────────
+
+// Ported from copilot-app-desk.spec.ts "header row" (the old Overview's design-fidelity case, removed in the desk redesign's
+// step 6): the pill lives in the desk header above Market Overview, and nothing else checks its states.
+// MOCK — not real data: GET /api/markets/home's `session` block as backend/routes/markets.py sends it (NSE holiday list).
+const SESSION_HOLIDAY = { date: "2026-10-20", state: "closed", trading_day: false, reason: "holiday", holiday: "Dussehra", hours: "09:15–15:30 IST", calendar: "ok", calendar_source: "NSE trading holidays (nidp.nse_holidays, segment CM)" };
+const SESSION_OPEN = { ...SESSION_HOLIDAY, date: "2026-10-14", state: "open", trading_day: true, reason: "in_hours", holiday: null };
+const SESSION_UNREAD = { ...SESSION_OPEN, trading_day: null, calendar: "unavailable" };
+
+test.describe("MOCK — not real data: the desk header's market-status pill", () => {
+  test("MO-32 closed, live, delayed; 'Market open' only when the holiday list was read; an NSE holiday by name, never live", async ({ page }) => {
+    await setup(page);
+    const status = page.getByTestId("desk-market-status");
+    const open = async (home: Record<string, unknown>) => {
+      await page.route("**/api/markets/home", (r) => json(r, { ...HOME, ...home }));
+      await page.goto(DESK);
+    };
+    // market_state "closed": never "live", never "Market open".
+    await open({ market_state: "closed", is_live: false });
+    await expect(status).toHaveText(/^Market closed · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("data-feed", "closed");
+    // In NSE hours: the live tape says so; delayed quotes say delayed.
+    await open({ market_state: "open", is_live: true });
+    await expect(status).toHaveText(/^NSE hours · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("data-feed", "live");
+    await open({ market_state: "open", is_live: false });
+    await expect(status).toHaveAttribute("data-feed", "delayed");
+    // PRD §12.5: "Market open" only when the server read the NSE holiday list for today.
+    await open({ market_state: "open", is_live: true, session: SESSION_OPEN });
+    await expect(status).toHaveText(/^Market open · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("title", /not an NSE holiday/);
+    // The list could not be read: the clock's word, and the tooltip says why.
+    await open({ market_state: "open", is_live: false, session: SESSION_UNREAD });
+    await expect(status).toHaveText(/^NSE hours · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("title", /holiday list could not be read/);
+    // An NSE holiday on a weekday: closed, with the holiday's name.
+    await open({ market_state: "closed", is_live: false, session: SESSION_HOLIDAY });
+    await expect(status).toHaveText(/^NSE holiday · Dussehra · \d{2}:\d{2} IST$/);
+    await expect(status).toHaveAttribute("data-feed", "closed");
   });
 });
 

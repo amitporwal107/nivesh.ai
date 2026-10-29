@@ -12,7 +12,7 @@
  *                        sections are tabs/trade-desk and the screens they host
  *   03 Market Desk       intel · smartmoney · sectors · research · screener (tradingdesk/tabs/market-desk, step 5: one
  *                        frame over IntelTab + EventsTab + a sector-rotation readout; SmartMoneyTab + the F&O lab's
- *                        build-up, candidates, indices and chain; SectorHeatmap; ChartTab; Screener + Chartink sources).
+ *                        build-up, candidates, indices and chain; SectorHeatmap; the Live chart; Screener + Chartink sources).
  *                        The old ?view=watchlists and ?view=scorecard open Trade Desk (owner, 27 Oct 19:40 IST).
  *   04 Risk Desk         limits · controls · log (tradingdesk/tabs/risk-desk: paper risk only, built from RiskControls,
  *                        the risk profile, the F&O lab's live readiness and its decision lineage and replay)
@@ -60,7 +60,6 @@ import { useRiskStatus } from "./tradingdesk/risk-controls";
 const MarketOverview = lazy(() => import("./tradingdesk/tabs/market-overview/MarketOverview"));
 const MarketDesk = lazy(() => import("./tradingdesk/tabs/market-desk/MarketDesk"));
 const ScannerTab = lazy(() => import("./tradingdesk/ScannerTab"));
-const ChartTab = lazy(() => import("./tradingdesk/ChartTab"));
 const PortfolioTab = lazy(() => import("./tradingdesk/PortfolioTab"));
 const TradeDeskTab = lazy(() => import("./tradingdesk/tabs/trade-desk/TradeDeskTab"));
 const ChartinkSettings = lazy(() => import("./tradingdesk/chartink/ChartinkSettings"));
@@ -68,7 +67,7 @@ const ForwardTestPanel = lazy(() => import("./tradingdesk/FnoForwardTest").then(
 const ScannerTop10 = lazy(() => import("./tradingdesk/ScannerTop10").then((m) => ({ default: m.ScannerTop10 })));
 const SignalCategories = lazy(() => import("./tradingdesk/ScannerTab").then((m) => ({ default: m.SignalCategories })));
 const IdeaScorecard = lazy(() => import("./tradingdesk/scorecard/IdeaScorecard"));
-const ChartTicket = lazy(() => import("./tradingdesk/tabs/trade-desk/ChartTicket").then((m) => ({ default: m.ChartTicket })));
+const LiveChartView = lazy(() => import("./tradingdesk/tabs/trade-desk/LiveChart"));
 const Watchlist = lazy(() => import("./Watchlist"));
 const RiskDeskTab = lazy(() => import("./tradingdesk/tabs/risk-desk/RiskDeskTab"));
 
@@ -623,7 +622,13 @@ export default function TradingDeskScreen() {
           ? <p data-testid="desk-trade-record-pending" className="m-0" style={lineStyle}>Signal record: not available yet. No route serves a signal's levels, lifecycle and revisions (the positional_signals_history table has no route), so nothing is shown rather than a made-up record.</p>
           : (
             <Hosted id="chart" name="Chart Analysis">
-              <ChartTab riskPanel={(sym) => <ChartTicket symbol={sym} onIdeas={() => goPlace("trade", "scanner", { sub: "ranked" })} />} />
+              {/* The owner's Live chart design (28 Oct): chart card, paper order ticket, F&O setup, signal conditions. The full
+                  research chart (opportunity detail, filings, fundamentals) is Market Desk › Stock Research. */}
+              <LiveChartView
+                onIdeas={() => goPlace("trade", "scanner", { sub: "ranked" })}
+                onStrategyLab={() => goPlace("trade", "lab", { sub: "build" })}
+                onRiskPolicy={() => goPlace("risk", "controls")}
+              />
             </Hosted>
           );
         break;

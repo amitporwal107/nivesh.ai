@@ -699,13 +699,6 @@ export function useDeskOdds(head: MoveHead = "p_up5_1d") {
   });
 }
 
-/** "p_up5_1d" → "P(+5% next session)". */
-export function headLabel(head: MoveHead): string {
-  const m = /^p_(up|down)(\d+)_1d$/.exec(head);
-  if (!m) return head;
-  return `P(${m[1] === "up" ? "+" : "−"}${m[2]}% next session)`;
-}
-
 /**
  * PRD §5.8: "A probability is displayed only when supported by an appropriate calibration process." The desk shows a
  * model probability only when its route marks the estimate calibrated. GET /api/move-odds/latest publishes the
@@ -723,7 +716,7 @@ export function probabilityGate(odds: DeskOdds | undefined, plain = false, stock
       shown: false,
       reason: plain
         ? "Not shown: the model's chances are not marked as checked against real outcomes (calibrated), so they are held back."
-        : "Withheld: GET /api/move-odds/latest does not mark these estimates as calibrated (it sends a 2025 band record, not a calibration flag), so no probability is shown (PRD §5.8).",
+        : "Withheld: the move-odds model does not mark these estimates as calibrated (it sends a 2025 band record, not a calibration flag), so no probability is shown (PRD §5.8).",
     };
   }
   if (odds.kind === "not_published") return { shown: false, reason: `Not published for ${odds.expectedSession} yet.` };

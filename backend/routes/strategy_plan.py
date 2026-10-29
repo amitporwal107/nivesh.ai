@@ -136,9 +136,20 @@ async def strategy_ideas(request: Request) -> Dict[str, Any]:
     problems, applied = problems + cprobs, applied + capplied
     if problems:
         raise HTTPException(status_code=422, detail={"code": "invalid_input", "problems": problems})
-    out = await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today(), chartink_limit)
+    out = await ideas_mod.build_ideas(request, user["user_id"], limit, passed, applied, utcnow(), today(), chartink_limit,
+                                      sizer=account_sizer(user["user_id"]))
     await store_trade_plans([i.get("trade_plan") for i in out.get("ideas") or []], user["user_id"])
     return out
+
+
+def account_sizer(user_id: str) -> ideas_mod.Sizer:
+    """The risk service's sizing of a TradePlan for this account (the same `account_size` GET /api/desk/trade-plans/{id}
+    shows), for each idea's "strategy that fits": a card never shows a structure sized another way."""
+    from services.risk_gate import plan_sizing
+
+    async def size(tp: Dict[str, Any]) -> Dict[str, Any]:
+        return await plan_sizing.size_for(db, tp, user_id)
+    return size
 
 
 _TOP_CLASSES = ("index_options", "stock_fno", "cash")

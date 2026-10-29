@@ -223,17 +223,6 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
     await mockSmartMoney(page);
   });
 
-  // Superseded by the desk redesign (2026-10-27): Smart Money is a Market Desk view, not a numbered tab. Covered by
-  // copilot-app-desk-shell.spec.ts SH-3 / SH-9; rewritten in step 6.
-  test.skip("TC-F1: it is the sixth primary tab and pushes More to 07", async ({ page }) => {
-    await page.goto(DESK);
-    const tabs = page.getByRole("tablist", { name: "Desk modules" }).getByRole("tab");
-    await expect(tabs).toHaveCount(7);
-    await expect(tabs.nth(5)).toHaveAttribute("data-testid", "desk-tab-smartmoney");
-    await expect(tabs.nth(5)).toHaveText("06Smart Money");
-    await expect(tabs.nth(6)).toHaveText("07More");
-  });
-
   test("TC-F2: the five design panels are all present, and nothing is scored", async ({ page }) => {
     await page.goto(SM);
     await expect(screen(page)).toBeVisible(SLOW);
@@ -477,23 +466,6 @@ test.describe("Smart trading desk · 06 Smart Money Movement", () => {
       await row(page, "BSE").first().click();
       await expect(page.getByTestId("desk-smart-money-evidence")).toContainText("Why it surfaced");
     }
-  });
-
-  // Superseded by the desk redesign (2026-10-27): the phone bar holds 01–04 and Copilot; Smart Money is under 03 Market.
-  // Covered by copilot-app-desk-shell.spec.ts SH-22; rewritten in step 6.
-  test.skip("TC-F20: on a phone it is in the bottom bar as Flows, and the rail stacks", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(SM);
-    await expect(screen(page)).toBeVisible(SLOW);
-    const bar = page.getByRole("navigation", { name: "Desk sections" });
-    await expect(bar.getByRole("button")).toHaveCount(7);
-    const btn = page.getByTestId("desk-bottom-smartmoney");
-    await expect(btn).toHaveText("Flows");
-    await expect(btn).toHaveAttribute("aria-label", /Smart Money Movement/);
-    await expect(btn).toHaveAttribute("aria-current", "page");
-    // The rail is still reachable, just below the scanner.
-    await expect(page.getByTestId("desk-smart-money-rail")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   });
 
   test("TC-F21: no score, rank or hit rate reaches the DOM", async ({ page }) => {

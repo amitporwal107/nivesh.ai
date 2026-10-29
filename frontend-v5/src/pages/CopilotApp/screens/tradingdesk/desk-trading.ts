@@ -536,6 +536,8 @@ export interface StrategyPaperTrade {
   tradePlanId: string | null;
   rolledTo: string | null;
   rolledFrom: string | null;
+  /** The stored strategy version the trade cites (`strategy_ref`, Strategy Lab's PAPER LIVE), or null. */
+  strategyRef: { strategyId: string; versionId: string; versionNo: number | null } | null;
   referencePrice: number | null;
   stopUnderlying: number | null;
   targetUnderlying: number | null;
@@ -767,6 +769,7 @@ function readStrategyTrade(v: unknown): StrategyPaperTrade {
     tradePlanId: str(rec(t.plan_ref).plan_id),
     rolledTo: str(t.rolled_to),
     rolledFrom: str(rec(t.rolled_from).trade_id),
+    strategyRef: readStrategyRef(t.strategy_ref),
     referencePrice: price(t.reference_price), stopUnderlying: price(t.stop_underlying), targetUnderlying: price(t.target_underlying),
     note: str(t.note), openedAt: str(t.opened_at), closedAt: str(t.closed_at),
     exitReason: reason && STRATEGY_EXIT_REASONS.includes(reason) ? (reason as StrategyExitReason) : null,
@@ -987,6 +990,15 @@ export interface NewStrategyPaperTrade {
   max_hold_sessions?: number;
   note?: string;
   plan_ref?: PlanRef;
+  /** A saved strategy version this structure is (strategy/instance-store.ts); the route checks it is yours. */
+  strategy_ref?: { strategy_id: string; version_id: string };
+}
+
+function readStrategyRef(v: unknown): StrategyPaperTrade["strategyRef"] {
+  const r = rec(v);
+  const strategyId = str(r.strategy_id);
+  const versionId = str(r.version_id);
+  return strategyId && versionId ? { strategyId, versionId, versionNo: typeof r.version_no === "number" ? r.version_no : null } : null;
 }
 
 export function useAddStrategyPaperTrade() {

@@ -100,8 +100,18 @@ async def _persist_findings(
     conn: asyncpg.Connection, run_id: uuid.UUID, ingester: str,
     target_date: Optional[str], suite_result: dict,
 ) -> int:
-    """Write per-expectation findings into nidp.validation_findings."""
+    """Write per-expectation findings into nidp.validation_findings.
+
+    The insert names every NOT NULL column of the table (migration 006: finding_id, validation_id, failure_class) and
+    its real payload column `sample_rows`. Before, it named a `sample_payload` column that does not exist and left the
+    NOT NULL columns out, so every insert failed into a log warning and no GE finding was ever recorded. The GE run's
+    id is both its validation_id and its job_run_id. GE findings are FIX-class: a BLOCK is declared by a feed's own
+    validator, not inferred from a share of unexpected rows.
+    """
     inserted = 0
+    d = None
+    if target_date:
+        d = target_date if isinstance(target_date, date) else date.fromisoformat(str(target_date))
     for f in suite_result["findings"]:
         if f["success"]:
             continue
@@ -113,11 +123,11 @@ async def _persist_findings(
         try:
             await conn.execute("""
                 INSERT INTO nidp.validation_findings
-                  (job_run_id, ingester, target_date, rule_name, severity,
-                   message, expected, actual, sample_payload)
-                VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9::jsonb)
+                  (finding_id, validation_id, job_run_id, ingester, target_date, rule_name, severity,
+                   failure_class, message, expected, actual, sample_rows)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'FIX', $8, $9, $10, $11::jsonb)
             """,
-                run_id, ingester, target_date, f["expectation_type"], sev,
+                uuid.uuid4(), run_id, run_id, ingester, d, f["expectation_type"], sev,
                 f["message"][:500],
                 json.dumps(f["kwargs"], default=str)[:1000],
                 str(f["unexpected_count"]),

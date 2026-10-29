@@ -15,6 +15,8 @@ Endpoints (all under /api/desk):
                                          desk-paper-v3): {kind, underlying, direction, family, reference_price, stop_underlying?,
                                          target_underlying?, legs[1-4], signal{signal_at, rule_version, evidence_summary, ...},
                                          strategy_plan_id?, max_hold_sessions?, note?}; the signal and legs are saved once, never edited
+    POST   /paper-trades/check         — the same body, validated the same way: the risk service's decision for it on your
+                                         account now (allow / reduce / block with reasons); writes and reserves nothing
     GET    /paper-trades/{id}          — one trade with its lifecycle log (and, for a strategy, its signal); read-only
     POST   /paper-trades/{id}/close    — {exit_price?}: close at that price, or at the last end-of-day close ("manual");
                                          a trade whose conditional entry was not reached is "cancelled" (no P&L)
@@ -81,6 +83,7 @@ from services import paper_account as acct
 from services import paper_reconcile as reconcile
 from services import risk_controls as rc
 from services import risk_gate
+from services import strategy_store
 from services.risk_gate import plan_sizing
 from services.risk_gate import service as risk_service
 from services import trade_lifecycle as lifecycle
@@ -270,6 +273,10 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
     if isinstance(body, dict) and "plan_ref" in body:
         body = dict(body)
         plan_ref_raw = body.pop("plan_ref")             # checked against the stored TradePlan below, never trusted as sent
+    strategy_ref_raw = None
+    if isinstance(body, dict) and "strategy_ref" in body:
+        body = dict(body)
+        strategy_ref_raw = body.pop("strategy_ref")     # checked against the strategy store below, never trusted as sent
     try:
         if isinstance(body, dict) and body.get("kind") == strat.KIND:
             doc = strat.new_strategy_trade(uid, body)
@@ -285,6 +292,8 @@ async def create_paper_trade(request: Request, response: Response) -> Dict[str, 
         raise await ref.refuse(422, exc.detail())
     if plan_ref_raw is not None:
         await _attach_plan(ref, uid, doc, plan_ref_raw)
+    if strategy_ref_raw is not None:
+        await _attach_strategy_ref(ref, uid, doc, strategy_ref_raw)
     if doc.get("kind") == strat.KIND:
         _store_premium_levels(doc)
     doc["open_key"] = strat.structure_key(doc) if doc.get("kind") == strat.KIND else svc.open_key(doc)
@@ -401,6 +410,25 @@ async def _attach_plan(ref: "_Refusals", uid: str, doc: Dict[str, Any], raw: Any
         doc["exit_plan"] = {"options": tp["exit_plan"]["options"], "source": "trade_plan"}
 
 
+async def _attach_strategy_ref(ref: "_Refusals", uid: str, doc: Dict[str, Any], raw: Any) -> None:
+    """Strategy Copilot Phase 1.1: a paper trade may cite the stored strategy version it came from,
+    `strategy_ref {strategy_id, version_id}` (Strategy Lab derives PAPER LIVE from it). The version must be one of the
+    caller's own, not archived (422 invalid_strategy_ref otherwise, the same answer for unknown and not-yours), and a v2
+    version must trade this underlying (409 strategy_ref_mismatch). The trade then stores the ref with its version_no.
+    It changes no risk number and no level."""
+    try:
+        found = await strategy_store.resolve_version_ref(uid, raw)
+    except strategy_store.StoreInputError as exc:
+        raise await ref.refuse(exc.status, exc.detail())
+    traded = doc.get("underlying") or doc.get("symbol")
+    if found.get("underlying") and traded and found["underlying"] != traded:
+        raise await ref.refuse(409, {"code": "strategy_ref_mismatch", "field": "strategy_ref",
+                                     "message": f"Version {found['version_no']} of that strategy trades "
+                                                f"{found['underlying']}, not {traded}."})
+    doc["strategy_ref"] = {"strategy_id": found["strategy_id"], "version_id": found["version_id"],
+                           "version_no": found["version_no"]}
+
+
 def _store_premium_levels(doc: Dict[str, Any]) -> None:
     """Phase 2.6, storage only: the strategy-levels engine's premium stop and T1 / T2 (and the underlying levels they
     correspond to) are stored on the strategy trade at entry, from its own legs and the signal's data date. EVALUATING
@@ -429,12 +457,58 @@ def _with_lifecycle(out: Dict[str, Any], doc: Dict[str, Any]) -> Dict[str, Any]:
     out["exit_plan"] = doc.get("exit_plan")
     out["rolled_from"] = doc.get("rolled_from")
     out["rolled_to"] = doc.get("rolled_to")
+    if doc.get("strategy_ref"):                     # only on trades that cite a stored strategy: older answers keep their keys
+        out["strategy_ref"] = doc["strategy_ref"]
     return out
 
 
 PLAN_RISK_BASIS = ("The newest decision of the universal risk service (Phase 1) on a paper-trade submission that cited this "
                    "plan: the one that allowed a trade, or one that reduced or blocked a submission. The service decides "
                    "at submission (there is no preview), so a plan nobody has submitted has no decision and is provisional.")
+
+
+CHECK_BASIS = ("The risk service's decision for this structure on your account now (services/risk_gate/service.decide), "
+               "the same code the paper-trade POST runs; nothing was recorded or reserved, and the POST decides again.")
+
+
+@router.post("/paper-trades/check")
+async def check_paper_trade(request: Request) -> Dict[str, Any]:
+    """The risk service's answer for a paper trade that is NOT submitted (Strategy Lab › Build a trade, the Checks card).
+    The body is the POST /paper-trades body; it is validated by the same code (422 with the same detail), then the risk
+    service gathers this account's book and decides (`risk_service.gather` + `decide`). Nothing is written: no trade, no
+    risk_decisions row, no refusal record, no reservation, no Idempotency-Key. An open duplicate is reported, not refused.
+    The fill check of an at-once cash entry (the last session's range) is the POST's, not this route's. Nothing is sent to
+    a broker."""
+    user = await get_current_user(request)
+    uid = user["user_id"]
+    body = await _body(request)
+    if isinstance(body, dict) and ("plan_ref" in body or "strategy_ref" in body):
+        # a TradePlan or stored-strategy link changes no risk number
+        body = {k: v for k, v in body.items() if k not in ("plan_ref", "strategy_ref")}
+    try:
+        if isinstance(body, dict) and body.get("kind") == strat.KIND:
+            doc = strat.new_strategy_trade(uid, body)
+            await strat.check_exchange_lots(doc)
+        else:
+            if isinstance(body, dict) and "kind" in body:
+                if body["kind"] != "cash":
+                    raise svc.DeskInputError("invalid_kind")
+                body = {k: v for k, v in body.items() if k != "kind"}
+            doc = svc.new_trade(uid, body)
+    except svc.DeskInputError as exc:
+        raise HTTPException(status_code=422, detail=exc.detail())
+    doc["open_key"] = strat.structure_key(doc) if doc.get("kind") == strat.KIND else svc.open_key(doc)
+    existing = await _open_duplicate(uid, doc)
+    fno_additional = await risk_gate.enabled_for(db, user)
+    req = _entry_request(user, risk_gate.correlation_id(request), doc, fno_additional)
+    decision = risk_service.decide(req, await risk_service.gather(db, req, svc.utcnow()))
+    keys = ("outcome", "reasons", "requested_lots", "approved_lots", "requested_qty", "approved_qty", "estimated_risk_rs",
+            "budget", "limits_version", "freshness")
+    return {"checked": True, "recorded": False, **{k: decision.get(k) for k in keys},
+            "policy_version": risk_service.POLICY_VERSION,
+            "duplicate": None if existing is None else {"existing_trade_id": existing["_id"],
+                                                        "message": _duplicate_detail(doc, existing)["message"]},
+            "basis": CHECK_BASIS, "sent_to_broker": False}
 
 
 def _public_decision(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -794,6 +868,8 @@ async def roll_paper_trade(request: Request, response: Response, trade_id: str) 
                    rolled_from={"trade_id": old["_id"], "session": preview["session"], "plan_id": old.get("trade_plan_id"),
                                 "strike_shift": preview["strike_shift"], "strike_mode": mode},
                    idempotency_key=f"roll:{old['_id']}"[:64], request_fingerprint=svc.request_fingerprint({"roll": old["_id"], "mode": mode}))
+    if old.get("strategy_ref"):
+        new_doc["strategy_ref"] = dict(old["strategy_ref"])   # the rolled trade still runs that stored strategy (PAPER LIVE)
     _store_premium_levels(new_doc)
     new_doc["open_key"] = strat.structure_key(new_doc)
     roll_note = f"Rolled to {new_doc['_id']} at the {preview['session']} NSE bhavcopy close."

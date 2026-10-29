@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -28,6 +29,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from deps import db, get_current_user
 from services.results_week import build as rw_build
 from services.results_week import loaders, store
+from services.results_week import stock as rw_stock
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/desk/results-week", tags=["desk"])
@@ -109,3 +111,46 @@ async def get_results_week(request: Request,
                                                                     "The nightly job stores each weekday at 22:45 IST."})
     by, meta = await loaders.chartink_for(db, user["user_id"], d)
     return rw_build.join_chartink(body, by, meta)
+
+
+_SYMBOL_RE = re.compile(r"^[A-Z0-9&\-]{1,20}$")
+
+
+async def _week_body(d: date, today: date) -> Dict[str, Any]:
+    if d == today:
+        return await _live_body(d)
+    body = await store.get_day(d.isoformat(), db=db)
+    if body is None:
+        raise HTTPException(status_code=404, detail={"code": "not_stored",
+                                                     "message": f"No results-week snapshot is stored for {d.isoformat()}. "
+                                                                "The nightly job stores each weekday at 22:45 IST."})
+    return body
+
+
+@router.get("/stock/{symbol}")
+async def get_results_stock(request: Request, symbol: str,
+                            day: Optional[str] = Query(None, alias="date", description="YYYY-MM-DD; default today (IST)")) -> Dict[str, Any]:
+    """§9b: one stock's results file — preview, commentary (pre / the result / post) with sentiment, analyst views (not
+    connected), and the cash & F&O track. Signed in; read-only."""
+    await get_current_user(request)
+    sym = symbol.strip().upper()
+    if not _SYMBOL_RE.match(sym):
+        raise HTTPException(status_code=422, detail={"code": "invalid_symbol", "message": "symbol must be an NSE symbol"})
+    today = today_ist()
+    if day is None:
+        d = today
+    else:
+        try:
+            d = date.fromisoformat(day)
+        except ValueError:
+            raise _bad("date must be a real date, YYYY-MM-DD")
+        if len(day) != 10:
+            raise _bad("date must be a real date, YYYY-MM-DD")
+    if d > today:
+        raise _bad(f"date {d.isoformat()} is in the future; today (IST) is {today.isoformat()}")
+    body = await _week_body(d, today)
+    row = next((r for r in body.get("results") or [] if str(r.get("symbol") or "").upper() == sym), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail={"code": "no_results_meeting",
+                                                     "message": f"{sym} has no results meeting in the week of {d.isoformat()}."})
+    return await rw_stock.build_stock(row, d, db=db)

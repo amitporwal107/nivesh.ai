@@ -77,6 +77,7 @@ from services import option_pricing as op
 from services import paper_account
 from services import trade_lifecycle as lifecycle
 from services.copilot_tools import daas_client
+from services.strategy_limits import MAX_STRATEGY_LEGS, MIN_STRATEGY_LEGS
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ FAMILIES = {
     "covered_call": "Covered call", "protective_put": "Protective put", "collar": "Collar",
     "hedged_future": "Hedged future", "custom": "Custom structure",
 }
-MIN_LEGS, MAX_LEGS = 1, 4
+MIN_LEGS, MAX_LEGS = MIN_STRATEGY_LEGS, MAX_STRATEGY_LEGS     # the shared product limit (services/strategy_limits)
 MAX_LOTS = 1_000_000
 MAX_LOT_SIZE = 100_000
 MAX_SOURCE_REFS = 10

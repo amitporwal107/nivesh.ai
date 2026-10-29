@@ -422,19 +422,6 @@ test.describe("Sector heatmap — entry points", () => {
     await expect(page.getByTestId("hm-verdict")).toBeVisible();
   });
 
-  // Superseded by the desk redesign (2026-10-27): the Trader rail lists only the Smart trading desk; in Trader mode this route
-  // opens Market Desk › Sector Rotation. Covered by copilot-app-desk-shell.spec.ts SH-10 / SH-17; rewritten in step 6.
-  test.skip("it is a Trader rail item named Sector rotation and opens the heatmap; Investor mode does not list it", async ({ page }) => {
-    await open(page, { url: `${APP}/trader/desk` });
-    const rail = page.getByTestId("copilot-rail");
-    await expect(rail).toContainText("Screener");
-    await expect(rail).not.toContainText(/Sector rotation/);
-    await page.getByTestId("mode-pill").click();
-    await expect(rail).toContainText("Smart trading desk");
-    await rail.getByRole("button", { name: "Sector rotation" }).click();
-    await expect(page).toHaveURL(/\/app\/tool\/sector-heatmap$/);
-    await expect(page.getByTestId("hm-verdict")).toBeVisible();
-  });
 });
 
 test.describe("Sector heatmap — phone (390px)", () => {

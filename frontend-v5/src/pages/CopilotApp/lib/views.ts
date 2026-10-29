@@ -32,6 +32,12 @@ export interface NavItem {
  */
 export const SECTOR_HEATMAP_VIEW = "tool/sector-heatmap";
 
+/**
+ * The equity strategy builder (screen → backtest → save), mounted inside the shell. The "Backtest in the strategy
+ * builder" links open it here; the old standalone /strategy-builder URL now redirects to the desk's Trade Desk (routes.tsx).
+ */
+export const STRATEGY_BUILDER_VIEW = "trader/strategy";
+
 const INVESTOR_TOOLS: NavItem[] = [
   { view: "tool/analysis", label: "Portfolio analysis" },
   { view: "tool/recommend", label: "Recommendations" },
@@ -56,11 +62,9 @@ const ADVISOR_TOOLS: NavItem[] = [
 ];
 
 const TRADER_TOOLS: NavItem[] = [
-  // Six modules on tabs with the Copilot docked: scanner, chart and risk desk, filings, portfolio, F&O.
+  // The desk's four tabs, My portfolio and the docked Copilot. The old Trader desk, Options lab and F&O lab were removed
+  // in the redesign's step 6 (2026-10-27); their URLs redirect into the desk (lib/retired-views.ts).
   { view: "trader/desk", label: "Smart trading desk", tag: "AI" },
-  { view: "trader", label: "Trader desk", tag: "F&O" },
-  { view: "tool/optlab", label: "Options lab", tag: "F&O" },
-  { view: "tool/fnolab", label: "F&O lab", tag: "F&O" },
   // The original strategy builder (screen → backtest → save), mounted inside the shell.
   { view: "trader/strategy", label: "Strategy builder" },
   { view: "tool/screener", label: "Screener" },

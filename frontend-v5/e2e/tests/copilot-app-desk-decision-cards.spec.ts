@@ -21,7 +21,7 @@ const CARD = load("contract-decision-card.json");
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 const DESK = "/v5/app/trader/desk";
 const SCANNER = `${DESK}?tab=scanner`;
-const WATCHLIST = "/v5/app/page/watchlist";
+const WATCHLIST = "/v5/app/page/watchlist?wl=all";
 const SLOW = { timeout: 15_000 };
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 
@@ -147,7 +147,10 @@ test.describe("Decision cards — the surfaces", () => {
     await expect(card.getByTestId("dc-risk-check")).toHaveAttribute("data-state", "none");
     await expect(card.getByTestId("dc-risk-check")).toContainText("no decision yet");
     await expect(card.getByTestId("dc-equity")).toContainText(`${rs(EQUITY)} paper equity`);
-    for (const e of CASH.evidence.items) await expect(card.getByTestId(`dc-ev-${e.key}`)).toContainText(e.status === "ok" ? e.text.slice(0, 30) : "Unavailable");
+    // The card shows the evidence without internal module names ("(macro_engine.classify_desk_regime, session …)" → "(session …)", desk audit wave 1).
+    const readable = (t: string) => t.replace(/\((?:[a-z_]+\.)+[a-z_]+(?: \([^)]*\))?,\s*/g, "(");
+    for (const e of CASH.evidence.items) await expect(card.getByTestId(`dc-ev-${e.key}`)).toContainText(e.status === "ok" ? readable(e.text).slice(0, 30) : "Unavailable");
+    await expect(card.getByTestId("dc-sec-evidence")).not.toContainText("macro_engine");
     for (const w of CASH.warnings) await expect(card.getByTestId(`dc-warn-${w.key}`).locator("[data-status]")).toHaveAttribute("data-status", w.status);
     await expect(card.getByTestId("dc-gap")).toContainText(CASH.costs.gap_risk.slice(0, 40));
     await expect(card.getByTestId("dc-data-asof")).toContainText("price 19 Oct 2026");

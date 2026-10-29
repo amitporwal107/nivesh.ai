@@ -9,6 +9,12 @@
                                                  passed through from DaaS /v1/desk/fno-buildup (definitions in
                                                  nidp/services/daas_api/routers/desk_market.py). It lives under /desk
                                                  there because the data platform's /fno/{symbol} would catch /fno/scan
+    GET /api/fno/{symbol}/futures/oi-buildup?interval=15m&window=4&sessions=2
+                                                 the current / next / far month futures AND consolidated (the three
+                                                 summed), per N-bar window: price change, OI change, volume and the
+                                                 build-up class, with the snapshot time. Kite candles with OI when the
+                                                 platform Kite session works, else the latest bhavcopy day per expiry
+                                                 labelled end of day (services/fno_oi_windows.py). Read only
     GET /api/fno/{symbol}/iv-history?days=&bucket=  the recorded daily ATM implied volatility of the underlying, with IV
                                                  rank and IV percentile once 252 sessions are recorded
                                                  (services/fno_iv_history; written by scripts/record_iv_history.py
@@ -88,6 +94,7 @@ from services.fno_candidates import rules as fno_rules
 from services import fno_forward
 from services import fno_iv_history
 from services import fno_margin
+from services import fno_oi_windows
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fno", tags=["fno"])
@@ -758,6 +765,12 @@ async def futures(
     """The latest trading day's futures contracts for the underlying, nearest expiry first."""
     await get_current_user(request)
     sym = symbol.upper()
+    as_of, spot, lot_size, contracts = await _latest_futures(sym)
+    return {"symbol": sym, "as_of": as_of, "spot": spot, "lot_size": lot_size, "futures": contracts, "count": len(contracts)}
+
+
+async def _latest_futures(sym: str) -> Tuple[str, Optional[float], Optional[int], List[Dict[str, Any]]]:
+    """(the latest day, spot, lot size, that day's shaped futures nearest first). 404 when there are none."""
     rows, read_days = await _futures_rows(sym)
     days = [d for d in [*read_days, *(_iso_day(r.get("as_of_date")) for r in rows)] if d]
     if not days:
@@ -765,8 +778,49 @@ async def futures(
     as_of = max(days)
     rows = [r for r in rows if _iso_day(r.get("as_of_date")) == as_of]
     spot = find_spot(rows)
-    contracts = shape_futures(rows, spot)
-    return {"symbol": sym, "as_of": as_of, "spot": spot, "lot_size": find_lot_size(rows), "futures": contracts, "count": len(contracts)}
+    return as_of, spot, find_lot_size(rows), shape_futures(rows, spot)
+
+
+OI_INTERVALS = ("5m", "15m", "30m", "60m")
+
+
+@router.get("/{symbol}/futures/oi-buildup")
+async def futures_oi_buildup(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    interval: str = Query("15m", description="5m | 15m | 30m | 60m"),
+    window: int = Query(4, ge=1, le=12, description="Bars per window"),
+    sessions: int = Query(2, ge=1, le=5, description="Sessions of windows sent"),
+) -> Dict[str, Any]:
+    """The futures' OI build-up by window for the current / next / far month and consolidated (services/fno_oi_windows.py).
+    Kite candles with open interest when the platform Kite session works (mode intraday); otherwise the latest bhavcopy day
+    per expiry (mode end_of_day, `kite_reason` says why). Read only: nothing is written and nothing is sent to a broker."""
+    await get_current_user(request)
+    if interval not in OI_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OI_INTERVALS)}")
+    sym = symbol.upper()
+    from routes.research_chart_intraday import get_service
+    from services.kite_live_feed import config as kite_cfg
+    from services.kite_live_feed.feed import get_feed
+    from services.kite_live_feed.intraday import INTERVALS as KITE_INTERVALS
+    await _refresh_platform_token()
+    try:
+        st = await get_feed().read_status() or {}
+    except Exception as e:  # noqa: BLE001 — the feed status only sets the cache time
+        logger.warning("fno oi-buildup: feed status unreadable (%s)", type(e).__name__)
+        st = {}
+    try:
+        # One extra session is read as the baseline of the first window shown (fno_oi_windows.trim).
+        raw = await get_service().futures_bars(sym, interval, sessions + 1, session_open=st.get("session") == "open")
+        kite_reason = None if raw.get("availability") == "ok" else raw.get("availability")
+    except RuntimeError:
+        raw, kite_reason = None, "upstream_unavailable"
+    if raw is not None and kite_reason is None:
+        from datetime import datetime as _dt, timezone as _tz
+        return fno_oi_windows.intraday_answer(sym, raw, interval, KITE_INTERVALS[interval][1], window, sessions,
+                                              _dt.now(_tz.utc).astimezone(kite_cfg.IST))
+    as_of, _spot, _lot, contracts = await _latest_futures(sym)
+    return fno_oi_windows.eod_answer(sym, as_of, contracts, kite_reason)
 
 
 _FORWARD_CACHE: Dict[str, Any] = {"ts": 0.0, "key": None, "bars": None}

@@ -21,7 +21,7 @@ import { mockApi } from "../helpers/api-mock";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP = "/v5/app";
-const PAGE = `${APP}/page/watchlist`;
+const PAGE = `${APP}/page/watchlist?wl=all`;
 const SLOW = { timeout: 15_000 };
 const reply = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 

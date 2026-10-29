@@ -26,6 +26,14 @@ fund_category_rank, 4 materialized views) · `portfolio` (bridged user snapshots
 `mutual_fund_aum_history`, `mutual_fund_performance_ratios`, `mutual_fund_holdings`,
 `benchmark_master`, `scrape_audit_log`, `nav_analytics_job_log`, `schema_migrations`.
 
+Strategy Builder / the shared strategy store (app database `public`; `backend/nidp/migrations/020`, `115`,
+`backend/migrations/024`, `026`): `strategies` (owner, `asset_class` STOCK | MF | FNO | MIXED, `source` user | ai |
+template | clone | plan, `template_id`, `underlying`, `cloned_from`), `strategy_versions` (immutable rows — trigger
+`trg_strategy_versions_immutable`, only `is_active` changes; `schema_version` '1' equity DSL | '2' legs document,
+`parent_version_id`, `change_summary`, Copilot provenance columns, per-strategy `idempotency_key`), `strategy_runs`
+(BACKTEST/LIVE, status RUNNING | OK | FAILED with `error_message`), `strategy_trades`, `strategy_audit`, `strategy_config`,
+`user_universes`. Migration 026 is applied by the `app-migrate` profile (deploy with `run_migrations=true`), not by a merge.
+
 ## Nivesh MongoDB — collections (full list §6.3)
 `users`, `holdings`, `portfolio_snapshots`, `action_plans`, `plan_history`, `chat_sessions`,
 `portfolio_intelligence_signals`, `pg_mirror_*` (WORM mirrors for post-deploy restore),

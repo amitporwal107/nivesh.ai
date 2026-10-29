@@ -473,6 +473,26 @@ test.describe("Smart trading desk — Portfolio & risk", () => {
     await deskBase(page);
   });
 
+  test("KC-3 after the close a position shows the session's move at Kite's close, labelled close (not live)", async ({ page }) => {
+    await mockPaper(page, { status: 403, body: { detail: "Feature not enabled" } });
+    await mockDeskLists(page);
+    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
+    // MOCK — not real data: the feed's final snapshot after the 29 Oct close (the stream is refused, so the store polls /quotes).
+    await page.route("**/api/live/stream*", (route) => route.fulfill({ status: 404, contentType: "application/json", body: "{}" }));
+    await page.route("**/api/live/quotes*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      as_of: "2026-10-29T10:01:06+00:00", data_at: "2026-10-29T10:01:05+00:00", age_seconds: 5000, stale: false, mode: "closed", session: "closed", final: true,
+      cadence_seconds: 30, source: "rest", count: 1, missing: [],
+      quotes: { FIXHEAVY: { ltp: 1210, change: 25, change_pct: 2.11, open: 1190, high: 1212, low: 1186, close: 1185, volume: 120000, oi: null, ts: "2026-10-29T15:30:57+05:30" } },
+    }) }));
+    await page.goto(`${DESK}?tab=portfolio`);
+    const heavy = page.locator('[data-testid="desk-portfolio-position"][data-symbol="FIXHEAVY"]');
+    const chip = heavy.getByTestId("desk-portfolio-position-live");
+    await expect(chip).toHaveText("+2.1%", { timeout: 15_000 });
+    await expect(chip).toHaveAttribute("data-kind", "close");
+    await expect(chip).toHaveAttribute("title", /Close · 29 Oct · Kite, provisional until the exchange’s end-of-day file/);
+    await expect(page.locator('[data-testid="desk-portfolio-position"][data-symbol="FIXLIGHT"]').getByTestId("desk-portfolio-position-live")).toHaveCount(0);
+  });
+
   test("TC-28 broker hub: sources, value and P&L, the market-cap donut, positions (>25% amber) and the seven risk checks", async ({ page }) => {
     await mockPaper(page, { status: 403, body: { detail: "Feature not enabled" } });
     await mockDeskLists(page);
@@ -1528,76 +1548,6 @@ test.describe("Smart trading desk — Portfolio & risk at 390px", () => {
 
 
 test.describe("Smart trading desk — Portfolio & risk · design fidelity", () => {
-  // Superseded by the desk redesign (2026-10-27): the paper record left My portfolio for Trade Desk, so the hub no longer
-  // sits beside it. Covered by copilot-app-desk-shell.spec.ts SH-12 / SH-13; rewritten in step 6.
-  test.skip("§7 at 1440 with the dock: two equal cards with header bars; tiles, calibration, open-today and last-5-closed in the right card", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await deskBase(page);
-    await mockPaper(page);
-    // One trade opened today (it is listed under "Open · added today"); the rest as the fixture.
-    const now = new Date().toISOString();
-    const trades = [trade({ id: "pt-new", symbol: "FIXNEWT", quantity: 40, entry_price: 250, stop_price: 240, target_price: 270, opened_at: now, last_close: 251, last_close_date: "2026-10-13", unrealized_pnl_rs: 40 }), ...paperTrades()];
-    await mockDeskLists(page, { paperList: { status: 200, body: { as_of: "2026-10-13", checked_through: "2026-10-13", marks_error: null, trades, summary: summarize(trades) } } });
-    await portfolioData(page, { holdings: HOLDINGS, concentration: CONCENTRATION });
-    await page.goto(`${DESK}?tab=portfolio`);
-    await expect(page.getByTestId("desk-portfolio")).toHaveAttribute("data-layout", "desktop");
-
-    // Two equal columns, side by side.
-    const hub = page.getByTestId("desk-portfolio-hub");
-    const record = page.getByTestId("desk-portfolio-record");
-    const [hb, rb] = [await hub.boundingBox(), await record.boundingBox()];
-    expect(Math.abs((hb?.width ?? 0) - (rb?.width ?? 0))).toBeLessThanOrEqual(2);
-    expect(Math.abs((hb?.y ?? 0) - (rb?.y ?? 0))).toBeLessThanOrEqual(2);
-    expect((rb?.x ?? 0)).toBeGreaterThan((hb?.x ?? 0) + (hb?.width ?? 0));
-    // Header bars: bg-0, 13px 18px, the title left and the meta right.
-    // The widget header bar is the title's grandparent (title sits inside the collapse button).
-    const bar = page.getByTestId("desk-portfolio-hub-title").locator("xpath=../..");
-    expect(await bar.evaluate((e) => getComputedStyle(e).padding)).toBe("13px 18px");
-    await expect(page.getByTestId("desk-portfolio-record-title")).toHaveText("Paper trades · predicted vs actual");
-    await expect(page.getByTestId("desk-paper-card-closed")).toHaveText(`${summarize(trades).closed} closed`);
-    await expect(hub.getByTestId("desk-portfolio-readonly")).toHaveAttribute("data-tone", "indigo");
-    // Value serif 34px; donut 120px; positions grid 1fr 78px 64px 44px.
-    expect(await page.getByTestId("desk-portfolio-value").evaluate((e) => getComputedStyle(e).fontSize)).toBe("34px");
-    expect(await page.getByTestId("desk-portfolio-donut").getAttribute("width")).toBe("120");
-    const cols = await page.getByTestId("desk-portfolio-position").first().evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").slice(1));
-    expect(cols).toEqual(["78px", "64px", "44px"]);
-    // Section order inside the hub card: sources, value, donut, positions, risk checks.
-    const order = await hub.evaluate((root) => ["desk-portfolio-sources", "desk-portfolio-value", "desk-portfolio-donut", "desk-portfolio-positions", "desk-portfolio-risk"]
-      .map((id) => root.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? -1));
-    expect(order.every((t, i) => t >= 0 && (i === 0 || t > order[i - 1]))).toBe(true);
-    // Right card: the four tiles in the design's order, then Calibration, Open · added today, Last 5 closed.
-    await page.getByTestId("desk-paper-sample-replay").click();
-    await expect(record.getByTestId("desk-record-predicted")).not.toHaveText("—");
-    const tileLabels = await record.locator('[data-testid^="desk-record-"]').evaluateAll((els) => els.map((e) => e.parentElement?.firstElementChild?.textContent));
-    expect(tileLabels).toEqual(["Predicted", "Realised", "Net after costs", "False positives"]);
-    await expect(record).toContainText("Calibration");
-    // Open · added today: the trade opened today, with its levels and P shown as "—" (no probability is stored with a trade).
-    const today = record.getByTestId("desk-paper-today-row");
-    await expect(today).toHaveCount(1);
-    await expect(today).toHaveAttribute("data-id", "pt-new");
-    await expect(today.getByTestId("desk-paper-today-levels")).toHaveText(`Entry ${paise(250)} · Stop ${paise(240)} · Target ${paise(270)}`);
-    await expect(today.getByTestId("desk-paper-today-p")).toHaveText("P —");
-    // Last 5 closed: grid 1fr 40px 84px 48px; setup · days · exit, P "—", outcome = exit vs entry, R = (exit − entry) ÷ (entry − stop).
-    const closed = trades.filter((t) => t.status === "closed").slice(0, 5);
-    const last = record.getByTestId("desk-paper-last5-row");
-    await expect(last).toHaveCount(closed.length);
-    expect(await last.first().evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(" ").slice(1))).toEqual(["40px", "84px", "48px"]);
-    for (let i = 0; i < closed.length; i += 1) {
-      const t = closed[i];
-      const ret = (((t.exit_price as number) - t.entry_price) / t.entry_price) * 100;
-      const r = ((t.exit_price as number) - t.entry_price) / (t.entry_price - (t.stop_price as number));
-      const days = Math.round((Date.parse((t.closed_at as string).slice(0, 10)) - Date.parse((t.opened_at as string).slice(0, 10))) / 86_400_000);
-      await expect(last.nth(i)).toHaveAttribute("data-id", t.id);
-      await expect(last.nth(i).getByTestId("desk-paper-last5-setup")).toHaveText(`Breakout confirmed · ${days} days · ${t.exit_reason}`);
-      await expect(last.nth(i).getByTestId("desk-paper-last5-pred")).toHaveText("—");
-      await expect(last.nth(i).getByTestId("desk-paper-last5-outcome")).toHaveText(pct1(ret, true));
-      await expect(last.nth(i).getByTestId("desk-paper-last5-r")).toHaveText(`${r < 0 ? MINUS : "+"}${Math.abs(r).toFixed(1)}R`);
-    }
-    // Close and delete stay reachable in the full lists below, and the broker block stays in the tab.
-    await expect(page.getByTestId("desk-paper-close").first()).toBeVisible();
-    await expect(page.getByTestId("desk-alert-delete").first()).toBeVisible();
-    await expect(page.getByTestId("trader-broker-positions")).toBeVisible();
-  });
 
   test("§11 M5 at 390: portfolio card with donut, Risk dashboard with 5-segment level bars, Positions table, the read-only note; no sideways scroll", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });

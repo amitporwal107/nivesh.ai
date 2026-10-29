@@ -198,6 +198,9 @@ test.describe("MOCK — not real data: Strategy Builder", () => {
     await page.getByTestId("desk-view-lab").click();
     await expect(page).toHaveURL(/tab=trade/);
     await expect(page).toHaveURL(/view=lab&sub=build/);
+    // Build a trade is the owner's four-step wizard; the Strategy Builder is folded below it under "From an idea".
+    await expect(page.getByTestId("wz-stepper")).toBeVisible();
+    await page.getByTestId("td-from-idea").click();
     // With no stock in the URL the Builder opens on the AI opportunities board (spec -strategy-ideas); One stock is the other mode.
     await expect(page.getByTestId("builder-mode-ideas")).toHaveAttribute("aria-pressed", "true");
     await page.getByTestId("builder-mode-stock").click();

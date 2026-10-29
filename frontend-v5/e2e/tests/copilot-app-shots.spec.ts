@@ -57,7 +57,7 @@ async function mocks(page: Page) {
 const shot = (page: Page, name: string) => page.screenshot({ path: path.join(DIR as string, `${name}.png`) });
 
 const VIEWS = [
-  "tool/analysis", "tool/recommend", "tool/research", "tool/screener", "tool/markets", "tool/optlab", "trader",
+  "tool/analysis", "tool/recommend", "tool/research", "tool/screener", "tool/markets",
   "page/watchlist", "page/saved", "page/plan", "page/ledger", "page/paper", "page/brokers", "page/settings",
   "advisor", "onboarding", "builder", "ops/tools", "ops/feeds", "ops/audit", "ops/kpis",
 ];

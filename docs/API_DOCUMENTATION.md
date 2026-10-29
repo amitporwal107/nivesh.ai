@@ -173,7 +173,7 @@ Kite has no supported way to log in without a human (Zerodha 2FA); no headless/T
 1. `POST /api/live/kite/login-url` (admin only) returns `login_url` = `https://kite.zerodha.com/connect/login?v=3&api_key=<key>&redirect_params=state%3Dkp.<nonce>.<sig>`. The `kp.` state is signed, single use and short lived (`KITE_LOGIN_STATE_TTL_MIN`, default 30); only its hash is kept, in Mongo `kite_platform_login_states`.
 2. Zerodha redirects to `GET /api/broker/native/callback?broker=zerodha&request_token=...&state=kp...` (the app's registered redirect URL). A `kp.` state is handled by `services/kite_live_feed/platform_token.py`; every other state keeps the per-user broker flow unchanged.
 3. The request_token is exchanged with the API key and secret (`KITE_API_KEY`/`KITE_API_SECRET`, else `BROKER_ZERODHA_API_KEY`/`SECRET`). The returned Kite user id MUST equal env `KITE_PLATFORM_USER_ID`, otherwise nothing is stored. The access token is stored AES-256-GCM encrypted (`services/pii_security`) in `kite_platform_token` with `expires_at` = next 06:00 IST, and is never returned by any API.
-4. The browser lands on `/v5/app/trader?kite=connected` (path from `KITE_LOGIN_RETURN_PATH`; the legacy `/dashboard` is a different app that reads no `kite=`), or `?kite=error&reason=<code>`; the Copilot shell shows a toast and, for admins, a Log in to Kite banner while the session is missing (`invalid_state`, `state_expired`, `state_used`, `denied`, `missing_params`, `platform_user_not_configured`, `credentials_missing`, `token_exchange_failed`, `wrong_account`, `server_error`).
+4. The browser lands on `/v5/app/trader?kite=connected` (path from `KITE_LOGIN_RETURN_PATH`; the legacy `/dashboard` is a different app that reads no `kite=`), or `?kite=error&reason=<code>`. Since the desk redesign's step 6 (2026-10-27) `/v5/app/trader` redirects to the Smart trading desk (`/v5/app/trader/desk`) with the query kept, so the in-app toast still reads it; the Copilot shell shows a toast and, for admins, a Log in to Kite banner while the session is missing (`invalid_state`, `state_expired`, `state_used`, `denied`, `missing_params`, `platform_user_not_configured`, `credentials_missing`, `token_exchange_failed`, `wrong_account`, `server_error`).
 5. `default_token()` prefers that stored token while unexpired, then `KITE_ACCESS_TOKEN`, `KITE_ACCESS_TOKEN_FILE`, the kite_bars file. The feed reloads it every pass (any container) and recovers without a restart.
 
 Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days from 08:30 IST until the 15:30 close, while the platform token is missing, expired or refused, an alert goes out every `KITE_TOKEN_ALERT_INTERVAL_MIN` minutes (default 30, 5-240) with a fresh login link and the time to the 09:15 open; when Kite connects, one "Kite connected" message is sent and reminders stop. Channels: `nidp/shared/notify.py` (email via `NIDP_ALERT_SMTP_*` + `NIDP_ALERT_EMAIL_TO`; Telegram via `NIDP_TELEGRAM_BOT_TOKEN` + `NIDP_TELEGRAM_CHAT_ID`), else the app mailer (`SMTP_*` secrets) to `KITE_TOKEN_ALERT_EMAIL_TO`. The channels that fired are logged; a failing channel never affects the feed. One Mongo doc (`kite_live_snapshot/token_alert`) makes it idempotent across containers. `GET /api/live/status` carries `alert_state` (`TOKEN_ALERT` or null), `token_alert{}` and `platform_token{stored, valid_until, expired}`.
@@ -209,6 +209,31 @@ Morning alert (`services/kite_live_feed/token_alert.py`): on NSE trading days fr
 store it insert-once in Mongo `trade_plans` (their only write). `/top` flags a bearish stock F&O idea on a bullish cash setup
 the same day with `conflicts_with_cash_setup` (not tradeable that day). Nothing here places an order.
 
+## Strategy store v2 (`/api/strategy-builder`, signed-in; Strategy Copilot Phase 1.1)
+
+One store for everything that can be backtested (owner decision D1, 2026-10-28), including Strategy Lab's saved
+structures. A v2 document (`definition.schema_version: "2"`: underlying, 1–4 legs, entry/exit, build constraints, sizing;
+validator `backend/services/strategy_store.py`) is told apart from the v1 equity DSL, whose routes and answers are unchanged.
+Before migration `026_strategy_store_v2.sql` is applied every route below answers 503 `store_not_migrated`.
+
+| Endpoint | Returns |
+|---|---|
+| `POST /strategies` (v2 definition) + `Idempotency-Key` | 201 `{strategy_id, version_id, version_no: 1, schema_version, asset_class (from the legs), source, checks[], replayed}`; same key + same body → 200 `replayed: true`; same key, other body → 409 `idempotency_conflict`. 422 `{code: invalid_definition, problems: [{field, code, message}]}` lists every problem. 409 `strategy_limit` (200) |
+| `POST /strategies/{id}/versions` `{definition, parent_version_id, change_summary?}` + `Idempotency-Key` | 201 `{version_id, version_no, parent_version_id, diff: [{path, before, after}], checks[]}`; 409 `stale_parent` `{active_version_id, active_version_no}`; 409 `version_limit` (50); 422 `no_change` / `schema_mismatch` |
+| `GET /strategies/{id}/versions`, `GET /strategies/{id}/versions/{version_id}` | newest first; one version with its `definition` (+ `checks` for v2) |
+| `POST /strategies/{id}/clone` `{name?, version_id?}` | 201 a new strategy you own, `source: "clone"`, `cloned_from {strategy_id, version_id, version_no}`; from your own strategy or a public template |
+| `GET /strategies?include=summary` | every own strategy (v1 and v2) + `source, template_id, underlying, schema_version, latest_version, last_backtest {run_id, status, finished_at, version_no, is_current_version}, paper_live {open}`. Without `include` the legacy list is unchanged (STOCK/MF rows, old keys) |
+
+- `checks[]` are derived on every read, never stored: `{code, severity blocking|warning|info, blocking_for, field, message}`
+  from the desk's defined-risk rule. A naked short option, short straddle, short futures-only or calendar structure is
+  saved as a draft with `blocking_for: ["backtest", "paper"]` (owner decision D2).
+- Not yours, archived or unknown → 404 (never 403). Version rows are immutable (database trigger; only `is_active` changes).
+- `PATCH /strategies/{id}` on a v2 strategy → 422 `use_versions_route`; `POST /strategies/{id}/backtest` on a v2 strategy →
+  422 `backtest_not_available` (options engine: Phase 2), no run recorded.
+- `POST /api/desk/paper-trades` takes an optional `strategy_ref {strategy_id, version_id}` (PAPER LIVE): one of your own
+  versions or 422 `invalid_strategy_ref`; a v2 version of another underlying → 409 `strategy_ref_mismatch`. The trade
+  stores and returns it with `version_no`; a roll carries it; `/paper-trades/check` ignores it.
+
 ## Results week — earnings vs historical trend (`/api/desk/results-week`, signed-in, read-only)
 
 | Endpoint | Returns |
@@ -233,3 +258,15 @@ the same day with `conflicts_with_cash_setup` (not tradeable that day). Nothing 
 Request/response shapes are defined in code (Pydantic v2 backend; Zod on frontend) and the
 OpenAPI specs above — those are authoritative. Document only endpoints that exist; mark
 `PLANNED` otherwise.
+
+### GET /api/desk/results-week/stock/{symbol}?date=YYYY-MM-DD — one stock's results file (signed in)
+Spec: docs/EARNINGS_SURPRISE_TRACKER.md §9b. Read-only. 401 signed out · 422 `invalid_symbol` / bad or future date ·
+404 `no_results_meeting` (no results meeting in the week of `date`) · 404 `not_stored` (a past day with no snapshot).
+Body `results-stock-v1`: the week's `row` for the stock; `preview` (deterministic lines: baseline range, latest quarter,
+past reactions, positioning going in; `last_quarters`, `past_reactions`, `expected`); `commentary` {pre, results, post,
+sentiment, coverage} from stored filing analyses only (Mongo event_ai_analysis), each item with summary, positives,
+negatives, amounts, open questions and the exchange attachment link; `analyst_views` {available: false, note} (no source
+connected); `track` {sessions rel −5…+4 with cash close, change, vs Nifty, volume ×, futures total OI / price / state,
+next-month premium and PCR (session before the result and latest only), expiry flag, `carry_vs_usual_pp`; before; after;
+notes}. Across a monthly expiry total OI is not compared; the standard rollover % vs the stock's own past expiries is used.
+The list (GET /api/desk/results-week) rows gain `fno_track` {before, after} for F&O names (§9a).

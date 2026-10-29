@@ -20,6 +20,7 @@ import { LoadingBlock } from "./components/ui";
 import { LiveChip } from "./components/LiveBits";
 import { KiteLoginNotice } from "./components/KiteLoginNotice";
 import { classifyAgent } from "./lib/answer";
+import { retiredViewRedirect } from "./lib/retired-views";
 import { CopilotShellProvider, type AskOptions, type CopilotShell } from "./lib/shell-context";
 import { useCopilotPrefs } from "./lib/store";
 import { useThreadEngine } from "./lib/use-thread-engine";
@@ -166,6 +167,9 @@ export default function CopilotAppPage() {
   if (me.data && me.data.onboardingCompleted === false && view !== "onboarding") {
     return <Navigate to={viewPath("onboarding")} replace />;
   }
+  // Screens removed in the desk redesign's step 6 (the old Trader landing, Options lab, F&O lab) open their desk place.
+  const retired = retiredViewRedirect(view, location.search);
+  if (retired) return <Navigate to={viewPath(retired)} replace />;
   // Trader mode: the Screener, Stock research and Sector rotation are views of the desk's Market Desk (2026-10-27).
   const deskView = mode === "trader" ? TRADER_TOOL_TO_DESK[view] : undefined;
   if (deskView) return <Navigate to={viewPath(deskView)} replace />;
