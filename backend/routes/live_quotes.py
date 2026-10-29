@@ -148,6 +148,15 @@ async def _body(symbols: Optional[List[str]], universe: Optional[str]) -> Dict[s
     return overlay_cache(body, symbols, await qc.read_quotes(symbols)) if symbols else body
 
 
+@router.get("/truedata/status")
+async def truedata_shadow_status(request: Request) -> Dict[str, Any]:
+    """TrueData live feed in shadow: connection state, subscription, and today's data-quality findings and agreement
+    with Kite (services/truedata_live). Read only; serves no quotes."""
+    await get_current_user(request)
+    from services import truedata_live
+    return await truedata_live.status(get_feed().db)
+
+
 @router.get("/status")
 async def status(request: Request) -> Dict[str, Any]:
     await get_current_user(request)

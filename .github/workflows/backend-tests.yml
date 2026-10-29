@@ -182,6 +182,7 @@ jobs:
           nidp/tests/shared/test_market_data_source.py
           nidp/tests/shared/test_truedata_client.py
           tests/test_truedata_adapter.py
+          tests/test_truedata_live.py
           tests/test_masterdata_broker_rows.py
           tests/test_mf_cards.py
           tests/test_mf_category_enricher.py
