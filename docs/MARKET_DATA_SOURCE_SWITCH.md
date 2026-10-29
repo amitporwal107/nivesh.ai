@@ -49,6 +49,27 @@ The code steps down from what the file asks for whenever it cannot honour it, an
 
 A missing or unreadable file means `current`.
 
+## Going back to our current feeds (if we do not go with TrueData)
+Owner, 29 Oct 2026: "if we are not going with TrueData we can switch it to the current implementation."
+- **The normal way:** a PR that sets `"source": "current"` in `backend/config/market_data_source.json`. After the merge,
+  the app backend uses it once it restarts, and the NIDP jobs use it once their dev checkout is refreshed.
+- **The emergency way, no PR:** `MARKET_DATA_SOURCE_FORCE_CURRENT=1` in a server's environment (`nidp.env`,
+  `.env.staging`). It wins over the file on that server.
+
+What `current` gives back:
+- every replaced feed runs again (`index_close`, `corporate_actions`, the Kite live feed);
+- the reconciler and the DLQ re-drive heal them again;
+- **nothing calls TrueData.** Every TrueData entry point checks `truedata_is_on()` before it does anything:
+
+| TrueData entry point | At `current` |
+|---|---|
+| `services/providers/truedata_adapter.py` (app) | returns DQ_BLOCKED / NOT_CONFIGURED with `switched_off` and the reason; TrueData is not called |
+| `python -m nidp.services.truedata_crosscheck` (NIDP) | prints verdict SWITCHED_OFF and exits 2; it reads neither the warehouse nor TrueData. `--evaluation` runs it anyway as a manual, read-only trial measurement |
+| TrueData ingesters and live feed (later PRs) | must follow the same rule (`truedata_is_on()` / `feed_is_on()`) |
+
+The TrueData code can stay in the repository at `current`: it is inert there. NSE's own bhavcopies never stopped, so
+there is no data gap to repair. Tests: SW-1 … SW-7 in `test_reports/truedata_client_TESTCASES.md`.
+
 ## Moving to TrueData
 1. **TrueData replies** with documentation, trial credentials and a licence answer.
 2. **Build and verify the TrueData side in a PR:**
@@ -69,5 +90,5 @@ Each merge to `dev` deploys the app. The NIDP jobs read the file from their dev 
 - Kite stays the source for on-demand intraday candles and the instrument master, until the TrueData equivalents are
   built. TrueData's 1-minute history (back to Apr 2024) and symbol master (lot and tick size) are the planned
   replacements.
-- TrueData live streaming is not enabled on the trial login; it must be enabled before the Kite live feed can be
-  replaced.
+- TrueData live streaming: the trial REST login is refused on the WebSocket; a separate sandbox WebSocket login
+  (50 symbols, until 5 Nov 2026) works. The TrueData live feed is the next PR, tested in market hours.
