@@ -321,3 +321,5 @@ jobs:
           tests/test_verify_nidp_data_lake_script.py
           tests/test_watchlist_fno_chain_expiry.py
           tests/test_watchlists.py
+          nidp/tests/shared/test_dq_foundation_unit.py
+          nidp/tests/shared/test_dq_foundation_pg.py
