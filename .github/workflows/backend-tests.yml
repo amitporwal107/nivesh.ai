@@ -168,6 +168,7 @@ jobs:
           tests/test_kite_login_needed.py
           tests/test_kite_platform_login.py
           tests/test_liquid_universe.py
+          tests/test_live_chart_fno_series.py
           tests/test_live_quote_cache.py
           tests/test_llm_input_hardening.py
           tests/test_llm_pii_guard.py

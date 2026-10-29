@@ -14,7 +14,15 @@
                                                  summed), per N-bar window: price change, OI change, volume and the
                                                  build-up class, with the snapshot time. Kite candles with OI when the
                                                  platform Kite session works, else the latest bhavcopy day per expiry
-                                                 labelled end of day (services/fno_oi_windows.py). Read only
+                                                 labelled end of day (services/fno_oi_windows.py). Intraday, each
+                                                 contract and consolidated also carry `bars` [[t, close, volume, oi]]
+                                                 (the sessions sent plus one baseline bar). Read only
+    GET /api/fno/{symbol}/options/intraday?interval=15m&sessions=2&strikes=5
+                                                 the nearest expiry's calls and puts at the ATM strike ± `strikes` (max
+                                                 8): Kite candles with OI per contract, and per candle time the CE / PE
+                                                 OI and volume summed, the OI changes and the PCR
+                                                 (services/fno_options_intraday.py). 200 with `availability` naming why
+                                                 when Kite cannot answer. Read only
     GET /api/fno/{symbol}/iv-history?days=&bucket=  the recorded daily ATM implied volatility of the underlying, with IV
                                                  rank and IV percentile once 252 sessions are recorded
                                                  (services/fno_iv_history; written by scripts/record_iv_history.py
@@ -821,6 +829,46 @@ async def futures_oi_buildup(
                                               _dt.now(_tz.utc).astimezone(kite_cfg.IST))
     as_of, _spot, _lot, contracts = await _latest_futures(sym)
     return fno_oi_windows.eod_answer(sym, as_of, contracts, kite_reason)
+
+
+async def _option_ref(spot: str) -> Optional[Dict[str, Any]]:
+    """Today's Kite price of the options' cash symbol (live quote in the session, the saved Kite close after it), or None."""
+    from services.kite_live_feed import day_quote
+    from services.kite_live_feed.gateway import canon
+    dq = await day_quote.day_quotes([spot])
+    q = (dq.get("quotes") or {}).get(canon(spot))
+    price = _positive((q or {}).get("ltp"))
+    if q is None or price is None or dq.get("source") not in ("kite_live", "kite_close"):
+        return None
+    at = q.get("exchange_ts") or dq.get("as_of")
+    return {"price": price, "source": dq["source"], "at": str(at) if at is not None else None}
+
+
+@router.get("/{symbol}/options/intraday")
+async def options_intraday(
+    request: Request,
+    symbol: str = Path(..., min_length=1, max_length=SYMBOL_MAX, pattern=SYMBOL_PATTERN),
+    interval: str = Query("15m", description="5m | 15m | 30m | 60m"),
+    sessions: int = Query(2, ge=1, le=5, description="Sessions of candles sent"),
+    strikes: int = Query(5, ge=1, le=8, description="Listed strikes each side of the ATM strike"),
+) -> Dict[str, Any]:
+    """The nearest expiry's calls and puts around the ATM strike, Kite candles with open interest, and their per-candle sums
+    (services/fno_options_intraday.py). Reloads the stored platform Kite login first. 200 with `availability` other than ok
+    when Kite cannot answer. Read only: nothing is written and nothing is sent to a broker."""
+    await get_current_user(request)
+    if interval not in OI_INTERVALS:
+        raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(OI_INTERVALS)}")
+    sym = symbol.upper()
+    from routes.research_chart_intraday import get_service
+    from services.kite_live_feed.feed import get_feed
+    await _refresh_platform_token()
+    try:
+        st = await get_feed().read_status() or {}
+    except Exception as e:  # noqa: BLE001 — the feed status only sets the cache time
+        logger.warning("fno options intraday: feed status unreadable (%s)", type(e).__name__)
+        st = {}
+    return await get_service().options_intraday(sym, interval, sessions, strikes, session_open=st.get("session") == "open",
+                                                ref_getter=_option_ref)
 
 
 _FORWARD_CACHE: Dict[str, Any] = {"ts": 0.0, "key": None, "bars": None}
