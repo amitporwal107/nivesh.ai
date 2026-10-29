@@ -117,6 +117,7 @@ jobs:
           tests/test_desk_audit_wave1_b3.py
           tests/test_desk_copilot_prompt.py
           tests/test_desk_exit_job.py
+          tests/test_desk_chart_events.py
           tests/test_desk_live_chart.py
           tests/test_kite_day_quote.py
           tests/test_desk_market_routes.py
