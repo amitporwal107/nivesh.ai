@@ -59,6 +59,7 @@ What was built:
 | WF-4 | A plan sized within the limits (a limit set the size) | No "Why not" line: the size shown is already allowed | PASS |
 | PO-1 | Options plan, full card | Section "Profit or loss: today and at expiry" with a chart and a table; the compact row has none; a cash plan's full card has none | PASS |
 | PO-2 | The request | Exactly the contract body: the plan's legs at your lots per leg, the reference close, as_of = the chain date, a grid in 0.125% steps covering the strikes, exit and targets, `pre_expiry.date` = today (IST) | PASS |
+| PO-2b | A Strategy Builder / Copilot plan (an `fno` date, no `chain` date; found on staging after the merge) | The same request; "Option prices of 21 Oct 2026" names its day | PASS |
 | PO-3 | The chart | Two lines named with their dates: "Today, 22 Oct 2026 (estimated)" and "At expiry, 27 Oct 2026"; the price now, the exit and the targets marked | PASS |
 | PO-4 | The table | One row per set move (0 = now); the Today and At expiry cells equal the answer's after-charges values at those exact grid points | PASS |
 | PO-5 | Today on or after the expiry | No estimate is asked for; the expiry line and column only, with "These options expire(d) on …" | PASS |
@@ -104,10 +105,37 @@ What was built:
   - The first phone version had unreadable axis text and pushed the expiry column out of view. Fixed: the chart is
     drawn at its real width, and the move sits inside the price cell. PO-9 now checks that both columns fit.
 
+## Staging after the merge (real output, 2026-10-29)
+- **The merged code, tested before the merge** (dev 9 commits ahead, including #406 and #407; a local merge, since
+  removed):
+  - `tsc` → `TSC_EXIT=0`.
+  - 18 specs, the 17 above plus portfolio-fno: `473 passed`, 0 failed, 27 skipped. All 27 skips were skipped before:
+    hard-coded `test.skip` or opt-in.
+  - Backend: `204 passed, 1 skipped`, including test_kite_day_quote, test_desk_live_chart, test_copilot_trade_idea and
+    the payoff and contract suites.
+  - GitHub CI "Backend unit tests (allowlist)" on #408: success.
+- **Merge:** #408 merged at the owner's request (`dev` be0ba7de). GitHub then marked #404 and #405 as merged too, since
+  their commits came with it.
+- **Deploys:** backend, frontend and Android all succeeded. The backend container restarted at
+  `2026-10-29T13:09:54Z`.
+- **Served bundle:** `grep -rlF` finds 2 files each for "Profit or loss: today and at expiry", "What you can do",
+  "Why a smaller size", "Not yet checked against your limits" and "Technical details · the scanner", and 4 files for
+  "Full card ›". `/api/healthz` returns 200. POST /api/desk/strategy/payoff signed out returns 401.
+- **Live plans, today's date (read only):** the three newest options plans still before expiry in staging's
+  `trade_plans` were ADANIPORTS covered call, long call and bull call spread, expiry 23 Nov 2026. For each, the card's
+  request with today (2026-10-29) went through the deployed calculation in-process: `valid True`, today estimate
+  `2026-10-29`, no leg unavailable, 321 points, and every table move on the grid (`on-grid=True`). For example, the
+  bull call spread now: today −215.84, at expiry −7,798.18. At +10%: today +8,689.74, at expiry +10,296.19.
+- **The F&O-date fix (PO-2b):** these live plans showed one gap. 15 of staging's 315 options plans (the Strategy
+  Builder's and the Copilot's) date their prices as `fno`, with no `chain`. The request already used `fno`, but the
+  label only read `chain`, so it would have said "the plan's day". Fixed in fix/plan-payoff-fno-date: tsc 0, decision-cards
+  + trade-idea `42 passed`, backend payoff tests `69 passed`.
+
 ## Not verified
-- **ST-1:** the served bundle on staging and a live F&O plan with a session. This needs the merge (owner) and a session.
+- **ST-1 (the rest):** a signed-in look at a live F&O plan's full card. The bundle and the calculation on live plans are
+  checked above; the rendered screen with a session is not.
 
 ## Inputs required from user
-- Merge #404, then #405, then this PR (it carries their commits).
+- A signed-in look at a Copilot or Top 10 options plan's full card.
 
 ## Verdict: BLOCKED

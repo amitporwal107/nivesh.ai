@@ -145,6 +145,8 @@ function PayoffBody({ ask, plan, today, data, errorText, pending, retry }: {
     : today >= ask.expiry ? `These options ${today === ask.expiry ? "expire today" : `expired on ${fmtDay(ask.expiry)}`}: only the expiry values apply.`
     : "No estimate for today: the option prices are from a later day than today.";
   const lotSize = (plan.instrument.lot_size ?? null) as number | null;
+  // The day the entry prices belong to: a board plan's chain date, a Strategy Builder / Copilot plan's F&O date.
+  const pricesDay = plan.data_as_of?.chain ?? plan.data_as_of?.fno ?? null;
   const marks = [
     { key: "now", price: ref, label: `${sym} now ${fmtPrice(ref)}`, color: "var(--cp-ink-2)" },
     ...(plan.stop.price != null ? [{ key: "exit", price: plan.stop.price, label: `exit if wrong ${fmtPrice(plan.stop.price)}`, color: "var(--cp-danger)" }] : []),
@@ -154,7 +156,7 @@ function PayoffBody({ ask, plan, today, data, errorText, pending, retry }: {
     <div className="flex min-w-0 flex-col" style={{ gap: 8 }}>
       <span data-testid="dc-payoff-size" style={quiet}>
         After charges, for {ask.lotsPerLeg} lot{ask.lotsPerLeg === 1 ? "" : "s"} per leg{lotSize != null ? ` × ${lotSize}` : ""} ({ask.yourSize ? "your size" : "the plan’s size"}).
-        {" "}Option prices of {plan.data_as_of?.chain ? fmtDay(plan.data_as_of.chain) : "the plan’s day"}, end of day.
+        {" "}Option prices of {pricesDay ? fmtDay(pricesDay) : "the plan’s day"}, end of day.
       </span>
       <div className="flex flex-wrap items-center" style={{ gap: "2px 14px", fontSize: 12 }} data-testid="dc-payoff-legend">
         {pre && (
