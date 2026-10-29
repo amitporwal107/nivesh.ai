@@ -45,24 +45,24 @@ What changes:
 
 | ID | Area | Scenario | Type | Expected | Result |
 |----|------|----------|------|----------|--------|
-| SC-1 | B | `itc` | unit | ITC first (exact ticker), then the rest || PASS |
-| SC-2 | B | `tvs mo`, `TVSMOTOR`, `hindustan uni` | unit | TVSMOTOR / TVSMOTOR / HINDUNILVR first || PASS |
-| SC-3 | B | `motor tvs` (word order) | unit | TVSMOTOR || PASS |
-| SC-4 | B | Short forms `hul`, `l&t`, `sbi` | unit | HINDUNILVR, LT, SBIN first, with their names || PASS |
-| SC-5 | B | `nifty`, `bank nifty` | unit | NIFTY index first; BANKNIFTY; `kind: "index"` || PASS |
-| SC-6 | B | `infosys` | unit | INFY before HCL-INSYS (name-word prefix beats a substring) || PASS |
-| SC-7 | B | Data platform down (search returns None) | unit | The old universe / curated fallback answers, as before || PASS |
-| SC-8 | B | Tail: "Plan a breakout trade for tvs mo" | unit | fragment "tvs mo", fragment_start at "tvs", TVSMOTOR first, no funds || PASS |
-| SC-9 | B | Tail: "how is the market", "trade plan for ", one letter | unit | No fragment, no rows (ordinary words, trailing space, too short) || PASS |
-| SC-10 | B | Tail: "compare infy and tcs" | unit | fragment "tcs" → TCS || PASS |
-| SC-11 | B | No `tail`: shape unchanged (stocks: symbol, name, sector [+kind]; funds as before); limit respected; < 2 chars → empty | unit | as stated || PASS |
-| SC-12 | F | `/app` box: type "Plan a breakout trade for tvs mo" | e2e | Completion row "TVSMOTOR" first. Tab → "Plan a breakout trade for TVSMOTOR " with the cursor after it; nothing sent || PASS |
-| SC-13 | F | Arrow + Enter on a completion; click on a completion | e2e | Inserts the ticker, does not send; the next Enter sends the completed sentence || PASS |
-| SC-14 | F | Text after the cursor is kept ("trade tvs mo| on breakout") | e2e | → "trade TVSMOTOR on breakout" || PASS |
-| SC-15 | F | A name alone ("infy") | e2e | The completion row plus "Research Infosys Limited" (sends) || PASS |
-| SC-16 | F | Desk Copilot panel | e2e | The same completions; Tab inserts; Enter with no highlight sends || PASS |
-| SC-17 | regression | Composer specs (TC-10 …), research, screens, desk, trade-idea; backend allowlist dev vs branch | e2e+unit | No new failure || PASS |
-| SC-18 | staging | After merge: `GET /api/chat/instrument-search?q=…&tail=1` on staging for the SC-1 … SC-10 cases | api | Real symbol-master answers as expected || PENDING (after merge; no session needed) |
+| SC-1 | B | `itc` | unit | ITC first (exact ticker), then the rest | PASS |
+| SC-2 | B | `tvs mo`, `TVSMOTOR`, `hindustan uni` | unit | TVSMOTOR / TVSMOTOR / HINDUNILVR first | PASS |
+| SC-3 | B | `motor tvs` (word order) | unit | TVSMOTOR | PASS |
+| SC-4 | B | Short forms `hul`, `l&t`, `sbi` | unit | HINDUNILVR, LT, SBIN first, with their names | PASS |
+| SC-5 | B | `nifty`, `bank nifty` | unit | NIFTY index first; BANKNIFTY; `kind: "index"` | PASS |
+| SC-6 | B | `infosys` | unit | INFY before HCL-INSYS (name-word prefix beats a substring) | PASS |
+| SC-7 | B | Data platform down (search returns None) | unit | The old universe / curated fallback answers, as before | PASS |
+| SC-8 | B | Tail: "Plan a breakout trade for tvs mo" | unit | fragment "tvs mo", fragment_start at "tvs", TVSMOTOR first, no funds | PASS |
+| SC-9 | B | Tail: "how is the market", "trade plan for ", one letter | unit | No fragment, no rows (ordinary words, trailing space, too short) | PASS |
+| SC-10 | B | Tail: "compare infy and tcs" | unit | fragment "tcs" → TCS | PASS |
+| SC-11 | B | No `tail`: shape unchanged (stocks: symbol, name, sector [+kind]; funds as before); limit respected; < 2 chars → empty | unit | as stated | PASS |
+| SC-12 | F | `/app` box: type "Plan a breakout trade for tvs mo" | e2e | Completion row "TVSMOTOR" first. Tab → "Plan a breakout trade for TVSMOTOR " with the cursor after it; nothing sent | PASS |
+| SC-13 | F | Arrow + Enter on a completion; click on a completion | e2e | Inserts the ticker, does not send; the next Enter sends the completed sentence | PASS |
+| SC-14 | F | Text after the cursor is kept ("trade tvs mo| on breakout") | e2e | → "trade TVSMOTOR on breakout" | PASS |
+| SC-15 | F | A name alone ("infy") | e2e | The completion row plus "Research Infosys Limited" (sends) | PASS |
+| SC-16 | F | Desk Copilot panel | e2e | The same completions; Tab inserts; Enter with no highlight sends | PASS |
+| SC-17 | regression | Composer specs (TC-10 …), research, screens, desk, trade-idea; backend allowlist dev vs branch | e2e+unit | No new failure | PASS |
+| SC-18 | staging | After merge: `GET /api/chat/instrument-search?q=…&tail=1` on staging for the SC-1 … SC-10 cases | api | Real symbol-master answers as expected | PENDING (after merge; no session needed) |
 
 ## Tests run (real output, 2026-10-29, branch feat/copilot-stock-autocomplete)
 - **SC-1 … SC-11:** `pytest tests/test_chat_instrument_search.py` → `25 passed, 2 warnings in 6.97s`.

@@ -26,16 +26,16 @@ the desk design only has the "Copilot docked right" chip.
 
 | ID | Scenario | Expected | Result |
 |----|----------|----------|--------|
-| FW-1 | Desk at 1440 px, first visit | Locked: the Copilot in the right column (`data-window="locked"`), the button reads "Float", the chip reads "Copilot docked right" || PASS |
-| FW-2 | Click Float | The Copilot is a fixed window (`data-window="floating"`) over the desk, which now has the full width (the content column is wider). The chip reads "Copilot floating", the button "Lock" || PASS |
-| FW-3 | Drag the header | The window moves by the drag. Dragged far off the screen, it stays reachable (its header stays on screen). Buttons in the header are not drag handles || PASS |
-| FW-4 | Drag the corner handle | The window grows and shrinks; it is clamped to its minimum size || PASS |
-| FW-5 | Reload while floating | Floating again, at the same position and size || PASS |
-| FW-6 | Lock, then reload | Back in the right column, and it stays locked after a reload || PASS |
-| FW-7 | Ask from the floating window | The question streams, with `surface: trading_desk`; the answer shows in the window || PASS |
-| FW-8 | 1280 px | Unchanged: the Copilot button, no Float button, no floating window || PASS |
-| FW-9 | Regression: desk + Copilot specs (copilot-app-desk, desk-shell, trade-idea, stock-complete, desk-market-overview) | No new failure || PASS |
-| FW-10 | Staging after merge | The served bundle has the window; a manual Float / drag / resize / Lock pass with a session || PENDING (after merge) |
+| FW-1 | Desk at 1440 px, first visit | Locked: the Copilot in the right column (`data-window="locked"`), the button reads "Float", the chip reads "Copilot docked right" | PASS |
+| FW-2 | Click Float | The Copilot is a fixed window (`data-window="floating"`) over the desk, which now has the full width (the content column is wider). The chip reads "Copilot floating", the button "Lock" | PASS |
+| FW-3 | Drag the header | The window moves by the drag. Dragged far off the screen, it stays reachable (its header stays on screen). Buttons in the header are not drag handles | PASS |
+| FW-4 | Drag the corner handle | The window grows and shrinks; it is clamped to its minimum size | PASS |
+| FW-5 | Reload while floating | Floating again, at the same position and size | PASS |
+| FW-6 | Lock, then reload | Back in the right column, and it stays locked after a reload | PASS |
+| FW-7 | Ask from the floating window | The question streams, with `surface: trading_desk`; the answer shows in the window | PASS |
+| FW-8 | 1280 px | Unchanged: the Copilot button, no Float button, no floating window | PASS |
+| FW-9 | Regression: desk + Copilot specs (copilot-app-desk, desk-shell, trade-idea, stock-complete, desk-market-overview) | No new failure | PASS |
+| FW-10 | Staging after merge | The served bundle has the window; a manual Float / drag / resize / Lock pass with a session | PENDING (after merge) |
 
 ## Tests run (real output, 2026-10-29)
 - `tsc --noEmit` → exit 0.
