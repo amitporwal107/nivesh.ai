@@ -65,19 +65,19 @@ export function todayScenarios(p: PayoffResponse | undefined): TodayScenario[] |
 // ── margin ───────────────────────────────────────────────────────────────
 
 export type MarginState =
-  | { kind: "ok"; required: number | null; initial: number | null; hedge: number | null; hedgeBasis: string | null; source: string | null; note: string | null; asOf: string | null }
+  | { kind: "ok"; required: number | null; initial: number | null; hedge: number | null; standalone: number | null; hedgeBasis: string | null; source: string | null; note: string | null; asOf: string | null }
   | { kind: "unavailable"; reason: string };
 
 const mnum = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const mstr = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
 
 /** The route's answer (services/fno_margin.shape): `required_margin` is Kite's `final.total` (the basket's margin with the
- *  spread benefit applied), `initial_margin` Kite's `initial.total`, `hedge_benefit` the route's initial − final (null when
- *  either is missing; an older route without the field reads null). */
+ *  spread benefit applied), `initial_margin` Kite's `initial.total`, `hedge_benefit` the route's figure: the legs' margins one
+ *  at a time (`standalone_margin`) less the basket's (null when the route could not price a leg alone, or an older route). */
 export function parseMargin(body: unknown): Extract<MarginState, { kind: "ok" }> {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   if (!("required_margin" in b)) throw ApiError.contractDrift("fno.margin: no required_margin");
-  return { kind: "ok", required: mnum(b.required_margin), initial: mnum(b.initial_margin), hedge: mnum(b.hedge_benefit), hedgeBasis: mstr(b.hedge_benefit_basis),
+  return { kind: "ok", required: mnum(b.required_margin), initial: mnum(b.initial_margin), hedge: mnum(b.hedge_benefit), standalone: mnum(b.standalone_margin), hedgeBasis: mstr(b.hedge_benefit_basis),
     source: mstr(b.source), note: mstr(b.note), asOf: mstr(b.as_of) };
 }
 

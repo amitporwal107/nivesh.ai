@@ -264,7 +264,7 @@ export function StrategyPanel({ symbol, chain, refPrice, refAsOf, compact }: Str
       </div>
       <span data-testid="ca-margin-note" style={{ fontSize: 11.5, lineHeight: 1.5, color: m?.kind === "unavailable" ? "var(--amber)" : "var(--cp-ink-3)" }}>
         {!marginBody ? "Shares have no F&O margin; the calculator prices option and future legs only."
-          : m?.kind === "ok" ? `Zerodha's margin calculator (Kite), the basket's margin with the spread benefit applied${m.asOf ? `, ${m.asOf}` : ""}. Its initial margin ${rs(m.initial)}; the hedge benefit is ${m.hedgeBasis ?? "the initial margin less the required margin"}.`
+          : m?.kind === "ok" ? `Zerodha's margin calculator (Kite), the basket's margin with the spread benefit applied${m.asOf ? `, ${m.asOf}` : ""}. ${m.hedge != null ? ` Hedge benefit: ${m.hedgeBasis ?? "the legs' margins one at a time less the basket's"}${m.standalone != null ? ` (${rs(m.standalone)} leg by leg)` : ""}.` : " The hedge benefit could not be worked out: a leg alone was not priced."}`
           : m?.kind === "unavailable" ? m.reason
           : "Asking Zerodha's margin calculator…"}
       </span>

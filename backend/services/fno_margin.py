@@ -3,9 +3,12 @@
 The figure is Zerodha's for the platform account's rules; it is not an exchange-published number and not a quote, and it needs the platform's daily Kite session."""
 from __future__ import annotations
 
+import logging
 import time
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+logger = logging.getLogger(__name__)
 
 MAX_LEGS = 10    # an ANALYSIS limit (what the margin calculator prices), not the strategy limit: services/strategy_limits
 _INSTRUMENTS: Dict[str, Any] = {"day": None, "rows": None}
@@ -86,20 +89,42 @@ def _charges(c: Any) -> Dict[str, Optional[float]]:
             "stamp_duty": _n(c.get("stamp_duty")), "gst": _n(g.get("total")), "total": _n(c.get("total"))}
 
 
+HEDGE_BASIS = "the legs' margins one at a time (Zerodha's calculator, each leg alone) less the basket's margin"
+
+
+def hedge_benefit(calc: Calculator, params: Sequence[dict], basket_final: Optional[float]) -> Tuple[Optional[float], Optional[float]]:
+    """(hedge benefit, the legs' margins one at a time): each leg priced ALONE by the same calculator, summed, less the basket's final margin.
+    Kite's own `initial` − `final` is not this (for a single sold option it is the premium credit). One leg: no hedge, 0. None when a leg's
+    figure is missing or its calculation fails (never a guess)."""
+    if basket_final is None:
+        return None, None
+    if len(params) == 1:
+        return 0.0, basket_final
+    alone: List[float] = []
+    for p in params:
+        try:
+            raw = calc.basket_margins([p])
+        except Exception as e:  # noqa: BLE001 — the basket figure stands without the benefit
+            logger.warning("fno margin: a leg alone could not be priced (%s)", type(e).__name__)
+            return None, None
+        v = _n(((raw if isinstance(raw, dict) else {}).get("final") or {}).get("total"))
+        if v is None:
+            return None, None
+        alone.append(v)
+    standalone = round(sum(alone), 2)
+    return round(standalone - basket_final, 2), standalone
+
+
 def shape(raw: Dict[str, Any], as_of: str) -> Dict[str, Any]:
-    """The route's answer from Kite's: required margin (the final figure), initial margin, the hedge benefit (initial − final), per-order charges and their sum. A missing number is None."""
+    """The route's answer from Kite's: required margin (the final figure), initial margin, per-order charges and their sum (the hedge benefit is
+    filled in by `run`, which prices each leg alone). A missing number is None."""
     orders = [{"tradingsymbol": o.get("tradingsymbol"), "charges": _charges(o.get("charges"))} for o in (raw.get("orders") or []) if isinstance(o, dict)]
     totals: Dict[str, Optional[float]] = {}
     for key in ("brokerage", "stt", "exchange", "sebi", "stamp_duty", "gst", "total"):
         vals = [o["charges"][key] for o in orders]
         totals[key] = None if not vals or any(v is None for v in vals) else round(sum(vals), 2)
-    required = _n((raw.get("final") or {}).get("total"))
-    initial = _n((raw.get("initial") or {}).get("total"))
-    # Kite's basket margin: `initial` is the orders' margin without the spread benefit, `final` with it; the difference is the
-    # hedge benefit the design shows. None when either figure is missing (never a guess).
-    hedge = round(initial - required, 2) if initial is not None and required is not None else None
-    return {"required_margin": required, "initial_margin": initial,
-            "hedge_benefit": hedge, "hedge_benefit_basis": "Zerodha's initial margin (the orders without the spread benefit) less its final margin (with it)",
+    return {"required_margin": _n((raw.get("final") or {}).get("total")), "initial_margin": _n((raw.get("initial") or {}).get("total")),
+            "hedge_benefit": None, "standalone_margin": None, "hedge_benefit_basis": HEDGE_BASIS,
             "charges": {"per_order": orders, "total": totals}, "as_of": as_of, "source": "Zerodha margin calculator (Kite Connect): exchange SPAN + exposure margin and order charges",
             "note": "A calculation for the platform account's rules, not an exchange-published figure and not a quote. Nothing is placed.", "sent_to_broker": False}
 
@@ -116,7 +141,9 @@ def run(calc: Calculator, underlying: str, legs: Sequence[Dict[str, Any]], today
         if name in ("TokenException", "PermissionException"):
             raise NoSession(name)
         raise CalcError(name)
-    return {"ok": True, **shape(raw if isinstance(raw, dict) else {}, (today or date.today()).isoformat())}
+    out = shape(raw if isinstance(raw, dict) else {}, (today or date.today()).isoformat())
+    out["hedge_benefit"], out["standalone_margin"] = hedge_benefit(calc, params, out["required_margin"])
+    return {"ok": True, **out}
 
 
 def default_calculator() -> Calculator:

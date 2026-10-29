@@ -76,10 +76,12 @@ BE-3 `POST /api/desk/strategy/payoff`: when the request has `pre_expiry` and `sc
 assumptions as the pre-expiry curve at that underlying price; null with the reason in `unavailable` when a leg cannot be
 priced. Nothing else in the answer changes.
 
-BE-4 `POST /api/fno/margin`: the answer gains `hedge_benefit` = Kite's `initial.total` − `final.total` (the orders' margin
-without the spread benefit less the basket's with it), rounded to paise, null when either is missing, and
-`hedge_benefit_basis` (the sentence). The strategy panel's HEDGE BENEFIT shows it; the screen works out no margin figure.
-Test M1 (pytest): 78,908.0625 − 77,519.3125 = 1,388.75; a missing figure → null.
+BE-4 `POST /api/fno/margin`: the answer gains `hedge_benefit` = the legs' margins one at a time (each leg priced ALONE by
+Zerodha's calculator, summed = `standalone_margin`) less the basket's `final.total`; 0 for one leg; null when a leg alone
+cannot be priced; `hedge_benefit_basis` says so. (Kite's own `initial − final` is NOT the hedge benefit: on staging a single
+sold TVSMOTOR call showed the same 13,807.5 gap as the spread; it is the sold option's premium credit.) The strategy panel
+shows the route's figure; the screen works out no margin figure.
+Tests M1 (legs alone 20,860 + 101,727.5 − basket 33,267.5 = 89,320) and M2 (one leg 0, no extra call; a failed leg → null).
 
 ## Strategy Lab removed (owner, 29 Oct "completely")
 
