@@ -116,10 +116,17 @@ export type OiWindow = z.infer<typeof WindowC>;
 const FutBarC = z.tuple([z.string(), N, N, N]);
 export type FutBar = z.infer<typeof FutBarC>;
 
+/** [day, close, volume, oi, oi_change, expiry]: one session of the slot's continuous series from the NSE F&O bhavcopy (`daily=N`);
+ *  oi_change is within one contract (a roll never shows as a change), expiry names the contract. */
+const FutDayC = z.tuple([z.string(), N, N, N, N, z.string().nullable()]);
+export type FutDay = z.infer<typeof FutDayC>;
+
 const SeriesC = z.object({
   slot: z.string(), expiry: S, tradingsymbol: S, lot_size: NO, windows: z.array(WindowC),
   expiries: z.array(z.string().nullable()).optional(), basis: S,
   bars: z.array(FutBarC).optional().default([]),
+  daily_bars: z.array(FutDayC).optional().default([]),
+  daily_windows: z.array(WindowC).optional().default([]),
 });
 export type OiSeries = z.infer<typeof SeriesC>;
 
@@ -139,9 +146,10 @@ export type OiBuildup = z.infer<typeof OiBuildupC>;
 
 export type OiResult = { kind: "ok"; data: OiBuildup } | { kind: "none"; message: string };
 
-export function useOiBuildup(symbol: string | null, sessionOpen: boolean) {
+/** `daily` > 0 also asks for that many sessions of daily bars and daily build-up windows (the daily chart). */
+export function useOiBuildup(symbol: string | null, sessionOpen: boolean, daily = 0) {
   return useQuery<OiResult>({
-    queryKey: ["copilot", "desk", "oi-buildup", symbol ?? ""],
+    queryKey: ["copilot", "desk", "oi-buildup", symbol ?? "", daily],
     enabled: !!symbol,
     staleTime: 30_000,
     refetchInterval: sessionOpen ? 60_000 : false,
@@ -150,7 +158,7 @@ export function useOiBuildup(symbol: string | null, sessionOpen: boolean) {
       try {
         const res = await http({
           path: `/api/fno/${encodeURIComponent((symbol ?? "").toUpperCase())}/futures/oi-buildup`,
-          query: { interval: "15m", window: 4, sessions: 2 },
+          query: { interval: "15m", window: 4, sessions: 2, ...(daily > 0 ? { daily } : {}) },
           signal,
           timeoutMs: 30_000,
         });

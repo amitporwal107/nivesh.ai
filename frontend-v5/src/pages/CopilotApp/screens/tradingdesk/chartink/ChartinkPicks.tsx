@@ -174,7 +174,7 @@ function StrategyRow({ s, pick, preferred, compact, onOpen }: { s: PickStrategy;
             {priced && s.segment === "futures" && <p className="m-0" style={noteStyle}>A loss on futures can exceed the margin.</p>}
             {priced && <PickPayoff s={s} compact={compact} />}
             <div>
-              <Btn variant="primary" data-testid="ck-pick-open-builder" aria-label={`Open ${pick.symbol} ${s.label} in Strategy Builder`} onClick={() => onOpen(s.id)} style={{ padding: "6px 12px", fontSize: 12 }}>Open in Strategy Builder ›</Btn>
+              <Btn variant="primary" data-testid="ck-pick-open-builder" aria-label={`Open ${pick.symbol} on Chart Analysis`} onClick={() => onOpen(s.id)} style={{ padding: "6px 12px", fontSize: 12 }}>Open on Chart Analysis ›</Btn>
             </div>
           </>
         )}
