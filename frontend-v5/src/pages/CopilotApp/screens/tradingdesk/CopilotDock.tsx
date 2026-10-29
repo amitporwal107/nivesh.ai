@@ -139,7 +139,14 @@ function DockTurn({ turn, busy, page, onRetry, onAsk, onOpenThread }: { turn: Tu
  * The Copilot panel. `chips` are questions about what the desk is showing now.
  * variant "dock" = the card beside the desk; "page" = full height in the page on a phone.
  */
-export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; height: string; variant?: "dock" | "page" }>(function CopilotDock({ chips, height, variant = "dock" }, ref) {
+export const CopilotDock = forwardRef<CopilotDockHandle, {
+  chips: string[]; height: string; variant?: "dock" | "page";
+  /** The docked Copilot as a window (copilot-window.tsx): locked in the right column, or floating over the desk. */
+  windowMode?: "locked" | "floating";
+  onToggleWindow?: () => void;
+  /** Floating: a pointer-down on the header starts moving the window. */
+  onHeaderPointerDown?: (e: React.PointerEvent) => void;
+}>(function CopilotDock({ chips, height, variant = "dock", windowMode, onToggleWindow, onHeaderPointerDown }, ref) {
   const { go } = useCopilotShell();
   const { persona } = useDesk();
   const engine = useThreadEngine();
@@ -291,9 +298,11 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
   }
 
   return (
-    <aside data-testid="desk-dock" data-variant="dock" aria-label="Nivesh Copilot" className="cp-card flex flex-col" style={{ height, minHeight: 420, overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
+    <aside data-testid="desk-dock" data-variant="dock" data-window={windowMode ?? "locked"} aria-label="Nivesh Copilot" className="cp-card flex flex-col" style={{ height, minHeight: 420, overflow: "hidden", boxShadow: "var(--shadow-card)" }}>
       <style>{DOCK_STYLE}</style>
-      <div data-testid="dock-header" className="flex items-center" style={{ gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)" }}>
+      <div data-testid="dock-header" className="flex items-center" onPointerDown={windowMode === "floating" ? onHeaderPointerDown : undefined}
+        title={windowMode === "floating" ? "Drag to move the Copilot" : undefined}
+        style={{ gap: 10, padding: "14px 18px", borderBottom: "1px solid var(--cp-line)", background: "var(--bg-0)", cursor: windowMode === "floating" ? "move" : undefined, touchAction: windowMode === "floating" ? "none" : undefined, userSelect: windowMode === "floating" ? "none" : undefined }}>
         <Mark size={28} />
         <div className="flex min-w-0 flex-col" style={{ gap: 4 }}>
           <span style={{ fontFamily: "var(--display)", fontSize: 19, lineHeight: 1 }}>Nivesh Copilot</span>
@@ -303,6 +312,14 @@ export const CopilotDock = forwardRef<CopilotDockHandle, { chips: string[]; heig
         <span className="cp-pill" data-tone="mint" title="Answers read the Nivesh data platform (NIDP), the same data the desk shows" style={{ background: "var(--mint-soft)" }}>
           <span className="nv-dot" style={{ background: "var(--mint)" }} />NIDP
         </span>
+        {onToggleWindow && (
+          <button type="button" data-testid="dock-window-toggle" onClick={onToggleWindow} className="cp-pill"
+            aria-label={windowMode === "floating" ? "Lock the Copilot to the right of the desk" : "Float the Copilot as a window you can move and resize"}
+            title={windowMode === "floating" ? "Lock to the right of the desk" : "Float: move and resize it over the desk"}
+            style={{ flex: "none", cursor: "pointer", background: "transparent" }}>
+            {windowMode === "floating" ? "Lock" : "Float"}
+          </button>
+        )}
       </div>
 
       <div ref={scrollRef} data-testid="dock-thread" className="cp-scroll flex flex-col" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 18, gap: 20 }}>
