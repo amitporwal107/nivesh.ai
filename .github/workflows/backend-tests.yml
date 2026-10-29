@@ -268,6 +268,7 @@ jobs:
           tests/test_reversal_candidates.py
           tests/test_reversal_rules.py
           tests/test_risk_controls.py
+          tests/test_risk_credit_rule.py
           tests/test_risk_entry_paths.py
           tests/test_risk_equity.py
           tests/test_risk_gate.py
