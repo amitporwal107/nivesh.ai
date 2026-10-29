@@ -470,7 +470,8 @@ def test_the_router_is_read_only():
     # the one POST is the margin CALCULATION (Zerodha's calculator through the platform session): it places nothing
     assert [r.path for r in route.router.routes if "POST" in r.methods] == ["/api/fno/margin"]
     assert sorted(r.path for r in route.router.routes) == [
-        "/api/fno/forward-test", "/api/fno/margin", "/api/fno/scan/buildup", "/api/fno/scan/candidates", "/api/fno/{symbol}/chain", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures",
+        "/api/fno/forward-test", "/api/fno/margin", "/api/fno/scan/buildup", "/api/fno/scan/candidates", "/api/fno/{symbol}/chain",
+        "/api/fno/{symbol}/chain/consolidated", "/api/fno/{symbol}/expiries", "/api/fno/{symbol}/futures",
         "/api/fno/{symbol}/futures/oi-buildup",
         "/api/fno/{symbol}/iv-history", "/api/fno/{symbol}/options/intraday", "/api/fno/{symbol}/positioning-history"]
 
