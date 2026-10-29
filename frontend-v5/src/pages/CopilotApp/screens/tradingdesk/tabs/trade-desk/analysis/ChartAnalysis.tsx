@@ -216,7 +216,7 @@ function Analysis({ symbol, tp }: { symbol: string; tp: string | null }) {
     const k = bars.findIndex((b) => b.day === at);
     return k >= 0 ? k : bars.findIndex((b) => b.day.slice(0, 10) === at.slice(0, 10));
   };
-  const marks: ChartMark[] = d.markers.flatMap((m) => {
+  const marks: ChartMark[] = d.markers.flatMap((m): ChartMark[] => {
     const i = idxOf(m.at);
     if (i < 0) return [];
     if ((m.kind === "WATCH" || m.kind === "READY") && on.pattern) return [{ i, label: m.kind, color: m.kind === "READY" ? "var(--amber)" : "var(--cp-ink-2)", title: m.text ?? m.kind, row: 0 as const }];
