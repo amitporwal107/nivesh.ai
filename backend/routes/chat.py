@@ -13,6 +13,7 @@ import logging
 from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
+from services import copilot_trade_idea as _trade_idea
 from services.llm_safety import wrap_external_data
 from services.action_plan_manager import ActionPlanManager
 from routes.copilot import _advisor_book_block, _is_advisor_caller, _is_research_tool_intent
@@ -1529,12 +1530,27 @@ async def stream_chat(request: Request):
     # broker) with the question, so its answer is about that contract. The
     # thread keeps the question as the user asked it.
     position_context = await _position_context(user_id, position_widget)
+    # A trading question about a stock (the Trader persona, the trading desk's
+    # Copilot panel, or trading words; services/copilot_trade_idea.py) brings
+    # the desk's own plan for that stock, built as POST /api/desk/strategy/plan
+    # builds it: its card when there is a setup (or one waiting for its
+    # confirmation), and its facts for the answer either way. A position
+    # question keeps its own card.
+    trade_idea = None
+    if route_investor and not position_widget and _trade_idea.is_trade_question(message, body.get("persona"), desk_persona):
+        trade_symbol = _trade_idea.symbol_for(message)
+        if trade_symbol:
+            trade_idea = await _trade_idea.build(request, user_id, trade_symbol, message)
+    trade_widget = trade_idea.widget if trade_idea else None
+    # The card the route attaches itself, sent before the answer; the engine's
+    # own card is then neither sent nor saved.
+    route_widget = position_widget or trade_widget
     # Such a question goes to the stock analyst — it has the underlying's
     # chart levels — whatever words the facts add: left to the router, a
     # message about a holding and its P&L is sent to the portfolio analyst,
     # which has no price levels. A client's own pin is kept.
     engine_pin = pinned_agent
-    if engine_pin is None and position_widget and _AgentName is not None:
+    if engine_pin is None and (position_widget or trade_idea) and _AgentName is not None:
         engine_pin = _AgentName("stock_analyst")
 
     # Resolve or create session
@@ -1652,10 +1668,15 @@ async def stream_chat(request: Request):
                             lg_messages.append(_AIMessage(content=m["content"]))
                     # The position facts are read from the broker, so they are
                     # delimited as data (the engine's system prompt says so).
+                    # The trade plan's facts are the desk's own plan, delimited
+                    # as data the same way.
+                    data_blocks = []
+                    if position_context:
+                        data_blocks.append(wrap_external_data(position_context, source='broker_position'))
+                    if trade_idea:
+                        data_blocks.append(wrap_external_data(trade_idea.context, source='trade_plan'))
                     lg_messages.append(_HumanMessage(
-                        content=(f"{message}\n\n"
-                                 f"{wrap_external_data(position_context, source='broker_position')}")
-                        if position_context else message,
+                        content=message + "".join(f"\n\n{b}" for b in data_blocks),
                     ))
 
                     persona_ctx = await _load_persona_context(db, user_id) if _load_persona_context else {}
@@ -1680,13 +1701,14 @@ async def stream_chat(request: Request):
                     streamed_any = False  # True once real LLM tokens are emitted
                     widget_streamed = False  # True once a widget frame is emitted (early or final)
                     widget_envelope: Optional[Dict] = None
-                    if position_widget:
-                        # The contract's own chart is this answer's card. It
-                        # goes out first, and the engine's card — for the
-                        # underlying share — is neither sent nor saved.
-                        widget_envelope = position_widget
+                    if route_widget:
+                        # The contract's own chart (or the stock's trade plan)
+                        # is this answer's card. It goes out first, and the
+                        # engine's card — for the underlying share — is neither
+                        # sent nor saved.
+                        widget_envelope = route_widget
                         widget_streamed = True
-                        yield f"data: {json.dumps({'type': 'widget', **position_widget})}\n\n"
+                        yield f"data: {json.dumps({'type': 'widget', **route_widget})}\n\n"
                     async for event in graph.astream_events(lg_input, config=lg_config, version="v2"):
                         kind = event.get("event", "")
                         if kind == "on_custom_event" and event.get("name") == "copilot_widget":
@@ -1746,7 +1768,7 @@ async def stream_chat(request: Request):
                                     # — kept here for the DB save (and as a fallback
                                     # if the early custom event didn't fire).
                                     env = _widget_envelope(wt_s, wd, agent_id)
-                                    if env and not position_widget:
+                                    if env and not route_widget:
                                         widget_envelope = env
                                 fu = getattr(final_resp, "follow_ups", None) or []
                                 if fu:

@@ -36,7 +36,27 @@ Style:
 
 If asked about price targets, analyst estimates or future guidance, say plainly
 that we do not have analyst feeds — only historical exchange filings.
-""" + ANTI_HALLUCINATION_RULES
+""" + ANTI_HALLUCINATION_RULES + """
+
+TRADE PLAN RULES (only when the message carries a TRADE_PLAN data block — the
+desk's own rule-based plan for this stock, built from end-of-day data):
+- Add a last section **How to trade it (an idea, not a recommendation)** of at
+  most 6 short bullets: why the setup exists (the evidence that supports the
+  direction), the entry trigger and that entry waits until it is confirmed,
+  the invalidation (stop) level and what it means, the capital at risk, the
+  targets, and what to do next (watch for the trigger; the card above has the
+  full plan and "Open in Strategy Lab").
+- Quote ONLY figures that appear in TRADE_PLAN. Never compute, round into new
+  levels, or invent an entry, stop, target, price or quantity.
+- If TRADE_PLAN says the direction was ASSUMED, say so in one short line and
+  offer the opposite view.
+- If TRADE_PLAN says no card is shown (no setup, or the data is not enough), do
+  not describe any entry or stop: say there is no setup to trade now, give the
+  reasons it lists, and what would have to change.
+- A conditional setup is not a signal: never say "buy now" or call it a
+  confirmed signal. Do not use "recommend", "pick" or "suggested trade".
+- The **Verdict** section stays about the analysis; the trade idea lives only
+  in its own section."""
 
 
 async def _fetch_stock_data(symbol: str) -> list:
