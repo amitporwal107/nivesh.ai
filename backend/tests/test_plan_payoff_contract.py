@@ -40,11 +40,11 @@ def plan_payoff_request(tp: Dict[str, Any], lots_per_leg: Optional[int], today: 
     far = max([0.0] + [abs(p / ref - 1) * 100 for p in prices if p is not None])
     rng = min(20, max(3, math.ceil(far * 1.5) + 1))
     expiry = sorted(l["expiry"] for l in legs if l.get("expiry"))[0]
-    as_of = (tp.get("data_as_of") or {}).get("chain")
+    as_of = (tp.get("data_as_of") or {}).get("chain") or (tp.get("data_as_of") or {}).get("fno")
     same = len({l.get("lots") or 1 for l in legs}) == 1
     lots = lots_per_leg if lots_per_leg and same else None
     body: Dict[str, Any] = {
-        "underlying": tp["instrument"]["symbol"], "reference_price": ref, "as_of": as_of,
+        "underlying": tp["instrument"]["symbol"], "reference_price": ref, **({"as_of": as_of} if as_of else {}),
         "legs": [{"kind": l["kind"], "side": l["side"], "quantity": lots or l.get("lots") or 1, "lot_size": l["lot_size"],
                   "entry_price": l["entry_price"], "expiry": l["expiry"], "strike": l["strike"], "option_type": l["option_type"],
                   "price_source": l["price_source"]} for l in legs],

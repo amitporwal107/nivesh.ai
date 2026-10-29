@@ -62,7 +62,7 @@ What changes:
 | SC-15 | F | A name alone ("infy") | e2e | The completion row plus "Research Infosys Limited" (sends) | PASS |
 | SC-16 | F | Desk Copilot panel | e2e | The same completions; Tab inserts; Enter with no highlight sends | PASS |
 | SC-17 | regression | Composer specs (TC-10 …), research, screens, desk, trade-idea; backend allowlist dev vs branch | e2e+unit | No new failure | PASS |
-| SC-18 | staging | After merge: `GET /api/chat/instrument-search?q=…&tail=1` on staging for the SC-1 … SC-10 cases | api | Real symbol-master answers as expected | PENDING (after merge; no session needed) |
+| SC-18 | staging | After merge: `GET /api/chat/instrument-search?q=…&tail=1` on staging for the SC-1 … SC-10 cases | api | Real symbol-master answers as expected | PASS |
 
 ## Tests run (real output, 2026-10-29, branch feat/copilot-stock-autocomplete)
 - **SC-1 … SC-11:** `pytest tests/test_chat_instrument_search.py` → `25 passed, 2 warnings in 6.97s`.
@@ -87,7 +87,29 @@ What changes:
   - The same 3 failures as `dev`, which predate this branch (`test_cas_api_client` ×2, `test_nidp_stamp_broadcast_at`
     ×1). **No regression.**
 
-## Inputs required from user
-- The merge (per-PR approval). SC-18 needs no session: the route is public, as it is today.
+## Staging after the merge (real output, 2026-10-29)
+- **Merge:** #404 went in with #408 (`dev` be0ba7de, 13:09 UTC). The backend, frontend and Android deploy runs
+  succeeded.
+- **Containers and bundle:** the backend container restarted at `2026-10-29T13:09:54Z`. The served bundle has
+  "Tab to complete" (`grep -rlF` → 2 files).
+- **SC-18:** `GET https://staging.niveshcopilot.com/api/chat/instrument-search` with no session:
+  ```
+  SC-1   'itc'                              -> 200 first=ITC kind=stock n=6  PASS
+  SC-2   'tvs mo'                           -> 200 first=TVSMOTOR kind=stock n=1  PASS
+  SC-2   'TVSMOTOR'                         -> 200 first=TVSMOTOR kind=stock n=1  PASS
+  SC-2   'hindustan uni'                    -> 200 first=HINDUNILVR kind=stock n=1  PASS
+  SC-3   'motor tvs'                        -> 200 first=TVSMOTOR kind=stock n=1  PASS
+  SC-4   'hul'                              -> 200 first=HINDUNILVR kind=stock n=1  PASS
+  SC-4   'l&t'                              -> 200 first=LT kind=stock n=3  PASS
+  SC-4   'sbi'                              -> 200 first=SBIN kind=stock n=5  PASS
+  SC-5   'nifty'                            -> 200 first=NIFTY kind=index n=5  PASS
+  SC-5   'bank nifty'                       -> 200 first=BANKNIFTY kind=index n=1  PASS
+  SC-6   'infosys'                          -> 200 first=INFY kind=stock n=2  PASS
+  SC-8   'Plan a breakout trade for tvs mo' -> 200 first=TVSMOTOR n=1 fragment='tvs mo' start=26 funds=0  PASS
+  SC-9   'how is the market'                -> 200 first=None n=0 fragment=None funds=0  PASS
+  SC-9   'trade plan for '                  -> 200 first=None n=0 fragment=None funds=0  PASS
+  SC-10  'compare infy and tcs'             -> 200 first=TCS kind=stock n=2 fragment='tcs' start=17 funds=0  PASS
+  ```
+- **Override:** OVERRIDE_copilot_stock_autocomplete.md is removed.
 
-## Verdict: BLOCKED
+## Verdict: PASS

@@ -755,6 +755,23 @@ test.describe("Decision cards — profit or loss today and at expiry", () => {
     expect(text).not.toMatch(/Greek|Δ|Θ|Black|gross|\bnet\b|\d+(\.\d+)?R\b|ATR|pre-expiry|implied vol/i);
   });
 
+  test("PO-2b a Strategy Builder / Copilot plan dates its prices by its F&O day (no chain date): the same request, the day named", async ({ page }) => {
+    await page.clock.setFixedTime(IST(PAY.today));
+    // MOCK edit of the real plan: the data dates a Strategy Builder / Copilot plan carries (fno, not chain), on the board
+    // row and on the plan route alike.
+    const asBuilder = (tp: { data_as_of: Record<string, string> }) => { tp.data_as_of = { fno: tp.data_as_of.chain, price: tp.data_as_of.chain, regime: tp.data_as_of.regime }; };
+    const top = clone(CARD.fno.top_response);
+    asBuilder(top.classes.index_options.ideas.find((i: { underlying: string }) => i.underlying === "BANKNIFTY").trade_plan);
+    const got = clone(FNO_GET);
+    asBuilder(got.plan);
+    const seen = await setup(page, { top, plans: { [FNO.plan_id]: { status: 200, body: got } }, payoff: answer(PAY.response) });
+    const card = await openFnoPlan(page);
+    await card.getByTestId("dc-toggle").click();
+    const sec = card.getByTestId("dc-sec-payoff");
+    await expect(sec.getByTestId("dc-payoff-size")).toContainText("Option prices of 21 Oct 2026, end of day.", SLOW);
+    expect(seen.payoff[0]).toEqual(PAY.request);
+  });
+
   test("PO-1 a cash plan's full card has no payoff section and asks for none", async ({ page }) => {
     const seen = await setup(page, { payoff: answer(PAY.response) });
     await page.goto(SCANNER);
