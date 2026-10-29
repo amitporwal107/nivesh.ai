@@ -6,8 +6,8 @@
  *   1. "logic"  Node-context tests of analysis/reco-data.ts (no `page` fixture, no browser): the module imports types only,
  *               so nothing from the app's runtime is evaluated. These run now.
  *   2. "page"   the components on the Chart Analysis page (/v5/app/trader/desk?tab=trade&view=chart&sub=live&sym=TVSMOTOR),
- *               mocked APIs on a production build. test.fixme until the page's BasketPanel and StrategyPanel are merged
- *               (flip PAGE_LANDED then).
+ *               mocked APIs on a production build (the page tests ran once BasketPanel and StrategyPanel were merged)
+ *               (PAGE_LANDED is true).
  *
  * MOCK — not real data. The plan payloads are e2e/fixtures/strategy-plan-*.json: the REAL output of the plan builder over the
  * fixture world of backend/tests/test_strategy_plan.py (RELIANCE-like: close 1200 on 2026-10-19, lot 250, chain 2026-11-24,
@@ -28,7 +28,7 @@ import type { AnalysisChain, StrikeRow } from "../../src/pages/CopilotApp/screen
 import type { StrategyPlan, Candidate } from "../../src/pages/CopilotApp/screens/tradingdesk/strategy/plan-contract";
 
 /** Flip to true once analysis/BasketPanel.tsx and analysis/StrategyPanel.tsx are on the branch (the page imports both). */
-const PAGE_LANDED = false;
+const PAGE_LANDED = true;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const load = (name: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", name), "utf-8"));

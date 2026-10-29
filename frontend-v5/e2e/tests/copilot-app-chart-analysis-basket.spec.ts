@@ -229,7 +229,6 @@ async function openBasket(page: Page) {
 }
 
 test.describe("MOCK — not real data: Chart Analysis basket and strategy panel (screen)", () => {
-  test.fixme(true, "The page (analysis/ChartAnalysis.tsx) is on feat/chart-analysis-v2; run once it is merged with these panels.");
 
   test("U6 a preset fills the basket with the chain's strikes around ATM", async ({ page }) => {
     await setup(page);
