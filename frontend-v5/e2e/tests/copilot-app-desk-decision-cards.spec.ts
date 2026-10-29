@@ -77,8 +77,10 @@ async function lineOf(card: Locator) {
 interface Opts {
   ideas?: unknown; top?: unknown; builder?: unknown; day?: unknown; plans?: Record<string, { status: number; body: unknown }>;
   profile?: { status: number; body: unknown }; trades?: unknown; paperStatus?: number[]; phone?: boolean; killSwitch?: boolean;
+  /** The payoff route's answer to the n-th request (0-based); unset: a not-valid MOCK answer. */
+  payoff?: (body: Record<string, unknown>, n: number) => { status: number; body: unknown };
 }
-interface Seen { paper: Array<Record<string, unknown>>; keys: Array<string | undefined>; planReads: string[] }
+interface Seen { paper: Array<Record<string, unknown>>; keys: Array<string | undefined>; planReads: string[]; payoff: Array<Record<string, unknown>> }
 
 /** The plan route by id: the fixture's own answers, unless a case overrides one. */
 function planAnswers(o: Opts): Record<string, { status: number; body: unknown }> {
@@ -86,7 +88,7 @@ function planAnswers(o: Opts): Record<string, { status: number; body: unknown }>
 }
 
 async function setup(page: Page, o: Opts = {}): Promise<Seen> {
-  const seen: Seen = { paper: [], keys: [], planReads: [] };
+  const seen: Seen = { paper: [], keys: [], planReads: [], payoff: [] };
   if (o.phone) await page.setViewportSize({ width: 390, height: 844 });
   await mockApi(page, "populated");
   await mockSingleRoute(page, "**/api/markets/home", "markets-home.json");
@@ -100,7 +102,13 @@ async function setup(page: Page, o: Opts = {}): Promise<Seen> {
   await page.route("**/api/desk/strategy/plan", (r) => json(r, o.builder ?? CARD.cash.builder_response));
   // MOCK: the levels engine is not asked here (the rows' plans carry the levels); a not-valid answer keeps the rows quiet.
   await page.route("**/api/desk/strategy/levels", (r) => json(r, { valid: false, version: "strategy-levels-v2", problems: [{ code: "mock", message: "MOCK" }] }));
-  await page.route("**/api/desk/strategy/payoff", (r) => json(r, { valid: false, problems: [{ code: "mock", message: "MOCK" }], warnings: [] }));
+  await page.route("**/api/desk/strategy/payoff", (r) => {
+    const body = r.request().postDataJSON() as Record<string, unknown>;
+    seen.payoff.push(body);
+    if (!o.payoff) return json(r, { valid: false, problems: [{ code: "mock", message: "MOCK" }], warnings: [] });
+    const a = o.payoff(body, seen.payoff.length - 1);
+    return json(r, a.body, a.status);
+  });
   await page.route("**/api/desk/trade-plans/*", (r) => {
     const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string);
     seen.planReads.push(id);
@@ -174,6 +182,9 @@ test.describe("Decision cards — the surfaces", () => {
     expect(await lineOf(card)).toEqual(EXPECT_FNO);
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-sec-exit")).toContainText(`exit if it falls to ${rs(FNO.exit_plan.options.planned_stop)}`);
+    // When the idea is wrong, in plain words (a bearish plan: a close above the exit); the plan's own sentence is kept in Technical details.
+    await expect(card.getByTestId("dc-wrong-if")).toContainText(`BANKNIFTY closes above ${rs(FNO.stop.price)}`);
+    await expect(card.getByTestId("dc-invalidation")).toContainText(FNO.stop.invalidation);
     await expect(card.getByTestId("dc-ev-raw")).toContainText("Desk regime Bearish");
     await expect(card.getByTestId("dc-ev-momentum")).toContainText("not checked");
     await expect(card.getByTestId("dc-approval")).toHaveAttribute("data-approval", "provisional");
@@ -670,10 +681,151 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
     await card.getByTestId("dc-toggle").click(SLOW);
+    await expect(card.getByTestId("dc-wrong-if")).toContainText(`${SYM} closes below ${rs(CASH.stop.price)}`);
     const text = await card.innerText();
     expect(text).toContain("not a recommendation");
     expect(text).toContain("does not predict a return");
     expect(text).not.toMatch(/×ATR|\(\d+\.\d+R\)|of equity|sessions\b|risk service/);
     expect(text).not.toMatch(/\bpicks?\b|recommended|suggest|confidence/i);
+  });
+});
+
+// ── PO-1 … PO-9: an options plan's profit or loss today and at expiry (owner, 29 Oct) ─────────────────────────
+// contract-plan-payoff.json: the body the card must send for the BANKNIFTY plan and the REAL route's answer to it
+// (backend/tests/test_plan_payoff_contract.py builds and checks it). Only the PO-6 / PO-7 answers are MOCK edits.
+const PAY = load("contract-plan-payoff.json");
+const signed = (n: number) => `${n < 0 ? "−" : n > 0 ? "+" : ""}₹${n2(Math.abs(n))}`;
+const IST = (day: string) => new Date(`${day}T10:00:00+05:30`);
+/** The route answers `resp`; each case asserts the body it was sent (seen.payoff) against the contract itself. */
+const answer = (resp: unknown) => () => ({ status: 200, body: resp });
+
+async function openFnoPlan(page: Page) {
+  await page.goto(SCANNER);
+  await page.getByTestId("desk-top10-switch-fno").click(SLOW);
+  const card = bankRow(page).getByTestId("desk-top10-fno-card");
+  await expect(card).toHaveAttribute("data-plan-id", FNO.plan_id, SLOW);
+  return card;
+}
+
+test.describe("Decision cards — profit or loss today and at expiry", () => {
+  test("PO-1 / PO-2 / PO-3 / PO-4 / PO-8 an options plan's full card: the request, both dated lines, the table, plain words", async ({ page }) => {
+    await page.clock.setFixedTime(IST(PAY.today));
+    const seen = await setup(page, { payoff: answer(PAY.response) });
+    const card = await openFnoPlan(page);
+    // PO-1: the compact row has no payoff section and asks for none.
+    await expect(card.getByTestId("dc-sec-payoff")).toHaveCount(0);
+    expect(seen.payoff).toEqual([]);
+    await card.getByTestId("dc-toggle").click();
+    const sec = card.getByTestId("dc-sec-payoff");
+    await expect(sec).toBeVisible(SLOW);
+    await expect(sec.getByRole("heading")).toHaveText("Profit or loss: today and at expiry");
+    // PO-2: exactly the contract body (the plan's legs at your 1 lot per leg, the chain date, today's estimate).
+    await expect.poll(() => seen.payoff.length, SLOW).toBe(1);
+    expect(seen.payoff[0]).toEqual(PAY.request);
+    // PO-3: two lines, named with their dates; the price now, the exit and both targets marked.
+    await expect(sec.getByTestId("dc-payoff-legend-today")).toHaveText("Today, 22 Oct 2026 (estimated)");
+    await expect(sec.getByTestId("dc-payoff-legend-expiry")).toHaveText("At expiry, 27 Oct 2026");
+    await expect(sec.getByTestId("dc-payoff-line-today")).toHaveCount(1);
+    await expect(sec.getByTestId("dc-payoff-line-expiry")).toHaveCount(1);
+    for (const m of ["now", "exit", "t1", "t2"]) await expect(sec.getByTestId(`dc-payoff-mark-${m}`)).toHaveCount(1);
+    await expect(sec.getByTestId("dc-payoff-marks")).toContainText(`BANKNIFTY now ${rs(PAY.request.reference_price)}`);
+    await expect(sec.getByTestId("dc-payoff-marks")).toContainText(`exit if wrong ${rs(FNO.stop.price)}`);
+    await expect(sec.getByTestId("dc-payoff-size")).toContainText("After charges, for 1 lot per leg × 30 (your size).");
+    await expect(sec.getByTestId("dc-payoff-size")).toContainText("Option prices of 21 Oct 2026, end of day.");
+    // PO-4: one row per move of R/4 (R = 4%: the farthest of the strikes, exit and targets is 1.6% away), each cell the
+    // answer's after-charges value at that exact grid point.
+    await expect(sec.getByTestId("dc-payoff-col-today")).toHaveText("Today, 22 Oct 2026 (estimated)");
+    await expect(sec.getByTestId("dc-payoff-col-expiry")).toHaveText("At expiry, 27 Oct 2026");
+    const rows = sec.getByTestId("dc-payoff-row");
+    await expect(rows).toHaveCount(9);
+    const ex = PAY.response.expiry, pre = PAY.response.pre_expiry;
+    for (let k = 0; k < 9; k++) {
+      const move = (k - 4);                       // −4% … +4%, 1% apart
+      const i = (move + 4) * 8;                   // 0.125% grid steps
+      const row = rows.nth(k);
+      await expect(row).toHaveAttribute("data-move", String(move));
+      await expect(row.getByTestId("dc-payoff-price")).toHaveText(rs(ex.grid[i]));
+      await expect(row.getByTestId("dc-payoff-move")).toHaveText(move === 0 ? "(now)" : `(${move > 0 ? "+" : "−"}${Math.abs(move)}%)`);
+      await expect(row.getByTestId("dc-payoff-today")).toHaveText(signed(pre.net[i]));
+      await expect(row.getByTestId("dc-payoff-expiry")).toHaveText(signed(ex.net[i]));
+    }
+    await expect(sec.getByTestId("dc-payoff-breakeven")).toHaveText(`At expiry it breaks even at ${rs(ex.breakevens[0])} (before charges).`);
+    // PO-8: no jargon.
+    const text = (await sec.innerText()).replace(/\s+/g, " ");
+    expect(text).not.toMatch(/Greek|Δ|Θ|Black|gross|\bnet\b|\d+(\.\d+)?R\b|ATR|pre-expiry|implied vol/i);
+  });
+
+  test("PO-1 a cash plan's full card has no payoff section and asks for none", async ({ page }) => {
+    const seen = await setup(page, { payoff: answer(PAY.response) });
+    await page.goto(SCANNER);
+    const card = stockRow(page).getByTestId("desk-top10-card");
+    await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id, SLOW);
+    await card.getByTestId("dc-toggle").click();
+    await expect(card.getByTestId("dc-sec-size")).toBeVisible();
+    await expect(card.getByTestId("dc-sec-payoff")).toHaveCount(0);
+    expect(seen.payoff).toEqual([]);
+  });
+
+  test("PO-5 on the expiry day: no estimate is asked for; the expiry line and column only, and why", async ({ page }) => {
+    await page.clock.setFixedTime(IST(PAY.expiry_day));
+    const seen = await setup(page, { payoff: answer(PAY.response_on_expiry) });
+    const card = await openFnoPlan(page);
+    await card.getByTestId("dc-toggle").click();
+    const sec = card.getByTestId("dc-sec-payoff");
+    await expect(sec.getByTestId("dc-payoff-table")).toBeVisible(SLOW);
+    expect(seen.payoff[0]).toEqual(PAY.request_on_expiry);
+    await expect(sec.getByTestId("dc-payoff-no-today")).toHaveText("These options expire today: only the expiry values apply.");
+    await expect(sec.getByTestId("dc-payoff-legend-today")).toHaveCount(0);
+    await expect(sec.getByTestId("dc-payoff-col-today")).toHaveCount(0);
+    await expect(sec.getByTestId("dc-payoff-line-today")).toHaveCount(0);
+    await expect(sec.getByTestId("dc-payoff-row").nth(4).getByTestId("dc-payoff-expiry")).toHaveText(signed(PAY.response_on_expiry.expiry.net[32]));
+  });
+
+  test("PO-6 the estimate could not price a leg: the expiry values, and why there is none for today", async ({ page }) => {
+    await page.clock.setFixedTime(IST(PAY.today));
+    // MOCK edit of the real answer: the estimate refused for leg 1, as the calculation reports it.
+    const noEstimate = clone(PAY.response);
+    Object.assign(noEstimate.pre_expiry, { grid: null, gross: null, net: null, greeks: null, per_leg_greeks: [],
+      unavailable: [{ leg: 0, reason: "MOCK: no volatility solves the entry premium" }] });
+    await setup(page, { payoff: answer(noEstimate) });
+    const card = await openFnoPlan(page);
+    await card.getByTestId("dc-toggle").click();
+    const sec = card.getByTestId("dc-sec-payoff");
+    await expect(sec.getByTestId("dc-payoff-no-today")).toHaveText("No estimate for today: MOCK: no volatility solves the entry premium.", SLOW);
+    await expect(sec.getByTestId("dc-payoff-col-today")).toHaveCount(0);
+    await expect(sec.getByTestId("dc-payoff-line-expiry")).toHaveCount(1);
+    await expect(sec.getByTestId("dc-payoff-row")).toHaveCount(9);
+  });
+
+  test("PO-7 the calculation fails: said so with Try again, never an empty chart; Try again recovers", async ({ page }) => {
+    await page.clock.setFixedTime(IST(PAY.today));
+    const seen = await setup(page, { payoff: (_b, n) => (n === 0 ? { status: 500, body: { detail: "MOCK: upstream error" } } : { status: 200, body: PAY.response }) });
+    const card = await openFnoPlan(page);
+    await card.getByTestId("dc-toggle").click();
+    const sec = card.getByTestId("dc-sec-payoff");
+    await expect(sec.getByTestId("dc-payoff-error")).toContainText("The profit or loss could not be worked out just now", SLOW);
+    await expect(sec.getByTestId("dc-payoff-chart")).toHaveCount(0);
+    await sec.getByTestId("dc-payoff-retry").click();
+    await expect(sec.getByTestId("dc-payoff-table")).toBeVisible(SLOW);
+    expect(seen.payoff).toHaveLength(2);
+  });
+
+  test("PO-9 390 px: no sideways page scroll; both dated columns fit, the table never needs to scroll", async ({ page }) => {
+    await page.clock.setFixedTime(IST(PAY.today));
+    await setup(page, { phone: true, payoff: answer(PAY.response) });
+    const card = await openFnoPlan(page);
+    await card.getByTestId("dc-toggle").click();
+    const sec = card.getByTestId("dc-sec-payoff");
+    await expect(sec.getByTestId("dc-payoff-table")).toBeVisible(SLOW);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    expect(await sec.getByTestId("dc-payoff-table-wrap").evaluate((el) => getComputedStyle(el).overflowX)).toBe("auto");
+    // Both dated columns fit: the table needs no sideways scroll on a phone.
+    expect(await sec.getByTestId("dc-payoff-table-wrap").evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    const wrap = await sec.getByTestId("dc-payoff-table-wrap").boundingBox();
+    const cell = await sec.getByTestId("dc-payoff-row").first().getByTestId("dc-payoff-expiry").boundingBox();
+    expect(cell!.x + cell!.width).toBeLessThanOrEqual(wrap!.x + wrap!.width + 0.5);
+    const svg = await sec.getByTestId("dc-payoff-chart").boundingBox();
+    const box = await sec.boundingBox();
+    expect(svg!.width).toBeLessThanOrEqual(box!.width + 0.5);
   });
 });

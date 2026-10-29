@@ -20,6 +20,7 @@ import { costsBreakdownText, readCostsBreakdown } from "../desk-trading";
 import { stopMethodText, type TradePlan } from "../strategy/trade-plan";
 import { STATUS_TEXT, usePlanResponse, usePlanView, type PlanView, type RiskState } from "./plan-view";
 import { WaysForwardLine, WaysForwardSection, waysForward } from "./ways-forward";
+import { PlanPayoff } from "./PlanPayoff";
 
 type Raw = Record<string, unknown>;
 const rec = (v: unknown): Raw => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : {});
@@ -78,6 +79,13 @@ export function stopWhyText(tp: TradePlan): string {
   if (m === "underlying") return "on the stock or index price";
   if (m === "expected_move") return "at the edge of the move the options market expects";
   return "set by the plan's rules";
+}
+
+/** When the idea is wrong, in plain words: the instrument closing past the exit price (the plan's own sentence is in
+ *  Technical details). Null when the plan has no exit price on the instrument. */
+export function wrongIfText(tp: TradePlan): string | null {
+  if (tp.stop.price == null) return null;
+  return `${tp.instrument.symbol ?? "the price"} closes ${bearishPlan(tp) ? "above" : "below"} ${fmtPrice(tp.stop.price)}`;
 }
 
 /** The profit targets: prices only. */
@@ -322,7 +330,7 @@ function Sections({ v }: { v: PlanView }) {
       <Section title="When the idea is wrong" testId="dc-sec-stop">
         <Row k="Exit at">{stopText(tp)}</Row>
         <Row k="Why there">{stopWhyText(tp)}</Row>
-        <Row k="Wrong if">{str(stop.invalidation) ? readableText(str(stop.invalidation) as string) : <NA why="the plan does not say" />}</Row>
+        <Row k="Wrong if" testId="dc-wrong-if">{wrongIfText(tp) ?? (str(stop.invalidation) ? readableText(str(stop.invalidation) as string) : <NA why="the plan does not say" />)}</Row>
       </Section>
       <Section title="Targets (where to take profit, not forecasts)" testId="dc-sec-targets">
         {tp.targets.length ? tp.targets.map((t, i) => (
@@ -350,6 +358,7 @@ function Sections({ v }: { v: PlanView }) {
         )}
         <Row k="Limits check"><RiskCheck v={v} /></Row>
       </Section>
+      <PlanPayoff v={v} />
       <Section title="Charges" testId="dc-sec-costs">
         <Row k="Charges">{costsTotal(v) != null ? `about ${fmtPrice(costsTotal(v))} at your size (brokerage, taxes and slippage, in and out)` : <NA why="no size for your account" />}</Row>
         <Row k="Price gaps" testId="dc-gap">{str(costs.gap_risk) ? readableText(str(costs.gap_risk) as string) : <NA why="this plan was stored before plans carried it" />}</Row>
@@ -386,6 +395,7 @@ function Sections({ v }: { v: PlanView }) {
         <summary className="cp-eyebrow" style={{ fontSize: 9.5, cursor: "pointer" }}>Technical details</summary>
         <div className="flex min-w-0 flex-col" style={{ gap: 3, fontSize: 12, lineHeight: 1.5, overflowWrap: "anywhere", paddingTop: 6, color: "var(--cp-ink-2)" }}>
           <Row k="Stop method">{stopMethodText(tp.stop)}{str(stop.rationale) ? ` · ${readableText(str(stop.rationale) as string)}` : ""}</Row>
+          {str(stop.invalidation) && <Row k="Invalidation" testId="dc-invalidation">{readableText(str(stop.invalidation) as string)}</Row>}
           {numOr(stop.premium_stop) != null && <Row k="Premium stop">{fmtPrice(numOr(stop.premium_stop))} a unit, on the whole structure</Row>}
           <Row k="Entry order">{str(entry.order_type) ?? "—"}{str(entry.order_text) ? ` · ${str(entry.order_text)}` : ""}{str(entry.logic) ? ` · ${str(entry.logic)}` : ""}</Row>
           <Row k="Targets in R">{tp.targets.length ? tp.targets.map((t) => `${humaniseTag(t.name)} ${fmtPrice(t.price)}${t.r_multiple != null ? ` (${fmtNum(t.r_multiple, 2)}R)` : ""}${t.rule ? ` — ${t.rule}` : ""}`).join(" · ") : "—"}</Row>
