@@ -38,23 +38,26 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 // ── what the card must show, worked out from the plan (en-IN, two decimals) ──
 const n2 = (n: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 const rs = (n: number) => `₹${n2(n)}`;
-const targets = (tp: { targets: Array<{ price: number; r_multiple: number }> }) => tp.targets.map((t) => `${rs(t.price)} (${n2(t.r_multiple)}R)`).join(" · ");
+// Plain words on the card (owner, 29 Oct: "remove all technicals jargon"); the technical record is in Technical details.
+const targets = (tp: { targets: Array<{ price: number; r_multiple: number }> }) => tp.targets.map((t) => rs(t.price)).join(" · ");
+/** The evidence verdict in words, as DecisionCard verdictText says it. */
+const verdict = (d: string | null) => /support|for|bull|confirm|positive/i.test(d ?? "") ? "supports the idea" : /against|conflict|bear|negative|contra/i.test(d ?? "") ? "works against the idea" : "neutral";
 const int = (n: number) => new Intl.NumberFormat("en-IN").format(n);
 /** The account's size, risk and costs: the route's `account_size` (the risk service's own sizing), never the plan's own. */
 const sized = (a: { quantity: number | null; lots: number | null; lot_size: number | null; estimated_risk_rs: { total: number; costs: number }; risk_pct_of_equity: number }) => ({
   size: a.lots != null ? `Size ${a.lots} lot${a.lots === 1 ? "" : "s"} × ${a.lot_size}` : `Size ${int(a.quantity as number)} shares`,
-  risk: `Risk ${rs(a.estimated_risk_rs.total)} (${n2(a.risk_pct_of_equity)}% of equity)`,
-  costs: `Est. costs ${rs(a.estimated_risk_rs.costs)}`,
+  risk: `Max loss ${rs(a.estimated_risk_rs.total)} (${n2(a.risk_pct_of_equity)}% of your capital)`,
+  costs: `Charges about ${rs(a.estimated_risk_rs.costs)}`,
 });
 const EXPECT_CASH = {
-  entry: `Entry ${rs(CASH.entry.price)} (at the close)`,
-  stop: `Stop ${rs(CASH.stop.price)} (${CASH.stop.atr_multiple}×ATR below ${CASH.stop.measured_from})`,
+  entry: `Enter at the close, ${rs(CASH.entry.price)}`,
+  stop: `Exit if wrong ${rs(CASH.stop.price)}`,
   targets: `Targets ${targets(CASH)}`,
   ...sized(CARD.cash.trade_plan_response.account_size),
 };
 const EXPECT_FNO = {
-  entry: `Entry net premium ${rs(Math.abs(FNO.entry.net_premium_rs))} debit (at the premiums)`,
-  stop: `Stop ${rs(FNO.stop.price)} (underlying invalidation)`,
+  entry: `Enter at today's option prices (${rs(Math.abs(FNO.entry.net_premium_rs))} paid)`,
+  stop: `Exit if wrong ${rs(FNO.stop.price)}`,
   targets: `Targets ${targets(FNO)}`,
   ...sized(FNO_GET.account_size),
 };
@@ -137,20 +140,23 @@ test.describe("Decision cards — the surfaces", () => {
     await expect(card).toBeVisible(SLOW);
     await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id);
     expect(await lineOf(card)).toEqual(EXPECT_CASH);
-    await expect(card.getByTestId("dc-horizon")).toHaveText(`Horizon ≤ ${CASH.exit_plan.time.max_sessions} sessions`);
-    await expect(card.getByTestId("dc-status")).toHaveText("Eligible");
+    await expect(card.getByTestId("dc-horizon")).toHaveText(`Hold for up to ${CASH.exit_plan.time.max_sessions} trading days`);
+    await expect(card.getByTestId("dc-status")).toHaveText("Ready to enter");
     await expect(card.getByTestId("dc-approval")).toHaveAttribute("data-approval", "provisional");
-    await expect(card.getByTestId("dc-approval")).toHaveText("Provisional · no risk decision yet");
+    await expect(card.getByTestId("dc-approval")).toHaveText("Not yet checked against your limits");
     await expect(card.getByTestId("dc-sections")).toHaveCount(0);
     await card.getByTestId("dc-toggle").click();
     for (const s of ["setup", "entry", "stop", "targets", "size", "costs", "evidence", "warnings", "exit", "audit"]) await expect(card.getByTestId(`dc-sec-${s}`)).toBeVisible();
     await expect(card.getByTestId("dc-risk-check")).toHaveAttribute("data-state", "none");
-    await expect(card.getByTestId("dc-risk-check")).toContainText("no decision yet");
-    await expect(card.getByTestId("dc-equity")).toContainText(`${rs(EQUITY)} paper equity`);
+    await expect(card.getByTestId("dc-risk-check")).toContainText("Not checked yet");
+    await expect(card.getByTestId("dc-equity")).toContainText(`${rs(EQUITY)} (your risk profile)`);
     // The card shows the evidence without internal module names ("(macro_engine.classify_desk_regime, session …)" → "(session …)", desk audit wave 1).
     const readable = (t: string) => t.replace(/\((?:[a-z_]+\.)+[a-z_]+(?: \([^)]*\))?,\s*/g, "(");
-    for (const e of CASH.evidence.items) await expect(card.getByTestId(`dc-ev-${e.key}`)).toContainText(e.status === "ok" ? readable(e.text).slice(0, 30) : "Unavailable");
-    await expect(card.getByTestId("dc-sec-evidence")).not.toContainText("macro_engine");
+    // Each reason in plain words; the indicator text itself is in Technical details.
+    for (const e of CASH.evidence.items) await expect(card.getByTestId(`dc-ev-${e.key}`)).toContainText(e.status === "ok" ? verdict(e.direction) : "not checked");
+    for (const e of CASH.evidence.items.filter((x: { status: string }) => x.status === "ok")) await expect(card.getByTestId("dc-ev-raw")).toContainText(readable(e.text).slice(0, 30));
+    await expect(card.getByTestId("dc-sec-evidence")).not.toContainText(/ATR|RSI|SMA|EMA|macro_engine|\dR\b/);
+    await expect(card.getByTestId("dc-ev-raw")).not.toContainText("macro_engine");
     for (const w of CASH.warnings) await expect(card.getByTestId(`dc-warn-${w.key}`).locator("[data-status]")).toHaveAttribute("data-status", w.status);
     await expect(card.getByTestId("dc-gap")).toContainText(CASH.costs.gap_risk.slice(0, 40));
     await expect(card.getByTestId("dc-data-asof")).toContainText("price 19 Oct 2026");
@@ -167,9 +173,9 @@ test.describe("Decision cards — the surfaces", () => {
     await expect(card).toHaveAttribute("data-plan-id", FNO.plan_id, SLOW);
     expect(await lineOf(card)).toEqual(EXPECT_FNO);
     await card.getByTestId("dc-toggle").click();
-    await expect(card.getByTestId("dc-sec-exit")).toContainText(`stop ${rs(FNO.exit_plan.options.planned_stop)}`);
-    await expect(card.getByTestId("dc-ev-regime")).toContainText("Desk regime Bearish");
-    await expect(card.getByTestId("dc-ev-momentum")).toContainText("Unavailable");
+    await expect(card.getByTestId("dc-sec-exit")).toContainText(`exit if it falls to ${rs(FNO.exit_plan.options.planned_stop)}`);
+    await expect(card.getByTestId("dc-ev-raw")).toContainText("Desk regime Bearish");
+    await expect(card.getByTestId("dc-ev-momentum")).toContainText("not checked");
     await expect(card.getByTestId("dc-approval")).toHaveAttribute("data-approval", "provisional");
   });
 
@@ -208,7 +214,7 @@ test.describe("Decision cards — the surfaces", () => {
     await page.goto(`${DESK}?tab=more&view=strategy&mode=stock&build=1&sym=${SYM}&direction=bullish&instrument=futures&cand=${encodeURIComponent(fut.id)}`);
     const fc = page.getByTestId("cand-decision-card");
     await expect(fc).toHaveAttribute("data-plan-id", fut.trade_plan.plan_id, SLOW);
-    await expect(fc.getByTestId("dc-status")).toHaveText("Rejected");
+    await expect(fc.getByTestId("dc-status")).toHaveText("Not tradeable");
     await expect(fc.getByTestId("dc-size")).toContainText("unavailable: the plan was not sized for your account");     // MOCK answer without account_size
     await expect(fc.getByTestId("dc-sec-setup")).toContainText(`lot ${new Intl.NumberFormat("en-IN").format(fut.trade_plan.instrument.lot_size)}`);
     await expect(fc.getByTestId("dc-rejection")).toContainText(fut.trade_plan.eligibility.reasons[0].message.slice(0, 30));
@@ -313,12 +319,20 @@ test.describe("Decision cards — states", () => {
     await setup(page, { ideas, plans: { [CASH.plan_id]: { status: 200, body: getOf(ideas.ideas[0].trade_plan) } } });
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
-    await expect(card.getByTestId("dc-status")).toHaveText("Rejected", SLOW);
-    await expect(card.getByTestId("dc-action")).toContainText("Paper trade off: This plan is rejected: MOCK: Reward : risk 0.9");
+    await expect(card.getByTestId("dc-status")).toHaveText("Not tradeable", SLOW);
+    await expect(card.getByTestId("dc-action")).toContainText("Paper trade off: This idea is not tradeable: MOCK: Reward : risk 0.9");
+    // Why, in plain words, and what can be done (owner, 29 Oct): one line on the compact card, every way in the full card.
+    await expect(card.getByTestId("dc-ways-line")).toContainText("Why not: The possible gain is too small for the risk taken. · What you can do: Wait for a better (lower) entry price");
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-rejection")).toContainText("MOCK: Reward : risk 0.9 is below the minimum 1.5.");
+    const way = card.getByTestId("dc-way");
+    await expect(way).toHaveCount(1);
+    await expect(way).toContainText("MOCK: Reward : risk 0.9 is below the minimum 1.5.");
+    await expect(card.getByTestId("dc-way-option")).toHaveText(["Wait for a better (lower) entry price", "Choose another structure with a better payoff",
+      "Ask an admin to loosen your minimum reward-to-risk (Risk Desk › Controls & profile, with a reason). You can tighten limits yourself, but only an admin can loosen them."]);
+    await expect(card.getByTestId("dc-way-controls")).toHaveAttribute("href", "/v5/app/trader/desk?tab=risk&view=controls");
     await stockRow(page).getByTestId("desk-top10-stock-paper").click();
-    await expect(stockRow(page).getByTestId("desk-top10-paper-blocked")).toContainText("This plan is rejected");
+    await expect(stockRow(page).getByTestId("desk-top10-paper-blocked")).toContainText("This idea is not tradeable");
   });
 
   test("UI-8d/e provisional without a decision; Risk-approved only on the risk service's real ALLOW, and they look different", async ({ page }) => {
@@ -332,13 +346,13 @@ test.describe("Decision cards — states", () => {
     await setup(page, { plans: { [CASH.plan_id]: { status: 200, body: CARD.cash.allowed.trade_plan_response } } });
     await page.goto(SCANNER);
     const ok = stockRow(page).getByTestId("desk-top10-card");
-    await expect(ok.getByTestId("dc-approval")).toHaveText("✓ Risk-approved", SLOW);
+    await expect(ok.getByTestId("dc-approval")).toHaveText("✓ Fits your limits", SLOW);
     await expect(ok).toHaveAttribute("data-approval", "approved");
     await expect(ok.getByTestId("dc-status")).toHaveText("Open");
     expect([provisional, await ok.evaluate((el) => getComputedStyle(el).borderStyle)]).toEqual(["dashed", "solid"]);
     await ok.getByTestId("dc-toggle").click();
     const d = CARD.cash.allowed.trade_plan_response.risk_decision;
-    await expect(ok.getByTestId("dc-risk-check")).toContainText(`Allowed ${d.approved_qty} shares · estimated risk ${rs(d.estimated_risk_rs.total)}`);
+    await expect(ok.getByTestId("dc-risk-check")).toContainText(`Fits your limits: ${d.approved_qty} shares · max loss ${rs(d.estimated_risk_rs.total)}`);
   });
 
   test("UI-8e2 an ALLOW made under other risk limits does not approve the plan: the profile changed since", async ({ page }) => {
@@ -362,7 +376,7 @@ test.describe("Decision cards — states", () => {
     const card = stockRow(page).getByTestId("desk-top10-card");
     await expect(card).toHaveAttribute("data-approval", "reduce", SLOW);
     await card.getByTestId("dc-toggle").click();
-    await expect(card.getByTestId("dc-risk-check")).toContainText(`Smaller size only: at most ${reduced.risk_decision.approved_qty} shares`);
+    await expect(card.getByTestId("dc-risk-check")).toContainText(`Allowed at a smaller size: at most ${reduced.risk_decision.approved_qty} shares`);
     await expect(card.getByTestId("dc-action")).toHaveAttribute("data-enabled", "true");
 
     const blocked = CARD.cash.blocked.trade_plan_response;
@@ -373,7 +387,8 @@ test.describe("Decision cards — states", () => {
     await ready(b);
     await expect(b).toHaveAttribute("data-approval", "block");
     // the switch is still on, so the account's sizing refuses it too (that reason is given first), and the action is off
-    await expect(b.getByTestId("dc-action")).toContainText("Paper trade off: The risk service would refuse this plan for your account: The kill switch is on");
+    await expect(b.getByTestId("dc-action")).toContainText("Paper trade off: Your risk limits would not allow this plan: The kill switch is on");
+    await expect(b.getByTestId("dc-ways-line")).toContainText("Why not: The kill switch is on: new paper trades are switched off. · What you can do: Only an admin can switch trading back on");
     await stockRow(page).getByTestId("desk-top10-stock-paper").click();
     await expect(stockRow(page).getByTestId("desk-top10-paper-blocked")).toContainText("The kill switch is on");
   });
@@ -443,7 +458,7 @@ test.describe("Decision cards — a changed plan", () => {
     const row = page.getByTestId("aiw-fno-BANKNIFTY");
     await expect(row.getByTestId("aiw-fno-card")).toHaveAttribute("data-plan-id", v2.plan_id, SLOW);
     await expect(row.getByTestId("idea-paper-trade")).toBeDisabled();
-    await expect(row.getByTestId("idea-paper-trade")).toHaveAttribute("title", /This plan changed after the row was built \(version 2 replaces version 1\)/);
+    await expect(row.getByTestId("idea-paper-trade")).toHaveAttribute("title", /This plan changed after this list was made \(version 2 replaces version 1\)/);
   });
 
   test("UI-9c a re-ranked Top 10 that supersedes the plan refreshes the Builder still holding the old one", async ({ page }) => {
@@ -477,7 +492,7 @@ test.describe("Decision cards — a changed plan", () => {
     const card = page.getByTestId("cand-decision-card");
     await expect(card).toHaveAttribute("data-plan-id", V2_ID, SLOW);
     await expect(card.getByTestId("dc-changed")).toContainText("version 2");
-    await expect(page.getByTestId("paper-blocked")).toContainText("This plan changed after the row was built");
+    await expect(page.getByTestId("paper-blocked")).toContainText("This plan changed after this list was made");
   });
 });
 
@@ -491,8 +506,8 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
     await expect(card.getByTestId("dc-size")).toHaveText("Size unavailable: MOCK: your paper equity could not be read", SLOW);
-    await expect(card.getByTestId("dc-risk")).toHaveText("Risk unavailable");
-    await expect(card.getByTestId("dc-costs")).toHaveText("Est. costs unavailable");
+    await expect(card.getByTestId("dc-risk")).toHaveText("Max loss unavailable");
+    await expect(card.getByTestId("dc-costs")).toHaveText("Charges unavailable");
     expect(await card.getByTestId("dc-line").innerText()).not.toContain(int(CASH.size.quantity));
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-equity")).toContainText("Unavailable: the risk profile could not be read");
@@ -527,9 +542,9 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     const card = stockRow(page).getByTestId("desk-top10-card");
     await card.getByTestId("dc-toggle").click(SLOW);
     const pf = CARD.cash.trade_plan_response.account_size.portfolio;
-    await expect(card.getByTestId("dc-portfolio")).toContainText("May be reduced by portfolio limits at submission");
-    await expect(card.getByTestId("dc-budgets-left")).toContainText(`open risk ${rs(pf.remaining.open_risk_rs)}`);
-    await expect(card.getByTestId("dc-budgets-left")).toContainText(`${pf.remaining.positions} more positions`);
+    await expect(card.getByTestId("dc-portfolio")).toContainText("Your other open trades may lower this size");
+    await expect(card.getByTestId("dc-budgets-left")).toContainText(`${rs(pf.remaining.open_risk_rs)} more you can risk`);
+    await expect(card.getByTestId("dc-budgets-left")).toContainText(`${pf.remaining.positions} more trades`);
   });
 
   test("UI-19 BEAR regime: the size carries the factor once, and that size is sent as is", async ({ page }) => {
@@ -542,7 +557,7 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await page.goto(SCANNER);
     const card = stockRow(page).getByTestId("desk-top10-card");
     await expect(card.getByTestId("dc-size")).toHaveText(sized(a).size, SLOW);
-    await expect(card.getByTestId("dc-size")).not.toContainText("not allowed as is");
+    await expect(card.getByTestId("dc-size")).not.toContainText("too big for your limits");
     await expect(card.getByTestId("dc-action")).not.toContainText("Paper trade off");
     await card.getByTestId("dc-toggle").click();
     await expect(card.getByTestId("dc-factors")).toContainText("The market regime is BEAR; size is cut.");
@@ -559,9 +574,11 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     await page.goto(WATCHLIST);
     await page.getByTestId("aiw-seg-fno").click(SLOW);
     const row = page.getByTestId("aiw-fno-BANKNIFTY");
-    await expect(row.getByTestId("aiw-fno-card").getByTestId("dc-size")).toHaveText(`Size unavailable: the risk service would refuse it (${def.account_size.blocking[0].message})`, SLOW);
+    await expect(row.getByTestId("aiw-fno-card").getByTestId("dc-size")).toHaveText(`Size unavailable: your risk limits would not allow it (${def.account_size.blocking[0].message})`, SLOW);
     await expect(row.getByTestId("idea-paper-trade")).toBeDisabled();
-    await expect(row.getByTestId("idea-paper-trade")).toHaveAttribute("title", /The risk service would refuse this plan for your account: The smallest valid size/);
+    await expect(row.getByTestId("idea-paper-trade")).toHaveAttribute("title", /Your risk limits would not allow this plan: The smallest valid size/);
+    // A margin / budget refusal says why and what to do: a cheaper strike or a spread, a closer exit, or an admin.
+    await expect(row.getByTestId("aiw-fno-card").getByTestId("dc-ways-line")).toContainText("Why not: Even the smallest size (one lot) would risk more than your limit for one trade.");
   });
 
   test("UI-11 390px: the row card and its expanded sections fit, on the Top 10 and the watchlist", async ({ page }) => {
@@ -654,7 +671,9 @@ test.describe("Decision cards — equity, mobile, carry-forward, Phase 0", () =>
     const card = stockRow(page).getByTestId("desk-top10-card");
     await card.getByTestId("dc-toggle").click(SLOW);
     const text = await card.innerText();
-    expect(text).toContain("not a prediction, a probability or an edge");
+    expect(text).toContain("not a recommendation");
+    expect(text).toContain("does not predict a return");
+    expect(text).not.toMatch(/×ATR|\(\d+\.\d+R\)|of equity|sessions\b|risk service/);
     expect(text).not.toMatch(/\bpicks?\b|recommended|suggest|confidence/i);
   });
 });

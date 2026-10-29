@@ -85,6 +85,16 @@ export function IdeaDrawer({ label, title, sub, onClose, testId, focus, children
 }
 
 /** A titled part of the drawer. */
+/** A drawer section kept closed: the technical record under the plain full card (owner, 29 Oct: no jargon in the full card). */
+export function DrawerDetails({ title, testId, children }: { title: string; testId?: string; children: ReactNode }) {
+  return (
+    <details data-testid={testId} className="flex min-w-0 flex-col" style={{ paddingTop: 12, borderTop: "1px solid var(--cp-line)" }}>
+      <summary className="cp-eyebrow" style={{ fontWeight: 400, fontSize: 9.5, cursor: "pointer" }}>{title}</summary>
+      <div className="flex min-w-0 flex-col" style={{ gap: 8, paddingTop: 8 }}>{children}</div>
+    </details>
+  );
+}
+
 export function DrawerSection({ title, testId, children }: { title: string; testId?: string; children: ReactNode }) {
   return (
     <section data-testid={testId} aria-label={title} className="flex min-w-0 flex-col" style={{ gap: 8, paddingTop: 12, borderTop: "1px solid var(--cp-line)" }}>

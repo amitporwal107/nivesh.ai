@@ -1,8 +1,9 @@
 /**
  * A share paper trade AT A TRADEPLAN's levels (Phase 2.1), for the Top 10 stock rows and the AI watchlist cash rows.
  *
- * The row shows the plan's one line (entry and order type · stop and its method · targets in R) and its id, and the
- * button records exactly those levels with `plan_ref` (POST /api/desk/paper-trades). Phase 3: the plan is the decision
+ * The row shows the plan's prices in plain words (when to enter · where to exit if wrong · targets; owner, 29 Oct: no
+ * jargon in the full card; the method and the plan id are in the card's Technical details), and the button records
+ * exactly those levels with `plan_ref` (POST /api/desk/paper-trades). Phase 3: the plan is the decision
  * card's (decision/plan-view.ts usePlanView: the newest version you may open), and the button is off with the reason the
  * card's action gate gives (rejected by its own rules, no setup, not stored, or a universal-risk block that still
  * applies). A 409 risk_reduce offers the size the risk service allows (RiskReduce.tsx). The body is pinned by
@@ -11,13 +12,23 @@
 import { useEffect, useId, useState } from "react";
 import { Btn, fmtNum } from "../../components/ui";
 import { fmtPrice } from "../trading/parts";
-import { ENTRY_RULE_SHORT, maxHoldFor, maxHoldNote, useAddPaperTrade, writeProblem, type EntryRule, type NewPaperTrade } from "./desk-trading";
-import { planLine, planMaxHold, planRefOf, primaryTarget, type TradePlan } from "./strategy/trade-plan";
+import { maxHoldFor, useAddPaperTrade, writeProblem, type EntryRule, type NewPaperTrade } from "./desk-trading";
+import { planMaxHold, planRefOf, primaryTarget, type TradePlan } from "./strategy/trade-plan";
 import { usePlanView } from "./decision/plan-view";
+import { entryText, stopText, targetsText } from "./decision/DecisionCard";
 import { RiskReduceOffer } from "./RiskReduce";
 
 const quiet = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" } as const;
 const RULES: readonly string[] = ["at_once", "break_above", "pullback_to"];
+
+/** How the paper trade fills, in plain words (the desk's entry rules: desk-trading.ts ENTRY_RULE_SHORT). */
+const FILL_PLAIN: Record<EntryRule, string> = {
+  at_once: "it enters at once, at the entry price",
+  break_above: "it enters only when a later day trades up to the entry",
+  pullback_to: "it enters only when a later day dips back to the entry",
+};
+
+const holdText = (days: number | undefined) => (days != null ? `, and closes after ${days} trading day${days === 1 ? "" : "s"}` : "");
 
 export function planCashBody(tp: TradePlan, symbol: string, quantity: number, source: NewPaperTrade["source"]): NewPaperTrade | null {
   const entry = tp.entry.price, stop = tp.stop.price;
@@ -55,7 +66,7 @@ export function PlanPaperTrade({ tp: rowPlan, symbol, source, sized, testPrefix 
   return (
     <span className="flex min-w-0 flex-col" style={{ gap: 6 }}>
       <span data-testid={`${testPrefix}-plan`} data-plan-id={tp.plan_id} style={{ ...quiet, color: "var(--cp-ink-2)" }}>
-        {planLine(tp)}
+        Enter {entryText(tp)} · exit if wrong {stopText(tp)} · targets {targetsText(tp)}
       </span>
       {blocked ? (
         <span data-testid={`${testPrefix}-blocked`} role="note" style={{ fontSize: 12, lineHeight: 1.5, color: "var(--amber)" }}>{blocked}</span>
@@ -72,10 +83,10 @@ export function PlanPaperTrade({ tp: rowPlan, symbol, source, sized, testPrefix 
         </span>
       )}
       <span style={quiet}>
-        At the plan’s levels (<span data-testid={`${testPrefix}-rule`} data-rule={rule}>{ENTRY_RULE_SHORT[rule]}</span>)
-        {maxHoldNote(maxHoldFor(planMaxHold(tp)))}
-        {accountQty != null ? `; ${fmtNum(accountQty)} is the risk service’s size for your account` : planSized != null ? `; ${fmtNum(planSized)} is the plan’s sized quantity` : ""}. Plan {tp.plan_id}
-        {tp.version != null && tp.version > 1 ? ` (version ${tp.version})` : ""}. Simulated; nothing is sent to a broker.
+        Records the plan’s prices: <span data-testid={`${testPrefix}-rule`} data-rule={rule}>{FILL_PLAIN[rule]}</span>
+        {holdText(maxHoldFor(planMaxHold(tp)))}
+        {accountQty != null ? `; ${fmtNum(accountQty)} shares is the size your limits allow` : planSized != null ? `; ${fmtNum(planSized)} shares is the plan’s own size` : ""}.
+        {" "}Simulated: nothing is sent to a broker.
       </span>
       {paper.isSuccess && <span role="status" data-testid={`${testPrefix}-done`} style={{ fontSize: 12, color: "var(--mint)" }}>Paper trade added: {fmtNum(q)} {symbol} at {fmtPrice(tp.entry.price ?? null)}.</span>}
       {paper.isError && <span role="alert" data-testid={`${testPrefix}-error`} style={{ fontSize: 12, color: "var(--cp-danger)" }}>Not added — {writeProblem(paper.error)}</span>}

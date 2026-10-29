@@ -12,12 +12,15 @@
  *   header      the stock, "Setup found" / "Waiting for confirmation", the view (with "assumed" when the user did not
  *               say it) and the horizon
  *   wait        the builder's reasons and what would change them
- *   plan        the preferred plan's full DecisionCard; the other plans that fit, as links
- *   actions     "Open in Strategy Lab" (the plan's paper-trade ticket, ?tab=trade&view=lab&sub=build&tp=<id>) and
- *               "Plan a <other> trade instead" (asks the Copilot again)
+ *   plan        compact, as the desk's AI recommendations show it (owner, 29 Oct): the preferred plan's DecisionCard row
+ *               (enter · exit if wrong · targets · size · max loss · charges · hold for, in plain words); "Full card ›"
+ *               opens the whole card; the other plans that fit, as links
+ *   actions     "Paper trade ›" (the plan's paper-trade ticket in Strategy Lab, ?tab=trade&view=lab&sub=build&tp=<id>)
+ *               and "Plan a <other> trade instead" (asks the Copilot again)
  *
  * Ideas, not recommendations; nothing is sent to a broker. No new screen: the ticket is the desk's own.
  */
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { viewPath } from "@/pages/CopilotApp/lib/views";
 import { fmtDay } from "@/pages/CopilotApp/screens/trading/parts";
@@ -51,6 +54,7 @@ const quiet = { fontSize: 12, lineHeight: 1.5, color: "var(--cp-ink-3)" } as con
 const link = { fontSize: 12.5, fontWeight: 600, color: "var(--mint)", textDecoration: "none" } as const;
 
 export function TradePlanChatCard({ data, onAction }: { data: TradeIdeaData; onAction?: (a: Action) => void }) {
+  const [full, setFull] = useState(false);
   const symbol = data.symbol ?? "—";
   const plans = (data.plans ?? []).filter((p) => p && typeof p.plan_id === "string" && p.plan_id);
   const preferred = data.preferred_plan_id ?? plans[0]?.plan_id ?? null;
@@ -82,7 +86,7 @@ export function TradePlanChatCard({ data, onAction }: { data: TradeIdeaData; onA
         </ul>
       )}
 
-      {preferred ? <DecisionCardById planId={preferred} testId="tpc-plan" />
+      {preferred ? <DecisionCardById key={full ? "full" : "row"} planId={preferred} testId="tpc-plan" variant={full ? "full" : "row"} budgets={!full} />
         : <span data-testid="tpc-no-plan" style={quiet}>No trade plan with levels came with this idea.</span>}
 
       {others.length > 0 && (
@@ -97,7 +101,12 @@ export function TradePlanChatCard({ data, onAction }: { data: TradeIdeaData; onA
       )}
 
       <div className="flex min-w-0 flex-wrap items-center" style={{ gap: "6px 14px" }}>
-        {preferred && <Link data-testid="tpc-open-lab" to={labTicketPath(preferred)} style={link}>Open in Strategy Lab ›</Link>}
+        {preferred && (
+          <button type="button" data-testid="tpc-full" className="cp-btn" data-variant="ghost" aria-expanded={full} onClick={() => setFull((x) => !x)}>
+            {full ? "Compact card" : "Full card ›"}
+          </button>
+        )}
+        {preferred && <Link data-testid="tpc-open-lab" to={labTicketPath(preferred)} className="cp-btn" data-variant="ghost" style={{ textDecoration: "none" }}>Paper trade ›</Link>}
         {other && onAction && (
           <button type="button" data-testid="tpc-flip" className="cp-btn" data-variant="ghost"
             onClick={() => onAction({ query: `Plan a ${other} trade for ${symbol} instead` })}>
@@ -107,8 +116,8 @@ export function TradePlanChatCard({ data, onAction }: { data: TradeIdeaData; onA
       </div>
 
       <span data-testid="tpc-foot" style={{ ...quiet, fontSize: 11 }}>
-        The desk&rsquo;s rule-based plan from end-of-day data (price {fmtDay(asOf.price)}{asOf.fno ? `, F&O ${fmtDay(asOf.fno)}` : ""}), sized by your saved risk profile.
-        Entry only when its trigger is met. An idea for review, not a recommendation; nothing is sent to a broker.
+        Built by the desk&rsquo;s rules from end-of-day prices ({fmtDay(asOf.price)}{asOf.fno ? `; options ${fmtDay(asOf.fno)}` : ""}) and sized by your risk profile.
+        Enter only when the entry condition is met. An idea to review, not a recommendation; nothing is sent to a broker.
       </span>
     </div>
   );

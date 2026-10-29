@@ -37,7 +37,8 @@ const n2 = (n: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits
 const rs = (n: number) => `₹${n2(n)}`;
 const int = (n: number) => new Intl.NumberFormat("en-IN").format(n);
 const pct2 = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${n2(Math.abs(n))}%`;
-const targets = (tp: { targets: Array<{ price: number; r_multiple: number }> }) => tp.targets.map((t) => `${rs(t.price)} (${n2(t.r_multiple)}R)`).join(" · ");
+// Plain words on the card (owner, 29 Oct: "remove all technicals jargon"); the technical record is in Technical details.
+const targets = (tp: { targets: Array<{ price: number; r_multiple: number }> }) => tp.targets.map((t) => rs(t.price)).join(" · ");
 
 // ── MOCK — not real data: the routes this tab adds to the decision-card world ──
 /** GET /api/risk/freshness (backend routes/risk_controls.py `freshness`, no symbol), the market state as judged. */
@@ -340,24 +341,26 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     const card = stockRow(page).getByTestId("desk-top10-card");
     await ready(card);
     await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id);
-    await expect(card.getByTestId("dc-entry")).toHaveText(`Entry ${rs(CASH.entry.price)} (at the close)`);
-    await expect(card.getByTestId("dc-stop")).toHaveText(`Stop ${rs(CASH.stop.price)} (${CASH.stop.atr_multiple}×ATR below ${CASH.stop.measured_from})`);
+    await expect(card.getByTestId("dc-entry")).toHaveText(`Enter at the close, ${rs(CASH.entry.price)}`);
+    await expect(card.getByTestId("dc-stop")).toHaveText(`Exit if wrong ${rs(CASH.stop.price)}`);
     await expect(card.getByTestId("dc-targets")).toHaveText(`Targets ${targets(CASH)}`);
     await expect(card.getByTestId("dc-size")).toHaveText(`Size ${int(A.quantity)} shares`);
-    await expect(card.getByTestId("dc-risk")).toHaveText(`Risk ${rs(A.estimated_risk_rs.total)} (${n2(A.risk_pct_of_equity)}% of equity)`);
-    await expect(card.getByTestId("dc-costs")).toHaveText(`Est. costs ${rs(A.estimated_risk_rs.costs)}`);
-    await expect(card.getByTestId("dc-plan-id")).toContainText(CASH.plan_id);
+    await expect(card.getByTestId("dc-risk")).toHaveText(`Max loss ${rs(A.estimated_risk_rs.total)} (${n2(A.risk_pct_of_equity)}% of your capital)`);
+    await expect(card.getByTestId("dc-costs")).toHaveText(`Charges about ${rs(A.estimated_risk_rs.costs)}`);
+    // The plan id is kept for the record under the full card's "Technical details", not on the row.
+    await expect(card.getByTestId("dc-plan-id")).toHaveCount(0);
+    await expect(card).not.toContainText(CASH.plan_id);
     // MO-11: no risk decision yet.
     await expect(card.getByTestId("dc-approval")).toHaveAttribute("data-approval", "provisional");
-    await expect(card.getByTestId("dc-approval")).toHaveText("Provisional · no risk decision yet");
+    await expect(card.getByTestId("dc-approval")).toHaveText("Not yet checked against your limits");
     expect(await card.getByTestId("dc-approval").evaluate((el) => getComputedStyle(el).borderStyle)).toBe("dashed");
     // MO-13: may be reduced, with the budgets left on the real book.
     const left = A.portfolio.remaining;
     const budgets = card.getByTestId("dc-row-budgets");
-    await expect(budgets).toContainText("May be reduced by portfolio limits at submission");
-    await expect(budgets).toContainText(`open risk ${rs(left.open_risk_rs)}`);
-    await expect(budgets).toContainText(`${left.positions} more positions`);
-    await expect(card.getByTestId("dc-caveat")).toContainText("not a prediction");
+    await expect(budgets).toContainText("Your other open trades may lower this size");
+    await expect(budgets).toContainText(`${rs(left.open_risk_rs)} more you can risk`);
+    await expect(budgets).toContainText(`${left.positions} more trades`);
+    await expect(card.getByTestId("dc-caveat")).toContainText("does not predict a return");
   });
 
   test("MO-10b a slow ideas answer (20 s, past the app's 15 s default) still fills the Top AI candidates, never 'took too long'", async ({ page }) => {
@@ -380,7 +383,7 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     const card = stockRow(page).getByTestId("desk-top10-card");
     await ready(card);
     await expect(card.getByTestId("dc-approval")).toHaveAttribute("data-approval", "approved");
-    await expect(card.getByTestId("dc-approval")).toHaveText("✓ Risk-approved");
+    await expect(card.getByTestId("dc-approval")).toHaveText("✓ Fits your limits");
     expect(await card.getByTestId("dc-approval").evaluate((el) => getComputedStyle(el).borderStyle)).toBe("solid");
   });
 
@@ -442,7 +445,7 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     await ready(card);
     await expect(card).toHaveAttribute("data-plan-id", FNO.plan_id);
     await expect(card.getByTestId("dc-targets")).toHaveText(`Targets ${targets(FNO)}`);
-    await expect(card.getByTestId("dc-row-budgets")).toContainText("May be reduced by portfolio limits at submission");
+    await expect(card.getByTestId("dc-row-budgets")).toContainText("Your other open trades may lower this size");
     await expect(page.getByTestId("desk-top10-scan")).toHaveText("Option chains of 21 Oct · regime fit, end of day");
   });
 
@@ -459,6 +462,9 @@ test.describe("MOCK — not real data: Market Overview · Top AI ideas", () => {
     await expect(full).toHaveAttribute("data-variant", "full");
     for (const s of ["setup", "entry", "stop", "targets", "size", "costs", "evidence", "warnings", "exit", "audit"]) await expect(full.getByTestId(`dc-sec-${s}`)).toBeVisible();
     await expect(drawer.getByTestId("desk-top10-drawer-paper")).toBeVisible();
+    // The scanner's own levels are kept closed under "Technical details" (owner, 29 Oct: no jargon in the full card).
+    await expect(drawer.getByTestId("desk-top10-stock-levels")).toBeHidden();
+    await drawer.getByTestId("desk-top10-drawer-tech").locator("summary").click();
     await expect(drawer.getByTestId("desk-top10-stock-levels")).toBeVisible();
     await expect(drawer.getByTestId("desk-top10-stock-chart")).toBeVisible();
     await page.keyboard.press("Escape");
@@ -611,7 +617,7 @@ test.describe("MOCK — not real data: Market Overview · events and the Trade D
     expect(text).not.toMatch(/suggest/i);
     expect(text).not.toMatch(/recommended/i);
     expect(text.replace(/not (a )?recommendations?/gi, "")).not.toMatch(/recommend/i);
-    expect(text).toMatch(/not a prediction/);
+    expect(text).toMatch(/does not predict a return/);
   });
 });
 
