@@ -30,10 +30,11 @@ The switch is `backend/config/market_data_source.json` (`source`: current | shad
 ## Wiring (unit)
 | ID | Case | Expected |
 |---|---|---|
-| MS-12 | A NIDP ingester for a replaced feed (bhavcopy) runs while TrueData serves | run finalised SKIPPED with error_class SWITCHED_OFF and the reason; fetch never called |
+| MS-12 | A NIDP ingester for a replaced feed (index_close) runs while TrueData serves | run finalised SKIPPED with error_class SWITCHED_OFF and the reason; fetch never called |
 | MS-13 | Same ingester at `current` | fetch called as before (no behaviour change) |
 | MS-14 | A non-replaced feed (delivery) while TrueData serves | runs (fetch called) |
-| MS-15 | feed_reconciler feed list while TrueData serves | bhavcopy, index_close, fno_bhavcopy dropped; delivery, fii_dii, corporate_announcements kept |
+| MS-15 | feed_reconciler feed list while TrueData serves | index_close dropped; bhavcopy, delivery, fii_dii, corporate_announcements, fno_bhavcopy kept |
+| MS-14b | NSE bhavcopy and fno_bhavcopy while TrueData serves | keep fetching (never switched off: raw prices, settle, delisted names) |
 | MS-16 | dlq_redrive while TrueData serves | entries for switched-off feeds are not re-run and stay PENDING (counted SWITCHED_OFF); others re-run |
 | MS-17 | kite_live_feed.start while TrueData serves | returns False, no task started |
 | MS-18 | kite_live_feed.start at `current` | starts as before (returns True) |

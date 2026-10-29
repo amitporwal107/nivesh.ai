@@ -16,11 +16,20 @@ Once TrueData is plugged in, our own feeds that it replaces are switched off.
 | `truedata` | TrueData | **switched off** | run |
 
 **Replaced feeds:**
-- NIDP `bhavcopy` (equity EOD), `fno_bhavcopy`, `index_close` and `corporate_actions`;
+- NIDP `index_close` and `corporate_actions`;
 - the app's Kite live feed.
 
-**Always kept**, because TrueData doesn't offer them: index constituents, FII/DII, bulk and block deals, delivery,
-shareholding, the event calendar, mutual-fund feeds, and every other feed.
+**Always kept: NSE's equity and F&O bhavcopies (`bhavcopy`, `fno_bhavcopy`).** They stay the record and the
+cross-check. On the 29 Oct trial, TrueData's prices matched them exactly, but TrueData has:
+- no raw (unadjusted) history: even a past day's bhavcopy comes back adjusted;
+- no delisted securities;
+- no F&O settlement price, previous close or series;
+- no open interest for untraded contracts.
+
+Option strikes and paper-trade history need raw prices.
+
+**Also always kept**, because TrueData doesn't offer them: index constituents, FII/DII, bulk and block deals,
+delivery, shareholding, the event calendar, mutual-fund feeds, and every other feed.
 
 ## What "switched off" does
 - **NIDP ingester:** records a SKIPPED run with error class `SWITCHED_OFF` and the reason, so feed health shows why.
@@ -55,7 +64,10 @@ A missing or unreadable file means `current`.
 Each merge to `dev` deploys the app. The NIDP jobs read the file from their dev checkout once it is refreshed.
 
 ## Not covered yet
-- The AI scanner fetches its own NSE bhavcopy into `stock_ohlcv`. It is not under the switch; it moves when the
-  TrueData EOD ingester exists.
+- The AI scanner fetches its own NSE bhavcopy into `stock_ohlcv`. Like the NIDP bhavcopies, it stays on NSE's raw
+  files. It is not under the switch.
 - Kite stays the source for on-demand intraday candles and the instrument master, until the TrueData equivalents are
-  built.
+  built. TrueData's 1-minute history (back to Apr 2024) and symbol master (lot and tick size) are the planned
+  replacements.
+- TrueData live streaming is not enabled on the trial login; it must be enabled before the Kite live feed can be
+  replaced.

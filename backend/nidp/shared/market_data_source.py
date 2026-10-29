@@ -7,9 +7,15 @@ the NIDP jobs (cron on the NIDP VM, from its dev checkout) and the app backend (
 Modes
     current   our own feeds serve: NSE files through the NIDP ingesters, Kite for live quotes.
     shadow    our feeds still serve; TrueData runs beside them so the two can be compared before anyone relies on it.
-    truedata  TrueData serves, and OUR feeds that it replaces are switched off (REPLACED_FEEDS). Feeds TrueData does not
-              offer (index constituents, FII/DII, bulk/block deals, delivery, shareholding, the event calendar, mutual
-              funds, ...) keep running whatever the switch says.
+    truedata  TrueData serves, and OUR feeds that it replaces are switched off (REPLACED_FEEDS). Everything else keeps
+              running whatever the switch says: NSE's own equity and F&O bhavcopies (the record, see below) and the feeds
+              TrueData does not offer (index constituents, FII/DII, bulk/block deals, delivery, shareholding, the event
+              calendar, mutual funds, ...).
+
+NSE's daily equity and F&O files stay on (owner, 29 Oct 2026, after the TrueData trial): TrueData's prices matched them
+exactly on 28 Oct, but TrueData has no raw (unadjusted) history (even a past day's bhavcopy comes back adjusted), no
+delisted securities, no F&O settlement price, previous close or series, and no open interest for untraded contracts.
+Option strikes and paper-trade history need the raw prices, so the NSE files remain the record and the cross-check.
 
 Safety: the switch never turns our feeds off unless TrueData can actually take over. `resolve()` turns the CONFIGURED
 mode into the EFFECTIVE one, and each step down is recorded as a reason:
@@ -34,10 +40,9 @@ from typing import Mapping, Optional
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "market_data_source.json"
 MODES = ("current", "shadow", "truedata")
 
-# Our feeds that TrueData replaces when it serves (the names our jobs run under). Everything else keeps running.
+# Our feeds that TrueData replaces when it serves (the names our jobs run under). Everything else keeps running —
+# deliberately including NSE's equity and F&O bhavcopies (`bhavcopy`, `fno_bhavcopy`): see the module docstring.
 REPLACED_FEEDS: frozenset[str] = frozenset({
-    "bhavcopy",            # NIDP: NSE equity bhavcopy → nidp.prices_eod
-    "fno_bhavcopy",        # NIDP: NSE F&O bhavcopy → nidp.fno_bhavcopy
     "index_close",         # NIDP: NSE index closes → nidp.index_eod
     "corporate_actions",   # NIDP: NSE corporate actions → nidp.corporate_actions
     "kite_live_feed",      # app: Kite live quotes (services/kite_live_feed)

@@ -82,10 +82,13 @@ def test_ms9_missing_and_unreadable_file(tmp_path, monkeypatch):
 def test_ms10_only_replaced_feeds_follow_the_switch():
     off = mds.resolve(cfg("truedata", licence=True), READY, integrated=True)
     on = mds.resolve(cfg("current"), {}, integrated=True)
-    for feed in ("bhavcopy", "fno_bhavcopy", "index_close", "corporate_actions", "kite_live_feed"):
+    for feed in ("index_close", "corporate_actions", "kite_live_feed"):
         assert mds.feed_is_on(feed, on) is True and mds.feed_is_on(feed, off) is False
-    for feed in ("delivery", "fii_dii", "index_constituents", "nse_shareholding", "event_calendar", "amfi_nav"):
+    # NSE's equity and F&O bhavcopies are the record (raw prices, settle, delisted names): never switched off.
+    for feed in ("bhavcopy", "fno_bhavcopy", "delivery", "fii_dii", "index_constituents", "nse_shareholding",
+                 "event_calendar", "amfi_nav"):
         assert mds.feed_is_on(feed, off) is True
+    assert "bhavcopy" not in mds.REPLACED_FEEDS and "fno_bhavcopy" not in mds.REPLACED_FEEDS
 
 
 def test_ms11_committed_file_is_current():
@@ -159,13 +162,13 @@ def _run_ingester(monkeypatch, name, resolution):
 
 
 def test_ms12_replaced_feed_is_skipped_when_truedata_serves(monkeypatch):
-    calls, final = _run_ingester(monkeypatch, "bhavcopy", TRUEDATA_SERVES)
+    calls, final = _run_ingester(monkeypatch, "index_close", TRUEDATA_SERVES)
     assert calls == [] and final[0] == "SKIPPED" and final[1]["error_class"] == "SWITCHED_OFF"
     assert "market data source is TrueData" in final[1]["error_message"]
 
 
 def test_ms13_replaced_feed_runs_at_current(monkeypatch):
-    calls, final = _run_ingester(monkeypatch, "bhavcopy", CURRENT)
+    calls, final = _run_ingester(monkeypatch, "index_close", CURRENT)
     assert calls == ["fetch"] and final[1].get("error_class") != "SWITCHED_OFF"
 
 
@@ -174,18 +177,24 @@ def test_ms14_other_feeds_run_while_truedata_serves(monkeypatch):
     assert calls == ["fetch"]
 
 
+@pytest.mark.parametrize("feed", ["bhavcopy", "fno_bhavcopy"])
+def test_ms14b_nse_bhavcopies_keep_running_while_truedata_serves(monkeypatch, feed):
+    calls, final = _run_ingester(monkeypatch, feed, TRUEDATA_SERVES)
+    assert calls == ["fetch"] and final[1].get("error_class") != "SWITCHED_OFF"
+
+
 def test_ms15_reconciler_does_not_heal_switched_off_feeds(monkeypatch):
     from nidp.services.feed_reconciler import service as rec
     monkeypatch.delenv("NIDP_RECONCILE_FEEDS", raising=False)
     monkeypatch.setattr(mds, "resolve", lambda *a, **k: TRUEDATA_SERVES)
-    assert rec._configured_feeds() == ["delivery", "fii_dii", "corporate_announcements"]
+    assert rec._configured_feeds() == ["bhavcopy", "delivery", "fii_dii", "corporate_announcements", "fno_bhavcopy"]
     monkeypatch.setattr(mds, "resolve", lambda *a, **k: CURRENT)
     assert rec._configured_feeds() == list(rec.DEFAULT_FEEDS)
 
 
 def test_ms16_dlq_redrive_leaves_switched_off_entries_pending(monkeypatch):
     from nidp.services.dlq_redrive import service as dlq
-    rows = [{"id": 1, "feed": "bhavcopy", "target_date": None, "severity": "P0", "notes": None, "created_at": None},
+    rows = [{"id": 1, "feed": "index_close", "target_date": None, "severity": "P0", "notes": None, "created_at": None},
             {"id": 2, "feed": "delivery", "target_date": None, "severity": "P0", "notes": None, "created_at": None}]
     redriven: list[str] = []
 

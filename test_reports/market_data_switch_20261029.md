@@ -67,4 +67,20 @@ That matches today's list: nothing is switched off.
 - **After merge:** the app backend picks up the file once it restarts (bind-mount; see the staging deploy timing note).
   The NIDP jobs pick it up once `/opt/nidp/dev-repo` is refreshed. At `current`, neither changes behaviour.
 
+## Amendment, 29 Oct evening: NSE bhavcopies stay on (owner: "yes please")
+After the TrueData trial evaluation, `bhavcopy` and `fno_bhavcopy` were taken off `REPLACED_FEEDS`.
+- **Why:** TrueData's prices matched NSE exactly on 28 Oct, but TrueData has no raw history (past bhavcopies come back
+  adjusted), no delisted names, no settle price, previous close or series, and no OI for untraded contracts.
+- **Replaced feeds now:** `index_close`, `corporate_actions` and `kite_live_feed`.
+- **Tests:**
+  - MS-10, MS-12, MS-13, MS-15 and MS-16 now use `index_close` as the switched-off example;
+  - new MS-14b: bhavcopy and fno_bhavcopy keep fetching while TrueData serves.
+```
+nidp/tests/shared/test_market_data_source.py + tests/test_market_data_switch_live_feed.py + tests/test_kite_live_feed.py
++ nidp/tests/services/test_dlq_redrive.py + test_feed_reconciler.py + nidp/tests/test_backfill.py + nidp/tests/shared
+→ 127 passed
+```
+- **Staging:** unaffected. The list only matters in `truedata` mode, which the code still refuses
+  (`TRUEDATA_INTEGRATED = False`).
+
 ## Verdict: PASS
