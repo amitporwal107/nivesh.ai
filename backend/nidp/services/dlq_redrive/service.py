@@ -185,9 +185,16 @@ async def redrive(limit: Optional[int] = None) -> dict:
                 limit,
             )
 
-        counts = {"REPLAYED": 0, "PENDING": 0, "INVESTIGATING": 0, "DROPPED": 0}
+        counts = {"REPLAYED": 0, "PENDING": 0, "INVESTIGATING": 0, "DROPPED": 0, "SWITCHED_OFF": 0}
         now = datetime.now(timezone.utc)
+        # A feed switched off by the market-data switch (TrueData serves it) is not re-run: it would only record a
+        # skip, burn an attempt and push the entry to INVESTIGATING. Its entries stay PENDING, untouched.
+        from nidp.shared import market_data_source as mds
+        resolution = mds.resolve()
         for row in rows:
+            if not mds.feed_is_on(row["feed"], resolution):
+                counts["SWITCHED_OFF"] += 1
+                continue
             async with pool.acquire() as conn:
                 outcome = await redrive_one(
                     conn, dict(row),

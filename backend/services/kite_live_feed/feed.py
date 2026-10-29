@@ -825,10 +825,15 @@ def get_feed(db=None) -> LiveFeed:
 
 
 async def start(db) -> bool:
-    """Create indexes and start the loop in this process. False when disabled (KITE_LIVE_FEED_ENABLED=0)."""
+    """Create indexes and start the loop in this process. False when disabled (KITE_LIVE_FEED_ENABLED=0), or when the
+    market-data switch (backend/config/market_data_source.json) has TrueData serving live quotes."""
     global _task
     await ensure_indexes(db)
     if not cfg.enabled() or (_task is not None and not _task.done()):
+        return False
+    from nidp.shared import market_data_source as mds
+    if not mds.feed_is_on("kite_live_feed"):
+        logger.info("kite live feed not started: %s", mds.switched_off_message("kite_live_feed"))
         return False
     feed = get_feed(db)
     _task = asyncio.ensure_future(feed.run())
