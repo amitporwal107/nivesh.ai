@@ -317,7 +317,7 @@ export function AnalysisChart(p: AnalysisChartProps) {
 
         {/* last price */}
         {lastY != null && fin(p.last) && (
-          <g data-testid="ca-last" data-value={p.last} style={{ pointerEvents: "none" }}>
+          <g data-testid="ca-last-tag" data-value={p.last} style={{ pointerEvents: "none" }}>
             <line x1={plotL} x2={plotR} y1={lastY} y2={lastY} style={{ stroke: "var(--cp-ink-2)" }} strokeWidth={0.8} strokeDasharray="2 3" />
             <rect x={plotR + 2} y={lastY - 8} width={gutter - 4} height={16} rx={3} style={{ fill: "var(--mint)" }} />
             <text x={plotR + gutter / 2} y={lastY + 3.5} textAnchor="middle" style={{ fontSize: font - 0.5, fontWeight: 600, fill: "var(--bg-0)" }}>{fmtPx(p.last)}</text>
