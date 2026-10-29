@@ -305,8 +305,8 @@ export function BuilderView({ symbol, state, shared, variant = "page", expiryCho
             <button type="button" data-testid="desk-builder-full" className="cp-btn" data-variant="ghost" onClick={() => openStrategy(symbol, { kind: "lab", date: chain.summary.as_of })}>Open on Chart Analysis ›</button>
           </div>
           <span data-testid="desk-builder-record-why" style={quiet}>
-            Option structures are recorded as paper trades from Chart Analysis: its paper basket takes these legs and places a defined-risk structure.
-            The plan picks its own legs; the trades here are not carried over. Nothing is sent to a broker.
+            Option structures are recorded as paper trades from Chart Analysis: build them again in its paper basket, which places
+            defined-risk structures. The trades here are not carried over. Nothing is sent to a broker.
           </span>
         </Widget>
 

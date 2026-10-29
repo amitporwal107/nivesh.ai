@@ -965,7 +965,7 @@ test.describe("Smart trading desk · AI scanner", () => {
     await page.getByTestId("desk-scan-row-FIXPRE").getByTestId("desk-scan-setup").click();
     await expect(page).toHaveURL(/[?&]tab=trade&view=chart&sub=live(&|$)/); // the chart is Trade Desk › Chart Analysis › Live chart (the owner's design)
     await expect(page).toHaveURL(/[?&]sym=FIXPRE(&|$)/);
-    await expect(page.getByTestId("lc-view")).toHaveAttribute("data-symbol", "FIXPRE");   // the Live chart (the owner's design of 28 Oct)
+    await expect(page.getByTestId("ca-view")).toHaveAttribute("data-symbol", "FIXPRE");   // Chart Analysis (the owner's design of 29 Oct)
   });
 
   test("TC-17 both scanner routes and the universe fail → error with retry", async ({ page }) => {
