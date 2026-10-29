@@ -106,11 +106,12 @@ export default function HomepagePage() {
     return () => cancelAnimationFrame(raf);
   }, [targetScore]);
 
-  // Reveal-on-scroll for `.rv` elements within this page.
+  // Reveal-on-scroll for `.rv` elements within this page. Re-runs when the Closing Bell card arrives (it renders
+  // after /downloads/closing-bell/index.json loads, so the first pass never saw it and it stayed at opacity 0).
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const els = Array.from(root.querySelectorAll<HTMLElement>(".rv"));
+    const els = Array.from(root.querySelectorAll<HTMLElement>(".rv:not(.in)"));
     if (!("IntersectionObserver" in window) || window.matchMedia("(prefers-reduced-motion:reduce)").matches) {
       els.forEach((e) => e.classList.add("in"));
       return;
@@ -128,7 +129,7 @@ export default function HomepagePage() {
     );
     els.forEach((e) => io.observe(e));
     return () => io.disconnect();
-  }, []);
+  }, [latestBell?.date]);
 
   // Close the promo video on Escape.
   useEffect(() => {
