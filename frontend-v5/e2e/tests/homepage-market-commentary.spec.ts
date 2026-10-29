@@ -21,25 +21,26 @@ async function openArticle(page: Page) {
 test.describe("Homepage — market commentary link (desktop)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  test("TC-1 header 'Market commentary' link opens the Closing Bell post", async ({ page }) => {
+  // Since the nightly editions (closing_bell_daily_20261028), the header link opens the daily page; this first
+  // edition stays a blog post. The page itself is covered by homepage-market-commentary-daily.spec.ts.
+  test("TC-1 header 'Market commentary' link opens the daily Market commentary page", async ({ page }) => {
     await page.goto("/v5/");
     const link = page.getByTestId("home-market-commentary-link");
     await expect(link).toBeVisible();
     await expect(link).toHaveText("Market commentary");
     await link.click();
-    await expect(page).toHaveURL(new RegExp(`/v5/blog/${SLUG}$`));
-    await expect(page.getByTestId("blog-article")).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(/Closing Bell/);
+    await expect(page).toHaveURL(/\/v5\/market-commentary$/);
+    await expect(page.getByTestId("market-commentary")).toBeVisible();
   });
 
   test("TC-2 the link is a real anchor, reachable by keyboard", async ({ page }) => {
     await page.goto("/v5/");
     const link = page.getByTestId("home-market-commentary-link");
-    await expect(link).toHaveAttribute("href", `/v5/blog/${SLUG}`);
+    await expect(link).toHaveAttribute("href", "/v5/market-commentary");
     await link.focus();
     await expect(link).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(new RegExp(`/v5/blog/${SLUG}$`));
+    await expect(page).toHaveURL(/\/v5\/market-commentary$/);
   });
 
   test("TC-3 'From the blog' leads with the Closing Bell card, which opens the post", async ({ page }) => {

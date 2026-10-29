@@ -1,0 +1,29 @@
+# /etc/cron.d/nivesh-staging-closing-bell — the nightly "Closing Bell" market-wrap video [staging].
+#
+# Builds the day's two-to-seven-minute bulletin from the Smart Trading Desk (data cards + read-only desk
+# footage + narration) with tools/closing_bell/pipeline.py and publishes it to
+# /opt/nivesh-staging/downloads/closing-bell/<date>/ (served at /downloads/closing-bell/), which the v5
+# "Market commentary" page (/v5/market-commentary) reads through index.json.
+#
+# Schedule (Asia/Kolkata), Mon-Fri: every 10 minutes 22:00-23:50, then 00:00-00:50 the next morning (those
+# runs belong to the previous evening; pipeline.py maps before-noon runs to yesterday). Each run exits at once
+# unless the day is ready: the NIDP snapshot for the date is built (22:00 snapshot_builder) AND the day's Top 10
+# list is stored (22:45 ai-watchlist). Typical publish time: about 23:15-23:30.
+#
+# Outcomes are files in /opt/nivesh-staging/closing-bell/state/<date>.{published,held,failed,missed,no_session}
+# and a Mongo `closing_bell_runs` record. held / failed (after one retry) / missed alert the operator over the
+# configured channels (NIDP SMTP / Telegram, else the app mailer to CLOSING_BELL_ALERT_EMAIL_TO or
+# KITE_TOKEN_ALERT_EMAIL_TO). Nothing is published unless every data, script and media check passes.
+#
+# Guards: flock -n -E 4 (a run still going makes the next tick exit 4); pipeline.py refuses to start with
+# less than 8 GB free on / (deploys need 6 GB).
+#
+# Install (one-off, not CI-managed): sudo bash /opt/nivesh-staging/repo/deploy/nivesh-staging/install-closing-bell.sh
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CRON_TZ=Asia/Kolkata
+MAILTO=""
+
+*/10 22,23 * * 1-5  root  /usr/bin/flock -n -E 4 /run/lock/nivesh-staging-closing-bell.lock /usr/bin/python3 /opt/nivesh-staging/repo/tools/closing_bell/pipeline.py >> /opt/nivesh-staging/logs/closing-bell.log 2>&1
+0-50/10 0 * * 2-6   root  /usr/bin/flock -n -E 4 /run/lock/nivesh-staging-closing-bell.lock /usr/bin/python3 /opt/nivesh-staging/repo/tools/closing_bell/pipeline.py >> /opt/nivesh-staging/logs/closing-bell.log 2>&1
