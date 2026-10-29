@@ -16,7 +16,6 @@ import { z } from "zod";
 import { TradePlanOrNull } from "../tradingdesk/strategy/trade-plan";
 import { http } from "@/services/api/http";
 import { ApiError } from "@/services/api/errors";
-import { paramsFromPlanInputs } from "../tradingdesk/strategy/ideas-data";
 import { OptionIdeaSchema } from "../tradingdesk/strategy/top-contract";
 
 export const AI_WATCHLIST_PATH = "/api/desk/ai-watchlist";
@@ -141,13 +140,10 @@ export const deskChain = (sym: string) => deskFno({ lab: "chain", lab_sym: sym }
 export const deskBuildup = (sym: string, index: boolean) => deskFno(index ? { lab: "indices", lab_sym: sym } : { lab_sym: sym });
 export const deskLab = (sym: string, index: boolean) => deskFno({ lab: index ? "indices" : "candidates", lab_sym: sym, lab_focus: sym });
 
-/** The Strategy Builder with the idea's plan, as the ideas board opens it (IdeasBoard openPlan). */
-export function deskPlan(e: CashEntry, listDate: string): string {
-  const q: Record<string, string> = { tab: "trade", view: "lab", sub: "build", mode: "stock", build: "1" };
-  for (const [k, v] of Object.entries({ sym: e.symbol, direction: e.direction ?? "", ...paramsFromPlanInputs(e.plan_inputs) })) if (v) q[k] = v;
-  q.src_kind = "ideas";
-  if (e.scanner.bucket) q.src_bucket = e.scanner.bucket;
-  q.src_date = e.scanner.close_date ?? listDate;
-  if (e.preferred?.id) q.cand = e.preferred.id;
+/** The idea's chart with its plan (Trade Desk › Chart Analysis; Strategy Lab, where this opened the Strategy Builder, was removed on 29 Oct). */
+export function deskPlan(e: CashEntry, _listDate: string): string {
+  const q: Record<string, string> = { tab: "trade", view: "chart", sub: "live", sym: e.symbol };
+  const plan = e.trade_plan_id ?? e.trade_plan?.plan_id ?? null;
+  if (plan) q.tp = plan;
   return desk(q);
 }

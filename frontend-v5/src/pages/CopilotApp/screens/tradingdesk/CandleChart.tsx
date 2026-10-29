@@ -69,8 +69,31 @@ export interface ChartMarker {
 /** Extra horizontal levels (T1, T2, …): a dashed line, its value in the gutter and its name at the left. */
 export interface ChartLine { key: string; label: string; value: number; color: string }
 
+/** One signed value of a pane, drawn from the pane's zero line in its own colour (null: a gap). */
+export interface PaneBar { value: number | null; color: string }
+
+/** A pane under the volume strip on the same time axis and cursor (Live chart: futures OI, options). Bars in `bars` are
+ *  series side by side in each slot, each aligned to the chart's bars; `line` has its own scale, its last value in the
+ *  gutter. `empty` is drawn instead when there is nothing to draw, saying why. */
+export interface ChartPane {
+  key: string;
+  title: string;
+  bars?: PaneBar[][];
+  line?: { values: Array<number | null>; color: string; format: (v: number) => string } | null;
+  empty?: string | null;
+  /** Text for the second readout line at bar i, or null. */
+  readout?: (i: number) => string | null;
+}
+
+/** A market event under a bar: a lettered chip at the foot of the price pane (R results, F filing, C corporate action …). */
+export interface ChartGlyph { key: string; at: string; glyph: string; color: string; title: string; group: string; kind: string }
+
 /** The live chart's extras (Trade Desk › Chart Analysis › Live chart, the owner's design of 28 Oct). All optional. */
 export interface ChartExtras {
+  /** Panes under the volume strip (stacked, same time axis). */
+  panes?: ChartPane[];
+  /** Event chips at the foot of the price pane. */
+  glyphs?: ChartGlyph[];
   /** The entry range, shaded; drawn only when low < high. */
   band?: { low: number; high: number; label: string } | null;
   lines?: ChartLine[];
@@ -171,7 +194,11 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
   const volH = compact ? 28 : 36;
   const belowH = below.length ? 16 : 0;
   const gutter = compact ? 46 : 50;
-  const H = priceH + gap + volH + belowH;
+  const panes = extras?.panes ?? [];
+  const glyphs = extras?.glyphs ?? [];
+  const paneH = compact ? 48 : 62;
+  const panesTop = priceH + gap + volH + belowH + (panes.length ? 8 : 0);
+  const H = priceH + gap + volH + belowH + (panes.length ? 8 + panes.length * (paneH + 6) : 0);
   const plotW = W - gutter;
   const volTop = priceH + gap;
   const font = compact ? 8.5 : 9;
@@ -256,6 +283,18 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
         {label(shown.day)} · O {fmtPrice(shown.open)} · H {fmtPrice(shown.high)} · L {fmtPrice(shown.low)} · C {fmtPrice(shown.close)} · Vol {fmtShares(shown.volume)}
         {shownEvent ? ` · ${shownEvent.count} ${shownEvent.count === 1 ? "filing" : "filings"}` : ""}
       </span>
+      {(panes.length > 0 || glyphs.length > 0) && (() => {
+        const idx = active ?? n - 1;
+        const parts = [
+          ...panes.map((p) => p.readout?.(idx) ?? null),
+          ...glyphs.filter((g) => g.at === bars[idx].day).map((g) => `${g.glyph} ${g.title}`),
+        ].filter((t): t is string => !!t);
+        return parts.length ? (
+          <span data-testid="desk-chart-readout-panes" aria-live="polite" className="cp-num" style={{ fontSize: compact ? 10 : 10.5, color: "var(--cp-ink-3)", lineHeight: 1.5, marginTop: -4 }}>
+            {parts.join(" · ")}
+          </span>
+        ) : null;
+      })()}
       <svg
         data-testid="desk-chart-svg"
         data-compact={compact}
@@ -377,6 +416,72 @@ export function CandleChart({ bars, name, overlays, events = [], compact = false
             <g key={`e-${ev.day}`} data-testid="desk-event-marker" data-day={ev.day} data-count={ev.count}>
               <title>{ev.title}</title>
               <path d={`M ${cx} ${cy - 4} L ${cx + 4} ${cy} L ${cx} ${cy + 4} L ${cx - 4} ${cy} Z`} style={{ fill: EVENT, stroke: "var(--bg-1)" }} strokeWidth={1} />
+            </g>
+          );
+        })}
+
+        {/* market events: lettered chips stacked up from the foot of the price pane */}
+        {(() => {
+          const stack = new Map<number, number>();
+          return glyphs.map((g) => {
+            const i = dayIndex.get(g.at);
+            if (i == null) return null;
+            const k = stack.get(i) ?? 0;
+            stack.set(i, k + 1);
+            const cx = x(i);
+            const cy = priceH - 7 - k * 11;
+            return (
+              <g key={`g-${g.key}`} data-testid="desk-event-glyph" data-kind={g.kind} data-group={g.group} data-at={g.at}>
+                <title>{g.title}</title>
+                <rect x={cx - 5} y={cy - 5} width={10} height={10} rx={2.5} style={{ fill: "var(--bg-1)", stroke: g.color }} strokeWidth={1} />
+                <text x={cx} y={cy + 2.6} textAnchor="middle" style={{ fontFamily: "var(--mono)", fontSize: 7, fontWeight: 600, fill: g.color }}>{g.glyph}</text>
+              </g>
+            );
+          });
+        })()}
+
+        {/* panes under the volume strip: same slots, own scales */}
+        {panes.map((p, k) => {
+          const top = panesTop + k * (paneH + 6);
+          const bandTop = top + 12;
+          const bandBot = top + paneH - 2;
+          const series = p.bars ?? [];
+          const vals = series.flatMap((sr) => sr.map((b) => b.value).filter((v): v is number => v != null && Number.isFinite(v)));
+          const hasNeg = vals.some((v) => v < 0);
+          const maxAbs = Math.max(...vals.map((v) => Math.abs(v)), 0) || 1;
+          const zero = hasNeg ? (bandTop + bandBot) / 2 : bandBot;
+          const half = hasNeg ? (bandBot - bandTop) / 2 : bandBot - bandTop;
+          const subW = series.length ? bodyW / series.length : bodyW;
+          const lv = (p.line?.values ?? []).filter((v): v is number => v != null && Number.isFinite(v));
+          const lmin = lv.length ? Math.min(...lv) : 0;
+          const lmax = lv.length ? Math.max(...lv) : 1;
+          const ly = (v: number) => bandBot - ((v - lmin) / ((lmax - lmin) || Math.abs(lmax) || 1)) * (bandBot - bandTop) * 0.92 - (bandBot - bandTop) * 0.04;
+          const lastLine = p.line ? [...p.line.values].reverse().find((v): v is number => v != null && Number.isFinite(v)) ?? null : null;
+          const drawn = !p.empty && (vals.length > 0 || lv.length > 0);
+          return (
+            <g key={`pane-${p.key}`} data-testid={`desk-pane-${p.key}`} data-empty={drawn ? "false" : "true"}>
+              <line x1={0} y1={top} x2={plotW} y2={top} style={{ stroke: "var(--line-2)" }} strokeWidth={0.6} />
+              <text x={2} y={top + 9} style={{ fontFamily: "var(--mono)", fontSize: 7.4, letterSpacing: "0.1em", fill: "var(--cp-ink-3)" }}>{p.title.toUpperCase()}</text>
+              {!drawn ? (
+                <text data-testid={`desk-pane-${p.key}-empty`} x={2} y={top + paneH / 2 + 6} style={{ fontSize: 8.5, fill: "var(--cp-ink-3)" }}>{p.empty ?? "No data for these bars."}</text>
+              ) : (
+                <>
+                  {hasNeg && <line x1={0} y1={zero} x2={plotW} y2={zero} style={{ stroke: "var(--line-3)" }} strokeWidth={0.6} />}
+                  {series.map((sr, si) => sr.map((b, i) => {
+                    if (b.value == null || !Number.isFinite(b.value) || i >= n) return null;
+                    const h = Math.max(0.8, (Math.abs(b.value) / maxAbs) * half);
+                    const bx = x(i) - bodyW / 2 + si * subW;
+                    return <rect key={`pb-${p.key}-${si}-${i}`} data-testid={`desk-pane-${p.key}-bar`} data-series={si} data-i={i} data-value={b.value}
+                      x={bx} y={b.value >= 0 ? zero - h : zero} width={Math.max(0.8, subW - 0.4)} height={h} style={{ fill: b.color }} opacity={active != null && i !== active ? 0.7 : 1} />;
+                  }))}
+                  {p.line && lv.length > 0 && (
+                    <>
+                      <path data-testid={`desk-pane-${p.key}-line`} d={seriesPath(p.line.values.slice(0, n), x, ly)} fill="none" style={{ stroke: p.line.color }} strokeWidth={1.3} />
+                      {lastLine != null && <text x={plotW + 4} y={ly(lastLine) + 3} style={{ ...gutterText, fontSize: font - 0.5, fill: p.line.color }}>{p.line.format(lastLine)}</text>}
+                    </>
+                  )}
+                </>
+              )}
             </g>
           );
         })}

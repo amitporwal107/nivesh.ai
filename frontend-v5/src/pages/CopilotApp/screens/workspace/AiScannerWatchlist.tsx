@@ -218,8 +218,7 @@ function CashRow({ e, listDate, quote, scan }: { e: CashEntry; listDate: string;
           : e.trade_plan === null && e.trade_plan_id === null && e.plan_status != null ? <NoPlan testId="aiw-cash-noplan" reason={e.status_reasons[0] ?? null} /> : null}
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 6, paddingLeft: 32 }}>
-        <Chip testId="aiw-cash-chart" onClick={() => go(deskChart(e.symbol))}>Chart ›</Chip>
-        <Chip testId="aiw-cash-plan" onClick={() => go(deskPlan(e, listDate))} title="The plan in the trading desk's Strategy Builder: sizing, costs, evidence, payoff">Strategy ›</Chip>
+        <Chip testId="aiw-cash-chart" onClick={() => go(deskPlan(e, listDate))} title="The chart with this plan's levels, the option chain and the paper basket">Chart ›</Chip>
         {e.fno_eligible && <Chip testId="aiw-cash-chain" onClick={() => go(deskChain(e.symbol))}>Option chain ›</Chip>}
         <button type="button" className="cp-chip" data-testid="aiw-cash-paper" aria-expanded={paperOpen} onClick={() => setPaperOpen((v) => !v)}>{paperOpen ? "Hide paper trade" : "Paper trade"}</button>
         <Chip testId="aiw-cash-trades" onClick={() => go(deskTrades())}>View trades ›</Chip>

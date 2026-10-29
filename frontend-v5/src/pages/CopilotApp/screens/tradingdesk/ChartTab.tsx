@@ -1198,7 +1198,7 @@ function OpportunityDetail({ symbol, setup, bars, barsQ, liveQ, company, date, p
       </span>
       <button type="button" data-testid="desk-lvl-strategy" onClick={() => openStrategy(symbol, { kind: "chart", bucket: setup?.bucket ?? null, date: scanIso })}
         style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", cursor: "pointer", fontSize: 12.5, color: "var(--mint)", fontFamily: "var(--sans)" }}>
-        Build a strategy for {symbol} ›
+        Chart Analysis for {symbol} ›
       </button>
     </>
   );

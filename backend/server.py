@@ -134,6 +134,7 @@ from routes.portfolio_desk import router as portfolio_desk_router  # Trading des
 from routes.risk_controls import router as risk_controls_router, admin_router as risk_admin_router  # Kill switch / halt / F&O risk policy (/api/risk/*, /api/admin/risk/*)
 from routes.desk_trading import router as desk_trading_router  # Trading desk: the user's paper trades and price alerts (/api/desk/*)
 from routes.desk_live_chart import router as desk_live_chart_router  # Trade Desk › Chart Analysis › Live chart (/api/desk/live-chart/*, read only)
+from routes.desk_chart_events import router as desk_chart_events_router  # Live chart: market events + the stock's reaction (/api/desk/chart-events/*, read only)
 from routes.ai_trader import router as ai_trader_router  # AI Trader Phase 1: read-only evidence (/api/ai-trader/*)
 from routes.desk_chartink import router as desk_chartink_router  # Trading desk: the user's Chartink dashboard and scan hits (/api/desk/chartink/*)
 from routes.results_week import router as results_week_router  # Trading desk: results week, earnings vs historical trend (/api/desk/results-week)
@@ -291,6 +292,7 @@ app.include_router(risk_controls_router)   # /api/risk/status, /kill-switch, /ha
 app.include_router(risk_admin_router)      # /api/admin/risk/{user_id}/kill-switch, /halt, /live-authorization (admin only)
 app.include_router(desk_trading_router)      # /api/desk/paper-trades, /api/desk/alerts
 app.include_router(desk_live_chart_router)   # /api/desk/live-chart/{symbol}
+app.include_router(desk_chart_events_router)  # /api/desk/chart-events/{symbol}
 app.include_router(ai_trader_router)        # /api/ai-trader/evidence, /calibration, /pattern-validation
 app.include_router(desk_chartink_router)     # /api/desk/chartink/*
 app.include_router(results_week_router)      # /api/desk/results-week

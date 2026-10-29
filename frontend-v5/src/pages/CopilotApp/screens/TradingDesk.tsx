@@ -8,7 +8,7 @@
  *                        Top AI candidates (ScannerTop10, the decision cards and their drawer) · paper trades · alerts and
  *                        events
  *   02 Trade Desk        the owner's workbench (step 3): AI Scanner (ranked · library · scorecard) · Chart Analysis (live ·
- *                        record) · Strategy Lab (build · backtest) · Paper Trading (live · journal) · Watchlists; the
+ *                        record) · Paper Trading (live · journal) · Watchlists (Strategy Lab removed 29 Oct); the
  *                        sections are tabs/trade-desk and the screens they host
  *   03 Market Desk       intel · smartmoney · sectors · research · screener (tradingdesk/tabs/market-desk, step 5: one
  *                        frame over IntelTab + EventsTab + a sector-rotation readout; SmartMoneyTab + the F&O lab's
@@ -506,12 +506,13 @@ export default function TradingDeskScreen() {
     // company research, reached from the Market Desk switcher).
     openChart: (s) => goPlace("trade", "chart", { sub: "live", sym: s.toUpperCase() }),
     setSymbol: (s) => setParam({ sym: s.toUpperCase() }),
-    openStrategy: (s, src) => goPlace("trade", "lab", {
-      sym: s.toUpperCase(),
-      ...(src ? { src_kind: src.kind, ...(src.bucket ? { src_bucket: src.bucket } : {}), ...(src.date ? { src_date: src.date } : {}) } : {}),
-    }),
-    openStrategyIdeas: (focus) => goPlace("trade", "lab", { mode: "ideas", ...(focus ? { focus: focus.toUpperCase() } : {}) }),
-    openStrategyPlan: (p) => goPlace("trade", "lab", { ...p, mode: "stock", build: "1" }),
+    // Strategy Lab was removed (owner, 29 Oct): a trade is built on the chart's paper basket, so these open the chart.
+    openStrategy: (s) => goPlace("trade", "chart", { sub: "live", sym: s.toUpperCase() }),
+    openStrategyIdeas: (focus) => goPlace("trade", "chart", { sub: "live", ...(focus ? { sym: focus.toUpperCase() } : {}) }),
+    openStrategyPlan: (p) => {
+      const sym = p.sym ?? p.underlying ?? null;
+      goPlace("trade", "chart", { sub: "live", ...(sym ? { sym: sym.toUpperCase() } : {}), ...(p.tp ? { tp: p.tp } : {}) });
+    },
     // Chartink sources live only in Trade Desk › AI Scanner › Signal library & sources (the owner's design).
     openChartink: () => goPlace("trade", "scanner", { sub: "library", section: "chartink" }),
     openLab: (view, opts) => {
@@ -519,7 +520,7 @@ export default function TradingDeskScreen() {
         ...(opts?.symbol ? { lab_sym: opts.symbol.toUpperCase() } : {}),
         ...(opts?.focus ? { lab_focus: opts.focus.toUpperCase() } : {}),
       };
-      if (view === "strategies") goSection("trade", "lab", "fno", extra);
+      if (view === "strategies") goPlace("trade", "chart", { sub: "live", ...(opts?.symbol ? { sym: opts.symbol.toUpperCase() } : {}) });
       else goSection("market", "smartmoney", "fno", { ...(view && view !== "buildup" ? { lab: view } : {}), ...extra });
     },
     openIntel: (opts) => goPlace("market", "intel", {
@@ -593,7 +594,7 @@ export default function TradingDeskScreen() {
       </Hosted>
     );
   } else if (loc.tab === "trade") {
-    // The owner's workbench (PLAN.md "1-REVISED"): five sections with sub-views. Paper Trading and Strategy Lab are
+    // The owner's workbench (PLAN.md "1-REVISED"): four sections with sub-views (Strategy Lab removed 29 Oct). Paper Trading is
     // tabs/trade-desk; Watchlists the Watchlist page; AI Scanner and Chart Analysis host today's scanner list, Chartink
     // sources and chart until step 3 PR B builds them.
     switch (loc.view) {
@@ -626,13 +627,10 @@ export default function TradingDeskScreen() {
           ? <p data-testid="desk-trade-record-pending" className="m-0" style={lineStyle}>Signal record: not available yet. No route serves a signal's levels, lifecycle and revisions (the positional_signals_history table has no route), so nothing is shown rather than a made-up record.</p>
           : (
             <Hosted id="chart" name="Chart Analysis">
-              {/* The owner's Live chart design (28 Oct): chart card, paper order ticket, F&O setup, signal conditions. The full
+              {/* The owner's chart interface (29 Oct): the chart with futures OI, build-up and the strike ladder, the option chain,
+                  recommended strategies, the paper basket and the strategy panel (analysis/ChartAnalysis.tsx). The full
                   research chart (opportunity detail, filings, fundamentals) is Market Desk › Stock Research. */}
-              <LiveChartView
-                onIdeas={() => goPlace("trade", "scanner", { sub: "ranked" })}
-                onStrategyLab={() => goPlace("trade", "lab", { sub: "build" })}
-                onRiskPolicy={() => goPlace("risk", "controls")}
-              />
+              <LiveChartView />
             </Hosted>
           );
         break;
@@ -644,7 +642,7 @@ export default function TradingDeskScreen() {
           <>
             <PaperRealLine onOpen={openPortfolio} />
             <Hosted id="trade-desk" name="Trade Desk">
-              <TradeDeskTab section={loc.view === "lab" ? "lab" : "paper"} sub={loc.sub ?? null} onSub={(sb, extra) => goPlace("trade", loc.view, { sub: sb, ...(extra ?? {}) })} />
+              <TradeDeskTab sub={loc.sub ?? null} onSub={(sb, extra) => goPlace("trade", loc.view, { sub: sb, ...(extra ?? {}) })} />
             </Hosted>
           </>
         );

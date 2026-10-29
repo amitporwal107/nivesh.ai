@@ -31,7 +31,6 @@ const CASH = IDEA.trade_plan;
 const SYM: string = IDEA.symbol;
 const FNO_GET = CARD.fno.trade_plan_response;
 const FNO = FNO_GET.plan;
-const BANK_ON_BOARD = CARD.fno.top_response.classes.index_options.ideas.find((i: { underlying: string }) => i.underlying === "BANKNIFTY");
 const EQUITY: number = CARD.risk_profile.live.equity.equity_rs;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -212,25 +211,7 @@ test.describe("Decision cards — the surfaces", () => {
     expect(await lineOf(card)).toEqual(EXPECT_FNO);
   });
 
-  test("UI-5 the Strategy Builder: the full card of the cash candidate, and a futures plan with lots and its rejection", async ({ page }) => {
-    await setup(page);
-    await page.goto(`${DESK}?tab=more&view=strategy&mode=stock&build=1&sym=${SYM}&direction=bullish&cand=cash:breakout_continuation`);
-    const card = page.getByTestId("cand-decision-card");
-    await expect(card).toHaveAttribute("data-plan-id", CASH.plan_id, SLOW);
-    await expect(card).toHaveAttribute("data-variant", "full");
-    expect(await lineOf(card)).toEqual(EXPECT_CASH);
-    // the futures candidate of the same world: its plan is rejected by its own rules, says why, and cannot be traded
-    const fut = CARD.futures.builder_response.candidates.find((c: { segment: string }) => c.segment === "futures");
-    await setup(page, { builder: CARD.futures.builder_response, plans: { [fut.trade_plan.plan_id]: { status: 200, body: { plan: fut.trade_plan, lifecycle: { status: "proposed", trades: [], rejections: [] }, versions: [], risk_decision: null, risk_decision_basis: "MOCK" } } } });
-    await page.goto(`${DESK}?tab=more&view=strategy&mode=stock&build=1&sym=${SYM}&direction=bullish&instrument=futures&cand=${encodeURIComponent(fut.id)}`);
-    const fc = page.getByTestId("cand-decision-card");
-    await expect(fc).toHaveAttribute("data-plan-id", fut.trade_plan.plan_id, SLOW);
-    await expect(fc.getByTestId("dc-status")).toHaveText("Not tradeable");
-    await expect(fc.getByTestId("dc-size")).toContainText("unavailable: the plan was not sized for your account");     // MOCK answer without account_size
-    await expect(fc.getByTestId("dc-sec-setup")).toContainText(`lot ${new Intl.NumberFormat("en-IN").format(fut.trade_plan.instrument.lot_size)}`);
-    await expect(fc.getByTestId("dc-rejection")).toContainText(fut.trade_plan.eligibility.reasons[0].message.slice(0, 30));
-    await expect(fc.getByTestId("dc-action")).toHaveAttribute("data-enabled", "false");
-  });
+  // UI-5 (the Strategy Builder's candidate card) went with Strategy Lab (owner, 29 Oct).
 
   test("UI-6 the paper-trade record shows the plan it records, read by id, with its lifecycle status", async ({ page }) => {
     const allowed = CARD.cash.allowed.trade_plan_response;
@@ -251,7 +232,7 @@ test.describe("Decision cards — the surfaces", () => {
 // ── UI-7: one plan, identical everywhere ───────────────────────────────────
 
 test.describe("Decision cards — 3.2 consistency", () => {
-  test("UI-7 the same cash plan_id shows identical entry, stop, targets, size and risk on Top 10, the watchlist and the Builder", async ({ page }) => {
+  test("UI-7 the same cash plan_id shows identical entry, stop, targets, size and risk on Top 10 and the watchlist (the Builder went with Strategy Lab)", async ({ page }) => {
     await setup(page);
     await page.goto(SCANNER);
     const top = stockRow(page).getByTestId("desk-top10-card");
@@ -261,14 +242,10 @@ test.describe("Decision cards — 3.2 consistency", () => {
     const wl = page.getByTestId(`aiw-cash-${SYM}`).getByTestId("aiw-cash-card");
     await expect(wl).toHaveAttribute("data-plan-id", CASH.plan_id, SLOW);
     const b = await lineOf(wl);
-    await page.goto(`${DESK}?tab=more&view=strategy&mode=stock&build=1&sym=${SYM}&direction=bullish&cand=cash:breakout_continuation`);
-    const bd = page.getByTestId("cand-decision-card");
-    await expect(bd).toHaveAttribute("data-plan-id", CASH.plan_id, SLOW);
-    const c = await lineOf(bd);
-    expect([a, b, c]).toEqual([EXPECT_CASH, EXPECT_CASH, EXPECT_CASH]);
+    expect([a, b]).toEqual([EXPECT_CASH, EXPECT_CASH]);
   });
 
-  test("UI-7b the same F&O plan_id is identical on Top 10, the watchlist, the lab focus and Top by regime", async ({ page }) => {
+  test("UI-7b the same F&O plan_id is identical on Top 10, the watchlist and the lab focus (Top by regime went with Strategy Lab)", async ({ page }) => {
     await setup(page);
     const lines: Array<Record<string, string>> = [];
     await page.goto(SCANNER);
@@ -286,11 +263,7 @@ test.describe("Decision cards — 3.2 consistency", () => {
     const l = page.getByTestId("desk-lab-focus").getByTestId("idea-card-plan");
     await expect(l).toHaveAttribute("data-plan-id", FNO.plan_id, SLOW);
     lines.push(await lineOf(l));
-    await page.goto(`${DESK}?tab=more&view=strategy&mode=top`);
-    const r = page.getByTestId(`top-idea-BANKNIFTY-${BANK_ON_BOARD.structure}`).getByTestId("idea-card-plan");
-    await expect(r).toHaveAttribute("data-plan-id", FNO.plan_id, SLOW);
-    lines.push(await lineOf(r));
-    expect(lines).toEqual([EXPECT_FNO, EXPECT_FNO, EXPECT_FNO, EXPECT_FNO]);
+    expect(lines).toEqual([EXPECT_FNO, EXPECT_FNO, EXPECT_FNO]);
   });
 });
 
@@ -472,39 +445,7 @@ test.describe("Decision cards — a changed plan", () => {
     await expect(row.getByTestId("idea-paper-trade")).toHaveAttribute("title", /This plan changed after this list was made \(version 2 replaces version 1\)/);
   });
 
-  test("UI-9c a re-ranked Top 10 that supersedes the plan refreshes the Builder still holding the old one", async ({ page }) => {
-    const stored = { v2: false };
-    const seen = await setup(page);
-    // the plan route as the store answers it: version 2 exists once the re-rank stored it
-    await page.unroute("**/api/desk/trade-plans/*");
-    await page.route("**/api/desk/trade-plans/*", (r) => {
-      const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string);
-      seen.planReads.push(id);
-      const vs = stored.v2 ? versions : versions.slice(0, 1);
-      if (id === CASH.plan_id) return json(r, getOf(CASH, { versions: vs }));
-      if (id === V2_ID && stored.v2) return json(r, getOf(V2, { versions: vs }));
-      return json(r, { detail: "plan_not_found" }, 404);
-    });
-    await page.goto(`${DESK}?tab=more&view=strategy&mode=stock&build=1&sym=${SYM}&direction=bullish&cand=cash:breakout_continuation`);
-    await expect(page.getByTestId("cand-decision-card")).toHaveAttribute("data-plan-id", CASH.plan_id, SLOW);
-    // the Scanner's Top 10 is ranked again and its answer carries version 2, which names version 1 in `supersedes`
-    const reranked = clone(CARD.cash.ideas_response);
-    reranked.ideas[0].trade_plan = V2;
-    reranked.ideas[0].trade_plan_id = V2_ID;
-    reranked.ideas[0].preferred = "cash:breakout_continuation";           // MOCK: so "Strategy ›" reopens the cash candidate
-    await page.unroute("**/api/desk/strategy/ideas");
-    await page.route("**/api/desk/strategy/ideas", (r) => { stored.v2 = true; return json(r, reranked); });
-    // Desk redesign (2026-10-27): the Top 10 is on Market Overview (was the AI Scanner tab).
-    await page.getByTestId("desk-tab-overview").click();
-    await expect(stockRow(page).getByTestId("desk-top10-card")).toHaveAttribute("data-plan-id", V2_ID, SLOW);
-    // back to the Builder from the row (its links are in the row's drawer): it builds the same plan (version 1) again; its cached reading was refreshed
-    await stockRow(page).getByTestId("desk-top10-stock-open").click();
-    await stockRow(page).getByTestId("desk-top10-stock-plan").click();
-    const card = page.getByTestId("cand-decision-card");
-    await expect(card).toHaveAttribute("data-plan-id", V2_ID, SLOW);
-    await expect(card.getByTestId("dc-changed")).toContainText("version 2");
-    await expect(page.getByTestId("paper-blocked")).toContainText("This plan changed after this list was made");
-  });
+  // UI-9c (the Builder holding a superseded plan) went with Strategy Lab (owner, 29 Oct).
 });
 
 // ── UI-10 … UI-16 ─────────────────────────────────────────────────────────

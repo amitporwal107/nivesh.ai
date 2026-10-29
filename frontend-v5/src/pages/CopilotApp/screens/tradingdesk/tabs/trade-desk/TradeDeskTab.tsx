@@ -8,9 +8,8 @@
  *   ?tab=trade&view=paper&sub=journal   Paper Trading › Trade journal (&trade=<id>): one trade's timeline, fills, the
  *                                       desk-cost-v2 P/L bridge "net, before income tax", stop history, the stop-first
  *                                       flag; below it every closed trade with the summary
- *   ?tab=trade&view=lab&sub=build       Strategy Lab › Build a trade: the owner's four-step wizard (lab/Wizard.tsx), the
- *                                       risk-service ticket above it (&tp=<plan_id>), "From an idea" (the Strategy Builder)
- *   ?tab=trade&view=lab&sub=backtest    Strategy Lab › Backtest & validation
+ *   Strategy Lab (Build a trade, Backtest & validation) was removed on 29 Oct (owner); a trade is built on Chart Analysis'
+ *   paper basket and its URLs open the chart (desk-nav.ts).
  *
  * The frame (TradingDesk.tsx) draws the sections, the sub-view chips and the "These are paper trades… My portfolio" line.
  *
@@ -22,27 +21,11 @@ import { useSearchParams } from "react-router-dom";
 import { LoadingBlock } from "../../../../components/ui";
 import { QueryProblem } from "../../../trading/parts";
 import { useDesk } from "../../context";
-import { usePaperTrades, type NewPaperTrade, type PaperBook } from "../../desk-trading";
+import { usePaperTrades, type PaperBook } from "../../desk-trading";
 import { ClosedView, OpenPendingView } from "./BookViews";
 import { HeaderStrip } from "./HeaderStrip";
 import { JournalPanel, type JournalTrade } from "./Journal";
-import { BacktestView, BuildTradeView } from "./NewTrade";
 import { quiet } from "./parts";
-
-export type TradeDeskSection = "paper" | "lab";
-
-/** The ticket's plan and source from the URL: ?tp=<plan_id> (with the desk's usual src_kind / src_bucket / src_date). */
-function ticketFrom(p: URLSearchParams): { planId: string | null; source: NewPaperTrade["source"] | null } {
-  const raw = p.get("tp");
-  const planId = raw && /^[A-Za-z0-9_:-]{1,80}$/.test(raw) ? raw : null;
-  const kind = p.get("src_kind");
-  const bucket = p.get("src_bucket");
-  const date = p.get("src_date");
-  const source: NewPaperTrade["source"] | null = kind === "scanner" || kind === "strategy_plan"
-    ? { kind, ...(bucket ? { bucket } : {}), ...(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { signal_date: date } : {}) }
-    : null;
-  return { planId, source };
-}
 
 /** The journal's trade: ?trade=<id>, else the newest closed trade, else the newest open one. */
 function journalTrade(d: PaperBook, id: string | null): JournalTrade | null {
@@ -58,22 +41,13 @@ function journalTrade(d: PaperBook, id: string | null): JournalTrade | null {
   return open;
 }
 
-export default function TradeDeskTab({ section, sub, onSub }: {
-  section: TradeDeskSection; sub: string | null; onSub: (sub: string, extra?: Record<string, string>) => void;
+export default function TradeDeskTab({ sub, onSub }: {
+  sub: string | null; onSub: (sub: string, extra?: Record<string, string>) => void;
 }) {
   const desk = useDesk();
   const [params] = useSearchParams();
   const q = usePaperTrades();
-  const { planId, source } = ticketFrom(params);
   const openJournal = (j: JournalTrade) => onSub("journal", { trade: j.t.id });
-
-  if (section === "lab") {
-    return (
-      <div data-testid="td-tab" data-section="lab" data-sub={sub ?? ""} className="flex min-w-0 flex-col" style={{ gap: 18 }}>
-        {sub === "backtest" ? <BacktestView /> : <BuildTradeView planId={planId} source={source} onOverview={() => desk.openTab("overview")} onBacktest={() => onSub("backtest")} />}
-      </div>
-    );
-  }
 
   let body;
   if (q.isPending) body = <LoadingBlock label="Reading your paper trades" rows={4} />;

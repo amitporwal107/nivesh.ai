@@ -9,6 +9,7 @@ progress, never a fabricated bar, empty with a reason when the token is missing 
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path as PathParam, Query
@@ -19,6 +20,7 @@ from services.kite_live_feed import gateway as gw
 from services.kite_live_feed.feed import get_feed
 from services.kite_live_feed.intraday import INTERVALS, IntradayService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/research/chart-intraday", tags=["research_chart_intraday"])
 FLAG = "charting"
 SymbolPath = PathParam(..., pattern=r"^[A-Za-z0-9&\- ]{1,40}$")
@@ -42,11 +44,24 @@ async def availability(user: dict = Depends(require_feature(FLAG))) -> Dict[str,
     return {"available": ok, "intervals": list(INTERVALS) if ok else [], "reason": reason, "source": "Kite intraday", "session": st.get("session")}
 
 
+async def _refresh_platform_token() -> None:
+    """Load the day's stored platform Kite login into this worker first, as the F&O routes do (routes/fno.py): a worker that is
+    not the feed's leader otherwise keeps the token it started with, and Kite refuses it once the day's login has replaced it
+    ("the platform Kite session expired" while the login is valid). A failed read leaves what the worker held."""
+    try:
+        from deps import db
+        from services.kite_live_feed import platform_token
+        await platform_token.refresh_cache(db)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("chart intraday: the platform token could not be reloaded (%s)", type(e).__name__)
+
+
 @router.get("/{symbol}")
 async def intraday(symbol: str = SymbolPath, interval: str = Query("5m"), sessions: int = Query(5, ge=1, le=30),
                    user: dict = Depends(require_feature(FLAG))) -> Dict[str, Any]:
     if interval not in INTERVALS:
         raise HTTPException(status_code=400, detail=f"interval must be one of {', '.join(INTERVALS)}")
+    await _refresh_platform_token()
     feed = get_feed()
     st = await feed.read_status() or {}
     snap = await feed.read_snapshot() or {}

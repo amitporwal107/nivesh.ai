@@ -49,6 +49,7 @@ def test_tc1_legs_map_to_tradingsymbols_with_lot_size_quantity():
 def test_tc2_shape_totals_and_nulls():
     s = fm.shape(RAW, "2026-10-24")
     assert s["required_margin"] == 77519.3125 and s["initial_margin"] == 78908.0625 and s["sent_to_broker"] is False
+    assert s["hedge_benefit"] is None and s["standalone_margin"] is None     # filled in by run(), which prices each leg alone
     assert s["charges"]["total"] == {"brokerage": 40.0, "stt": 5.5, "exchange": 5.65, "sebi": 0.01, "stamp_duty": 0.0, "gst": 8.24, "total": 59.4}
     empty = fm.shape({}, "2026-10-24")
     assert empty["required_margin"] is None and empty["charges"]["total"]["total"] is None and empty["charges"]["per_order"] == []
@@ -135,8 +136,46 @@ def test_the_route_reloads_the_platform_token_before_asking_kite_and_survives_a_
     monkeypatch.setattr(fm, "default_calculator", lambda: (order.append("calc"), Calc())[1])
     app = FastAPI(); app.include_router(route.router)
     assert TestClient(app).post("/api/fno/margin", json=_body()).status_code == 200
-    assert order == ["refresh", "calc", "kite"]
+    assert order == ["refresh", "calc", "kite", "kite", "kite"]       # the basket, then each leg alone for the hedge benefit
     async def boom(db, now=None):
         raise RuntimeError("mongo down")
     monkeypatch.setattr(pt, "refresh_cache", boom)
     assert TestClient(app).post("/api/fno/margin", json=_body()).status_code == 200        # a failed reload does not break the route
+
+
+class ByLegs(Stub):
+    """MOCK — not real data, in the figures of Zerodha's calculator read on staging on 29 Oct 2026 (TVSMOTOR Nov 4300/4400 CE, 1 lot):
+    the basket final 33,267.5 (initial 47,075); the bought leg alone 20,860; the sold leg alone final 101,727.5 (initial 115,535)."""
+    def __init__(self, fail_alone=False):
+        super().__init__()
+        self.fail_alone = fail_alone
+
+    def basket_margins(self, params):
+        self.calls.append(params)
+        if len(params) == 2:
+            return {"initial": {"total": 47075}, "final": {"total": 33267.5}, "orders": []}
+        if self.fail_alone:
+            raise RuntimeError("kite down")
+        return {"initial": {"total": 20860}, "final": {"total": 20860}} if params[0]["transaction_type"] == "BUY" else {"initial": {"total": 115535}, "final": {"total": 101727.5}}
+
+
+def test_m1_hedge_benefit_is_the_legs_alone_less_the_basket():
+    """Chart Analysis v2 (BE-4): hedge benefit = Σ each leg's margin alone − the basket's margin. Kite's own initial − final is NOT it (13,807.5 here,
+    the sold call's premium credit, which a single sold option shows too)."""
+    fm._INSTRUMENTS.update({"day": None, "rows": None})
+    calc = ByLegs()
+    out = fm.run(calc, "GODFRYPHLP", LEGS)
+    assert out["required_margin"] == 33267.5 and out["standalone_margin"] == 122587.5 and out["hedge_benefit"] == 89320.0
+    assert [len(c) for c in calc.calls] == [2, 1, 1]
+    assert out["hedge_benefit"] != round(out["initial_margin"] - out["required_margin"], 2)
+
+
+def test_m2_one_leg_has_no_hedge_and_a_failed_leg_leaves_the_basket():
+    fm._INSTRUMENTS.update({"day": None, "rows": None})
+    one = Stub()
+    out = fm.run(one, "GODFRYPHLP", LEGS[:1])
+    assert out["hedge_benefit"] == 0.0 and out["standalone_margin"] == out["required_margin"] and len(one.calls) == 1   # no extra call
+    fm._INSTRUMENTS.update({"day": None, "rows": None})
+    out = fm.run(ByLegs(fail_alone=True), "GODFRYPHLP", LEGS)
+    assert out["ok"] and out["required_margin"] == 33267.5 and out["hedge_benefit"] is None and out["standalone_margin"] is None
+    assert fm.hedge_benefit(Stub(), [{}], None) == (None, None)       # no basket figure: nothing to subtract from
