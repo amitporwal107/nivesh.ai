@@ -147,6 +147,11 @@ def client(monkeypatch):
     monkeypatch.setattr(route, "get_feed", lambda: feed)
     s, kite, _ = svc(HistKite([candle(21, 9, 15)]))
     monkeypatch.setattr(route, "get_service", lambda: s)
+    feed.token_reloads = 0
+
+    async def reload_token():
+        feed.token_reloads += 1
+    monkeypatch.setattr(route, "_refresh_platform_token", reload_token)
     app = FastAPI()
     app.include_router(route.router)
     for r in route.router.routes:
@@ -182,3 +187,20 @@ def test_route_502_on_provider_failure_without_leaking(monkeypatch, client):
     monkeypatch.setattr(route, "get_service", lambda: s)
     r = c.get("/api/research/chart-intraday/RELIANCE", params={"interval": "30m"})
     assert r.status_code == 502 and "tok-SECRET" not in r.text
+
+
+def test_the_route_reloads_the_days_kite_login_before_reading(client):
+    """A worker that is not the feed's leader kept the token it started with, so the chart said "the platform Kite session
+    expired" while the day's login was valid (staging 29 Oct). The route now reloads the stored login first, as routes/fno.py does."""
+    c, feed, _ = client
+    assert c.get("/api/research/chart-intraday/RELIANCE", params={"interval": "15m"}).status_code == 200
+    assert feed.token_reloads == 1
+
+
+def test_the_reload_helper_never_raises(monkeypatch):
+    from services.kite_live_feed import platform_token
+
+    async def broken(db, now=None):
+        raise RuntimeError("mongo down")
+    monkeypatch.setattr(platform_token, "refresh_cache", broken)
+    run(route._refresh_platform_token())
