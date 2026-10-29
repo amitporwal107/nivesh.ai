@@ -118,6 +118,15 @@ NIDP VM, job environment, without `--evaluation`:
 exit=2
 ```
 
+### Staging API endpoints
+This PR adds or changes **no API endpoint**: no route calls the adapter or the cross-check yet, and the only change to
+a shared app file is one new constant (`PROVIDER_TRUEDATA`). So there is no endpoint to curl. The staging evidence
+above is:
+- an in-process run inside the running staging backend container (its Python and environment);
+- a job-environment run on the NIDP VM.
+
+The branch is not deployed; it reaches staging only after the merge to dev.
+
 ## Findings for TrueData (added to the questions for them)
 1. Open interest above 2,147,483,647 comes back as 0 (IDEA Nov future, 27 and 28 Oct).
 2. Corporate actions:
