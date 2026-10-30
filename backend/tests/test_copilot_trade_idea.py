@@ -244,28 +244,34 @@ def ideas(monkeypatch):
 
 
 def test_ti9_a_trading_question_gets_the_plan_card_first_and_the_engine_gets_the_facts(stream, ideas):
+    # Since the Daily Trader Copilot's visual answer (services/copilot_visual, 30 Oct 2026), a trading question about one
+    # stock is a `stock_decision`: the plan is built ONCE and travels inside the visual answer (its trade_plan block), so
+    # the answer's one card is `visual_answer`, not a separate trade_plan card. tests/test_copilot_visual_chat.py has
+    # the full checks; here: one build, one card, the engine still gets TRADE_PLAN and is pinned to the stock analyst.
     calls, _ = ideas
     frames, saved = stream(message="Plan a breakout trade for FIXCO", persona="investor")
     assert calls == [("u1", "FIXCO", "Plan a breakout trade for FIXCO")]
     widgets = [f for f in frames if f["type"] == "widget"]
-    assert [w["widget_type"] for w in widgets] == ["trade_plan"]                    # the engine's own card is dropped
+    assert [w["widget_type"] for w in widgets] == ["visual_answer"]                 # the engine's own card is dropped
     kinds = [f["type"] for f in frames]
     assert kinds.index("widget") < kinds.index("token")
-    assert saved["widget"]["widget_type"] == "trade_plan"
+    assert saved["widget"]["widget_type"] == "visual_answer"
     engine_input = ENGINE_INPUTS[-1]
     told = engine_input["messages"][-1].content
     assert told.startswith("Plan a breakout trade for FIXCO\n\n") and "TRADE_PLAN: MOCK facts for FIXCO" in told
     from services.llm_safety import wrap_external_data
-    assert told == "Plan a breakout trade for FIXCO\n\n" + wrap_external_data("TRADE_PLAN: MOCK facts for FIXCO", source="trade_plan")
+    assert told.endswith(wrap_external_data("TRADE_PLAN: MOCK facts for FIXCO", source="trade_plan"))
+    assert 'source="visual_answer">VISUAL_ANSWER for FIXCO (stock_decision)' in told
     pin = engine_input["pinned_agent"]
     assert getattr(pin, "value", pin) == "stock_analyst"
 
 
 def test_ti9_no_setup_keeps_the_engines_card_but_still_tells_the_engine(stream, ideas):
+    # No setup: the visual answer still says so (its decision), and the engine still gets the plan's facts.
     _, widget = ideas
     widget[0] = None
     frames, saved = stream(message="Plan a breakout trade for FIXCO", persona="investor")
-    assert [f["widget_type"] for f in frames if f["type"] == "widget"] == ["instrument_detail"]
+    assert [f["widget_type"] for f in frames if f["type"] == "widget"] == ["visual_answer"]
     assert "TRADE_PLAN: MOCK facts for FIXCO" in ENGINE_INPUTS[-1]["messages"][-1].content
 
 

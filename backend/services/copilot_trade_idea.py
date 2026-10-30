@@ -60,6 +60,10 @@ class TradeIdea:
     widget: Optional[Dict[str, Any]]
     context: str
     status: Optional[str] = None
+    # The built StrategyPlan and the risk service's sizing of its preferred TradePlan, kept so the Copilot's visual
+    # answer (services/copilot_visual) reads the same plan instead of building it twice. None when not built / not sized.
+    plan: Optional[Dict[str, Any]] = None
+    sized: Optional[Dict[str, Any]] = None
 
 
 def is_trade_question(message: str, persona: Optional[str], desk_persona: Optional[str]) -> bool:
@@ -255,6 +259,7 @@ async def build(request: Any, user_id: str, symbol: str, message: str) -> Option
             "target levels; say a plan was not available and suggest opening the Strategy Builder on the trading desk."))
     widget = widget_for(plan, stated)
     extra: List[str] = []
+    sized: Optional[Dict[str, Any]] = None
     if widget is not None:
         by_id = {(c.get("trade_plan") or {}).get("plan_id"): c for c in plan.get("candidates") or [] if isinstance(c, dict)}
         for row in widget["data"]["plans"]:
@@ -262,9 +267,11 @@ async def build(request: Any, user_id: str, symbol: str, message: str) -> Option
             extra.extend(trade_plan_lines(cand.get("trade_plan") or {}, row.get("label")))
         preferred = (by_id.get(widget["data"]["preferred_plan_id"]) or {}).get("trade_plan")
         if preferred:
-            extra.extend(sizing_lines(await _size(preferred, user_id)))
+            sized = await _size(preferred, user_id)
+            extra.extend(sizing_lines(sized))
     return TradeIdea(widget=widget, status=plan.get("status"),
-                     context=context_for(plan, direction, stated, shown=widget is not None, extra=extra))
+                     context=context_for(plan, direction, stated, shown=widget is not None, extra=extra),
+                     plan=plan, sized=sized)
 
 
 async def _size(tp: Dict[str, Any], user_id: str) -> Dict[str, Any]:
