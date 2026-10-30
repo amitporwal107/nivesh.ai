@@ -194,6 +194,13 @@ def resolve_symbol(text: str) -> Resolution:
         if tok in _PHRASES:
             return Resolution(symbol=_PHRASES[tok], display_name=tok, source="name")
 
+    # 4b. a curated ticker typed in lower case ("how is tcs doing", "infy"). At
+    #     least 3 characters, so a 2-letter word never becomes a ticker.
+    for tok in toks:
+        if len(tok) >= 3 and tok.upper() in _TICKERS and tok.upper() not in _PASSTHROUGH_STOPWORDS:
+            sym = _TICKER_RENAMES.get(_TICKERS[tok.upper()], _TICKERS[tok.upper()])
+            return Resolution(symbol=sym, display_name=tok, source="ticker")
+
     # 5. pass-through: an uppercase ticker-shaped token not in the curated list
     for tok in upper_tokens:
         if tok not in _PASSTHROUGH_STOPWORDS and not _PERIOD_TOKEN_RE.match(tok):
