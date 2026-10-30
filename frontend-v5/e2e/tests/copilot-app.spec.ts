@@ -763,3 +763,23 @@ test.describe("Copilot app — no personal facts without a portfolio (copilot_ch
     await expect(page.getByTestId("home-try").filter({ hasText: "Is my risk allocation right?" })).toHaveCount(1);
   });
 });
+
+test.describe("Copilot app — Home reads GET /api/insights as the backend answers it (copilot_chat_p0_20261030)", () => {
+  // CONTRACT: e2e/fixtures/contract-insights-list.json is the body the REAL routes return (POST /api/insights/generate,
+  // then GET /api/insights, on MOCK holdings; backend/tests/test_insights_list_contract.py compares the two). It is a
+  // bare list. Before the fix the v5 adapter wanted {insights: [...]}, threw, and Home had no insight cards.
+  const LIST = JSON.parse(fs.readFileSync(path.join(process.cwd(), "e2e", "fixtures", "contract-insights-list.json"), "utf-8")) as Array<{ title: string; severity: string }>;
+
+  test("TC-CP4 the first two saved insights are Home cards", async ({ page }) => {
+    const errors = trackPageErrors(page);
+    await setup(page);
+    await mockChat(page);
+    await page.route(/\/api\/insights(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LIST) }));
+    await page.goto(APP);
+    const cards = page.getByTestId("home-today-card");
+    await expect(cards.filter({ hasText: LIST[0].title })).toHaveCount(1);
+    await expect(cards.filter({ hasText: LIST[1].title })).toHaveCount(1);
+    await expect(cards.filter({ hasText: LIST[0].title })).toContainText(LIST[0].severity === "critical" ? "Fix" : "");
+    expect(errors).toEqual([]);
+  });
+});
