@@ -80,7 +80,7 @@ export function CandlesView({ b }: BlockProps<CandlesBlock>) {
           {levels.map((l) => (
             <li key={l.key} data-testid="va-level" data-kind={l.kind} data-price={l.price} className="inline-flex items-center" style={{ gap: 6 }}>
               <svg width={14} height={6} aria-hidden><line x1={0} y1={3} x2={14} y2={3} style={{ stroke: l.color }} strokeWidth={2} strokeDasharray="3 3" /></svg>
-              <span>{l.name}</span> <span className="cp-num" data-testid="va-level-price">{fmtPrice(l.price)}</span>
+              <span>{l.name}</span>{!l.name.includes(fmtPrice(l.price).replace(/^₹/, "")) && <> <span className="cp-num" data-testid="va-level-price">{fmtPrice(l.price)}</span></>}
             </li>
           ))}
           {band && (

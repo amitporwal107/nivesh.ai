@@ -139,7 +139,8 @@ async function expectBlocks(va: Locator, p: Payload) {
         await expect(f.getByTestId("va-candles-history")).toHaveText(
           `History: ${b.bars.length} daily candles of ${b.symbol}, ${fDay(b.bars[0].d)} to ${fDay(last.d)}; last close ${fPrice(last.c)}.`);
         const levels = b.levels ?? [];
-        await expect(f.getByTestId("va-level-price")).toHaveText(levels.map((l: any) => fPrice(l.price)));
+        // A label that already carries its price is not followed by it again.
+        await expect(f.getByTestId("va-level-price")).toHaveText(levels.filter((l: any) => !(l.label ?? "").includes(fPrice(l.price).replace(/^₹/, ""))).map((l: any) => fPrice(l.price)));
         for (let k = 0; k < levels.length; k++) {
           await expect(f.getByTestId(`desk-level-${levels[k].kind}-${k}`)).toHaveAttribute("data-value", String(levels[k].price));
         }

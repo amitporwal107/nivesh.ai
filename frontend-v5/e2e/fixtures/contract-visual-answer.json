@@ -6,7 +6,7 @@
    "intent": "market_view",
    "title": "Market view · Nifty and Bank Nifty",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:07:57+05:30",
+   "generated_at": "2026-10-30T12:19:58+05:30",
    "mode": "eod",
    "headline": {
     "text": "Nifty 50 rose 1.05% to 22,936.75; 60% of stocks advanced; India VIX 15.12.",
@@ -898,7 +898,7 @@
    "intent": "smart_money",
    "title": "Where smart money is moving",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:07:58+05:30",
+   "generated_at": "2026-10-30T12:19:58+05:30",
    "mode": "eod",
    "headline": {
     "text": "FIIs sold a net ₹943.60 Cr and DIIs bought a net ₹1,924.41 Cr in cash on 29 Oct; 74 F&O stocks show long buildup and 103 short covering.",
@@ -1728,7 +1728,7 @@
    "intent": "top_opportunities",
    "title": "Today's top 5 ideas",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:07:58+05:30",
+   "generated_at": "2026-10-30T12:19:58+05:30",
    "mode": "eod",
    "headline": {
     "text": "4 of the scanner's top 5 on 29 Oct have a setup with levels; 1 wait for confirmation.",
@@ -1931,7 +1931,7 @@
    "intent": "breakouts",
    "title": "Confirmed breakouts",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:08:00+05:30",
+   "generated_at": "2026-10-30T12:20:01+05:30",
    "mode": "eod",
    "headline": {
     "text": "1 stock closed just above the breakout level on at least 1.5× the usual volume on 29 Oct.",
@@ -2688,7 +2688,7 @@
    "intent": "unusual_volume",
    "title": "Unusual volume",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:08:01+05:30",
+   "generated_at": "2026-10-30T12:20:02+05:30",
    "mode": "eod",
    "headline": {
     "text": "65 eligible stocks traded with unusually high volume on 29 Oct; VGUARD led at 82.5× its 20-day average.",
@@ -2968,7 +2968,7 @@
    "intent": "stock_decision",
    "title": "PNB · entry, stop and targets",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:08:06+05:30",
+   "generated_at": "2026-10-30T12:20:07+05:30",
    "mode": "eod",
    "headline": {
     "text": "PNB: the desk's rules find a setup — Covered call (shares + short call), net premium ₹23,760.00, stop ₹120.67, first target ₹130.36.",
@@ -2992,7 +2992,7 @@
       "met": true
      },
      {
-      "text": "Fits your risk limits: The smallest valid size (one lot per leg) exceeds the per-trade budget.",
+      "text": "Fits your risk limits: The smallest valid size (one lot per leg) exceeds the per-trade budget",
       "met": false
      }
     ],
@@ -3706,7 +3706,7 @@
      "title": null,
      "note": null,
      "tone": "warn",
-     "text": "Your risk limits would not allow this plan on your account (The smallest valid size (one lot per leg) exceeds the per-trade budget.). The plan card below says why and what you can do."
+     "text": "Your risk limits would not allow this plan on your account (The smallest valid size (one lot per leg) exceeds the per-trade budget). The plan card below says why and what you can do."
     },
     {
      "type": "kpis",
@@ -3795,7 +3795,7 @@
    "intent": "expected_move",
    "title": "Expected move in Nifty",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:08:06+05:30",
+   "generated_at": "2026-10-30T12:20:07+05:30",
    "mode": "eod",
    "headline": {
     "text": "The Nifty options price a move of about ±278.85 points (±1.22%) to the 3 Nov 2026 expiry; PCR 1.44, max pain 22,900.00.",
