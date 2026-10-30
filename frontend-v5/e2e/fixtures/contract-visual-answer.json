@@ -1,12 +1,12 @@
 {
- "about": "REAL staging capture, 30 Oct 2026 (12 of 12 Release-1 + Release-2 intents, data of the 30 Oct 2026 session where fresh, built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing, so nothing this capture ran writes to Mongo; the fno_top reader's own store call — added after this capture first found the fno_setups plan ids were never stored — is covered by a unit test instead, test_b27 in test_copilot_visual.py). stock_decision/trade_validity/exit_options/position_size's plan ids are therefore not in trade_plans (33 plans would have stored); top_opportunities' and fno_setups' plan ids ARE real TradePlans the AI watchlist / /top route already stores in production (5 of 5 and, with the fix, would be 5 of 5 too). fno_setups' source read stale this run: the desk regime read a null date, shown honestly as stale rather than guessed. The user is a real staging account with 3 open paper trades (SONACOMS, COFORGE, ICICIBANK).",
+ "about": "REAL staging capture, 30 Oct 2026 (12 of 12 Release-1 + Release-2 intents, re-captured after fixing a compliance wording bug: fno_setups/trade_validity/position_size generated follow-up/row-ask text reading \"Is X a buy now?\", the exact phrase payload.py's own facts() instruction forbids the engine from saying; replaced with \"What's the setup for X?\" (backend/services/copilot_visual/builders.py). Built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing, so nothing this capture ran writes to Mongo; the fno_top reader's own store call is covered by a unit test instead, test_b27 in test_copilot_visual.py). stock_decision/trade_validity/exit_options/position_size's plan ids are therefore not in trade_plans (33 plans would have stored); top_opportunities' and fno_setups' plan ids ARE real TradePlans the AI watchlist / /top route already stores in production (5 of 5 each). fno_setups' and position_size's risk-profile source read stale this run (a null date), shown honestly as stale rather than guessed. The user is a real staging account with 3 open paper trades (SONACOMS, COFORGE, ICICIBANK).",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
    "intent": "market_view",
    "title": "Market view · Nifty and Bank Nifty",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:32:45+05:30",
+   "generated_at": "2026-10-30T23:03:16+05:30",
    "mode": "eod",
    "headline": {
     "text": "Nifty 50 rose 0.51% to 23,053.10; 26% of stocks advanced; India VIX 15.30.",
@@ -898,7 +898,7 @@
    "intent": "smart_money",
    "title": "Where smart money is moving",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:32:45+05:30",
+   "generated_at": "2026-10-30T23:03:16+05:30",
    "mode": "eod",
    "headline": {
     "text": "FIIs bought a net ₹3,598.54 Cr and DIIs sold a net ₹817.51 Cr in cash on 30 Oct; 24 F&O stocks show long buildup and 33 short covering.",
@@ -1722,11 +1722,11 @@
    "schema": "visual-answer-v1",
    "intent": "top_opportunities",
    "title": "Today's top 5 ideas",
-   "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T22:32:45+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T23:03:16+05:30",
    "mode": "eod",
    "headline": {
-    "text": "4 of the scanner's top 5 on 29 Oct have a setup with levels; 1 wait for confirmation.",
+    "text": "4 of the scanner's top 5 on 30 Oct have a setup with levels.",
     "tone": "neutral"
    },
    "decision": null,
@@ -1734,7 +1734,7 @@
     {
      "type": "ranked",
      "id": "top",
-     "title": "Top 5 by the scanner's score · 29 Oct",
+     "title": "Top 5 by the scanner's score · 30 Oct",
      "note": "Reward:risk is the first target's R multiple, before charges. Ideas keep the scanner's rank: its rules-based score, which is a rank and not a probability. Within an idea, `preferred` is the viable strategy with the best net reward : risk at the conservative level. Reward : risk of a hedged or income structure (a long put or a short call changes the loss at the stop) is not comparable with an unhedged one: read max loss and capital at risk beside it. No probability and no composite score is produced. Strong results add up to +5 points; weak results make no adjustment (tested on four past results seasons; confirmation pending). With Chartink included, ideas the AI scanner lists come first, ranked by its score; stocks only Chartink listed follow them, ranked by the number of your enabled bullish Chartink scans that listed them and then by traded value. A scan count is not a probability and not a score; your Chartink scans are your own screens and have not been validated.",
      "columns": [
       {
@@ -1795,87 +1795,87 @@
      "rows": [
       {
        "symbol": "PNB",
-       "plan_id": "tp_3fd429c9f6c6e921",
+       "plan_id": "tp_6c807980fb126488",
        "ask": "Trade plan for PNB",
        "tone": "up",
        "cells": {
         "rank": 1,
         "symbol": "PNB",
+        "setup": "Trend pullback",
+        "status": "Setup ready",
+        "entry": 122.85,
+        "stop": 120.73,
+        "target": 127.09,
+        "rr": 2.0,
+        "score": 78.7
+       }
+      },
+      {
+       "symbol": "ANANDRATHI",
+       "plan_id": "tp_9d3b87e07162de36",
+       "ask": "Trade plan for ANANDRATHI",
+       "tone": "up",
+       "cells": {
+        "rank": 2,
+        "symbol": "ANANDRATHI",
         "setup": "Wait for breakout confirmation",
         "status": "Setup ready",
-        "entry": 125.35,
-        "stop": 120.67,
-        "target": 134.71,
+        "entry": 2292.29,
+        "stop": 2224.45,
+        "target": 2427.97,
         "rr": 2.0,
         "score": 75.6
        }
       },
       {
-       "symbol": "LAURUSLABS",
-       "plan_id": "tp_3df58bc61b6bad4f",
-       "ask": "Trade plan for LAURUSLABS",
+       "symbol": "UNIONBANK",
+       "plan_id": "tp_0c14f66d38685d72",
+       "ask": "Trade plan for UNIONBANK",
        "tone": "up",
        "cells": {
-        "rank": 2,
-        "symbol": "LAURUSLABS",
-        "setup": "Breakout",
+        "rank": 3,
+        "symbol": "UNIONBANK",
+        "setup": "Wait for breakout confirmation",
         "status": "Setup ready",
-        "entry": 2244.0,
-        "stop": 2151.16,
-        "target": 2429.68,
+        "entry": 187.93,
+        "stop": 180.39,
+        "target": 203.01,
         "rr": 2.0,
         "score": 75.1
        }
       },
       {
-       "symbol": "ANANDRATHI",
-       "plan_id": "tp_513d12b22dc17a50",
-       "ask": "Trade plan for ANANDRATHI",
-       "tone": "up",
-       "cells": {
-        "rank": 3,
-        "symbol": "ANANDRATHI",
-        "setup": "Trend pullback",
-        "status": "Setup ready",
-        "entry": 2270.0,
-        "stop": 2005.82,
-        "target": 2798.36,
-        "rr": 2.0,
-        "score": 74.6
-       }
-      },
-      {
-       "symbol": "TVSMOTOR",
-       "plan_id": "tp_cec8796ecc10febd",
-       "ask": "Trade plan for TVSMOTOR",
-       "tone": "up",
-       "cells": {
-        "rank": 4,
-        "symbol": "TVSMOTOR",
-        "setup": "Pre-breakout",
-        "status": "Setup ready",
-        "entry": 4312.41,
-        "stop": 4130.22,
-        "target": 4676.79,
-        "rr": 2.0,
-        "score": 74.6
-       }
-      },
-      {
        "symbol": "IIFLCAPS",
-       "plan_id": "tp_197efaebad61c165",
+       "plan_id": "tp_7c8af6e39b064a40",
        "ask": "Trade plan for IIFLCAPS",
        "tone": "neutral",
        "cells": {
-        "rank": 5,
+        "rank": 4,
         "symbol": "IIFLCAPS",
         "setup": "Pre-breakout",
-        "status": "Wait",
-        "entry": 336.48,
-        "stop": 331.48,
-        "target": 346.48,
+        "status": "Avoid",
+        "entry": 350.3,
+        "stop": 343.05,
+        "target": 364.8,
         "rr": 2.0,
-        "score": 73.3
+        "score": 74.6
+       }
+      },
+      {
+       "symbol": "PERSISTENT",
+       "plan_id": "tp_dd95032bdbb6d72a",
+       "ask": "Trade plan for PERSISTENT",
+       "tone": "up",
+       "cells": {
+        "rank": 5,
+        "symbol": "PERSISTENT",
+        "setup": "Wait for breakout confirmation",
+        "status": "Setup ready",
+        "entry": 6084.08,
+        "stop": 5799.43,
+        "target": 6653.38,
+        "rr": 2.0,
+        "score": 74.5
        }
       }
      ]
@@ -1885,7 +1885,7 @@
      "id": "first",
      "title": "The first idea's plan · PNB",
      "note": null,
-     "plan_id": "tp_3fd429c9f6c6e921"
+     "plan_id": "tp_6c807980fb126488"
     }
    ],
    "evidence": [],
@@ -1893,7 +1893,7 @@
     "sources": [
      {
       "name": "AI scanner watchlist (Top 10, stored nightly)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      }
@@ -1919,14 +1919,14 @@
      "query": "Where is smart money moving?"
     }
    ],
-   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   },
   "breakouts": {
    "schema": "visual-answer-v1",
    "intent": "breakouts",
    "title": "Confirmed breakouts",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:32:49+05:30",
+   "generated_at": "2026-10-30T23:03:19+05:30",
    "mode": "eod",
    "headline": null,
    "decision": null,
@@ -1973,11 +1973,11 @@
    "schema": "visual-answer-v1",
    "intent": "unusual_volume",
    "title": "Unusual volume",
-   "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T22:32:50+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T23:03:20+05:30",
    "mode": "eod",
    "headline": {
-    "text": "65 eligible stocks traded with unusually high volume on 29 Oct; VGUARD led at 82.5× its 20-day average.",
+    "text": "74 eligible stocks traded with unusually high volume on 30 Oct; DHANUKA led at 66.8× its 20-day average.",
     "tone": "neutral"
    },
    "decision": null,
@@ -1985,70 +1985,70 @@
     {
      "type": "bars",
      "id": "rvol",
-     "title": "Relative volume · top 10 on 29 Oct",
+     "title": "Relative volume · top 10 on 30 Oct",
      "note": "The day's volume ÷ its 20-session average; z = standard deviations above that average.",
      "unit": "×",
      "orientation": "h",
      "items": [
       {
-       "label": "VGUARD",
-       "value": 82.47,
+       "label": "DHANUKA",
+       "value": 66.76,
        "tone": "up",
-       "sub": "z 148.8"
+       "sub": "z 83.2"
       },
       {
-       "label": "EQUITASBNK",
-       "value": 49.28,
+       "label": "DEEPAKNTR",
+       "value": 24.07,
+       "tone": "up",
+       "sub": "z 35.9"
+      },
+      {
+       "label": "QUICKHEAL",
+       "value": 70.2,
+       "tone": "up",
+       "sub": "z 32.9"
+      },
+      {
+       "label": "SAGILITY",
+       "value": 36.73,
        "tone": "down",
-       "sub": "z 147.9"
+       "sub": "z 30.6"
       },
       {
-       "label": "SANOFICONR",
-       "value": 52.01,
+       "label": "GREAVESCOT",
+       "value": 20.52,
        "tone": "up",
-       "sub": "z 54.1"
+       "sub": "z 28.2"
       },
       {
-       "label": "IIFLCAPS",
-       "value": 14.5,
-       "tone": "up",
-       "sub": "z 23.0"
+       "label": "THYROCARE",
+       "value": 15.48,
+       "tone": "down",
+       "sub": "z 24.6"
       },
       {
-       "label": "HUBTOWN",
-       "value": 24.06,
-       "tone": "up",
-       "sub": "z 21.9"
+       "label": "GODREJCP",
+       "value": 9.83,
+       "tone": "down",
+       "sub": "z 22.5"
       },
       {
-       "label": "SGMART",
-       "value": 16.13,
-       "tone": "up",
-       "sub": "z 17.4"
+       "label": "PARADEEP",
+       "value": 15.46,
+       "tone": "down",
+       "sub": "z 22.3"
       },
       {
-       "label": "APOLLOPIPE",
-       "value": 11.94,
+       "label": "SMSPHARMA",
+       "value": 10.89,
        "tone": "up",
-       "sub": "z 16.9"
+       "sub": "z 21.7"
       },
       {
-       "label": "BSOFT",
-       "value": 21.07,
+       "label": "VOGL",
+       "value": 13.12,
        "tone": "up",
-       "sub": "z 16.4"
-      },
-      {
-       "label": "INDSWFTLAB",
-       "value": 7.33,
-       "tone": "up",
-       "sub": "z 14.5"
-      },
-      {
-       "label": "RPOWER",
-       "value": 5.97,
-       "tone": "up",
-       "sub": "z 13.9"
+       "sub": "z 21.3"
       }
      ],
      "baseline": 1.0
@@ -2057,7 +2057,7 @@
      "type": "ranked",
      "id": "table",
      "title": "Price and delivery",
-     "note": "65 eligible stocks met the rule (volume z-score ≥ 2); the top 10 by z-score.",
+     "note": "74 eligible stocks met the rule (volume z-score ≥ 2); the top 10 by z-score.",
      "columns": [
       {
        "key": "symbol",
@@ -2092,123 +2092,123 @@
      ],
      "rows": [
       {
-       "symbol": "VGUARD",
-       "ask": "Trade plan for VGUARD",
+       "symbol": "DHANUKA",
+       "ask": "Trade plan for DHANUKA",
        "tone": "up",
        "cells": {
-        "symbol": "VGUARD",
-        "close": 284.85,
-        "chg": 7.9,
-        "rvol": 82.47,
-        "deliv": "12.04%"
+        "symbol": "DHANUKA",
+        "close": 980.15,
+        "chg": 12.03,
+        "rvol": 66.76,
+        "deliv": "57.76%"
        }
       },
       {
-       "symbol": "EQUITASBNK",
-       "ask": "Trade plan for EQUITASBNK",
+       "symbol": "DEEPAKNTR",
+       "ask": "Trade plan for DEEPAKNTR",
+       "tone": "up",
+       "cells": {
+        "symbol": "DEEPAKNTR",
+        "close": 1519.4,
+        "chg": 2.91,
+        "rvol": 24.07,
+        "deliv": "51.83%"
+       }
+      },
+      {
+       "symbol": "QUICKHEAL",
+       "ask": "Trade plan for QUICKHEAL",
+       "tone": "up",
+       "cells": {
+        "symbol": "QUICKHEAL",
+        "close": 154.46,
+        "chg": 12.92,
+        "rvol": 70.2,
+        "deliv": "46.61%"
+       }
+      },
+      {
+       "symbol": "SAGILITY",
+       "ask": "Trade plan for SAGILITY",
        "tone": "down",
        "cells": {
-        "symbol": "EQUITASBNK",
-        "close": 57.17,
-        "chg": -12.22,
-        "rvol": 49.28,
-        "deliv": "41.45%"
+        "symbol": "SAGILITY",
+        "close": 42.08,
+        "chg": -5.78,
+        "rvol": 36.73,
+        "deliv": "49.77%"
        }
       },
       {
-       "symbol": "SANOFICONR",
-       "ask": "Trade plan for SANOFICONR",
+       "symbol": "GREAVESCOT",
+       "ask": "Trade plan for GREAVESCOT",
        "tone": "up",
        "cells": {
-        "symbol": "SANOFICONR",
-        "close": 3468.0,
-        "chg": 4.37,
-        "rvol": 52.01,
-        "deliv": "40.62%"
+        "symbol": "GREAVESCOT",
+        "close": 199.4,
+        "chg": 6.75,
+        "rvol": 20.52,
+        "deliv": "19.28%"
        }
       },
       {
-       "symbol": "IIFLCAPS",
-       "ask": "Trade plan for IIFLCAPS",
-       "tone": "up",
+       "symbol": "THYROCARE",
+       "ask": "Trade plan for THYROCARE",
+       "tone": "down",
        "cells": {
-        "symbol": "IIFLCAPS",
-        "close": 347.75,
-        "chg": 0.45,
-        "rvol": 14.5,
-        "deliv": "74.97%"
+        "symbol": "THYROCARE",
+        "close": 456.3,
+        "chg": -11.48,
+        "rvol": 15.48,
+        "deliv": "42.00%"
        }
       },
       {
-       "symbol": "HUBTOWN",
-       "ask": "Trade plan for HUBTOWN",
-       "tone": "up",
+       "symbol": "GODREJCP",
+       "ask": "Trade plan for GODREJCP",
+       "tone": "down",
        "cells": {
-        "symbol": "HUBTOWN",
-        "close": 183.89,
-        "chg": 6.7,
-        "rvol": 24.06,
-        "deliv": "10.07%"
+        "symbol": "GODREJCP",
+        "close": 818.0,
+        "chg": -2.27,
+        "rvol": 9.83,
+        "deliv": "29.70%"
        }
       },
       {
-       "symbol": "SGMART",
-       "ask": "Trade plan for SGMART",
-       "tone": "up",
+       "symbol": "PARADEEP",
+       "ask": "Trade plan for PARADEEP",
+       "tone": "down",
        "cells": {
-        "symbol": "SGMART",
-        "close": 864.55,
-        "chg": 7.67,
-        "rvol": 16.13,
-        "deliv": "19.52%"
+        "symbol": "PARADEEP",
+        "close": 129.1,
+        "chg": -7.65,
+        "rvol": 15.46,
+        "deliv": "27.87%"
        }
       },
       {
-       "symbol": "APOLLOPIPE",
-       "ask": "Trade plan for APOLLOPIPE",
+       "symbol": "SMSPHARMA",
+       "ask": "Trade plan for SMSPHARMA",
        "tone": "up",
        "cells": {
-        "symbol": "APOLLOPIPE",
-        "close": 544.25,
-        "chg": 12.96,
-        "rvol": 11.94,
-        "deliv": "16.27%"
+        "symbol": "SMSPHARMA",
+        "close": 511.35,
+        "chg": 5.26,
+        "rvol": 10.89,
+        "deliv": "44.61%"
        }
       },
       {
-       "symbol": "BSOFT",
-       "ask": "Trade plan for BSOFT",
+       "symbol": "VOGL",
+       "ask": "Trade plan for VOGL",
        "tone": "up",
        "cells": {
-        "symbol": "BSOFT",
-        "close": 342.5,
-        "chg": 11.89,
-        "rvol": 21.07,
-        "deliv": "8.47%"
-       }
-      },
-      {
-       "symbol": "INDSWFTLAB",
-       "ask": "Trade plan for INDSWFTLAB",
-       "tone": "up",
-       "cells": {
-        "symbol": "INDSWFTLAB",
-        "close": 409.8,
-        "chg": 8.14,
-        "rvol": 7.33,
-        "deliv": "31.87%"
-       }
-      },
-      {
-       "symbol": "RPOWER",
-       "ask": "Trade plan for RPOWER",
-       "tone": "up",
-       "cells": {
-        "symbol": "RPOWER",
-        "close": 18.98,
-        "chg": 9.14,
-        "rvol": 5.97,
-        "deliv": "11.87%"
+        "symbol": "VOGL",
+        "close": 30.23,
+        "chg": 8.51,
+        "rvol": 13.12,
+        "deliv": "39.53%"
        }
       }
      ]
@@ -2219,7 +2219,7 @@
     "sources": [
      {
       "name": "Stock features + NSE bhavcopy (scan snapshot)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
@@ -2247,14 +2247,14 @@
      "query": "Today's top 5 opportunities"
     }
    ],
-   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   },
   "stock_decision": {
    "schema": "visual-answer-v1",
    "intent": "stock_decision",
    "title": "PNB · entry, stop and targets",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:32:54+05:30",
+   "generated_at": "2026-10-30T23:03:25+05:30",
    "mode": "eod",
    "headline": {
     "text": "PNB: the desk's rules find a setup — Covered call (shares + short call), net premium ₹18,720.00, stop ₹120.73, first target ₹127.09.",
@@ -2287,7 +2287,7 @@
      }
     ],
     "invalidation": "the thesis is wrong if the underlying closes beyond this level (₹120.73)",
-    "plan_id": "tp_16c835e677fe1941"
+    "plan_id": "tp_bd406bb5b717fda5"
    },
    "blocks": [
     {
@@ -3036,7 +3036,7 @@
      "id": "plan",
      "title": "The desk's plan",
      "note": null,
-     "plan_id": "tp_16c835e677fe1941"
+     "plan_id": "tp_bd406bb5b717fda5"
     }
    ],
    "evidence": [],
@@ -3085,7 +3085,7 @@
    "intent": "expected_move",
    "title": "Expected move in Nifty",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:32:55+05:30",
+   "generated_at": "2026-10-30T23:03:25+05:30",
    "mode": "eod",
    "headline": {
     "text": "The Nifty options price a move of about ±231.20 points (±1.00%) to the 3 Nov 2026 expiry; PCR 1.62, max pain 23,000.00.",
@@ -3810,7 +3810,7 @@
    "intent": "open_trades",
    "title": "Your open trades",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:32:55+05:30",
+   "generated_at": "2026-10-30T23:03:25+05:30",
    "mode": "eod",
    "headline": {
     "text": "3 open paper trades, unrealised ₹1,101.62.",
@@ -3975,7 +3975,7 @@
    "intent": "fno_setups",
    "title": "F&O setups that fit today",
    "as_of": null,
-   "generated_at": "2026-10-30T22:32:58+05:30",
+   "generated_at": "2026-10-30T23:03:28+05:30",
    "mode": "eod",
    "headline": {
     "text": "5 F&O setups fit today's regime (Bearish).",
@@ -4044,7 +4044,7 @@
       {
        "symbol": "BANKNIFTY",
        "plan_id": "tp_b3f29c9b378f0170",
-       "ask": "Is BANKNIFTY a buy now?",
+       "ask": "What's the setup for BANKNIFTY?",
        "tone": "down",
        "cells": {
         "symbol": "BANKNIFTY",
@@ -4059,7 +4059,7 @@
       {
        "symbol": "BANKNIFTY",
        "plan_id": "tp_f69b2ec21b6e2845",
-       "ask": "Is BANKNIFTY a buy now?",
+       "ask": "What's the setup for BANKNIFTY?",
        "tone": "down",
        "cells": {
         "symbol": "BANKNIFTY",
@@ -4074,7 +4074,7 @@
       {
        "symbol": "BANKNIFTY",
        "plan_id": "tp_411ea6900e897724",
-       "ask": "Is BANKNIFTY a buy now?",
+       "ask": "What's the setup for BANKNIFTY?",
        "tone": "down",
        "cells": {
         "symbol": "BANKNIFTY",
@@ -4089,7 +4089,7 @@
       {
        "symbol": "NIFTY",
        "plan_id": "tp_6ec3bbaefbf30104",
-       "ask": "Is NIFTY a buy now?",
+       "ask": "What's the setup for NIFTY?",
        "tone": "down",
        "cells": {
         "symbol": "NIFTY",
@@ -4104,7 +4104,7 @@
       {
        "symbol": "NIFTY",
        "plan_id": "tp_e06c03dda4aa30f5",
-       "ask": "Is NIFTY a buy now?",
+       "ask": "What's the setup for NIFTY?",
        "tone": "down",
        "cells": {
         "symbol": "NIFTY",
@@ -4164,7 +4164,7 @@
    "intent": "trade_validity",
    "title": "PNB · is the setup still valid?",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:33:00+05:30",
+   "generated_at": "2026-10-30T23:03:30+05:30",
    "mode": "eod",
    "headline": {
     "text": "PNB: the setup recorded earlier still holds under today's rules.",
@@ -4193,7 +4193,7 @@
      }
     ],
     "invalidation": "the thesis is wrong if the underlying closes beyond this level (₹120.73)",
-    "plan_id": "tp_16c835e677fe1941"
+    "plan_id": "tp_bd406bb5b717fda5"
    },
    "blocks": [
     {
@@ -4203,8 +4203,8 @@
      "note": null,
      "items": [
       {
-       "text": "Stop moved: recorded ₹120.67, today ₹120.73.",
-       "tone": "warn"
+       "text": "The recorded plan is still the one in force today.",
+       "tone": null
       }
      ]
     },
@@ -4827,11 +4827,6 @@
        "kind": "stop",
        "price": 120.73,
        "label": "Today's stop ₹120.73"
-      },
-      {
-       "kind": "entry",
-       "price": 125.35,
-       "label": "Recorded entry ₹125.35"
       }
      ],
      "band": null
@@ -4848,7 +4843,7 @@
      },
      {
       "name": "A plan recorded earlier (trade_plans)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
@@ -4876,8 +4871,8 @@
      "query": "What is the market view today?"
     },
     {
-     "label": "Is PNB a buy now?",
-     "query": "Is PNB a buy now?"
+     "label": "What's the setup for PNB?",
+     "query": "What's the setup for PNB?"
     }
    ],
    "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
@@ -4887,7 +4882,7 @@
    "intent": "exit_options",
    "title": "SONACOMS · hold, trail or exit",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:33:00+05:30",
+   "generated_at": "2026-10-30T23:03:30+05:30",
    "mode": "eod",
    "headline": {
     "text": "SONACOMS: unrealised ₹486.20, ₹890.50 against stop ₹824.60, target ₹957.41.",
@@ -4938,14 +4933,6 @@
      "note": null,
      "symbol": "SONACOMS",
      "bars": [
-      {
-       "d": "2026-08-04",
-       "o": 785.0,
-       "h": 794.45,
-       "l": 774.5,
-       "c": 787.0,
-       "v": 2041296.0
-      },
       {
        "d": "2026-08-05",
        "o": 790.0,
@@ -5417,11 +5404,18 @@
        "l": 865.15,
        "c": 873.6,
        "v": 2329412.0
+      },
+      {
+       "d": "2026-10-30",
+       "o": 870.0,
+       "h": 899.0,
+       "l": 867.3,
+       "c": 890.5,
+       "v": 3435779.0
       }
      ],
      "overlays": {
       "ema20": [
-       719.37,
        728.44,
        734.5,
        742.45,
@@ -5480,10 +5474,10 @@
        790.53,
        796.37,
        804.29,
-       810.89
+       810.89,
+       818.47
       ],
       "ema50": [
-       667.8,
        673.56,
        678.2,
        683.69,
@@ -5542,7 +5536,8 @@
        783.76,
        786.43,
        790.08,
-       793.35
+       793.35,
+       797.16
       ]
      },
      "levels": [
@@ -5579,7 +5574,7 @@
      },
      {
       "name": "NSE prices, split/bonus adjusted (prices_eod_adjusted)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      }
@@ -5612,7 +5607,7 @@
    "intent": "position_size",
    "title": "How much to risk in PNB",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-30T22:33:02+05:30",
+   "generated_at": "2026-10-30T23:03:32+05:30",
    "mode": "eod",
    "headline": {
     "text": "Your risk budget and today's usage.",
@@ -5726,8 +5721,8 @@
      "query": "What is the market view today?"
     },
     {
-     "label": "Is this stock a buy now?",
-     "query": "Is this stock a buy now?"
+     "label": "What's the setup on this stock?",
+     "query": "What's the setup on this stock?"
     }
    ],
    "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."

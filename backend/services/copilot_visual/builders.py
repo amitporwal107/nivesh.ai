@@ -792,7 +792,7 @@ async def fno_setups(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
             tp = i.get("trade_plan") or {}
             pid = tp.get("plan_id")
             first_plan = first_plan or pid
-            rows.append({"symbol": sym, "plan_id": pid, "ask": f"Is {sym} a buy now?" if sym else None,
+            rows.append({"symbol": sym, "plan_id": pid, "ask": f"What's the setup for {sym}?" if sym else None,
                          "tone": "up" if i.get("view") == "up" else ("down" if i.get("view") == "down" else "neutral"),
                          "cells": {"symbol": sym, "structure": i.get("name"),
                                    "view": {"up": "Bullish", "down": "Bearish"}.get(i.get("view"), "Neutral"),
@@ -892,7 +892,7 @@ async def position_size(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     title = f"How much to risk in {intent.symbol}" if intent.symbol else "How much to risk"
     return assemble("position_size", title, as_of, head, tone, blocks, src,
                     follow("What are my open trades doing?", "Which F&O setups are attractive?",
-                           "What is the market view today?", "Is this stock a buy now?"), now=ctx.get("now"))
+                           "What is the market view today?", "What's the setup on this stock?"), now=ctx.get("now"))
 
 
 async def trade_validity(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
@@ -972,7 +972,7 @@ async def trade_validity(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                else f"{sym}: {DECISION_LABELS.get(status, status)} today.")
     return assemble("trade_validity", f"{sym} · is the setup still valid?", as_of, head, tone, blocks, src,
                     follow(f"Should I book profits or hold {sym}?", "What are my open trades doing?",
-                           "What is the market view today?", f"Is {sym} a buy now?"),
+                           "What is the market view today?", f"What's the setup for {sym}?"),
                     decision=decision, now=ctx.get("now"))
 
 

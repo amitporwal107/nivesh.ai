@@ -25,7 +25,8 @@ type Payload = Record<string, any>;
 const PAYLOADS: Record<string, Payload> = Array.isArray(RAW)
   ? Object.fromEntries(RAW.map((p: Payload) => [p.intent, p]))
   : Array.isArray(RAW.payloads) ? Object.fromEntries(RAW.payloads.map((p: Payload) => [p.intent, p])) : RAW.payloads;
-const INTENTS = ["market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move"]
+const INTENTS = ["market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision", "expected_move",
+  "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size"]
   .filter((i) => PAYLOADS[i]);
 const CARD = JSON.parse(fs.readFileSync(path.join(FIX, "contract-decision-card.json"), "utf-8"));
 const PLANS: Record<string, unknown> = {
@@ -247,7 +248,7 @@ async function expectAnswer(va: Locator, p: Payload) {
   const stale = !!p.data_quality?.stale || sources.some((s: any) => s.status === "stale");
   await expect(va).toHaveAttribute("data-stale", String(stale));
   await expect(va.getByTestId("va-stale-banner")).toHaveCount(stale ? 1 : 0);
-  for (const s of sources.filter((x: any) => x.status === "stale")) await expect(va.getByTestId("va-stale-banner")).toContainText(`${s.name} (${fDay(s.as_of)})`);
+  for (const s of sources.filter((x: any) => x.status === "stale")) await expect(va.getByTestId("va-stale-banner")).toContainText(`${s.name} (${s.as_of ? fDay(s.as_of) : "date unknown"})`);
   await expect(va.getByTestId("va-missing-item")).toHaveText(p.data_quality?.missing ?? []);
   await expect(va.getByTestId("va-followup")).toHaveText((p.follow_ups ?? []).map((f: any) => `${f.label} ›`));
   if (p.caveat) await expect(va.getByTestId("va-caveat")).toHaveText(p.caveat);
