@@ -22,6 +22,7 @@ import { Markdown } from "@/components/chat/Markdown";
 import { WIDGET_TYPES } from "@/components/chat/ChatWidget";
 import { TradePlanChatCard, type TradeIdeaData } from "@/components/chat/TradePlanChatCard";
 import { VisualAnswer } from "@/components/chat/visual/VisualAnswer";
+import { DAILY_TILES } from "../../components/DailyTraderPanel";
 import { CompletionList, applyCompletion, useStockCompletion, type StockSuggestion } from "../../lib/stock-completion";
 import { useCopilotShell } from "../../lib/shell-context";
 import { useThreadEngine } from "../../lib/use-thread-engine";
@@ -235,6 +236,21 @@ export const CopilotDock = forwardRef<CopilotDockHandle, {
             <span style={{ fontSize: page ? 12.5 : 13.5, lineHeight: 1.55, color: "var(--cp-ink-2)" }}>
               Answers come from the same data the desk shows, with sources. The Copilot explains evidence and risk; it does not tell you to buy or sell, and it cannot place orders.
             </span>
+            {/* The Daily Trader Copilot's six entry points (owner, 30 Oct): a pick puts its lead question in the box. */}
+            <div data-testid="dock-daily" role="group" aria-label="What to ask about" className="grid" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 6, marginTop: 4 }}>
+              {DAILY_TILES.map((t) => {
+                const Icon = t.icon;
+                return (
+                  <button key={t.key} type="button" data-testid={`dock-daily-${t.key}`} title={t.questions[0]}
+                    onClick={() => { const q = t.questions[0]; setDraft(q); setCaret(q.length); setHi(-1); inputRef.current?.focus(); }}
+                    className="flex min-w-0 items-center"
+                    style={{ gap: 8, padding: "9px 10px", borderRadius: 10, border: "1px solid var(--cp-line)", background: "var(--bg-2)", color: "var(--cp-ink)", cursor: "pointer", fontFamily: "var(--sans)", fontSize: 12.5, textAlign: "left" }}>
+                    <Icon aria-hidden size={15} strokeWidth={1.8} style={{ flex: "none", color: "var(--cp-ink-2)" }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}

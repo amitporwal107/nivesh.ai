@@ -28,6 +28,7 @@ you like to know today? · Ask in plain English. Get evidence-backed insights an
 | DT-5 | Explore | `/api/chat/stream` gets the box's question with `persona: "trader"`; the answer shows | PASS |
 | DT-6 | Investor mode | No Daily Trader panel; "Try asking" stays | PASS |
 | DT-7 | 390 px | Tiles in two columns, no sideways scroll | PASS |
+| DT-9 | Trading-desk Copilot dock, empty (1440 px) | The six entry points under the intro; a pick puts its lead question in the dock's box and focuses it, without sending; Send asks it with `surface: trading_desk`; the thread replaces the tiles | PASS |
 | DT-8 | Staging after merge | The served bundle has the panel; a signed-in look in Trader mode | PENDING (after merge) |
 
 ## Tests run (real output, 2026-10-30)
@@ -39,6 +40,9 @@ you like to know today? · Ask in plain English. Get evidence-backed insights an
 - Screenshots of the panel at 1280 px and 390 px were reviewed: the two-column tile grid, the selected tile, the box and the
   button match the owner's screenshot.
 - `pytest tests/test_copilot_trade_idea.py` on this branch → `35 passed` (chat path unchanged).
+- After merging the visual-answer frontend (feat/dtc-visual-frontend) and adding the dock's entry points: tsc 0, and
+  `playwright test copilot-app-desk-copilot-window copilot-app-daily-trader copilot-app-visual-answer copilot-app-desk`
+  → `41 passed (52.5s)` (DT-9 included). A dock screenshot at 1440 px was reviewed: two columns of tiles under the intro.
 
 ## Not verified
 - **DT-8:** the panel on staging. It needs the merge and the frontend deploy; the work is still in progress (the visual
