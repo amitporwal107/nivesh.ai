@@ -72,7 +72,15 @@ async function chat(page: Page, payload: () => unknown): Promise<Seen> {
   const saved: unknown[] = [];
   await page.route("**/api/desk/trade-plans/*", (r) => {
     const id = decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() as string);
-    return PLANS[id] ? json(r, PLANS[id]) : json(r, { detail: "plan_not_found" }, 404);
+    if (PLANS[id]) return json(r, PLANS[id]);
+    // The real capture's plan ids (staging's own TradePlans) are served the decision-card fixture's plan under the asked
+    // id — MOCK, not that plan's data: the card's content is covered by copilot-app-desk-decision-cards.spec.ts, and
+    // here only the payload's plan_id → card link is checked.
+    if (SOURCE === REAL && /^tp_[0-9a-f]{16}$/.test(id)) {
+      const own = CARD.cash.trade_plan_response.plan.plan_id as string;
+      return json(r, JSON.parse(JSON.stringify(CARD.cash.trade_plan_response).split(own).join(id)));
+    }
+    return json(r, { detail: "plan_not_found" }, 404);
   });
   await page.route("**/api/desk/paper-account", (r) => json(r, { ...CARD.paper_account, stored: true }));
   await page.route("**/api/risk/profile", (r) => json(r, CARD.risk_profile_default));

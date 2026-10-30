@@ -105,6 +105,17 @@ Read by eye. Fixed after run 3, then checked again in run 4:
 
 Left as is (legible, minor): at 1440 px the value list under vertical bars has a tight 12 px gap between columns.
 
+## On the real capture (added 30 Oct, after the backend merge)
+- The backend's REAL staging capture `e2e/fixtures/contract-visual-answer.json` (29 Oct data, re-captured after the
+  stock-decision risk-limit change) now drives the spec.
+- **First run:** 6 cases failed, all on the trade-plan card. The real payloads carry staging's own plan ids
+  (e.g. `tp_3fd429c9f6c6e921`), which the spec's plan mock did not answer.
+- **Fix:** those ids are now served the decision-card fixture's plan under the asked id. That plan is labelled MOCK: the
+  card's own content is covered by copilot-app-desk-decision-cards, and here only the payload's plan_id → card link is
+  checked.
+- **Result:** `playwright test copilot-app-visual-answer.spec.ts` → `19 passed (25.6s)`, 1 skipped (VA-19 screenshots, only
+  with VA_SHOTS=1).
+
 ## Data Correctness (staging)
 UNVERIFIED. No real payload exists yet: the backend builder (`backend/services/copilot_visual/`) is another agent's
 branch, and its capture `e2e/fixtures/contract-visual-answer.json` was not written. Every number this report shows
