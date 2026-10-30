@@ -108,12 +108,16 @@ def test_ms10_only_replaced_feeds_follow_the_switch():
     assert "bhavcopy" not in mds.REPLACED_FEEDS and "fno_bhavcopy" not in mds.REPLACED_FEEDS
 
 
-def test_ms11_committed_file_is_current():
+def test_ms11_committed_file_cannot_let_truedata_serve():
+    """The committed switch is `current` or `shadow` (owner, 30 Oct 2026: shadow on staging, PR #416), never `truedata`
+    while TrueData is not integrated and the licence flag is false. Without credentials every server resolves to
+    `current`, and our feeds stay on whichever of the two the file says."""
     data = json.loads(mds.CONFIG_PATH.read_text())
-    assert data["source"] == "current" and data["truedata_licence_confirmed"] is False
+    assert data["source"] in ("current", "shadow") and data["truedata_licence_confirmed"] is False
     assert mds.TRUEDATA_INTEGRATED is False
     r = mds.resolve(env={})
-    assert r.effective == "current" and r.our_feeds_on and r.reasons == ()
+    assert r.effective == "current" and r.our_feeds_on
+    assert r.reasons == (() if data["source"] == "current" else ("TRUEDATA_NOT_CONFIGURED",))
 
 
 # ── Wiring ────────────────────────────────────────────────────────────────────────────────────
