@@ -407,6 +407,18 @@ def test_b10_an_option_plan_shows_its_net_premium_and_no_entry_line(src):
     assert k["Net premium"] == "₹12,617.50" and "Entry" not in k and k["Strategy"] == "Covered call (MOCK)"
     assert [lv["kind"] for lv in blocks(p, "candles")[0]["levels"]] == ["stop", "target"]
     assert "Account sizing: the risk service would refuse this plan on your account (not_sizable)" in p["data_quality"]["missing"]
+    # The refusal is shown where the decision is read: an unmet condition and a notice pointing to the plan card.
+    assert d["conditions"][-1] == {"text": "Fits your risk limits", "met": False}
+    n = blocks(p, "notice")
+    assert n and n[0]["tone"] == "warn" and n[0]["text"].startswith("Your risk limits would not allow this plan on your account.")
+
+
+def test_b10b_the_limits_message_is_carried_into_the_decision(src):
+    plan = splan("plan")
+    p = build("stock_decision", "PNB", message="Is PNB a buy now?",
+              trade_idea=SimpleNamespace(plan=plan, widget=None, sized={"status": "not_sizable", "blocking": [{"code": "min_qty_exceeds_budget", "message": "MOCK: one share risks more than your limit"}]}))
+    assert p["decision"]["conditions"][-1] == {"text": "Fits your risk limits: MOCK: one share risks more than your limit", "met": False}
+    assert "(MOCK: one share risks more than your limit)" in blocks(p, "notice")[0]["text"]
 
 
 def test_b11_plan_not_built(src):

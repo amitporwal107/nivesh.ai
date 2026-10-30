@@ -621,6 +621,14 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                              if num(sized.get("risk_pct_of_equity")) is not None else None, "warn"))
         elif sized.get("status") == "not_sizable":
             src.missing.append("Account sizing: the risk service would refuse this plan on your account (not_sizable)")
+            # The plan's own rules find a setup, but the user's limits would refuse it: say so where the decision is read,
+            # and point to the plan card, which lists why and the allowed ways forward.
+            refusal = next((r.get("message") for r in sized.get("blocking") or [] if isinstance(r, dict) and r.get("message")), None)
+            if decision:
+                decision["conditions"].append({"text": "Fits your risk limits" + (f": {refusal}" if refusal else ""), "met": False})
+            blocks.append(block("notice", "limits", None, None, tone="warn",
+                                text="Your risk limits would not allow this plan on your account" + (f" ({refusal})" if refusal else "")
+                                + ". The plan card below says why and what you can do."))
         elif sized:
             src.missing.append(f"Account sizing: {sized.get('reason') or sized.get('status') or 'unavailable'}")
         blocks.append(block("kpis", "risk", "Risk and reward", None, items=kpis))

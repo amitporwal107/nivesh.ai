@@ -98,7 +98,7 @@ async def prepare(request: Any, user: Dict[str, Any], message: str, persona: Opt
             logger.error("copilot visual: %s payload breaks the contract: %s", intent.name, problems[:5])
             raise ValueError("contract")
     except Exception as e:  # noqa: BLE001 — the question then takes the usual path (with the plan, if one was built)
-        logger.warning("copilot visual: %s answer not built: %s", intent.name, type(e).__name__)
+        logger.warning("copilot visual: %s answer not built: %s", intent.name, type(e).__name__, exc_info=True)
         return VisualAnswer(intent, agent, None, None, idea) if idea is not None else None
     subject = intent.symbol if intent.name == "stock_decision" else None
     return VisualAnswer(intent, agent, widget_for(payload, agent), facts(payload, subject=subject), idea)
