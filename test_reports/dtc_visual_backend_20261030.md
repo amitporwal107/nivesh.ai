@@ -217,6 +217,23 @@ Test C-2 validates it.
 ## Inputs required from user
 - none
 
+## Changes after the merge into feat/daily-trader-copilot (30 Oct, real output)
+- **The account's limits now show in the decision.** PNB's plan gave "Setup ready" while the risk service would refuse it
+  on the test account (not_sizable), and that appeared only as a data-quality footnote. The decision now carries an unmet
+  condition, "Fits your risk limits: …", and a warning notice that points to the plan card's guidance.
+  - New tests b10 and b10b.
+  - The first try shadowed the module's `why()` helper, which the existing `test_ti9_*` caught as an UnboundLocalError.
+    Renamed. Builder failures now log their traceback.
+- **Punctuation:** the notice no longer reads "budget.).".
+- **Chart legend:** a level whose label already shows its price is not followed by the price again (frontend
+  Candles.tsx; the spec is updated).
+- **Re-capture:** `contract-visual-answer.json` was re-captured twice in-process on staging (read only, overlay removed
+  after each run). Result: 7 of 7 intents, `contract_problems=[]`, the same 29 Oct data.
+- **Tests:**
+  - `pytest tests/test_copilot_visual.py tests/test_copilot_visual_chat.py tests/test_copilot_trade_idea.py` → `113 passed`;
+    after the punctuation fix, the visual suites alone → `78 passed`.
+  - `playwright test copilot-app-visual-answer.spec.ts` on the real capture → `19 passed`, 1 skipped (opt-in screenshots).
+
 ## Verdict: PASS
 Every case in scope ran green:
 - the resolver, the builders, the contract and facts tests, and the chat pre-step tests;
