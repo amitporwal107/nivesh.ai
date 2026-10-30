@@ -52,44 +52,77 @@ behind routes the desk uses. The work is mostly connecting it to one answer engi
 
 ## Releases
 
-### R1 — Daily Trader home and visual answers for market and opportunities (in progress)
-- **Trader home:** the owner's six entry points, a question box with stock autocomplete, and "Explore this question".
-  Built on branch feat/daily-trader-copilot.
-- **Visual-answer engine.** The contract, an intent resolver, and builders on existing services for these intents:
-  - `market_view` (Q1)
-  - `smart_money` (Q2)
-  - `top_opportunities` (Q3)
-  - `breakouts` (Q4)
-  - `unusual_volume` (Q5)
-  - `stock_decision` (Q6 and Q7)
-  - `expected_move` (Q11)
-- **Rendering.** A chart registry draws the answers: KPI strip, annotated candles with levels and bands, bars,
-  heatmap, buildup quadrant, ranked table, trade-plan card, data-quality footer. It works in the chat and in the desk dock.
+### R1 — Daily Trader home and visual answers for market and opportunities (DONE, PR pending merge)
+- **Trader home:** the owner's six entry points, a question box with stock autocomplete, and "Explore this question",
+  plus matching tiles in the trading desk's Copilot dock empty state. `components/DailyTraderPanel.tsx`.
+- **Visual-answer engine** (`backend/services/copilot_visual`), 7 intents, each built from existing desk services and
+  verified on a real staging capture: `market_view` (Q1), `smart_money` (Q2), `top_opportunities` (Q3), `breakouts`
+  (Q4), `unusual_volume` (Q5), `stock_decision` (Q6 and Q7), `expected_move` (Q11).
+- **Rendering.** A chart registry: KPI strip, annotated candles with levels and bands, bars, heatmap, buildup
+  quadrant, ranked table, trade-plan card, data-quality footer. Works in the chat thread and inline in the desk dock.
 - **Follow-up questions** after every visual answer: rule-based, each one a supported question.
+- **Six chat defects fixed** (found by the audit, so Release 1's own answers are not wrong on day one): compliance
+  wording not reaching the user, generic questions mis-routed to "Which stock?", F&O/PCR/GIFT read as stock symbols,
+  fake 0% suggestion badges, Home's dead insight cards, scheduled jobs running 4× (one per uvicorn worker).
+- **Verification:** 380 backend tests, 108 frontend tests, tsc clean, full CI allowlist identical to `origin/dev`
+  (no regression). A live signed-in session is still needed for the staging walk — see the OVERRIDE files.
 
-### R2 — Positions, F&O and risk
-- **Questions:** Q8 (thesis check), Q9 (exit options), Q10 (F&O setups), Q12 (sizing), Q13 (open trades), Q14
-  (avoid list).
-- **Open Positions workspace:**
-  - store broker position snapshots with the broker's as-of time;
-  - group positions by underlying;
-  - payoff and Greeks from the existing engines;
-  - distance to stop;
-  - risk-limit use.
+### R2 — Positions, the Broker Hub, and the next 4 visual answers
+Sized from the 30-Oct Hub audit (`audits/D_portfolio_hub.md`). The single biggest item is the Open Positions workspace.
 
-  Today, positions are read live and never stored, and the open-positions view only lists rows.
-- **Hub gaps:**
-  - a review step before the import is committed;
-  - one upload path, with preview and templates;
-  - a manual-entry screen;
-  - F&O contract normalisation (canonical key, lot size).
-- **Position-aware suggestions:** near stop, approaching expiry, stale price.
+- **4 more visual answers**, reusing R1's contract and block registry:
+  - Q8 "Is my trade still valid?" — re-check an open TradePlan's conditions against today's signals (none of this
+    exists today; the plan's own "invalidated" state is never set).
+  - Q9 "Should I book profits or hold?" — the exit engine has an ATR trail and an EMA exit, both opt-in with no UI
+    toggle, and no breakeven rule; build the answer and turn these on.
+  - Q10 "Which F&O setups are attractive?" — `POST /api/desk/strategy/top` already ranks 7 defined-risk families
+    with Greeks and breakevens; this is mostly wiring, plus a payoff-curve block.
+  - Q12 "How much should I risk?" — `risk_gate/plan_sizing.size_for` already exists; wiring plus a
+    size-vs-stop-distance block.
+- **Open Positions workspace (L).** Today positions are read live from the broker and never stored (`db.holdings`
+  has holdings; there is no positions/orders/trades model at all). Build:
+  - a positions store with the broker's own as-of time (not Nivesh's read time);
+  - grouping by underlying, with F&O contract normalisation (a canonical key, lot size; broker codes don't match
+    NSE, e.g. ICICI's SONBLW = NSE's SONACOMS);
+  - payoff, breakeven, Greeks and scenario P&L, reusing `option_pricing.py` and `strategy_plan/payoff.py` (already
+    used by R1's visual answers and the desk);
+  - distance to stop, combined exposure, daily realised P&L, risk-limit use;
+  - stale-price / near-expiry / breach warnings.
+- **Hub fixes (M):**
+  - a real review step before an import commits (today the broker callback commits straight away);
+  - one upload path with a preview, instead of three inconsistent ones (only the desk's Portfolio tab previews;
+    Settings/Onboarding/Brokers post straight to the route);
+  - F&O-position and trade-history import templates (today only holdings/MF layouts exist);
+  - a manual-entry UI (the backend route exists; nothing in `/app` calls it);
+  - a price-freshness stamp on stored rows (0 of 125 staging rows have one today) and transaction-based cost basis
+    for broker rows (today only the CAS-delta estimate exists).
+- **My Portfolio charts (M):** a treemap, an equity curve vs Nifty 50, DMA 20/50/200 health per holding (the data is
+  already in Postgres `stock_technical_features`), a per-stock evidence panel.
+- **Position-aware suggestions:** near stop, approaching expiry, stale price — blocked on the positions store above,
+  since brokers give no stop price to compare against.
 
-### R3 — Review and validation
-- **Q15:** equity curve, win/loss, plan versus actual, rule adherence.
-- **Live signal outcomes:** `positional_outcomes` is empty today. Signal hit-rate by setup.
-- **Suggestion engine:** rules, events, instances and feedback, with dismiss, "Why am I seeing this?" and cooldowns.
-- **Portfolio scenarios:** Nifty −2%, sector reduction.
+### R3 — Daily review and the real suggestion engine
+Sized from the 30-Oct suggestions audit (`audits/E_suggestions.md`). The suggestion engine itself is sized L.
+
+- **Q15 "What did I learn from today's trades?"** Build plan-vs-actual, rule adherence, win/loss and an equity curve
+  from the existing paper-trade journal and risk-decision log. `positional_outcomes` is empty today, so there is no
+  live signal hit-rate yet; the idea scorecard is a static backtest file ("no measurable skill"), not a live number.
+- **The suggestion engine**, replacing today's static, scored prompt list:
+  - the 5 stores from the brief: `suggestion_rules`, `suggestion_events`, `suggestion_instances`,
+    `suggestion_feedback`, `query_templates` (today: nothing — no code, no collections);
+  - scheduled + event-driven evaluation (reuse the desk-alerts cron pattern: dedup key, one-shot firing), with
+    cooldowns;
+  - ranking beyond today's score + persona boost: urgency, evidence quality, interest weights, dedup across
+    surfaces;
+  - dismiss / refresh / "Why am I seeing this?" (today: nothing tracks a prompt's feedback);
+  - the 3-way split — informational / validated signal / actionable risk alert — as one field plus its own wording
+    and SEBI-safe card treatment (today the vocabulary is scattered: prompt tier, insight severity, "fired");
+  - the 4 tabs (For You / Market / My Trades / F&O Lab): a category/audience on every template, and Trader mode
+    passing it (today the backend filter covers only 5 investor categories, and v5 never sends one);
+  - `query_templates` actually used: a card's click already asks free text through the same LangGraph router R1's
+    visual answers use; map each template to its intent/agent instead of relying on text matching alone.
+- **Portfolio scenarios:** Nifty −2%, a sector-reduction "what if", reusing the risk service's existing stress-test
+  tools (today: a flat percentage drop only, no beta or F&O weighting).
 
 ## Decisions for the owner
 1. **Wording for "Is this stock a buy now?"** The decision label proposed is **Setup ready / Wait / Avoid / No setup
