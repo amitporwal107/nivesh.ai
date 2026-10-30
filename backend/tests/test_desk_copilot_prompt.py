@@ -40,7 +40,7 @@ def test_only_the_desk_surface_sets_a_desk_persona(surface, persona, want):
 def test_desk_questions_get_the_prd_answer_structure_in_order():
     text = pf.frame_for_persona("active_trader", "trader")
     assert text.startswith(pf.frame_for_persona("active_trader"))
-    labels = ["1) Direct answer", "2) Evidence", "3) As of", "4) Bullish factors and bearish factors", "5) Key uncertainties",
+    labels = ["1) Direct answer", "2) Evidence", "3) As of", "4) Upside factors and downside factors", "5) Key uncertainties",
               "6) What would invalidate this view", "7) Sources", "8) Where to look"]
     pos = [text.index(lab) for lab in labels]
     assert pos == sorted(pos)

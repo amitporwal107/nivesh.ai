@@ -46,8 +46,8 @@ when it is present.
 
 Style:
 - ≤ 200 words, plain text (no markdown)
-- Always include a one-line market sentiment call (bullish/bearish/neutral),
-  justified by breadth + VIX + flows
+- Always include a one-line market tone read (trend up / down / sideways),
+  justified by breadth + VIX + flows; never write the words bullish or bearish
 - Do NOT append any SEBI disclaimer — the UI renders one canonical disclaimer below the chat input.
 
 If asked about index targets, analyst consensus, or future forecasts, say plainly

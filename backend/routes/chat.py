@@ -1792,8 +1792,12 @@ async def stream_chat(request: Request):
                             output = event.get("data", {}).get("output", {})
                             final_resp = output.get("response")
                             if final_resp:
-                                if not prose:
-                                    prose = getattr(final_resp, "text", "") or str(final_resp)
+                                # The compliance node's text (advice scrub, grounding
+                                # caveat, 400-word cap) is the answer: it replaces the
+                                # streamed draft in the done frame and is what is saved.
+                                final_text = getattr(final_resp, "text", "") or ""
+                                if final_text.strip() or not prose:
+                                    prose = final_text or str(final_resp)
                                 wt = getattr(final_resp, "widget_type", None)
                                 wd = getattr(final_resp, "widget_data", None)
                                 wt_s = wt.value if hasattr(wt, "value") else (str(wt) if wt else None)

@@ -106,6 +106,27 @@ def symbol_for(message: str) -> Optional[str]:
         return None
 
 
+MASTER_TIMEOUT_S = 5.0
+
+
+async def in_symbol_master(symbol: str) -> bool:
+    """Whether a plan may be built for `symbol`. A curated ticker of the resolver is a stock; any other symbol (one the
+    resolver passed through) must be in the NSE symbol master (services/symbol_lookup's cached universe, the same one
+    the plan route's suggestions read). Without that, "F&O" or "GIFT" in a Trader question got a plan and pinned the
+    answer to the stock analyst. A master that cannot be read gives no plan; the router then places the question."""
+    from services.copilot_tools.symbol_resolver import _TICKERS
+    sym = (symbol or "").strip().upper()
+    if sym in _TICKERS:
+        return True
+    try:
+        from services import symbol_lookup
+        universe = await asyncio.wait_for(asyncio.shield(symbol_lookup.get_universe()), timeout=MASTER_TIMEOUT_S)
+    except Exception as exc:  # noqa: BLE001 — no plan rather than a plan for a non-stock
+        logger.warning("copilot trade idea: the symbol master could not be read for %s: %s", sym, exc)
+        return False
+    return sym in getattr(universe, "entries", {})
+
+
 def _plan_rows(plan: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The candidates that carry a TradePlan, preferred first, at most MAX_PLANS_ON_CARD."""
     cands = [c for c in plan.get("candidates") or [] if isinstance(c, dict) and (c.get("trade_plan") or {}).get("plan_id")]
@@ -241,6 +262,9 @@ async def build(request: Any, user_id: str, symbol: str, message: str) -> Option
     inputs, problems = normalise_inputs({"underlying": symbol, "direction": direction, "horizon": horizon_of(message)})
     if problems or not inputs:
         logger.info("copilot trade idea: inputs refused for %s: %s", symbol, problems)
+        return None
+    if not await in_symbol_master(symbol):
+        logger.info("copilot trade idea: %s is not in the NSE symbol master; no plan", symbol)
         return None
 
     async def run() -> Dict[str, Any]:
