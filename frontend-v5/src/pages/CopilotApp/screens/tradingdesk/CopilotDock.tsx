@@ -21,6 +21,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type Reac
 import { Markdown } from "@/components/chat/Markdown";
 import { WIDGET_TYPES } from "@/components/chat/ChatWidget";
 import { TradePlanChatCard, type TradeIdeaData } from "@/components/chat/TradePlanChatCard";
+import { VisualAnswer } from "@/components/chat/visual/VisualAnswer";
 import { CompletionList, applyCompletion, useStockCompletion, type StockSuggestion } from "../../lib/stock-completion";
 import { useCopilotShell } from "../../lib/shell-context";
 import { useThreadEngine } from "../../lib/use-thread-engine";
@@ -98,6 +99,8 @@ function DockTurn({ turn, busy, page, onRetry, onAsk, onOpenThread }: { turn: Tu
   // A stock's trade idea is the desk's own plan card: shown here, beside the desk, not only in the full thread.
   const tradePlan = turn.widget?.widget_type === "trade_plan" && turn.widget.data && typeof turn.widget.data === "object"
     ? (turn.widget.data as TradeIdeaData) : null;
+  // The visual answer (charts, tables, the plan) is shown here too, compact, beside the desk.
+  const visual = turn.widget?.widget_type === "visual_answer" && turn.widget.data != null;
   return (
     <div data-testid="dock-turn" data-state={turn.state} className="flex flex-col" style={{ gap: 14, flex: "none" }}>
       {turn.question && (
@@ -116,7 +119,8 @@ function DockTurn({ turn, busy, page, onRetry, onAsk, onOpenThread }: { turn: Tu
             )}
             {working && !turn.text && <Typing />}
             {tradePlan !== null && <TradePlanChatCard data={tradePlan} onAction={(a) => { if (a.query && !busy) onAsk(a.query); }} />}
-            {card && !tradePlan && (
+            {visual && <VisualAnswer data={turn.widget?.data} compact onAction={(a) => { if (a.query && !busy) onAsk(a.query); }} />}
+            {card && !tradePlan && !visual && (
               <button type="button" onClick={onOpenThread} style={{ alignSelf: "flex-start", padding: 0, border: 0, background: "none", fontSize: 12, color: "var(--mint)", cursor: "pointer" }}>
                 This answer has a result card — open the full thread ›
               </button>
