@@ -9,7 +9,7 @@
  * completes as in every ask box); its other questions are listed under the button. "Explore this question" asks the
  * Copilot, which answers with the evidence and the data's date.
  */
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { BarChart3, BriefcaseBusiness, NotepadText, ScanSearch, ShieldCheck, SquareActivity, ArrowRight, type LucideIcon } from "lucide-react";
 import { applyCompletion, CompletionList, useStockCompletion, type StockSuggestion } from "../lib/stock-completion";
 
@@ -68,19 +68,23 @@ export function DailyTraderPanel({ onAsk, eyebrow, mobile }: { onAsk: (question:
   const box = useRef<HTMLTextAreaElement | null>(null);
   const completion = useStockCompletion(draft.slice(0, caret), focused);
   const shown = completion.data;
+  // The selection to apply once the box shows the new text: in the same commit (a layout effect), so a key typed right
+  // after a pick lands in the box, over "this stock".
+  const [pendingSel, setPendingSel] = useState<{ start: number; end: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!pendingSel || !el) return;
+    el.focus();
+    el.setSelectionRange(pendingSel.start, pendingSel.end);
+    setCaret(pendingSel.start);
+    setPendingSel(null);
+  }, [pendingSel]);
 
   /** Put a question in the box; a "this stock" in it is selected, so typing a name replaces it. */
   const choose = (q: string) => {
     setDraft(q);
     const at = q.indexOf(PLACEHOLDER);
-    requestAnimationFrame(() => {
-      const el = box.current;
-      if (!el) return;
-      el.focus();
-      if (at >= 0) el.setSelectionRange(at, at + PLACEHOLDER.length);
-      else el.setSelectionRange(q.length, q.length);
-      setCaret(el.selectionStart ?? q.length);
-    });
+    setPendingSel(at >= 0 ? { start: at, end: at + PLACEHOLDER.length } : { start: q.length, end: q.length });
   };
   const pickTile = (t: DailyTile) => { setTile(t); choose(t.questions[0]); };
   const pickStock = (s: StockSuggestion) => {

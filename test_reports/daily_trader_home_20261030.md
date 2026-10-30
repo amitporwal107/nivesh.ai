@@ -33,6 +33,9 @@ you like to know today? · Ask in plain English. Get evidence-backed insights an
 ## Tests run (real output, 2026-10-30)
 - `tsc --noEmit -p tsconfig.json` → `TSC_EXIT=0`.
 - `playwright test e2e/tests/copilot-app-daily-trader.spec.ts` (production build, mocked APIs) → `7 passed (4.0s)`: DT-1 … DT-7.
+- **A race, found and fixed.** A later run failed DT-4 once in 3 repeats: a name typed straight after picking a question
+  could land before "this stock" was selected, because the panel selected it on the next animation frame. The selection now
+  happens in the same commit (a layout effect). After the fix, `--repeat-each 5` → `35 passed (19.5s)`, with tsc 0.
 - Screenshots of the panel at 1280 px and 390 px were reviewed: the two-column tile grid, the selected tile, the box and the
   button match the owner's screenshot.
 - `pytest tests/test_copilot_trade_idea.py` on this branch → `35 passed` (chat path unchanged).
