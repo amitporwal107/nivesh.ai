@@ -248,7 +248,6 @@ function StockRow({ idea, rank, scanDate, listed, setup }: { idea: Idea; rank: n
           </DrawerDetails>
           <DrawerSection title="Open">
             <div className="flex flex-wrap items-center" style={{ gap: 6 }}>
-              <LinkChip testId="desk-top10-stock-plan" onClick={() => go(() => desk.openStrategyPlan(planParamsFor(idea, scanDate)))} title="The full plan in the Strategy Builder: sizing, costs, evidence and the payoff">Strategy ›</LinkChip>
               <LinkChip testId="desk-top10-stock-chart" onClick={() => go(() => desk.openChart(idea.symbol))}>Chart ›</LinkChip>
               {idea.fno_eligible && (
                 <LinkChip testId="desk-top10-stock-chain" onClick={() => go(() => desk.openLab("chain", { symbol: idea.symbol }))}>Option chain ›</LinkChip>
@@ -279,7 +278,6 @@ function StockBoard() {
         actions={(
           <>
             <button type="button" className="cp-chip" data-testid="desk-top10-stocks-rerank" disabled={q.isFetching} onClick={() => q.refetch()}>{q.isFetching ? "Ranking…" : "Rank again"}</button>
-            <LinkChip testId="desk-top10-stocks-board" onClick={() => { desk.noteFrom(FROM_STOCKS); desk.openStrategyIdeas(); }}>Ideas board ›</LinkChip>
           </>
         )}
       />

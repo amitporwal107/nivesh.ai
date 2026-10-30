@@ -84,10 +84,10 @@ export function OpenPendingView({ d, onOpen, onChart, onNewTrade, onOverview }: 
         <div data-testid="td-open-empty">
           <EmptyBlock
             title="No open paper trades"
-            body="Start from an idea on Market Overview › Top AI ideas, or build one in Strategy Lab › Build a trade. The risk service sizes it for your account; nothing is sent to a broker."
+            body="Start from an idea on Market Overview › Top AI ideas, or build one on Chart Analysis with the paper basket. Nothing is sent to a broker."
             action={<span className="flex flex-wrap" style={{ gap: 12 }}>
               <button type="button" data-testid="td-empty-overview" style={linkBtn} onClick={onOverview}>Market Overview ›</button>
-              <button type="button" data-testid="td-empty-new" style={linkBtn} onClick={onNewTrade}>Strategy Lab ›</button>
+              <button type="button" data-testid="td-empty-new" style={linkBtn} onClick={onNewTrade}>Chart Analysis ›</button>
             </span>}
           />
         </div>

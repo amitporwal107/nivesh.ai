@@ -5,15 +5,17 @@
  *   /app/trader/desk?tab=<tab>&view=<view>[&sub=<sub-view>]
  *
  *   01 Market Overview   tab=overview     one page (no views)
- *   02 Trade Desk        tab=trade        the owner's workbench (PLAN.md "1-REVISED", 27 Oct 19:40): five sections, each with
+ *   02 Trade Desk        tab=trade        the owner's workbench (PLAN.md "1-REVISED", 27 Oct 19:40): four sections, each with
  *                                         its sub-views (sub=):
  *                                           scanner     AI Scanner      ranked · library · scorecard
  *                                           chart       Chart Analysis  live · record
- *                                           lab         Strategy Lab    build · backtest
  *                                           paper       Paper Trading   live · journal
  *                                           watchlists  Watchlists      (one page)
- *                                         The old Trade Desk views land in their sections: view=open / paper → paper live,
- *                                         closed → paper journal, new → lab build; Market Desk's watchlists → here.
+ *                                         Strategy Lab was removed (owner, 29 Oct: "remove strategy lab completely"); trades
+ *                                         are built on the chart's paper basket now, so every lab URL opens Chart Analysis ›
+ *                                         Live chart with its sym and tp (LAB_TO_CHART). The old Trade Desk views land in their
+ *                                         sections: view=open / paper → paper live, closed → paper journal, new → the chart;
+ *                                         Market Desk's watchlists → here.
  *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener
  *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
  *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
@@ -53,7 +55,6 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
   trade: [
     { key: "scanner", label: "AI Scanner" },
     { key: "chart", label: "Chart Analysis" },
-    { key: "lab", label: "Strategy Lab" },
     { key: "paper", label: "Paper Trading" },
     { key: "watchlists", label: "Watchlists" },
   ],
@@ -75,7 +76,6 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
 export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
   "trade/scanner": [{ key: "ranked", label: "Ranked candidates" }, { key: "library", label: "Signal library & sources" }, { key: "scorecard", label: "Scorecard" }],
   "trade/chart": [{ key: "live", label: "Live chart" }, { key: "record", label: "Signal record" }],
-  "trade/lab": [{ key: "build", label: "Build a trade" }, { key: "backtest", label: "Backtest & validation" }],
   "trade/paper": [{ key: "live", label: "Live desk" }, { key: "journal", label: "Trade journal" }],
 };
 
@@ -132,8 +132,14 @@ export const VIEW_PARAMS = [
   "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry",
   // the F&O lab (FnoTab.tsx) and Market Intelligence (IntelTab.tsx)
   "lab", "lab_sym", "lab_focus", "in_chip", "in_ev",
-  // Trade Desk: the sub-view, the ticket's plan (Strategy Lab) and the journal's trade (Paper Trading)
+  // Trade Desk: the sub-view, the chart's plan (?tp=) and the journal's trade (Paper Trading)
   "sub", "tp", "trade",
+];
+
+/** The Strategy Lab's own params (its wizard, the Strategy Builder, the F&O lab's hand-off), dropped when a lab URL opens the chart. */
+const LAB_ONLY_PARAMS = [
+  "direction", "instrument", "horizon", "build", "plan", "src_kind", "src_bucket", "src_date", "cand", "mode", "focus", "capital", "risk_inr",
+  "risk_pct", "max_alloc", "min_rr", "horizon_days", "avoid_events", "multi_leg", "expiry", "lab", "lab_sym", "lab_focus", "underlying",
 ];
 
 /** The place first (tab, view, section), then the hosted screens' own params in their order: a readable URL. */
@@ -176,6 +182,13 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     if (section) p.set("section", section);
     return canonical(p);
   };
+  // Strategy Lab is gone (owner, 29 Oct): its URLs open the chart, keeping the stock and the plan.
+  const toChart = () => {
+    const sym = params.get("sym") ?? params.get("lab_sym") ?? params.get("focus") ?? params.get("underlying");
+    for (const k of [...LAB_ONLY_PARAMS, "section", "view", "sub"]) p.delete(k);
+    if (sym) p.set("sym", sym.toUpperCase());
+    return set("trade", "chart", undefined, "live");
+  };
   if (tab === "copilot" && docked) {
     p.delete("view");
     return set("overview", null);
@@ -194,9 +207,8 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
   if (tab === "trade") {
     // Trade Desk's views before the owner's workbench structure (step 3, first cut): their new sections.
     const old = params.get("view");
-    if (old === "open" || old === "closed" || old === "new") {
-      return old === "new" ? set("trade", "lab", undefined, "build") : set("trade", "paper", undefined, old === "closed" ? "journal" : "live");
-    }
+    if (old === "lab" || old === "new") return toChart();
+    if (old === "open" || old === "closed") return set("trade", "paper", undefined, old === "closed" ? "journal" : "live");
   }
   if (tab === "market" && params.get("view") === "screener" && params.get("section") === "chartink") {
     // Chartink sources moved from Market Desk › Screener to Trade Desk › AI Scanner › Signal library & sources (owner's design).
@@ -219,14 +231,11 @@ export function legacyRedirect(params: URLSearchParams, docked: boolean): URLSea
     case "chart": return set("trade", "chart", undefined, "live");
     case "smartmoney": return set("market", "smartmoney");
     case "fno":
-      if (params.get("lab") === "strategies") {
-        p.delete("lab");
-        return set("trade", "lab", "fno", "build");
-      }
+      if (params.get("lab") === "strategies") return toChart();
       return set("market", "smartmoney", "fno");
     case "more": {
       const view = params.get("view");
-      if (view === "strategy") return set("trade", "lab", "builder", "build");       // opens "From an idea · Strategy Builder"
+      if (view === "strategy") return toChart();
       if (view === "risk") return set("risk", "limits");
       if (view === "chartink") return set("trade", "scanner", "chartink", "library");
       p.delete("view");

@@ -119,7 +119,7 @@ function PickPayoff({ s, compact }: { s: PickStrategy; compact: boolean }) {
   return (
     <div data-testid="ck-pick-payoff" className="min-w-0" style={{ maxWidth: "100%" }}>
       <PayoffChart expiry={q.data.expiry} preExpiry={null} referencePrice={s.payoff_request.reference_price} compact={compact} stale={q.isStale} persona={persona} />
-      <span style={noteStyle}>Payoff at expiry from the payoff engine, net of the costs shown in the Strategy Builder; a calculation, not a forecast.</span>
+      <span style={noteStyle}>Payoff at expiry from the payoff engine, net of the plan's costs; a calculation, not a forecast.</span>
     </div>
   );
 }
@@ -174,7 +174,7 @@ function StrategyRow({ s, pick, preferred, compact, onOpen }: { s: PickStrategy;
             {priced && s.segment === "futures" && <p className="m-0" style={noteStyle}>A loss on futures can exceed the margin.</p>}
             {priced && <PickPayoff s={s} compact={compact} />}
             <div>
-              <Btn variant="primary" data-testid="ck-pick-open-builder" aria-label={`Open ${pick.symbol} ${s.label} in Strategy Builder`} onClick={() => onOpen(s.id)} style={{ padding: "6px 12px", fontSize: 12 }}>Open in Strategy Builder ›</Btn>
+              <Btn variant="primary" data-testid="ck-pick-open-builder" aria-label={`Open ${pick.symbol} on Chart Analysis`} onClick={() => onOpen(s.id)} style={{ padding: "6px 12px", fontSize: 12 }}>Open on Chart Analysis ›</Btn>
             </div>
           </>
         )}
@@ -188,7 +188,7 @@ function Strategies({ pick, compact, onOpen }: { pick: Pick; compact: boolean; o
   const rows = pick.strategies.filter((r) => !noFno.includes(r));
   return (
     <div data-testid="ck-pick-strategies" className="flex min-w-0 flex-col" style={{ gap: 4 }}>
-      <span data-testid="ck-pick-strategies-count" className="cp-eyebrow" style={{ fontSize: 9.5 }}>Strategies from the Strategy Builder ({rows.filter((r) => r.status === "candidate" && belowMinimum(r) == null).length} viable of {rows.length})</span>
+      <span data-testid="ck-pick-strategies-count" className="cp-eyebrow" style={{ fontSize: 9.5 }}>Strategies from the plan engine ({rows.filter((r) => r.status === "candidate" && belowMinimum(r) == null).length} viable of {rows.length})</span>
       {noFno.length > 0 && <p role="note" data-testid="ck-pick-not-fno" className="m-0" style={{ fontSize: 12.5, color: "var(--cp-ink-2)" }}>No futures and options for this stock: only cash applies.</p>}
       {rows.length === 0 ? <p data-testid="ck-pick-no-strategies" className="m-0" style={noteStyle}>No strategy was built for this candidate.</p> : (
         <ul className="m-0 flex min-w-0 flex-col p-0" style={{ listStyle: "none" }}>

@@ -22,10 +22,9 @@ const json = (route: Route, body: unknown, status = 200) => route.fulfill({ stat
 
 const DESK = "/v5/app/trader/desk";
 /** The owner's workbench places (PLAN.md "1-REVISED"): the TD cases' old view names, and where they are now. */
-const PLACE: Record<string, string> = { open: "paper&sub=live", closed: "paper&sub=journal", new: "lab&sub=build", backtest: "lab&sub=backtest" };
+const PLACE: Record<string, string> = { open: "paper&sub=live", closed: "paper&sub=journal" };   // Strategy Lab (new, backtest) was removed, owner 29 Oct
 const TD = (view: string, extra = "") => `${DESK}?tab=trade&view=${PLACE[view] ?? view}${extra}`;
 const CASH_PLAN = CARD.cash.trade_plan_response.plan;
-const SRC = "&src_kind=scanner&src_bucket=breakout_confirmed&src_date=2026-10-19";
 const SLOW = { timeout: 15_000 };
 
 // ── MOCK paper trades (backend/routes/desk_trading.py list_paper_trades: svc.public_trade / strat.public_strategy_trade
@@ -251,9 +250,9 @@ async function noSideScroll(page: Page) {
 // ── header strip ─────────────────────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · header strip", () => {
-  test("TD-1 / TD-2 / TD-3 / TD-5 the Live desk's account, open-risk chip and exit line; the paper/real line on Paper Trading and Strategy Lab", async ({ page }) => {
+  test("TD-1 / TD-2 / TD-3 / TD-5 the Live desk's account, open-risk chip and exit line; the paper/real line on Paper Trading", async ({ page }) => {
     await setup(page);
-    for (const view of ["closed", "new"]) {
+    for (const view of ["closed"]) {
       await page.goto(TD(view));
       await expect(page.getByTestId("desk-paper-real-line"), view).toHaveText("These are paper trades. Your real holdings and F&O positions (read-only): My portfolio", SLOW);
     }
@@ -324,17 +323,17 @@ test.describe("MOCK — not real data: Trade Desk · header strip", () => {
 // ── navigation and Open & pending ────────────────────────────────────────
 
 test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
-  test("NV-1 / NV-2 / TD-7 five sections in the design's order; ?tab=trade opens AI Scanner › Ranked candidates; sub-views and the four-deep crumb", async ({ page }) => {
+  test("NV-1 / NV-2 / TD-7 four sections (Strategy Lab removed, owner 29 Oct); ?tab=trade opens AI Scanner › Ranked candidates; sub-views and the four-deep crumb", async ({ page }) => {
     await setup(page);
     await page.goto(`${DESK}?tab=trade`);
     await expect.poll(() => params(page).get("view")).toBe("scanner");
     await expect.poll(() => params(page).get("sub")).toBe("ranked");
-    await expect(page.getByTestId("desk-views").getByRole("button")).toHaveText(["AI Scanner", "Chart Analysis", "Strategy Lab", "Paper Trading", "Watchlists"]);
+    await expect(page.getByTestId("desk-views").getByRole("button")).toHaveText(["AI Scanner", "Chart Analysis", "Paper Trading", "Watchlists"]);
     const trail = page.getByTestId("desk-trail");
     await expect(trail).toHaveText(/^▸Trading desk›Trade Desk›AI Scanner›Ranked candidates$/);
     const SUBS: Record<string, string[]> = {
       scanner: ["Ranked candidates", "Signal library & sources", "Scorecard"], chart: ["Live chart", "Signal record"],
-      lab: ["Build a trade", "Backtest & validation"], paper: ["Live desk", "Trade journal"], watchlists: [],
+      paper: ["Live desk", "Trade journal"], watchlists: [],
     };
     for (const [view, labels] of Object.entries(SUBS)) {
       await page.getByTestId(`desk-view-${view}`).click();
@@ -358,8 +357,10 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await setup(page);
     const cases: Array<[string, string, string | null, Record<string, string>?]> = [
       ["?tab=trade&view=paper", "paper", "live"], ["?tab=trade&view=open", "paper", "live"], ["?tab=trade&view=closed", "paper", "journal"],
-      ["?tab=trade&view=new", "lab", "build"], ["?tab=fno&lab=strategies&lab_sym=NIFTY", "lab", "build", { section: "fno", lab_sym: "NIFTY" }],
-      ["?tab=more&view=strategy&mode=stock&sym=INFY", "lab", "build", { mode: "stock", sym: "INFY" }], ["?tab=market&view=watchlists", "watchlists", null],
+      // Strategy Lab was removed (owner, 29 Oct): every lab URL opens Chart Analysis › Live chart with its stock.
+      ["?tab=trade&view=new", "chart", "live"], ["?tab=trade&view=lab&sub=backtest", "chart", "live"],
+      ["?tab=fno&lab=strategies&lab_sym=NIFTY", "chart", "live", { sym: "NIFTY" }],
+      ["?tab=more&view=strategy&mode=stock&sym=INFY", "chart", "live", { sym: "INFY" }], ["?tab=market&view=watchlists", "watchlists", null],
     ];
     for (const [from, view, sub, extra] of cases) {
       await page.goto(`${DESK}${from}`);
@@ -441,12 +442,12 @@ test.describe("MOCK — not real data: Trade Desk · Open & pending", () => {
     await expect(row.getByTestId("td-open-net")).toHaveText("—");
   });
 
-  test("TD-13 no trades: the empty state links to Market Overview and New trade", async ({ page }) => {
+  test("TD-13 no trades: the empty state links to Market Overview and Chart Analysis", async ({ page }) => {
     await setup(page, { trades: [] });
     await page.goto(TD("open"));
     await expect(page.getByTestId("td-open-empty")).toBeVisible(SLOW);
     await page.getByTestId("td-empty-new").click();
-    await expect.poll(() => params(page).get("view")).toBe("lab");
+    await expect.poll(() => params(page).get("view")).toBe("chart");
     await page.goto(TD("open"));
     await page.getByTestId("td-empty-overview").click(SLOW);
     await expect.poll(() => params(page).get("tab")).toBe("overview");
@@ -550,111 +551,8 @@ test.describe("MOCK — not real data: Trade Desk · Closed & journal", () => {
 
 // ── New trade ────────────────────────────────────────────────────────────
 
-test.describe("MOCK — not real data: Trade Desk · New trade", () => {
-  test("TD-24 no idea open: no ticket; From an idea points to Market Overview › Top AI ideas", async ({ page }) => {
-    await setup(page);
-    await page.goto(TD("new"));
-    await expect(page.getByTestId("td-from-idea-note")).toContainText("No idea open.", SLOW);
-    await expect(page.getByTestId("td-ticket")).toHaveCount(0);
-    await page.getByTestId("td-ticket-overview").click();
-    await expect.poll(() => params(page).get("tab")).toBe("overview");
-  });
-
-  test("TD-25 / TD-26 the ticket's size is account_size, with no slider or size field; allowed → the contract body with an Idempotency-Key", async ({ page }) => {
-    const risk = CARD.cash.allowed.trade_plan_response.risk_decision;
-    const sent = CARD.cash.allowed.sent;
-    const trade = cash({ id: "t-allowed", symbol: sent.symbol, quantity: sent.quantity, entry_price: sent.entry_price, stop_price: sent.stop_price, target_price: sent.target_price, plan_ref: sent.plan_ref, state: "POSITION_OPEN" });
-    const seen = await setup(page, { post: [{ status: 201, body: { trade, risk } }] });
-    await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));
-    const ticket = page.getByTestId("td-ticket");
-    const size = ticket.getByTestId("td-ticket-size");
-    await expect(size).toHaveAttribute("data-qty", String(CARD.cash.trade_plan_response.account_size.quantity), SLOW);
-    await expect(size).toContainText("666 shares");
-    await expect(size).toContainText("The risk service’s own size (account_size)");
-    await expect(ticket.locator('input, [role="slider"], input[type="range"]')).toHaveCount(0);
-    await ticket.getByTestId("td-ticket-submit").click();
-    await expect(ticket.getByTestId("td-ticket-answer")).toHaveAttribute("data-outcome", "allow");
-    await expect(ticket.getByTestId("td-ticket-answer-text")).toHaveText("Allowed: 666 ICICIBANK shares recorded as a paper trade (t-allowed).");
-    expect(seen.posts).toEqual([CARD.cash.allowed.sent]);
-    expect(seen.keys[0]).toMatch(/^.{8,64}$/);
-  });
-
-  test("TD-27 reduced: 113 → 83 with the reasons and \"Accept 83?\"; accepting sends the same body at 83", async ({ page }) => {
-    // MOCK edit: the plan answer sized at the contract's submitted 113, so the ticket sends the contract's reduced body.
-    const plan = clone(CARD.cash.trade_plan_response);
-    plan.account_size.quantity = CARD.cash.reduced.sent.quantity;
-    const seen = await setup(page, { plan, post: [{ status: 409, body: { detail: CARD.cash.reduced.paper_detail } }, { status: 201, body: { trade: { id: "t-83" }, risk: null } }] });
-    await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));
-    await page.getByTestId("td-ticket-submit").click(SLOW);
-    const ans = page.getByTestId("td-ticket-answer");
-    await expect(ans).toHaveAttribute("data-outcome", "reduce");
-    await expect(ans.getByTestId("td-ticket-answer-text")).toHaveText("Reduced 113 → 83. Nothing was recorded.");
-    await expect(ans.getByTestId("td-ticket-reason").first()).toHaveText(CARD.cash.reduced.paper_detail.reasons[0].message);
-    await expect(ans.getByTestId("td-ticket-reduce-accept")).toHaveText("Accept 83?");
-    await ans.getByTestId("td-ticket-reduce-accept").click();
-    await expect(page.getByTestId("td-ticket-answer")).toHaveAttribute("data-outcome", "allow");
-    expect(seen.posts).toEqual([CARD.cash.reduced.sent, { ...CARD.cash.reduced.sent, quantity: 83 }]);
-    expect(seen.keys[0]).not.toBe(seen.keys[1]);
-  });
-
-  test("TD-28 blocked: the reason, and no accept", async ({ page }) => {
-    await setup(page, { post: [{ status: 409, body: { detail: CARD.cash.blocked.paper_detail } }] });
-    await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));
-    await page.getByTestId("td-ticket-submit").click(SLOW);
-    const ans = page.getByTestId("td-ticket-answer");
-    await expect(ans).toHaveAttribute("data-outcome", "block");
-    await expect(ans.getByTestId("td-ticket-answer-text")).toHaveText("Blocked by the risk service. Nothing was recorded.");
-    await expect(ans.getByTestId("td-ticket-reason")).toHaveText([CARD.cash.blocked.paper_detail.reasons[0].message]);
-    await expect(ans).toContainText("only an admin clears it");
-    await expect(page.getByTestId("td-ticket-reduce-accept")).toHaveCount(0);
-  });
-
-  test("TD-29 / TD-30 a duplicate and an impossible fill, in plain words", async ({ page }) => {
-    const dup = { code: "duplicate_open_trade", existing_trade_id: "pt-icici", symbol: "ICICIBANK",
-      message: "You already have an open paper trade in ICICIBANK (paper trade pt-icici, opened 2026-10-20T05:00:00+00:00). Adding to a position is not supported yet; close it first." };
-    const unfillable = { code: "entry_not_tradable",
-      message: "The entry ₹1,200.00 is above the last completed session's range (2026-10-19: ₹1,150.00–₹1,190.00), so it could not be filled at once. Record it with the entry rule \"break above\" to wait for that level." };
-    await setup(page, { post: [{ status: 409, body: { detail: dup } }, { status: 422, body: { detail: unfillable } }] });
-    await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));
-    await page.getByTestId("td-ticket-submit").click(SLOW);
-    await expect(page.getByTestId("td-ticket-answer")).toHaveAttribute("data-outcome", "duplicate");
-    await expect(page.getByTestId("td-ticket-answer-text")).toHaveText("ICICIBANK is already open (paper trade pt-icici): not added twice.");
-    await page.getByTestId("td-ticket-submit").click();
-    await expect(page.getByTestId("td-ticket-answer")).toHaveAttribute("data-outcome", "unfillable");
-    await expect(page.getByTestId("td-ticket-answer-text")).toHaveText(`Not recorded: ${unfillable.message}`);
-  });
-
-  test("TD-31 / TD-32 Build a trade is the owner's four-step wizard on the backend catalog (the F&O builder panel is replaced)", async ({ page }) => {
-    await setup(page);
-    await page.goto(TD("new"));
-    // Details: copilot-app-desk-strategy-wizard.spec.ts (WZ-1 … WZ-19).
-    await expect(page.getByTestId("wz-stepper")).toBeVisible(SLOW);
-    await expect(page.getByTestId("wz-card")).toHaveCount(TEMPLATES.templates.length, SLOW);
-    await expect(page.getByTestId("desk-panel-fno")).toHaveCount(0);
-    await expect(page.getByTestId("td-from-idea")).toHaveAttribute("aria-expanded", "false");
-  });
-
-  test("TD-33 backtest provenance: liquid-eq-v1 point-in-time, code, data to, cost model, slippage sweep; an index shows survivorship", async ({ page }) => {
-    const seen = await setup(page);
-    await page.goto(TD("backtest"));
-    const bt = page.getByTestId("td-backtest");
-    await expect(bt.getByTestId("td-bt-strategy")).toBeVisible(SLOW);
-    await bt.getByTestId("td-bt-from").fill("2025-10-27");
-    await bt.getByTestId("td-bt-to").fill("2026-10-24");
-    await bt.getByTestId("td-bt-run").click();
-    await expect(bt.getByTestId("td-bt-universe")).toHaveText("liquid-eq-v1 (point-in-time, no survivorship)");
-    await expect(bt.getByTestId("td-bt-code")).toHaveText("abc1234");
-    await expect(bt.getByTestId("td-bt-data")).toHaveText("26 Oct 2026");
-    await expect(bt.getByTestId("td-bt-cost")).toHaveText("desk-cost-v2");
-    await expect(bt.getByTestId("td-bt-provenance")).toContainText("slippage 0.05% a side");
-    await expect(bt.getByTestId("td-bt-sweep-row")).toHaveCount(4);
-    await expect(bt.getByTestId("td-bt-survivorship")).toHaveCount(0);
-    expect(seen.backtests[0]).toEqual({ id: "st-1", body: { from_date: "2025-10-27", to_date: "2026-10-24" } });
-    await bt.getByTestId("td-bt-strategy").selectOption("st-nifty");
-    await bt.getByTestId("td-bt-run").click();
-    await expect(bt.getByTestId("td-bt-survivorship")).toContainText("Survivorship bias: NIFTY 50 applied with its latest constituents");
-  });
-});
+// Trade Desk · New trade (TD-24 … TD-33) went with Strategy Lab (owner, 29 Oct); paper trades start on Chart Analysis
+// (copilot-app-desk-chart-analysis.spec.ts).
 
 // ── PaperDesk's behaviours, on the Trade Desk (its old mount is replaced by this tab) ──────────────────
 
@@ -787,24 +685,9 @@ test.describe("MOCK — not real data: Trade Desk · AI Scanner and Chart Analys
     await expect.poll(() => params(page).get("sub")).toBe("scorecard");
   });
 
-  test("CH-1 Live chart: the paper order ticket is the account_size one (from ?tp= or today's idea); no calculator, no slider", async ({ page }) => {
+  // CH-1 / CH-2 (the old Live chart order ticket) are replaced by Chart Analysis's paper basket (copilot-app-desk-chart-analysis.spec.ts).
+  test("CH-3 Signal record is not available yet", async ({ page }) => {
     await setup(page);
-    await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=ICICIBANK&tp=${CASH_PLAN.plan_id}`);
-    const ticket = page.getByTestId("lc-ticket");
-    await expect(ticket.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
-    await expect(ticket.locator('input, [role="slider"], input[type="range"]')).toHaveCount(0);
-    await expect(page.getByTestId("desk-scn-out-gross")).toHaveCount(0);           // the old capital × risk-% calculator
-    await page.route("**/api/desk/ai-watchlist*", (r) => json(r, CARD.ai_watchlist_day));   // the stored day's plan for the symbol
-    await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=ICICIBANK`);
-    await expect(page.getByTestId("lc-ticket-qty")).toHaveText("666 sh", SLOW);
-  });
-
-  test("CH-2 / CH-3 a stock with no idea has no order to place, said with the way to the ideas; Signal record is not available yet", async ({ page }) => {
-    await setup(page);
-    await page.goto(`${DESK}?tab=trade&view=chart&sub=live&sym=NOIDEA`);
-    await expect(page.getByTestId("lc-ticket-none")).toContainText("No plan for NOIDEA today, so there is no order to place", SLOW);
-    await page.getByTestId("lc-ticket-ideas").click();
-    await expect.poll(() => params(page).get("sub")).toBe("ranked");
     await page.goto(`${DESK}?tab=trade&view=chart&sub=record`);
     await expect(page.getByTestId("desk-trade-record-pending")).toContainText("not available yet", SLOW);
   });
@@ -820,10 +703,7 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     await page.getByTestId("td-positions").getByRole("row").filter({ hasText: "INFY" }).click();
     await expect(page.getByTestId("td-journal")).toBeVisible();
     await page.getByTestId("desk-sub-live").click();
-    await page.getByTestId("desk-view-lab").click();
-    await expect(page.getByTestId("td-view-build")).toBeVisible();
-    await page.getByTestId("desk-sub-backtest").click();
-    await expect(page.getByTestId("td-view-backtest")).toBeVisible();
+    await page.getByTestId("desk-view-chart").click();
     await page.getByTestId("desk-view-paper").click();
     await expect(page.getByTestId("td-view-open")).toBeVisible();
     await page.getByTestId("desk-sub-journal").click();
@@ -834,10 +714,9 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
 
   test("TD-35 390 px: no sideways page scroll on any sub-view or the journal; the leg table scrolls in its own box", async ({ page }) => {
     await setup(page, { phone: true });
-    for (const [view, root] of [["open", "td-view-open"], ["closed", "td-view-journal"], ["new", "td-view-build"], ["backtest", "td-view-backtest"]]) {
+    for (const [view, root] of [["open", "td-view-open"], ["closed", "td-view-journal"]]) {
       await page.goto(TD(view));
       await expect(page.getByTestId(root)).toBeVisible(SLOW);
-      if (view === "new") await expect(page.getByTestId("wz-card").first()).toBeVisible(SLOW);
       await noSideScroll(page);
     }
     await page.goto(TD("open"));
@@ -865,14 +744,6 @@ test.describe("MOCK — not real data: Trade Desk · one read, phone, wording", 
     await page.goto(`${DESK}?tab=trade&view=watchlists&wl=all`);
     await expect(page.getByTestId("desk-views")).toBeVisible(SLOW);
     expect(wordingOf(await page.getByTestId("desk-views").innerText())).not.toMatch(BANNED);
-    await page.goto(TD("new", `&tp=${CASH_PLAN.plan_id}${SRC}`));
-    await expect(page.getByTestId("td-ticket-size")).toHaveAttribute("data-qty", "666", SLOW);
-    for (const id of ["td-ticket", "wz-templates"]) {
-      expect(wordingOf(await page.getByTestId(id).innerText()), id).not.toMatch(BANNED);
-    }
-    await expect(page.getByTestId("td-ticket")).toContainText("nothing is sent to a broker");
-    await page.goto(TD("backtest"));
-    await expect(page.getByTestId("td-backtest")).toBeVisible(SLOW);
-    expect(wordingOf(await page.getByTestId("td-backtest").innerText())).not.toMatch(BANNED);
+    // New trade and Backtest went with Strategy Lab (owner, 29 Oct); Chart Analysis has its own wording check.
   });
 });

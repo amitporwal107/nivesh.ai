@@ -33,7 +33,6 @@ import { mockApi, mockSingleRoute } from "../helpers/api-mock";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DESK = "/v5/app/trader/desk";
 const SETTINGS = `${DESK}?tab=more&view=chartink`;
-const IDEAS = `${DESK}?tab=more&view=strategy`;
 const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 const planFixture = (n: string) => JSON.parse(fs.readFileSync(path.join(__dirname, "..", "fixtures", `strategy-plan-${n}.json`), "utf-8"));
 const SHOTS = process.env.SHOTS_DIR;
@@ -260,7 +259,7 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
 
   // ── PK-2 ─────────────────────────────────────────────────────────────
 
-  test("PK-2 strategies are expandable rows with the plan's figures and the payoff; Open in Strategy Builder carries the pick's plan inputs", async ({ page }) => {
+  test("PK-2 strategies are expandable rows with the plan's figures and the payoff; the open button takes the stock to Chart Analysis", async ({ page }) => {
     const st = await open(page, SETTINGS);
     const z = card(page, "ZEDCO");
     const rows = z.getByTestId("ck-pick-strategy");
@@ -293,28 +292,20 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     await expect(rows.nth(1).getByTestId("ck-pick-strategy-legs")).toContainText("Buy 1 lot ZEDCO 260 call + Sell 1 lot ZEDCO 280 call");
     await expect.poll(() => st.payoffs.length).toBe(2);
 
-    // Open in Strategy Builder: One stock mode, with the pick's inputs and the chosen strategy in the URL
+    // Strategy Lab was removed (owner, 29 Oct): the button opens Chart Analysis › Live chart on the stock (its paper basket and strategy cards).
+    await expect(d.getByTestId("ck-pick-open-builder")).toHaveText("Open on Chart Analysis ›");
     await d.getByTestId("ck-pick-open-builder").click();
-    await expect(page).toHaveURL(/tab=trade/); // was tab=more&view=strategy before the 2026-10-27 redesign
-    await expect(page).toHaveURL(/view=lab&sub=build/);
-    await expect(page).toHaveURL(/mode=stock/);
+    await expect(page).toHaveURL(/tab=trade&view=chart&sub=live/);
     await expect(page).toHaveURL(/sym=ZEDCO/);
-    await expect(page).toHaveURL(/src_kind=chartink_picks/);
-    await expect(page).toHaveURL(/src_date=2026-10-19/);               // the Strategy Builder reads cand once and then removes it from the URL
-    await expect.poll(() => st.plans.length).toBeGreaterThan(0);
-    expect(st.plans[0]).toMatchObject({ underlying: "ZEDCO", direction: "bullish" });
-    await expect(page.getByText("Started from your Chartink best picks").first()).toBeVisible();
   });
 
-  test("PK-2b a short-side pick opens the Strategy Builder with the bearish direction", async ({ page }) => {
-    const st = await open(page, SETTINGS);
+  test("PK-2b a short-side pick opens Chart Analysis on that stock", async ({ page }) => {
+    await open(page, SETTINGS);
     const m = card(page, "MOONCORP");
     await m.getByTestId("ck-pick-strategy-toggle").first().click();
     await m.getByTestId("ck-pick-open-builder").click();
+    await expect(page).toHaveURL(/view=chart&sub=live/);
     await expect(page).toHaveURL(/sym=MOONCORP/);
-    await expect(page).toHaveURL(/direction=bearish/);
-    await expect.poll(() => st.plans.length).toBeGreaterThan(0);
-    expect(st.plans[0]).toMatchObject({ underlying: "MOONCORP", direction: "bearish" });
   });
 
   // ── PK-3 ─────────────────────────────────────────────────────────────
@@ -399,46 +390,16 @@ test.describe("MOCK - not real data: best picks from my Chartink scans", () => {
     expect(st.picksCalls).toBe(0);
   });
 
-  // ── PK-7 ─────────────────────────────────────────────────────────────
-
-  test("PK-7 Strategy Builder ideas board: a source filter 'Chartink best picks' shows the picks in place of the ideas, and 'All ideas' brings them back", async ({ page }) => {
-    const st = await open(page, IDEAS);
-    const filter = page.getByTestId("ideas-source-filter");
-    await expect(filter.getByTestId("ideas-source-all")).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    await expect(page.getByTestId("ideas-ck-picks")).toHaveCount(0);
-    await filter.getByTestId("ideas-source-ck_picks").click();
-    await expect(filter.getByTestId("ideas-source-ck_picks")).toHaveAttribute("aria-pressed", "true");
-    const sec = page.getByTestId("ideas-ck-picks");
-    await expect(sec.getByTestId("ck-pick")).toHaveCount(4);
-    await expect(page.getByTestId("ideas-view")).toHaveCount(0);
-    // back to every idea: the ideas view returns and the picks go
-    await filter.getByTestId("ideas-source-all").click();
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    await expect(page.getByTestId("ideas-ck-picks")).toHaveCount(0);
-    // from the picks, a strategy opens in One stock mode with the pick's plan inputs
-    await filter.getByTestId("ideas-source-ck_picks").click();
-    await sec.getByTestId("ck-pick-strategy-toggle").first().click();
-    await sec.getByTestId("ck-pick-open-builder").first().click();
-    await expect(page).toHaveURL(/mode=stock/);
-    await expect(page).toHaveURL(/sym=ZEDCO/);
-    await expect.poll(() => st.plans.length).toBeGreaterThan(0);
-  });
-
-  test("PK-7b the filter is absent without a connected dashboard", async ({ page }) => {
-    await open(page, IDEAS, { source: null });
-    await expect(page.getByTestId("ideas-view")).toBeVisible();
-    await expect(page.getByTestId("ideas-source-filter")).toHaveCount(0);
-  });
+  // PK-7 / PK-7b (the Strategy Builder ideas board's Chartink filter) went with Strategy Lab (owner, 29 Oct).
 
   // ── PK-8 ─────────────────────────────────────────────────────────────
 
   // The old Overview's top-3 picks (and its 390px case) left with OverviewTab in the desk redesign's step 6.
-  for (const [name, url] of [["settings", SETTINGS], ["ideas", IDEAS]] as const) {
+  // The ideas board's case went with Strategy Lab (owner, 29 Oct).
+  for (const [name, url] of [["settings", SETTINGS]] as const) {
     test(`PK-8 390px ${name}: the picks do not scroll the page sideways`, async ({ page }) => {
       await open(page, url, {}, 390);
-      if (name === "ideas") await page.getByTestId("ideas-source-ck_picks").click();
-      const sel = name === "settings" ? "ck-picks" : "ideas-ck-picks";
+      const sel = "ck-picks";
       const sec = page.getByTestId(sel);
       await expect(sec.getByTestId("ck-pick").first()).toBeVisible();
       await sec.getByTestId("ck-pick-strategy-toggle").first().click();
