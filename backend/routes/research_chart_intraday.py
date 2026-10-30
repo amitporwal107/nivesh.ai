@@ -29,9 +29,15 @@ _service: Optional[IntradayService] = None
 
 
 def get_service() -> IntradayService:
+    """Kite's candles, or TrueData's when the market-data switch has TrueData serving (TI-3)."""
     global _service
     if _service is None:
-        _service = IntradayService()
+        from nidp.shared import market_data_source as mds
+        if mds.resolve().effective == "truedata":
+            from services.truedata_live import serve
+            _service = serve.intraday_service()
+        else:
+            _service = IntradayService()
     return _service
 
 
@@ -41,7 +47,8 @@ async def availability(user: dict = Depends(require_feature(FLAG))) -> Dict[str,
     st = await get_feed().read_status() or {}
     ok = st.get("state") in ("live", "market_closed")
     reason = None if ok else ("token_expired" if st.get("state") == "expired" else "token_missing" if st.get("state") in (None, "starting", "not_connected", "disabled") else "feed_error")
-    return {"available": ok, "intervals": list(INTERVALS) if ok else [], "reason": reason, "source": "Kite intraday", "session": st.get("session")}
+    return {"available": ok, "intervals": list(INTERVALS) if ok else [], "reason": reason, "source": get_service().source,
+            "session": st.get("session")}
 
 
 async def _refresh_platform_token() -> None:

@@ -163,13 +163,26 @@ def aware(d: Any) -> Optional[datetime]:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+_MESSAGES = {
+    "kite": {"no_token": "no Kite access token", "no_key": "no Kite API key",
+             "expired": "Kite access token expired; the daily login handshake is needed"},
+    "truedata": {"no_token": "no TrueData WebSocket login (TRUEDATA_WS_USERNAME / TRUEDATA_WS_PASSWORD)",
+                 "no_key": "no TrueData REST login (TRUEDATA_USERNAME / TRUEDATA_PASSWORD)",
+                 "expired": "TrueData refused the WebSocket login (wrong login, expired validity or another connection)"},
+}
+
+
 class LiveFeed:
     def __init__(self, db, *, holder: Optional[str] = None, clock: Optional[Callable[[], datetime]] = None,
                  sleep=asyncio.sleep, cadence: Optional[int] = None, token_getter=cfg.get_token,
                  key_getter=cfg.get_api_key, kite_factory=gw.default_kite_factory,
                  ticker_factory=gw.default_ticker_factory, load_holidays=cfg.load_holidays,
-                 load_nifty500=uni.nifty500_symbols, force_rest: Optional[bool] = None, notifier=None):
+                 load_nifty500=uni.nifty500_symbols, force_rest: Optional[bool] = None, notifier=None,
+                 provider: str = "kite"):
         self.db = db
+        # "kite" (default) or "truedata" (services/truedata_live/serve.py injects TrueData's client and ticker): with
+        # TrueData there is no Kite platform token to refresh and no morning Kite-login alert, and the states say TrueData.
+        self.provider = provider
         self.holder = holder or f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:6]}"
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.sleep = sleep
@@ -302,7 +315,7 @@ class LiveFeed:
         if code == AUTH_EXPIRED:
             self._expired_fp = self._fp
             self._next_try = now + timedelta(seconds=30)
-            self._set_state("expired", "Kite access token expired; the daily login handshake is needed")
+            self._set_state("expired", _MESSAGES[self.provider]["expired"])
             return
         self._fails += 1
         self._next_try = now + timedelta(seconds=backoff_seconds(self._fails, self.cadence))
@@ -462,7 +475,8 @@ class LiveFeed:
                 "source": self.source, "instrument_count": len(self.ordered), "unresolved_count": len(self.unresolved),
                 "universe": {k: len(v) for k, v in self.sets.items()}, "holiday_checked": self.holiday_checked,
                 "data_at": self.data_at.isoformat() if self.data_at else None, "holder": self.holder,
-                "cadence_seconds": self.cadence, "token_alert": self.alerter.state(), "updated_at": now}
+                "cadence_seconds": self.cadence, "token_alert": self.alerter.state(), "provider": self.provider,
+                "updated_at": now}
 
     async def _publish(self, now: datetime, final: bool = False) -> None:
         syms = set(self.ordered)
@@ -498,7 +512,7 @@ class LiveFeed:
     # ── one pass ─────────────────────────────────────────────────────────────
     async def tick(self) -> Dict[str, Any]:
         stats = await self._tick_inner()
-        if stats.get("leader"):
+        if stats.get("leader") and self.provider == "kite":
             await self._alert_pass()
         return stats
 
@@ -522,10 +536,11 @@ class LiveFeed:
             return stats
         self.leader = stats["leader"] = True
         self.session, self.reason, self.holiday_checked = await self._session(now)
-        try:
-            await pt.refresh_cache(self.db, now)                    # a token stored by the daily login, on any container
-        except Exception as e:  # noqa: BLE001
-            logger.warning("live feed: platform token cache refresh failed (%s)", type(e).__name__)
+        if self.provider == "kite":
+            try:
+                await pt.refresh_cache(self.db, now)                # a token stored by the daily login, on any container
+            except Exception as e:  # noqa: BLE001
+                logger.warning("live feed: platform token cache refresh failed (%s)", type(e).__name__)
         token, key = self.token_getter(), self.key_getter()
         fp = cfg.fingerprint(token)
         if fp != self._fp:                                    # a new (or removed) token: forget the old session and any backoff
@@ -538,12 +553,12 @@ class LiveFeed:
         if not token or not key:
             self._stop_ticker()
             self._next_try = now + timedelta(seconds=30)
-            self._set_state("not_connected", "no Kite access token" if not token else "no Kite API key")
+            self._set_state("not_connected", _MESSAGES[self.provider]["no_token" if not token else "no_key"])
             await self._write_status(now)
             return stats
         if self._expired_fp == fp:
             self._next_try = now + timedelta(seconds=30)
-            self._set_state("expired", "Kite access token expired; the daily login handshake is needed")
+            self._set_state("expired", _MESSAGES[self.provider]["expired"])
             await self._write_status(now)
             return stats
         try:
@@ -825,14 +840,18 @@ def get_feed(db=None) -> LiveFeed:
 
 
 async def start(db) -> bool:
-    """Create indexes and start the loop in this process. False when disabled (KITE_LIVE_FEED_ENABLED=0), or when the
-    market-data switch (backend/config/market_data_source.json) has TrueData serving live quotes."""
+    """Create indexes and start the loop in this process. False when disabled (KITE_LIVE_FEED_ENABLED=0). When the
+    market-data switch (backend/config/market_data_source.json) resolves to `truedata`, the same feed starts on TrueData's
+    WebSocket instead of Kite's (services/truedata_live/serve.py); otherwise a switched-off Kite feed does not start."""
     global _task
     await ensure_indexes(db)
     if not cfg.enabled() or (_task is not None and not _task.done()):
         return False
     from nidp.shared import market_data_source as mds
     if not mds.feed_is_on("kite_live_feed"):
+        if mds.resolve().effective == "truedata":                 # TrueData serves: the same feed on TrueData's socket
+            from services.truedata_live import serve
+            return await serve.start_serving(db)
         logger.info("kite live feed not started: %s", mds.switched_off_message("kite_live_feed"))
         return False
     feed = get_feed(db)
@@ -843,6 +862,11 @@ async def start(db) -> bool:
 
 async def stop(db=None) -> None:
     global _task, _feed
+    try:
+        from services.truedata_live import serve
+        await serve.stop_serving()
+    except Exception:  # noqa: BLE001
+        pass
     if _task is not None:
         _task.cancel()
         try:
