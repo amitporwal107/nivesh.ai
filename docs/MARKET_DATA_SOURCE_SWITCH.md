@@ -54,7 +54,8 @@ A missing or unreadable file means `current`.
 ## Going back to our current feeds (if we do not go with TrueData)
 Owner, 29 Oct 2026: "if we are not going with TrueData we can switch it to the current implementation."
 - **The normal way:** a PR that sets `"source": "current"` in `backend/config/market_data_source.json`. After the merge,
-  the app backend uses it once it restarts, and the NIDP jobs use it once their dev checkout is refreshed.
+  the app backend uses it once it restarts, and the NIDP jobs once the NIDP deploy has run (a change to this file
+  triggers it since 30 Oct 2026; before that, the switch to `shadow` in #416 never reached the NIDP VM).
 - **The emergency way, no PR:** `MARKET_DATA_SOURCE_FORCE_CURRENT=1` in a server's environment (`nidp.env`,
   `.env.staging`). It wins over the file on that server.
 
@@ -100,7 +101,8 @@ Owner, 29 Oct 2026: "make sure we keep data quality checks on TrueData".
 4. **PR:** `"source": "shadow"`. Both sources run; compare them for N days under the data-quality checks.
 5. **PR:** `"source": "truedata"`, `"truedata_licence_confirmed": true`. Our replaced feeds go off.
 
-Each merge to `dev` deploys the app. The NIDP jobs read the file from their dev checkout once it is refreshed.
+Each merge to `dev` deploys the app, and a merge that changes this file also deploys the NIDP VM
+(`deploy-nidp-staging.yml`), whose jobs read the file from their dev checkout.
 
 ## Not covered yet
 - The AI scanner fetches its own NSE bhavcopy into `stock_ohlcv`. Like the NIDP bhavcopies, it stays on NSE's raw
