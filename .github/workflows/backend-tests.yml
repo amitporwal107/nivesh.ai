@@ -108,6 +108,8 @@ jobs:
           tests/test_copilot_phase_ab.py
           tests/test_copilot_portfolio_summaries.py
           tests/test_copilot_prompt_badges.py
+          tests/test_copilot_visual.py
+          tests/test_copilot_visual_chat.py
           tests/test_core_exceptions.py
           tests/test_cost_basis_from_snapshots.py
           tests/test_daas_key_resolution.py
