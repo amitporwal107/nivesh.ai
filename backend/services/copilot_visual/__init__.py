@@ -10,16 +10,25 @@ of the Release-1 intents, or when the answer could not be built, so the chat the
 
 Which node explains each answer (the pin):
     market_view, smart_money, expected_move   market_analyst — it has the market snapshot the answer sits in.
-    top_opportunities, breakouts, unusual_volume
+    top_opportunities, breakouts, unusual_volume, open_trades, fno_setups, position_size
                                               market_analyst, not recommendation: the recommendation node runs its own
                                               stock screener and would put a second, different list (and a screener
                                               card) beside the dashboard's, in "picks" wording; the market analyst only
-                                              explains the list it is handed, in the day's market context.
-    stock_decision                            stock_analyst — it has the TRADE_PLAN rules ("How to trade it, an idea").
+                                              explains the list it is handed, in the day's market context. open_trades
+                                              and position_size are the account's own book and budget, not a stock's
+                                              rules, so they stay off the stock analyst too.
+    stock_decision, trade_validity, exit_options
+                                              stock_analyst — it has the TRADE_PLAN rules ("How to trade it, an idea").
 
 stock_decision builds the desk's plan ONCE (services/copilot_trade_idea.build, which stores its TradePlans as the
 trade-idea pre-step always has). The dashboard carries the plan as a `trade_plan` block, so the separate trade_plan card
 is not sent: one card per answer. The plan's TRADE_PLAN facts still go to the stock analyst.
+
+trade_validity and exit_options (Release 2) build their own plan read inside the builder (not eagerly here, unlike
+stock_decision), since they also read the account's paper book or a stored plan and a `trade_idea` built ahead of
+knowing that would go unused on half the questions. No separate trade_plan card is attached for them either: `prepare`
+only eagerly builds `idea` for stock_decision, so `VisualAnswer.trade_idea` stays None for the other four and the chat
+route sends no second card.
 """
 from __future__ import annotations
 
@@ -40,7 +49,8 @@ __all__ = ["INTENTS", "Intent", "VisualAnswer", "build", "facts", "last_symbol_f
 
 AGENT_FOR = {"market_view": "market_analyst", "smart_money": "market_analyst", "expected_move": "market_analyst",
              "top_opportunities": "market_analyst", "breakouts": "market_analyst", "unusual_volume": "market_analyst",
-             "stock_decision": "stock_analyst"}
+             "stock_decision": "stock_analyst", "open_trades": "market_analyst", "fno_setups": "market_analyst",
+             "position_size": "market_analyst", "trade_validity": "stock_analyst", "exit_options": "stock_analyst"}
 BUILD_TIMEOUT_S = 30.0
 THREAD_MESSAGES = 10
 

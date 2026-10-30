@@ -41,6 +41,11 @@ SRC_SCAN = "Stock features + NSE bhavcopy (scan snapshot)"
 SRC_DELIVERY = "NSE delivery (nidp.delivery_data)"
 SRC_BARS = "NSE prices, split/bonus adjusted (prices_eod_adjusted)"
 SRC_PLAN = "Desk trade plan (StrategyPlan + TradePlan, end of day)"
+SRC_PAPER = "Your paper trades (desk_paper_trades, marked at the last available close)"
+SRC_FNO_TOP = "Desk F&O board (StrategyPlan, fit to today's regime)"
+SRC_RISK_PROFILE = "Your risk profile (risk_profiles)"
+SRC_RISK_BOOK = "Your paper account's risk book (equity, day/week P&L, open risk)"
+SRC_TRADE_PLANS = "A plan recorded earlier (trade_plans)"
 
 
 async def _try(coro) -> Tuple[Any, Optional[BaseException]]:
@@ -702,9 +707,335 @@ async def expected_move(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                     now=ctx.get("now"))
 
 
+# ── Release 2 ──────────────────────────────────────────────────────────────── (owner, 30 Oct: "complete Release 2")
+
+async def open_trades(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Q13 "What are my open trades doing?" — the paper book (not a broker's), the same read the desk's own Paper
+    trades screen uses, with marks and each trade's own stop and target."""
+    src: Sources = ctx["src"]
+    out, err = await _try(rd.open_trades(ctx["request"]))
+    blocks: List[Dict[str, Any]] = []
+    head = None
+    tone = "neutral"
+    as_of = None
+    if err or not isinstance(out, dict):
+        src.miss(SRC_PAPER, why(err) if err else "the paper book could not be read")
+    else:
+        as_of = iso_day(out.get("as_of"))
+        if as_of:
+            src.add(SRC_PAPER, as_of)
+        else:
+            src.missing.append(f"{SRC_PAPER}: no end-of-day mark date on this answer (an F&O-only book marks on its own schedule)")
+        trades = [t for t in out.get("trades") or [] if isinstance(t, dict)]
+        summ = out.get("summary") or {}
+        unreal = num(summ.get("unrealized_pnl_rs"))
+        kpis = [_kpi("Open", str(summ.get("open") or 0), None),
+                _kpi("Unrealised P&L", price(unreal) if unreal is not None else None,
+                     "net of estimated costs" if unreal is not None else "not every open trade is marked yet", tone_of(unreal))]
+        if summ.get("entry_pending"):
+            kpis.append(_kpi("Not yet triggered", str(summ["entry_pending"]), "waiting for its entry condition"))
+        blocks.append(block("kpis", "summary", "Your open paper trades", None, items=kpis))
+        if trades:
+            rows = []
+            for t in trades[:15]:
+                sym = t.get("symbol")
+                pnl = num(t.get("unrealized_pnl_rs"))
+                rows.append({"symbol": sym, "ask": f"Should I book profits or hold {sym}?" if sym else None,
+                             "tone": tone_of(pnl),
+                             "cells": {"symbol": sym, "qty": t.get("quantity"), "entry": r2(t.get("entry_price")),
+                                       "last": r2(t.get("last_close")), "stop": r2(t.get("stop_price")),
+                                       "target": r2(t.get("target_price")), "pnl": r2(pnl)}})
+            blocks.append(block("ranked", "trades", f"{len(trades)} open paper trade{'s' if len(trades) != 1 else ''}",
+                                "Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
+                                columns=[{"key": "symbol", "label": "Stock", "align": "left", "format": "text"},
+                                         {"key": "qty", "label": "Qty", "align": "right", "format": "int"},
+                                         {"key": "entry", "label": "Entry", "align": "right", "format": "price"},
+                                         {"key": "last", "label": "Last close", "align": "right", "format": "price"},
+                                         {"key": "stop", "label": "Stop", "align": "right", "format": "price"},
+                                         {"key": "target", "label": "Target", "align": "right", "format": "price"},
+                                         {"key": "pnl", "label": "Unrealised P&L", "align": "right", "format": "price"}],
+                                rows=rows))
+            tone = tone_of(unreal)
+            head = (f"{len(trades)} open paper trade{'s' if len(trades) != 1 else ''}"
+                    + (f", unrealised {price(unreal)}" if unreal is not None else "") + ".")
+        else:
+            blocks.append(notice("No open paper trades right now.", "info", "empty"))
+            head = "No open paper trades right now."
+    return assemble("open_trades", "Your open trades", as_of, head, tone, blocks, src,
+                    follow("How much should I risk?", "Which F&O setups are attractive?",
+                           "What is the market view today?", "Today's top 5 opportunities"), now=ctx.get("now"))
+
+
+async def fno_setups(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Q10 "Which F&O setups are attractive?" — the desk's own F&O board (index and stock options), ranked by fit to
+    today's measured regime, never a performance rank (services/strategy_plan/regime_fit.py says so explicitly)."""
+    from services.strategy_plan import regime_fit as _rf
+    src: Sources = ctx["src"]
+    n = 5
+    top, err = await _try(rd.fno_top(ctx["request"], ctx["user_id"], limit=n))
+    blocks: List[Dict[str, Any]] = []
+    head = None
+    as_of = None
+    first_plan = None
+    if err or not isinstance(top, dict):
+        src.miss(SRC_FNO_TOP, why(err) if err else "the F&O board could not be built")
+    else:
+        regime = top.get("regime") or {}
+        as_of = iso_day(regime.get("date"))
+        src.add(SRC_FNO_TOP, as_of)
+        ideas = _rf._all_ideas(top, ("index_options", "stock_fno"))
+        rows = []
+        for _cls, i in ideas[:n]:
+            if not isinstance(i, dict):
+                continue
+            sym = i.get("underlying")
+            tp = i.get("trade_plan") or {}
+            pid = tp.get("plan_id")
+            first_plan = first_plan or pid
+            rows.append({"symbol": sym, "plan_id": pid, "ask": f"Is {sym} a buy now?" if sym else None,
+                         "tone": "up" if i.get("view") == "up" else ("down" if i.get("view") == "down" else "neutral"),
+                         "cells": {"symbol": sym, "structure": i.get("name"),
+                                   "view": {"up": "Bullish", "down": "Bearish"}.get(i.get("view"), "Neutral"),
+                                   "maxloss": r2(i.get("max_loss")) if not i.get("loss_unbounded") else None,
+                                   "maxprofit": r2(i.get("max_profit")) if not i.get("profit_unbounded") else None,
+                                   "rr": r2(i.get("reward_risk")), "fit": r2((i.get("fit") or {}).get("score"))}})
+        if rows:
+            blocks.append(block("ranked", "fno", f"{len(rows)} F&O setups · fit to today's regime",
+                                "Fit to today's measured regime, not a performance rank. Max loss/profit are gross, "
+                                "before charges; an unbounded side shows as —.",
+                                columns=[{"key": "symbol", "label": "Underlying", "align": "left", "format": "text"},
+                                         {"key": "structure", "label": "Structure", "align": "left", "format": "text"},
+                                         {"key": "view", "label": "View", "align": "left", "format": "text"},
+                                         {"key": "maxloss", "label": "Max loss", "align": "right", "format": "price"},
+                                         {"key": "maxprofit", "label": "Max profit", "align": "right", "format": "price"},
+                                         {"key": "rr", "label": "R:R", "align": "right", "format": "x"},
+                                         {"key": "fit", "label": "Fit", "align": "right", "format": "text"}],
+                                rows=rows))
+            if first_plan:
+                blocks.append(block("trade_plan", "first", f"The first idea's plan · {rows[0]['symbol']}", None, plan_id=first_plan))
+            head = (f"{len(rows)} F&O setup{'s' if len(rows) != 1 else ''} fit today's regime"
+                    + (f" ({regime['label']})" if regime.get("label") else "") + ".")
+        else:
+            blocks.append(notice("No F&O setup fits today's regime with a valid payoff.", "info", "empty"))
+    return assemble("fno_setups", "F&O setups that fit today", as_of, head, "neutral", blocks, src,
+                    follow("What is the expected move in Nifty?", "How much should I risk?",
+                           "What is the market view today?", "Today's top 5 opportunities"), now=ctx.get("now"))
+
+
+async def position_size(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Q12 "How much should I risk?" — the account's own risk limits and today's usage of them (services/risk_profile,
+    services/risk_book: the same figures the risk service itself checks a new trade against). A named stock adds its
+    own size from the risk service's sizing (the same sizing stock_decision shows)."""
+    src: Sources = ctx["src"]
+    uid = ctx["user_id"]
+    (prof, e_p), (book, e_b) = await asyncio.gather(_try(rd.risk_profile(uid)), _try(rd.risk_book(uid)))
+    blocks: List[Dict[str, Any]] = []
+    head = None
+    tone = "neutral"
+    as_of = None
+    lim: Dict[str, Any] = {}
+    if e_p or not isinstance(prof, dict):
+        src.miss(SRC_RISK_PROFILE, why(e_p) if e_p else "the risk profile could not be read")
+    else:
+        src.add(SRC_RISK_PROFILE, None)
+        lim = prof.get("limits") or {}
+        kpis = [_kpi("Per trade", f"{num(lim.get('per_trade_risk_pct')) or 0:g}% of equity", prof.get("capital_basis_text")),
+                _kpi("Max open risk", f"{num(lim.get('max_open_risk_pct')) or 0:g}%", "all open positions plus a new one"),
+                _kpi("One position", f"{num(lim.get('max_position_pct')) or 0:g}%", "market exposure, one position"),
+                _kpi("One sector", f"{num(lim.get('max_sector_pct')) or 0:g}%", "market exposure, one sector"),
+                _kpi("Min reward:risk", f"{num(lim.get('min_reward_risk')) or 0:g}×", "planned, after costs")]
+        blocks.append(block("kpis", "limits", "Your risk limits", (prof.get("profile") or "custom") + " profile"
+                            + ("" if prof.get("stored") else " (owner default: no profile saved yet)"), items=kpis))
+    if e_b or not isinstance(book, dict):
+        src.miss(SRC_RISK_BOOK, why(e_b) if e_b else "today's usage could not be read")
+    else:
+        day = book.get("day") or {}
+        eq = book.get("equity") or {}
+        as_of = iso_day(book.get("as_of"))
+        equity = num(eq.get("equity_rs"))
+        if equity is None:
+            src.missing.append(f"{SRC_RISK_BOOK}: equity is unknown ("
+                               + ("; ".join(eq.get("unknown_reasons") or []) or "an open position could not be marked") + ")")
+        else:
+            src.add(SRC_RISK_BOOK, as_of)
+            day_pnl, day_start = num(day.get("pnl_rs")), num(day.get("start_equity_rs"))
+            day_pct = max(0.0, -day_pnl) / day_start * 100 if day_pnl is not None and day_start else None
+            limit_pct = num(lim.get("daily_loss_pct"))
+            kpis2 = [_kpi("Paper equity", price(equity), None),
+                     _kpi("Used of today's loss limit", f"{day_pct:.2f}%" if day_pct is not None else None,
+                          f"limit {limit_pct:g}%" if limit_pct is not None else None,
+                          "warn" if day_pct is not None and limit_pct and day_pct >= limit_pct * 0.8 else None),
+                     _kpi("Open risk reserved", price(num((book.get("open") or {}).get("risk_rs"))), "all open positions")]
+            blocks.append(block("kpis", "usage", "Today's usage", None, items=kpis2))
+            if day_pct is not None and limit_pct and day_pct >= limit_pct * 0.8:
+                tone = "warn"
+    if intent.symbol:
+        ti, e_t = await _try(rd.trade_idea(ctx["request"], ctx["user_id"], intent.symbol, ctx.get("message") or ""))
+        if not e_t and ti is not None:
+            sized = getattr(ti, "sized", None) or {}
+            if sized.get("status") in ("sized", "not_confirmed"):
+                qty = sized.get("quantity") if sized.get("quantity") is not None else sized.get("lots")
+                risk = (sized.get("estimated_risk_rs") or {}).get("total") if isinstance(sized.get("estimated_risk_rs"), dict) else None
+                pct_eq = num(sized.get("risk_pct_of_equity"))
+                blocks.append(block("kpis", "sized", f"Sized for {intent.symbol} at today's plan", None,
+                                    items=[_kpi("Size", f"{qty} {sized.get('unit') or ''}".strip() if qty is not None else None,
+                                                "risk service, your saved profile"),
+                                           _kpi("Max loss", price(risk), f"{pct_eq:.2f}% of equity" if pct_eq is not None else None, "warn")]))
+                if qty is not None:
+                    head = f"At your per-trade limit, {intent.symbol} sizes to {qty} {sized.get('unit') or ''}".rstrip() + \
+                          (f", risking {price(risk)}." if risk is not None else ".")
+            elif sized.get("status") == "not_sizable":
+                reason = next((r.get("message") for r in sized.get("blocking") or [] if isinstance(r, dict) and r.get("message")), None)
+                blocks.append(notice(f"{intent.symbol} does not size on your account" + (f": {reason}" if reason else "") + ".", "warn", "not-sizable"))
+    if not head:
+        head = "Your risk budget and today's usage." if blocks else None
+    title = f"How much to risk in {intent.symbol}" if intent.symbol else "How much to risk"
+    return assemble("position_size", title, as_of, head, tone, blocks, src,
+                    follow("What are my open trades doing?", "Which F&O setups are attractive?",
+                           "What is the market view today?", "Is this stock a buy now?"), now=ctx.get("now"))
+
+
+async def trade_validity(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Q8 "Is my trade in X still valid?" — today's fresh read of the desk's rules for X, against the newest plan
+    recorded earlier for X (Mongo trade_plans), so what changed since it was recorded is explicit, not guessed."""
+    src: Sources = ctx["src"]
+    sym = intent.symbol or ""
+    (stored, e_s), (ti, e_t), (bars, e_bars) = await asyncio.gather(
+        _try(rd.latest_trade_plan(sym)), _try(rd.trade_idea(ctx["request"], ctx["user_id"], sym, ctx.get("message") or "")),
+        _try(rd.stock_bars(sym)))
+    blocks: List[Dict[str, Any]] = []
+    decision = None
+    head = None
+    tone = "neutral"
+    as_of = None
+    plan = getattr(ti, "plan", None) if ti is not None and not e_t else None
+    status = None
+    tp: Dict[str, Any] = {}
+    if e_t or not isinstance(plan, dict):
+        src.miss(SRC_PLAN, why(e_t) if e_t else "today's plan could not be built")
+    else:
+        as_of = (plan.get("data_as_of") or {}).get("price")
+        src.add(SRC_PLAN, as_of)
+        status = PLAN_DECISION.get(plan.get("status") or "", "no_setup")
+        tp = _preferred_tp(plan, getattr(ti, "widget", None)) if status in SHOWN_PLAN else {}
+        decision = _decision(status, plan, tp)
+    orig: Dict[str, Any] = {}
+    if e_s:
+        src.miss(SRC_TRADE_PLANS, why(e_s))
+    elif not stored:
+        src.missing.append(f"{SRC_TRADE_PLANS}: no plan is on record for {sym}")
+    else:
+        orig = stored if isinstance(stored, dict) else {}
+        src.add(SRC_TRADE_PLANS, orig.get("created_at") or (orig.get("data_as_of") or {}).get("price"))
+    changes: List[Dict[str, Any]] = []
+    if orig and tp:
+        o_dir = (orig.get("strategy") or {}).get("direction")
+        n_dir = (tp.get("strategy") or {}).get("direction")
+        if o_dir and n_dir and o_dir != n_dir:
+            changes.append({"text": f"Direction changed: recorded {o_dir}, today {n_dir}.", "tone": "warn"})
+        o_stop, n_stop = num((orig.get("stop") or {}).get("price")), num(tp.get("stop", {}).get("price"))
+        if o_stop is not None and n_stop is not None and r2(o_stop) != r2(n_stop):
+            changes.append({"text": f"Stop moved: recorded {price(o_stop)}, today {price(n_stop)}.", "tone": "warn"})
+        if orig.get("plan_id") and orig.get("plan_id") == tp.get("plan_id"):
+            changes.append({"text": "The recorded plan is still the one in force today.", "tone": None})
+    elif orig and not tp:
+        rec_day = day_text(iso_day(orig.get("created_at") or (orig.get("data_as_of") or {}).get("price")))
+        changes.append({"text": f"A plan was recorded{f' on {rec_day}' if rec_day else ''}, but the desk's rules find no setup today.",
+                        "tone": "warn"})
+    if changes:
+        blocks.append(block("list", "changes", "What has changed since it was recorded", None, items=changes))
+    levels: List[Dict[str, Any]] = []
+    if tp:
+        e, s = tp.get("entry") or {}, tp.get("stop") or {}
+        if num(e.get("price")) is not None:
+            levels.append({"kind": "entry", "price": num(e["price"]), "label": f"Today's entry {price(e['price'])}"})
+        if num(s.get("price")) is not None:
+            levels.append({"kind": "stop", "price": num(s["price"]), "label": f"Today's stop {price(s['price'])}"})
+    if orig:
+        oe = orig.get("entry") or {}
+        if num(oe.get("price")) is not None:
+            levels.append({"kind": "entry", "price": num(oe["price"]), "label": f"Recorded entry {price(oe['price'])}"})
+    if e_bars:
+        src.miss(f"{SRC_BARS} · {sym}", why(e_bars))
+    else:
+        src.add(SRC_BARS, bars[-1][0] if bars else None)
+        chart = _chart(sym, bars, "chart", f"{sym} · the plan, then and now", None, spans=(20, 50), levels=levels)
+        if chart:
+            blocks.append(chart)
+    if status == "setup_ready":
+        tone = "up"
+        head = (f"{sym}: the setup recorded earlier still holds under today's rules." if orig else
+               f"{sym}: today's rules find a setup; no earlier plan is on record to compare it with.")
+    elif status in ("wait", "avoid", "no_setup"):
+        tone = "warn" if status == "wait" else "down"
+        head = (f"{sym}: the setup is no longer there under today's rules ({DECISION_LABELS.get(status, status)})." if orig
+               else f"{sym}: {DECISION_LABELS.get(status, status)} today.")
+    return assemble("trade_validity", f"{sym} · is the setup still valid?", as_of, head, tone, blocks, src,
+                    follow(f"Should I book profits or hold {sym}?", "What are my open trades doing?",
+                           "What is the market view today?", f"Is {sym} a buy now?"),
+                    decision=decision, now=ctx.get("now"))
+
+
+async def exit_options(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """Q9 "Should I book profits or hold X?" — the open paper trade's own levels and today's price, distance to its
+    stop and target. It shows the facts and never tells the user to exit or hold (that is advice, not a fact)."""
+    src: Sources = ctx["src"]
+    sym = intent.symbol or ""
+    (out, e_o), (bars, e_bars) = await asyncio.gather(_try(rd.open_trades(ctx["request"])), _try(rd.stock_bars(sym)))
+    blocks: List[Dict[str, Any]] = []
+    head = None
+    tone = "neutral"
+    as_of = None
+    trade = None
+    if e_o or not isinstance(out, dict):
+        src.miss(SRC_PAPER, why(e_o) if e_o else "the paper book could not be read")
+    else:
+        as_of = iso_day(out.get("as_of"))
+        if as_of:
+            src.add(SRC_PAPER, as_of)
+        trade = next((t for t in out.get("trades") or [] if isinstance(t, dict) and t.get("symbol") == sym and t.get("status") == "open"), None)
+    if trade:
+        pnl = num(trade.get("unrealized_pnl_rs"))
+        entry, last, stop, target = (num(trade.get(k)) for k in ("entry_price", "last_close", "stop_price", "target_price"))
+        kpis = [_kpi("Entry", price(entry), None), _kpi("Last close", price(last), f"as of {day_text(as_of)}" if as_of else None),
+                _kpi("Unrealised P&L", price(pnl), None, tone_of(pnl))]
+        if last is not None and stop not in (None, 0):
+            kpis.append(_kpi("Distance to stop", pct((last - stop) / stop * 100), None, "warn"))
+        if last not in (None, 0) and target is not None:
+            kpis.append(_kpi("Distance to target", pct((target - last) / last * 100), None, "up"))
+        blocks.append(block("kpis", "trade", f"Your open trade in {sym}", None, items=kpis))
+        tone = tone_of(pnl)
+        bits = [x for x in (f"unrealised {price(pnl)}" if pnl is not None else None,
+                            f"{price(last)} against stop {price(stop)}" if last is not None and stop is not None else None,
+                            f"target {price(target)}" if target is not None else None) if x]
+        head = f"{sym}: " + ", ".join(bits) + "." if bits else f"{sym}: your open trade."
+    else:
+        blocks.append(notice(f"No open paper trade in {sym} is on record here.", "info", "none"))
+        head = f"No open paper trade in {sym} is on record here."
+    if e_bars:
+        src.miss(f"{SRC_BARS} · {sym}", why(e_bars))
+    else:
+        src.add(SRC_BARS, bars[-1][0] if bars else None)
+        levels = []
+        if trade:
+            if num(trade.get("stop_price")) is not None:
+                levels.append({"kind": "stop", "price": num(trade["stop_price"]), "label": f"Stop {price(trade['stop_price'])}"})
+            if num(trade.get("target_price")) is not None:
+                levels.append({"kind": "target", "price": num(trade["target_price"]), "label": f"Target {price(trade['target_price'])}"})
+        chart = _chart(sym, bars, "chart", f"{sym} · price against stop and target", None, spans=(20, 50), levels=levels)
+        if chart:
+            blocks.append(chart)
+    blocks.append(notice("Ideas to review, not advice: this shows your trade's own levels and today's price; it does "
+                         "not tell you to exit or hold.", "info", "no-advice"))
+    return assemble("exit_options", f"{sym} · hold, trail or exit", as_of, head, tone, blocks, src,
+                    follow(f"Is my trade in {sym} still valid?", "What are my open trades doing?",
+                           "What is the market view today?", "How much should I risk?"), now=ctx.get("now"))
+
+
 BUILDERS = {"market_view": market_view, "smart_money": smart_money, "top_opportunities": top_opportunities,
             "breakouts": breakouts, "unusual_volume": unusual_volume, "stock_decision": stock_decision,
-            "expected_move": expected_move}
+            "expected_move": expected_move, "open_trades": open_trades, "fno_setups": fno_setups,
+            "trade_validity": trade_validity, "exit_options": exit_options, "position_size": position_size}
 
 
 async def build(intent: Intent, user: Optional[Dict[str, Any]] = None, request: Any = None, message: str = "",

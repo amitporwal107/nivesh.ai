@@ -12,8 +12,15 @@ the seven Release-1 intents and the chat takes its usual path unchanged.
                        bare "what is the entry, target and stop-loss?" use the thread's last stock (`last_symbol`)
     expected_move      "What is the expected move in Nifty?" (NIFTY or BANKNIFTY), PCR / max pain / ATM IV of an index
 
-Not ours (None): the user's own trades and positions, booking profits / holding / exiting, F&O setups and strategies,
-position sizing, "what should I avoid", the day's review (Releases 2 and 3).
+Release 2:
+    open_trades        "What are my open trades doing?", "my open positions" — the paper book, not a broker's
+    fno_setups         "Which F&O setups are attractive?" — index and stock F&O, ranked by fit to today's regime
+    trade_validity     "Is my trade in X still valid?", "has my thesis on X weakened?" — a named or thread stock
+    exit_options       "Should I book profits or hold X?", "should I trail my stop?" — a named or thread stock
+    position_size      "How much should I risk?", "what position size…" — the account's budget; a named stock adds its own
+
+Not ours (None, Release 3): the user's long-term portfolio / holdings / P&L (that is the CAS-portfolio_analyst's book,
+not the paper-trading desk's), averaging a position, "what should I avoid today", the day's review.
 
 A stock is found with the Copilot's own resolver (services/copilot_tools/symbol_resolver.py), but F&O, PCR, P&L, GIFT,
 IV, OI, ATM, VIX and the index names are never a stock here: they are removed before resolving and refused after.
@@ -25,15 +32,17 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional
 
 INTENTS = ("market_view", "smart_money", "top_opportunities", "breakouts", "unusual_volume", "stock_decision",
-           "expected_move")
+           "expected_move", "open_trades", "fno_setups", "trade_validity", "exit_options", "position_size")
+# Intents that read a stock (named or from the thread): the deictic/thread fallback applies to these, not just stock_decision.
+SYMBOL_INTENTS = ("stock_decision", "trade_validity", "exit_options")
 
 
 @dataclass(frozen=True)
 class Intent:
     name: str
-    symbol: Optional[str] = None              # stock_decision: the stock; expected_move: NIFTY | BANKNIFTY
+    symbol: Optional[str] = None              # a stock (named or thread-sourced); expected_move: NIFTY | BANKNIFTY
     params: Dict[str, Any] = field(default_factory=dict)
-    symbol_from_thread: bool = False          # stock_decision: the stock came from the thread, not the message
+    symbol_from_thread: bool = False          # the stock came from the thread, not the message
 
 
 # Upper-case tokens that are never a stock in a trader's question (market words, option words, order words).
@@ -50,13 +59,12 @@ _ANY_CASE = frozenset({"f&o", "fno", "pcr", "p&l", "pnl", "gift", "iv", "oi", "a
 _TOKEN = re.compile(r"[A-Za-z0-9&]+")
 _BANK_NIFTY = re.compile(r"\b(bank\s*nifty|nifty\s*bank)\b", re.I)
 
-# The user's own book and the Release 2/3 questions: never answered here.
+# The user's long-term portfolio and the Release-3 questions: never answered here (Release 2 moved its own phrases
+# — open trades, book/hold/trail, F&O setups, position sizing, "still valid" — out of this gate; see the four new
+# patterns below).
 _NOT_OURS = re.compile(
-    r"\bmy\s+(open\s+|existing\s+|current\s+)?(trades?|positions?|portfolio|holdings?|p&l|pnl)\b|\bopen\s+trades?\b|"
-    r"\bbook(ing)?\s+(the\s+)?(profits?|gains)\b|\bstill\s+valid\b|\bshould\s+i\s+(hold|exit|sell|book)\b|\b(or|and)\s+hold\b|"
-    r"\btrail(ing)?\b|\baverag(e|ing)\s+(down|up)\b|"
-    r"\b(f&o|fno|options?|futures)\s+(setups?|strateg(y|ies)|trades?|ideas?|opportunit\w+)\b|\bwhat\s+should\s+i\s+avoid\b|"
-    r"\blearn\s+from\b|\bposition\s+siz\w*|\bhow\s+much\s+(should|can|do)\s+i\s+risk\b|\bmy\b", re.I)
+    r"\bmy\s+(portfolio|holdings?|p&l|pnl)\b|\baverag(e|ing)\s+(down|up)\b|\bwhat\s+should\s+i\s+avoid\b|"
+    r"\blearn\s+from\b|\bhow\s+did\s+i\s+do\b|\bmistakes?\s+(today|this\s+week)\b", re.I)
 
 _EXPECTED_MOVE = re.compile(
     r"\bexpected\s+move\b|\bimplied\s+move\b|\bhow\s+(much|far)\s+(can|will|could|may|might)\b.{0,40}\bmove\b|"
@@ -87,6 +95,28 @@ _MARKET_VIEW = re.compile(
     r"\b(is|was)\s+the\s+market\s+(trending|range[- ]?bound|volatile|bullish|bearish|up|down)\b|"
     r"\b(nifty|bank\s*nifty|banknifty)\b.{0,30}\b(view|outlook|today|trend|direction|key\s+levels)\b|"
     r"\b(view|outlook)\b.{0,30}\b(nifty|bank\s*nifty|banknifty)\b", re.I)
+
+# ── Release 2 ────────────────────────────────────────────────────────────────
+
+_OPEN_TRADES = re.compile(
+    r"\bmy\s+open\s+(trades?|positions?)\b|\bopen\s+trades?\b|\bwhat\s+are\s+my\s+(trades?|positions?)\s+doing\b|"
+    r"\bhow\s+are\s+my\s+(trades?|positions?)\s+(doing|going)\b|\bmy\s+(trades?|positions?)\s+today\b|"
+    r"\bstatus\s+of\s+my\s+(trades?|positions?)\b|\bpaper\s+trades?\s+(status|summary)\b", re.I)
+_FNO_SETUPS = re.compile(
+    r"\b(f&o|fno|options?|futures)\s+(setups?|strateg(y|ies)|trades?|ideas?|opportunit\w+)\b|"
+    r"\bwhich\s+(f&o|fno|options?)\b.{0,30}\battractive\b|\boptions?\s+trading\s+ideas?\b|"
+    r"\bdefined[- ]risk\s+(setups?|strateg(y|ies))\b", re.I)
+_TRADE_VALIDITY = re.compile(
+    r"\bstill\s+valid\b|\bthesis\b|\bweaken(ed|ing)?\b|\bhas\s+(my|the)\s+setup\s+changed\b|"
+    r"\bis\s+(my|the)\s+trade\s+(still\s+)?(ok|okay|good|intact)\b", re.I)
+_EXIT_OPTIONS = re.compile(
+    r"\bbook(ing)?\s+(the\s+)?(profits?|gains)\b|\bshould\s+i\s+(hold|exit|sell|book)\b|\b(or|and)\s+hold\b|"
+    r"\btrail(ing)?\s+(my\s+)?stop\b|\bmove\s+(my\s+)?stop\s+to\s+breakeven\b|\bbreak[- ]?even\b|"
+    r"\bbook\s+partial\b|\bpartial\s+(profit|exit)\b", re.I)
+_POSITION_SIZE = re.compile(
+    r"\bposition\s+siz\w*|\bhow\s+much\s+(should|can|do)\s+i\s+risk\b|\bhow\s+many\s+(shares?|lots?|units?)\s+(should|can)\s+i\s+"
+    r"(buy|trade|take)\b|\bwhat\s+(size|quantity)\s+(should|can)\s+i\s+(take|buy|trade)\b|\brisk\s+budget\b|"
+    r"\bdaily\s+loss\s+limit\b.{0,20}\bused\b", re.I)
 
 # A decision about one stock. Trade words count in any persona; "buy now" style words only for a trader.
 _TRADE_WORDS = re.compile(
@@ -144,10 +174,14 @@ def _decision_words(message: str, trader: bool) -> bool:
 
 
 def wants_thread_symbol(message: str, persona: Optional[str] = None, surface: Optional[str] = None) -> bool:
-    """True when the question is a stock decision that names no stock ("Is this stock a buy now?", "What is the entry,
-    target and stop-loss?"): the chat then reads the thread's last stock (cheap, only then)."""
+    """True when the question is about one stock but names none ("Is this stock a buy now?", "Is my trade still
+    valid?", "Should I book profits?"): the chat then reads the thread's last stock (cheap, only then)."""
     msg = message or ""
-    if _NOT_OURS.search(msg) or not _decision_words(msg, _is_trader(persona, surface)):
+    if _NOT_OURS.search(msg):
+        return False
+    trader = _is_trader(persona, surface)
+    about_a_stock = _decision_words(msg, trader) or _TRADE_VALIDITY.search(msg) or _EXIT_OPTIONS.search(msg)
+    if not about_a_stock:
         return False
     return stock_in(msg) is None
 
@@ -167,7 +201,21 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
     if _EXPECTED_MOVE.search(msg) and sym is None:
         return Intent("expected_move", symbol=_index_of(msg))
     if sym is not None:
+        # A named stock: the most specific pattern wins (validity and exit questions can also carry trade words,
+        # e.g. "should I hold or trail my stop in X", so these are checked before the plain entry/stop/target read).
+        if _TRADE_VALIDITY.search(msg):
+            return Intent("trade_validity", symbol=sym)
+        if _EXIT_OPTIONS.search(msg):
+            return Intent("exit_options", symbol=sym)
+        if _POSITION_SIZE.search(msg):
+            return Intent("position_size", symbol=sym)
         return Intent("stock_decision", symbol=sym) if _decision_words(msg, trader) else None
+    if _OPEN_TRADES.search(msg):
+        return Intent("open_trades")
+    if _POSITION_SIZE.search(msg):
+        return Intent("position_size")
+    if _FNO_SETUPS.search(msg):
+        return Intent("fno_setups")
     if _SMART_MONEY.search(msg):
         return Intent("smart_money")
     if _UNUSUAL_VOLUME.search(msg):
@@ -183,10 +231,15 @@ def resolve_intent(message: str, persona: Optional[str] = None, surface: Optiona
         return Intent("top_opportunities", params={"n": max(1, min(10, n))})
     if _MARKET_VIEW.search(msg):
         return Intent("market_view")
-    if last_symbol and _decision_words(msg, trader) and (_DEICTIC.search(msg) or _TRADE_WORDS.search(msg)):
+    if last_symbol:
         ls = last_symbol.upper()
         if ls not in NOT_A_STOCK and ls.lower() not in _ANY_CASE:
-            return Intent("stock_decision", symbol=ls, symbol_from_thread=True)
+            if _TRADE_VALIDITY.search(msg):
+                return Intent("trade_validity", symbol=ls, symbol_from_thread=True)
+            if _EXIT_OPTIONS.search(msg):
+                return Intent("exit_options", symbol=ls, symbol_from_thread=True)
+            if _decision_words(msg, trader) and (_DEICTIC.search(msg) or _TRADE_WORDS.search(msg)):
+                return Intent("stock_decision", symbol=ls, symbol_from_thread=True)
     return None
 
 
@@ -199,7 +252,7 @@ def last_symbol_from(messages: Iterable[Dict[str, Any]]) -> Optional[str]:
         w = m.get("widget") if isinstance(m.get("widget"), dict) else {}
         data = w.get("data") if isinstance(w.get("data"), dict) else {}
         sym = None
-        if w.get("widget_type") == "visual_answer" and data.get("intent") == "stock_decision":
+        if w.get("widget_type") == "visual_answer" and data.get("intent") in SYMBOL_INTENTS:
             sym = next((b.get("symbol") for b in data.get("blocks") or [] if isinstance(b, dict) and b.get("type") == "candles"),
                        None)
         elif w.get("widget_type") in ("trade_plan", "instrument_detail"):
