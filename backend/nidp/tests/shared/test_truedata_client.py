@@ -479,3 +479,153 @@ def test_sw7_shipped_switch_keeps_truedata_off():
     r = mds.resolve()
     assert r.configured == "current" and r.effective == "current" and mds.TRUEDATA_INTEGRATED is False
     assert mds.truedata_is_on() is False and mds.truedata_is_on(r) is False
+
+
+# ── NR-1 … NR-7: the nightly cross-check records its findings (test_reports/truedata_live_dq_TESTCASES.md) ──────────
+
+class _FakeConn:
+    def __init__(self, log):
+        self.log = log
+
+    async def execute(self, sql, *args):
+        self.log.append((sql.split("(")[0].strip(), args))
+
+    def transaction(self):
+        class _T:
+            async def __aenter__(self_inner):
+                return self_inner
+
+            async def __aexit__(self_inner, *a):
+                return False
+        return _T()
+
+
+class _FakePool:
+    def __init__(self):
+        self.log = []
+
+    def acquire(self):
+        pool = self
+
+        class _A:
+            async def __aenter__(self_inner):
+                return _FakeConn(pool.log)
+
+            async def __aexit__(self_inner, *a):
+                return False
+        return _A()
+
+
+class _FakeJobRun:
+    runs = []
+
+    def __init__(self, ingester, target_date=None, source_url=None):
+        import uuid
+        self.run_id, self.ingester, self.target_date = uuid.uuid4(), ingester, target_date
+        self.rows_fetched, self.metadata, self.final = 0, {}, None
+        _FakeJobRun.runs.append(self)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def finalize(self, status, *, error_message=None, error_class=None):
+        self.final = (status, error_class)
+
+
+@pytest.fixture
+def recorder(monkeypatch):
+    pool = _FakePool()
+    _FakeJobRun.runs = []
+
+    async def get_pool():
+        return pool
+    monkeypatch.setattr("nidp.shared.storage.job_log.JobRun", _FakeJobRun)
+    monkeypatch.setattr("nidp.shared.storage.pg.get_pool", get_pool)
+    alerts = []
+    return pool, alerts, (lambda subject, body: alerts.append((subject, body)) or True)
+
+
+def _report(eq_rows, td_eq, fo_rows, td_fo):
+    nse = {"eq": eq_rows, "fo": fo_rows}
+    return asyncio.run(xc.run(date(2026, 10, 28), _FakeClient(td_eq, td_fo), nse, switch=lambda: ON))
+
+
+def _record(report, notifier):
+    return asyncio.run(xc.record(report, date(2026, 10, 28), notifier=notifier))
+
+
+def test_nr1_all_equal_records_passed_without_alert(recorder):
+    pool, alerts, notifier = recorder
+    rep = _report([_eq("AAAA", "EQ", 10, 11, 9.5, 10.5, 1000)], td.parse_csv(BHAV_EQ),
+                  [_fo("IDO", "IDXA", date(2026, 11, 3), 10000, "CE", 5.5, 15000, 10)], td.parse_csv(BHAV_FO))
+    out = _record(rep, notifier)
+    assert out["job_status"] == "OK" and out["validation_status"] == "PASSED" and out["findings"] == []
+    assert [s for s, _ in pool.log] == ["INSERT INTO nidp.validation_runs"]
+    args = pool.log[0][1]
+    assert args[2] == "truedata_crosscheck" and args[4] == "PASSED" and json.loads(args[-1])["verdict"] == "EQUAL"
+    assert _FakeJobRun.runs[0].final == ("OK", None) and alerts == []
+
+
+def test_nr2_differences_record_findings_and_alert(recorder):
+    pool, alerts, notifier = recorder
+    td_eq = td.parse_csv(BHAV_EQ.replace("10.5,1000", "10.75,1000"))
+    rep = _report([_eq("AAAA", "EQ", 10, 11, 9.5, 10.5, 1000), _eq("GONE", "EQ", 1, 1, 1, 1, 1)], td_eq,
+                  [_fo("IDF", "IDXA", date(2027, 1, 26), None, None, 10100, 500, 2)], td.parse_csv(BHAV_FO))
+    out = _record(rep, notifier)
+    rules = {f["rule_name"]: f for f in out["findings"]}
+    assert set(rules) == {"truedata.eq_missing", "truedata.eq_mismatch", "truedata.fo_missing"}
+    assert rules["truedata.eq_mismatch"]["severity"] == "ERROR" and rules["truedata.eq_mismatch"]["failure_class"] == "FIX"
+    assert out["validation_status"] == "PARTIAL" and out["job_status"] == "OK" and out["alerted"] is True
+    assert [s for s, _ in pool.log].count("INSERT INTO nidp.validation_findings") == 3
+    assert "PARTIAL" in alerts[0][0] and "truedata.eq_mismatch" in alerts[0][1]
+
+
+def test_nr3_known_oi_limit_is_a_warning_not_an_alert(recorder):
+    pool, alerts, notifier = recorder
+    nov = date(2026, 11, 24)
+    td_fo = td.parse_csv("symbolid,symbol,timestamp,open,high,low,close,volume,oi\n"
+                         "1,IDEA26NOVFUT,2026-10-28,12,12,11.9,11.93,1000,0\n")
+    rep = _report([_eq("AAAA", "EQ", 10, 11, 9.5, 10.5, 1000)], td.parse_csv(BHAV_EQ),
+                  [_fo("STF", "IDEA", nov, None, None, 11.93, 6_173_152_800, 3348)], td_fo)
+    assert rep["fno"]["oi_overflow_count"] == 1 and rep["fno"]["unexplained_mismatch_count"] == 0
+    out = _record(rep, notifier)
+    assert [(f["rule_name"], f["severity"], f["failure_class"]) for f in out["findings"]] == \
+        [("truedata.fo_oi_overflow", "WARN", "INFO")]
+    assert out["validation_status"] == "PASSED" and alerts == []
+
+
+def test_nr4_truedata_call_failed_blocks_and_alerts(recorder):
+    pool, alerts, notifier = recorder
+    rep = _report([_eq("AAAA", "EQ", 10, 11, 9.5, 10.5, 1000)],
+                  td.TrueDataError(td.PROVIDER_UNAVAILABLE, "TrueData getbhavcopy: HTTP 503"),
+                  [_fo("IDO", "IDXA", date(2026, 11, 3), 10000, "CE", 5.5, 15000, 10)], td.parse_csv(BHAV_FO))
+    out = _record(rep, notifier)
+    assert out["findings"][0]["rule_name"] == "truedata.call_failed" and out["findings"][0]["failure_class"] == "BLOCK"
+    assert out["job_status"] == "FAILED" and out["validation_status"] == "FAILED" and alerts
+    assert _FakeJobRun.runs[0].final == ("FAILED", "TRUEDATA_CALL_FAILED")
+
+
+def test_nr5_switched_off_records_a_skipped_run_only(recorder):
+    pool, alerts, notifier = recorder
+    rep = asyncio.run(xc.run(date(2026, 10, 28), _NeverCalled(), switch=lambda: OFF))
+    out = _record(rep, notifier)
+    assert out == {"job_status": "SKIPPED", "reason": "SWITCHED_OFF", "findings": [], "alerted": False}
+    assert pool.log == [] and _FakeJobRun.runs[0].final == ("SKIPPED", "SWITCHED_OFF") and alerts == []
+
+
+def test_nr6_no_nse_rows_records_skipped(recorder):
+    pool, alerts, notifier = recorder
+    rep = _report([], td.parse_csv(BHAV_EQ), [], td.parse_csv(BHAV_FO))
+    out = _record(rep, notifier)
+    assert out["reason"] == "NO_NSE_DATA" and pool.log == [] and alerts == []
+
+
+def test_nr7_cron_line_runs_after_the_last_fno_file():
+    import pathlib
+    cron = pathlib.Path(__file__).resolve().parents[4] / "deploy" / "cloudpe" / "nidp" / "nidp-staging-truedata.cron"
+    lines = [l for l in cron.read_text().splitlines() if l and not l.startswith("#") and "run_service" in l]
+    assert lines == ["45 22 * * 1-5  nidp-staging  /opt/nidp-staging/run_service.sh truedata_crosscheck --record"]
+    assert "CRON_TZ=Asia/Kolkata" in cron.read_text()
