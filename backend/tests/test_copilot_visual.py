@@ -367,9 +367,9 @@ def test_b10_stock_decision_status_comes_from_the_plan(src, status, decided, lab
         c = blocks(p, "candles")[0]
         assert [lv["kind"] for lv in c["levels"]] == ["entry", "stop", "target"] and set(c["overlays"]) == {"ema20", "ema50", "ema200"}
         k = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
-        assert k == {"Entry": "₹1,840.00", "Stop": "₹1,790.00", "First target": "₹1,940.00", "Reward:risk": "2.0×",
-                     "Size": "12 shares", "Max loss": "₹640.50"}
-        assert d["invalidation"] == "MOCK: a close below the base"
+        assert k == {"Entry": "₹1,840.00", "Stop": "₹1,790.00", "First target": "₹1,940.00",
+                     "Reward:risk": "2.0×", "Size": "12 shares", "Max loss": "₹640.50"}
+        assert d["invalidation"] == "MOCK: a close below the base (₹1,790.00)"
         assert {"text": "Trend: MOCK above the 50-day", "met": True} in d["conditions"]
     else:
         assert d["plan_id"] is None and not blocks(p, "trade_plan") and not blocks(p, "candles")[0]["levels"]
@@ -387,6 +387,26 @@ def test_b10_the_plan_is_built_once_when_not_handed_over(src, monkeypatch):
     p = build("stock_decision", "TVSMOTOR", message="Trade plan for TVSMOTOR")
     assert calls == [("u1", "TVSMOTOR")] and p["decision"]["status"] == "wait"
     assert any(n["id"] == "assumed" for n in blocks(p, "notice"))                             # direction not said
+
+
+def test_b10_an_option_plan_shows_its_net_premium_and_no_entry_line(src):
+    plan = splan("plan")
+    tp = plan["candidates"][0]["trade_plan"]
+    tp["entry"] = {"price": None, "net_premium_rs": 12617.5, "order_type": "at_premium", "order_text": "MOCK every leg at its close",
+                   "logic": "MOCK recorded at the legs' premiums"}
+    tp["stop"] = {"price": 842.95, "method": "underlying", "invalidation": "MOCK the thesis is wrong beyond this level"}
+    tp["strategy"] = {"segment": "options", "label": "Covered call (MOCK)"}
+    plan["would_change_if"] = ["MOCK: about another candidate"]
+    p = build("stock_decision", "PNB", message="Is PNB a buy now?",
+              trade_idea=SimpleNamespace(plan=plan, widget=None, sized={"status": "not_sizable"}))
+    d = p["decision"]
+    assert d["reason"] == "Covered call (MOCK): net premium ₹12,617.50, stop ₹842.95 (underlying)."
+    assert all("another candidate" not in c["text"] for c in d["conditions"])          # a setup is not "waiting" on them
+    assert "entry None" not in p["headline"]["text"] and "net premium ₹12,617.50" in p["headline"]["text"]
+    k = {i["label"]: i["value"] for i in blocks(p, "kpis")[0]["items"]}
+    assert k["Net premium"] == "₹12,617.50" and "Entry" not in k and k["Strategy"] == "Covered call (MOCK)"
+    assert [lv["kind"] for lv in blocks(p, "candles")[0]["levels"]] == ["stop", "target"]
+    assert "Account sizing: the risk service would refuse this plan on your account (not_sizable)" in p["data_quality"]["missing"]
 
 
 def test_b11_plan_not_built(src):

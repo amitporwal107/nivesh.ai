@@ -326,7 +326,7 @@ async def top_opportunities(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, An
             rows.append({"symbol": sym, "plan_id": pid, "ask": f"Trade plan for {sym}" if sym else None,
                          "tone": "up" if status == "setup_ready" else "neutral",
                          "cells": {"rank": e.get("rank"), "symbol": sym,
-                                   "setup": _BUCKETS.get(sc.get("bucket"), sc.get("bucket")),
+                                   "setup": _BUCKETS.get(sc.get("bucket"), sc.get("bucket")) or (tp.get("strategy") or {}).get("label"),
                                    "status": DECISION_LABELS.get(status) if status else (e.get("plan_status") or None),
                                    "entry": r2((tp.get("entry") or {}).get("price")), "stop": r2((tp.get("stop") or {}).get("price")),
                                    "target": r2(prim.get("price")), "rr": r2(prim.get("r_multiple")),
@@ -501,22 +501,40 @@ def _preferred_tp(plan: Dict[str, Any], widget: Optional[Dict[str, Any]]) -> Dic
     return (pref or (cands[0] if cands else {})).get("trade_plan") or {}
 
 
+def _entry_text(e: Dict[str, Any]) -> Optional[str]:
+    """A share plan's trigger price, or an option plan's net premium (its entry has no single price)."""
+    if num(e.get("price")) is not None:
+        return f"entry {price(e['price'])}"
+    if num(e.get("net_premium_rs")) is not None:
+        return f"net premium {price(e['net_premium_rs'])}"
+    return None
+
+
 def _decision(status: str, plan: Dict[str, Any], tp: Dict[str, Any]) -> Dict[str, Any]:
     reasons = [r.get("message") for r in plan.get("status_reasons") or [] if isinstance(r, dict) and r.get("message")]
     e, s = tp.get("entry") or {}, tp.get("stop") or {}
+    label = (tp.get("strategy") or {}).get("label")
     if status == "setup_ready":
-        reason = e.get("logic") or (f"Entry {price(e.get('price'))} ({e.get('order_type')}), stop {price(s.get('price'))}."
-                                    if num(e.get("price")) is not None else None)
+        if num(e.get("price")) is not None and e.get("logic"):
+            reason = f"{label}: {e['logic']}" if label else e["logic"]
+        else:
+            bits = [x for x in (_entry_text(e), f"stop {price(s.get('price'))} ({s.get('method') or 'stop'})"
+                                if num(s.get("price")) is not None else None) if x]
+            reason = (f"{label}: " if label else "") + ", ".join(bits) + "." if bits else label
     else:
         reason = reasons[0] if reasons else None
     conds = []
     for it in ((tp.get("evidence") or {}).get("items") or []):
         if isinstance(it, dict) and it.get("status") == "ok" and it.get("text") and it.get("direction") in ("supports", "conflicts"):
             conds.append({"text": f"{it.get('label') or it.get('key')}: {it['text']}", "met": it["direction"] == "supports"})
-    conds = conds[:4] + [{"text": str(w), "met": False} for w in (plan.get("would_change_if") or [])[:3]]
+    conds = conds[:4]
+    if status != "setup_ready":                       # what would have to change (it describes the setups not taken)
+        conds += [{"text": str(w), "met": False} for w in (plan.get("would_change_if") or [])[:3]]
     if not tp:
         conds += [{"text": r, "met": False} for r in reasons[1:4]]
-    inval = s.get("invalidation") or (f"A close below {price(s.get('price'))}" if num(s.get("price")) is not None and status in SHOWN_PLAN else None)
+    inval = s.get("invalidation")
+    if num(s.get("price")) is not None and status in SHOWN_PLAN:
+        inval = f"{inval} ({price(s['price'])})" if inval else f"A close beyond {price(s['price'])}"
     return {"status": status, "label": DECISION_LABELS[status], "reason": reason, "conditions": conds,
             "invalidation": inval, "plan_id": tp.get("plan_id") if status in SHOWN_PLAN else None}
 
@@ -548,8 +566,10 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
         e, s, prim = tp.get("entry") or {}, tp.get("stop") or {}, _primary(tp)
         if status == "setup_ready":
             tone = "up"
-            head = (f"{sym}: the desk's rules find a setup — entry {price(e.get('price'))}, stop {price(s.get('price'))}"
-                    + (f", first target {price(prim.get('price'))}" if num(prim.get("price")) is not None else "") + ".")
+            parts = [x for x in ((tp.get("strategy") or {}).get("label"), _entry_text(e),
+                                 f"stop {price(s.get('price'))}" if num(s.get("price")) is not None else None,
+                                 f"first target {price(prim.get('price'))}" if num(prim.get("price")) is not None else None) if x]
+            head = f"{sym}: the desk's rules find a setup — {', '.join(parts)}."
         elif status == "wait":
             head = f"{sym}: a setup is waiting for its confirmation — {decision['reason'] or 'see the conditions'}."
         elif status == "avoid":
@@ -582,9 +602,14 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
     if tp:
         e, s, prim = tp.get("entry") or {}, tp.get("stop") or {}, _primary(tp)
         sized = getattr(ti, "sized", None) or {}
-        kpis = [_kpi("Entry", price(e.get("price")), " · ".join(x for x in (e.get("order_type"), f"valid {e['valid_for_sessions']} sessions"
-                                                                             if e.get("valid_for_sessions") else None) if x) or None),
-                _kpi("Stop", price(s.get("price") if num(s.get("price")) is not None else s.get("premium_stop")), s.get("method")),
+        strat = tp.get("strategy") or {}
+        entry_kpi = (_kpi("Entry", price(e.get("price")), " · ".join(x for x in (e.get("order_type"), f"valid {e['valid_for_sessions']} sessions"
+                                                                               if e.get("valid_for_sessions") else None) if x) or None)
+                     if num(e.get("price")) is not None or num(e.get("net_premium_rs")) is None else
+                     _kpi("Net premium", price(e.get("net_premium_rs")), e.get("order_text") or e.get("order_type")))
+        kpis = ([_kpi("Strategy", strat["label"], strat.get("segment"))] if strat.get("label") else []) + [entry_kpi,
+                _kpi("Stop", price(s.get("price") if num(s.get("price")) is not None else s.get("premium_stop")),
+                     "underlying level" if s.get("method") == "underlying" else s.get("method")),
                 _kpi("First target", price(prim.get("price")), f"{num(prim.get('r_multiple')):.1f}R" if num(prim.get("r_multiple")) is not None else None),
                 _kpi("Reward:risk", times(prim.get("r_multiple")), "to the first target, before charges")]
         if sized.get("status") in ("sized", "not_confirmed"):
@@ -594,6 +619,8 @@ async def stock_decision(intent: Intent, ctx: Dict[str, Any]) -> Dict[str, Any]:
                              "risk service, your saved risk profile" + ("" if sized.get("status") == "sized" else " (not confirmed)")))
             kpis.append(_kpi("Max loss", price(risk), f"{num(sized.get('risk_pct_of_equity')):.2f}% of paper equity"
                              if num(sized.get("risk_pct_of_equity")) is not None else None, "warn"))
+        elif sized.get("status") == "not_sizable":
+            src.missing.append("Account sizing: the risk service would refuse this plan on your account (not_sizable)")
         elif sized:
             src.missing.append(f"Account sizing: {sized.get('reason') or sized.get('status') or 'unavailable'}")
         blocks.append(block("kpis", "risk", "Risk and reward", None, items=kpis))
