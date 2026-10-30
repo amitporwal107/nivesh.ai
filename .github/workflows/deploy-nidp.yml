@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - 'backend/nidp/**'
+      - 'backend/config/market_data_source.json'   # the market-data switch, read by the NIDP jobs
 
   workflow_dispatch:
     inputs:
