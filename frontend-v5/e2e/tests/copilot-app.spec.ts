@@ -688,3 +688,54 @@ test.describe("Copilot app — phone (390×844)", () => {
     await noSidewaysScroll(page);
   });
 });
+
+test.describe("Copilot app — the answer shown is the checked answer (copilot_chat_p0_20261030)", () => {
+  // MOCK — not real data: the streamed draft and the final text are invented. The final frame carries the
+  // compliance node's text (backend/routes/chat.py stream_chat; tests/test_chat_compliance_delivery.py).
+  const DRAFT = ["FIXCO looks bullish. ", "You should buy it."];
+  const FINAL = "FIXCO [factual data only — no recommendation]. [factual data only — no recommendation] it.";
+  const frames = (final: string): Frame[] => [
+    { type: "meta", session_id: "new1", ai_msg_id: "ai1", user_msg_id: "u1" },
+    { type: "route", agent: "stock_analyst", confidence: 0.92 },
+    ...DRAFT.map((content) => ({ type: "token", content })),
+    { type: "done", content: final, follow_ups: [] },
+  ];
+
+  /** Hold the thread's reload after the answer, so the live turn (not the saved copy) is what is on screen. */
+  async function holdReload(page: Page, chat: ChatMock) {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route("**/api/chat/messages*", async (route) => {
+      if (chat.streams.length > 0) await held;
+      await route.fallback();
+    });
+    return release;
+  }
+
+  test("TC-CP1 the final frame's text replaces the streamed draft", async ({ page }) => {
+    await setup(page);
+    const chat = await mockChat(page, { frames: frames(FINAL) });
+    const release = await holdReload(page, chat);
+    await page.goto(APP);
+    await askFromBox(page, "How is FIXCO doing?");
+    const answer = page.getByTestId("answer-text");
+    await expect(answer).toContainText("FIXCO [factual data only — no recommendation].");
+    await expect(answer).not.toContainText("bullish");
+    await expect(answer).not.toContainText("You should buy");
+    release();
+    // The saved copy is the same text, so nothing changes when it loads.
+    await expect(answer).toContainText("FIXCO [factual data only — no recommendation].");
+  });
+
+  test("TC-CP2 an unchanged answer stays as streamed", async ({ page }) => {
+    await setup(page);
+    const chat = await mockChat(page, { frames: frames(DRAFT.join("")) });
+    const release = await holdReload(page, chat);
+    await page.goto(APP);
+    await askFromBox(page, "How is FIXCO doing?");
+    const answer = page.getByTestId("answer-text");
+    await expect(answer).toHaveText(DRAFT.join("").trim());
+    release();
+    await expect(answer).toHaveText(DRAFT.join("").trim());
+  });
+});
