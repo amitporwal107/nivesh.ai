@@ -14,6 +14,7 @@ from deps import db, get_current_user, ai_engine
 from models import ChatMessageInput
 from services import portfolio_intelligence
 from services import copilot_trade_idea as _trade_idea
+from services import copilot_visual as _visual
 from services.llm_safety import wrap_external_data
 from services.action_plan_manager import ActionPlanManager
 from routes.copilot import _advisor_book_block, _is_advisor_caller, _is_research_tool_intent
@@ -1551,26 +1552,38 @@ async def stream_chat(request: Request):
     # broker) with the question, so its answer is about that contract. The
     # thread keeps the question as the user asked it.
     position_context = await _position_context(user_id, position_widget)
+    # ── Visual answer pre-step (Daily Trader Copilot; services/copilot_visual, contract in ──────────────────────────
+    # docs/daily_trader_copilot/VISUAL_ANSWER_CONTRACT.md). A question the visual engine knows (market view, smart money,
+    # top ideas, breakouts, unusual volume, a stock's decision, the expected move) gets a dashboard built from the
+    # platform's own data: it is this answer's card, its figures go to the engine as a data block, and the engine is
+    # pinned to the node that explains it. A stock decision carries the desk plan, built once, as its trade_plan block.
+    # Any other question (or a dashboard that could not be built) takes the path below unchanged.
+    visual = None
+    if route_investor and not position_widget and not pinned_agent:
+        visual = await _visual.prepare(request, user, message, body.get("persona"), body.get("surface"), session_id, db)
+    # ── end of the visual answer pre-step ────────────────────────────────────────────────────────────────────────────
     # A trading question about a stock (the Trader persona, the trading desk's
     # Copilot panel, or trading words; services/copilot_trade_idea.py) brings
     # the desk's own plan for that stock, built as POST /api/desk/strategy/plan
     # builds it: its card when there is a setup (or one waiting for its
     # confirmation), and its facts for the answer either way. A position
     # question keeps its own card.
-    trade_idea = None
-    if route_investor and not position_widget and _trade_idea.is_trade_question(message, body.get("persona"), desk_persona):
+    trade_idea = visual.trade_idea if visual is not None else None
+    if visual is None and route_investor and not position_widget and _trade_idea.is_trade_question(message, body.get("persona"), desk_persona):
         trade_symbol = _trade_idea.symbol_for(message)
         if trade_symbol:
             trade_idea = await _trade_idea.build(request, user_id, trade_symbol, message)
     trade_widget = trade_idea.widget if trade_idea else None
     # The card the route attaches itself, sent before the answer; the engine's
     # own card is then neither sent nor saved.
-    route_widget = position_widget or trade_widget
+    route_widget = position_widget or (visual.widget if visual is not None else None) or trade_widget
     # Such a question goes to the stock analyst — it has the underlying's
     # chart levels — whatever words the facts add: left to the router, a
     # message about a holding and its P&L is sent to the portfolio analyst,
     # which has no price levels. A client's own pin is kept.
     engine_pin = pinned_agent
+    if engine_pin is None and visual is not None and _AgentName is not None:
+        engine_pin = _AgentName(visual.agent)
     if engine_pin is None and (position_widget or trade_idea) and _AgentName is not None:
         engine_pin = _AgentName("stock_analyst")
 
@@ -1694,6 +1707,8 @@ async def stream_chat(request: Request):
                     data_blocks = []
                     if position_context:
                         data_blocks.append(wrap_external_data(position_context, source='broker_position'))
+                    if visual is not None and visual.facts:
+                        data_blocks.append(wrap_external_data(visual.facts, source='visual_answer'))
                     if trade_idea:
                         data_blocks.append(wrap_external_data(trade_idea.context, source='trade_plan'))
                     lg_messages.append(_HumanMessage(
