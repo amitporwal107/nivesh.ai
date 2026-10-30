@@ -51,6 +51,14 @@ Written before implementation.
 | TS-10 | Switch wiring | `current` → Kite feed. `shadow` → Kite feed + shadow. `truedata` → TrueData-served `LiveFeed` only (no Kite feed, no second TrueData connection). With `TRUEDATA_INTEGRATED` False, `truedata` still resolves to `shadow` (existing MS tests) |
 | TS-11 | Secrets | No WebSocket or REST password in logs, status, snapshot or minute documents |
 
+## Intraday candles from TrueData (TI) — added 30 Oct, after a REST probe of TrueData's history
+The probe showed TrueData's history accepts dated names: NIFTY26NOVFUT gave 75 five-minute bars on 30 Oct, NIFTY26110322900CE 75, RELIANCE 24 fifteen-minute bars. Its 5/15-minute bars name the volume column `Volume`.
+| ID | Case | Expected |
+|---|---|---|
+| TI-1 | `TrueDataAsKite.historical_data` / `historical_data_oi` | Kite's intervals map to TrueData's (5minute → 5min … day → eod). Rows become Kite candles: `date` is an aware IST time; `volume` is read from `volume` or `Volume`; `oi` is filled only for `_oi`. An unknown token or interval raises TrueDataError, so no candle is invented |
+| TI-2 | `IntradayService` on TrueData | `bars()` and `futures_bars()` answer as for Kite, with `source` "TrueData intraday…", `provider` truedata-rest-v1 and **`adjusted: true`**. The note says TrueData's candles are adjusted. The Kite service is unchanged: source "Kite intraday", `adjusted: false` |
+| TI-3 | `get_service()` | Effective `truedata` → TrueData's service. Otherwise → Kite's. `/availability` names the service's source |
+
 ## Market-hours check (S): needs the sandbox WebSocket, Mon 2 Nov – Wed 4 Nov
 | ID | Case | Expected |
 |---|---|---|

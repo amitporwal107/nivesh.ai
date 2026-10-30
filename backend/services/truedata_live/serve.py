@@ -149,6 +149,17 @@ def build_feed(db, *, env: Optional[Dict[str, str]] = None, client=None, connect
     return feed, adapter, checks
 
 
+def intraday_service(client=None, clock=None):
+    """The intraday candle service (services/kite_live_feed/intraday.IntradayService) reading TrueData's REST bars: the
+    same answers, labelled TrueData and ADJUSTED (TrueData's history is adjusted for corporate actions). TI-2."""
+    from services.kite_live_feed.intraday import IntradayService
+    adapter = tg.TrueDataAsKite(client=client, clock=clock)
+    kwargs = {"clock": clock} if clock is not None else {}
+    return IntradayService(token_getter=rest_marker, key_getter=rest_marker, kite_factory=lambda key, token: adapter,
+                           source="TrueData intraday", provider=td.CLIENT_VERSION, adjusted=True,
+                           note="TrueData candles, adjusted for corporate actions (bonus, split).", **kwargs)
+
+
 _checks_task: Optional["asyncio.Task[None]"] = None
 
 

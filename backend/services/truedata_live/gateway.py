@@ -40,6 +40,16 @@ DEFAULT_INDICES = ("NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "NIFTY MID SEL
                    "NIFTY IT", "NIFTY AUTO", "NIFTY PHARMA", "NIFTY FMCG", "NIFTY METAL", "NIFTY REALTY", "NIFTY ENERGY",
                    "NIFTY PSU BANK")
 _CONTINUOUS = re.compile(r"^(?P<u>.+)-(I|II|III)$")
+# Kite's historical intervals -> TrueData's bar sizes
+KITE_INTERVALS = {"minute": "1min", "3minute": "3min", "5minute": "5min", "10minute": "10min", "15minute": "15min",
+                  "30minute": "30min", "60minute": "60min", "day": "eod"}
+
+
+def _naive_ist(v: Any) -> datetime:
+    """TrueData takes naive IST times; Kite callers pass datetimes (aware or naive IST) or dates."""
+    if isinstance(v, datetime):
+        return (v.astimezone(pr.IST) if v.tzinfo else v).replace(tzinfo=None)
+    return datetime(v.year, v.month, v.day)
 
 
 # ── names ────────────────────────────────────────────────────────────────────
@@ -191,6 +201,34 @@ class TrueDataAsKite:
 
     def quote(self, keys: List[str]) -> Dict[str, dict]:
         return {}
+
+    # Kite's historical_data / historical_data_oi, from TrueData's REST bars (TI-1 … TI-3). TrueData's history is ADJUSTED
+    # for corporate actions; the intraday service labels it so. Its 5/15-minute bars name the volume column "Volume".
+    def historical_data(self, instrument_token: int, from_date, to_date, interval: str) -> List[dict]:
+        return self._history(instrument_token, from_date, to_date, interval, oi=False)
+
+    def historical_data_oi(self, instrument_token: int, from_date, to_date, interval: str) -> List[dict]:
+        return self._history(instrument_token, from_date, to_date, interval, oi=True)
+
+    def _history(self, instrument_token: int, from_date, to_date, interval: str, oi: bool) -> List[dict]:
+        self._load()
+        sym = self.tokens.get(int(instrument_token))
+        if sym is None:
+            raise td.TrueDataError(td.IDENTIFIER_NOT_RESOLVED, "no TrueData symbol for that instrument token")
+        if interval not in KITE_INTERVALS:
+            raise td.TrueDataError(td.INVALID_REQUEST, f"interval {interval!r} has no TrueData equivalent")
+        rows = self._client.bars(sym, _naive_ist(from_date), _naive_ist(to_date), KITE_INTERVALS[interval])
+        out = []
+        for r in rows:
+            t = pr.parse_ts(r.get("timestamp"))
+            if t is None:
+                continue
+            c = {"date": t, "open": _float(r.get("open")), "high": _float(r.get("high")), "low": _float(r.get("low")),
+                 "close": _float(r.get("close")), "volume": _float(r.get("volume", r.get("Volume")))}
+            if oi:
+                c["oi"] = _float(r.get("oi"))
+            out.append(c)
+        return out
 
     def profile(self) -> dict:
         return {"broker": "truedata"}

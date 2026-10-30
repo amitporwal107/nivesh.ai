@@ -382,3 +382,69 @@ def test_ts11_no_password_in_documents_or_logs(caplog, monkeypatch):
     text = json.dumps({n: c.docs for n, c in db.cols.items()}, default=str) + caplog.text
     assert WS_PASSWORD not in text and REST_PASSWORD not in text
     assert serve.ws_marker(ENV).startswith("truedata:") and WS_PASSWORD not in serve.ws_marker(ENV)
+
+
+# ── TI-1 … TI-3: intraday candles from TrueData ──────────────────────────────
+def bar_row(t, o, h, l, c, v, oi=0, vol_key="Volume"):
+    return {"timestamp": t, "open": o, "high": h, "low": l, "close": c, vol_key: v, "oi": oi}
+
+
+class FakeBarsClient(FakeClient):
+    """MOCK — not real data: two 5-minute bars per contract, in the shapes TrueData's history returned on 30 Oct."""
+
+    def __init__(self):
+        super().__init__()
+        self.bar_calls = []
+
+    def bars(self, symbol, start, end, interval="1min", bidask=False):
+        self.bar_calls.append((symbol, start, end, interval))
+        base = {"RELIANCE": 1160.0, "NIFTY26NOVFUT": 23000.0, "NIFTY26DECFUT": 23150.0}.get(symbol, 100.0)
+        return [bar_row("2026-10-30T09:15:00", base, base + 4, base - 2, base + 1, 1500, oi=15800000 if "FUT" in symbol else 0),
+                bar_row("2026-10-30T09:20:00", base + 1, base + 3, base, base + 2, 900, oi=15810000 if "FUT" in symbol else 0,
+                        vol_key="volume")]
+
+
+def test_ti1_history_maps_kite_intervals_and_reads_either_volume_column():
+    client = FakeBarsClient()
+    a = tg.TrueDataAsKite(client=client, indices=["NIFTY 50"], clock=lambda: OPEN)
+    rows = a.historical_data_oi(900000596, datetime(2026, 10, 30, 9, 0, tzinfo=IST), OPEN, "5minute")
+    assert client.bar_calls[-1] == ("NIFTY26NOVFUT", datetime(2026, 10, 30, 9, 0), datetime(2026, 10, 30, 10, 0), "5min")
+    assert rows[0] == {"date": datetime(2026, 10, 30, 9, 15, tzinfo=IST), "open": 23000.0, "high": 23004.0, "low": 22998.0,
+                       "close": 23001.0, "volume": 1500.0, "oi": 15800000.0}
+    assert rows[1]["volume"] == 900.0                                         # the lower-case column
+    assert "oi" not in a.historical_data(100001262, OPEN, OPEN, "15minute")[0]
+    with pytest.raises(tg.td.TrueDataError):
+        a.historical_data(424242, OPEN, OPEN, "5minute")                      # unknown token: nothing invented
+    with pytest.raises(tg.td.TrueDataError):
+        a.historical_data(100001262, OPEN, OPEN, "2minute")                   # no Kite interval of that name
+
+
+def test_ti2_the_intraday_service_answers_from_truedata_labelled_and_adjusted(monkeypatch):
+    monkeypatch.setenv("TRUEDATA_USERNAME", "rest-x")
+    monkeypatch.setenv("TRUEDATA_PASSWORD", REST_PASSWORD)
+    svc = serve.intraday_service(client=FakeBarsClient(), clock=lambda: OPEN.astimezone(timezone.utc))
+    out = asyncio.run(svc.bars("RELIANCE", "5m", 1))
+    assert out["availability"] == "ok" and out["count"] == 2 and out["bars"][0][4] == 1161.0
+    assert (out["source"], out["provider"], out["adjusted"]) == ("TrueData intraday", "truedata-rest-v1", True)
+    assert "adjusted for corporate actions" in out["note"]
+    fut = asyncio.run(svc.futures_bars("NIFTY", "5m", 1))
+    assert fut["availability"] == "ok" and fut["adjusted"] is True and fut["source"].startswith("TrueData intraday")
+    assert [c["tradingsymbol"] for c in fut["contracts"]][:2] == ["NIFTY26NOVFUT", "NIFTY26DECFUT"]
+    assert fut["contracts"][0]["bars"][0][6] == 15800000.0
+    from services.kite_live_feed.intraday import IntradayService
+    kite = IntradayService()
+    assert (kite.source, kite.adjusted) == ("Kite intraday", False)
+
+
+def test_ti3_get_service_picks_truedata_only_when_it_serves(monkeypatch):
+    from routes import research_chart_intraday as rci
+    serving = mds.Resolution(configured="truedata", effective="truedata", serve_from="truedata", our_feeds_on=False,
+                             truedata_feeds_on=True, reasons=())
+    monkeypatch.setattr(rci, "_service", None)
+    monkeypatch.setattr(mds, "resolve", lambda *a, **k: serving)
+    assert rci.get_service().source == "TrueData intraday"
+    monkeypatch.setattr(rci, "_service", None)
+    monkeypatch.setattr(mds, "resolve", lambda *a, **k: mds.Resolution(configured="shadow", effective="shadow",
+                                                                     serve_from="current", our_feeds_on=True,
+                                                                     truedata_feeds_on=True, reasons=()))
+    assert rci.get_service().source == "Kite intraday"
