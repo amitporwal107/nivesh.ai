@@ -1,15 +1,15 @@
 {
- "about": "REAL staging capture, 30 Oct 2026 (generated 2026-10-30T12:00:51+05:30 IST, data of the 29 Oct 2026 session): one visual-answer-v1 payload per Release-1 intent, built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres (read only), questions asked as the Trader persona. Stubs: sign-in (the route functions were called with an internal request and their get_current_user returned a real staging user with a paper account) and, for stock_decision only, the TradePlan store (nothing written). So the stock_decision plan_id tp_16af164648ee9112 is NOT in Mongo trade_plans and GET /api/desk/trade-plans/{id} answers 404 for it; the top_opportunities plan_ids are the AI watchlist's stored plans (5 of 5 found in trade_plans). Every figure is the platform's own; see each payload's data_quality. Written by the capture script described in test_reports/dtc_visual_backend_20261030.md. Re-captured 30 Oct after the stock_decision change that shows the account's risk-limit refusal (same 29 Oct session data).",
+ "about": "REAL staging capture, 30 Oct 2026 (12 of 12 Release-1 + Release-2 intents, data of the 30 Oct 2026 session where fresh, built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing, so nothing this capture ran writes to Mongo; the fno_top reader's own store call — added after this capture first found the fno_setups plan ids were never stored — is covered by a unit test instead, test_b27 in test_copilot_visual.py). stock_decision/trade_validity/exit_options/position_size's plan ids are therefore not in trade_plans (33 plans would have stored); top_opportunities' and fno_setups' plan ids ARE real TradePlans the AI watchlist / /top route already stores in production (5 of 5 and, with the fix, would be 5 of 5 too). fno_setups' source read stale this run: the desk regime read a null date, shown honestly as stale rather than guessed. The user is a real staging account with 3 open paper trades (SONACOMS, COFORGE, ICICIBANK).",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
    "intent": "market_view",
    "title": "Market view · Nifty and Bank Nifty",
-   "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:19:58+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:32:45+05:30",
    "mode": "eod",
    "headline": {
-    "text": "Nifty 50 rose 1.05% to 22,936.75; 60% of stocks advanced; India VIX 15.12.",
+    "text": "Nifty 50 rose 0.51% to 23,053.10; 26% of stocks advanced; India VIX 15.30.",
     "tone": "up"
    },
    "decision": null,
@@ -22,44 +22,44 @@
      "items": [
       {
        "label": "Nifty 50",
-       "value": "22,936.75",
-       "sub": "+1.05% on 29 Oct",
+       "value": "23,053.10",
+       "sub": "+0.51% on 30 Oct",
        "tone": "up"
       },
       {
        "label": "Bank Nifty",
-       "value": "54,909.65",
-       "sub": "+1.18% on 29 Oct",
-       "tone": "up"
+       "value": "54,686.95",
+       "sub": "−0.41% on 30 Oct",
+       "tone": "down"
       },
       {
        "label": "India VIX",
-       "value": "15.12",
-       "sub": "−6.94% on the day",
+       "value": "15.30",
+       "sub": "+1.22% on the day",
        "tone": "neutral"
       },
       {
        "label": "Breadth",
-       "value": "1,995 up · 1,275 down",
-       "sub": "60% of 3,339 stocks advanced",
-       "tone": "up"
-      },
-      {
-       "label": "FII cash",
-       "value": "−₹943.60 Cr",
-       "sub": "net, 29 Oct",
+       "value": "847 up · 2,403 down",
+       "sub": "26% of 3,320 stocks advanced",
        "tone": "down"
       },
       {
-       "label": "DII cash",
-       "value": "+₹1,924.41 Cr",
-       "sub": "net, 29 Oct",
+       "label": "FII cash",
+       "value": "+₹3,598.54 Cr",
+       "sub": "net, 30 Oct",
        "tone": "up"
       },
       {
+       "label": "DII cash",
+       "value": "−₹817.51 Cr",
+       "sub": "net, 30 Oct",
+       "tone": "down"
+      },
+      {
        "label": "Regime",
-       "value": "Mixed",
-       "sub": "desk-regime-v1 · 29 Oct"
+       "value": "Bearish",
+       "sub": "desk-regime-v1 · 30 Oct"
       }
      ]
     },
@@ -70,14 +70,6 @@
      "note": "Dashed: the option walls and max pain of the nearest expiry. Shaded: the expected move from the ATM straddle.",
      "symbol": "NIFTY",
      "bars": [
-      {
-       "d": "2026-08-04",
-       "o": 24703.9,
-       "h": 24703.9,
-       "l": 24427.95,
-       "c": 24614.9,
-       "v": null
-      },
       {
        "d": "2026-08-05",
        "o": 24669.2,
@@ -549,11 +541,18 @@
        "l": 22656.75,
        "c": 22936.75,
        "v": null
+      },
+      {
+       "d": "2026-10-30",
+       "o": 22964.5,
+       "h": 23118.1,
+       "l": 22905.1,
+       "c": 23053.1,
+       "v": null
       }
      ],
      "overlays": {
       "ema20": [
-       24210.2,
        24249.67,
        24286.46,
        24313.53,
@@ -612,69 +611,70 @@
        22831.86,
        22824.04,
        22812.12,
-       22823.99
+       22823.99,
+       22845.81
       ],
       "ema50": [
-       24070.46,
-       24092.19,
-       24113.52,
-       24131.45,
-       24149.19,
-       24161.83,
-       24172.58,
-       24181.34,
-       24188.58,
-       24192.47,
-       24190.99,
-       24186.57,
-       24188.35,
-       24190.85,
-       24191.95,
-       24197.54,
-       24197.94,
-       24193.74,
-       24193.03,
-       24188.62,
-       24183.41,
-       24172.86,
-       24161.12,
-       24150.79,
-       24136.22,
-       24116.56,
-       24089.7,
-       24065.7,
-       24039.52,
-       24003.41,
-       23972.59,
-       23945.06,
-       23921.59,
-       23901.69,
-       23879.23,
+       24092.23,
+       24113.55,
+       24131.48,
+       24149.22,
+       24161.86,
+       24172.61,
+       24181.37,
+       24188.61,
+       24192.49,
+       24191.02,
+       24186.6,
+       24188.37,
+       24190.87,
+       24191.97,
+       24197.56,
+       24197.96,
+       24193.76,
+       24193.05,
+       24188.63,
+       24183.42,
+       24172.88,
+       24161.13,
+       24150.8,
+       24136.23,
+       24116.58,
+       24089.71,
+       24065.71,
+       24039.53,
+       24003.42,
+       23972.6,
+       23945.07,
+       23921.6,
+       23901.7,
+       23879.24,
        23862.28,
-       23830.93,
-       23803.86,
-       23763.72,
-       23722.64,
+       23830.94,
+       23803.87,
+       23763.73,
+       23722.65,
        23679.42,
-       23630.1,
-       23587.97,
-       23556.13,
+       23630.11,
+       23587.98,
+       23556.14,
        23518.76,
        23468.29,
        23431.12,
        23389.25,
        23363.08,
-       23334.04,
+       23334.05,
        23320.84,
        23313.99,
        23297.32,
-       23278.26,
-       23255.1,
+       23278.27,
+       23255.11,
        23229.41,
        23210.74,
        23192.66,
-       23173.29,
-       23164.02
+       23173.3,
+       23164.02,
+       23159.67
       ]
      },
      "levels": [
@@ -690,14 +690,14 @@
       },
       {
        "kind": "max_pain",
-       "price": 22900.0,
-       "label": "Max pain 22,900.00"
+       "price": 23000.0,
+       "label": "Max pain 23,000.00"
       }
      ],
      "band": {
-      "low": 22657.9,
-      "high": 23215.6,
-      "label": "Expected move to 3 Nov 2026 (ATM straddle ±278.85)"
+      "low": 22821.9,
+      "high": 23284.3,
+      "label": "Expected move to 3 Nov 2026 (ATM straddle ±231.20)"
      }
     },
     {
@@ -708,124 +708,124 @@
      "unit": "%",
      "cells": [
       {
-       "label": "Power",
-       "value": 3.21,
+       "label": "IT",
+       "value": 2.32,
        "group": null,
-       "sub": "1w +3.15%"
+       "sub": "1w +1.91%"
+      },
+      {
+       "label": "Healthcare",
+       "value": 1.58,
+       "group": null,
+       "sub": "1w +6.91%"
+      },
+      {
+       "label": "Pharma",
+       "value": 1.55,
+       "group": null,
+       "sub": "1w +7.09%"
+      },
+      {
+       "label": "Power",
+       "value": 0.22,
+       "group": null,
+       "sub": "1w +5.90%"
+      },
+      {
+       "label": "Financial Services",
+       "value": 0.03,
+       "group": null,
+       "sub": "1w +1.27%"
+      },
+      {
+       "label": "Private Banks",
+       "value": 0.0,
+       "group": null,
+       "sub": "1w +1.49%"
+      },
+      {
+       "label": "Banks",
+       "value": -0.41,
+       "group": null,
+       "sub": "1w +0.74%"
+      },
+      {
+       "label": "Oil & Gas",
+       "value": -0.47,
+       "group": null,
+       "sub": "1w −0.74%"
+      },
+      {
+       "label": "Metals",
+       "value": -0.54,
+       "group": null,
+       "sub": "1w +2.67%"
+      },
+      {
+       "label": "FMCG",
+       "value": -0.62,
+       "group": null,
+       "sub": "1w +2.18%"
       },
       {
        "label": "Realty",
-       "value": 2.75,
+       "value": -0.72,
+       "group": null,
+       "sub": "1w +3.77%"
+      },
+      {
+       "label": "Auto",
+       "value": -0.87,
+       "group": null,
+       "sub": "1w +2.25%"
+      },
+      {
+       "label": "PSU Banks",
+       "value": -0.93,
        "group": null,
        "sub": "1w +2.03%"
       },
       {
-       "label": "FMCG",
-       "value": 2.34,
-       "group": null,
-       "sub": "1w +1.80%"
-      },
-      {
-       "label": "PSU Banks",
-       "value": 2.2,
-       "group": null,
-       "sub": "1w +0.67%"
-      },
-      {
-       "label": "Private Banks",
-       "value": 1.24,
-       "group": null,
-       "sub": "1w +0.69%"
-      },
-      {
-       "label": "Telecom",
-       "value": 1.19,
-       "group": null,
-       "sub": "1w +2.44%"
-      },
-      {
-       "label": "Banks",
-       "value": 1.18,
-       "group": null,
-       "sub": "1w −0.03%"
-      },
-      {
-       "label": "Consumer Durables",
-       "value": 1.18,
-       "group": null,
-       "sub": "1w +0.90%"
-      },
-      {
-       "label": "Financial Services",
-       "value": 1.17,
-       "group": null,
-       "sub": "1w +0.19%"
-      },
-      {
-       "label": "Media",
-       "value": 1.1,
-       "group": null,
-       "sub": "1w +4.47%"
-      },
-      {
        "label": "Energy",
-       "value": 1.01,
+       "value": -0.97,
        "group": null,
-       "sub": "1w +0.56%"
-      },
-      {
-       "label": "IT",
-       "value": 0.99,
-       "group": null,
-       "sub": "1w −0.67%"
-      },
-      {
-       "label": "Metals",
-       "value": 0.67,
-       "group": null,
-       "sub": "1w +0.42%"
-      },
-      {
-       "label": "Pharma",
-       "value": 0.64,
-       "group": null,
-       "sub": "1w +4.35%"
-      },
-      {
-       "label": "Healthcare",
-       "value": 0.58,
-       "group": null,
-       "sub": "1w +4.37%"
-      },
-      {
-       "label": "Oil & Gas",
-       "value": 0.54,
-       "group": null,
-       "sub": "1w −0.89%"
+       "sub": "1w +1.27%"
       },
       {
        "label": "Chemicals",
-       "value": 0.48,
+       "value": -1.04,
        "group": null,
-       "sub": "1w −0.19%"
-      },
-      {
-       "label": "Capital Goods",
-       "value": 0.33,
-       "group": null,
-       "sub": "1w +0.78%"
+       "sub": "1w +1.13%"
       },
       {
        "label": "Cement",
-       "value": -0.08,
+       "value": -1.26,
        "group": null,
-       "sub": "1w −0.85%"
+       "sub": "1w −1.79%"
       },
       {
-       "label": "Auto",
-       "value": -0.24,
+       "label": "Media",
+       "value": -1.46,
        "group": null,
-       "sub": "1w +2.54%"
+       "sub": "1w +4.34%"
+      },
+      {
+       "label": "Consumer Durables",
+       "value": -1.78,
+       "group": null,
+       "sub": "1w +1.78%"
+      },
+      {
+       "label": "Capital Goods",
+       "value": -1.91,
+       "group": null,
+       "sub": "1w +1.43%"
+      },
+      {
+       "label": "Telecom",
+       "value": -2.1,
+       "group": null,
+       "sub": "1w +1.12%"
       }
      ]
     }
@@ -835,37 +835,37 @@
     "sources": [
      {
       "name": "NSE index closes (nidp.index_eod)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NIDP market snapshot (breadth, FII/DII cash)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE FII/DII cash (nidp.fii_dii_flows)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "Desk regime (desk-regime-v1)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE F&O bhavcopy · NIFTY option chain",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE sector indices (desk sector returns)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      }
@@ -891,17 +891,17 @@
      "query": "Today's top 5 opportunities"
     }
    ],
-   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   },
   "smart_money": {
    "schema": "visual-answer-v1",
    "intent": "smart_money",
    "title": "Where smart money is moving",
-   "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:19:58+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:32:45+05:30",
    "mode": "eod",
    "headline": {
-    "text": "FIIs sold a net ₹943.60 Cr and DIIs bought a net ₹1,924.41 Cr in cash on 29 Oct; 74 F&O stocks show long buildup and 103 short covering.",
+    "text": "FIIs bought a net ₹3,598.54 Cr and DIIs sold a net ₹817.51 Cr in cash on 30 Oct; 24 F&O stocks show long buildup and 33 short covering.",
     "tone": "neutral"
    },
    "decision": null,
@@ -913,50 +913,50 @@
      "note": null,
      "items": [
       {
-       "label": "FII cash · 29 Oct",
-       "value": "−₹943.60 Cr",
-       "sub": null,
-       "tone": "down"
-      },
-      {
-       "label": "FII · 10 sessions",
-       "value": "−₹4,110.69 Cr",
-       "sub": "sum of the daily nets",
-       "tone": "down"
-      },
-      {
-       "label": "DII cash · 29 Oct",
-       "value": "+₹1,924.41 Cr",
+       "label": "FII cash · 30 Oct",
+       "value": "+₹3,598.54 Cr",
        "sub": null,
        "tone": "up"
       },
       {
+       "label": "FII · 10 sessions",
+       "value": "+₹4,773.22 Cr",
+       "sub": "sum of the daily nets",
+       "tone": "up"
+      },
+      {
+       "label": "DII cash · 30 Oct",
+       "value": "−₹817.51 Cr",
+       "sub": null,
+       "tone": "down"
+      },
+      {
        "label": "DII · 10 sessions",
-       "value": "+₹14,527.60 Cr",
+       "value": "+₹10,390.70 Cr",
        "sub": "sum of the daily nets",
        "tone": "up"
       },
       {
        "label": "Long buildup",
-       "value": "74",
+       "value": "24",
        "sub": "of 218 F&O stocks",
        "tone": "up"
       },
       {
        "label": "Short covering",
-       "value": "103",
+       "value": "33",
        "sub": "of 218 F&O stocks",
        "tone": "up"
       },
       {
        "label": "Short buildup",
-       "value": "27",
+       "value": "83",
        "sub": "of 218 F&O stocks",
        "tone": "down"
       },
       {
        "label": "Long unwinding",
-       "value": "14",
+       "value": "78",
        "sub": "of 218 F&O stocks",
        "tone": "down"
       }
@@ -970,12 +970,6 @@
      "unit": "₹ Cr",
      "orientation": "v",
      "items": [
-      {
-       "label": "15 Oct",
-       "value": -5285.37,
-       "tone": "down",
-       "sub": null
-      },
       {
        "label": "16 Oct",
        "value": 1165.92,
@@ -1029,6 +1023,12 @@
        "value": -943.6,
        "tone": "down",
        "sub": null
+      },
+      {
+       "label": "30 Oct",
+       "value": 3598.54,
+       "tone": "up",
+       "sub": null
       }
      ],
      "baseline": 0
@@ -1041,12 +1041,6 @@
      "unit": "₹ Cr",
      "orientation": "v",
      "items": [
-      {
-       "label": "15 Oct",
-       "value": 3319.39,
-       "tone": "up",
-       "sub": null
-      },
       {
        "label": "16 Oct",
        "value": -3661.28,
@@ -1100,6 +1094,12 @@
        "value": 1924.41,
        "tone": "up",
        "sub": null
+      },
+      {
+       "label": "30 Oct",
+       "value": -817.51,
+       "tone": "down",
+       "sub": null
       }
      ],
      "baseline": 0
@@ -1112,124 +1112,124 @@
      "unit": "%",
      "cells": [
       {
-       "label": "Media",
-       "value": 4.47,
+       "label": "Pharma",
+       "value": 7.09,
        "group": null,
-       "sub": "1d +1.10% · 1m +7.54%"
+       "sub": "1d +1.55% · 1m +0.71%"
       },
       {
        "label": "Healthcare",
-       "value": 4.37,
+       "value": 6.91,
        "group": null,
-       "sub": "1d +0.58% · 1m −2.08%"
-      },
-      {
-       "label": "Pharma",
-       "value": 4.35,
-       "group": null,
-       "sub": "1d +0.64% · 1m −0.19%"
+       "sub": "1d +1.58% · 1m −0.68%"
       },
       {
        "label": "Power",
-       "value": 3.15,
+       "value": 5.9,
        "group": null,
-       "sub": "1d +3.21% · 1m −1.84%"
+       "sub": "1d +0.22% · 1m −1.76%"
       },
       {
-       "label": "Auto",
-       "value": 2.54,
+       "label": "Media",
+       "value": 4.34,
        "group": null,
-       "sub": "1d −0.24% · 1m −3.32%"
-      },
-      {
-       "label": "Telecom",
-       "value": 2.44,
-       "group": null,
-       "sub": "1d +1.19% · 1m +5.24%"
+       "sub": "1d −1.46% · 1m +5.86%"
       },
       {
        "label": "Realty",
-       "value": 2.03,
+       "value": 3.77,
        "group": null,
-       "sub": "1d +2.75% · 1m −3.65%"
-      },
-      {
-       "label": "FMCG",
-       "value": 1.8,
-       "group": null,
-       "sub": "1d +2.34% · 1m −3.05%"
-      },
-      {
-       "label": "Consumer Durables",
-       "value": 0.9,
-       "group": null,
-       "sub": "1d +1.18% · 1m −7.90%"
-      },
-      {
-       "label": "Capital Goods",
-       "value": 0.78,
-       "group": null,
-       "sub": "1d +0.33% · 1m −5.81%"
-      },
-      {
-       "label": "Private Banks",
-       "value": 0.69,
-       "group": null,
-       "sub": "1d +1.24% · 1m +2.18%"
-      },
-      {
-       "label": "PSU Banks",
-       "value": 0.67,
-       "group": null,
-       "sub": "1d +2.20% · 1m +3.57%"
-      },
-      {
-       "label": "Energy",
-       "value": 0.56,
-       "group": null,
-       "sub": "1d +1.01% · 1m −3.80%"
+       "sub": "1d −0.72% · 1m −2.39%"
       },
       {
        "label": "Metals",
-       "value": 0.42,
+       "value": 2.67,
        "group": null,
-       "sub": "1d +0.67% · 1m −7.83%"
+       "sub": "1d −0.54% · 1m −9.03%"
       },
       {
-       "label": "Financial Services",
-       "value": 0.19,
+       "label": "Auto",
+       "value": 2.25,
        "group": null,
-       "sub": "1d +1.17% · 1m +0.13%"
+       "sub": "1d −0.87% · 1m −2.87%"
       },
       {
-       "label": "Banks",
-       "value": -0.03,
+       "label": "FMCG",
+       "value": 2.18,
        "group": null,
-       "sub": "1d +1.18% · 1m +0.80%"
+       "sub": "1d −0.62% · 1m −2.64%"
       },
       {
-       "label": "Chemicals",
-       "value": -0.19,
+       "label": "PSU Banks",
+       "value": 2.03,
        "group": null,
-       "sub": "1d +0.48% · 1m −6.24%"
+       "sub": "1d −0.93% · 1m +3.29%"
       },
       {
        "label": "IT",
-       "value": -0.67,
+       "value": 1.91,
        "group": null,
-       "sub": "1d +0.99% · 1m +13.46%"
+       "sub": "1d +2.32% · 1m +17.84%"
       },
       {
-       "label": "Cement",
-       "value": -0.85,
+       "label": "Consumer Durables",
+       "value": 1.78,
        "group": null,
-       "sub": "1d −0.08% · 1m −3.69%"
+       "sub": "1d −1.78% · 1m −7.02%"
+      },
+      {
+       "label": "Private Banks",
+       "value": 1.49,
+       "group": null,
+       "sub": "1d +0.00% · 1m +2.31%"
+      },
+      {
+       "label": "Capital Goods",
+       "value": 1.43,
+       "group": null,
+       "sub": "1d −1.91% · 1m −7.21%"
+      },
+      {
+       "label": "Financial Services",
+       "value": 1.27,
+       "group": null,
+       "sub": "1d +0.03% · 1m +0.26%"
+      },
+      {
+       "label": "Energy",
+       "value": 1.27,
+       "group": null,
+       "sub": "1d −0.97% · 1m −4.25%"
+      },
+      {
+       "label": "Chemicals",
+       "value": 1.13,
+       "group": null,
+       "sub": "1d −1.04% · 1m −5.03%"
+      },
+      {
+       "label": "Telecom",
+       "value": 1.12,
+       "group": null,
+       "sub": "1d −2.10% · 1m +1.54%"
+      },
+      {
+       "label": "Banks",
+       "value": 0.74,
+       "group": null,
+       "sub": "1d −0.41% · 1m +0.79%"
       },
       {
        "label": "Oil & Gas",
-       "value": -0.89,
+       "value": -0.74,
        "group": null,
-       "sub": "1d +0.54% · 1m −2.89%"
+       "sub": "1d −0.47% · 1m −2.50%"
+      },
+      {
+       "label": "Cement",
+       "value": -1.79,
+       "group": null,
+       "sub": "1d −1.26% · 1m −3.32%"
       }
      ]
     },
@@ -1237,7 +1237,7 @@
      "type": "quadrant",
      "id": "buildup",
      "title": "F&O buildup · price vs open interest",
-     "note": "The 40 stock futures with the largest open-interest change on 29 Oct; a reading of two figures, not a record of who traded.",
+     "note": "The 40 stock futures with the largest open-interest change on 30 Oct; a reading of two figures, not a record of who traded.",
      "x": {
       "label": "Price change",
       "unit": "%"
@@ -1254,244 +1254,244 @@
      },
      "points": [
       {
-       "label": "COROMANDEL",
-       "x": -0.3,
-       "y": 394.0,
-       "quadrant": "Short buildup"
+       "label": "NAVINFLUOR",
+       "x": 4.79,
+       "y": 73.95,
+       "quadrant": "Long buildup"
       },
       {
        "label": "DATAPATTNS",
-       "x": 0.4,
-       "y": 106.84,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "KARURVYSYA",
-       "x": 1.35,
-       "y": 96.3,
-       "quadrant": "Long buildup"
+       "x": -5.56,
+       "y": 48.07,
+       "quadrant": "Short buildup"
       },
       {
        "label": "SYRMA",
-       "x": 6.65,
-       "y": 87.56,
-       "quadrant": "Long buildup"
+       "x": -2.61,
+       "y": 38.07,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "SAGILITY",
+       "x": -5.86,
+       "y": 36.09,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "KARURVYSYA",
+       "x": -1.76,
+       "y": 34.91,
+       "quadrant": "Short buildup"
       },
       {
        "label": "CUB",
-       "x": 5.03,
-       "y": 40.56,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "NAVINFLUOR",
-       "x": -2.23,
-       "y": 34.63,
+       "x": -5.41,
+       "y": 31.54,
        "quadrant": "Short buildup"
       },
       {
-       "label": "HEROMOTOCO",
+       "label": "COROMANDEL",
+       "x": -1.09,
+       "y": 21.46,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "GODREJCP",
        "x": -4.11,
-       "y": 16.2,
+       "y": 16.73,
        "quadrant": "Short buildup"
       },
       {
-       "label": "PNBHOUSING",
-       "x": -1.4,
-       "y": 10.82,
+       "label": "ANANDRATHI",
+       "x": -1.06,
+       "y": 12.51,
        "quadrant": "Short buildup"
-      },
-      {
-       "label": "PIDILITIND",
-       "x": 2.2,
-       "y": 8.09,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "TVSMOTOR",
-       "x": 1.78,
-       "y": -7.48,
-       "quadrant": "Short covering"
       },
       {
        "label": "SWIGGY",
-       "x": 0.84,
-       "y": 7.26,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "AMBUJACEM",
-       "x": 1.37,
-       "y": 6.46,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "JSWENERGY",
-       "x": 6.6,
-       "y": -5.51,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "RADICO",
-       "x": 2.17,
-       "y": 5.48,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "APLAPOLLO",
-       "x": 1.37,
-       "y": -5.4,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "DELHIVERY",
-       "x": 2.56,
-       "y": 5.3,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "ENRIN",
-       "x": -0.36,
-       "y": 5.3,
+       "x": -5.2,
+       "y": 12.41,
        "quadrant": "Short buildup"
-      },
-      {
-       "label": "GVT&D",
-       "x": 0.57,
-       "y": -5.23,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "MAXHEALTH",
-       "x": -0.26,
-       "y": 5.09,
-       "quadrant": "Short buildup"
-      },
-      {
-       "label": "UJJIVANSFB",
-       "x": 2.85,
-       "y": 5.02,
-       "quadrant": "Long buildup"
-      },
-      {
-       "label": "HINDZINC",
-       "x": 1.36,
-       "y": -4.97,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "MANAPPURAM",
-       "x": 4.71,
-       "y": -4.83,
-       "quadrant": "Short covering"
       },
       {
        "label": "MOTILALOFS",
-       "x": 1.71,
-       "y": -4.72,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "LTF",
-       "x": 2.56,
-       "y": -4.69,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "SUZLON",
-       "x": -1.84,
-       "y": 4.64,
+       "x": -5.41,
+       "y": 9.29,
        "quadrant": "Short buildup"
       },
       {
-       "label": "APOLLOHOSP",
-       "x": 0.69,
-       "y": -4.38,
+       "label": "DELHIVERY",
+       "x": -1.3,
+       "y": 7.24,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "MCX",
+       "x": -1.51,
+       "y": -6.48,
+       "quadrant": "Long unwinding"
+      },
+      {
+       "label": "MAXHEALTH",
+       "x": 0.78,
+       "y": 5.59,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "MFSL",
+       "x": -1.5,
+       "y": 5.48,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "FORCEMOT",
+       "x": 2.57,
+       "y": -5.24,
        "quadrant": "Short covering"
       },
       {
-       "label": "GMRAIRPORT",
-       "x": -2.77,
-       "y": 4.34,
+       "label": "PREMIERENE",
+       "x": -1.07,
+       "y": 5.19,
        "quadrant": "Short buildup"
+      },
+      {
+       "label": "COFORGE",
+       "x": 4.53,
+       "y": -5.11,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "INFY",
+       "x": 2.9,
+       "y": -5.04,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "LTM",
+       "x": 3.33,
+       "y": -4.93,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "COALINDIA",
+       "x": -1.26,
+       "y": -4.92,
+       "quadrant": "Long unwinding"
+      },
+      {
+       "label": "BSE",
+       "x": -0.26,
+       "y": -4.49,
+       "quadrant": "Long unwinding"
+      },
+      {
+       "label": "ATHERENERG",
+       "x": 5.45,
+       "y": 4.43,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "NBCC",
+       "x": -2.85,
+       "y": 4.43,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "SUNPHARMA",
+       "x": 1.2,
+       "y": -4.3,
+       "quadrant": "Short covering"
+      },
+      {
+       "label": "POWERINDIA",
+       "x": -3.75,
+       "y": -4.16,
+       "quadrant": "Long unwinding"
+      },
+      {
+       "label": "TITAN",
+       "x": 0.24,
+       "y": -4.08,
+       "quadrant": "Short covering"
       },
       {
        "label": "TRENT",
-       "x": -1.2,
-       "y": 4.32,
-       "quadrant": "Short buildup"
-      },
-      {
-       "label": "UNITDSPR",
-       "x": 4.92,
-       "y": -4.27,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "POLYCAB",
-       "x": 0.72,
-       "y": -4.15,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "LAURUSLABS",
-       "x": 3.2,
-       "y": -3.95,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "MARICO",
-       "x": 3.61,
-       "y": -3.91,
-       "quadrant": "Short covering"
-      },
-      {
-       "label": "BANKINDIA",
-       "x": 2.19,
-       "y": -3.82,
-       "quadrant": "Short covering"
+       "x": 5.38,
+       "y": 4.07,
+       "quadrant": "Long buildup"
       },
       {
        "label": "CHOLAFIN",
-       "x": 3.86,
+       "x": -1.24,
+       "y": -3.96,
+       "quadrant": "Long unwinding"
+      },
+      {
+       "label": "BLUESTARCO",
+       "x": -3.73,
+       "y": -3.87,
+       "quadrant": "Long unwinding"
+      },
+      {
+       "label": "DIVISLAB",
+       "x": 1.11,
+       "y": 3.84,
+       "quadrant": "Long buildup"
+      },
+      {
+       "label": "LT",
+       "x": 0.11,
        "y": -3.67,
        "quadrant": "Short covering"
       },
       {
-       "label": "NESTLEIND",
-       "x": 1.47,
-       "y": 3.62,
-       "quadrant": "Long buildup"
+       "label": "GVT&D",
+       "x": -2.91,
+       "y": -3.66,
+       "quadrant": "Long unwinding"
       },
       {
-       "label": "UPL",
-       "x": 1.17,
-       "y": 3.62,
-       "quadrant": "Long buildup"
+       "label": "CDSL",
+       "x": -1.53,
+       "y": 3.64,
+       "quadrant": "Short buildup"
       },
       {
-       "label": "VOLTAS",
-       "x": 2.77,
-       "y": -3.55,
+       "label": "VEDL",
+       "x": 0.3,
+       "y": -3.59,
        "quadrant": "Short covering"
       },
       {
-       "label": "BHARATFORG",
-       "x": 0.15,
-       "y": 3.51,
-       "quadrant": "Long buildup"
+       "label": "BAJFINANCE",
+       "x": -0.31,
+       "y": -3.57,
+       "quadrant": "Long unwinding"
       },
       {
-       "label": "HINDUNILVR",
-       "x": 2.95,
-       "y": -3.45,
+       "label": "VBL",
+       "x": -6.5,
+       "y": 3.57,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "PIIND",
+       "x": -0.31,
+       "y": 3.53,
+       "quadrant": "Short buildup"
+      },
+      {
+       "label": "WIPRO",
+       "x": 3.86,
+       "y": -3.4,
        "quadrant": "Short covering"
       },
       {
-       "label": "RBLBANK",
-       "x": 2.7,
-       "y": 3.45,
-       "quadrant": "Long buildup"
+       "label": "APOLLOHOSP",
+       "x": 1.61,
+       "y": -3.34,
+       "quadrant": "Short covering"
       }
      ]
     },
@@ -1528,114 +1528,114 @@
      ],
      "rows": [
       {
-       "symbol": "DATAPATTNS",
+       "symbol": "NAVINFLUOR",
        "cells": {
-        "symbol": "DATAPATTNS",
+        "symbol": "NAVINFLUOR",
         "buildup": "Long buildup",
-        "price": 0.4,
-        "oi": 106.84
-       },
-       "tone": "up",
-       "ask": "Trade plan for DATAPATTNS"
-      },
-      {
-       "symbol": "KARURVYSYA",
-       "cells": {
-        "symbol": "KARURVYSYA",
-        "buildup": "Long buildup",
-        "price": 1.35,
-        "oi": 96.3
-       },
-       "tone": "up",
-       "ask": "Trade plan for KARURVYSYA"
-      },
-      {
-       "symbol": "SYRMA",
-       "cells": {
-        "symbol": "SYRMA",
-        "buildup": "Long buildup",
-        "price": 6.65,
-        "oi": 87.56
-       },
-       "tone": "up",
-       "ask": "Trade plan for SYRMA"
-      },
-      {
-       "symbol": "CUB",
-       "cells": {
-        "symbol": "CUB",
-        "buildup": "Long buildup",
-        "price": 5.03,
-        "oi": 40.56
-       },
-       "tone": "up",
-       "ask": "Trade plan for CUB"
-      },
-      {
-       "symbol": "PIDILITIND",
-       "cells": {
-        "symbol": "PIDILITIND",
-        "buildup": "Long buildup",
-        "price": 2.2,
-        "oi": 8.09
-       },
-       "tone": "up",
-       "ask": "Trade plan for PIDILITIND"
-      },
-      {
-       "symbol": "JSWENERGY",
-       "cells": {
-        "symbol": "JSWENERGY",
-        "buildup": "Short covering",
-        "price": 6.6,
-        "oi": -5.51
-       },
-       "tone": "up",
-       "ask": "Trade plan for JSWENERGY"
-      },
-      {
-       "symbol": "ADANIPORTS",
-       "cells": {
-        "symbol": "ADANIPORTS",
-        "buildup": "Short covering",
-        "price": 6.05,
-        "oi": -0.7
-       },
-       "tone": "up",
-       "ask": "Trade plan for ADANIPORTS"
-      },
-      {
-       "symbol": "UNITDSPR",
-       "cells": {
-        "symbol": "UNITDSPR",
-        "buildup": "Short covering",
-        "price": 4.92,
-        "oi": -4.27
-       },
-       "tone": "up",
-       "ask": "Trade plan for UNITDSPR"
-      },
-      {
-       "symbol": "HYUNDAI",
-       "cells": {
-        "symbol": "HYUNDAI",
-        "buildup": "Short covering",
         "price": 4.79,
-        "oi": -1.1
+        "oi": 73.95
        },
        "tone": "up",
-       "ask": "Trade plan for HYUNDAI"
+       "ask": "Trade plan for NAVINFLUOR"
       },
       {
-       "symbol": "MANAPPURAM",
+       "symbol": "MAXHEALTH",
        "cells": {
-        "symbol": "MANAPPURAM",
-        "buildup": "Short covering",
-        "price": 4.71,
-        "oi": -4.83
+        "symbol": "MAXHEALTH",
+        "buildup": "Long buildup",
+        "price": 0.78,
+        "oi": 5.59
        },
        "tone": "up",
-       "ask": "Trade plan for MANAPPURAM"
+       "ask": "Trade plan for MAXHEALTH"
+      },
+      {
+       "symbol": "ATHERENERG",
+       "cells": {
+        "symbol": "ATHERENERG",
+        "buildup": "Long buildup",
+        "price": 5.45,
+        "oi": 4.43
+       },
+       "tone": "up",
+       "ask": "Trade plan for ATHERENERG"
+      },
+      {
+       "symbol": "TRENT",
+       "cells": {
+        "symbol": "TRENT",
+        "buildup": "Long buildup",
+        "price": 5.38,
+        "oi": 4.07
+       },
+       "tone": "up",
+       "ask": "Trade plan for TRENT"
+      },
+      {
+       "symbol": "DIVISLAB",
+       "cells": {
+        "symbol": "DIVISLAB",
+        "buildup": "Long buildup",
+        "price": 1.11,
+        "oi": 3.84
+       },
+       "tone": "up",
+       "ask": "Trade plan for DIVISLAB"
+      },
+      {
+       "symbol": "LAURUSLABS",
+       "cells": {
+        "symbol": "LAURUSLABS",
+        "buildup": "Short covering",
+        "price": 6.2,
+        "oi": -3.15
+       },
+       "tone": "up",
+       "ask": "Trade plan for LAURUSLABS"
+      },
+      {
+       "symbol": "COFORGE",
+       "cells": {
+        "symbol": "COFORGE",
+        "buildup": "Short covering",
+        "price": 4.53,
+        "oi": -5.11
+       },
+       "tone": "up",
+       "ask": "Trade plan for COFORGE"
+      },
+      {
+       "symbol": "WIPRO",
+       "cells": {
+        "symbol": "WIPRO",
+        "buildup": "Short covering",
+        "price": 3.86,
+        "oi": -3.4
+       },
+       "tone": "up",
+       "ask": "Trade plan for WIPRO"
+      },
+      {
+       "symbol": "INDIGO",
+       "cells": {
+        "symbol": "INDIGO",
+        "buildup": "Short covering",
+        "price": 3.37,
+        "oi": -1.79
+       },
+       "tone": "up",
+       "ask": "Trade plan for INDIGO"
+      },
+      {
+       "symbol": "LTM",
+       "cells": {
+        "symbol": "LTM",
+        "buildup": "Short covering",
+        "price": 3.33,
+        "oi": -4.93
+       },
+       "tone": "up",
+       "ask": "Trade plan for LTM"
       }
      ]
     },
@@ -1646,34 +1646,29 @@
      "note": null,
      "items": [
       {
-       "text": "BANKNIFTY: short covering",
-       "sub": "price +1.18%, OI −4.12%",
-       "tone": "up"
-      },
-      {
-       "text": "FINNIFTY: short covering",
-       "sub": "price +1.25%, OI −4.95%",
-       "tone": "up"
-      },
-      {
-       "text": "MIDCPNIFTY: long buildup",
-       "sub": "price +0.73%, OI +1.27%",
-       "tone": "up"
-      },
-      {
-       "text": "NIFTY: short covering",
-       "sub": "price +1.18%, OI −1.44%",
-       "tone": "up"
-      },
-      {
-       "text": "NIFTYFPI: short buildup",
-       "sub": "price −0.78%, OI +200.00%",
+       "text": "BANKNIFTY: long unwinding",
+       "sub": "price −0.67%, OI −0.41%",
        "tone": "down"
       },
       {
-       "text": "NIFTYNXT50: long buildup",
-       "sub": "price +1.08%, OI +9.03%",
+       "text": "FINNIFTY: short buildup",
+       "sub": "price −0.24%, OI +4.95%",
+       "tone": "down"
+      },
+      {
+       "text": "MIDCPNIFTY: short buildup",
+       "sub": "price −1.75%, OI +11.73%",
+       "tone": "down"
+      },
+      {
+       "text": "NIFTY: short covering",
+       "sub": "price +0.22%, OI −1.15%",
        "tone": "up"
+      },
+      {
+       "text": "NIFTYNXT50: short buildup",
+       "sub": "price −1.01%, OI +1.84%",
+       "tone": "down"
       }
      ]
     }
@@ -1683,19 +1678,19 @@
     "sources": [
      {
       "name": "NSE FII/DII cash (nidp.fii_dii_flows)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE F&O bhavcopy · futures build-up",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE sector indices (desk sector returns)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      }
@@ -1721,14 +1716,14 @@
      "query": "Which stocks have unusual volume?"
     }
    ],
-   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   },
   "top_opportunities": {
    "schema": "visual-answer-v1",
    "intent": "top_opportunities",
    "title": "Today's top 5 ideas",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:19:58+05:30",
+   "generated_at": "2026-10-30T22:32:45+05:30",
    "mode": "eod",
    "headline": {
     "text": "4 of the scanner's top 5 on 29 Oct have a setup with levels; 1 wait for confirmation.",
@@ -1930,718 +1925,19 @@
    "schema": "visual-answer-v1",
    "intent": "breakouts",
    "title": "Confirmed breakouts",
-   "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:20:01+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:32:49+05:30",
    "mode": "eod",
-   "headline": {
-    "text": "1 stock closed just above the breakout level on at least 1.5× the usual volume on 29 Oct.",
-    "tone": "up"
-   },
+   "headline": null,
    "decision": null,
    "blocks": [
     {
-     "type": "ranked",
-     "id": "list",
-     "title": "Breakouts confirmed on 29 Oct",
-     "note": "Rule (smart_v2): close 0–3% above the breakout level, 3-session volume ≥ 1.5× the prior 20, stage BREAKOUT or EARLY_BREAKOUT, gap-up ≤ 5%. Stop = level − 1.5 × ATR(14).",
-     "columns": [
-      {
-       "key": "symbol",
-       "label": "Stock",
-       "align": "left",
-       "format": "text"
-      },
-      {
-       "key": "level",
-       "label": "Breakout level",
-       "align": "right",
-       "format": "price"
-      },
-      {
-       "key": "close",
-       "label": "Close",
-       "align": "right",
-       "format": "price"
-      },
-      {
-       "key": "above",
-       "label": "Above level",
-       "align": "right",
-       "format": "pct"
-      },
-      {
-       "key": "volx",
-       "label": "Volume ×",
-       "align": "right",
-       "format": "x"
-      },
-      {
-       "key": "stop",
-       "label": "Stop",
-       "align": "right",
-       "format": "price"
-      }
-     ],
-     "rows": [
-      {
-       "symbol": "LAURUSLABS",
-       "ask": "Trade plan for LAURUSLABS",
-       "tone": "up",
-       "cells": {
-        "symbol": "LAURUSLABS",
-        "level": 2244.0,
-        "close": 2244.0,
-        "above": 0.0,
-        "volx": 1.66,
-        "stop": 2151.16
-       }
-      }
-     ]
-    },
-    {
-     "type": "candles",
-     "id": "first",
-     "title": "LAURUSLABS · the breakout",
-     "note": "Scanner prices are warehouse_adjusted; the chart is split/bonus adjusted.",
-     "symbol": "LAURUSLABS",
-     "bars": [
-      {
-       "d": "2026-08-04",
-       "o": 1811.0,
-       "h": 1850.0,
-       "l": 1806.1,
-       "c": 1850.0,
-       "v": 1405192.0
-      },
-      {
-       "d": "2026-08-05",
-       "o": 1854.0,
-       "h": 1856.6,
-       "l": 1834.5,
-       "c": 1835.0,
-       "v": 2090998.0
-      },
-      {
-       "d": "2026-08-06",
-       "o": 1843.0,
-       "h": 1854.9,
-       "l": 1830.0,
-       "c": 1830.0,
-       "v": 2037418.0
-      },
-      {
-       "d": "2026-08-07",
-       "o": 1838.0,
-       "h": 1856.0,
-       "l": 1833.2,
-       "c": 1844.3,
-       "v": 1553067.0
-      },
-      {
-       "d": "2026-08-10",
-       "o": 1845.0,
-       "h": 1870.8,
-       "l": 1832.8,
-       "c": 1854.0,
-       "v": 1386592.0
-      },
-      {
-       "d": "2026-08-11",
-       "o": 1851.0,
-       "h": 1859.0,
-       "l": 1833.1,
-       "c": 1858.0,
-       "v": 1514239.0
-      },
-      {
-       "d": "2026-08-12",
-       "o": 1856.3,
-       "h": 1862.3,
-       "l": 1835.0,
-       "c": 1850.0,
-       "v": 1088545.0
-      },
-      {
-       "d": "2026-08-13",
-       "o": 1850.0,
-       "h": 1851.7,
-       "l": 1820.6,
-       "c": 1851.7,
-       "v": 1345856.0
-      },
-      {
-       "d": "2026-08-14",
-       "o": 1849.9,
-       "h": 1853.2,
-       "l": 1777.7,
-       "c": 1787.3,
-       "v": 1581352.0
-      },
-      {
-       "d": "2026-08-17",
-       "o": 1770.0,
-       "h": 1824.0,
-       "l": 1769.4,
-       "c": 1809.7,
-       "v": 1631767.0
-      },
-      {
-       "d": "2026-08-18",
-       "o": 1810.0,
-       "h": 1824.6,
-       "l": 1802.1,
-       "c": 1814.0,
-       "v": 1291914.0
-      },
-      {
-       "d": "2026-08-19",
-       "o": 1814.0,
-       "h": 1818.0,
-       "l": 1789.9,
-       "c": 1801.8,
-       "v": 1426377.0
-      },
-      {
-       "d": "2026-08-20",
-       "o": 1819.0,
-       "h": 1832.0,
-       "l": 1813.8,
-       "c": 1825.0,
-       "v": 1315065.0
-      },
-      {
-       "d": "2026-08-21",
-       "o": 1825.0,
-       "h": 1836.4,
-       "l": 1790.3,
-       "c": 1802.0,
-       "v": 1401995.0
-      },
-      {
-       "d": "2026-08-24",
-       "o": 1800.0,
-       "h": 1810.8,
-       "l": 1790.0,
-       "c": 1801.0,
-       "v": 2894242.0
-      },
-      {
-       "d": "2026-08-25",
-       "o": 1808.0,
-       "h": 1869.4,
-       "l": 1796.5,
-       "c": 1866.2,
-       "v": 3550945.0
-      },
-      {
-       "d": "2026-08-26",
-       "o": 1871.1,
-       "h": 1898.3,
-       "l": 1857.4,
-       "c": 1887.0,
-       "v": 3334188.0
-      },
-      {
-       "d": "2026-08-27",
-       "o": 1891.3,
-       "h": 1930.0,
-       "l": 1878.4,
-       "c": 1929.4,
-       "v": 4249869.0
-      },
-      {
-       "d": "2026-08-28",
-       "o": 1929.7,
-       "h": 1938.5,
-       "l": 1910.1,
-       "c": 1938.5,
-       "v": 2231476.0
-      },
-      {
-       "d": "2026-08-31",
-       "o": 1945.0,
-       "h": 1949.0,
-       "l": 1847.8,
-       "c": 1915.0,
-       "v": 30995343.0
-      },
-      {
-       "d": "2026-09-01",
-       "o": 1888.9,
-       "h": 1895.0,
-       "l": 1837.4,
-       "c": 1861.6,
-       "v": 3530385.0
-      },
-      {
-       "d": "2026-09-02",
-       "o": 1853.2,
-       "h": 1864.4,
-       "l": 1811.7,
-       "c": 1864.0,
-       "v": 2265630.0
-      },
-      {
-       "d": "2026-09-03",
-       "o": 1864.9,
-       "h": 1876.6,
-       "l": 1852.6,
-       "c": 1868.5,
-       "v": 1506361.0
-      },
-      {
-       "d": "2026-09-04",
-       "o": 1855.0,
-       "h": 1871.8,
-       "l": 1835.2,
-       "c": 1840.0,
-       "v": 1075943.0
-      },
-      {
-       "d": "2026-09-07",
-       "o": 1840.0,
-       "h": 1876.7,
-       "l": 1832.7,
-       "c": 1876.7,
-       "v": 1148664.0
-      },
-      {
-       "d": "2026-09-08",
-       "o": 1870.8,
-       "h": 1952.0,
-       "l": 1862.7,
-       "c": 1946.9,
-       "v": 2115447.0
-      },
-      {
-       "d": "2026-09-09",
-       "o": 1946.9,
-       "h": 1955.0,
-       "l": 1917.9,
-       "c": 1937.0,
-       "v": 1822218.0
-      },
-      {
-       "d": "2026-09-10",
-       "o": 1932.6,
-       "h": 1950.5,
-       "l": 1920.9,
-       "c": 1945.0,
-       "v": 1067622.0
-      },
-      {
-       "d": "2026-09-11",
-       "o": 1943.0,
-       "h": 1981.8,
-       "l": 1918.1,
-       "c": 1969.0,
-       "v": 2277375.0
-      },
-      {
-       "d": "2026-09-15",
-       "o": 1975.0,
-       "h": 1981.0,
-       "l": 1915.6,
-       "c": 1926.9,
-       "v": 1538262.0
-      },
-      {
-       "d": "2026-09-16",
-       "o": 1924.6,
-       "h": 1940.4,
-       "l": 1863.5,
-       "c": 1905.5,
-       "v": 2871410.0
-      },
-      {
-       "d": "2026-09-17",
-       "o": 1898.0,
-       "h": 1964.5,
-       "l": 1894.8,
-       "c": 1948.1,
-       "v": 1645108.0
-      },
-      {
-       "d": "2026-09-18",
-       "o": 1962.0,
-       "h": 1982.0,
-       "l": 1954.0,
-       "c": 1954.0,
-       "v": 2655873.0
-      },
-      {
-       "d": "2026-09-21",
-       "o": 1966.6,
-       "h": 2023.5,
-       "l": 1963.8,
-       "c": 2017.5,
-       "v": 2170267.0
-      },
-      {
-       "d": "2026-09-22",
-       "o": 2018.0,
-       "h": 2032.8,
-       "l": 2002.2,
-       "c": 2006.5,
-       "v": 1487044.0
-      },
-      {
-       "d": "2026-09-23",
-       "o": 2009.5,
-       "h": 2037.2,
-       "l": 1999.7,
-       "c": 2034.0,
-       "v": 1363988.0
-      },
-      {
-       "d": "2026-09-24",
-       "o": 2021.1,
-       "h": 2055.3,
-       "l": 2020.0,
-       "c": 2026.2,
-       "v": 1388039.0
-      },
-      {
-       "d": "2026-09-25",
-       "o": 2026.0,
-       "h": 2040.0,
-       "l": 1979.2,
-       "c": 2007.0,
-       "v": 1442142.0
-      },
-      {
-       "d": "2026-09-28",
-       "o": 2000.0,
-       "h": 2012.3,
-       "l": 1984.8,
-       "c": 2010.7,
-       "v": 950451.0
-      },
-      {
-       "d": "2026-09-29",
-       "o": 2020.7,
-       "h": 2024.9,
-       "l": 1979.0,
-       "c": 1979.0,
-       "v": 2431575.0
-      },
-      {
-       "d": "2026-09-30",
-       "o": 1993.0,
-       "h": 2001.6,
-       "l": 1955.1,
-       "c": 1980.0,
-       "v": 1397926.0
-      },
-      {
-       "d": "2026-10-01",
-       "o": 1973.6,
-       "h": 2006.9,
-       "l": 1952.1,
-       "c": 1984.0,
-       "v": 1459687.0
-      },
-      {
-       "d": "2026-10-05",
-       "o": 1994.0,
-       "h": 2002.0,
-       "l": 1955.1,
-       "c": 1971.4,
-       "v": 1374138.0
-      },
-      {
-       "d": "2026-10-06",
-       "o": 1968.9,
-       "h": 2054.9,
-       "l": 1958.0,
-       "c": 2050.0,
-       "v": 2197316.0
-      },
-      {
-       "d": "2026-10-07",
-       "o": 2052.0,
-       "h": 2065.2,
-       "l": 2035.6,
-       "c": 2052.8,
-       "v": 1499990.0
-      },
-      {
-       "d": "2026-10-08",
-       "o": 2055.0,
-       "h": 2055.0,
-       "l": 1997.9,
-       "c": 1997.9,
-       "v": 1394208.0
-      },
-      {
-       "d": "2026-10-09",
-       "o": 1997.9,
-       "h": 2048.0,
-       "l": 1988.9,
-       "c": 2036.6,
-       "v": 1358268.0
-      },
-      {
-       "d": "2026-10-12",
-       "o": 2044.1,
-       "h": 2069.2,
-       "l": 2036.1,
-       "c": 2069.2,
-       "v": 1417097.0
-      },
-      {
-       "d": "2026-10-13",
-       "o": 2047.1,
-       "h": 2065.0,
-       "l": 2007.8,
-       "c": 2059.4,
-       "v": 1141354.0
-      },
-      {
-       "d": "2026-10-14",
-       "o": 2049.0,
-       "h": 2057.3,
-       "l": 2019.2,
-       "c": 2036.9,
-       "v": 1301046.0
-      },
-      {
-       "d": "2026-10-15",
-       "o": 2025.0,
-       "h": 2046.3,
-       "l": 2008.0,
-       "c": 2018.5,
-       "v": 858713.0
-      },
-      {
-       "d": "2026-10-16",
-       "o": 2030.4,
-       "h": 2086.0,
-       "l": 2028.7,
-       "c": 2060.1,
-       "v": 1606547.0
-      },
-      {
-       "d": "2026-10-19",
-       "o": 2060.1,
-       "h": 2089.0,
-       "l": 2052.2,
-       "c": 2069.0,
-       "v": 1133053.0
-      },
-      {
-       "d": "2026-10-21",
-       "o": 2052.9,
-       "h": 2079.8,
-       "l": 1993.4,
-       "c": 2012.5,
-       "v": 1275844.0
-      },
-      {
-       "d": "2026-10-22",
-       "o": 1993.5,
-       "h": 2019.8,
-       "l": 1956.6,
-       "c": 2002.5,
-       "v": 1538717.0
-      },
-      {
-       "d": "2026-10-23",
-       "o": 1987.5,
-       "h": 2009.6,
-       "l": 1933.5,
-       "c": 1970.0,
-       "v": 1893713.0
-      },
-      {
-       "d": "2026-10-26",
-       "o": 1960.0,
-       "h": 2058.9,
-       "l": 1951.6,
-       "c": 2058.9,
-       "v": 1858328.0
-      },
-      {
-       "d": "2026-10-27",
-       "o": 2075.0,
-       "h": 2143.1,
-       "l": 2067.4,
-       "c": 2142.0,
-       "v": 3117057.0
-      },
-      {
-       "d": "2026-10-28",
-       "o": 2142.0,
-       "h": 2198.8,
-       "l": 2131.7,
-       "c": 2181.9,
-       "v": 2200731.0
-      },
-      {
-       "d": "2026-10-29",
-       "o": 2190.0,
-       "h": 2244.0,
-       "l": 2166.0,
-       "c": 2244.0,
-       "v": 2900789.0
-      }
-     ],
-     "overlays": {
-      "ema20": [
-       1664.99,
-       1681.18,
-       1695.35,
-       1709.54,
-       1723.3,
-       1736.13,
-       1746.97,
-       1756.94,
-       1759.84,
-       1764.58,
-       1769.29,
-       1772.39,
-       1777.4,
-       1779.74,
-       1781.77,
-       1789.81,
-       1799.06,
-       1811.48,
-       1823.57,
-       1832.28,
-       1835.07,
-       1837.83,
-       1840.75,
-       1840.68,
-       1844.11,
-       1853.9,
-       1861.81,
-       1869.74,
-       1879.19,
-       1883.73,
-       1885.81,
-       1891.74,
-       1897.67,
-       1909.08,
-       1918.36,
-       1929.37,
-       1938.59,
-       1945.11,
-       1951.36,
-       1953.99,
-       1956.47,
-       1959.09,
-       1960.26,
-       1968.81,
-       1976.81,
-       1978.82,
-       1984.32,
-       1992.4,
-       1998.78,
-       2002.41,
-       2003.95,
-       2009.29,
-       2014.98,
-       2014.74,
-       2013.58,
-       2009.43,
-       2014.14,
-       2026.32,
-       2041.13,
-       2060.45
-      ],
-      "ema50": [
-       1524.9,
-       1537.06,
-       1548.55,
-       1560.15,
-       1571.67,
-       1582.9,
-       1593.37,
-       1603.5,
-       1610.71,
-       1618.52,
-       1626.18,
-       1633.07,
-       1640.6,
-       1646.93,
-       1652.97,
-       1661.33,
-       1670.18,
-       1680.34,
-       1690.47,
-       1699.27,
-       1705.64,
-       1711.85,
-       1717.99,
-       1722.78,
-       1728.81,
-       1737.37,
-       1745.19,
-       1753.03,
-       1761.5,
-       1767.99,
-       1773.38,
-       1780.23,
-       1787.05,
-       1796.08,
-       1804.33,
-       1813.34,
-       1821.69,
-       1828.96,
-       1836.08,
-       1841.69,
-       1847.11,
-       1852.48,
-       1857.14,
-       1864.71,
-       1872.08,
-       1877.02,
-       1883.27,
-       1890.57,
-       1897.19,
-       1902.67,
-       1907.21,
-       1913.2,
-       1919.31,
-       1922.97,
-       1926.09,
-       1927.81,
-       1932.95,
-       1941.15,
-       1950.59,
-       1962.1
-      ]
-     },
-     "levels": [
-      {
-       "kind": "resistance",
-       "price": 2244.0,
-       "label": "Breakout level ₹2,244.00"
-      },
-      {
-       "kind": "stop",
-       "price": 2151.16,
-       "label": "Stop ₹2,151.16"
-      }
-     ],
-     "band": null
-    },
-    {
-     "type": "bars",
-     "id": "volx",
-     "title": "Volume against the usual",
-     "note": "Mean volume of the last 3 sessions ÷ the mean of the 20 before.",
-     "unit": "×",
-     "orientation": "h",
-     "items": [
-      {
-       "label": "LAURUSLABS",
-       "value": 1.66,
-       "tone": "up",
-       "sub": null
-      }
-     ],
-     "baseline": 1.0
+     "type": "notice",
+     "id": "none",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "No stock met the confirmed-breakout rule on 30 Oct 2026. Rule (smart_v2): close 0–3% above the breakout level, 3-session volume ≥ 1.5× the prior 20, stage BREAKOUT or EARLY_BREAKOUT, gap-up ≤ 5%. Stop = level − 1.5 × ATR(14)."
     }
    ],
    "evidence": [],
@@ -2649,13 +1945,7 @@
     "sources": [
      {
       "name": "Positional scanner watchlist (breakout_confirmed)",
-      "as_of": "2026-10-29",
-      "status": "fresh",
-      "note": null
-     },
-     {
-      "name": "NSE prices, split/bonus adjusted (prices_eod_adjusted)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      }
@@ -2664,10 +1954,6 @@
     "missing": []
    },
    "follow_ups": [
-    {
-     "label": "Entry, target and stop-loss for LAURUSLABS",
-     "query": "Entry, target and stop-loss for LAURUSLABS"
-    },
     {
      "label": "Which stocks have unusual volume?",
      "query": "Which stocks have unusual volume?"
@@ -2681,14 +1967,14 @@
      "query": "What is the market view today?"
     }
    ],
-   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   },
   "unusual_volume": {
    "schema": "visual-answer-v1",
    "intent": "unusual_volume",
    "title": "Unusual volume",
    "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:20:02+05:30",
+   "generated_at": "2026-10-30T22:32:50+05:30",
    "mode": "eod",
    "headline": {
     "text": "65 eligible stocks traded with unusually high volume on 29 Oct; VGUARD led at 82.5× its 20-day average.",
@@ -2967,28 +2253,32 @@
    "schema": "visual-answer-v1",
    "intent": "stock_decision",
    "title": "PNB · entry, stop and targets",
-   "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:20:07+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:32:54+05:30",
    "mode": "eod",
    "headline": {
-    "text": "PNB: the desk's rules find a setup — Covered call (shares + short call), net premium ₹23,760.00, stop ₹120.67, first target ₹130.36.",
+    "text": "PNB: the desk's rules find a setup — Covered call (shares + short call), net premium ₹18,720.00, stop ₹120.73, first target ₹127.09.",
     "tone": "up"
    },
    "decision": {
     "status": "setup_ready",
     "label": "Setup ready",
-    "reason": "Covered call (shares + short call): net premium ₹23,760.00, stop ₹120.67 (underlying).",
+    "reason": "Covered call (shares + short call): net premium ₹18,720.00, stop ₹120.73 (underlying).",
     "conditions": [
      {
-      "text": "Trend: Trend up: close 123.90 vs EMA50 116.60, EMA20 118.89.",
+      "text": "Market regime: Desk regime is Bearish (macro_engine.classify_desk_regime, session 2026-10-30).",
+      "met": false
+     },
+     {
+      "text": "Trend: Trend up: close 122.85 vs EMA50 116.85, EMA20 119.27.",
       "met": true
      },
      {
-      "text": "Relative strength: 63-session return +16.96% against the benchmark.",
+      "text": "Relative strength: 63-session return +15.24% against the benchmark.",
       "met": true
      },
      {
-      "text": "Momentum: MACD histogram +0.54, 20-day change +10.87%.",
+      "text": "Momentum: MACD histogram +0.50, 20-day change +8.66%.",
       "met": true
      },
      {
@@ -2996,8 +2286,8 @@
       "met": false
      }
     ],
-    "invalidation": "the thesis is wrong if the underlying closes beyond this level (₹120.67)",
-    "plan_id": "tp_16af164648ee9112"
+    "invalidation": "the thesis is wrong if the underlying closes beyond this level (₹120.73)",
+    "plan_id": "tp_16c835e677fe1941"
    },
    "blocks": [
     {
@@ -3007,14 +2297,6 @@
      "note": null,
      "symbol": "PNB",
      "bars": [
-      {
-       "d": "2026-08-04",
-       "o": 113.49,
-       "h": 114.0,
-       "l": 112.64,
-       "c": 113.99,
-       "v": 7961139.0
-      },
       {
        "d": "2026-08-05",
        "o": 114.16,
@@ -3486,11 +2768,18 @@
        "l": 119.62,
        "c": 123.9,
        "v": 27694674.0
+      },
+      {
+       "d": "2026-10-30",
+       "o": 123.9,
+       "h": 125.09,
+       "l": 122.48,
+       "c": 122.85,
+       "v": 22242233.0
       }
      ],
      "overlays": {
       "ema20": [
-       110.1,
        110.43,
        110.8,
        111.18,
@@ -3549,10 +2838,10 @@
        117.83,
        118.16,
        118.37,
-       118.89
+       118.89,
+       119.27
       ],
       "ema50": [
-       108.78,
        108.96,
        109.17,
        109.39,
@@ -3611,10 +2900,10 @@
        115.93,
        116.14,
        116.31,
-       116.6
+       116.6,
+       116.85
       ],
       "ema200": [
-       111.36,
        111.38,
        111.41,
        111.44,
@@ -3673,29 +2962,30 @@
        113.51,
        113.59,
        113.65,
-       113.76
+       113.76,
+       113.85
       ]
      },
      "levels": [
       {
        "kind": "stop",
-       "price": 120.67,
-       "label": "Stop ₹120.67"
+       "price": 120.73,
+       "label": "Stop ₹120.73"
       },
       {
        "kind": "target",
-       "price": 127.02,
-       "label": "Target conservative ₹127.02"
+       "price": 125.22,
+       "label": "Target conservative ₹125.22"
       },
       {
        "kind": "target",
-       "price": 130.36,
-       "label": "Target base ₹130.36"
+       "price": 127.09,
+       "label": "Target base ₹127.09"
       },
       {
        "kind": "target",
-       "price": 133.59,
-       "label": "Target optimistic ₹133.59"
+       "price": 129.21,
+       "label": "Target optimistic ₹129.21"
       }
      ],
      "band": null
@@ -3721,17 +3011,17 @@
       },
       {
        "label": "Net premium",
-       "value": "₹23,760.00",
+       "value": "₹18,720.00",
        "sub": "every leg at its end-of-day premium (NSE F&O bhavcopy close)"
       },
       {
        "label": "Stop",
-       "value": "₹120.67",
+       "value": "₹120.73",
        "sub": "underlying level"
       },
       {
        "label": "First target",
-       "value": "₹130.36",
+       "value": "₹127.09",
        "sub": "2.0R"
       },
       {
@@ -3746,7 +3036,7 @@
      "id": "plan",
      "title": "The desk's plan",
      "note": null,
-     "plan_id": "tp_16af164648ee9112"
+     "plan_id": "tp_16c835e677fe1941"
     }
    ],
    "evidence": [],
@@ -3754,13 +3044,13 @@
     "sources": [
      {
       "name": "Desk trade plan (StrategyPlan + TradePlan, end of day)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE prices, split/bonus adjusted (prices_eod_adjusted)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      }
@@ -3788,17 +3078,17 @@
      "query": "Today's top 5 opportunities"
     }
    ],
-   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   },
   "expected_move": {
    "schema": "visual-answer-v1",
    "intent": "expected_move",
    "title": "Expected move in Nifty",
-   "as_of": "2026-10-29",
-   "generated_at": "2026-10-30T12:20:07+05:30",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:32:55+05:30",
    "mode": "eod",
    "headline": {
-    "text": "The Nifty options price a move of about ±278.85 points (±1.22%) to the 3 Nov 2026 expiry; PCR 1.44, max pain 22,900.00.",
+    "text": "The Nifty options price a move of about ±231.20 points (±1.00%) to the 3 Nov 2026 expiry; PCR 1.62, max pain 23,000.00.",
     "tone": "neutral"
    },
    "decision": null,
@@ -3811,34 +3101,34 @@
      "items": [
       {
        "label": "Expected move",
-       "value": "±278.85 pts",
-       "sub": "±1.22% · ATM straddle"
+       "value": "±231.20 pts",
+       "sub": "±1.00% · ATM straddle"
       },
       {
        "label": "ATM IV",
-       "value": "12.99%",
+       "value": "11.98%",
        "sub": "Black-76 on the ATM strike, end of day"
       },
       {
        "label": "PCR",
-       "value": "1.44",
+       "value": "1.62",
        "sub": "put OI ÷ call OI, whole expiry",
        "tone": "up"
       },
       {
        "label": "Max pain",
-       "value": "22,900.00",
+       "value": "23,000.00",
        "sub": null
       },
       {
        "label": "Expiry",
        "value": "3 Nov 2026",
-       "sub": "5 days from 29 Oct"
+       "sub": "4 days from 30 Oct"
       },
       {
        "label": "Spot",
-       "value": "22,936.75",
-       "sub": "close 29 Oct"
+       "value": "23,053.10",
+       "sub": "close 30 Oct"
       }
      ]
     },
@@ -3849,14 +3139,6 @@
      "note": "Shaded: spot ± the ATM straddle. Dashed: call wall, put wall and max pain.",
      "symbol": "NIFTY",
      "bars": [
-      {
-       "d": "2026-08-04",
-       "o": 24703.9,
-       "h": 24703.9,
-       "l": 24427.95,
-       "c": 24614.9,
-       "v": null
-      },
       {
        "d": "2026-08-05",
        "o": 24669.2,
@@ -4328,11 +3610,18 @@
        "l": 22656.75,
        "c": 22936.75,
        "v": null
+      },
+      {
+       "d": "2026-10-30",
+       "o": 22964.5,
+       "h": 23118.1,
+       "l": 22905.1,
+       "c": 23053.1,
+       "v": null
       }
      ],
      "overlays": {
       "ema20": [
-       24210.2,
        24249.67,
        24286.46,
        24313.53,
@@ -4391,69 +3680,70 @@
        22831.86,
        22824.04,
        22812.12,
-       22823.99
+       22823.99,
+       22845.81
       ],
       "ema50": [
-       24070.46,
-       24092.19,
-       24113.52,
-       24131.45,
-       24149.19,
-       24161.83,
-       24172.58,
-       24181.34,
-       24188.58,
-       24192.47,
-       24190.99,
-       24186.57,
-       24188.35,
-       24190.85,
-       24191.95,
-       24197.54,
-       24197.94,
-       24193.74,
-       24193.03,
-       24188.62,
-       24183.41,
-       24172.86,
-       24161.12,
-       24150.79,
-       24136.22,
-       24116.56,
-       24089.7,
-       24065.7,
-       24039.52,
-       24003.41,
-       23972.59,
-       23945.06,
-       23921.59,
-       23901.69,
-       23879.23,
+       24092.23,
+       24113.55,
+       24131.48,
+       24149.22,
+       24161.86,
+       24172.61,
+       24181.37,
+       24188.61,
+       24192.49,
+       24191.02,
+       24186.6,
+       24188.37,
+       24190.87,
+       24191.97,
+       24197.56,
+       24197.96,
+       24193.76,
+       24193.05,
+       24188.63,
+       24183.42,
+       24172.88,
+       24161.13,
+       24150.8,
+       24136.23,
+       24116.58,
+       24089.71,
+       24065.71,
+       24039.53,
+       24003.42,
+       23972.6,
+       23945.07,
+       23921.6,
+       23901.7,
+       23879.24,
        23862.28,
-       23830.93,
-       23803.86,
-       23763.72,
-       23722.64,
+       23830.94,
+       23803.87,
+       23763.73,
+       23722.65,
        23679.42,
-       23630.1,
-       23587.97,
-       23556.13,
+       23630.11,
+       23587.98,
+       23556.14,
        23518.76,
        23468.29,
        23431.12,
        23389.25,
        23363.08,
-       23334.04,
+       23334.05,
        23320.84,
        23313.99,
        23297.32,
-       23278.26,
-       23255.1,
+       23278.27,
+       23255.11,
        23229.41,
        23210.74,
        23192.66,
-       23173.29,
-       23164.02
+       23173.3,
+       23164.02,
+       23159.67
       ]
      },
      "levels": [
@@ -4469,14 +3759,14 @@
       },
       {
        "kind": "max_pain",
-       "price": 22900.0,
-       "label": "Max pain 22,900.00"
+       "price": 23000.0,
+       "label": "Max pain 23,000.00"
       }
      ],
      "band": {
-      "low": 22657.9,
-      "high": 23215.6,
-      "label": "Expected move to 3 Nov 2026 (ATM straddle ±278.85)"
+      "low": 22821.9,
+      "high": 23284.3,
+      "label": "Expected move to 3 Nov 2026 (ATM straddle ±231.20)"
      }
     }
    ],
@@ -4485,13 +3775,13 @@
     "sources": [
      {
       "name": "NSE F&O bhavcopy · NIFTY option chain",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE index closes (nidp.index_eod)",
-      "as_of": "2026-10-29",
+      "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      }
@@ -4513,7 +3803,1934 @@
      "query": "Bank Nifty expected move"
     }
    ],
-   "caveat": "Built from end-of-day data of 29 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "open_trades": {
+   "schema": "visual-answer-v1",
+   "intent": "open_trades",
+   "title": "Your open trades",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:32:55+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "3 open paper trades, unrealised ₹1,101.62.",
+    "tone": "up"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "summary",
+     "title": "Your open paper trades",
+     "note": null,
+     "items": [
+      {
+       "label": "Open",
+       "value": "3",
+       "sub": null
+      },
+      {
+       "label": "Unrealised P&L",
+       "value": "₹1,101.62",
+       "sub": "net of estimated costs",
+       "tone": "up"
+      },
+      {
+       "label": "Not yet triggered",
+       "value": "1",
+       "sub": "waiting for its entry condition"
+      }
+     ]
+    },
+    {
+     "type": "ranked",
+     "id": "trades",
+     "title": "3 open paper trades",
+     "note": "Marked at the last available close. Not every trade may be marked yet; see the P&L above.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Stock",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "qty",
+       "label": "Qty",
+       "align": "right",
+       "format": "int"
+      },
+      {
+       "key": "entry",
+       "label": "Entry",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "last",
+       "label": "Last close",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "stop",
+       "label": "Stop",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "target",
+       "label": "Target",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "pnl",
+       "label": "Unrealised P&L",
+       "align": "right",
+       "format": "price"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "SONACOMS",
+       "ask": "Should I book profits or hold SONACOMS?",
+       "tone": "up",
+       "cells": {
+        "symbol": "SONACOMS",
+        "qty": 44,
+        "entry": 868.87,
+        "last": 890.5,
+        "stop": 824.6,
+        "target": 957.41,
+        "pnl": 486.2
+       }
+      },
+      {
+       "symbol": "COFORGE",
+       "ask": "Should I book profits or hold COFORGE?",
+       "tone": "up",
+       "cells": {
+        "symbol": "COFORGE",
+        "qty": 18,
+        "entry": 2010.81,
+        "last": 2045.0,
+        "stop": 1904.91,
+        "target": 2222.61,
+        "pnl": 615.42
+       }
+      },
+      {
+       "symbol": "ICICIBANK",
+       "ask": "Should I book profits or hold ICICIBANK?",
+       "tone": "neutral",
+       "cells": {
+        "symbol": "ICICIBANK",
+        "qty": 35,
+        "entry": 1413.21,
+        "last": 1398.0,
+        "stop": 1374.9,
+        "target": 1489.83,
+        "pnl": null
+       }
+      }
+     ]
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Your paper trades (desk_paper_trades, marked at the last available close)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "How much should I risk?",
+     "query": "How much should I risk?"
+    },
+    {
+     "label": "Which F&O setups are attractive?",
+     "query": "Which F&O setups are attractive?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "fno_setups": {
+   "schema": "visual-answer-v1",
+   "intent": "fno_setups",
+   "title": "F&O setups that fit today",
+   "as_of": null,
+   "generated_at": "2026-10-30T22:32:58+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "5 F&O setups fit today's regime (Bearish).",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "stale-0",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Desk F&O board (StrategyPlan, fit to today's regime) is from an unknown date, older than the previous session (29 Oct 2026): shown with its date, not as today's."
+    },
+    {
+     "type": "ranked",
+     "id": "fno",
+     "title": "5 F&O setups · fit to today's regime",
+     "note": "Fit to today's measured regime, not a performance rank. Max loss/profit are gross, before charges; an unbounded side shows as —.",
+     "columns": [
+      {
+       "key": "symbol",
+       "label": "Underlying",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "structure",
+       "label": "Structure",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "view",
+       "label": "View",
+       "align": "left",
+       "format": "text"
+      },
+      {
+       "key": "maxloss",
+       "label": "Max loss",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "maxprofit",
+       "label": "Max profit",
+       "align": "right",
+       "format": "price"
+      },
+      {
+       "key": "rr",
+       "label": "R:R",
+       "align": "right",
+       "format": "x"
+      },
+      {
+       "key": "fit",
+       "label": "Fit",
+       "align": "right",
+       "format": "text"
+      }
+     ],
+     "rows": [
+      {
+       "symbol": "BANKNIFTY",
+       "plan_id": "tp_b3f29c9b378f0170",
+       "ask": "Is BANKNIFTY a buy now?",
+       "tone": "down",
+       "cells": {
+        "symbol": "BANKNIFTY",
+        "structure": "Bear put spread 53100/54700",
+        "view": "Bearish",
+        "maxloss": -14406.0,
+        "maxprofit": 33594.0,
+        "rr": 2.31,
+        "fit": 92.5
+       }
+      },
+      {
+       "symbol": "BANKNIFTY",
+       "plan_id": "tp_f69b2ec21b6e2845",
+       "ask": "Is BANKNIFTY a buy now?",
+       "tone": "down",
+       "cells": {
+        "symbol": "BANKNIFTY",
+        "structure": "Long put 54700",
+        "view": "Bearish",
+        "maxloss": -22813.5,
+        "maxprofit": 1618186.5,
+        "rr": 1.15,
+        "fit": 92.5
+       }
+      },
+      {
+       "symbol": "BANKNIFTY",
+       "plan_id": "tp_411ea6900e897724",
+       "ask": "Is BANKNIFTY a buy now?",
+       "tone": "down",
+       "cells": {
+        "symbol": "BANKNIFTY",
+        "structure": "Long put 54600",
+        "view": "Bearish",
+        "maxloss": -21594.0,
+        "maxprofit": 1616406.0,
+        "rr": 1.13,
+        "fit": 92.5
+       }
+      },
+      {
+       "symbol": "NIFTY",
+       "plan_id": "tp_6ec3bbaefbf30104",
+       "ask": "Is NIFTY a buy now?",
+       "tone": "down",
+       "cells": {
+        "symbol": "NIFTY",
+        "structure": "Bear put spread 22800/23050",
+        "view": "Bearish",
+        "maxloss": -5450.25,
+        "maxprofit": 10799.75,
+        "rr": 1.7,
+        "fit": 92.5
+       }
+      },
+      {
+       "symbol": "NIFTY",
+       "plan_id": "tp_e06c03dda4aa30f5",
+       "ask": "Is NIFTY a buy now?",
+       "tone": "down",
+       "cells": {
+        "symbol": "NIFTY",
+        "structure": "Long put 23050",
+        "view": "Bearish",
+        "maxloss": -8274.5,
+        "maxprofit": 1489975.5,
+        "rr": 0.78,
+        "fit": 92.5
+       }
+      }
+     ]
+    },
+    {
+     "type": "trade_plan",
+     "id": "first",
+     "title": "The first idea's plan · BANKNIFTY",
+     "note": null,
+     "plan_id": "tp_b3f29c9b378f0170"
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Desk F&O board (StrategyPlan, fit to today's regime)",
+      "as_of": null,
+      "status": "stale",
+      "note": null
+     }
+    ],
+    "stale": true,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What is the expected move in Nifty?",
+     "query": "What is the expected move in Nifty?"
+    },
+    {
+     "label": "How much should I risk?",
+     "query": "How much should I risk?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Today's top 5 opportunities",
+     "query": "Today's top 5 opportunities"
+    }
+   ],
+   "caveat": "Built from end-of-day data. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "trade_validity": {
+   "schema": "visual-answer-v1",
+   "intent": "trade_validity",
+   "title": "PNB · is the setup still valid?",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:33:00+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "PNB: the setup recorded earlier still holds under today's rules.",
+    "tone": "up"
+   },
+   "decision": {
+    "status": "setup_ready",
+    "label": "Setup ready",
+    "reason": "Covered call (shares + short call): net premium ₹18,720.00, stop ₹120.73 (underlying).",
+    "conditions": [
+     {
+      "text": "Market regime: Desk regime is Bearish (macro_engine.classify_desk_regime, session 2026-10-30).",
+      "met": false
+     },
+     {
+      "text": "Trend: Trend up: close 122.85 vs EMA50 116.85, EMA20 119.27.",
+      "met": true
+     },
+     {
+      "text": "Relative strength: 63-session return +15.24% against the benchmark.",
+      "met": true
+     },
+     {
+      "text": "Momentum: MACD histogram +0.50, 20-day change +8.66%.",
+      "met": true
+     }
+    ],
+    "invalidation": "the thesis is wrong if the underlying closes beyond this level (₹120.73)",
+    "plan_id": "tp_16c835e677fe1941"
+   },
+   "blocks": [
+    {
+     "type": "list",
+     "id": "changes",
+     "title": "What has changed since it was recorded",
+     "note": null,
+     "items": [
+      {
+       "text": "Stop moved: recorded ₹120.67, today ₹120.73.",
+       "tone": "warn"
+      }
+     ]
+    },
+    {
+     "type": "candles",
+     "id": "chart",
+     "title": "PNB · the plan, then and now",
+     "note": null,
+     "symbol": "PNB",
+     "bars": [
+      {
+       "d": "2026-08-05",
+       "o": 114.16,
+       "h": 115.2,
+       "l": 113.3,
+       "c": 113.55,
+       "v": 10371553.0
+      },
+      {
+       "d": "2026-08-06",
+       "o": 113.55,
+       "h": 114.85,
+       "l": 113.2,
+       "c": 114.3,
+       "v": 11910351.0
+      },
+      {
+       "d": "2026-08-07",
+       "o": 114.01,
+       "h": 115.37,
+       "l": 113.6,
+       "c": 114.81,
+       "v": 11202537.0
+      },
+      {
+       "d": "2026-08-10",
+       "o": 114.81,
+       "h": 115.19,
+       "l": 113.2,
+       "c": 113.5,
+       "v": 11111923.0
+      },
+      {
+       "d": "2026-08-11",
+       "o": 113.5,
+       "h": 114.3,
+       "l": 112.3,
+       "c": 114.03,
+       "v": 14258368.0
+      },
+      {
+       "d": "2026-08-12",
+       "o": 113.95,
+       "h": 119.5,
+       "l": 113.72,
+       "c": 118.98,
+       "v": 51235935.0
+      },
+      {
+       "d": "2026-08-13",
+       "o": 118.62,
+       "h": 119.35,
+       "l": 117.31,
+       "c": 117.59,
+       "v": 10028318.0
+      },
+      {
+       "d": "2026-08-14",
+       "o": 117.88,
+       "h": 118.9,
+       "l": 117.4,
+       "c": 118.0,
+       "v": 11249012.0
+      },
+      {
+       "d": "2026-08-17",
+       "o": 117.11,
+       "h": 118.06,
+       "l": 115.32,
+       "c": 117.32,
+       "v": 12881843.0
+      },
+      {
+       "d": "2026-08-18",
+       "o": 117.0,
+       "h": 117.99,
+       "l": 116.5,
+       "c": 116.5,
+       "v": 7856627.0
+      },
+      {
+       "d": "2026-08-19",
+       "o": 116.45,
+       "h": 117.59,
+       "l": 116.03,
+       "c": 117.48,
+       "v": 7920810.0
+      },
+      {
+       "d": "2026-08-20",
+       "o": 117.9,
+       "h": 119.1,
+       "l": 117.44,
+       "c": 118.0,
+       "v": 8551120.0
+      },
+      {
+       "d": "2026-08-21",
+       "o": 117.45,
+       "h": 117.52,
+       "l": 115.41,
+       "c": 116.55,
+       "v": 14049357.0
+      },
+      {
+       "d": "2026-08-24",
+       "o": 116.5,
+       "h": 117.03,
+       "l": 115.0,
+       "c": 115.86,
+       "v": 10613260.0
+      },
+      {
+       "d": "2026-08-25",
+       "o": 115.61,
+       "h": 116.9,
+       "l": 115.01,
+       "c": 115.93,
+       "v": 13026659.0
+      },
+      {
+       "d": "2026-08-26",
+       "o": 116.93,
+       "h": 118.2,
+       "l": 116.39,
+       "c": 116.7,
+       "v": 7741983.0
+      },
+      {
+       "d": "2026-08-27",
+       "o": 116.7,
+       "h": 117.2,
+       "l": 115.07,
+       "c": 115.4,
+       "v": 10955188.0
+      },
+      {
+       "d": "2026-08-28",
+       "o": 114.81,
+       "h": 115.75,
+       "l": 114.42,
+       "c": 115.4,
+       "v": 8502644.0
+      },
+      {
+       "d": "2026-08-31",
+       "o": 115.0,
+       "h": 115.35,
+       "l": 113.16,
+       "c": 114.23,
+       "v": 18423594.0
+      },
+      {
+       "d": "2026-09-01",
+       "o": 114.49,
+       "h": 116.5,
+       "l": 114.07,
+       "c": 115.22,
+       "v": 10969598.0
+      },
+      {
+       "d": "2026-09-02",
+       "o": 114.65,
+       "h": 117.25,
+       "l": 113.92,
+       "c": 117.0,
+       "v": 21100041.0
+      },
+      {
+       "d": "2026-09-03",
+       "o": 117.95,
+       "h": 118.25,
+       "l": 116.32,
+       "c": 116.32,
+       "v": 11831844.0
+      },
+      {
+       "d": "2026-09-04",
+       "o": 116.9,
+       "h": 118.05,
+       "l": 116.45,
+       "c": 117.0,
+       "v": 11160741.0
+      },
+      {
+       "d": "2026-09-07",
+       "o": 116.41,
+       "h": 117.17,
+       "l": 115.55,
+       "c": 115.6,
+       "v": 11062919.0
+      },
+      {
+       "d": "2026-09-08",
+       "o": 115.75,
+       "h": 116.68,
+       "l": 114.95,
+       "c": 116.0,
+       "v": 11972532.0
+      },
+      {
+       "d": "2026-09-09",
+       "o": 115.25,
+       "h": 117.0,
+       "l": 115.25,
+       "c": 115.61,
+       "v": 11691129.0
+      },
+      {
+       "d": "2026-09-10",
+       "o": 115.5,
+       "h": 118.2,
+       "l": 115.47,
+       "c": 116.85,
+       "v": 18231772.0
+      },
+      {
+       "d": "2026-09-11",
+       "o": 116.0,
+       "h": 117.79,
+       "l": 114.52,
+       "c": 116.75,
+       "v": 11479971.0
+      },
+      {
+       "d": "2026-09-15",
+       "o": 116.75,
+       "h": 117.23,
+       "l": 114.7,
+       "c": 114.7,
+       "v": 12031284.0
+      },
+      {
+       "d": "2026-09-16",
+       "o": 114.73,
+       "h": 117.48,
+       "l": 114.63,
+       "c": 116.8,
+       "v": 18494065.0
+      },
+      {
+       "d": "2026-09-17",
+       "o": 116.8,
+       "h": 119.4,
+       "l": 116.36,
+       "c": 116.47,
+       "v": 15924714.0
+      },
+      {
+       "d": "2026-09-18",
+       "o": 117.0,
+       "h": 117.5,
+       "l": 116.5,
+       "c": 117.27,
+       "v": 16061334.0
+      },
+      {
+       "d": "2026-09-21",
+       "o": 117.23,
+       "h": 118.58,
+       "l": 116.64,
+       "c": 118.0,
+       "v": 8624424.0
+      },
+      {
+       "d": "2026-09-22",
+       "o": 118.45,
+       "h": 118.74,
+       "l": 116.7,
+       "c": 117.0,
+       "v": 8967547.0
+      },
+      {
+       "d": "2026-09-23",
+       "o": 116.61,
+       "h": 118.9,
+       "l": 116.61,
+       "c": 118.3,
+       "v": 12840968.0
+      },
+      {
+       "d": "2026-09-24",
+       "o": 117.25,
+       "h": 118.67,
+       "l": 117.06,
+       "c": 117.12,
+       "v": 10755825.0
+      },
+      {
+       "d": "2026-09-25",
+       "o": 117.12,
+       "h": 118.01,
+       "l": 116.23,
+       "c": 116.6,
+       "v": 8069096.0
+      },
+      {
+       "d": "2026-09-28",
+       "o": 116.55,
+       "h": 116.55,
+       "l": 112.07,
+       "c": 112.6,
+       "v": 14250157.0
+      },
+      {
+       "d": "2026-09-29",
+       "o": 112.55,
+       "h": 113.98,
+       "l": 110.56,
+       "c": 111.75,
+       "v": 25885049.0
+      },
+      {
+       "d": "2026-09-30",
+       "o": 111.8,
+       "h": 114.9,
+       "l": 111.8,
+       "c": 113.06,
+       "v": 15255055.0
+      },
+      {
+       "d": "2026-10-01",
+       "o": 113.06,
+       "h": 113.38,
+       "l": 109.37,
+       "c": 109.57,
+       "v": 11365686.0
+      },
+      {
+       "d": "2026-10-05",
+       "o": 110.65,
+       "h": 113.58,
+       "l": 110.5,
+       "c": 112.35,
+       "v": 12282429.0
+      },
+      {
+       "d": "2026-10-06",
+       "o": 112.36,
+       "h": 113.0,
+       "l": 111.17,
+       "c": 111.92,
+       "v": 8421589.0
+      },
+      {
+       "d": "2026-10-07",
+       "o": 111.6,
+       "h": 115.1,
+       "l": 110.55,
+       "c": 114.59,
+       "v": 18275898.0
+      },
+      {
+       "d": "2026-10-08",
+       "o": 114.73,
+       "h": 117.45,
+       "l": 113.71,
+       "c": 115.29,
+       "v": 20438240.0
+      },
+      {
+       "d": "2026-10-09",
+       "o": 115.5,
+       "h": 117.95,
+       "l": 114.9,
+       "c": 116.98,
+       "v": 12666514.0
+      },
+      {
+       "d": "2026-10-12",
+       "o": 116.99,
+       "h": 117.33,
+       "l": 114.76,
+       "c": 116.0,
+       "v": 8980416.0
+      },
+      {
+       "d": "2026-10-13",
+       "o": 115.45,
+       "h": 117.25,
+       "l": 115.18,
+       "c": 116.55,
+       "v": 11211261.0
+      },
+      {
+       "d": "2026-10-14",
+       "o": 116.8,
+       "h": 119.64,
+       "l": 115.58,
+       "c": 118.5,
+       "v": 21611333.0
+      },
+      {
+       "d": "2026-10-15",
+       "o": 118.55,
+       "h": 118.79,
+       "l": 114.63,
+       "c": 115.05,
+       "v": 17212388.0
+      },
+      {
+       "d": "2026-10-16",
+       "o": 116.29,
+       "h": 116.4,
+       "l": 114.1,
+       "c": 116.3,
+       "v": 15709991.0
+      },
+      {
+       "d": "2026-10-19",
+       "o": 120.87,
+       "h": 125.22,
+       "l": 120.0,
+       "c": 121.9,
+       "v": 78115490.0
+      },
+      {
+       "d": "2026-10-21",
+       "o": 122.5,
+       "h": 124.2,
+       "l": 121.38,
+       "c": 122.5,
+       "v": 31119542.0
+      },
+      {
+       "d": "2026-10-22",
+       "o": 122.5,
+       "h": 122.5,
+       "l": 120.55,
+       "c": 122.5,
+       "v": 29716337.0
+      },
+      {
+       "d": "2026-10-23",
+       "o": 122.0,
+       "h": 122.3,
+       "l": 119.06,
+       "c": 120.37,
+       "v": 21067478.0
+      },
+      {
+       "d": "2026-10-26",
+       "o": 119.35,
+       "h": 120.89,
+       "l": 118.2,
+       "c": 120.89,
+       "v": 13598906.0
+      },
+      {
+       "d": "2026-10-27",
+       "o": 121.0,
+       "h": 122.34,
+       "l": 120.2,
+       "c": 121.27,
+       "v": 22099211.0
+      },
+      {
+       "d": "2026-10-28",
+       "o": 120.1,
+       "h": 121.5,
+       "l": 119.42,
+       "c": 120.31,
+       "v": 8382686.0
+      },
+      {
+       "d": "2026-10-29",
+       "o": 119.91,
+       "h": 123.9,
+       "l": 119.62,
+       "c": 123.9,
+       "v": 27694674.0
+      },
+      {
+       "d": "2026-10-30",
+       "o": 123.9,
+       "h": 125.09,
+       "l": 122.48,
+       "c": 122.85,
+       "v": 22242233.0
+      }
+     ],
+     "overlays": {
+      "ema20": [
+       110.43,
+       110.8,
+       111.18,
+       111.4,
+       111.65,
+       112.35,
+       112.85,
+       113.34,
+       113.72,
+       113.98,
+       114.32,
+       114.67,
+       114.85,
+       114.94,
+       115.04,
+       115.19,
+       115.21,
+       115.23,
+       115.14,
+       115.14,
+       115.32,
+       115.42,
+       115.57,
+       115.57,
+       115.61,
+       115.61,
+       115.73,
+       115.83,
+       115.72,
+       115.82,
+       115.88,
+       116.02,
+       116.2,
+       116.28,
+       116.47,
+       116.53,
+       116.54,
+       116.17,
+       115.74,
+       115.49,
+       114.93,
+       114.68,
+       114.42,
+       114.43,
+       114.52,
+       114.75,
+       114.87,
+       115.03,
+       115.36,
+       115.33,
+       115.42,
+       116.04,
+       116.65,
+       117.21,
+       117.51,
+       117.83,
+       118.16,
+       118.37,
+       118.89,
+       119.27
+      ],
+      "ema50": [
+       108.96,
+       109.17,
+       109.39,
+       109.56,
+       109.73,
+       110.09,
+       110.39,
+       110.69,
+       110.95,
+       111.16,
+       111.41,
+       111.67,
+       111.86,
+       112.02,
+       112.17,
+       112.35,
+       112.47,
+       112.58,
+       112.65,
+       112.75,
+       112.92,
+       113.05,
+       113.2,
+       113.3,
+       113.4,
+       113.49,
+       113.62,
+       113.75,
+       113.78,
+       113.9,
+       114.0,
+       114.13,
+       114.28,
+       114.39,
+       114.54,
+       114.64,
+       114.72,
+       114.64,
+       114.52,
+       114.47,
+       114.27,
+       114.2,
+       114.11,
+       114.13,
+       114.17,
+       114.28,
+       114.35,
+       114.44,
+       114.6,
+       114.61,
+       114.68,
+       114.96,
+       115.26,
+       115.54,
+       115.73,
+       115.93,
+       116.14,
+       116.31,
+       116.6,
+       116.85
+      ]
+     },
+     "levels": [
+      {
+       "kind": "stop",
+       "price": 120.73,
+       "label": "Today's stop ₹120.73"
+      },
+      {
+       "kind": "entry",
+       "price": 125.35,
+       "label": "Recorded entry ₹125.35"
+      }
+     ],
+     "band": null
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Desk trade plan (StrategyPlan + TradePlan, end of day)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "A plan recorded earlier (trade_plans)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE prices, split/bonus adjusted (prices_eod_adjusted)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Should I book profits or hold PNB?",
+     "query": "Should I book profits or hold PNB?"
+    },
+    {
+     "label": "What are my open trades doing?",
+     "query": "What are my open trades doing?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Is PNB a buy now?",
+     "query": "Is PNB a buy now?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "exit_options": {
+   "schema": "visual-answer-v1",
+   "intent": "exit_options",
+   "title": "SONACOMS · hold, trail or exit",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:33:00+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "SONACOMS: unrealised ₹486.20, ₹890.50 against stop ₹824.60, target ₹957.41.",
+    "tone": "up"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "kpis",
+     "id": "trade",
+     "title": "Your open trade in SONACOMS",
+     "note": null,
+     "items": [
+      {
+       "label": "Entry",
+       "value": "₹868.87",
+       "sub": null
+      },
+      {
+       "label": "Last close",
+       "value": "₹890.50",
+       "sub": "as of 30 Oct 2026"
+      },
+      {
+       "label": "Unrealised P&L",
+       "value": "₹486.20",
+       "sub": null,
+       "tone": "up"
+      },
+      {
+       "label": "Distance to stop",
+       "value": "+7.99%",
+       "sub": null,
+       "tone": "warn"
+      },
+      {
+       "label": "Distance to target",
+       "value": "+7.51%",
+       "sub": null,
+       "tone": "up"
+      }
+     ]
+    },
+    {
+     "type": "candles",
+     "id": "chart",
+     "title": "SONACOMS · price against stop and target",
+     "note": null,
+     "symbol": "SONACOMS",
+     "bars": [
+      {
+       "d": "2026-08-04",
+       "o": 785.0,
+       "h": 794.45,
+       "l": 774.5,
+       "c": 787.0,
+       "v": 2041296.0
+      },
+      {
+       "d": "2026-08-05",
+       "o": 790.0,
+       "h": 822.9,
+       "l": 785.05,
+       "c": 814.6,
+       "v": 3622373.0
+      },
+      {
+       "d": "2026-08-06",
+       "o": 821.9,
+       "h": 824.6,
+       "l": 786.25,
+       "c": 792.0,
+       "v": 2671715.0
+      },
+      {
+       "d": "2026-08-07",
+       "o": 790.0,
+       "h": 821.0,
+       "l": 787.0,
+       "c": 818.05,
+       "v": 3753214.0
+      },
+      {
+       "d": "2026-08-10",
+       "o": 822.1,
+       "h": 836.9,
+       "l": 807.6,
+       "c": 812.5,
+       "v": 2407579.0
+      },
+      {
+       "d": "2026-08-11",
+       "o": 808.45,
+       "h": 821.0,
+       "l": 798.0,
+       "c": 800.0,
+       "v": 1377316.0
+      },
+      {
+       "d": "2026-08-12",
+       "o": 801.05,
+       "h": 807.7,
+       "l": 797.4,
+       "c": 804.5,
+       "v": 1894549.0
+      },
+      {
+       "d": "2026-08-13",
+       "o": 801.5,
+       "h": 811.5,
+       "l": 792.1,
+       "c": 799.9,
+       "v": 1739520.0
+      },
+      {
+       "d": "2026-08-14",
+       "o": 795.7,
+       "h": 798.8,
+       "l": 790.0,
+       "c": 792.0,
+       "v": 909039.0
+      },
+      {
+       "d": "2026-08-17",
+       "o": 799.0,
+       "h": 814.3,
+       "l": 795.75,
+       "c": 805.1,
+       "v": 2346950.0
+      },
+      {
+       "d": "2026-08-18",
+       "o": 806.5,
+       "h": 827.35,
+       "l": 806.0,
+       "c": 824.0,
+       "v": 2864893.0
+      },
+      {
+       "d": "2026-08-19",
+       "o": 829.0,
+       "h": 829.75,
+       "l": 816.5,
+       "c": 823.5,
+       "v": 1726390.0
+      },
+      {
+       "d": "2026-08-20",
+       "o": 827.5,
+       "h": 844.0,
+       "l": 820.4,
+       "c": 821.9,
+       "v": 2824539.0
+      },
+      {
+       "d": "2026-08-21",
+       "o": 820.05,
+       "h": 822.05,
+       "l": 802.2,
+       "c": 817.6,
+       "v": 1975313.0
+      },
+      {
+       "d": "2026-08-24",
+       "o": 817.6,
+       "h": 824.3,
+       "l": 806.1,
+       "c": 813.5,
+       "v": 1647328.0
+      },
+      {
+       "d": "2026-08-25",
+       "o": 805.8,
+       "h": 814.0,
+       "l": 803.0,
+       "c": 808.8,
+       "v": 1442056.0
+      },
+      {
+       "d": "2026-08-26",
+       "o": 808.8,
+       "h": 811.95,
+       "l": 795.0,
+       "c": 795.0,
+       "v": 890131.0
+      },
+      {
+       "d": "2026-08-27",
+       "o": 795.0,
+       "h": 819.0,
+       "l": 795.0,
+       "c": 819.0,
+       "v": 1914972.0
+      },
+      {
+       "d": "2026-08-28",
+       "o": 822.75,
+       "h": 824.6,
+       "l": 803.05,
+       "c": 815.0,
+       "v": 1696565.0
+      },
+      {
+       "d": "2026-08-31",
+       "o": 810.5,
+       "h": 820.5,
+       "l": 799.4,
+       "c": 813.05,
+       "v": 1604737.0
+      },
+      {
+       "d": "2026-09-01",
+       "o": 815.0,
+       "h": 821.5,
+       "l": 798.55,
+       "c": 809.5,
+       "v": 1041758.0
+      },
+      {
+       "d": "2026-09-02",
+       "o": 803.0,
+       "h": 803.0,
+       "l": 773.4,
+       "c": 782.65,
+       "v": 3609368.0
+      },
+      {
+       "d": "2026-09-03",
+       "o": 785.5,
+       "h": 804.9,
+       "l": 785.05,
+       "c": 800.0,
+       "v": 1508741.0
+      },
+      {
+       "d": "2026-09-04",
+       "o": 800.0,
+       "h": 805.5,
+       "l": 783.2,
+       "c": 789.0,
+       "v": 816762.0
+      },
+      {
+       "d": "2026-09-07",
+       "o": 786.95,
+       "h": 790.85,
+       "l": 778.0,
+       "c": 788.0,
+       "v": 1159441.0
+      },
+      {
+       "d": "2026-09-08",
+       "o": 785.95,
+       "h": 805.9,
+       "l": 778.2,
+       "c": 804.0,
+       "v": 1137878.0
+      },
+      {
+       "d": "2026-09-09",
+       "o": 803.05,
+       "h": 806.4,
+       "l": 792.55,
+       "c": 799.5,
+       "v": 549181.0
+      },
+      {
+       "d": "2026-09-10",
+       "o": 798.0,
+       "h": 813.15,
+       "l": 792.2,
+       "c": 803.5,
+       "v": 1517259.0
+      },
+      {
+       "d": "2026-09-11",
+       "o": 798.0,
+       "h": 799.95,
+       "l": 786.9,
+       "c": 788.0,
+       "v": 832096.0
+      },
+      {
+       "d": "2026-09-15",
+       "o": 788.0,
+       "h": 793.9,
+       "l": 777.45,
+       "c": 790.0,
+       "v": 1635076.0
+      },
+      {
+       "d": "2026-09-16",
+       "o": 780.6,
+       "h": 794.65,
+       "l": 767.0,
+       "c": 768.0,
+       "v": 2589871.0
+      },
+      {
+       "d": "2026-09-17",
+       "o": 762.0,
+       "h": 791.25,
+       "l": 759.05,
+       "c": 777.9,
+       "v": 3093640.0
+      },
+      {
+       "d": "2026-09-18",
+       "o": 780.2,
+       "h": 812.0,
+       "l": 780.2,
+       "c": 808.0,
+       "v": 4201864.0
+      },
+      {
+       "d": "2026-09-21",
+       "o": 810.0,
+       "h": 817.2,
+       "l": 793.2,
+       "c": 795.25,
+       "v": 2121116.0
+      },
+      {
+       "d": "2026-09-22",
+       "o": 800.0,
+       "h": 809.0,
+       "l": 794.05,
+       "c": 809.0,
+       "v": 1560055.0
+      },
+      {
+       "d": "2026-09-23",
+       "o": 808.55,
+       "h": 833.0,
+       "l": 804.75,
+       "c": 833.0,
+       "v": 3183807.0
+      },
+      {
+       "d": "2026-09-24",
+       "o": 828.55,
+       "h": 837.0,
+       "l": 814.7,
+       "c": 816.3,
+       "v": 2572412.0
+      },
+      {
+       "d": "2026-09-25",
+       "o": 818.0,
+       "h": 835.4,
+       "l": 815.4,
+       "c": 824.5,
+       "v": 3101062.0
+      },
+      {
+       "d": "2026-09-28",
+       "o": 824.5,
+       "h": 827.9,
+       "l": 805.1,
+       "c": 807.9,
+       "v": 3616948.0
+      },
+      {
+       "d": "2026-09-29",
+       "o": 808.0,
+       "h": 827.8,
+       "l": 797.7,
+       "c": 815.65,
+       "v": 4300310.0
+      },
+      {
+       "d": "2026-09-30",
+       "o": 821.95,
+       "h": 837.0,
+       "l": 816.4,
+       "c": 830.0,
+       "v": 2734579.0
+      },
+      {
+       "d": "2026-10-01",
+       "o": 828.0,
+       "h": 828.55,
+       "l": 783.65,
+       "c": 805.0,
+       "v": 3497748.0
+      },
+      {
+       "d": "2026-10-05",
+       "o": 803.75,
+       "h": 803.75,
+       "l": 785.6,
+       "c": 797.0,
+       "v": 2049996.0
+      },
+      {
+       "d": "2026-10-06",
+       "o": 799.7,
+       "h": 821.65,
+       "l": 793.25,
+       "c": 820.0,
+       "v": 1679743.0
+      },
+      {
+       "d": "2026-10-07",
+       "o": 819.45,
+       "h": 826.05,
+       "l": 809.1,
+       "c": 810.5,
+       "v": 1762964.0
+      },
+      {
+       "d": "2026-10-08",
+       "o": 811.0,
+       "h": 815.7,
+       "l": 788.6,
+       "c": 793.0,
+       "v": 1805058.0
+      },
+      {
+       "d": "2026-10-09",
+       "o": 792.8,
+       "h": 795.25,
+       "l": 774.5,
+       "c": 783.3,
+       "v": 2197655.0
+      },
+      {
+       "d": "2026-10-12",
+       "o": 784.0,
+       "h": 798.75,
+       "l": 782.4,
+       "c": 798.0,
+       "v": 2043561.0
+      },
+      {
+       "d": "2026-10-13",
+       "o": 793.95,
+       "h": 805.0,
+       "l": 787.0,
+       "c": 802.95,
+       "v": 1995247.0
+      },
+      {
+       "d": "2026-10-14",
+       "o": 801.0,
+       "h": 823.75,
+       "l": 795.1,
+       "c": 807.0,
+       "v": 3221290.0
+      },
+      {
+       "d": "2026-10-15",
+       "o": 808.2,
+       "h": 814.05,
+       "l": 795.2,
+       "c": 801.0,
+       "v": 1516878.0
+      },
+      {
+       "d": "2026-10-16",
+       "o": 801.0,
+       "h": 808.15,
+       "l": 794.15,
+       "c": 800.0,
+       "v": 1401098.0
+      },
+      {
+       "d": "2026-10-19",
+       "o": 796.3,
+       "h": 812.4,
+       "l": 791.6,
+       "c": 794.0,
+       "v": 1426449.0
+      },
+      {
+       "d": "2026-10-21",
+       "o": 797.85,
+       "h": 801.25,
+       "l": 755.5,
+       "c": 765.9,
+       "v": 2351420.0
+      },
+      {
+       "d": "2026-10-22",
+       "o": 758.0,
+       "h": 773.7,
+       "l": 741.3,
+       "c": 764.9,
+       "v": 1878126.0
+      },
+      {
+       "d": "2026-10-23",
+       "o": 765.05,
+       "h": 769.45,
+       "l": 748.05,
+       "c": 752.85,
+       "v": 1565799.0
+      },
+      {
+       "d": "2026-10-26",
+       "o": 748.0,
+       "h": 782.9,
+       "l": 747.4,
+       "c": 781.9,
+       "v": 3096069.0
+      },
+      {
+       "d": "2026-10-27",
+       "o": 808.3,
+       "h": 868.0,
+       "l": 808.0,
+       "c": 851.85,
+       "v": 19084943.0
+      },
+      {
+       "d": "2026-10-28",
+       "o": 854.05,
+       "h": 883.95,
+       "l": 850.25,
+       "c": 879.45,
+       "v": 6259436.0
+      },
+      {
+       "d": "2026-10-29",
+       "o": 879.45,
+       "h": 885.8,
+       "l": 865.15,
+       "c": 873.6,
+       "v": 2329412.0
+      }
+     ],
+     "overlays": {
+      "ema20": [
+       719.37,
+       728.44,
+       734.5,
+       742.45,
+       749.12,
+       753.97,
+       758.78,
+       762.7,
+       765.49,
+       769.26,
+       774.47,
+       779.14,
+       783.22,
+       786.49,
+       789.06,
+       790.94,
+       791.33,
+       793.96,
+       795.97,
+       797.59,
+       798.73,
+       797.2,
+       797.46,
+       796.66,
+       795.83,
+       796.61,
+       796.89,
+       797.52,
+       796.61,
+       795.98,
+       793.32,
+       791.85,
+       793.39,
+       793.56,
+       795.03,
+       798.65,
+       800.33,
+       802.63,
+       803.13,
+       804.33,
+       806.77,
+       806.6,
+       805.69,
+       807.05,
+       807.38,
+       806.01,
+       803.85,
+       803.29,
+       803.26,
+       803.61,
+       803.37,
+       803.04,
+       802.18,
+       798.73,
+       795.51,
+       791.44,
+       790.53,
+       796.37,
+       804.29,
+       810.89
+      ],
+      "ema50": [
+       667.8,
+       673.56,
+       678.2,
+       683.69,
+       688.74,
+       693.1,
+       697.47,
+       701.49,
+       705.04,
+       708.96,
+       713.47,
+       717.79,
+       721.87,
+       725.63,
+       729.07,
+       732.2,
+       734.66,
+       737.97,
+       740.99,
+       743.81,
+       746.39,
+       747.81,
+       749.86,
+       751.39,
+       752.83,
+       754.84,
+       756.59,
+       758.43,
+       759.59,
+       760.78,
+       761.06,
+       761.72,
+       763.54,
+       764.78,
+       766.52,
+       769.12,
+       770.97,
+       773.07,
+       774.44,
+       776.05,
+       778.17,
+       779.22,
+       779.92,
+       781.49,
+       782.63,
+       783.04,
+       783.05,
+       783.63,
+       784.39,
+       785.28,
+       785.89,
+       786.45,
+       786.74,
+       785.92,
+       785.1,
+       783.84,
+       783.76,
+       786.43,
+       790.08,
+       793.35
+      ]
+     },
+     "levels": [
+      {
+       "kind": "stop",
+       "price": 824.6,
+       "label": "Stop ₹824.60"
+      },
+      {
+       "kind": "target",
+       "price": 957.41,
+       "label": "Target ₹957.41"
+      }
+     ],
+     "band": null
+    },
+    {
+     "type": "notice",
+     "id": "no-advice",
+     "title": null,
+     "note": null,
+     "tone": "info",
+     "text": "Ideas to review, not advice: this shows your trade's own levels and today's price; it does not tell you to exit or hold."
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Your paper trades (desk_paper_trades, marked at the last available close)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE prices, split/bonus adjusted (prices_eod_adjusted)",
+      "as_of": "2026-10-29",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": false,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "Is my trade in SONACOMS still valid?",
+     "query": "Is my trade in SONACOMS still valid?"
+    },
+    {
+     "label": "What are my open trades doing?",
+     "query": "What are my open trades doing?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "How much should I risk?",
+     "query": "How much should I risk?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
+  },
+  "position_size": {
+   "schema": "visual-answer-v1",
+   "intent": "position_size",
+   "title": "How much to risk in PNB",
+   "as_of": "2026-10-30",
+   "generated_at": "2026-10-30T22:33:02+05:30",
+   "mode": "eod",
+   "headline": {
+    "text": "Your risk budget and today's usage.",
+    "tone": "neutral"
+   },
+   "decision": null,
+   "blocks": [
+    {
+     "type": "notice",
+     "id": "stale-0",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "Your risk profile (risk_profiles) is from an unknown date, older than the previous session (29 Oct 2026): shown with its date, not as today's."
+    },
+    {
+     "type": "kpis",
+     "id": "limits",
+     "title": "Your risk limits",
+     "note": "owner-default-2026-10-27 profile (owner default: no profile saved yet)",
+     "items": [
+      {
+       "label": "Per trade",
+       "value": "0.5% of equity",
+       "sub": "paper equity = paper cash + net unrealised P&L of the open positions at their latest end-of-day marks (net of estimated round-trip costs); unknown when any open position cannot be marked"
+      },
+      {
+       "label": "Max open risk",
+       "value": "3%",
+       "sub": "all open positions plus a new one"
+      },
+      {
+       "label": "One position",
+       "value": "10%",
+       "sub": "market exposure, one position"
+      },
+      {
+       "label": "One sector",
+       "value": "25%",
+       "sub": "market exposure, one sector"
+      },
+      {
+       "label": "Min reward:risk",
+       "value": "1.5×",
+       "sub": "planned, after costs"
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "usage",
+     "title": "Today's usage",
+     "note": null,
+     "items": [
+      {
+       "label": "Paper equity",
+       "value": "₹1,000,764.01",
+       "sub": null
+      },
+      {
+       "label": "Used of today's loss limit",
+       "value": "0.00%",
+       "sub": "limit 2%"
+      },
+      {
+       "label": "Open risk reserved",
+       "value": "₹6,914.96",
+       "sub": "all open positions"
+      }
+     ]
+    },
+    {
+     "type": "notice",
+     "id": "not-sizable",
+     "title": null,
+     "note": null,
+     "tone": "warn",
+     "text": "PNB does not size on your account: The smallest valid size (one lot per leg) exceeds the per-trade budget.."
+    }
+   ],
+   "evidence": [],
+   "data_quality": {
+    "sources": [
+     {
+      "name": "Your risk profile (risk_profiles)",
+      "as_of": null,
+      "status": "stale",
+      "note": null
+     },
+     {
+      "name": "Your paper account's risk book (equity, day/week P&L, open risk)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     }
+    ],
+    "stale": true,
+    "missing": []
+   },
+   "follow_ups": [
+    {
+     "label": "What are my open trades doing?",
+     "query": "What are my open trades doing?"
+    },
+    {
+     "label": "Which F&O setups are attractive?",
+     "query": "Which F&O setups are attractive?"
+    },
+    {
+     "label": "What is the market view today?",
+     "query": "What is the market view today?"
+    },
+    {
+     "label": "Is this stock a buy now?",
+     "query": "Is this stock a buy now?"
+    }
+   ],
+   "caveat": "Built from end-of-day data of 30 Oct 2026. Ideas to review, not recommendations; nothing is sent to a broker."
   }
  }
 }
