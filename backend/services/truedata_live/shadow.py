@@ -258,14 +258,14 @@ class TrueDataShadow:
                     self.id_to_symbol[row["symbol_id"]] = sym
                     if msg.get("message") == "symbols added" and sym not in self.subscribed:
                         self.subscribed.append(sym)
-                    self._tick(sym, pr.quote_from({**row, "symbol": sym}, now), now, m)
+                    self._tick(sym, pr.quote_from({**row, "symbol": sym}, now), now, m, kind)
             elif kind == "trade":
                 row = pr.parse_trade(msg)
                 sym = self.id_to_symbol.get(row["symbol_id"] or "")
                 if sym is None:
                     m.add("UNMAPPED_ID", row["symbol_id"])
                     return
-                self._tick(sym, pr.quote_from({**row, "symbol": sym}, now), now, m)
+                self._tick(sym, pr.quote_from({**row, "symbol": sym}, now), now, m, kind)
             elif kind == "bidask":
                 row = pr.parse_bidask(msg)
                 sym = self.id_to_symbol.get(row["symbol_id"] or "")
@@ -274,9 +274,13 @@ class TrueDataShadow:
                     return
                 q = self.quotes.get(sym)
                 if q is not None:
+                    before = (q.get("bid"), q.get("ask"))
                     q.update({k: row[k] for k in ("bid", "bid_qty", "ask", "ask_qty")}, received_at=now)
                     if (q["bid"] or 0) > 0 and (q["ask"] or 0) > 0 and q["bid"] > q["ask"] + ck.EPS:
-                        m.add("CROSSED_BOOK", {"symbol": sym, "bid": q["bid"], "ask": q["ask"]})
+                        # LT-4b: the raw fields, so a crossed book can be traced to what TrueData actually sent
+                        m.add("CROSSED_BOOK", {"symbol": sym, "kind": "bidask", "bid": q["bid"], "ask": q["ask"],
+                                               "ltp": q.get("ltp"), "bid_before": before[0], "ask_before": before[1],
+                                               "raw": [str(v) for v in msg["bidask"][:len(pr.BIDASK_FIELDS)]]})
                 st = self.checker.state.get(sym)
                 if st is not None:
                     st.updated_at = now
@@ -285,11 +289,11 @@ class TrueDataShadow:
         except pr.Malformed as exc:
             m.add("MALFORMED", f"{kind}: {exc}"[:120])
 
-    def _tick(self, sym: str, q: Dict[str, Any], now: datetime, m: _Minute) -> None:
+    def _tick(self, sym: str, q: Dict[str, Any], now: datetime, m: _Minute, kind: Optional[str] = None) -> None:
         m.ticks += 1
         codes = self.checker.check(sym, q, now)
         for c in codes:
-            m.add(c, {"symbol": sym, "ltp": q.get("ltp"), "bid": q.get("bid"), "ask": q.get("ask"),
+            m.add(c, {"symbol": sym, "kind": kind, "ltp": q.get("ltp"), "bid": q.get("bid"), "ask": q.get("ask"),
                       "ts": q["ts"].isoformat() if q.get("ts") else None})
         if not set(codes) & ck.UNUSABLE:
             self.quotes[sym] = q

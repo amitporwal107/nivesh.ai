@@ -281,6 +281,25 @@ def session_script(start):
         [hb] * 60                                                                                  # past the minute
 
 
+def test_lt4b_crossed_book_samples_name_the_message_and_keep_the_raw_bidask():
+    """LT-4b. MOCK — not real data: a trade with a crossed book, then a bidask whose bid/ask sit at ±3% of the price
+    (the shape seen on 30 Oct)."""
+    db, clock = FakeDB(), Clock(OPEN)
+    s, _ = make_shadow(db, [], clock)
+    s.checker.meta = meta_loader(None)["meta"]
+    s.handle(json.dumps({"success": True, "message": "symbols added", "symbollist": [
+        tl("AAAA", "100000001", "2026-10-30T10:00:01", 100.5, 100, 101, 99.5, 99.8, bid=100.45, ask=100.5)]}), OPEN)
+    s.handle(json.dumps(trade("100000001", "2026-10-30T10:00:02", 100.55, 1500, 100, 101, 99.5, 99.8, 1,
+                              bid=100.6, ask=100.5)), OPEN)
+    s.handle(json.dumps({"bidask": ["100000001", "2026-10-30T10:00:03", "103.55", "12", "97.5", "9"]}), OPEN)
+    samples = s._minute_for(OPEN).samples["CROSSED_BOOK"]
+    assert samples[0]["kind"] == "trade" and samples[0]["ltp"] == 100.55
+    b = samples[1]
+    assert b["kind"] == "bidask" and (b["bid"], b["ask"]) == (103.55, 97.5) and b["ltp"] == 100.55
+    assert (b["bid_before"], b["ask_before"]) == (100.6, 100.5)
+    assert b["raw"] == ["100000001", "2026-10-30T10:00:03", "103.55", "12", "97.5", "9"]
+
+
 def test_lr3_session_writes_minute_and_status_documents():
     db, clock, alerts = FakeDB(), Clock(OPEN), []
     # The fake clock moves 1 s per message: TrueData's last AAAA update (the bidask) lands at +6 s, NIFTY 50's at +3 s.
