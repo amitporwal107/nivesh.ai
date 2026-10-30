@@ -739,3 +739,27 @@ test.describe("Copilot app — the answer shown is the checked answer (copilot_c
     await expect(answer).toHaveText(DRAFT.join("").trim());
   });
 });
+
+test.describe("Copilot app — no personal facts without a portfolio (copilot_chat_p0_20261030)", () => {
+  test("TC-CP3 badged prompts are not shown as fact cards to a user with no portfolio", async ({ page }) => {
+    await setup(page, "empty");
+    await mockChat(page);
+    // MOCK — not real data: what the scorers used to rank for an empty portfolio (badges made from zero defaults).
+    await page.route("**/api/copilot/suggested-prompts*", (route) => route.fulfill({
+      status: 200, contentType: "application/json", body: JSON.stringify({
+        mode: "investor", journey: "first_time", persona: "retail_investor", prompts: [
+          { id: "risk_allocation", label: "Is my risk allocation right?", query: "Is my risk allocation right?", category: "risk_diversification", badge: "Equity 0% · Debt 0%" },
+          { id: "where_to_invest", label: "Where should I invest next?", query: "Where should I invest next?", category: "portfolio_health", badge: "Debt gap — only 0%" },
+        ],
+      }),
+    }));
+    await page.goto(APP);
+    await expect(page.getByTestId("home-connect-banner")).toBeVisible();
+    await expect(page.getByTestId("home-today-title")).toHaveText("Worth knowing today");
+    await expect(page.getByTestId("home-today-card").first()).toContainText("Fixture headline one for the test suite");
+    await expect(page.getByText("Equity 0% · Debt 0%")).toHaveCount(0);
+    await expect(page.getByText("Debt gap — only 0%")).toHaveCount(0);
+    // The questions themselves are still offered, as questions.
+    await expect(page.getByTestId("home-try").filter({ hasText: "Is my risk allocation right?" })).toHaveCount(1);
+  });
+});

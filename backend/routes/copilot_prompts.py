@@ -57,7 +57,17 @@ def _score_overlap(ctx: Dict[str, Any]) -> tuple:
     return (score, badge)
 
 
+def _has_allocation(ctx: Dict[str, Any]) -> bool:
+    """A portfolio with a known asset mix. Without one the shares are the context's
+    zero defaults, not facts: "Equity 0% · Debt 0%" was shown to users with no
+    holdings."""
+    shares = sum((ctx.get(k) or 0) for k in ("equity_pct", "debt_pct", "gold_pct", "other_pct"))
+    return (ctx.get("total_value") or 0) > 0 and shares > 0
+
+
 def _score_risk_alloc(ctx: Dict[str, Any]) -> tuple:
+    if not _has_allocation(ctx):
+        return (30, None)
     equity_pct = ctx.get("equity_pct", 0)
     debt_pct = ctx.get("debt_pct", 0)
     if equity_pct > 85 or debt_pct < 10:
@@ -79,6 +89,8 @@ def _score_exit(ctx: Dict[str, Any]) -> tuple:
 
 
 def _score_add(ctx: Dict[str, Any]) -> tuple:
+    if not _has_allocation(ctx):
+        return (45, None)
     debt_pct = ctx.get("debt_pct", 0)
     if debt_pct < 10:
         return (75, f"Debt gap — only {debt_pct:.0f}%")
@@ -99,7 +111,7 @@ def _score_concentration(ctx: Dict[str, Any]) -> tuple:
     top_amc = ctx.get("top_amc_name")
     if top_amc_pct >= 25 and top_amc:
         return (85, f"{top_amc} {top_amc_pct:.0f}%")
-    if top_amc_pct >= 15:
+    if top_amc_pct >= 15 and top_amc:
         return (55, f"{top_amc} {top_amc_pct:.0f}%")
     return (20, None)
 

@@ -307,7 +307,9 @@ export default function Home() {
     onOpen: () => ask(c.query),
   });
   // Cards carry a figure the backend computed for this user; the rest are questions.
-  const withFact = ranked.filter((p) => p.badge);
+  // A figure about the user's own money needs a portfolio: without one it is never
+  // shown as a fact (the client book's prompts are about the clients' portfolios).
+  const withFact = hasPf || bookView ? ranked.filter((p) => p.badge) : [];
   const promptCards = (withFact.length ? withFact : bookView ? ranked : []).map(promptCard);
   // Two rows at most: the portfolio's own signals first, then ranked prompts.
   const cards = [...portfolioCards, ...promptCards].slice(0, 6);
