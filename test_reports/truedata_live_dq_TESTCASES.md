@@ -45,7 +45,7 @@ configured.
 | LT-3 | LTP outside the circuit band | CIRCUIT_BREACH |
 | LT-4 | bid > ask (both > 0) | CROSSED_BOOK |
 | LT-5 | high < max(open, LTP) or low > min(open, LTP) | OHLC_INCONSISTENT |
-| LT-6 | day high falls / day low rises versus the previous tick | HIGH_DECREASED / LOW_INCREASED |
+| LT-6 | day high falls / day low rises versus the previous tick (counted once, then the new value is the baseline: added 30 Oct after INDIA VIX flagged every tick) | HIGH_DECREASED / LOW_INCREASED |
 | LT-7 | total volume falls | VOLUME_DECREASED |
 | LT-8 | OI negative; future OI 0 while the previous OI was positive or above 2,147,483,647 (known TrueData defect) | OI_NEGATIVE / OI_SUSPECT_ZERO |
 | LT-9 | exchange time more than 5 s ahead of now / earlier than the previous tick | TS_FUTURE / TS_BACKWARDS |
@@ -62,6 +62,8 @@ configured.
 | LK-3 | Quotes more than 2 s apart in time | `not_comparable`, not a disagreement |
 | LK-4 | previous close differs (TrueData vs Kite; both are NSE's official close) | PREV_CLOSE_MISMATCH |
 | LK-5 | Kite has no quote (feed down, symbol not in its universe) | `no_kite_quote`, never a TrueData error |
+| LK-6 | (added 30 Oct after the live test) Kite's cash/index quotes have no exchange time; its F&O exchange time is UTC labelled as IST | compare at the same exchange second when both have one (Kite's corrected, reported KITE_TS_MISLABELLED); otherwise receive times within 1 s |
+| LK-7 | (added 30 Oct) options move ~1%/s at the money | options: 2 ticks or 0.5%; everything else 1 tick or 0.05% |
 
 ## Live: runner and status endpoint
 | ID | Case | Expected |

@@ -29,7 +29,7 @@ SEVERITY = {
     "OHLC_INCONSISTENT": "ERROR", "HIGH_DECREASED": "ERROR", "LOW_INCREASED": "ERROR", "VOLUME_DECREASED": "ERROR",
     "OI_NEGATIVE": "ERROR", "OI_SUSPECT_ZERO": "WARN", "TS_FUTURE": "ERROR", "TS_BACKWARDS": "WARN",
     "SEQ_GAP": "INFO", "JUMP_UNCONFIRMED": "WARN", "STALE_SYMBOL": "WARN", "UNMAPPED_ID": "WARN", "MALFORMED": "ERROR",
-    "PREV_CLOSE_MISMATCH": "ERROR", "KITE_DISAGREE": "WARN", "OI_MISMATCH": "WARN",
+    "PREV_CLOSE_MISMATCH": "ERROR", "KITE_DISAGREE": "WARN", "OI_MISMATCH": "WARN", "KITE_TS_MISLABELLED": "INFO",
 }
 UNUSABLE = {"PRICE_NONPOSITIVE", "TS_FUTURE"}
 
@@ -157,8 +157,12 @@ class TickChecker:
         if limit and st.ltp and not (m.circuit_low and m.circuit_high) and abs(ltp / st.ltp - 1) > limit:
             codes.append("JUMP_UNCONFIRMED")
         st.ltp = ltp
-        st.high = max(st.high or 0, h or 0) or None
-        st.low = min(x for x in (st.low, low) if x) if (st.low or low) else None
+        # A day high that fell (or a low that rose) is counted ONCE: the new value becomes the baseline. Seen live on
+        # 30 Oct 2026: TrueData's INDIA VIX touchline said high 16.57 / open 16.245 while every trade said 15.695 /
+        # 15.1175 (Kite: high 15.70); a running maximum would have flagged every tick of the day.
+        st.high = h if (h and "HIGH_DECREASED" in codes) else (max(st.high or 0, h or 0) or None)
+        st.low = low if (low and "LOW_INCREASED" in codes) else (
+            min(x for x in (st.low, low) if x) if (st.low or low) else None)
         st.volume = vol if vol is not None else st.volume
         st.ts = max(ts, st.ts) if (ts and st.ts) else (ts or st.ts)
         st.seq = seq if seq is not None else st.seq

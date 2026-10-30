@@ -156,12 +156,12 @@ def test_lt12_stale_symbols_and_new_day_reset():
 
 # ── LK: comparison with Kite ────────────────────────────────────────────────────────────────────────────────────
 
-def kite_row(ltp, ts, prev=99.8, oi=None):
-    return {"ltp": ltp, "exchange_ts": ts.isoformat(), "ohlc": {"close": prev}, "oi": oi}
+def kite_row(ltp, received, prev=99.8, oi=None, exchange_ts=None):
+    return {"ltp": ltp, "received_at": received.isoformat(), "exchange_ts": exchange_ts, "ohlc": {"close": prev}, "oi": oi}
 
 
-def test_lk_compare():
-    td_q = {"symbol": "AAAA", "ltp": 100.5, "ts": OPEN, "prev_close": 99.8, "oi": None}
+def test_lk_compare_on_receive_times():
+    td_q = {"symbol": "AAAA", "ltp": 100.5, "ts": None, "received_at": OPEN, "prev_close": 99.8, "oi": None}
     assert cmp.compare(td_q, kite_row(100.5, OPEN + timedelta(seconds=1)), 0.05)[0] == "agree"                  # LK-1
     out, codes, detail = cmp.compare(td_q, kite_row(101.0, OPEN), 0.05)
     assert out == "disagree" and "KITE_DISAGREE" in codes and detail["kite_ltp"] == 101.0                        # LK-2
@@ -169,8 +169,38 @@ def test_lk_compare():
     out, codes, _ = cmp.compare(td_q, kite_row(100.5, OPEN, prev=99.7), 0.05)
     assert out == "agree" and codes == ["PREV_CLOSE_MISMATCH"]                                                  # LK-4
     assert cmp.compare(td_q, None)[0] == "no_kite_quote"                                                        # LK-5
-    fut = {"symbol": "IDEA26NOVFUT", "ltp": 11.93, "ts": OPEN, "prev_close": 12.15, "oi": 0}
+    fut = {"symbol": "IDEA26NOVFUT", "ltp": 11.93, "ts": OPEN, "received_at": OPEN, "prev_close": 12.15, "oi": 0}
     assert "OI_MISMATCH" in cmp.compare(fut, kite_row(11.93, OPEN, prev=12.15, oi=6_173_152_800), 0.01)[1]
+
+
+def test_lk6_kite_exchange_time_missing_or_mislabelled():
+    """Seen live 30 Oct: Kite cash/index rows have exchange_ts None; its F&O exchange_ts was UTC labelled as IST."""
+    td_q = {"symbol": "NIFTY26NOVFUT", "ltp": 23056.1, "ts": OPEN, "received_at": OPEN + timedelta(seconds=0.6),
+            "prev_close": 22990.0}
+    wrong = (OPEN - timedelta(hours=5, minutes=30)).isoformat()                 # 05:30 behind, labelled +05:30
+    out, _, detail = cmp.compare(td_q, kite_row(23056.1, OPEN, prev=22990.0, exchange_ts=wrong), 0.1, "FUT")
+    assert out == "agree" and detail["kite_ts_mislabelled"] is True and detail["basis"] == "exchange_second"
+    later = (OPEN + timedelta(seconds=1)).isoformat()
+    out, _, detail = cmp.compare(td_q, kite_row(23060.0, OPEN, exchange_ts=later), 0.1, "FUT")
+    assert out == "not_comparable" and detail["basis"] == "exchange_second"     # different exchange seconds
+    out, _, detail = cmp.compare(td_q, kite_row(23056.1, OPEN, prev=22990.0), 0.1, "FUT")
+    assert out == "agree" and detail["basis"] == "receive_time"
+
+
+def test_lk7_options_get_a_wider_band_than_stocks():
+    td_q = {"symbol": "X", "ltp": 100.4, "ts": None, "received_at": OPEN, "prev_close": None}
+    assert cmp.compare(td_q, kite_row(100.0, OPEN), 0.05, "OPT")[0] == "agree"                 # 0.4% < 0.5%
+    assert cmp.compare(td_q, kite_row(100.0, OPEN), 0.05, "EQ")[0] == "disagree"               # 0.4% > 0.05%
+
+
+def test_lt6_high_decrease_is_counted_once_then_rebaselined():
+    """INDIA VIX on 30 Oct: touchline high 16.57, every trade high 15.695."""
+    c = ck.TickChecker(meta={"INDIA VIX": ck.SymbolMeta("INDEX")})
+    assert c.check("INDIA VIX", q(15.49, o=16.245, h=16.57, l=14.47), OPEN) == []
+    t1 = OPEN + timedelta(seconds=1)
+    assert "HIGH_DECREASED" in c.check("INDIA VIX", q(15.4875, ts=t1, o=15.1175, h=15.695, l=14.47), t1)
+    t2 = OPEN + timedelta(seconds=2)
+    assert "HIGH_DECREASED" not in c.check("INDIA VIX", q(15.48, ts=t2, o=15.1175, h=15.695, l=14.47), t2)
 
 
 # ── LR: runner ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -253,8 +283,11 @@ def session_script(start):
 
 def test_lr3_session_writes_minute_and_status_documents():
     db, clock, alerts = FakeDB(), Clock(OPEN), []
-    kite = {"AAAA": {"ltp": 100.5, "exchange_ts": (OPEN + timedelta(seconds=5)).isoformat(), "ohlc": {"close": 99.8}},
-            "NIFTY 50": {"ltp": 22000, "exchange_ts": (OPEN + timedelta(seconds=1)).isoformat(), "ohlc": {"close": 21900}}}
+    # The fake clock moves 1 s per message: TrueData's last AAAA update (the bidask) lands at +6 s, NIFTY 50's at +3 s.
+    kite = {"AAAA": {"ltp": 100.5, "received_at": (OPEN + timedelta(seconds=6)).isoformat(), "exchange_ts": None,
+                     "ohlc": {"close": 99.8}},
+            "NIFTY 50": {"ltp": 22000, "received_at": (OPEN + timedelta(seconds=3)).isoformat(), "exchange_ts": None,
+                         "ohlc": {"close": 21900}}}
     s, holder = make_shadow(db, session_script(OPEN), clock, kite=kite, sent_alerts=alerts)
     with pytest.raises(Closed):
         asyncio.run(s.connect_once())

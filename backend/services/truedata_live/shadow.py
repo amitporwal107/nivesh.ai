@@ -308,11 +308,13 @@ class TrueDataShadow:
             except Exception as exc:                              # noqa: BLE001 — Kite's cache down is not TrueData's fault
                 logger.info("truedata shadow: kite cache unavailable (%s)", type(exc).__name__)
         for s in symbols:
-            outcome, codes, detail = cmp.compare(self.quotes[s], (rows or {}).get(s),
-                                                 (self.checker.meta.get(s) or ck.SymbolMeta()).tick_size)
+            meta = self.checker.meta.get(s) or ck.SymbolMeta()
+            outcome, codes, detail = cmp.compare(self.quotes[s], (rows or {}).get(s), meta.tick_size, meta.kind)
             kite[outcome] += 1
             for c in codes:
                 m.add(c, detail)
+            if detail.get("kite_ts_mislabelled"):
+                m.add("KITE_TS_MISLABELLED", s)            # a bug in OUR Kite feed, reported, not TrueData's
             if outcome == "disagree" and len(kite_samples) < 5:
                 kite_samples.append(detail)
         stale = self.checker.stale_symbols(now, self.subscribed) if session == "open" else []
