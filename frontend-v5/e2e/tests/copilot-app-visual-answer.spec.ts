@@ -43,7 +43,7 @@ const SHOTS = process.env.VA_SHOTS ? path.join(__dirname, "..", ".shots", proces
 const MINUS = "−";
 const nf = (n: number, min: number, max: number) => new Intl.NumberFormat("en-IN", { minimumFractionDigits: min, maximumFractionDigits: max }).format(n);
 const sign = (n: number) => (n > 0 ? "+" : n < 0 ? MINUS : "");
-const fPrice = (n: number | null) => (n == null ? "—" : `₹${nf(n, 2, 2)}`);
+const fPrice = (n: number | null) => (n == null ? "—" : n < 0 ? `${MINUS}₹${nf(-n, 2, 2)}` : `₹${nf(n, 2, 2)}`);   // a loss: "−₹14,406.00", never "₹-14,406.00" (owner, 31 Oct)
 const fPct = (n: number | null) => (n == null ? "—" : `${sign(n)}${nf(Math.abs(n), 2, 2)}%`);
 const fX = (n: number | null) => (n == null ? "—" : `${n < 0 ? MINUS : ""}${nf(Math.abs(n), 1, 2)}×`);
 const fInt = (n: number | null) => (n == null ? "—" : `${n < 0 ? MINUS : ""}${nf(Math.abs(Math.round(n)), 0, 0)}`);

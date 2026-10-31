@@ -25,6 +25,8 @@ from services.copilot_visual import builders, readers as rd
 from services.copilot_visual.intents import Intent, last_symbol_from, resolve_intent, stock_in, wants_thread_symbol
 from services.copilot_visual.payload import facts, validate
 
+# What fno_board.margin_calculators reports when nothing can calculate margin.
+NO_LOGIN = {"platform_login": False, "zerodha_connected": 0, "zerodha_live": 0, "others": []}
 TODAY, FLOOR = date(2026, 10, 30), date(2026, 10, 29)
 WINDOW = market_freshness.Window(today=TODAY, floor=FLOOR, calendar_checked=True)
 
@@ -382,6 +384,22 @@ class Src:
         mp.setattr(rd, "index_rows", idx)
         mp.setattr(rd, "window", window)
 
+        # The F&O board's live and margin readers (owner, 31 Oct 2026). Default: market closed, no Kite login, no broker.
+        self.in_session = False
+        self.v.update({"fno_live_quotes": {"available": False, "reason": "MOCK: no Kite login today", "quotes": {}, "unresolved": []},
+                       "live_spots": {}, "margin_calculators": ([], dict(NO_LOGIN)), "margin_estimates": None})
+        mp.setattr(rd, "in_session", lambda now=None: self.in_session)
+        for name in ("fno_live_quotes", "live_spots", "margin_calculators"):
+            mp.setattr(rd, name, make(name))
+
+        async def fno_margins(calcs, items):
+            self.calls.append(("fno_margins", tuple(k for k, _, _ in items)))
+            est = self.v["margin_estimates"]
+            if est is None or not calcs:
+                return {}
+            return {k: est(k, u, legs) for k, u, legs in items}
+        mp.setattr(rd, "fno_margins", fno_margins)
+
 
 @pytest.fixture
 def src(monkeypatch):
@@ -665,26 +683,7 @@ def test_b15b_the_book_could_not_be_read(src):
     assert "MOCK open_trades down" in p["data_quality"]["missing"][0]
 
 
-# ── B-16 / B-17: fno_setups ──────────────────────────────────────────────────
-def test_b16_fno_setups(src):
-    p = build("fno_setups")
-    r = blocks(p, "ranked")[0]
-    assert [row["symbol"] for row in r["rows"]] == ["NIFTY", "RELIANCE"]
-    assert r["rows"][0]["cells"] == {"symbol": "NIFTY", "structure": "Bull call spread", "view": "Bullish",
-                                     "maxloss": -5000.0, "maxprofit": 9000.0, "rr": 1.8, "fit": 0.7}
-    assert r["rows"][1]["cells"]["view"] == "Bearish"
-    assert blocks(p, "trade_plan")[0]["plan_id"] == "tp_nifty"
-    assert p["headline"]["text"] == "2 F&O setups fit today's regime (Bullish)."
-
-
-def test_b17_unbounded_sides_and_an_empty_board(src):
-    src.v["fno_top"] = {"regime": REGIME, "classes": {"index_options": {"ideas": [
-        fno_idea("NIFTY", loss_unbounded=True, profit_unbounded=False, plan_id="tp_nifty")]}, "stock_fno": {"ideas": []}}}
-    p = build("fno_setups")
-    assert blocks(p, "ranked")[0]["rows"][0]["cells"]["maxloss"] is None
-    src.v["fno_top"] = {"regime": REGIME, "classes": {"index_options": {"ideas": []}, "stock_fno": {"ideas": []}}}
-    p = build("fno_setups")
-    assert not blocks(p, "ranked") and "a valid payoff" in blocks(p, "notice")[0]["text"]
+# ── B-16 / B-17: fno_setups — see the F&O board section (FB-1 … FB-15) at the end of this file ──
 
 
 # ── B-18 / B-19: position_size ───────────────────────────────────────────────
@@ -1030,3 +1029,359 @@ def test_c2_the_staging_capture_matches_the_contract():
     assert set(doc["payloads"]) == set(builders.BUILDERS)
     for intent, p in doc["payloads"].items():
         assert p["intent"] == intent and validate(p) == [], (intent, validate(p))
+
+
+# ═════ F&O board (owner, 31 Oct 2026): two sections, lots, margin, profit that is a target, live premiums ═════
+# FB-1 … FB-15 of test_reports/copilot_fno_board_20261031.md. MOCK — not real data: every symbol, strike and figure is invented.
+from services.copilot_visual import fno_board as fb                                   # noqa: E402
+from services.strategy_plan.regime_fit import metrics_for                              # noqa: E402
+
+
+def bleg(side, strike, otype, px, lot=30, expiry="2026-11-25"):
+    return {"kind": "option", "side": side, "quantity": 1, "lot_size": lot, "entry_price": px, "expiry": expiry,
+            "strike": strike, "option_type": otype}
+
+
+def bidea(sym, structure="bear_put_spread", name=None, view="down", legs=None, lot=30, max_loss=-14406.0, max_profit=33594.0,
+          profit_unbounded=False, net_at_move=4000.0, rr=2.31, fit=92.5, alts=(), chain_day="2026-10-29"):
+    legs = legs if legs is not None else [bleg("buy", 54700, "put", 700.0, lot), bleg("sell", 53100, "put", 220.0, lot)]
+    return {"underlying": sym, "structure": structure, "name": name or f"{structure} {sym}", "view": view, "legs": legs,
+            "max_loss": max_loss, "max_profit": max_profit, "loss_unbounded": False, "profit_unbounded": profit_unbounded,
+            "net_at_expected_move": net_at_move, "reward_risk": rr, "fit": {"score": fit}, "trade_plan": tplan(f"tp_{sym.lower()}_{structure}"),
+            "data_as_of": {"chain": chain_day, "regime": "2026-10-29"}, "alternatives": list(alts)}
+
+
+def board(index=(), stock=(), stock_unavailable=None):
+    ctx = [{"underlying": "BANKNIFTY", "spot": 54686.95, "expected_move": 900.0},
+           {"underlying": "NIFTY", "spot": 23053.1, "expected_move": 380.0},
+           {"underlying": "RELIANCE", "spot": 1400.0, "expected_move": 45.0}, {"underlying": "TCS", "spot": 3000.0, "expected_move": 90.0}]
+    return {"regime": {**REGIME, "label": "Bearish"},
+            "classes": {"index_options": {"ideas": list(index), "underlyings": ctx[:2], "unavailable": []},
+                        "stock_fno": {"ideas": list(stock), "underlyings": ctx[2:], "universe": {"skipped": []},
+                                      "unavailable": stock_unavailable or []}}}
+
+
+def owner_board():
+    """The owner's screenshot: both index leads each carry two alternatives (so a flattened first-5 is all index)."""
+    bn_alts = [bidea("BANKNIFTY", "long_put", "Long put 54700", legs=[bleg("buy", 54700, "put", 760.45)], max_loss=-22813.5,
+                     max_profit=1618186.5, net_at_move=26235.0, rr=1.15),
+               bidea("BANKNIFTY", "long_put", "Long put 54600", legs=[bleg("buy", 54600, "put", 719.8)], max_loss=-21594.0,
+                     max_profit=1616406.0, net_at_move=24400.0, rr=1.13)]
+    n_alts = [bidea("NIFTY", "long_put", "Long put 23050", lot=65, legs=[bleg("buy", 23050, "put", 127.30, 65)], max_loss=-8274.5,
+                    max_profit=1489975.5, net_at_move=13000.0, rr=0.78)]
+    return board(
+        index=[bidea("BANKNIFTY", name="Bear put spread 53100/54700", alts=bn_alts),
+               bidea("NIFTY", name="Bear put spread 22800/23050", lot=65, max_loss=-5450.25, max_profit=10799.75, rr=1.7,
+                     legs=[bleg("buy", 23050, "put", 127.3, 65), bleg("sell", 22800, "put", 43.5, 65)], alts=n_alts)],
+        stock=[bidea("RELIANCE", name="Bear put spread 1380/1400", lot=500, max_loss=-6000.0, max_profit=14000.0, rr=1.9, fit=80.0,
+                     legs=[bleg("buy", 1400, "put", 30.0, 500), bleg("sell", 1380, "put", 18.0, 500)]),
+               bidea("TCS", name="Bull call spread 3000/3060", view="up", structure="bull_call_spread", lot=175, max_loss=-9000.0,
+                     max_profit=21000.0, rr=1.5, fit=78.0,
+                     legs=[bleg("buy", 3000, "call", 80.0, 175), bleg("sell", 3060, "call", 40.0, 175)])])
+
+
+def row_of(p, block_id, sym):
+    return next(r for r in next(b for b in blocks(p, "ranked") if b["id"] == block_id)["rows"] if r["symbol"] == sym)
+
+
+def test_fb1_two_sections_one_row_per_underlying_alternatives_folded(src):
+    """The reported bug: a flattened first-5 of [index leads + their alternatives] held no stock at all."""
+    src.v["fno_top"] = owner_board()
+    p = build("fno_setups")
+    ids = [b["id"] for b in blocks(p, "ranked")]
+    assert ids == ["fno_index", "fno_stock"]
+    index, stock = blocks(p, "ranked")
+    assert index["title"].startswith("Index options") and stock["title"].startswith("Stock F&O")
+    assert [r["symbol"] for r in index["rows"]] == ["BANKNIFTY", "NIFTY"]
+    assert [r["symbol"] for r in stock["rows"]] == ["RELIANCE", "TCS"]
+    assert [len(r["alternatives"]) for r in index["rows"]] == [2, 1] and "alternatives" not in stock["rows"][0] or not stock["rows"][0].get("alternatives")
+    assert all(a["symbol"] == r["symbol"] and "alternatives" not in a for r in index["rows"] for a in r["alternatives"])
+    assert "2 index" in p["headline"]["text"] and "2 stock" in p["headline"]["text"]
+    assert blocks(p, "trade_plan")[0]["plan_id"] == "tp_banknifty_bear_put_spread"
+
+
+def test_fb2_no_stock_setup_says_why(src):
+    src.v["fno_top"] = board(index=owner_board()["classes"]["index_options"]["ideas"],
+                             stock_unavailable=[{"underlying": None, "reason": "the scanner returned no setups"}])
+    p = build("fno_setups")
+    assert [b["id"] for b in blocks(p, "ranked")] == ["fno_index"]
+    n = next(b for b in blocks(p, "notice") if b["id"] == "fno_stock-empty")
+    assert "Stock F&O" in n["text"] and "the scanner returned no setups" in n["text"]
+
+
+def test_fb3_a_bought_put_is_not_capped_in_practice(src):
+    src.v["fno_top"] = owner_board()
+    p = build("fno_setups")
+    alt = row_of(p, "fno_index", "BANKNIFTY")["alternatives"][0]                       # Long put 54700
+    assert alt["cells"]["maxprofit"] == "Not capped"
+    assert alt["cells"]["atmove"] == 26235.0 and alt["cells"]["maxloss"] == -22813.5
+    assert "1,618,186.50" in alt["tips"]["maxprofit"] and "zero" in alt["tips"]["maxprofit"]
+    assert 1618186.5 not in alt["cells"].values()                                      # the to-zero figure is a tooltip only
+    spread = row_of(p, "fno_index", "BANKNIFTY")
+    assert spread["cells"]["maxprofit"] == 33594.0 and "tips" not in spread           # a spread's maximum is a real maximum
+
+
+def test_fb4_a_bought_call_is_not_capped(src):
+    call = bidea("NIFTY", "long_call", "Long call 23100", view="up", lot=65, legs=[bleg("buy", 23100, "call", 90.0, 65)],
+                 max_loss=-5850.0, max_profit=None, profit_unbounded=True, net_at_move=9000.0, rr=1.5)
+    src.v["fno_top"] = board(index=[call])
+    r = row_of(build("fno_setups"), "fno_index", "NIFTY")
+    assert r["cells"]["maxprofit"] == "Not capped" and r["cells"]["atmove"] == 9000.0 and r["cells"]["maxloss"] == -5850.0
+
+
+def test_fb5_lots(src):
+    src.v["fno_top"] = owner_board()
+    p = build("fno_setups")
+    assert row_of(p, "fno_index", "BANKNIFTY")["cells"]["lots"] == "1 lot × 30"
+    assert row_of(p, "fno_index", "NIFTY")["cells"]["lots"] == "1 lot × 65"
+    assert row_of(p, "fno_stock", "TCS")["cells"]["lots"] == "1 lot × 175"
+    assert fb.lots_text([bleg("buy", 1, "call", 1.0, 30), bleg("sell", 2, "call", 1.0, 50)]) is None      # never a guess
+    assert fb.lots_text([]) is None
+
+
+def margin_stub(k, u, legs):
+    return {"estimate": 60000.0 if len(legs) == 2 else 25000.0, "reason": None, "source": fb.LABEL_PLATFORM}
+
+
+def test_fb6_margin_from_a_calculator(src):
+    src.v["fno_top"] = owner_board()
+    src.v["margin_calculators"] = ([(fb.LABEL_PLATFORM, object())], {**NO_LOGIN, "platform_login": True})
+    src.v["margin_estimates"] = margin_stub
+    p = build("fno_setups")
+    assert row_of(p, "fno_index", "BANKNIFTY")["cells"]["margin"] == 60000.0
+    assert row_of(p, "fno_index", "BANKNIFTY")["alternatives"][0]["cells"]["margin"] == 25000.0       # a single bought put
+    assert not [b for b in blocks(p, "notice") if b.get("actions")]
+    assert any(s["name"] == fb.LABEL_PLATFORM and s["status"] == "fresh" for s in p["data_quality"]["sources"])
+
+
+def test_fb7_no_calculator_asks_for_a_login(src):
+    src.v["fno_top"] = owner_board()
+    src.v["margin_calculators"] = ([], {**NO_LOGIN, "others": ["icici_direct"]})
+    p = build("fno_setups")
+    assert row_of(p, "fno_index", "BANKNIFTY")["cells"]["margin"] == "Needs login"
+    n = next(b for b in blocks(p, "notice") if b.get("actions"))
+    assert {a["kind"] for a in n["actions"]} == {"kite_login", "connect_broker"}
+    assert n["text"].startswith("Margin needs a Kite login:") and "connect your own Zerodha account" in n["text"]
+    assert "Icici Direct has no margin calculator wired" in n["text"]
+
+
+def test_fb8_the_users_zerodha_session_has_ended(src):
+    src.v["fno_top"] = owner_board()
+    src.v["margin_calculators"] = ([], {**NO_LOGIN, "zerodha_connected": 1})
+    n = next(b for b in blocks(build("fno_setups"), "notice") if b.get("actions"))
+    assert "sign in to your Zerodha account again" in n["text"] and "connect your own" not in n["text"]
+
+
+def test_fb9_the_users_own_zerodha_is_the_fallback(src):
+    src.v["fno_top"] = owner_board()
+    src.v["margin_calculators"] = ([(fb.LABEL_OWN, object())], {**NO_LOGIN, "zerodha_connected": 1, "zerodha_live": 1})
+    src.v["margin_estimates"] = lambda k, u, legs: {"estimate": 41000.0, "reason": None, "source": fb.LABEL_OWN}
+    p = build("fno_setups")
+    assert row_of(p, "fno_stock", "TCS")["cells"]["margin"] == 41000.0
+    assert any(s["name"] == fb.LABEL_OWN for s in p["data_quality"]["sources"])
+
+
+def test_fb10_one_structure_whose_margin_fails_shows_no_figure(src):
+    src.v["fno_top"] = owner_board()
+    src.v["margin_calculators"] = ([(fb.LABEL_PLATFORM, object())], {**NO_LOGIN, "platform_login": True})
+    src.v["margin_estimates"] = lambda k, u, legs: ({"estimate": None, "reason": "the calculator failed (ReadTimeout)", "source": fb.LABEL_PLATFORM}
+                                                    if u == "TCS" else margin_stub(k, u, legs))
+    p = build("fno_setups")
+    assert row_of(p, "fno_stock", "TCS")["cells"]["margin"] is None
+    assert row_of(p, "fno_stock", "RELIANCE")["cells"]["margin"] == 60000.0
+    assert any("TCS" in m and "ReadTimeout" in m for m in p["data_quality"]["missing"])
+
+
+def live_answer(prices, available=True):
+    """prices: {flat index: last_price} → the reader's answer (string keys, as the route sends them)."""
+    return {"available": available, "reason": None, "quotes": {str(i): {"key": f"NFO:X{i}", "last_price": px} for i, px in prices.items()},
+            "unresolved": [], "as_of": "2026-10-30T05:30:00+00:00", "source": fb.SRC_LIVE}
+
+
+def test_fb11_live_in_session_reprices_by_the_board_engine(src):
+    """Premiums live, ranking untouched, mode mixed; an idea with one leg unpriced keeps its end-of-day figures."""
+    src.in_session = True
+    top = owner_board()
+    src.v["fno_top"] = top
+    ideas = [top["classes"]["index_options"]["ideas"][0]] + top["classes"]["index_options"]["ideas"][0]["alternatives"] \
+        + [top["classes"]["index_options"]["ideas"][1]] + top["classes"]["index_options"]["ideas"][1]["alternatives"] \
+        + top["classes"]["stock_fno"]["ideas"]
+    flat, at = fb.leg_requests(ideas)
+    prices = {at[(0, 0)]: 650.0, at[(0, 1)]: 190.0}                              # BANKNIFTY spread: both legs live; nothing else
+    src.v["fno_live_quotes"] = live_answer(prices)
+    src.v["live_spots"] = {"BANKNIFTY": 54500.0}
+    p = build("fno_setups")
+    r = row_of(p, "fno_index", "BANKNIFTY")
+    legs = [{**l, "entry_price": px} for l, px in zip(ideas[0]["legs"], (650.0, 190.0))]
+    oracle = metrics_for("BANKNIFTY", legs, 54500.0, "2026-10-30", scenario_price=54500.0 - 900.0)
+    assert r["badge"] == "Live" and oracle["ok"]
+    assert r["cells"]["maxloss"] == round(oracle["max_loss"], 2) and r["cells"]["maxprofit"] == round(oracle["max_profit"], 2)
+    assert r["cells"]["atmove"] == round(oracle["net_at_expected_move"], 2) and r["cells"]["rr"] == oracle["reward_risk_at_expected_move"]
+    assert r["cells"]["maxloss"] != -14406.0                                       # not the end-of-day figure
+    assert row_of(p, "fno_index", "NIFTY")["badge"] == "29 Oct close"              # no live leg: stays end of day, said so
+    assert row_of(p, "fno_index", "NIFTY")["cells"]["maxloss"] == -5450.25
+    assert [x["symbol"] for x in blocks(p, "ranked")[0]["rows"]] == ["BANKNIFTY", "NIFTY"]            # the ranking is not recomputed
+    assert p["mode"] == "mixed" and "live" in p["caveat"].lower() and "29 Oct" in p["caveat"]
+    assert any(s["name"] == fb.SRC_LIVE for s in p["data_quality"]["sources"])
+    assert ("fno_live_quotes", (flat,)) in src.calls
+
+
+def test_fb12_no_live_premium_without_a_live_spot(src):
+    """A live premium over a stale spot would put the expected-move scenario at a price that belongs to no moment."""
+    src.in_session = True
+    top = owner_board()
+    src.v["fno_top"] = top
+    idea0 = top["classes"]["index_options"]["ideas"][0]
+    _, at = fb.leg_requests([idea0])
+    src.v["fno_live_quotes"] = live_answer({at[(0, 0)]: 650.0, at[(0, 1)]: 190.0})
+    src.v["live_spots"] = {}
+    r = row_of(build("fno_setups"), "fno_index", "BANKNIFTY")
+    assert r["badge"] == "29 Oct close" and r["cells"]["maxloss"] == -14406.0
+
+
+def test_fb13_market_closed_makes_no_live_read(src):
+    src.v["fno_top"] = owner_board()
+    p = build("fno_setups")
+    assert not [c for c in src.calls if c[0] in ("fno_live_quotes", "live_spots")]
+    assert p["mode"] == "eod" and row_of(p, "fno_index", "BANKNIFTY")["badge"] == "29 Oct close"
+
+
+def test_fb14_live_unavailable_says_why_and_asks_for_the_login(src):
+    src.in_session = True
+    src.v["fno_top"] = owner_board()                                                # default fno_live_quotes: no Kite login today
+    p = build("fno_setups")
+    assert p["mode"] == "eod" and row_of(p, "fno_index", "BANKNIFTY")["cells"]["maxloss"] == -14406.0
+    assert any("no Kite login today" in m for m in p["data_quality"]["missing"])
+    n = next(b for b in blocks(p, "notice") if b.get("actions"))
+    assert "Margin and live premiums need a Kite login" in n["text"]
+
+
+def test_fb15_the_contract_check_covers_the_new_fields(src):
+    src.v["fno_top"] = owner_board()
+    p = build("fno_setups")
+    good = validate(p)
+    assert good == []
+    bad = json.loads(json.dumps(p))
+    next(b for b in bad["blocks"] if b["type"] == "ranked")["rows"][0]["alternatives"] = [{"cells": "not a dict"}]
+    assert any("alternatives" in x for x in validate(bad))
+    bad2 = json.loads(json.dumps(p))
+    bad2["blocks"].append({"type": "notice", "id": "n", "title": None, "note": None, "tone": "warn", "text": "x",
+                           "actions": [{"kind": "wire_money", "label": "x"}]})
+    assert any("action" in x for x in validate(bad2))
+
+
+# ── fno_board against fake Kite objects (no mocks of the logic under test) ───────────────────────────────────
+class FakeCalc:
+    """The Calculator surface (fno_margin.Calculator): the NFO list and the basket calculation."""
+    def __init__(self, refuse=False):
+        self.refuse, self.calls = refuse, []
+
+    def instruments(self):
+        return [{"name": "BANKNIFTY", "expiry": date(2026, 11, 25), "strike": k, "instrument_type": "PE", "lot_size": 30,
+                 "tradingsymbol": f"BANKNIFTY26NOV{int(k)}PE"} for k in (53100.0, 54700.0)]
+
+    def basket_margins(self, params):
+        self.calls.append(params)
+        if self.refuse:
+            class TokenException(Exception):
+                pass
+            raise TokenException("Incorrect `api_key` or `access_token`.")
+        return {"final": {"total": 77000.0}, "initial": {"total": 90000.0}, "orders": []}
+
+
+def _reset_margin_state():
+    from services import fno_margin
+    fno_margin._INSTRUMENTS.update(day=None, rows=None)
+    fb._CACHE.clear()
+
+
+def test_fb16_margin_is_one_basket_call_in_lots_times_lot_size_and_is_cached():
+    _reset_margin_state()
+    calc = FakeCalc()
+    legs = [bleg("buy", 54700, "put", 700.0), bleg("sell", 53100, "put", 220.0)]
+    out = asyncio.run(fb.margins([(fb.LABEL_PLATFORM, calc)], [("a", "BANKNIFTY", legs)]))
+    assert out["a"] == {"estimate": 77000.0, "reason": None, "source": fb.LABEL_PLATFORM}
+    assert len(calc.calls) == 1 and [x["quantity"] for x in calc.calls[0]] == [30, 30]               # no per-leg hedge calls
+    assert [x["transaction_type"] for x in calc.calls[0]] == ["BUY", "SELL"]
+    asyncio.run(fb.margins([(fb.LABEL_PLATFORM, calc)], [("b", "BANKNIFTY", legs)]))
+    assert len(calc.calls) == 1                                                                     # cached for two minutes
+
+
+def test_fb17_a_refused_session_falls_to_the_next_calculator_and_an_unlisted_contract_is_reported():
+    _reset_margin_state()
+    dead, live = FakeCalc(refuse=True), FakeCalc()
+    legs = [bleg("buy", 54700, "put", 700.0)]
+    out = asyncio.run(fb.margins([(fb.LABEL_PLATFORM, dead), (fb.LABEL_OWN, live)], [("a", "BANKNIFTY", legs)]))
+    assert out["a"]["estimate"] == 77000.0 and out["a"]["source"] == fb.LABEL_OWN and len(dead.calls) == 1
+    gone = asyncio.run(fb.margins([(fb.LABEL_OWN, live)], [("z", "BANKNIFTY", [bleg("buy", 99999, "put", 1.0)])]))
+    assert gone["z"]["estimate"] is None and "not listed" in gone["z"]["reason"]
+    fb._CACHE.clear()                                                              # a cached figure is good for two minutes
+    none = asyncio.run(fb.margins([], [("n", "BANKNIFTY", legs)]))
+    assert none["n"]["estimate"] is None and none["n"]["source"] is None
+
+
+def test_fb18_read_live_legs_prices_only_contracts_that_traded_today(monkeypatch):
+    from services.kite_live_feed import config as cfg, gateway as gw, platform_token as pt
+    from services.kite_live_feed import feed as feed_mod
+
+    class K:
+        def instruments(self, ex):
+            return [{"name": "BANKNIFTY", "expiry": date(2026, 11, 25), "strike": k, "instrument_type": "PE", "tradingsymbol": f"BN{int(k)}PE"}
+                    for k in (53100.0, 54700.0)]
+
+        def quote(self, keys):
+            return {"NFO:BN54700PE": {"last_price": 650.0, "last_trade_time": "2026-10-30T10:15:00+05:30", "ohlc": {"close": 700.0}},
+                    "NFO:BN53100PE": {"last_price": 200.0, "last_trade_time": "2026-10-29T15:20:00+05:30"}}      # yesterday's price
+
+    async def refresh(db):
+        return None
+
+    async def status(db):
+        return {"stored": True, "expired": False}
+
+    monkeypatch.setattr(cfg, "enabled", lambda: True)
+    monkeypatch.setattr(cfg, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cfg, "get_token", lambda: "t")
+    monkeypatch.setattr(gw, "default_kite_factory", lambda k, t: K())
+    monkeypatch.setattr(pt, "refresh_cache", refresh)
+    monkeypatch.setattr(pt, "token_status", status)
+    monkeypatch.setattr(feed_mod, "get_feed", lambda: SimpleNamespace(db=None))
+
+    async def window():
+        return WINDOW
+    monkeypatch.setattr(market_freshness, "window", window)
+    legs = [{"underlying": "BANKNIFTY", "kind": "option", "expiry": "2026-11-25", "strike": 54700, "option_type": "put"},
+            {"underlying": "BANKNIFTY", "kind": "option", "expiry": "2026-11-25", "strike": 53100, "option_type": "put"},
+            {"underlying": "BANKNIFTY", "kind": "option", "expiry": "2026-11-25", "strike": 11111, "option_type": "put"}]
+    got = asyncio.run(fb.read_live_legs(legs))
+    assert got["available"] and list(got["quotes"]) == ["0"] and got["quotes"]["0"]["last_price"] == 650.0
+    assert [u["index"] for u in got["unresolved"]] == [2]                                           # unlisted: named, not priced
+    monkeypatch.setattr(pt, "token_status", lambda db: _async({"stored": True, "expired": True}))
+    off = asyncio.run(fb.read_live_legs(legs))
+    assert off["available"] is False and off["quotes"] == {} and "no Kite login today" in off["reason"]
+
+
+async def _async(v):
+    return v
+
+
+def test_fb19_the_real_regime_carries_as_of_not_date_and_the_board_is_not_stale(src):
+    """Found on staging data: regime_fit.read_regime sends `as_of`; reading `date` made every answer 'stale, unknown date'."""
+    top = owner_board()
+    top["regime"] = {"available": True, "key": "bearish", "label": "Bearish", "as_of": "2026-10-29"}        # the real shape: no `date`
+    src.v["fno_top"] = top
+    p = build("fno_setups")
+    assert p["as_of"] == "2026-10-29" and p["data_quality"]["stale"] is False
+    assert not [n for n in blocks(p, "notice") if "unknown date" in n["text"]]
+
+
+def test_fb20_calculators_that_all_refuse_their_session_ask_for_a_login_once(src):
+    """Found on staging: the platform calculator object exists but Kite refuses its expired token. One login notice, no per-row noise."""
+    src.v["fno_top"] = owner_board()
+    src.v["margin_calculators"] = ([(fb.LABEL_PLATFORM, object())], {**NO_LOGIN, "platform_login": True})
+    src.v["margin_estimates"] = lambda k, u, legs: {"estimate": None, "reason": fb.NO_CALCULATOR, "source": None}
+    p = build("fno_setups")
+    assert row_of(p, "fno_index", "BANKNIFTY")["cells"]["margin"] == "Needs login"
+    assert len([n for n in blocks(p, "notice") if n.get("actions")]) == 1
+    assert not [m for m in p["data_quality"]["missing"] if m.startswith("Margin for")]
+    assert any("session was refused" in m for m in p["data_quality"]["missing"])

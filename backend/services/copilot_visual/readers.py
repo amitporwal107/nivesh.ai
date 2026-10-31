@@ -26,6 +26,13 @@ Release 2:
     risk_profile        services.risk_profile.read — GET /api/risk/profile (the account's own limits)
     latest_trade_plan   Mongo trade_plans, the newest stored plan for a symbol (services.strategy_plan.trade_plan.COLLECTION)
 
+F&O board (owner, 31 Oct 2026; services/copilot_visual/fno_board.py):
+    in_session          09:15-15:30 IST on a weekday (services.kite_live_feed.day_quote.in_session)
+    fno_live_quotes     Kite REST quote() for the named option contracts, only those that traded today
+    live_spots          the underlyings' live Kite prices (day_quote), only while the feed is live
+    margin_calculators  Zerodha's margin calculator: the platform's Kite login, else the user's own Zerodha session
+    fno_margins         one basket-margin call per structure
+
 Release 3:
     closed_trades       Mongo desk_paper_trades, the user's newest closed paper trades, shaped as the desk shapes them
                         (routes.desk_trading._public). A plain read: GET /api/desk/paper-trades also runs the exit rule on
@@ -213,3 +220,41 @@ async def risk_decisions(user_id: str, since_utc: str, limit: int = 1000) -> Lis
         {"user_id": user_id, "at": {"$gte": since_utc}},
         {"_id": 1, "at": 1, "outcome": 1, "symbol": 1, "reasons": 1, "source": 1, "supersedes": 1, "path": 1},
     ).sort("at", -1).to_list(limit)
+
+
+# ── F&O board: live premiums and margin ──────────────────────────────────────
+
+def in_session(now: Any = None) -> bool:
+    from datetime import datetime, timezone
+    from services.kite_live_feed import day_quote
+    return day_quote.in_session(now or datetime.now(timezone.utc))
+
+
+async def fno_live_quotes(legs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    from . import fno_board
+    return await fno_board.read_live_legs(legs)
+
+
+async def live_spots(symbols: List[str]) -> Dict[str, float]:
+    """{symbol: live price} for the symbols the feed has a live quote for right now; none when it is not live."""
+    from services.kite_live_feed import day_quote
+    from services.kite_live_feed.gateway import canon
+    dq = await day_quote.day_quotes(symbols)
+    if dq.get("source") != "kite_live":
+        return {}
+    out: Dict[str, float] = {}
+    for s in symbols:
+        px = (dq.get("quotes") or {}).get(canon(s), {}).get("ltp")
+        if isinstance(px, (int, float)) and not isinstance(px, bool) and px > 0:
+            out[s] = float(px)
+    return out
+
+
+async def margin_calculators(request: Any, user_id: Optional[str]):
+    from . import fno_board
+    return await fno_board.margin_calculators(request, user_id)
+
+
+async def fno_margins(calcs: Any, items: Any) -> Dict[str, Dict[str, Any]]:
+    from . import fno_board
+    return await fno_board.margins(calcs, items)

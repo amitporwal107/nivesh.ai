@@ -86,7 +86,7 @@ Each block is `{ "type": …, "id": "…", "title": "…", "note": "…" | null,
 | `list` | `items: [{text, tone?, sub?}]` | a short list (warnings, events, reasons) |
 | `notice` | `tone: "warn"\|"info"`, `text` | a callout for stale or missing data |
 
-Formats: prices in ₹ with two decimals; percentages with a sign and two decimals; ratios as `1.8×`; dates as
+Formats: prices in ₹ with two decimals (a negative one with a true minus before the sign, `−₹14,406.00`); percentages with a sign and two decimals; ratios as `1.8×`; dates as
 `29 Oct 2026`.
 
 ## Intents (Release 1)

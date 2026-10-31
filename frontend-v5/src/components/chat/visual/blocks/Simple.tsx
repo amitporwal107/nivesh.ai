@@ -2,8 +2,11 @@
  * The three text blocks: `trade_plan` (the desk's own compact plan card, read by id, as the chat's trade idea card
  * shows it), `list` (warnings, events, reasons) and `notice` (a callout for stale or missing data; a warning is loud).
  */
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { labTicketPath } from "@/components/chat/TradePlanChatCard";
+import { startKiteLogin } from "@/pages/CopilotApp/components/LiveBits";
+import { useOptionalCopilotShell } from "@/pages/CopilotApp/lib/shell-context";
 import { DecisionCardById } from "@/pages/CopilotApp/screens/tradingdesk/decision/DecisionCard";
 import type { ListBlock, NoticeBlock, TradePlanBlock } from "../schema";
 import { toneColor } from "../format";
@@ -38,6 +41,31 @@ export function ListView({ b }: BlockProps<ListBlock>) {
   );
 }
 
+/** What the reader can do about a notice. The platform's Kite login is an admin's step (it is the day's feed login for every
+ *  user), so only an admin gets that button; anyone can connect their own broker, which needs the app shell to move to. */
+function NoticeActions({ actions }: { actions: NonNullable<NoticeBlock["actions"]> }) {
+  const shell = useOptionalCopilotShell();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const shown = actions.filter((a) => (a.kind === "kite_login" ? !!shell?.isAdmin : !!shell));
+  if (!shown.length) return null;
+  const run = async (kind: string) => {
+    if (kind === "connect_broker") { shell?.go("page/brokers"); return; }
+    setBusy(true); setFailed(false);
+    try { await startKiteLogin(); } catch { setFailed(true); setBusy(false); }
+  };
+  return (
+    <span className="inline-flex flex-wrap items-center" style={{ gap: 8, marginTop: 6 }}>
+      {shown.map((a) => (
+        <button key={a.kind} type="button" data-testid={`va-notice-action-${a.kind}`} className="cp-btn" data-variant="ghost" disabled={busy && a.kind === "kite_login"}
+          onClick={() => void run(a.kind)} style={{ padding: "3px 10px", fontSize: 12 }}>
+          {a.kind === "kite_login" && failed ? "Login link failed, retry" : a.label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 export function NoticeView({ b }: BlockProps<NoticeBlock>) {
   const warn = b.tone === "warn";
   return (
@@ -46,7 +74,10 @@ export function NoticeView({ b }: BlockProps<NoticeBlock>) {
       <span style={{ flex: "none", fontFamily: "var(--mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", paddingTop: 2, color: warn ? "var(--amber)" : "var(--cp-ink-3)" }}>
         {warn ? "Warning" : "Note"}
       </span>
-      <span data-testid="va-notice-text" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink)", overflowWrap: "anywhere" }}>{b.text}</span>
+      <span className="flex min-w-0 flex-col">
+        <span data-testid="va-notice-text" style={{ fontSize: 13, lineHeight: 1.5, color: "var(--cp-ink)", overflowWrap: "anywhere" }}>{b.text}</span>
+        {b.actions && b.actions.length > 0 && <NoticeActions actions={b.actions} />}
+      </span>
     </div>
   );
 }
