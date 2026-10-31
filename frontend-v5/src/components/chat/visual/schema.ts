@@ -171,8 +171,12 @@ export const visualAnswer = z.object({
   }).nullable().catch(null).default(null),
   follow_ups: z.array(z.object({ label: str, query: str })).catch([]).default([]),
   caveat: optStr.catch(null),
+  /** An answer that keeps itself current (open trades on the broker book): the page asks `path` every `interval_s` seconds
+   *  while the market is open and the answer is on screen, and swaps in the blocks it names (`block_ids`) by id. */
+  refresh: z.object({ path: str.startsWith("/api/"), interval_s: num.min(5), block_ids: z.array(str).min(1) }).nullable().catch(null).default(null),
 });
 export type VisualAnswerPayload = z.infer<typeof visualAnswer>;
+export type AnswerRefresh = NonNullable<VisualAnswerPayload["refresh"]>;
 
 export type ParsedAnswer = { ok: true; answer: VisualAnswerPayload; blocks: ParsedBlock[] } | { ok: false; problem: string };
 
