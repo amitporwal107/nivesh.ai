@@ -126,6 +126,20 @@ def test_put_spread_is_unavailable_when_the_expected_fall_is_inside_the_toleranc
     assert m["reason"]["code"] == "expected_fall_within_tolerance"
 
 
+def test_put_spread_uses_the_deepest_traded_strike_and_says_the_band_ends_early():
+    puts = {k: v for k, v in _puts().items() if k >= 20_850}            # nothing traded below 20,850 (9.3% down)
+    m = _mode(_run(puts=puts), "lowest_cost")                           # the fear is 15% = 19,550, deeper than any strike
+    assert m["available"] and m["legs"][1]["strike"] == 20_850.0
+    assert m["notes"][0]["code"] == "band_ends_above_expected_fall" and "20,850" in m["notes"][0]["message"] and "15%" in m["notes"][0]["message"]
+    assert m["max_protection_rs"] == pytest.approx((21_850.0 - 20_850.0) * LOT)
+
+
+def test_no_strike_below_the_long_one_means_no_spread():
+    puts = {k: v for k, v in _puts().items() if k >= 21_850}            # the long strike is the deepest traded put
+    m = _mode(_run(puts=puts), "lowest_cost")
+    assert m["available"] is False and m["reason"]["code"] == "no_deeper_strike"
+
+
 # ── payoffs and the scenario table ─────────────────────────────────────────────────────────────────────────────
 def _row(mode, move):
     return next(r for r in mode["scenario_rows"] if r["move_pct"] == move)

@@ -123,12 +123,22 @@ def _mode(name: str, *, exposure: Dict[str, float], hedgeable_value: float, port
     if name == "lowest_cost":
         # The spread covers the band from the long strike down to the fall the user fears; if that fall does not reach
         # below the long strike there is no band, and a spread just under the strike would not be what they asked for.
-        k_short = None if spot * (1.0 - expected_fall_pct / 100.0) >= k_long - EPS \
-            else pick_short_strike(strikes, spot, expected_fall_pct, k_long)
-        if k_short is None:
+        if spot * (1.0 - expected_fall_pct / 100.0) >= k_long - EPS:
             out["reason"] = {"code": "expected_fall_within_tolerance",
                              "message": "The fall you are worried about is within the loss you said you can tolerate, so a put spread has no band to cover."}
             return out
+        k_short = pick_short_strike(strikes, spot, expected_fall_pct, k_long)
+        if k_short is None:
+            # No put with a trade sits as deep as the fear. The deepest traded one is used and the shortfall is said, not hidden.
+            deeper = [k for k in strikes if k < k_long - EPS]
+            if not deeper:
+                out["reason"] = {"code": "no_deeper_strike", "message": "No put with a traded price sits below the protection start, so a put spread cannot be built."}
+                return out
+            k_short = min(deeper)
+            fall_at = (spot - k_short) / spot * 100.0
+            out["notes"] = [{"code": "band_ends_above_expected_fall", "message":
+                             f"Traded puts go no deeper than {k_short:,.0f} ({fall_at:.1f}% below Nifty), so this spread's protection ends there, "
+                             f"above the {expected_fall_pct:g}% fall you are worried about."}]
         legs.append({"side": "sell", "type": "put", "strike": k_short, "qty": qty, "premium": float(puts[k_short])})
         structure = "put_spread"
     debit_per_unit = sum((1 if l["side"] == "buy" else -1) * l["premium"] for l in legs)
