@@ -182,7 +182,7 @@ test.describe("Home suggestions (market and F&O tabs: REAL staging capture; pers
     expect(await left(risk)).toBe("3px");
     await page.getByTestId("sg-tab-for_you").click();
     expect(await left(cards(page).filter({ hasText: "PNB from your watchlist" }))).toBe("3px");
-    expect(await left(cards(page).filter({ hasText: "Analyse sector exposure" }))).toBe("0px");
+    expect(await left(cards(page).filter({ hasText: "Analyse sector exposure" }))).toBe("1px");                        // the plain card border: no accent bar
   });
 
   test("SG-U6 a stock's card carries its icon beside the name", async ({ page }) => {
