@@ -5,6 +5,7 @@
 import type { ComponentType } from "react";
 import type { BlockType, KnownBlock } from "../schema";
 import { BarsView } from "./Bars";
+import { BriefsView } from "./Briefs";
 import { CandlesView } from "./Candles";
 import type { BlockProps } from "./common";
 import { HeatmapView } from "./Heatmap";
@@ -23,6 +24,7 @@ export const BLOCK_VIEWS: Record<BlockType, ComponentType<BlockProps<never>>> = 
   trade_plan: TradePlanView,
   list: ListView,
   notice: NoticeView,
+  briefs: BriefsView,
 } as Record<BlockType, ComponentType<BlockProps<never>>>;
 
 export function BlockView({ block, compact, ask }: { block: KnownBlock; compact: boolean; ask?: (q: string) => void }) {

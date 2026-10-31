@@ -53,6 +53,7 @@ function NoticeActions({ actions }: { actions: NonNullable<NoticeBlock["actions"
   const run = async (kind: string) => {
     if (kind === "connect_broker") { shell?.go("page/brokers"); return; }
     if (kind === "set_risk_profile") { shell?.go("trader/desk?tab=risk&view=limits"); return; }          // the Risk Desk's limits and profile
+    if (kind === "open_market_intel") { shell?.go("trader/desk?tab=market&view=intel"); return; }        // Market Desk › Market Intelligence
     setBusy(true); setFailed(false);
     try { await startKiteLogin(); } catch { setFailed(true); setBusy(false); }
   };

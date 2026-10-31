@@ -96,16 +96,56 @@ export const listBlock = z.object({
   items: z.array(z.object({ text: str, tone: optTone, sub: optStr })).min(1),
 });
 
-export const NOTICE_ACTIONS = ["kite_login", "connect_broker", "set_risk_profile"] as const;
+/** Hosts a source-filing link may point to: the exchanges' attachment archives and SEBI. The backend (services/copilot_visual/links.py)
+ *  applies the same rule; a link that fails it is not drawn, whatever the payload says. */
+export const FILING_HOSTS: readonly string[] = [
+  "nsearchives.nseindia.com", "archives.nseindia.com", "www.nseindia.com", "nseindia.com", "www.bseindia.com", "bseindia.com", "www.sebi.gov.in", "sebi.gov.in",
+];
+/** The URL itself when it is https, on one of FILING_HOSTS, with no user-info, odd port, spaces or backslash; else null. */
+export function safeFilingUrl(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const raw = v.trim();
+  if (!raw || raw.length > 2000 || /[\\\s\u0000-\u001f]/.test(raw)) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" || u.username || u.password || u.port || !FILING_HOSTS.includes(u.hostname)) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+/** `briefs`: cards of companies or filings — the stored AI summary, commentary points and source-filing links. Links that fail
+ *  safeFilingUrl are dropped here, so no block can show one. */
+const briefLink = z.object({ label: str, url: str, kind: z.enum(["pdf", "file", "page"]).catch("file") });
+const briefLinks = z.preprocess(
+  (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object" && safeFilingUrl((x as { url?: unknown }).url) !== null) : []),
+  z.array(briefLink),
+);
+export const briefsBlock = z.object({
+  ...base, type: z.literal("briefs"),
+  items: z.array(z.object({
+    title: str.min(1), symbol: optStr, sub: optStr,
+    /** The desk's verdict against the company's own past quarters, or an AI classifier's reading: always words, with a tone. */
+    badge: optStr, tone: optTone,
+    /** The stored AI summary, verbatim; null when none exists (then `body_note` says why). */
+    body: optStr, body_note: optStr,
+    points: z.array(z.object({ text: str, tone: optTone })).catch([]).default([]),
+    links: briefLinks.default([]),
+    ask: optStr,
+  })).min(1),
+});
+
+export const NOTICE_ACTIONS = ["kite_login", "connect_broker", "set_risk_profile", "open_market_intel"] as const;
 export const noticeBlock = z.object({
   ...base, type: z.literal("notice"), tone: z.enum(["warn", "info"]).catch("info"), text: str,
-  /** What the reader can do about it: log in to Kite (admins), connect a broker, set up a risk profile. */
+  /** What the reader can do about it: log in to Kite (admins), connect a broker, set up a risk profile, open Market Intelligence. */
   actions: z.array(z.object({ kind: z.enum(NOTICE_ACTIONS), label: str })).optional().catch(undefined),
 });
 
 const BLOCKS = {
   kpis: kpisBlock, candles: candlesBlock, bars: barsBlock, heatmap: heatmapBlock, quadrant: quadrantBlock,
-  ranked: rankedBlock, trade_plan: tradePlanBlock, list: listBlock, notice: noticeBlock,
+  ranked: rankedBlock, trade_plan: tradePlanBlock, list: listBlock, notice: noticeBlock, briefs: briefsBlock,
 } as const;
 export type BlockType = keyof typeof BLOCKS;
 export const BLOCK_TYPES = Object.keys(BLOCKS) as BlockType[];
@@ -119,7 +159,8 @@ export type RankedBlock = z.infer<typeof rankedBlock>;
 export type TradePlanBlock = z.infer<typeof tradePlanBlock>;
 export type ListBlock = z.infer<typeof listBlock>;
 export type NoticeBlock = z.infer<typeof noticeBlock>;
-export type KnownBlock = KpisBlock | CandlesBlock | BarsBlock | HeatmapBlock | QuadrantBlock | RankedBlock | TradePlanBlock | ListBlock | NoticeBlock;
+export type BriefsBlock = z.infer<typeof briefsBlock>;
+export type KnownBlock = KpisBlock | CandlesBlock | BarsBlock | HeatmapBlock | QuadrantBlock | RankedBlock | TradePlanBlock | ListBlock | NoticeBlock | BriefsBlock;
 
 /** One block after parsing: drawn, or a short note saying why not. */
 export type ParsedBlock =
