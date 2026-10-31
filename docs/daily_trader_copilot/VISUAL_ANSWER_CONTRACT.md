@@ -117,6 +117,19 @@ Sector view (31 Oct 2026):
 A heatmap cell may carry `members: [{label, value, sub?, ask?}]`, shown when the tile is selected. `sector rotation` is no longer a
 `smart_money` phrase: FII/DII flows, buildup and smart money stay there; the sector questions have their own answer.
 
+Block fields added on 31 Oct 2026 (all optional; a payload without them is unchanged):
+
+| block | field | meaning |
+|---|---|---|
+| `ranked` row | `alternatives: [row]` | the row's other structures, one level deep, same columns; the table shows "+N more ›" (the F&O board folds an underlying's alternatives under its lead) |
+| `ranked` row | `badge: text` | a tag by the symbol: `Live`, or the close the row was priced at (`30 Oct close`) |
+| `ranked` row | `tips: {cellKey: text}` | a tooltip on a cell (a bought put's theoretical to-zero profit is only here) |
+| `ranked`, `quadrant` | `detail: "fno"` | a row or point with a stock opens that stock's option chain and futures build-up (inside the app shell), with "Open in Chart Analysis ›" |
+| `heatmap` cell | `members: [{label, value, sub?, ask?}]` | the stocks behind a tile, shown when it is selected |
+| `notice` | `actions: [{kind, label}]` | `kite_login` (admins), `connect_broker`, `set_risk_profile` |
+
+A saved setting (a risk profile) is a source with status `fresh` whatever its date: the freshness rule is for prices and flows.
+
 `daily_review` reviews the day asked about (or the ISO week when the question names the week). When nothing was
 recorded then, it reviews the latest day (week) that has activity and names both dates; its `as_of` is that day, so a
 day older than the previous session carries the stale notice. `avoid_today` (Q14) is not built.

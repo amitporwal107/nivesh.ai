@@ -42,7 +42,8 @@ export function ListView({ b }: BlockProps<ListBlock>) {
 }
 
 /** What the reader can do about a notice. The platform's Kite login is an admin's step (it is the day's feed login for every
- *  user), so only an admin gets that button; anyone can connect their own broker, which needs the app shell to move to. */
+ *  user), so only an admin gets that button; anyone can connect their own broker or set up their risk profile, which need the
+ *  app shell to move to. */
 function NoticeActions({ actions }: { actions: NonNullable<NoticeBlock["actions"]> }) {
   const shell = useOptionalCopilotShell();
   const [busy, setBusy] = useState(false);
@@ -51,6 +52,7 @@ function NoticeActions({ actions }: { actions: NonNullable<NoticeBlock["actions"
   if (!shown.length) return null;
   const run = async (kind: string) => {
     if (kind === "connect_broker") { shell?.go("page/brokers"); return; }
+    if (kind === "set_risk_profile") { shell?.go("trader/desk?tab=risk&view=limits"); return; }          // the Risk Desk's limits and profile
     setBusy(true); setFailed(false);
     try { await startKiteLogin(); } catch { setFailed(true); setBusy(false); }
   };

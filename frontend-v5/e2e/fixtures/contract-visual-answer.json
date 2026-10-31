@@ -1,5 +1,5 @@
 {
- "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK).",
+ "about": "REAL staging capture, 31 Oct 2026 (14 of 14 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch. UPDATE 31 Oct 2026 (afternoon): fno_setups re-captured in its new shape (Index options and Stock F&O sections, lots, margin, alternatives folded under each lead) and sector_rotation added, both from the branch fix/copilot-answers-batch run the same way (overlay of its services/copilot_visual inside nivesh-staging-app-backend, read-only, auth stubbed, no storage writes; the TradePlan ids on the F&O rows were computed in-process and not stored). Market closed, the platform Kite login expired: so the F&O margin cells read 'Needs login' and no premium is live. The live path is covered by fno-board.mock.json (MOCK). UPDATE 31 Oct 2026 (late afternoon): smart_money re-captured the same way: its F&O build-up blocks now carry `detail: \"fno\"` (a point or row opens that stock's option chain and futures build-up).",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
@@ -976,7 +976,7 @@
    "intent": "smart_money",
    "title": "Where smart money is moving",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T06:30:49+05:30",
+   "generated_at": "2026-10-31T16:58:54+05:30",
    "mode": "eod",
    "headline": {
     "text": "FIIs bought a net ₹3,598.54 Cr and DIIs sold a net ₹817.51 Cr in cash on 30 Oct; 24 F&O stocks show long buildup and 33 short covering.",
@@ -1571,7 +1571,8 @@
        "y": -3.34,
        "quadrant": "Short covering"
       }
-     ]
+     ],
+     "detail": "fno"
     },
     {
      "type": "ranked",
@@ -1715,7 +1716,8 @@
        "tone": "up",
        "ask": "Trade plan for LTM"
       }
-     ]
+     ],
+     "detail": "fno"
     },
     {
      "type": "list",

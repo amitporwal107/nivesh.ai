@@ -1510,3 +1510,58 @@ def test_sr8_the_reader_asks_daas_for_one_index(monkeypatch):
     monkeypatch.setattr(rd, "_daas", unavailable)
     with pytest.raises(RuntimeError, match="no constituent list"):
         asyncio.run(rd.sector_constituents("Nifty Bank"))
+
+
+# ═════ How much should I risk? (owner, 31 Oct 2026): a saved setting is not market data; capture the profile when none exists ═════
+# PS-1 … PS-4 of test_reports/copilot_batch2_20261031.md. MOCK — not real data.
+def test_ps1_no_saved_profile_says_so_asks_for_one_and_shows_no_stale_warning(src):
+    """The owner's screenshot: the defaults were shown as 'Your risk profile (date unknown)', flagged stale."""
+    p = build("position_size")                                                   # RISK_PROFILE: stored False
+    assert p["data_quality"]["stale"] is False
+    assert not [n for n in blocks(p, "notice") if "older than" in n["text"] or "unknown date" in n["text"]]
+    n = next(b for b in blocks(p, "notice") if b.get("actions"))
+    assert [a["kind"] for a in n["actions"]] == ["set_risk_profile"] and n["actions"][0]["label"] == "Set up your risk profile"
+    assert "have not set a risk profile" in n["text"]
+    limits = blocks(p, "kpis")[0]
+    assert limits["title"] == "Default risk limits" and "platform defaults" in limits["note"].lower() and "not saved" in limits["note"].lower()
+    assert p["headline"]["text"].startswith("You have no saved risk profile")
+    row = next(r for r in p["data_quality"]["sources"] if r["name"] == "Your risk profile (risk_profiles)")
+    assert row["status"] == "fresh" and row["as_of"] is None and "no profile saved" in row["note"]
+    assert [b["type"] for b in p["blocks"]][:2] == ["notice", "kpis"]            # the ask comes before the figures
+
+
+def test_ps2_a_saved_profile_is_not_stale_however_old_it_is(src):
+    src.v["risk_profile"] = {**RISK_PROFILE, "stored": True, "profile": "balanced", "set_at": "2026-07-15T09:30:00+00:00"}
+    p = build("position_size")
+    assert p["data_quality"]["stale"] is False and not [n for n in blocks(p, "notice") if n.get("actions")]
+    limits = blocks(p, "kpis")[0]
+    assert limits["title"] == "Your risk limits" and limits["note"] == "balanced profile, set 15 Jul 2026"
+    row = next(r for r in p["data_quality"]["sources"] if r["name"] == "Your risk profile (risk_profiles)")
+    assert row["status"] == "fresh" and row["as_of"] == "2026-07-15"
+    assert p["headline"]["text"] == "Your risk budget and today's usage."
+
+
+def test_ps3_the_contract_check_knows_the_new_action(src):
+    p = build("position_size")
+    assert validate(p) == []
+    bad = json.loads(json.dumps(p))
+    next(b for b in bad["blocks"] if b.get("actions"))["actions"][0]["kind"] = "wire_money"
+    assert any("action" in x for x in validate(bad))
+
+
+def test_ps4_a_profile_that_cannot_be_read_is_missing_not_defaulted(src):
+    src.fail.add("risk_profile")
+    p = build("position_size")
+    assert any("MOCK risk_profile down" in m for m in p["data_quality"]["missing"])
+    assert not [n for n in blocks(p, "notice") if n.get("actions")]              # an unreadable profile is not "no profile"
+
+
+# ═════ F&O build-up detail (owner, 31 Oct 2026): a build-up row or point opens the stock's option chain and futures ═════
+def test_bd1_the_buildup_blocks_ask_for_the_fno_detail(src):
+    p = build("smart_money")
+    q = next(b for b in blocks(p, "quadrant") if b["id"] == "buildup")
+    r = next(b for b in blocks(p, "ranked") if b["id"] == "strongest")
+    assert q["detail"] == "fno" and r["detail"] == "fno"
+    assert all(row["symbol"] for row in r["rows"])                                    # every row names the stock the detail opens
+    assert not [b for b in p["blocks"] if b["type"] in ("heatmap", "kpis", "bars") and b.get("detail")]    # only the stock lists open it
+    assert validate(p) == []
