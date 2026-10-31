@@ -34,10 +34,9 @@ async def run(db, user_id: str, *, expected_fall_pct: float, tenor: str = "1m", 
         tolerance_rs=tolerance_rs if tolerance_rs is not None else float("nan"), expected_fall_pct=expected_fall_pct,
         r2=fit.get("r2"), corr=fit.get("correlation"), charges=costs.make_charges())
     pre = list(pf["reasons"]) + ([] if market.get("ok") else [market["reason"]])
-    if pre:                                    # the real cause first, then whatever the core also found missing
-        seen = {p["code"] for p in pre}
+    if pre:                                    # the real cause only: the core's "missing spot / beta" lines are its consequences
         res["status"], res["modes"] = "incomplete", []
-        res["reasons"] = pre + [x for x in res["reasons"] if x["code"] not in seen]
+        res["reasons"] = pre
     if fit.get("reason"):
         res["reasons"].append(fit["reason"])
     res["tenor"] = tenor

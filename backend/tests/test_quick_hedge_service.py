@@ -80,7 +80,7 @@ def test_market_data_down_says_so_first_and_shows_no_hedge():
     down = {"ok": False, "reason": {"code": "market_data_unavailable", "message": "The data platform is unavailable."}}
     res = _run(Fake(market=down))
     assert res["status"] == "incomplete" and res["modes"] == []
-    assert res["reasons"][0]["code"] == "market_data_unavailable"
+    assert [r["code"] for r in res["reasons"]] == ["market_data_unavailable"]          # not also "missing spot": that is its consequence
 
 
 def test_no_beta_stops_before_the_fit_is_even_measured():

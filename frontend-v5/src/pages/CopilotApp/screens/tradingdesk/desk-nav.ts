@@ -19,7 +19,7 @@
  *   03 Market Desk       tab=market       intel · smartmoney · sectors · research · screener
  *                                         (watchlists and scorecard were Market Desk views until the owner's 19:40 IST
  *                                         correction of 27 Oct; their URLs open Trade Desk, MOVED_TO_TRADE)
- *   04 Risk Desk         tab=risk         limits · controls · log
+ *   04 Risk Desk         tab=risk         limits · controls · log · hedge (flagged: Portfolio hedge)
  *   My portfolio         tab=portfolio    the header button, not a numbered tab (the real, broker-read portfolio)
  *   AI Copilot           tab=copilot      the Copilot full height, where it is not docked (under 1400px)
  *
@@ -69,8 +69,14 @@ export const SECTION_VIEWS: Record<DeskSection, readonly DeskViewDef[]> = {
     { key: "limits", label: "Exposure & limits" },
     { key: "controls", label: "Policy & runtime" },
     { key: "log", label: "Decision log" },
+    // Quick Hedge (docs/RISK_AND_HEDGE_GAP_AND_PLAN_20261031.md). Listed last so the other views keep their places; the switcher
+    // shows it only when the `portfolio_hedge` flag is on for the account (TradingDesk.tsx ViewSwitcher, HIDDEN_VIEWS).
+    { key: "hedge", label: "Portfolio hedge" },
   ],
 };
+
+/** Views that exist but are shown in the switcher only when the account has the named feature flag. */
+export const FLAGGED_VIEWS: Readonly<Record<string, string>> = { "risk/hedge": "portfolio_hedge" };
 
 /** The sub-views of a view ("<tab>/<view>"), the default first. A view with none is one page. */
 export const SUB_VIEWS: Record<string, readonly DeskViewDef[]> = {
