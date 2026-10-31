@@ -323,6 +323,7 @@ jobs:
           tests/test_strategy_screen.py
           tests/test_strategy_store_v1_parity.py
           tests/test_strategy_store_v2_model.py
+          tests/test_suggestions.py
           tests/test_switch_cost_framework.py
           tests/test_switch_decision_engine.py
           tests/test_symbol_lookup.py

@@ -1,6 +1,7 @@
 /**
- * Home — greeting, live market strip, the statement bar, "for your portfolio
- * today" cards and starter questions. Design: Nivesh Copilot.dc.html, the
+ * Home — greeting, live market strip, the statement bar, the suggestion tabs
+ * (SuggestionsPanel: GET /api/suggestions), "for your portfolio today" cards and
+ * starter questions. Design: Nivesh Copilot.dc.html, the
  * `isHome` block.
  *
  * It shows the same facts the existing dashboard (/dashboard) shows, from the
@@ -25,6 +26,7 @@ import { targetAllocationFor, useRiskProfile } from "@/hooks/use-risk-profile";
 import { GmailSyncModal } from "@/pages/Dashboard/GmailSyncModal";
 import { DailyTraderPanel } from "../components/DailyTraderPanel";
 import { StockIcon } from "../components/EntityIcon";
+import { SuggestionsPanel } from "../components/SuggestionsPanel";
 import { fmtNum, fmtPct, humaniseTag, signTone, TONE_COLOR, type Tone } from "../components/ui";
 import { useCopilotShell } from "../lib/shell-context";
 import { useCasState } from "../lib/use-cas-state";
@@ -357,6 +359,8 @@ export default function Home() {
         )}
       </div>
       )}
+
+      <SuggestionsPanel />
 
       {(cards.length > 0 || showNews || settling) && (
         <section className="flex flex-col" style={{ gap: 12 }}>
