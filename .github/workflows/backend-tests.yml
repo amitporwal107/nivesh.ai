@@ -108,6 +108,7 @@ jobs:
           tests/test_copilot_phase_ab.py
           tests/test_copilot_portfolio_summaries.py
           tests/test_copilot_prompt_badges.py
+          tests/test_copilot_prompts_mode.py
           tests/test_copilot_visual.py
           tests/test_copilot_visual_chat.py
           tests/test_core_exceptions.py

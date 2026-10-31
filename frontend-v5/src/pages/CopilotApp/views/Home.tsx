@@ -276,7 +276,7 @@ function usePortfolioCards(enabled: boolean): { cards: Card[]; settling: boolean
 export default function Home() {
   const { ask, go, mobile, mode, firstName } = useCopilotShell();
   const markets = useMarketsHome();
-  const prompts = useCopilotPrompts();
+  const prompts = useCopilotPrompts(mode);
   const pf = usePortfolioContext();
 
   const noPf = pf.status === "empty";

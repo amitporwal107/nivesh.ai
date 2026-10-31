@@ -1,15 +1,15 @@
 {
- "about": "REAL staging capture, 31 Oct 2026 00:11 UTC (13 of 13 Release-1 + 2 + 3 intents; market data of the 30 Oct 2026 session). Built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Stubbed: auth (an internal request as a real staging user) and EVERY database write: each module's db was a proxy whose writes were recorded and dropped (7 blocked: index creation by the paper-trades route, one target_allocations update; nothing written, checked by counting recent rows afterwards). So GET /api/desk/paper-trades' exit rule evaluated but closed nothing, and plans stock_decision & co. build were not stored. top_opportunities' and fno_setups' plan ids are TradePlans already stored on staging (5 of 5 each). fno_setups' source and position_size's risk profile read stale (a null date), shown as stale rather than guessed. The user is a real staging account with 3 open paper trades (SONACOMS, COFORGE, ICICIBANK), no closed paper trade and 31 risk decisions: daily_review (asked on Saturday 31 Oct) falls back to 30 Oct, the latest session with activity, and shows its 3 refused entry requests; its populated branches (KPIs, plan vs actual, equity curve) are covered by unit tests B-28 … B-36 on MOCK data, not by this capture.",
+ "about": "REAL staging capture, 31 Oct 2026 (13 of 13 intents: Release 1, Release 2 and the Q15 daily review; data of the 30 Oct 2026 session where fresh), built by backend/services/copilot_visual run in-process inside nivesh-staging-app-backend against the real NIDP warehouse, Mongo and app Postgres, read-only, no restart. Re-captured because market_view changed: it now follows the desk's Market regime card (day tiles, a regime row from the market state the risk service uses, FII/DII bars, leading and lagging sector bars, then the Nifty chart and the sector heatmap). Stubbed: auth (an internal request as a real staging user) and routes.strategy_plan.store_trade_plans (would store, stores nothing). The user is a real staging account with 3 open paper trades and no closed paper trade, so daily_review shows its honest empty branch.",
  "payloads": {
   "market_view": {
    "schema": "visual-answer-v1",
    "intent": "market_view",
    "title": "Market view · Nifty and Bank Nifty",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:40+05:30",
+   "generated_at": "2026-10-31T06:30:49+05:30",
    "mode": "eod",
    "headline": {
-    "text": "Nifty 50 rose 0.51% to 23,053.10; 26% of stocks advanced; India VIX 15.30.",
+    "text": "Nifty 50 rose 0.51% to 23,053.10; 26% of stocks advanced; India VIX 15.30; the market regime reads BEAR.",
     "tone": "up"
    },
    "decision": null,
@@ -43,25 +43,103 @@
        "value": "847 up · 2,403 down",
        "sub": "26% of 3,320 stocks advanced",
        "tone": "down"
-      },
+      }
+     ]
+    },
+    {
+     "type": "kpis",
+     "id": "regime",
+     "title": "Market regime",
+     "note": "Descriptive: the state the desk's risk rules read, not a forecast.",
+     "items": [
       {
-       "label": "FII cash",
-       "value": "+₹3,598.54 Cr",
-       "sub": "net, 30 Oct",
-       "tone": "up"
-      },
-      {
-       "label": "DII cash",
-       "value": "−₹817.51 Cr",
-       "sub": "net, 30 Oct",
+       "label": "Regime",
+       "value": "BEAR",
+       "sub": "as of 30 Oct · India VIX 15.30",
        "tone": "down"
       },
       {
-       "label": "Regime",
-       "value": "Bearish",
-       "sub": "desk-regime-v1 · 30 Oct"
+       "label": "New-trade size limits",
+       "value": "Halved",
+       "sub": "New-trade size limits are halved in BEAR.",
+       "tone": "warn"
+      },
+      {
+       "label": "Market state",
+       "value": "0 of 2 sessions old",
+       "sub": "the state the risk service sizes and checks new paper trades with"
       }
      ]
+    },
+    {
+     "type": "bars",
+     "id": "flows",
+     "title": "Net cash flows, last session",
+     "note": "Net buy − sell, ₹ crore, 30 Oct 2026 (NSE provisional).",
+     "unit": "₹ Cr",
+     "orientation": "h",
+     "items": [
+      {
+       "label": "FII",
+       "value": 3598.54,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "DII",
+       "value": -817.51,
+       "tone": "down",
+       "sub": null
+      }
+     ],
+     "baseline": 0
+    },
+    {
+     "type": "bars",
+     "id": "sector_moves",
+     "title": "Leading and lagging sectors · 1 day",
+     "note": "The three strongest and the three weakest of the NSE sector indices on the day.",
+     "unit": "%",
+     "orientation": "h",
+     "items": [
+      {
+       "label": "IT",
+       "value": 2.32,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "Healthcare",
+       "value": 1.58,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "Pharma",
+       "value": 1.55,
+       "tone": "up",
+       "sub": null
+      },
+      {
+       "label": "Telecom",
+       "value": -2.1,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "Capital Goods",
+       "value": -1.91,
+       "tone": "down",
+       "sub": null
+      },
+      {
+       "label": "Consumer Durables",
+       "value": -1.78,
+       "tone": "down",
+       "sub": null
+      }
+     ],
+     "baseline": 0
     },
     {
      "type": "candles",
@@ -852,19 +930,19 @@
       "note": null
      },
      {
-      "name": "Desk regime (desk-regime-v1)",
-      "as_of": "2026-10-30",
-      "status": "fresh",
-      "note": null
-     },
-     {
-      "name": "NSE F&O bhavcopy · NIFTY option chain",
+      "name": "Market state the risk service uses (regime, India VIX)",
       "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
      },
      {
       "name": "NSE sector indices (desk sector returns)",
+      "as_of": "2026-10-30",
+      "status": "fresh",
+      "note": null
+     },
+     {
+      "name": "NSE F&O bhavcopy · NIFTY option chain",
       "as_of": "2026-10-30",
       "status": "fresh",
       "note": null
@@ -898,7 +976,7 @@
    "intent": "smart_money",
    "title": "Where smart money is moving",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:40+05:30",
+   "generated_at": "2026-10-31T06:30:49+05:30",
    "mode": "eod",
    "headline": {
     "text": "FIIs bought a net ₹3,598.54 Cr and DIIs sold a net ₹817.51 Cr in cash on 30 Oct; 24 F&O stocks show long buildup and 33 short covering.",
@@ -1723,7 +1801,7 @@
    "intent": "top_opportunities",
    "title": "Today's top 5 ideas",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:40+05:30",
+   "generated_at": "2026-10-31T06:30:49+05:30",
    "mode": "eod",
    "headline": {
     "text": "4 of the scanner's top 5 on 30 Oct have a setup with levels.",
@@ -1926,7 +2004,7 @@
    "intent": "breakouts",
    "title": "Confirmed breakouts",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:43+05:30",
+   "generated_at": "2026-10-31T06:30:52+05:30",
    "mode": "eod",
    "headline": null,
    "decision": null,
@@ -1974,7 +2052,7 @@
    "intent": "unusual_volume",
    "title": "Unusual volume",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:44+05:30",
+   "generated_at": "2026-10-31T06:30:54+05:30",
    "mode": "eod",
    "headline": {
     "text": "74 eligible stocks traded with unusually high volume on 30 Oct; DHANUKA led at 66.8× its 20-day average.",
@@ -1982,14 +2060,6 @@
    },
    "decision": null,
    "blocks": [
-    {
-     "type": "notice",
-     "id": "stale-0",
-     "title": null,
-     "note": null,
-     "tone": "warn",
-     "text": "NSE delivery (nidp.delivery_data) is from 29 Oct 2026, older than the previous session (30 Oct 2026): shown with its date, not as today's."
-    },
     {
      "type": "bars",
      "id": "rvol",
@@ -2093,7 +2163,7 @@
       },
       {
        "key": "deliv",
-       "label": "Delivery % (29 Oct)",
+       "label": "Delivery % (30 Oct)",
        "align": "right",
        "format": "text"
       }
@@ -2108,7 +2178,7 @@
         "close": 980.15,
         "chg": 12.03,
         "rvol": 66.76,
-        "deliv": "57.76%"
+        "deliv": "4.95%"
        }
       },
       {
@@ -2120,7 +2190,7 @@
         "close": 1519.4,
         "chg": 2.91,
         "rvol": 24.07,
-        "deliv": "51.83%"
+        "deliv": "13.69%"
        }
       },
       {
@@ -2132,7 +2202,7 @@
         "close": 154.46,
         "chg": 12.92,
         "rvol": 70.2,
-        "deliv": "46.61%"
+        "deliv": "2.60%"
        }
       },
       {
@@ -2144,7 +2214,7 @@
         "close": 42.08,
         "chg": -5.78,
         "rvol": 36.73,
-        "deliv": "49.77%"
+        "deliv": "75.79%"
        }
       },
       {
@@ -2156,7 +2226,7 @@
         "close": 199.4,
         "chg": 6.75,
         "rvol": 20.52,
-        "deliv": "19.28%"
+        "deliv": "8.43%"
        }
       },
       {
@@ -2168,7 +2238,7 @@
         "close": 456.3,
         "chg": -11.48,
         "rvol": 15.48,
-        "deliv": "42.00%"
+        "deliv": "40.86%"
        }
       },
       {
@@ -2180,7 +2250,7 @@
         "close": 818.0,
         "chg": -2.27,
         "rvol": 9.83,
-        "deliv": "29.70%"
+        "deliv": "51.27%"
        }
       },
       {
@@ -2192,7 +2262,7 @@
         "close": 129.1,
         "chg": -7.65,
         "rvol": 15.46,
-        "deliv": "27.87%"
+        "deliv": "25.56%"
        }
       },
       {
@@ -2204,7 +2274,7 @@
         "close": 511.35,
         "chg": 5.26,
         "rvol": 10.89,
-        "deliv": "44.61%"
+        "deliv": "21.51%"
        }
       },
       {
@@ -2216,7 +2286,7 @@
         "close": 30.23,
         "chg": 8.51,
         "rvol": 13.12,
-        "deliv": "39.53%"
+        "deliv": "13.01%"
        }
       }
      ]
@@ -2233,12 +2303,12 @@
      },
      {
       "name": "NSE delivery (nidp.delivery_data)",
-      "as_of": "2026-10-29",
-      "status": "stale",
+      "as_of": "2026-10-30",
+      "status": "fresh",
       "note": null
      }
     ],
-    "stale": true,
+    "stale": false,
     "missing": []
    },
    "follow_ups": [
@@ -2262,7 +2332,7 @@
    "intent": "stock_decision",
    "title": "PNB · entry, stop and targets",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:48+05:30",
+   "generated_at": "2026-10-31T06:30:58+05:30",
    "mode": "eod",
    "headline": {
     "text": "PNB: the desk's rules find a setup — Covered call (shares + short call), net premium ₹18,720.00, stop ₹120.73, first target ₹127.09.",
@@ -3093,7 +3163,7 @@
    "intent": "expected_move",
    "title": "Expected move in Nifty",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:49+05:30",
+   "generated_at": "2026-10-31T06:30:59+05:30",
    "mode": "eod",
    "headline": {
     "text": "The Nifty options price a move of about ±231.20 points (±1.00%) to the 3 Nov 2026 expiry; PCR 1.62, max pain 23,000.00.",
@@ -3818,7 +3888,7 @@
    "intent": "open_trades",
    "title": "Your open trades",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:49+05:30",
+   "generated_at": "2026-10-31T06:30:59+05:30",
    "mode": "eod",
    "headline": {
     "text": "3 open paper trades, unrealised ₹1,101.62.",
@@ -3983,7 +4053,7 @@
    "intent": "fno_setups",
    "title": "F&O setups that fit today",
    "as_of": null,
-   "generated_at": "2026-10-31T05:41:52+05:30",
+   "generated_at": "2026-10-31T06:31:02+05:30",
    "mode": "eod",
    "headline": {
     "text": "5 F&O setups fit today's regime (Bearish).",
@@ -4172,7 +4242,7 @@
    "intent": "trade_validity",
    "title": "PNB · is the setup still valid?",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:53+05:30",
+   "generated_at": "2026-10-31T06:31:03+05:30",
    "mode": "eod",
    "headline": {
     "text": "PNB: the setup recorded earlier still holds under today's rules.",
@@ -4883,7 +4953,7 @@
    "intent": "exit_options",
    "title": "SONACOMS · hold, trail or exit",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:54+05:30",
+   "generated_at": "2026-10-31T06:31:04+05:30",
    "mode": "eod",
    "headline": {
     "text": "SONACOMS: unrealised ₹486.20, ₹890.50 against stop ₹824.60, target ₹957.41.",
@@ -5608,7 +5678,7 @@
    "intent": "position_size",
    "title": "How much to risk in PNB",
    "as_of": "2026-10-31",
-   "generated_at": "2026-10-31T05:41:55+05:30",
+   "generated_at": "2026-10-31T06:31:06+05:30",
    "mode": "eod",
    "headline": {
     "text": "Your risk budget and today's usage.",
@@ -5733,7 +5803,7 @@
    "intent": "daily_review",
    "title": "Your trading review · 30 Oct 2026",
    "as_of": "2026-10-30",
-   "generated_at": "2026-10-31T05:41:55+05:30",
+   "generated_at": "2026-10-31T06:31:06+05:30",
    "mode": "eod",
    "headline": {
     "text": "Nothing was recorded on 31 Oct 2026; the latest session with activity is 30 Oct 2026. No paper trade closed; the risk checks refused 3 of 3 entry requests.",
