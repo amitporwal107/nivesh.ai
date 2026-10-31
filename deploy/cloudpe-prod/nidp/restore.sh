@@ -76,7 +76,7 @@ if (( existing > 0 )) && ! $FORCE; then
 fi
 
 # ── Archive sanity ───────────────────────────────────────────────────────────
-for ext in timescaledb vector postgres_fdw; do
+for ext in timescaledb vector; do
     [[ -n "$(psql_db -At -c "SELECT 1 FROM pg_available_extensions WHERE name='${ext}';")" ]] \
         || fail "Extension ${ext} is not available in this image; the dump needs it."
 done
@@ -104,9 +104,11 @@ if (( existing > 0 )); then
     psql_admin -c "CREATE DATABASE \"${PG_DB}\" OWNER \"${PG_USER}\";" >/dev/null
 fi
 psql_db -qc "CREATE EXTENSION IF NOT EXISTS timescaledb;"
-# pgvector backs document_chunks.embedding; postgres_fdw exists on the source.
-psql_db -qc "CREATE EXTENSION IF NOT EXISTS vector;"
-psql_db -qc "CREATE EXTENSION IF NOT EXISTS postgres_fdw;"
+# pgvector backs document_chunks.embedding / embedding_cache.embedding. On the source it lives in
+# schema `nidp` (the dump refers to the type as nidp.vector); created in `public` instead, those two
+# tables fail to restore ("type nidp.vector does not exist"). The source has no postgres_fdw.
+psql_db -qc "CREATE SCHEMA IF NOT EXISTS nidp;"
+psql_db -qc "CREATE EXTENSION IF NOT EXISTS vector SCHEMA nidp;"
 
 # ── Restore ──────────────────────────────────────────────────────────────────
 log "timescaledb_pre_restore()"

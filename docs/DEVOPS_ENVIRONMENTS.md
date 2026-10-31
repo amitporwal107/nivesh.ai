@@ -9,10 +9,11 @@
 |---|---|---|---|---|---|
 | local | `localhost:8001` (FE 3000) | `/api/health` | — | seed/fake | full stack on Docker |
 | staging | https://staging.niveshcopilot.com | `/api/healthz` | `dev` | prod-like, isolated | same VM, isolated stack `/opt/nivesh-staging/` |
-| production | https://niveshcopilot.com | `/api/health` | `main` (PR only) | real | `nivesh-app-vm` 34.47.250.214 |
+| production | https://niveshcopilot.com | `/api/healthz` | `main` (PR only) | real | CloudPe prod VM `45.64.105.249` (app + NIDP on one host; GCP is gone) |
 
-**NIDP:** prod `https://data.niveshcopilot.com/daas` + `/query` + `/grafana` on
-`nidp-stack-vm` 34.93.60.254; staging CNAME `staging-data.niveshcopilot.com` **not yet live**.
+**NIDP:** prod `https://data.niveshcopilot.com/daas` + `/query` on the same CloudPe prod VM
+(`/grafana` is not deployed); staging is `https://staging-data.niveshcopilot.com` on the CloudPe NIDP VM
+`45.64.105.224`. Prod runbook: `deploy/cloudpe-prod/README.md`.
 
 **GCP:** project `niveshdataintelligence`, region `asia-south1` (Mumbai), zone `asia-south1-a`.
 
@@ -85,17 +86,16 @@ ssh -i ~/.ssh/google_compute_engine aporwal107_gmail_com@34.47.250.214 \
 # waits for healthy, reloads nginx, runs smoke check → {"status":"ok"}
 ```
 
-### Production (from repo root on `nivesh-app-vm`)
+### Production (CloudPe prod VM, as root)
 ```bash
-bash deploy/nivesh-app/redeploy.sh                  # full
-bash deploy/nivesh-app/redeploy.sh --frontend-only  # CSS/JS only
-bash deploy/nivesh-app/redeploy.sh --backend-only   # Python, no new deps
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-app.sh main                  # full
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-app.sh main --frontend-only  # CSS/JS only
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-app.sh main --backend-only   # Python, no new deps
+sudo bash /opt/nivesh/repo/deploy/cloudpe-prod/deploy-nidp.sh main [--migrate]     # NIDP stack
 ```
-
-### NIDP VM
-```bash
-bash deploy/nidp-vm/redeploy.sh
-```
+CI runs the same through `deploy/cloudpe-prod/ci-deploy.sh app|nidp main` (GitHub secrets `PROD_VM_HOST`,
+`PROD_SSH_USER`, `PROD_SSH_KEY`). The GCP-era scripts `deploy/nivesh-app/redeploy.sh` and
+`deploy/nidp-vm/redeploy.sh` no longer have a target.
 
 **Rule:** deploy via git push + the redeploy script only. Never `docker cp` or `rsync` files directly into containers.
 
