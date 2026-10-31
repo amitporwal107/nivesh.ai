@@ -304,6 +304,7 @@ def commentary(groups: List[Dict[str, Any]], accounts: List[Dict[str, Any]], mar
     info: List[Dict[str, Any]] = []
     no_plan: List[str] = []
     marked: List[str] = []
+    from_stored: Dict[str, List[str]] = {}
     stored = {a["account_id"]: a for a in accounts if a["state"] != bk.LIVE and a.get("rows_at")}
     by_acct = {a["account_id"]: a for a in accounts}
     for g in groups:
@@ -364,10 +365,14 @@ def commentary(groups: List[Dict[str, Any]], accounts: List[Dict[str, Any]], mar
                              "tone": None})
         if any(l.get("pnl_basis") == bk.PNL_MARKED for l in g["legs"]):
             marked.append(u)
-        old = [stored[x] for x in accts if x in stored]
-        if old:
-            warn.append({"text": f"{u}: the figures are from the stored read of {stamp(old[0]['rows_at'])} ({old[0]['broker_display']}, "
-                                 "session ended): the position may have changed since.", "tone": "warn"})
+        for x in accts:
+            if x in stored:
+                from_stored.setdefault(x, []).append(u)
+    for x, names in from_stored.items():
+        a = stored[x]
+        warn.append({"text": f"{', '.join(names)}: the figures are from the stored read of {stamp(a['rows_at'])} ({a['broker_display']}, "
+                             f"{'session ended' if a['state'] == bk.ENDED else 'could not be read just now'}): the position may have changed since.",
+                     "tone": "warn"})
     for a in accounts:
         f = a.get("funds")
         if a["state"] == bk.LIVE and f:
@@ -454,6 +459,9 @@ def book_blocks(v: Dict[str, Any], today: date) -> Dict[str, Dict[str, Any]]:
     unm = [u for g in groups if g["kind"] == "unmapped" for u in g.get("unmapped") or []]
     per = [f"{a['broker_display']} {sum(1 for l in legs if l.get('account_id') == a['account_id']) + sum(1 for u in unm if u.get('account_id') == a['account_id'])}" for a in accounts
            if a["state"] in (bk.LIVE, bk.ENDED, bk.FAILED)]
+    off = [a["broker_display"] for a in accounts if not (a["state"] == bk.LIVE and a.get("funds"))]
+    funds_sub = (("the brokers' own figures: " + ", ".join(a["broker_display"] for a in live_acc)) if live_acc else "not available: no live session") \
+        + (f"; not available for {', '.join(off)}" if live_acc and off else "")
     kpis = [
         _kpi("Broker positions", str(n_rows), ", ".join(per) or None),
         _kpi("Unrealised P&L", rupees(pnl_total) if pnl_total is not None else None,
@@ -463,10 +471,8 @@ def book_blocks(v: Dict[str, Any], today: date) -> Dict[str, Dict[str, Any]]:
         _kpi("Margin required", price(_tot(ests)) if _tot(ests) is not None else None,
              (f"Zerodha's calculator, F&O legs ({sum(1 for e in ests if e is not None)} of {len(ests)} underlyings)"
               if ests and _tot(ests) is not None else ("needs a Kite login" if ests else "no F&O positions"))),
-        _kpi("Available cash", money(_tot([num(a["funds"].get("available_cash_rs")) for a in live_acc])) if live_acc else None,
-             "the brokers' own figures" if live_acc else "not available: no live session"),
-        _kpi("Used margin", money(_tot([num(a["funds"].get("used_margin_rs")) for a in live_acc])) if live_acc else None,
-             "the brokers' own figures" if live_acc else "not available: no live session"),
+        _kpi("Available cash", money(_tot([num(a["funds"].get("available_cash_rs")) for a in live_acc])) if live_acc else None, funds_sub),
+        _kpi("Used margin", money(_tot([num(a["funds"].get("used_margin_rs")) for a in live_acc])) if live_acc else None, funds_sub),
     ]
     out: Dict[str, Dict[str, Any]] = {}
     if not accounts:
@@ -506,21 +512,22 @@ def state_notices(v: Dict[str, Any]) -> List[Dict[str, Any]]:
                    "their margin and live prices here.", "info", "no-broker")
         n["actions"] = [{"kind": "connect_broker", "label": "Connect a broker"}]
         return [n]
-    for a in v["accounts"]:
+    for i, a in enumerate(v["accounts"]):
         name = a["broker_display"] or a["broker"] or "Your broker"
+        nid = f"{a['broker'] or 'broker'}-{i}"                          # never the account's own id
         if a["state"] == bk.ENDED:
             tail = (f" Showing the last stored read, as of {stamp(a['rows_at'])} (not live)." if a.get("rows_at")
                     else " There is no stored read to show.")
             n = notice(f"Your {name} session has ended, so live positions, funds and margin are not available. Sign in to {name} again "
-                       f"to see them.{tail}", "warn", f"ended-{a['account_id']}")
+                       f"to see them.{tail}", "warn", f"ended-{nid}")
             n["actions"] = [{"kind": "connect_broker", "label": f"Sign in to {name} again"}]
             out.append(n)
         elif a["state"] == bk.FAILED:
             tail = (f" Showing the last stored read, as of {stamp(a['rows_at'])} (not live)." if a.get("rows_at") else " There is no stored read to show.")
-            out.append(notice(f"{(a.get('error') or {}).get('message') or name + ' could not be read just now.'}{tail}", "warn", f"failed-{a['account_id']}"))
+            out.append(notice(f"{(a.get('error') or {}).get('message') or name + ' could not be read just now.'}{tail}", "warn", f"failed-{nid}"))
         elif a["state"] in (bk.UNSUPPORTED, bk.UNREADABLE):
             out.append(notice(f"{name}: {(a.get('error') or {}).get('message') or 'positions cannot be read for this account.'}", "info",
-                              f"unreadable-{a['account_id']}"))
+                              f"unreadable-{nid}"))
     return out
 
 

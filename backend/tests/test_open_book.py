@@ -290,7 +290,7 @@ def test_ob3_session_ended_shows_the_last_stored_read_dated_and_never_as_live(w)
     w.accounts = [doc(live=False)]
     w.snap(read_at="2026-10-30T10:00:00+00:00")                     # 15:30 IST on 30 Oct, the previous session: current
     p = w.build()
-    n = blk(p, "ended-ba_test1")
+    n = blk(p, "ended-icicidirect-0")
     assert n["actions"] == [{"kind": "connect_broker", "label": "Sign in to ICICI Direct again"}]
     assert "session has ended" in n["text"] and "30 Oct 2026, 15:30 IST (not live)" in n["text"]
     rows = blk(p, "positions")["rows"]
@@ -315,7 +315,7 @@ def test_ob3b_an_older_stored_read_carries_the_stale_notice(w):
 def test_ob4_session_ended_with_no_stored_read_says_so(w):
     w.accounts = [doc(live=False)]
     p = w.build()
-    assert "There is no stored read to show" in blk(p, "ended-ba_test1")["text"] and not blk(p, "positions")
+    assert "There is no stored read to show" in blk(p, "ended-icicidirect-0")["text"] and not blk(p, "positions")
     assert cells(p, "accounts")["ICICI Direct"]["cells"]["read"] == "No stored read"
 
 
@@ -371,7 +371,7 @@ def test_ob8_a_failing_account_is_reported_alone(w):
     w.fail["ba_z"] = BrokerReadError("Zerodha net positions read failed (HTTP 500)")
     w.funds["ba_z"] = {}
     p = w.build()
-    assert "Could not read net positions from Zerodha" in blk(p, "failed-ba_z")["text"] and "no stored read" in blk(p, "failed-ba_z")["text"].lower()
+    assert "Could not read net positions from Zerodha" in blk(p, "failed-zerodha-1")["text"] and "no stored read" in blk(p, "failed-zerodha-1")["text"].lower()
     assert len(blk(p, "positions")["rows"]) == 5
     acc = cells(p, "accounts")
     assert acc["ICICI Direct"]["cells"]["state"] == "Live" and acc["Zerodha"]["cells"]["state"] == "Read failed"
@@ -383,7 +383,7 @@ def test_ob8b_a_broker_that_refuses_the_session_mid_read_becomes_session_ended_w
     w.db["position_snapshots"].docs[0]["last_seen_at"] = "2026-10-29T10:00:00+00:00"      # older than the 15 s cache
     w.fail["ba_test1"] = BrokerSessionExpired("rejected")
     p = w.build()
-    n = blk(p, "ended-ba_test1")
+    n = blk(p, "ended-icicidirect-0")
     assert n["actions"][0]["label"] == "Sign in to ICICI Direct again" and "29 Oct 2026, 15:30 IST (not live)" in n["text"]
     assert len(blk(p, "positions")["rows"]) == 1 and blk(p, "positions")["rows"][0]["badge"].startswith("As of")
 
@@ -587,8 +587,10 @@ def test_ob17_the_refresh_envelope_is_absent_when_the_market_is_closed_or_nothin
 
 # ── OB-18 … OB-20: honesty, contract and wording ─────────────────────────────
 def test_ob18_nothing_secret_or_internal_is_in_the_payload(w):
-    p = w.build()
-    flat = json.dumps(p)
+    flat = json.dumps(w.build())
+    w.accounts = [doc(live=False)]
+    w.snap()
+    flat += json.dumps(w.build())                                   # the sign-in-again notice too
     for banned in ("ba_test1", "ENC", "api_key", "access_token", "session_token", "X-SessionToken"):
         assert banned not in flat, banned
 
@@ -644,3 +646,14 @@ def test_ob24_unmapped_rows_still_show_what_the_broker_sent(w):
     p = w.build()
     sgb = cells(p, "positions")["SGBT54"]["cells"]
     assert sgb["qty"] == -4 and sgb["avg"] == 14000.0 and sgb["ltp"] == 14100.0
+
+
+def test_ob25_funds_totals_name_the_accounts_they_cover_and_a_stored_read_is_said_once_per_account(w):
+    w.accounts = [doc(), doc("ba_z", "zerodha", live=False)]
+    w.rows["ba_z"] = []
+    w.snap("ba_z", rows=[dict(EXIDE, symbol="EXIDEIND")])
+    p = w.build()
+    sub = kp(p)["Available cash"]["sub"]
+    assert "ICICI Direct" in sub and "not available for Zerodha" in sub
+    stored = [i["text"] for i in blk(p, "commentary")["items"] if "stored read" in i["text"]]
+    assert len(stored) == 1 and "session ended" in stored[0]
