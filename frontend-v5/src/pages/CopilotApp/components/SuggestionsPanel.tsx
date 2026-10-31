@@ -153,7 +153,7 @@ export function SuggestionsPanel() {
         <>
           {view.notices.map((n) => <NoticeBar key={`${n.kind}:${n.source}`} n={n} go={go} />)}
           {view.suggestions.length > 0 ? (
-            <div className="grid" data-testid="sg-list" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))", gap: 12 }}>
+            <div className="grid" data-testid="sg-list" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,260px),1fr))", gap: 12, alignItems: "start" }}>
               {view.suggestions.map((s) => (
                 <SuggestionCard key={s.id} s={s} onAsk={(text) => ask(text)} onFeedback={(action) => feedback.mutate({ id: s.id, action })} />
               ))}

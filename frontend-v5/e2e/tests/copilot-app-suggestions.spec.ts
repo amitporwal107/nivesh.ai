@@ -52,7 +52,7 @@ function view(tab: string, suggestions: any[], notices: any[] = [], mode = "inve
     suggestions, notices };
 }
 const DEFAULT: Record<string, View> = {
-  for_you: view("for_you", MOCK_FOR_YOU), market: { ...REAL.tabs.market, mode: "investor", tabs: view("market", []).tabs.map((t) => ({ ...t, count: t.key === "market" ? 5 : t.key === "fno_lab" ? 5 : t.count })) },
+  for_you: view("for_you", MOCK_FOR_YOU), market: { ...REAL.tabs.market, mode: "investor", tabs: view("market", []).tabs.map((t) => ({ ...t, count: t.key === "market" ? REAL.tabs.market.suggestions.length : t.key === "fno_lab" ? REAL.tabs.fno_lab.suggestions.length : t.count })) },
   my_trades: view("my_trades", MOCK_MY_TRADES), fno_lab: { ...REAL.tabs.fno_lab, mode: "investor" },
 };
 
@@ -130,7 +130,7 @@ test.describe("Home suggestions (market and F&O tabs: REAL staging capture; pers
   test("SG-U2 four tabs in the owner's order, For you first; each tab asks the backend for its own list", async ({ page }) => {
     const seen = await setup(page);
     const tabs = panel(page).getByRole("tab");
-    await expect(tabs).toHaveText([/^For you\s*2$/, /^Market\s*5$/, /^My trades\s*1$/, /^F&O Lab\s*5$/], SLOW);
+    await expect(tabs).toHaveText([/^For you\s*2$/, new RegExp(`^Market\\s*${REAL.tabs.market.suggestions.length}$`), /^My trades\s*1$/, new RegExp(`^F&O Lab\\s*${REAL.tabs.fno_lab.suggestions.length}$`)], SLOW);
     await expect(page.getByTestId("sg-tab-for_you")).toHaveAttribute("aria-selected", "true");
     await expect(cards(page)).toHaveCount(2);
     for (const k of ["market", "my_trades", "fno_lab"]) {
@@ -304,6 +304,21 @@ test.describe("Home suggestions (market and F&O tabs: REAL staging capture; pers
     for (const c of await cards(page).all()) {
       const b = await c.boundingBox();
       expect(b!.x + b!.width).toBeLessThanOrEqual(390);
+    }
+  });
+
+  test("SG-U19 screenshots of the panel at 1280 and 390 px (only with SG_SHOTS=1)", async ({ page }) => {
+    test.skip(!process.env.SG_SHOTS, "set SG_SHOTS=1 to write e2e/.shots/suggestions");
+    const dir = path.join(__dirname, "..", ".shots", "suggestions");
+    fs.mkdirSync(dir, { recursive: true });
+    for (const width of [1280, 390]) {
+      await setup(page, { width });
+      for (const k of ["for_you", "market", "my_trades"]) {
+        await page.getByTestId(`sg-tab-${k}`).click();
+        await expect(cards(page).first()).toBeVisible(SLOW);
+        if (k === "market") await cards(page).first().getByTestId("sg-why-toggle").click();
+        await panel(page).screenshot({ path: path.join(dir, `${width}-${k}.png`) });
+      }
     }
   });
 

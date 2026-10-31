@@ -1,11 +1,11 @@
 {
- "about": "REAL staging capture, 31 Oct 2026 (session window: today 31 Oct, previous session 30 Oct; data of 30 Oct): the Market and F&O Lab tabs of GET /api/suggestions as backend/services/suggestions built them in-process inside nivesh-staging-app-backend, read-only (every Mongo/Redis write refused), for a staging user with no portfolio and no trades (mode investor). These two tabs read market data only, so they are the same for any user. The For you and My trades tabs read one user's own portfolio and trades, so they are NOT captured here: the spec's personal cards are MOCK — not real data, shaped from the same route response.",
+ "about": "REAL staging capture, 31 Oct 2026, re-run after merging dev (a starter whose answer is 'none met the rule' is no longer suggested, so no breakouts card on a day with no confirmed breakout) (session window: today 31 Oct, previous session 30 Oct; data of 30 Oct): the Market and F&O Lab tabs of GET /api/suggestions as backend/services/suggestions built them in-process inside nivesh-staging-app-backend, read-only (every Mongo/Redis write refused), for a staging user with no portfolio and no trades (mode investor). These two tabs read market data only, so they are the same for any user. The For you and My trades tabs read one user's own portfolio and trades, so they are NOT captured here: the spec's personal cards are MOCK — not real data, shaped from the same route response.",
  "tabs": {
   "market": {
    "schema": "suggestions-v1",
    "tab": "market",
    "mode": "investor",
-   "generated_at": "2026-10-31T00:18:33.647221+00:00",
+   "generated_at": "2026-10-31T00:46:22.206756+00:00",
    "window": {
     "today": "2026-10-31",
     "previous_session": "2026-10-30"
@@ -19,12 +19,12 @@
     {
      "key": "market",
      "label": "Market",
-     "count": 5
+     "count": 4
     },
     {
      "key": "my_trades",
      "label": "My trades",
-     "count": 1
+     "count": 2
     },
     {
      "key": "fno_lab",
@@ -106,30 +106,6 @@
      "state": "active"
     },
     {
-     "id": "sg_0371575a4e14b74c",
-     "tab": "market",
-     "class": "informational",
-     "class_label": "To explore",
-     "title": "Which breakouts are confirmed?",
-     "why": "0 stocks met the confirmed-breakout rule on 30 Oct 2026.",
-     "footer": "A question to explore with the latest data. Not advice.",
-     "query": "Which breakouts are confirmed?",
-     "intent": "breakouts",
-     "template_id": "t_breakouts",
-     "rule_id": "breakouts_daily",
-     "symbol": null,
-     "as_of": "2026-10-30",
-     "inputs": [
-      {
-       "name": "positional_watchlist",
-       "label": "Positional scanner",
-       "as_of": "2026-10-30",
-       "status": "fresh"
-      }
-     ],
-     "state": "active"
-    },
-    {
      "id": "sg_657c7452f520da5d",
      "tab": "market",
      "class": "informational",
@@ -160,7 +136,7 @@
    "schema": "suggestions-v1",
    "tab": "fno_lab",
    "mode": "investor",
-   "generated_at": "2026-10-31T00:18:33.647221+00:00",
+   "generated_at": "2026-10-31T00:46:22.206756+00:00",
    "window": {
     "today": "2026-10-31",
     "previous_session": "2026-10-30"
@@ -174,12 +150,12 @@
     {
      "key": "market",
      "label": "Market",
-     "count": 5
+     "count": 4
     },
     {
      "key": "my_trades",
      "label": "My trades",
-     "count": 1
+     "count": 2
     },
     {
      "key": "fno_lab",

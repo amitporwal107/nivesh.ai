@@ -128,7 +128,25 @@ Sized from the 30-Oct suggestions audit (`audits/E_suggestions.md`). The suggest
   backtest). Staging has no closed paper trade yet, so the real capture shows the empty-trades branch with 3 refused
   entry requests; the populated branches are unit-tested on MOCK data. Reports:
   `test_reports/dtc_r3_daily_review_{backend,frontend}_20261031.md`.
-- **The suggestion engine**, replacing today's static, scored prompt list:
+- **The suggestion engine (BUILT, branch `feat/dtc-r3-suggestions`, PR pending)** — `backend/services/suggestions/`,
+  `GET /api/suggestions`, `POST /api/suggestions/refresh`, `POST /api/suggestions/{id}/feedback`,
+  `GET /api/suggestions/{id}/why`, and the Home tabs (`components/SuggestionsPanel.tsx`). The first release of the brief:
+  - the 5 stores, written by code only (seed is an admin step, not run on staging): `suggestion_rules`,
+    `query_templates`, `suggestion_events`, `suggestion_instances`, `suggestion_feedback`;
+  - 22 rules over market, portfolio, paper-trade and F&O inputs, each with its class, cooldown and freshness rule;
+    20 templates covering all 13 visual-answer intents, every one unit-tested to resolve to its intent;
+  - one `class` per card (informational "To explore", validated signal "Rule-based signal", risk alert "Risk check"),
+    each with its own wording and card treatment, none saying buy now / recommend / pick;
+  - freshness gate: a stale, missing or unreadable source gives no card and a notice naming it ("Prices stale",
+    "Broker disconnected", no portfolio); every card carries its inputs' as-of dates;
+  - ranking by class urgency, rule priority, evidence freshness, audience and the user's feedback; dedupe across tabs;
+    cooldowns; dismissed cards stay out until their cooldown ends;
+  - dismiss / useful / not relevant / refresh / "Why am I seeing this?", and the owner's greeting by the hour.
+  - **Not in this release:** rules over real broker positions (agent 3's positions store), the follow-up questions after
+    every answer (row 9 of the audit), technical-weakness rules on holdings, an installed cron or event hook (a
+    callable `scheduled_pass` and `python -m services.suggestions.admin pass` exist; scheduling is the owner's call),
+    an admin view of the stores. Report: `test_reports/dtc_r3_suggestions_20261031.md`.
+  - What the original plan asked for, kept for reference:
   - the 5 stores from the brief: `suggestion_rules`, `suggestion_events`, `suggestion_instances`,
     `suggestion_feedback`, `query_templates` (today: nothing — no code, no collections);
   - scheduled + event-driven evaluation (reuse the desk-alerts cron pattern: dedup key, one-shot firing), with
